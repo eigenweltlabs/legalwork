@@ -2,6 +2,8 @@
 
 A local computer-use agent for law firms, from Eigenwelt Labs. Point it at a folder of documents and ask in plain English — it reads, drafts, and redlines them on your own machine, using the model you connect. Everything stays owned by the firm.
 
+User documentation: [LegalWork guide](docs/user-guide/index.md), including settings, integrations, email, calendar and recorder help. The bundled `legalwork-help` skill makes this guide available to the agent.
+
 ## Download
 
 **[macOS (Apple Silicon)](https://eigenweltlabs.com/legalwork/download/mac?src=readme)** · [macOS (Intel)](https://eigenweltlabs.com/legalwork/download/mac-intel?src=readme) · **[Windows](https://eigenweltlabs.com/legalwork/download/win?src=readme)** · [Linux x64](https://eigenweltlabs.com/legalwork/download/linux?src=readme) · [Linux arm64](https://eigenweltlabs.com/legalwork/download/linux-arm64?src=readme)
@@ -24,7 +26,7 @@ https://github.com/user-attachments/assets/4a576c3a-7c2a-46c6-9856-1254282b1b70
 - **Bring your own model** — AWS Bedrock, Azure OpenAI, or any provider. Your data is only ever shared with the model you choose.
 - **Eigenwelt models** — sign in with an [Eigenwelt Plus](https://eigenweltlabs.com/eigenwelt-plus/terms) subscription. EU or US data residency, no data retention.
 - **Voice mode and recording** — the recorder and its transcription run entirely on this machine. Voice mode is the exception: it streams microphone audio and a chat excerpt to OpenAI under your own OpenAI key, and is off until you start it.
-- **Runs on this machine** by default; connect a remote worker only when you want to.
+- **Runs on this machine** by default, with manual LegalWork server connection settings when needed.
 - **Extend it** with skills, plugins, and MCP connectors, managed in **Settings → Extensions** and shared across every workspace.
 
 ## Telemetry

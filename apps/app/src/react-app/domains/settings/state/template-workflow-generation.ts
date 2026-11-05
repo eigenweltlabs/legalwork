@@ -1,3 +1,6 @@
+import { sendSessionPrompt } from "@/app/lib/system-reminder";
+import { createSessionView } from "@/app/lib/opencode-read";
+import { readSessionStatuses } from "@/app/lib/opencode-read";
 // Template → workflow generation: registers the user's templates folder as a
 // real workspace, runs an agent session inside it that stages one assistant
 // workflow per template under .legalwork/generated-workflows/, and imports the
@@ -284,13 +287,13 @@ export async function startTemplateWorkflowGeneration(
     const client = workspaceScopedClient(input.baseUrl, input.token, workspaceId, workspaceRoot);
     const directory = toSessionTransportDirectory(workspaceRoot) || undefined;
     const session = unwrap(
-      await client.session.create({
+      await createSessionView(client,{
         directory,
         title: t("template_workflow.session_title"),
       }),
     );
 
-    const promptResult = await client.session.promptAsync({
+    const promptResult = await sendSessionPrompt(client,{
       sessionID: session.id,
       directory,
       agent: "legalwork",
@@ -391,7 +394,7 @@ function startWatcher(client: Client) {
       let busy: boolean | null = null;
       try {
         const directory = toSessionTransportDirectory(run.workspaceRoot) || undefined;
-        const statuses = unwrap(await client.session.status({ directory }));
+        const statuses = unwrap(await readSessionStatuses(client,{ directory }));
         const status = statuses[run.sessionId];
         busy = status !== undefined && status.type !== "idle";
       } catch {

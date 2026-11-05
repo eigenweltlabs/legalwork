@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { createOpencodeClient } from "@opencode-ai/sdk/v2/client";
+import { OpenCode } from "@opencode/client";
 import type { SessionQueue } from "@legalwork/types/session-queue";
 import type { LegalworkServerClient } from "../src/app/lib/legalwork-server";
 import { getReactQueryClient } from "../src/react-app/infra/query-client";
@@ -31,16 +31,17 @@ function fixture(options: { abort?: boolean; pauseFails?: boolean; abortFails?: 
       return queue;
     },
   };
-  const client = createOpencodeClient({ baseUrl: "https://engine.invalid", fetch: async request => {
-    const req = request instanceof Request ? request : new Request(request);
+  const client = OpenCode.make({ baseUrl: "https://engine.invalid", fetch: async (request, init) => {
+    const req = request instanceof Request ? request : new Request(request, init);
     const url = new URL(req.url);
     expect(req.method).toBe("POST");
-    expect(url.pathname).toBe("/session/child/abort");
-    expect(url.searchParams.get("directory")).toBe(workspaceRoot);
+    expect(url.pathname).toBe("/api/session/child/interrupt");
+    // Native session operations resolve their saved location from the session ID.
+    expect(url.searchParams.has("directory")).toBe(false);
     expect(useComposerStateStore.getState().pausedQueues[sessionId]).toBe(true);
     calls.push("abort");
     if (options.abortFails) throw new Error("Engine unavailable");
-    return Response.json(options.abort ?? true);
+    return Response.json({ interrupted: options.abort ?? true });
   } });
   for (const id of [sessionId, "parent", "sibling"]) useSessionActivityStore.getState().setRunStatus(workspaceId, id, { type: "busy" });
   return { calls, stop: () => stopSubagentRun({ client, serverClient, workspaceId, sessionId, workspaceRoot }) };

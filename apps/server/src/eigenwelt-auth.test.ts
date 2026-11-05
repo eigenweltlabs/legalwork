@@ -1,10 +1,11 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { createServer, type Server } from "node:http";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
+  EigenweltSignInTimeoutError,
   EIGENWELT_LOOPBACK_PORTS,
   buildEigenweltModelsMap,
   fetchEigenweltManifest,
@@ -157,6 +158,33 @@ async function setupRuntimeDb(): Promise<ServerConfig> {
 }
 
 describe("eigenwelt sign-in", () => {
+  test("checkout has a full hour before expiry closes the callback and a fresh sign-in can restart", async () => {
+    await setupPlatform();
+    const timerSpy = spyOn(globalThis, "setTimeout");
+    cleanups.push(() => timerSpy.mockRestore());
+
+    const started = await startEigenweltSignIn({ plan: "plus" });
+    const url = new URL(started.authorizeUrl);
+    const callback = `http://127.0.0.1:${url.searchParams.get("port")}/callback?code=test-code&state=${url.searchParams.get("state")}`;
+    const timeout = timerSpy.mock.calls.find(([, delay]) => typeof delay === "number" && delay >= 10 * 60 * 1000);
+    try {
+      expect(await waitForEigenweltSignIn(started.sessionId, 5)).toEqual({ pending: true });
+      expect(timeout?.[1]).toBe(60 * 60 * 1000);
+    } finally {
+      const expire = timeout?.[0];
+      if (typeof expire === "function") expire();
+    }
+    const expired = waitForEigenweltSignIn(started.sessionId);
+    await expect(expired).rejects.toBeInstanceOf(EigenweltSignInTimeoutError);
+    await expect(expired).rejects.toThrow(/restart sign-in/);
+    await expect(fetch(callback)).rejects.toThrow();
+
+    const restarted = await startEigenweltSignIn({ intent: "sign-in" });
+    const retryUrl = new URL(restarted.authorizeUrl);
+    await fetch(`http://127.0.0.1:${retryUrl.searchParams.get("port")}/callback?code=test-code&state=${retryUrl.searchParams.get("state")}`);
+    expect(await waitForEigenweltSignIn(restarted.sessionId)).toEqual(EXCHANGE_PAYLOAD);
+  });
+
   test("full flow: start -> browser callback -> wait resolves with the exchange payload", async () => {
     const platform = await setupPlatform();
 

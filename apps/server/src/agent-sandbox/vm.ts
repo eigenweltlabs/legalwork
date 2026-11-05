@@ -21,7 +21,7 @@ const manifestSchema = z.object({ version: z.literal(1), architecture: z.enum(["
   files: z.record(z.string(), z.string().regex(/^[a-f0-9]{64}$/)),
 });
 export type SandboxResult = { output: string; exitCode: number; truncated: boolean };
-export type SandboxRun = { command: string; cwd: string; mounts: SandboxMount[]; timeoutMs: number; beforeCommit?: () => Promise<void>;
+export type SandboxRun = { command: string; cwd: string; mounts: SandboxMount[]; timeoutMs: number | null; capture?: "complete"; beforeCommit?: () => Promise<void>;
   signal: AbortSignal; networkMode?: NetworkMode; authorizeNetwork: (request: OutboundRequest) => Promise<boolean> };
 const eventSchema = z.discriminatedUnion("event", [
   z.object({ event: z.literal("output"), stream: z.enum(["stdout", "stderr"]), data: z.string().max(16384) }),
@@ -134,14 +134,15 @@ export class VmSandbox {
   async run(input: SandboxRun): Promise<SandboxResult> {
     input.signal.throwIfAborted();
     const networkMode = networkModeSchema.parse(input.networkMode ?? "approve");
-    if (!Number.isInteger(input.timeoutMs) || input.timeoutMs < 1 || input.timeoutMs > 600000) throw new Error("Invalid sandbox timeout.");
-    if (!input.command || input.command.length > 128000) throw new Error("Invalid sandbox command.");
+    if (input.timeoutMs !== null && (!Number.isInteger(input.timeoutMs) || input.timeoutMs < 1 || input.timeoutMs > 600000)) throw new Error("Invalid sandbox timeout.");
+    if (!input.command || input.capture !== "complete" && input.command.length > 128000) throw new Error("Invalid sandbox command.");
     const mounts = await validateMounts(input.mounts);
     if (!mounts.some((mount) => input.cwd === mount.target || input.cwd.startsWith(mount.target + "/")) || input.cwd.split("/").includes("..")) throw new Error("Command directory is outside the sandbox folders.");
     const controller = new AbortController();
-    const signal = AbortSignal.any([input.signal, controller.signal, AbortSignal.timeout(180000 + input.timeoutMs)]);
+    const signal = AbortSignal.any([input.signal, controller.signal, ...(input.timeoutMs === null ? [] : [AbortSignal.timeout(180000 + input.timeoutMs)])]);
     const filesystem = await SandboxFilesystem.create(mounts, signal);
     let output = "", truncated = false, requests = 0, exitCode: number | undefined;
+    const completeOutput: Buffer[] = [];
     const active = new Set<string>(), activeFilesystem = new Set<string>();
     let filesystemWork = Promise.resolve();
     try {
@@ -165,9 +166,13 @@ export class VmSandbox {
           }
           if (signal.aborted) return;
           if (event.event === "output") {
-            const text = Buffer.from(event.data, "base64").toString();
-            truncated ||= output.length + text.length > OUTPUT_LIMIT;
-            output = (output + text).slice(0, OUTPUT_LIMIT);
+            const bytes = Buffer.from(event.data, "base64");
+            if (input.capture === "complete") completeOutput.push(bytes);
+            else {
+              const text = bytes.toString();
+              truncated ||= output.length + text.length > OUTPUT_LIMIT;
+              output = (output + text).slice(0, OUTPUT_LIMIT);
+            }
           }
           if (event.event === "filesystem") {
             if (activeFilesystem.size >= 16 || activeFilesystem.has(event.id) || active.has(event.id)) throw new Error("Invalid filesystem request sequence.");
@@ -202,7 +207,7 @@ export class VmSandbox {
       if (exitCode === undefined) throw new Error("Protected command did not finish.");
       await input.beforeCommit?.();
       await filesystem.commit(input.signal);
-      return { output, exitCode, truncated };
+      return { output: input.capture === "complete" ? Buffer.concat(completeOutput).toString("utf8") : output, exitCode, truncated };
     } finally {
       controller.abort();
       filesystem.cancel();

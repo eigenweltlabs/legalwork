@@ -3,7 +3,7 @@ import { parsePartialJson } from "ai";
 import { parseViewReference, viewLink, viewPanelTab } from "../src/react-app/domains/views/view-reference";
 import { createPanelTabStore } from "../src/react-app/domains/session/panel/panel-tab-store";
 import { parseDynamicToolUIPart } from "../src/react-app/domains/session/sync/parse-tool-parts";
-import type { ToolPart } from "@opencode-ai/sdk/v2/client";
+import type { ToolPart } from "../src/app/lib/opencode-view";
 import { isLocalOpenUIProgram } from "@legalwork/openui/catalog";
 import { viewSourceTab } from "../src/react-app/domains/views/view-source";
 

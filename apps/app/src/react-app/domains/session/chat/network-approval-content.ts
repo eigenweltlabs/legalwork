@@ -21,6 +21,10 @@ function searchQuery(value: unknown): string | null {
 }
 
 const credentialName = /authorization|cookie|api.?key|token|secret|password/i;
+/** Complete host-only review; summary fields above/below never replace these bytes. */
+export function rawNetworkApprovalText(network: NonNullable<HostApprovalRequest["network"]>): string {
+  return `${network.method} ${network.url}\n\n${JSON.stringify(network.headers, null, 2)}\n\n${network.bodyFormat === "base64" ? "Base64" : "Body"} (${network.bodyBytes} bytes):\n${network.body}\n\nSHA-256: ${network.sha256}`;
+}
 const readableLabel = (key: string) => {
   const words = key.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/[_-]+/g, " ");
   return words.charAt(0).toUpperCase() + words.slice(1);
@@ -30,7 +34,7 @@ const readableLabel = (key: string) => {
 export function networkApprovalContent(network: NonNullable<HostApprovalRequest["network"]>) {
   const url = new URL(network.url);
   let body: unknown;
-  if (network.bodyFormat === "text" && network.bodyBytes > 0) {
+  if (!network.complete && network.bodyFormat === "text" && network.bodyBytes > 0) {
     try { body = JSON.parse(network.body); } catch { /* Plain text or form data. */ }
   }
   const query = searchQuery(body);
@@ -68,7 +72,7 @@ export function networkApprovalContent(network: NonNullable<HostApprovalRequest[
       else for (const [key, item] of entries) flatten(item, [...labels, readableLabel(key)], depth + 1);
     } else add(label, value === null ? t("sandbox.approval_empty") : typeof value === "boolean" ? t(value ? "sandbox.approval_yes" : "sandbox.approval_no") : String(value));
   };
-  if (!search) {
+  if (!search && !network.complete) {
     for (const [key, value] of url.searchParams) field(key, value);
     if (network.bodyBytes > 0) {
       if (network.bodyFormat === "base64") add(t("sandbox.approval_content"), t("sandbox.approval_binary", undefined, { bytes: network.bodyBytes.toLocaleString() }));
@@ -80,7 +84,7 @@ export function networkApprovalContent(network: NonNullable<HostApprovalRequest[
   }
   const credentials = Object.keys(network.headers).some(name => credentialName.test(name)) || [...url.searchParams.keys()].some(key => credentialName.test(key));
   return {
-    action, description, destination: url.host, resource: url.pathname, search, fields, omitted,
+    action, description, destination: url.host, resource: network.complete ? "/" : url.pathname, search, fields, omitted,
     context: [credentials ? t("sandbox.approval_credentials") : "",
       url.protocol === "http:" ? t("sandbox.approval_unencrypted") : "",
       t("sandbox.approval_connection_details")].filter(Boolean).join(" "),

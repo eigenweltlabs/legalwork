@@ -1,5 +1,5 @@
 import { resolve } from "node:path";
-import type { OpencodeClient, Session } from "@opencode-ai/sdk/v2/client";
+import type { AssistantEngineClient, Session } from "./assistant-engine.js";
 import type { ScheduledTask } from "@legalwork/types/scheduled-tasks";
 import type { AssistantDelegations } from "./assistant-delegations.js";
 import type { MainAssistant } from "./main-assistant.js";
@@ -7,7 +7,7 @@ import type { WorkspaceInfo } from "./types.js";
 import { ApiError } from "./errors.js";
 
 /** A parent ID links the work for tracking, without copying the daily chat's messages. */
-export async function createAssistantScheduledSession(task: ScheduledTask, assistant: Pick<MainAssistant, "current">, client: OpencodeClient) {
+export async function createAssistantScheduledSession(task: ScheduledTask, assistant: Pick<MainAssistant, "current">, client: AssistantEngineClient) {
   const { workspace, day } = await assistant.current();
   const result = await client.session.create({ parentID: day.sessionId, title: task.title }, { throwOnError: true, signal: AbortSignal.timeout(10000) });
   const session = result.data;
@@ -17,7 +17,7 @@ export async function createAssistantScheduledSession(task: ScheduledTask, assis
 }
 
 /** Track completion durably; only the final result returns to the daily chat. */
-export async function prepareAssistantScheduledWork(task: ScheduledTask, workspace: WorkspaceInfo, session: Session, client: OpencodeClient, delegations: Pick<AssistantDelegations, "track">) {
+export async function prepareAssistantScheduledWork(task: ScheduledTask, workspace: WorkspaceInfo, session: Session, client: AssistantEngineClient, delegations: Pick<AssistantDelegations, "track">) {
   if (!session.parentID) throw new ApiError(400, "schedule_worker_required", "Assistant schedules must run in an isolated worker.");
   const options = { throwOnError: true, signal: AbortSignal.timeout(10000) };
   const parent = (await client.session.get({ sessionID: session.parentID }, options)).data;

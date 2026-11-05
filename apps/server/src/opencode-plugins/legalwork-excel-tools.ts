@@ -1,12 +1,14 @@
+import { registerPrimaryContext } from "./native-review-worker.js";
+import { Plugin } from "@opencode/plugin";
 import { z } from "zod";
 
 import {
   callOfficeTool,
   describeOpenDocument,
   officePaneIfKnown,
-  type OpenCodeContext,
 } from "./office-plugin-shared.js";
-import { appStateReminders, type SavedConversations } from "./app-state-reminders.js";
+import { registerAppStateReminders } from "./native-app-state-reminders.js";
+import { nativeTool } from "./native-tool.js";
 
 /**
  * Agent tools for the Microsoft Excel workbook open next to the LegalWork
@@ -90,95 +92,99 @@ const runCodeArgs = z.object({
     ),
 });
 
-export const LegalWorkExcelTools = async (pluginInput?: SavedConversations) => {
-  const excelPane = appStateReminders(
-    "excel-pane",
-    async () => {
-      const pane = await officePaneIfKnown("excel");
-      if (pane === undefined) return null;
-      return pane ? excelModeInstruction(pane.documentUrl) : "";
-    },
-    "The LegalWork pane in Microsoft Excel is no longer connected. Earlier Excel reminders no longer apply; excel_* tools are unavailable until the user opens the pane again.",
-    pluginInput,
-  );
-  return ({
-  "experimental.chat.system.transform": async (
-    _input: unknown,
-    output: { system: string[] },
-  ) => {
-    output.system.push(EXCEL_TOOLS_INSTRUCTION);
+export default Plugin.define({
+  id: "legalwork.office.excel",
+  async setup(ctx) {
+    const cleanup = await registerAppStateReminders(ctx, {
+      topic: "excel-pane",
+      read: async (_sessionID, directory) => {
+        const pane = await officePaneIfKnown("excel", directory);
+        if (pane === undefined) return null;
+        return pane ? excelModeInstruction(pane.documentUrl) : "";
+      },
+      cleared: "The LegalWork pane in Microsoft Excel is no longer connected. Earlier Excel reminders no longer apply; excel_* tools are unavailable until the user opens the pane again.",
+    });
+    await registerPrimaryContext(ctx, (event) => {
+      event.system.push({ type: "text", text: EXCEL_TOOLS_INSTRUCTION });
+    });
+    await ctx.tool.transform((editor) => {
+      editor.add(nativeTool(ctx, {
+        name: "excel_read_workbook",
+        description:
+          "Get an overview of the Excel workbook open next to the LegalWork pane: worksheet names, their used ranges and sizes, and the active sheet. Call this first to orient before reading or writing data.",
+        schema: z.object({}),
+        async execute(args, context) {
+          return callOfficeTool(context, "excel_read_workbook", args);
+        },
+      }));
+      editor.add(nativeTool(ctx, {
+        name: "excel_read_range",
+        description:
+          "Read cell values (optionally formulas) from the open Excel workbook — a specific range or a sheet's whole used range. Large ranges are rejected with the dimensions so you can request a narrower window.",
+        schema: readRangeArgs,
+        async execute(args, context) {
+          return callOfficeTool(context, "excel_read_range", args);
+        },
+      }));
+      editor.add(nativeTool(ctx, {
+        name: "excel_read_selection",
+        description: "Read the cells the user currently has selected in Excel (values and address).",
+        schema: z.object({}),
+        async execute(args, context) {
+          return callOfficeTool(context, "excel_read_selection", args);
+        },
+      }));
+      editor.add(nativeTool(ctx, {
+        name: "excel_write_cells",
+        description:
+          "Write a rectangular block of values (or formulas with as_formulas) into the open Excel workbook starting at start_cell. Written cells are highlighted so the user sees the change. Read the target area first; never overwrite unread data.",
+        schema: writeCellsArgs,
+        async execute(args, context) {
+          return callOfficeTool(context, "excel_write_cells", args);
+        },
+      }));
+      editor.add(nativeTool(ctx, {
+        name: "excel_highlight_range",
+        description: "Highlight a range with a fill color, e.g. to flag cells for the user's attention without changing values.",
+        schema: highlightArgs,
+        async execute(args, context) {
+          return callOfficeTool(context, "excel_highlight_range", args);
+        },
+      }));
+      editor.add(nativeTool(ctx, {
+        name: "excel_add_worksheet",
+        description: "Add a new worksheet to the open workbook — the right place for derived analysis, summaries, or review grids.",
+        schema: addWorksheetArgs,
+        async execute(args, context) {
+          return callOfficeTool(context, "excel_add_worksheet", args);
+        },
+      }));
+      editor.add(nativeTool(ctx, {
+        name: "excel_search",
+        description: "Search cell contents across the workbook (or one sheet) and get the matching addresses per sheet.",
+        schema: searchArgs,
+        async execute(args, context) {
+          return callOfficeTool(context, "excel_search", args);
+        },
+      }));
+      editor.add(nativeTool(ctx, {
+        name: "excel_add_comment",
+        description: "Attach a comment to a cell in the open workbook, e.g. to explain an assumption or a change you made nearby.",
+        schema: addCommentArgs,
+        async execute(args, context) {
+          return callOfficeTool(context, "excel_add_comment", args);
+        },
+      }));
+      editor.add(nativeTool(ctx, {
+        name: "excel_run_code",
+        description:
+          "Escape hatch: run Office.js (Excel JavaScript API) code against the open workbook for anything the typed excel_* tools cannot do — number formats, charts, tables, conditional formatting, sorting/filtering, column widths. Excel has NO revision tracking: shade cells you modify with #FFF3BF like the typed tools do, never overwrite data you have not read, and report every change. Errors return the Office.js debugInfo so you can fix the snippet and retry. Prefer the typed tools when they fit.",
+        schema: runCodeArgs,
+        async execute(args, context) {
+          return callOfficeTool(context, "excel_run_code", args);
+        },
+      }));
+    });
+    return cleanup;
   },
-  "chat.message": excelPane.userMessage,
-  "tool.execute.after": excelPane.toolResult,
-  event: excelPane.event,
-  tool: {
-    excel_read_workbook: {
-      description:
-        "Get an overview of the Excel workbook open next to the LegalWork pane: worksheet names, their used ranges and sizes, and the active sheet. Call this first to orient before reading or writing data.",
-      args: {},
-      async execute(_rawArgs: unknown, context: OpenCodeContext) {
-        return callOfficeTool(context, "excel_read_workbook", {});
-      },
-    },
-    excel_read_range: {
-      description:
-        "Read cell values (optionally formulas) from the open Excel workbook — a specific range or a sheet's whole used range. Large ranges are rejected with the dimensions so you can request a narrower window.",
-      args: readRangeArgs.shape,
-      async execute(rawArgs: unknown, context: OpenCodeContext) {
-        return callOfficeTool(context, "excel_read_range", readRangeArgs.parse(rawArgs ?? {}));
-      },
-    },
-    excel_read_selection: {
-      description: "Read the cells the user currently has selected in Excel (values and address).",
-      args: {},
-      async execute(_rawArgs: unknown, context: OpenCodeContext) {
-        return callOfficeTool(context, "excel_read_selection", {});
-      },
-    },
-    excel_write_cells: {
-      description:
-        "Write a rectangular block of values (or formulas with as_formulas) into the open Excel workbook starting at start_cell. Written cells are highlighted so the user sees the change. Read the target area first; never overwrite unread data.",
-      args: writeCellsArgs.shape,
-      async execute(rawArgs: unknown, context: OpenCodeContext) {
-        return callOfficeTool(context, "excel_write_cells", writeCellsArgs.parse(rawArgs));
-      },
-    },
-    excel_highlight_range: {
-      description: "Highlight a range with a fill color, e.g. to flag cells for the user's attention without changing values.",
-      args: highlightArgs.shape,
-      async execute(rawArgs: unknown, context: OpenCodeContext) {
-        return callOfficeTool(context, "excel_highlight_range", highlightArgs.parse(rawArgs));
-      },
-    },
-    excel_add_worksheet: {
-      description: "Add a new worksheet to the open workbook — the right place for derived analysis, summaries, or review grids.",
-      args: addWorksheetArgs.shape,
-      async execute(rawArgs: unknown, context: OpenCodeContext) {
-        return callOfficeTool(context, "excel_add_worksheet", addWorksheetArgs.parse(rawArgs));
-      },
-    },
-    excel_search: {
-      description: "Search cell contents across the workbook (or one sheet) and get the matching addresses per sheet.",
-      args: searchArgs.shape,
-      async execute(rawArgs: unknown, context: OpenCodeContext) {
-        return callOfficeTool(context, "excel_search", searchArgs.parse(rawArgs));
-      },
-    },
-    excel_add_comment: {
-      description: "Attach a comment to a cell in the open workbook, e.g. to explain an assumption or a change you made nearby.",
-      args: addCommentArgs.shape,
-      async execute(rawArgs: unknown, context: OpenCodeContext) {
-        return callOfficeTool(context, "excel_add_comment", addCommentArgs.parse(rawArgs));
-      },
-    },
-    excel_run_code: {
-      description:
-        "Escape hatch: run Office.js (Excel JavaScript API) code against the open workbook for anything the typed excel_* tools cannot do — number formats, charts, tables, conditional formatting, sorting/filtering, column widths. Excel has NO revision tracking: shade cells you modify with #FFF3BF like the typed tools do, never overwrite data you have not read, and report every change. Errors return the Office.js debugInfo so you can fix the snippet and retry. Prefer the typed tools when they fit.",
-      args: runCodeArgs.shape,
-      async execute(rawArgs: unknown, context: OpenCodeContext) {
-        return callOfficeTool(context, "excel_run_code", runCodeArgs.parse(rawArgs));
-      },
-    },
-  },
-  });
-};
+});

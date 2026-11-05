@@ -20,16 +20,17 @@ export function legalworkPluginPath(name: string, here = dirname(fileURLToPath(i
   const resourcesPath = resourcesPathFromAppAsarPath(here);
   if (resourcesPath) {
     const electronResourcesPath = process.resourcesPath?.includes("app.asar") ? resourcesPath : process.resourcesPath?.trim();
-    return join(electronResourcesPath || resourcesPath, "opencode-plugins", `${name}.js`);
+    return join(electronResourcesPath || resourcesPath, "opencode-plugins", name, "index.js");
   }
 
-  const extension = basename(here) === "dist" ? "js" : "ts";
-  return join(here, "opencode-plugins", `${name}.${extension}`);
+  const dist = basename(here) === "dist" ? here : join(here, "..", "dist");
+  return join(dist, "opencode-plugins", name, "index.js");
 }
 
 export const legalworkExtensionsPreviewPluginPath = () => legalworkPluginPath("legalwork-extensions-preview");
-export const legalworkChromeDevtoolsPluginPath = () => legalworkPluginPath("legalwork-chrome-devtools");
 export const legalworkSandboxPluginPath = () => legalworkPluginPath("legalwork-sandbox");
+export const legalworkCommandsPluginPath = () => legalworkPluginPath("legalwork-commands");
+export const legalworkProjectAdmissionPluginPath = () => legalworkPluginPath("legalwork-project-admission");
 export const legalworkCapabilitiesKnowledgePluginPath = () => legalworkPluginPath("legalwork-capabilities-knowledge");
 export const legalworkLegalMemoryKnowledgePluginPath = () => legalworkPluginPath("legalwork-legalmemory-knowledge");
 export const legalworkAnthropicAdaptiveThinkingPluginPath = () => legalworkPluginPath("legalwork-anthropic-adaptive-thinking");
@@ -56,3 +57,4 @@ export const legalworkScheduledTaskToolsPluginPath = () => legalworkPluginPath("
 export const legalworkWikiToolsPluginPath = () => legalworkPluginPath("legalwork-wiki-tools");
 
 export const legalworkAssistantToolsPluginPath = () => legalworkPluginPath("legalwork-assistant-tools");
+export const legalworkLegalMemoryAccessPluginPath = () => legalworkPluginPath("legalwork-legalmemory");

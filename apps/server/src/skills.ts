@@ -147,13 +147,6 @@ export async function listSkillsInDir(dir: string, scope: "project" | "global", 
   return items;
 }
 
-export async function listGlobalSkills(skipped?: SkippedSkill[]): Promise<SkillItem[]> {
-  const directories = [globalSkillsDir(), join(homedir(), ".claude", "skills"), join(homedir(), ".agents", "skills"), join(homedir(), ".agent", "skills")];
-  const items = (await Promise.all(directories.map(directory => listSkillsInDir(directory, "global", skipped)))).flat();
-  const seen = new Set<string>();
-  return items.filter(item => { if (seen.has(item.name)) return false; seen.add(item.name); return true; });
-}
-
 export async function listSkills(workspaceRoot: string, includeGlobal: boolean, skipped?: SkippedSkill[]): Promise<SkillItem[]> {
   const roots = await findWorkspaceRoots(workspaceRoot);
   // Visible workspace packages travel with a wiki and remain editable in its tree.
@@ -185,6 +178,16 @@ export async function listSkills(workspaceRoot: string, includeGlobal: boolean, 
     seen.add(item.name);
     return true;
   });
+}
+
+/** The app's shared library, without arbitrary project or ancestor discovery. */
+export async function listGlobalSkills(skipped?: SkippedSkill[]): Promise<SkillItem[]> {
+  const items: SkillItem[] = [];
+  for (const directory of [globalSkillsDir(), join(homedir(), ".claude", "skills"), join(homedir(), ".agents", "skills"), join(homedir(), ".agent", "skills")]) {
+    items.push(...await listSkillsInDir(directory, "global", skipped));
+  }
+  const seen = new Set<string>();
+  return items.filter(item => !seen.has(item.name) && Boolean(seen.add(item.name)));
 }
 
 /**

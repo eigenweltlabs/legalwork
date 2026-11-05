@@ -178,13 +178,6 @@ describe("open task in project", () => {
     expect(store().sessions).toBe(before);
   });
 
-  test("remote tasks use the route ID of the correct server, not a same-named local project", () => {
-    const remote: RouteWorkspace = { ...project("rem_second"), workspaceType: "remote", legalworkWorkspaceId: "second", baseUrl: "https://worker.example/", legalworkToken: "test" };
-    expect(openTask("second", [project("second"), remote], "https://worker.example")).toBe("/workspace/rem_second/session?view=workspace");
-    expect(store().sessions["workspace:second"]).toBeUndefined();
-    expect(store().sessions["workspace:rem_second"].tabs[0].id).toBe("task:todo");
-  });
-
   test("a project on a different server cannot receive the task", () => {
     expect(openTask("second", [project("second")], "https://worker.example")).toBeNull();
     expect(store().sessions).toEqual({});

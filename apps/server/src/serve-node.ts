@@ -161,6 +161,38 @@ async function writeWebResponse(webRes: Response, nodeRes: ServerResponse): Prom
   }
 }
 
+/** Bun 1.3's ordinary response-body consumer leaves an unhandled rejection
+ * when a source fails after its first chunk. Its direct sink owns that error
+ * path. Forward bytes under backpressure and retain request cancellation. */
+function bunStreamingResponse(response: Response, request: Request): Response {
+  if (!response.body) return response;
+  const reader = response.body.getReader();
+  const cancel = () => { void reader.cancel(request.signal.reason).catch(() => {}); };
+  request.signal.addEventListener("abort", cancel, { once: true });
+  const source: Bun.DirectUnderlyingSource<Uint8Array> = {
+    type: "direct",
+    async pull(controller) {
+      try {
+        while (true) {
+          const next = await reader.read();
+          if (next.done) { controller.end(); return; }
+          await controller.write(next.value);
+        }
+      } catch (error) {
+        if (!isExpectedConnectionAbort(error) && !request.signal.aborted) console.error("[serve-node] Response stream error:", error);
+        controller.close(error instanceof Error ? error : new Error("Response stream failed"));
+      } finally {
+        request.signal.removeEventListener("abort", cancel);
+        reader.releaseLock();
+      }
+    },
+    async cancel(reason: unknown) { await reader.cancel(reason).catch(() => {}); },
+  };
+  // @ts-expect-error DOM declarations omit Bun's typed DirectUnderlyingSource constructor overload.
+  const body = new ReadableStream<Uint8Array>(source);
+  return new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers });
+}
+
 /**
  * Start an HTTP server with a Web-standard fetch handler.
  *
@@ -173,15 +205,25 @@ export function serve(options: ServeOptions): Promise<ServeResult> {
   if (typeof Bun !== "undefined") {
     const start = (port: number) => Bun.serve({
       hostname: options.hostname, port, idleTimeout: options.idleTimeout,
-      // A permitted 100 MiB wiki asset exceeds Bun's 128 MiB default after
-      // base64 encoding. Individual routes enforce their smaller body limits.
-      maxRequestBodySize: 256 * 1024 * 1024,
+      development: false,
+      // Bun 1.3.14 can share the listener when this is omitted. These are
+      // independently authenticated servers; an occupied port must fall back.
+      reusePort: false,
+      // Raw HTTP preserves complete Fetch bodies. Bound other requests at
+      // their existing route readers, without a second global payload cap.
+      maxRequestBodySize: Infinity,
+      // Body failures happen after fetch has returned. Handle them through
+      // Bun's server boundary too; never expose its development error page.
+      error(error) {
+        if (!isExpectedConnectionAbort(error)) console.error("[serve-node] Response stream error:", error);
+        return Response.json({ error: "internal_error" }, { status: 500 });
+      },
       ...(options.tls ? { tls: options.tls } : {}),
       fetch: async (request: Request, server) => {
         // A human approval may outlive the connection's idle timeout. Node's
         // keepAliveTimeout likewise does not expire an active request handler.
         server.timeout(request, 0);
-        try { return await options.fetch(request); }
+        try { return bunStreamingResponse(await options.fetch(request), request); }
         catch (error) {
           if (!isExpectedConnectionAbort(error)) console.error("[serve-node] Unhandled error:", error);
           return Response.json({ error: "internal_error" }, { status: 500 });

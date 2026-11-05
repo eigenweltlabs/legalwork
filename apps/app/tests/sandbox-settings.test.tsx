@@ -7,11 +7,11 @@ import { SessionSandbox } from "../src/react-app/domains/session/surface/session
 import { SandboxStatus } from "../src/react-app/domains/settings/panels/sandbox-status";
 
 const client = createLegalworkServerClient({ baseUrl: "http://localhost:1234", token: "test", hostToken: "test-host" });
-test("local workspace routing preserves host authority without leaking it to remote workers", () => {
+test("local workspace routing preserves host authority and rejects retired workers", () => {
   const local = { id: "workspace", workspaceType: "local" };
   expect(resolveWorkspaceEndpoint(local, { baseUrl: client.baseUrl, token: "test", localClient: client })?.client.canApprove).toBe(true);
   const remote = { id: "rem_workspace", workspaceType: "remote", baseUrl: "https://worker.example", legalworkToken: "remote" };
-  expect(resolveWorkspaceEndpoint(remote, { baseUrl: client.baseUrl, token: "test", localClient: client })?.client.canApprove).toBe(false);
+  expect(resolveWorkspaceEndpoint(remote, { baseUrl: client.baseUrl, token: "test", localClient: client })).toBeNull();
   expect(resolveWorkspaceEndpoint(local, { baseUrl: "http://localhost:9999", token: "other", localClient: client })?.client.canApprove).toBe(false);
 });
 test("the off application default remains visible and hides inactive network controls", () => {

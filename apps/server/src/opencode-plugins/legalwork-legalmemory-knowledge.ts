@@ -8,19 +8,13 @@
  * use-it-first section as a reminder in the conversation while the server is
  * actually connected, and reports when it disconnects, so the instruction
  * never dangles over dead tools. It stays out of the system prompt, which must
- * not change within a conversation (see app-state-reminders.ts).
+ * not change within a conversation (see native-app-state-reminders.ts).
  */
 
-import { appStateReminders, type SavedConversations } from "./app-state-reminders.js";
+import { Plugin } from "@opencode/plugin";
+import { registerAppStateReminders } from "./native-app-state-reminders.js";
 
-/** Server names under which firms connect the appliance: the LegalWork
- * quick-connect catalog uses "legalmemory"; the appliance's own admin UI
- * hands out a sample client config named "knowledge-index".
- *
- * Deliberately NOT exported. The engine's plugin loader treats every export of
- * a plugin module as a plugin factory and calls it, so exporting a value here
- * fails the whole module with "Plugin export is not a function" and the
- * guidance below silently never loads. */
+/** Both the quick-connect catalog and the appliance's own example configuration. */
 const LEGALMEMORY_SERVER_NAMES = ["legalmemory", "knowledge-index"];
 
 const LEGALMEMORY_CONNECTED_INSTRUCTION = `## LegalMemory is connected — the firm's knowledge index
@@ -48,79 +42,47 @@ LegalMemory is this firm's institutional memory. Use it BY DEFAULT — the user 
 
 Tool names may carry the server prefix (e.g. legalmemory_search_semantic); use whatever form the tool list shows.`;
 
-type McpStatusClient = NonNullable<SavedConversations["client"]> & {
-  mcp?: {
-    status?: (options: { directory?: string }) => Promise<unknown>;
-  };
-};
-
-function connectedServerNames(statusResult: unknown): Set<string> {
-  const names = new Set<string>();
-  if (!statusResult || typeof statusResult !== "object") return names;
-  // The SDK wraps the map in { data }; unwrap when present.
-  const data: unknown = "data" in statusResult ? statusResult.data : statusResult;
-  if (!data || typeof data !== "object") return names;
-  for (const [name, entry] of Object.entries(data)) {
-    if (entry && typeof entry === "object" && "status" in entry && entry.status === "connected") {
-      names.add(name.toLowerCase());
-    }
-  }
-  return names;
-}
-
-export const LegalWorkLegalMemoryKnowledge = async (pluginInput?: {
-  directory?: string;
-  client?: McpStatusClient;
-}) => {
-  const status = async (): Promise<Set<string> | null> => {
-    try {
-      return connectedServerNames(await pluginInput?.client?.mcp?.status?.({ directory: pluginInput?.directory }));
-    } catch {
-      return null;
-    }
-  };
-  const connected = async () => (await status()) ?? new Set<string>();
-  // A failed status check is not a disconnect: report nothing rather than flip.
-  const legalMemory = appStateReminders(
-    "legalmemory",
-    async () => {
-      const names = await status();
-      if (!names) return null;
-      return LEGALMEMORY_SERVER_NAMES.some((name) => names.has(name)) ? LEGALMEMORY_CONNECTED_INSTRUCTION : "";
-    },
-    "LegalMemory is no longer connected. Earlier LegalMemory reminders no longer apply: do not call its tools, and ask the user to reconnect it in Settings when firm knowledge is needed.",
-    pluginInput,
-  );
-  const serverForTool = (tool: string) => LEGALMEMORY_SERVER_NAMES.find(
-    (name) => tool.startsWith(`${name}_`) || tool.startsWith(`${name.replaceAll("-", "_")}_`),
-  );
-
-  return {
-    "chat.message": legalMemory.userMessage,
-    event: legalMemory.event,
-    // Tool definitions can survive inside an already-running turn. Check the
-    // live connection again before each call, without a positive cache.
-    "tool.execute.before": async (input: { tool: string }) => {
-      const name = serverForTool(input.tool);
-      if (name && !(await connected()).has(name)) {
-        throw new Error("LegalMemory is disconnected. Reconnect it in Settings before using its tools.");
-      }
-    },
-    // MCP results reach this hook before OpenCode saves oversized output. A
-    // compact JSON page can exceed ripgrep's 64 KiB record limit by itself.
-    "tool.execute.after": async (input: { tool: string; sessionID?: string }, output: { content?: unknown; output?: unknown }) => {
-      await legalMemory.toolResult(input, output);
-      if (!serverForTool(input.tool) || !Array.isArray(output.content)) return;
-      for (const item of output.content) {
-        if (!item || typeof item !== "object" || item.type !== "text" || typeof item.text !== "string") continue;
-        if (item.text.length < 16_384) continue;
+export default Plugin.define({
+  id: "legalwork.legalmemory",
+  async setup(ctx) {
+    const status = async (directory: string): Promise<Set<string> | null> => {
+      try {
+        const { data } = await ctx.mcp.list({ location: { directory } });
+        return new Set(data.filter(server => server.status.status === "connected").map(server => server.name.toLowerCase()));
+      } catch { return null; }
+    };
+    const serverForTool = (tool: string) => LEGALMEMORY_SERVER_NAMES.find(
+      name => tool.startsWith(`${name}_`) || tool.startsWith(`${name.replaceAll("-", "_")}_`),
+    );
+    const cleanup = await registerAppStateReminders(ctx, {
+      topic: "legalmemory",
+      read: async (_sessionID, directory) => {
+        const names = await status(directory);
+        if (!names) return null;
+        return LEGALMEMORY_SERVER_NAMES.some(name => names.has(name)) ? LEGALMEMORY_CONNECTED_INSTRUCTION : "";
+      },
+      cleared: "LegalMemory is no longer connected. Earlier LegalMemory reminders no longer apply: do not call its tools, and ask the user to reconnect it in Settings when firm knowledge is needed.",
+    });
+    await ctx.tool.hook("execute.before", async (event) => {
+      const name = serverForTool(event.tool);
+      if (!name) return;
+      const session = await ctx.session.get({ sessionID: event.sessionID });
+      const connected = await status(session.location.directory);
+      if (!connected?.has(name)) throw new Error("LegalMemory is disconnected. Reconnect it in Settings before using its tools.");
+    });
+    await ctx.tool.hook("execute.after", (event) => {
+      if (event.status !== "completed" || !serverForTool(event.tool)) return;
+      const pretty = (text: string) => {
+        if (text.length < 16_384) return text;
         try {
-          const value: unknown = JSON.parse(item.text);
-          if (value && typeof value === "object") item.text = JSON.stringify(value, null, 2);
-        } catch {
-          // Plain text and incomplete JSON must remain verbatim.
-        }
-      }
-    },
-  };
-};
+          const value: unknown = JSON.parse(text);
+          return value && typeof value === "object" ? JSON.stringify(value, null, 2) : text;
+        } catch { return text; }
+      };
+      if (typeof event.result.content === "string") event.result = { ...event.result, content: pretty(event.result.content) };
+      else if (event.result.content) event.result = { ...event.result, content: event.result.content.map(content =>
+        content.type === "text" ? { ...content, text: pretty(content.text) } : content) };
+    });
+    return cleanup;
+  },
+});

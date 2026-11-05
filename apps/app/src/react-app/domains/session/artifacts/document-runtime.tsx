@@ -12,6 +12,12 @@ import { DocumentControlSessions, useDocumentControlSessions } from "../../../sh
 import { ArtifactPanelContent, type ArtifactPanelProps } from "./artifact-panel";
 import { PanelTabDestinationProvider } from "../panel/panel-tab-destination";
 
+async function browserContext(project: DocumentProject, sessionId: string) {
+  const browser = window.__LEGALWORK_ELECTRON__?.browser;
+  const registration = project.client.token ? await browser?.registerConnection?.({ baseUrl: project.client.baseUrl, token: project.client.token }) : undefined;
+  return { workspaceId: project.workspaceId, sessionId, directory: project.workspaceRoot, ...(registration ? { connectionId: registration.connectionId } : {}) };
+}
+
 type Runtime = ReturnType<typeof createDocumentRuntime>;
 const RuntimeContext = createContext<Runtime | null>(null);
 export function useDocumentRuntime() { return use(RuntimeContext); }
@@ -32,15 +38,7 @@ export function DocumentRuntimeProvider({ children }: { children: ReactNode }) {
   const [runtime] = useState(() => createDocumentRuntime(undefined, resolveDocumentProject, flushSync));
   const navigate = useNavigate();
   const location = useLocation();
-  useControlAction({ id: "session.open", label: "Open a session", background: true, requiresArgs: true, args: [{ name: "sessionId", type: "string", required: true }], execute: async (args, { callerSessionId }) => {
-    const sessionId = stringArg(args, "sessionId"), project = await runtime.getProject(sessionId);
-    if (callerSessionId) {
-      runtime.taskSessions.set(callerSessionId, sessionId);
-      return { ok: true, sessionId, workspaceId: project.projectId, background: true, message: "The session is available to this task. Read it with session.read_transcript. The user's view is unchanged." };
-    }
-    navigate(`/workspace/${encodeURIComponent(project.projectId)}/session/${encodeURIComponent(sessionId)}`);
-    return { ok: true, navigatedTo: sessionId };
-  } });
+  useControlAction({ id: "session.open", label: "Open a session", background: true, requiresArgs: true, args: [{ name: "sessionId", type: "string", required: true }], execute: (args, { callerSessionId }) => runtime.openSession(args, callerSessionId, navigate) });
   useControlAction({ id: "session.read_transcript", label: "Read a session transcript", background: true, args: [{ name: "sessionId", type: "string" }, { name: "count", type: "number" }], execute: async (args, { callerSessionId }) => {
     const sessionId = stringArg(args, "sessionId") || (callerSessionId ? runtime.taskSessions.get(callerSessionId) ?? callerSessionId : location.pathname.match(/\/session\/([^/]+)/)?.[1] ?? "");
     const project = await runtime.getProject(sessionId);
@@ -53,7 +51,12 @@ export function DocumentRuntimeProvider({ children }: { children: ReactNode }) {
   const [parking, setParking] = useState<HTMLDivElement | null>(null);
   useEffect(() => {
     const tabs = usePanelTabStore.subscribe(() => runtime.prune());
+    const attach = (sessionId: string) => void runtime.getProject(sessionId).then(async project =>
+      window.__LEGALWORK_ELECTRON__?.browser?.attachSession?.(await browserContext(project, sessionId))).catch(() => {});
     const activity = useSessionActivityStore.subscribe((state, previous) => {
+      for (const records of Object.values(state.recordsByWorkspaceId)) for (const [sessionId, record] of Object.entries(records)) {
+        if (record.runActive && !Object.values(previous.recordsByWorkspaceId).some(prior => prior[sessionId]?.runActive)) attach(sessionId);
+      }
       for (const [workspace, records] of Object.entries(previous.recordsByWorkspaceId)) {
         for (const [sessionId, record] of Object.entries(records)) {
           if (record.runActive && !state.recordsByWorkspaceId[workspace]?.[sessionId]?.runActive) {
@@ -67,29 +70,46 @@ export function DocumentRuntimeProvider({ children }: { children: ReactNode }) {
   }, [runtime]);
   useEffect(() => {
     const browser = window.__LEGALWORK_ELECTRON__?.browser;
-    const update = (state: import("@/app/lib/desktop").BrowserStatePayload) => useTaskBrowserTabs.getState().update(state.tabs ?? []);
+    const update = (state: import("@/app/lib/desktop").BrowserStatePayload) => {
+      useTaskBrowserTabs.getState().update(state.tabs ?? []);
+      const focused = state.focusedTabId ? state.tabs?.find(tab => tab.id === state.focusedTabId) : undefined;
+      if (focused?.taskSessionId && focused.workspaceId) openBackgroundTab(workspacePanelKey(focused.workspaceId), focused.taskSessionId, { ...focused, background: false });
+    };
     const unsubscribe = browser?.onStateChange?.(update);
     void browser?.getState?.().then(state => { if (state) update(state); });
     return unsubscribe;
   }, []);
-  useControlAction({ id: "browser.open_url", label: "Open a task browser", background: true, execute: async args => {
+  useEffect(() => {
+    const sessionId = location.pathname.match(/\/session\/([^/]+)/)?.[1];
+    if (!sessionId) return;
+    void runtime.getProject(sessionId).then(async project => window.__LEGALWORK_ELECTRON__?.browser?.attachSession?.({ ...await browserContext(project, sessionId), takeControl: true })).catch(() => {});
+  }, [runtime, location.pathname]);
+  useControlAction({ id: "browser.connection", label: "Access a task browser's extended capabilities", background: true, execute: async (args, { callerSessionId }) => {
+    const browser = window.__LEGALWORK_ELECTRON__?.browser;
+    if (!browser?.connection) throw new Error("The built-in browser is unavailable.");
+    const sessionId = callerSessionId || stringArg(args, "sessionId"), project = await runtime.getProject(sessionId);
+    return browser.connection(stringArg(args, "tabId"), await browserContext(project, sessionId));
+  } });
+  useControlAction({ id: "browser.open_url", label: "Open a task browser", background: true, execute: async (args, { callerSessionId }) => {
     const directory = stringArg(args, "directory"), url = stringArg(args, "url");
     if (!directory || !url) throw new Error("A URL and originating project directory are required.");
     const provider = stringArg(args, "provider") || "builtin";
     if (provider !== "auto" && provider !== "builtin") throw new Error("This browser provider is unavailable.");
     const browser = window.__LEGALWORK_ELECTRON__?.browser;
     if (!browser?.openUrl) throw new Error("The built-in browser is unavailable.");
-    const result = await browser.openUrl(url, provider, { directory, workspaceId: stringArg(args, "workspaceId"), sessionId: stringArg(args, "sessionId") });
+    const sessionId = callerSessionId || stringArg(args, "sessionId"), project = await runtime.getProject(sessionId);
+    const result = await browser.openUrl(url, provider, await browserContext(project, sessionId));
     const show = Boolean(args && typeof args === "object" && Reflect.get(args, "show") === true);
     const tab = show ? (await browser.getState?.())?.tabs?.find(item => item.id === result.tab_id) : undefined;
     // Same as the user opening the task's card: the tab moves beside the chat and outlives the run.
     if (tab) openBackgroundTab(workspacePanelKey(stringArg(args, "workspaceId")), stringArg(args, "sessionId"), { ...tab, background: false });
     return result;
   } });
-  useControlAction({ id: "browser.set_proxy", label: "Set the task browser proxy", background: true, execute: async args => {
+  useControlAction({ id: "browser.set_proxy", label: "Set the task browser proxy", background: true, execute: async (args, { callerSessionId }) => {
     const browser = window.__LEGALWORK_ELECTRON__?.browser;
     if (!browser?.setProxy) throw new Error("The built-in browser is unavailable.");
-    return browser.setProxy(stringArg(args, "proxy"), { workspaceId: stringArg(args, "workspaceId"), sessionId: stringArg(args, "sessionId") });
+    const sessionId = callerSessionId || stringArg(args, "sessionId"), project = await runtime.getProject(sessionId);
+    return browser.setProxy(stringArg(args, "proxy"), await browserContext(project, sessionId));
   } });
   useControlAction({ id: "markdown.create", label: "Create a Markdown document", background: true, execute: runtime.createMarkdown });
   useControlAction({ id: "documents.open", label: "Prepare a document for a task", background: true, execute: runtime.open });

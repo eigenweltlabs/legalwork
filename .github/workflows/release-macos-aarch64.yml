@@ -36,13 +36,8 @@ on:
         required: false
         type: boolean
         default: true
-      publish_sidecars:
-        description: "Build + upload legalwork-orchestrator sidecar release assets"
-        required: false
-        type: boolean
-        default: true
       publish_npm:
-        description: "Publish legalwork-orchestrator/legalwork-server/opencode-router to npm if versions changed"
+        description: "Publish legalwork-orchestrator/legalwork-server to npm if versions changed"
         required: false
         type: boolean
         default: true
@@ -62,6 +57,18 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  opencode-engine:
+    needs: [resolve-release, verify-release]
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/ci-opencode-derivative.yml
+    with:
+      build-mode: production
+      ref: ${{ needs.resolve-release.outputs.release_tag }}
+    secrets:
+      APPLE_CODESIGN_CERT_P12_BASE64: ${{ secrets.APPLE_CODESIGN_CERT_P12_BASE64 }}
+      APPLE_CODESIGN_CERT_PASSWORD: ${{ secrets.APPLE_CODESIGN_CERT_PASSWORD }}
   sandbox-runtime:
     uses: ./.github/workflows/sandbox-runtime.yml
     needs: resolve-release
@@ -81,7 +88,6 @@ jobs:
       prerelease: ${{ steps.resolve.outputs.prerelease }}
       notarize: ${{ steps.resolve.outputs.notarize }}
       build_electron: ${{ steps.resolve.outputs.build_electron }}
-      publish_sidecars: ${{ steps.resolve.outputs.publish_sidecars }}
       publish_npm: ${{ steps.resolve.outputs.publish_npm }}
     steps:
       - name: Resolve metadata
@@ -95,9 +101,7 @@ jobs:
           INPUT_PRERELEASE: ${{ github.event.inputs.prerelease }}
           INPUT_NOTARIZE: ${{ github.event.inputs.notarize }}
           INPUT_BUILD_ELECTRON: ${{ github.event.inputs.build_electron }}
-          INPUT_PUBLISH_SIDECARS: ${{ github.event.inputs.publish_sidecars }}
           INPUT_PUBLISH_NPM: ${{ github.event.inputs.publish_npm }}
-          DEFAULT_PUBLISH_SIDECARS: ${{ vars.RELEASE_PUBLISH_SIDECARS }}
           DEFAULT_PUBLISH_NPM: ${{ vars.RELEASE_PUBLISH_NPM }}
           DEFAULT_NOTARIZE: ${{ vars.MACOS_NOTARIZE }}
           DEFAULT_BUILD_ELECTRON: ${{ vars.RELEASE_PUBLISH_ELECTRON }}
@@ -170,10 +174,6 @@ jobs:
             build_electron="${DEFAULT_BUILD_ELECTRON:-true}"
           fi
 
-          publish_sidecars="${INPUT_PUBLISH_SIDECARS:-}"
-          if [ -z "$publish_sidecars" ]; then
-            publish_sidecars="${DEFAULT_PUBLISH_SIDECARS:-true}"
-          fi
           publish_npm="${INPUT_PUBLISH_NPM:-}"
           if [ -z "$publish_npm" ]; then
             publish_npm="${DEFAULT_PUBLISH_NPM:-true}"
@@ -190,7 +190,6 @@ jobs:
           echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
           echo "notarize=$notarize" >> "$GITHUB_OUTPUT"
           echo "build_electron=$build_electron" >> "$GITHUB_OUTPUT"
-          echo "publish_sidecars=$publish_sidecars" >> "$GITHUB_OUTPUT"
           echo "publish_npm=$publish_npm" >> "$GITHUB_OUTPUT"
           {
             echo "release_body<<__LEGALWORK_RELEASE_BODY_EOF__"
@@ -263,7 +262,7 @@ jobs:
 
   publish-electron:
     name: Build + publish Electron (${{ matrix.artifact }})
-    needs: [resolve-release, verify-release, sandbox-runtime]
+    needs: [resolve-release, verify-release, sandbox-runtime, opencode-engine]
     if: needs.resolve-release.outputs.build_electron == 'true'
     runs-on: ${{ matrix.platform }}
     # Apple notarization routes first-time/new-account submissions to "in-depth
@@ -349,10 +348,23 @@ jobs:
         with:
           node-version: 24.22.1
 
+      - name: Download the same-run source-built engine
+        uses: actions/download-artifact@v4
+        with:
+          name: opencode-derivative-ci
+          path: ${{ runner.temp }}/opencode-derivative
+      - name: Verify and prepare the production engine
+        uses: ./.github/actions/setup-opencode
+        with:
+          build-mode: production
+          archive-directory: ${{ runner.temp }}/opencode-derivative/archives
+          manifest-sha256: ${{ needs.opencode-engine.outputs.manifest-sha256 }}
+
+
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.2
+          bun-version: 1.4.4
 
       - name: Get pnpm store path
         id: pnpm-store
@@ -435,7 +447,7 @@ jobs:
           # TARGET tells prepare-sidecar.mjs which architecture's sidecars
           # to download (critical for cross-arch builds like x64 on arm64 mac).
           TARGET: ${{ matrix.target_triple }}
-        run: pnpm --filter @legalwork/desktop build:electron
+        run: pnpm --filter @legalwork/desktop build:electron:production
 
       - name: Package Electron (macOS, signed + notarized)
         if: matrix.os_type == 'macos' && env.MACOS_NOTARIZE == 'true'
@@ -601,12 +613,13 @@ jobs:
 
   publish-electron-assets:
     name: Publish Electron Assets
-    needs: [resolve-release, verify-release, publish-electron]
+    needs: [resolve-release, verify-release, publish-electron, opencode-engine]
     if: |
       always() &&
       needs.resolve-release.outputs.build_electron == 'true' &&
       needs.resolve-release.result == 'success' &&
       needs.verify-release.result == 'success' &&
+      needs.opencode-engine.result == 'success' &&
       needs.publish-electron.result == 'success'
     runs-on: ubuntu-latest
     env:
@@ -636,126 +649,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/release/publish-electron-assets.mjs --manifests-only "${{ runner.temp }}/electron-dist" "$RELEASE_TAG"
 
-  release-orchestrator-sidecars:
-    name: Build + Upload legalwork-orchestrator Sidecars
-    needs: [resolve-release, verify-release]
-    if: needs.resolve-release.outputs.publish_sidecars == 'true'
-    runs-on: ubuntu-latest
-    env:
-      RELEASE_TAG: ${{ needs.resolve-release.outputs.release_tag }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          ref: ${{ env.RELEASE_TAG }}
-          fetch-depth: 0
-
-      - name: Setup Node
-        uses: actions/setup-node@v6
-        with:
-          node-version: 24.22.1
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 11.4.0
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v1
-        with:
-          bun-version: "1.4.2"
-
-      - name: Get pnpm store path
-        id: pnpm-store
-        shell: bash
-        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
-
-      - name: Cache pnpm store
-        uses: actions/cache@v5
-        continue-on-error: true
-        with:
-          path: ${{ steps.pnpm-store.outputs.path }}
-          key: ubuntu-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: |
-            ubuntu-pnpm-
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile --prefer-offline
-
-      - name: Stamp release version from tag
-        shell: bash
-        run: |
-          node scripts/release/apply-version.mjs --tag "$RELEASE_TAG"
-          pnpm install --lockfile-only --no-frozen-lockfile
-
-      - name: Resolve sidecar versions
-        id: sidecar-versions
-        shell: bash
-        run: |
-          node -e "const fs=require('fs'); const orchestrator=JSON.parse(fs.readFileSync('apps/orchestrator/package.json','utf8')); const server=JSON.parse(fs.readFileSync('apps/server/package.json','utf8')); const opencodeRouter=JSON.parse(fs.readFileSync('apps/opencode-router/package.json','utf8')); console.log('orchestrator=' + orchestrator.version); console.log('server=' + server.version); console.log('opencodeRouter=' + opencodeRouter.version);" >> "$GITHUB_OUTPUT"
-
-      - name: Resolve SOURCE_DATE_EPOCH
-        id: source-date
-        shell: bash
-        run: |
-          epoch=$(git show -s --format=%ct "${RELEASE_TAG}")
-          echo "epoch=$epoch" >> "$GITHUB_OUTPUT"
-
-      - name: Check legalwork-orchestrator release
-        id: orchestrator-release
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          tag="legalwork-orchestrator-v${{ steps.sidecar-versions.outputs.orchestrator }}"
-          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Build orchestrator release artifacts
-        env:
-          SOURCE_DATE_EPOCH: ${{ steps.source-date.outputs.epoch }}
-        run: |
-          pnpm --filter legalwork-orchestrator build:bin:all
-          pnpm --filter legalwork-orchestrator build:sidecars
-
-      - name: Release review (strict)
-        env:
-          SOURCE_DATE_EPOCH: ${{ steps.source-date.outputs.epoch }}
-        run: node scripts/release/review.mjs --strict
-
-      - name: Create legalwork-orchestrator release
-        if: steps.orchestrator-release.outputs.exists != 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          version="${{ steps.sidecar-versions.outputs.orchestrator }}"
-          tag="legalwork-orchestrator-v${version}"
-          notes="Sidecar bundle for legalwork-orchestrator v${version}.\n\nlegalwork-server: ${{ steps.sidecar-versions.outputs.server }}\nopencodeRouter: ${{ steps.sidecar-versions.outputs.opencodeRouter }}"
-          gh release create "$tag" \
-            --repo "$GITHUB_REPOSITORY" \
-            --title "legalwork-orchestrator v${version}" \
-            --notes "$notes" \
-            --latest=false
-
-      - name: Upload orchestrator release assets
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          tag="legalwork-orchestrator-v${{ steps.sidecar-versions.outputs.orchestrator }}"
-          gh release upload "$tag" apps/orchestrator/dist/bin/* apps/orchestrator/dist/sidecars/* --repo "$GITHUB_REPOSITORY" --clobber
-
   publish-npm:
     name: Publish npm packages
-    needs: [resolve-release, verify-release, release-orchestrator-sidecars]
+    needs: [resolve-release, verify-release, opencode-engine]
     if: |
       always() &&
       needs.resolve-release.result == 'success' &&
       needs.verify-release.result == 'success' &&
-      (needs.release-orchestrator-sidecars.result == 'success' || needs.release-orchestrator-sidecars.result == 'skipped') &&
+      needs.opencode-engine.result == 'success' &&
       needs.resolve-release.outputs.publish_npm == 'true'
     runs-on: ubuntu-latest
     env:
@@ -774,6 +675,29 @@ jobs:
         with:
           node-version: 24.22.1
 
+      - name: Require package build sources to match the requested release
+        shell: bash
+        run: |
+          # Recovery publication tools may come from the workflow commit, but
+          # engine and server build inputs must match the signed producer's tag.
+          if ! git diff --quiet "$RELEASE_TAG" -- package.json pnpm-lock.yaml pnpm-workspace.yaml constants.json packages docs/patches apps/server apps/orchestrator/package.json apps/orchestrator/tsconfig.json apps/orchestrator/src apps/orchestrator/script 'apps/orchestrator/scripts/build*' apps/orchestrator/scripts/clean-dist.mjs; then
+            echo 'Release recovery source differs from the requested tag. Use matching engine/server build sources; publisher tooling alone may differ.' >&2
+            exit 1
+          fi
+
+      - name: Download the same-run source-built engine
+        uses: actions/download-artifact@v4
+        with:
+          name: opencode-derivative-ci
+          path: ${{ runner.temp }}/opencode-derivative
+      - name: Verify and prepare the production engine
+        uses: ./.github/actions/setup-opencode
+        with:
+          build-mode: production
+          archive-directory: ${{ runner.temp }}/opencode-derivative/archives
+          manifest-sha256: ${{ needs.opencode-engine.outputs.manifest-sha256 }}
+
+
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
@@ -782,7 +706,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v1
         with:
-          bun-version: "1.4.2"
+          bun-version: "1.4.4"
 
       - name: Get pnpm store path
         id: pnpm-store
@@ -811,7 +735,7 @@ jobs:
         id: package-versions
         shell: bash
         run: |
-          node -e "const fs=require('fs'); const orchestrator=JSON.parse(fs.readFileSync('apps/orchestrator/package.json','utf8')); const server=JSON.parse(fs.readFileSync('apps/server/package.json','utf8')); const opencodeRouter=JSON.parse(fs.readFileSync('apps/opencode-router/package.json','utf8')); console.log('orchestrator=' + orchestrator.version); console.log('server=' + server.version); console.log('opencodeRouter=' + opencodeRouter.version);" >> "$GITHUB_OUTPUT"
+          node -e "const fs=require('fs'); const orchestrator=JSON.parse(fs.readFileSync('apps/orchestrator/package.json','utf8')); const server=JSON.parse(fs.readFileSync('apps/server/package.json','utf8')); console.log('orchestrator=' + orchestrator.version); console.log('server=' + server.version);" >> "$GITHUB_OUTPUT"
 
       - name: Check npm versions
         id: npm-versions
@@ -819,14 +743,12 @@ jobs:
         env:
           ORCHESTRATOR_VERSION: ${{ steps.package-versions.outputs.orchestrator }}
           SERVER_VERSION: ${{ steps.package-versions.outputs.server }}
-          OPENCODE_ROUTER_VERSION: ${{ steps.package-versions.outputs.opencodeRouter }}
         run: |
           set -euo pipefail
           # npm view exits non-zero for packages that don't exist yet (404).
           # Treat missing packages as "not published" so release can publish them.
           orchestrator_current="$(npm view legalwork-orchestrator version 2>/dev/null || true)"
           server_current="$(npm view legalwork-server version 2>/dev/null || true)"
-          opencodeRouter_current="$(npm view opencode-router version 2>/dev/null || true)"
 
           if [ "$orchestrator_current" = "$ORCHESTRATOR_VERSION" ]; then
             echo "publish_orchestrator=false" >> "$GITHUB_OUTPUT"
@@ -840,14 +762,8 @@ jobs:
             echo "publish_server=true" >> "$GITHUB_OUTPUT"
           fi
 
-          if [ "$opencodeRouter_current" = "$OPENCODE_ROUTER_VERSION" ]; then
-            echo "publish_opencodeRouter=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "publish_opencodeRouter=true" >> "$GITHUB_OUTPUT"
-          fi
-
           publish_any=false
-          if [ "$orchestrator_current" != "$ORCHESTRATOR_VERSION" ] || [ "$server_current" != "$SERVER_VERSION" ] || [ "$opencodeRouter_current" != "$OPENCODE_ROUTER_VERSION" ]; then
+          if [ "$orchestrator_current" != "$ORCHESTRATOR_VERSION" ] || [ "$server_current" != "$SERVER_VERSION" ]; then
             publish_any=true
           fi
           echo "publish_any=$publish_any" >> "$GITHUB_OUTPUT"
@@ -879,10 +795,6 @@ jobs:
         if: steps.npm-auth.outputs.enabled == 'true' && steps.npm-versions.outputs.publish_server == 'true'
         run: pnpm --filter legalwork-server publish --access public --no-git-checks
 
-      - name: Publish opencode-router
-        if: steps.npm-auth.outputs.enabled == 'true' && steps.npm-versions.outputs.publish_opencodeRouter == 'true'
-        run: pnpm --filter opencode-router publish --access public --no-git-checks
-
       - name: Publish legalwork-orchestrator
         if: steps.npm-auth.outputs.enabled == 'true' && steps.npm-versions.outputs.publish_orchestrator == 'true'
         env:
@@ -890,30 +802,27 @@ jobs:
           ORCHESTRATOR_VERSION: ${{ steps.package-versions.outputs.orchestrator }}
         run: |
           set -euo pipefail
-          tag="legalwork-orchestrator-v${ORCHESTRATOR_VERSION}"
-          if ! gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "legalwork-orchestrator sidecar release $tag not found. Publish sidecars before legalwork-orchestrator." >&2
-            exit 1
-          fi
+          export SOURCE_DATE_EPOCH="$(git show -s --format=%ct "$RELEASE_TAG")"
           pnpm --filter legalwork-orchestrator build:bin:all
+          pnpm --filter legalwork-orchestrator build:sidecars
           node apps/orchestrator/scripts/publish-npm.mjs
 
   publish-release:
     name: Publish GitHub Release
     needs:
+      - opencode-engine
       - resolve-release
       - verify-release
       - publish-electron
       - publish-electron-assets
-      - release-orchestrator-sidecars
       - publish-npm
     if: |
       always() &&
       needs.resolve-release.result == 'success' &&
       needs.verify-release.result == 'success' &&
+      needs.opencode-engine.result == 'success' &&
       (needs.publish-electron.result == 'success' || needs.publish-electron.result == 'skipped') &&
       (needs.publish-electron-assets.result == 'success' || needs.publish-electron-assets.result == 'skipped') &&
-      (needs.release-orchestrator-sidecars.result == 'success' || needs.release-orchestrator-sidecars.result == 'skipped') &&
       (needs.publish-npm.result == 'success' || needs.publish-npm.result == 'skipped')
     runs-on: ubuntu-latest
     env:

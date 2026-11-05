@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { mkdtemp, mkdir, writeFile, readFile, readdir, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { WorkspaceInfo } from "../types.js";
+import type { Actor, WorkspaceInfo } from "../types.js";
 import { DocumentPreparation } from "../document-preparation/service.js";
 import { OcrService } from "../ocr/service.js";
 import { OcrManager } from "../ocr/manager.js";
@@ -17,6 +17,7 @@ import { builtinReviewLibrary } from "./builtin-library.js";
 import { CreateReviewSchema, EditReviewSchema, QueryReviewResultsSchema, SavedReviewSchema } from "./schema.js";
 import { prepareInput } from "../document-preparation/service.js";
 
+const actor: Actor = { type: "remote", scope: "owner", clientId: "review-service-test" };
 const roots: string[] = [];
 const services: ReviewService[] = [];
 test("review creation, editing, saved state, filtering and preparation accept more than 100 documents", () => {
@@ -65,9 +66,17 @@ test("saved reviews survive restart, create retries deduplicate, and revisions r
   expect((await new ReviewStore(f.root).read(review.id)).name).toBe("Changed");
 });
 
+test("review starts require the verified initiating actor before queueing any work", async () => {
+  const f = await fixture(), review = await f.create();
+  for (const actor of [{ type: "host" }, { type: "remote", scope: "viewer" }] satisfies Actor[])
+    await expect(f.service.start(f.workspace, review.id, { revision: review.revision, scope: "owner" }, actor)).rejects.toMatchObject({ code: "review_actor_required" });
+  expect(f.calls).toHaveLength(0);
+  expect((await f.service.get(f.workspace, review.id)).status).toBe("draft");
+});
+
 test("deleting a review removes results and history, expires result pages, and keeps sources and other reviews", async () => {
   const f = await fixture(), review = await f.create(), other = await f.create();
-  await f.service.start(f.workspace, review.id, { revision: review.revision });
+  await f.service.start(f.workspace, review.id, { revision: review.revision }, actor);
   const finished = await settled(f.service, f.workspace, review.id);
   const page = await f.service.queryResults(f.workspace, review.id, { view: "evidence", limit: 1 });
   expect(page.nextCursor).not.toBeNull();
@@ -85,7 +94,7 @@ test("deleting rejects a stale revision and an active run; a stopped review can 
   const changed = await f.service.edit(f.workspace, review.id, { revision: review.revision, name: "Changed" });
   await expect(f.service.remove(f.workspace, review.id, review.revision)).rejects.toThrow("changed");
   f.hold();
-  await f.service.start(f.workspace, review.id, { revision: changed.revision });
+  await f.service.start(f.workspace, review.id, { revision: changed.revision }, actor);
   await waitFor(() => f.calls.length === 1);
   const running = await f.service.get(f.workspace, review.id);
   await expect(f.service.remove(f.workspace, review.id, running.revision)).rejects.toThrow("Stop the review");
@@ -138,7 +147,7 @@ test("saved builtin prompts gain fallback options once, preserve results as stal
 test("legacy low-probability results are flagged on load and raising the user threshold takes effect", async () => {
   const f = await fixture(), store = new ReviewStore(f.root);
   let review = await f.create();
-  await f.service.start(f.workspace, review.id, { revision: review.revision });
+  await f.service.start(f.workspace, review.id, { revision: review.revision }, actor);
   review = await settled(f.service, f.workspace, review.id);
   await store.update(review.id, current => {
     const cell = current.cells[0];
@@ -162,7 +171,7 @@ test("legacy low-probability results are flagged on load and raising the user th
 test("changing which pages are read with OCR marks PDF answers stale and leaves other documents alone", async () => {
   const f = await fixture(), store = new ReviewStore(f.root);
   let review = await f.create();
-  await f.service.start(f.workspace, review.id, { revision: review.revision });
+  await f.service.start(f.workspace, review.id, { revision: review.revision }, actor);
   review = await settled(f.service, f.workspace, review.id);
   const answered = review.cells[0].status;
   expect(answered).not.toBe("stale");
@@ -197,7 +206,7 @@ test("mixed reviews share sixteen cell workers across backends and queue a third
   } });
   const columns = Array.from({ length: 8 }, (_, i): ReviewColumn => ({ ...column, key: `c${i}`, kind: i < 4 ? "yes_no" : "text" }));
   const reviews = await Promise.all(Array.from({ length: 3 }, () => f.service.create(f.workspace, { requestId: randomUUID(), name: "Concurrent", files: ["contract.md"], columns })));
-  await Promise.all(reviews.map(review => f.service.start(f.workspace, review.id, { revision: review.revision })));
+  await Promise.all(reviews.map(review => f.service.start(f.workspace, review.id, { revision: review.revision }, actor)));
   await waitFor(() => active.systemone + active.llm === 16);
   const snapshots = await Promise.all(reviews.map(review => f.service.get(f.workspace, review.id)));
   expect(snapshots.every(review => review.status === "running")).toBe(true);
@@ -220,7 +229,7 @@ test("parallel cancellation drains running cells, removes queued cells/documents
   await writeFile(join(f.root, "second.md"), "Assignment is allowed.");
   const columns = ["finished", "waiting1", "waiting2", "queued"].map(key => ({ ...column, key }));
   let review = await f.service.create(f.workspace, { requestId: randomUUID(), name: "Cancel", files: ["contract.md", "second.md"], columns });
-  await f.service.start(f.workspace, review.id, { revision: review.revision });
+  await f.service.start(f.workspace, review.id, { revision: review.revision }, actor);
   await waitFor(() => running.size === 2);
   await f.service.cancel(f.workspace, review.id); review = await settled(f.service, f.workspace, review.id);
   expect(review.status).toBe("cancelled"); expect(f.calls).toHaveLength(3);
@@ -228,7 +237,7 @@ test("parallel cancellation drains running cells, removes queued cells/documents
   expect(review.cells.filter(cell => cell.status === "pending")).toHaveLength(7);
   const saved = review.cells.find(cell => cell.status === "complete")!.result;
   block = false;
-  await f.service.start(f.workspace, review.id, { revision: review.revision });
+  await f.service.start(f.workspace, review.id, { revision: review.revision }, actor);
   review = await settled(f.service, f.workspace, review.id);
   expect(review.status).toBe("complete"); expect(f.calls).toHaveLength(10);
   expect(review.cells[0].result).toEqual(saved);
@@ -241,7 +250,7 @@ test("one cell failure does not cancel siblings or finalize before their results
     siblingRunning = true; await gate.promise;
   } });
   const review = await f.service.create(f.workspace, { requestId: randomUUID(), name: "Partial", files: ["contract.md"], columns: [{ ...column, key: "bad" }, { ...column, key: "good" }] });
-  await f.service.start(f.workspace, review.id, { revision: review.revision });
+  await f.service.start(f.workspace, review.id, { revision: review.revision }, actor);
   await waitFor(() => siblingRunning);
   expect((await f.service.get(f.workspace, review.id)).status).toBe("running");
   gate.release(); const final = await settled(f.service, f.workspace, review.id);
@@ -257,20 +266,20 @@ test("JEV-only configuration runs decisions and blocks every LLM extraction type
     return { ...column, key: kind, kind, options: kind === "multi_select" ? ["A", "B"] : [] };
   });
   let review = await f.service.create(f.workspace, { requestId: randomUUID(), name: "JEV available", files: ["contract.md"], columns: [column, ...extraction] });
-  const started = await f.service.start(f.workspace, review.id, { revision: review.revision });
+  const started = await f.service.start(f.workspace, review.id, { revision: review.revision }, actor);
   expect(started.cells.filter(cell => cell.status === "blocked")).toHaveLength(6);
   review = await settled(f.service, f.workspace, review.id);
   expect(f.calls.map(call => call.column.key)).toEqual([column.key]);
   expect(review.cells.slice(1).every(cell => cell.status === "blocked" && cell.blockedBy === "llm")).toBe(true);
   // A changed source must not bypass the availability gate.
   await writeFile(join(f.root, "contract.md"), "Assignment now requires approval.");
-  await f.service.start(f.workspace, review.id, { revision: review.revision }); review = await settled(f.service, f.workspace, review.id);
+  await f.service.start(f.workspace, review.id, { revision: review.revision }, actor); review = await settled(f.service, f.workspace, review.id);
   expect(f.calls).toHaveLength(2); expect(review.cells.slice(1).every(cell => cell.status === "blocked")).toBe(true);
   // Connecting the missing backend resumes blocked cells without rerunning JEV.
   capabilities.settings.llm = caps.settings.llm; capabilities.models = caps.models;
   await f.service.saveSettings(f.workspace, caps.settings, review.id, review.revision);
   review = await f.service.get(f.workspace, review.id);
-  await f.service.start(f.workspace, review.id, { revision: review.revision }); review = await settled(f.service, f.workspace, review.id);
+  await f.service.start(f.workspace, review.id, { revision: review.revision }, actor); review = await settled(f.service, f.workspace, review.id);
   expect(review.status).toBe("complete"); expect(f.calls).toHaveLength(8);
 });
 
@@ -278,9 +287,9 @@ test("a saved but disconnected LLM is blocked and a selected JEV column can stil
   const capabilities = structuredClone(caps); capabilities.models = capabilities.models.filter(model => model.backend === "systemone");
   const f = await fixture({ capabilities });
   let review = await f.service.create(f.workspace, { requestId: randomUUID(), name: "Disconnected LLM", files: ["contract.md"], columns: [column, { ...column, key: "text", kind: "text" }] });
-  await expect(f.service.start(f.workspace, review.id, { revision: review.revision, columnKeys: ["text"] })).rejects.toThrow("required by these columns");
+  await expect(f.service.start(f.workspace, review.id, { revision: review.revision, columnKeys: ["text"] }, actor)).rejects.toThrow("required by these columns");
   expect(f.calls).toHaveLength(0);
-  await f.service.start(f.workspace, review.id, { revision: review.revision }); review = await settled(f.service, f.workspace, review.id);
+  await f.service.start(f.workspace, review.id, { revision: review.revision }, actor); review = await settled(f.service, f.workspace, review.id);
   expect(review.cells.map(cell => cell.status)).toEqual(["complete", "blocked"]);
   expect(f.calls).toHaveLength(1);
 });
@@ -291,29 +300,29 @@ test("switching a mixed table to Only JEV retains incompatible columns but never
   await f.service.saveSettings(f.workspace, { ...caps.settings, mode: "jev" }, review.id, review.revision);
   review = await f.service.get(f.workspace, review.id);
   expect(review.columns).toEqual(columns);
-  await expect(f.service.start(f.workspace, review.id, { revision: review.revision, columnKeys: ["text"] })).rejects.toThrow("Only JEV mode");
+  await expect(f.service.start(f.workspace, review.id, { revision: review.revision, columnKeys: ["text"] }, actor)).rejects.toThrow("Only JEV mode");
   expect(f.calls).toHaveLength(0);
   // Retained inactive columns must not prevent reordering or removing columns.
   review = await f.service.edit(f.workspace, review.id, { revision: review.revision, columns: [...columns].reverse() });
-  await f.service.start(f.workspace, review.id, { revision: review.revision });
+  await f.service.start(f.workspace, review.id, { revision: review.revision }, actor);
   review = await settled(f.service, f.workspace, review.id);
   expect(f.calls.map(call => call.column.key)).toEqual([column.key]);
   expect(review.cells.filter(cell => cell.columnKey !== column.key).every(cell => cell.status === "blocked" && cell.blockedBy === "jev_mode")).toBe(true);
   // Availability is irrelevant: even a configured LLM cannot bypass Only JEV.
   await writeFile(join(f.root, "contract.md"), "Assignment now requires approval.");
-  await f.service.start(f.workspace, review.id, { revision: review.revision });
+  await f.service.start(f.workspace, review.id, { revision: review.revision }, actor);
   review = await settled(f.service, f.workspace, review.id);
   expect(f.calls).toHaveLength(2);
   await f.service.saveSettings(f.workspace, caps.settings, review.id, review.revision);
   review = await f.service.get(f.workspace, review.id);
   expect(review.cells.filter(cell => cell.columnKey !== column.key).every(cell => cell.status === "pending" && !cell.blockedBy)).toBe(true);
-  await f.service.start(f.workspace, review.id, { revision: review.revision });
+  await f.service.start(f.workspace, review.id, { revision: review.revision }, actor);
   review = await settled(f.service, f.workspace, review.id);
   expect(review.status).toBe("complete"); expect(f.calls).toHaveLength(4);
   const saved = review.cells.find(cell => cell.columnKey === "text")!.result;
   await f.service.saveSettings(f.workspace, { ...caps.settings, mode: "jev" }, review.id, review.revision);
   review = await f.service.get(f.workspace, review.id);
-  await f.service.start(f.workspace, review.id, { revision: review.revision, rerun: true });
+  await f.service.start(f.workspace, review.id, { revision: review.revision, rerun: true }, actor);
   review = await settled(f.service, f.workspace, review.id);
   expect(f.calls).toHaveLength(5);
   expect(review.cells.find(cell => cell.columnKey === "text")!.result).toEqual(saved);
@@ -337,20 +346,20 @@ test("Only JEV rejects explicit free-text instructions relabeled as yes/no or cl
 test("runs cells once, keeps prompt snapshots, rejects stale sources, and reruns just the selected column", async () => {
   const f = await fixture(); let review = await f.create();
   review = await f.service.edit(f.workspace, review.id, { revision: review.revision, columns: [column, { ...column, key: "other" }] });
-  await f.service.start(f.workspace, review.id, { revision: review.revision }); review = await settled(f.service, f.workspace, review.id);
+  await f.service.start(f.workspace, review.id, { revision: review.revision }, actor); review = await settled(f.service, f.workspace, review.id);
   expect(review.status).toBe("complete"); expect(f.calls).toHaveLength(2);
   expect(review.cells[0].result?.prompt).toEqual(column);
   const oldHash = review.cells[1].result!.sourceHash;
   await writeFile(join(f.root, "contract.md"), "Assignment is forbidden.");
   await expect(f.service.verifySource(f.workspace, review.id, review.documents[0].id)).rejects.toThrow("changed");
   review = await f.service.get(f.workspace, review.id); expect(review.cells.every(cell => cell.status === "stale")).toBe(true);
-  await f.service.start(f.workspace, review.id, { revision: review.revision, columnKeys: [column.key], rerun: true }); review = await settled(f.service, f.workspace, review.id);
+  await f.service.start(f.workspace, review.id, { revision: review.revision, columnKeys: [column.key], rerun: true }, actor); review = await settled(f.service, f.workspace, review.id);
   expect(f.calls).toHaveLength(3); expect(review.cells[0].status).toBe("complete"); expect(review.cells[1].status).toBe("stale");
   await expect(f.service.verifySource(f.workspace, review.id, review.documents[0].id, oldHash)).rejects.toThrow("changed");
 });
 test("concurrent starts deduplicate, running reviews cannot be edited, cancellation preserves progress", async () => {
   const f = await fixture(); f.hold(); const review = await f.create();
-  const [a, b] = await Promise.all([f.service.start(f.workspace, review.id, { revision: review.revision }), f.service.start(f.workspace, review.id, { revision: review.revision })]);
+  const [a, b] = await Promise.all([f.service.start(f.workspace, review.id, { revision: review.revision }, actor), f.service.start(f.workspace, review.id, { revision: review.revision }, actor)]);
   expect(a.runId).toBe(b.runId);
   await expect(f.service.edit(f.workspace, review.id, { revision: a.revision, name: "No" })).rejects.toThrow("Stop");
   for (let i = 0; i < 100 && !f.calls.length; i++) await Bun.sleep(10);
@@ -386,7 +395,7 @@ test("a multi-document review pins one OCR configuration even when defaults chan
     return { value: "Yes", reason: "", citations: [], confidence: null, evidence: "uncited", backend: "systemone", providerId: "firm", model: "jev", requestedModel: "jev", sourceHash: evidence.hash, preparationPath: evidence.preparationPath, prompt, completedAt: Date.now(), chunks: [] };
   } }, preparation, new ReviewDefaults(join(root, "app-state"))); services.push(service);
   const review = await service.create(workspace, { requestId: randomUUID(), name: "Pinned OCR", files: ["one.png", "two.png"], columns: [column] });
-  await service.start(workspace, review.id, { revision: review.revision });
+  await service.start(workspace, review.id, { revision: review.revision }, actor);
   expect((await settled(service, workspace, review.id)).status).toBe("complete");
   expect(snapshots).toBe(1); expect(recognized).toEqual(["A", "A"]); expect(inferred).toEqual(["Recognized with A", "Recognized with A"]);
 });
@@ -394,10 +403,10 @@ test("a multi-document review pins one OCR configuration even when defaults chan
 test("empty drafts accept files later, preserve existing results, and refuse to run without documents", async () => {
   const f = await fixture();
   let review = await f.service.create(f.workspace, { requestId: randomUUID(), name: "New review", files: [], columns: [column] });
-  await expect(f.service.start(f.workspace, review.id, { revision: review.revision })).rejects.toThrow("Add a document");
+  await expect(f.service.start(f.workspace, review.id, { revision: review.revision }, actor)).rejects.toThrow("Add a document");
   review = await f.service.edit(f.workspace, review.id, { revision: review.revision, files: ["contract.md"] });
   expect(review.documents).toHaveLength(1); expect(review.cells).toHaveLength(1);
-  await f.service.start(f.workspace, review.id, { revision: review.revision }); review = await settled(f.service, f.workspace, review.id);
+  await f.service.start(f.workspace, review.id, { revision: review.revision }, actor); review = await settled(f.service, f.workspace, review.id);
   const result = review.cells[0].result;
   await writeFile(join(f.root, "second.txt"), "Assignment is permitted.");
   review = await f.service.edit(f.workspace, review.id, { revision: review.revision, files: ["contract.md", "second.txt"] });
@@ -408,12 +417,12 @@ test("agent review creation and first start retain the original session across r
   const f = await fixture();
   const created = await f.service.create(f.workspace, { requestId: randomUUID(), name: "Agent review", files: ["contract.md"], columns: [column], sessionId: "origin" });
   expect(created.sessionId).toBe("origin");
-  const running = await f.service.start(f.workspace, created.id, { revision: created.revision, sessionId: "later-session" });
+  const running = await f.service.start(f.workspace, created.id, { revision: created.revision, sessionId: "later-session" }, actor);
   expect(running.sessionId).toBe("origin");
   await settled(f.service, f.workspace, created.id);
   const manual = await f.create();
   expect(manual.sessionId).toBeNull();
-  expect((await f.service.start(f.workspace, manual.id, { revision: manual.revision, sessionId: "started-here" })).sessionId).toBe("started-here");
+  expect((await f.service.start(f.workspace, manual.id, { revision: manual.revision, sessionId: "started-here" }, actor)).sessionId).toBe("started-here");
   await settled(f.service, f.workspace, manual.id);
 });
 
@@ -423,13 +432,13 @@ for (const mode of ["rerun", "reprocess", "changed source"]) test(`${mode} clear
   const f = await fixture({ beforeExecute: async () => { if (pause) await gate.promise; } });
   await writeFile(join(f.root, "second.md"), "Assignment is allowed.");
   let review = await f.service.create(f.workspace, { requestId: randomUUID(), name: "Rerun", files: ["contract.md", "second.md"], columns: [column, { ...column, key: "other" }] });
-  await f.service.start(f.workspace, review.id, { revision: review.revision });
+  await f.service.start(f.workspace, review.id, { revision: review.revision }, actor);
   review = await settled(f.service, f.workspace, review.id);
   const previous = structuredClone(review.cells), documentId = review.documents[0].id;
   if (mode === "changed source") await writeFile(join(f.root, "contract.md"), "Assignment now requires prior consent.");
   pause = true;
   try {
-    const started = await f.service.start(f.workspace, review.id, { revision: review.revision, documentIds: [documentId], columnKeys: [column.key], rerun: mode === "rerun", reprocess: mode === "reprocess" });
+    const started = await f.service.start(f.workspace, review.id, { revision: review.revision, documentIds: [documentId], columnKeys: [column.key], rerun: mode === "rerun", reprocess: mode === "reprocess" }, actor);
     if (mode !== "changed source") expect(started.cells[0]).toMatchObject({ status: "queued", result: null });
     await waitFor(() => f.calls.length === 5);
     const running = await f.service.get(f.workspace, review.id);
@@ -447,11 +456,11 @@ test("failed and cancelled reruns do not restore the old answer", async () => {
     let fail = false;
     const f = await fixture({ beforeExecute: async () => { if (fail) throw new Error("Model unavailable"); } });
     let review = await f.create();
-    await f.service.start(f.workspace, review.id, { revision: review.revision });
+    await f.service.start(f.workspace, review.id, { revision: review.revision }, actor);
     review = await settled(f.service, f.workspace, review.id);
     expect(review.cells[0].result).not.toBeNull();
     if (outcome === "error") fail = true; else f.hold();
-    await f.service.start(f.workspace, review.id, { revision: review.revision, rerun: true });
+    await f.service.start(f.workspace, review.id, { revision: review.revision, rerun: true }, actor);
     await waitFor(() => f.calls.length === 2);
     if (outcome === "cancelled") await f.service.cancel(f.workspace, review.id);
     const finished = await settled(f.service, f.workspace, review.id);
@@ -464,7 +473,7 @@ test("retry failed cells preserves successful and uncertain answers and does not
   let fail = true;
   const f = await fixture({ beforeExecute: async (_review, question) => { if (fail && question.key === "failed") throw new Error("Provider unavailable"); } });
   let review = await f.service.create(f.workspace, { requestId: randomUUID(), name: "Recovery", files: ["contract.md"], columns: [column, { ...column, key: "uncertain" }, { ...column, key: "failed" }, { ...column, key: "pending" }] });
-  await f.service.start(f.workspace, review.id, { revision: review.revision });
+  await f.service.start(f.workspace, review.id, { revision: review.revision }, actor);
   review = await settled(f.service, f.workspace, review.id);
   review = await new ReviewStore(f.root).update(review.id, current => {
     current.cells[1].status = "needs_review";
@@ -473,12 +482,12 @@ test("retry failed cells preserves successful and uncertain answers and does not
   });
   const kept = structuredClone(review.cells.slice(0, 2));
   const before = f.calls.length; fail = false;
-  await f.service.start(f.workspace, review.id, { revision: review.revision, retryFailed: true });
+  await f.service.start(f.workspace, review.id, { revision: review.revision, retryFailed: true }, actor);
   review = await settled(f.service, f.workspace, review.id);
   expect(f.calls.slice(before).map(call => call.column.key)).toEqual(["failed"]);
   expect(review.cells.slice(0, 2)).toEqual(kept);
   expect(review.cells[2].status).toBe("complete"); expect(review.cells[3].status).toBe("pending");
-  await f.service.start(f.workspace, review.id, { revision: review.revision });
+  await f.service.start(f.workspace, review.id, { revision: review.revision }, actor);
   review = await settled(f.service, f.workspace, review.id);
   expect(f.calls.slice(before).map(call => call.column.key)).toEqual(["failed", "pending"]);
   expect(review.cells.slice(0, 2)).toEqual(kept);
@@ -486,7 +495,7 @@ test("retry failed cells preserves successful and uncertain answers and does not
 
 test("restart recovery resets OCR state and resumes unfinished cells without repeating completed answers", async () => {
   const f = await fixture(); let review = await f.create();
-  await f.service.start(f.workspace, review.id, { revision: review.revision });
+  await f.service.start(f.workspace, review.id, { revision: review.revision }, actor);
   review = await settled(f.service, f.workspace, review.id);
   // A terminal status can precede history archival and runner cleanup. Finish
   // shutdown before writing the interrupted state that a new process would load.
@@ -500,7 +509,7 @@ test("restart recovery resets OCR state and resumes unfinished cells without rep
   const recovered = await f.service.get(f.workspace, review.id);
   expect(recovered.status).toBe("interrupted"); expect(recovered.documents[0].status).toBe("pending");
   expect(recovered.cells[1].status).toBe("pending");
-  await f.service.start(f.workspace, review.id, { revision: recovered.revision });
+  await f.service.start(f.workspace, review.id, { revision: recovered.revision }, actor);
   review = await settled(f.service, f.workspace, review.id);
   expect(review.cells[0]).toEqual(kept); expect(review.cells[1].status).toBe("complete");
   expect(f.calls.map(call => call.column.key)).toEqual(["assign", "second"]);
@@ -512,7 +521,7 @@ test("a review a colleague's computer runs is watched here: not interrupted, run
   const watched = await f.service.get(f.workspace, review.id);
   expect(watched.status).toBe("running");
   for (const attempt of [
-    () => f.service.start(f.workspace, review.id, { revision: watched.revision }),
+    () => f.service.start(f.workspace, review.id, { revision: watched.revision }, actor),
     () => f.service.edit(f.workspace, review.id, { revision: watched.revision, name: "Changed" }),
     () => f.service.cancel(f.workspace, review.id),
     () => f.service.remove(f.workspace, review.id, watched.revision),
@@ -523,7 +532,7 @@ test("a review a colleague's computer runs is watched here: not interrupted, run
   const over = await f.service.get(f.workspace, review.id);
   expect(over.status).toBe("interrupted");
   expect(over.runner).toBeNull();
-  await f.service.start(f.workspace, over.id, { revision: over.revision });
+  await f.service.start(f.workspace, over.id, { revision: over.revision }, actor);
   expect((await settled(f.service, f.workspace, review.id)).status).toBe("complete");
 });
 
@@ -533,8 +542,8 @@ test("wait joins multiple started reviews, reports missing IDs and never starts 
   const f = await fixture({ beforeExecute: async () => { await gate; } });
   const first = await f.create();
   const second = await f.create();
-  await f.service.start(f.workspace, first.id, { revision: first.revision });
-  await f.service.start(f.workspace, second.id, { revision: second.revision });
+  await f.service.start(f.workspace, first.id, { revision: first.revision }, actor);
+  await f.service.start(f.workspace, second.id, { revision: second.revision }, actor);
   const immediate = await f.service.wait(f.workspace, { reviewIds: [first.id, second.id], waitSeconds: 0 });
   expect(immediate.settled).toBe(false); expect(immediate.timedOut).toBe(true);
   let settled = false;
@@ -556,7 +565,7 @@ test("wait joins multiple started reviews, reports missing IDs and never starts 
 
 test("waiting responds to cancellation without stopping the underlying review", async () => {
   const f = await fixture(); f.hold();
-  const review = await f.create(); await f.service.start(f.workspace, review.id, { revision: review.revision });
+  const review = await f.create(); await f.service.start(f.workspace, review.id, { revision: review.revision }, actor);
   const controller = new AbortController();
   const waiting = f.service.wait(f.workspace, { reviewIds: [review.id], waitSeconds: 25 }, controller.signal);
   controller.abort();
@@ -571,7 +580,7 @@ test("a complete document class with more than 100 files runs as one review", as
   }
   const review = await f.service.create(f.workspace, { requestId: randomUUID(), name: "Entire class", files, columns: [column] });
   expect(review.documents).toHaveLength(101);
-  await f.service.start(f.workspace, review.id, { revision: review.revision });
+  await f.service.start(f.workspace, review.id, { revision: review.revision }, actor);
   const done = await f.service.wait(f.workspace, { reviewIds: [review.id], waitSeconds: 25 });
   expect(done.settled).toBe(true); expect(done.reviews[0]).toMatchObject({ documents: 101, completed: 101, total: 101, status: "complete" });
   expect(f.calls).toHaveLength(101);

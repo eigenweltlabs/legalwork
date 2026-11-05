@@ -14,7 +14,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { t } from "@/i18n";
 import type { PendingPermission } from "@/app/types";
-import { networkApprovalContent } from "./network-approval-content";
+import { networkApprovalContent, rawNetworkApprovalText } from "./network-approval-content";
 import { InteractionSource } from "./interaction-source";
 
 type PermissionPresentation = {
@@ -496,6 +496,16 @@ export function PermissionApprovalPanel(props: PermissionApprovalModalProps) {
               {network.omitted > 0 ? <p className="mt-1.5 text-dls-secondary">{t("sandbox.approval_more_details")}</p> : null}
             </div> : null}
             <p className="text-[11px] leading-5 text-dls-secondary">{network.context} {t("sandbox.approval_once")}</p>
+            {host?.network?.complete ? <div className="space-y-2">
+              <p className="text-dls-secondary">{t("sandbox.approval_complete_review")}</p>
+              <Button type="button" variant="outline" size="sm" onClick={() => {
+                if (!host.network) return;
+                const url = URL.createObjectURL(new Blob([rawNetworkApprovalText(host.network)], { type: "text/plain;charset=utf-8" }));
+                const link = document.createElement("a"); link.href = url; link.download = `http-request-${host.network.sha256}.txt`; link.click();
+                window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+              }}>{t("sandbox.approval_download_request")}</Button>
+              <p className="break-all font-mono text-[11px] text-dls-secondary">SHA-256: {host.network.sha256}</p>
+            </div> : null}
           </div> : <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
             <div>
               <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-dls-secondary">

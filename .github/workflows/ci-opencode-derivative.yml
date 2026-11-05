@@ -1,0 +1,153 @@
+name: Build reviewed OpenCode engine for platform acceptance
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: Exact reviewed source ref; defaults to the caller's commit
+        type: string
+        default: ''
+      build-mode:
+        description: Explicit development or production source build intent
+        type: string
+        required: true
+      reuse-run-id:
+        description: Optional original same-repository Actions producer run
+        type: string
+        default: ''
+      reuse-manifest-sha256:
+        description: Independent digest required with reuse-run-id
+        type: string
+        default: ''
+    secrets:
+      APPLE_CODESIGN_CERT_P12_BASE64:
+        required: false
+      APPLE_CODESIGN_CERT_PASSWORD:
+        required: false
+    outputs:
+      manifest-sha256:
+        description: Independent digest of the complete derivative distribution
+        value: ${{ jobs.build.outputs.manifest-sha256 }}
+permissions:
+  contents: read
+  actions: read
+jobs:
+  build:
+    runs-on: ${{ inputs.reuse-run-id != '' && 'ubuntu-latest' || 'macos-14' }}
+    timeout-minutes: 90
+    outputs:
+      manifest-sha256: ${{ steps.engine.outputs.manifest-sha256 || steps.reuse.outputs.manifest-sha256 }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24.22.1
+      - name: Validate explicit producer reuse inputs
+        id: mode
+        env:
+          BUILD_MODE: ${{ inputs.build-mode }}
+          BUILD_EVENT: ${{ github.event_name }}
+          BUILD_REPOSITORY: ${{ github.repository }}
+          REUSE_RUN_ID: ${{ inputs.reuse-run-id }}
+          REUSE_MANIFEST_SHA256: ${{ inputs.reuse-manifest-sha256 }}
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          assert.ok(['development', 'production'].includes(process.env.BUILD_MODE), 'An explicit development or production build-mode is required');
+          if (process.env.BUILD_MODE === 'production') {
+            assert.equal(process.env.BUILD_REPOSITORY, 'eigenweltlabs/legalwork');
+            assert.ok(['push', 'release', 'workflow_dispatch'].includes(process.env.BUILD_EVENT), 'Production signing requires a release or explicit trusted repository build');
+            assert.ok(!process.env.REUSE_RUN_ID && !process.env.REUSE_MANIFEST_SHA256, 'Production must compile and sign the reviewed source; it cannot fall back to candidate reuse');
+          }
+          NODE
+          node scripts/ci/reuse-opencode-derivative.mjs inputs
+      - name: Import the existing production identity into a temporary keychain
+        if: inputs.build-mode == 'production'
+        id: identity
+        env:
+          APPLE_CODESIGN_CERT_P12_BASE64: ${{ secrets.APPLE_CODESIGN_CERT_P12_BASE64 }}
+          APPLE_CODESIGN_CERT_PASSWORD: ${{ secrets.APPLE_CODESIGN_CERT_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +x
+          test -n "$APPLE_CODESIGN_CERT_P12_BASE64"
+          test -n "$APPLE_CODESIGN_CERT_PASSWORD"
+          umask 077
+          directory="$RUNNER_TEMP/opencode-derivative-signing"
+          mkdir "$directory"
+          certificate="$directory/identity.p12"
+          keychain="$directory/identity.keychain-db"
+          password="$(openssl rand -hex 32)"
+          printf '::add-mask::%s\n' "$password"
+          trap 'rm -f "$certificate"' EXIT
+          printf '%s' "$APPLE_CODESIGN_CERT_P12_BASE64" | base64 --decode > "$certificate"
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          security import "$certificate" -k "$keychain" -P "$APPLE_CODESIGN_CERT_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$keychain"
+          security find-identity -v -p codesigning "$keychain" | grep -F '5ECCDBC844B673D12B8528F6B8EA5F41F6D4E4A6'
+          node scripts/ci/mac-engine-signing-acceptance.mjs keychain-register "$keychain" "$RUNNER_TEMP/opencode-derivative-search-list.json"
+          node scripts/ci/mac-engine-signing-acceptance.mjs policy "$keychain" "$directory/public-policy.json"
+          echo "policy=$directory/public-policy.json" >> "$GITHUB_OUTPUT"
+      - name: Verify the exact production signing context before compilation
+        if: inputs.build-mode == 'production'
+        run: node scripts/ci/mac-engine-signing-acceptance.mjs identity-probe "${{ steps.identity.outputs.policy }}" "$RUNNER_TEMP/opencode-derivative-identity-probe"
+      - name: Download the original producer's same-repository artifact
+        if: steps.mode.outputs.reuse == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: opencode-derivative-ci
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.reuse-run-id }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/opencode-derivative/distribution
+      - name: Verify current recipe, independent manifest and every archive
+        if: steps.mode.outputs.reuse == 'true'
+        id: reuse
+        env:
+          MANIFEST_SHA256: ${{ inputs.reuse-manifest-sha256 }}
+          REUSE_RUN_ID: ${{ inputs.reuse-run-id }}
+        run: node scripts/ci/reuse-opencode-derivative.mjs verify "$RUNNER_TEMP/opencode-derivative/distribution" "$MANIFEST_SHA256"
+      - name: Compile exact reviewed source and complete twelve-target distribution
+        if: steps.mode.outputs.reuse != 'true'
+        id: engine
+        env:
+          BUILD_MODE: ${{ inputs.build-mode }}
+          SIGNING_POLICY: ${{ steps.identity.outputs.policy }}
+        run: |
+          arguments=("$RUNNER_TEMP/opencode-derivative" --mode "$BUILD_MODE")
+          if [ "$BUILD_MODE" = production ]; then arguments+=(--mac-signing-config "$SIGNING_POLICY"); fi
+          node scripts/ci/build-opencode-derivative.mjs "${arguments[@]}"
+      - name: Remove owned production signing material
+        if: always() && inputs.build-mode == 'production'
+        shell: bash
+        run: |
+          directory="$RUNNER_TEMP/opencode-derivative-signing"
+          if [ -f "$directory/identity.keychain-db" ]; then security delete-keychain "$directory/identity.keychain-db"; fi
+          node scripts/ci/mac-engine-signing-acceptance.mjs keychain-removed "$directory/identity.keychain-db" "$RUNNER_TEMP/opencode-derivative-keychain-cleanup.json"
+          rm -f "$directory/identity.p12"
+      - name: Retain complete build receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: opencode-derivative-build-receipts
+          path: |
+            ${{ runner.temp }}/opencode-derivative/build-*/build-evidence/
+            ${{ runner.temp }}/opencode-derivative/build-*/artifact/provenance.json
+            ${{ runner.temp }}/opencode-derivative/build-*/result.json
+            ${{ runner.temp }}/opencode-derivative/builds.json
+            ${{ runner.temp }}/opencode-derivative/reuse-receipt.json
+            ${{ runner.temp }}/opencode-derivative-search-list.json
+            ${{ runner.temp }}/opencode-derivative-identity-probe/
+            ${{ runner.temp }}/opencode-derivative-keychain-cleanup.json
+          retention-days: 7
+      - uses: actions/upload-artifact@v4
+        with:
+          name: opencode-derivative-ci
+          path: ${{ runner.temp }}/opencode-derivative/distribution/
+          if-no-files-found: error
+          retention-days: 7

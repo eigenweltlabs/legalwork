@@ -1,12 +1,20 @@
+import { z } from "zod";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { reviewWorkerClaims } from "./worker.js";
 import { afterAll, beforeEach, expect, test } from "bun:test";
 import { ReviewExecutor, isTextReviewModel } from "./executor.js";
 import { ReviewColumnSchema, SavedReviewSchema, type ReviewResult } from "./schema.js";
 import { SystemOneProviderSchema, SystemOneResponseSchema, type SystemOneRequest, type SystemOneSettings } from "../systemone-schema.js";
-import type { ServerConfig, WorkspaceInfo } from "../types.js";
+import type { Actor, ServerConfig, WorkspaceInfo } from "../types.js";
 import { ApiError } from "../errors.js";
 import { callSystemOne } from "../systemone-client.js";
 import { ReviewRequests } from "./scheduler.js";
 import { builtinReviewLibrary } from "./builtin-library.js";
+const root = await mkdtemp(join(tmpdir(), "legalwork-review-executor-"));
+const actor: Actor = { type: "remote", scope: "owner", clientId: "review-executor-test" };
+let workerSequence = 0;
 const calls: Array<{ path: string; method: string; body: unknown }> = [];
 const decisions: SystemOneRequest[] = [];
 let fail = false, wrongModel = false, fabricated = false, incomplete = false, modelOffline = false, quota = false, subscribed = false, noDefault = false;
@@ -15,33 +23,47 @@ let stalledPrompts = 0;
 let onStalledPrompt: (() => void) | undefined;
 let engineError = false;
 let malformedResponses = 0, invalidStructures = 0, structuredResponse = false;
-const model = { id: "chat", name: "Reviewer", limit: { context: 128000, output: 4096 }, capabilities: { input: { text: true }, output: { text: true } } };
+const model = { id: "chat", name: "Reviewer", limit: { context: 128000, output: 4096 }, capabilities: { input: ["text"], output: ["text"] } };
 const engine = Bun.serve({ port: 0, async fetch(request) {
-  const path = new URL(request.url).pathname, raw = await request.text(); calls.push({ path, method: request.method, body: raw ? JSON.parse(raw) : undefined });
-  if (path === "/provider") return Response.json({ connected: modelOffline ? [] : ["firm", ...(subscribed ? ["eigenwelt"] : [])], all: [{ id: "firm", name: "Firm", models: { chat: model } }, ...(subscribed ? [{ id: "eigenwelt", name: "Eigenwelt", models: { "ewl-large": { ...model, id: "ewl-large", name: "Eigenwelt Large" } } }] : [])] });
-  if (path === "/config") return Response.json({ model: noDefault ? undefined : "firm/chat" });
-  if (path === "/experimental/tool/ids") return Response.json(["bash", "read", "task", "legalwork_review_start"]);
-  if (path === "/session" && request.method === "POST") return Response.json({ id: "review-worker" });
-  if (path === "/session/status") return Response.json(quota ? { "review-worker": { type: "retry", attempt: 1, message: "You have no credits remaining.", next: Date.now() + 60_000 } } : {});
-  if (quota && path === "/session/review-worker/message") await Bun.sleep(2500);
-  if (path === "/session/review-worker/message" && stalledPrompts-- > 0) {
-    onStalledPrompt?.();
-    await Bun.sleep(300);
-    return new Response("Stalled", { status: 504 });
+  const path = new URL(request.url).pathname.replace(/review-worker-\d+/g, "review-worker"), raw = await request.text(); calls.push({ path, method: request.method, body: raw ? JSON.parse(raw) : undefined });
+  if (path === "/api/location") return Response.json({ data: { directory: root } });
+  if (path === "/api/provider") return Response.json({ location: { directory: root }, data: [{ id: "firm", name: "Firm", activation: modelOffline ? "disabled" : "enabled", package: "fixture" }, ...(subscribed ? [{ id: "eigenwelt", name: "Eigenwelt", activation: "enabled", package: "fixture" }] : [])] });
+  if (path === "/api/model") return Response.json({ location: { directory: root }, data: [{ ...model, providerID: "firm", modelID: "chat", enabled: !modelOffline }, ...(subscribed ? [{ ...model, id: "ewl-large", modelID: "ewl-large", providerID: "eigenwelt", name: "Eigenwelt Large", enabled: true }] : [])] });
+  if (path === "/api/model/default") return Response.json({ location: { directory: root }, data: noDefault ? null : { ...model, providerID: "firm", modelID: "chat", enabled: !modelOffline } });
+  if (path === "/api/session" && request.method === "POST") return Response.json({ data: { id: "review-worker-" + (++workerSequence) } });
+  if (path === "/api/session/review-worker" && request.method === "GET") {
+    const creation = calls.find(call => call.path === "/api/session" && call.method === "POST");
+    const created = z.object({ agent: z.string(), metadata: z.record(z.string(), z.unknown()).optional() }).parse(creation?.body);
+    const update = [...calls].reverse().find(call => call.path === path && call.method === "PATCH");
+    const updated = z.object({ metadata: z.record(z.string(), z.unknown()).optional() }).parse(update?.body ?? {});
+    return Response.json({ data: { id: new URL(request.url).pathname.split("/")[3], location: { directory: root }, agent: created.agent,
+      metadata: { ...created.metadata, ...updated.metadata } } });
   }
-  if (path === "/session/review-worker/message" && engineError) return Response.json({ name: "UnknownError", data: { message: 'Agent not found: "document-extractor"' } }, { status: 500 });
-  if (path === "/session/review-worker/message" && malformedResponses-- > 0) return Response.json({ info: { modelID: "chat", providerID: "firm" }, parts: [{ type: "text", text: '{"cells":{"assignment":{"value":"Yes" "reason":"broken"}}}' }] });
-  if (path === "/session/review-worker/message" && invalidStructures-- > 0) return Response.json({ info: { modelID: "chat", providerID: "firm", structured: { cells: { wrong: {} } } }, parts: [] });
-  if (path === "/session/review-worker/message" && structuredResponse) return Response.json({ info: { modelID: "chat", providerID: "firm", structured: { cells: { assignment: {
-    value: "Yes", reason: "", quote: fabricated ? "Invented quote" : "Assignment is permitted.", page: 1, confidence: "high", citations: [],
-  } } } }, parts: [{ type: "text", text: "Not JSON: structured results must take precedence." }] });
-  if (path === "/session/review-worker/message") return Response.json({ info: { modelID: wrongModel ? "substitute" : "chat", providerID: "firm" }, parts: [{ type: "text", text: JSON.stringify({ cells: { assignment: {
-    value: incomplete || incidentalAbsenceCitation ? "Not found" : "Yes", reason: "", quote: incomplete ? "" : fabricated && !(citationRepairSucceeds && calls.filter(call => call.path.endsWith("/message")).length > 1) ? "Invented quote" : "Assignment is permitted.", page: incomplete ? null : 1, location: "Assignment", confidence: "high", citations: [],
-  } } }) }] });
-  if (path === "/session/review-worker/abort" || request.method === "DELETE") return Response.json(true);
+  if (path === "/api/session/review-worker" && request.method === "PATCH") return new Response(null, { status: 204 });
+  if (path === "/api/session/review-worker/prompt") {
+    if (stalledPrompts-- > 0) { onStalledPrompt?.(); await Bun.sleep(300); return new Response("Stalled", { status: 504 }); }
+    if (engineError) return Response.json({ type: "error", message: 'Agent not found: "document-extractor"' }, { status: 500 });
+    const update = [...calls].reverse().find(call => call.path === "/api/session/review-worker" && call.method === "PATCH");
+    const id = z.object({ metadata: z.object({ legalworkReviewClaim: z.string() }) }).parse(update?.body).metadata.legalworkReviewClaim;
+    if (!quota && !wrongModel) {
+      let answer: unknown = { cells: { assignment: {
+        value: incomplete || incidentalAbsenceCitation ? "Not found" : "Yes", reason: "", quote: incomplete ? "" : fabricated && !(citationRepairSucceeds && calls.filter(call => call.path.endsWith("/prompt")).length > 1) ? "Invented quote" : "Assignment is permitted.",
+        page: incomplete ? null : 1, location: "Assignment", confidence: "high", citations: [],
+      } } };
+      if (malformedResponses-- > 0) answer = "malformed";
+      if (invalidStructures-- > 0) answer = { cells: { wrong: {} } };
+      reviewWorkerClaims(config).submit(workspace, new URL(request.url).pathname.split("/")[3], id, { value: answer, messageID: "msg_answer", toolID: "call_submit" });
+    }
+    return Response.json({ data: { id: "msg_prompt" } });
+  }
+  if (path === "/api/experimental/session/review-worker/wait") return new Response(null, { status: 204 });
+  if (path === "/api/session/review-worker/message") return Response.json({ data: [{ type: "assistant", id: "msg_answer", model: { id: wrongModel ? "substitute" : "chat", providerID: "firm" }, content: [],
+    ...(quota ? { error: { message: "You have no credits remaining.", status: 402 } } : {}),
+  }], cursor: {} });
+  if (path === "/api/session/review-worker/interrupt" || request.method === "DELETE") return new Response(null, { status: 204 });
   return new Response("Unknown", { status: 404 });
 } });
-const workspace: WorkspaceInfo = { id: "qa", name: "QA", path: "/qa", preset: "starter", workspaceType: "local" };
+const workspace: WorkspaceInfo = { id: "qa", name: "QA", path: root, preset: "starter", workspaceType: "local" };
 const config: ServerConfig = { host: "127.0.0.1", port: 0, token: "test", hostToken: "test-host", configPath: "/unused-fixture", approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: [], workspaces: [workspace], authorizedRoots: [workspace.path], readOnly: false, startedAt: 0, tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false, opencodeBaseUrl: engine.url.origin };
 const settings: SystemOneSettings = { selection: { providerId: "firm-jev", model: "jev" }, providers: [SystemOneProviderSchema.parse({ id: "firm-jev", name: "Firm JEV", endpoint: "http://localhost/v1/systemone", enabled: true, managed: false, status: "ready", models: [{ id: "jev", name: "JEV", questionTypes: ["noul", "choice"], source: "configured" }] })] };
 const executor = new ReviewExecutor(config, { settings: async () => structuredClone(settings), infer: async (_config, request, options) => {
@@ -52,27 +74,27 @@ const column = ReviewColumnSchema.parse({ key: "assignment", label: "Assignment"
 const review = (mode: "jev" | "mixed" | "llm") => SavedReviewSchema.parse({ id: "71953464-c3a7-47a5-ae2a-f28a1b090bea", name: "Review", revision: 0, createdAt: 0, updatedAt: 0, settings: { mode, jev: { providerId: "firm-jev", model: "jev" }, llm: { providerId: "firm", model: "chat" } }, documents: [], cells: [], columns: [column], status: "draft", runId: null });
 const evidence = { hash: "source-hash", complete: true, pages: [{ page: 1, text: "Assignment is permitted." }] };
 beforeEach(() => { calls.length = 0; decisions.length = 0; fail = false; wrongModel = false; fabricated = false; incomplete = false; modelOffline = false; quota = false; subscribed = false; noDefault = false; citationRepairSucceeds = false; incidentalAbsenceCitation = false; stalledPrompts = 0; onStalledPrompt = undefined; engineError = false; malformedResponses = 0; invalidStructures = 0; structuredResponse = false; });
-afterAll(() => engine.stop(true));
+afterAll(async () => { await engine.stop(true); await rm(root, { recursive: true, force: true }); });
 test("model discovery filters embeddings, image and realtime models and retains actual engine text capabilities", () => {
   expect(isTextReviewModel(model)).toBe(true);
   for (const id of ["text-embedding-3-small", "gpt-realtime-2.1"]) expect(isTextReviewModel({ ...model, id })).toBe(false);
-  expect(isTextReviewModel({ ...model, capabilities: { input: { text: true }, output: { text: true, image: true } } })).toBe(false);
+  expect(isTextReviewModel({ ...model, capabilities: { input: ["text"], output: ["text", "image"] } })).toBe(false);
   expect(isTextReviewModel({ ...model, limit: { context: 0, output: 0 } })).toBe(false);
 });
 test("JEV mode uses explicit provider/model and preserves probabilities without invented quotations", async () => {
-  const result = await executor.execute(workspace, review("jev"), column, evidence, new AbortController().signal);
+  const result = await executor.execute(workspace, review("jev"), column, evidence, new AbortController().signal, actor);
   expect(decisions[0].model).toBe("jev"); expect(result).toMatchObject({ backend: "systemone", model: "serving-jev", requestedModel: "jev", value: "Yes", decision: { type: "noul", noul: .95 }, evidence: "uncited", citations: [], confidence: null });
-  expect(calls.some(call => call.path === "/session")).toBe(false);
+  expect(calls.some(call => call.path === "/api/session")).toBe(false);
 });
 test("Only JEV rejects text and uncertain evidence before inference", async () => {
-  await expect(executor.execute(workspace, review("jev"), { ...column, kind: "text" }, evidence, new AbortController().signal)).rejects.toThrow("Only JEV");
-  const result = await executor.execute(workspace, review("jev"), column, { ...evidence, complete: false }, new AbortController().signal);
+  await expect(executor.execute(workspace, review("jev"), { ...column, kind: "text" }, evidence, new AbortController().signal, actor)).rejects.toThrow("Only JEV");
+  const result = await executor.execute(workspace, review("jev"), column, { ...evidence, complete: false }, new AbortController().signal, actor);
   expect(result.value).toBe("Needs review"); expect(decisions).toHaveLength(0);
 });
 test("JEV failure never calls an LLM as a fallback", async () => {
   fail = true;
-  await expect(executor.execute(workspace, review("mixed"), column, evidence, new AbortController().signal)).rejects.toThrow("JEV unavailable");
-  expect(calls.some(call => call.path === "/session")).toBe(false);
+  await expect(executor.execute(workspace, review("mixed"), column, evidence, new AbortController().signal, actor)).rejects.toThrow("JEV unavailable");
+  expect(calls.some(call => call.path === "/api/session")).toBe(false);
 });
 test("builtin JEV choices abstain for missing, irrelevant, uncertain and low-probability answers without losing the raw decision", async () => {
   for (const locale of ["en", "de"] satisfies Array<"en" | "de">) {
@@ -96,56 +118,58 @@ test("builtin JEV choices abstain for missing, irrelevant, uncertain and low-pro
         expect(Object.values(question.criteria).every(value => typeof value === "string")).toBe(true);
         return SystemOneResponseSchema.parse({ model: "serving-jev", answers: { answer: { type: "choice", choice: selected, probabilities: Object.fromEntries(prompt.options.map(option => [option, option === selected ? scenario.probability : (1 - scenario.probability) / (prompt.options.length - 1)])) } } });
       } });
-      const result = await inference.execute(workspace, review("jev"), prompt, evidence, new AbortController().signal);
+      const result = await inference.execute(workspace, review("jev"), prompt, evidence, new AbortController().signal, actor);
       expect(result.value).toBe(scenario.value); expect(result.evidence).toBe(scenario.evidence);
       expect(result.decision).toMatchObject({ type: "choice", choice: selected });
       expect(result.citations).toEqual([]);
     }
   }
-  expect(calls.some(call => call.path === "/session")).toBe(false);
+  expect(calls.some(call => call.path === "/api/session")).toBe(false);
 });
 test("Only LLM uses the selected model, disables all tools, checks citations, and deletes its temporary session", async () => {
-  const result = await executor.execute(workspace, review("llm"), column, evidence, new AbortController().signal);
+  const result = await executor.execute(workspace, review("llm"), column, evidence, new AbortController().signal, actor);
   expect(result.citations).toEqual([{ page: 1, quote: "Assignment is permitted." }]); expect(decisions).toHaveLength(0);
-  expect(calls.find(call => call.path.endsWith("/message"))?.body).toMatchObject({ agent: "document-extractor", model: { providerID: "firm", modelID: "chat" }, tools: { bash: false, read: false, task: false, legalwork_review_start: false } });
+  expect(calls.find(call => call.path.endsWith("/prompt"))?.body).toMatchObject({ text: expect.stringContaining("assignment") });
   expect(calls.some(call => call.method === "DELETE")).toBe(true);
+  expect(calls.some(call => call.path === "/api/session/review-worker" && call.method === "GET")).toBe(true);
+  expect(calls.some(call => call.path.startsWith("/api/mcp"))).toBe(false);
 });
 test("review engine errors retain their cause and clean up the temporary session", async () => {
   engineError = true;
-  await expect(executor.execute(workspace, review("llm"), column, evidence, new AbortController().signal)).rejects.toThrow('Agent not found: "document-extractor"');
-  expect(calls.filter(call => call.path.endsWith("/message"))).toHaveLength(1);
-  expect(calls.some(call => call.path.endsWith("/abort"))).toBe(true);
+  await expect(executor.execute(workspace, review("llm"), column, evidence, new AbortController().signal, actor)).rejects.toThrow('Agent not found: "document-extractor"');
+  expect(calls.filter(call => call.path.endsWith("/prompt"))).toHaveLength(1);
+  expect(calls.some(call => call.path.endsWith("/interrupt"))).toBe(true);
   expect(calls.some(call => call.method === "DELETE")).toBe(true);
 });
 test("fabricated citations or substituted models cannot become results; tools are still cleaned up", async () => {
   fabricated = true;
-  const result = await executor.execute(workspace, review("llm"), column, evidence, new AbortController().signal);
+  const result = await executor.execute(workspace, review("llm"), column, evidence, new AbortController().signal, actor);
   expect(result).toMatchObject({ value: "Needs review", evidence: "uncertain", citations: [] });
   expect(result.reason).toContain("could not be verified");
-  expect(calls.filter(call => call.path.endsWith("/message"))).toHaveLength(2);
+  expect(calls.filter(call => call.path.endsWith("/prompt"))).toHaveLength(2);
   fabricated = false; wrongModel = true;
-  await expect(executor.execute(workspace, review("llm"), column, evidence, new AbortController().signal)).rejects.toThrow("selected model");
+  await expect(executor.execute(workspace, review("llm"), column, evidence, new AbortController().signal, actor)).rejects.toThrow("selected model");
   expect(calls.filter(call => call.method === "DELETE")).toHaveLength(3); expect(decisions).toHaveLength(0);
 });
 test("one citation correction reuses the selected model and yields a verified answer", async () => {
   fabricated = true; citationRepairSucceeds = true;
-  const result = await executor.execute(workspace, review("llm"), column, evidence, new AbortController().signal);
+  const result = await executor.execute(workspace, review("llm"), column, evidence, new AbortController().signal, actor);
   expect(result).toMatchObject({ value: "Yes", evidence: "cited", citations: [{ page: 1, quote: "Assignment is permitted." }] });
-  const prompts = calls.filter(call => call.path.endsWith("/message"));
+  const prompts = calls.filter(call => call.path.endsWith("/prompt"));
   expect(prompts).toHaveLength(2);
-  for (const prompt of prompts) expect(prompt.body).toMatchObject({ model: { providerID: "firm", modelID: "chat" }, tools: { bash: false, read: false, task: false, legalwork_review_start: false } });
-  expect(prompts[1].body).toHaveProperty("system", expect.stringContaining("failed validation"));
+  for (const creation of calls.filter(call => call.path === "/api/session" && call.method === "POST")) expect(creation.body).toMatchObject({ model: { providerID: "firm", id: "chat" }, permissions: [{ action: "*", resource: "*", effect: "deny" }, { action: "legalwork_review_submit", resource: "*", effect: "allow" }] });
+  expect(prompts[1].body).toMatchObject({ text: expect.stringContaining("assignment") });
   expect(calls.filter(call => call.method === "DELETE")).toHaveLength(2); expect(decisions).toHaveLength(0);
 });
 test("LLM absence with an incidental quote completes without a correction request", async () => {
   incidentalAbsenceCitation = true;
-  const result = await executor.execute(workspace, review("llm"), column, evidence, new AbortController().signal);
+  const result = await executor.execute(workspace, review("llm"), column, evidence, new AbortController().signal, actor);
   expect(result).toMatchObject({ value: "Not found", evidence: "absent", citations: [], confidence: "low" });
-  expect(calls.filter(call => call.path.endsWith("/message"))).toHaveLength(1);
+  expect(calls.filter(call => call.path.endsWith("/prompt"))).toHaveLength(1);
 });
 test("incomplete source evidence cannot disappear when chunking drops empty pages", async () => {
   incomplete = true;
-  const result = await executor.execute(workspace, review("llm"), column, { ...evidence, complete: false }, new AbortController().signal);
+  const result = await executor.execute(workspace, review("llm"), column, { ...evidence, complete: false }, new AbortController().signal, actor);
   expect(result.value).toBe("Needs review"); expect(result.evidence).toBe("uncertain");
 });
 test("unlocatable linked evidence yields Needs review before a false absence answer", async () => {
@@ -155,9 +179,9 @@ test("unlocatable linked evidence yields Needs review before a false absence ans
     relations: [{ id: "missing", kind: "annotates" as const,
       source: { page: 1, regionId: "main" }, target: { page: 2, regionId: "missing" },
       status: "candidate" as const, basis: "arrow" as const, explanation: "Arrow" }] };
-  const result = await executor.execute(workspace, review("llm"), column, linked, new AbortController().signal);
+  const result = await executor.execute(workspace, review("llm"), column, linked, new AbortController().signal, actor);
   expect(result.value).toBe("Needs review");
-  expect(calls.some(call => call.path.endsWith("/message"))).toBe(false);
+  expect(calls.some(call => call.path.endsWith("/prompt"))).toBe(false);
 });
 test("JEV relevance receives a linked next-page exception before selecting chunks", async () => {
   const linked = { ...evidence, pages: [
@@ -168,20 +192,20 @@ test("JEV relevance receives a linked next-page exception before selecting chunk
   ], relations: [{ id: "link", kind: "annotates" as const,
     source: { page: 1, regionId: "main" }, target: { page: 2, regionId: "exception" },
     status: "candidate" as const, basis: "arrow" as const, explanation: "Arrow" }] };
-  const result = await executor.execute(workspace, review("jev"), column, linked, new AbortController().signal);
+  const result = await executor.execute(workspace, review("jev"), column, linked, new AbortController().signal, actor);
   expect(result.value).toBe("Needs review"); // Both relevant chunks exceed combined context.
   expect(JSON.stringify(decisions[0].state)).toContain("Exception applies.");
   expect(JSON.stringify(decisions[0].state)).toContain('"status":"candidate"');
 });
 test("disconnected selected model fails before creating a review session", async () => {
   modelOffline = true;
-  await expect(executor.execute(workspace, review("llm"), column, evidence, new AbortController().signal)).rejects.toThrow("no longer available");
-  expect(calls.some(call => call.path === "/session")).toBe(false);
+  await expect(executor.execute(workspace, review("llm"), column, evidence, new AbortController().signal, actor)).rejects.toThrow("no longer available");
+  expect(calls.some(call => call.path === "/api/session")).toBe(false);
 });
 test("provider billing errors fail promptly rather than leaving cells in an endless retry", async () => {
   quota = true;
-  await expect(executor.execute(workspace, review("llm"), column, evidence, new AbortController().signal)).rejects.toThrow("no credits remaining");
-  expect(calls.some(call => call.path.endsWith("/abort"))).toBe(true);
+  await expect(executor.execute(workspace, review("llm"), column, evidence, new AbortController().signal, actor)).rejects.toThrow("no credits remaining");
+  expect(calls.some(call => call.path.endsWith("/interrupt"))).toBe(true);
   expect(calls.some(call => call.method === "DELETE")).toBe(true);
   expect(decisions).toHaveLength(0);
 });
@@ -189,12 +213,12 @@ test("provider billing errors fail promptly rather than leaving cells in an endl
 test("stalled LLM calls release their session and retry within a bounded request deadline", async () => {
   const bounded = new ReviewExecutor(config, { settings: async () => structuredClone(settings), infer: async () => { throw new Error("Unexpected JEV"); } }, new ReviewRequests({ cells: 1, documents: 1 }, { retryDelayMs: 1, jitterMs: 0 }), 60);
   stalledPrompts = 1;
-  expect((await bounded.execute(workspace, review("llm"), column, evidence, new AbortController().signal)).value).toBe("Yes");
-  expect(calls.filter(call => call.path.endsWith("/message"))).toHaveLength(2);
+  expect((await bounded.execute(workspace, review("llm"), column, evidence, new AbortController().signal, actor)).value).toBe("Yes");
+  expect(calls.filter(call => call.path.endsWith("/prompt"))).toHaveLength(2);
   expect(calls.filter(call => call.method === "DELETE")).toHaveLength(2);
   calls.length = 0; stalledPrompts = 3;
-  await expect(bounded.execute(workspace, review("llm"), column, evidence, new AbortController().signal)).rejects.toThrow("request time limit");
-  expect(calls.filter(call => call.path.endsWith("/message"))).toHaveLength(3);
+  await expect(bounded.execute(workspace, review("llm"), column, evidence, new AbortController().signal, actor)).rejects.toThrow("request time limit");
+  expect(calls.filter(call => call.path.endsWith("/prompt"))).toHaveLength(3);
   expect(calls.filter(call => call.method === "DELETE")).toHaveLength(3);
 });
 
@@ -202,10 +226,10 @@ test("stopping a stalled LLM request releases its session without retrying", asy
   stalledPrompts = 1;
   const controller = new AbortController();
   onStalledPrompt = () => controller.abort(new Error("User stopped review"));
-  const pending = executor.execute(workspace, review("llm"), column, evidence, controller.signal);
+  const pending = executor.execute(workspace, review("llm"), column, evidence, controller.signal, actor);
   await expect(pending).rejects.toThrow("User stopped review");
-  expect(calls.filter(call => call.path.endsWith("/message"))).toHaveLength(1);
-  expect(calls.filter(call => call.path.endsWith("/abort"))).toHaveLength(1);
+  expect(calls.filter(call => call.path.endsWith("/prompt"))).toHaveLength(1);
+  expect(calls.filter(call => call.path.endsWith("/interrupt"))).toHaveLength(1);
   expect(calls.filter(call => call.method === "DELETE")).toHaveLength(1);
 });
 
@@ -244,7 +268,7 @@ test("a throttled JEV chunk retries individually without repeating prior success
     if (index === 2 && !throttled) { throttled = true; throw new ApiError(429, "systemone_rate_limited", "Rate limited", { retryAfterMs: 1 }); }
     return SystemOneResponseSchema.parse({ model: "jev", answers: Object.fromEntries(Object.keys(request.questions).map(key => [key, { type: "noul", noul: index === 1 ? .1 : .95 }])), usage: { input_tokens: 1, output_tokens: 0 } });
   } }, new ReviewRequests(undefined, { retryDelayMs: 1, jitterMs: 0 }));
-  const result = await retried.execute(workspace, review("jev"), column, { ...evidence, pages: [{ page: 1, text: "A".repeat(120_000) }] }, new AbortController().signal);
+  const result = await retried.execute(workspace, review("jev"), column, { ...evidence, pages: [{ page: 1, text: "A".repeat(120_000) }] }, new AbortController().signal, actor);
   expect(result.value).toBe("Yes"); expect(seen).toEqual([1, 2, 2, 0]);
 });
 
@@ -303,7 +327,7 @@ test("review evidence reaches the SystemOne HTTP adapter for EU and US models, i
       });
       const document = { ...evidence, pages: [{ page: 1, text: "Gerichtsstand ist Berlin, Deutschland. " + (long ? "A".repeat(120_000) : ""),
         blocks: undefined, tables: undefined, links: undefined }] };
-      const result = await runner.execute(workspace, { ...review("mixed"), settings: { ...review("mixed").settings, jev: selection } }, prompt, document, new AbortController().signal);
+      const result = await runner.execute(workspace, { ...review("mixed"), settings: { ...review("mixed").settings, jev: selection } }, prompt, document, new AbortController().signal, actor);
       expect(result.value).toBe("Deutschland");
       expect(received.every(request => request.model === model)).toBe(true);
       expect(received.some(request => "relevant" in request.questions)).toBe(long);
@@ -314,36 +338,36 @@ test("review evidence reaches the SystemOne HTTP adapter for EU and US models, i
 
 
 test("review workers are marked internal in the creation request, before inference starts", async () => {
-  await executor.execute(workspace, review("llm"), column, evidence, new AbortController().signal);
-  expect(calls.find(call => call.path === "/session")?.body).toMatchObject({ agent: "document-extractor", metadata: { legalworkReviewWorker: true } });
-  expect(calls.find(call => call.path.endsWith("/message"))?.body).toMatchObject({ format: { type: "json_schema", retryCount: 2, schema: { properties: { cells: { required: ["assignment"] } } } } });
+  await executor.execute(workspace, review("llm"), column, evidence, new AbortController().signal, actor);
+  expect(calls.find(call => call.path === "/api/session")?.body).toMatchObject({ agent: "document-extractor", metadata: { legalworkReviewWorker: true } });
+  expect(calls.find(call => call.path === "/api/session")?.body).toMatchObject({ model: { providerID: "firm", id: "chat" }, permissions: [{ action: "*", resource: "*", effect: "deny" }, { action: "legalwork_review_submit", resource: "*", effect: "allow" }] });
 });
 
 test("malformed JSON and invalid cell structures receive one grounded correction attempt", async () => {
   for (const failure of ["syntax", "schema"]) {
     calls.length = 0;
     if (failure === "syntax") malformedResponses = 1; else invalidStructures = 1;
-    const result = await executor.execute(workspace, review("llm"), column, evidence, new AbortController().signal);
+    const result = await executor.execute(workspace, review("llm"), column, evidence, new AbortController().signal, actor);
     expect(result.value).toBe("Yes");
-    const prompts = calls.filter(call => call.path.endsWith("/message"));
+    const prompts = calls.filter(call => call.path.endsWith("/prompt"));
     expect(prompts).toHaveLength(2);
-    expect(prompts[1].body).toMatchObject({ system: expect.stringContaining("failed validation") });
+    expect(prompts[1].body).toMatchObject({ text: expect.stringContaining("assignment") });
     expect(calls.filter(call => call.method === "DELETE")).toHaveLength(2);
   }
 });
 
 test("repeated malformed responses stop with a useful error and never become an accepted finding", async () => {
   malformedResponses = 10;
-  await expect(executor.execute(workspace, review("llm"), column, evidence, new AbortController().signal)).rejects.toThrow("could not return a valid review answer after a correction attempt");
-  expect(calls.filter(call => call.path.endsWith("/message"))).toHaveLength(2);
+  await expect(executor.execute(workspace, review("llm"), column, evidence, new AbortController().signal, actor)).rejects.toThrow("could not return a valid review answer after a correction attempt");
+  expect(calls.filter(call => call.path.endsWith("/prompt"))).toHaveLength(2);
   expect(calls.filter(call => call.method === "DELETE")).toHaveLength(2);
 });
 
 test("structured answers still undergo source verification", async () => {
   structuredResponse = true;
-  expect((await executor.execute(workspace, review("llm"), column, evidence, new AbortController().signal)).value).toBe("Yes");
+  expect((await executor.execute(workspace, review("llm"), column, evidence, new AbortController().signal, actor)).value).toBe("Yes");
   fabricated = true;
-  const result = await executor.execute(workspace, review("llm"), column, evidence, new AbortController().signal);
+  const result = await executor.execute(workspace, review("llm"), column, evidence, new AbortController().signal, actor);
   expect(result.value).toBe("Needs review");
   expect(result.citations).toEqual([]);
 });

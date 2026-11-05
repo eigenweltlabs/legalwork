@@ -113,16 +113,8 @@ describe("env routes", () => {
 
   test("rejects owner bearer tokens", async () => {
     const { base } = await boot();
-    const issued = await fetch(`${base}/tokens`, {
-      method: "POST",
-      headers: hostAuth(),
-      body: JSON.stringify({ scope: "owner", label: "test owner" }),
-    });
-    expect(issued.status).toBe(201);
-    const body = (await issued.json()) as { token: string };
-
     const response = await fetch(`${base}/env`, {
-      headers: { authorization: `Bearer ${body.token}` },
+      headers: { authorization: "Bearer owt_retired_owner" },
     });
     expect(response.status).toBe(401);
   });
@@ -440,15 +432,8 @@ describe("env routes", () => {
     }) as typeof fetch;
 
     const { base } = await boot();
-    const issued = await fetch(`${base}/tokens`, {
-      method: "POST",
-      headers: hostAuth(),
-      body: JSON.stringify({ scope: "owner", label: "voice owner" }),
-    });
-    const tokenBody = (await issued.json()) as { token: string };
-
     const capability = await fetch(`${base}/voice/realtime/capability`, {
-      headers: { authorization: `Bearer ${tokenBody.token}` },
+      headers: hostAuth(),
     });
     expect(await capability.json()).toMatchObject({
       supported: true,
@@ -458,7 +443,7 @@ describe("env routes", () => {
 
     const response = await fetch(`${base}/voice/realtime/call`, {
       method: "POST",
-      headers: { authorization: `Bearer ${tokenBody.token}`, "content-type": "application/json" },
+      headers: hostAuth(),
       body: JSON.stringify({ sdp: "v=0\\r\\no=offer\\r\\n", sessionContext: "Recent canonical chat." }),
     });
 

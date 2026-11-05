@@ -1,4 +1,4 @@
-import type { ProviderListResponse } from "@opencode-ai/sdk/v2/client";
+import type { ProviderListView } from "../types";
 
 // Only Eigenwelt is pinned. Every other provider, OpenAI and Anthropic
 // included, sorts by name.
@@ -25,9 +25,9 @@ export const compareProviders = (
 };
 
 export const filterProviderList = (
-  value: ProviderListResponse,
+  value: ProviderListView,
   disabledProviders: string[],
-): ProviderListResponse => {
+): ProviderListView => {
   const disabled = new Set(disabledProviders.flatMap((id) => {
     const trimmed = id.trim();
     return trimmed ? [trimmed] : [];

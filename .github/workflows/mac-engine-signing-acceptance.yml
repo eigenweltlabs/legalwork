@@ -1,0 +1,129 @@
+name: Manual production-signed Mac engine acceptance
+on:
+  workflow_call:
+    secrets:
+      APPLE_CODESIGN_CERT_P12_BASE64:
+        required: true
+      APPLE_CODESIGN_CERT_PASSWORD:
+        required: true
+permissions:
+  contents: read
+jobs:
+  producer:
+    if: github.event_name == 'workflow_dispatch' && github.repository == 'eigenweltlabs/legalwork'
+    runs-on: macos-14
+    timeout-minutes: 90
+    outputs:
+      manifest-sha256: ${{ steps.build.outputs.manifest-sha256 }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24.22.1
+      - name: Import the existing identity into a temporary signing keychain
+        id: identity
+        env:
+          APPLE_CODESIGN_CERT_P12_BASE64: ${{ secrets.APPLE_CODESIGN_CERT_P12_BASE64 }}
+          APPLE_CODESIGN_CERT_PASSWORD: ${{ secrets.APPLE_CODESIGN_CERT_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +x
+          umask 077
+          directory="$RUNNER_TEMP/mac-engine-signing"
+          mkdir "$directory"
+          certificate="$directory/identity.p12"
+          keychain="$directory/identity.keychain-db"
+          password="$(openssl rand -hex 32)"
+          printf '::add-mask::%s\n' "$password"
+          trap 'rm -f "$certificate"' EXIT
+          printf '%s' "$APPLE_CODESIGN_CERT_P12_BASE64" | base64 --decode > "$certificate"
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          security import "$certificate" -k "$keychain" -P "$APPLE_CODESIGN_CERT_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$keychain"
+          security find-identity -v -p codesigning "$keychain" | grep -F '5ECCDBC844B673D12B8528F6B8EA5F41F6D4E4A6'
+          node scripts/ci/mac-engine-signing-acceptance.mjs keychain-register "$keychain" "$RUNNER_TEMP/signed-mac-search-list.json"
+          node scripts/ci/mac-engine-signing-acceptance.mjs policy "$keychain" "$directory/public-policy.json"
+          echo "policy=$directory/public-policy.json" >> "$GITHUB_OUTPUT"
+      - name: Check the exact signing context before compilation
+        run: node scripts/ci/mac-engine-signing-acceptance.mjs identity-probe "${{ steps.identity.outputs.policy }}" "$RUNNER_TEMP/signed-mac-identity-probe"
+      - name: Compile and sign the three Mac targets before final pins
+        id: build
+        run: node scripts/ci/mac-engine-signing-acceptance.mjs build "$RUNNER_TEMP/signed-mac-engine" "${{ steps.identity.outputs.policy }}"
+      - name: Remove temporary private signing material
+        if: always()
+        shell: bash
+        run: |
+          directory="$RUNNER_TEMP/mac-engine-signing"
+          if [ -f "$directory/identity.keychain-db" ]; then security delete-keychain "$directory/identity.keychain-db"; fi
+          node scripts/ci/mac-engine-signing-acceptance.mjs keychain-removed "$directory/identity.keychain-db" "$RUNNER_TEMP/signed-mac-keychain-cleanup.json"
+          rm -f "$directory/identity.p12"
+      - name: Retain public signing and build evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: signed-mac-engine-build-receipts
+          path: |
+            ${{ runner.temp }}/signed-mac-engine/build-*/build-evidence/
+            ${{ runner.temp }}/signed-mac-engine/build-*/result.json
+            ${{ runner.temp }}/signed-mac-engine/bundle/manifest.json
+            ${{ runner.temp }}/signed-mac-identity-probe/
+            ${{ runner.temp }}/signed-mac-search-list.json
+            ${{ runner.temp }}/signed-mac-keychain-cleanup.json
+          retention-days: 7
+      - uses: actions/upload-artifact@v4
+        with:
+          name: signed-mac-engine-candidates
+          path: ${{ runner.temp }}/signed-mac-engine/bundle/
+          if-no-files-found: error
+          retention-days: 7
+  runtime:
+    needs: producer
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            targets: darwin-arm64
+          - os: macos-15-intel
+            targets: darwin-x64,darwin-x64-baseline
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24.22.1
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.4.0
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@v4
+        with:
+          name: signed-mac-engine-candidates
+          path: ${{ runner.temp }}/signed-mac-engine-bundle
+      - name: Independently verify and execute the signed native targets
+        env:
+          MANIFEST_SHA256: ${{ needs.producer.outputs.manifest-sha256 }}
+          NATIVE_TARGETS: ${{ matrix.targets }}
+        run: node scripts/ci/mac-engine-signing-acceptance.mjs runtime "$RUNNER_TEMP/signed-mac-engine-bundle" "$MANIFEST_SHA256" "$RUNNER_TEMP/signed-mac-engine-runtime" "$NATIVE_TARGETS"
+      - name: Retain native verification and runtime evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: signed-mac-engine-runtime-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/signed-mac-engine-runtime/verification/
+            ${{ runner.temp }}/signed-mac-engine-runtime/runtime/
+          retention-days: 7

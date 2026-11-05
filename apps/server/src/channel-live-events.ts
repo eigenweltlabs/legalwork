@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { Message, Part } from "@opencode-ai/sdk/v2";
+import type { Message, Part } from "./assistant-engine.js";
 import { AssistantReactionResultSchema } from "./assistant-schema.js";
 import { ChannelLiveEvent } from "./channel-runtime.js";
 import { z } from "zod";
@@ -13,14 +13,14 @@ export function channelToolOutput(output: string): unknown {
 }
 
 /** Only closed public prose and the explicit reaction tool cross this boundary. */
-export function channelLiveEvents(messages: { info: Message; parts: Part[] }[], messageId: string): z.infer<typeof ChannelLiveEvent>[] {
+export function channelLiveEvents(messages: { info: Message; parts: Part[] }[], messageId: string, closedText: ReadonlySet<string> = new Set()): z.infer<typeof ChannelLiveEvent>[] {
   const events: z.infer<typeof ChannelLiveEvent>[] = [];
   for (const message of messages) {
     if (message.info.role !== "assistant" || message.info.parentID !== messageId || message.info.summary) continue;
     for (const part of message.parts) {
       const key = createHash("sha256").update(JSON.stringify([message.info.id, part.id])).digest("hex");
       if (part.type === "text" && !part.synthetic && !part.ignored && part.text.trim() &&
-        (part.time?.end !== undefined || (message.info.time.completed && !message.info.error))) {
+        (closedText.has(part.id) || part.time?.end !== undefined || (message.info.time.completed && !message.info.error))) {
         const event = ChannelLiveEvent.safeParse({ key, event: { type: "message.created", text: part.text.trim() } });
         if (event.success) events.push(event.data);
       }

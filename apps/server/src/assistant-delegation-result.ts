@@ -1,8 +1,8 @@
-import type { OpencodeClient } from "@opencode-ai/sdk/v2/client";
+import type { AssistantEngineClient } from "./assistant-engine.js";
 import type { DelegationResult } from "./assistant-delegations.js";
 
 /** Read both terminal replies and input requests, which can keep the engine busy. */
-export async function readDelegationResult(client: OpencodeClient, sessionId: string): Promise<DelegationResult | null> {
+export async function readDelegationResult(client: AssistantEngineClient, sessionId: string): Promise<DelegationResult | null> {
   const options = () => ({ signal: AbortSignal.timeout(10000) });
   const [statuses, messages] = await Promise.all([
     client.session.status({}, options()),
@@ -21,15 +21,13 @@ export async function readDelegationResult(client: OpencodeClient, sessionId: st
   // Engine versions expose legacy and v2 endpoints independently. Read both,
   // deduplicate request IDs, and never treat a failed request as completion.
   const pending = await Promise.allSettled([
-    client.question.list({}, options()).then(result => Array.isArray(result.data) ? result.data : []),
     client.v2.session.question.list({ sessionID: sessionId }, options()).then(result => Array.isArray(result.data?.data) ? result.data.data : []),
-    client.permission.list({}, options()).then(result => Array.isArray(result.data) ? result.data : []),
     client.v2.session.permission.list({ sessionID: sessionId }, options()).then(result => Array.isArray(result.data?.data) ? result.data.data : []),
   ]);
   const requests = new Map<string, unknown>();
   for (const [index, result] of pending.entries()) {
     if (result.status !== "fulfilled") continue;
-    const kind = index < 2 ? "question" : "approval";
+    const kind = index === 0 ? "question" : "approval";
     for (const request of result.value) if (request.sessionID === sessionId) requests.set(`${kind}:${request.id}`, { kind, ...request });
   }
   if (!requests.size) return null;

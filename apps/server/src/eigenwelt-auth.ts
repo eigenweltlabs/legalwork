@@ -1,5 +1,6 @@
 import { SystemOneConfigurationSchema, type SystemOneConfiguration } from "./systemone-schema.js";
 import type { EigenweltCheckoutSelection } from "@legalwork/types/eigenwelt-checkout";
+import { EIGENWELT_SIGN_IN_TIMEOUT_MS } from "./eigenwelt-checkout.js";
 /**
  * Server-side "Sign in with Eigenwelt" + platform model manifest.
  *
@@ -42,8 +43,13 @@ import type { ServerConfig } from "./types.js";
  * loopback ports cannot be random. Keep in sync with the platform. */
 export const EIGENWELT_LOOPBACK_PORTS = [43117, 43118, 43119] as const;
 
-const SIGN_IN_TIMEOUT_MS = 10 * 60 * 1000;
 const DEFAULT_WAIT_TIMEOUT_MS = 120_000;
+
+export class EigenweltSignInTimeoutError extends Error {
+  constructor() {
+    super("This sign-in timed out. If checkout is still open in your browser, finish it first. Then return to LegalWork and restart sign-in. You do not need to repeat a completed checkout.");
+  }
+}
 
 export function eigenweltPlatformUrl(): string {
   return (process.env.EIGENWELT_PLATFORM_URL ?? "https://platform.eigenweltlabs.com").replace(/\/+$/, "");
@@ -394,7 +400,7 @@ export function isEigenweltSignInPlan(value: unknown): value is EigenweltSignInP
  * Begin a sign-in: bind the loopback, register an in-memory session, and
  * return the interstitial URL for the app to open in the user's browser.
  * The session resolves once the browser callback lands and the platform
- * exchange succeeds; a 10-minute timeout tears down the loopback.
+ * exchange succeeds; a one-hour timeout tears down the loopback.
  */
 export async function startEigenweltSignIn(opts?: {
   /** "sign-in" lands existing users on the platform's sign-in page; the
@@ -540,9 +546,9 @@ export async function startEigenweltSignIn(opts?: {
   });
 
   const timeout = setTimeout(() => {
-    settleErr(new Error("Eigenwelt sign-in timed out. Start the sign-in again."));
+    settleErr(new EigenweltSignInTimeoutError());
     teardown();
-  }, SIGN_IN_TIMEOUT_MS);
+  }, EIGENWELT_SIGN_IN_TIMEOUT_MS);
   timeout.unref?.();
   const loopback: OpenLoopback = {
     replaceable: () => !exchanging && !settled,

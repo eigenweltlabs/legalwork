@@ -1,3 +1,4 @@
+import { readMessages } from "./_util.mjs";
 import assert from "node:assert/strict";
 
 import {
@@ -21,17 +22,17 @@ try {
   const client = makeClient({ baseUrl: server.baseUrl, directory: server.cwd });
   await waitForHealthy(client);
 
-  const before = await client.session.list({ limit: 20 });
+  const before = (await client.session.list({ limit: 20 })).data;
   assert.ok(Array.isArray(before));
 
-  const created = await client.session.create({ title: "LegalWork test session" });
+  const created = await client.session.create({ location: { directory: server?.cwd ?? directory }, title: "LegalWork test session" });
   assert.ok(typeof created.id === "string");
   assert.equal(created.title, "LegalWork test session");
 
-  const after = await client.session.list({ limit: 20 });
+  const after = (await client.session.list({ limit: 20 })).data;
   assert.ok(after.some((s) => s.id === created.id));
 
-  const messages = await client.session.messages({ sessionID: created.id, limit: 50 });
+  const messages = await readMessages(client, created.id);
   assert.ok(Array.isArray(messages));
 
   console.log(

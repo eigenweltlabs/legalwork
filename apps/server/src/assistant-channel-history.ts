@@ -3,7 +3,7 @@ import { mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 import { resolve } from "node:path";
 import { z } from "zod";
-import type { OpencodeClient } from "@opencode-ai/sdk/v2/client";
+import type { AssistantEngineClient } from "./assistant-engine.js";
 import { AssistantChannelHistorySchema, AssistantChannelMessageSchema } from "./assistant-schema.js";
 import type { AssistantChannelHistory as ChannelHistoryView } from "@legalwork/types/main-assistant";
 import { openSqlite, type SqliteHandle } from "./runtime-db.js";
@@ -28,7 +28,7 @@ type EngineMessage = { info: { id: string; role: string; parentID?: string; summ
   parts: { type: string; text?: string; filename?: string; synthetic?: boolean; ignored?: boolean; metadata?: Record<string, unknown> }[] };
 type CompletedBubble = { messageId: string; actor: "user" | "assistant"; text: string; createdAt: string };
 type HistoryOptions = {
-  config: ServerConfig; assistant: Pick<MainAssistant, "history">; client: (workspace: WorkspaceInfo) => OpencodeClient;
+  config: ServerConfig; assistant: Pick<MainAssistant, "history">; client: (workspace: WorkspaceInfo) => AssistantEngineClient;
   enabled: () => boolean | Promise<boolean>; executor?: boolean;
   fetch?: (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 };
@@ -246,15 +246,9 @@ export class AssistantChannelHistory {
     let publishedCount = 0;
     for (const day of selected) {
       const messages: EngineMessage[] = [];
-      let before: string | undefined;
-      const cursors = new Set<string>();
-      do {
-        const response = await this.options.client(workspace).session.messages({ sessionID: day.sessionId, limit: 1000, before }, { throwOnError: true, signal: AbortSignal.timeout(10000) });
+        const response = await this.options.client(workspace).session.messages({ sessionID: day.sessionId,  }, { throwOnError: true, signal: AbortSignal.timeout(10000) });
         messages.push(...response.data ?? []);
-        before = response.response.headers.get("x-next-cursor") ?? undefined;
-        if (before && cursors.has(before)) throw new Error("Engine history cursor did not advance");
-        if (before) cursors.add(before);
-      } while (before);
+
       messages.sort((a, b) => a.info.time.created - b.info.time.created);
       for (const bubble of completedDesktopBubbles(messages)) {
         if (this.db.get("SELECT 1 FROM assistant_channel_published WHERE account=? AND message_id=?", [account, bubble.messageId])) continue;

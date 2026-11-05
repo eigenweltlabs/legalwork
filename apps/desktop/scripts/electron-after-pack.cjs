@@ -6,9 +6,7 @@ const { assertPackagedOpencodeSdk } = require("./packaged-opencode-sdk.cjs");
 
 const sidecarBases = [
   "opencode",
-  "legalwork-server",
   "legalwork-orchestrator",
-  "chrome-devtools-mcp",
 ];
 
 function targetTriple(platformName, arch) {
@@ -63,6 +61,7 @@ function copyExecutableTargetToAlias(sidecarsDir, targetName, aliasName) {
 }
 
 async function afterPack(context) {
+  const { opencodeEngineSelection, verifySelectedOpencodeEngine } = await import("@legalwork/opencode-release/selection");
   const appPath = resolveMacAppPath(context);
   const resources = appPath ? path.join(appPath, "Contents", "Resources") : path.join(context.appOutDir, "resources");
   const nodePath = path.join(resources, "node", context.electronPlatformName === "win32" ? "node.exe" : "node");
@@ -70,8 +69,21 @@ async function afterPack(context) {
   assertPackagedOpencodeSdk(resources);
   const arch = typeof context.arch === "string" ? context.arch : Arch[context.arch];
   pruneOcrRuntime(resources, context.electronPlatformName, arch);
-  const triple = targetTriple(context.electronPlatformName, context.arch);
+  const triple = targetTriple(context.electronPlatformName, arch);
   if (!triple) return;
+
+  const engineDirectory = path.join(resources, "opencode-engine");
+  if (opencodeEngineSelection.kind === "derivative") {
+    const { opencodeReleaseTarget } = await import("@legalwork/opencode-release");
+    const target = opencodeReleaseTarget(context.electronPlatformName, arch);
+    const artifactDirectory = path.join(engineDirectory, opencodeEngineSelection.artifactId);
+    await verifySelectedOpencodeEngine(path.join(artifactDirectory, target, context.electronPlatformName === "win32" ? "opencode.exe" : "opencode"), { target });
+    for (const entry of fs.readdirSync(artifactDirectory)) if (entry !== target) fs.rmSync(path.join(artifactDirectory, entry), { force: true, recursive: true });
+    for (const entry of fs.readdirSync(engineDirectory)) if (entry !== opencodeEngineSelection.artifactId) fs.rmSync(path.join(engineDirectory, entry), { force: true, recursive: true });
+  } else if (fs.existsSync(engineDirectory)) {
+    // Stale derivative artifacts cannot enter an official-selection package.
+    fs.rmSync(engineDirectory, { force: true, recursive: true });
+  }
 
   const sidecarsDir = resolveSidecarsDir(context);
   if (!sidecarsDir || !fs.existsSync(sidecarsDir)) return;
@@ -80,7 +92,7 @@ async function afterPack(context) {
   const executableSuffix = isWindows ? ".exe" : "";
   const keep = new Set();
 
-  for (const base of sidecarBases) {
+  for (const base of sidecarBases.filter(base => opencodeEngineSelection.kind !== "derivative" || base !== "opencode")) {
     const aliasName = `${base}${executableSuffix}`;
     const targetName = `${base}-${triple}${executableSuffix}`;
     copyExecutableTargetToAlias(sidecarsDir, targetName, aliasName);

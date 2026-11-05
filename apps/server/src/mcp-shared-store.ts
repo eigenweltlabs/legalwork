@@ -96,7 +96,6 @@ export async function importConnectorsIntoSharedRow(
 
   // Workspace rows first: they hold what the last connect wrote.
   for (const workspace of config.workspaces) {
-    if (workspace.workspaceType === "remote") continue;
     const row = runtimeMcpMap(await readRuntimeOpencodeConfig(config, workspace.id));
     if (Object.keys(row).length === 0) continue;
     const pluginOwned = await installedCloudPluginMcpNames(config, workspace.id);
@@ -118,7 +117,7 @@ export async function importConnectorsIntoSharedRow(
     sources.globalOpencodeConfigFile,
     join(globalDirectory, "opencode.jsonc"),
     join(globalDirectory, "opencode.json"),
-    ...config.workspaces.filter((workspace) => workspace.workspaceType !== "remote")
+    ...config.workspaces
       .flatMap((workspace) => opencodeConfigPaths(workspace.path)),
   ]);
   for (const path of files) {

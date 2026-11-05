@@ -298,9 +298,12 @@ def main():
     if not isinstance(uid, int) or not isinstance(gid, int) or uid <= 0 or gid <= 0:
         raise ValueError("Sandbox commands require a non-root identity")
     filesystem = start_filesystem(config["mounts"], uid, gid)
-    timer = threading.Timer(config["timeoutMs"] / 1000, lambda: os._exit(124))
-    timer.daemon = True
-    timer.start()
+    # Native configured commands have no default execution deadline. Their
+    # owner still cancels them on Stop, revocation, disconnect or shutdown.
+    if config["timeoutMs"] is not None:
+        timer = threading.Timer(config["timeoutMs"] / 1000, lambda: os._exit(124))
+        timer.daemon = True
+        timer.start()
     startup_timer.cancel()
     os.mkdir("/tmp/private", 0o700)
     os.mkdir("/tmp/public", 0o755)

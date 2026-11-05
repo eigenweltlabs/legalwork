@@ -13,12 +13,13 @@ export async function hasAssistantInteraction(config: ServerConfig, workspace: W
   const canonical = await realpath(root).catch(() => resolve(root));
   const db = await openSqliteReadonly(path);
   try {
-    return db.all(`SELECT 1 FROM session s JOIN message m ON m.session_id = s.id
-      WHERE s.directory IN (?, ?) AND s.parent_id IS NULL AND json_extract(m.data, '$.role') = 'user'
-      AND EXISTS (SELECT 1 FROM part p WHERE p.message_id = m.id
-        AND COALESCE(json_extract(p.data, '$.synthetic'), 0) = 0 AND COALESCE(json_extract(p.data, '$.ignored'), 0) = 0
-        AND (json_extract(p.data, '$.type') = 'file' OR (json_extract(p.data, '$.type') = 'text' AND length(trim(json_extract(p.data, '$.text'))) > 0)))
-      AND NOT EXISTS (SELECT 1 FROM part p WHERE p.message_id = m.id AND json_extract(p.data, '$.type') = 'text' AND json_extract(p.data, '$.text') LIKE '[Scheduled task:%')
+    return db.all(`SELECT 1 FROM session_v2 s JOIN session_message m ON m.session_id = s.id
+      WHERE s.directory IN (?, ?) AND s.parent_id IS NULL AND m.type = 'user'
+      AND COALESCE(json_extract(m.data, '$.metadata.legalworkSystemReminder'), 0) = 0
+      AND (length(trim(CASE WHEN json_type(m.data, '$.metadata.legalworkPrompt.visibleText') = 'text'
+        THEN json_extract(m.data, '$.metadata.legalworkPrompt.visibleText') ELSE json_extract(m.data, '$.text') END)) > 0
+        OR json_array_length(m.data, '$.files') > 0)
+      AND COALESCE(json_extract(m.data, '$.text'), '') NOT LIKE '[Scheduled task:%'
       LIMIT 1`, [root, canonical]).length > 0;
   } finally { db.close(); }
 }

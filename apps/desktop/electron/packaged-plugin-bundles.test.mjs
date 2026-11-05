@@ -1,8 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { spawnSync } from "node:child_process";
+import { createRequire } from "node:module";
+import { pathToFileURL } from "node:url";
 
 import { findUnresolvableImports } from "../scripts/check-plugin-bundles.mjs";
 
@@ -52,4 +55,51 @@ test('a string that reads "from" is not an import', () => {
 test("compiled test files are ignored", () => {
   const dir = fixture({ "a.test.js": 'import { test } from "bun:test";\n' });
   assert.deepEqual(findUnresolvableImports(dir), []);
+});
+
+test("native plugin host modules and their subpaths remain external in nested entrypoints", () => {
+  const dir = fixture({});
+  const plugin = join(dir, "native");
+  mkdirSync(plugin);
+  writeFileSync(join(plugin, "index.js"), 'import { Plugin } from "@opencode/plugin";\nimport { Effect } from "effect";\nimport "@opencode/plugin/effect/tool";\nimport("effect/Schema");\n');
+  assert.deepEqual(findUnresolvableImports(dir), []);
+  writeFileSync(join(plugin, "index.js"), 'import { Plugin } from "@opencode/plugin";\nimport { z } from "zod";\n');
+  assert.deepEqual(findUnresolvableImports(dir), [{ file: join("native", "index.js"), imports: ["zod"] }]);
+});
+
+// A developer's complete dependency tree can hide missing optional peers in
+// the normal packaged app. Load the real transport with Redis unavailable.
+function browserHttpImport(specifier) {
+  const require = createRequire(import.meta.url);
+  const transport = pathToFileURL(require.resolve(specifier)).href;
+  const loader = `export async function resolve(specifier, context, next) {
+    if (specifier === "redis" || specifier.startsWith("redis/")) {
+      throw Object.assign(new Error("Redis is intentionally unavailable in the packaged browser closure"), {code:"ERR_MODULE_NOT_FOUND"});
+    }
+    return next(specifier, context);
+  }`;
+  return spawnSync(process.execPath, ["--input-type=module", "-e", `
+    import { register } from "node:module";
+    import assert from "node:assert/strict";
+    register(${JSON.stringify(`data:text/javascript;base64,${Buffer.from(loader).toString("base64")}`)});
+    const transport = await import(${JSON.stringify(transport)});
+    assert.ok((transport.NodeHttpClient ?? transport).layerNodeHttp);
+  `], { encoding: "utf8" });
+}
+
+test("the packaged browser HTTP transport loads without unrelated optional peers", () => {
+  const upstream = readFileSync(new URL("./browser-native/upstream/pane.ts", import.meta.url), "utf8");
+  const runtime = readFileSync(new URL("./browser-native/runtime/pane.mjs", import.meta.url), "utf8");
+  const sourceSpecifier = /from "(@effect\/platform-node[^\"]*)"/.exec(upstream)?.[1];
+  const runtimeSpecifier = /from "(@effect\/platform-node[^\"]*)"/.exec(runtime)?.[1];
+  assert.equal(sourceSpecifier, "@effect/platform-node/NodeHttpClient");
+  assert.equal(runtimeSpecifier, sourceSpecifier);
+  const result = browserHttpImport(runtimeSpecifier);
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+});
+
+test("the former browser barrel import reproduces the missing-peer failure", () => {
+  const result = browserHttpImport("@effect/platform-node");
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /Redis is intentionally unavailable in the packaged browser closure/);
 });

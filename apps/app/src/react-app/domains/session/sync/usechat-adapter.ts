@@ -2,7 +2,7 @@
 import type { UIMessage } from "ai";
 import { textPartProviderMetadata } from "./assistant-message-sender";
 import { scheduledTextMetadata } from "../../scheduled-tasks/scheduled-message";
-import type { FilePart, Part, ToolPart } from "@opencode-ai/sdk/v2/client";
+import type { FilePart, Part, ToolPart } from "@/app/lib/opencode-view";
 
 import type { LegalworkSessionSnapshot } from "../../../../app/lib/legalwork-server";
 import { safeStringify } from "../../../../app/utils";
@@ -51,7 +51,7 @@ function defaultErrorMessage(name: string | null, fallback: string) {
 }
 
 export function isSessionAbortError(error: unknown) {
-  return recordValue(error, "name") === "MessageAbortedError";
+  return recordValue(error, "name") === "MessageAbortedError" || ["aborted","interrupted","MessageAbortedError","AbortError"].includes(String(recordValue(error,"type") ?? ""));
 }
 
 /**
@@ -139,10 +139,7 @@ export function createSessionErrorUIMessage(turnKey: string, text: string, optio
 }
 
 function fileProviderMetadata(part: FilePart) {
-  if (part.source) {
-    return { opencode: { partId: part.id, source: part.source } };
-  }
-  return { opencode: { partId: part.id } };
+  return {opencode:{partId:part.id,...(part.source ? {source:part.source}:{}),...(part.history ? {historicalAttachment:part.history}:{})}};
 }
 
 function getTextPartValue(part: Part) {

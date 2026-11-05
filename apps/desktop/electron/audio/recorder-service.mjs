@@ -165,6 +165,8 @@ export class RecorderService {
      *   finalizingStreams?: Set<string>,
      *   transcriptStream?: import('node:fs').WriteStream,
      *   resolveFinalized: (() => void) | null,
+     *   cancelled?: boolean,
+     *   finishing?: Promise<import("@legalwork/types/audio").AudioRecordingMeta>,
      *   importAudioPath?: string,
      *   diarize?: boolean,
      *   cloudSpeakers?: Map<string, { ids: Map<number, number>, turns: { startMs: number, endMs: number, speaker: number | null }[], words: { text?: string, startMs: number, endMs: number, speaker: number | null }[], endMs: number }>,
@@ -892,7 +894,8 @@ export class RecorderService {
     const recording = this.activeRecordings.get(recordingId);
     if (!recording) throw new Error(`Unknown recording: ${recordingId}`);
     try {
-      return await this.finishRecording(recordingId, recording);
+      recording.finishing ??= this.finishRecording(recordingId, recording);
+      return await recording.finishing;
     } catch (error) {
       for (const pass of recording.speakerPasses ?? []) await pass.stop();
       this.backgroundRecordings.delete(recordingId);
@@ -911,10 +914,11 @@ export class RecorderService {
     // buffered in pendingPcm still gets transcribed instead of thrown away.
     if (this.worker && !this.workerReady) {
       const deadline = Date.now() + 60_000;
-      while (this.worker && !this.workerReady && Date.now() < deadline) {
+      while (this.worker && !this.workerReady && !recording.cancelled && Date.now() < deadline) {
         await new Promise((resolve) => setTimeout(resolve, 250));
       }
     }
+    if (recording.cancelled) throw new Error("Recording cancelled.");
     const streamIds = this.recordingStreamIds(recordingId);
     for (const streamId of streamIds) this.pendingPcm.delete(streamId);
 
@@ -947,14 +951,18 @@ export class RecorderService {
         }
       });
     }
+    if (recording.cancelled) throw new Error("Recording cancelled.");
     const background = Boolean(recording.speakerPasses?.length);
     if (background) this.backgroundRecordings.set(recordingId, recording);
     else this.forgetRecordingStreams(recordingId);
-    this.activeRecordings.delete(recordingId);
+    // Keep dictation cancellable through file writes. Retained meetings still
+    // detach here so their live-transcript mirror receives its ended marker.
+    if (!recording.meta.ephemeral) this.activeRecordings.delete(recordingId);
 
     await Promise.all([recording.audioStream, ...recording.sourceStreams?.values() ?? []].map(finishStream));
     await finishStream(recording.transcriptStream);
     recording.transcriptStream = undefined;
+    if (recording.cancelled) throw new Error("Recording cancelled.");
 
     const meta = recording.meta;
     meta.speakerProcessing = background;
@@ -983,6 +991,7 @@ export class RecorderService {
       this.broadcast({ type: "live-transcript-stopped" });
     }
     await this.syncWorkspaceTranscripts(meta, segments);
+    if (recording.cancelled) throw new Error("Recording cancelled.");
     if (background) {
       this.powerSessions.acquire(`speakers:${recordingId}`);
       const job = this.finishSpeakers(recordingId, recording).finally(() => {
@@ -993,6 +1002,7 @@ export class RecorderService {
       });
       this.speakerJobs.set(recordingId, job);
     }
+    this.activeRecordings.delete(recordingId);
     return { ...meta };
   }
 
@@ -1029,11 +1039,18 @@ export class RecorderService {
       await this.speakerJobs.get(recordingId);
     }
     const recording = this.activeRecordings.get(recordingId);
+    if (recording) {
+      recording.cancelled = true;
+      recording.resolveFinalized?.();
+    }
     this.dropRecordingStreams(recordingId);
     this.forgetRecordingStreams(recordingId);
     if (!recording) return;
     this.activeRecordings.delete(recordingId);
     this.powerSessions.release(`recording:${recordingId}`);
+    // A pending finalize must settle before removing its folder; otherwise a
+    // late completion can recreate cancelled files or write into a new session.
+    await recording.finishing?.catch(() => {});
     // Imported files have no live webm stream (audioStream === null).
     await Promise.all([recording.audioStream, ...recording.sourceStreams?.values() ?? []].map(finishStream));
     await finishStream(recording.transcriptStream);

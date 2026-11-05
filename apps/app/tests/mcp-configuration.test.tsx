@@ -1,12 +1,23 @@
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { connectorConfigVariables, connectorUsesOAuth } from "@legalwork/types/connector-config";
-import { configuredConnectorEntry, connectorNeedsSetup, editableConnectorConfig } from "../src/app/mcp-configuration";
+import { configuredConnectorEntry, connectorNeedsSetup, editableConnectorConfig, savedConnectorEditConfig } from "../src/app/mcp-configuration";
 import { mcpAuthEntryFromServer, mcpConnectOutcome } from "../src/app/mcp-connect-state";
-import { ConnectorVariableFields } from "../src/react-app/domains/connections/modals/mcp-configuration-form";
+import { ConnectorVariableFields, McpConfigurationForm } from "../src/react-app/domains/connections/modals/mcp-configuration-form";
 import type { McpServerEntry } from "../src/app/types";
+import { MCP_QUICK_CONNECT } from "../src/app/constants";
 
 const imported: McpServerEntry = { name: "github-2ecca5c9-plugin-global-github-c0b010", source: "config.remote", config: { type: "remote", enabled: false, url: "https://api.githubcopilot.com/mcp/", headers: { Authorization: "Bearer ${GITHUB_PERSONAL_ACCESS_TOKEN}" }, timeout: 45000 } };
+
+test("Firecrawl quick connect uses native browser sign-in at the account OAuth endpoint", () => {
+  const entry = MCP_QUICK_CONNECT.find(item => item.serverName === "firecrawl");
+  expect(entry).toMatchObject({ name: "Firecrawl", type: "remote", kind: "mcp", oauth: true, url: "https://mcp.firecrawl.dev/v2/mcp-oauth" });
+  if (!entry) throw new Error("Firecrawl quick connection is missing");
+  expect(entry.command).toBeUndefined();
+  expect(entry.headers).toBeUndefined();
+  expect(entry.environment).toBeUndefined();
+  expect(mcpConnectOutcome(entry, { status: "needs_auth" }, true)).toBe("auth");
+});
 
 test("GitHub setup resolves the required token, keeps the import identity, and connects without OAuth", () => {
   const config = editableConnectorConfig(imported.config);
@@ -54,4 +65,25 @@ test("Basic authentication is encoded once, while non-credential headers can sti
   expect(mcpConnectOutcome(tenant, { status: "connected" }, true)).toBe("connected");
   expect(connectorUsesOAuth({ type: "remote", headers: { "X-Key": "synthetic-key" } })).toBe(false);
   expect(connectorUsesOAuth({ type: "remote", headers: { Authorization: "Bearer token" }, oauth: { clientId: "client" } })).toBe(true);
+});
+
+test("metadata-only saved settings retain private values and submit setup answers separately", () => {
+  const entry: McpServerEntry = { name: "saved", editable: true, source: "config.remote", config: { type: "remote", enabled: false, oauth: false },
+    configured: { url: true, command: false, cwd: false, oauth: false, headers: ["Authorization"], environment: [], variables: ["ACCESS_TOKEN"] } };
+  expect(connectorNeedsSetup(entry.config, entry.configured)).toBe(true);
+  const draft = savedConnectorEditConfig(entry, { ...entry.config, url: "", headers: { Authorization: "" } });
+  expect(draft.url).toBeUndefined(); expect(draft.headers).toEqual({});
+  const submitted = configuredConnectorEntry(entry, draft, { ACCESS_TOKEN: "synthetic-new-token" });
+  expect(submitted.url).toBeUndefined();
+  expect(submitted.configEdit).toEqual({ variables: { ACCESS_TOKEN: "synthetic-new-token" } });
+  expect(submitted.existingConfig).not.toHaveProperty("url");
+  const html = renderToStaticMarkup(<McpConfigurationForm entry={entry} onBack={() => {}} onConnect={() => true} />);
+  expect(html).toContain("Saved connection values stay private");
+  expect(html).toContain("Access token");
+  expect(html).not.toContain("synthetic-new-token");
+  const authored = { ...entry, editable: false };
+  expect(() => configuredConnectorEntry(authored, draft, {})).toThrow("authored OpenCode configuration");
+  const readonly = renderToStaticMarkup(<McpConfigurationForm entry={authored} onBack={() => {}} onConnect={() => true} />);
+  expect(readonly).toContain("original file");
+  expect(readonly).not.toContain("<form");
 });

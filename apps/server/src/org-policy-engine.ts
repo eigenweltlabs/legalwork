@@ -1,14 +1,13 @@
-import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
+import { writeGeneratedConfigFile } from "./generated-config-file.js";
 import { join } from "node:path";
 import { PermissionActionSchema, type PermissionAction, type PermissionRule } from "./org-policy-schema.js";
 
 import { firmHubConnectorBlocks } from "./firm-hub.js";
 import { appliedOrgPolicy } from "./org-policy.js";
 import { orgChatProviderBlocks, orgEnabledProviders } from "./org-policy-ai.js";
-import { runtimeStorageDir } from "./runtime-opencode-config-store.js";
+import { engineStorageDir } from "./engine-storage.js";
 import type { ServerConfig } from "./types.js";
-import { sandboxEngineAgents, sandboxEnginePermissions } from "./agent-sandbox/engine-policy.js";
 
 /**
  * What the firm's policy changes in the engine. Two layers:
@@ -23,7 +22,7 @@ import { sandboxEngineAgents, sandboxEnginePermissions } from "./agent-sandbox/e
  */
 
 export function orgPolicyEngineDir(config: ServerConfig): string {
-  return join(runtimeStorageDir(config), "org-policy-engine");
+  return join(engineStorageDir(config), "org-policy-engine");
 }
 
 function orgPolicyEngineFile(config: ServerConfig): string {
@@ -72,10 +71,10 @@ export async function buildOrgPolicyEngineLayer(
   const { enforced } = await orgPolicyPermissions(config, own.permission);
   const layer: Record<string, unknown> = {};
   if (Object.keys(enforced).length > 0) {
-    layer.permission = config.agentSandboxEnabled ? sandboxEnginePermissions(enforced) : enforced;
+    layer.permission = enforced;
     // A project's own definition of the default agent could carry looser rules.
     const agents = { legalwork: { permission: enforced } };
-    layer.agent = config.agentSandboxEnabled ? sandboxEngineAgents(agents) : agents;
+    layer.agent = agents;
   }
   const providers = await orgChatProviderBlocks(config);
   if (Object.keys(providers).length > 0) layer.provider = providers;
@@ -105,7 +104,5 @@ export async function orgPolicyEngineLayerIntact(config: ServerConfig, layer: Re
 export async function writeOrgPolicyEngineLayer(config: ServerConfig, layer: Record<string, unknown>): Promise<void> {
   const path = orgPolicyEngineFile(config);
   await mkdir(orgPolicyEngineDir(config), { recursive: true });
-  const temporary = `${path}.${randomUUID()}.tmp`;
-  await writeFile(temporary, serializeLayer(layer), { encoding: "utf8", mode: 0o600 });
-  await rename(temporary, path);
+  await writeGeneratedConfigFile(path, serializeLayer(layer));
 }

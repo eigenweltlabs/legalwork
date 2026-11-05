@@ -1,0 +1,419 @@
+{
+  "schemaVersion": 1,
+  "status": "source-validated-with-matching-upstream-baseline-failures",
+  "sourceValidationPassed": true,
+  "candidateBuildReady": true,
+  "buildReadyScope": "Source/dependency gates only. Parent review of this new immutable .3 receipt is required before recipe/build changes; no .3 candidate built.",
+  "distributionAdopted": false,
+  "proposedCandidateVersion": "2.1.4-legalwork.http-policy.3",
+  "verifiedAt": "2026-10-25T14:05:00.901993+00:00",
+  "source": {
+    "repository": "https://github.com/anomalyco/opencode.git",
+    "tag": "v2.1.4",
+    "commit": "68bc26b7da1990ce10ffecfbc1e09eb13aa5d824",
+    "preparedCheckout": ".legalwork/scratch/opencode-2.1.4-http-headers",
+    "patch": {
+      "path": "docs/patches/opencode-2.1.4-mcp-http-policy-v3.patch",
+      "sha256": "9b822bb48049bfd49551380c9fb5cfe8acf4743bda6c4ebdb51f115f8ef033e0"
+    },
+    "workingTreeDiffSha256": "9b822bb48049bfd49551380c9fb5cfe8acf4743bda6c4ebdb51f115f8ef033e0",
+    "appliesToExactHeadIndex": true,
+    "files": [
+      {
+        "path": "packages/codemode/src/codemode.ts",
+        "sha256": "e98187bc1a7704e024d83084e3fd63ffeb2e01fa9b88e62404d8df581db44b43"
+      },
+      {
+        "path": "packages/codemode/test/http-bindings.test.ts",
+        "sha256": "32d27fc4aa6e245af0cb27b46bd615a7f6187b0e00f49d16a9d0290b3a2a6d84"
+      },
+      {
+        "path": "packages/core/src/codemode/tool.ts",
+        "sha256": "5ead1a84a53c8b2453298dfbf320b68056698a3b25276f28c0ff1cfc42daa65d"
+      },
+      {
+        "path": "packages/core/src/codemode/web.ts",
+        "sha256": "9901d433d0dcda62cc385031909bbe92f17aa094093011b52faeed6702abde94"
+      },
+      {
+        "path": "packages/core/src/tool.ts",
+        "sha256": "95c6a1dff83db002b3c6ed95f796cfb224a08f66e325b4fe8f65fcbe67e27425"
+      },
+      {
+        "path": "packages/core/src/tool/mcp.ts",
+        "sha256": "f6efd468d1cc4b3d15f51d1922551c8037078f33278a49d82e86e275b63b208e"
+      },
+      {
+        "path": "packages/core/test/codemode-http.test.ts",
+        "sha256": "42ef338ba027065db085c19d8cccd8e7f0a936806e0407b781790d2221cd03b4"
+      },
+      {
+        "path": "packages/core/test/mcp.test.ts",
+        "sha256": "87e6fda62bd2a5607dea008732c597bff50bf150066da3710699120afb2ace30"
+      },
+      {
+        "path": "packages/core/test/session-generate.test.ts",
+        "sha256": "64534994deb209e4adea42053acd797197ee5eb7bbd8b90f876d9115c2820caf"
+      }
+    ],
+    "priorMcpPatch": {
+      "path": "docs/patches/opencode-2.1.4-mcp-tool-readiness.patch",
+      "sha256": "2780a863a420cc52b19274990f46f5568baf56d6dd1918f8a9f94bb25088744b",
+      "unchangedExtractedDiff": true
+    },
+    "priorReceipt": {
+      "path": "docs/patches/opencode-2.1.4-mcp-tool-readiness.receipt.json",
+      "sha256": "90e271ea78663e147ab9be2731e3b120f89a762e54785e84342bd63f1a275c50"
+    },
+    "patchApplyCheck": {
+      "path": ".legalwork/scratch/http-headers-v3-validation-20261025/patch-apply-check.json",
+      "sha256": "ddd0f9798ec59b75b6ba9dd193e8edd174f9bfd8a5780939f383ed78d99fc519"
+    },
+    "priorHttpV2": {
+      "patch": {
+        "path": "docs/patches/opencode-2.1.4-mcp-http-policy.patch",
+        "sha256": "bcdce390b1fe7323638ffa0506d13fed0da07556b3267428137332efe6a71284"
+      },
+      "receipt": {
+        "path": "docs/patches/opencode-2.1.4-mcp-http-policy.receipt.json",
+        "sha256": "e6e96fdb2b3961c44b87b6ad67e3c9f4c05cbfedb3231b435d0a644574a62a3f"
+      },
+      "sourceCheckoutUnchanged": true,
+      "artifactsUnchanged": true
+    },
+    "changedFilesSinceV2": [
+      "packages/core/src/codemode/web.ts",
+      "packages/core/test/codemode-http.test.ts"
+    ]
+  },
+  "dependencies": {
+    "manager": "bun",
+    "scope": "User-approved exception for isolated upstream engine build only; LegalWork continues using pnpm.",
+    "originalManifest": {
+      "path": "package.json",
+      "sha256": "1767628e91b25f3b730c39edf67069a4575ff2d5509b0e494fa95ec6b693e246"
+    },
+    "originalLock": {
+      "path": "bun.lock",
+      "sha256": "47359ba0731b02d14b9a93a6b71b2db104cf9b9716ab0b6371fe96f02c6d71b2",
+      "unchanged": true
+    },
+    "finalVerificationInstallArguments": [
+      "install",
+      "--frozen-lockfile",
+      "--ignore-scripts",
+      "--os=*",
+      "--cpu=*",
+      "--libc=*"
+    ],
+    "finalVerificationNoChanges": true,
+    "lifecycleScriptsExecuted": false,
+    "registryInstallations": 2564,
+    "unexpectedRegistryIdentities": [],
+    "manifestVersionMismatches": [],
+    "nonRegistryEntries": [
+      "@solidjs+start@https+++pkg.pr.new+@solidjs+start@dfb2020+2423d88f153f422d",
+      "ghostty-web@github+anomalyco+ghostty-web+83c0a07"
+    ],
+    "allTargetNativePackageFamiliesVerified": [
+      "@opencode-ai/pty",
+      "@opentui/core",
+      "@parcel/watcher",
+      "@ff-labs/fff-bin"
+    ],
+    "warnings": [
+      "Unchanged upstream manifest retains unused standard-openapi, Mistral and Google patches.",
+      "Unchanged upstream manifest retains gcp-metadata 8.1.2 patch although original lock already pins 8.1.4."
+    ],
+    "preparation": "40 APFS-cloned node_modules roots from immutable accepted .2 source into separate .3 worktree; dependency links localized/verified within new tree; official frozen Bun verification reports no changes.",
+    "inventoryAudit": {
+      "path": ".legalwork/scratch/http-headers-v3-validation-20261025/official-install-audit.json",
+      "sha256": "5590041afe64c86541b2ae11da8355420206fd70732619b99d7019db8eff6fc1"
+    },
+    "sameInventoryAsPriorAcceptedOfficialReceipt": true
+  },
+  "runtime": {
+    "package": "@oven/bun-darwin-aarch64",
+    "version": "1.4.4",
+    "revision": "38afee6c8",
+    "packageIntegrity": "sha512-zW/hxwc8sJAILGwB5eTC4i48ouGXf0V4lrxmEOk3JIE6JkYVW1TZh1E2pIempqsezgW1sckTIIDudFON8bJ2Mw==",
+    "executable": ".legalwork/scratch/opencode-readiness-bun-1.4.4/package/bin/bun",
+    "sha256": "0a2237cdcfa0d16ef501d9acca9f0026309ef348bea7393a64e8d1e3609565cc"
+  },
+  "nativeTypeScriptCompiler": {
+    "package": "@typescript/typescript-darwin-arm64",
+    "version": "7.1.0-beta",
+    "executable": "node_modules/.bun/@typescript+typescript-darwin-arm64@7.1.0-beta/node_modules/@typescript/typescript-darwin-arm64/lib/tsc",
+    "sha256": "29f5eb8daa5c8cf6ef1c0cb79fbcf47c0cfdf26edabdf148bb779d0b2d56cebc"
+  },
+  "contract": {
+    "reservedToolID": "legalwork_raw_http",
+    "input": {
+      "url": "string",
+      "method": "string",
+      "headers": "Record<string,string>",
+      "bodyBase64": "optional canonical Base64; absent differs from present zero-length"
+    },
+    "output": {
+      "url": "string",
+      "status": "number",
+      "statusText": "string",
+      "headers": "Record<string,string>",
+      "bodyBase64": "canonical Base64",
+      "redirected": "boolean"
+    },
+    "execution": "Existing native executor and before/after hooks with genuine session/agent/message/parent-call context. Reject a missing/filtered adapter or namespaced ID collision before network I/O.",
+    "catalog": "Excluded from direct definitions, CodeMode catalog/search and tools globals. Fetch progress retains method+original URL only; full native request/result remains private.",
+    "cancellation": "Invocation AbortController bridges Stop/program completion to native effects, including unresolved authorization hooks and active/unawaited transport.",
+    "localProtocols": [
+      "data:",
+      "blob:"
+    ],
+    "filesystemProtocol": "file: remains rejected",
+    "rawPayloadCapsAdded": false,
+    "taskDeadlineAdded": false,
+    "inheritedHttpTimeoutMs": 30000,
+    "timeoutOwnership": "LegalWork raw transport must preserve 30 seconds of active HTTP time excluding all human approval waits. Engine retains inherited timeout only for local data/blob. Production transport and compiled integration are separate gates."
+  },
+  "testEnvironment": {
+    "platform": "darwin",
+    "architecture": "arm64",
+    "shell": "GNU bash 3.2.57",
+    "defaultCoreTestTimeoutMs": 30000,
+    "timeoutSource": "Unchanged upstream test runner, no production agent deadline added.",
+    "coreHomeAndXdgIsolated": true,
+    "typecheckHomeAndXdgIsolated": true,
+    "inheritedProviderCredentialsFiltered": true,
+    "recordMode": false,
+    "paidModelCalls": 0,
+    "externalHttpTestEndpoints": "Loopback sentinels and fixture transports. Existing package-manager fixture tests may access registries; no live model endpoints are enabled."
+  },
+  "results": {
+    "focusedCore": {
+      "total": 188,
+      "files": 11,
+      "passed": 188,
+      "failed": 0,
+      "skipped": 0,
+      "assertions": 728,
+      "duration": "9.11s"
+    },
+    "fullCore": {
+      "total": 6816,
+      "files": 273,
+      "passed": 6766,
+      "failed": 7,
+      "skipped": 43,
+      "assertions": 107948,
+      "duration": "113.09s",
+      "errors": 0,
+      "failuresExactlyMatchOriginalSource": true,
+      "baselineFailureNames": [
+        "(fail) ShellTool compound syntax approval compatibility > bash legacy equivalent: printf %s \"$(probe() case value in value) printf hello;; esac; probe)\"",
+        "(fail) ShellTool compound syntax approval compatibility > bash native: printf %s \"$(probe() case value in value) printf hello;; esac; probe)\"",
+        "(fail) ShellTool conditional process substitution > legacy: conditional substitutions respect always",
+        "(fail) ShellTool conditional process substitution > legacy: conditional substitutions respect once",
+        "(fail) ShellTool conditional process substitution > native: conditional substitutions respect always",
+        "(fail) ShellTool conditional process substitution > native: conditional substitutions respect once",
+        "(fail) real-shell compound syntax > bash: printf '%s' \"$(probe() case value in value) scan_probe;; *) scan_other;; esac; probe)\""
+      ],
+      "baselineReceipt": {
+        "path": "docs/patches/opencode-2.1.4-mcp-http-policy.receipt.json",
+        "sha256": "e6e96fdb2b3961c44b87b6ad67e3c9f4c05cbfedb3231b435d0a644574a62a3f",
+        "classification": "Same original-source shell control on identical frozen dependency graph, reused as baseline only; not claimed rerun here."
+      }
+    },
+    "randomizedHttp": {
+      "total": 90,
+      "files": 1,
+      "passed": 90,
+      "failed": 0,
+      "skipped": 0,
+      "assertions": 520,
+      "duration": "2.08s",
+      "repetitions": 10,
+      "seed": 20261025
+    },
+    "fullCodeModeLibrary": {
+      "total": 1416,
+      "files": 35,
+      "passed": 1416,
+      "failed": 0,
+      "skipped": 0,
+      "assertions": 2639,
+      "duration": "2.83s"
+    },
+    "acceptedV2HeaderRegressionNegative": {
+      "total": 1,
+      "files": 1,
+      "passed": 0,
+      "failed": 1,
+      "skipped": 0,
+      "assertions": 1,
+      "duration": "380.00ms",
+      "expectedFailures": 1,
+      "otherCasesFilteredOut": 8,
+      "conditions": "Same new four-case live HTTP-wire fixture executed before header-order change; form absent/empty header cases fail against native Fetch while plain string controls match."
+    },
+    "canonicalRootCheck": {
+      "passed": true,
+      "typecheckTasks": 34,
+      "cachedTasks": 28,
+      "lintErrors": 0,
+      "unchangedUpstreamLintWarnings": 1225
+    },
+    "coreOfficialTypeScriptCheck": "passed",
+    "codeModeOfficialTypeScriptCheck": "passed",
+    "changedFileLint": {
+      "warnings": 0,
+      "errors": 0
+    },
+    "changedFileFormatting": "passed",
+    "largePayloadRoundTrip": {
+      "requestBytes": 5242880,
+      "responseBytes": 17825805,
+      "decisiveTailRetained": true
+    },
+    "sourceInputsAfterAllChecksUnchanged": true
+  },
+  "intentionalBehaviorChanges": [
+    {
+      "behavior": "Preserve valid long custom HTTP method tokens instead of silently converting them to GET.",
+      "evidence": "Exact Bun1.4.4 local raw-TCP control: 80-character A method becomes Request.method GET and sends GET / HTTP/1.1 upstream. Adapter preserves original token without a method-length cap; server wire acceptance remains separate.",
+      "log": {
+        "path": ".legalwork/scratch/http-policy-validation-20261025/upstream-long-method-control.log",
+        "sha256": "fbcefa083bd4cef306d143c16bf8a8d61598368e13dec81cffa1f4fa76f128b2"
+      }
+    },
+    {
+      "behavior": "Fail external HTTP if policy adapter is absent/filtered or namespaced collision exists; local calculations/data/blob remain available.",
+      "evidence": "Approved managed network boundary."
+    }
+  ],
+  "caveats": [
+    "Seven Mac/Bash3.2 shell failures exactly match fresh original-HTTP-source control on the same dependency graph. No assertions were skipped or weakened.",
+    "43 inherited skips use upstream platform/availability conditions. Earlier CI=true run had six extra upstream watcher skips; accepted final run removes CI and enables them.",
+    "Source fixtures exercise native executor/hooks, not production LegalWork HTTP implementation. Compiled-engine + production-plugin/server policy, redirects/address/DNS, proxy, active-time budget, revocation and private trace acceptance remain required.",
+    "No .2 candidate binary, platform artifact, signing, publication or default adoption established. Old MCP-only .1 artifacts/receipt remain historical and unchanged.",
+    "No Linux/Windows runtime or paid real-model quality/performance acceptance claimed.",
+    "Native hook API omits execute.after when execute.before rejects/is interrupted; observer must retain before-only evidence and disclose missing terminal results rather than invent completion.",
+    "Upstream interpreter copies Uint8Array when crossing into the confined program. Host facade retains one plain Uint8Array and returns that array from bytes(), matching upstream host semantics.",
+    "All .2 source/patch/receipt/two artifacts remain immutable historical evidence. Their compiled acceptance does not establish .3 binary acceptance.",
+    "Fresh .3 compiled production HTTP acceptance (including missing Content-Type), two-mode MCP,13-file contracts and production prefix/native-client checks remain required after parent review/new build."
+  ],
+  "logs": {
+    "frozen-install": {
+      "path": ".legalwork/scratch/http-headers-v3-validation-20261025/frozen-install.log",
+      "sha256": "ed4645332b5838b34f04308614906a298821283c06ed6e67740dac0fb2ed345c",
+      "exitCode": 0,
+      "commandReceipt": ".legalwork/scratch/http-headers-v3-validation-20261025/frozen-install.command.json",
+      "commandReceiptSha256": "1111e3790dd270757d0b4703c1dae7ce94834104466e996107275b1a18b589af"
+    },
+    "accepted-v2-header-negative": {
+      "path": ".legalwork/scratch/http-headers-v3-validation-20261025/accepted-v2-header-negative.log",
+      "sha256": "7fcb58b04205c1d3dff60f021f2ca6b2154b5f14bcfc9bd03d9256ba6b4470d8",
+      "exitCode": 1,
+      "commandReceipt": ".legalwork/scratch/http-headers-v3-validation-20261025/accepted-v2-header-negative.command.json",
+      "commandReceiptSha256": "e3b631b413965e7a420e992c6129e101dadd6a88d1c4c0a343db6137d163a660"
+    },
+    "core-focused": {
+      "path": ".legalwork/scratch/http-headers-v3-validation-20261025/core-focused.log",
+      "sha256": "e1ff742a3b210f87909ccfe781febca06b411674d896497c2c3542c0bc00b962",
+      "exitCode": 0,
+      "commandReceipt": ".legalwork/scratch/http-headers-v3-validation-20261025/core-focused.command.json",
+      "commandReceiptSha256": "6b773e2ffbee48e80c0f435d8742c8dd1469bab9dd1a4721859b41be0878d087"
+    },
+    "http-randomized": {
+      "path": ".legalwork/scratch/http-headers-v3-validation-20261025/http-randomized.log",
+      "sha256": "f1caad610de6533d7e833713e5f9773f9a0fee390d393ec42f1b104187a4f8b8",
+      "exitCode": 0,
+      "commandReceipt": ".legalwork/scratch/http-headers-v3-validation-20261025/http-randomized.command.json",
+      "commandReceiptSha256": "a4f3c6b1d5eea6ca8a3ba26b3b685f9669b717363f86271472c572d9e209bb6a"
+    },
+    "core-full": {
+      "path": ".legalwork/scratch/http-headers-v3-validation-20261025/core-full.log",
+      "sha256": "7bbafd38fa11e7d635ebe60d166d2e9629b3db751ee0bbc68b45197d22691073",
+      "exitCode": 1,
+      "commandReceipt": ".legalwork/scratch/http-headers-v3-validation-20261025/core-full.command.json",
+      "commandReceiptSha256": "b4a3835b380096c238fccf1db2c7d001995a8440a1255313916cc4bf21b0d8da"
+    },
+    "canonical-check": {
+      "path": ".legalwork/scratch/http-headers-v3-validation-20261025/canonical-check.log",
+      "sha256": "04530412358a15735cd5aaa2cb76ca9521e83aabfab42efe7ede533e48b91004",
+      "exitCode": 0,
+      "commandReceipt": ".legalwork/scratch/http-headers-v3-validation-20261025/canonical-check.command.json",
+      "commandReceiptSha256": "37b8f7042e8e3195a50dd6511bdd6983826d18e5adabc0bf27f4716d7cec7422"
+    },
+    "core-official-tsc": {
+      "path": ".legalwork/scratch/http-headers-v3-validation-20261025/core-official-tsc.log",
+      "sha256": "5959f9ec73f36829abfc9ec1d2017524576132777a152c85b8e9abc543a3e823",
+      "exitCode": 0,
+      "commandReceipt": ".legalwork/scratch/http-headers-v3-validation-20261025/core-official-tsc.command.json",
+      "commandReceiptSha256": "d7e86158deb1eee81aec1ee398b047682ff73e398e59f4d8e9e3479ea13e45b6"
+    },
+    "codemode-official-tsc": {
+      "path": ".legalwork/scratch/http-headers-v3-validation-20261025/codemode-official-tsc.log",
+      "sha256": "8366207267355d3e3d5bf3bf6e8c94c5f93f6078c34f08973fa2b38cdda6cc92",
+      "exitCode": 0,
+      "commandReceipt": ".legalwork/scratch/http-headers-v3-validation-20261025/codemode-official-tsc.command.json",
+      "commandReceiptSha256": "56f7fa18be2924e0cafa8c167f11e2b24fde75a580414e051c5c947a82594f01"
+    },
+    "codemode-full": {
+      "path": ".legalwork/scratch/http-headers-v3-validation-20261025/codemode-full.log",
+      "sha256": "19cfff8495a62c15275766bf51caf623057d9bb4cbd11917068fa9933a005dc8",
+      "exitCode": 0,
+      "commandReceipt": ".legalwork/scratch/http-headers-v3-validation-20261025/codemode-full.command.json",
+      "commandReceiptSha256": "7c6800a743f5cffe16440618c74b17fa755d1b7f6470efa50814e238ba890cb9"
+    },
+    "changed-file-lint": {
+      "path": ".legalwork/scratch/http-headers-v3-validation-20261025/changed-file-lint.log",
+      "sha256": "5e050103f02275fba970e299d3b983a932a0429767f37d8aed39cbb17cf7739d",
+      "exitCode": 0,
+      "commandReceipt": ".legalwork/scratch/http-headers-v3-validation-20261025/changed-file-lint.command.json",
+      "commandReceiptSha256": "b1710e3032b08b7c113bdf351eefd49d3ca47d588c2d27990e317a1256a72cf7"
+    },
+    "changed-file-format": {
+      "path": ".legalwork/scratch/http-headers-v3-validation-20261025/changed-file-format.log",
+      "sha256": "17aa973d3f004560237d9a95171210b0671deff23d61628eecf7322ff5938f20",
+      "exitCode": 0,
+      "commandReceipt": ".legalwork/scratch/http-headers-v3-validation-20261025/changed-file-format.command.json",
+      "commandReceiptSha256": "a1afbd647162aa6fdf637c7694bba88e4c07a7e2ac7c33f147b3e3271549a525"
+    }
+  },
+  "retainedProvisionalEvidence": [
+    {
+      "path": "docs/patches/opencode-2.1.4-mcp-http-policy.receipt.json",
+      "sha256": "e6e96fdb2b3961c44b87b6ad67e3c9f4c05cbfedb3231b435d0a644574a62a3f",
+      "scope": "Earlier .2 source and negatives retained historically, not relabeled .3."
+    }
+  ],
+  "headerOrderCorrection": {
+    "rootCause": "Bun Request lazily infers URLSearchParams headers; consuming body before first headers access loses form Content-Type when headers absent/empty. Existing fixture explicit custom header hid issue.",
+    "productionChange": "Snapshot normalized headers immediately after constructing Request and before awaiting body bytes; no new defaults/caps/deadlines or interpreter changes.",
+    "wireFixtures": [
+      "form/no supplied headers",
+      "form/empty headers",
+      "plain string/no supplied headers",
+      "plain string/empty headers"
+    ],
+    "nativePlainStringBehavior": "Exact Bun1.4.4 control supplies no Content-Type for plain string; preserve observed behavior rather than invent a default.",
+    "rootCauseReceipt": {
+      "path": ".legalwork/scratch/http-headers-v3-validation-20261025/header-order-root-cause.receipt.json",
+      "sha256": "6e6126a263da4353f10b8c77077226b832bbef38de2ee2a19f8b4dc2e543622e"
+    },
+    "rootCauseScript": {
+      "path": ".legalwork/scratch/http-headers-v3-validation-20261025/header-order-root-cause.ts",
+      "sha256": "633e0512da9f5cfa06181d1480ed69b03029085d0ef63007bca34df2ad37f8ea"
+    },
+    "rootCauseLog": {
+      "path": ".legalwork/scratch/http-headers-v3-validation-20261025/header-order-root-cause.log",
+      "sha256": "ad4a0bfc59698cc2672ad474a9b1f1cd40a8767f367a10330e192237653f72a9"
+    },
+    "officialWebSource": {
+      "path": ".legalwork/scratch/http-headers-v3-validation-20261025/official-web-source.ts",
+      "sha256": "2df947c66a8f2b1cf6616dbed51711cc0f1dfc40ddf81469dc4d0b3eccc8e159",
+      "commit": "68bc26b7da1990ce10ffecfbc1e09eb13aa5d824"
+    },
+    "scope": "Direct accepted .2 host facade + exact Bun native Fetch loopback controls; no official-engine executable run claimed for this diagnostic."
+  }
+}

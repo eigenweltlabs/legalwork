@@ -35,7 +35,7 @@ export function registerWikiProjectRoutes({ routes, config, store, selected, jso
   };
   const projects = async () => {
     const wikis = await store.list();
-    return (await Promise.all(config.workspaces.filter(item => item.workspaceType !== "remote" && !wikis.some(wiki => wiki.workspaceId === item.id)).map(async item => {
+    return (await Promise.all(config.workspaces.filter(item => !wikis.some(wiki => wiki.workspaceId === item.id)).map(async item => {
       const root = await realpath(item.directory || item.path).catch(() => null);
       if (!root || wikis.some(wiki => within(root, wiki.root) || within(wiki.root, root))) return null;
       return { id: item.id, name: item.displayName || item.name, root };

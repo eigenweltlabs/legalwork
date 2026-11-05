@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
+import { nativePluginTools } from "../opencode-plugins/native-plugin-test-support.js";
 import { LegalWorkExtensionsPreview } from "../opencode-plugins/legalwork-extensions-preview.js";
 import { connectorDefinitions } from "@legalwork/types/connectors";
 
@@ -18,7 +19,7 @@ test("passes the runtime capability only for registered connector actions and ne
     headers.push(new Headers(init?.headers));
     return Response.json({ ok: true, result: { connected: true } });
   }, { preconnect: originalFetch.preconnect });
-  const plugin = await LegalWorkExtensionsPreview();
+  const plugin = await nativePluginTools(LegalWorkExtensionsPreview);
   for (const extensionId of [...connectorDefinitions.map((item) => item.id), "google-workspace"]) {
     const result = await plugin.tool.legalwork_extension_call.execute({ extensionId, action: "status" }, { sessionID: "session" });
     expect(result).not.toContain("private-mail-capability");

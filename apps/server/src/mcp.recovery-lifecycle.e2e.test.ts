@@ -5,16 +5,15 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { z } from "zod";
-import { createManagedOpencodeServer } from "./managed-opencode.js";
+import { startEmbeddedServer } from "./embedded.js";
+import { OpenCode } from "@opencode/client";
+import { beginNativeMcpOAuth, waitForNativeMcpOAuth } from "./native-mcp.test-support.js";
 import { addMcp, listMcp } from "./mcp.js";
-import { startServer } from "./server.js";
 import type { ServerConfig } from "./types.js";
 
 const repo = resolve(import.meta.dir, "../../..");
-const target = process.platform === "darwin" ? "apple-darwin" : process.platform === "win32" ? "pc-windows-msvc.exe" : "unknown-linux-gnu";
-const arch = process.arch === "arm64" ? "aarch64" : "x86_64";
-const binary = process.env.OPENCODE_TEST_BINARY ?? join(repo, "apps/desktop/resources/sidecars", `opencode-${arch}-${target}`);
-if (process.env.OPENCODE_TEST_BINARY && !existsSync(binary)) throw new Error("OPENCODE_TEST_BINARY does not exist");
+const binary = process.env.LEGALWORK_TEST_OPENCODE_BIN ?? process.env.OPENCODE_TEST_BINARY ?? join(repo, "apps/desktop/resources/sidecars", process.platform === "win32" ? "opencode.exe" : "opencode");
+if ((process.env.LEGALWORK_TEST_OPENCODE_BIN || process.env.OPENCODE_TEST_BINARY) && !existsSync(binary)) throw new Error("Explicit released OpenCode fixture binary does not exist");
 const statuses = z.record(z.string(), z.object({ status: z.string() }));
 
 async function freePort() {
@@ -35,19 +34,18 @@ async function waitFor(check: () => Promise<boolean>, label: string) {
 }
 
 async function setup(url: string, oauth: false | { callbackPort: number }) {
-  const root = await mkdtemp(join(tmpdir(), "legalwork-recovery-lifecycle-"));
-  const previousConfigHome = process.env.XDG_CONFIG_HOME;
-  process.env.XDG_CONFIG_HOME = join(root, "config");
+  const root = await mkdtemp(join(import.meta.dir, "../../../.legalwork/scratch/native-recovery-lifecycle-"));
+  const previous = { ...process.env };
+  for (const key of ["XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "XDG_STATE_HOME", "LEGALWORK_RUNTIME_DB", "LEGALWORK_TOKEN_STORE", "LEGALWORK_STORAGE_STORE"]) process.env[key] = join(root, key);
+  process.env.OPENCODE_DB = join(root, "engine.db");
+  process.env.OPENCODE_DISABLE_MODELS_FETCH = "1";
+  process.env.OPENCODE_DISABLE_CLAUDE_CODE = "1";
+  delete process.env.LEGALWORK_OPENCODE_BASE_URL;
+  delete process.env.LEGALWORK_WORKSPACES;
   const directories = [join(root, "a"), join(root, "b")];
   const remote = { type: "remote", url, oauth, enabled: true, timeout: 2000 };
-  for (const directory of directories) {
-    await mkdir(directory);
-    await writeFile(join(directory, "opencode.jsonc"), JSON.stringify({
-      mcp: { notes: remote }, plugin: [], autoupdate: false, lsp: false, formatter: false,
-    }));
-  }
-  let engine: Awaited<ReturnType<typeof createManagedOpencodeServer>> | undefined;
-  let server: Awaited<ReturnType<typeof startServer>> | undefined;
+  for (const directory of directories) await mkdir(directory);
+  let server: Awaited<ReturnType<typeof startEmbeddedServer>> | undefined;
   const config: ServerConfig = {
     host: "127.0.0.1", port: 0, token: "local-lifecycle", hostToken: "local-lifecycle-host",
     approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: [], readOnly: false,
@@ -57,40 +55,40 @@ async function setup(url: string, oauth: false | { callbackPort: number }) {
   };
   const close = async () => {
     await server?.stop();
-    await engine?.close();
     await rm(root, { recursive: true, force: true });
-    if (previousConfigHome === undefined) delete process.env.XDG_CONFIG_HOME;
-    else process.env.XDG_CONFIG_HOME = previousConfigHome;
+    for (const key of Object.keys(process.env)) if (!(key in previous)) delete process.env[key];
+    Object.assign(process.env, previous);
   };
   try {
-    const engineConfig = join(directories[0], "opencode.jsonc");
-    engine = await createManagedOpencodeServer({ bin: binary, cwd: directories[0], timeoutMs: 30_000, env: {
-      OPENCODE_CONFIG: engineConfig, OPENCODE_CONFIG_CONTENT: "", OPENCODE_CONFIG_DIR: join(root, "policy"),
-      OPENCODE_TEST_HOME: join(root, "home"), OPENCODE_DB: join(root, "engine.db"),
-      XDG_CONFIG_HOME: join(root, "config"), XDG_DATA_HOME: join(root, "data"), XDG_CACHE_HOME: join(root, "cache"), XDG_STATE_HOME: join(root, "state"),
-      OPENCODE_DISABLE_DEFAULT_PLUGINS: "true", OPENCODE_DISABLE_CLAUDE_CODE: "true", OPENCODE_DISABLE_MODELS_FETCH: "true",
-    } });
-    config.opencodeBaseUrl = engine.url;
-    config.opencodeUsername = engine.username;
-    config.opencodePassword = engine.password;
+    await writeFile(config.configPath!, JSON.stringify({ workspaces: config.workspaces, authorizedRoots: directories }));
     await addMcp(config, "a", "notes", remote);
-    server = await startServer(config);
-    const engineUrl = engine.url;
-    const engineAuthorization = `Basic ${Buffer.from(`${engine.username}:${engine.password}`).toString("base64")}`;
-    const appUrl = `http://127.0.0.1:${server.port}`;
-    async function request(base: string, path: string, authorization: string, body?: unknown, method = body === undefined ? "GET" : "POST") {
-      const response = await fetch(base + path, { method, headers: { authorization, "content-type": "application/json" },
+    server = await startEmbeddedServer({ host: "127.0.0.1", port: 0, workspaces: [], configPath: config.configPath, token: config.token, hostToken: config.hostToken,
+      approvalMode: "auto", logRequests: false, manageOpencode: true, managedEngineSandbox: false, opencodeBin: binary });
+    Object.assign(config, server.config);
+    const appUrl = server.url;
+    async function request(path: string, body?: unknown, method = body === undefined ? "GET" : "POST") {
+      const response = await fetch(appUrl + path, { method, headers: { authorization: `Bearer ${config.token}`, "content-type": "application/json" },
         body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(20_000) });
       if (!response.ok) throw new Error(`${path}: ${response.status} ${await response.text()}`);
-      return response.json();
+      return response.status === 204 ? undefined : response.json();
     }
-    const direct = (workspace: "a" | "b", path: string) => request(engineUrl, `${path}?directory=${encodeURIComponent(directories[workspace === "a" ? 0 : 1])}`, engineAuthorization);
-    const app = (path: string, body?: unknown, method?: string) => request(appUrl, path, `Bearer ${config.token}`, body, method);
-    const proxy = (workspace: "a" | "b", path: string, body?: unknown) => app(`/workspace/${workspace}/opencode${path}`, body);
+    const directClient = OpenCode.make({ baseUrl: config.opencodeBaseUrl!, headers: { authorization: `Basic ${Buffer.from(`${config.opencodeUsername}:${config.opencodePassword}`).toString("base64")}` } });
+    const directory = (workspace: "a" | "b") => directories[workspace === "a" ? 0 : 1]!;
+    const native = (workspace: "a" | "b") => OpenCode.make({ baseUrl: `${appUrl}/workspace/${workspace}/opencode`, headers: { authorization: `Bearer ${config.token}` } });
+    const direct = async (workspace: "a" | "b", path: string) => {
+      if (path !== "/mcp") throw new Error("Unsupported native fixture read");
+      return Object.fromEntries((await directClient.mcp.list({ location: { directory: directory(workspace) } })).data.map(server => [server.name, server.status]));
+    };
+    const proxy = async (workspace: "a" | "b", path: string, _body?: unknown) => path === "/mcp"
+      ? Object.fromEntries((await native(workspace).mcp.list({ location: { directory: directory(workspace) } })).data.map(server => [server.name, server.status]))
+      : path === "/mcp/notes/disconnect" ? native(workspace).mcp.disconnect({ location: { directory: directory(workspace) }, server: "notes" }) : (() => { throw new Error("Unsupported native fixture control"); })();
     for (const workspace of ["a", "b"] satisfies Array<"a" | "b">) {
-      expect(statuses.parse(await direct(workspace, "/mcp")).notes.status).toBe("failed");
+      const status = z.object({ directory: z.string(), plugins: z.array(z.object({ target: z.string() })) }).parse(await request(`/workspace/${workspace}/engine-project`));
+      await request(`/workspace/${workspace}/engine-project/approve`, { directory: status.directory, pluginTargets: status.plugins.map(plugin => plugin.target) });
+      await directClient.model.list({ location: { directory: directory(workspace) } });
+      await waitFor(async () => statuses.parse(await direct(workspace, "/mcp")).notes?.status === "failed", "initial offline MCP state");
     }
-    return { config, app, proxy, direct, close };
+    return { config, app: request, proxy, direct, native, directory, close };
   } catch (error) { await close(); throw error; }
 }
 
@@ -120,7 +118,9 @@ for (const action of ["disable", "remove", "disconnect"]) test.skipIf(!existsSyn
     release.resolve();
     await mutation;
     // A completed mutation is the barrier: no earlier recovery can finish later.
-    expect(statuses.parse(await fixture.direct("a", "/mcp")).notes.status).toBe("disabled");
+    const after = statuses.parse(await fixture.direct("a", "/mcp"));
+    if (action === "remove") expect(after.notes).toBeUndefined();
+    else expect(after.notes?.status).toBe("disabled");
     expect(acknowledgedBeforeRelease).toBe(false);
     if (action === "disable") expect((await listMcp(fixture.config, "a", fixture.config.workspaces[0].path)).find(item => item.name === "notes")?.config.enabled).toBe(false);
     if (action === "remove") expect(await listMcp(fixture.config, "a", fixture.config.workspaces[0].path)).toEqual([]);
@@ -152,17 +152,15 @@ for (const pollingWorkspace of ["a", "b"] satisfies Array<"a" | "b">) test.skipI
     await waitFor(async () => (await fetch(`http://127.0.0.1:${port}/health`).catch(() => null))?.ok === true, "synthetic OAuth provider");
     fixture = await setup(relay.url.origin + "/mcp", { callbackPort });
     offline = false;
-    const flow = z.object({ authorizationUrl: z.string() }).parse(await fixture.proxy("a", "/mcp/notes/auth", {}));
-    expect(statuses.parse(await fixture.direct("a", "/mcp")).notes.status).toBe("failed");
+    const location = { directory: fixture.directory("a") };
+    const flow = await beginNativeMcpOAuth(fixture.native("a"), location, "notes");
+    if (!flow.url) throw new Error("Missing native authorization URL");
     const registeredBeforePolling = registrations;
     await fixture.proxy(pollingWorkspace, "/mcp");
-    const deadline = Date.now() + 500;
-    while (Date.now() < deadline && registrations === registeredBeforePolling) await Bun.sleep(10);
-    const consent = await fetch(flow.authorizationUrl, { redirect: "manual" });
-    const redirect = consent.headers.get("location");
-    if (!redirect) throw new Error("Synthetic authorization did not return a code");
-    const callback = new URL(redirect);
-    expect(await fixture.proxy("a", "/mcp/notes/auth/callback", { code: callback.searchParams.get("code") })).toEqual({ status: "connected" });
+    await Bun.sleep(500);
+    const consent = await fetch(flow.url, { redirect: "follow" });
+    expect(consent.ok).toBe(true);
+    expect((await waitForNativeMcpOAuth(fixture.native("a"), location, flow)).status).toBe("complete");
     expect(registrations).toBe(registeredBeforePolling);
     await fixture.proxy("b", "/mcp");
     const current = fixture;

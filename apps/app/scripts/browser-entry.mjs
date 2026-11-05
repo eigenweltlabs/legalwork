@@ -1,3 +1,4 @@
+import { readMessages } from "./_util.mjs";
 import assert from "node:assert";
 import http from "node:http";
 import os from "node:os";
@@ -200,10 +201,13 @@ try {
       JSON.stringify(
         {
           $schema: "https://opencode.ai/config.json",
-          enabled_providers: ["alibaba"],
-          provider: {
-            alibaba: {
-              options: {
+          policies: [{ action: "provider.use", resource: "*", effect: "deny" }, { action: "provider.use", resource: "browserfixture", effect: "allow" }],
+          model: "browserfixture/qwen-plus", update: "disable",
+          providers: {
+            browserfixture: {
+              package: "@opencode/ai/providers/openai-compatible",
+              models: { "qwen-plus": { modelID: "qwen-plus", capabilities: { tools: true } } },
+              settings: {
                 apiKey: "test-key",
                 baseURL,
               },
@@ -230,7 +234,7 @@ try {
   let sessionId;
 
   await step("session.create", async () => {
-    const session = await client.session.create({ title: "LegalWork browser-entry test" });
+    const session = await client.session.create({ location: { directory: opencode.cwd }, title: "LegalWork browser-entry test" });
     sessionId = session.id;
     assert.ok(sessionId);
     return { id: session.id };
@@ -239,10 +243,10 @@ try {
   await step("session.command (browser-setup)", async () => {
     await client.session.command({
       sessionID: sessionId,
-      command: "browser-setup",
-      arguments: "",
-      model: "alibaba/qwen-plus",
+      name: "browser-setup",
+      text: "",
     });
+    await client.session.wait({ sessionID: sessionId }, { signal: AbortSignal.timeout(12_000) });
     return {};
   });
 
@@ -255,19 +259,19 @@ try {
     const start = Date.now();
     // Keep this internal polling window short: the test should wait up to 12 seconds for the assistant response before failing
     while (Date.now() - start < 12_000) {
-      const msgs = await client.session.messages({ sessionID: sessionId, limit: 50 });
-      const parts = msgs.flatMap((m) => m.parts ?? []);
+      const msgs = await readMessages(client, sessionId);
+      const parts = msgs.flatMap(message => message.type === "assistant" ? message.content : []);
       const toolErrors = parts.filter((p) => p?.type === "tool" && String(p?.state?.status ?? "").toLowerCase() === "error");
       if (toolErrors.length > 0) {
         const first = toolErrors[0];
-        const tool = typeof first.tool === "string" ? first.tool : "tool";
+        const tool = typeof first.name === "string" ? first.name : "tool";
         const title = typeof first.state?.title === "string" ? first.state.title : "";
         const err = typeof first.state?.error === "string" ? first.state.error : "";
         throw new Error(`Unexpected tool error (${tool}): ${title} ${err}`.trim());
       }
 
       const hasAssistantText = msgs.some(
-        (m) => m.info?.role === "assistant" && (m.parts ?? []).some((p) => p.type === "text" && String(p.text ?? "").trim()),
+        (m) => m.type === "assistant" && m.content.some((p) => p.type === "text" && String(p.text ?? "").trim()),
       );
       if (hasAssistantText) {
         return { messages: msgs.length };

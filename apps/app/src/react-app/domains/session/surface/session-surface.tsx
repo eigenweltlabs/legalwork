@@ -1,3 +1,7 @@
+import { readMcpStatuses } from "@/react-app/domains/connections/native-mcp";
+import { NativeFormPanel } from "../modals/native-form-panel";
+import { sendSessionPrompt } from "@/app/lib/system-reminder";
+import { readSessionStatuses } from "@/app/lib/opencode-read";
 import { useRequestPanelTab } from "../panel/panel-tab-destination";
 import { recordingTranscriptTab } from "../../recorder/recording-transcript-tabs";
 import { WikiProjectFilesDialog, WIKI_PROJECT_PICKER_EVENT } from "../../wiki/wiki-project-files-dialog";
@@ -22,7 +26,7 @@ import { useContext, useCallback, useEffect, useMemo, useRef, useState, type Rea
 import type { UIMessage } from "ai";
 import { useQuery } from "@tanstack/react-query";
 import { mergeAssistantChannelHistory } from "./assistant-channel-transcript";
-import type { SessionStatus } from "@opencode-ai/sdk/v2/client";
+import type { SessionStatus } from "@opencode/client";
 import { TriangleAlert } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "@/components/ui/sonner";
@@ -202,7 +206,7 @@ export type SessionSurfaceProps = {
   onModelVariantChange: (value: string | null) => void;
   agentLabel: string;
   selectedAgent: string | null;
-  listAgents: () => Promise<import("@opencode-ai/sdk/v2/client").Agent[]>;
+  listAgents: () => Promise<import("@opencode/client").AgentInfo[]>;
   onSelectAgent: (agent: string | null) => void;
   listCommands: () => Promise<import("@/app/types").SlashCommandOption[]>;
   recentFiles: string[];
@@ -597,7 +601,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
   // selection has no model to flag.
   const onboardingNeeded = Boolean(props.assistantOnboarding?.state.needed);
   const showOnboarding = props.assistantOnboarding && (onboardingNeeded || props.assistantOnboarding.state.sessionId === props.sessionId);
-  const sendBlocked = (onboardingNeeded && props.assistantOnboarding?.state.step === "avatar") ||
+  const modelSendBlocked =
     Boolean(props.modelUnavailable) ||
     noModelNoticeVisible ||
     subscriptionEndedNoticeVisible ||
@@ -725,7 +729,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
         if (result.liveTranscriptActive && result.fileName) {
           const body = t("recorder.live_share_notice").replace("{file}", result.fileName);
           try {
-            unwrap(await opencodeClient.session.promptAsync({
+            unwrap(await sendSessionPrompt(opencodeClient,{
               sessionID: props.sessionId,
               directory: props.workspaceRoot || undefined,
               noReply: true,
@@ -833,7 +837,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
     queryKey: statusQueryKey,
     queryFn: async () => {
       const startedAt = Date.now();
-      const statuses = unwrap(await opencodeClient.session.status({ directory: props.workspaceRoot.trim() || undefined }));
+      const statuses = unwrap(await readSessionStatuses(opencodeClient,{ directory: props.workspaceRoot.trim() || undefined }));
       const activity = useSessionActivityStore.getState().recordsByWorkspaceId[props.workspaceId]?.[props.sessionId];
       // A prompt submitted while this request was in flight supersedes its idle result.
       if (activity?.runActive && activity.updatedAt > startedAt) return { type: "busy" };
@@ -926,6 +930,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
     currentSnapshot,
     cachedRendered: rendered,
   });
+  const sendBlocked=(onboardingNeeded && props.assistantOnboarding?.state.step === "avatar") || modelSendBlocked || snapshot?.historyProvenance?.undo?.status==="unresolved";
   const liveStatus = statusState ?? snapshot?.status ?? IDLE_STATUS;
   const activityRunning = sessionActivityStatus !== "idle" && sessionActivityStatus !== "error";
   const chatStreaming = sending || activityRunning || liveStatus.type === "busy" || liveStatus.type === "retry";
@@ -1244,7 +1249,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
     if (!text) throw new Error(t("session.voice_request_empty"));
     const current = voiceJobRef.current;
     if (current && !["completed", "cancelled", "error"].includes(current.status)) {
-      unwrap(await opencodeClient.session.promptAsync({
+      unwrap(await sendSessionPrompt(opencodeClient,{
         sessionID: props.sessionId,
         directory: props.workspaceRoot.trim() || undefined,
         model: props.selectedModel,
@@ -1275,7 +1280,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
     // session and follows its normal event and transcript path.
     void (async () => {
       try {
-        unwrap(await opencodeClient.session.promptAsync({
+        unwrap(await sendSessionPrompt(opencodeClient,{
           sessionID: props.sessionId,
           directory: props.workspaceRoot.trim() || undefined,
           model: props.selectedModel,
@@ -1766,7 +1771,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
     let statuses: McpStatusMap = {};
     try {
       if (props.workspaceRoot.trim()) {
-        statuses = unwrap(await opencodeClient.mcp.status({ directory: props.workspaceRoot.trim() })) as McpStatusMap;
+        statuses = await readMcpStatuses(opencodeClient,props.workspaceRoot.trim()) as McpStatusMap;
       }
     } catch {
       statuses = {};
@@ -1952,6 +1957,8 @@ export function SessionSurface(props: SessionSurfaceProps) {
         </div>
       ) : null}
 
+      {snapshot?.historyProvenance?.status==="unavailable" ? <p role="status" className="mx-6 rounded-lg border px-3 py-2 text-sm text-muted-foreground">{t("session.history_provenance_unavailable")}</p>:null}
+      {snapshot?.historyProvenance?.undo?.status==="unresolved" ? <p role="alert" className="mx-6 rounded-lg border px-3 py-2 text-sm">{t("session.history_undo_unresolved")}</p>:null}
       <div className="relative min-h-0 flex-1 overflow-hidden" data-session-chat-content="">
         {props.assistantHeader}
         <div
@@ -2208,7 +2215,8 @@ export function SessionSurface(props: SessionSurfaceProps) {
                     onPickModel={props.onModelClick}
                   />
                 ) : null}
-                {props.activeQuestion && !props.assistantDate ? (
+                {props.activeQuestion ? (
+                  props.activeQuestion.form ? <NativeFormPanel key={props.activeQuestion.id} form={props.activeQuestion.form} sourceSession={props.activeQuestion.sourceSession} onOpenSession={props.onOpenInteractionSession} busy={props.questionReplyBusy ?? false} onReply={answers=>{if(props.activeQuestion)props.respondQuestion?.(props.activeQuestion.id,answers);}}/> : (
                   <QuestionPanel
                     key={props.activeQuestion.id}
                     questions={props.activeQuestion.questions}
@@ -2221,6 +2229,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
                       }
                     }}
                   />
+)
                 ) : null}
                 {hasActivePlan ? (
                   <TodoPanel key={`${props.workspaceId}:${props.sessionId}`} todos={props.todos ?? []} />

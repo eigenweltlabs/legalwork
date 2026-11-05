@@ -46,7 +46,7 @@ export async function assertAssistantToolAccess(config: ServerConfig, assistant:
   // Selected global packages may be read by research workers under restricted project access.
   // This grants package reads only, never execution or writes to the shared library.
   if (tool === "read") {
-    const resources = assistant.resourceMetadata().filter(resource => !resource.projectId || config.workspaces.some(project => project.id === resource.projectId && project.workspaceType !== "remote") && assistant.canAccessProject(resource.projectId));
+    const resources = assistant.resourceMetadata().filter(resource => !resource.projectId || config.workspaces.some(project => project.id === resource.projectId) && assistant.canAccessProject(resource.projectId));
     for (const resource of resources) {
       let files: Array<{ path: string; directory: boolean }>;
       if (resource.kind === "plugin") {

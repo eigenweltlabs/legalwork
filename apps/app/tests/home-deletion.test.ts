@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import type { Session } from "@opencode-ai/sdk/v2/client";
+import type { SessionView as Session } from "../src/app/lib/opencode-view";
 import { createClient } from "../src/app/lib/opencode";
 import { createSessionActionsStore } from "../src/react-app/domains/session/sync/actions-store";
 import { clearSessionDraft, getSessionDraft, saveSessionDraft } from "../src/react-app/domains/session/sync/draft-store";
@@ -7,7 +7,7 @@ import { clearSessionDraft, getSessionDraft, saveSessionDraft } from "../src/rea
 function fixture(baseUrl: string) {
   const workspaceId = "home-deletion-project";
   const session = (id: string): Session => ({ id, slug: id, projectID: workspaceId,
-    directory: "/project", title: id, version: "1", time: { created: 1, updated: 1 } });
+    directory: "/project", location: { directory: "/project" }, title: id, cost: 0, tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } }, time: { created: 1, updated: 1 } });
   const client = createClient(baseUrl);
   let selectedId: string | null = "active";
   let sessions = [session("active"), session("other")];
@@ -48,13 +48,13 @@ test("deleting the active chat opens Home and clears only that chat's saved stat
   const requests: string[] = [];
   const server = Bun.serve({ port: 0, fetch(request) {
     requests.push(`${request.method} ${new URL(request.url).pathname}`);
-    return Response.json(true);
+    return new Response(null, { status: 204 });
   } });
   const f = fixture(String(server.url));
   saveSessionDraft(f.workspaceId, "active", { text: "Old draft", mode: "prompt" });
   try {
     await f.actions.deleteSessionById("active");
-    expect(requests).toEqual(["DELETE /session/active"]);
+    expect(requests).toEqual(["DELETE /api/session/active"]);
     expect(f.navigations).toEqual([{ path: "/home", replace: true }]);
     expect(f.state().selectedId).toBeNull();
     expect(f.state().sessions.map((session) => session.id)).toEqual(["other"]);
@@ -65,7 +65,7 @@ test("deleting the active chat opens Home and clears only that chat's saved stat
 });
 
 test("deleting another chat keeps the open chat and its project memory", async () => {
-  const server = Bun.serve({ port: 0, fetch: () => Response.json(true) });
+  const server = Bun.serve({ port: 0, fetch: () => new Response(null, { status: 204 }) });
   const f = fixture(String(server.url));
   try {
     await f.actions.deleteSessionById("other");

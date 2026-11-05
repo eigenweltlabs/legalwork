@@ -1,3 +1,5 @@
+import { Plugin } from "@opencode/plugin";
+import { nativeProviderRequest } from "./native-provider-request.js";
 /**
  * LegalWork Anthropic Tool Schema Plugin
  *
@@ -12,9 +14,8 @@
  * bundled OpenCode engine forwards them unchanged, so a single bad tool breaks
  * every chat turn for the whole session.
  *
- * No OpenCode plugin hook can rewrite MCP tool schemas before dispatch, so
- * this plugin patches the engine's global fetch and rewrites Anthropic
- * requests just before they are sent. Requests are detected via the
+ * The native model HTTP request hook rewrites Anthropic requests at dispatch
+ * without changing MCP schemas for other providers or replacing global fetch. Requests are detected via the
  * `anthropic-version` header, which @ai-sdk/anthropic always sets. Top-level
  * combinators are merged into a flat object schema; nested combinators are
  * untouched (Anthropic only rejects them at the top level).
@@ -96,32 +97,9 @@ function sanitizeAnthropicBody(body: string): string | null {
   return JSON.stringify({ ...parsed, tools });
 }
 
-function hasAnthropicVersionHeader(headers: RequestInit["headers"]): boolean {
-  if (!headers) return false;
-  if (headers instanceof Headers) return headers.has("anthropic-version");
-  if (Array.isArray(headers)) return headers.some((entry) => entry[0]?.toLowerCase() === "anthropic-version");
-  return Object.keys(headers).some((name) => name.toLowerCase() === "anthropic-version");
-}
-
-let installed = false;
-
-function installAnthropicFetchPatch(): void {
-  if (installed) return;
-  installed = true;
-  const base = globalThis.fetch;
-  const patched = async (input: Parameters<typeof fetch>[0], init?: RequestInit): Promise<Response> => {
-    if (init && typeof init.body === "string" && hasAnthropicVersionHeader(init.headers)) {
-      const sanitized = sanitizeAnthropicBody(init.body);
-      if (sanitized !== null) return base(input, { ...init, body: sanitized });
-    }
-    return base(input, init);
-  };
-  globalThis.fetch = Object.assign(patched, base);
-}
-
-// Single export: the OpenCode plugin loader treats every export of a plugin
-// module as a plugin factory, so helpers must stay module-private.
-export const LegalWorkAnthropicToolSchema = async () => {
-  installAnthropicFetchPatch();
-  return {};
-};
+export default Plugin.define({id:"legalwork.anthropic.tool-schema",async setup(ctx){
+  await ctx.session.hook("http.request",async event=>{
+    if(!event.request.headers.has("anthropic-version"))return;
+    event.request=await nativeProviderRequest(event.request,sanitizeAnthropicBody);
+  });
+}});

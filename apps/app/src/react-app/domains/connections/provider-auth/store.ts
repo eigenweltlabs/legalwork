@@ -1,28 +1,24 @@
+import { orgChatEngineId } from "@legalwork/types/org-policy";
 import type { SystemOneConfiguration } from "@legalwork/types/systemone";
 import { useSyncExternalStore } from "react";
-import type { EigenweltCheckoutSelection } from "@legalwork/types/eigenwelt-checkout";
+import { EIGENWELT_SIGN_IN_TIMEOUT_MS, type EigenweltCheckoutSelection } from "@legalwork/types/eigenwelt-checkout";
 import { useSyncProviderSetupState } from "./sync-provider-setup-state";
 import { isEigenweltEntitledStatus } from "@/app/lib/eigenwelt-trial";
+import { EigenweltSignInTimeoutError } from "@/app/lib/eigenwelt-sign-in";
 
-import { applyEdits, modify, parse } from "jsonc-parser";
-import type {
-  ProviderAuthAuthorization,
-  ProviderConfig,
-  ProviderListResponse,
-} from "@opencode-ai/sdk/v2/client";
+import type { FormFields } from "@opencode/client";
+import { ensureNativeCatalogReady } from "@/app/lib/opencode-catalog-ready";
+import { readConfig, disabledProvidersFromConfig } from "@/app/lib/opencode-config";
 
 import { t } from "../../../../i18n";
-import { unwrap, waitForHealthy } from "../../../../app/lib/opencode";
-import {
-  readOpencodeConfig,
-  writeOpencodeConfig,
-} from "../../../../app/lib/desktop";
+import { waitForHealthy } from "../../../../app/lib/opencode";
 import type {
   Client,
   ProviderListItem,
+  ProviderListView,
   WorkspaceDisplay,
 } from "../../../../app/types";
-import { isDesktopRuntime, safeStringify } from "../../../../app/utils";
+import { safeStringify } from "../../../../app/utils";
 import {
   compareProviders,
   filterProviderList,
@@ -62,9 +58,12 @@ import { isAnthropicProvider, supportedProviderAuthMethods } from "./methods";
 type ProviderReturnFocusTarget = "none" | "composer";
 
 export type ProviderAuthMethod = {
-  type: "oauth" | "api";
+  type: "oauth" | "api" | "command" | "external";
   label: string;
   methodIndex?: number;
+  integrationID?: string;
+  methodID?: string;
+  form?: FormFields;
 };
 
 export type ProviderAuthProvider = {
@@ -73,9 +72,11 @@ export type ProviderAuthProvider = {
   env: string[];
 };
 
+export type ProviderAuthorizationView = { url: string; instructions?: string; method: "auto" | "code" };
+
 export type ProviderOAuthStartResult = {
   methodIndex: number;
-  authorization: ProviderAuthAuthorization;
+  authorization: ProviderAuthorizationView;
 };
 
 /** A single model the user declares for a custom OpenAI-compatible provider. */
@@ -109,8 +110,8 @@ export type CustomProviderModelInput = {
 export type CustomProviderApiType = "chat" | "responses";
 
 export const CUSTOM_PROVIDER_NPM: Record<CustomProviderApiType, string> = {
-  chat: "@ai-sdk/openai-compatible",
-  responses: "@ai-sdk/openai",
+  chat: "@opencode/ai/providers/openai-compatible",
+  responses: "@opencode/ai/providers/openai/responses",
 };
 
 /** Provider id of the first-party Eigenwelt Model API connection. */
@@ -132,6 +133,7 @@ export type CustomProviderInstallInput = {
   apiType: CustomProviderApiType;
   models: CustomProviderModelInput[];
   autoRefresh?: boolean;
+  preserveExistingEndpoint?: boolean;
 };
 
 /** A custom provider's current config, read back so the form can edit it. */
@@ -139,6 +141,7 @@ export type CustomProviderEditData = {
   providerId: string;
   name: string;
   baseURL: string;
+  endpointConfigured?: boolean;
   apiType: CustomProviderApiType;
   modelRefresh?: CustomProviderModelRefreshStatus;
   models: Array<{
@@ -162,7 +165,7 @@ export type ProviderAuthStoreSnapshot = {
   providerAuthMethods: Record<string, ProviderAuthMethod[]>;
   providerAuthPreferredProviderId: string | null;
   providerAuthStartOAuth: boolean;
-  providerAuthWorkerType: "local" | "remote";
+  providerAuthWorkerType: "local";
   providerAuthProviders: ProviderAuthProvider[];
 };
 
@@ -221,8 +224,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     for (const listener of listeners) listener();
   };
 
-  const getProviderAuthWorkerType = (): "local" | "remote" =>
-    options.selectedWorkspaceDisplay().workspaceType === "remote" ? "remote" : "local";
+  const getProviderAuthWorkerType = (): "local" => "local";
 
   const getProviderAuthProviders = (): ProviderAuthProvider[] => {
     const merged = new Map<string, ProviderAuthProvider>();
@@ -289,171 +291,19 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
   };
 
 
-  const readProjectConfigFile = async () => {
-    const root = options.selectedWorkspaceRoot().trim();
-    const isLocalWorkspace =
-      options.selectedWorkspaceDisplay().workspaceType === "local";
-    const { legalworkClient, legalworkWorkspaceId, hasLegalworkTarget, canUseLegalworkServer } =
-      await resolveLegalworkConfigTarget("read");
-
-    if (canUseLegalworkServer && legalworkClient && legalworkWorkspaceId) {
-      return await legalworkClient.readOpencodeConfigFile(legalworkWorkspaceId, "project");
-    }
-
-    if (hasLegalworkTarget) {
-      throw new Error(t("providers.config_api_unavailable"));
-    }
-
-    if (isLocalWorkspace && isDesktopRuntime() && root) {
-      return await readOpencodeConfig("project", root);
-    }
-
-    return null;
-  };
-
-  const writeProjectConfigFile = async (content: string) => {
-    const root = options.selectedWorkspaceRoot().trim();
-    const isLocalWorkspace =
-      options.selectedWorkspaceDisplay().workspaceType === "local";
-    const { legalworkClient, legalworkWorkspaceId, hasLegalworkTarget, canUseLegalworkServer } =
-      await resolveLegalworkConfigTarget("write");
-
-    if (canUseLegalworkServer && legalworkClient && legalworkWorkspaceId) {
-      const result = await legalworkClient.writeOpencodeConfigFile(
-        legalworkWorkspaceId,
-        "project",
-        content,
-      ) as { ok: boolean; stderr?: string; stdout?: string };
-      if (!result.ok) {
-        throw new Error(result.stderr || result.stdout || t("connections.write_jsonc_failed"));
-      }
-      return true;
-    }
-
-    if (hasLegalworkTarget) {
-      throw new Error(t("providers.config_api_unavailable"));
-    }
-
-    if (isLocalWorkspace && isDesktopRuntime() && root) {
-      const result = await writeOpencodeConfig("project", root, content) as { ok: boolean; stderr?: string; stdout?: string };
-      if (!result.ok) {
-        throw new Error(result.stderr || result.stdout || t("connections.write_jsonc_failed"));
-      }
-      return true;
-    }
-
-    return false;
-  };
-
-  const updateProjectConfigFile = async (
-    updater: (raw: string) => string,
-    fallbackUpdate?: (config: Record<string, unknown>) => Record<string, unknown>,
-  ) => {
-    const configFile = await readProjectConfigFile() as { content?: string } | null;
-    if (configFile) {
-      const raw = configFile.content?.trim()
-        ? configFile.content
-        : '{\n  "$schema": "https://opencode.ai/config.json"\n}\n';
-      await writeProjectConfigFile(updater(raw));
-      return true;
-    }
-
-    if (!fallbackUpdate) {
-      return false;
-    }
-
-    const c = options.client();
-    if (!c) {
-      throw new Error(t("providers.not_connected"));
-    }
-    const config = unwrap(await c.config.get());
-    const next = fallbackUpdate(config);
-    await c.config.update({ config: next });
-    return true;
-  };
-
-  const normalizeDisabledProviders = (value: unknown) =>
-    Array.isArray(value)
-      ? [
-          ...new Set(
-            value
-              .filter((entry): entry is string => typeof entry === "string")
-              .map((entry) => entry.trim())
-              .filter(Boolean),
-          ),
-        ]
-      : [];
-
-  const formatConfigWithProviderDisabledState = (
-    raw: string,
-    providerId: string,
-    disabled: boolean,
-  ) => {
-    const resolvedProviderId = providerId.trim();
-    let updated = raw.trim()
-      ? raw
-      : '{\n  "$schema": "https://opencode.ai/config.json"\n}\n';
-    const parsed = parse(updated) as Record<string, unknown> | undefined;
-    const currentDisabled = normalizeDisabledProviders(parsed?.disabled_providers);
-    const nextDisabled = disabled
-      ? [...currentDisabled.filter((entry) => entry !== resolvedProviderId), resolvedProviderId]
-      : currentDisabled.filter((entry) => entry !== resolvedProviderId);
-
-    const disabledEdits = modify(
-      updated,
-      ["disabled_providers"],
-      nextDisabled.length ? nextDisabled : undefined,
-      { formattingOptions: { insertSpaces: true, tabSize: 2 } },
-    );
-    updated = applyEdits(updated, disabledEdits);
-    return updated.endsWith("\n") ? updated : `${updated}\n`;
-  };
-
-  const ensureProjectProviderDisabledState = async (
-    providerId: string,
-    disabled: boolean,
-  ) => {
-    const resolvedProviderId = providerId.trim();
-    if (!resolvedProviderId) {
-      throw new Error(t("providers.provider_id_required"));
-    }
-
-    const currentDisabled = normalizeDisabledProviders(options.disabledProviders());
-    const nextDisabled = disabled
-      ? [...currentDisabled.filter((entry) => entry !== resolvedProviderId), resolvedProviderId]
-      : currentDisabled.filter((entry) => entry !== resolvedProviderId);
-
-    if (
-      nextDisabled.length === currentDisabled.length &&
-      nextDisabled.every((entry, index) => entry === currentDisabled[index])
-    ) {
-      return false;
-    }
-
-    const updatedConfig = await updateProjectConfigFile(
-      (raw) => formatConfigWithProviderDisabledState(raw, resolvedProviderId, disabled),
-      (config) => {
-        const nextConfig = { ...config };
-        if (nextDisabled.length) {
-          nextConfig.disabled_providers = nextDisabled;
-        } else {
-          delete nextConfig.disabled_providers;
-        }
-        return nextConfig;
-      },
-    );
-
-    if (!updatedConfig) {
-      throw new Error(t("providers.opencode_jsonc_update_failed"));
-    }
-
-    options.setDisabledProviders(nextDisabled);
+  const ensureProjectProviderDisabledState = async (providerId: string, disabled: boolean) => {
+    const resolved = providerId.trim();
+    if (!resolved) throw new Error(t("providers.provider_id_required"));
+    const { legalworkClient, legalworkWorkspaceId, canUseLegalworkServer } = await resolveLegalworkConfigTarget("write");
+    if (!canUseLegalworkServer || !legalworkClient || !legalworkWorkspaceId) throw new Error("Connect to a LegalWork server to change provider availability.");
+    await legalworkClient.setProviderEnabled(legalworkWorkspaceId, resolved, !disabled);
+    const current = options.disabledProviders().filter(id => id !== resolved);
+    options.setDisabledProviders(disabled ? [...current, resolved] : current);
     options.markOpencodeConfigReloadRequired();
     refreshSnapshot();
     emitChange();
     return true;
   };
-
 
   // Track whether the provider list has been loaded at least once.
   // The first load (app startup) populates the initial state — we don't
@@ -461,7 +311,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
   // there. After the first load, any new provider IS genuinely new.
   let providerListInitialized = false;
 
-  const applyProviderListState = (value: ProviderListResponse, opts?: { suppressNewProviderEvent?: boolean }) => {
+  const applyProviderListState = (value: ProviderListView, opts?: { suppressNewProviderEvent?: boolean }) => {
     const prevConnected = new Set(options.providerConnectedIds());
     const nextConnected = value.connected ?? [];
     const nextAll = value.all ?? [];
@@ -517,43 +367,31 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     emitChange();
   };
 
-  const assertNoClientError = (result: unknown) => {
-    const maybe = result as { error?: unknown } | null | undefined;
-    if (!maybe || maybe.error === undefined) return;
-    throw new Error(describeProviderError(maybe.error, t("providers.request_failed")));
+  const authLocation = () => ({ directory: options.selectedWorkspaceRoot().trim() });
+  const providerIntegrationID = (providerId: string) => options.providers().find(provider => provider.id === providerId)?.integrationID ?? providerId;
+  let authGeneration = 0;
+  const attempts = new Map<string, { client: Client; location: { directory: string }; integrationID: string; attemptID: string; type: "oauth" | "command" }>();
+  const cancelProviderAuth = async () => {
+    authGeneration += 1;
+    const pending = [...attempts.values()];
+    attempts.clear();
+    await Promise.all(pending.map(attempt => attempt.type === "oauth"
+      ? attempt.client.integration.oauth.cancel(attempt).catch(() => undefined)
+      : attempt.client.integration.command.cancel(attempt).catch(() => undefined)));
   };
-
   const removeProviderAuthCredentials = async (providerId: string) => {
-    const c = options.client();
-    if (!c) {
-      throw new Error(t("providers.not_connected"));
-    }
-
-    const authClient = c.auth as unknown as {
-      remove?: (options: { providerID: string }) => Promise<unknown>;
-      set?: (options: { providerID: string; auth: unknown }) => Promise<unknown>;
-    };
-    if (typeof authClient.remove === "function") {
-      const result = await authClient.remove({ providerID: providerId });
-      assertNoClientError(result);
+    const client = options.client();
+    if (!client) throw new Error(t("providers.not_connected"));
+    const target = await resolveLegalworkConfigTarget("read");
+    if (target.hasLegalworkTarget && target.legalworkClient && target.legalworkWorkspaceId) {
+      const credentials = await target.legalworkClient.listProviderCredentials(target.legalworkWorkspaceId, providerId);
+      const active = credentials.items.find(credential => credential.active);
+      if (active) await target.legalworkClient.disconnectProviderCredential(target.legalworkWorkspaceId, providerId, active.id);
       return;
     }
-
-    const rawClient = (c as unknown as {
-      client?: { delete?: (options: { url: string }) => Promise<unknown> };
-    }).client;
-    if (rawClient?.delete) {
-      await rawClient.delete({ url: `/auth/${encodeURIComponent(providerId)}` });
-      return;
-    }
-
-    if (typeof authClient.set === "function") {
-      const result = await authClient.set({ providerID: providerId, auth: null });
-      assertNoClientError(result);
-      return;
-    }
-
-    throw new Error(t("providers.removal_unsupported"));
+    const integrationID = providerIntegrationID(providerId);
+    const active = (await client.credential.list()).find(credential => credential.integrationID === integrationID && credential.active);
+    if (active) await client.credential.remove({ credentialID: active.id });
   };
 
   const describeProviderError = (error: unknown, fallback: string) => {
@@ -634,158 +472,93 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     return fallback;
   };
 
-  const buildProviderAuthMethods = (
-    methods: Record<string, ProviderAuthMethod[]>,
-    availableProviders: ProviderAuthProvider[],
-    workerType: "local" | "remote",
-  ) => {
-    const merged = Object.fromEntries(
-      Object.entries(methods ?? {}).map(([id, providerMethods]) => [
-        id,
-        supportedProviderAuthMethods(id, (providerMethods ?? []).map((method, methodIndex) => ({
-          ...method,
-          methodIndex,
-        }))),
-      ]),
-    ) as Record<string, ProviderAuthMethod[]>;
-
-    for (const provider of availableProviders ?? []) {
-      const id = provider.id?.trim();
-      if (!id) continue;
-      if (isAnthropicProvider(id)) {
-        merged[id] = supportedProviderAuthMethods(id, merged[id] ?? []);
-        continue;
-      }
-      if (!Array.isArray(provider.env) || provider.env.length === 0) continue;
-      const existing = merged[id] ?? [];
-      if (existing.some((method) => method.type === "api")) continue;
-      merged[id] = [...existing, { type: "api", label: t("providers.api_key_label") }];
-    }
-
-    const availableProvidersById = new Map((availableProviders ?? []).map((provider) => [provider.id, provider]));
-    for (const [id, providerMethods] of Object.entries(merged)) {
-      const provider = availableProvidersById.get(id);
-      const normalizedId = id.trim().toLowerCase();
-      const normalizedName = provider?.name?.trim().toLowerCase() ?? "";
-      const isOpenAiProvider = normalizedId === "openai" || normalizedName === "openai";
-      if (!isOpenAiProvider) continue;
-      merged[id] = providerMethods.filter((method) => {
-        if (method.type !== "oauth") return true;
-        const label = method.label.toLowerCase();
-        const isHeadless = /headless|device/.test(label);
-        return workerType === "remote" ? isHeadless : !isHeadless;
+  const loadProviderAuthMethods = async (_workerType: "local") => {
+    const client = options.client();
+    if (!client) throw new Error(t("providers.not_connected"));
+    await ensureNativeCatalogReady(client, options.selectedWorkspaceRoot());
+    const integrations = (await client.integration.list({ location: authLocation() })).data;
+    const methods: Record<string, ProviderAuthMethod[]> = {};
+    for (const integration of integrations) {
+      methods[integration.id] = integration.methods.flatMap((method, methodIndex): ProviderAuthMethod[] => {
+        if (method.type === "env") return [];
+        return [{ type: method.type === "key" ? "api" : method.type,
+          label: method.label || t("providers.api_key_label"), methodIndex, integrationID: integration.id,
+          ...("id" in method ? { methodID: method.id } : {}), ...("form" in method ? { form: method.form } : {}) }];
       });
     }
-
-    return merged;
-  };
-
-  const loadProviderAuthMethods = async (workerType: "local" | "remote") => {
-    const c = options.client();
-    if (!c) {
-      throw new Error(t("providers.not_connected"));
+    for (const provider of options.providers()) {
+      const id = provider.integrationID ?? provider.id;
+      if (methods[id]) methods[provider.id] = methods[id];
     }
-    const methods = unwrap(await c.provider.auth());
-    return buildProviderAuthMethods(
-      methods as Record<string, ProviderAuthMethod[]>,
-      getProviderAuthProviders(),
-      workerType,
-    );
+    for (const provider of getProviderAuthProviders()) if (isAnthropicProvider(provider.id)) methods[provider.id] = supportedProviderAuthMethods(provider.id, []);
+    for (const [id, value] of Object.entries(methods)) methods[id] = supportedProviderAuthMethods(id, value);
+    return methods;
   };
 
-  async function startProviderAuth(
-    providerId?: string,
-    methodIndex?: number,
-  ): Promise<ProviderOAuthStartResult> {
+  async function startProviderAuth(providerId?: string, methodIndex?: number, answer?: Record<string, string | number | boolean | readonly string[]>): Promise<ProviderOAuthStartResult> {
     setStateField("providerAuthError", null);
-    const c = options.client();
-    if (!c) {
-      throw new Error(t("providers.not_connected"));
+    const client = options.client();
+    if (!client) throw new Error(t("providers.not_connected"));
+    const resolved = providerId?.trim();
+    if (isAnthropicProvider(resolved ?? "")) throw new Error(t("providers.anthropic_api_key_hint"));
+    if (!resolved) throw new Error(t("providers.provider_id_required"));
+    const methods = await loadProviderAuthMethods(getProviderAuthWorkerType());
+    const selected = methods[resolved]?.find(method => methodIndex === undefined ? method.type === "oauth" : method.methodIndex === methodIndex);
+    if (!selected || selected.methodIndex === undefined || !selected.methodID) throw new Error(t("providers.oauth_method_required"));
+    await cancelProviderAuth();
+    const generation = authGeneration;
+    const integrationID = selected.integrationID ?? providerIntegrationID(resolved);
+    const location = authLocation();
+    if (selected.type === "external") {
+      await client.integration.connect.external({ integrationID, methodID: selected.methodID, answer, location });
+      await refreshProviderListQueries(getReactQueryClient());
+      await refreshProviders();
+      return { methodIndex: selected.methodIndex, authorization: { url: "", instructions: t("providers.connected_named", { name: providerName(resolved) }), method: "auto" } };
     }
-    try {
-      if (isAnthropicProvider(providerId ?? "")) throw new Error(t("providers.anthropic_api_key_hint"));
-      const cachedMethods = state.providerAuthMethods;
-      const authMethods = Object.keys(cachedMethods).length
-        ? cachedMethods
-        : await loadProviderAuthMethods(getProviderAuthWorkerType());
-      const providerIds = Object.keys(authMethods).sort();
-      if (!providerIds.length) {
-        throw new Error(t("providers.no_providers_available"));
+    if (selected.type === "command") {
+      const attempt = (await client.integration.command.connect({ integrationID, methodID: selected.methodID, location })).data;
+      if (generation !== authGeneration) {
+        await client.integration.command.cancel({ integrationID, attemptID: attempt.attemptID, location });
+        throw new Error("Sign-in was canceled.");
       }
-
-      const resolved = providerId?.trim() ?? "";
-      if (!resolved) {
-        throw new Error(t("providers.provider_id_required"));
-      }
-
-      const methods = authMethods[resolved];
-      if (!methods || !methods.length) {
-        throw new Error(`${t("providers.unknown_provider")}: ${resolved}`);
-      }
-
-      const oauthIndex =
-        methodIndex !== undefined
-          ? methodIndex
-          : methods.find((method) => method.type === "oauth")?.methodIndex ?? -1;
-      if (oauthIndex === -1) {
-        throw new Error(
-          `${t("providers.no_oauth_prefix")} ${resolved}. ${t("providers.use_api_key_suffix")}`,
-        );
-      }
-
-      const selectedMethod = methods.find((method) => method.methodIndex === oauthIndex);
-      if (!selectedMethod || selectedMethod.type !== "oauth") {
-        throw new Error(`${t("providers.not_oauth_flow_prefix")} ${resolved}.`);
-      }
-
-      const auth = unwrap(
-        await c.provider.oauth.authorize({ providerID: resolved, method: oauthIndex }),
-      );
-      return { methodIndex: oauthIndex, authorization: auth };
-    } catch (error) {
-      const message = describeProviderError(error, t("providers.connect_failed"));
-      setStateField("providerAuthError", message);
-      throw error instanceof Error ? error : new Error(message);
+      attempts.set(`${resolved}:${selected.methodIndex}`, { client, location, integrationID, attemptID: attempt.attemptID, type: "command" });
+      return { methodIndex: selected.methodIndex, authorization: { url: "", instructions: selected.label, method: "auto" } };
     }
+    const attempt = (await client.integration.oauth.connect({ integrationID, methodID: selected.methodID, answer, location })).data;
+    if (generation !== authGeneration) {
+      await client.integration.oauth.cancel({ integrationID, attemptID: attempt.attemptID, location });
+      throw new Error("Sign-in was canceled.");
+    }
+    attempts.set(`${resolved}:${selected.methodIndex}`, { client, location, integrationID, attemptID: attempt.attemptID, type: "oauth" });
+    return { methodIndex: selected.methodIndex, authorization: { url: attempt.url, instructions: attempt.instructions, method: attempt.mode } };
   }
+
+  const providerDefinitionMetadata = async () => {
+    const target = await resolveLegalworkConfigTarget("read");
+    if (!target.canUseLegalworkServer || !target.legalworkClient || !target.legalworkWorkspaceId) return null;
+    const [saved, policy] = await Promise.all([target.legalworkClient.getConfig(target.legalworkWorkspaceId), target.legalworkClient.orgPolicy()]);
+    const providers = isPlainRecord(saved.opencode.providers) ? saved.opencode.providers : isPlainRecord(saved.opencode.provider) ? saved.opencode.provider : {};
+    const firm = policy.entries["ai.chat.providers"];
+    return { saved, providers, firmIDs: new Set(firm && !firm.released ? firm.value.map(orgChatEngineId) : []) };
+  };
 
   async function refreshProviders(optionsArg?: { dispose?: boolean }) {
     const c = options.client();
     if (!c) return null;
 
     if (optionsArg?.dispose) {
-      // Prefer the LegalWork server engine reload: it disposes the engine AND
-      // re-registers runtime-DB MCPs, so non-primary workspaces and pending
-      // changes are picked up instead of silently dropping (toggles "turn
-      // off").
-      let reloaded = false;
-      try {
-        const legalworkSnapshot = options.legalworkServer.getSnapshot();
-        const legalworkClient = legalworkSnapshot.legalworkServerClient;
-        if (legalworkSnapshot.legalworkServerStatus === "connected" && legalworkClient) {
-          const workspaceId =
-            options.runtimeWorkspaceId()?.trim() ||
-            (await options.ensureRuntimeWorkspaceId?.())?.trim() ||
-            "";
-          if (workspaceId) {
-            await legalworkClient.reloadEngine(workspaceId);
-            reloaded = true;
-          }
-        }
-      } catch (error) {
-        // Keep direct recovery for slow cloud-backed folders, after the
-        // server reload's extended deadline. Missing or forbidden workspaces
-        // cannot be recovered by disposing the engine again.
-        if (error instanceof LegalworkServerError &&
-          (error.code === "workspace_not_found" || error.status === 401 || error.status === 403)) throw error;
-      }
-
-      if (!reloaded) {
-        try {
-          unwrap(await c.instance.dispose());
-        } catch {
-          // ignore dispose failures and try reading current state anyway
-        }
+      const legalworkSnapshot = options.legalworkServer.getSnapshot();
+      const legalworkClient = legalworkSnapshot.legalworkServerClient;
+      if (legalworkSnapshot.legalworkServerStatus === "connected" && legalworkClient) {
+        const workspaceId=options.runtimeWorkspaceId()?.trim() || (await options.ensureRuntimeWorkspaceId?.())?.trim();
+        if (!workspaceId) throw new Error(t("providers.config_api_unavailable"));
+        // A failed managed refresh must never fall back to globally disposing
+        // other projects. Surface the error so the existing connection can recover.
+        await legalworkClient.reloadEngine(workspaceId);
+      } else {
+        const active=await c.session.active();
+        if(Object.keys(active).length)throw new Error("Wait for all projects to finish before reloading this standalone engine.");
+        await c.location.reload();
       }
 
       try {
@@ -801,10 +574,8 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     const activeClient = options.client() ?? c;
     let disabledProviders = options.disabledProviders() ?? [];
     try {
-      const config = unwrap(await activeClient.config.get());
-      disabledProviders = Array.isArray(config.disabled_providers)
-        ? config.disabled_providers
-        : [];
+      const config = await readConfig(activeClient, options.selectedWorkspaceRoot());
+      disabledProviders = disabledProvidersFromConfig(config);
       options.setDisabledProviders(disabledProviders);
       refreshSnapshot();
       emitChange();
@@ -813,14 +584,21 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     }
 
     try {
-      const updated = filterProviderList(
-        await ensureProviderListQuery(getReactQueryClient(), {
-          client: activeClient,
-          baseUrl: options.baseUrl(),
-          directory: options.selectedWorkspaceRoot(),
-        }),
-        disabledProviders,
-      );
+      const native = await ensureProviderListQuery(getReactQueryClient(), {
+        client: activeClient, baseUrl: options.baseUrl(), directory: options.selectedWorkspaceRoot(),
+      });
+      // The native catalog includes organization policy and plugin decisions
+      // that config documents alone cannot resolve.
+      disabledProviders = disabledProviders.filter(id => !native.connected.includes(id));
+      options.setDisabledProviders(disabledProviders);
+      const metadata = await providerDefinitionMetadata().catch(() => null);
+      const projected = { ...native, all: native.all.map(provider => {
+        const declared = Boolean(metadata && (Object.hasOwn(metadata.providers, provider.id) || Object.hasOwn(metadata.saved.providerDisplay ?? {}, provider.id)));
+        const editableAsCustom = Boolean(metadata && declared && metadata.saved.providerDisplay?.[provider.id]?.editable === true && !metadata.firmIDs.has(provider.id));
+        return { ...provider, source: editableAsCustom ? "custom" : provider.source, editableAsCustom,
+          configurationReadOnly: declared && !editableAsCustom } satisfies ProviderListItem;
+      }) };
+      const updated = filterProviderList(projected, disabledProviders);
       applyProviderListState(updated);
       return updated;
     } catch {
@@ -828,86 +606,34 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     }
   }
 
-  async function completeProviderAuthOAuth(
-    providerId: string,
-    methodIndex: number,
-    code?: string,
-  ) {
-    setStateField("providerAuthError", null);
-    const c = options.client();
-    if (!c) {
-      throw new Error(t("providers.not_connected"));
+  async function completeProviderAuthOAuth(providerId: string, methodIndex: number, code?: string) {
+    const client = options.client();
+    if (!client) throw new Error(t("providers.not_connected"));
+    if (isAnthropicProvider(providerId)) throw new Error(t("providers.anthropic_api_key_hint"));
+    const key = `${providerId}:${methodIndex}`;
+    const attempt = attempts.get(key);
+    if (!attempt) {
+      const value = await refreshProviders();
+      return { connected: value?.connected.includes(providerId) === true, pending: false };
     }
-
-    const resolved = providerId?.trim();
-    if (!resolved) {
-      throw new Error(t("providers.provider_id_required"));
-    }
-    if (isAnthropicProvider(resolved)) throw new Error(t("providers.anthropic_api_key_hint"));
-
-    if (!Number.isInteger(methodIndex) || methodIndex < 0) {
-      throw new Error(t("providers.oauth_method_required"));
-    }
-
-    const waitForProviderConnection = async (timeoutMs = 15000, pollMs = 2000) => {
-      const startedAt = Date.now();
-      while (Date.now() - startedAt < timeoutMs) {
-        try {
-          const updated = await refreshProviders({ dispose: true });
-          const connected = new Set(updated?.connected ?? []);
-          if (connected.has(resolved)) {
-            return true;
-          }
-        } catch {
-          // ignore and retry
-        }
-        await new Promise((resolve) => setTimeout(resolve, pollMs));
-      }
-      return false;
-    };
-
-    const isPendingOauthError = (error: unknown) => {
-      const text = error instanceof Error ? error.message : String(error ?? "");
-      return /request timed out/i.test(text) || /ProviderAuthOauthMissing/i.test(text);
-    };
-
     try {
-      const trimmedCode = code?.trim();
-      const result = await c.provider.oauth.callback({
-        providerID: resolved,
-        method: methodIndex,
-        code: trimmedCode || undefined,
-      });
-      assertNoClientError(result);
-      const updated = await refreshProviders({ dispose: true });
-      const connectedNow = Array.isArray(updated?.connected) && updated.connected.includes(resolved);
-      if (connectedNow) {
-        return { connected: true, message: t("providers.connected_named", { name: providerName(resolved) }) };
-      }
-      const connected = await waitForProviderConnection();
-      if (connected) {
-        return { connected: true, message: t("providers.connected_named", { name: providerName(resolved) }) };
-      }
-      return { connected: false, pending: true };
+      if (attempt.type === "oauth" && code?.trim()) await client.integration.oauth.complete({ ...attempt, code: code.trim() });
+      const status = attempt.type === "oauth"
+        ? (await client.integration.oauth.status(attempt)).data
+        : (await client.integration.command.status(attempt)).data;
+      if (status.status === "pending") return { connected: false, pending: true, message: "message" in status ? status.message : undefined };
+      attempts.delete(key);
+      if (status.status !== "complete") throw new Error("message" in status ? status.message : t("providers.oauth_failed"));
+      await refreshProviderListQueries(getReactQueryClient());
+      const value = await refreshProviders();
+      return { connected: value?.connected.includes(providerId) === true, pending: false, message: t("providers.connected_named", { name: providerName(providerId) }) };
     } catch (error) {
-      if (isPendingOauthError(error)) {
-        const updated = await refreshProviders({ dispose: true });
-        if (Array.isArray(updated?.connected) && updated.connected.includes(resolved)) {
-          return { connected: true, message: t("providers.connected_named", { name: providerName(resolved) }) };
-        }
-        const connected = await waitForProviderConnection();
-        if (connected) {
-          return { connected: true, message: t("providers.connected_named", { name: providerName(resolved) }) };
-        }
-        return { connected: false, pending: true };
-      }
-      const message = describeProviderError(error, t("providers.oauth_failed"));
-      setStateField("providerAuthError", message);
-      throw error instanceof Error ? error : new Error(message);
+      setStateField("providerAuthError", describeProviderError(error, t("providers.oauth_failed")));
+      throw error;
     }
   }
 
-  async function submitProviderApiKey(providerId: string, apiKey: string) {
+  async function submitProviderApiKey(providerId: string, apiKey: string, answer?: Record<string, string | number | boolean | readonly string[]>) {
     setStateField("providerAuthError", null);
     const c = options.client();
     if (!c) {
@@ -920,8 +646,9 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     }
 
     try {
-      await c.auth.set({ providerID: providerId, auth: { type: "api", key: trimmed } });
-      await refreshProviders({ dispose: true });
+      await c.integration.connect.key({ integrationID: providerIntegrationID(providerId), key: trimmed, answer, location: authLocation() });
+      await refreshProviderListQueries(getReactQueryClient());
+      await refreshProviders();
       return t("providers.connected_named", { name: providerName(providerId) });
     } catch (error) {
       const message = describeProviderError(error, t("providers.save_api_key_failed"));
@@ -944,7 +671,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     // the local-provider install path used elsewhere in settings.
     if (canUseLegalworkServer && legalworkClient && legalworkWorkspaceId) {
       await legalworkClient.patchConfig(legalworkWorkspaceId, {
-        opencode: { provider: { [providerId]: providerConfig } },
+        opencode: { providers: { [providerId]: providerConfig } },
         legalwork: { customProviderModelRefresh: { [providerId]: { enabled: autoRefresh } } },
       });
       return true;
@@ -954,26 +681,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       throw new Error(t("providers.config_api_unavailable"));
     }
 
-    // Desktop-local fallback: merge the provider into the project opencode.jsonc.
-    return await updateProjectConfigFile(
-      (raw) => {
-        const base = raw.trim()
-          ? raw
-          : '{\n  "$schema": "https://opencode.ai/config.json"\n}\n';
-        const edits = modify(base, ["provider", providerId], providerConfig, {
-          formattingOptions: { insertSpaces: true, tabSize: 2 },
-        });
-        const updated = applyEdits(base, edits);
-        return updated.endsWith("\n") ? updated : `${updated}\n`;
-      },
-      (config) => {
-        const existingProviders =
-          config.provider && typeof config.provider === "object"
-            ? (config.provider as Record<string, unknown>)
-            : {};
-        return { ...config, provider: { ...existingProviders, [providerId]: providerConfig } };
-      },
-    );
+    throw new Error("Connect to a LegalWork server to save custom provider settings.");
   };
 
   /**
@@ -994,7 +702,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       // A `null` value tells the server to delete this key from the runtime
       // provider map (patch payloads can't carry `undefined` over JSON).
       await legalworkClient.patchConfig(legalworkWorkspaceId, {
-        opencode: { provider: { [resolved]: null } },
+        opencode: { providers: { [resolved]: null } },
       });
       return;
     }
@@ -1005,41 +713,13 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       return;
     }
 
-    // Desktop-local: delete the provider block from opencode.jsonc.
-    await updateProjectConfigFile(
-      (raw) => {
-        const base = raw.trim()
-          ? raw
-          : '{\n  "$schema": "https://opencode.ai/config.json"\n}\n';
-        const edits = modify(base, ["provider", resolved], undefined, {
-          formattingOptions: { insertSpaces: true, tabSize: 2 },
-        });
-        const updated = applyEdits(base, edits);
-        return updated.endsWith("\n") ? updated : `${updated}\n`;
-      },
-      (config) => {
-        if (!config.provider || typeof config.provider !== "object") return config;
-        const nextProviders = { ...(config.provider as Record<string, unknown>) };
-        delete nextProviders[resolved];
-        return { ...config, provider: nextProviders };
-      },
-    );
+    throw new Error("Connect to a LegalWork server to change custom provider settings.");
   };
 
   /** True when the provider is defined in config (custom / has a base URL), so
    *  removing it requires deleting its config block, not just its credential. */
-  const providerIsConfigDefined = (providerId: string): boolean => {
-    const entry = options.providers().find((provider) => provider.id === providerId);
-    if (!entry) return false;
-    const source = (entry as { source?: unknown }).source;
-    if (source === "custom" || source === "config") return true;
-    const entryOptions = (entry as { options?: unknown }).options;
-    const baseURL =
-      entryOptions && typeof entryOptions === "object"
-        ? (entryOptions as Record<string, unknown>).baseURL
-        : undefined;
-    return typeof baseURL === "string" && baseURL.trim().length > 0;
-  };
+  const providerIsConfigDefined = (providerId: string): boolean =>
+    options.providers().find(provider => provider.id === providerId)?.editableAsCustom === true;
 
   async function readCustomProviderForEdit(
     providerId: string,
@@ -1051,39 +731,36 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     const resolvedId = providerId.trim();
     if (!resolvedId) return null;
 
-    const config = unwrap(await c.config.get()) as Record<string, unknown>;
-    let providers = isPlainRecord(config.provider) ? config.provider : {};
+    const metadata = await providerDefinitionMetadata();
+    if (!metadata) throw new Error("Connect to a LegalWork server to edit custom provider settings.");
+    if (metadata.firmIDs.has(resolvedId) || metadata.saved.providerDisplay?.[resolvedId]?.editable !== true) return null;
+    const providers = metadata.providers;
     let modelRefresh: CustomProviderModelRefreshStatus | undefined;
-    const target = await resolveLegalworkConfigTarget("read");
-    if (target.legalworkClient && target.legalworkWorkspaceId) {
-      const saved = await target.legalworkClient.getConfig(target.legalworkWorkspaceId);
-      if (isPlainRecord(saved.opencode.provider)) providers = { ...providers, ...saved.opencode.provider };
-      const settings = isPlainRecord(saved.legalwork.customProviderModelRefresh) ? saved.legalwork.customProviderModelRefresh : {};
-      const status = settings[resolvedId];
-      if (isPlainRecord(status)) modelRefresh = {
-        enabled: status.enabled === true,
-        availableModels: Array.isArray(status.availableModels) ? status.availableModels.filter((id): id is string => typeof id === "string") : undefined,
-        lastUpdatedAt: typeof status.lastUpdatedAt === "number" ? status.lastUpdatedAt : undefined,
-        lastError: typeof status.lastError === "string" ? status.lastError : null,
-        pendingReload: status.pendingReload === true,
-      };
-    }
+    const settings = isPlainRecord(metadata.saved.legalwork.customProviderModelRefresh) ? metadata.saved.legalwork.customProviderModelRefresh : {};
+    const status = settings[resolvedId];
+    if (isPlainRecord(status)) modelRefresh = {
+      enabled: status.enabled === true,
+      availableModels: Array.isArray(status.availableModels) ? status.availableModels.filter((id): id is string => typeof id === "string") : undefined,
+      lastUpdatedAt: typeof status.lastUpdatedAt === "number" ? status.lastUpdatedAt : undefined,
+      lastError: typeof status.lastError === "string" ? status.lastError : null,
+      pendingReload: status.pendingReload === true,
+    };
     const entry = isPlainRecord(providers[resolvedId]) ? providers[resolvedId] : null;
     if (!entry) return null;
 
-    const npm = typeof entry.npm === "string" ? entry.npm : "";
+    const npm = typeof entry.package === "string" ? entry.package : "";
     const apiType: CustomProviderApiType = npm === CUSTOM_PROVIDER_NPM.responses ? "responses" : "chat";
-    const providerOptions = isPlainRecord(entry.options) ? entry.options : {};
+    const providerOptions = isPlainRecord(entry.settings) ? entry.settings : {};
     const baseURL = typeof providerOptions.baseURL === "string" ? providerOptions.baseURL : "";
     const modelsRecord = isPlainRecord(entry.models) ? entry.models : {};
     const models = Object.entries(modelsRecord)
-      .filter(([id]) => !Array.isArray(entry.whitelist) || entry.whitelist.includes(id))
       .map(([id, raw]) => customProviderModelFromEntry(id, raw));
 
     return {
       providerId: resolvedId,
       name: typeof entry.name === "string" && entry.name.trim() ? entry.name : resolvedId,
       baseURL,
+      endpointConfigured: metadata.saved.providerDisplay?.[resolvedId]?.hasCustomEndpoint ?? Boolean(baseURL),
       apiType,
       models,
       modelRefresh,
@@ -1120,7 +797,8 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
 
   async function refreshProviderModels(providerId: string) {
     const provider = options.providers().find(item => item.id === providerId);
-    const hasBaseURL = typeof provider?.options?.baseURL === "string" && provider.options.baseURL.trim().length > 0;
+    if (provider?.configurationReadOnly) throw new Error(t("provider_auth.authored_readonly"));
+    const hasBaseURL = provider?.hasCustomEndpoint ?? (typeof provider?.settings?.baseURL === "string" && provider.settings.baseURL.trim().length > 0);
     return refreshCustomProviderModels({ providerId, force: true, catalog: provider?.source !== "custom" && !hasBaseURL });
   }
 
@@ -1142,7 +820,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     if (!providerId) {
       throw new Error(t("providers.provider_id_required"));
     }
-    if (!baseURL) {
+    if (!baseURL && !input.preserveExistingEndpoint) {
       throw new Error(t("providers.base_url_required"));
     }
     if (!models.length) {
@@ -1151,19 +829,22 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
 
     const modelsConfig: Record<string, Record<string, unknown>> = {};
     for (const model of models) {
-      modelsConfig[model.id] = customProviderModelEntry(model);
+      const entry = customProviderModelEntry(model);
+      modelsConfig[model.id] = { ...entry, limit: entry.limit ?? null, disabled: false };
     }
 
     const providerConfig: Record<string, unknown> = {
-      npm: CUSTOM_PROVIDER_NPM[input.apiType] ?? CUSTOM_PROVIDER_NPM.chat,
+      package: CUSTOM_PROVIDER_NPM[input.apiType],
       name,
-      options: { baseURL },
+      settings: baseURL ? { baseURL } : {},
       models: modelsConfig,
-      // Even a custom endpoint with a built-in provider ID must respect this selection.
-      whitelist: Object.keys(modelsConfig),
     };
 
     try {
+      const metadata = await providerDefinitionMetadata();
+      if (metadata && (metadata.firmIDs.has(providerId) || Object.hasOwn(metadata.saved.providerDisplay ?? {}, providerId) && metadata.saved.providerDisplay?.[providerId]?.editable !== true)) {
+        throw new Error(t("provider_auth.authored_readonly"));
+      }
       const wrote = await writeCustomProviderConfig(providerId, providerConfig, input.autoRefresh === true);
       if (!wrote) {
         throw new Error(t("providers.save_config_failed"));
@@ -1172,7 +853,8 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       // Keep the secret out of the config file: store it in the engine auth
       // store, where opencode injects it as the OpenAI-compatible bearer key.
       if (apiKey) {
-        await c.auth.set({ providerID: providerId, auth: { type: "api", key: apiKey } });
+        await c.model.list({ location: authLocation() });
+        await c.integration.connect.key({ integrationID: providerId, key: apiKey, location: authLocation() });
       }
 
       options.markOpencodeConfigReloadRequired();
@@ -1201,13 +883,8 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     return legalworkClient;
   };
 
-  /**
-   * Persist an Eigenwelt connection: write the provider block (dynamic model
-   * list included) into the per-workspace runtime config via the same server
-   * patchConfig path used by removeCustomProviderFromConfig / custom-provider
-   * installs (with the project opencode.jsonc fallback for desktop-local
-   * workspaces), store the API key in the engine auth store, then reload.
-   */
+  /** Save the account through LegalWork even before the project's agent is
+   * connected or approved. Refresh its providers only when it is connected. */
   const finalizeEigenweltConnect = async (payload: {
     systemOne?: SystemOneConfiguration;
     apiKey: string;
@@ -1220,10 +897,6 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     refreshToken?: string;
     platformURL?: string;
   }) => {
-    const c = options.client();
-    if (!c) {
-      throw new Error(t("providers.not_connected"));
-    }
     const baseURL = payload.baseURL?.trim();
     const models = Array.isArray(payload.models) ? payload.models : [];
     // "Signed in with Eigenwelt" = the account connection (entitlements +
@@ -1288,7 +961,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
    * Long-poll the sign-in session until the browser flow delivers the
    * exchange payload, then finalize the connection. The server holds each
    * poll open (long-poll) and answers `{pending:true}` on its own timeout;
-   * we re-poll after ~2s up to a ~10 minute cap. `cancelled` lets the modal
+   * we re-poll after ~2s up to a one-hour cap. `cancelled` lets the modal
    * abort when it closes.
    */
   async function completeEigenweltSignIn(
@@ -1298,7 +971,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     setStateField("providerAuthError", null);
     try {
       const legalworkClient = requireEigenweltServerClient();
-      const deadline = Date.now() + 10 * 60 * 1000;
+      const deadline = Date.now() + EIGENWELT_SIGN_IN_TIMEOUT_MS;
       while (Date.now() < deadline) {
         if (opts?.cancelled?.()) return { connected: false, cancelled: true };
         const result = await legalworkClient.eigenweltOauthWait(sessionId);
@@ -1314,13 +987,20 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
         }
         return { connected: true, preferredAiProvider: "preferredAiProvider" in result ? result.preferredAiProvider : undefined, message: t("providers.connected_named", { name: "Eigenwelt" }) };
       }
-      throw new Error(t("providers.eigenwelt_signin_timeout"));
     } catch (error) {
       if (opts?.cancelled?.()) return { connected: false, cancelled: true };
+      if (error instanceof LegalworkServerError && error.code === "eigenwelt_signin_timeout") {
+        const message = t("providers.eigenwelt_signin_timeout");
+        setStateField("providerAuthError", message);
+        throw new EigenweltSignInTimeoutError(message);
+      }
       const message = describeProviderError(error, t("providers.oauth_failed"));
       setStateField("providerAuthError", message);
       throw error instanceof Error ? error : new Error(message);
     }
+    const message = t("providers.eigenwelt_signin_timeout");
+    setStateField("providerAuthError", message);
+    throw new EigenweltSignInTimeoutError(message);
   }
 
   /** A provider's name as the member sees it, for the messages after connecting or disconnecting. */
@@ -1359,7 +1039,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
         options.markOpencodeConfigReloadRequired();
       }
 
-      const updated = await refreshProviders({ dispose: true });
+      const updated = await refreshProviders({ dispose: configDefined });
       if (Array.isArray(updated?.connected) && updated.connected.includes(resolved)) {
         // Still connected (e.g. via an env var we can't unset). Report what we
         // did rather than silently doing nothing.
@@ -1418,6 +1098,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
   function closeProviderAuthModal(optionsArg?: { restorePromptFocus?: boolean }) {
     const shouldFocusPrompt =
       optionsArg?.restorePromptFocus ?? state.providerAuthReturnFocusTarget === "composer";
+    void cancelProviderAuth();
     mutateState((current) => ({
       ...current,
       providerAuthModalOpen: false,
@@ -1447,6 +1128,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     lastWorkspaceKey = workspaceKey;
     refreshSnapshot();
     emitChange();
+    if (changed) void cancelProviderAuth();
     if (started && changed) pollCustomProviderModels();
   };
 
@@ -1471,6 +1153,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
   const dispose = () => {
     if (disposed) return;
     disposed = true;
+    void cancelProviderAuth();
     started = false;
     clearInterval(modelRefreshTimer);
     document.removeEventListener("visibilitychange", pollCustomProviderModels);
@@ -1486,6 +1169,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     dispose,
     syncFromOptions,
     startProviderAuth,
+    cancelProviderAuth,
     refreshProviders,
     completeProviderAuthOAuth,
     submitProviderApiKey,

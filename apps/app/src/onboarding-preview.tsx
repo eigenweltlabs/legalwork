@@ -9,6 +9,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster, toast } from "@/components/ui/sonner";
 import { createLegalworkServerClient, type LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { setLocale, t } from "@/i18n";
+import { EigenweltSignInTimeoutError } from "@/app/lib/eigenwelt-sign-in";
 import { WelcomePage, type ProjectCreatePhase } from "@/react-app/domains/onboarding/welcome-page";
 import { OfficeStep } from "@/react-app/domains/onboarding/office-step";
 import { AudioStep } from "@/react-app/domains/onboarding/audio-step";
@@ -52,6 +53,7 @@ const permissionsClient: LegalworkServerClient = {
 };
 
 function OnboardingPreview() {
+  const signInAttempt = useRef(0);
   const [analytics, setAnalytics] = useState(true);
   const [phase, setPhase] = useState<ProjectCreatePhase | null>(null);
   const [step, setStep] = useState(params.get("step") ?? "welcome");
@@ -70,8 +72,16 @@ function OnboardingPreview() {
         account={null}
         serverReady
         onBack={params.has("web") ? undefined : () => setStep("dictation")}
-        onStartSignIn={async () => { throw new Error("Sign-in is disabled in this preview."); }}
-        onWaitSignIn={async () => ({ connected: false, cancelled: true })}
+        onStartSignIn={async options => {
+          if (!params.has("signin-timeout")) throw new Error("Sign-in is disabled in this preview.");
+          const sessionId = `preview-timeout-${++signInAttempt.current}`;
+          console.info("[timeout-preview] sign-in", JSON.stringify({ sessionId, ...options }));
+          return { authorizeUrl: "about:blank", sessionId };
+        }}
+        onWaitSignIn={async () => {
+          if (params.has("signin-timeout")) throw new EigenweltSignInTimeoutError(t("providers.eigenwelt_signin_timeout"));
+          return { connected: false, cancelled: true };
+        }}
         onSignedIn={() => setStep("permissions")}
         onBringOwnModel={() => setStep("permissions")}
         onOpenBilling={previewAction}

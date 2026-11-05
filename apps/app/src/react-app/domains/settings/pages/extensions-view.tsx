@@ -2,18 +2,19 @@ import { PluginImportDialog, type PluginImportStore } from "./plugin-import-dial
 import { PluginCreateDialog, type PluginCreateStore } from "./plugin-create-dialog";
 /** @jsxImportSource react */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { Blocks, Download, FolderOpen, HardDrive, ListFilter, Loader2, Package } from "lucide-react";
+import { Blocks, Download, FolderOpen, HardDrive, Loader2, Package } from "lucide-react";
 
 import { t } from "../../../../i18n";
 import { Button } from "@/components/ui/button";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "@/components/ui/sonner";
+import { SectionHeading } from "@/react-app/design-system/surface";
 
 import { PluginsView, type PluginsExtensionsStore } from "./plugins-view";
 import { HubScopeContext } from "./hub-scope-context";
 import { HubTabs, type HubTab } from "../segmented-tabs";
-import { IntegrationAddMenu, IntegrationSearch, IntegrationLibraryLayoutContext, IntegrationMoreMenu, type IntegrationAddRequest, type IntegrationLibraryKind, type IntegrationLibrarySource } from "./integration-library";
+import { IntegrationAddMenu, IntegrationSearch, IntegrationSourceFilter, IntegrationLibraryLayoutContext, IntegrationLibraryPage, IntegrationMoreMenu, type IntegrationAddRequest, type IntegrationLibraryKind, type IntegrationLibrarySource } from "./integration-library";
 import { ImportSkillsButton, type SkillImportSource, type SkillImportStore, type SkillsExtensionsStore } from "./skills-view";
 import { orgPolicyAllows, useOrgPolicyForbids } from "../../connections/org-policy";
 import { ImportedPackages } from "./skill-packages";
@@ -127,6 +128,8 @@ export function ExtensionsView(props: ExtensionsViewProps) {
   const [tab, setTab] = useState<ExtensionsTab>(initialTab);
   const [pluginSearch, setPluginSearch] = useState("");
   const [source, setSource] = useState<IntegrationLibrarySource>("all");
+  const listRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { if (listRef.current) listRef.current.scrollTop = 0; }, [tab, source, packageTarget]);
   const [addRequest, setAddRequest] = useState<IntegrationAddRequest | null>(null);
   const [connectorToOpen, setConnectorToOpen] = useState<string | null>(null);
   const onConnectorOpened = useCallback(() => setConnectorToOpen(null), []);
@@ -174,15 +177,13 @@ export function ExtensionsView(props: ExtensionsViewProps) {
 
   return (
     <IntegrationLibraryLayoutContext.Provider value={libraryLayout}>
-      <section className="w-full min-w-0 max-w-4xl space-y-6">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="min-w-0">
-            <h2 className={props.showHeader === false ? "sr-only" : "text-xl font-medium tracking-tight"}>{t("extensions.eyebrow_integrations")}</h2>
-            {props.showHeader !== false ? <p className="mt-1 text-[13px] text-muted-foreground">{t("integrations.description")}</p> : null}
-          </div>
+      <IntegrationLibraryPage>
+      <section className="flex min-h-0 w-full min-w-0 flex-1 flex-col gap-5 overflow-hidden">
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-4">
+          <SectionHeading size="page" className={props.showHeader === false ? "sr-only" : undefined} title={t("extensions.eyebrow_integrations")} description={props.showHeader === false ? undefined : t("integrations.description")} />
           <div className="flex max-w-full flex-wrap items-center gap-2">
-            {props.pluginImports ? <Button ref={importButton} variant="outline" size="sm" disabled={props.busy || (!canImportPlugins && !canImportSkills)} onClick={() => setImportOpen(true)}><Download className="size-3.5" />{t("integrations.import_action")}</Button> : null}
-            <IntegrationAddMenu triggerRef={addButton} disabled={props.busy} actions={[
+            {props.pluginImports ? <Button ref={importButton} variant="outline" disabled={props.busy || (!canImportPlugins && !canImportSkills)} onClick={() => setImportOpen(true)}><Download className="size-3.5" />{t("integrations.import_action")}</Button> : null}
+            <IntegrationAddMenu size="default" triggerRef={addButton} disabled={props.busy} actions={[
               { label: t("extensions.filter_plugins"), icon: Package, onClick: () => setDirectoryRequest(value => value + 1) },
               { label: t("skills.title"), icon: Blocks, disabled: props.canAddSkill === false || skillsForbidden, onClick: () => requestAdd("skill") },
               { label: t("storage.tab"), icon: HardDrive, disabled: props.canAddStorage === false || !props.storageView || storageForbidden, onClick: () => requestAdd("storage") },
@@ -237,26 +238,16 @@ export function ExtensionsView(props: ExtensionsViewProps) {
             setSkillImportOpen(true);
           } : undefined} /> : null}
         {props.skillImports ? <ImportSkillsButton open={skillImportOpen} onOpenChange={setSkillImportOpen} source={skillImportSource} returnFocus={importOpen ? false : importButton} asWorkflow={false} busy={props.busy} canUseDesktopTools={!props.isRemoteWorkspace} existingNames={new Set(props.skillImports.skills().map(skill => skill.name))} extensions={props.skillImports} onImported={importedSkills} onPackageImported={importedPackage} onBack={() => { setSkillImportOpen(false); setImportOpen(true); }} /> : null}
-        <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-border/70 pb-4">
           <HubTabs items={TABS} value={tab} onChange={selectTab} label={t("extensions.eyebrow_integrations")} />
           <div className="flex w-full items-center gap-2 sm:w-auto">
             {tab === "plugins" ? <IntegrationSearch value={pluginSearch} onChange={setPluginSearch} label={t("integrations.search_plugins")} /> : null}
             <div ref={setSearchTarget} className={tab === "plugins" ? "hidden" : "h-9 min-w-0 flex-1 sm:w-64 sm:flex-none"} />
-            <DropdownMenu>
-              <DropdownMenuTrigger render={<Button variant="outline" size="sm" title={t("integrations.filter_source")} />}>
-                <ListFilter className="size-3.5" />{source === "all" ? t("integrations.filter") : source === "personal" ? t("integrations.source_personal") : t("firm_hub.scope_team")}
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuRadioGroup aria-label={t("integrations.filter_source")} value={source} onValueChange={value => { if (value === "all" || value === "personal" || value === "team") setSource(value); }}>
-                  <DropdownMenuRadioItem value="all" closeOnClick>{t("integrations.all_sources")}</DropdownMenuRadioItem>
-                  <DropdownMenuRadioItem value="personal" closeOnClick>{t("integrations.source_personal")}</DropdownMenuRadioItem>
-                  <DropdownMenuRadioItem value="team" closeOnClick>{t("firm_hub.scope_team")}</DropdownMenuRadioItem>
-                </DropdownMenuRadioGroup>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <IntegrationSourceFilter value={source} onChange={setSource} />
           </div>
         </div>
 
+        <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
         <HubScopeContext.Provider value="local">
           <div hidden={tab !== "plugins"} className="space-y-1">
             <IntegrationLibraryLayoutContext.Provider value={{ ...libraryLayout, actions: null, search: null }}>
@@ -271,7 +262,9 @@ export function ExtensionsView(props: ExtensionsViewProps) {
           {tab === "skills" ? props.skillsView : null}
 
         </HubScopeContext.Provider>
+        </div>
       </section>
+      </IntegrationLibraryPage>
     </IntegrationLibraryLayoutContext.Provider>
   );
 }

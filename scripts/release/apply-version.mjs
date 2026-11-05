@@ -15,10 +15,9 @@
  *
  * Stamps:
  *   - apps/app/package.json            version
- *   - apps/desktop/package.json        version + opencodeRouterVersion
- *   - apps/orchestrator/package.json   version + legalwork-server/opencode-router deps
+ *   - apps/desktop/package.json        version
+ *   - apps/orchestrator/package.json   version + legalwork-server dep
  *   - apps/server/package.json         version
- *   - apps/opencode-router/package.json version
  *
  * Run AFTER `pnpm install --frozen-lockfile`: pnpm-lock.yaml still records the
  * placeholder specifiers, and this script intentionally leaves it untouched so
@@ -59,7 +58,7 @@ if (!versionPattern.test(version)) {
   process.exit(1);
 }
 
-// pnpm links the internal pins (legalwork-server, opencode-router) to the
+// pnpm links the internal pins (legalwork-server) to the
 // workspace packages only when the stamped version is valid semver, and the
 // pattern above is looser than semver in one way that has broken an alpha
 // build: a numeric prerelease identifier must not have a leading zero, and a
@@ -88,34 +87,28 @@ const appPath = resolve(root, "apps", "app", "package.json");
 const desktopPath = resolve(root, "apps", "desktop", "package.json");
 const orchestratorPath = resolve(root, "apps", "orchestrator", "package.json");
 const serverPath = resolve(root, "apps", "server", "package.json");
-const opencodeRouterPath = resolve(root, "apps", "opencode-router", "package.json");
 
 const appData = readJson(appPath);
 const desktopData = readJson(desktopPath);
 const orchestratorData = readJson(orchestratorPath);
 const serverData = readJson(serverPath);
-const opencodeRouterData = readJson(opencodeRouterPath);
 
 appData.version = version;
 desktopData.version = version;
-// Desktop pins opencodeRouterVersion for sidecar bundling; keep it aligned.
-desktopData.opencodeRouterVersion = version;
+
 orchestratorData.version = version;
 
-// legalwork-orchestrator pins exact legalwork-server/opencode-router versions
+// legalwork-orchestrator pins exact legalwork-server versions
 // (resolved as workspace links at install time; the pins matter for npm publish).
 orchestratorData.dependencies = orchestratorData.dependencies ?? {};
 orchestratorData.dependencies["legalwork-server"] = version;
-orchestratorData.dependencies["opencode-router"] = version;
 
 serverData.version = version;
-opencodeRouterData.version = version;
 
 writeJson(appPath, appData);
 writeJson(desktopPath, desktopData);
 writeJson(orchestratorPath, orchestratorData);
 writeJson(serverPath, serverData);
-writeJson(opencodeRouterPath, opencodeRouterData);
 
 console.log(
   JSON.stringify(
@@ -128,7 +121,6 @@ console.log(
         "apps/desktop/package.json",
         "apps/orchestrator/package.json",
         "apps/server/package.json",
-        "apps/opencode-router/package.json",
       ],
     },
     null,

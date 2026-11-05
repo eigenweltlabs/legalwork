@@ -1,28 +1,19 @@
-import type { Event, OpencodeClient } from "@opencode-ai/sdk/v2/client";
+import { z } from "zod";
+import type { AssistantEngineClient } from "./assistant-engine.js";
 
-/** Engine events are wake-up hints. Receipts and public output still come from the durable inbox. */
-export function channelEventWakes(event: Event, sessionId: string, messageId: string) {
-  if (!("sessionID" in event.properties) || event.properties.sessionID !== sessionId) return false;
-  if (event.type === "message.updated") return event.properties.info.role === "assistant" &&
-    event.properties.info.parentID === messageId && Boolean(event.properties.info.time.completed || event.properties.info.error);
-  if (event.type === "message.part.updated") {
-    const part = event.properties.part;
-    return part.type === "text" ? part.time?.end !== undefined && !part.synthetic && !part.ignored :
-      part.type === "tool" && (part.state.status === "completed" || part.state.status === "error");
-  }
-  return event.type === "session.idle" || event.type === "session.error" ||
-    (event.type === "session.status" && event.properties.status.type === "idle") ||
-    event.type === "permission.asked" || event.type === "permission.v2.asked" ||
-    event.type === "question.asked" || event.type === "question.v2.asked";
+/** Native durable events are wake-up hints; public output is read from history. */
+export function channelEventWakes(event: { type: string; data?: unknown }, sessionId: string, _messageId: string) {
+  const data = z.object({ sessionID: z.string() }).passthrough().safeParse(event.data);
+  if (!data.success || data.data.sessionID !== sessionId) return false;
+  return ["session.text.ended", "session.tool.success", "session.tool.failed", "session.step.ended", "session.step.failed",
+    "session.execution.succeeded", "session.execution.failed", "session.execution.interrupted", "permission.asked", "form.created"].includes(event.type);
 }
 
-export async function watchChannelEvents(client: OpencodeClient, sessionId: string, messageId: string,
-  notify: () => void, signal: AbortSignal) {
-  // Each host long-poll owns this short subscription. A broken SSE connection
-  // falls back to its bounded receipt refresh instead of retrying privately.
-  const { stream } = await client.event.subscribe({}, { signal, sseMaxRetryAttempts: 1 });
-  for await (const event of stream) {
+export async function watchChannelEvents(client: AssistantEngineClient, sessionId: string, messageId: string,
+  notify: () => void, signal: AbortSignal, textEnded?: (messageId: string, ordinal: number) => void) {
+  for await (const event of client.native.event.subscribe({ signal })) {
     if (signal.aborted) break;
+    if (event.type === "session.text.ended" && event.data.sessionID === sessionId) textEnded?.(event.data.assistantMessageID, event.data.ordinal);
     if (channelEventWakes(event, sessionId, messageId)) notify();
   }
 }

@@ -270,8 +270,7 @@ export class CloudReplica {
     {
       const links = await projectSyncStore(this.config);
       const incoming = new Set(catalog.map(project => project.id));
-      for (const workspace of this.config.workspaces.filter(workspace => workspace.workspaceType !== "remote" &&
-        (!this.settings.projectIds.length || this.settings.projectIds.includes(workspace.id)))) {
+      for (const workspace of this.config.workspaces.filter(workspace =>         (!this.settings.projectIds.length || this.settings.projectIds.includes(workspace.id)))) {
         // An imported/legacy catalog entry must wait for its original sync identity.
         // Only a genuinely new local project may publish a new remote project.
         if (!links.linkByWorkspace(workspace.id) && !incoming.has(workspace.id)) await saveProjectSyncSettings(this.config, workspace,
@@ -279,7 +278,7 @@ export class CloudReplica {
       }
       for (let attempt = 0; attempt < 8; attempt++) {
         const current = await this.catalog(), projects = new Map(current.value.map(project => [project.id, project]));
-        for (const workspace of this.config.workspaces.filter(workspace => workspace.workspaceType !== "remote")) {
+        for (const workspace of this.config.workspaces) {
           const link = links.linkByWorkspace(workspace.id);
           if (link) projects.set(workspace.id, ProjectSchema.parse({ id: workspace.id, name: workspace.name, preset: workspace.preset, sourcePath: workspace.path, projectId: link.projectId,
             details: existsSync(workspace.path) ? await readProjectDetails(workspace.path) : undefined,
@@ -326,7 +325,7 @@ export class CloudReplica {
     throw new Error("Project availability changed too often; retry sync");
   }
   private async initializeProject(projectId: string, allowDeletions: boolean) {
-    const workspace = this.config.workspaces.find(workspace => workspace.id === projectId && workspace.workspaceType !== "remote");
+    const workspace = this.config.workspaces.find(workspace => workspace.id === projectId);
     if (!workspace) throw new ApiError(404, "sync_project_missing", "This project is not registered on this replica.");
     if (this.settings.role === "executor" && (await this.catalog()).value.find(project => project.id === projectId)?.filesReady === false)
       throw new ApiError(409, "sync_project_pending", "This project's initial files are still syncing from the desktop. Try again shortly.");
@@ -340,7 +339,7 @@ export class CloudReplica {
     return workspace;
   }
   async prepareWorkspace(projectId: string, allowDeletions = false, refresh = false, batch?: Promise<ProjectSyncResult>, privateResources?: StorageAdapter) {
-    const workspace = this.config.workspaces.find(workspace => workspace.id === projectId && workspace.workspaceType !== "remote");
+    const workspace = this.config.workspaces.find(workspace => workspace.id === projectId);
     if (!workspace) throw new ApiError(404, "sync_project_missing", "This project is not registered on this replica.");
     // A refresh of an already available project must not block new engine
     // requests. Only first hydration requires the materialization barrier.
@@ -401,7 +400,7 @@ export class CloudReplica {
   async syncFiles(allowDeletions = false, priorityProjects?: readonly string[], startup = false) {
     await this.syncCatalog();
     const selected = priorityProjects ?? (this.settings.projectIds.length ? this.settings.projectIds : this.settings.role !== "executor"
-      ? this.config.workspaces.filter(workspace => workspace.workspaceType !== "remote").map(workspace => workspace.id)
+      ? this.config.workspaces.map(workspace => workspace.id)
       : this.config.workspaces.filter(workspace => workspace.preset === "main-assistant" || this.files.isHydrated(`project:${workspace.id}`, workspace.path)).map(workspace => workspace.id));
     for (const id of selected) await this.initializeProject(id, allowDeletions);
     const requestedAt = Date.now();
@@ -435,14 +434,13 @@ export class CloudReplica {
   }
   /** Publish the assistant's dependencies first. Other projects never block VM creation. */
   async prepareAssistant() {
-    const projects = this.config.workspaces.filter(workspace => workspace.preset === "main-assistant" && workspace.workspaceType !== "remote" &&
+    const projects = this.config.workspaces.filter(workspace => workspace.preset === "main-assistant" &&
       (!this.settings.projectIds.length || this.settings.projectIds.includes(workspace.id))).map(workspace => workspace.id);
     await this.syncFiles(false, projects, true);
     await this.syncPreferences();
   }
   syncStatus() {
-    return { running: this.round !== null, error: this.syncError, pendingProjects: this.config.workspaces.filter(workspace => workspace.workspaceType !== "remote" &&
-      (!this.settings.projectIds.length || this.settings.projectIds.includes(workspace.id)) && !this.files.isHydrated(`project:${workspace.id}`, workspace.path)).length };
+    return { running: this.round !== null, error: this.syncError, pendingProjects: this.config.workspaces.filter(workspace =>       (!this.settings.projectIds.length || this.settings.projectIds.includes(workspace.id)) && !this.files.isHydrated(`project:${workspace.id}`, workspace.path)).length };
   }
   async tick(checkpoint = false) {
     if (this.stopped || this.quiescing && !checkpoint) return;

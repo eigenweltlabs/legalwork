@@ -1,6 +1,6 @@
 import { ScheduledTaskMessageSchema } from "@legalwork/types/scheduled-tasks";
 import type { UIMessage } from "ai";
-import type { TextPart } from "@opencode-ai/sdk/v2/client";
+import type { TextPart } from "@/app/lib/opencode-view";
 
 /** Keep scheduler metadata in both live events and reloaded transcripts. */
 export function scheduledTextMetadata(part: Pick<TextPart, "id" | "metadata">) {

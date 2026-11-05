@@ -1,0 +1,25 @@
+{
+  "date": "2026-10-25",
+  "revision": "bacc6776c80efd07fc09e30c55ba1dfa6aa67d19",
+  "platform": "macOS",
+  "wordVersion": "16.114.1",
+  "electronVersion": "43.7.5",
+  "isolatedProfile": true,
+  "syntheticDocument": "Seamless Word Connection Test.docx",
+  "automaticConnectionWithoutCodeOrApproval": true,
+  "tlsCertificateValidationEnabled": true,
+  "documentRead": true,
+  "replacement": {
+    "before": "The payment period is 60 days.",
+    "after": "The payment period is 75 days.",
+    "trackedChange": true
+  },
+  "commentInserted": true,
+  "searchMatchCount": 1,
+  "savedTextAndCommentVerifiedInDocx": true,
+  "electronRestarted": true,
+  "paneClosedAndReopened": true,
+  "reconnectedWithoutCodeOrApproval": true,
+  "readAndSearchAfterRestart": true,
+  "modelInference": "No new model request; document tools called through the authenticated relay and executed by the real Word pane."
+}

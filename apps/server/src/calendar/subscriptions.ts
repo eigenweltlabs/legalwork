@@ -32,7 +32,7 @@ export async function subscriptionPayload(config: ServerConfig, identity: { orgI
   const links = await projectSyncStore(config);
   const entries: { projectId: string | null; name: string; items: CalendarItem[] }[] = [];
   let projectId: string | null = null;
-  const workspaces = config.workspaces.filter(workspace => workspace.workspaceType !== "remote" && (!workspaceId || workspace.id === workspaceId));
+  const workspaces = config.workspaces.filter(workspace => (!workspaceId || workspace.id === workspaceId));
   if (workspaceId && !workspaces.length) return null;
   for (const workspace of workspaces) {
     const link = links.linkByWorkspace(workspace.id);

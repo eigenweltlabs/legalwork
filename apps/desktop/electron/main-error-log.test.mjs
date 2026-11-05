@@ -11,7 +11,7 @@ import { buildSupportBundleText } from "./support-bundle.mjs";
 
 // Installs the log over silent console stubs so test output stays clean, then
 // restores the real console and stack limit.
-function withMainErrorLog(run) {
+async function withMainErrorLog(run) {
   const logsDir = mkdtempSync(path.join(os.tmpdir(), "legalwork-main-log-"));
   const { error, warn } = console;
   const { stackTraceLimit } = Error;
@@ -19,7 +19,7 @@ function withMainErrorLog(run) {
   console.warn = () => {};
   try {
     installMainErrorLog(() => logsDir);
-    run(logsDir);
+    await run(logsDir);
   } finally {
     console.error = error;
     console.warn = warn;
@@ -30,7 +30,7 @@ function withMainErrorLog(run) {
 
 describe("installMainErrorLog", () => {
   it("keeps an embedded-server route failure, with its stack, for the support bundle", () => {
-    withMainErrorLog((logsDir) => {
+    return withMainErrorLog(async (logsDir) => {
       // Past the old 64 KB bundle tail, so the bundle must carry main.log whole.
       console.warn("first entry", "y".repeat(100_000));
       const failure = new Error("Nested mappings are not allowed in compact mappings");
@@ -41,7 +41,7 @@ describe("installMainErrorLog", () => {
       assert.match(log, /ERROR \[legalwork-server\] Unhandled error: GET \/workspace\/ws_1\/skills\/client-update Error: Nested mappings/);
       assert.ok(log.includes(failure.stack.split("\n")[1].trim()), "stack frames are kept");
 
-      const bundle = buildSupportBundleText({
+      const bundle = await buildSupportBundleText({
         app: { getName: () => "LegalWork", getVersion: () => "0.0.0", isPackaged: true, getPath: () => logsDir },
         runtimeManager: { collectRuntimeDiagnostics: () => ({}) },
       });
@@ -52,7 +52,7 @@ describe("installMainErrorLog", () => {
   });
 
   it("keeps deep stacks, nested details and long strings whole", () => {
-    withMainErrorLog((logsDir) => {
+    return withMainErrorLog((logsDir) => {
       // 15 distinct frames: past node's default of 10 (recursion would print
       // as one collapsed line).
       let call = () => new Error("created 15 calls deep");
@@ -74,7 +74,7 @@ describe("installMainErrorLog", () => {
   });
 
   it("rotates main.log to main.old.log once it passes the size cap", () => {
-    withMainErrorLog((logsDir) => {
+    return withMainErrorLog((logsDir) => {
       const filler = "x".repeat(100_000);
       for (let index = 0; index < 11; index += 1) console.warn(`entry-${index}`, filler);
 
@@ -89,8 +89,8 @@ describe("installMainErrorLog", () => {
 
 describe("buildSupportBundleText", () => {
   it("says how this machine reaches GitHub", () => {
-    withMainErrorLog((logsDir) => {
-      const bundle = buildSupportBundleText({
+    return withMainErrorLog(async (logsDir) => {
+      const bundle = await buildSupportBundleText({
         app: { getName: () => "LegalWork", getVersion: () => "0.0.0", isPackaged: true, getPath: () => logsDir },
         runtimeManager: { collectRuntimeDiagnostics: () => ({}) },
         network: { systemProxyForGithub: "PROXY proxy.firm.local:8080", proxyEnv: {} },
@@ -102,7 +102,7 @@ describe("buildSupportBundleText", () => {
 
 describe("logWindowErrors", () => {
   it("keeps an app window's console warnings, errors and crashes", () => {
-    withMainErrorLog((logsDir) => {
+    return withMainErrorLog((logsDir) => {
       const contents = new EventEmitter();
       logWindowErrors(contents);
       contents.emit("console-message", {

@@ -12,7 +12,7 @@ export XDG_CONFIG_HOME="$storage_fixture_root/dev-xdg/config"
 export XDG_DATA_HOME="$storage_fixture_root/dev-xdg/data"
 export XDG_CACHE_HOME="$storage_fixture_root/dev-xdg/cache"
 export NODE_EXTRA_CA_CERTS="$storage_fixture_root/ftps-cert.pem"
-exec pnpm --filter legalwork-server exec bun src/cli.ts \
+exec pnpm --filter legalwork-server dev -- \
   --host 127.0.0.1 --port 19287 --approval auto \
   --config "$storage_fixture_root/dev-server.json" \
   --workspace "$storage_fixture_root/dev-workspace" \

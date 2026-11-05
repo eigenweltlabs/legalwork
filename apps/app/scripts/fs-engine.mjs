@@ -20,20 +20,19 @@ try {
   const client = makeClient({ baseUrl: server.baseUrl, directory: server.cwd });
   await waitForHealthy(client);
 
-  const root = ".legalwork/test-engine";
+  const root = "LegalWork Test";
   const nestedDir = path.join(root, "nested");
   const filePath = path.join(root, "hello.txt");
 
   await mkdir(path.join(directory, nestedDir), { recursive: true });
   await writeFile(path.join(directory, filePath), "legalwork engine test\n", "utf8");
 
-  const entries = await client.file.list({ directory, path: root });
-  assert.ok(entries.some((entry) => entry.name === "nested" && entry.type === "directory"));
-  assert.ok(entries.some((entry) => entry.name === "hello.txt" && entry.type === "file"));
+  const entries = (await client.file.list({ location: { directory }, path: root })).data;
+  assert.ok(entries.some((entry) => path.basename(entry.path) === "nested" && entry.type === "directory"));
+  assert.ok(entries.some((entry) => path.basename(entry.path) === "hello.txt" && entry.type === "file"));
 
-  const read = await client.file.read({ directory, path: filePath });
-  assert.equal(read.type, "text");
-  assert.ok(read.content.includes("legalwork engine test"));
+  const read = await client.file.read({ location: { directory }, path: filePath });
+  assert.ok(new TextDecoder().decode(read).includes("legalwork engine test"));
 
   await rm(path.join(directory, root), { recursive: true, force: true });
 

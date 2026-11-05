@@ -1,9 +1,10 @@
 import { createContext, useContext, useEffect, useRef, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
-import { ChevronDown, Download, Info, MoreHorizontal, Pencil, Plus, RefreshCw, Search, Share2, Trash2, X, type LucideIcon } from "lucide-react";
+import { ChevronDown, Download, Info, ListFilter, MoreHorizontal, Pencil, Plus, RefreshCw, Search, Share2, Trash2, X, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { cn } from "@/lib/utils";
 import { SectionHeading, IconTile } from "@/react-app/design-system/surface";
 import { t } from "@/i18n";
 import type { ImportedPlugin } from "@/app/lib/extension-imports";
@@ -16,6 +17,13 @@ export type IntegrationAddRequest = { kind: IntegrationLibraryKind; id: number }
 export const IntegrationLibraryLayoutContext = createContext<{ actions: HTMLElement | null; search: HTMLElement | null; leadingActions?: HTMLElement | null; directoryRequest?: number; directoryActions?: ReactNode; customPluginOpen?: boolean; pluginSearch?: string; onRefresh?: () => void; revision?: number; source?: IntegrationLibrarySource; addRequest?: IntegrationAddRequest | null; onAddHandled?: () => void; connectorToOpen?: string | null; onConnectorOpened?: () => void; ownsMoreMenu?: boolean; importedPackages?: readonly ImportedPlugin[]; connectorState?: (name: string) => ConnectorState | undefined } | null>(null);
 /** Embedded team catalogues follow their library's search. */
 export const IntegrationLibrarySearchContext = createContext({ query: "", hasOtherResults: false });
+
+/** Use the same pane-relative content column and gutters as Tasks. */
+export function IntegrationLibraryPage({ children }: { children: ReactNode }) {
+  return <div className="@container/page flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden bg-background">
+    <div className="lw-page-content lw-page-top flex min-h-0 flex-1 flex-col overflow-hidden pb-8">{children}</div>
+  </div>;
+}
 
 export function useIntegrationLibraryLayout() {
   return useContext(IntegrationLibraryLayoutContext);
@@ -43,11 +51,26 @@ export function IntegrationLibraryActions({ children }: { children: ReactNode })
 
 export type IntegrationAddAction = { label: string; onClick: () => void | Promise<void>; icon: LucideIcon; disabled?: boolean };
 
-export function IntegrationAddMenu(props: { actions: IntegrationAddAction[]; disabled?: boolean; triggerRef?: RefObject<HTMLButtonElement | null>; label?: string }) {
-  const [only] = props.actions;
-  if (props.actions.length === 1 && only) return <Button ref={props.triggerRef} size="sm" disabled={props.disabled || only.disabled} onClick={only.onClick} title={only.label}><Plus className="size-3.5" />{props.label ?? t("common.add")}</Button>;
+export function IntegrationSourceFilter(props: { value: IntegrationLibrarySource; onChange: (source: IntegrationLibrarySource) => void }) {
   return <DropdownMenu>
-    <DropdownMenuTrigger render={<Button ref={props.triggerRef} size="sm" disabled={props.disabled} />}><Plus className="size-3.5" />{props.label ?? t("common.add")}<ChevronDown className="size-3.5" /></DropdownMenuTrigger>
+    <DropdownMenuTrigger render={<Button variant="outline" size="sm" title={t("integrations.filter_source")} />}>
+      <ListFilter className="size-3.5" />{props.value === "all" ? t("integrations.filter") : props.value === "personal" ? t("integrations.source_personal") : t("firm_hub.scope_team")}
+    </DropdownMenuTrigger>
+    <DropdownMenuContent align="end">
+      <DropdownMenuRadioGroup aria-label={t("integrations.filter_source")} value={props.value} onValueChange={value => { if (value === "all" || value === "personal" || value === "team") props.onChange(value); }}>
+        <DropdownMenuRadioItem value="all" closeOnClick>{t("integrations.all_sources")}</DropdownMenuRadioItem>
+        <DropdownMenuRadioItem value="personal" closeOnClick>{t("integrations.source_personal")}</DropdownMenuRadioItem>
+        <DropdownMenuRadioItem value="team" closeOnClick>{t("firm_hub.scope_team")}</DropdownMenuRadioItem>
+      </DropdownMenuRadioGroup>
+    </DropdownMenuContent>
+  </DropdownMenu>;
+}
+
+export function IntegrationAddMenu(props: { actions: IntegrationAddAction[]; disabled?: boolean; triggerRef?: RefObject<HTMLButtonElement | null>; label?: string; size?: "default" | "sm" }) {
+  const [only] = props.actions;
+  if (props.actions.length === 1 && only) return <Button ref={props.triggerRef} size={props.size ?? "sm"} disabled={props.disabled || only.disabled} onClick={only.onClick} title={only.label}><Plus className="size-3.5" />{props.label ?? t("common.add")}</Button>;
+  return <DropdownMenu>
+    <DropdownMenuTrigger render={<Button ref={props.triggerRef} size={props.size ?? "sm"} disabled={props.disabled} />}><Plus className="size-3.5" />{props.label ?? t("common.add")}<ChevronDown className="size-3.5" /></DropdownMenuTrigger>
     <DropdownMenuContent align="end">{props.actions.map(action => { const Icon = action.icon; return <DropdownMenuItem key={action.label} disabled={action.disabled} onClick={action.onClick}><Icon />{action.label}</DropdownMenuItem>; })}</DropdownMenuContent>
   </DropdownMenu>;
 }
@@ -68,9 +91,9 @@ export function IntegrationMoreMenu(props: { children?: ReactNode; busy?: boolea
 }
 
 /** Every library uses the same click-to-open row and trailing action menu. */
-export function IntegrationLibraryRow(props: { name: string; description: string; icon: ReactNode; source?: ReactNode; status?: ReactNode; busy?: boolean; onOpen: () => void; onEdit?: () => void; onExport?: () => void; onShare?: () => void; onRemove?: () => void; actions?: ReactNode }) {
-  return <div className="flex items-center gap-3 rounded-xl px-1 py-2.5 transition-colors hover:bg-muted/30">
-    <button type="button" onClick={props.onOpen} aria-haspopup="dialog" className="flex min-w-0 flex-1 items-center gap-3 rounded-lg text-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+export function IntegrationLibraryRow(props: { name: string; description: string; icon: ReactNode; source?: ReactNode; status?: ReactNode; busy?: boolean; selected?: boolean; opensEditor?: boolean; onOpen: () => void; onEdit?: () => void; onExport?: () => void; onShare?: () => void; onRemove?: () => void; actions?: ReactNode }) {
+  return <div className={cn("flex items-center gap-3 rounded-xl px-1 py-2.5 transition-colors hover:bg-muted/30", props.selected && "bg-muted")}>
+    <button type="button" onClick={props.onOpen} aria-haspopup={props.opensEditor ? undefined : "dialog"} aria-pressed={props.selected} className="flex min-w-0 flex-1 items-center gap-3 rounded-lg text-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
       {props.icon}
       <span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{props.name}</span><span className="mt-0.5 block max-w-[64ch] truncate text-xs text-muted-foreground">{props.description}</span></span>
       {props.source ? <span className="shrink-0 rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground">{props.source}</span> : null}
@@ -79,7 +102,7 @@ export function IntegrationLibraryRow(props: { name: string; description: string
     <DropdownMenu>
       <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" disabled={props.busy} aria-label={t("integrations.item_actions", { name: props.name })} />}><MoreHorizontal className="size-4" /></DropdownMenuTrigger>
       <DropdownMenuContent align="end">
-        <DropdownMenuItem onClick={props.onOpen}><Info />{t("integrations.view_details")}</DropdownMenuItem>
+        <DropdownMenuItem onClick={props.onOpen}>{props.opensEditor ? <Pencil /> : <Info />}{t(props.opensEditor ? "common.edit" : "integrations.view_details")}</DropdownMenuItem>
         {props.onEdit ? <DropdownMenuItem onClick={props.onEdit}><Pencil />{t("common.edit")}</DropdownMenuItem> : null}
         {props.onExport ? <DropdownMenuItem onClick={props.onExport}><Download />{t("skill_export.action")}</DropdownMenuItem> : null}
         {props.onShare ? <DropdownMenuItem onClick={props.onShare}><Share2 />{t("firm_hub.share_with_firm")}</DropdownMenuItem> : null}

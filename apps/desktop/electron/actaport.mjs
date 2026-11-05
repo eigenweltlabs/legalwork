@@ -25,12 +25,15 @@ export async function prepareActaportRuntime(sourceDirectory, destinationDirecto
 }
 
 /**
- * The desktop owns encrypted credentials; MCP processes receive only short-lived tokens.
- * @param {{ directory: string, safeStorage: Pick<typeof import('electron').safeStorage, 'isEncryptionAvailable' | 'encryptString' | 'decryptString' | 'getSelectedStorageBackend'>,
+ * Credentials share the local server's vault; MCP processes receive only short-lived tokens.
+ * safeStorage is used only to import the previous desktop-only credential file.
+ * @param {{ directory: string, safeStorage: Pick<typeof import('electron').safeStorage, 'isEncryptionAvailable' | 'decryptString' | 'getSelectedStorageBackend'>,
+ * loadVault: () => Promise<{ vault: Pick<import('../../server/src/file-storage/oauth/vault.js').OAuthVault, 'path' | 'ready' | 'getEntry' | 'setEntry'>, lock: typeof import('../../server/src/file-storage/oauth/vault.js').vaultLock }>,
  * loadAuth: () => Promise<typeof import('../../../packages/actaport-mcp/src/auth.js')>, fetch?: typeof fetch, platform?: NodeJS.Platform }} options
  */
 export function createActaportConnection(options) {
-  const credentialsPath = path.join(options.directory, "actaport-credentials.enc");
+  const legacyPath = path.join(options.directory, "actaport-credentials.enc");
+  const credentialKey = JSON.stringify(["actaport", path.resolve(options.directory)]);
   const discoveryPath = path.join(options.directory, "actaport-connection.json");
   const secret = randomBytes(32).toString("hex");
   /** @type {import('node:http').Server | undefined} */
@@ -52,24 +55,40 @@ export function createActaportConnection(options) {
     return next;
   }
 
-  function encryptionAvailable() {
+  function legacyEncryptionAvailable() {
     return options.safeStorage.isEncryptionAvailable() && ((options.platform ?? process.platform) !== "linux" || options.safeStorage.getSelectedStorageBackend() !== "basic_text");
   }
 
   async function stored() {
-    if (!encryptionAvailable()) throw new Error("Secure credential storage is unavailable. Enable the operating system keychain.");
     const auth = await options.loadAuth();
-    const encrypted = await readFile(credentialsPath);
-    const payload = JSON.parse(options.safeStorage.decryptString(encrypted));
-    const credentials = auth.credentialsSchema.parse(payload.credentials);
-    return { credentials, allowWrites: payload.allowWrites === true,
-      toolsets: auth.toolsetsSchema.parse(payload.toolsets ?? []) };
+    const { vault, lock } = await options.loadVault();
+    await vault.ready();
+    return lock(`${vault.path}:${credentialKey}`, async () => {
+      const saved = await vault.getEntry(credentialKey, auth.connectionSchema);
+      if (saved !== undefined) {
+        // Also finish cleanup after a crash between the vault write and file removal.
+        await rm(legacyPath, { force: true });
+        return saved;
+      }
+      let encrypted;
+      try { encrypted = await readFile(legacyPath); }
+      catch (error) { if (error.code === "ENOENT") return undefined; throw error; }
+      let previous;
+      try {
+        if (!legacyEncryptionAvailable()) throw new Error("Legacy storage unavailable");
+        previous = auth.connectionSchema.parse(JSON.parse(options.safeStorage.decryptString(encrypted)));
+      } catch { throw new Error("Could not unlock the previous Actaport credentials. Restore access to the operating system keychain before migrating."); }
+      await vault.setEntry(credentialKey, auth.connectionSchema, previous);
+      await rm(legacyPath, { force: true });
+      return previous;
+    });
   }
 
   async function tokens(force = false) {
     const version = generation;
     if (!tokenProvider) {
       const saved = await stored();
+      if (!saved) throw new Error("Connect Actaport in LegalWork to restore access.");
       const auth = await options.loadAuth();
       if (version !== generation) throw new Error("The Actaport connection changed.");
       if (!tokenProvider) {
@@ -86,18 +105,23 @@ export function createActaportConnection(options) {
   }
 
   async function persist(credentials, writes, selected) {
-    await mkdir(options.directory, { recursive: true, mode: 0o700 });
-    await writePrivateFile(credentialsPath, options.safeStorage.encryptString(JSON.stringify({ credentials, allowWrites: writes, toolsets: selected })));
+    const auth = await options.loadAuth();
+    const { vault, lock } = await options.loadVault();
+    await vault.ready();
+    await lock(`${vault.path}:${credentialKey}`, async () => {
+      await vault.setEntry(credentialKey, auth.connectionSchema, { credentials, allowWrites: writes, toolsets: selected });
+      await rm(legacyPath, { force: true });
+    });
   }
 
   async function status() {
-    const secureStorage = encryptionAvailable();
     const auth = await options.loadAuth();
     const groups = { coreToolCount: auth.coreToolCount, toolsets: auth.toolsetSummaries };
     try {
       const saved = await stored();
-      return { configured: true, secureStorage, allowWrites: saved.allowWrites, enabledToolsets: saved.toolsets, ...groups };
-    } catch { return { configured: false, secureStorage, allowWrites: false, enabledToolsets: [], ...groups }; }
+      if (saved) return { configured: true, secureStorage: true, allowWrites: saved.allowWrites, enabledToolsets: saved.toolsets, ...groups };
+      return { configured: false, secureStorage: true, allowWrites: false, enabledToolsets: [], ...groups };
+    } catch { return { configured: false, secureStorage: false, allowWrites: false, enabledToolsets: [], ...groups }; }
   }
 
   /** @param {import('../../../packages/actaport-mcp/src/auth.js').TokenProvider} [provider] */
@@ -116,10 +140,11 @@ export function createActaportConnection(options) {
   }
 
   async function connect(input) {
-    if (!encryptionAvailable()) throw new Error("Secure credential storage is unavailable. Enable the operating system keychain.");
     const auth = await options.loadAuth();
     const parsed = auth.credentialsSchema.safeParse(input);
     if (!parsed.success) throw new Error("Enter all five Actaport API credentials. The Kanzlei-Alias must be a valid realm.");
+    const { vault } = await options.loadVault();
+    await vault.ready();
     const next = auth.createTokenProvider(parsed.data, { fetch: options.fetch });
     try { await test(next); } catch { throw new Error("Actaport could not verify these credentials. Check the API add-on and API user access."); }
     await persist(parsed.data, false, []);
@@ -133,6 +158,7 @@ export function createActaportConnection(options) {
   async function setWriteAccess(enabled) {
     if (typeof enabled !== "boolean") throw new Error("Write access must be enabled or disabled explicitly.");
     const saved = await stored();
+    if (!saved) throw new Error("Connect Actaport before changing write access.");
     await persist(saved.credentials, enabled, saved.toolsets);
     generation++;
     allowWrites = enabled;
@@ -144,6 +170,7 @@ export function createActaportConnection(options) {
     const parsed = auth.toolsetsSchema.safeParse(input);
     if (!parsed.success) throw new Error("Select valid Actaport tool groups.");
     const saved = await stored();
+    if (!saved) throw new Error("Connect Actaport before changing tool groups.");
     await persist(saved.credentials, saved.allowWrites, parsed.data);
     generation++;
     toolsets = parsed.data;
@@ -155,7 +182,14 @@ export function createActaportConnection(options) {
     tokenProvider = undefined;
     allowWrites = false;
     toolsets = [];
-    await rm(credentialsPath, { force: true });
+    const auth = await options.loadAuth();
+    const { vault, lock } = await options.loadVault();
+    await vault.ready();
+    await lock(`${vault.path}:${credentialKey}`, async () => {
+      // Remove the import source first so disconnect cannot resurrect it on the next read.
+      await rm(legacyPath, { force: true });
+      await vault.setEntry(credentialKey, auth.connectionSchema);
+    });
     return status();
   }
 

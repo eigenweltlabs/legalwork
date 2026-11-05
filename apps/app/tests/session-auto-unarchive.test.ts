@@ -1,11 +1,13 @@
 import { describe, expect, test } from "bun:test";
+import { sendSessionPrompt, sendSessionCommand } from "../src/app/lib/system-reminder";
+import { shellInSession } from "../src/app/lib/opencode-session";
 import { createClient } from "../src/app/lib/opencode";
 
-const submissions: Record<string, (client: ReturnType<typeof createClient>) => Promise<unknown>> = {
-  message: client => client.session.prompt({ sessionID: "session-a", parts: [{ type: "text", text: "Continue" }] }),
-  prompt_async: client => client.session.promptAsync({ sessionID: "session-a", parts: [{ type: "text", text: "Continue" }] }),
-  command: client => client.session.command({ sessionID: "session-a", command: "review", arguments: "Continue" }),
-  shell: client => client.session.shell({ sessionID: "session-a", agent: "build", command: "echo hello" }),
+const submissions:Record<string,(client:ReturnType<typeof createClient>)=>Promise<unknown>>={
+ prompt:client=>sendSessionPrompt(client,{sessionID:"session-a",parts:[{type:"text",text:"Continue"}]}),
+ synthetic:client=>sendSessionPrompt(client,{sessionID:"session-a",noReply:true,parts:[{type:"text",text:"Context",synthetic:true}]}),
+ command:client=>sendSessionCommand(client,{sessionID:"session-a",command:"review",arguments:"Continue"}),
+ shell:client=>shellInSession(client,"session-a","echo hello"),
 };
 
 describe("resuming archived sessions", () => {
@@ -19,22 +21,21 @@ describe("resuming archived sessions", () => {
           const path = new URL(request.url).pathname;
           requests.push(`${request.method} ${path}`);
           expect(request.headers.get("Authorization")).toBe("Bearer test-token");
-          expect(decodeURIComponent(request.headers.get("x-opencode-directory") ?? "")).toBe("/project folder");
           if (request.method === "PATCH") {
-            expect(await request.json()).toEqual({ time: { archived: 0 } });
+            expect(await request.json()).toEqual({ archived:false });
             archived = 0;
-            return Response.json({ id: "session-a", time: { archived } });
+            return new Response(null,{status:204});
           }
           expect(archived).toBe(0);
-          return Response.json({});
+          return ["prompt","synthetic"].includes(action) ? Response.json({data:{id:"inbox",sessionID:"session-a",type:action==="prompt" ? "user":"synthetic",payload:{text:"Continue"},delivery:"queue",time:{created:1}}}):new Response(null,{status:204});
         },
       });
       try {
-        const client = createClient(`${server.url}workspace/project-a/opencode`, "/project folder", { mode: "legalwork", token: "test-token" });
+        const client = createClient(server.url.origin, "/project folder", { mode: "legalwork", token: "test-token" });
         await submit(client);
         expect(requests).toEqual([
-          "PATCH /workspace/project-a/opencode/session/session-a",
-          `POST /workspace/project-a/opencode/session/session-a/${action}`,
+          "PATCH /api/session/session-a",
+          `POST /api/session/session-a/${action}`,
         ]);
       } finally {
         server.stop(true);
@@ -46,11 +47,11 @@ describe("resuming archived sessions", () => {
     const requests: string[] = [];
     const server = Bun.serve({ port: 0, fetch(request) {
       requests.push(request.method);
-      return Response.json({ id: "session-a", time: { archived: 123 } });
+      return Response.json({data:{ id: "session-a", time: { archived: 123 } }});
     } });
     try {
       const session = await createClient(String(server.url)).session.get({ sessionID: "session-a" });
-      expect(session.data?.time.archived).toBe(123);
+      expect(session.time.archived).toBe(123);
       expect(requests).toEqual(["GET"]);
     } finally {
       server.stop(true);
@@ -64,8 +65,7 @@ describe("resuming archived sessions", () => {
       return Response.json({ message: "Cannot restore session" }, { status: 403 });
     } });
     try {
-      const result = await createClient(String(server.url)).session.promptAsync({ sessionID: "session-a", parts: [] });
-      expect(result.error).toBeDefined();
+      await expect(sendSessionPrompt(createClient(String(server.url)),{sessionID:"session-a",parts:[]})).rejects.toThrow();
       expect(requests).toEqual(["PATCH"]);
     } finally {
       server.stop(true);

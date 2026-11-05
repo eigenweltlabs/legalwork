@@ -1,0 +1,34 @@
+import { expect,test } from "bun:test";
+import { renderToStaticMarkup } from "react-dom/server";
+import { MemoryRouter } from "react-router-dom";
+import { QueryClient,QueryClientProvider } from "@tanstack/react-query";
+import type { SessionMessageInfo } from "@opencode/client";
+import type { HistoricalMessage } from "@legalwork/types/session-history";
+import { projectMessages,projectSession } from "../src/app/lib/opencode-view";
+import { snapshotToUIMessages } from "../src/react-app/domains/session/sync/usechat-adapter";
+import { parseScheduledRunMessage } from "../src/react-app/domains/scheduled-tasks/scheduled-message";
+import { resolveFilePartOpenTarget } from "../src/react-app/domains/session/artifacts/open-target";
+import { MessageList } from "../src/components/chat/message-list";
+import { MessageListProvider } from "../src/components/chat/message-list-provider";
+import { OpenTargetProvider } from "../src/lib/target-provider";
+
+test("original task identity and current-file navigation are presentation only; native bytes/history stay authoritative",()=>{
+ const native:SessionMessageInfo={id:"msg",type:"user",text:"[Scheduled task: Original title]\n\nReview contract",time:{created:1},files:[{data:"T1JJR0lOQUw=",mime:"text/plain",name:"original.txt",source:{type:"inline"}}]};
+ const original=JSON.stringify(native);
+ const historical:HistoricalMessage={scheduledTask:{taskId:"a2d90125-4cc4-44ea-9027-f430c4d82aab",workspaceId:"matter",title:"Original title"},attachments:[{partID:"inline",mime:"text/plain",name:"original.txt",sourcePath:"/fixture/subfolder/original.txt",bytes:"preserved-inline",nativeFileIndex:0},{partID:"uri",mime:"image/png",name:"referenced.png",reference:"file:///fixture/referenced.png",bytes:"reference-only"}]};
+ const tokens={input:0,output:0,reasoning:0,cache:{read:0,write:0}};
+ const messages=snapshotToUIMessages({session:projectSession({id:"chat",projectID:"project",location:{directory:"/fixture"},title:"History",time:{created:1,updated:2},cost:0,tokens}),messages:projectMessages("chat",[native],{msg:historical}),todos:[],status:{type:"idle"}});
+ expect(JSON.stringify(native)).toBe(original);
+ expect(parseScheduledRunMessage(messages[0])?.taskId).toBe(historical.scheduledTask?.taskId);
+ const files=messages[0].parts.filter(part=>part.type==="file");
+ expect(files).toHaveLength(2);
+ expect(files[0].url).toBe("data:text/plain;base64,T1JJR0lOQUw=");
+ expect(resolveFilePartOpenTarget(files[0],[])?.value).toBe("/fixture/subfolder/original.txt");
+ expect(resolveFilePartOpenTarget(files[1],[])?.value).toBe("/fixture/referenced.png");
+ const cache=new QueryClient(),noop=()=>{};
+ const html=renderToStaticMarkup(<QueryClientProvider client={cache}><MemoryRouter><OpenTargetProvider openTargets={[]} onOpenTarget={noop}><MessageListProvider workspaceId="matter" sessionId="chat" showThinking={false} developerMode={false} displaySuggestions={false} providerConnectedCount={1} dispatchAction={noop} setPrompt={noop} onRevertToUserMessage={noop} onForkAtMessage={noop} onEditUserMessage={noop}><MessageList messages={messages} status="ready" /></MessageListProvider></OpenTargetProvider></MemoryRouter></QueryClientProvider>);
+ expect(html).toContain("Original attachment reference");
+ expect(html).toContain("Open current file: referenced.png");
+ expect(html).not.toContain("<img");
+ cache.clear();
+});

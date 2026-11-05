@@ -3,7 +3,8 @@ import { setTimeout as delay } from "node:timers/promises";
 import { setMaxListeners } from "node:events";
 import type { DocumentPreparation } from "../document-preparation/service.js";
 import { ApiError } from "../errors.js";
-import type { WorkspaceInfo } from "../types.js";
+import type { Actor, WorkspaceInfo } from "../types.js";
+import { reviewExecutionActor } from "./execution-actor.js";
 import { incompatibleJevQuestion, reviewDecisionThreshold, reviewOcr, reviewRunningElsewhere, ReviewColumnKindSchema, CreateReviewSchema, EditReviewSchema, RunReviewSchema, ReviewSettingsSchema, type ReviewCell, type ReviewDocument, type SavedReview, type ReviewSummary, type ReviewSettings, type ReviewCapabilities } from "./schema.js";
 import { ReviewDefaults, ReviewStore, serialized } from "./storage.js";
 import { prepareReviewEvidence, reviewSource, sourceHash } from "./evidence.js";
@@ -244,7 +245,8 @@ export class ReviewService {
       if (input.columns || input.files) review.status = "draft";
     }, input.revision);
   }
-  async start(workspace: WorkspaceInfo, id: string, raw: unknown) {
+  async start(workspace: WorkspaceInfo, id: string, raw: unknown, actor: Actor) {
+    const origin = reviewExecutionActor(actor);
     const input = RunReviewSchema.parse(raw), key = this.key(workspace, id), store = new ReviewStore(workspace.path);
     if (input.retryFailed && (input.rerun || input.reprocess)) throw new ApiError(400, "review_retry_options", "Retry failed cells cannot be combined with rerun or reprocess.");
     return serialized(`${key}:start`, async () => {
@@ -286,7 +288,7 @@ export class ReviewService {
           }
         }, input.revision);
       } catch (error) { this.active.delete(key); runningHere.delete(key); throw error; }
-      const run = this.run(workspace, started, input, controller, blocked).catch(async () => {
+      const run = this.run(workspace, started, input, controller, blocked, origin).catch(async () => {
         if (controller.signal.aborted) return;
         await store.update(id, current => { current.status = "interrupted"; current.error = "The review could not save its progress. Retry to continue."; }).catch(() => undefined);
       }).finally(() => { this.active.delete(key); runningHere.delete(key); this.runs.delete(key); });
@@ -294,7 +296,7 @@ export class ReviewService {
       return started;
     });
   }
-  private async run(workspace: WorkspaceInfo, snapshot: SavedReview, input: ReturnType<typeof RunReviewSchema.parse>, controller: AbortController, blocked: Map<string, NonNullable<ReviewCell["blockedBy"]>>) {
+  private async run(workspace: WorkspaceInfo, snapshot: SavedReview, input: ReturnType<typeof RunReviewSchema.parse>, controller: AbortController, blocked: Map<string, NonNullable<ReviewCell["blockedBy"]>>, actor: Actor) {
     const store = new ReviewStore(workspace.path), signal = controller.signal, group = this.key(workspace, snapshot.id);
     let preparationJobId: string | undefined, preparationJob: Promise<string> | undefined;
     const cancelPreparation = () => { if (preparationJobId) void this.preparation.cancel(workspace.path, preparationJobId).catch(() => undefined); };
@@ -349,7 +351,7 @@ export class ReviewService {
               if (!queuedColumns.has(column.key)) return;
               await store.update(snapshot.id, review => { review.cells.find(predicate)!.status = "running"; });
               try {
-                const result = await this.executor.execute(workspace, snapshot, column, evidence, AbortSignal.any([signal, AbortSignal.timeout(30 * 60_000)]));
+                const result = await this.executor.execute(workspace, snapshot, column, evidence, AbortSignal.any([signal, AbortSignal.timeout(30 * 60_000)]), actor);
                 signal.throwIfAborted();
                 if ((await sourceHash(workspace.path, document.path)).hash !== evidence.hash) throw new Error("The source changed during review. Run this document again.");
                 await store.update(snapshot.id, review => { const cell = review.cells.find(predicate)!; cell.result = result; cell.error = null; cell.status = result.evidence === "uncertain" ? "needs_review" : "complete"; });

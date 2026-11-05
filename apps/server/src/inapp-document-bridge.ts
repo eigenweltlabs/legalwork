@@ -43,13 +43,14 @@ async function discoverUiBridge(): Promise<UiBridge | null> {
   return null;
 }
 
-export async function uiBridgeRequest(path: string, options: { method?: string; body?: unknown; timeoutMs?: number } = {}): Promise<unknown> {
+export async function uiBridgeRequest(path: string, options: { method?: string; body?: unknown; timeoutMs?: number; signal?: AbortSignal } = {}): Promise<unknown> {
+  options.signal?.throwIfAborted();
   const bridge = await discoverUiBridge();
   if (!bridge) return { ok: false, error: "LegalWork UI bridge not available. The desktop app may not be running." };
   try {
     const response = await fetch(`${bridge.baseUrl}${path}`, {
       method: options.method || "GET",
-      signal: AbortSignal.timeout(options.timeoutMs ?? BRIDGE_TIMEOUT_MS),
+      signal: AbortSignal.any([AbortSignal.timeout(options.timeoutMs ?? BRIDGE_TIMEOUT_MS), ...(options.signal ? [options.signal] : [])]),
       headers: {
         Authorization: `Bearer ${bridge.token}`,
         ...(options.body ? { "Content-Type": "application/json" } : {}),
@@ -59,6 +60,7 @@ export async function uiBridgeRequest(path: string, options: { method?: string; 
     const text = await response.text();
     try { return JSON.parse(text); } catch { return { ok: false, error: text || `HTTP ${response.status}` }; }
   } catch (error) {
+    options.signal?.throwIfAborted();
     cachedBridge = null;
     cachedBridgeAt = 0;
     return { ok: false, error: `UI bridge unreachable: ${error instanceof Error ? error.message : String(error)}` };

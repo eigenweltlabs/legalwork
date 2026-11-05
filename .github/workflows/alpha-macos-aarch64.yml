@@ -20,13 +20,24 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  opencode-engine:
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/ci-opencode-derivative.yml
+    with:
+      build-mode: production
+      ref: ${{ github.sha }}
+    secrets:
+      APPLE_CODESIGN_CERT_P12_BASE64: ${{ secrets.APPLE_CODESIGN_CERT_P12_BASE64 }}
+      APPLE_CODESIGN_CERT_PASSWORD: ${{ secrets.APPLE_CODESIGN_CERT_PASSWORD }}
   sandbox-runtime:
     uses: ./.github/workflows/sandbox-runtime.yml
     with:
       targets: darwin-arm64
       run_tests: ${{ github.event_name == 'workflow_dispatch' && inputs.sandbox_tests || false }}
   publish-alpha-macos-aarch64:
-    needs: sandbox-runtime
+    needs: [sandbox-runtime, opencode-engine]
     name: Build + Publish alpha (aarch64-apple-darwin)
     runs-on: macos-14
     timeout-minutes: 180
@@ -53,6 +64,19 @@ jobs:
         with:
           node-version: 24.22.1
 
+      - name: Download the same-run source-built engine
+        uses: actions/download-artifact@v4
+        with:
+          name: opencode-derivative-ci
+          path: ${{ runner.temp }}/opencode-derivative
+      - name: Verify and prepare the production engine
+        uses: ./.github/actions/setup-opencode
+        with:
+          build-mode: production
+          archive-directory: ${{ runner.temp }}/opencode-derivative/archives
+          manifest-sha256: ${{ needs.opencode-engine.outputs.manifest-sha256 }}
+
+
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
@@ -61,7 +85,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v1
         with:
-          bun-version: "1.4.2"
+          bun-version: "1.4.4"
 
       - name: Get pnpm store path
         id: pnpm-store
@@ -110,7 +134,7 @@ jobs:
           echo "Latest release tag: $latest_tag -> alpha base ${major}.${minor}.${next_patch}"
           # The commit sha rides in the prerelease part (…-alpha.<run>.g<sha>),
           # not as +<sha> build metadata: pnpm refuses to workspace-link the
-          # exact-pinned internal deps (legalwork-server, opencode-router) when
+          # exact-pinned internal deps (legalwork-server) when
           # the stamped version carries build metadata, and falls back to the
           # public npm registry (404 / name-squatted package). The "g" prefix
           # (git describe's convention) keeps the identifier valid semver: a
@@ -165,7 +189,7 @@ jobs:
           # since the editors and media viewers joined it; the 7 GB runner has
           # room for this.
           NODE_OPTIONS: --max-old-space-size=6144
-        run: pnpm --filter @legalwork/desktop build:electron
+        run: pnpm --filter @legalwork/desktop build:electron:production
 
       - name: Package Electron alpha (macOS, signed + notarized)
         if: env.MACOS_NOTARIZE == 'true'

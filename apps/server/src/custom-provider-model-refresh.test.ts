@@ -83,7 +83,7 @@ test("an authenticated built-in provider can refresh without an existing provide
   f.catalogModels = models;
   const result = await f.refresh(f.workspace, { providerId: "anthropic", force: true, catalog: true });
   expect(result.reloaded).toBe(true);
-  expect((await f.runtime()).provider?.anthropic).toEqual({ models });
+  expect((await f.runtime()).providers?.anthropic).toMatchObject({ models });
   expect(f.calls).toBe(0);
 });
 
@@ -183,6 +183,7 @@ test("coalesces background refreshes and does not restore a disconnected provide
 });
 
 test("uses the worker's saved API key without exposing it in refresh status", async () => {
+  const f = await fixture();
   const root = await mkdtemp(join(tmpdir(), "legalwork-provider-key-"));
   const previous = process.env.XDG_DATA_HOME;
   process.env.XDG_DATA_HOME = root;
@@ -192,8 +193,31 @@ test("uses the worker's saved API key without exposing it in refresh status", as
   });
   await mkdir(join(root, "opencode"));
   await writeFile(join(root, "opencode", "auth.json"), JSON.stringify({ custom: { type: "api", key: "stored-key" } }));
-  expect(await readStoredProviderApiKey("custom", {})).toBe("stored-key");
-  expect(await readStoredProviderApiKey("other", {})).toBe("");
+  let connected = true;
+  const engine = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(request) {
+    expect(new URL(request.url).pathname).toBe("/api/credential");
+    return Response.json({ data: connected ? [{ id: "cred_native", integrationID: "custom", label: "Native key", active: true, value: { type: "key", key: "native-key" } }] : [] });
+  } });
+  cleanup.push(() => { engine.stop(true); });
+  f.config.opencodeBaseUrl = engine.url.toString();
+  expect(await readStoredProviderApiKey(f.config, "custom", {})).toBe("native-key");
+  expect(await readStoredProviderApiKey(f.config, "other", {})).toBe("");
+  connected = false;
+  // The old file remains present: a native disconnect must still take effect.
+  expect(await readStoredProviderApiKey(f.config, "custom", {})).toBe("");
+});
+
+test("native custom provider discovery preserves explicit selections and independently optional limits", async () => {
+  const f = await fixture();
+  const native = { package: "@opencode/ai/providers/openai-compatible", settings: { baseURL: f.provider.options.baseURL, apiKey: "refresh-test-key" },
+    models: { manual: { name: "Manual", limit: { output: 96_000 }, variants: [{ id: "careful", settings: { reasoningEffort: "high" } }] } } };
+  await writeRuntimeOpencodeConfig(f.config, f.workspace.id, () => ({ providers: { custom: native } }));
+  const refresh = createCustomProviderModelRefresh({ config: f.config,
+    readProviders: async () => (await f.runtime()).providers ?? {}, isBusy: async () => false, reload: async () => {} });
+  const result = await refresh(f.workspace, { providerId: "custom", force: true });
+  expect(result.providers.custom.availableModels).toEqual(["new", "old"]);
+  expect((await f.runtime()).providers?.custom).toEqual(native);
+  expect(JSON.stringify(result)).not.toContain("refresh-test-key");
 });
 
 test("a disconnected provider is not restored from the engine's stale config snapshot", async () => {

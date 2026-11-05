@@ -2,7 +2,7 @@
 
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { basename } from "node:path";
+import { basename, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const packageRoot = fileURLToPath(new URL("..", import.meta.url));
@@ -29,8 +29,19 @@ if (existsSync(compiledBinary)) {
   run(compiledBinary, args);
 }
 
+// Source checkouts verify preparation before loading their entrypoint. The
+// handoff supplies the verified binary; published compiled binaries above keep
+// their own pins and never import build tooling.
+if (existsSync(sourceCli)) {
+  run(process.execPath, [
+    resolve(packageRoot, "../../packages/opencode-release/prepare.mjs"),
+    "--mode", "development", "--check", "--with-engine-binary", "--run",
+    ...(existsSync(builtCli) ? [process.execPath, builtCli] : ["bun", sourceCli]), ...args,
+  ]);
+}
+
 if (existsSync(builtCli)) {
-  run("bun", [builtCli, ...args]);
+  run(process.execPath, [builtCli, ...args]);
 }
 
 if (existsSync(sourceCli)) {

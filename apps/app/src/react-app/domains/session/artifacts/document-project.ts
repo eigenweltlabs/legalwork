@@ -10,8 +10,8 @@ import type { DocumentProject } from "./document-runtime-store";
 export async function resolveDocumentProject(sessionId: string): Promise<DocumentProject> {
   const connection = await resolveLegalworkConnection();
   const client = createLegalworkServerClient({ baseUrl: connection.normalizedBaseUrl, token: connection.resolvedToken, hostToken: connection.resolvedHostToken });
-  const list = isDesktopRuntime() ? await workspaceBootstrap() : await client.listWorkspaces();
-  const candidates = (list.workspaces ?? []).flatMap(workspace => {
+  const workspaces = isDesktopRuntime() && connection.source === "desktop-runtime" ? (await workspaceBootstrap()).workspaces ?? [] : (await client.listWorkspaces()).items;
+  const candidates = workspaces.flatMap(workspace => {
     const endpoint = resolveWorkspaceEndpoint(workspace, { baseUrl: connection.normalizedBaseUrl, token: connection.resolvedToken });
     if (!endpoint) return [];
     return [(async () => {

@@ -11,6 +11,10 @@ export type Credential = z.infer<typeof credential>;
 // Keep each entry's schema at its consumer so OAuth grants and Nango
 // connection capabilities share encryption without overwriting one another.
 const records = z.record(z.string(), z.unknown());
+type EntrySchema<T> = {
+  parse(input: unknown): T;
+  safeParse(input: unknown): { success: true; data: T } | { success: false };
+};
 const locks = new Map<string, Promise<unknown>>();
 export async function vaultLock<T>(key: string, operation: () => Promise<T>): Promise<T> {
   const pending = (locks.get(key) ?? Promise.resolve()).catch(() => undefined).then(operation);
@@ -19,7 +23,7 @@ export async function vaultLock<T>(key: string, operation: () => Promise<T>): Pr
 }
 const absent = (error: unknown) => error instanceof Error && "code" in error && error.code === "ENOENT";
 const unreadable = () => new ApiError(500, "storage_signin_unreadable", "Saved sign-ins could not be opened. Restore the app encryption key before reconnecting.");
-export function oauthVaultPath(config: ServerConfig) {
+export function oauthVaultPath(config: Pick<ServerConfig, "configPath">) {
   return join(dirname(new StorageStore(config).path), "storage-oauth.vault");
 }
 export class OAuthVault {
@@ -54,7 +58,7 @@ export class OAuthVault {
       if ((await this.key()).length !== 32) throw unreadable();
     });
   }
-  async getEntry<T>(id: string, schema: z.ZodType<T>): Promise<T | undefined> {
+  async getEntry<T>(id: string, schema: EntrySchema<T>): Promise<T | undefined> {
     const value = (await this.all())[id];
     if (value === undefined) return undefined;
     const result = schema.safeParse(value);
@@ -63,7 +67,7 @@ export class OAuthVault {
   }
   async get(id: string) { return this.getEntry(id, credential); }
   async set(id: string, value?: Credential, isCurrent?: () => boolean) { return this.setEntry(id, credential, value, isCurrent); }
-  async setEntry<T>(id: string, schema: z.ZodType<T>, value?: T, isCurrent?: () => boolean): Promise<boolean> {
+  async setEntry<T>(id: string, schema: EntrySchema<T>, value?: T, isCurrent?: () => boolean): Promise<boolean> {
     return vaultLock(this.path, async () => {
       if (isCurrent && !isCurrent()) return false;
       const all = await this.all();

@@ -1,3 +1,4 @@
+import {invalidateNativeCatalogReady} from "@/app/lib/opencode-catalog-ready";
 /** @jsxImportSource react */
 import {
   createContext,
@@ -8,22 +9,19 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import {
-  createOpencodeClient,
-  type Event,
-} from "@opencode-ai/sdk/v2/client";
+import { OpenCode, type OpenCodeClient, type OpenCodeEvent } from "@opencode/client";
 
 import { usePlatform } from "./platform";
 import { useServer } from "./server-provider";
 
-type OpencodeClient = ReturnType<typeof createOpencodeClient>;
+type OpencodeClient = OpenCodeClient;
 
-type Listener = (payload: Event) => void;
+type Listener = (payload: OpenCodeEvent) => void;
 
 export type GlobalEventEmitter = {
   on: (channel: string, listener: Listener) => () => void;
   off: (channel: string, listener: Listener) => void;
-  emit: (channel: string, payload: Event) => void;
+  emit: (channel: string, payload: OpenCodeEvent) => void;
 };
 
 function createEmitter(): GlobalEventEmitter {
@@ -91,22 +89,20 @@ export function GlobalSDKProvider({ children }: GlobalSDKProviderProps) {
       : undefined;
 
   const [client, setClient] = useState<OpencodeClient>(() =>
-    createOpencodeClient({
+    OpenCode.make({
       baseUrl: server.url,
       headers,
       fetch: platform.fetch,
-      throwOnError: true,
     }),
   );
 
   useEffect(() => {
     setClient(
-      createOpencodeClient({
+      OpenCode.make({
         baseUrl: server.url,
         headers,
         fetch: platform.fetch,
-        throwOnError: true,
-      }),
+        }),
     );
   }, [platform.fetch, server.url]);
 
@@ -116,88 +112,24 @@ export function GlobalSDKProvider({ children }: GlobalSDKProviderProps) {
     if (!baseUrl || !isHealthy) return;
 
     const abort = new AbortController();
-    const eventClient = createOpencodeClient({
-      baseUrl,
-      headers,
-      signal: abort.signal,
-      fetch: platform.fetch,
-    });
-
-    type Queued = { directory: string; payload: Event };
-    let queue: Array<Queued | undefined> = [];
-    const coalesced = new Map<string, number>();
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    let last = 0;
-
-    const keyForEvent = (directory: string, payload: Event): string | undefined => {
-      if (payload.type === "session.status")
-        return `session.status:${directory}:${payload.properties.sessionID}`;
-      if (payload.type === "lsp.updated") return `lsp.updated:${directory}`;
-      if (payload.type === "todo.updated")
-        return `todo.updated:${directory}:${payload.properties.sessionID}`;
-      if (payload.type === "mcp.tools.changed")
-        return `mcp.tools.changed:${directory}:${payload.properties.server}`;
-      if (payload.type === "message.part.updated") {
-        const part = payload.properties.part;
-        return `message.part.updated:${directory}:${part.messageID}:${part.id}`;
-      }
-      return undefined;
-    };
-
-    const flush = () => {
-      if (timer) clearTimeout(timer);
-      timer = undefined;
-      const events = queue;
-      queue = [];
-      coalesced.clear();
-      if (!events.length) return;
-      last = Date.now();
-      for (const entry of events) {
-        if (!entry) continue;
-        emitter.emit(entry.directory, entry.payload);
-      }
-    };
-
-    const schedule = () => {
-      if (timer) return;
-      const elapsed = Date.now() - last;
-      timer = setTimeout(flush, Math.max(0, 16 - elapsed));
-    };
-
-    void (async () => {
-      const subscription = await eventClient.event.subscribe(undefined, {
-        signal: abort.signal,
-      });
-      let yielded = Date.now();
-
-      for await (const event of subscription.stream as AsyncIterable<unknown>) {
-        const record = event as Event & { directory?: string; payload?: Event };
-        const payload = record.payload ?? record;
-        if (!payload?.type) continue;
-        const directory =
-          typeof record.directory === "string" ? record.directory : "global";
-        const key = keyForEvent(directory, payload);
-        if (key) {
-          const index = coalesced.get(key);
-          if (index !== undefined) queue[index] = undefined;
-          coalesced.set(key, queue.length);
+    const eventClient=OpenCode.make({baseUrl,headers,fetch:platform.fetch});
+    let retry:ReturnType<typeof setTimeout>|undefined;
+    let delay=1_000;
+    const connect=async()=> {
+      try {
+        for await(const payload of eventClient.event.subscribe({signal:abort.signal})) {
+          if(abort.signal.aborted)return;
+          delay=1_000;
+          if(["server.connected","model.updated","provider.updated","integration.updated","credential.updated","credential.switched","models-dev.refreshed","config.updated"].includes(payload.type))invalidateNativeCatalogReady();
+          emitter.emit(payload.location?.directory ?? "global",payload);
+          // Global readiness/catalog consumers must reconcile after every reconnect.
+          if(payload.type==="server.connected" && payload.location?.directory)emitter.emit("global",payload);
         }
-        queue.push({ directory, payload });
-        schedule();
-
-        if (Date.now() - yielded < 8) continue;
-        yielded = Date.now();
-        await Promise.resolve();
-      }
-    })()
-      .finally(flush)
-      .catch(() => undefined);
-
-    return () => {
-      abort.abort();
-      if (timer) clearTimeout(timer);
-      flush();
+      } catch(error) {if(abort.signal.aborted)return;console.warn("OpenCode event stream disconnected",error);}
+      if(!abort.signal.aborted) {retry=setTimeout(()=>void connect(),delay);delay=Math.min(delay*2,10_000);}
     };
+    void connect();
+    return ()=>{abort.abort();if(retry)clearTimeout(retry);};
     // headers is re-derived from local storage; rerun only when server URL or health flips.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [emitter, platform.fetch, server.healthy, server.url]);

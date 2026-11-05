@@ -22,16 +22,17 @@ function limit(name: string, fallback: number) {
 export class ReviewRetryError extends Error {
   constructor(message: string, readonly retryAfterMs?: number) { super(message); }
 }
-const modelErrorSchema = z.object({ message: z.string(), statusCode: z.number().optional(), responseHeaders: z.record(z.string(), z.string()).optional() });
+const modelErrorSchema = z.object({ message: z.string(), statusCode: z.number().optional(), status: z.number().optional(), retryAfterMs: z.number().nonnegative().optional(), responseHeaders: z.record(z.string(), z.string()).optional() });
 export function reviewModelError(value: unknown, next?: number) {
   const parsed = modelErrorSchema.safeParse(value);
   if (!parsed.success) return new Error("The selected LLM could not complete this cell.");
-  const { message, statusCode, responseHeaders } = parsed.data;
+  const { message, responseHeaders } = parsed.data;
+  const statusCode = parsed.data.status ?? parsed.data.statusCode;
   const detail = `The selected LLM could not complete this cell: ${message.slice(0, 1000)}`;
-  if (/no credits|insufficient.quota|billing|budget|invalid.api.key|authentication|unauthorized|payment required/i.test(message)) return new Error(detail);
+  if (/no credits|insufficient.quota|billing|budget|invalid.api.key|authentication|unauthorized|payment required|(?:agent|model) not found|unknown model/i.test(message)) return new Error(detail);
   const retryable = statusCode !== undefined ? [429, 500, 502, 503, 504, 529].includes(statusCode)
     : /rate.?limit|too many requests|overload|temporarily unavailable|connection (?:reset|closed)|ECONNRESET|socket hang up|\b(?:429|502|503|504|529)\b/i.test(message);
-  return retryable ? new ReviewRetryError(detail, Math.max(retryAfterMs(responseHeaders?.["retry-after"] ?? responseHeaders?.["Retry-After"]) ?? 0, next ? next - Date.now() : 0)) : new Error(detail);
+  return retryable ? new ReviewRetryError(detail, Math.max(parsed.data.retryAfterMs ?? 0, retryAfterMs(responseHeaders?.["retry-after"] ?? responseHeaders?.["Retry-After"]) ?? 0, next ? next - Date.now() : 0)) : new Error(detail);
 }
 const detailsSchema = z.object({ retryAfterMs: z.number().nonnegative().optional() });
 function transient(error: unknown) {

@@ -34,15 +34,26 @@ export async function searchAssistantSessions(config: ServerConfig, workspaces: 
   try {
     const values = [...roots.keys()];
     let where = `s.directory IN (${values.map(() => "?").join(",")}) AND COALESCE(s.time_archived, 0) = 0
-      AND json_extract(m.data, '$.role') IN ('user','assistant')
-      AND json_extract(p.data, '$.type') IN (${input.includeToolOutputs ? "'text','tool'" : "'text'"})
-      AND COALESCE(json_extract(p.data, '$.synthetic'),0) = 0 AND COALESCE(json_extract(p.data, '$.ignored'),0) = 0`;
+      AND p.role IN ('user','assistant')
+      AND p.type IN (${input.includeToolOutputs ? "'text','tool'" : "'text'"})
+      AND p.synthetic = 0`;
     if (input.sessionId) { where += " AND s.id = ?"; values.push(input.sessionId); }
     if (cursor) { where += " AND (p.time_created, p.id) < (CAST(? AS INTEGER), ?)"; values.push(String(cursor.time), cursor.id); }
-    const rows = db.iterate(`SELECT p.id, p.message_id, p.time_created, s.id AS session_id, s.title, s.directory,
-      json_extract(m.data, '$.role') AS role, json_extract(p.data, '$.type') AS type,
-      CASE WHEN json_extract(p.data, '$.type') = 'tool' THEN json_extract(p.data, '$.state.output') ELSE json_extract(p.data, '$.text') END AS text
-      FROM part p JOIN message m ON m.id = p.message_id JOIN session s ON s.id = p.session_id
+    const rows = db.iterate(`WITH parts AS (
+      SELECT m.id || ':content:' || c.key AS id, m.id AS message_id, m.session_id, m.time_created, m.type AS role,
+        json_extract(c.value, '$.type') AS type,
+        COALESCE(json_extract(m.data, '$.metadata.legalworkSystemReminder'), 0) AS synthetic,
+        CASE WHEN json_extract(c.value, '$.type') = 'tool' THEN
+          (SELECT group_concat(CASE WHEN json_extract(t.value,'$.type')='text' THEN json_extract(t.value,'$.text') ELSE json_extract(t.value,'$.data') END, char(10))
+           FROM json_each(c.value,'$.state.content') t)
+        ELSE json_extract(c.value,'$.text') END AS text
+      FROM session_message m, json_each(CASE WHEN m.type='user' THEN
+        json_array(json_object('type','text','text',CASE WHEN json_type(m.data,'$.metadata.legalworkPrompt.visibleText')='text'
+          THEN json_extract(m.data,'$.metadata.legalworkPrompt.visibleText') ELSE json_extract(m.data,'$.text') END))
+        ELSE json_extract(m.data,'$.content') END) c
+    )
+      SELECT p.id, p.message_id, p.time_created, s.id AS session_id, s.title, s.directory, p.role, p.type, p.text
+      FROM parts p JOIN session_v2 s ON s.id = p.session_id
       WHERE ${where} ORDER BY p.time_created DESC, p.id DESC LIMIT 1001`, values);
     const items: Match[] = [];
     let scanned = 0, nextCursor: string | null = null;

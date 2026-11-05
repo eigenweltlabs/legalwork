@@ -20,6 +20,10 @@ export type RuntimeOpencodeConfig = {
     [key: string]: unknown;
   };
   provider?: Record<string, unknown>;
+  /** Native provider definitions; legacy `provider` is decoded only for migration. */
+  providers?: Record<string, unknown>;
+  /** App-owned switches, independent of user-authored policy statements. */
+  providerActivation?: Record<string, "allow" | "deny">;
   agent?: Record<string, Record<string, unknown>>;
   personalization?: PersonalizationSettings;
 };
@@ -94,6 +98,13 @@ function normalizeRuntimeOpencodeConfig(value: unknown): RuntimeOpencodeConfig {
   const mcp = isRecord(value.mcp) ? value.mcp as Record<string, Record<string, unknown>> : undefined;
   const permission = isRecord(value.permission) && Object.keys(value.permission).length ? value.permission : undefined;
   const provider = isRecord(value.provider) ? value.provider : undefined;
+  const providers = isRecord(value.providers) ? value.providers : undefined;
+  const providerActivation: Record<string, "allow" | "deny"> = {};
+  if (isRecord(value.providerActivation)) {
+    for (const [id, effect] of Object.entries(value.providerActivation)) {
+      if (effect === "allow" || effect === "deny") providerActivation[id] = effect;
+    }
+  }
   const agent = recordRecordMap(value.agent);
   const personalization = isRecord(value.personalization)
     ? normalizePersonalizationSettings(value.personalization)
@@ -110,6 +121,8 @@ function normalizeRuntimeOpencodeConfig(value: unknown): RuntimeOpencodeConfig {
     ...(mcp ? { mcp } : {}),
     ...(permission ? { permission } : {}),
     ...(provider ? { provider } : {}),
+    ...(providers ? { providers } : {}),
+    ...(Object.keys(providerActivation).length ? { providerActivation } : {}),
     ...(agent ? { agent } : {}),
     ...(personalization ? { personalization } : {}),
   };
@@ -305,7 +318,15 @@ export async function writeRuntimeOpencodeConfig(
   updatedAt = Date.now(),
 ): Promise<RuntimeOpencodeConfig> {
   const db = await runtimeDb(config);
-  const current = await readRuntimeOpencodeConfig(config, workspaceId);
+  // Every app client shares this server. Keep the synchronous SQLite read,
+  // updater and replacement together: awaiting a second read here let parallel
+  // connector/provider edits overwrite one another with the same old row.
+  let current: RuntimeOpencodeConfig = {};
+  const row = db.get(workspaceId);
+  if (row) {
+    try { current = normalizeRuntimeOpencodeConfig(JSON.parse(row.configJson)); }
+    catch { /* Match the ordinary saved-config read's recovery semantics. */ }
+  }
   // Snapshot before the updater, which may mutate current in place. Keep key
   // order: ordered permission rules can change meaning when reordered.
   const previous = JSON.stringify(current);
@@ -368,6 +389,7 @@ export function mergeOpencodeConfigs(
       },
     },
     ...(runtime.provider ? { provider: { ...(isRecord(persisted.provider) ? persisted.provider : {}), ...runtime.provider } } : {}),
+    ...(runtime.providers ? { providers: { ...(isRecord(persisted.providers) ? persisted.providers : {}), ...runtime.providers } } : {}),
     ...(runtime.agent ? { agent: { ...(isRecord(persisted.agent) ? persisted.agent : {}), ...runtime.agent } } : {}),
     ...(runtime.default_agent ? { default_agent: runtime.default_agent } : {}),
   };

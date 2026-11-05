@@ -1,5 +1,5 @@
 import { resolve } from "node:path";
-import type { OpencodeClient } from "@opencode-ai/sdk/v2/client";
+import type { AssistantEngineClient } from "./assistant-engine.js";
 import { AssistantSessionQueue, type AssistantSessionTarget } from "./assistant-session-queue.js";
 import { readAssistantAttention } from "./assistant-attention.js";
 import { isMainAssistant, type MainAssistant } from "./main-assistant.js";
@@ -11,7 +11,7 @@ import { ApiError } from "./errors.js";
 
 export async function createAssistantSessionQueue(path: string, options: {
   workspace: (id: string) => Promise<WorkspaceInfo>;
-  client: (workspace: WorkspaceInfo) => OpencodeClient;
+  client: (workspace: WorkspaceInfo) => AssistantEngineClient;
   assistant: MainAssistant;
   changed: () => void;
   access: AssistantSessionAccess;
@@ -27,7 +27,7 @@ export async function createAssistantSessionQueue(path: string, options: {
     });
     try { options.assistant.assertProjectAccess(workspace.id); }
     catch (error) { throw new QueuePreparationError(error instanceof Error ? error.message : "This project is no longer accessible."); }
-    if (workspace.workspaceType === "remote" || isMainAssistant(workspace)) throw new QueuePreparationError("Choose an accessible local project chat.");
+    if (isMainAssistant(workspace)) throw new QueuePreparationError("Choose an accessible local project chat.");
     const client = options.client(workspace);
     const { data: session } = await client.session.get({ sessionID: target.sessionId }, requestOptions());
     if (!session || session.id !== target.sessionId || session.time.archived || resolve(session.directory) !== resolve(workspace.path)) throw new QueuePreparationError("The project chat is no longer available.");

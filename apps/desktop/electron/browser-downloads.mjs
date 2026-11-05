@@ -3,7 +3,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 
 // Reserve a new file synchronously: Electron needs setSavePath during will-download.
-function reserveDownload(projectRoot, suggestedName) {
+export function reserveDownload(projectRoot, suggestedName) {
   const root = realpathSync(projectRoot);
   const folder = path.join(root, "Downloads");
   mkdirSync(folder, { recursive: true });

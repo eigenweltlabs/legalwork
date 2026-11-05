@@ -1,51 +1,18 @@
-Third-party notices for the bundled OpenCode runtime dependencies
+Third-party notices for native OpenCode integration
 
-This notice covers the default browser plugin bundle and the OpenCode plugin SDK
-staged by prepare-opencode-sdk.mjs. Package versions
-are pinned in apps/server/package.json and pnpm-lock.yaml.
+The released OpenCode 2.1.4 engine supplies @opencode/plugin and Effect to
+first-party plugins. No foreign SDK node_modules tree is staged. Desktop uses
+the matching released browser RPC and a vendored MIT GUI controller. Versions
+are pinned in package manifests and pnpm-lock.yaml. Other dependencies retain
+their own license notices in the packaged dependency tree.
 
-The SDK is shipped as complete package directories under opencode-sdk/node_modules.
-All license and notice files present in those published packages are retained.
-The texts below also cover packages whose published archives omit a license file,
-and dependencies incorporated into the standalone browser plugin JavaScript bundle.
+Apache-2.0.txt alongside this file contains the full Apache License, Version 2.0.
 
-Apache-2.0.txt alongside this file is the full Apache License, Version 2.0.
-
-
-opencode-chrome-devtools 1.0.4
-==============================
-Source: https://www.npmjs.com/package/opencode-chrome-devtools/v/1.0.4
-Repository: https://github.com/different-ai/opencode-browser
-
-Published package.json declares license MIT and author Benjamin Shafii.
-The published archive and source repository do not supply a separate copyright
-notice or LICENSE file. The applicable MIT license text is retained here.
-
-MIT License
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-
-
-@opencode-ai/plugin 1.18.29 and @opencode-ai/sdk 1.18.29
+@opencode/plugin 2.1.4, @opencode/client 2.1.4, @opencode/schema 2.1.4,
+@opencode/plugin-browser 2.1.4 and vendored OpenCode GUI browser controller 2.1.4
 ========================================================
-Source: https://github.com/anomalyco/opencode/tree/v1.18.29
-License: https://github.com/anomalyco/opencode/blob/v1.18.29/LICENSE
+Source: https://github.com/anomalyco/opencode/tree/v2.1.4
+License: https://github.com/anomalyco/opencode/blob/v2.1.4/LICENSE
 
 MIT License
 
@@ -70,35 +37,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 
-ws 8.19.0
-=========
-Source: https://github.com/websockets/ws/tree/8.19.0
-
-Copyright (c) 2011 Einar Otto Stangvik <einaros@gmail.com>
-Copyright (c) 2013 Arnout Kazemier and contributors
-Copyright (c) 2016 Luigi Pinca and contributors
-
-Permission is hereby granted, free of charge, to any person obtaining a copy of
-this software and associated documentation files (the "Software"), to deal in
-the Software without restriction, including without limitation the rights to
-use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
-the Software, and to permit persons to whom the Software is furnished to do so,
-subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
-FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
-COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
-IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
-CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-
-
-Zod 4.1.8 (also included in the published browser plugin bundle)
+Zod 4.3.6 (included in LegalWork native plugin bundles)
 ================================================================
-Source: https://github.com/colinhacks/zod/tree/v4.1.8
+Source: https://github.com/colinhacks/zod/tree/v4.3.6
 
 MIT License
 
@@ -123,44 +64,36 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 
-kubernetes-types 1.30.0
-=======================
-Source: https://github.com/silverlyra/kubernetes-types
-Published metadata: https://www.npmjs.com/package/kubernetes-types/v/1.30.0
+effect 4.0.1 and @effect/platform-node 4.0.1
+================================================
+Source: https://github.com/Effect-TS/effect-smol
 
-Published package.json declares license Apache-2.0 and author Lyra Naeseth.
-The published archive and source repository do not supply a separate LICENSE
-or NOTICE file. The full declared license is included in Apache-2.0.txt.
+MIT License
+
+Copyright (c) 2023 Effectful Technologies Inc
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 
 
-Additional staged SDK package notices
-=====================================
-Source: Published npm packages, exact resolved versions in pnpm-lock.yaml
-
-The following packages retain their supplied license/notice files under
-opencode-sdk/node_modules/<package>/. For Apache-2.0 packages, the complete
-license is also included in Apache-2.0.txt.
-
-@ai-sdk/provider@3.0.8: Apache-2.0
-@opencode-ai/plugin@1.18.29: MIT
-@opencode-ai/sdk@1.18.29: MIT
-@standard-schema/spec@1.1.0: MIT
-cross-spawn@7.0.6: MIT
-effect@4.0.0-beta.83: MIT
-fast-check@4.10.2: MIT
-find-my-way-ts@0.1.6: MIT
-ini@7.0.0: ISC
-isexe@2.0.0: ISC
-json-schema@0.4.0: (AFL-2.1 OR BSD-3-Clause)
-kubernetes-types@1.30.0: Apache-2.0
-msgpackr@2.1.0: MIT
-multipasta@0.2.8: MIT
-path-key@3.1.1: MIT
-pure-rand@8.4.2: MIT
-shebang-command@2.0.0: MIT
-shebang-regex@3.0.0: MIT
-toml@4.3.0: MIT
-uuid@14.0.3: MIT
-which@2.0.2: ISC
-yaml@2.9.1: ISC
-zod@4.1.8: MIT
+Lighthouse 13.4.1
+==================
+Source: https://github.com/GoogleChrome/lighthouse/tree/v13.4.1
+Copyright 2016 Google LLC
+SPDX-License-Identifier: Apache-2.0
+The complete license is included in Apache-2.0.txt.

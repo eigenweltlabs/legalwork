@@ -14,6 +14,17 @@ async function callbackUri() {
 }
 
 describe("MCP OAuth browser callback", () => {
+  it("preserves the authorization issuer for the native callback transport", async () => {
+    const broker = createMcpOAuthCallbackBroker();
+    try {
+      const listener = await broker.listen({ redirectUri: await callbackUri() }, 4);
+      const waiting = broker.wait({ listenerId: listener.listenerId, state: "expected-state" }, 4);
+      const callback = new URL(listener.redirectUri);
+      callback.searchParams.set("state", "expected-state"); callback.searchParams.set("code", "authorized-code"); callback.searchParams.set("iss", "https://provider.example/issuer");
+      assert.equal((await fetch(callback)).status, 200);
+      assert.deepEqual(await waiting, { code: "authorized-code", iss: "https://provider.example/issuer" });
+    } finally { broker.close(); }
+  });
   it("validates state before consuming a code and reports receipt without claiming connection", async () => {
     const broker = createMcpOAuthCallbackBroker();
     try {

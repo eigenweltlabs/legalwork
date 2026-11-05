@@ -34,3 +34,16 @@ export function beginSessionDeletion(config: ServerConfig, sessionId: string): (
   state.deleting.set(sessionId, done);
   return () => { state.deleting.delete(sessionId); release(); };
 }
+
+// Serialize a selection+admission sequence across all app windows and the
+// durable dispatcher. Holding this through inference would prevent steering.
+const dispatches = new WeakMap<ServerConfig, Map<string, Promise<unknown>>>();
+export async function withSessionDispatch<T>(config: ServerConfig, sessionId: string, run: () => Promise<T>): Promise<T> {
+  let pending = dispatches.get(config);
+  if (!pending) { pending = new Map(); dispatches.set(config, pending); }
+  const previous = pending.get(sessionId);
+  const operation = (async () => { await previous?.catch(() => {}); return withSessionExecution(config, sessionId, run, true); })();
+  pending.set(sessionId, operation);
+  try { return await operation; }
+  finally { if (pending.get(sessionId) === operation) pending.delete(sessionId); }
+}

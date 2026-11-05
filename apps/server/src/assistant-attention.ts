@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { OpencodeClient } from "@opencode-ai/sdk/v2/client";
+import type { AssistantEngineClient } from "./assistant-engine.js";
 import { AssistantAttentionItemSchema } from "./assistant-schema.js";
 import type { AssistantAttentionItem, AssistantAttentionReply } from "@legalwork/types/main-assistant";
 import { CalculationCardSchema } from "./calculations/schema.js";
@@ -33,16 +33,14 @@ export function assistantWidget(tool: string, output: string) {
 }
 
 /** Read the original engine requests. An unsupported protocol is not an empty inbox. */
-export async function readAssistantAttention(client: OpencodeClient, source: AttentionSource): Promise<AssistantAttentionItem[]> {
+export async function readAssistantAttention(client: AssistantEngineClient, source: AttentionSource): Promise<AssistantAttentionItem[]> {
   const sessionID = source.sessionId;
   const results = await Promise.allSettled([
-    client.permission.list({}, options()).then(result => result.data),
     client.v2.session.permission.list({ sessionID }, options()).then(result => result.data?.data),
-    client.question.list({}, options()).then(result => result.data),
     client.v2.session.question.list({ sessionID }, options()).then(result => result.data?.data),
     client.session.messages({ sessionID, limit: 20 }, options()).then(result => result.data),
   ]);
-  if (results.slice(0, 2).every(result => result.status === "rejected") || results.slice(2, 4).every(result => result.status === "rejected"))
+  if (results[0].status === "rejected" || results[1].status === "rejected")
     throw new Error("Pending requests could not be read.");
   const items = new Map<string, AssistantAttentionItem>();
   const add = (kind: "approval" | "question" | "widget", requestId: string, payload: object) => {
@@ -50,13 +48,9 @@ export async function readAssistantAttention(client: OpencodeClient, source: Att
     const item = AssistantAttentionItemSchema.parse({ ...source, id, revision: fingerprint(payload), visible: false, presentedAt: 0, kind, ...payload });
     items.set(id, item);
   };
-  const [legacyPermissions, permissions, legacyQuestions, questions, messages] = results;
-  if (legacyPermissions.status === "fulfilled") for (const item of legacyPermissions.value ?? []) if (item.sessionID === sessionID)
-    add("approval", item.id, { requestId: item.id, protocol: "legacy", permission: item.permission, patterns: item.patterns, metadata: item.metadata });
+  const [permissions, questions, messages] = results;
   if (permissions.status === "fulfilled") for (const item of permissions.value ?? []) if (item.sessionID === sessionID)
     add("approval", item.id, { requestId: item.id, protocol: "v2", permission: item.action, patterns: item.resources, metadata: item.metadata ?? {} });
-  if (legacyQuestions.status === "fulfilled") for (const item of legacyQuestions.value ?? []) if (item.sessionID === sessionID)
-    add("question", item.id, { requestId: item.id, protocol: "legacy", questions: item.questions });
   if (questions.status === "fulfilled") for (const item of questions.value ?? []) if (item.sessionID === sessionID)
     add("question", item.id, { requestId: item.id, protocol: "v2", questions: item.questions });
   if (messages.status === "rejected") throw new Error("Project widgets could not be read.");
@@ -75,22 +69,18 @@ export async function readAssistantAttention(client: OpencodeClient, source: Att
 }
 
 /** Reply only to a fresh, exact request. Never widen an approval to a persistent rule. */
-export async function replyToAssistantAttention(client: OpencodeClient, item: AssistantAttentionItem, input: AssistantAttentionReply) {
+export async function replyToAssistantAttention(client: AssistantEngineClient, item: AssistantAttentionItem, input: AssistantAttentionReply) {
   if (item.id !== input.id || item.revision !== input.revision || item.workspaceId !== input.workspaceId || item.sessionId !== input.sessionId || item.kind !== input.kind)
     throw new ApiError(409, "attention_changed", "This request changed. Refresh it before responding.");
   if (item.kind === "approval" && input.kind === "approval") {
-    const result = item.protocol === "v2"
-      ? await client.v2.session.permission.reply({ sessionID: item.sessionId, requestID: item.requestId, reply: input.reply }, options())
-      : await client.permission.reply({ requestID: item.requestId, reply: input.reply }, options());
+    const result = await client.v2.session.permission.reply({ sessionID: item.sessionId, requestID: item.requestId, reply: input.reply }, options());
     if (!result.response.ok || result.data === false) throw new Error("Approval delivery was not confirmed. Refresh the request before retrying.");
   } else if (item.kind === "question" && input.kind === "question") {
     if (input.answers.length !== item.questions.length || input.answers.some((answers, index) => {
       const question = item.questions[index];
       return !answers.length || (!question.multiple && answers.length !== 1) || answers.some(answer => !answer.trim() || (question.custom === false && !question.options.some(option => option.label === answer)));
     })) throw new ApiError(400, "attention_answers", "Answer each question using its available choices or allowed custom answer.");
-    const result = item.protocol === "v2"
-      ? await client.v2.session.question.reply({ sessionID: item.sessionId, requestID: item.requestId, questionV2Reply: { answers: input.answers } }, options())
-      : await client.question.reply({ requestID: item.requestId, answers: input.answers }, options());
+    const result = await client.v2.session.question.reply({ sessionID: item.sessionId, requestID: item.requestId, questionV2Reply: { answers: input.answers } }, options());
     if (!result.response.ok || result.data === false) throw new Error("Answer delivery was not confirmed. Refresh the request before retrying.");
   }
 }

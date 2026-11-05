@@ -101,7 +101,7 @@ export function StartWorkflowDialog(props: StartWorkflowDialogProps) {
       : props.workspaces.find((entry) => entry.id === workspaceId) ?? props.workspaces[0] ?? null,
     [props.workspaces, workspaceId, props.linkedProjectId],
   );
-  const globalLibrary = isDesktopRuntime() && workspace?.workspaceType !== "remote";
+  const globalLibrary = isDesktopRuntime();
 
   const endpoint = useMemo(
     () =>

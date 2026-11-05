@@ -21,6 +21,47 @@ function fixture() {
   return { runtime, document, clients };
 }
 
+test("foreground session.open selects its exact chat without replacing a selected live editor or another project's layout", async () => {
+  const previous = usePanelTabStore.getState().sessions;
+  usePanelTabStore.setState({ sessions: {} });
+  try {
+    const { runtime, document } = fixture(), panels = usePanelTabStore.getState();
+    const entry = document("a", "one.docx", async () => ({ ok: true, path: "one.docx", text: "Unchanged unsaved draft", selection: "clause 4" }));
+    entry.registration.dirty = () => true;
+    const registration = entry.registration;
+    await runtime.select({ sessionId: "left", path: "one.docx" });
+    panels.adoptChat("workspace:a", "left", "Owned chat");
+    panels.openTab("workspace:a", entry.props.tab, "main", "right");
+    panels.adoptChat("workspace:b", "elsewhere", "Other project");
+    panels.selectTab("workspace:a", entry.props.tab.id);
+    const before = usePanelTabStore.getState().sessions["workspace:a"], other = usePanelTabStore.getState().sessions["workspace:b"];
+    const read = await runtime.execute("document.agent_tool", { sessionId: "left" });
+    const navigations = [];
+    expect(await runtime.openSession({ sessionId: "left" }, undefined, path => navigations.push(path))).toEqual({ ok: true, navigatedTo: "left" });
+    const after = usePanelTabStore.getState().sessions["workspace:a"];
+    expect(after.panes.find(pane => pane.id === after.focusedPaneId).activeTabId).toBe("chat:left");
+    expect(after.tabs).toEqual(before.tabs);
+    expect(after.tree).toEqual(before.tree);
+    expect(after.panes.find(pane => pane.tabIds.includes(entry.props.tab.id))).toEqual(before.panes.find(pane => pane.tabIds.includes(entry.props.tab.id)));
+    expect(usePanelTabStore.getState().sessions["workspace:b"]).toBe(other);
+    expect(runtime.entries.get(entry.key)).toBe(entry);
+    expect(entry.registration).toBe(registration);
+    expect(await runtime.execute("document.agent_tool", { sessionId: "left" })).toEqual(read);
+    expect(navigations).toEqual(["/workspace/a/session/left"]);
+  } finally { usePanelTabStore.setState({ sessions: previous }); }
+});
+
+test("background session.open never steals focus and unknown tasks cannot alter panels", async () => {
+  const { runtime } = fixture(), before = usePanelTabStore.getState().sessions, navigations = [];
+  expect(await runtime.openSession({ sessionId: "right" }, "left", path => navigations.push(path))).toMatchObject({ ok: true, sessionId: "right", workspaceId: "a", background: true });
+  expect(runtime.taskSessions.get("left")).toBe("right");
+  expect(usePanelTabStore.getState().sessions).toBe(before);
+  expect(navigations).toEqual([]);
+  await expect(runtime.openSession({ sessionId: "unknown" }, undefined, path => navigations.push(path))).rejects.toThrow("Unknown task");
+  expect(usePanelTabStore.getState().sessions).toBe(before);
+  expect(navigations).toEqual([]);
+});
+
 describe("task document runtime", () => {
   test("legacy attachment copies retain their format without a visible document pane", async () => {
     const { runtime, document, clients } = fixture();

@@ -2,19 +2,19 @@ import { expect, test } from "bun:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { z } from "zod";
+import { OpenCode } from "@opencode/client";
 import { createManagedOpencodeServer } from "./managed-opencode.js";
 import { startModelCatalogRelay } from "./model-catalog.js";
 import type { ServerConfig } from "./types.js";
 
 const engineBin = process.env.LEGALWORK_TEST_OPENCODE_BIN;
 
-test.skipIf(!engineBin)("a cold engine sees Eigenwelt models on its first provider read", async () => {
+test.skipIf(!engineBin)("a cold engine sees Eigenwelt models on its first native model-catalog read", async () => {
   const root = await mkdtemp(join(tmpdir(), "legalwork-catalog-engine-"));
   const previousUrl = process.env.OPENCODE_MODELS_URL;
   const modelId = "legalwork-catalog-startup-probe";
   const registry = { anthropic: {
-    id: "anthropic", name: "Anthropic", env: [], npm: "@ai-sdk/anthropic",
+    id: "anthropic", name: "Anthropic", env: ["ANTHROPIC_API_KEY"], npm: "@ai-sdk/anthropic",
     models: { [modelId]: {
       id: modelId, name: "Catalog startup probe", release_date: "2026-10-09",
       attachment: false, reasoning: true, temperature: false, tool_call: true,
@@ -37,23 +37,24 @@ test.skipIf(!engineBin)("a cold engine sees Eigenwelt models on its first provid
   try {
     relay = await startModelCatalogRelay(config);
     const configPath = join(root, "opencode.json");
-    await writeFile(configPath, "{}");
+    await writeFile(configPath, JSON.stringify({ update: "disable", warming: false }));
     engine = await createManagedOpencodeServer({
       bin: engineBin, cwd: root,
       env: {
-        HOME: join(root, "home"), XDG_CONFIG_HOME: join(root, "config"), XDG_DATA_HOME: join(root, "data"),
+        HOME: join(root, "home"), USERPROFILE: join(root, "home"), XDG_CONFIG_HOME: join(root, "config"), XDG_DATA_HOME: join(root, "data"),
         XDG_CACHE_HOME: join(root, "cache"), XDG_STATE_HOME: join(root, "state"),
-        OPENCODE_CONFIG: configPath, OPENCODE_DB: join(root, "engine.db"),
+        OPENCODE_CONFIG: configPath, OPENCODE_CONFIG_CONTENT: "{}", OPENCODE_DB: join(root, "engine.db"),
+        OPENCODE_CONFIG_DIR: join(root, "config"), OPENCODE_CONFIG_PROJECT_DISABLE: "1", OPENCODE_DISABLE_CLAUDE_CODE: "1",
         OPENCODE_MODELS_URL: relay.url, OPENCODE_MODELS_PATH: relay.catalogPath,
+        ANTHROPIC_API_KEY: "synthetic-zero-inference-catalog-fixture",
       },
     });
-    const response = await fetch(`${engine.url}/provider`, {
-      headers: { Authorization: `Basic ${Buffer.from(`${engine.username}:${engine.password}`).toString("base64")}` },
-      signal: AbortSignal.timeout(10000),
-    });
-    expect(response.status).toBe(200);
-    const providers = z.object({ all: z.array(z.object({ id: z.string(), models: z.record(z.string(), z.unknown()) })) }).parse(await response.json());
-    expect(providers.all.find(provider => provider.id === "anthropic")?.models[modelId]).toBeDefined();
+    const client = OpenCode.make({ baseUrl: engine.url, headers: { Authorization: `Basic ${Buffer.from(`${engine.username}:${engine.password}`).toString("base64")}` } });
+    const location = { directory: root };
+    // Assert the very first native model read. Priming the model catalog with
+    // another list call first would hide a cold-start regression.
+    expect((await client.model.list({ location })).data.find(model => model.providerID === "anthropic" && model.id === modelId)?.name).toBe("Catalog startup probe");
+    expect((await client.provider.list({ location })).data.some(provider => provider.id === "anthropic")).toBe(true);
   } finally {
     await engine?.close();
     await relay?.stop();

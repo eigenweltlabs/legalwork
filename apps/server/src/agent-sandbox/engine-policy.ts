@@ -1,6 +1,7 @@
 import { permissionAction } from "./permissions.js";
 
 export const managedTools: Record<string, string> = { bash: "legalwork_shell", webfetch: "legalwork_webfetch", websearch: "legalwork_websearch" };
+export const nativeHostExecutionActions = ["shell", "bash", "webfetch", "websearch", "codesearch"];
 
 // Distinguishes generated network denials from restrictions saved by older chats.
 export const managedNetworkGuard = "legalwork_managed_network_guard";
@@ -9,7 +10,8 @@ export function managedToolName(name: string): string {
 }
 export function managedPermissionRules<T extends { permission: string; pattern: string; action: string }>(agent: T[], session: T[]) {
   const guarded = session.some(rule => rule.permission === managedNetworkGuard && rule.pattern === "*" && rule.action === "deny");
-  return [...agent.filter(rule => !Object.hasOwn(managedTools, rule.permission)),
+  return [...agent.filter(rule => !Object.hasOwn(managedTools, rule.permission)
+      || !agent.some(other => other.permission === managedTools[rule.permission])),
     ...session.filter(rule => rule.permission !== managedNetworkGuard && !(guarded && Object.hasOwn(managedTools, rule.permission) && rule.pattern === "*" && rule.action === "deny"))]
     .map(rule => ({ ...rule, permission: Object.entries(managedTools).find(([, managed]) => managed === rule.permission)?.[0] ?? rule.permission }));
 }

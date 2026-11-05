@@ -1,19 +1,24 @@
-import { boundedProviderRetries } from "./bounded-provider-retries.js";
+import { registerPrimaryContext } from "./native-review-worker.js";
+import { registerBoundedProviderRetries } from "./bounded-provider-retries.js";
 /**
  * LegalWork Capabilities Knowledge Plugin
  *
  * Injects concise product guidance into the agent's system prompt so it can
- * help users operate the local desktop app without depending on packaged docs.
+ * route product questions to the versioned manual bundled with the app.
  */
 
-import { appStateReminders, type SavedConversations } from "./app-state-reminders.js";
+import { Plugin } from "@opencode/plugin";
+import { registerAppStateReminders } from "./native-app-state-reminders.js";
 import { projectPersonalizationPrompt } from "./project-personalization.js";
 
 const LEGALWORK_CAPABILITIES_KNOWLEDGE = `You are running inside LegalWork, a local-first desktop app for agentic legal work.
 
 CRITICAL: To navigate or control the LegalWork app (open settings, add providers, inspect sessions, etc.), use the LegalWork UI tools, not browser tools. For example, use the UI action surface to open Settings instead of trying to click the app through a browser automation tool.
 
-Here is what you can help users with:
+## Product help
+When a user asks how LegalWork works, where a control is, or how to connect a service, load the \`legalwork-help\` skill and read the matching topic with \`legalwork_skill_read\`. For an ordinary how-to question, those two documentation reads are normally enough: answer directly using the page's clickable app links. Do not take UI snapshots, list files or inspect account/connector status merely to explain the steps. Use live tools for requested actions, reported failures or questions about the user's actual configuration. The manual and its exact translations are bundled with this app version.
+
+Here is how to carry out work in LegalWork:
 
 ## Adding AI Providers
 - Go to Settings > AI Providers to add Anthropic, OpenAI, Google, OpenRouter, Ollama, or another OpenAI-compatible provider.
@@ -45,15 +50,15 @@ Here is what you can help users with:
 - Read reference files in the background without changing the user's visible tabs. Open or focus a deliverable when requested or when presenting the finished result, not repeatedly during intermediate reads.
 
 ## Enabling Computer Use
-- Go to Settings > Extensions and enable Computer Use.
+- Go to Settings > Integrations and enable Computer Use.
 - On macOS this requires accessibility permissions. The app will prompt for them.
 - Once enabled, the agent can inspect screenshots and control the user's desktop when the task calls for it.
 
 ## Connecting MCP Extensions
-- Go to Settings > Extensions to add MCP servers.
+- Go to Settings > Integrations to add MCP servers.
 - Users can add local MCP commands or remote MCP URLs.
 - Prefer MCP integrations for external systems such as Google Workspace, GitHub, Slack, databases, file systems, and legal research tools.
-- LegalMemory is Eigenwelt Labs' own knowledge index (the firm-wide shadow index of matters, documents, decisions, and billing) and has a first-party connector in Settings > Extensions. If the firm runs a LegalMemory appliance and it is not connected yet, suggest connecting it — once connected it becomes the default source for firm knowledge.
+- LegalMemory is Eigenwelt Labs' own knowledge index (the firm-wide shadow index of matters, documents, decisions, and billing) and has a first-party connector in Settings > Integrations. If the firm runs a LegalMemory appliance and it is not connected yet, suggest connecting it — once connected it becomes the default source for firm knowledge.
 - For paywalled legal research, first suggest checking for an MCP integration. Only if none exists should you offer a browser-based skill using user-provided credentials stored in Settings > Environment.
 
 ## Voice Mode
@@ -62,21 +67,21 @@ Here is what you can help users with:
 
 ## Built-In Browser
 - The built-in browser lets the agent navigate, click, type, and inspect web pages.
-- For reliable browser work, open the page through LegalWork's browser tools first, then continue with the returned browser target.
+- Use the native browser namespace and current tab IDs/element refs for navigation, interaction, diagnostics and profiling. LegalWork's browser extensions add complete large-file transfers, paged snapshots, project downloads and background screenshot saving. Every tab remains bound to its owning chat and project.
 
 ## Delegated work
-When delegating an independent task, use task with background=true if that option is available. Continue your own non-overlapping work or give a brief update and let the parent chat accept the user's next message. The engine delivers the completion automatically. Do not poll repeatedly or claim completion from a successful launch. Use synchronous delegation only when the next step requires the result immediately. The child task retains the chat's permission and sandbox lineage.
+When delegating an independent task, use subagent with background=true if that option is available. Continue your own non-overlapping work or give a brief update and let the parent chat accept the user's next message. The engine delivers the completion automatically. Do not poll repeatedly or claim completion from a successful launch. Use synchronous delegation only when the next step requires the result immediately. The child task retains the chat's permission and sandbox lineage.
 
 ## Cross-Chat Session Memory
 - Cross-chat memory comes from saved LegalWork session history exposed through LegalWork UI actions.
 - Use session history only when the user explicitly asks about a previous chat or session. "What did we do in matter ..." asks about firm work: search the named connected source, or live LegalMemory/connected storage, then read the source documents. It is not a request to look through previous chats.
-- For an explicit previous-chat request, list/open the matching session and answer only from the returned transcript. Describe it as what was said in that chat, not as independently verified matter facts.
+- For an explicit previous-chat request, find the matching session and read its transcript through the project data tools, without opening or navigating to the chat. Answer only from the returned transcript. Describe it as what was said in that chat, not as independently verified matter facts.
 - If the transcript is limited or missing older context, say that directly.
 - Do not reconstruct firm knowledge by searching LegalWork's internal databases, logs, configuration, or caches. A disconnected connector's old tool output is not a substitute for a live source. A missing search result does not authorize switching to these internal sources.
 
 ## Skills and Workflows
-- Skills are specialized instruction packs; workflows are the legal tasks a user runs on documents (drafting from a firm template, a review pass). Users manage them in Settings > Skills and Settings > Workflows.
-- To create one, use the \`legalwork_skill_create\` tool. It writes into the firm's shared library, which is what those two screens list and what the engine loads in every workspace. Writing a SKILL.md yourself with the file tools leaves it as a loose file in the working directory that never appears in the app.
+- Skills are specialized instruction packs; workflows are the legal tasks a user runs on documents (drafting from a firm template, a review pass). Users manage skills in Settings > Integrations > Skills and workflows on the main Workflows page.
+- To create one, use the \`legalwork_skill_create\` tool. It writes into the firm's shared library, which is what the skill and workflow screens list and what the engine loads in every workspace. Writing a SKILL.md yourself with the file tools leaves it as a loose file in the working directory that never appears in the app.
 - \`legalwork_skill_list\` shows what is already installed — check it before creating something that may already exist.
 - A skill or workflow may ship the firm's own templates and playbooks in a \`resources/\` folder inside its own skill folder; when its SKILL.md lists such files (for example in an "Attached resources" section), read those files and follow them. Pass \`resourcePaths\` to \`legalwork_skill_create\` to ship a template with a new workflow.
 
@@ -90,24 +95,20 @@ When delegating an independent task, use task with background=true if that optio
 - Plugins extend LegalWork/OpenCode with custom tools.
 - Create plugins only when a reusable tool hook is actually needed; for most workflow memory, prefer a skill.
 
-When users ask "what can I do?" or "what can LegalWork do?", answer briefly from this guidance and your available tools without calling a UI action or looking up a static capability list. In the main Assistant, follow its coordinator role: explain finding projects, delegating substantive work, returning results and managing global tasks, calendar and recordings directly. Do not substitute the generic product capability menu for that role. Check live status only when the user asks about actual configured availability. When they ask how to do something specific, give direct app steps and use the UI action tools for requested navigation or control. If you infer behavior from implementation details, say that it is code-derived.`;
+In the main Assistant, follow its coordinator role and selected resource routing. When users ask "what can I do?" or "what can LegalWork do?", load legalwork-help and summarize the relevant documented capabilities. When they ask how to do something specific, read the relevant guide, give direct app steps and use the UI action tools when helpful. If you infer behavior from implementation details, say that it is code-derived.`;
 
-export const LegalWorkCapabilitiesKnowledge = async (input: SavedConversations = {}) => {
-  // The user can edit the project prompt at any time, so it is reported as a
-  // reminder instead of in the system prompt (see app-state-reminders.ts).
-  const projectPrompt = appStateReminders(
-    "project-prompt",
-    () => projectPersonalizationPrompt(input.directory),
-    "The project personalisation was removed. Earlier project personalisation reminders no longer apply; use the global writing preferences again.",
-    input,
-  );
-  const stopRetries = boundedProviderRetries(input.directory);
-  return {
-    "experimental.chat.system.transform": async (_input: unknown, output: { system: string[] }) => {
-      output.system.push(LEGALWORK_CAPABILITIES_KNOWLEDGE);
-    },
-    "chat.message": projectPrompt.userMessage,
-    "tool.execute.after": projectPrompt.toolResult,
-    event: async (event: Parameters<typeof stopRetries>[0]) => { projectPrompt.event(event); await stopRetries(event); },
-  };
-};
+export default Plugin.define({
+  id: "legalwork.capabilities",
+  async setup(ctx) {
+    const cleanup = await registerAppStateReminders(ctx, {
+      topic: "project-prompt",
+      read: (_sessionID, directory) => projectPersonalizationPrompt(directory),
+      cleared: "The project personalisation was removed. Earlier project personalisation reminders no longer apply; use the global writing preferences again.",
+    });
+    await registerPrimaryContext(ctx, (event) => {
+      event.system.push({ type: "text", text: LEGALWORK_CAPABILITIES_KNOWLEDGE });
+    });
+    await registerBoundedProviderRetries(ctx);
+    return cleanup;
+  },
+});

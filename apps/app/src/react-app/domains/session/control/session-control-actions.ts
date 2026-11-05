@@ -144,7 +144,6 @@ export function useSessionControlActions(input: UseSessionControlActionsInput) {
       await opencodeClient.session.update({
         sessionID: sessionId,
         title,
-        directory: targetWorkspace?.path || selectedWorkspaceRoot || undefined,
       });
       await refreshRouteState();
       return { ok: true, sessionId, title };

@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { addMcp, listMcp, setMcpEnabled } from "./mcp.js";
-import { buildLegalworkRuntimeConfig } from "./legalwork-runtime-config.js";
+import { buildLegalworkRuntimeSettings } from "./legalwork-runtime-config.js";
 import { readLegalworkWorkspaceConfig } from "./legalwork-workspace-config-store.js";
 import { addPlugin, listPlugins, removePlugin } from "./plugins.js";
 import {
@@ -64,6 +64,14 @@ async function expectMissing(path: string): Promise<void> {
 }
 
 describe("runtime OpenCode config store", () => {
+  test("parallel settings updates preserve each other's changes", async () => {
+    await withWorkspace(async ({ config }) => {
+      await Promise.all(Array.from({ length: 30 }, (_, index) => writeRuntimeOpencodeConfig(config, WORKSPACE_ID, current => ({
+        ...current, mcp: { ...current.mcp, [`connector_${index}`]: { type: "remote", url: `https://connector-${index}.example/mcp` } },
+      }))));
+      expect(Object.keys((await readRuntimeOpencodeConfig(config, WORKSPACE_ID)).mcp ?? {})).toHaveLength(30);
+    });
+  });
   test("stores MCP changes in the LegalWork runtime DB without rewriting workspace files", async () => {
     await withWorkspace(async ({ root, config }) => {
       const opencodePath = join(root, "opencode.jsonc");
@@ -101,12 +109,10 @@ describe("runtime OpenCode config store", () => {
       expect(result.items.map((item) => item.spec)).toEqual(["project-plugin", "runtime-plugin"]);
 
       await addMcp(config, WORKSPACE_ID, "runtime", { type: "remote", url: "https://runtime.example/mcp", enabled: true });
-      const runtimeConfig = JSON.parse(await buildLegalworkRuntimeConfig(config, WORKSPACE_ID)) as {
-        plugin?: string[];
-        mcp?: Record<string, Record<string, unknown>>;
-      };
-      expect(runtimeConfig.plugin).toContain("runtime-plugin");
-      expect(runtimeConfig.mcp?.runtime?.url).toBe("https://runtime.example/mcp");
+      const runtimeConfig = (await buildLegalworkRuntimeSettings(config, WORKSPACE_ID)).configuration;
+      expect(runtimeConfig.plugins).toContain("runtime-plugin");
+      expect(runtimeConfig.mcp?.servers?.runtime?.type).toBe("remote");
+      expect(runtimeConfig.mcp?.servers?.runtime).toMatchObject({ url: "https://runtime.example/mcp" });
     });
   });
 
@@ -215,10 +221,11 @@ describe("runtime OpenCode config store", () => {
         expect(configResponse.status).toBe(200);
         expect(await configResponse.json()).toMatchObject({
           opencode: {
-            permission: {
-              external_directory: { "/tmp/shared/*": "allow" },
-              edit: "ask",
-            },
+            permissions: [
+              { action: "edit", resource: "*", effect: "ask" },
+              { action: "external_directory", resource: "/tmp/shared/*", effect: "allow" },
+            ],
+            $legalworkReadOnlyProjection: true,
           },
         });
       } finally {
@@ -315,12 +322,13 @@ describe("runtime OpenCode config store", () => {
           legacyLegalwork: { keys: [] },
           userOpencode: { exists: false, keys: [] },
         });
-        expect(status.effectiveRuntime.mcp).toMatchObject({ legacy: { url: "https://legacy.example/mcp" } });
-        expect(status.effectiveRuntime.default_agent).toBe("legalwork");
-        expect(status.effectiveRuntime.agent).toMatchObject({ legalwork: { mode: "primary" } });
-        expect(status.effectiveRuntime.provider).toMatchObject({ legacy: { npm: "legacy-provider" } });
-        expect(status.sources.injected.config?.agent).toMatchObject({ legalwork: { mode: "primary" } });
-        expect(status.sources.injected.keys).toContain("provider");
+        // Diagnostics are read-only metadata; full MCP definitions stay in the
+        // private store and the connector settings API provides presence only.
+        expect(status.effectiveRuntime.mcp).toBeUndefined();
+        expect(status.effectiveRuntime.agents).toMatchObject({ legalwork: { mode: "primary" } });
+        expect(status.effectiveRuntime.providers).toMatchObject({ legacy: { package: "legacy-provider" } });
+        expect(status.sources.injected.config?.agents).toMatchObject({ legalwork: { mode: "primary" } });
+        expect(status.sources.injected.keys).toContain("providers");
         expect(status.sources.globalOpencode).toHaveProperty("path");
       } finally {
         await server.stop(true);

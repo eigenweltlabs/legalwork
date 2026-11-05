@@ -1,7 +1,11 @@
 import { randomBytes } from "node:crypto";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { createServer } from "node:http";
 import { WebSocketServer } from "ws";
 import { browserSnapshot, normalizeAccessibilityTree, runBrowserBatch } from "./browser-automation-actions.mjs";
+import { browserAbortable, createBrowserCaptureQueue } from "./browser-capture-queue.mjs";
 
 // The browser tools only need page operations. Never forward Browser/Target
 // commands or client-supplied session IDs, which can reach other renderers.
@@ -14,18 +18,18 @@ const ALLOWED_METHODS = new Set([
 ]);
 const EVENT_DOMAINS = new Set(["Accessibility", "DOM", "Input", "Page", "Runtime"]);
 
-async function readBody(request) {
+async function readBody(request, maximum = 64000) {
   let body = "";
   request.setEncoding("utf8");
   for await (const chunk of request) {
     body += chunk;
-    if (body.length > 64000) throw new Error("Browser batch is too large.");
+    if (body.length > maximum) throw new Error("Browser batch is too large.");
   }
   return JSON.parse(body);
 }
 
 /** A capability URL grants access to one explicitly registered browser tab. */
-export function createBrowserAutomationBroker({ authorize }) {
+export function createBrowserAutomationBroker({ authorize, capture = createBrowserCaptureQueue() }) {
   if (typeof authorize !== "function") throw new Error("Browser automation requires a network policy check.");
   const grants = new Map();
   const websocketServer = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 });
@@ -65,29 +69,59 @@ export function createBrowserAutomationBroker({ authorize }) {
   }
 
   function acquire(grant) {
-    if (grant.users === 0) grant.webContents.debugger.attach("1.3");
+    if (grant.users === 0) {
+      grant.ownsDebugger = !grant.webContents.debugger.isAttached?.();
+      if (grant.ownsDebugger) grant.webContents.debugger.attach("1.3");
+    }
     grant.users += 1;
   }
 
   function release(grant) {
     grant.users -= 1;
-    if (grant.users === 0) {
+    if (grant.users === 0 && grant.ownsDebugger) {
+      grant.ownsDebugger = false;
       try { grant.webContents.debugger.detach(); } catch { /* Tab may already be closed. */ }
     }
   }
 
-  async function sendCommand(grant, method, params = {}) {
-    await authorizeGrant(grant);
-    grant.onActivity?.();
-    const result = await grant.webContents.debugger.sendCommand(method, params);
+  async function sendCommand(grant, method, params = {}, signal, activity = true) {
+    await browserAbortable(() => authorizeGrant(grant), signal);
+    signal?.throwIfAborted();
+    if (activity) grant.onActivity?.();
+    const operation = () => grant.webContents.debugger.sendCommand(method, params);
+    // Cancelling a caller does not cancel Chromium's screenshot or its temporary
+    // viewport. Keep the page lease until that native operation actually settles.
+    const result = method === "Page.captureScreenshot" ? await operation() : await browserAbortable(operation, signal);
     return method === "Accessibility.getFullAXTree" ? normalizeAccessibilityTree(result) : result;
   }
 
-  async function withDebugger(grant, action) {
-    await authorizeGrant(grant);
+  async function withDebugger(grant, action, signal, activity = true) {
+    await browserAbortable(() => authorizeGrant(grant), signal);
+    signal?.throwIfAborted();
     acquire(grant);
-    try { return await action((method, params) => sendCommand(grant, method, params)); }
+    try { return await action(async (method, params) => {
+      signal?.throwIfAborted();
+      const value = await sendCommand(grant, method, params, signal, activity);
+      signal?.throwIfAborted(); return value;
+    }); }
     finally { release(grant); }
+  }
+
+  function withCapture(grant, action, signal, activity = true, prepare = grant.prepareCapture) {
+    const stopping = signal ? AbortSignal.any([signal, grant.abort.signal]) : grant.abort.signal;
+    return capture(grant.webContents, stopping, active => withDebugger(grant, async send => {
+      active.throwIfAborted();
+      const cleanup = prepare?.();
+      const restoreOnStop = () => cleanup?.();
+      active.addEventListener("abort", restoreOnStop, { once: true });
+      try {
+        active.throwIfAborted();
+        return await action(send);
+      } finally {
+        active.removeEventListener("abort", restoreOnStop);
+        cleanup?.();
+      }
+    }, active, activity));
   }
 
   const server = createServer(async (request, response) => {
@@ -96,6 +130,12 @@ export function createBrowserAutomationBroker({ authorize }) {
     const resolved = resolveRequest(request);
     if (!resolved) { response.writeHead(403).end(); return; }
     const { grant, route } = resolved;
+    const callingSession = request.headers["x-legalwork-browser-session"];
+    if ((callingSession !== undefined && callingSession !== grant.context?.sessionId) || (["capture", "upload", "download"].includes(route) && callingSession !== grant.context?.sessionId)) {
+      response.writeHead(403).end(); return;
+    }
+    const abort = new AbortController();
+    response.once("close", () => { if (!response.writableEnded) abort.abort(new Error("Browser request was cancelled; inspect the page before retrying.")); });
     response.setHeader("Content-Type", "application/json");
     try { await authorizeGrant(grant); }
     catch (error) { response.writeHead(403).end(JSON.stringify({ ok: false, error: error.message })); return; }
@@ -105,6 +145,12 @@ export function createBrowserAutomationBroker({ authorize }) {
           id: grant.targetId, type: "page", title: grant.webContents.getTitle(), url: grant.webContents.getURL(),
           webSocketDebuggerUrl: `ws://${authority}/${grant.token}/devtools/page/${grant.targetId}`,
         }]));
+      } else if (request.method === "POST" && route === "download") {
+        const body = await readBody(request);
+        const file = grant.getDownloads().find(item => item.id === body.id && item.state === "completed");
+        if (!file?.path) throw new Error("Only a completed download owned by this browser tab can be transferred.");
+        const bytes = await readFile(file.path, { signal: abort.signal });
+        response.end(JSON.stringify({ id: file.id, name: file.name, data: bytes.toString("base64") }));
       } else if (request.method === "GET" && route === "downloads") {
         response.end(JSON.stringify({ downloads: grant.getDownloads() }));
       } else if (request.method === "POST" && route === "batch") {
@@ -112,8 +158,46 @@ export function createBrowserAutomationBroker({ authorize }) {
         grant.busy = true;
         try {
           const body = await readBody(request);
-          const result = await withDebugger(grant, (send) => runBrowserBatch(send, grant.webContents, body.steps, body.timeout_ms));
+          const result = await withDebugger(grant, (send) => runBrowserBatch(send, grant.webContents, body.steps, body.timeout_ms), abort.signal);
           response.end(JSON.stringify({ ...result, downloads: grant.getDownloads() }));
+        } finally { grant.busy = false; }
+      } else if (request.method === "POST" && route === "capture") {
+        const body = await readBody(request);
+        if (!body || !["png", "jpeg", "webp"].includes(body.format ?? "png") || body.quality !== undefined && (!Number.isInteger(body.quality) || body.quality < 1 || body.quality > 100)) throw new Error("Invalid screenshot format or quality.");
+          const result = await withCapture(grant, async send => {
+            const layout = await send("Page.getLayoutMetrics", {});
+            const bounds = layout.cssContentSize || layout.contentSize;
+            const format = body.format ?? "png";
+            const image = await send("Page.captureScreenshot", { format, quality: format === "png" ? undefined : body.quality ?? 80, captureBeyondViewport: body.fullPage !== false,
+              ...(body.fullPage === false ? {} : { clip: { x: 0, y: 0, width: bounds.width, height: bounds.height, scale: 1 } }) });
+            return { mime: `image/${format}`, data: image.data };
+          }, abort.signal);
+          response.end(JSON.stringify(result));
+      } else if (request.method === "POST" && route === "upload") {
+        if (grant.busy) { response.writeHead(409).end(JSON.stringify({ error: "A browser mutation is already running in this tab." })); return; }
+        grant.busy = true;
+        try {
+          const body = await readBody(request, Infinity);
+          if (typeof body?.selector !== "string" || !body.selector || body.selector.length > 2000 || !Array.isArray(body.files) || !body.files.length) throw new Error("Use an observed file input selector and file bytes.");
+          const directory = await mkdtemp(path.join(tmpdir(), "legalwork-browser-upload-")); grant.uploads.add(directory);
+          const files = [];
+          for (const [index, file] of body.files.entries()) {
+            abort.signal.throwIfAborted();
+            if (typeof file?.name !== "string" || typeof file.data !== "string") throw new Error("Invalid upload bytes.");
+            const bytes = Buffer.from(file.data, "base64");
+            if (bytes.toString("base64") !== file.data) throw new Error("Invalid upload bytes.");
+            const name = path.basename(file.name.replaceAll("\\", "/"));
+            if (!name || name === "." || name === "..") throw new Error("Invalid upload filename.");
+            const folder = path.join(directory, String(index)); await mkdir(folder, { mode: 0o700 });
+            const destination = path.join(folder, name); await writeFile(destination, bytes, { mode: 0o600 }); files.push(destination);
+          }
+          await withDebugger(grant, async send => {
+            const document = await send("DOM.getDocument", {});
+            const nodes = await send("DOM.querySelectorAll", { nodeId: document.root.nodeId, selector: body.selector });
+            if (nodes.nodeIds.length !== 1) throw new Error("Upload selector must identify exactly one file input.");
+            await send("DOM.setFileInputFiles", { nodeId: nodes.nodeIds[0], files });
+          }, abort.signal);
+          response.end(JSON.stringify({ uploaded: body.files.map(file => ({ name: file.name, bytes: Buffer.byteLength(file.data, "base64") })) }));
         } finally { grant.busy = false; }
       } else {
         response.writeHead(403).end();
@@ -125,6 +209,8 @@ export function createBrowserAutomationBroker({ authorize }) {
 
   function revoke(grant) {
     grants.delete(grant.token);
+    grant.abort.abort(new Error("Browser tab capability was revoked."));
+    for (const directory of grant.uploads) void rm(directory, { recursive: true, force: true });
     for (const client of grant.clients) client.terminate();
     grant.webContents.removeListener("destroyed", grant.onDestroyed);
   }
@@ -140,6 +226,7 @@ export function createBrowserAutomationBroker({ authorize }) {
     if (socket.destroyed) return;
     websocketServer.handleUpgrade(request, socket, head, (client) => {
       const { grant } = resolved;
+      const disconnected = new AbortController();
       const debuggerApi = grant.webContents.debugger;
       try { acquire(grant); }
       catch { client.close(1011, "Browser tab is unavailable for automation"); return; }
@@ -165,7 +252,9 @@ export function createBrowserAutomationBroker({ authorize }) {
           return;
         }
         try {
-          const result = await sendCommand(grant, message.method, message.params ?? {});
+          const result = message.method === "Page.captureScreenshot"
+            ? await withCapture(grant, send => send(message.method, message.params ?? {}), disconnected.signal)
+            : await sendCommand(grant, message.method, message.params ?? {});
           send({ id: message.id, result });
         } catch (error) {
           send({ id: message.id, error: { code: -32000, message: error instanceof Error ? error.message : "Browser command failed" } });
@@ -173,6 +262,7 @@ export function createBrowserAutomationBroker({ authorize }) {
       });
       const cleanup = () => {
         if (!grant.clients.delete(client)) return;
+        disconnected.abort(new Error("Browser page connection was closed."));
         debuggerApi.removeListener("message", onMessage);
         debuggerApi.removeListener("detach", onDetach);
         release(grant);
@@ -199,14 +289,14 @@ export function createBrowserAutomationBroker({ authorize }) {
   }
 
   return {
-    async grant(webContents, getDownloads = () => [], context, onActivity) {
+    async grant(webContents, getDownloads = () => [], context, onActivity, prepareCapture) {
       await authorize(context);
       await start();
       if (closed || webContents.isDestroyed()) throw new Error("Browser tab is closed");
       const token = randomBytes(32).toString("hex");
       const grant = {
-        token, targetId: String(webContents.id), webContents, getDownloads, context, onActivity,
-        clients: new Set(), users: 0, busy: false, checking: false, onDestroyed: () => revoke(grant),
+        token, targetId: String(webContents.id), webContents, getDownloads, context, onActivity, prepareCapture, uploads: new Set(),
+        clients: new Set(), users: 0, busy: false, checking: false, abort: new AbortController(), onDestroyed: () => revoke(grant),
       };
       grants.set(token, grant);
       webContents.once("destroyed", grant.onDestroyed);
@@ -217,20 +307,18 @@ export function createBrowserAutomationBroker({ authorize }) {
       if (!grant) throw new Error("Browser tab has no automation grant.");
       return withDebugger(grant, (send) => browserSnapshot(send, webContents));
     },
-    async preview(webContents) {
+    async preview(webContents, prepare) {
       const grant = [...grants.values()].find(entry => entry.webContents === webContents);
       if (!grant) return null;
-      await authorizeGrant(grant);
-      acquire(grant);
-      try {
+      return withCapture(grant, async send => {
         // Previewing from the app is not agent activity and must not reclaim a
         // dismissed tab or detach a debugger another tool is still using.
-        const image = await webContents.debugger.sendCommand("Page.captureScreenshot", {
+        const image = await send("Page.captureScreenshot", {
           format: "png", captureBeyondViewport: true,
           clip: { x: 0, y: 0, width: 1200, height: 800, scale: 0.4 },
         });
         return image.data ? `data:image/png;base64,${image.data}` : null;
-      } finally { release(grant); }
+      }, undefined, false, prepare);
     },
     async close() {
       closed = true;

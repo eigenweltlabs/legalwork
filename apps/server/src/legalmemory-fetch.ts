@@ -17,15 +17,8 @@
  * the app does when the user clicks, not a task handed to a model.
  */
 
-import { readFile } from "node:fs/promises";
-import { homedir } from "node:os";
-import { join } from "node:path";
 import { z } from "zod";
-
-const JSON_RPC_HEADERS = {
-  "content-type": "application/json",
-  accept: "application/json, text/event-stream",
-};
+import { canFallbackLegalMemoryTree } from "./legalmemory-rpc.js";
 
 /** Guards a document that would blow out memory: this is buffered, not streamed. */
 const MAX_INLINE_BYTES = 96 * 1024 * 1024;
@@ -136,6 +129,7 @@ export function resolveLegalMemoryServer(
   for (const item of items) {
     if (!LEGALMEMORY_SERVER_NAME.test(item.name)) continue;
     const config = asRecord(item.config);
+    if (config?.disabled === true || config?.enabled === false) continue;
     const url = config && typeof config.url === "string" ? config.url.trim() : "";
     if (!url) continue;
     const headers = asRecord(config?.headers);
@@ -178,70 +172,37 @@ export function legalMemoryTreeProxyUrl(serverUrl: string, operation: string): s
   return url.toString();
 }
 
-async function fetchLegalMemoryTreeResponse(
-  server: LegalMemoryServer,
-  url: URL,
-  bearer?: string,
-): Promise<Response> {
-  return fetch(url, {
-    headers: {
-      accept: "application/json",
-      ...(server.headers ?? {}),
-      ...(bearer ? { Authorization: `Bearer ${bearer}` } : {}),
-    },
-  });
-}
-
-async function fetchLegalMemoryTreeJson(
-  server: LegalMemoryServer,
-  path: string,
-  operation: string,
-  params: Record<string, string | number | undefined>,
-  bearer?: string,
-): Promise<unknown> {
-  const candidates = [
-    new URL(legalMemoryTreeProxyUrl(server.url, operation)),
-    new URL(legalMemoryTreeApiUrl(server.url, path)),
-  ];
-  let lastFailure = "LegalMemory file tree failed";
-  for (const url of candidates) {
-    for (const [name, value] of Object.entries(params)) {
-      if (value !== undefined && value !== "") url.searchParams.set(name, String(value));
-    }
-    const response = await fetchLegalMemoryTreeResponse(server, url, bearer);
-    if (response.ok) return response.json();
-    const detail = (await response.text().catch(() => "")).trim().slice(0, 300);
-    lastFailure = `LegalMemory file tree failed (${response.status})${detail ? `: ${detail}` : ""}`;
-  }
-  throw new Error(lastFailure);
-}
+export type LegalMemoryClient = {
+  /** Both operations run inside OpenCode. Credentials never cross this boundary. */
+  callTool(name: string, args: Record<string, unknown>): Promise<unknown>;
+  tree(operation: "roots" | "children" | "search", params: Record<string, string | number | undefined>): Promise<unknown>;
+};
 
 export async function fetchLegalMemoryTreeRoots(
-  server: LegalMemoryServer,
-  bearer?: string,
+  client: LegalMemoryClient,
 ): Promise<{ roots: LegalMemoryTreeRoot[] }> {
   try {
-    const body = await fetchLegalMemoryTreeJson(server, "/api/tree/roots", "roots", {}, bearer);
+    const body = await client.tree("roots", {});
     return z.object({ roots: z.array(legalMemoryTreeRootSchema) }).parse(body);
-  } catch {
-    return { roots: await fetchLegalMemoryMcpRoots(server, bearer) };
+  } catch (error) {
+    if (!canFallbackLegalMemoryTree(error)) throw error;
+    return { roots: await fetchLegalMemoryMcpRoots(client) };
   }
 }
 
 export async function fetchLegalMemoryTreeChildren(
-  server: LegalMemoryServer,
+  client: LegalMemoryClient,
   input: { sourceId: string; path?: string; offset: number; limit: number },
-  bearer?: string,
 ): Promise<LegalMemoryTreePage> {
   if (input.sourceId.startsWith(LEGALMEMORY_MCP_TREE_SOURCE_PREFIX)) {
-    return fetchLegalMemoryMcpChildren(server, input, bearer);
+    return fetchLegalMemoryMcpChildren(client, input);
   }
-  const body = await fetchLegalMemoryTreeJson(server, "/api/tree/children", "children", {
+  const body = await client.tree("children", {
     source_id: input.sourceId,
     path: input.path,
     offset: input.offset,
     limit: input.limit,
-  }, bearer);
+  });
   return legalMemoryTreePageSchema.parse(body);
 }
 
@@ -271,9 +232,8 @@ export type LegalMemoryFolderEntry = {
  * uses `matter/<id>/…`), and the names are the part they agree on.
  */
 export async function collectLegalMemoryFolderFiles(
-  server: LegalMemoryServer,
+  client: LegalMemoryClient,
   input: { sourceId: string; path: string },
-  bearer?: string,
 ): Promise<{ entries: LegalMemoryFolderEntry[]; truncated: boolean }> {
   const entries: LegalMemoryFolderEntry[] = [];
   let truncated = false;
@@ -282,9 +242,8 @@ export async function collectLegalMemoryFolderFiles(
     const subfolders: { name: string; path: string }[] = [];
     for (let offset = 0; ; ) {
       const page = await fetchLegalMemoryTreeChildren(
-        server,
+        client,
         { sourceId: input.sourceId, path: path || undefined, offset, limit: FOLDER_PAGE_SIZE },
-        bearer,
       );
       // Both backends repeat the full folder list on every page of files.
       if (offset === 0) subfolders.push(...page.folders.map((folder) => ({ name: folder.name, path: folder.path })));
@@ -313,95 +272,29 @@ export async function collectLegalMemoryFolderFiles(
 }
 
 export async function fetchLegalMemoryTreeSearch(
-  server: LegalMemoryServer,
+  client: LegalMemoryClient,
   input: { query: string; limit: number },
-  bearer?: string,
 ): Promise<{ files: LegalMemoryTreeFile[] }> {
   try {
-    const body = await fetchLegalMemoryTreeJson(server, "/api/tree/search", "search", input, bearer);
+    const body = await client.tree("search", input);
     return z.object({ files: z.array(legalMemoryTreeFileSchema) }).parse(body);
-  } catch {
-    return { files: await fetchLegalMemoryMcpSearch(server, input, bearer) };
+  } catch (error) {
+    if (!canFallbackLegalMemoryTree(error)) throw error;
+    return { files: await fetchLegalMemoryMcpSearch(client, input) };
   }
-}
-
-/** Parse one streamable-HTTP response body, which is either JSON or an SSE
- * frame carrying the JSON on a `data:` line. */
-function parseRpcBody(text: string): unknown {
-  const line = text.split("\n").find((l) => l.startsWith("data:"));
-  const payload = line ? line.replace(/^data:\s*/, "") : text;
-  try {
-    return JSON.parse(payload);
-  } catch {
-    return null;
-  }
-}
-
-type Session = { url: string; headers: Record<string, string> };
-
-async function rpc(session: Session, method: string, params: unknown, id?: number): Promise<unknown> {
-  const response = await fetch(session.url, {
-    method: "POST",
-    headers: session.headers,
-    body: JSON.stringify({ jsonrpc: "2.0", ...(id === undefined ? {} : { id }), method, params }),
-  });
-  // The server assigns a session on initialize and expects it echoed after.
-  const assigned = response.headers.get("mcp-session-id");
-  if (assigned) session.headers["mcp-session-id"] = assigned;
-  if (!response.ok && response.status !== 202) {
-    throw new Error(`LegalMemory ${method} failed (${response.status})`);
-  }
-  return parseRpcBody(await response.text());
-}
-
-function legalMemorySession(server: LegalMemoryServer, bearer?: string): Session {
-  return {
-    url: server.url,
-    headers: {
-      ...JSON_RPC_HEADERS,
-      ...(server.headers ?? {}),
-      ...(bearer ? { Authorization: `Bearer ${bearer}` } : {}),
-    },
-  };
 }
 
 function legalMemoryToolPayload(value: unknown): unknown {
   const envelope = asRecord(value);
-  const error = asRecord(envelope?.error);
-  if (error) throw new Error(String(error.message ?? "LegalMemory tool call failed"));
   const result = asRecord(envelope?.result ?? envelope);
-  if (!result) throw new Error("LegalMemory returned no tool result");
-  if (result.isError === true) throw new Error("LegalMemory tool call failed");
-  const structured = asRecord(result.structuredContent);
-  if (structured) return structured;
-  if (!Array.isArray(result.content)) throw new Error("LegalMemory returned no structured tool content");
-  for (const item of result.content) {
-    const text = asRecord(item)?.text;
+  if (!result || result.isError === true || envelope?.error) throw new Error("LegalMemory tool call failed");
+  if (result.structuredContent !== undefined) return result.structuredContent;
+  for (const part of Array.isArray(result.content) ? result.content : []) {
+    const text = asRecord(part)?.text;
     if (typeof text !== "string") continue;
-    try {
-      return JSON.parse(text);
-    } catch {
-      // Tool cards may precede the JSON payload; keep looking.
-    }
+    try { return JSON.parse(text); } catch { /* Tool cards may precede the JSON payload. */ }
   }
   throw new Error("LegalMemory returned no structured tool content");
-}
-
-async function callLegalMemoryTool(
-  server: LegalMemoryServer,
-  name: string,
-  args: Record<string, unknown>,
-  bearer?: string,
-): Promise<unknown> {
-  const session = legalMemorySession(server, bearer);
-  await rpc(session, "initialize", {
-    protocolVersion: "2025-06-18",
-    capabilities: {},
-    clientInfo: { name: "LegalWork", version: "1" },
-  }, 1);
-  await rpc(session, "notifications/initialized", {});
-  const result = await rpc(session, "tools/call", { name, arguments: args }, 2);
-  return legalMemoryToolPayload(result);
 }
 
 function normalizedSourcePath(value: string): string {
@@ -429,14 +322,14 @@ function parseMcpMatterPath(path: string): { matterId: string; sourcePath: strin
 }
 
 async function fetchLegalMemoryMcpMatters(
-  server: LegalMemoryServer,
-  bearer?: string,
+  client: LegalMemoryClient,
   input: { limit?: number; offset?: number } = {},
 ): Promise<z.infer<typeof legalMemoryMcpMatterSchema>[]> {
-  const payload = await callLegalMemoryTool(server, "list_matters", {
+  const response = await client.callTool("list_matters", {
     limit: input.limit ?? 500,
     offset: input.offset ?? 0,
-  }, bearer);
+  });
+  const payload = legalMemoryToolPayload(response);
   const body = z.object({ results: z.array(legalMemoryMcpMatterSchema) }).parse(payload);
   return body.results;
 }
@@ -475,21 +368,20 @@ function findLegalMemoryMcpConnectors(
  * directly.
  */
 async function fetchLegalMemoryMcpRoots(
-  server: LegalMemoryServer,
-  bearer?: string,
+  client: LegalMemoryClient,
 ): Promise<LegalMemoryTreeRoot[]> {
-  const matters = await fetchLegalMemoryMcpMatters(server, bearer);
+  const matters = await fetchLegalMemoryMcpMatters(client);
   const matter = matters[0];
   if (!matter) return [];
-  const documents = await fetchLegalMemoryMcpDocuments(server, matter.id, bearer);
+  const documents = await fetchLegalMemoryMcpDocuments(client, matter.id);
   const document = documents[0];
   if (!document) return [];
-  const payload = await callLegalMemoryTool(server, "download_document", {
+  const response = await client.callTool("download_document", {
     document_id: document.document_id,
     version_id: document.version_id,
     inline_blob: false,
-  }, bearer);
-  return Array.from(findLegalMemoryMcpConnectors(payload).values(), (connector) => ({
+  });
+  return Array.from(findLegalMemoryMcpConnectors(legalMemoryToolPayload(response)).values(), (connector) => ({
     source_id: mcpTreeSourceId(connector.id),
     display_name: connector.display_name,
     kind: connector.kind,
@@ -502,24 +394,23 @@ async function fetchLegalMemoryMcpRoots(
 }
 
 async function fetchLegalMemoryMcpDocuments(
-  server: LegalMemoryServer,
+  client: LegalMemoryClient,
   matterId: string,
-  bearer?: string,
 ): Promise<z.infer<typeof legalMemoryMcpDocumentSchema>[]> {
-  const payload = await callLegalMemoryTool(server, "list_matter_documents", { matter_id: matterId }, bearer);
+  const response = await client.callTool("list_matter_documents", { matter_id: matterId });
+  const payload = legalMemoryToolPayload(response);
   const body = z.object({ results: z.array(legalMemoryMcpDocumentSchema) }).parse(payload);
   return body.results;
 }
 
 async function fetchLegalMemoryMcpChildren(
-  server: LegalMemoryServer,
+  client: LegalMemoryClient,
   input: { sourceId: string; path?: string; offset: number; limit: number },
-  bearer?: string,
 ): Promise<LegalMemoryTreePage> {
   const path = input.path ?? "";
   const treeSourceId = input.sourceId;
   if (!path) {
-    const matters = await fetchLegalMemoryMcpMatters(server, bearer);
+    const matters = await fetchLegalMemoryMcpMatters(client);
     return {
       source_id: treeSourceId,
       path,
@@ -534,7 +425,7 @@ async function fetchLegalMemoryMcpChildren(
   }
 
   const location = parseMcpMatterPath(path);
-  const documents = await fetchLegalMemoryMcpDocuments(server, location.matterId, bearer);
+  const documents = await fetchLegalMemoryMcpDocuments(client, location.matterId);
   const rawPaths = documents.map((document) => normalizedSourcePath(document.source_path));
   const matterPrefix = rawPaths[0]?.split("/")[0] ?? "";
   const folderCounts = new Map<string, number>();
@@ -592,15 +483,15 @@ async function fetchLegalMemoryMcpChildren(
 }
 
 async function fetchLegalMemoryMcpSearch(
-  server: LegalMemoryServer,
+  client: LegalMemoryClient,
   input: { query: string; limit: number },
-  bearer?: string,
 ): Promise<LegalMemoryTreeFile[]> {
-  const payload = await callLegalMemoryTool(server, "search_semantic", {
+  const response = await client.callTool("search_semantic", {
     query: input.query,
     limit: input.limit,
     offset: 0,
-  }, bearer);
+  });
+  const payload = legalMemoryToolPayload(response);
   const body = z.object({ results: z.array(legalMemoryMcpSearchResultSchema) }).parse(payload);
   return body.results.flatMap((result) => {
     const sourcePath = normalizedSourcePath(result.source_paths?.[0] ?? result.title ?? "");
@@ -667,39 +558,12 @@ function findFilename(value: unknown, depth = 0): string | null {
   return null;
 }
 
-/**
- * Call `download_document` with `inline_blob` and return the original bytes.
- *
- * `bearer` is the engine's stored access token for this server when it has one;
- * an appliance behind Keycloak needs it, an open deployment does not.
- */
+/** Download original bytes using the native engine's already-authorized MCP connection. */
 export async function fetchLegalMemoryDocument(
-  server: LegalMemoryServer,
+  client: LegalMemoryClient,
   documentId: string,
-  bearer?: string,
 ): Promise<FetchedDocument> {
-  const session: Session = {
-    url: server.url,
-    headers: {
-      ...JSON_RPC_HEADERS,
-      ...(server.headers ?? {}),
-      ...(bearer ? { Authorization: `Bearer ${bearer}` } : {}),
-    },
-  };
-
-  await rpc(session, "initialize", {
-    protocolVersion: "2025-06-18",
-    capabilities: {},
-    clientInfo: { name: "LegalWork", version: "1" },
-  }, 1);
-  // Required by the lifecycle before any tool call; carries no id.
-  await rpc(session, "notifications/initialized", {});
-
-  const result = await rpc(session, "tools/call", {
-    name: "download_document",
-    arguments: { document_id: documentId, inline_blob: true },
-  }, 2);
-
+  const result = await client.callTool("download_document", { document_id: documentId, inline_blob: true });
   const envelope = asRecord(result);
   const error = asRecord(envelope?.error);
   if (error) throw new Error(String(error.message ?? "LegalMemory refused the download"));
@@ -722,28 +586,6 @@ export async function fetchLegalMemoryDocument(
 }
 
 /**
- * The access token the engine already holds for this server, if any.
- *
- * An appliance behind Keycloak needs one; an open deployment does not. We read
- * the engine's own store rather than running a second OAuth flow, so there is
- * exactly one sign-in and one place tokens live. A missing or expired entry is
- * not an error here: the call is attempted without a token and the server says
- * what it thinks.
- */
-export async function engineAccessToken(serverName: string): Promise<string | undefined> {
-  const dataHome = process.env.XDG_DATA_HOME?.trim() || join(homedir(), ".local", "share");
-  try {
-    const raw = await readFile(join(dataHome, "opencode", "mcp-auth.json"), "utf8");
-    const entry = asRecord(asRecord(JSON.parse(raw))?.[serverName]);
-    const tokens = asRecord(entry?.tokens);
-    const token = tokens?.accessToken;
-    return typeof token === "string" && token.trim() ? token.trim() : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-/**
  * The stored relations around a document: what supersedes it, annexes it,
  * references it.
  *
@@ -755,28 +597,10 @@ export async function engineAccessToken(serverName: string): Promise<string | un
  * app asks, for the document the answer actually cited.
  */
 export async function fetchLegalMemoryGraph(
-  server: LegalMemoryServer,
+  client: LegalMemoryClient,
   documentId: string,
-  bearer?: string,
 ): Promise<unknown> {
-  const session: Session = {
-    url: server.url,
-    headers: {
-      ...JSON_RPC_HEADERS,
-      ...(server.headers ?? {}),
-      ...(bearer ? { Authorization: `Bearer ${bearer}` } : {}),
-    },
-  };
-  await rpc(session, "initialize", {
-    protocolVersion: "2025-06-18",
-    capabilities: {},
-    clientInfo: { name: "LegalWork", version: "1" },
-  }, 1);
-  await rpc(session, "notifications/initialized", {});
-  const result = await rpc(session, "tools/call", {
-    name: "find_related_documents",
-    arguments: { document_id: documentId },
-  }, 2);
+  const result = await client.callTool("find_related_documents", { document_id: documentId });
   const envelope = asRecord(result);
   const error = asRecord(envelope?.error);
   if (error) throw new Error(String(error.message ?? "LegalMemory refused the traversal"));

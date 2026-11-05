@@ -53,12 +53,11 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 async function serve() { server = await startServer(config); base = `http://127.0.0.1:${server.port}`; }
-async function scopedToken(scope: "viewer" | "collaborator") {
-  const response = await nativeFetch(`${base}/tokens`, { method: "POST", headers: { "x-legalwork-host-token": config.hostToken, "Content-Type": "application/json" }, body: JSON.stringify({ scope }) });
-  expect(response.status).toBe(201); return z.object({ token: z.string() }).parse(await response.json()).token;
+function scopedToken(scope: "viewer" | "collaborator") {
+  return scope === "viewer" ? "owt_retired_viewer" : config.token;
 }
-async function api(path: string, token = config.token, body?: unknown) {
-  return nativeFetch(`${base}/workspace/project/storage${path}`, { method: body === undefined ? "GET" : "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", ...(token === config.token ? { "x-legalwork-host-token": config.hostToken } : {}) }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+async function api(path: string, token?: string, body?: unknown) {
+  return nativeFetch(`${base}/workspace/project/storage${path}`, { method: body === undefined ? "GET" : "POST", headers: { Authorization: `Bearer ${token ?? config.token}`, "Content-Type": "application/json", ...(token === undefined ? { "x-legalwork-host-token": config.hostToken } : {}) }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
 }
 
 test("saved account status and root discovery never request Nango status or tokens", async () => {
@@ -113,7 +112,8 @@ test("write settings stay default-off and folder views reuse one saved account",
 test("personal roots and every generic read/write path remain owner-only", async () => {
   await serve();
   const id = encodeURIComponent(`connector:google-drive:${account.id}`);
-  const scopes: ("viewer" | "collaborator")[] = ["viewer", "collaborator"];
+  expect((await api("/roots", scopedToken("viewer"))).status).toBe(401);
+  const scopes: ("collaborator")[] = ["collaborator"];
   for (const scope of scopes) {
     const token = await scopedToken(scope);
     const roots = z.object({ roots: z.array(z.object({ id: z.string() })) }).parse(await (await api("/roots", token)).json()); expect(roots.roots).toHaveLength(0);
@@ -170,7 +170,7 @@ test("the owner's managed agent can use generic storage while ordinary collabora
   const response = await nativeFetch(`${base}/workspace/project/storage/${encodeURIComponent(roots.roots[0].id)}/children`, { headers }); expect(response.status).toBe(200);
   expect(calls).toContain("/api/connectors/google-drive/connection/token");
   const viewer = await scopedToken("viewer");
-  expect((await nativeFetch(`${base}/workspace/project/storage/${encodeURIComponent(roots.roots[0].id)}/children`, { headers: { Authorization: `Bearer ${viewer}`, "x-legalwork-connector-token": capability } })).status).toBe(403);
+  expect((await nativeFetch(`${base}/workspace/project/storage/${encodeURIComponent(roots.roots[0].id)}/children`, { headers: { Authorization: `Bearer ${viewer}`, "x-legalwork-connector-token": capability } })).status).toBe(401);
 });
 
 test("own OAuth storage remains available without Eigenwelt sign-in and creates no second grant", async () => {

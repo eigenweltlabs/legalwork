@@ -245,8 +245,9 @@ async function requestSystemStream(): Promise<MediaStream> {
 export async function startCapture(
   sources: AudioCaptureSourceKind[],
   callbacks: CaptureCallbacks,
-  options: { dictation?: boolean } = {},
+  options: { dictation?: boolean; signal?: AbortSignal } = {},
 ): Promise<CaptureHandle> {
+  options.signal?.throwIfAborted();
   // Recording processes input without opening the playback device. A silent
   // sink still clocks the worklet, and avoids disturbing Bluetooth playback.
   // Chromium supports sinkId; our DOM typings do not include it yet.
@@ -263,10 +264,21 @@ export async function startCapture(
   let meterTimer: number | null = null;
   let stopped = false;
   let stopPromise: Promise<void> | null = null;
+  const signal = options.signal;
+  const interruptible = <T>(operation: Promise<T>): Promise<T> => {
+    if (!signal) return operation;
+    return new Promise((resolve, reject) => {
+      const abort = () => reject(signal.reason);
+      signal.addEventListener("abort", abort, { once: true });
+      if (signal.aborted) abort();
+      void operation.then(resolve, reject).finally(() => signal.removeEventListener("abort", abort));
+    });
+  };
 
   const cleanup = async () => {
     if (stopped) return;
     stopped = true;
+    signal?.removeEventListener("abort", abortCapture);
     if (meterTimer !== null) window.clearInterval(meterTimer);
     for (const recorder of recorders) {
       if (recorder.state !== "inactive") recorder.stop();
@@ -281,12 +293,10 @@ export async function startCapture(
     streams.clear();
     await context.close().catch(() => {});
   };
+  const abortCapture = () => { void cleanup().catch(() => {}); };
+  signal?.addEventListener("abort", abortCapture, { once: true });
 
   try {
-    // A context created while every window is hidden/unfocused can start out
-    // suspended; the graph would build fine and record silence.
-    if (context.state === "suspended") await context.resume().catch(() => {});
-
     const loadWorklet = async () => {
       const workletUrl = URL.createObjectURL(new Blob([PCM_WORKLET_SOURCE], { type: "text/javascript" }));
       try {
@@ -301,13 +311,21 @@ export async function startCapture(
     const hasOtherSources = sources.includes("system");
     const openMicrophone = async () => {
       if (sources.includes("microphone")) {
-        streams.set("microphone", await requestMicStream(hasOtherSources, options.dictation === true));
+        const stream = await requestMicStream(hasOtherSources, options.dictation === true);
+        // getUserMedia cannot be aborted. Cancellation may have already
+        // closed this graph while the OS was still opening the device.
+        if (stopped) {
+          for (const track of stream.getTracks()) track.stop();
+          return;
+        }
+        streams.set("microphone", stream);
       }
     };
     if (options.dictation) {
-      // Open input while the worklet loads. Wait for both to settle so a
-      // failure cannot leave a late-arriving microphone stream running.
-      const results = await Promise.allSettled([loadWorklet(), openMicrophone()]);
+      // Cancel startup without waiting for an OS microphone request. A late
+      // stream is released above, and both preparation failures are observed.
+      const preparation = Promise.allSettled([loadWorklet(), openMicrophone()]);
+      const results = await interruptible(preparation);
       for (const result of results) {
         if (result.status === "rejected") throw result.reason;
       }
@@ -322,7 +340,7 @@ export async function startCapture(
 
     // Build every branch while paused, then start on one shared clock. This
     // keeps timestamps aligned even when opening the second device took time.
-    await context.suspend();
+    await interruptible(context.suspend());
     const inputs = new Map<AudioCaptureSourceKind, MediaStreamAudioSourceNode>();
     const mix = context.createGain();
     for (const [kind, stream] of streams) {
@@ -368,7 +386,9 @@ export async function startCapture(
       input.connect(destination);
       const recorder = new MediaRecorder(destination.stream, { mimeType, audioBitsPerSecond: 48_000 });
       recorder.ondataavailable = (event) => {
-        if (event.data.size === 0) return;
+        // Dictation is ephemeral: only its PCM reaches transcription. Waiting
+        // for discarded playback bytes can stall an otherwise empty recording.
+        if (options.dictation || event.data.size === 0) return;
         const write = event.data.arrayBuffer()
           .then(buffer => callbacks.onMediaChunk(buffer, source))
           .catch(error => { chunkWriteError = error; })
@@ -401,7 +421,10 @@ export async function startCapture(
     } else {
       transcribeAudio(bus);
     }
-    await context.resume();
+    // Open the microphone before resuming. A background context can otherwise
+    // wait for capture/user activation while preventing capture from starting.
+    await interruptible(context.resume());
+    options.signal?.throwIfAborted();
 
     const onMicrophone = callbacks.onMicrophone;
     if (options.dictation && onMicrophone) {
@@ -421,20 +444,27 @@ export async function startCapture(
     }
 
     const flushPcm = async () => {
-      if (context.state === "suspended") await context.resume();
-      await Promise.all(worklets.map(async node => {
-        let timeout: number | undefined;
-        try {
-          await new Promise<void>((resolve, reject) => {
-            pcmFlushes.set(node, resolve);
+      let timeout: number | undefined;
+      try {
+        // Resuming can itself stall. The deadline covers the entire flush,
+        // including that wait, so Stop always releases the microphone.
+        await Promise.race([
+          new Promise<never>((_resolve, reject) => {
             timeout = window.setTimeout(() => reject(new Error(t("recorder.capture_finish_failed"))), 1500);
-            node.port.postMessage("flush");
-          });
-        } finally {
-          pcmFlushes.delete(node);
-          if (timeout !== undefined) window.clearTimeout(timeout);
-        }
-      }));
+          }),
+          (async () => {
+            if (context.state === "suspended") await context.resume();
+            if (stopped) return;
+            await Promise.all(worklets.map(node => new Promise<void>(resolve => {
+              pcmFlushes.set(node, resolve);
+              node.port.postMessage("flush");
+            })));
+          })(),
+        ]);
+      } finally {
+        for (const node of worklets) pcmFlushes.delete(node);
+        if (timeout !== undefined) window.clearTimeout(timeout);
+      }
     };
 
     const onMeter = callbacks.onMeter;
@@ -467,6 +497,10 @@ export async function startCapture(
             // webm chunk (containing the cues) reaches disk.
             await Promise.all(recorders.map(async recorder => {
               if (recorder.state === "inactive") return;
+              if (options.dictation) {
+                recorder.stop();
+                return;
+              }
               await new Promise<void>(resolve => {
                 recorder.addEventListener("stop", () => resolve(), { once: true });
                 recorder.stop();
@@ -485,7 +519,7 @@ export async function startCapture(
             await cleanup();
           }
         })();
-        return stopPromise;
+        return interruptible(stopPromise);
       },
     };
   } catch (error) {

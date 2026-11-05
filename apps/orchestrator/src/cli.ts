@@ -5,6 +5,8 @@ import {
   type SpawnOptions,
 } from "node:child_process";
 import { randomBytes, randomUUID, createHash } from "node:crypto";
+import { assertNoRetiredBinaryDownloads } from "./retired-binary-downloads.js";
+import { retireMessagingTools } from "./retired-messaging-tools.js";
 import {
   chmod,
   copyFile,
@@ -13,7 +15,6 @@ import {
   mkdtemp,
   readFile,
   readdir,
-  rename,
   rm,
   stat,
   writeFile,
@@ -22,6 +23,7 @@ import {
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { createServer as createNetServer } from "node:net";
 import { createServer as createHttpServer } from "node:http";
+import { legacyDeveloperDaemon, retiredDeveloperLauncherMessage } from "./legacy-developer-launcher.js";
 import { homedir, hostname, networkInterfaces, platform, tmpdir } from "node:os";
 import {
   basename,
@@ -38,7 +40,10 @@ import { access } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { once } from "node:events";
 
-import { createOpencodeClient } from "@opencode-ai/sdk/v2/client";
+import { OpenCode, type OpenCodeClient } from "@opencode/client";
+import { opencodeReleaseTarget } from "@legalwork/opencode-release";
+import { installSelectedOpencodeEngine, opencodeEngineSelection, stageSelectedOpencodeEngine, verifySelectedOpencodeEngine } from "@legalwork/opencode-release/selection";
+import { expectedOpencodeVersion } from "@legalwork/opencode-release/candidate";
 import type { TuiHandle } from "./tui/app.js";
 
 type ApprovalMode = "manual" | "auto";
@@ -107,27 +112,9 @@ type OpencodeHotReload = {
   cooldownMs: number;
 };
 
-type OpenCodeRouterHealthSnapshot = {
-  ok: boolean;
-  opencode: {
-    url: string;
-    healthy: boolean;
-    version?: string;
-  };
-  channels: {
-    telegram: boolean;
-    whatsapp: boolean;
-    slack: boolean;
-  };
-  config: {
-    groupsEnabled: boolean;
-  };
-};
-
 const FALLBACK_VERSION = "0.1.0";
 
 declare const __LEGALWORK_ORCHESTRATOR_VERSION__: string | undefined;
-declare const __LEGALWORK_PINNED_OPENCODE_VERSION__: string | undefined;
 const DEFAULT_LEGALWORK_PORT = 8787;
 const DEFAULT_APPROVAL_TIMEOUT = 30000;
 const MANAGED_OPENCODE_CREDENTIAL_LENGTH = 512;
@@ -135,15 +122,13 @@ const INTERNAL_OPENCODE_CREDENTIALS_ENV =
   "LEGALWORK_INTERNAL_ALLOW_OPENCODE_CREDENTIALS";
 const DEFAULT_OPENCODE_HOT_RELOAD_DEBOUNCE_MS = 700;
 const DEFAULT_OPENCODE_HOT_RELOAD_COOLDOWN_MS = 1500;
+let warnedLegacyHotReload = false;
 const DEFAULT_ACTIVITY_WINDOW_MS = 5 * 60_000;
 const DEFAULT_ACTIVITY_HEARTBEAT_INTERVAL_MS = 5 * 60_000;
 
 const SANDBOX_INTERNAL_OPENCODE_PORT = 4096;
 const SANDBOX_INTERNAL_LEGALWORK_PORT = DEFAULT_LEGALWORK_PORT;
-// OpenCodeRouter defaults its health server to 3005 when not overridden. In sandbox
-// mode we keep the *internal* port stable and only vary the published host
-// port to avoid collisions.
-const SANDBOX_INTERNAL_OPENCODE_ROUTER_HEALTH_PORT = 3005;
+
 const LEGALWORK_DEV_DATA_DIR = "legalwork-dev-data";
 
 const SANDBOX_OPENCODE_GLOBAL_CONFIG_CONTAINER_PATH =
@@ -169,7 +154,7 @@ type VersionInfo = {
   sha256: string;
 };
 
-type SidecarName = "legalwork-server" | "opencode-router" | "opencode";
+type SidecarName = "legalwork-server" | "opencode";
 
 type SidecarTarget =
   | "darwin-arm64"
@@ -184,34 +169,14 @@ type VersionManifest = {
   entries: Record<string, VersionInfo>;
 };
 
-type RemoteSidecarAsset = {
-  asset?: string;
-  url?: string;
-  sha256?: string;
-  size?: number;
-};
-
-type RemoteSidecarEntry = {
-  version: string;
-  targets: Record<string, RemoteSidecarAsset>;
-};
-
-type RemoteSidecarManifest = {
-  version: string;
-  generatedAt?: string;
-  entries: Record<string, RemoteSidecarEntry>;
-};
-
 type SidecarConfig = {
   dir: string;
-  baseUrl: string;
-  manifestUrl: string;
   target: SidecarTarget | null;
 };
 
-type BinarySource = "bundled" | "external" | "downloaded";
+type BinarySource = "bundled" | "external" | "prepared";
 
-type BinarySourcePreference = "auto" | "bundled" | "downloaded" | "external";
+type BinarySourcePreference = "auto" | "bundled" | "external";
 
 type ResolvedBinary = {
   bin: string;
@@ -226,7 +191,7 @@ type BinaryDiagnostics = {
   actualVersion?: string;
 };
 
-type RuntimeServiceName = "legalwork-server" | "opencode" | "opencode-router";
+type RuntimeServiceName = "legalwork-server" | "opencode";
 
 type RuntimeServiceSnapshot = {
   name: RuntimeServiceName;
@@ -250,8 +215,6 @@ type RuntimeUpgradeState = {
 
 type SidecarDiagnostics = {
   dir: string;
-  baseUrl: string;
-  manifestUrl: string;
   target: SidecarTarget | null;
   source: BinarySourcePreference;
   opencodeSource: BinarySourcePreference;
@@ -267,65 +230,6 @@ type WorkerActivityHeartbeatConfig = {
   activeWindowMs: number;
 };
 
-type RouterWorkspaceType = "local" | "remote";
-
-type RouterWorkspace = {
-  id: string;
-  name: string;
-  path: string;
-  workspaceType: RouterWorkspaceType;
-  baseUrl?: string;
-  directory?: string;
-  createdAt: number;
-  lastUsedAt?: number;
-};
-
-type RouterDaemonState = {
-  pid: number;
-  port: number;
-  baseUrl: string;
-  startedAt: number;
-};
-
-type RouterOpencodeState = {
-  pid: number;
-  port: number;
-  baseUrl: string;
-  startedAt: number;
-};
-
-type RouterBinaryInfo = {
-  path: string;
-  source: BinarySource;
-  expectedVersion?: string;
-  actualVersion?: string;
-};
-
-type RouterBinaryState = {
-  opencode?: RouterBinaryInfo;
-};
-
-type RouterSidecarState = {
-  dir: string;
-  baseUrl: string;
-  manifestUrl: string;
-  target: SidecarTarget | null;
-  source: BinarySourcePreference;
-  opencodeSource: BinarySourcePreference;
-  allowExternal: boolean;
-};
-
-type RouterState = {
-  version: number;
-  daemon?: RouterDaemonState;
-  opencode?: RouterOpencodeState;
-  cliVersion?: string;
-  sidecar?: RouterSidecarState;
-  binaries?: RouterBinaryState;
-  activeId: string;
-  workspaces: RouterWorkspace[];
-};
-
 type OpencodeStateLayout = {
   devMode: boolean;
   rootDir: string;
@@ -335,12 +239,6 @@ type OpencodeStateLayout = {
   importDataDir?: string;
 };
 
-type FieldsResult<T> = {
-  data?: T;
-  error?: unknown;
-  request?: Request;
-  response?: Response;
-};
 
 function parseArgs(argv: string[]): ParsedArgs {
   const flags = new Map<string, string | boolean>();
@@ -481,6 +379,11 @@ function readOpencodeHotReload(
     cooldownMs?: string;
   },
 ): OpencodeHotReload {
+  if (!warnedLegacyHotReload && (["opencode-hot-reload", "opencode-hot-reload-debounce-ms", "opencode-hot-reload-cooldown-ms"].some(name => flags.has(name))
+    || Object.values(env ?? {}).some(name => name && process.env[name]?.trim()))) {
+    warnedLegacyHotReload = true;
+    console.warn("OpenCode 2 uses native configuration watching. Legacy hot-reload/debounce/cooldown options are retained for CLI compatibility and no longer change the engine's watcher.");
+  }
   const enabled = readBool(
     flags,
     "opencode-hot-reload",
@@ -531,13 +434,12 @@ function readBinarySource(
   if (
     normalized === "auto" ||
     normalized === "bundled" ||
-    normalized === "downloaded" ||
     normalized === "external"
   ) {
     return normalized as BinarySourcePreference;
   }
   throw new Error(
-    `Invalid ${key} value: ${raw}. Use auto|bundled|downloaded|external.`,
+    `Invalid ${key} value: ${raw}. Use auto|bundled|external.`,
   );
 }
 
@@ -974,40 +876,6 @@ async function resolveCliVersion(): Promise<string> {
   return FALLBACK_VERSION;
 }
 
-async function readPinnedOpencodeVersion(): Promise<string | undefined> {
-  if (
-    typeof __LEGALWORK_PINNED_OPENCODE_VERSION__ === "string" &&
-    __LEGALWORK_PINNED_OPENCODE_VERSION__.trim()
-  ) {
-    return __LEGALWORK_PINNED_OPENCODE_VERSION__.trim();
-  }
-
-  const candidates = [
-    join(dirname(process.execPath), "..", "constants.json"),
-    join(dirname(fileURLToPath(import.meta.url)), "..", "constants.json"),
-    join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "constants.json"),
-  ];
-
-  for (const candidate of candidates) {
-    if (await fileExists(candidate)) {
-      try {
-        const raw = await readFile(candidate, "utf8");
-        const parsed = JSON.parse(raw) as { opencodeVersion?: unknown };
-        const value =
-          typeof parsed.opencodeVersion === "string"
-            ? parsed.opencodeVersion.trim()
-            : "";
-        if (!value) continue;
-        return value.startsWith("v") ? value.slice(1) : value;
-      } catch {
-        // ignore
-      }
-    }
-  }
-
-  return undefined;
-}
-
 async function isExecutable(path: string): Promise<boolean> {
   try {
     await access(path);
@@ -1242,7 +1110,7 @@ function generateManagedOpencodeCredentials(): {
   password: string;
 } {
   return {
-    username: randomCredential(MANAGED_OPENCODE_CREDENTIAL_LENGTH),
+    username: "opencode",
     password: randomCredential(MANAGED_OPENCODE_CREDENTIAL_LENGTH),
   };
 }
@@ -1285,17 +1153,13 @@ function resolveManagedOpencodeCredentials(args: ParsedArgs): {
         "OpenCode credentials are managed by LegalWork. Custom --opencode-username/--opencode-password values are not supported.",
       );
     }
-    return {
-      username: requestedUsername,
-      password: requestedPassword,
-    };
+    if (requestedUsername !== "opencode") throw new Error("OpenCode v2 uses the fixed username opencode; update the injected credentials.");
+    return { username: "opencode", password: requestedPassword };
   }
 
   if (requestedUsername && requestedPassword && allowInjectedCredentials) {
-    return {
-      username: requestedUsername,
-      password: requestedPassword,
-    };
+    if (requestedUsername !== "opencode") throw new Error("OpenCode v2 uses the fixed username opencode; update the injected credentials.");
+    return { username: "opencode", password: requestedPassword };
   }
 
   return generateManagedOpencodeCredentials();
@@ -1361,18 +1225,6 @@ function resolveLegalworkRemoteAccess(args: ParsedArgs): boolean {
   return remoteAccessRequested;
 }
 
-function unwrap<T>(result: FieldsResult<T>): T {
-  if (result.data !== undefined) {
-    return result.data;
-  }
-  const message =
-    result.error instanceof Error
-      ? result.error.message
-      : typeof result.error === "string"
-        ? result.error
-        : JSON.stringify(result.error);
-  throw new Error(message || "Unknown error");
-}
 
 function parsePositiveNumberEnv(
   value: string | undefined,
@@ -1444,12 +1296,18 @@ function resolveWorkerActivityHeartbeatConfig(): WorkerActivityHeartbeatConfig {
 
 async function postWorkerActivityHeartbeat(input: {
   config: WorkerActivityHeartbeatConfig;
-  opencodeClient: ReturnType<typeof createOpencodeClient>;
+  opencodeClient: OpenCodeClient;
   logger: Logger;
 }) {
   if (!input.config.enabled) return;
 
-  const sessions = unwrap(await input.opencodeClient.session.list({ limit: 200 }));
+  const sessions=[];
+  let cursor:string|undefined;
+  const seen=new Set<string>();
+  do {
+    const page=await input.opencodeClient.session.list({cursor});sessions.push(...page.data);cursor=page.cursor.next??undefined;
+    if(cursor&&seen.has(cursor))throw new Error("The engine repeated a session page cursor.");if(cursor)seen.add(cursor);
+  }while(cursor);
   let latestActivityAt = 0;
   for (const session of sessions) {
     const ts = parseSessionActivityAt(session);
@@ -1539,12 +1397,6 @@ function prefixStream(
   });
 }
 
-function shouldUseBun(bin: string): boolean {
-  if (!bin.endsWith(`${join("dist", "cli.js")}`)) return false;
-  if (bin.includes("legalwork-server")) return true;
-  return bin.includes(`${join("packages", "server")}`);
-}
-
 function resolveBinCommand(bin: string): {
   command: string;
   prefixArgs: string[];
@@ -1553,9 +1405,6 @@ function resolveBinCommand(bin: string): {
     return { command: "bun", prefixArgs: [bin, "--"] };
   }
   if (bin.endsWith(".js")) {
-    if (shouldUseBun(bin)) {
-      return { command: "bun", prefixArgs: [bin, "--"] };
-    }
     return { command: "node", prefixArgs: [bin, "--"] };
   }
   return { command: bin, prefixArgs: [] };
@@ -1594,11 +1443,6 @@ async function readVersionManifest(): Promise<VersionManifest | null> {
   }
   return null;
 }
-
-const remoteManifestCache = new Map<
-  string,
-  Promise<RemoteSidecarManifest | null>
->();
 
 let cachedExtraPathEntries: string[] | null = null;
 
@@ -1802,14 +1646,10 @@ function resolveSandboxSidecarTarget(
 
 function resolveSidecarConfigForTarget(
   flags: Map<string, string | boolean>,
-  cliVersion: string,
   targetOverride: SidecarTarget | null,
 ): SidecarConfig {
-  const baseUrl = resolveSidecarBaseUrl(flags, cliVersion);
   return {
     dir: resolveSidecarDir(flags),
-    baseUrl,
-    manifestUrl: resolveSidecarManifestUrl(flags, baseUrl),
     target: targetOverride,
   };
 }
@@ -1910,95 +1750,6 @@ function resolveSidecarDir(flags: Map<string, string | boolean>): string {
   return join(resolveRouterDataDir(flags), "sidecars");
 }
 
-function resolveSidecarBaseUrl(
-  flags: Map<string, string | boolean>,
-  cliVersion: string,
-): string {
-  const override =
-    readFlag(flags, "sidecar-base-url") ??
-    process.env.LEGALWORK_SIDECAR_BASE_URL;
-  if (override && override.trim()) return override.trim();
-  return `https://github.com/eigenweltlabs/legalwork/releases/download/legalwork-orchestrator-v${cliVersion}`;
-}
-
-function resolveSidecarManifestUrl(
-  flags: Map<string, string | boolean>,
-  baseUrl: string,
-): string {
-  const override =
-    readFlag(flags, "sidecar-manifest") ??
-    process.env.LEGALWORK_SIDECAR_MANIFEST_URL;
-  if (override && override.trim()) return override.trim();
-  return `${baseUrl.replace(/\/$/, "")}/legalwork-orchestrator-sidecars.json`;
-}
-
-function resolveSidecarConfig(
-  flags: Map<string, string | boolean>,
-  cliVersion: string,
-): SidecarConfig {
-  const baseUrl = resolveSidecarBaseUrl(flags, cliVersion);
-  return {
-    dir: resolveSidecarDir(flags),
-    baseUrl,
-    manifestUrl: resolveSidecarManifestUrl(flags, baseUrl),
-    target: resolveSidecarTarget(),
-  };
-}
-
-async function fetchRemoteManifest(
-  url: string,
-): Promise<RemoteSidecarManifest | null> {
-  const cached = remoteManifestCache.get(url);
-  if (cached) return cached;
-  const task = (async () => {
-    try {
-      const response = await fetch(url);
-      if (!response.ok) return null;
-      return (await response.json()) as RemoteSidecarManifest;
-    } catch {
-      return null;
-    }
-  })();
-  remoteManifestCache.set(url, task);
-  return task;
-}
-
-function resolveAssetUrl(
-  baseUrl: string,
-  asset?: string,
-  url?: string,
-): string | null {
-  if (url && url.trim()) return url.trim();
-  if (asset && asset.trim())
-    return `${baseUrl.replace(/\/$/, "")}/${asset.trim()}`;
-  return null;
-}
-
-function resolveAssetName(asset?: string, url?: string): string | null {
-  if (asset && asset.trim()) return asset.trim();
-  if (url && url.trim()) {
-    try {
-      return basename(new URL(url).pathname);
-    } catch {
-      const parts = url.split("/").filter(Boolean);
-      return parts.length ? parts[parts.length - 1] : null;
-    }
-  }
-  return null;
-}
-
-async function downloadToPath(url: string, dest: string): Promise<void> {
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`Failed to download ${url} (HTTP ${response.status})`);
-  }
-  const buffer = Buffer.from(await response.arrayBuffer());
-  await mkdir(dirname(dest), { recursive: true });
-  const tmpPath = `${dest}.tmp-${randomUUID()}`;
-  await writeFile(tmpPath, buffer);
-  await rename(tmpPath, dest);
-}
-
 async function ensureExecutable(path: string): Promise<void> {
   if (process.platform === "win32") return;
   try {
@@ -2006,89 +1757,6 @@ async function ensureExecutable(path: string): Promise<void> {
   } catch {
     // ignore
   }
-}
-
-async function downloadSidecarBinary(options: {
-  name: SidecarName;
-  sidecar: SidecarConfig;
-  expectedVersion?: string;
-}): Promise<ResolvedBinary | null> {
-  if (!options.sidecar.target) return null;
-  const manifest = await fetchRemoteManifest(options.sidecar.manifestUrl);
-  if (!manifest) return null;
-  const entry = manifest.entries[options.name];
-  if (!entry) return null;
-  if (options.expectedVersion && entry.version !== options.expectedVersion) {
-    return null;
-  }
-  const targetInfo = entry.targets[options.sidecar.target];
-  if (!targetInfo) return null;
-
-  const assetName = resolveAssetName(targetInfo.asset, targetInfo.url);
-  const assetUrl = resolveAssetUrl(
-    options.sidecar.baseUrl,
-    targetInfo.asset,
-    targetInfo.url,
-  );
-  if (!assetName || !assetUrl) return null;
-
-  const targetDir = join(
-    options.sidecar.dir,
-    entry.version,
-    options.sidecar.target,
-  );
-  const targetPath = join(targetDir, assetName);
-  if (await fileExists(targetPath)) {
-    if (targetInfo.sha256) {
-      try {
-        await verifyBinary(targetPath, {
-          version: entry.version,
-          sha256: targetInfo.sha256,
-        });
-        await ensureExecutable(targetPath);
-        return {
-          bin: targetPath,
-          source: "downloaded",
-          expectedVersion: entry.version,
-        };
-      } catch {
-        await rm(targetPath, { force: true });
-      }
-    } else {
-      await ensureExecutable(targetPath);
-      return {
-        bin: targetPath,
-        source: "downloaded",
-        expectedVersion: entry.version,
-      };
-    }
-  }
-
-  await downloadToPath(assetUrl, targetPath);
-  if (targetInfo.sha256) {
-    await verifyBinary(targetPath, {
-      version: entry.version,
-      sha256: targetInfo.sha256,
-    });
-  }
-  await ensureExecutable(targetPath);
-  return {
-    bin: targetPath,
-    source: "downloaded",
-    expectedVersion: entry.version,
-  };
-}
-
-function resolveOpencodeAsset(target: SidecarTarget): string | null {
-  const assets: Record<SidecarTarget, string> = {
-    "darwin-arm64": "opencode-darwin-arm64.zip",
-    "darwin-x64": "opencode-darwin-x64-baseline.zip",
-    "linux-x64": "opencode-linux-x64-baseline.tar.gz",
-    "linux-arm64": "opencode-linux-arm64.tar.gz",
-    "windows-x64": "opencode-windows-x64-baseline.zip",
-    "windows-arm64": "opencode-windows-arm64.zip",
-  };
-  return assets[target] ?? null;
 }
 
 async function runCommand(
@@ -2108,102 +1776,6 @@ async function runCommand(
   }
   if (result.code !== 0) {
     throw new Error(`Command failed: ${command} ${args.join(" ")}`);
-  }
-}
-
-async function resolveOpencodeDownload(
-  sidecar: SidecarConfig,
-  expectedVersion?: string,
-): Promise<string | null> {
-  if (!expectedVersion) return null;
-  if (!sidecar.target) return null;
-
-  const assetOverride =
-    process.env.LEGALWORK_OPENCODE_ASSET ?? process.env.OPENCODE_ASSET;
-  const asset = assetOverride?.trim() || resolveOpencodeAsset(sidecar.target);
-  if (!asset) return null;
-
-  const version = expectedVersion.startsWith("v")
-    ? expectedVersion.slice(1)
-    : expectedVersion;
-  const url = `https://github.com/anomalyco/opencode/releases/download/v${version}/${asset}`;
-  const targetDir = join(sidecar.dir, "opencode", version, sidecar.target);
-  const targetPath = join(
-    targetDir,
-    process.platform === "win32" ? "opencode.exe" : "opencode",
-  );
-
-  const hostTarget = resolveSidecarTarget();
-  const runnableOnHost = hostTarget !== null && sidecar.target === hostTarget;
-
-  if (await fileExists(targetPath)) {
-    if (!runnableOnHost) {
-      await ensureExecutable(targetPath);
-      return targetPath;
-    }
-    const actual = await readCliVersion(targetPath);
-    if (actual === version) {
-      await ensureExecutable(targetPath);
-      return targetPath;
-    }
-  }
-
-  await mkdir(targetDir, { recursive: true });
-  const stamp = Date.now();
-  const archivePath = join(
-    tmpdir(),
-    `legalwork-orchestrator-opencode-${stamp}-${asset}`,
-  );
-  const extractDir = await mkdtemp(
-    join(tmpdir(), "legalwork-orchestrator-opencode-"),
-  );
-
-  try {
-    await downloadToPath(url, archivePath);
-    if (process.platform === "win32") {
-      const psQuote = (value: string) => `'${value.replace(/'/g, "''")}'`;
-      const psScript = [
-        "$ErrorActionPreference = 'Stop'",
-        `Expand-Archive -Path ${psQuote(archivePath)} -DestinationPath ${psQuote(extractDir)} -Force`,
-      ].join("; ");
-      await runCommand("powershell", ["-NoProfile", "-Command", psScript]);
-    } else if (asset.endsWith(".zip")) {
-      await runCommand("unzip", ["-q", archivePath, "-d", extractDir]);
-    } else if (asset.endsWith(".tar.gz")) {
-      await runCommand("tar", ["-xzf", archivePath, "-C", extractDir]);
-    } else {
-      throw new Error(`Unsupported opencode asset type: ${asset}`);
-    }
-
-    const entries = await readdir(extractDir, { withFileTypes: true });
-    const queue = entries.map((entry) => join(extractDir, entry.name));
-    let candidate: string | null = null;
-    while (queue.length) {
-      const current = queue.shift();
-      if (!current) break;
-      const statInfo = await stat(current);
-      if (statInfo.isDirectory()) {
-        const nested = await readdir(current, { withFileTypes: true });
-        queue.push(...nested.map((entry) => join(current, entry.name)));
-        continue;
-      }
-      const base = basename(current);
-      if (base === "opencode" || base === "opencode.exe") {
-        candidate = current;
-        break;
-      }
-    }
-
-    if (!candidate) {
-      throw new Error("OpenCode binary not found after extraction.");
-    }
-
-    await copyFile(candidate, targetPath);
-    await ensureExecutable(targetPath);
-    return targetPath;
-  } finally {
-    await rm(extractDir, { recursive: true, force: true });
-    await rm(archivePath, { force: true });
   }
 }
 
@@ -2256,31 +1828,13 @@ async function readPackageVersion(path: string): Promise<string | undefined> {
   }
 }
 
-async function resolveOpenCodeRouterRepoDir(): Promise<string | null> {
-  const envPath = process.env.OPENCODE_ROUTER_DIR?.trim();
-  const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
-  const repoRoot = resolve(root, "..", "..");
-  const candidates = [
-    envPath,
-    resolve(repoRoot, "packages", "opencode-router"),
-  ].filter(Boolean) as string[];
-
-  for (const candidate of candidates) {
-    const pkgPath = join(candidate, "package.json");
-    if (await fileExists(pkgPath)) return candidate;
-  }
-
-  return null;
-}
-
 async function resolveExpectedVersion(
   manifest: VersionManifest | null,
   name: SidecarName,
 ): Promise<string | undefined> {
-  if (name !== "opencode") {
-    const manifestVersion = manifest?.entries[name]?.version;
-    if (manifestVersion) return manifestVersion;
-  }
+  if (name === "opencode") return opencodeEngineSelection.version;
+  const manifestVersion = manifest?.entries[name]?.version;
+  if (manifestVersion) return manifestVersion;
 
   try {
     const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -2288,18 +1842,6 @@ async function resolveExpectedVersion(
       const localPath = join(root, "..", "server", "package.json");
       const localVersion = await readPackageVersion(localPath);
       if (localVersion) return localVersion;
-    }
-    if (name === "opencode-router") {
-      const repoDir = await resolveOpenCodeRouterRepoDir();
-      const localPath = repoDir
-        ? join(repoDir, "package.json")
-        : join(root, "..", "opencode-router", "package.json");
-      const localVersion = await readPackageVersion(localPath);
-      if (localVersion) return localVersion;
-    }
-    if (name === "opencode") {
-      const pinnedVersion = await readPinnedOpencodeVersion();
-      if (pinnedVersion) return pinnedVersion;
     }
   } catch {
     // ignore
@@ -2309,15 +1851,6 @@ async function resolveExpectedVersion(
   if (name === "legalwork-server") {
     try {
       const pkgPath = require.resolve("legalwork-server/package.json");
-      const version = await readPackageVersion(pkgPath);
-      if (version) return version;
-    } catch {
-      // ignore
-    }
-  }
-  if (name === "opencode-router") {
-    try {
-      const pkgPath = require.resolve("opencode-router/package.json");
       const version = await readPackageVersion(pkgPath);
       if (version) return version;
     } catch {
@@ -2344,7 +1877,7 @@ async function readCliVersion(
     {
       // Avoid picking up a local bunfig.toml preload from the caller's cwd.
       // (Notably, packages/orchestrator/bunfig.toml preloads @opentui/solid/preload which
-      // breaks running bun-compiled binaries like opencodeRouter during version checks.)
+      // breaks running Bun-compiled binaries during version checks.)
       cwd: tmpdir(),
       stdio: ["ignore", "pipe", "pipe"],
     },
@@ -2483,12 +2016,12 @@ async function assertSandboxBinaryFile(
   const lower = bin.toLowerCase();
   if (lower.endsWith(".js") || lower.endsWith(".ts")) {
     throw new Error(
-      `Sandbox mode requires ${name} to be a native binary (got ${bin}). Use downloaded sidecars or pass a Linux binary path.`,
+      `Sandbox mode requires ${name} to be a native binary (got ${bin}). Build local Linux sidecars or pass a Linux binary path.`,
     );
   }
   if (!isPathLikeBinary(bin)) {
     throw new Error(
-      `Sandbox mode requires ${name} to be a file path (got ${bin}). Use downloaded sidecars or pass --${name}-bin with a Linux binary path.`,
+      `Sandbox mode requires ${name} to be a file path (got ${bin}). Build local Linux sidecars or pass --${name}-bin with a Linux binary path.`,
     );
   }
   const resolved = resolve(process.cwd(), bin);
@@ -2570,19 +2103,6 @@ async function resolveLegalworkServerBin(options: {
     return { bin: bundled, source: "bundled", expectedVersion };
   }
 
-  if (options.source === "downloaded") {
-    const downloaded = await downloadSidecarBinary({
-      name: "legalwork-server",
-      sidecar: options.sidecar,
-    });
-    if (!downloaded) {
-      throw new Error(
-        "legalwork-server download failed. Check sidecar manifest or base URL.",
-      );
-    }
-    return downloaded;
-  }
-
   if (options.source === "external") {
     return resolveExternal();
   }
@@ -2599,15 +2119,9 @@ async function resolveLegalworkServerBin(options: {
     return resolveExternal();
   }
 
-  const downloaded = await downloadSidecarBinary({
-    name: "legalwork-server",
-    sidecar: options.sidecar,
-  });
-  if (downloaded) return downloaded;
-
   if (!options.allowExternal) {
     throw new Error(
-      "Bundled legalwork-server binary missing and download failed. Use --allow-external or --sidecar-source external.",
+      "Bundled legalwork-server is missing. Build the local bundle or use --allow-external with a local server; standalone binary downloads are retired.",
     );
   }
 
@@ -2636,6 +2150,38 @@ async function resolveOpencodeBin(options: {
     options.manifest,
     "opencode",
   );
+  if (opencodeEngineSelection.kind === "derivative") {
+    const parts = options.sidecar.target?.replace(/^bun-/, "").split("-");
+    const target = parts ? opencodeReleaseTarget(parts[0] === "windows" ? "win32" : parts[0], parts[1], parts.includes("musl") ? "musl" : "glibc") : opencodeReleaseTarget();
+    // Paths select a location, never its identity: each process verifies the
+    // compiled distribution pin before even requesting an executable version.
+    if (options.explicit || options.source === "external") {
+      if (!options.allowExternal) throw new Error("External opencode requires --allow-external");
+      if (!options.explicit) throw new Error("The selected engine requires an explicit verified artifact path; PATH lookup cannot identify its distribution.");
+      const bin = resolveBinPath(options.explicit);
+      await verifySelectedOpencodeEngine(bin, { target });
+      return { bin, source: "external", expectedVersion };
+    }
+    const binaryName = target.startsWith("windows-") ? "opencode.exe" : "opencode";
+    const bundledDirectories = [
+      ...(options.manifest ? [join(options.manifest.dir, "..", "opencode-engine", opencodeEngineSelection.artifactId, target), join(options.manifest.dir, "opencode-engine", opencodeEngineSelection.artifactId, target)] : []),
+      join(dirname(process.execPath), "opencode-engine", opencodeEngineSelection.artifactId, target),
+    ];
+    for (const directory of bundledDirectories) {
+      const bin = join(directory, binaryName);
+      if (!(await fileExists(bin))) continue;
+      await verifySelectedOpencodeEngine(bin, { target });
+      return { bin, source: "bundled", expectedVersion };
+    }
+    if (options.source === "bundled") throw new Error("The selected OpenCode distribution is missing from this bundle; rebuild the sidecars for this target.");
+    const installed = await installSelectedOpencodeEngine({
+      directory: join(options.sidecar.dir, "opencode", opencodeEngineSelection.artifactId, target),
+      cacheDirectory: join(options.sidecar.dir, "opencode-archives"),
+      archiveDirectory: process.env.LEGALWORK_OPENCODE_ARCHIVES,
+      target,
+    });
+    return { bin: installed.path, source: "prepared", expectedVersion: installed.version };
+  }
   const resolveExternal = async (): Promise<ResolvedBinary> => {
     if (!options.allowExternal) {
       throw new Error("External opencode requires --allow-external");
@@ -2663,25 +2209,6 @@ async function resolveOpencodeBin(options: {
     return { bin: bundled, source: "bundled", expectedVersion };
   }
 
-  if (options.source === "downloaded") {
-    const downloaded = await downloadSidecarBinary({
-      name: "opencode",
-      sidecar: options.sidecar,
-      expectedVersion,
-    });
-    if (downloaded) return downloaded;
-    const opencodeDownloaded = await resolveOpencodeDownload(
-      options.sidecar,
-      expectedVersion,
-    );
-    if (opencodeDownloaded) {
-      return { bin: opencodeDownloaded, source: "downloaded", expectedVersion };
-    }
-    throw new Error(
-      "opencode download failed. Check sidecar manifest/network access, or update constants.json.",
-    );
-  }
-
   if (options.source === "external") {
     return resolveExternal();
   }
@@ -2695,153 +2222,9 @@ async function resolveOpencodeBin(options: {
     return resolveExternal();
   }
 
-  const downloaded = await downloadSidecarBinary({
-    name: "opencode",
-    sidecar: options.sidecar,
-    expectedVersion,
-  });
-  if (downloaded) return downloaded;
-
-  const opencodeDownloaded = await resolveOpencodeDownload(
-    options.sidecar,
-    expectedVersion,
-  );
-  if (opencodeDownloaded) {
-    return { bin: opencodeDownloaded, source: "downloaded", expectedVersion };
-  }
-
   if (!options.allowExternal) {
     throw new Error(
-      "Bundled opencode binary missing and download failed. Use --allow-external or --opencode-source external.",
-    );
-  }
-
-  return resolveExternal();
-}
-
-async function resolveOpenCodeRouterBin(options: {
-  explicit?: string;
-  manifest: VersionManifest | null;
-  allowExternal: boolean;
-  sidecar: SidecarConfig;
-  source: BinarySourcePreference;
-}): Promise<ResolvedBinary> {
-  if (options.explicit && !options.allowExternal) {
-    throw new Error("opencode-router-bin requires --allow-external");
-  }
-  if (
-    options.explicit &&
-    options.source !== "auto" &&
-    options.source !== "external"
-  ) {
-    throw new Error(
-      "opencode-router-bin requires --sidecar-source external or auto",
-    );
-  }
-
-  const expectedVersion = await resolveExpectedVersion(
-    options.manifest,
-    "opencode-router",
-  );
-  const resolveExternal = async (): Promise<ResolvedBinary> => {
-    if (!options.allowExternal) {
-      throw new Error("External opencodeRouter requires --allow-external");
-    }
-    if (options.explicit) {
-      const resolved = resolveBinPath(options.explicit);
-      if (
-        (resolved.includes("/") || resolved.startsWith(".")) &&
-        !(await fileExists(resolved))
-      ) {
-        throw new Error(`opencode-router-bin not found: ${resolved}`);
-      }
-      return { bin: resolved, source: "external", expectedVersion };
-    }
-
-    const repoDir = await resolveOpenCodeRouterRepoDir();
-    if (repoDir) {
-      const binPath = join(repoDir, "dist", "bin", "opencode-router");
-      if (await isExecutable(binPath)) {
-        return { bin: binPath, source: "external", expectedVersion };
-      }
-      const cliPath = join(repoDir, "dist", "cli.js");
-      if (await fileExists(cliPath)) {
-        return { bin: cliPath, source: "external", expectedVersion };
-      }
-    }
-
-    const require = createRequire(import.meta.url);
-    try {
-      const pkgPath = require.resolve("opencode-router/package.json");
-      const pkgDir = dirname(pkgPath);
-      const binaryPath = join(pkgDir, "dist", "bin", "opencode-router");
-      if (await isExecutable(binaryPath)) {
-        return { bin: binaryPath, source: "external", expectedVersion };
-      }
-      const cliPath = join(pkgDir, "dist", "cli.js");
-      if (await isExecutable(cliPath)) {
-        return { bin: cliPath, source: "external", expectedVersion };
-      }
-    } catch {
-      // ignore
-    }
-
-    throw new Error(
-      "opencode-router binary not found. Install the opencode-router dependency or pass --opencode-router-bin with --allow-external.",
-    );
-  };
-
-  if (options.source === "bundled") {
-    const bundled = await resolveBundledBinary(
-      options.manifest,
-      "opencode-router",
-    );
-    if (!bundled) {
-      throw new Error(
-        "Bundled opencodeRouter binary missing. Build with pnpm --filter legalwork-orchestrator build:bin:bundled.",
-      );
-    }
-    return { bin: bundled, source: "bundled", expectedVersion };
-  }
-
-  if (options.source === "downloaded") {
-    const downloaded = await downloadSidecarBinary({
-      name: "opencode-router",
-      sidecar: options.sidecar,
-    });
-    if (!downloaded) {
-      throw new Error(
-        "opencodeRouter download failed. Check sidecar manifest or base URL.",
-      );
-    }
-    return downloaded;
-  }
-
-  if (options.source === "external") {
-    return resolveExternal();
-  }
-
-  const bundled = await resolveBundledBinary(
-    options.manifest,
-    "opencode-router",
-  );
-  if (bundled && !(options.allowExternal && options.explicit)) {
-    return { bin: bundled, source: "bundled", expectedVersion };
-  }
-
-  if (options.explicit) {
-    return resolveExternal();
-  }
-
-  const downloaded = await downloadSidecarBinary({
-    name: "opencode-router",
-    sidecar: options.sidecar,
-  });
-  if (downloaded) return downloaded;
-
-  if (!options.allowExternal) {
-    throw new Error(
-      "Bundled opencodeRouter binary missing and download failed. Use --allow-external or --sidecar-source external.",
+      "Bundled OpenCode is missing. Use the normal prepared development entrypoint or an explicit verified local engine; standalone binary downloads are retired.",
     );
   }
 
@@ -2854,148 +2237,6 @@ function resolveRouterDataDir(flags: Map<string, string | boolean>): string {
     return resolve(override.trim());
   }
   return join(homedir(), ".legalwork", "legalwork-orchestrator");
-}
-
-function resolveWorkspaceLegalworkConfigPath(workspaceRoot: string): string {
-  return join(workspaceRoot, ".opencode", "legalwork.json");
-}
-
-function resolveOpencodeRouterConfigPath(): string {
-  const override = process.env.OPENCODE_ROUTER_CONFIG_PATH?.trim();
-  if (override) return resolve(override.replace(/^~\//, `${homedir()}/`));
-  const dataDir =
-    process.env.OPENCODE_ROUTER_DATA_DIR?.trim() ||
-    join(homedir(), ".legalwork", "opencode-router");
-  const expanded = dataDir.replace(/^~\//, `${homedir()}/`);
-  return join(resolve(expanded), "opencode-router.json");
-}
-
-function asRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
-}
-
-function readMessagingEnabledFromLegalworkConfig(
-  legalworkConfig: Record<string, unknown>,
-): boolean | undefined {
-  const messaging = asRecord(legalworkConfig.messaging);
-  return readOptionalBool(messaging.enabled);
-}
-
-function hasConfiguredMessagingServices(routerConfig: Record<string, unknown>): boolean {
-  const channels = asRecord(routerConfig.channels);
-
-  const telegram = asRecord(channels.telegram);
-  const legacyTelegramToken =
-    typeof telegram.token === "string" ? telegram.token.trim() : "";
-  if (legacyTelegramToken) return true;
-  const telegramBots = Array.isArray(telegram.bots) ? telegram.bots : [];
-  if (
-    telegramBots.some((bot) => {
-      const record = asRecord(bot);
-      return (
-        typeof record.token === "string" && record.token.trim().length > 0
-      );
-    })
-  ) {
-    return true;
-  }
-
-  const slack = asRecord(channels.slack);
-  const legacySlackBotToken =
-    typeof slack.botToken === "string" ? slack.botToken.trim() : "";
-  const legacySlackAppToken =
-    typeof slack.appToken === "string" ? slack.appToken.trim() : "";
-  if (legacySlackBotToken && legacySlackAppToken) return true;
-  const slackApps = Array.isArray(slack.apps) ? slack.apps : [];
-  if (
-    slackApps.some((app) => {
-      const record = asRecord(app);
-      const botToken =
-        typeof record.botToken === "string" ? record.botToken.trim() : "";
-      const appToken =
-        typeof record.appToken === "string" ? record.appToken.trim() : "";
-      return Boolean(botToken && appToken);
-    })
-  ) {
-    return true;
-  }
-
-  return false;
-}
-
-async function resolveOpencodeRouterEnabled(
-  flags: Map<string, string | boolean>,
-  workspaceRoot: string,
-  logger: Logger,
-): Promise<{
-  enabled: boolean;
-  source: "flag" | "env" | "workspace-config" | "inferred";
-}> {
-  const flagValue = flags.get("opencode-router");
-  const parsedFlag = readOptionalBool(flagValue);
-  if (parsedFlag !== undefined) {
-    return { enabled: parsedFlag, source: "flag" };
-  }
-
-  const envValue = readOptionalBool(
-    process.env.LEGALWORK_OPENCODE_ROUTER,
-  );
-  if (envValue !== undefined) {
-    return { enabled: envValue, source: "env" };
-  }
-
-  const legalworkConfigPath = resolveWorkspaceLegalworkConfigPath(workspaceRoot);
-  let legalworkConfig: Record<string, unknown> = {};
-  try {
-    const raw = await readFile(legalworkConfigPath, "utf8");
-    legalworkConfig = asRecord(JSON.parse(raw));
-  } catch {
-    legalworkConfig = {};
-  }
-
-  const configured = readMessagingEnabledFromLegalworkConfig(legalworkConfig);
-  if (configured !== undefined) {
-    return { enabled: configured, source: "workspace-config" };
-  }
-
-  let inferredEnabled = false;
-  const routerConfigPath = resolveOpencodeRouterConfigPath();
-  try {
-    const raw = await readFile(routerConfigPath, "utf8");
-    inferredEnabled = hasConfiguredMessagingServices(asRecord(JSON.parse(raw)));
-  } catch {
-    inferredEnabled = false;
-  }
-
-  const nextLegalworkConfig: Record<string, unknown> = {
-    ...legalworkConfig,
-    messaging: {
-      ...asRecord(legalworkConfig.messaging),
-      enabled: inferredEnabled,
-    },
-  };
-
-  try {
-    await mkdir(dirname(legalworkConfigPath), { recursive: true });
-    await writeFile(
-      legalworkConfigPath,
-      `${JSON.stringify(nextLegalworkConfig, null, 2)}\n`,
-      "utf8",
-    );
-  } catch (error) {
-    logger.warn(
-      "Failed to persist messaging enabled default",
-      {
-        path: legalworkConfigPath,
-        error: error instanceof Error ? error.message : String(error),
-      },
-      "legalwork-orchestrator",
-    );
-  }
-
-  return { enabled: inferredEnabled, source: "inferred" };
 }
 
 function resolveInternalDevMode(flags: Map<string, string | boolean>): boolean {
@@ -3104,370 +2345,12 @@ async function ensureOpencodeStateLayout(
   }
 }
 
-function routerStatePath(dataDir: string): string {
-  return join(dataDir, "legalwork-orchestrator-state.json");
-}
-
-function nowMs(): number {
-  return Date.now();
-}
-
-async function loadRouterState(path: string): Promise<RouterState> {
-  try {
-    const raw = await readFile(path, "utf8");
-    const parsed = JSON.parse(raw) as RouterState;
-    if (!parsed.workspaces) parsed.workspaces = [];
-    if (!parsed.activeId) parsed.activeId = "";
-    if (!parsed.version) parsed.version = 1;
-    return parsed;
-  } catch {
-    return {
-      version: 1,
-      daemon: undefined,
-      opencode: undefined,
-      cliVersion: undefined,
-      sidecar: undefined,
-      binaries: undefined,
-      activeId: "",
-      workspaces: [],
-    };
-  }
-}
-
-async function saveRouterState(
-  path: string,
-  state: RouterState,
-): Promise<void> {
-  await mkdir(dirname(path), { recursive: true });
-  const payload = JSON.stringify(state, null, 2);
-  await writeFile(path, `${payload}\n`, "utf8");
-}
-
 function normalizeWorkspacePath(input: string): string {
   return resolve(input).replace(/[\\/]+$/, "");
 }
 
 function workspaceIdForLocal(path: string): string {
   return `ws-${createHash("sha1").update(path).digest("hex").slice(0, 12)}`;
-}
-
-function workspaceIdForRemote(
-  baseUrl: string,
-  directory?: string | null,
-): string {
-  const key = directory ? `${baseUrl}::${directory}` : baseUrl;
-  return `ws-${createHash("sha1").update(key).digest("hex").slice(0, 12)}`;
-}
-
-function opencodeRouterSendToolSource(): string {
-  return [
-    'import { tool } from "@opencode-ai/plugin"',
-    "",
-    "const redactTarget = (value) => {",
-    "  const text = String(value || '').trim()",
-    "  if (!text) return ''",
-    "  if (text.length <= 6) return 'hidden'",
-    "  return `${text.slice(0, 2)}…${text.slice(-2)}`",
-    "}",
-    "",
-    "const buildGuidance = (result) => {",
-    "  const sent = Number(result?.sent || 0)",
-    "  const attempted = Number(result?.attempted || 0)",
-    "  const reason = String(result?.reason || '')",
-    "  const failures = Array.isArray(result?.failures) ? result.failures : []",
-    "",
-    "  if (sent > 0 && failures.length === 0) return 'Delivered successfully.'",
-    "  if (sent > 0) return 'Delivered to at least one conversation, but some targets failed.'",
-    "",
-    "  const chatNotFound = failures.some((item) => /chat not found/i.test(String(item?.error || '')))",
-    "  if (chatNotFound) {",
-    "    return 'Delivery failed because the recipient has not started a chat with the bot yet. Ask them to send /start, then retry.'",
-    "  }",
-    "",
-    "  if (/No bound conversations/i.test(reason)) {",
-    "    return 'No linked conversation found for this workspace yet. Ask the recipient to message the bot first, then retry.'",
-    "  }",
-    "",
-    "  if (attempted === 0) return 'No eligible delivery target found.'",
-    "  return 'Delivery failed. Retry after confirming the recipient and bot linkage.'",
-    "}",
-    "",
-    "export default tool({",
-    '  description: "Send a message via opencodeRouter (Telegram/Slack) to a peer or directory bindings.",',
-    "  args: {",
-    '    text: tool.schema.string().describe("Message text to send"),',
-    '    channel: tool.schema.enum(["telegram", "slack"]).optional().describe("Channel to send on (default: telegram)"),',
-    '    identityId: tool.schema.string().optional().describe("OpenCodeRouter identity id (default: all identities)"),',
-    '    directory: tool.schema.string().optional().describe("Directory to target for fan-out (default: current session directory)"),',
-    '    peerId: tool.schema.string().optional().describe("Direct destination peer id (chat/thread id)"),',
-    '    autoBind: tool.schema.boolean().optional().describe("When direct sending, bind peerId to directory if provided"),',
-    "  },",
-    "  async execute(args, context) {",
-    '    const rawPort = (process.env.OPENCODE_ROUTER_HEALTH_PORT || "3005").trim()',
-    "    const port = Number(rawPort)",
-    "    if (!Number.isFinite(port) || port <= 0) {",
-    "      throw new Error(`Invalid OPENCODE_ROUTER_HEALTH_PORT: ${rawPort}`)",
-    "    }",
-    '    const channel = (args.channel || "telegram").trim()',
-    '    if (channel !== "telegram" && channel !== "slack") {',
-    '      throw new Error("channel must be telegram or slack")',
-    "    }",
-    '    const text = String(args.text || "")',
-    '    if (!text.trim()) throw new Error("text is required")',
-    '    const directory = (args.directory || context.directory || "").trim()',
-    '    const peerId = String(args.peerId || "").trim()',
-    '    if (!directory && !peerId) throw new Error("Either directory or peerId is required")',
-    "    const payload = {",
-    "      channel,",
-    "      text,",
-    "      ...(args.identityId ? { identityId: String(args.identityId) } : {}),",
-    "      ...(directory ? { directory } : {}),",
-    "      ...(peerId ? { peerId } : {}),",
-    "      ...(args.autoBind === true ? { autoBind: true } : {}),",
-    "    }",
-    "    const response = await fetch(`http://127.0.0.1:${port}/send`, {",
-    '      method: "POST",',
-    '      headers: { "Content-Type": "application/json" },',
-    "      body: JSON.stringify(payload),",
-    "    })",
-    "    const body = await response.text()",
-    "    let json = null",
-    "    try {",
-    "      json = JSON.parse(body)",
-    "    } catch {",
-    "      json = null",
-    "    }",
-    "    if (!response.ok) {",
-    "      throw new Error(`opencodeRouter /send failed (${response.status}): ${body}`)",
-    "    }",
-    "",
-    "    const sent = Number(json?.sent || 0)",
-    "    const attempted = Number(json?.attempted || 0)",
-    "    const reason = typeof json?.reason === 'string' ? json.reason : ''",
-    "    const failuresRaw = Array.isArray(json?.failures) ? json.failures : []",
-    "    const failures = failuresRaw.map((item) => ({",
-    "      identityId: String(item?.identityId || ''),",
-    "      error: String(item?.error || 'delivery failed'),",
-    "      ...(item?.peerId ? { target: redactTarget(item.peerId) } : {}),",
-    "    }))",
-    "",
-    "    const result = {",
-    "      ok: true,",
-    "      channel,",
-    "      sent,",
-    "      attempted,",
-    "      guidance: buildGuidance({ sent, attempted, reason, failures }),",
-    "      ...(reason ? { reason } : {}),",
-    "      ...(failures.length ? { failures } : {}),",
-    "    }",
-    "    return JSON.stringify(result, null, 2)",
-    "  },",
-    "})",
-    "",
-  ].join("\n");
-}
-
-function opencodeRouterStatusToolSource(): string {
-  return [
-    'import { tool } from "@opencode-ai/plugin"',
-    "",
-    "const redactTarget = (value) => {",
-    "  const text = String(value || '').trim()",
-    "  if (!text) return ''",
-    "  if (text.length <= 6) return 'hidden'",
-    "  return `${text.slice(0, 2)}…${text.slice(-2)}`",
-    "}",
-    "",
-    "const isNumericTelegramPeerId = (value) => /^-?\\d+$/.test(String(value || '').trim())",
-    "",
-    "export default tool({",
-    '  description: "Check opencodeRouter messaging readiness (health, identities, bindings).",',
-    "  args: {",
-    '    channel: tool.schema.enum(["telegram", "slack"]).optional().describe("Channel to inspect (default: telegram)"),',
-    '    identityId: tool.schema.string().optional().describe("Identity id to scope checks"),',
-    '    directory: tool.schema.string().optional().describe("Directory to inspect bindings for (default: current session directory)"),',
-    '    peerId: tool.schema.string().optional().describe("Peer id to inspect bindings for"),',
-    '    includeBindings: tool.schema.boolean().optional().describe("Include binding details (default: false)"),',
-    "  },",
-    "  async execute(args, context) {",
-    '    const rawPort = (process.env.OPENCODE_ROUTER_HEALTH_PORT || "3005").trim()',
-    "    const port = Number(rawPort)",
-    "    if (!Number.isFinite(port) || port <= 0) {",
-    "      throw new Error(`Invalid OPENCODE_ROUTER_HEALTH_PORT: ${rawPort}`)",
-    "    }",
-    '    const channel = (args.channel || "telegram").trim()',
-    '    if (channel !== "telegram" && channel !== "slack") {',
-    '      throw new Error("channel must be telegram or slack")',
-    "    }",
-    '    const identityId = String(args.identityId || "").trim()',
-    '    const directory = (args.directory || context.directory || "").trim()',
-    '    const peerId = String(args.peerId || "").trim()',
-    "    const targetValid = channel !== 'telegram' || !peerId || isNumericTelegramPeerId(peerId)",
-    "    const includeBindings = args.includeBindings === true",
-    "",
-    "    const fetchJson = async (path) => {",
-    "      const response = await fetch(`http://127.0.0.1:${port}${path}`)",
-    "      const body = await response.text()",
-    "      let json = null",
-    "      try {",
-    "        json = JSON.parse(body)",
-    "      } catch {",
-    "        json = null",
-    "      }",
-    "      if (!response.ok) {",
-    '        return { ok: false, status: response.status, json, error: typeof json?.error === "string" ? json.error : body }',
-    "      }",
-    "      return { ok: true, status: response.status, json }",
-    "    }",
-    "",
-    "    const health = await fetchJson('/health')",
-    "    const identities = await fetchJson(`/identities/${channel}`)",
-    "    let bindings = null",
-    "    if (includeBindings) {",
-    "      const search = new URLSearchParams()",
-    "      search.set('channel', channel)",
-    "      if (identityId) search.set('identityId', identityId)",
-    "      bindings = await fetchJson(`/bindings?${search.toString()}`)",
-    "    }",
-    "",
-    "    const identityItems = Array.isArray(identities?.json?.items) ? identities.json.items : []",
-    "    const scopedIdentityItems = identityId",
-    "      ? identityItems.filter((item) => String(item?.id || '').trim() === identityId)",
-    "      : identityItems",
-    "    const runningItems = scopedIdentityItems.filter((item) => item && item.enabled === true && item.running === true)",
-    "    const enabledItems = scopedIdentityItems.filter((item) => item && item.enabled === true)",
-    "",
-    "    const bindingItems = Array.isArray(bindings?.json?.items) ? bindings.json.items : []",
-    "    const filteredBindings = bindingItems.filter((item) => {",
-    "      if (!item || typeof item !== 'object') return false",
-    "      if (directory && String(item.directory || '').trim() !== directory) return false",
-    "      if (peerId && String(item.peerId || '').trim() !== peerId) return false",
-    "      return true",
-    "    })",
-    "    const publicBindings = filteredBindings.map((item) => ({",
-    "      channel: String(item.channel || channel),",
-    "      identityId: String(item.identityId || ''),",
-    "      directory: String(item.directory || ''),",
-    "      ...(item?.peerId ? { target: redactTarget(item.peerId) } : {}),",
-    "      updatedAt: item?.updatedAt,",
-    "    }))",
-    "",
-    "    let ready = false",
-    "    let guidance = ''",
-    "    let nextAction = ''",
-    "    if (!health.ok) {",
-    "      guidance = 'OpenCode Router health endpoint is unavailable'",
-    "      nextAction = 'check_router_health'",
-    "    } else if (!identities.ok) {",
-    "      guidance = `Identity lookup failed for ${channel}`",
-    "      nextAction = 'check_identity_config'",
-    "    } else if (runningItems.length === 0) {",
-    "      guidance = `No running ${channel} identity`",
-    "      nextAction = 'start_identity'",
-    "    } else if (!targetValid) {",
-    "      guidance = 'Telegram direct targets must be numeric chat IDs. Prefer linked conversations over asking users for raw IDs.'",
-    "      nextAction = 'use_linked_conversation'",
-    "    } else if (peerId) {",
-    "      ready = true",
-    "      guidance = 'Ready for direct send'",
-    "      nextAction = 'send_direct'",
-    "    } else if (directory) {",
-    "      ready = filteredBindings.length > 0",
-    "      guidance = ready",
-    "        ? 'Ready for directory fan-out send'",
-    "        : channel === 'telegram'",
-    "          ? 'No linked Telegram conversations yet. Ask the recipient to message your bot (for example /start), then retry.'",
-    "          : 'No linked conversations found for this directory yet'",
-    "      nextAction = ready ? 'send_directory' : channel === 'telegram' ? 'wait_for_recipient_start' : 'link_conversation'",
-    "    } else {",
-    "      ready = true",
-    "      guidance = 'Ready. Provide a message target (peer or directory).'",
-    "      nextAction = 'choose_target'",
-    "    }",
-    "",
-    "    const result = {",
-    "      ok: health.ok && identities.ok && (!bindings || bindings.ok),",
-    "      ready,",
-    "      guidance,",
-    "      nextAction,",
-    "      channel,",
-    "      ...(identityId ? { identityId } : {}),",
-    "      ...(directory ? { directory } : {}),",
-    "      ...(peerId ? { targetProvided: true } : {}),",
-    "      ...(peerId ? { targetValid } : {}),",
-    "      health: {",
-    "        ok: health.ok,",
-    "        status: health.status,",
-    "        error: health.ok ? undefined : health.error,",
-    "        snapshot: health.ok ? health.json : undefined,",
-    "      },",
-    "      identities: {",
-    "        ok: identities.ok,",
-    "        status: identities.status,",
-    "        error: identities.ok ? undefined : identities.error,",
-    "        configured: scopedIdentityItems.length,",
-    "        enabled: enabledItems.length,",
-    "        running: runningItems.length,",
-    "        items: scopedIdentityItems,",
-    "      },",
-    "      ...(includeBindings",
-    "        ? {",
-    "            bindings: {",
-    "              ok: Boolean(bindings?.ok),",
-    "              status: bindings?.status,",
-    "              error: bindings?.ok ? undefined : bindings?.error,",
-    "              count: filteredBindings.length,",
-    "              items: publicBindings,",
-    "            },",
-    "          }",
-    "        : {}),",
-    "    }",
-    "    return JSON.stringify(result, null, 2)",
-    "  },",
-    "})",
-    "",
-  ].join("\n");
-}
-
-async function ensureOpencodeManagedTools(configDir: string): Promise<void> {
-  const toolsDir = join(configDir, "tools");
-  await mkdir(toolsDir, { recursive: true });
-  const writeManagedTool = async (name: string, source: string) => {
-    const toolPath = join(toolsDir, name);
-    const content = `${source}\n`;
-    try {
-      const existing = await readFile(toolPath, "utf8");
-      if (existing === content) return;
-    } catch {
-      // ignore
-    }
-    await writeFile(toolPath, content, "utf8");
-  };
-
-  await writeManagedTool(
-    "opencode_router_send.ts",
-    opencodeRouterSendToolSource(),
-  );
-  await writeManagedTool(
-    "opencode_router_status.ts",
-    opencodeRouterStatusToolSource(),
-  );
-}
-
-function findWorkspace(
-  state: RouterState,
-  input: string,
-): RouterWorkspace | undefined {
-  const trimmed = input.trim();
-  if (!trimmed) return undefined;
-  const direct = state.workspaces.find(
-    (entry) => entry.id === trimmed || entry.name === trimmed,
-  );
-  if (direct) return direct;
-  const normalized = normalizeWorkspacePath(trimmed);
-  return state.workspaces.find(
-    (entry) => entry.path && normalizeWorkspacePath(entry.path) === normalized,
-  );
 }
 
 function isProcessAlive(pid?: number): boolean {
@@ -3478,15 +2361,6 @@ function isProcessAlive(pid?: number): boolean {
   } catch {
     return false;
   }
-}
-
-function resolveSelfCommand(): { command: string; prefixArgs: string[] } {
-  const arg1 = process.argv[1];
-  if (!arg1) return { command: process.argv[0], prefixArgs: [] };
-  if (arg1.endsWith(".js") || arg1.endsWith(".ts")) {
-    return { command: process.argv[0], prefixArgs: [arg1] };
-  }
-  return { command: process.argv[0], prefixArgs: [] };
 }
 
 async function waitForHealthy(
@@ -3509,110 +2383,50 @@ async function waitForHealthy(
   throw new Error(lastError ?? "Timed out waiting for health check");
 }
 
-async function fetchOpenCodeRouterHealth(
-  baseUrl: string,
-): Promise<OpenCodeRouterHealthSnapshot> {
-  return (await fetchJson(
-    `${baseUrl.replace(/\/$/, "")}/health`,
-  )) as OpenCodeRouterHealthSnapshot;
-}
-
-async function fetchOpenCodeRouterHealthViaLegalwork(
-  legalworkUrl: string,
-  token: string,
-): Promise<OpenCodeRouterHealthSnapshot> {
-  const url = `${legalworkUrl.replace(/\/$/, "")}/opencode-router/health`;
-  return (await fetchJson(url, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
-  })) as OpenCodeRouterHealthSnapshot;
-}
-
-async function waitForOpenCodeRouterHealthy(
-  baseUrl: string,
-  timeoutMs = 10_000,
-  pollMs = 500,
-) {
-  const start = Date.now();
-  let lastError: string | null = null;
-  while (Date.now() - start < timeoutMs) {
-    try {
-      const response = await fetch(`${baseUrl.replace(/\/$/, "")}/health`);
-      if (response.ok) {
-        return (await response.json()) as OpenCodeRouterHealthSnapshot;
-      }
-      lastError = `HTTP ${response.status}`;
-    } catch (error) {
-      lastError = error instanceof Error ? error.message : String(error);
-    }
-    await new Promise((resolve) => setTimeout(resolve, pollMs));
-  }
-  throw new Error(lastError ?? "Timed out waiting for opencodeRouter health");
-}
-
-async function waitForOpenCodeRouterHealthyViaLegalwork(
-  legalworkUrl: string,
-  token: string,
-  timeoutMs = 10_000,
-  pollMs = 500,
-): Promise<OpenCodeRouterHealthSnapshot> {
-  const url = `${legalworkUrl.replace(/\/$/, "")}/opencode-router/health`;
-  const start = Date.now();
-  let lastError: string | null = null;
-  while (Date.now() - start < timeoutMs) {
-    try {
-      const response = await fetch(url, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-      if (response.ok) {
-        return (await response.json()) as OpenCodeRouterHealthSnapshot;
-      }
-      lastError = `HTTP ${response.status}`;
-    } catch (error) {
-      lastError = error instanceof Error ? error.message : String(error);
-    }
-    await new Promise((resolve) => setTimeout(resolve, pollMs));
-  }
-  throw new Error(
-    lastError ??
-      "Timed out waiting for opencodeRouter health via legalwork-server",
-  );
-}
-
 async function waitForOpencodeHealthy(
-  client: ReturnType<typeof createOpencodeClient>,
+  client: OpenCodeClient,
   timeoutMs = 10_000,
   pollMs = 250,
 ) {
   const start = Date.now();
-  let lastError: string | null = null;
-  while (Date.now() - start < timeoutMs) {
+  let lastError = "No API response";
+  while (Date.now()-start<timeoutMs) {
     try {
-      const health = unwrap(await client.global.health());
-      if (health?.healthy) return health;
-      lastError = "Server reported unhealthy";
-    } catch (error) {
-      lastError = error instanceof Error ? error.message : String(error);
-    }
-
-    try {
-      // Some environments have a broken OpenCode /health probe even while the
-      // core API surface is already usable. Accept a successful path lookup as
-      // readiness so session APIs can come up in those runtimes.
-      unwrap(await client.path.get());
-      return { healthy: true, degraded: true, reason: lastError ?? undefined };
-    } catch (error) {
-      if (!lastError) {
-        lastError = error instanceof Error ? error.message : String(error);
+      const info=await client.server.info({signal:AbortSignal.timeout(Math.max(1,timeoutMs-(Date.now()-start)))});
+      if (!info.version.startsWith("2.")) throw new Error(`OpenCode v2 is required, received ${info.version}`);
+      // HTTP startup has a watchdog; converting existing history has no overall deadline.
+      while(true){
+        const migration=await client.migration.v1.status();
+        if(migration.status==="completed")return {healthy:true,version:info.version};
+        if(migration.status==="error")throw new Error(`OpenCode history migration failed: ${migration.error}`);
+        await new Promise(resolve=>setTimeout(resolve,pollMs));
       }
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, pollMs));
+    } catch(error){lastError=error instanceof Error?error.message:String(error);}
+    await new Promise(resolve=>setTimeout(resolve,pollMs));
   }
-  throw new Error(lastError ?? "Timed out waiting for OpenCode health");
+  throw new Error(lastError);
+}
+
+/** The managed server owns the HTTP watchdog; history conversion/recovery has
+ * no overall task deadline. Stop waiting when that exact owner process exits. */
+async function waitForManagedOpencodeHealthy(client: OpenCodeClient, owner: ChildProcess, serverURL: string): Promise<void> {
+  while (owner.exitCode === null && owner.signalCode === null) {
+    let version: string;
+    let ready = false;
+    try {
+      version = (await client.server.info({ signal: AbortSignal.timeout(10_000) })).version;
+      const health: unknown = await (await fetch(`${serverURL}/health`, { signal: AbortSignal.timeout(10_000) })).json();
+      ready = Boolean(health && typeof health === "object" && "engine" in health && health.engine && typeof health.engine === "object" && "status" in health.engine && health.engine.status === "ready");
+    }
+    catch {
+      await new Promise(resolve => setTimeout(resolve, 250));
+      continue;
+    }
+    if (!version.startsWith("2.")) throw new Error(`OpenCode v2 is required, received ${version}`);
+    if (ready) return;
+    await new Promise(resolve => setTimeout(resolve, 250));
+  }
+  throw new Error("The managed LegalWork server exited before its native engine became ready.");
 }
 
 /**
@@ -3636,32 +2450,23 @@ async function waitForHealthyViaProxy(
   timeoutMs = 10_000,
   pollMs = 250,
 ): Promise<void> {
-  const start = Date.now();
-  let lastError: string | null = null;
-  const headers: Record<string, string> = {};
-  if (token) headers.Authorization = `Bearer ${token}`;
-
-  while (Date.now() - start < timeoutMs) {
-    try {
-      // Try the proxied opencode health endpoint.
-      const res = await fetch(`${proxyBaseUrl}/health`, {
-        headers,
-        signal: AbortSignal.timeout(2000),
-      });
-      if (res.ok) return;
-      // Some older server versions may return 401/403 on the proxy but that
-      // still proves the server is up and proxying.  Accept any non-5xx as
-      // "alive" — the real auth validation happens in verifyLegalworkServer.
-      if (res.status < 500) return;
-      lastError = `Proxy returned ${res.status}`;
-    } catch (error) {
-      lastError = error instanceof Error ? error.message : String(error);
+  const client=OpenCode.make({baseUrl:proxyBaseUrl,headers:token?{Authorization:`Bearer ${token}`}:{}});
+  const healthURL = new URL(proxyBaseUrl);
+  if (!/\/opencode\/?$/.test(healthURL.pathname)) throw new Error("The LegalWork engine proxy URL must end in /opencode.");
+  healthURL.pathname = healthURL.pathname.replace(/\/opencode\/?$/, "/health"); healthURL.search = ""; healthURL.hash = "";
+  while (true) {
+    const info = await client.server.info({ signal: AbortSignal.timeout(timeoutMs) });
+    if (!info.version.startsWith("2.")) throw new Error(`OpenCode v2 is required, received ${info.version}`);
+    const response = await fetch(healthURL, { signal: AbortSignal.timeout(timeoutMs) });
+    const health: unknown = await response.json();
+    if (!response.ok || !health || typeof health !== "object" || !("engine" in health) || !health.engine || typeof health.engine !== "object" || !("status" in health.engine)) {
+      throw new Error("The LegalWork server did not return managed engine readiness. Update the server before attaching its engine.");
     }
-    await new Promise((resolve) => setTimeout(resolve, pollMs));
+    if (health.engine.status === "ready") return;
+    // The managed server owns HTTP failure and child-exit watchdogs. Native
+    // history preparation has no separate overall deadline here.
+    await new Promise(resolve => setTimeout(resolve, pollMs));
   }
-  throw new Error(
-    lastError ?? "Timed out waiting for OpenCode health via proxy",
-  );
 }
 
 function printHelp(): void {
@@ -3671,20 +2476,16 @@ function printHelp(): void {
     "Usage:",
     "  legalwork start [--workspace <path>] [options]",
     "  legalwork serve [--workspace <path>] [options]",
-    "  legalwork daemon [run|start|stop|status] [options]",
-    "  legalwork workspace <action> [options]",
-    "  legalwork instance dispose <id> [options]",
+    "  legalwork daemon [stop|status] [--data-dir <path>]",
     "  legalwork approvals list --legalwork-url <url> --host-token <token>",
     "  legalwork approvals reply <id> --allow|--deny --legalwork-url <url> --host-token <token>",
     "  legalwork files <action> [options]",
     "  legalwork status [--legalwork-url <url>] [--opencode-url <url>]",
     "",
     "Commands:",
-    "  start                   Start OpenCode + LegalWork server + OpenCodeRouter",
+
     "  serve                   Start services and stream logs (no TUI)",
-    "  daemon                  Run orchestrator router daemon (multi-workspace)",
-    "  workspace               Manage workspaces (add/list/switch/path)",
-    "  instance                Manage workspace instances (dispose)",
+    "  daemon stop|status      Inspect/stop an existing retired developer daemon",
     "  approvals list           List pending approval requests",
     "  approvals reply <id>     Approve or deny a request",
     "  files                   Manage file sessions and batch file sync",
@@ -3692,13 +2493,10 @@ function printHelp(): void {
     "",
     "Options:",
     "  --workspace <path>        Workspace directory (default: cwd)",
-    "  --data-dir <path>         Data dir for orchestrator router state",
-    "  --daemon-host <host>      Host for orchestrator router daemon (default: 127.0.0.1)",
-    "  --daemon-port <port>      Port for orchestrator router daemon (default: random)",
+    "  --data-dir <path>         Private orchestrator data directory",
     "  --opencode-bin <path>     Path to opencode binary (requires --allow-external)",
     "  --opencode-host <host>    Bind host for opencode serve (loopback only, default: 127.0.0.1)",
     "  --opencode-port <port>    Port for opencode serve (default: random)",
-    "  --opencode-workdir <p>    Workdir for router-managed opencode serve",
     "  --opencode-log-level <l>  Log level for opencode serve (DEBUG, INFO, WARN, ERROR; default: opencode default)",
     "  --opencode-auth           OpenCode basic auth is always enabled",
     "  --opencode-hot-reload     Enable OpenCode hot reload (default: true)",
@@ -3731,17 +2529,11 @@ function printHelp(): void {
     "  --cors <origins>          Comma-separated CORS origins or *",
     "  --connect-host <host>     Override LAN host used for pairing URLs",
     "  --legalwork-server-bin <p> Path to legalwork-server binary (requires --allow-external)",
-    "  --opencode-router-bin <path>     Path to opencodeRouter binary (requires --allow-external)",
-    "  --opencode-router-health-port <p> Health server port for opencodeRouter (default: random)",
-    "  --opencode-router                Enable opencodeRouter sidecar (default from workspace messaging config)",
-    "  --no-opencode-router             Disable opencodeRouter sidecar",
-    "  --opencode-router-required       Exit if opencodeRouter stops",
+
     "  --allow-external          Allow external sidecar binaries (dev only, required for custom bins)",
-    "  --sidecar-dir <path>      Cache directory for downloaded sidecars",
-    "  --sidecar-base-url <url>  Base URL for sidecar downloads",
-    "  --sidecar-manifest <url>  Override sidecar manifest URL",
-    "  --sidecar-source <mode>   auto | bundled | downloaded | external",
-    "  --opencode-source <mode>  auto | bundled | downloaded | external",
+    "  --sidecar-dir <path>      Cache directory for locally prepared sidecars",
+    "  --sidecar-source <mode>   auto | bundled | external",
+    "  --opencode-source <mode>  auto | bundled | external",
     "  --check                   Run health checks then exit",
     "  --check-events            Verify SSE events during check",
     "  --tui                     Force interactive dashboard (TTY only)",
@@ -3789,98 +2581,6 @@ async function stopChild(
   ]);
 }
 
-async function startOpencode(options: {
-  bin: string;
-  workspace: string;
-  stateLayout?: OpencodeStateLayout;
-  hotReload: OpencodeHotReload;
-  bindHost: string;
-  port: number;
-  username?: string;
-  password?: string;
-  corsOrigins: string[];
-  logger: Logger;
-  runId: string;
-  logFormat: LogFormat;
-  logLevel?: string;
-  opencodeRouterHealthPort?: number;
-  modelCatalogUrl?: string;
-}) {
-  const args = [
-    "serve",
-    "--hostname",
-    options.bindHost,
-    "--port",
-    String(options.port),
-  ];
-  if (options.logLevel) {
-    args.push("--log-level", options.logLevel);
-  }
-  for (const origin of options.corsOrigins) {
-    args.push("--cors", origin);
-  }
-
-  const child = spawnProcess(options.bin, args, {
-    cwd: options.workspace,
-    stdio: ["ignore", "pipe", "pipe"],
-    env: {
-      ...process.env,
-      ...(options.stateLayout?.env ?? {}),
-      OPENCODE_CLIENT: "legalwork-orchestrator",
-      // Avoid FFF reading cloud-only documents during background filename indexing.
-      OPENCODE_DISABLE_FFF: "true",
-      OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS: process.env.OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS ?? "true",
-      OPENCODE_MODELS_URL: options.modelCatalogUrl ?? "https://platform.eigenweltlabs.com/api/public/model-catalog",
-      LEGALWORK: "1",
-      LEGALWORK_RUN_ID: options.runId,
-      LEGALWORK_LOG_FORMAT: options.logFormat,
-      OTEL_RESOURCE_ATTRIBUTES: mergeResourceAttributes(
-        {
-          "service.name": "opencode",
-          "service.instance.id": options.runId,
-        },
-        process.env.OTEL_RESOURCE_ATTRIBUTES,
-      ),
-      ...(options.username
-        ? { OPENCODE_SERVER_USERNAME: options.username }
-        : {}),
-      ...(options.password
-        ? { OPENCODE_SERVER_PASSWORD: options.password }
-        : {}),
-      ...(options.stateLayout?.configDir
-        ? { OPENCODE_CONFIG_DIR: options.stateLayout.configDir }
-        : {}),
-      OPENCODE_HOT_RELOAD: options.hotReload.enabled ? "1" : "0",
-      OPENCODE_HOT_RELOAD_DEBOUNCE_MS: String(options.hotReload.debounceMs),
-      OPENCODE_HOT_RELOAD_COOLDOWN_MS: String(options.hotReload.cooldownMs),
-      ...(options.opencodeRouterHealthPort
-        ? {
-            OPENCODE_ROUTER_HEALTH_PORT: String(
-              options.opencodeRouterHealthPort,
-            ),
-          }
-        : {}),
-    },
-  });
-
-  prefixStream(
-    child.stdout,
-    "opencode",
-    "stdout",
-    options.logger,
-    child.pid ?? undefined,
-  );
-  prefixStream(
-    child.stderr,
-    "opencode",
-    "stderr",
-    options.logger,
-    child.pid ?? undefined,
-  );
-
-  return child;
-}
-
 async function startLegalworkServer(options: {
   bin: string;
   host: string;
@@ -3896,8 +2596,14 @@ async function startLegalworkServer(options: {
   opencodeDirectory?: string;
   opencodeUsername?: string;
   opencodePassword?: string;
-  opencodeRouterHealthPort?: number;
-  opencodeRouterDataDir?: string;
+  managedOpencode?: {
+    bin: string;
+    port: number;
+    storageDirectory: string;
+    pluginDirectories: string[];
+    dataHome?: string;
+    logLevel?: string;
+  };
   controlBaseUrl?: string;
   controlToken?: string;
   logger: Logger;
@@ -3944,6 +2650,21 @@ async function startLegalworkServer(options: {
       stdio: ["ignore", "pipe", "pipe"],
       env: {
         ...process.env,
+        ...(options.managedOpencode ? {
+          LEGALWORK_MANAGE_OPENCODE: "1",
+          LEGALWORK_MANAGED_OPENCODE_SANDBOX: "0",
+          LEGALWORK_OPENCODE_BIN: options.managedOpencode.bin,
+          LEGALWORK_MANAGED_OPENCODE_PORT: String(options.managedOpencode.port),
+          LEGALWORK_ENGINE_STORAGE_DIR: options.managedOpencode.storageDirectory,
+          LEGALWORK_ENGINE_PLUGIN_DIRECTORIES: JSON.stringify(options.managedOpencode.pluginDirectories),
+          ...(options.managedOpencode.dataHome ? { LEGALWORK_ENGINE_DATA_HOME: options.managedOpencode.dataHome } : {}),
+          ...(options.managedOpencode.logLevel ? { LEGALWORK_MANAGED_OPENCODE_LOG_LEVEL: options.managedOpencode.logLevel } : {}),
+          // The server owns a fresh authenticated native endpoint. An inherited
+          // attach target must not silently bypass its managed lifecycle.
+          LEGALWORK_OPENCODE_BASE_URL: "",
+          LEGALWORK_OPENCODE_USERNAME: "",
+          LEGALWORK_OPENCODE_PASSWORD: "",
+        } : {}),
         LEGALWORK_TOKEN: options.token,
         LEGALWORK_HOST_TOKEN: options.hostToken,
         LEGALWORK_RUN_ID: options.runId,
@@ -3955,16 +2676,7 @@ async function startLegalworkServer(options: {
           },
           process.env.OTEL_RESOURCE_ATTRIBUTES,
         ),
-        ...(options.opencodeRouterHealthPort
-          ? {
-              OPENCODE_ROUTER_HEALTH_PORT: String(
-                options.opencodeRouterHealthPort,
-              ),
-            }
-          : {}),
-        ...(options.opencodeRouterDataDir
-          ? { OPENCODE_ROUTER_DATA_DIR: options.opencodeRouterDataDir }
-          : {}),
+
         ...(options.opencodeBaseUrl
           ? { LEGALWORK_OPENCODE_BASE_URL: options.opencodeBaseUrl }
           : {}),
@@ -4003,125 +2715,6 @@ async function startLegalworkServer(options: {
   );
 
   return child;
-}
-
-async function startOpenCodeRouter(options: {
-  bin: string;
-  workspace: string;
-  opencodeUrl?: string;
-  opencodeUsername?: string;
-  opencodePassword?: string;
-  opencodeRouterHealthPort?: number;
-  opencodeRouterDataDir?: string;
-  logger: Logger;
-  runId: string;
-  logFormat: LogFormat;
-}) {
-  const args = ["serve", options.workspace];
-  if (options.opencodeUrl) {
-    const supports = await opencodeRouterSupportsOpencodeUrl(options.bin);
-    if (supports) {
-      args.push("--opencode-url", options.opencodeUrl);
-    }
-  }
-
-  const resolved = resolveBinCommand(options.bin);
-  const child = spawnProcess(
-    resolved.command,
-    [...resolved.prefixArgs, ...args],
-    {
-      cwd: options.workspace,
-      stdio: ["ignore", "pipe", "pipe"],
-      env: {
-        ...process.env,
-        LEGALWORK_RUN_ID: options.runId,
-        LEGALWORK_LOG_FORMAT: options.logFormat,
-        OTEL_RESOURCE_ATTRIBUTES: mergeResourceAttributes(
-          {
-            "service.name": "opencode-router",
-            "service.instance.id": options.runId,
-          },
-          process.env.OTEL_RESOURCE_ATTRIBUTES,
-        ),
-        ...(options.opencodeUrl ? { OPENCODE_URL: options.opencodeUrl } : {}),
-        OPENCODE_DIRECTORY: options.workspace,
-        ...(options.opencodeRouterHealthPort
-          ? {
-              OPENCODE_ROUTER_HEALTH_PORT: String(
-                options.opencodeRouterHealthPort,
-              ),
-            }
-          : {}),
-        ...(options.opencodeRouterDataDir
-          ? { OPENCODE_ROUTER_DATA_DIR: options.opencodeRouterDataDir }
-          : {}),
-        ...(options.opencodeUsername
-          ? { OPENCODE_SERVER_USERNAME: options.opencodeUsername }
-          : {}),
-        ...(options.opencodePassword
-          ? { OPENCODE_SERVER_PASSWORD: options.opencodePassword }
-          : {}),
-      },
-    },
-  );
-
-  prefixStream(
-    child.stdout,
-    "opencode-router",
-    "stdout",
-    options.logger,
-    child.pid ?? undefined,
-  );
-  prefixStream(
-    child.stderr,
-    "opencode-router",
-    "stderr",
-    options.logger,
-    child.pid ?? undefined,
-  );
-
-  return child;
-}
-
-async function opencodeRouterSupportsOpencodeUrl(
-  bin: string,
-): Promise<boolean> {
-  const resolved = resolveBinCommand(bin);
-  return new Promise((resolve) => {
-    const child = spawnProcess(
-      resolved.command,
-      [...resolved.prefixArgs, "--help"],
-      {
-        cwd: tmpdir(),
-        stdio: ["ignore", "pipe", "pipe"],
-      },
-    );
-    let output = "";
-    const timeout = setTimeout(() => {
-      try {
-        child.kill("SIGKILL");
-      } catch {
-        // ignore
-      }
-      resolve(output.includes("--opencode-url"));
-    }, 1500);
-
-    const onChunk = (chunk: unknown) => {
-      output += String(chunk ?? "");
-    };
-
-    child.stdout?.on("data", onChunk);
-    child.stderr?.on("data", onChunk);
-
-    child.on("exit", () => {
-      clearTimeout(timeout);
-      resolve(output.includes("--opencode-url"));
-    });
-    child.on("error", () => {
-      clearTimeout(timeout);
-      resolve(false);
-    });
-  });
 }
 
 async function stopDockerContainer(
@@ -4216,12 +2809,13 @@ async function stageSandboxRuntime(options: {
   sidecars: {
     opencode: string;
     legalworkServer: string;
-    opencodeRouter?: string | null;
+
   };
   detach: boolean;
 }): Promise<{
   baseDir: string;
   rootInContainer: string;
+  opencodeBinInContainer: string;
   entrypointHostPath: string;
   cleanup: () => Promise<void>;
 }> {
@@ -4236,20 +2830,24 @@ async function stageSandboxRuntime(options: {
   await mkdir(sidecarsDir, { recursive: true });
   const entrypointHostPath = join(baseDir, "entrypoint.sh");
 
-  const stagedOpencode = join(sidecarsDir, "opencode");
+  const rootInContainer = `/persist/legalwork-orchestrator-sandbox/${options.containerName}`;
+  let stagedOpencode = join(sidecarsDir, "opencode");
+  if (opencodeEngineSelection.kind === "derivative") {
+    const target = opencodeReleaseTarget("linux", process.arch);
+    stagedOpencode = await stageSelectedOpencodeEngine({
+      binary: options.sidecars.opencode,
+      directory: join(baseDir, "opencode-engine", opencodeEngineSelection.artifactId, target),
+      target,
+    });
+  } else {
+    await copyFile(options.sidecars.opencode, stagedOpencode);
+  }
+  const opencodeBinInContainer = `${rootInContainer}/${relative(baseDir, stagedOpencode).split(sep).join("/")}`;
   const stagedLegalwork = join(sidecarsDir, "legalwork-server");
-  await copyFile(options.sidecars.opencode, stagedOpencode);
   await copyFile(options.sidecars.legalworkServer, stagedLegalwork);
   await ensureExecutable(stagedOpencode);
   await ensureExecutable(stagedLegalwork);
 
-  if (options.sidecars.opencodeRouter) {
-    const stagedOpenCodeRouter = join(sidecarsDir, "opencode-router");
-    await copyFile(options.sidecars.opencodeRouter, stagedOpenCodeRouter);
-    await ensureExecutable(stagedOpenCodeRouter);
-  }
-
-  const rootInContainer = `/persist/legalwork-orchestrator-sandbox/${options.containerName}`;
   const cleanup = async () => {
     if (options.detach) return;
     try {
@@ -4259,12 +2857,13 @@ async function stageSandboxRuntime(options: {
     }
   };
 
-  return { baseDir, rootInContainer, entrypointHostPath, cleanup };
+  return { baseDir, rootInContainer, opencodeBinInContainer, entrypointHostPath, cleanup };
 }
 
 async function writeSandboxEntrypoint(options: {
   entrypointHostPath: string;
   rootInContainer: string;
+  opencodeBinInContainer: string;
   opencodeConfigDirInContainer: string;
   backend: "docker" | "container";
   opencode: {
@@ -4284,14 +2883,14 @@ async function writeSandboxEntrypoint(options: {
     opencodeUsername?: string;
     opencodePassword?: string;
     logFormat: LogFormat;
-    opencodeRouterEnabled: boolean;
+
   };
   runId: string;
   logFormat: LogFormat;
 }): Promise<void> {
-  const opencodeBin = `${options.rootInContainer}/sidecars/opencode`;
+  const opencodeBin = options.opencodeBinInContainer;
   const legalworkBin = `${options.rootInContainer}/sidecars/legalwork-server`;
-  const opencodeRouterBin = `${options.rootInContainer}/sidecars/opencode-router`;
+
   const workspaceDir = "/workspace";
   const opencodeConfigDir = options.opencodeConfigDirInContainer;
   const hostOpencodeConfigDir = SANDBOX_OPENCODE_GLOBAL_CONFIG_CONTAINER_PATH;
@@ -4313,25 +2912,8 @@ async function writeSandboxEntrypoint(options: {
   const requiredSecretEnv = [
     ': "${LEGALWORK_TOKEN:?LEGALWORK_TOKEN is required}"',
     ': "${LEGALWORK_HOST_TOKEN:?LEGALWORK_HOST_TOKEN is required}"',
-    options.opencode.username
-      ? ': "${OPENCODE_SERVER_USERNAME:?OPENCODE_SERVER_USERNAME is required}"'
-      : "",
-    options.opencode.password
-      ? ': "${OPENCODE_SERVER_PASSWORD:?OPENCODE_SERVER_PASSWORD is required}"'
-      : "",
-    options.legalwork.opencodeUsername
-      ? ': "${LEGALWORK_OPENCODE_USERNAME:?LEGALWORK_OPENCODE_USERNAME is required}"'
-      : "",
-    options.legalwork.opencodePassword
-      ? ': "${LEGALWORK_OPENCODE_PASSWORD:?LEGALWORK_OPENCODE_PASSWORD is required}"'
-      : "",
-  ]
-    .filter(Boolean)
-    .join("\n");
+  ].join("\n");
 
-  const opencodeRouterEnv = options.legalwork.opencodeRouterEnabled
-    ? `export OPENCODE_ROUTER_HEALTH_PORT=${shQuote(String(SANDBOX_INTERNAL_OPENCODE_ROUTER_HEALTH_PORT))}`
-    : "";
   const legalworkDevMode = (process.env.LEGALWORK_DEV_MODE ?? "").trim() === "1";
   const sandboxHomeDir = legalworkDevMode ? "/persist/legalwork-dev-data/home" : "/persist";
 
@@ -4354,46 +2936,32 @@ async function writeSandboxEntrypoint(options: {
     `if [ -d ${shQuote(hostOpencodeConfigDir)} ]; then cp -R ${shQuote(`${hostOpencodeConfigDir}/.`)} ${shQuote(opencodeConfigDir)} 2>/dev/null || true; fi`,
     'mkdir -p "$XDG_DATA_HOME/opencode"',
     `if [ -d ${shQuote(hostOpencodeDataDir)} ]; then cp ${shQuote(`${hostOpencodeDataDir}/auth.json`)} \"$XDG_DATA_HOME/opencode/auth.json\" 2>/dev/null || true; cp ${shQuote(`${hostOpencodeDataDir}/mcp-auth.json`)} \"$XDG_DATA_HOME/opencode/mcp-auth.json\" 2>/dev/null || true; fi`,
-    `export OPENCODE_URL=${shQuote(`http://127.0.0.1:${SANDBOX_INTERNAL_OPENCODE_PORT}`)}`,
-    `export OPENCODE_CLIENT=legalwork-orchestrator`,
-    "export OPENCODE_DISABLE_FFF=true",
-    `export OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS=${shQuote(process.env.OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS ?? "true")}`,
-    `export OPENCODE_MODELS_URL=${shQuote(`http://127.0.0.1:${SANDBOX_INTERNAL_LEGALWORK_PORT}/model-catalog`)}`,
-    `export OPENCODE_HOT_RELOAD=${shQuote(options.opencode.hotReload.enabled ? "1" : "0")}`,
-    `export OPENCODE_HOT_RELOAD_DEBOUNCE_MS=${shQuote(String(options.opencode.hotReload.debounceMs))}`,
-    `export OPENCODE_HOT_RELOAD_COOLDOWN_MS=${shQuote(String(options.opencode.hotReload.cooldownMs))}`,
+    `export OPENCODE_URL=${shQuote(`http://127.0.0.1:${SANDBOX_INTERNAL_LEGALWORK_PORT}/opencode`)}`,
+    'export OPENCODE_BEARER_TOKEN="$LEGALWORK_TOKEN"',
+    "export LEGALWORK_MANAGE_OPENCODE=1",
+    "export LEGALWORK_MANAGED_OPENCODE_SANDBOX=0",
+    `export LEGALWORK_OPENCODE_BIN=${shQuote(opencodeBin)}`,
+    `export LEGALWORK_MANAGED_OPENCODE_PORT=${shQuote(String(SANDBOX_INTERNAL_OPENCODE_PORT))}`,
+    `export LEGALWORK_ENGINE_STORAGE_DIR=${shQuote("/persist/managed-engine-v2")}`,
+    "export LEGALWORK_ENGINE_PLUGIN_DIRECTORIES='[]'",
+    "export LEGALWORK_OPENCODE_BASE_URL=''",
+    "export LEGALWORK_OPENCODE_USERNAME=''",
+    "export LEGALWORK_OPENCODE_PASSWORD=''",
+    ...(options.opencode.logLevel ? [`export LEGALWORK_MANAGED_OPENCODE_LOG_LEVEL=${shQuote(options.opencode.logLevel)}`] : []),
     `export LEGALWORK=1`,
     `export LEGALWORK_DEV_MODE=${shQuote(legalworkDevMode ? "1" : "0")}`,
     `export LEGALWORK_RUN_ID=${shQuote(options.runId)}`,
     `export LEGALWORK_LOG_FORMAT=${shQuote(options.logFormat)}`,
     `export LEGALWORK_SANDBOX_ENABLED=1`,
     `export LEGALWORK_SANDBOX_BACKEND=${shQuote(options.backend)}`,
-    opencodeRouterEnv,
+
     requiredSecretEnv,
-    'opencode_pid=""',
-    'opencodeRouter_pid=""',
-    "cleanup() {",
-    '  if [ -n "$opencodeRouter_pid" ]; then kill "$opencodeRouter_pid" 2>/dev/null || true; fi',
-    '  if [ -n "$opencode_pid" ]; then kill "$opencode_pid" 2>/dev/null || true; fi',
-    "}",
-    "trap cleanup INT TERM",
-    `${shQuote(opencodeBin)} serve --hostname 127.0.0.1 --port ${shQuote(String(SANDBOX_INTERNAL_OPENCODE_PORT))}${opencodeLogLevelArg ? ` ${opencodeLogLevelArg}` : ""} ${opencodeCors} &`,
-    "opencode_pid=$!",
-    options.legalwork.opencodeRouterEnabled
-      ? `${shQuote(opencodeRouterBin)} serve ${shQuote(workspaceDir)} &`
-      : "",
-    options.legalwork.opencodeRouterEnabled ? "opencodeRouter_pid=$!" : "",
     `exec ${shQuote(legalworkBin)} --host 0.0.0.0 --port ${shQuote(String(SANDBOX_INTERNAL_LEGALWORK_PORT))}` +
       ` --workspace ${shQuote(workspaceDir)}` +
       ` --approval ${shQuote(options.legalwork.approvalMode)}` +
       ` --approval-timeout ${shQuote(String(options.legalwork.approvalTimeoutMs))}` +
       (options.legalwork.readOnly ? " --read-only" : "") +
-      ` --opencode-base-url ${shQuote(`http://127.0.0.1:${SANDBOX_INTERNAL_OPENCODE_PORT}`)}` +
-      ` --opencode-directory ${shQuote(workspaceDir)}` +
       ` --log-format ${shQuote(options.legalwork.logFormat)}` +
-      (options.legalwork.opencodeRouterEnabled
-        ? ` --opencode-router-health-port ${shQuote(String(SANDBOX_INTERNAL_OPENCODE_ROUTER_HEALTH_PORT))}`
-        : "") +
       (legalworkCors ? ` ${legalworkCors}` : ""),
   ]
     .filter(Boolean)
@@ -4413,9 +2981,9 @@ async function startDockerSandbox(options: {
   sidecars: {
     opencode: string;
     legalworkServer: string;
-    opencodeRouter?: string | null;
+
   };
-  ports: { legalwork: number; opencodeRouterHealth?: number | null };
+  ports: { legalwork: number };
   opencode: {
     corsOrigins: string[];
     username?: string;
@@ -4449,6 +3017,7 @@ async function startDockerSandbox(options: {
   await writeSandboxEntrypoint({
     entrypointHostPath: staged.entrypointHostPath,
     rootInContainer: staged.rootInContainer,
+    opencodeBinInContainer: staged.opencodeBinInContainer,
     opencodeConfigDirInContainer: "/opencode-config",
     backend: "docker",
     opencode: options.opencode,
@@ -4462,7 +3031,7 @@ async function startDockerSandbox(options: {
       opencodeUsername: options.legalwork.opencodeUsername,
       opencodePassword: options.legalwork.opencodePassword,
       logFormat: options.legalwork.logFormat,
-      opencodeRouterEnabled: !!options.sidecars.opencodeRouter,
+
     },
     runId: options.runId,
     logFormat: options.logFormat,
@@ -4514,13 +3083,6 @@ async function startDockerSandbox(options: {
       hostPath: hostOpencodeData,
       containerPath: SANDBOX_OPENCODE_GLOBAL_DATA_IMPORT_CONTAINER_PATH,
     });
-  }
-
-  if (options.sidecars.opencodeRouter && options.ports.opencodeRouterHealth) {
-    args.push(
-      "-p",
-      `127.0.0.1:${options.ports.opencodeRouterHealth}:${SANDBOX_INTERNAL_OPENCODE_ROUTER_HEALTH_PORT}`,
-    );
   }
 
   const userEnv = loadUserEnvFile();
@@ -4595,9 +3157,9 @@ async function startAppleContainerSandbox(options: {
   sidecars: {
     opencode: string;
     legalworkServer: string;
-    opencodeRouter?: string | null;
+
   };
-  ports: { legalwork: number; opencodeRouterHealth?: number | null };
+  ports: { legalwork: number };
   opencode: {
     corsOrigins: string[];
     username?: string;
@@ -4633,6 +3195,7 @@ async function startAppleContainerSandbox(options: {
   await writeSandboxEntrypoint({
     entrypointHostPath: staged.entrypointHostPath,
     rootInContainer: staged.rootInContainer,
+    opencodeBinInContainer: staged.opencodeBinInContainer,
     opencodeConfigDirInContainer: "/opencode-config",
     backend: "container",
     opencode: options.opencode,
@@ -4646,7 +3209,7 @@ async function startAppleContainerSandbox(options: {
       opencodeUsername: options.legalwork.opencodeUsername,
       opencodePassword: options.legalwork.opencodePassword,
       logFormat: options.legalwork.logFormat,
-      opencodeRouterEnabled: !!options.sidecars.opencodeRouter,
+
     },
     runId: options.runId,
     logFormat: options.logFormat,
@@ -4698,13 +3261,6 @@ async function startAppleContainerSandbox(options: {
       hostPath: hostOpencodeData,
       containerPath: SANDBOX_OPENCODE_GLOBAL_DATA_IMPORT_CONTAINER_PATH,
     });
-  }
-
-  if (options.sidecars.opencodeRouter && options.ports.opencodeRouterHealth) {
-    args.push(
-      "-p",
-      `127.0.0.1:${options.ports.opencodeRouterHealth}:${SANDBOX_INTERNAL_OPENCODE_ROUTER_HEALTH_PORT}`,
-    );
   }
 
   const userEnv = loadUserEnvFile();
@@ -4767,42 +3323,12 @@ async function startAppleContainerSandbox(options: {
   return { child, cleanup: staged.cleanup };
 }
 
-async function verifyOpenCodeRouterVersion(
-  binary: ResolvedBinary,
-): Promise<string | undefined> {
-  if (binary.source !== "external") {
-    return binary.expectedVersion;
-  }
-  const actual = await readCliVersion(binary.bin);
-  assertVersionMatch(
-    "opencode-router",
-    binary.expectedVersion,
-    actual,
-    binary.bin,
-  );
-  return actual;
-}
-
 async function verifyOpencodeVersion(
   binary: ResolvedBinary,
 ): Promise<string | undefined> {
+  const expectedVersion = await expectedOpencodeVersion(binary.bin);
   const actual = await readCliVersion(binary.bin);
-  // When the binary was explicitly provided via --opencode-bin (source "external"),
-  // a strict version check would break desktop app users whenever a new opencode
-  // release ships on GitHub before LegalWork updates its bundled binary. Log a
-  // warning instead of throwing so the caller can still proceed.
-  if (
-    binary.source === "external" &&
-    binary.expectedVersion &&
-    actual &&
-    binary.expectedVersion !== actual
-  ) {
-    process.stderr.write(
-      `[legalwork-orchestrator] Warning: opencode version mismatch (expected ${binary.expectedVersion}, got ${actual}). Proceeding with ${binary.bin}.\n`,
-    );
-    return actual;
-  }
-  assertVersionMatch("opencode", binary.expectedVersion, actual, binary.bin);
+  assertVersionMatch("opencode", expectedVersion, actual, binary.bin);
   return actual;
 }
 
@@ -4932,11 +3458,12 @@ function buildRuntimeServiceSnapshot(input: {
 }
 
 async function runChecks(input: {
-  opencodeClient: ReturnType<typeof createOpencodeClient>;
+  opencodeClient: OpenCodeClient;
   legalworkUrl: string;
   legalworkToken: string;
   hostToken: string;
   checkEvents: boolean;
+  directory: string;
 }) {
   const baseUrl = input.legalworkUrl.replace(/\/$/, "");
   const headers = { Authorization: `Bearer ${input.legalworkToken}` };
@@ -4949,72 +3476,20 @@ async function runChecks(input: {
   const workspaceId = workspaces.items[0].id as string;
   await fetchJson(`${baseUrl}/workspace/${workspaceId}/config`, { headers });
 
-  // Smoke test: mounted opencodeRouter proxy and auth behavior.
-  // - /w/:id/opencode-router/health is client-readable
-  // - other /w/:id/opencode-router/* requires host/owner auth
-  const owMountBase = `${baseUrl}/w/${encodeURIComponent(workspaceId)}/opencode-router`;
-  const owHealthRes = await fetch(`${owMountBase}/health`, {
-    headers,
-    signal: AbortSignal.timeout(3000),
-  });
-  if (owHealthRes.status >= 500) {
-    throw new Error(
-      `opencodeRouter mount proxy returned ${owHealthRes.status}`,
-    );
-  }
-  const owConfigured = owHealthRes.status !== 404;
-  if (owConfigured) {
-    const clientRes = await fetch(`${owMountBase}/config/groups`, {
-      headers,
-      signal: AbortSignal.timeout(3000),
-    });
-    if (clientRes.status === 200) {
-      throw new Error(
-        "opencodeRouter mount proxy /config/groups should require host auth",
-      );
-    }
-    if (clientRes.status !== 401 && clientRes.status !== 403) {
-      throw new Error(
-        `opencodeRouter mount proxy /config/groups unexpected status: ${clientRes.status}`,
-      );
-    }
-
-    const hostRes = await fetch(`${owMountBase}/config/groups`, {
-      headers: hostHeaders,
-      signal: AbortSignal.timeout(3000),
-    });
-    if (hostRes.status >= 500) {
-      throw new Error(
-        `opencodeRouter mount proxy (host auth) returned ${hostRes.status}`,
-      );
-    }
-    if (hostRes.status === 401 || hostRes.status === 403) {
-      throw new Error(
-        "opencodeRouter mount proxy /config/groups rejected host auth",
-      );
-    }
-  }
-
   const created = await input.opencodeClient.session.create({
     title: "LegalWork headless check",
+    location: {directory:input.directory},
   });
-  const createdSession = unwrap(created);
-  unwrap(
-    await input.opencodeClient.session.messages({
-      sessionID: createdSession.id,
-      limit: 10,
-    }),
-  );
+  const createdSession = created;
+  await input.opencodeClient.message.list({sessionID:createdSession.id});
 
   if (input.checkEvents) {
     const events: { type: string }[] = [];
     const controller = new AbortController();
-    const subscription = await input.opencodeClient.event.subscribe(undefined, {
-      signal: controller.signal,
-    });
+    const subscription = input.opencodeClient.event.subscribe({signal:controller.signal});
     const reader = (async () => {
       try {
-        for await (const raw of subscription.stream) {
+        for await (const raw of subscription) {
           const normalized = normalizeEvent(raw);
           if (!normalized) continue;
           events.push(normalized);
@@ -5025,11 +3500,7 @@ async function runChecks(input: {
       }
     })();
 
-    unwrap(
-      await input.opencodeClient.session.create({
-        title: "LegalWork headless check events",
-      }),
-    );
+    await input.opencodeClient.session.create({title:"LegalWork headless check events",location:{directory:input.directory}});
     await new Promise((resolve) => setTimeout(resolve, 1200));
     controller.abort();
     await Promise.race([
@@ -5077,66 +3548,9 @@ async function runSandboxChecks(input: {
   // 4. Approvals endpoint (host auth)
   await fetchJson(`${baseUrl}/approvals`, { headers: hostHeaders });
 
-  // 5. Proxy is reachable (even if auth is rejected — non-5xx proves the
-  //    server is proxying to a running opencode)
-  const proxyRes = await fetch(`${baseUrl}/opencode/health`, {
-    headers,
-    signal: AbortSignal.timeout(3000),
-  });
-  if (proxyRes.status >= 500) {
-    throw new Error(`opencode proxy returned ${proxyRes.status}`);
-  }
+  // Authenticated native API readiness; a 4xx is never evidence of a usable engine.
+  await waitForHealthyViaProxy(`${baseUrl}/opencode`,input.legalworkToken);
 
-  // 6. opencodeRouter proxy is reachable (if configured)
-  const owRes = await fetch(`${baseUrl}/opencode-router/health`, {
-    headers,
-    signal: AbortSignal.timeout(3000),
-  });
-  if (owRes.status >= 500) {
-    throw new Error(`opencodeRouter proxy returned ${owRes.status}`);
-  }
-
-  // 7. Mounted opencodeRouter proxy + auth behavior (if configured)
-  if (owRes.status !== 404) {
-    const owMountBase = `${baseUrl}/w/${encodeURIComponent(workspaceId)}/opencode-router`;
-    const mountHealth = await fetch(`${owMountBase}/health`, {
-      headers,
-      signal: AbortSignal.timeout(3000),
-    });
-    if (mountHealth.status >= 500) {
-      throw new Error(
-        `opencodeRouter mount proxy returned ${mountHealth.status}`,
-      );
-    }
-    const mountClient = await fetch(`${owMountBase}/config/groups`, {
-      headers,
-      signal: AbortSignal.timeout(3000),
-    });
-    if (mountClient.status === 200) {
-      throw new Error(
-        "opencodeRouter mount proxy /config/groups should require host auth",
-      );
-    }
-    if (mountClient.status !== 401 && mountClient.status !== 403) {
-      throw new Error(
-        `opencodeRouter mount proxy /config/groups unexpected status: ${mountClient.status}`,
-      );
-    }
-    const mountHost = await fetch(`${owMountBase}/config/groups`, {
-      headers: hostHeaders,
-      signal: AbortSignal.timeout(3000),
-    });
-    if (mountHost.status >= 500) {
-      throw new Error(
-        `opencodeRouter mount proxy (host auth) returned ${mountHost.status}`,
-      );
-    }
-    if (mountHost.status === 401 || mountHost.status === 403) {
-      throw new Error(
-        "opencodeRouter mount proxy /config/groups rejected host auth",
-      );
-    }
-  }
 }
 
 async function fetchJson(url: string, init?: RequestInit): Promise<any> {
@@ -5154,26 +3568,6 @@ async function fetchJson(url: string, init?: RequestInit): Promise<any> {
   return payload;
 }
 
-async function issueLegalworkOwnerToken(
-  baseUrl: string,
-  hostToken: string,
-  label = "LegalWork owner token",
-): Promise<string> {
-  const payload = await fetchJson(`${baseUrl.replace(/\/$/, "")}/tokens`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-LegalWork-Host-Token": hostToken,
-    },
-    body: JSON.stringify({ scope: "owner", label }),
-  });
-  const token = typeof payload?.token === "string" ? payload.token.trim() : "";
-  if (!token) {
-    throw new Error("LegalWork server did not return an owner token");
-  }
-  return token;
-}
-
 function normalizeEvent(raw: unknown): { type: string } | null {
   if (!raw || typeof raw !== "object") return null;
   const record = raw as Record<string, unknown>;
@@ -5182,27 +3576,6 @@ function normalizeEvent(raw: unknown): { type: string } | null {
   if (payload && typeof payload.type === "string")
     return { type: payload.type };
   return null;
-}
-
-async function waitForRouterHealthy(
-  baseUrl: string,
-  timeoutMs = 10_000,
-  pollMs = 250,
-): Promise<void> {
-  const start = Date.now();
-  let lastError: string | null = null;
-  const url = baseUrl.replace(/\/$/, "");
-  while (Date.now() - start < timeoutMs) {
-    try {
-      const response = await fetch(`${url}/health`);
-      if (response.ok) return;
-      lastError = `HTTP ${response.status}`;
-    } catch (error) {
-      lastError = error instanceof Error ? error.message : String(error);
-    }
-    await new Promise((resolve) => setTimeout(resolve, pollMs));
-  }
-  throw new Error(lastError ?? "Timed out waiting for daemon health");
 }
 
 function outputResult(payload: unknown, json: boolean): void {
@@ -5423,7 +3796,7 @@ function createLogger(options: {
     "legalwork-orchestrator": ANSI.gray,
     opencode: ANSI.cyan,
     "legalwork-server": ANSI.green,
-    opencodeRouter: ANSI.magenta,
+
     "legalwork-orchestrator-router": ANSI.cyan,
   };
   const levelColors: Record<LogLevel, string> = {
@@ -5610,839 +3983,16 @@ async function copyToClipboard(
   return { copied: false, error: "Clipboard unavailable" };
 }
 
-async function spawnRouterDaemon(
-  args: ParsedArgs,
-  dataDir: string,
-  host: string,
-  port: number,
-) {
-  const self = resolveSelfCommand();
-  const commandArgs = [
-    ...self.prefixArgs,
-    "daemon",
-    "run",
-    "--data-dir",
-    dataDir,
-    "--daemon-host",
-    host,
-    "--daemon-port",
-    String(port),
-  ];
-
-  const opencodeBin =
-    readFlag(args.flags, "opencode-bin") ?? process.env.LEGALWORK_OPENCODE_BIN;
-  assertManagedOpencodeAuth(args);
-  const opencodeHost = resolveManagedOpencodeHost(
-    readFlag(args.flags, "opencode-host") ?? process.env.LEGALWORK_OPENCODE_HOST,
-  );
-  const opencodePort =
-    readFlag(args.flags, "opencode-port") ?? process.env.LEGALWORK_OPENCODE_PORT;
-  const opencodeWorkdir =
-    readFlag(args.flags, "opencode-workdir") ??
-    process.env.LEGALWORK_OPENCODE_WORKDIR;
-  const opencodeLogLevel = resolveOpencodeLogLevel(
-    readFlag(args.flags, "opencode-log-level") ??
-      process.env.LEGALWORK_OPENCODE_LOG_LEVEL,
-  );
-  const opencodeHotReload =
-    readFlag(args.flags, "opencode-hot-reload") ??
-    process.env.LEGALWORK_OPENCODE_HOT_RELOAD;
-  const opencodeHotReloadDebounceMs =
-    readFlag(args.flags, "opencode-hot-reload-debounce-ms") ??
-    process.env.LEGALWORK_OPENCODE_HOT_RELOAD_DEBOUNCE_MS;
-  const opencodeHotReloadCooldownMs =
-    readFlag(args.flags, "opencode-hot-reload-cooldown-ms") ??
-    process.env.LEGALWORK_OPENCODE_HOT_RELOAD_COOLDOWN_MS;
-  const opencodeCredentials = resolveManagedOpencodeCredentials(args);
-  const opencodeUsername = opencodeCredentials.username;
-  const opencodePassword = opencodeCredentials.password;
-  const corsValue =
-    readFlag(args.flags, "cors") ?? process.env.LEGALWORK_OPENCODE_CORS;
-  const allowExternal = readBool(
-    args.flags,
-    "allow-external",
-    false,
-    "LEGALWORK_ALLOW_EXTERNAL",
-  );
-  const sidecarSource =
-    readFlag(args.flags, "sidecar-source") ??
-    process.env.LEGALWORK_SIDECAR_SOURCE;
-  const opencodeSource =
-    readFlag(args.flags, "opencode-source") ??
-    process.env.LEGALWORK_OPENCODE_SOURCE;
-  const verbose = readBool(args.flags, "verbose", false, "LEGALWORK_VERBOSE");
-  const logFormat =
-    readFlag(args.flags, "log-format") ?? process.env.LEGALWORK_LOG_FORMAT;
-  const runId = readFlag(args.flags, "run-id") ?? process.env.LEGALWORK_RUN_ID;
-
-  if (opencodeBin) commandArgs.push("--opencode-bin", opencodeBin);
-  if (opencodeHost) commandArgs.push("--opencode-host", opencodeHost);
-  if (opencodePort) commandArgs.push("--opencode-port", String(opencodePort));
-  if (opencodeWorkdir) commandArgs.push("--opencode-workdir", opencodeWorkdir);
-  if (opencodeLogLevel)
-    commandArgs.push("--opencode-log-level", opencodeLogLevel);
-  if (opencodeHotReload)
-    commandArgs.push("--opencode-hot-reload", opencodeHotReload);
-  if (opencodeHotReloadDebounceMs)
-    commandArgs.push(
-      "--opencode-hot-reload-debounce-ms",
-      String(opencodeHotReloadDebounceMs),
-    );
-  if (opencodeHotReloadCooldownMs)
-    commandArgs.push(
-      "--opencode-hot-reload-cooldown-ms",
-      String(opencodeHotReloadCooldownMs),
-    );
-  if (corsValue) commandArgs.push("--cors", corsValue);
-  if (allowExternal) commandArgs.push("--allow-external");
-  if (sidecarSource) commandArgs.push("--sidecar-source", sidecarSource);
-  if (opencodeSource) commandArgs.push("--opencode-source", opencodeSource);
-  if (verbose) commandArgs.push("--verbose");
-  if (logFormat) commandArgs.push("--log-format", String(logFormat));
-  if (runId) commandArgs.push("--run-id", String(runId));
-
-  const child = spawnProcess(self.command, commandArgs, {
-    detached: true,
-    stdio: "ignore",
-    env: {
-      ...process.env,
-      LEGALWORK_OPENCODE_USERNAME: opencodeUsername,
-      LEGALWORK_OPENCODE_PASSWORD: opencodePassword,
-    },
-  });
-  child.unref();
-}
-
-async function ensureRouterDaemon(
-  args: ParsedArgs,
-  autoStart = true,
-): Promise<{ baseUrl: string; dataDir: string }> {
-  const dataDir = resolveRouterDataDir(args.flags);
-  const statePath = routerStatePath(dataDir);
-  const state = await loadRouterState(statePath);
-  const existing = state.daemon;
-  if (existing && existing.baseUrl && isProcessAlive(existing.pid)) {
-    try {
-      await waitForRouterHealthy(existing.baseUrl, 1500, 150);
-      return { baseUrl: existing.baseUrl, dataDir };
-    } catch {
-      // fallthrough
-    }
-  }
-
-  if (!autoStart) {
-    throw new Error("orchestrator daemon is not running");
-  }
-
-  const host = readFlag(args.flags, "daemon-host") ?? "127.0.0.1";
-  const port = await resolvePort(
-    readNumber(args.flags, "daemon-port", undefined, "LEGALWORK_DAEMON_PORT"),
-    "127.0.0.1",
-  );
-  const baseUrl = `http://${host}:${port}`;
-  await spawnRouterDaemon(args, dataDir, host, port);
-  await waitForRouterHealthy(baseUrl, 10_000, 250);
-  return { baseUrl, dataDir };
-}
-
-async function requestRouter(
-  args: ParsedArgs,
-  method: string,
-  path: string,
-  body?: unknown,
-  autoStart = true,
-) {
-  const { baseUrl } = await ensureRouterDaemon(args, autoStart);
-  const url = `${baseUrl.replace(/\/$/, "")}${path}`;
-  const headers: Record<string, string> = {};
-  let payload: string | undefined;
-  if (body !== undefined) {
-    payload = JSON.stringify(body);
-    headers["Content-Type"] = "application/json";
-  }
-  return fetchJson(url, {
-    method,
-    headers,
-    body: payload,
-  });
-}
-
 async function runDaemonCommand(args: ParsedArgs) {
   const outputJson = readBool(args.flags, "json", false);
-  const subcommand = args.positionals[1] ?? "run";
-
-  try {
-    if (subcommand === "run" || subcommand === "foreground") {
-      await runRouterDaemon(args);
-      return;
-    }
-    if (subcommand === "start") {
-      const { baseUrl } = await ensureRouterDaemon(args, true);
-      const status = await fetchJson(`${baseUrl.replace(/\/$/, "")}/health`);
-      outputResult({ ok: true, baseUrl, ...status }, outputJson);
-      return;
-    }
-    if (subcommand === "status") {
-      const { baseUrl } = await ensureRouterDaemon(args, false);
-      const status = await fetchJson(`${baseUrl.replace(/\/$/, "")}/health`);
-      outputResult({ ok: true, baseUrl, ...status }, outputJson);
-      return;
-    }
-    if (subcommand === "stop") {
-      const { baseUrl } = await ensureRouterDaemon(args, false);
-      await fetchJson(`${baseUrl.replace(/\/$/, "")}/shutdown`, {
-        method: "POST",
-      });
-      outputResult({ ok: true }, outputJson);
-      return;
-    }
-    throw new Error("daemon requires start|stop|status|run");
-  } catch (error) {
-    outputError(error, outputJson);
-    process.exitCode = 1;
-  }
-}
-
-async function runWorkspaceCommand(args: ParsedArgs) {
-  const outputJson = readBool(args.flags, "json", false);
   const subcommand = args.positionals[1];
-  const id = args.positionals[2];
-
   try {
-    if (subcommand === "add") {
-      if (!id) throw new Error("workspace path is required");
-      const name = readFlag(args.flags, "name");
-      const result = await requestRouter(args, "POST", "/workspaces", {
-        path: id,
-        name: name ?? null,
-      });
-      outputResult({ ok: true, ...result }, outputJson);
-      return;
-    }
-    if (subcommand === "add-remote") {
-      if (!id) throw new Error("baseUrl is required");
-      const directory = readFlag(args.flags, "directory");
-      const name = readFlag(args.flags, "name");
-      const result = await requestRouter(args, "POST", "/workspaces/remote", {
-        baseUrl: id,
-        directory: directory ?? null,
-        name: name ?? null,
-      });
-      outputResult({ ok: true, ...result }, outputJson);
-      return;
-    }
-    if (subcommand === "list") {
-      const result = await requestRouter(args, "GET", "/workspaces");
-      outputResult({ ok: true, ...result }, outputJson);
-      return;
-    }
-    if (subcommand === "switch") {
-      if (!id) throw new Error("workspace id is required");
-      const result = await requestRouter(
-        args,
-        "POST",
-        `/workspaces/${encodeURIComponent(id)}/activate`,
-      );
-      outputResult({ ok: true, ...result }, outputJson);
-      return;
-    }
-    if (subcommand === "info") {
-      if (!id) throw new Error("workspace id is required");
-      const result = await requestRouter(
-        args,
-        "GET",
-        `/workspaces/${encodeURIComponent(id)}`,
-      );
-      outputResult({ ok: true, ...result }, outputJson);
-      return;
-    }
-    if (subcommand === "path") {
-      if (!id) throw new Error("workspace id is required");
-      const result = await requestRouter(
-        args,
-        "GET",
-        `/workspaces/${encodeURIComponent(id)}/path`,
-      );
-      outputResult({ ok: true, ...result }, outputJson);
-      return;
-    }
-    throw new Error("workspace requires add|add-remote|list|switch|info|path");
+    if (subcommand !== "status" && subcommand !== "stop") throw new Error(retiredDeveloperLauncherMessage);
+    outputResult(await legacyDeveloperDaemon(resolveRouterDataDir(args.flags), subcommand === "stop"), outputJson);
   } catch (error) {
     outputError(error, outputJson);
     process.exitCode = 1;
   }
-}
-
-async function runInstanceCommand(args: ParsedArgs) {
-  const outputJson = readBool(args.flags, "json", false);
-  const subcommand = args.positionals[1];
-  const id = args.positionals[2];
-
-  try {
-    if (subcommand === "dispose") {
-      if (!id) throw new Error("workspace id is required");
-      const result = await requestRouter(
-        args,
-        "POST",
-        `/instances/${encodeURIComponent(id)}/dispose`,
-      );
-      outputResult({ ok: true, ...result }, outputJson);
-      return;
-    }
-    throw new Error("instance requires dispose");
-  } catch (error) {
-    outputError(error, outputJson);
-    process.exitCode = 1;
-  }
-}
-
-async function runRouterDaemon(args: ParsedArgs) {
-  const outputJson = readBool(args.flags, "json", false);
-  const verbose = readBool(args.flags, "verbose", false, "LEGALWORK_VERBOSE");
-  const logFormat = readLogFormat(
-    args.flags,
-    "log-format",
-    "pretty",
-    "LEGALWORK_LOG_FORMAT",
-  );
-  const colorEnabled =
-    readBool(args.flags, "color", process.stdout.isTTY, "LEGALWORK_COLOR") &&
-    !process.env.NO_COLOR;
-  const runId =
-    readFlag(args.flags, "run-id") ??
-    process.env.LEGALWORK_RUN_ID ??
-    randomUUID();
-  const cliVersion = await resolveCliVersion();
-  const logger = createLogger({
-    format: logFormat,
-    runId,
-    serviceName: "legalwork-orchestrator",
-    serviceVersion: cliVersion,
-    output: "stdout",
-    color: colorEnabled,
-  });
-  const logVerbose = createVerboseLogger(
-    verbose && !outputJson,
-    logger,
-    "legalwork-orchestrator",
-  );
-  const sidecarSourceInput = readBinarySource(
-    args.flags,
-    "sidecar-source",
-    "auto",
-    "LEGALWORK_SIDECAR_SOURCE",
-  );
-  const opencodeSourceInput = readBinarySource(
-    args.flags,
-    "opencode-source",
-    "auto",
-    "LEGALWORK_OPENCODE_SOURCE",
-  );
-  const sidecarSource = sidecarSourceInput;
-  const opencodeSource = opencodeSourceInput;
-  const dataDir = resolveRouterDataDir(args.flags);
-  const statePath = routerStatePath(dataDir);
-  let state = await loadRouterState(statePath);
-
-  const host = readFlag(args.flags, "daemon-host") ?? "127.0.0.1";
-  const port = await resolvePort(
-    readNumber(args.flags, "daemon-port", undefined, "LEGALWORK_DAEMON_PORT"),
-    "127.0.0.1",
-  );
-
-  const opencodeBin =
-    readFlag(args.flags, "opencode-bin") ?? process.env.LEGALWORK_OPENCODE_BIN;
-  assertManagedOpencodeAuth(args);
-  const opencodeHost = resolveManagedOpencodeHost(
-    readFlag(args.flags, "opencode-host") ?? process.env.LEGALWORK_OPENCODE_HOST,
-  );
-  const opencodeCredentials = resolveManagedOpencodeCredentials(args);
-  const opencodeUsername = opencodeCredentials.username;
-  const opencodePassword = opencodeCredentials.password;
-  const authHeaders = {
-    Authorization: `Basic ${encodeBasicAuth(opencodeCredentials.username, opencodeCredentials.password)}`,
-  };
-  const opencodePort = await resolvePort(
-    readNumber(
-      args.flags,
-      "opencode-port",
-      state.opencode?.port,
-      "LEGALWORK_OPENCODE_PORT",
-    ),
-    "127.0.0.1",
-    state.opencode?.port,
-  );
-  const opencodeLogLevel = resolveOpencodeLogLevel(
-    readFlag(args.flags, "opencode-log-level") ??
-      process.env.LEGALWORK_OPENCODE_LOG_LEVEL,
-  );
-  const opencodeHotReload = readOpencodeHotReload(
-    args.flags,
-    {
-      enabled: true,
-      debounceMs: DEFAULT_OPENCODE_HOT_RELOAD_DEBOUNCE_MS,
-      cooldownMs: DEFAULT_OPENCODE_HOT_RELOAD_COOLDOWN_MS,
-    },
-    {
-      enabled: "LEGALWORK_OPENCODE_HOT_RELOAD",
-      debounceMs: "LEGALWORK_OPENCODE_HOT_RELOAD_DEBOUNCE_MS",
-      cooldownMs: "LEGALWORK_OPENCODE_HOT_RELOAD_COOLDOWN_MS",
-    },
-  );
-  const corsValue =
-    readFlag(args.flags, "cors") ??
-    process.env.LEGALWORK_OPENCODE_CORS ??
-    "http://localhost:5173,tauri://localhost,http://tauri.localhost";
-  const corsOrigins = parseList(corsValue);
-  const opencodeWorkdirFlag =
-    readFlag(args.flags, "opencode-workdir") ??
-    process.env.LEGALWORK_OPENCODE_WORKDIR;
-  const activeWorkspace = state.workspaces.find(
-    (entry) => entry.id === state.activeId && entry.workspaceType === "local",
-  );
-  const opencodeWorkdir =
-    opencodeWorkdirFlag ?? activeWorkspace?.path ?? process.cwd();
-  const resolvedWorkdir = await ensureWorkspace(opencodeWorkdir);
-  const devMode = resolveInternalDevMode(args.flags);
-  const opencodeStateLayout = resolveOpencodeStateLayout({
-    dataDir,
-    workspace: resolvedWorkdir,
-    devMode,
-  });
-  const opencodeConfigDir = opencodeStateLayout.configDir;
-  await ensureOpencodeStateLayout(opencodeStateLayout);
-  await ensureOpencodeManagedTools(opencodeConfigDir);
-  logger.info(
-    "Daemon starting",
-    { runId, logFormat, workdir: resolvedWorkdir, host, port },
-    "legalwork-orchestrator",
-  );
-
-  const sidecar = resolveSidecarConfig(args.flags, cliVersion);
-  const allowExternal = readBool(
-    args.flags,
-    "allow-external",
-    false,
-    "LEGALWORK_ALLOW_EXTERNAL",
-  );
-  const manifest = await readVersionManifest();
-  logVerbose(`cli version: ${cliVersion}`);
-  logVerbose(`sidecar target: ${sidecar.target ?? "unknown"}`);
-  logVerbose(`sidecar dir: ${sidecar.dir}`);
-  logVerbose(`sidecar base URL: ${sidecar.baseUrl}`);
-  logVerbose(`sidecar manifest: ${sidecar.manifestUrl}`);
-  logVerbose(`sidecar source: ${sidecarSource}`);
-  logVerbose(`opencode source: ${opencodeSource}`);
-  logVerbose(
-    `opencode hot reload: ${opencodeHotReload.enabled ? "on" : "off"} (debounce=${opencodeHotReload.debounceMs}ms cooldown=${opencodeHotReload.cooldownMs}ms)`,
-  );
-  logVerbose(`allow external: ${allowExternal ? "true" : "false"}`);
-  let opencodeBinary = await resolveOpencodeBin({
-    explicit: opencodeBin,
-    manifest,
-    allowExternal,
-    sidecar,
-    source: opencodeSource,
-  });
-  logVerbose(`opencode bin: ${opencodeBinary.bin} (${opencodeBinary.source})`);
-
-  let opencodeChild: ReturnType<typeof spawn> | null = null;
-
-  const updateDiagnostics = (actualVersion?: string) => {
-    state.cliVersion = cliVersion;
-    state.sidecar = {
-      dir: sidecar.dir,
-      baseUrl: sidecar.baseUrl,
-      manifestUrl: sidecar.manifestUrl,
-      target: sidecar.target,
-      source: sidecarSource,
-      opencodeSource,
-      allowExternal,
-    };
-    state.binaries = {
-      opencode: {
-        path: opencodeBinary.bin,
-        source: opencodeBinary.source,
-        expectedVersion: opencodeBinary.expectedVersion,
-        actualVersion,
-      },
-    };
-  };
-
-  const ensureOpencode = async () => {
-    const existing = state.opencode;
-    if (existing && isProcessAlive(existing.pid)) {
-      const client = createOpencodeClient({
-        baseUrl: existing.baseUrl,
-        directory: resolvedWorkdir,
-        headers: authHeaders,
-      });
-      try {
-        await waitForOpencodeHealthy(client, 2000, 200);
-        if (!state.sidecar || !state.cliVersion || !state.binaries?.opencode) {
-          updateDiagnostics(state.binaries?.opencode?.actualVersion);
-          await saveRouterState(statePath, state);
-        }
-        return { baseUrl: existing.baseUrl, client };
-      } catch {
-        // restart
-      }
-    }
-
-    if (opencodeChild) {
-      await stopChild(opencodeChild);
-    }
-
-    const opencodeActualVersion = await verifyOpencodeVersion(opencodeBinary);
-    logVerbose(`opencode version: ${opencodeActualVersion ?? "unknown"}`);
-    const child = await startOpencode({
-      bin: opencodeBinary.bin,
-      workspace: resolvedWorkdir,
-      stateLayout: opencodeStateLayout,
-      hotReload: opencodeHotReload,
-      bindHost: opencodeHost,
-      port: opencodePort,
-      username: opencodeCredentials.username,
-      password: opencodeCredentials.password,
-      corsOrigins: corsOrigins.length ? corsOrigins : ["*"],
-      logger,
-      runId,
-      logFormat,
-      logLevel: opencodeLogLevel,
-    });
-    opencodeChild = child;
-    logger.info("Process spawned", { pid: child.pid ?? 0 }, "opencode");
-    const baseUrl = `http://${opencodeHost}:${opencodePort}`;
-    const client = createOpencodeClient({
-      baseUrl,
-      directory: resolvedWorkdir,
-      headers: authHeaders,
-    });
-    logger.info("Waiting for health", { url: baseUrl }, "opencode");
-    await waitForOpencodeHealthy(client);
-    logger.info("Healthy", { url: baseUrl }, "opencode");
-    state.opencode = {
-      pid: child.pid ?? 0,
-      port: opencodePort,
-      baseUrl,
-      startedAt: nowMs(),
-    };
-    updateDiagnostics(opencodeActualVersion);
-    await saveRouterState(statePath, state);
-    return { baseUrl, client };
-  };
-
-  await ensureOpencode();
-
-  const server = createHttpServer(async (req, res) => {
-    const startedAt = Date.now();
-    const method = req.method ?? "GET";
-    const url = new URL(req.url ?? "/", `http://${host}:${port}`);
-    res.on("finish", () => {
-      logger.info(
-        "Router request",
-        {
-          method,
-          path: url.pathname,
-          status: res.statusCode,
-          durationMs: Date.now() - startedAt,
-          activeId: state.activeId,
-        },
-        "legalwork-orchestrator-router",
-      );
-    });
-    res.setHeader("Access-Control-Allow-Origin", "*");
-    res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-
-    if (req.method === "OPTIONS") {
-      res.statusCode = 204;
-      res.end();
-      return;
-    }
-    const parts = url.pathname.split("/").filter(Boolean);
-
-    const send = (status: number, payload: unknown) => {
-      res.statusCode = status;
-      res.setHeader("Content-Type", "application/json");
-      res.end(JSON.stringify(payload));
-    };
-
-    const readBody = async () => {
-      const chunks: Buffer[] = [];
-      for await (const chunk of req) {
-        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-      }
-      if (!chunks.length) return null;
-      const raw = Buffer.concat(chunks).toString("utf8");
-      if (!raw.trim()) return null;
-      return JSON.parse(raw);
-    };
-
-    try {
-      if (req.method === "GET" && url.pathname === "/health") {
-        send(200, {
-          ok: true,
-          daemon: state.daemon ?? null,
-          opencode: state.opencode ?? null,
-          activeId: state.activeId,
-          workspaceCount: state.workspaces.length,
-          cliVersion: state.cliVersion ?? null,
-          sidecar: state.sidecar ?? null,
-          binaries: state.binaries ?? null,
-        });
-        return;
-      }
-
-      if (req.method === "GET" && url.pathname === "/workspaces") {
-        send(200, { activeId: state.activeId, workspaces: state.workspaces });
-        return;
-      }
-
-      if (req.method === "POST" && url.pathname === "/workspaces") {
-        const body = await readBody();
-        const pathInput =
-          typeof body?.path === "string" ? body.path.trim() : "";
-        if (!pathInput) {
-          send(400, { error: "path is required" });
-          return;
-        }
-        const resolved = await ensureWorkspace(pathInput);
-        const id = workspaceIdForLocal(resolved);
-        const name =
-          typeof body?.name === "string" && body.name.trim()
-            ? body.name.trim()
-            : (resolved.split(/[\\/]/).filter(Boolean).pop() ?? "Workspace");
-        const existing = state.workspaces.find((entry) => entry.id === id);
-        const entry: RouterWorkspace = {
-          id,
-          name,
-          path: resolved,
-          workspaceType: "local",
-          createdAt: existing?.createdAt ?? nowMs(),
-          lastUsedAt: nowMs(),
-        };
-        state.workspaces = state.workspaces.filter((item) => item.id !== id);
-        state.workspaces.push(entry);
-        if (!state.activeId) state.activeId = id;
-        await saveRouterState(statePath, state);
-        send(200, { activeId: state.activeId, workspace: entry });
-        return;
-      }
-
-      if (req.method === "POST" && url.pathname === "/workspaces/remote") {
-        const body = await readBody();
-        const baseUrl =
-          typeof body?.baseUrl === "string" ? body.baseUrl.trim() : "";
-        if (
-          !baseUrl ||
-          (!baseUrl.startsWith("http://") && !baseUrl.startsWith("https://"))
-        ) {
-          send(400, { error: "baseUrl must start with http:// or https://" });
-          return;
-        }
-        const directory =
-          typeof body?.directory === "string" ? body.directory.trim() : "";
-        const id = workspaceIdForRemote(baseUrl, directory || undefined);
-        const name =
-          typeof body?.name === "string" && body.name.trim()
-            ? body.name.trim()
-            : baseUrl;
-        const existing = state.workspaces.find((entry) => entry.id === id);
-        const entry: RouterWorkspace = {
-          id,
-          name,
-          path: directory,
-          workspaceType: "remote",
-          baseUrl,
-          directory: directory || undefined,
-          createdAt: existing?.createdAt ?? nowMs(),
-          lastUsedAt: nowMs(),
-        };
-        state.workspaces = state.workspaces.filter((item) => item.id !== id);
-        state.workspaces.push(entry);
-        if (!state.activeId) state.activeId = id;
-        await saveRouterState(statePath, state);
-        send(200, { activeId: state.activeId, workspace: entry });
-        return;
-      }
-
-      if (
-        parts[0] === "workspaces" &&
-        parts.length === 2 &&
-        req.method === "GET"
-      ) {
-        const workspace = findWorkspace(
-          state,
-          decodeURIComponent(parts[1] ?? ""),
-        );
-        if (!workspace) {
-          send(404, { error: "workspace not found" });
-          return;
-        }
-        send(200, { workspace });
-        return;
-      }
-
-      if (
-        parts[0] === "workspaces" &&
-        parts.length === 3 &&
-        parts[2] === "activate" &&
-        req.method === "POST"
-      ) {
-        const workspace = findWorkspace(
-          state,
-          decodeURIComponent(parts[1] ?? ""),
-        );
-        if (!workspace) {
-          send(404, { error: "workspace not found" });
-          return;
-        }
-        state.activeId = workspace.id;
-        workspace.lastUsedAt = nowMs();
-        await saveRouterState(statePath, state);
-        send(200, { activeId: state.activeId, workspace });
-        return;
-      }
-
-      if (
-        parts[0] === "workspaces" &&
-        parts.length === 3 &&
-        parts[2] === "path" &&
-        req.method === "GET"
-      ) {
-        const workspace = findWorkspace(
-          state,
-          decodeURIComponent(parts[1] ?? ""),
-        );
-        if (!workspace) {
-          send(404, { error: "workspace not found" });
-          return;
-        }
-        const isRemote = workspace.workspaceType === "remote";
-        const baseUrl = isRemote
-          ? (workspace.baseUrl ?? "")
-          : (await ensureOpencode()).baseUrl;
-        if (!baseUrl) {
-          send(400, { error: "workspace baseUrl missing" });
-          return;
-        }
-        const directory = isRemote
-          ? (workspace.directory ?? "")
-          : workspace.path;
-        const client = createOpencodeClient({
-          baseUrl,
-          directory: directory ? directory : undefined,
-          headers: authHeaders,
-        });
-        const pathInfo = unwrap(await client.path.get());
-        workspace.lastUsedAt = nowMs();
-        await saveRouterState(statePath, state);
-        send(200, { workspace, path: pathInfo });
-        return;
-      }
-
-      if (
-        parts[0] === "instances" &&
-        parts.length === 3 &&
-        parts[2] === "dispose" &&
-        req.method === "POST"
-      ) {
-        const workspace = findWorkspace(
-          state,
-          decodeURIComponent(parts[1] ?? ""),
-        );
-        if (!workspace) {
-          send(404, { error: "workspace not found" });
-          return;
-        }
-        const isRemote = workspace.workspaceType === "remote";
-        const baseUrl = isRemote
-          ? (workspace.baseUrl ?? "")
-          : (await ensureOpencode()).baseUrl;
-        if (!baseUrl) {
-          send(400, { error: "workspace baseUrl missing" });
-          return;
-        }
-        const directory = isRemote
-          ? (workspace.directory ?? "")
-          : workspace.path;
-        const response = await fetch(
-          `${baseUrl.replace(/\/$/, "")}/instance/dispose?directory=${encodeURIComponent(directory)}`,
-          { method: "POST", headers: authHeaders },
-        );
-        const ok = response.ok ? await response.json() : false;
-        workspace.lastUsedAt = nowMs();
-        await saveRouterState(statePath, state);
-        send(200, { disposed: ok });
-        return;
-      }
-
-      if (req.method === "POST" && url.pathname === "/shutdown") {
-        send(200, { ok: true });
-        await shutdown();
-        return;
-      }
-
-      send(404, { error: "not found" });
-    } catch (error) {
-      send(500, {
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-  });
-
-  const shutdown = async () => {
-    logger.info(
-      "Daemon shutting down",
-      { host, port },
-      "legalwork-orchestrator-router",
-    );
-    try {
-      await new Promise<void>((resolve) => server.close(() => resolve()));
-    } catch {
-      // ignore
-    }
-
-    if (opencodeChild) {
-      await stopChild(opencodeChild);
-      opencodeChild = null;
-    }
-
-    state.daemon = undefined;
-    if (state.opencode && !isProcessAlive(state.opencode.pid)) {
-      state.opencode = undefined;
-    }
-    await saveRouterState(statePath, state);
-    process.exit(0);
-  };
-
-  server.listen(port, host, async () => {
-    state.daemon = {
-      pid: process.pid,
-      port,
-      baseUrl: `http://${host}:${port}`,
-      startedAt: nowMs(),
-    };
-    await saveRouterState(statePath, state);
-    if (outputJson) {
-      outputResult({ ok: true, daemon: state.daemon }, true);
-    } else {
-      if (logFormat === "json") {
-        logger.info(
-          "Daemon running",
-          { host, port },
-          "legalwork-orchestrator-router",
-        );
-      } else {
-        console.log(`orchestrator daemon running on ${host}:${port}`);
-      }
-    }
-  });
-
-  process.on("SIGINT", () => shutdown());
-  process.on("SIGTERM", () => shutdown());
-  await new Promise(() => undefined);
 }
 
 function readLegalworkClientAuth(args: ParsedArgs): {
@@ -6805,6 +4355,7 @@ async function runStatus(args: ParsedArgs) {
   const password =
     readFlag(args.flags, "opencode-password") ??
     process.env.OPENCODE_SERVER_PASSWORD;
+  const legalworkToken = readFlag(args.flags, "legalwork-token") ?? process.env.LEGALWORK_TOKEN;
   const outputJson = readBool(args.flags, "json", false);
 
   const status: Record<string, unknown> = {};
@@ -6821,15 +4372,30 @@ async function runStatus(args: ParsedArgs) {
   if (opencodeUrl) {
     try {
       const headers: Record<string, string> = {};
-      if (username && password) {
+      const proxy = new URL(opencodeUrl);
+      const managedProxy = /\/(?:w\/[^/]+\/)?opencode\/?$/.test(proxy.pathname);
+      if (managedProxy && legalworkToken) {
+        headers.Authorization = `Bearer ${legalworkToken}`;
+      } else if (username && password) {
         headers.Authorization = `Basic ${encodeBasicAuth(username, password)}`;
       }
-      const client = createOpencodeClient({
+      const client = OpenCode.make({
         baseUrl: opencodeUrl,
         headers,
       });
-      const health = await waitForOpencodeHealthy(client, 5000, 400);
-      status.opencode = { ok: true, url: opencodeUrl, health };
+      if (managedProxy && legalworkToken) {
+        const info = await client.server.info({ signal: AbortSignal.timeout(5000) });
+        if (!info.version.startsWith("2.") || !Number.isInteger(info.pid) || info.pid <= 0) throw new Error("The managed engine did not return a native v2 process identity.");
+        proxy.pathname = proxy.pathname.replace(/\/(?:w\/[^/]+\/)?opencode\/?$/, "/health"); proxy.search = ""; proxy.hash = "";
+        const response = await fetch(proxy, { signal: AbortSignal.timeout(5000) });
+        const readiness: unknown = await response.json();
+        if (!response.ok || !readiness || typeof readiness !== "object" || !("engine" in readiness) || !readiness.engine || typeof readiness.engine !== "object" || !("status" in readiness.engine)) throw new Error("The LegalWork server did not return managed engine readiness.");
+        const healthy = readiness.engine.status === "ready";
+        status.opencode = { ok: healthy, url: opencodeUrl, health: { healthy, version: info.version, pid: info.pid, status: readiness.engine.status } };
+      } else {
+        const health = await waitForOpencodeHealthy(client, 5000, 400);
+        status.opencode = { ok: true, url: opencodeUrl, health };
+      }
     } catch (error) {
       status.opencode = { ok: false, url: opencodeUrl, error: String(error) };
     }
@@ -6864,6 +4430,10 @@ async function runStatus(args: ParsedArgs) {
 }
 
 async function runStart(args: ParsedArgs) {
+  if ([...args.flags.keys()].some((name) => /^opencode-router(?:-|$)/.test(name))) {
+    throw new Error("Messaging connectors have been removed. Remove the opencode-router options.");
+  }
+
   const outputJson = readBool(args.flags, "json", false);
   const checkOnly = readBool(args.flags, "check", false);
   const checkEvents = readBool(args.flags, "check-events", false);
@@ -6909,12 +4479,10 @@ async function runStart(args: ParsedArgs) {
     onLog: (event: LogEvent) => {
       if (!tui) return;
       const component = event.component ?? "legalwork-orchestrator";
-      const tuiComponent =
-        component === "opencode-router" ? "router" : component;
       tui.pushLog({
         time: event.time,
         level: event.level,
-        component: tuiComponent,
+        component,
         message: event.message,
       });
     },
@@ -6999,14 +4567,8 @@ async function runStart(args: ParsedArgs) {
   });
   const opencodeConfigDir = opencodeStateLayout.configDir;
   await ensureOpencodeStateLayout(opencodeStateLayout);
-  await ensureOpencodeManagedTools(opencodeConfigDir);
-  const opencodeRouterDataDir =
-    sandboxMode === "none"
-      ? join(dataDir, "opencode-router", workspaceIdForLocal(resolvedWorkspace))
-      : null;
-  if (opencodeRouterDataDir) {
-    await mkdir(opencodeRouterDataDir, { recursive: true });
-  }
+  await retireMessagingTools(opencodeConfigDir);
+
   const sandboxPersistDir = resolve(
     sandboxPersistOverride?.trim()
       ? sandboxPersistOverride.trim()
@@ -7029,9 +4591,7 @@ async function runStart(args: ParsedArgs) {
   const explicitLegalworkServerBin =
     readFlag(args.flags, "legalwork-server-bin") ??
     process.env.LEGALWORK_SERVER_BIN;
-  const explicitOpenCodeRouterBin =
-    readFlag(args.flags, "opencode-router-bin") ??
-    process.env.OPENCODE_ROUTER_BIN;
+
   assertManagedOpencodeAuth(args);
   const opencodeBindHost = resolveManagedOpencodeHost(
     readFlag(args.flags, "opencode-host") ??
@@ -7076,17 +4636,7 @@ async function runStart(args: ParsedArgs) {
     readNumber(args.flags, "legalwork-port", undefined, "LEGALWORK_PORT"),
     "127.0.0.1",
   );
-  // Always choose a free opencodeRouter health port by default (avoid conflicts with
-  // other local processes using 3005).
-  const opencodeRouterHealthPort = await resolvePort(
-    readNumber(
-      args.flags,
-      "opencode-router-health-port",
-      undefined,
-      "OPENCODE_ROUTER_HEALTH_PORT",
-    ),
-    "127.0.0.1",
-  );
+
   const legalworkToken =
     readFlag(args.flags, "legalwork-token") ??
     process.env.LEGALWORK_TOKEN ??
@@ -7126,7 +4676,6 @@ async function runStart(args: ParsedArgs) {
   const sidecarTarget = resolveSandboxSidecarTarget(sandboxMode);
   const sidecar = resolveSidecarConfigForTarget(
     args.flags,
-    cliVersion,
     sidecarTarget,
   );
 
@@ -7145,13 +4694,10 @@ async function runStart(args: ParsedArgs) {
     // custom *-bin paths are provided, treat the source as external so we don't
     // accidentally pick host (darwin) bundled binaries.
     if (sidecarSourceInput === "auto") {
-      sidecarSource =
-        explicitLegalworkServerBin || explicitOpenCodeRouterBin
-          ? "external"
-          : "downloaded";
+      sidecarSource = explicitLegalworkServerBin ? "external" : "auto";
     }
     if (opencodeSourceInput === "auto") {
-      opencodeSource = explicitOpencodeBin ? "external" : "downloaded";
+      opencodeSource = explicitOpencodeBin ? "external" : "auto";
     }
   }
   const dockerCommand =
@@ -7170,8 +4716,6 @@ async function runStart(args: ParsedArgs) {
   }
   logVerbose(`sidecar target: ${sidecar.target ?? "unknown"}`);
   logVerbose(`sidecar dir: ${sidecar.dir}`);
-  logVerbose(`sidecar base URL: ${sidecar.baseUrl}`);
-  logVerbose(`sidecar manifest: ${sidecar.manifestUrl}`);
   logVerbose(`sidecar source: ${sidecarSource}`);
   logVerbose(`opencode source: ${opencodeSource}`);
   logVerbose(
@@ -7210,59 +4754,29 @@ async function runStart(args: ParsedArgs) {
       }
     }
   }
-  const opencodeRouterMode = await resolveOpencodeRouterEnabled(
-    args.flags,
-    resolvedWorkspace,
-    logger,
-  );
-  const opencodeRouterEnabled = opencodeRouterMode.enabled;
-  const opencodeRouterRequired = readBool(
-    args.flags,
-    "opencode-router-required",
-    false,
-    "LEGALWORK_OPENCODE_ROUTER_REQUIRED",
-  );
-  logVerbose(
-    `opencodeRouter enabled: ${opencodeRouterEnabled ? "true" : "false"} (${opencodeRouterMode.source})`,
-  );
+
+  if (sandboxMode !== "none" && sidecarTarget !== resolveSidecarTarget() && !explicitLegalworkServerBin) {
+    throw new Error("Sandbox mode requires a locally built Linux server via --legalwork-server-bin and --allow-external; automatic standalone downloads are retired.");
+  }
   let legalworkServerBinary = await resolveLegalworkServerBin({
     explicit: explicitLegalworkServerBin,
-    manifest,
+    manifest: sandboxMode !== "none" && sidecarTarget !== resolveSidecarTarget() ? null : manifest,
     allowExternal,
     sidecar,
     source: sidecarSource,
   });
-  let opencodeRouterBinary = opencodeRouterEnabled
-    ? await resolveOpenCodeRouterBin({
-        explicit: explicitOpenCodeRouterBin,
-        manifest,
-        allowExternal,
-        sidecar,
-        source: sidecarSource,
-      })
-    : null;
 
   if (sandboxMode !== "none") {
     // Ensure the binaries we stage into the container are actual files.
     await assertSandboxBinaryFile("opencode", opencodeBinary.bin);
     await assertSandboxBinaryFile("legalwork-server", legalworkServerBinary.bin);
-    if (opencodeRouterBinary) {
-      await assertSandboxBinaryFile(
-        "opencode-router",
-        opencodeRouterBinary.bin,
-      );
-    }
+
   }
-  let opencodeRouterActualVersion: string | undefined;
+
   logVerbose(`opencode bin: ${opencodeBinary.bin} (${opencodeBinary.source})`);
   logVerbose(
     `legalwork-server bin: ${legalworkServerBinary.bin} (${legalworkServerBinary.source})`,
   );
-  if (opencodeRouterBinary) {
-    logVerbose(
-      `opencodeRouter bin: ${opencodeRouterBinary.bin} (${opencodeRouterBinary.source})`,
-    );
-  }
 
   const legalworkBaseUrl = `http://127.0.0.1:${legalworkPort}`;
   const legalworkConnect = remoteAccessEnabled
@@ -7270,38 +4784,21 @@ async function runStart(args: ParsedArgs) {
     : {};
   const legalworkConnectUrl = legalworkConnect.connectUrl ?? legalworkBaseUrl;
 
-  const opencodeBaseUrl =
-    sandboxMode !== "none"
-      ? `${legalworkBaseUrl}/opencode`
-      : `http://127.0.0.1:${opencodePort}`;
-  const opencodeConnectUrl =
-    sandboxMode !== "none"
-      ? `${legalworkConnectUrl.replace(/\/$/, "")}/opencode`
-      : opencodeBaseUrl;
-
-  const attachCommand =
-    sandboxMode !== "none"
-      ? `OpenCode is proxied via ${opencodeConnectUrl} (requires LegalWork token)`
-      : buildAttachCommand({
-          url: opencodeConnectUrl,
-          workspace: resolvedWorkspace,
-          username: opencodeUsername,
-          password: opencodeCredentials.password,
-        });
-
-  const opencodeRouterHealthUrl = `http://127.0.0.1:${opencodeRouterHealthPort}`;
-  const opencodeRouterEnv: NodeJS.ProcessEnv = {
-    ...process.env,
-    OPENCODE_DIRECTORY: resolvedWorkspace,
-    OPENCODE_URL: opencodeConnectUrl,
-    ...(opencodeUsername ? { OPENCODE_SERVER_USERNAME: opencodeUsername } : {}),
-    ...(opencodePassword ? { OPENCODE_SERVER_PASSWORD: opencodePassword } : {}),
-    ...(opencodeRouterEnabled
-      ? { OPENCODE_ROUTER_HEALTH_PORT: String(opencodeRouterHealthPort) }
-      : {}),
+  const opencodeBaseUrl = `${legalworkBaseUrl}/opencode`;
+  const opencodeConnectUrl = `${legalworkConnectUrl.replace(/\/$/, "")}/opencode`;
+  const attachCommand = `OpenCode is proxied via ${opencodeConnectUrl} (requires LegalWork token)`;
+  const managedEngineStorageDirectory = join(opencodeStateLayout.rootDir, "managed-engine-v2");
+  const managedOpencodeOptions = {
+    bin: opencodeBinary.bin,
+    port: opencodePort,
+    storageDirectory: managedEngineStorageDirectory,
+    pluginDirectories: [],
+    dataHome: opencodeStateLayout.env.XDG_DATA_HOME,
+    logLevel: opencodeLogLevel,
   };
 
   const children: ChildHandle[] = [];
+  const lifecycleAbort = new AbortController();
   let shuttingDown = false;
   let detached = false;
   let sandboxContainerName: string | null = null;
@@ -7310,16 +4807,16 @@ async function runStart(args: ParsedArgs) {
   let sandboxCleanup: (() => Promise<void>) | null = null;
   let opencodeChild: ChildProcess | null = null;
   let legalworkChild: ChildProcess | null = null;
-  let opencodeRouterChild: ChildProcess | null = null;
+
   let controlServer: ReturnType<typeof createHttpServer> | null = null;
   const controlPort = await resolvePort(undefined, "127.0.0.1");
   const controlToken = randomUUID();
   const controlBaseUrl = `http://127.0.0.1:${controlPort}`;
   let opencodeActualVersion: string | undefined;
   let legalworkActualVersion: string | undefined;
-  let legalworkOwnerToken: string | undefined;
+
   const startedAt = Date.now();
-  let opencodeRouterHealthInterval: NodeJS.Timeout | null = null;
+
   const workerActivityHeartbeat = resolveWorkerActivityHeartbeatConfig();
   let workerActivityHeartbeatInterval: NodeJS.Timeout | null = null;
   const restartingServices = new Set<string>();
@@ -7335,7 +4832,14 @@ async function runStart(args: ParsedArgs) {
     const index = children.findIndex((handle) => handle.name === name);
     if (index >= 0) children.splice(index, 1);
   };
-  const getRuntimeSnapshot = () => {
+  const getRuntimeSnapshot = async () => {
+    let engineRunning = false;
+    if (legalworkChild && isProcessAlive(legalworkChild.pid)) {
+      try {
+        const info = await OpenCode.make({ baseUrl: opencodeBaseUrl, headers: { Authorization: `Bearer ${legalworkToken}` } }).server.info({ signal: AbortSignal.timeout(3000) });
+        engineRunning = info.version.startsWith("2.");
+      } catch { /* A running owner alone does not prove its engine is healthy. */ }
+    }
     const services = [
       buildRuntimeServiceSnapshot({
         name: "legalwork-server",
@@ -7347,19 +4851,11 @@ async function runStart(args: ParsedArgs) {
       buildRuntimeServiceSnapshot({
         name: "opencode",
         enabled: true,
-        running: Boolean(opencodeChild && isProcessAlive(opencodeChild.pid)),
+        running: engineRunning,
         binary: opencodeBinary,
         actualVersion: opencodeActualVersion,
       }),
-      buildRuntimeServiceSnapshot({
-        name: "opencode-router",
-        enabled: Boolean(opencodeRouterEnabled && opencodeRouterBinary),
-        running: Boolean(
-          opencodeRouterChild && isProcessAlive(opencodeRouterChild.pid),
-        ),
-        binary: opencodeRouterBinary,
-        actualVersion: opencodeRouterActualVersion,
-      }),
+
     ];
     return {
       ok: true,
@@ -7377,60 +4873,6 @@ async function runStart(args: ParsedArgs) {
       services,
     };
   };
-  const restartOpencode = async () => {
-    if (sandboxMode !== "none") {
-      throw new Error(
-        "Runtime upgrade is not supported while sandbox mode is enabled",
-      );
-    }
-    if (opencodeChild) {
-      restartingServices.add("opencode");
-      removeChildHandle("opencode");
-      await stopChild(opencodeChild);
-      opencodeChild = null;
-    }
-    opencodeActualVersion = await verifyOpencodeVersion(opencodeBinary);
-    const child = await startOpencode({
-      modelCatalogUrl: `${legalworkBaseUrl}/model-catalog`,
-      bin: opencodeBinary.bin,
-      workspace: resolvedWorkspace,
-      stateLayout: opencodeStateLayout,
-      hotReload: opencodeHotReload,
-      bindHost: opencodeBindHost,
-      port: opencodePort,
-      username: opencodeUsername,
-      password: opencodePassword,
-      corsOrigins: corsOrigins.length ? corsOrigins : ["*"],
-      logger,
-      runId,
-      logFormat,
-      logLevel: opencodeLogLevel,
-      opencodeRouterHealthPort: opencodeRouterEnabled
-        ? opencodeRouterHealthPort
-        : undefined,
-    });
-    opencodeChild = child;
-    children.push({ name: "opencode", child });
-    logger.info(
-      "Process spawned",
-      { pid: child.pid ?? 0, cause: "runtime-upgrade" },
-      "opencode",
-    );
-    child.on("exit", (code, signal) => handleExit("opencode", code, signal));
-    child.on("error", (error) => handleSpawnError("opencode", error));
-    await waitForOpencodeHealthy(
-      createOpencodeClient({
-        baseUrl: opencodeBaseUrl,
-        directory: resolvedWorkspace,
-        headers:
-          opencodeUsername && opencodePassword
-            ? {
-          Authorization: `Basic ${encodeBasicAuth(opencodeCredentials.username, opencodeCredentials.password)}`,
-              }
-            : undefined,
-      }),
-    );
-  };
   const restartLegalworkServer = async () => {
     if (sandboxMode !== "none") {
       throw new Error(
@@ -7440,7 +4882,7 @@ async function runStart(args: ParsedArgs) {
     if (legalworkChild) {
       restartingServices.add("legalwork-server");
       removeChildHandle("legalwork-server");
-      await stopChild(legalworkChild);
+      await stopChild(legalworkChild, 10_000);
       legalworkChild = null;
     }
     const child = await startLegalworkServer({
@@ -7454,16 +4896,7 @@ async function runStart(args: ParsedArgs) {
       approvalTimeoutMs,
       readOnly,
       corsOrigins: corsOrigins.length ? corsOrigins : ["*"],
-      opencodeBaseUrl: opencodeConnectUrl,
-      opencodeDirectory: resolvedWorkspace,
-      opencodeUsername,
-      opencodePassword,
-      opencodeRouterHealthPort: opencodeRouterEnabled
-        ? opencodeRouterHealthPort
-        : undefined,
-      opencodeRouterDataDir: opencodeRouterEnabled
-        ? (opencodeRouterDataDir ?? undefined)
-        : undefined,
+      managedOpencode: { ...managedOpencodeOptions, bin: opencodeBinary.bin },
       logger,
       runId,
       logFormat,
@@ -7482,59 +4915,17 @@ async function runStart(args: ParsedArgs) {
     );
     child.on("error", (error) => handleSpawnError("legalwork-server", error));
     await waitForHealthy(legalworkBaseUrl);
+    await waitForManagedOpencodeHealthy(OpenCode.make({ baseUrl: opencodeBaseUrl, headers: { Authorization: `Bearer ${legalworkToken}` } }), child, legalworkBaseUrl);
     legalworkActualVersion = await verifyLegalworkServer({
       baseUrl: legalworkBaseUrl,
       token: legalworkToken,
       hostToken: legalworkHostToken,
       expectedVersion: legalworkServerBinary.expectedVersion,
       expectedWorkspace: resolvedWorkspace,
-      expectedOpencodeBaseUrl: opencodeConnectUrl,
       expectedOpencodeDirectory: resolvedWorkspace,
-      expectedOpencodeUsername: opencodeUsername,
-      expectedOpencodePassword: opencodePassword,
     });
   };
-  const restartOpenCodeRouter = async () => {
-    if (
-      !opencodeRouterEnabled ||
-      !opencodeRouterBinary ||
-      sandboxMode !== "none"
-    ) {
-      return;
-    }
-    if (opencodeRouterChild) {
-      restartingServices.add("opencode-router");
-      removeChildHandle("opencode-router");
-      await stopChild(opencodeRouterChild);
-      opencodeRouterChild = null;
-    }
-    opencodeRouterActualVersion =
-      await verifyOpenCodeRouterVersion(opencodeRouterBinary);
-    opencodeRouterChild = await startOpenCodeRouter({
-      bin: opencodeRouterBinary.bin,
-      workspace: resolvedWorkspace,
-      opencodeUrl: opencodeConnectUrl,
-      opencodeUsername,
-      opencodePassword,
-      opencodeRouterHealthPort,
-      opencodeRouterDataDir: opencodeRouterDataDir ?? undefined,
-      logger,
-      runId,
-      logFormat,
-    });
-    children.push({ name: "opencode-router", child: opencodeRouterChild });
-    opencodeRouterChild.on("exit", (code, signal) =>
-      handleExit("opencode-router", code, signal),
-    );
-    opencodeRouterChild.on("error", (error) =>
-      handleSpawnError("opencode-router", error),
-    );
-    await waitForOpenCodeRouterHealthy(
-      `http://127.0.0.1:${opencodeRouterHealthPort}`,
-      10_000,
-      400,
-    );
-  };
+
   const performRuntimeUpgrade = async (services: RuntimeServiceName[]) => {
     const opId = randomUUID();
     runtimeUpgradeState.status = "running";
@@ -7558,15 +4949,7 @@ async function runStart(args: ParsedArgs) {
           `legalwork-server@${legalworkServerBinary.expectedVersion}`,
         ]);
       }
-      if (
-        services.includes("opencode-router") &&
-        opencodeRouterBinary?.source === "external" &&
-        opencodeRouterBinary.expectedVersion
-      ) {
-        await installGlobalPackages([
-          `opencode-router@${opencodeRouterBinary.expectedVersion}`,
-        ]);
-      }
+
       if (services.includes("legalwork-server")) {
         legalworkServerBinary = await resolveLegalworkServerBin({
           explicit: explicitLegalworkServerBin,
@@ -7585,21 +4968,11 @@ async function runStart(args: ParsedArgs) {
           source: opencodeSource,
         });
       }
-      if (services.includes("opencode-router") && opencodeRouterEnabled) {
-        opencodeRouterBinary = await resolveOpenCodeRouterBin({
-          explicit: explicitOpenCodeRouterBin,
-          manifest,
-          allowExternal,
-          sidecar,
-          source: sidecarSource,
-        });
-      }
+
       if (services.includes("opencode")) {
-        await restartOpencode();
+        opencodeActualVersion = await verifyOpencodeVersion(opencodeBinary);
       }
-      if (services.includes("opencode-router")) {
-        await restartOpenCodeRouter();
-      }
+
       if (
         services.includes("legalwork-server") ||
         services.includes("opencode")
@@ -7620,15 +4993,13 @@ async function runStart(args: ParsedArgs) {
       );
     }
   };
-  const shutdown = async () => {
-    if (shuttingDown) return;
+  let shutdownPromise: Promise<void> | undefined;
+  const shutdown = () => shutdownPromise ??= (async () => {
     shuttingDown = true;
+    lifecycleAbort.abort();
     restoreConsoleError?.();
     restoreConsoleError = undefined;
-    if (opencodeRouterHealthInterval) {
-      clearInterval(opencodeRouterHealthInterval);
-      opencodeRouterHealthInterval = null;
-    }
+
     if (workerActivityHeartbeatInterval) {
       clearInterval(workerActivityHeartbeatInterval);
       workerActivityHeartbeatInterval = null;
@@ -7647,12 +5018,12 @@ async function runStart(args: ParsedArgs) {
     if (sandboxContainerName && sandboxStop) {
       await sandboxStop(sandboxContainerName);
     }
-    await Promise.all(children.map((handle) => stopChild(handle.child)));
+    await Promise.all(children.map((handle) => stopChild(handle.child, handle.name === "legalwork-server" ? 10_000 : 2500)));
     if (sandboxCleanup) {
       await sandboxCleanup();
       sandboxCleanup = null;
     }
-  };
+  })();
 
   const detachChildren = () => {
     detached = true;
@@ -7679,10 +5050,7 @@ async function runStart(args: ParsedArgs) {
     if (detached) return;
     restoreConsoleError?.();
     restoreConsoleError = undefined;
-    if (opencodeRouterHealthInterval) {
-      clearInterval(opencodeRouterHealthInterval);
-      opencodeRouterHealthInterval = null;
-    }
+
     if (workerActivityHeartbeatInterval) {
       clearInterval(workerActivityHeartbeatInterval);
       workerActivityHeartbeatInterval = null;
@@ -7702,7 +5070,6 @@ async function runStart(args: ParsedArgs) {
         : []),
       `LegalWork URL: ${legalworkConnectUrl}`,
       "Credentials withheld from detached stdout.",
-      ...(legalworkOwnerToken ? ["LegalWork owner token issued."] : []),
       `OpenCode URL: ${opencodeConnectUrl}`,
       `Attach: ${redactSensitiveString(attachCommand)}`,
       "Use `--json` only when you explicitly need the raw tokens or passwords in command output.",
@@ -7744,17 +5111,10 @@ async function runStart(args: ParsedArgs) {
           workspace: resolvedWorkspace,
           legalworkUrl: legalworkConnectUrl,
           legalworkToken,
-          ownerToken: legalworkOwnerToken,
+
           hostToken: legalworkHostToken,
           opencodeUrl: opencodeConnectUrl,
-          opencodePassword:
-            sandboxMode !== "none"
-              ? undefined
-              : (opencodePassword ?? undefined),
-          opencodeUsername:
-            sandboxMode !== "none"
-              ? undefined
-              : (opencodeUsername ?? undefined),
+
           attachCommand,
         },
         services: [
@@ -7770,12 +5130,7 @@ async function runStart(args: ParsedArgs) {
             status: "starting",
             port: legalworkPort,
           },
-          {
-            name: "router",
-            label: "opencode-router",
-            status: opencodeRouterEnabled ? "starting" : "disabled",
-            port: sandboxMode !== "none" ? undefined : opencodeRouterHealthPort,
-          },
+
         ],
         onQuit: handleQuit,
         onDetach: handleDetach,
@@ -7784,90 +5139,7 @@ async function runStart(args: ParsedArgs) {
           return { command: attachCommand, ...result };
         },
         onCopySelection: async (text) => copyToClipboard(text),
-        onRouterHealth: async () =>
-          fetchOpenCodeRouterHealthViaLegalwork(legalworkBaseUrl, legalworkToken),
-        onRouterTelegramIdentities: async () => {
-          const url = `${legalworkBaseUrl.replace(/\/$/, "")}/opencode-router/identities/telegram`;
-          const result = await fetchJson(url, {
-            headers: {
-              "X-LegalWork-Host-Token": legalworkHostToken,
-            },
-          });
-          const items = Array.isArray(result?.items) ? result.items : [];
-          return { items };
-        },
-        onRouterSlackIdentities: async () => {
-          const url = `${legalworkBaseUrl.replace(/\/$/, "")}/opencode-router/identities/slack`;
-          const result = await fetchJson(url, {
-            headers: {
-              "X-LegalWork-Host-Token": legalworkHostToken,
-            },
-          });
-          const items = Array.isArray(result?.items) ? result.items : [];
-          return { items };
-        },
-        onRouterSetGroupsEnabled: async (enabled) => {
-          try {
-            const url = `${legalworkBaseUrl.replace(/\/$/, "")}/opencode-router/config/groups`;
-            await fetchJson(url, {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                "X-LegalWork-Host-Token": legalworkHostToken,
-              },
-              body: JSON.stringify({ enabled }),
-            });
-            return { ok: true };
-          } catch (error) {
-            return {
-              ok: false,
-              error: error instanceof Error ? error.message : String(error),
-            };
-          }
-        },
-        onRouterSetTelegramToken: async (token) => {
-          try {
-            const url = `${legalworkBaseUrl.replace(/\/$/, "")}/opencode-router/identities/telegram`;
-            await fetchJson(url, {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                "X-LegalWork-Host-Token": legalworkHostToken,
-              },
-              body: JSON.stringify({ id: "default", token, enabled: true }),
-            });
-            return { ok: true };
-          } catch (error) {
-            return {
-              ok: false,
-              error: error instanceof Error ? error.message : String(error),
-            };
-          }
-        },
-        onRouterSetSlackTokens: async (botToken, appToken) => {
-          try {
-            const url = `${legalworkBaseUrl.replace(/\/$/, "")}/opencode-router/identities/slack`;
-            await fetchJson(url, {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                "X-LegalWork-Host-Token": legalworkHostToken,
-              },
-              body: JSON.stringify({
-                id: "default",
-                botToken,
-                appToken,
-                enabled: true,
-              }),
-            });
-            return { ok: true };
-          } catch (error) {
-            return {
-              ok: false,
-              error: error instanceof Error ? error.message : String(error),
-            };
-          }
-        },
+
       });
       tui.setUptimeStart(startedAt);
     } catch (error) {
@@ -7876,9 +5148,6 @@ async function runStart(args: ParsedArgs) {
       );
     }
   }
-
-  const tuiServiceName = (name: string) =>
-    name === "opencode-router" ? "router" : name;
 
   const handleExit = (
     name: string,
@@ -7894,8 +5163,8 @@ async function runStart(args: ParsedArgs) {
       code !== null ? `code ${code}` : signal ? `signal ${signal}` : "unknown";
     const services =
       name === "sandbox"
-        ? ["opencode", "legalwork-server", "router"]
-        : [tuiServiceName(name)];
+        ? ["opencode", "legalwork-server"]
+        : [name];
     for (const service of services) {
       tui?.updateService(service, { status: "stopped", message: reason });
     }
@@ -7905,7 +5174,7 @@ async function runStart(args: ParsedArgs) {
 
   const handleSpawnError = (name: string, error: unknown) => {
     if (shuttingDown || detached) return;
-    tui?.updateService(tuiServiceName(name), {
+    tui?.updateService(name, {
       status: "error",
       message: String(error),
     });
@@ -7913,12 +5182,16 @@ async function runStart(args: ParsedArgs) {
     void shutdown().then(() => process.exit(1));
   };
 
+  // Cancellation during startup owns the same cleanup as cancellation after
+  // readiness; it must not leave the managed server/native engine orphaned.
+  process.once("SIGINT", () => { void shutdown().then(() => process.exit(0)); });
+  process.once("SIGTERM", () => { void shutdown().then(() => process.exit(0)); });
   try {
     opencodeActualVersion =
       sandboxMode !== "none"
         ? opencodeBinary.expectedVersion
         : await verifyOpencodeVersion(opencodeBinary);
-    let opencodeClient: ReturnType<typeof createOpencodeClient>;
+    let opencodeClient: OpenCodeClient;
 
     controlServer = createHttpServer(async (req, res) => {
       const method = req.method ?? "GET";
@@ -7932,7 +5205,7 @@ async function runStart(args: ParsedArgs) {
       }
       if (method === "GET" && url.pathname === "/runtime/versions") {
         res.statusCode = 200;
-        res.end(JSON.stringify(getRuntimeSnapshot()));
+        res.end(JSON.stringify(await getRuntimeSnapshot()));
         return;
       }
       if (method === "POST" && url.pathname === "/runtime/upgrade") {
@@ -7958,8 +5231,7 @@ async function runStart(args: ParsedArgs) {
             requested.filter(
               (item): item is RuntimeServiceName =>
                 item === "legalwork-server" ||
-                item === "opencode" ||
-                item === "opencode-router",
+                item === "opencode",
             ),
           ),
         );
@@ -8024,15 +5296,11 @@ async function runStart(args: ParsedArgs) {
               sidecars: {
                 opencode: opencodeBinary.bin,
                 legalworkServer: legalworkServerBinary.bin,
-                opencodeRouter: opencodeRouterEnabled
-                  ? (opencodeRouterBinary?.bin ?? null)
-                  : null,
+
               },
               ports: {
                 legalwork: legalworkPort,
-                // In sandbox mode, opencodeRouter is only reachable via legalwork-server
-                // proxy (/opencode-router/*). Do not publish a separate host port.
-                opencodeRouterHealth: null,
+
               },
               opencode: {
                 corsOrigins: corsOrigins.length ? corsOrigins : ["*"],
@@ -8068,15 +5336,11 @@ async function runStart(args: ParsedArgs) {
               sidecars: {
                 opencode: opencodeBinary.bin,
                 legalworkServer: legalworkServerBinary.bin,
-                opencodeRouter: opencodeRouterEnabled
-                  ? (opencodeRouterBinary?.bin ?? null)
-                  : null,
+
               },
               ports: {
                 legalwork: legalworkPort,
-                // In sandbox mode, opencodeRouter is only reachable via legalwork-server
-                // proxy (/opencode-router/*). Do not publish a separate host port.
-                opencodeRouterHealth: null,
+
               },
               opencode: {
                 corsOrigins: corsOrigins.length ? corsOrigins : ["*"],
@@ -8111,9 +5375,6 @@ async function runStart(args: ParsedArgs) {
         status: "running",
         port: legalworkPort,
       });
-      if (opencodeRouterEnabled) {
-        tui?.updateService("router", { status: "running", port: undefined });
-      }
 
       if (!detachRequested) {
         children.push({ name: "sandbox", child: sandboxChild.child });
@@ -8142,7 +5403,7 @@ async function runStart(args: ParsedArgs) {
       logger.info("Healthy", { url: legalworkBaseUrl }, "legalwork-server");
       tui?.updateService("legalwork-server", { status: "healthy" });
 
-      opencodeClient = createOpencodeClient({
+      opencodeClient = OpenCode.make({
         baseUrl: `${legalworkBaseUrl.replace(/\/$/, "")}/opencode`,
         headers: { Authorization: `Bearer ${legalworkToken}` },
       });
@@ -8175,10 +5436,7 @@ async function runStart(args: ParsedArgs) {
           hostToken: legalworkHostToken,
           expectedVersion: legalworkServerBinary.expectedVersion,
           expectedWorkspace: "/workspace",
-          expectedOpencodeBaseUrl: opencodeInternalBaseUrl,
           expectedOpencodeDirectory: "/workspace",
-          expectedOpencodeUsername: opencodeUsername,
-          expectedOpencodePassword: opencodePassword,
         });
       } catch (verifyError) {
         // In sandbox mode the released server binary may differ from the
@@ -8191,182 +5449,11 @@ async function runStart(args: ParsedArgs) {
           "legalwork-server",
         );
       }
-      legalworkOwnerToken = await issueLegalworkOwnerToken(
-        legalworkBaseUrl,
-        legalworkHostToken,
-        "LegalWork sandbox owner token",
-      );
-      tui?.setConnectInfo({ ownerToken: legalworkOwnerToken });
+
       logVerbose(
         `legalwork-server version: ${legalworkActualVersion ?? "unknown"}`,
       );
     } else {
-      const startedOpencodeChild = await startOpencode({
-        modelCatalogUrl: `${legalworkBaseUrl}/model-catalog`,
-        bin: opencodeBinary.bin,
-        workspace: resolvedWorkspace,
-        stateLayout: opencodeStateLayout,
-        hotReload: opencodeHotReload,
-        bindHost: opencodeBindHost,
-        port: opencodePort,
-        username: opencodeUsername,
-        password: opencodePassword,
-        corsOrigins: corsOrigins.length ? corsOrigins : ["*"],
-        logger,
-        runId,
-        logFormat,
-        logLevel: opencodeLogLevel,
-        opencodeRouterHealthPort: opencodeRouterEnabled
-          ? opencodeRouterHealthPort
-          : undefined,
-      });
-      opencodeChild = startedOpencodeChild;
-      children.push({ name: "opencode", child: startedOpencodeChild });
-      tui?.updateService("opencode", {
-        status: "running",
-        pid: startedOpencodeChild.pid ?? undefined,
-        port: opencodePort,
-      });
-      logger.info(
-        "Process spawned",
-        { pid: startedOpencodeChild.pid ?? 0 },
-        "opencode",
-      );
-      startedOpencodeChild.on("exit", (code, signal) =>
-        handleExit("opencode", code, signal),
-      );
-      startedOpencodeChild.on("error", (error) =>
-        handleSpawnError("opencode", error),
-      );
-
-      const authHeaders: Record<string, string> = {};
-      if (opencodeUsername && opencodePassword) {
-        authHeaders.Authorization = `Basic ${encodeBasicAuth(opencodeUsername, opencodePassword)}`;
-      }
-      opencodeClient = createOpencodeClient({
-        baseUrl: opencodeBaseUrl,
-        directory: resolvedWorkspace,
-        headers: Object.keys(authHeaders).length ? authHeaders : undefined,
-      });
-
-      logger.info("Waiting for health", { url: opencodeBaseUrl }, "opencode");
-      await waitForOpencodeHealthy(opencodeClient);
-      logger.info("Healthy", { url: opencodeBaseUrl }, "opencode");
-      tui?.updateService("opencode", { status: "healthy" });
-
-      let opencodeRouterReady = false;
-      if (opencodeRouterEnabled) {
-        if (!opencodeRouterBinary) {
-          throw new Error("OpenCodeRouter binary missing.");
-        }
-        opencodeRouterActualVersion =
-          await verifyOpenCodeRouterVersion(opencodeRouterBinary);
-        logVerbose(
-          `opencodeRouter version: ${opencodeRouterActualVersion ?? "unknown"}`,
-        );
-
-        try {
-          const startedOpenCodeRouterChild = await startOpenCodeRouter({
-            bin: opencodeRouterBinary.bin,
-            workspace: resolvedWorkspace,
-            opencodeUrl: opencodeConnectUrl,
-            opencodeUsername,
-            opencodePassword,
-            opencodeRouterHealthPort,
-            opencodeRouterDataDir: opencodeRouterDataDir ?? undefined,
-            logger,
-            runId,
-            logFormat,
-          });
-          opencodeRouterChild = startedOpenCodeRouterChild;
-          children.push({
-            name: "opencode-router",
-            child: startedOpenCodeRouterChild,
-          });
-          tui?.updateService("router", {
-            status: "running",
-            pid: startedOpenCodeRouterChild.pid ?? undefined,
-            port: opencodeRouterHealthPort,
-          });
-          logger.info(
-            "Process spawned",
-            { pid: startedOpenCodeRouterChild.pid ?? 0 },
-            "opencode-router",
-          );
-          startedOpenCodeRouterChild.on("exit", (code, signal) => {
-            if (restartingServices.has("opencode-router")) {
-              restartingServices.delete("opencode-router");
-              return;
-            }
-            if (opencodeRouterRequired) {
-              handleExit("opencode-router", code, signal);
-              return;
-            }
-            const reason =
-              code !== null
-                ? `code ${code}`
-                : signal
-                  ? `signal ${signal}`
-                  : "unknown";
-            tui?.updateService("router", {
-              status: "stopped",
-              message: reason,
-            });
-            logger.warn(
-              "Process exited, continuing without opencodeRouter",
-              { reason, code, signal },
-              "opencode-router",
-            );
-          });
-          startedOpenCodeRouterChild.on("error", (error) =>
-            handleSpawnError("opencode-router", error),
-          );
-
-          const healthBaseUrl = `http://127.0.0.1:${opencodeRouterHealthPort}`;
-          logger.info(
-            "Waiting for health",
-            { url: healthBaseUrl },
-            "opencode-router",
-          );
-          const health = await waitForOpenCodeRouterHealthy(
-            healthBaseUrl,
-            10_000,
-            400,
-          );
-          tui?.setRouterHealth(health);
-          tui?.updateService("router", {
-            status: health.ok ? "healthy" : "running",
-          });
-          logger.info(
-            "Healthy",
-            { url: healthBaseUrl, ok: health.ok },
-            "opencode-router",
-          );
-          opencodeRouterReady = true;
-        } catch (error) {
-          if (opencodeRouterRequired) {
-            throw error;
-          }
-          const message =
-            error instanceof Error ? error.message : String(error);
-          logger.warn(
-            "OpenCodeRouter failed to start, continuing without it",
-            { error: message },
-            "opencode-router",
-          );
-          tui?.updateService("router", { status: "stopped", message });
-          if (opencodeRouterChild) {
-            try {
-              opencodeRouterChild.kill();
-            } catch {
-              // ignore
-            }
-          }
-          opencodeRouterChild = null;
-          opencodeRouterReady = false;
-        }
-      }
-
       const startedLegalworkChild = await startLegalworkServer({
         bin: legalworkServerBinary.bin,
         host: legalworkHost,
@@ -8378,16 +5465,7 @@ async function runStart(args: ParsedArgs) {
         approvalTimeoutMs,
         readOnly,
         corsOrigins: corsOrigins.length ? corsOrigins : ["*"],
-        opencodeBaseUrl: opencodeConnectUrl,
-        opencodeDirectory: resolvedWorkspace,
-        opencodeUsername,
-        opencodePassword,
-        opencodeRouterHealthPort: opencodeRouterEnabled
-          ? opencodeRouterHealthPort
-          : undefined,
-        opencodeRouterDataDir: opencodeRouterEnabled
-          ? (opencodeRouterDataDir ?? undefined)
-          : undefined,
+        managedOpencode: managedOpencodeOptions,
         logger,
         runId,
         logFormat,
@@ -8428,81 +5506,17 @@ async function runStart(args: ParsedArgs) {
         hostToken: legalworkHostToken,
         expectedVersion: legalworkServerBinary.expectedVersion,
         expectedWorkspace: resolvedWorkspace,
-        expectedOpencodeBaseUrl: opencodeConnectUrl,
         expectedOpencodeDirectory: resolvedWorkspace,
-        expectedOpencodeUsername: opencodeUsername,
-        expectedOpencodePassword: opencodePassword,
       });
-      legalworkOwnerToken = await issueLegalworkOwnerToken(
-        legalworkBaseUrl,
-        legalworkHostToken,
-        "LegalWork owner token",
-      );
-      tui?.setConnectInfo({ ownerToken: legalworkOwnerToken });
       logVerbose(
         `legalwork-server version: ${legalworkActualVersion ?? "unknown"}`,
       );
 
-      if (opencodeRouterReady && !opencodeRouterHealthInterval) {
-        opencodeRouterHealthInterval = setInterval(() => {
-          fetchOpenCodeRouterHealthViaLegalwork(legalworkBaseUrl, legalworkToken)
-            .then((health) => {
-              tui?.setRouterHealth(health);
-              if (health.ok) {
-                tui?.updateService("router", { status: "healthy" });
-              }
-            })
-            .catch(() => undefined);
-        }, 15_000);
-      }
-    }
+      opencodeClient = OpenCode.make({ baseUrl: opencodeBaseUrl, headers: { Authorization: `Bearer ${legalworkToken}` } });
+      await waitForManagedOpencodeHealthy(opencodeClient, startedLegalworkChild, legalworkBaseUrl);
+      opencodeActualVersion = (await opencodeClient.server.info()).version;
+      tui?.updateService("opencode", { status: "healthy", port: opencodePort });
 
-    if (opencodeRouterEnabled) {
-      if (sandboxMode !== "none") {
-        // OpenCodeRouter is started inside the sandbox container; just probe health.
-        opencodeRouterActualVersion = opencodeRouterBinary?.expectedVersion;
-        logVerbose(
-          `opencodeRouter version: ${opencodeRouterActualVersion ?? "unknown"}`,
-        );
-        try {
-          const url = `${legalworkBaseUrl.replace(/\/$/, "")}/opencode-router/health`;
-          logger.info("Waiting for health", { url }, "opencode-router");
-          const health = await waitForOpenCodeRouterHealthyViaLegalwork(
-            legalworkBaseUrl,
-            legalworkToken,
-          );
-          tui?.setRouterHealth(health);
-          tui?.updateService("router", {
-            status: health.ok ? "healthy" : "running",
-          });
-          logger.info("Healthy", { url, ok: health.ok }, "opencode-router");
-        } catch (error) {
-          logger.warn(
-            "OpenCodeRouter health check failed",
-            { error: String(error) },
-            "opencode-router",
-          );
-          tui?.updateService("router", {
-            status: "running",
-            message: String(error),
-          });
-        }
-        if (!opencodeRouterHealthInterval) {
-          opencodeRouterHealthInterval = setInterval(() => {
-            fetchOpenCodeRouterHealthViaLegalwork(legalworkBaseUrl, legalworkToken)
-              .then((health) => {
-                tui?.setRouterHealth(health);
-                if (health.ok) {
-                  tui?.updateService("router", { status: "healthy" });
-                }
-              })
-              .catch(() => undefined);
-          }, 15_000);
-        }
-      } else {
-        // In host mode, opencodeRouter is started before legalwork-server so we can
-        // confirm health before wiring the proxy.
-      }
     }
 
     if (workerActivityHeartbeat.enabled && !checkOnly) {
@@ -8546,8 +5560,7 @@ async function runStart(args: ParsedArgs) {
       opencode: {
         baseUrl: opencodeBaseUrl,
         connectUrl: opencodeConnectUrl,
-        username: sandboxMode !== "none" ? undefined : opencodeUsername,
-        password: sandboxMode !== "none" ? undefined : opencodePassword,
+        authentication: "legalwork-bearer",
         bindHost: opencodeBindHost,
         port: opencodePort,
         hotReload: opencodeHotReload,
@@ -8559,24 +5572,16 @@ async function runStart(args: ParsedArgs) {
         host: legalworkHost,
         port: legalworkPort,
         collaboratorToken: legalworkToken,
-        ownerToken: legalworkOwnerToken,
+
         token: legalworkToken,
         hostToken: legalworkHostToken,
         version: legalworkActualVersion,
       },
-      opencodeRouter: {
-        enabled: opencodeRouterEnabled,
-        version: opencodeRouterEnabled
-          ? opencodeRouterActualVersion
-          : undefined,
-        healthPort: sandboxMode !== "none" ? null : opencodeRouterHealthPort,
-      },
+
       diagnostics: {
         cliVersion,
         sidecar: {
           dir: sidecar.dir,
-          baseUrl: sidecar.baseUrl,
-          manifestUrl: sidecar.manifestUrl,
           target: sidecar.target,
           source: sidecarSource,
           opencodeSource,
@@ -8595,14 +5600,6 @@ async function runStart(args: ParsedArgs) {
             expectedVersion: legalworkServerBinary.expectedVersion,
             actualVersion: legalworkActualVersion,
           } as BinaryDiagnostics,
-          opencodeRouter: opencodeRouterBinary
-            ? ({
-                path: opencodeRouterBinary.bin,
-                source: opencodeRouterBinary.source,
-                expectedVersion: opencodeRouterBinary.expectedVersion,
-                actualVersion: opencodeRouterActualVersion,
-              } as BinaryDiagnostics)
-            : null,
         },
       },
     };
@@ -8616,7 +5613,6 @@ async function runStart(args: ParsedArgs) {
           workspace: payload.workspace,
           opencode: payload.opencode,
           legalwork: payload.legalwork,
-          opencodeRouter: payload.opencodeRouter,
         },
         "legalwork-orchestrator",
       );
@@ -8627,7 +5623,6 @@ async function runStart(args: ParsedArgs) {
           workspace: payload.workspace,
           opencode: payload.opencode,
           legalwork: payload.legalwork,
-          opencodeRouter: payload.opencodeRouter,
         },
         "legalwork-orchestrator",
       );
@@ -8637,19 +5632,11 @@ async function runStart(args: ParsedArgs) {
       console.log(`Workspace: ${payload.workspace}`);
       console.log(`OpenCode: ${payload.opencode.baseUrl}`);
       console.log(`OpenCode connect URL: ${payload.opencode.connectUrl}`);
-      if (payload.opencode.username && payload.opencode.password) {
-        console.log("OpenCode auth: managed credentials configured (withheld from stdout)");
-      }
+      console.log("OpenCode auth: LegalWork token through its scoped proxy");
       console.log(`LegalWork server: ${payload.legalwork.baseUrl}`);
       console.log(`LegalWork connect URL: ${payload.legalwork.connectUrl}`);
       console.log("LegalWork collaborator token: issued (withheld from stdout)");
       console.log("  Routine remote access for shared workers.");
-      if (payload.legalwork.ownerToken) {
-        console.log("LegalWork owner token: issued (withheld from stdout)");
-        console.log(
-          "  Use this when the remote client must answer permission prompts.",
-        );
-      }
       console.log("LegalWork host admin token: issued (withheld from stdout)");
       console.log(
         "  Internal host/admin token for approvals CLI and host-only APIs.",
@@ -8678,6 +5665,7 @@ async function runStart(args: ParsedArgs) {
           });
         } else {
           await runChecks({
+            directory:resolvedWorkspace,
             opencodeClient,
             legalworkUrl: legalworkBaseUrl,
             legalworkToken,
@@ -8704,8 +5692,6 @@ async function runStart(args: ParsedArgs) {
       process.exit(0);
     }
 
-    process.on("SIGINT", () => shutdown().then(() => process.exit(0)));
-    process.on("SIGTERM", () => shutdown().then(() => process.exit(0)));
     await new Promise(() => undefined);
   } catch (error) {
     await shutdown();
@@ -8721,6 +5707,7 @@ async function runStart(args: ParsedArgs) {
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
+  assertNoRetiredBinaryDownloads(args.flags);
   if (readBool(args.flags, "help", false) || args.flags.get("help") === true) {
     printHelp();
     return;
@@ -8747,12 +5734,9 @@ async function main() {
     await runDaemonCommand(args);
     return;
   }
-  if (command === "workspace" || command === "workspaces") {
-    await runWorkspaceCommand(args);
-    return;
-  }
-  if (command === "instance") {
-    await runInstanceCommand(args);
+  if (command === "workspace" || command === "workspaces" || command === "instance") {
+    outputError(new Error(retiredDeveloperLauncherMessage), readBool(args.flags, "json", false));
+    process.exitCode = 1;
     return;
   }
   if (command === "approvals") {

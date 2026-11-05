@@ -1,0 +1,106 @@
+{
+  "dataset": {
+    "repository": "harveyai/harvey-labs",
+    "commit": "81d6a31b22d7c9f661cda4770cffcc12a5735dc2"
+  },
+  "assignments": [
+    {
+      "key": "tasks/antitrust-competition/compare-leniency-programs-across-three-jurisdictions",
+      "title": "Compare Leniency Programs across Three Jurisdictions — Jurisdictional Analysis Memorandum",
+      "evaluation": {
+        "blinding": "non-blind",
+        "reason": "The grading guide already ships in LegalWork's normal product assets; the user elected to retain this case with an explicit non-blind label.",
+        "productAsset": "apps/server/src/benchmarks/fixtures/harvey-research-leniency-comparison.json",
+        "approvedAt": "2026-10-25"
+      },
+      "work_type": "research",
+      "deliverables": {
+        "leniency-comparison-memo.docx": "leniency-comparison-memo.docx"
+      },
+      "criteria": 58
+    },
+    {
+      "key": "tasks/banking-finance/compare-borrower-covenant-compliance-analysis",
+      "title": "Borrower Covenant Compliance Analysis — Covenant Deviation Report for Ironclad Nutrition Holdings",
+      "work_type": "analyze",
+      "deliverables": {
+        "covenant-deviation-report.docx": "covenant-deviation-report.docx"
+      },
+      "criteria": 36
+    },
+    {
+      "key": "tasks/corporate-ma/extract-closing-conditions",
+      "title": "PE Acquisition Closing Conditions Extraction — Closing Conditions Matrix",
+      "work_type": "analyze",
+      "deliverables": {
+        "closing-conditions-matrix.docx": "closing-conditions-matrix.docx"
+      },
+      "criteria": 70
+    },
+    {
+      "key": "tasks/data-privacy-cybersecurity/draft-affected-individual-notification-letter",
+      "title": "Draft Affected Individual Notification Letter for Healthcare Data Breach",
+      "work_type": "draft",
+      "deliverables": {
+        "notification-letter-draft.docx": "notification-letter-draft.docx",
+        "cover-memo.docx": "cover-memo.docx"
+      },
+      "criteria": 41
+    },
+    {
+      "key": "tasks/employment-labor/draft-separation-agreement-and-release",
+      "title": "Draft Separation Agreement and General Release for SVP Termination with Age Discrimination Concerns",
+      "work_type": "draft",
+      "deliverables": {
+        "separation-agreement-draft.docx": "separation-agreement-draft.docx",
+        "cover-memorandum.docx": "cover-memorandum.docx"
+      },
+      "criteria": 59
+    },
+    {
+      "key": "tasks/intellectual-property/review-inbound-nda-against-company-playbook",
+      "title": "Review Inbound NDA Against Company Playbook — Deviation Report",
+      "work_type": "review",
+      "deliverables": {
+        "nda-deviation-report.docx": "nda-deviation-report.docx"
+      },
+      "criteria": 56
+    },
+    {
+      "key": "tasks/litigation-dispute-resolution/build-litigation-case-timeline",
+      "title": "Build Litigation Case Timeline — Chronological Event Summary for Breach of Contract and Fraud Defense",
+      "work_type": "analyze",
+      "deliverables": {
+        "litigation-case-timeline.docx": "litigation-case-timeline.docx"
+      },
+      "criteria": 64
+    },
+    {
+      "key": "tasks/real-estate/extract-conditions-from-zoning-approval",
+      "title": "Extract Conditions from Zoning Approval into Compliance Tracking Matrix",
+      "work_type": "analyze",
+      "deliverables": {
+        "compliance-tracking-matrix.docx": "compliance-tracking-matrix.docx"
+      },
+      "criteria": 47
+    },
+    {
+      "key": "tasks/tax/review-iss-tax-transaction-structure",
+      "title": "Identify Issues in Tax Transaction Structure Memorandum for PE Acquisition with Section 338(h)(10) Election",
+      "work_type": "review",
+      "deliverables": {
+        "tax-issue-identification-report.docx": "tax-issue-identification-report.docx"
+      },
+      "criteria": 28
+    },
+    {
+      "key": "tasks/corporate-governance/draft-board-meeting-minutes",
+      "title": "Draft Board Meeting Minutes for Special Meeting Approving Acquisition, Financing, and Officer Appointments",
+      "work_type": "draft",
+      "deliverables": {
+        "board-meeting-minutes.docx": "board-meeting-minutes.docx"
+      },
+      "criteria": 84
+    }
+  ]
+}

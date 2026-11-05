@@ -2,7 +2,8 @@ import { describe, expect, test } from "bun:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { PendingPermission } from "../src/app/types";
-import type { Part, PermissionRequest } from "@opencode-ai/sdk/v2/client";
+import type { PermissionRequest } from "@opencode/client";
+import type { Part } from "../src/app/lib/opencode-view";
 import { permissionToolInput, permissionWithReceivedAt } from "../src/react-app/domains/session/sync/interaction-state";
 
 import {
@@ -30,8 +31,8 @@ function pendingPermission(overrides: Partial<PendingPermission> = {}): PendingP
 describe("permission approval modal helpers", () => {
   test("shows actual MCP call arguments before approving an engine event with empty metadata", () => {
     const request = permissionWithReceivedAt({
-      id: "mcp-request", sessionID: "child-session", permission: "legalmemory_search", patterns: ["*"],
-      metadata: {}, always: ["*"], tool: { messageID: "message-one", callID: "call-one" },
+      id: "mcp-request", sessionID: "child-session", action: "legalmemory_search", resources: ["*"],
+      metadata: {}, save: ["*"], source: { messageID: "message-one", id: "call-one" },
     } satisfies PermissionRequest, 1);
     const part: Part = {
       id: "part-one", sessionID: "child-session", messageID: "message-one", type: "tool", callID: "call-one", tool: "legalmemory_search",
@@ -51,8 +52,8 @@ describe("permission approval modal helpers", () => {
 
   test("does not reuse arguments from another request, session, message, or completed call", () => {
     const request = permissionWithReceivedAt({
-      id: "request", sessionID: "child", permission: "legalmemory_search", patterns: ["*"], metadata: {}, always: [],
-      tool: { messageID: "message", callID: "call" },
+      id: "request", sessionID: "child", action: "legalmemory_search", resources: ["*"], metadata: {}, save: [],
+      source: { messageID: "message", id: "call" },
     } satisfies PermissionRequest, 1);
     const part: Part = { id: "part", type: "tool", sessionID: "child", messageID: "message", callID: "call", tool: "legalmemory_search",
       state: { status: "running", input: { query: "Correct query" }, time: { start: 1 } } };

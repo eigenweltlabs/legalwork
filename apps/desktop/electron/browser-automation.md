@@ -1,81 +1,38 @@
 # Built-in browser automation
 
-`legalwork_browser_open_url` creates a browser tab and returns `browser_url` and
-`target_id` for the `opencode-chrome-devtools` tools. The URL contains a random
-256-bit capability for that tab. Treat it as a credential; do not log or share it.
-It expires when the tab closes or the app exits.
+LegalWork uses the released OpenCode 2.1.4 browser plugin with the matching full
+RPC controller vendored from the upstream desktop GUI. Native browser tools
+provide navigation, stable element refs, snapshots, evaluation, diagnostics,
+profiling and analysis. The controller source and MIT license live in
+`browser-native/upstream`; generated JavaScript is checked by
+`scripts/build-browser-controller.mjs --check`.
 
-Automation requires the originating project and chat identity, supplied by the
-server tool's execution context. When that chat's effective sandbox setting is on,
-browser tools require network Allow. Approve and Off disable automation, including
-proxy changes and generic UI browser actions. Manual browser tabs remain usable.
-Missing identity, invalid policy, and an unavailable policy service fail closed.
+`legalwork_browser_open_url` creates an owned native tab and returns its initial
+snapshot and an opaque `browser_url` extension capability.
+`legalwork_browser_connect` adds these extensions to an existing owned native
+tab. The capability is a credential: do not log, share or reconstruct it.
+Paged snapshots, action batches, background captures and complete large-file
+upload/download transfers preserve the existing LegalWork capabilities beyond
+the native transfer and snapshot limits.
 
-The broker binds each capability to that identity and rechecks policy for HTTP
-routes, WebSocket upgrades, CDP commands and events. It also checks live grants once
-per second so a page cannot retain automation access indefinitely without another
-tool call. A denied check revokes its capability, disconnects clients and closes
-the agent-created page. Switching the visible project does not change its policy.
+Each attachment belongs to its actual server, project, chat and trusted app
+window. Main/server retain native engine credentials. Manual LegalWork server
+connections use a typed browser-only gateway with their existing client token;
+arbitrary native RPC is unavailable. Project approval and sandbox network
+policy are checked before operations and continuously while attached. Missing
+or unavailable authority denies automation. A cancelled delivered mutation may
+have completed: inspect the page before retrying. Mutations are not replayed on
+reconnection.
 
-The main process broker listens on an ephemeral loopback port. Both `/json/list`
-and the page WebSocket require that capability. Discovery returns only the
-authorized tab. Requests with an Origin header or an unexpected Host are refused.
-The broker registers browser-panel web contents only; the app, detached session,
-menu, and recorder windows are never registered. Commands use Electron's
-`webContents.debugger`, without a Chromium remote-debugging listener underneath.
+The default `persist:legalwork-browser` partition retains shared site cookies
+and storage. Tabs keep separate control authority and project download roots.
+It uses desktop networking/proxy settings even when the selected LegalWork
+server is remote. Per-attachment tunnels do not overwrite that shared proxy.
 
-The browser plugin uses these commands, which define the broker's allowlist:
-
-- `Accessibility.enable`, `Accessibility.getFullAXTree` for snapshots.
-- `DOM.resolveNode`, `DOM.getBoxModel` for element targeting.
-- `Input.dispatchMouseEvent`, `Input.dispatchKeyEvent` for click and fill.
-- `Page.enable`, `Page.navigate`, `Page.captureScreenshot` for navigation and capture.
-- `Runtime.evaluate`, `Runtime.callFunctionOn` for page evaluation and element actions.
-
-`Target.*`, `Browser.*`, and client-supplied session IDs are rejected. A plugin
-update needing another command must review its scope before adding it here.
-
-For development, `LEGALWORK_ELECTRON_REMOTE_DEBUG_PORT=9823 pnpm dev:electron`
-enables full app debugging explicitly. An absent, invalid, or zero port disables
-it. Packaged builds remove the remote-debugging switches, including ones passed
-through launch arguments. The broker works independently of this setting.
-
-Run `pnpm --filter @legalwork/desktop test` for broker authorization, connection
-lifecycle, development-debugging configuration, and sandboxed preload checks.
-Run `pnpm --filter @legalwork/desktop test:browser-network` for real Electron
-navigation, connection revocation and independent-chat policy checks.
-
-## Project downloads
-
-Every automation tab resolves its caller's execution directory against registered
-local projects before navigation. Downloads remain bound to that project even
-when the visible chat or project changes. Manual tabs bind to the selected local
-project when they are created. Downloads are saved in the visible `Downloads/`
-folder, with exclusive filename reservation to preserve existing files.
-Unbound tabs report a download error instead of silently saving elsewhere.
-
-The tab capability also exposes `GET /downloads`. Records include completion
-state, received/total bytes, absolute path and project-relative path. The agent's
-`legalwork_browser_downloads` tool can wait for completion and use a previous
-record ID as a cursor. Failed or interrupted files must not be treated as complete.
-The existing Project Files polling displays downloaded files without requiring a
-new file-indexing system.
-
-## Fewer browser round trips
-
-The bridge lifts descendants of ignored, unnamed accessibility containers before
-returning CDP snapshots. This prevents the upstream snapshot walker from dropping
-an entire page under a layout container.
-
-Opening a tab returns its initial snapshot. `POST /batch`, exposed to the agent as
-`legalwork_browser_batch`, runs up to 20 observed-selector clicks, fills and
-condition waits, then returns a fresh snapshot plus download records. An empty
-batch only reads the page. Batches stop at the first failure and report completed
-steps; callers must inspect state before deciding which actions to retry.
-
-Both HTTP routes require the same per-tab capability, loopback Host and absent
-Origin as CDP discovery. Batch execution shares the debugger attachment with
-existing CDP clients. It does not grant access to other tabs, app renderers or
-browser-wide commands. User decisions and required confirmations remain outside
-batches. No fixed sleep is added to normal actions; waits poll a page condition
-within the caller's bounded timeout.
+See [the full native browser contract](../../../docs/opencode-v2-browser.md) for
+all operations, inherited limits, permission/ownership checks, large-file
+extensions and actual released-engine/Electron verification. Run
+`pnpm --filter @legalwork/desktop exec electron scripts/browser-native-regression.mjs`
+for that isolated zero-inference regression fixture. It needs the built server,
+released engine and matching generated controller; it uses no account secrets
+or global browser profile.

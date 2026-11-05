@@ -1,12 +1,13 @@
+import { OpenCode } from "@opencode/client";
 import { expect, test } from "bun:test";
 import type { UIMessage } from "ai";
-import type { TextPart } from "@opencode-ai/sdk/v2/client";
+import type { TextPart } from "@/app/lib/opencode-view";
 import type { LegalworkSessionSnapshot } from "../src/app/lib/legalwork-server";
 import { assistantMessageSender, textPartProviderMetadata } from "../src/react-app/domains/session/sync/assistant-message-sender";
 import { assistantHandoffPresentation } from "../src/components/chat/assistant-handoff-presentation";
 import { snapshotToUIMessages } from "../src/react-app/domains/session/sync/usechat-adapter";
 import { getReactQueryClient } from "../src/react-app/infra/query-client";
-import { __applySessionSyncEventForTest, __createWorkspaceSessionSyncForTest, trackWorkspaceSessionSync, transcriptKey } from "../src/react-app/domains/session/sync/session-sync";
+import { __applySessionSyncEventForTest, __createWorkspaceSessionSyncForTest, trackWorkspaceSessionSync, transcriptKey, snapshotKey } from "../src/react-app/domains/session/sync/session-sync";
 
 const files = [{ name: "Agreement.pdf", path: "Files/Assistant/share/1-Agreement.pdf", bytes: 400 }];
 const part: TextPart = {
@@ -29,16 +30,20 @@ test("the saved sender survives transcript reloads with the original name and ic
   expect(assistantHandoffPresentation(message).files).toEqual(files);
 });
 
-test("live delegated messages keep sender attribution after subsequent message updates", () => {
+test("live delegated messages keep sender attribution after subsequent native delivery events", async () => {
   const input = { workspaceId: "sender-project", baseUrl: "http://127.0.0.1:1", legalworkToken: "test" };
-  const dispose = __createWorkspaceSessionSyncForTest(input);
+  const native = { id: part.messageID, type: "user", time: { created: 1 }, text: part.text, metadata: part.metadata };
+  const client = OpenCode.make({ baseUrl: input.baseUrl, fetch: Object.assign(async () => Response.json({ data: native }), { preconnect: fetch.preconnect }) });
+  const dispose = __createWorkspaceSessionSyncForTest(input, client);
   const release = trackWorkspaceSessionSync(input, part.sessionID);
   const query = getReactQueryClient();
   try {
-    const event = { type: "message.updated", properties: { info: snapshot.messages[0].info } };
+    query.setQueryData(snapshotKey(input.workspaceId, part.sessionID), { ...snapshot, messages: [] });
+    const event = { id: "event", created: 1, durable: { aggregateID: part.sessionID, seq: "1", version: 1 }, type: "session.inbox.delivered", data: { sessionID: part.sessionID, inboxID: part.messageID } };
     __applySessionSyncEventForTest(input, event);
-    __applySessionSyncEventForTest(input, { type: "message.part.updated", properties: { part } });
+    await Bun.sleep(0);
     __applySessionSyncEventForTest(input, event);
+    await Bun.sleep(0);
     const messages = query.getQueryData<UIMessage[]>(transcriptKey(input.workspaceId, part.sessionID)) ?? [];
     expect(messages).toHaveLength(1);
     expect(assistantMessageSender(messages[0])).toEqual({ name: "Herk", icon: "robot" });

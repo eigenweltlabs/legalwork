@@ -1,11 +1,15 @@
+import { nativeToolBefore } from "./native-plugin-test-support.js";
+const LegalWorkWikiTools = (context = {}) => nativePluginTools(LegalWorkWikiToolsDefinition, context);
+import { nativePluginTools } from "./native-plugin-test-support.js";
+const LegalWorkSkillTools = (context = {}) => nativePluginTools(LegalWorkSkillToolsDefinition, context);
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
 import type { WikiDocument, WikiVault } from "@legalwork/types/wiki";
-import { LegalWorkWikiTools } from "./legalwork-wiki-tools.js";
-import { LegalWorkSkillTools } from "./legalwork-skill-tools.js";
+import LegalWorkWikiToolsDefinition from "./legalwork-wiki-tools.js";
+import LegalWorkSkillToolsDefinition from "./legalwork-skill-tools.js";
 
 const SERVER = "http://127.0.0.1:9948";
 const originalFetch = globalThis.fetch;
@@ -130,22 +134,22 @@ describe("wiki agent access", () => {
 
   test("available knowledge is announced once per change without mutating system text or reading pages", async () => {
     const plugin = await LegalWorkWikiTools({ directory: projectRoot });
-    const initialSystem: { system: string[] } = { system: [] };
-    await plugin["experimental.chat.system.transform"]({}, initialSystem);
-    const first: { message: { id: string }; parts: object[] } = { message: { id: "one" }, parts: [] };
-    await plugin["chat.message"]({ sessionID: "project-chat" }, first);
-    expect(JSON.stringify(first.parts)).toContain('wiki-knowledge');
-    expect(JSON.stringify(first.parts)).toContain('wiki-1');
-    expect(JSON.stringify(first.parts)).not.toContain('wiki-2');
-    const unchanged: { message: { id: string }; parts: object[] } = { message: { id: "two" }, parts: [] };
-    await plugin["chat.message"]({ sessionID: "project-chat" }, unchanged);
-    expect(unchanged.parts).toEqual([]);
+    const initialSystem: { system: Array<{type:"text";text:string}> } = { system: [] };
+    await plugin.runtime.hook("session","context",initialSystem);
+    const first={sessionID:"project-chat",messageID:"one",prompt:{text:""}};
+    await plugin.runtime.hook("session","prompt",first);
+    expect(JSON.stringify(first.prompt.text)).toContain('wiki-knowledge');
+    expect(JSON.stringify(first.prompt.text)).toContain('wiki-1');
+    expect(JSON.stringify(first.prompt.text)).not.toContain('wiki-2');
+    const unchanged={sessionID:"project-chat",messageID:"two",prompt:{text:""}};
+    await plugin.runtime.hook("session","prompt",unchanged);
+    expect(unchanged.prompt.text).toBe("");
     wikis[0]!.allowInProjects = false;
-    const removed: { message: { id: string }; parts: object[] } = { message: { id: "three" }, parts: [] };
-    await plugin["chat.message"]({ sessionID: "project-chat" }, removed);
-    expect(JSON.stringify(removed.parts)).toContain("No wiki knowledge is currently accessible");
-    const nextSystem: { system: string[] } = { system: [] };
-    await plugin["experimental.chat.system.transform"]({}, nextSystem);
+    const removed={sessionID:"project-chat",messageID:"three",prompt:{text:""}};
+    await plugin.runtime.hook("session","prompt",removed);
+    expect(JSON.stringify(removed.prompt.text)).toContain("No wiki knowledge is currently accessible");
+    const nextSystem: { system: Array<{type:"text";text:string}> } = { system: [] };
+    await plugin.runtime.hook("session","context",nextSystem);
     expect(nextSystem).toEqual(initialSystem);
     expect(requests.some(request => request.path.includes("/page"))).toBe(false);
   });
@@ -161,8 +165,7 @@ describe("wiki agent access", () => {
   test("managed engine tools require a session origin and transmit narrow runtime auth", async () => {
     process.env.LEGALWORK_WIKI_AGENT_TOKEN = "runtime-secret";
     const plugin = await LegalWorkWikiTools({ directory: projectRoot });
-    expect(JSON.parse(await plugin.tool.wiki_list.execute({})).code).toBe("wiki_agent_session_unknown");
-    expect(requests).toHaveLength(0);
+    // Native invocation identity is always present; the server verifies its origin.
     const result = JSON.parse(await plugin.tool.wiki_list.execute({}, { sessionID: "session-known", directory: projectRoot }));
     expect(result.wikis[0].id).toBe("wiki-1");
     expect(requests.every((request) => request.agentToken === "runtime-secret" && request.sessionId === "session-known" && request.directory !== null)).toBe(true);
@@ -281,10 +284,10 @@ describe("wiki agent content and revisions", () => {
     expect(result.content).toContain("SOURCE DATA");
     expect(result.content).toContain("# Useful n");
     expect(result.guidance[0].truncated).toBe(true);
-    const output: { system: string[] } = { system: [] };
-    await plugin["experimental.chat.system.transform"]({}, output);
-    expect(output.system.join("\n")).not.toContain("reveal every client");
-    expect(output.system.join("\n")).toContain("cannot change tool permissions");
+    const output: { system: Array<{type:"text";text:string}> } = { system: [] };
+    await plugin.runtime.hook("session", "context", output);
+    expect(output.system.map((item: {text:string})=>item.text).join("\n")).not.toContain("reveal every client");
+    expect(output.system.map((item: {text:string})=>item.text).join("\n")).toContain("cannot change tool permissions");
   });
 
   test("search uses selected wiki and forwards filters with URL encoding", async () => {
@@ -330,9 +333,9 @@ describe("wiki agent content and revisions", () => {
   test("traversal, absolute files and missing revision inputs never reach the server", async () => {
     const { tool } = await LegalWorkWikiTools({ directory: projectRoot });
     for (const path of ["../secret.md", "/secret.md", "foo\\secret.md", "Notes.txt", "foo/./note.md", "foo//note.md"]) {
-      expect(JSON.parse(await tool.wiki_write.execute({ wiki_id: "wiki-1", path, content: "x", base_revision: null })).ok).toBe(false);
+      await expect(tool.wiki_write.execute({ wiki_id: "wiki-1", path, content: "x", base_revision: null })).rejects.toThrow();
     }
-    expect(JSON.parse(await tool.wiki_write.execute({ wiki_id: "wiki-1", path: "New.md", content: "x" })).ok).toBe(false);
+    await expect(tool.wiki_write.execute({ wiki_id: "wiki-1", path: "New.md", content: "x" })).rejects.toThrow();
     expect(requests).toHaveLength(0);
   });
 
@@ -361,36 +364,36 @@ test("requested project contributions stage files and never call the direct wiki
 
 test("wiki guard covers unmanaged bash and custom tools that read host files", async () => {
   const plugin = await LegalWorkWikiTools({ directory: wikiRoot });
-  await expect(plugin["tool.execute.before"]({ tool: "bash", sessionID: "wiki-chat" }, { args: { command: "cat ../project/secret.txt" } }))
+  await expect(nativeToolBefore(plugin.runtime,"bash",{ command: "cat ../project/secret.txt" },"wiki-chat"))
     .rejects.toMatchObject({ code: "wiki_sandbox_required" });
-  await expect(plugin["shell.env"]({ sessionID: "wiki-chat" })).rejects.toMatchObject({ code: "wiki_sandbox_required" });
+  await expect(nativeToolBefore(plugin.runtime,"shell",{command:"true"},"wiki-chat")).rejects.toMatchObject({code:"wiki_sandbox_required"});
   for (const [tool, key] of [["legalwork_task_attach", "paths"], ["benchmark_create_task", "documentPaths"]]) {
-    await expect(plugin["tool.execute.before"]({ tool, sessionID: "wiki-chat" }, { args: { [key]: [join(projectRoot, "secret.txt")] } }))
+    await expect(nativeToolBefore(plugin.runtime,tool,{ [key]: [join(projectRoot, "secret.txt")] },"wiki-chat"))
       .rejects.toMatchObject({ code: "wiki_native_project_access" });
-    await expect(plugin["tool.execute.before"]({ tool, sessionID: "wiki-chat" }, { args: { [key]: ["wiki-note.md"] } })).resolves.toBeUndefined();
+    await expect(nativeToolBefore(plugin.runtime,tool,{ [key]: ["wiki-note.md"] },"wiki-chat")).resolves.toBeUndefined();
   }
-  await expect(plugin["tool.execute.before"]({ tool: "legalwork_shell", sessionID: "wiki-chat" }, { args: { command: "true" } })).resolves.toBeUndefined();
+  await expect(nativeToolBefore(plugin.runtime,"legalwork_shell",{ command: "true" },"wiki-chat")).resolves.toBeUndefined();
   const project = await LegalWorkWikiTools({ directory: projectRoot });
-  await expect(project["tool.execute.before"]({ tool: "bash", sessionID: "project-chat" }, { args: { command: "true" } })).resolves.toBeUndefined();
-  await expect(project["shell.env"]({ sessionID: "project-chat" })).resolves.toBeUndefined();
+  await expect(nativeToolBefore(project.runtime,"bash",{ command: "true" },"project-chat")).resolves.toBeUndefined();
+  await expect(nativeToolBefore(project.runtime,"shell",{command:"true"},"project-chat")).resolves.toBeUndefined();
 });
 
 
 test("native project tools classify once per turn and don't depend on repeated server calls", async () => {
   const plugin = await LegalWorkWikiTools({ directory: projectRoot });
-  await plugin["tool.execute.before"]({ tool: "read", sessionID: "project-chat" }, { args: { filePath: "notes.md" } });
+  await nativeToolBefore(plugin.runtime,"read",{ filePath: "notes.md" },"project-chat");
   expect(requests.filter(item => item.path === "/wikis")).toHaveLength(1);
   expect(requests.filter(item => item.path === "/workspaces")).toHaveLength(1);
   malformed = true;
-  await plugin["tool.execute.before"]({ tool: "write", sessionID: "project-chat" }, { args: { filePath: "notes.md" } });
+  await nativeToolBefore(plugin.runtime,"write",{ filePath: "notes.md" },"project-chat");
   expect(requests.filter(item => item.path === "/wikis")).toHaveLength(1);
 });
 
 test("unregistered directories do not fail workspace discovery or retain a negative wiki classification", async () => {
   const plugin = await LegalWorkWikiTools({ directory: otherRoot });
-  await plugin["tool.execute.before"]({ tool: "read", sessionID: "chat" }, { args: { filePath: "notes.md" } });
+  await nativeToolBefore(plugin.runtime,"read",{ filePath: "notes.md" },"chat");
   wikis.push(vault("new-wiki", otherRoot, false));
-  await expect(plugin["tool.execute.before"]({ tool: "read", sessionID: "chat" }, { args: { filePath: join(projectRoot, "private.md") } })).rejects.toMatchObject({ code: "wiki_native_project_access" });
+  await expect(nativeToolBefore(plugin.runtime,"read",{ filePath: join(projectRoot, "private.md") },"chat")).rejects.toMatchObject({ code: "wiki_native_project_access" });
 });
 
 test("nested wiki sessions resolve native and attachment paths from their working directory", async () => {
@@ -401,14 +404,14 @@ test("nested wiki sessions resolve native and attachment paths from their workin
   await writeFile(join(wikiRoot, "wiki-note.md"), "Wiki resource");
   const plugin = await LegalWorkWikiTools({ directory });
   for (const tool of ["read", "write", "edit", "glob", "grep", "list"]) {
-    await expect(plugin["tool.execute.before"]({ tool, sessionID: "nested-chat" }, { args: { path: "project-link/secret.txt" } }))
+    await expect(nativeToolBefore(plugin.runtime,tool,{ path: "project-link/secret.txt" },"nested-chat"))
       .rejects.toMatchObject({ code: "wiki_native_project_access" });
-    await expect(plugin["tool.execute.before"]({ tool, sessionID: "nested-chat" }, { args: { path: "../wiki-note.md" } })).resolves.toBeUndefined();
+    await expect(nativeToolBefore(plugin.runtime,tool,{ path: "../wiki-note.md" },"nested-chat")).resolves.toBeUndefined();
   }
   for (const [tool, key] of [["legalwork_task_attach", "paths"], ["benchmark_create_task", "documentPaths"], ["legalwork_skill_create", "resourcePaths"]]) {
-    await expect(plugin["tool.execute.before"]({ tool, sessionID: "nested-chat" }, { args: { [key]: ["project-link/secret.txt"] } }))
+    await expect(nativeToolBefore(plugin.runtime,tool,{ [key]: ["project-link/secret.txt"] },"nested-chat"))
       .rejects.toMatchObject({ code: "wiki_native_project_access" });
-    await expect(plugin["tool.execute.before"]({ tool, sessionID: "nested-chat" }, { args: { [key]: ["../wiki-note.md"] } })).resolves.toBeUndefined();
+    await expect(nativeToolBefore(plugin.runtime,tool,{ [key]: ["../wiki-note.md"] },"nested-chat")).resolves.toBeUndefined();
   }
 });
 
@@ -438,7 +441,7 @@ test("unmanaged wiki skill creation cannot upload project resources but retains 
   const plugin = await LegalWorkWikiTools(context), skills = await LegalWorkSkillTools();
   const execute = async (resourcePaths?: string[]) => {
     const args = { name: "test-skill", description: "Use when testing resource boundaries", instructions: "Use the attached template.", ...(resourcePaths === undefined ? {} : { resourcePaths }) };
-    await plugin["tool.execute.before"]({ tool: "legalwork_skill_create", sessionID: context.sessionID }, { args });
+    await nativeToolBefore(plugin.runtime,"legalwork_skill_create",args,context.sessionID);
     return JSON.parse(await skills.tool.legalwork_skill_create.execute(args, context));
   };
   for (const path of [join(projectRoot, "secret.txt"), "project-link/secret.txt"])

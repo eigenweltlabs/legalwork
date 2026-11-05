@@ -1,6 +1,5 @@
 import { useSyncExternalStore } from "react";
 
-import { applyEdits, modify } from "jsonc-parser";
 
 import { t } from "../../../i18n";
 import {
@@ -16,20 +15,14 @@ import {
   isLegalMemoryMcpName,
   notifyLegalMemoryConnectionChanged,
 } from "../../../app/lib/legalmemory-connection";
-import { createClient, unwrap } from "../../../app/lib/opencode";
+import { createClient } from "../../../app/lib/opencode";
 import { detectReconnectWithoutAuth, type McpStatusSnapshot } from "../../../app/mcp-auth-state";
 import { mcpAuthEntryFromServer, mcpConnectOutcome } from "../../../app/mcp-connect-state";
 import { getMcpOAuthErrorMessage } from "../../../app/mcp-oauth-errors";
 import { finishPerf, perfNow, recordPerfLog } from "../../../app/lib/perf-log";
-import {
-  readOpencodeConfig,
-  writeOpencodeConfig,
-  type OpencodeConfigFile,
-} from "../../../app/lib/desktop";
+
 import { toSessionTransportDirectory } from "../../../app/lib/session-scope";
 import {
-  parseMcpServersFromContent,
-  removeMcpFromConfig,
   validateMcpServerName,
 } from "../../../app/mcp";
 import { buildLegalworkWorkspaceBaseUrl } from "../../../app/lib/legalwork-server";
@@ -45,6 +38,7 @@ import { getReactQueryClient } from "../../infra/query-client";
 
 import type { LegalworkServerStore } from "./legalwork-server-store";
 import { orgPolicyAllows } from "./org-policy";
+import { readConfiguredMcpServers, readMcpStatuses, removeMcpCredentials } from "./native-mcp";
 
 type SetStateAction<T> = T | ((current: T) => T);
 
@@ -70,7 +64,7 @@ export function createConnectionsStore(options: {
   projectDir: () => string;
   selectedWorkspaceId: () => string;
   selectedWorkspaceRoot: () => string;
-  workspaceType: () => "local" | "remote";
+  workspaceType: () => "local";
   legalworkServer: LegalworkServerStore;
   legalworkServerConnection?: () => Pick<ReturnType<LegalworkServerStore["getSnapshot"]>, "legalworkServerClient" | "legalworkServerStatus" | "legalworkServerCapabilities">;
   runtimeWorkspaceId: () => string | null;
@@ -168,7 +162,7 @@ export function createConnectionsStore(options: {
     }
     const ensured = (await options.ensureRuntimeWorkspaceId?.())?.trim();
     if (ensured) return ensured;
-    return options.workspaceType() === "local" ? options.selectedWorkspaceId().trim() || null : null;
+    return options.selectedWorkspaceId().trim() || null;
   };
 
   const resolveMcpLegalworkTarget = async (mode: "read" | "write") => {
@@ -227,7 +221,7 @@ export function createConnectionsStore(options: {
     let resolvedProjectDir = currentProjectDir;
     if (!resolvedProjectDir && activeClient) {
       try {
-        const pathInfo = unwrap(await activeClient.path.get());
+        const pathInfo = await activeClient.location.get();
         const discoveredRaw = toSessionTransportDirectory(pathInfo.directory ?? "");
         const discovered = discoveredRaw.replace(/^\/private\/tmp(?=\/|$)/, "/tmp");
         if (discovered) {
@@ -268,8 +262,10 @@ export function createConnectionsStore(options: {
     if (!isCurrent()) return null;
     const next = response.items.map((entry) => ({
       name: entry.name,
-      config: entry.config as McpServerEntry["config"],
+      config: entry.config,
       source: entry.source,
+      configured: entry.configured,
+      editable: entry.editable,
     }));
     const engineSync = response.engineSync ?? null;
 
@@ -281,7 +277,7 @@ export function createConnectionsStore(options: {
     const activeClient = options.client();
     if (includeStatus && activeClient && projectDir) {
       try {
-        const status = unwrap(await activeClient.mcp.status({ directory: projectDir }));
+        const status = await readMcpStatuses(activeClient, projectDir);
         nextStatuses = filterConfiguredStatuses(status as McpStatusMap, next);
       } catch {
         nextStatuses = {};
@@ -356,7 +352,6 @@ export function createConnectionsStore(options: {
     const includeStatus = refreshOptions?.includeStatus !== false;
 
     const projectDir = options.projectDir().trim();
-    const isRemoteWorkspace = options.workspaceType() === "remote";
 
     // Desktop included: the LegalWork server owns the connector list (its shared
     // row plus the user's config files), so every workspace reads the same list.
@@ -395,7 +390,7 @@ export function createConnectionsStore(options: {
       });
       const serverTarget = await resolveMcpLegalworkTarget("read").catch(() => null);
       if (!isCurrent()) return;
-      if (isRemoteWorkspace || serverTarget?.hasLegalworkTarget) {
+      if (serverTarget?.hasLegalworkTarget) {
         mutateState((current) => ({
           ...current,
           mcpServers: [],
@@ -406,116 +401,21 @@ export function createConnectionsStore(options: {
       }
     }
 
-    if (isRemoteWorkspace) {
-      mutateState((current) => ({
-        ...current,
-        mcpStatus: t("connections.mcp_readonly"),
-        mcpServers: [],
-        mcpStatuses: {},
-      }));
+    const activeClient = options.client();
+    if (!activeClient || !projectDir) {
+      mutateState(current => ({ ...current, mcpServers: [], mcpStatuses: {}, mcpStatus: null }));
       return;
     }
-
-    if (!isDesktopRuntime()) {
-      mutateState((current) => ({
-        ...current,
-        mcpStatus: t("mcp.desktop_required"),
-        mcpServers: [],
-        mcpStatuses: {},
-      }));
-      return;
-    }
-
-    if (!projectDir) {
-      mutateState((current) => ({
-        ...current,
-        mcpStatus: null,
-        mcpServers: [],
-        mcpStatuses: {},
-      }));
-      return;
-    }
-
     try {
-      setStateField("mcpStatus", null);
-      recordPerfLog(options.developerMode(), "mcp.refresh", "desktop-project-fallback", {
-        projectDir,
-      });
-      const [globalConfig, projectConfig] = await Promise.all([
-        readOpencodeConfig("global", projectDir) as Promise<OpencodeConfigFile>,
-        readOpencodeConfig("project", projectDir) as Promise<OpencodeConfigFile>,
+      const [next, statuses] = await Promise.all([
+        readConfiguredMcpServers(activeClient, projectDir),
+        includeStatus ? readMcpStatuses(activeClient, projectDir) : Promise.resolve(state.mcpStatuses),
       ]);
       if (!isCurrent()) return;
-      const globalServers = globalConfig.exists && globalConfig.content
-        ? parseMcpServersFromContent(globalConfig.content).map((entry) => ({
-          ...entry,
-          source: "config.global" as const,
-        }))
-        : [];
-      const projectServers = projectConfig.exists && projectConfig.content
-        ? parseMcpServersFromContent(projectConfig.content)
-        : [];
-      const projectNames = new Set(projectServers.map((entry) => entry.name));
-      const fileServers = [
-        ...globalServers.filter((entry) => !projectNames.has(entry.name)),
-        ...projectServers,
-      ];
-      // Runtime-DB MCPs (source "config.remote") only exist on the LegalWork
-      // server. Keep the last-known entries instead of silently dropping them
-      // while the server is briefly unreachable (startup race) — otherwise
-      // enabled MCPs like legalwork-ui render as "off".
-      const fileNames = new Set(fileServers.map((entry) => entry.name));
-      const runtimeServers = state.mcpServers.filter(
-        (entry) => entry.source === "config.remote" && !fileNames.has(entry.name),
-      );
-      const next = [...fileServers, ...runtimeServers];
-      mutateState(current => ({ ...current, mcpServers: next, mcpStatuses: filterConfiguredStatuses(current.mcpStatuses, next), mcpLastUpdatedAt: Date.now() }));
-
-      recordPerfLog(options.developerMode(), "mcp.refresh", "desktop-project-fallback-result", {
-        globalConfigPath: globalConfig.path,
-        projectConfigPath: projectConfig.path,
-        count: next.length,
-        names: next.map((entry) => entry.name),
-        sources: next.map((entry) => entry.source ?? "unknown"),
-      });
-
-      if (!globalConfig.exists && !projectConfig.exists && runtimeServers.length === 0) {
-        mutateState((current) => ({
-          ...current,
-          mcpServers: [],
-          mcpStatuses: {},
-          mcpStatus: null,
-        }));
-        return;
-      }
-
-      let nextStatuses = state.mcpStatuses;
-      const activeClient = options.client();
-      if (includeStatus && activeClient) {
-        try {
-          const status = unwrap(await activeClient.mcp.status({ directory: projectDir }));
-          nextStatuses = filterConfiguredStatuses(status as McpStatusMap, next);
-        } catch {
-          nextStatuses = {};
-        }
-      }
-
-      if (!isCurrent()) return;
-      mutateState((current) => ({
-        ...current,
-        mcpServers: next,
-        mcpLastUpdatedAt: Date.now(),
-        mcpStatuses: nextStatuses,
-        mcpStatus: null,
-      }));
+      mutateState(current => ({ ...current, mcpServers: next, mcpStatuses: statuses, mcpLastUpdatedAt: Date.now(), mcpStatus: null }));
     } catch (error) {
       if (!isCurrent()) return;
-      mutateState((current) => ({
-        ...current,
-        mcpServers: [],
-        mcpStatuses: {},
-        mcpStatus: error instanceof Error ? error.message : t("mcp.load_servers_failed"),
-      }));
+      setStateField("mcpStatus", getMcpOAuthErrorMessage(error, t("mcp.load_servers_failed")));
     }
   }
 
@@ -529,7 +429,6 @@ export function createConnectionsStore(options: {
     const startedAt = perfNow();
     const legalworkSnapshot = getLegalworkSnapshot();
     const isRemoteWorkspace =
-      options.workspaceType() === "remote" ||
       (!isDesktopRuntime() && legalworkSnapshot.legalworkServerStatus === "connected");
     const projectDir = options.projectDir().trim();
     const entryType = entry.type ?? "remote";
@@ -637,10 +536,10 @@ export function createConnectionsStore(options: {
       };
 
       if (entryType === "remote") {
-        if (!resolvedUrl) {
+        if (!resolvedUrl && !entry.configured?.url) {
           throw new Error(t("mcp.missing_url"));
         }
-        mcpEntryConfig["url"] = resolvedUrl;
+        if (resolvedUrl) mcpEntryConfig["url"] = resolvedUrl;
         if (resolvedHeaders) mcpEntryConfig["headers"] = resolvedHeaders;
         // Header-authed entries must not trigger OAuth auto-detection (opencode
         // would report "needs_auth" despite valid headers) unless the entry asks
@@ -657,7 +556,7 @@ export function createConnectionsStore(options: {
 
       let openComputerUseEnvironment: Record<string, string> | undefined;
       if (entryType === "local") {
-        if (!entry.command?.length) {
+        if (!entry.command?.length && !entry.configured?.command) {
           throw new Error(t("mcp.missing_command"));
         }
         if (extensionResource(entry.extensionManifest, "mcp")?.localCommandRef === "legalwork.openComputerUseMcp") {
@@ -666,7 +565,7 @@ export function createConnectionsStore(options: {
           mcpEntryConfig["command"] = config.command;
           mcpEntryConfig["environment"] = config.environment;
           openComputerUseEnvironment = config.environment;
-        } else {
+        } else if (entry.command?.length) {
           mcpEntryConfig["command"] = await resolveLocalMcpCommand(entry);
           if (entry.cwd) mcpEntryConfig.cwd = entry.cwd;
           const environment = await resolveLocalMcpEnvironment(entry);
@@ -683,80 +582,14 @@ export function createConnectionsStore(options: {
       // engine reads the first once per process and the server rebuilds the
       // second from its DB, so neither made a connector visible everywhere.
       if (canUseLegalworkServer && legalworkClient && legalworkWorkspaceId) {
-        await legalworkClient.addMcp(legalworkWorkspaceId, { name: slug, config: mcpEntryConfig, ...(entry.existingConfig ? { preserveScope: true } : {}) });
+        if (entry.editable !== false) await legalworkClient.addMcp(legalworkWorkspaceId, { name: slug, config: mcpEntryConfig, ...(entry.existingConfig ? { preserveScope: true } : {}), ...entry.configEdit });
+        else if (activeClient) await activeClient.mcp.connect({ location: { directory: resolvedProjectDir }, server: slug });
       } else {
         throw new Error(t("mcp.connect_server_first"));
       }
 
-      let engineHasMcp = false;
-      let engineUpdatedMcp = false;
-      let engineAddError: unknown;
-      if (isDesktopRuntime() && !isRemoteWorkspace && activeClient && resolvedProjectDir) {
-        // Hot-add to the active workspace's engine for a live connection + OAuth
-        // detection. Other workspaces load the MCP from global config on next start.
-        const mcpAddConfig: import("@opencode-ai/sdk/v2/client").McpLocalConfig | import("@opencode-ai/sdk/v2/client").McpRemoteConfig =
-          entryType === "remote"
-            ? {
-                ...mcpEntryConfig,
-                type: "remote" as const,
-                url: resolvedUrl ?? entry.url!,
-                enabled: true,
-                ...(resolvedHeaders ? { headers: resolvedHeaders } : {}),
-                ...(mcpEntryConfig["oauth"] === false
-                  ? { oauth: false as const }
-                  : entry.oauthConfig
-                    ? { oauth: entry.oauthConfig }
-                    : entry.oauth
-                      ? { oauth: {} }
-                      : {}),
-              }
-            : {
-                ...mcpEntryConfig,
-                type: "local" as const,
-                command: mcpEntryConfig.command ?? entry.command!,
-                enabled: true,
-                ...(openComputerUseEnvironment ? { environment: openComputerUseEnvironment } : {}),
-              };
-
-        // Registering with the running engine is what makes the server usable
-        // now; the config write only matters at next start. A single silent
-        // failure here used to leave the engine without the server while the
-        // flow carried on into sign-in, which then failed with a raw
-        // McpServerNotFoundError. So retry, and confirm the engine really has
-        // it before anything downstream assumes so.
-        for (let attempt = 0; attempt < 3 && !engineHasMcp; attempt += 1) {
-          try {
-            const status = unwrap(
-              await activeClient.mcp.add({
-                directory: resolvedProjectDir,
-                name: slug,
-                config: mcpAddConfig,
-              }),
-            );
-            engineUpdatedMcp = true;
-            setStateField("mcpStatuses", status as McpStatusMap);
-            engineHasMcp = Object.prototype.hasOwnProperty.call(status ?? {}, slug);
-          } catch (error) {
-            engineAddError = error;
-          }
-          if (!engineHasMcp) {
-            try {
-              const status = unwrap(await activeClient.mcp.status({ directory: resolvedProjectDir }));
-              if (Object.prototype.hasOwnProperty.call(status ?? {}, slug)) {
-                setStateField("mcpStatuses", status as McpStatusMap);
-                engineHasMcp = true;
-                break;
-              }
-            } catch {
-              // Fall through to the next attempt.
-            }
-            await new Promise((resolve) => setTimeout(resolve, 400));
-          }
-        }
-        if (!engineUpdatedMcp && engineAddError) throw engineAddError;
-      } else {
-        setStateField("mcpStatuses", filterConfiguredStatuses(snapshot.mcpStatuses, snapshot.mcpServers));
-      }
+      // The typed settings endpoint persists and refreshes native domains.
+      // The client observes the result; it never writes another MCP definition.
       // Saving remains authorized after the setup dialog closes. Its eventual
       // completion must not reopen sign-in or attach it to a different workspace.
       if (!authRequestIsCurrent()) return true;
@@ -768,21 +601,16 @@ export function createConnectionsStore(options: {
         await refreshMcpServers();
         outcome = mcpConnectOutcome(entry, snapshot.mcpStatuses[slug], Boolean(resolvedHeaders));
       }
-      engineHasMcp ||= Boolean(snapshot.mcpStatuses[slug]);
+      const engineHasMcp = Boolean(snapshot.mcpStatuses[slug]);
       if (!authRequestIsCurrent()) return true;
 
-      // Other workspaces pick the connector up from the rebuilt engine config,
-      // so a reload is due — but not while signing in. The engine keeps a
-      // sign-in's client registration in the instance that started it; an
-      // instance rebuild during the browser round-trip replaces it, and the
-      // provider then rejects the code exchange ("client ID does not match the
-      // authorize request"). The reload waits until sign-in ends either way.
-      const reloadTrigger: ReloadTrigger = { type: "mcp", name: slug, action };
-      if (outcome === "auth") pendingReloadTrigger = reloadTrigger;
-      else options.markReloadRequired?.("mcp", reloadTrigger);
+      if (!engineHasMcp) {
+        const trigger: ReloadTrigger = { type: "mcp", name: slug, action };
+        if (outcome === "auth") pendingReloadTrigger = trigger;
+        else options.markReloadRequired?.("mcp", trigger);
+      }
 
       if (outcome === "auth") {
-        if (!engineHasMcp && engineAddError) throw engineAddError;
         mutateState((current) => ({
           ...current,
           mcpAuthEntry: { ...entry, id: slug, serverName: slug, url: resolvedUrl },
@@ -794,7 +622,7 @@ export function createConnectionsStore(options: {
         captureAnalyticsEvent("integration_connected", {});
       } else {
         const status = snapshot.mcpStatuses[slug];
-        throw engineAddError ?? new Error(
+        throw new Error(
           status && "error" in status && status.error
             ? status.error
             : outcome === "pending"
@@ -860,7 +688,6 @@ export function createConnectionsStore(options: {
     if (entry.config.enabled === false) {
       if (!(await updateMcpEnabled(entry.name, true))) return;
       if (disposed || generation !== pendingMcpAuthGeneration || workspaceKey !== getMcpAuthWorkspaceKey()) return;
-      pendingReloadTrigger = { type: "mcp", name: entry.name, action: "updated" };
     }
     mutateState((current) => ({
       ...current,
@@ -883,9 +710,9 @@ export function createConnectionsStore(options: {
 
     return detectReconnectWithoutAuth({
       serverName,
-      reconnect: () => activeClient.mcp.connect({ directory: projectDir, name: serverName }),
+      reconnect: () => activeClient.mcp.connect({ location: { directory: projectDir }, server: serverName }),
       readStatus: async () =>
-        unwrap(await activeClient.mcp.status({ directory: projectDir })) as McpStatusSnapshot,
+        await readMcpStatuses(activeClient, projectDir) as McpStatusSnapshot,
       onStatus: (statuses) => setStateField("mcpStatuses", statuses as McpStatusMap),
       isCancelled: () => disposed,
     });
@@ -894,7 +721,6 @@ export function createConnectionsStore(options: {
   async function logoutMcpAuth(name: string) {
     const legalworkSnapshot = getLegalworkSnapshot();
     const isRemoteWorkspace =
-      options.workspaceType() === "remote" ||
       (!isDesktopRuntime() && legalworkSnapshot.legalworkServerStatus === "connected");
     const projectDir = options.projectDir().trim();
 
@@ -911,10 +737,6 @@ export function createConnectionsStore(options: {
       return;
     }
 
-    if (!canUseLegalworkServer && !isDesktopRuntime()) {
-      setStateField("mcpStatus", t("mcp.desktop_required"));
-      return;
-    }
 
     const activeClient = canUseLegalworkServer ? options.client() : await ensureActiveClient();
     if (!activeClient && !canUseLegalworkServer) {
@@ -938,17 +760,12 @@ export function createConnectionsStore(options: {
         if (!activeClient || !resolvedProjectDir) {
           throw new Error(t("mcp.connect_server_first"));
         }
-        try {
-          await activeClient.mcp.disconnect({ directory: resolvedProjectDir, name: safeName });
-        } catch {
-          // ignore
-        }
-        await activeClient.mcp.auth.remove({ directory: resolvedProjectDir, name: safeName });
+        await removeMcpCredentials(activeClient, safeName, resolvedProjectDir);
       }
 
       try {
         if (activeClient && resolvedProjectDir) {
-          const status = unwrap(await activeClient.mcp.status({ directory: resolvedProjectDir }));
+          const status = await readMcpStatuses(activeClient, resolvedProjectDir);
           setStateField("mcpStatuses", status as McpStatusMap);
         }
       } catch {
@@ -999,7 +816,6 @@ export function createConnectionsStore(options: {
         return;
       }
 
-      options.markReloadRequired?.("mcp", { type: "mcp", name, action: "removed" });
       await refreshMcpServers();
       if (snapshot.selectedMcp === name) {
         setStateField("selectedMcp", null);
@@ -1026,8 +842,7 @@ export function createConnectionsStore(options: {
     setStateField("mcpStatus", t("mcp.reloading_status"));
   }
 
-  // OpenCode reconnects MCP servers asynchronously after /instance/dispose,
-  // so an immediate mcp.status query returns stale "disconnected". Poll on
+  // Native domain refresh may leave connectors pending briefly. Poll on
   // a backoff until every enabled MCP reaches a terminal status, with the
   // banner up the whole time so users see continuous feedback.
   async function pollMcpServersAfterReload(): Promise<void> {

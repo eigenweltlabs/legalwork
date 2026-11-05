@@ -1,3 +1,4 @@
+import { createSessionView } from "@/app/lib/opencode-read";
 /** @jsxImportSource react */
 import { useState, type ReactNode } from "react";
 import { useNavigate, useParams } from "react-router-dom";
@@ -381,7 +382,7 @@ export function WordSessionsScreen() {
         { token: endpoint.token, mode: "legalwork" },
       );
       return unwrap(
-        await opencodeClient.session.create({ directory: workspace.path?.trim() || undefined }),
+        await createSessionView(opencodeClient,{ directory: workspace.path?.trim() || undefined }),
       );
     },
     onSuccess: (session) => {

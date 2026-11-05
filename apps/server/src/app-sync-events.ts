@@ -31,6 +31,14 @@ export function announceSyncChange(config: ServerConfig, change: Change): void {
   for (const listener of listeners.get(keyOf(config)) ?? []) listener(change);
 }
 
+/** Internal listeners may revoke a scoped native stream when visibility changes. */
+export function onSyncChange(config: ServerConfig, listener: (change: Change) => void) {
+  const key = keyOf(config);
+  const own = listeners.get(key) ?? new Set();
+  own.add(listener); listeners.set(key, own);
+  return () => { own.delete(listener); if (!own.size) listeners.delete(key); };
+}
+
 /** One window's stream, open until the window closes it or the server stops. */
 export function syncEventStream(config: ServerConfig, signal: AbortSignal): Response {
   const key = keyOf(config);

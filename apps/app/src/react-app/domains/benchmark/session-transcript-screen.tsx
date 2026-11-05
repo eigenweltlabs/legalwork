@@ -50,11 +50,9 @@ export function SessionTranscriptScreen(props: SessionTranscriptScreenProps) {
     setError(null);
   }, [sessionId]);
 
-  // Live updates keyed on the ITEM lifecycle, not the snapshot's session
-  // status: the server resolves session status directory-scoped to the
-  // workspace root, and benchmark sessions live in scratch dirs, so their
-  // status always reads "idle" there. While the item is pending/running/
-  // judging we refresh both the run (item status) and the transcript.
+  // The item lifecycle includes judging after its task session becomes idle.
+  // The dedicated route verifies run/item ownership and reads full native
+  // scratch-location history without weakening ordinary project session scope.
   useEffect(() => {
     if (!sessionId) return;
     let cancelled = false;
@@ -62,7 +60,7 @@ export function SessionTranscriptScreen(props: SessionTranscriptScreenProps) {
       const ctx = getBenchmarkContext();
       if (!ctx || cancelled) return;
       try {
-        const { item: loaded } = await ctx.client.getSessionSnapshot(ctx.workspaceId, sessionId, { limit: 500 });
+        const { item: loaded } = await ctx.client.benchmarkGetRunItemSession(ctx.workspaceId,props.runId,props.itemId);
         if (!cancelled) {
           setSnapshot(loaded);
           setError(null);
@@ -82,7 +80,7 @@ export function SessionTranscriptScreen(props: SessionTranscriptScreenProps) {
       cancelled = true;
       if (timer !== undefined) clearInterval(timer);
     };
-  }, [sessionId, itemActive, props.runId, loadRun]);
+  }, [sessionId, itemActive, props.runId,props.itemId, loadRun]);
 
   const ctx = getBenchmarkContext();
   const status: ThreadStatus = itemActive ? "streaming" : "ready";

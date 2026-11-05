@@ -1,3 +1,6 @@
+import { publicNativeConfig } from "./native-client-projection.js";
+import { nativeOpencodeConfig } from "./native-opencode-config.js";
+
 /**
  * Secret-stripping serializers for Firm Hub *share templates*.
  *
@@ -121,7 +124,7 @@ export function sanitizeIntegrationMcp(config: Record<string, unknown>): Record<
 }
 
 /** The only opencode settings keys a shared preset is allowed to carry. */
-export const SAFE_PRESET_KEYS = ["provider", "model", "small_model"] as const;
+export const SAFE_PRESET_KEYS = ["provider", "providers", "providerSetup", "model", "small_model"] as const;
 
 /**
  * Reduce an opencode config to the safe, shareable preset fragment: the
@@ -133,7 +136,14 @@ export function sanitizePresetFragment(fragment: Record<string, unknown>): Recor
   for (const key of SAFE_PRESET_KEYS) {
     const value = fragment[key];
     if (value === undefined) continue;
-    out[key] = key === "provider" ? stripSecrets(value) : value;
+    if (key === "providers") {
+      // Omit optional undefined properties exactly as the published JSON wire
+      // does, so the resulting template is itself valid executable input.
+      const providers: unknown = JSON.parse(JSON.stringify(publicNativeConfig(nativeOpencodeConfig({ providers: value }).config).providers ?? {}));
+      out[key] = providers;
+    }
+    else if (key === "providerSetup") out[key] = isPlainObject(value) ? Object.fromEntries(Object.entries(value).filter(([, required]) => required === true)) : {};
+    else out[key] = key === "provider" ? stripSecrets(value) : value;
   }
   return out;
 }

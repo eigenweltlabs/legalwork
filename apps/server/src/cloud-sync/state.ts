@@ -19,7 +19,7 @@ import { getBlob, putBlob, type SyncObjects } from "./objects.js";
 // secrets, machine cursors, transfer bases and derived caches stay on-device.
 export const RUNTIME_TABLES = new Set([
   "runtime_opencode_configs", "session_group_states", "session_usage_limits", "project_links",
-  "assistant_days", "assistant_profiles", "assistant_onboarding", "assistant_greeting_views", "assistant_project_defaults",
+  "assistant_days", "assistant_profiles", "assistant_settings", "assistant_onboarding", "assistant_greeting_views", "assistant_project_defaults",
   "assistant_session_queue", "assistant_delegations", "assistant_delegation_receipts", "assistant_attention_cards", "assistant_attention_widgets",
   "channel_runtime_owner", "channel_runtime_jobs", "channel_runtime_conversations", "channel_runtime_commands", "channel_runtime_approvals", "channel_runtime_settings",
   "scheduled_tasks", "scheduled_task_runs", "scheduled_task_defaults", "scheduled_sessions",
@@ -27,7 +27,8 @@ export const RUNTIME_TABLES = new Set([
   "calendar_items", "calendar_history", "deadline_calculations", "calculation_runs", "calculation_presentations", "calendar_conflicts", "calendar_reminders",
 ]);
 export const ENGINE_TABLES = new Set(["project", "project_directory", "workspace", "session", "message", "part", "todo", "permission",
-  "session_context_epoch", "session_input", "session_message", "event", "event_sequence", "data_migration", "migration", "__drizzle_migrations"]);
+  "session_context_epoch", "session_input", "session_message", "session_v2", "session_inbox", "session_pending",
+  "instruction_entry", "instruction_blob", "instruction_state", "worktree", "kv", "event", "event_sequence", "data_migration", "migration", "__drizzle_migrations"]);
 // Migrations have already run in a snapshot. Dropping these tables while
 // retaining migration receipts breaks the engine; keep their empty schemas.
 const ENGINE_EMPTY_TABLES = new Set(["account", "account_state", "control_account", "credential", "session_share"]);
@@ -63,7 +64,7 @@ export function remapPaths(value: unknown, projects: SyncProject[], roots: Map<s
   if (typeof value === "string") return translate(value);
   if (Array.isArray(value)) return value.map(item => remapPaths(item, projects, roots));
   if (!isRecord(value)) return value;
-  const prose = new Set(["text", "prompt", "customInstructions", "output", "content", "title", "description", "label"]);
+  const prose = new Set(["text", "prompt", "customInstructions", "systemPromptAddition", "output", "content", "title", "description", "label"]);
   return Object.fromEntries(Object.entries(value).map(([key, child]) => [translate(key), prose.has(key) ? child : remapPaths(child, projects, roots)]));
 }
 
@@ -117,44 +118,68 @@ async function sanitizeDatabase(path: string, kind: "runtime" | "engine", projec
         db.run("UPDATE runtime_opencode_configs SET config_json = ? WHERE workspace_id = ?", [JSON.stringify(safe), String(row.workspace_id)]);
       }
     }
-    if (kind === "engine" && tables.includes("session")) {
-      const columns = db.all("PRAGMA table_info(session)");
-      if (!columns.some(column => column.name === "directory")) throw new Error("Unsupported engine session schema");
-      const ids = db.all("SELECT id, directory FROM session").filter(row => projects.some(project => {
-        const directory = String(row.directory);
-        return directory === project.sourcePath || directory.startsWith(`${project.sourcePath}${sep}`);
-      })).map(row => String(row.id));
-      // A private LegalWork checkpoint must not adopt unrelated standalone chats.
+    if (kind === "engine") {
+      const sessionTables = ["session", "session_v2"].filter(table => tables.includes(table));
+      const inProjects = (value: unknown) => projects.some(project => {
+        const directory = String(value).replaceAll("\\", "/"), source = project.sourcePath.replaceAll("\\", "/");
+        return directory === source || directory.startsWith(`${source}/`);
+      });
       db.exec("CREATE TEMP TABLE kept_sessions (id TEXT PRIMARY KEY)");
-      for (const id of ids) db.run("INSERT INTO kept_sessions VALUES (?)", [id]);
-      for (const table of ["part", "message", "todo", "session_context_epoch", "session_input", "session_message"]) {
-        if (tables.includes(table) && db.all(`PRAGMA table_info(${quote(table)})`).some(column => column.name === "session_id")) {
-          db.run(`DELETE FROM ${quote(table)} WHERE session_id NOT IN (SELECT id FROM kept_sessions)`);
+      for (const table of sessionTables) {
+        if (!db.all(`PRAGMA table_info(${quote(table)})`).some(column => column.name === "directory")) throw new Error("Unsupported engine session schema");
+        for (const row of db.all(`SELECT id, directory FROM ${quote(table)}`)) if (inProjects(row.directory)) db.run("INSERT OR IGNORE INTO kept_sessions VALUES (?)", [String(row.id)]);
+      }
+      for (const table of tables) {
+        const columns = db.all(`PRAGMA table_info(${quote(table)})`);
+        if (columns.some(column => column.name === "session_id")) db.run(`DELETE FROM ${quote(table)} WHERE session_id NOT IN (SELECT id FROM kept_sessions)`);
+      }
+      for (const table of sessionTables) {
+        db.run(`DELETE FROM ${quote(table)} WHERE id NOT IN (SELECT id FROM kept_sessions)`);
+        const columns = db.all(`PRAGMA table_info(${quote(table)})`);
+        for (const column of ["parent_id", "fork_session_id"]) if (columns.some(item => item.name === column))
+          db.run(`UPDATE ${quote(table)} SET ${quote(column)} = NULL WHERE ${quote(column)} NOT IN (SELECT id FROM kept_sessions)`);
+      }
+      for (const table of ["event", "event_sequence"]) if (tables.includes(table))
+        db.run(`DELETE FROM ${quote(table)} WHERE aggregate_id NOT IN (SELECT id FROM kept_sessions)`);
+      if (tables.includes("event_sequence") && db.all("PRAGMA table_info(event_sequence)").some(column => column.name === "owner_id")) db.exec("UPDATE event_sequence SET owner_id = NULL");
+      for (const table of ["project_directory", "worktree"]) if (tables.includes(table)) {
+        for (const row of db.all(`SELECT project_id, directory FROM ${quote(table)}`)) if (!inProjects(row.directory))
+          db.run(`DELETE FROM ${quote(table)} WHERE project_id = ? AND directory = ?`, [String(row.project_id), String(row.directory)]);
+      }
+      const projectSources = sessionTables.filter(table => db.all(`PRAGMA table_info(${quote(table)})`).some(column => column.name === "project_id"));
+      if (projectSources.length) for (const table of ["project", "permission"]) {
+        if (!tables.includes(table)) continue;
+        const key = table === "project" ? "id" : "project_id";
+        if (db.all(`PRAGMA table_info(${quote(table)})`).some(column => column.name === key))
+          db.run(`DELETE FROM ${quote(table)} WHERE ${quote(key)} NOT IN (${projectSources.map(source => `SELECT project_id FROM ${quote(source)}`).join(" UNION ")})`);
+      }
+      if (tables.includes("workspace")) {
+        const sources = sessionTables.filter(table => db.all(`PRAGMA table_info(${quote(table)})`).some(column => column.name === "workspace_id"));
+        if (sources.length) db.run(`DELETE FROM workspace WHERE id NOT IN (${sources.map(source => `SELECT workspace_id FROM ${quote(source)} WHERE workspace_id IS NOT NULL`).join(" UNION ")})`);
+      }
+      // The native KV store also holds machine state. Only scoped durable
+      // background jobs belong in an executor checkpoint.
+      if (tables.includes("kv")) {
+        const kept = new Set(db.all("SELECT id FROM kept_sessions").map(row => String(row.id)));
+        for (const row of db.all("SELECT key, value FROM kv")) {
+          let ids: string[] = [];
+          if (String(row.key).startsWith("job.background/")) {
+            const parsed = z.object({ recovery: z.discriminatedUnion("kind", [z.object({ kind: z.literal("shell"), sessionID: z.string() }), z.object({ kind: z.literal("subagent"), parentSessionID: z.string(), childSessionID: z.string() })]) }).safeParse(JSON.parse(String(row.value)));
+            if (parsed.success) ids = parsed.data.recovery.kind === "shell" ? [parsed.data.recovery.sessionID] : [parsed.data.recovery.parentSessionID, parsed.data.recovery.childSessionID];
+          }
+          if (!ids.length || ids.some(id => !kept.has(id))) db.run("DELETE FROM kv WHERE key = ?", [String(row.key)]);
         }
       }
-      db.run("DELETE FROM session WHERE id NOT IN (SELECT id FROM kept_sessions)");
-      for (const table of ["event", "event_sequence"]) {
-        if (tables.includes(table)) db.run(`DELETE FROM ${quote(table)} WHERE aggregate_id NOT IN (SELECT id FROM kept_sessions)`);
-      }
-      if (tables.includes("event_sequence") && db.all("PRAGMA table_info(event_sequence)").some(column => column.name === "owner_id"))
-        db.exec("UPDATE event_sequence SET owner_id = NULL");
-      if (tables.includes("project_directory")) {
-        for (const row of db.all("SELECT project_id, directory FROM project_directory")) {
-          if (!projects.some(project => String(row.directory) === project.sourcePath || String(row.directory).startsWith(`${project.sourcePath}${sep}`)))
-            db.run("DELETE FROM project_directory WHERE project_id = ? AND directory = ?", [String(row.project_id), String(row.directory)]);
-        }
-      }
-      if (columns.some(column => column.name === "parent_id")) db.run("UPDATE session SET parent_id = NULL WHERE parent_id NOT IN (SELECT id FROM kept_sessions)");
-      if (columns.some(column => column.name === "project_id")) {
-        for (const table of ["project", "permission"]) {
+      // Content-addressed instruction blobs must keep their exact bytes, and
+      // unrelated projects' instructions must not cross into a private copy.
+      if (tables.includes("instruction_blob")) {
+        db.exec("CREATE TEMP TABLE kept_instruction_blobs (hash TEXT PRIMARY KEY)");
+        for (const [table, columns] of [["instruction_state", ["initial_values", "current_values"]], ["event", ["data"]], ["session_message", ["data"]]] satisfies Array<[string, string[]]>) {
           if (!tables.includes(table)) continue;
-          const key = table === "project" ? "id" : "project_id";
-          if (db.all(`PRAGMA table_info(${quote(table)})`).some(column => column.name === key))
-            db.run(`DELETE FROM ${quote(table)} WHERE ${quote(key)} NOT IN (SELECT project_id FROM session)`);
+          for (const column of columns) db.exec(`INSERT OR IGNORE INTO kept_instruction_blobs SELECT j.value FROM ${quote(table)} t, json_tree(t.${quote(column)}) j WHERE j.type='text' AND length(j.value)=64`);
         }
+        db.exec("DELETE FROM instruction_blob WHERE hash NOT IN (SELECT hash FROM kept_instruction_blobs)");
       }
-      if (tables.includes("workspace") && columns.some(column => column.name === "workspace_id"))
-        db.run("DELETE FROM workspace WHERE id NOT IN (SELECT workspace_id FROM session WHERE workspace_id IS NOT NULL)");
     }
     if (roots) {
       for (const table of tables) {
@@ -169,7 +194,7 @@ async function sanitizeDatabase(path: string, kind: "runtime" | "engine", projec
             if (typeof value !== "string") continue;
             let mapped: unknown = value;
             if (["directory", "worktree", "path"].includes(name)) mapped = remapPaths(value, projects, roots);
-            else if (["data", "baseline", "snapshot"].includes(name) || name.endsWith("_json")) {
+            else if (["data", "baseline", "snapshot", "permission", "metadata", "payload"].includes(name) || table === "kv" && name === "value" || name.endsWith("_json")) {
               try { mapped = JSON.stringify(remapPaths(JSON.parse(value), projects, roots)); } catch { continue; }
             }
             if (typeof mapped === "string" && mapped !== value) {
@@ -253,7 +278,7 @@ async function prepareCompanionSeed(path: string) {
 
 export async function exportCheckpoint(config: ServerConfig, store: SyncObjects, options: { companionSeed?: boolean } = {}): Promise<Checkpoint> {
   const links = await projectSyncStore(config);
-  const projects: SyncProject[] = await Promise.all(config.workspaces.filter(workspace => workspace.workspaceType !== "remote").map(async workspace => ({
+  const projects: SyncProject[] = await Promise.all(config.workspaces.map(async workspace => ({
     id: workspace.id, name: workspace.name, preset: workspace.preset, sourcePath: resolve(workspace.path), projectId: links.linkByWorkspace(workspace.id)?.projectId ?? null,
     details: existsSync(workspace.path) ? await readProjectDetails(workspace.path) : undefined,
   })));
@@ -268,7 +293,10 @@ export async function exportCheckpoint(config: ServerConfig, store: SyncObjects,
       if (kind === "engine" && options.companionSeed) {
         const db = await openSqlite(destination);
         try {
-          if (db.get("SELECT name FROM sqlite_master WHERE name = 'session_input'")) db.exec("PRAGMA secure_delete = ON; DELETE FROM session_input; VACUUM");
+          db.exec("PRAGMA secure_delete = ON");
+          for (const table of ["session_input", "session_inbox", "session_pending", "kv"]) if (db.get("SELECT name FROM sqlite_master WHERE name = ?", [table])) db.exec(`DELETE FROM ${quote(table)}`);
+          if (db.get("SELECT name FROM sqlite_master WHERE name = 'session_v2'")) db.exec("UPDATE session_v2 SET time_suspended = NULL, resume_attempts = 0");
+          db.exec("VACUUM");
         } finally { db.close?.(); }
       }
       return putBlob(store, destination);

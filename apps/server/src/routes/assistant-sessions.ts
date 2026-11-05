@@ -19,7 +19,7 @@ export function registerAssistantSessionRoutes(options: Parameters<typeof regist
   };
   const target = async (input: z.infer<typeof targetSchema>) => {
     const workspace = await options.resolveWorkspace(config, input.workspaceId);
-    if (workspace.workspaceType === "remote" || isMainAssistant(workspace)) throw new ApiError(400, "assistant_session_target", "Choose a local project chat, not the Assistant itself.");
+    if (isMainAssistant(workspace)) throw new ApiError(400, "assistant_session_target", "Choose a local project chat, not the Assistant itself.");
     const client = options.client(workspace);
     const { data: session } = await client.session.get({ sessionID: input.sessionId }, { throwOnError: true, signal: AbortSignal.timeout(10000) });
     if (!session || session.time.archived || resolve(session.directory) !== resolve(workspace.path)) throw new ApiError(404, "assistant_session_target", "This chat is not available in the selected project.");

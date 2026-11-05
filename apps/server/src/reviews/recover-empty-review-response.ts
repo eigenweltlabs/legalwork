@@ -1,71 +1,32 @@
-import type { Event, createOpencodeClient } from "@opencode-ai/sdk";
+import type { Plugin } from "@opencode/plugin";
+import type { OpenCodeEvent } from "@opencode/client";
 
-type Client = ReturnType<typeof createOpencodeClient>;
 export const REVIEW_RECOVERY_PROMPT = "The previous response stopped with reasoning only, without an answer or tool call. Continue the already-authorised unfinished review tasks from their saved state. Reuse existing reviews; do not rerun completed inference. Complete the requested deliverables or explain a concrete blocker.";
 
-/** One recovery per user request, only for a reasoning-only normal stop during
- * unfinished review work. Never recover errors, cancellations or budget stops. */
-export function recoverEmptyReviewResponse(client: Client, directory?: string, send?: (sessionId: string, messageId: string) => Promise<void>) {
-  const recovering = new Set<string>();
-  const retried = new Map<string, string>();
-  const reviewSessions = new Set<string>();
-  return async ({ event }: { event: Event }) => {
-    if (event.type === "message.part.updated") {
-      const part = event.properties.part;
-      if (part.type === "tool" && part.tool.startsWith("legalwork_review_") && part.state.status === "completed") reviewSessions.add(part.sessionID);
-      return;
-    }
-    if (event.type === "session.deleted") {
-      reviewSessions.delete(event.properties.info.id);
-      retried.delete(event.properties.info.id);
-      return;
-    }
-    const sessionId = event.type === "session.idle" ? event.properties.sessionID
-      : event.type === "session.status" && event.properties.status.type === "idle" ? event.properties.sessionID : null;
-    if (!sessionId || recovering.has(sessionId)) return;
-    recovering.add(sessionId);
-    try {
-      const query = { directory };
-      const response = await client.session.messages({ path: { id: sessionId }, query: { ...query, limit: 10 } });
-      const messages = response.data;
-      const last = messages?.at(-1);
-      if (!last || last.info.role !== "assistant" || last.info.finish !== "stop" || last.info.error || last.info.summary) return;
-      if (!last.parts.some(part => part.type === "reasoning" && part.text.trim())) return;
-      if (last.parts.some(part => part.type === "tool" || (part.type === "text" && part.text.trim()))) return;
-      // Long workflows have many assistant/tool messages between the request
-      // and this stop. Fetch the parent directly if it is outside this page.
-      const user = messages?.slice().reverse().find(message => message.info.role === "user")
-        ?? (await client.session.message({ path: { id: sessionId, messageID: last.info.parentID }, query })).data;
-      if (!user || user.info.role !== "user" || last.info.parentID !== user.info.id) return;
-      // Skip system-written turns such as this recovery prompt. A human turn may
-      // still carry synthetic app-state reminders next to the user's own text.
-      if (user.parts.some(part => part.type === "compaction") || !user.parts.some(part => part.type === "text" && !part.synthetic)) return;
-      if (retried.get(sessionId) === user.info.id) return;
-      const hasReview = (items: typeof messages) => items?.some(message => message.parts.some(part => part.type === "tool" && part.tool.startsWith("legalwork_review_")));
-      if (!reviewSessions.has(sessionId) && !hasReview(messages)) {
-        // After an engine reload the in-memory history is empty. Inspect a
-        // bounded saved page once; live tool events cover longer workflows.
-        const history = await client.session.messages({ path: { id: sessionId }, query: { ...query, limit: 100 } });
-        if (!hasReview(history.data)) return;
-        reviewSessions.add(sessionId);
-      }
-      const todos = await client.session.todo({ path: { id: sessionId }, query });
-      if (!todos.data?.some(todo => todo.status === "in_progress" || todo.status === "pending")) return;
-      // Recheck after reads: new human input or a restart takes precedence.
-      const current = await client.session.messages({ path: { id: sessionId }, query: { ...query, limit: 1 } });
-      if (current.data?.at(-1)?.info.id !== last.info.id) return;
-      const status = await client.session.status({ query });
-      if (status.data?.[sessionId]?.type !== "idle") return;
-      retried.set(sessionId, user.info.id);
-      if (send) await send(sessionId, last.info.id);
-      else await client.session.promptAsync({ path: { id: sessionId }, query, body: {
-        agent: user.info.agent, model: user.info.model,
-        parts: [{ type: "text", synthetic: true, text: REVIEW_RECOVERY_PROMPT }],
-      } });
-    } catch {
-      // Recovery is optional; never hide the original stop or create a retry loop.
-    } finally {
-      recovering.delete(sessionId);
-    }
+/** Candidate detection only. The server gate rechecks full saved history, todos,
+ * idle state, deletion exclusion and durable recovery markers before admission. */
+export function recoverEmptyReviewResponse(ctx: Pick<Plugin.Context,"session">, send: (sessionID:string,messageID:string)=>Promise<void>) {
+  const recovering=new Set<string>(), retried=new Map<string,string>();
+  return async(event: OpenCodeEvent)=>{
+    if(event.type==="session.deleted"){retried.delete(event.data.sessionID);return;}
+    if(event.type!=="session.execution.succeeded")return;
+    const sessionID=event.data.sessionID;if(recovering.has(sessionID))return;
+    recovering.add(sessionID);
+    try{
+      const history=await ctx.session.context({sessionID});
+      const last=history.at(-1);
+      if(last?.type!=="assistant"||last.finish!=="stop"||last.error
+        ||!last.content.some(part=>part.type==="reasoning"&&part.text.trim())
+        ||last.content.some(part=>part.type==="tool"||part.type==="text"&&part.text.trim()))return;
+      const user=history.slice(0,-1).reverse().find(message=>message.type==="user");
+      if(!user||user.type!=="user"||!user.text.trim()||retried.get(sessionID)===user.id)return;
+      if(history.slice(history.indexOf(user)+1).some(message=>message.type==="synthetic"&&message.metadata?.legalworkReviewRecovery===true))return;
+      // New input arriving while saved state is being read always takes precedence.
+      if((await ctx.session.context({sessionID})).at(-1)?.id!==last.id)return;
+      await send(sessionID,last.id);
+      retried.set(sessionID,user.id);
+    }catch{
+      // Optional recovery must not replace the original stop or create a loop.
+    }finally{recovering.delete(sessionID);}
   };
 }

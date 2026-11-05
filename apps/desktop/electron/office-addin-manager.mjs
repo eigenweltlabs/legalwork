@@ -44,9 +44,10 @@ function logError(message) {
  * @param {import("electron").App} deps.app
  * @param {() => string | null} deps.locateServerDist  Directory holding the built server (word-addin.js), or null.
  * @param {() => string | null} deps.locatePaneDist    Directory holding the built task pane bundle, or null.
+ * @param {() => void} [deps.onTrustStoreChanged] Host-only transport invalidation after a successful explicit OS trust change.
  * @param {() => Promise<unknown>} deps.requestServerRestart  Restart the embedded server so listener state applies.
  */
-export function createOfficeAddinManager({ app, locateServerDist, locatePaneDist, requestServerRestart }) {
+export function createOfficeAddinManager({ app, locateServerDist, locatePaneDist, requestServerRestart, onTrustStoreChanged }) {
   const userDataDir = app.getPath("userData");
   const certDir = join(userDataDir, "office-addin-certs");
   const statePath = join(userDataDir, "office-addins.json");
@@ -131,13 +132,32 @@ export function createOfficeAddinManager({ app, locateServerDist, locatePaneDist
     if (!dist) return null;
     const modulePath = join(dist, "word-addin.js");
     if (!existsSync(modulePath)) return null;
-    const { buildWordAddinManifest } = await import(pathToFileURL(modulePath).href);
+    const { buildWordAddinManifest, loadOfficeConnectionToken } = await import(pathToFileURL(modulePath).href);
     const version = typeof app.getVersion === "function" ? `${app.getVersion()}.0` : undefined;
     return buildWordAddinManifest({
       baseUrl: `https://localhost:${port}`,
+      connectionToken: await loadOfficeConnectionToken(certPaths().leafKeyPath),
       version,
       ...(host ? { host } : {}),
     });
+  }
+
+  // Refresh existing installations on upgrade without a confirmation step.
+  async function refreshManifests() {
+    if (!backend) return;
+    const state = readState();
+    for (const [appId, enabled] of Object.entries(state.apps)) {
+      if (!enabled) continue;
+      try {
+        const manifest = await buildManifest(state.port, backend.manifestHost(appId));
+        if (!manifest) throw new Error("Office add-in server bundle is missing");
+        const written = backend.writeManifest(appId, manifest);
+        if (!written.ok) throw new Error(written.error);
+      } catch (error) {
+        // A removed Office app or unwritable manifest must not block LegalWork.
+        logError(`Could not refresh ${appId} manifest: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
   }
 
   // ── Shared install pieces ─────────────────────────────────────────────
@@ -164,6 +184,7 @@ export function createOfficeAddinManager({ app, locateServerDist, locatePaneDist
       logError(`trust step failed: ${trust.error}`);
       return `Could not trust the certificate: ${trust.error}`;
     }
+    onTrustStoreChanged?.();
     return null;
   }
 
@@ -280,6 +301,7 @@ export function createOfficeAddinManager({ app, locateServerDist, locatePaneDist
           error: `The certificate was not removed (${untrust.error}). Nothing was uninstalled.`,
         };
       }
+      onTrustStoreChanged?.();
       rmSync(certDir, { recursive: true, force: true });
       steps.push({ step: "certificate", ok: true });
     }
@@ -305,5 +327,5 @@ export function createOfficeAddinManager({ app, locateServerDist, locatePaneDist
     return backend.openApp(appId);
   }
 
-  return { readState, serverConfig, status, install, uninstall, openApp };
+  return { readState, serverConfig, refreshManifests, status, install, uninstall, openApp };
 }

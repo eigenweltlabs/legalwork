@@ -1,5 +1,5 @@
 import { resolve } from "node:path";
-import type { createOpencodeClient } from "@opencode-ai/sdk/v2/client";
+import type { createAssistantEngineClient } from "./assistant-engine.js";
 import { readProjectDetails } from "./project-store.js";
 import { taskStore } from "./task-store.js";
 import { projectSyncStore } from "./project-sync-store.js";
@@ -15,7 +15,7 @@ async function section<T>(read: () => Promise<T>) {
 }
 
 /** Bounded matter status, with provenance and separate project tasks and agent checklists. */
-export async function assistantProjectOverview(config: ServerConfig, workspace: WorkspaceInfo, client: ReturnType<typeof createOpencodeClient>, input: {
+export async function assistantProjectOverview(config: ServerConfig, workspace: WorkspaceInfo, client: ReturnType<typeof createAssistantEngineClient>, input: {
   sessionLimit: number; taskLimit: number;
 }, signal: AbortSignal) {
   const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;

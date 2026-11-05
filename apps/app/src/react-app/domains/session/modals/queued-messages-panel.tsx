@@ -56,7 +56,7 @@ export function QueuedMessagesPanel(props: QueuedMessagesPanelProps) {
               disabled={props.disabled}
               reorderDisabled={props.disabled || savingOrder || Boolean(props.editingId)}
               onDragEnd={() => { if (dragOrderRef.current) void commitOrder(reconcileQueuedOrder(dragOrderRef.current, currentIds)); }}
-              editDisabled={props.disabled || Boolean(props.editingId) || message.locked === true || message.status === "sending" || message.status === "uncertain"} onEdit={props.onEdit} onRemove={props.onRemove} onCancelEdit={props.onCancelEdit}
+              editDisabled={props.disabled || Boolean(props.editingId) || message.locked === true || (message.status === "sending" || message.status === "accepted") || message.status === "uncertain"} onEdit={props.onEdit} onRemove={props.onRemove} onCancelEdit={props.onCancelEdit}
               onMove={(direction) => {
                 const target = index + direction;
                 if (target < 0 || target >= ids.length) return;
@@ -117,14 +117,14 @@ function QueuedMessageRow(props: {
       <span className={`min-w-0 flex-1 truncate text-[13px] leading-5 ${props.editing ? "text-muted-foreground" : "text-foreground"}`} title={message.text}>
         {message.text.trim() || t("composer.queued_attachments_only", { count: message.attachments.length })}
       </span>
-      {(message.status === "sending" || message.locked) && <span className="text-[11px] text-muted-foreground">{t(message.locked ? "composer.editing_elsewhere" : "composer.queue_sending")}</span>}
+      {((message.status === "sending" || message.status === "accepted") || message.locked) && <span className="text-[11px] text-muted-foreground">{t(message.locked ? "composer.editing_elsewhere" : "composer.queue_sending")}</span>}
       {props.editing && <span className="text-[11px] text-muted-foreground">{t("composer.editing_queued")}</span>}
       <Button variant="ghost" size="icon-xs" disabled={!props.editing && props.editDisabled}
         onClick={() => props.editing ? props.onCancelEdit() : props.onEdit(message.id)}
         aria-label={t(props.editing ? "composer.cancel_queued_edit" : "composer.edit_queued")}
         title={t(props.editing ? "composer.cancel_queued_edit" : "composer.edit_queued")}
       >{props.editing ? <Undo2 className="size-3.5" /> : <Pencil className="size-3.5" />}</Button>
-      <Button variant="ghost" size="icon-xs" className="hover:text-destructive" disabled={props.disabled || message.status === "sending" || message.locked || props.editing} onClick={() => props.onRemove(message.id)} aria-label={t("composer.remove_queued")} title={t("composer.remove_queued")}>
+      <Button variant="ghost" size="icon-xs" className="hover:text-destructive" disabled={props.disabled || (message.status === "sending" || message.status === "accepted") || message.locked || props.editing} onClick={() => props.onRemove(message.id)} aria-label={t("composer.remove_queued")} title={t("composer.remove_queued")}>
         <Trash2 className="size-3.5" />
       </Button>
     </Reorder.Item>

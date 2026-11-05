@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { createOpencodeClient } from "@opencode-ai/sdk/v2/client";
+import { createAssistantTestClient } from "./assistant-engine.test-support.js";
 import { assistantWidget, readAssistantAttention, replyToAssistantAttention } from "./assistant-attention.js";
 
 test("attention preserves original approval details and question choices, isolates sessions and rejects stale replies", async () => {
@@ -15,7 +15,7 @@ test("attention preserves original approval details and question choices, isolat
     if (path === "/session/child/message") return Response.json([{ info: { id: "m", role: "assistant", sessionID: "child" }, parts: [{ id: "part", type: "tool", callID: "call", tool: "legalwork_calculation_present", state: { status: "completed", input: {}, output: JSON.stringify({ presentation: { id: "56f829b1-7bba-451c-84df-f310abf1e542", workspaceId: "matter", title: "Review dates" } }) } }, { id: "bash", type: "tool", callID: "bash", tool: "bash", state: { status: "completed", input: {}, output: "internal log" } }] }]);
     return new Response(null, { status: 404 });
   } });
-  const client = createOpencodeClient({ baseUrl: engine.url.origin });
+  const client = createAssistantTestClient({ baseUrl: engine.url.origin });
   const source = { workspaceId: "matter", sessionId: "child", projectName: "Aster", sessionTitle: "Review agreement" };
   try {
     const items = await readAssistantAttention(client, source);
@@ -29,7 +29,7 @@ test("attention preserves original approval details and question choices, isolat
     await expect(replyToAssistantAttention(client, approval, { ...ref, revision: "stale", kind: "approval", reply: "once" })).rejects.toThrow("changed");
     expect(sent).toEqual([]);
     await replyToAssistantAttention(client, approval, { ...ref, kind: "approval", reply: "once" });
-    expect(sent).toEqual([{ path: "/api/session/child/permission/p/reply", body: { reply: "once" } }]);
+    expect(sent).toEqual([{ path: "/api/session/child/permission/p/reply", body: { decision: "once" } }]);
     const question = items.find(item => item.kind === "question")!;
     const answer = { id: question.id, revision: question.revision, workspaceId: source.workspaceId, sessionId: source.sessionId };
     await expect(replyToAssistantAttention(client, question, { ...answer, kind: "question", answers: [["Invented"]] })).rejects.toThrow("available choices");

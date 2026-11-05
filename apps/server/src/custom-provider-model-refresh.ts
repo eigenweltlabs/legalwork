@@ -1,6 +1,6 @@
-import { readFile } from "node:fs/promises";
-import { homedir } from "node:os";
-import { join } from "node:path";
+import { createEngineClient } from "./engine-client.js";
+import { resolveWorkspaceOpencodeConnection } from "./opencode-connection.js";
+import { nativeProvider } from "./native-opencode-config.js";
 import { readLegalworkWorkspaceConfig, writeLegalworkWorkspaceConfig } from "./legalwork-workspace-config-store.js";
 import { readRuntimeOpencodeConfig, writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
 import { discoverProviderModels } from "./provider-model-discovery.js";
@@ -40,33 +40,20 @@ export function readModelRefreshSettings(value: unknown): Record<string, CustomP
 }
 
 export function providerBaseURL(provider: unknown): string {
-  if (!isRecord(provider) || !isRecord(provider.options)) return "";
-  return typeof provider.options.baseURL === "string" ? provider.options.baseURL.trim().replace(/\/+$/, "") : "";
+  if (!isRecord(provider)) return "";
+  const settings = isRecord(provider.settings) ? provider.settings : isRecord(provider.options) ? provider.options : {};
+  return typeof settings.baseURL === "string" ? settings.baseURL.trim().replace(/\/+$/, "") : "";
 }
 
-/** Whether the engine keeps a key or sign-in of the member's for a provider. */
-export async function hasStoredProviderAuth(providerId: string): Promise<boolean> {
-  const dataHome = process.env.XDG_DATA_HOME?.trim() || join(homedir(), ".local", "share");
-  try {
-    const auth: unknown = JSON.parse(await readFile(join(dataHome, "opencode", "auth.json"), "utf8"));
-    return isRecord(auth) && isRecord(auth[providerId]);
-  } catch {
-    return false;
-  }
-}
-
-/** Keys stay on the worker; callers can only reuse a key for its saved endpoint. */
-export async function readStoredProviderApiKey(providerId: string, provider: unknown): Promise<string> {
-  const dataHome = process.env.XDG_DATA_HOME?.trim() || join(homedir(), ".local", "share");
-  try {
-    const auth: unknown = JSON.parse(await readFile(join(dataHome, "opencode", "auth.json"), "utf8"));
-    const entry = isRecord(auth) ? auth[providerId] : null;
-    if (isRecord(entry) && entry.type === "api" && typeof entry.key === "string") return entry.key.trim();
-  } catch {
-    // A local endpoint may not need authentication.
-  }
-  const options = isRecord(provider) && isRecord(provider.options) ? provider.options : {};
-  return typeof options.apiKey === "string" ? options.apiKey : "";
+/** Reuse an active native key only inside the server. A stale v1 auth.json must
+ * never resurrect a disconnected credential. OAuth is owned by its integration. */
+export async function readStoredProviderApiKey(config: ServerConfig, providerId: string, provider: unknown, workspace = config.workspaces[0]): Promise<string> {
+  const settings = isRecord(provider) ? isRecord(provider.settings) ? provider.settings : isRecord(provider.options) ? provider.options : {} : {};
+  if (typeof settings.apiKey === "string") return settings.apiKey;
+  if (!workspace || !resolveWorkspaceOpencodeConnection(config, workspace).baseUrl) return "";
+  const credentials = await createEngineClient(config, workspace).credential.list();
+  const active = credentials.find(credential => credential.integrationID === providerId && credential.active);
+  return active?.value.type === "key" ? active.value.key : "";
 }
 
 export function createCustomProviderModelRefresh(input: {
@@ -102,7 +89,7 @@ export function createCustomProviderModelRefresh(input: {
       try {
         const modelDefinitions = fromCatalog
           ? await input.readCatalogModels?.(workspace, id)
-          : Object.fromEntries((await discoverProviderModels(baseURL, await readStoredProviderApiKey(id, provider))).map(model => [model, { name: model, tool_call: true }]));
+          : Object.fromEntries((await discoverProviderModels(baseURL, await readStoredProviderApiKey(config, id, provider, workspace))).map(model => [model, { name: model, tool_call: true }]));
         if (!modelDefinitions) throw new Error("Model catalog refresh is unavailable on this worker.");
         const models = Object.keys(modelDefinitions);
         // Do not restore a provider disconnected or edited while discovery was in flight.
@@ -114,15 +101,19 @@ export function createCustomProviderModelRefresh(input: {
         // Custom discovery is an inventory check, never a change to the user's selection.
         // Built-in catalog refresh still installs metadata for the engine's catalog.
         if (fromCatalog) await writeRuntimeOpencodeConfig(config, workspace.id, (current) => {
-          const currentProviders = current.provider ?? {};
-          if (Object.hasOwn(originalRuntime.provider ?? {}, id) && !Object.hasOwn(currentProviders, id)) return current;
+          const native = Object.hasOwn(current.providers ?? {}, id) || !Object.hasOwn(current.provider ?? {}, id);
+          const currentProviders = native ? current.providers ?? {} : current.provider ?? {};
+          const originals = { ...originalRuntime.provider, ...originalRuntime.providers };
+          if (Object.hasOwn(originals, id) && !Object.hasOwn(currentProviders, id)) return current;
           const currentProvider = isRecord(currentProviders[id]) ? currentProviders[id] : (isRecord(latestProvider) ? latestProvider : {});
           if (providerBaseURL(currentProvider) !== baseURL) return current;
           const currentModels = isRecord(currentProvider.models) ? currentProvider.models : {};
-          const additions = Object.fromEntries(models.filter((model) => !Object.hasOwn(currentModels, model)).map((model) => [model, modelDefinitions[model]]));
+          const normalized = native ? nativeProvider({ models: modelDefinitions }).models : modelDefinitions;
+          if (!isRecord(normalized)) throw new Error("Model catalog definitions are invalid.");
+          const additions = Object.fromEntries(models.filter((model) => !Object.hasOwn(currentModels, model)).map((model) => [model, normalized[model]]));
           added = Object.keys(additions).length > 0;
           if (!added) return current;
-          return { ...current, provider: { ...currentProviders, [id]: {
+          return { ...current, [native ? "providers" : "provider"]: { ...currentProviders, [id]: {
             ...currentProvider,
             models: { ...currentModels, ...additions },
           } } };

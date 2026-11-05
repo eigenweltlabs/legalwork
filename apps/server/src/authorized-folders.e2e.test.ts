@@ -178,22 +178,12 @@ describe("authorized folders routes", () => {
     const unauthenticated = await fetch(`${base}/workspace/ws_1/authorized-folders`);
     expect(unauthenticated.status).toBe(401);
 
-    const issued = await fetch(`${base}/tokens`, {
-      method: "POST",
-      headers: hostAuth(),
-      body: JSON.stringify({ scope: "viewer", label: "viewer" }),
-    });
-    expect(issued.status).toBe(201);
-    const issuedBody = asRecord(await issued.json());
-    const viewerToken = typeof issuedBody.token === "string" ? issuedBody.token : "";
-    expect(viewerToken).not.toBe("");
-
     const viewerWrite = await fetch(`${base}/workspace/ws_1/authorized-folders`, {
       method: "PUT",
-      headers: clientAuth(viewerToken),
+      headers: clientAuth("owt_retired_viewer"),
       body: JSON.stringify({ folders: ["/shared"] }),
     });
-    expect(viewerWrite.status).toBe(403);
+    expect(viewerWrite.status).toBe(401);
 
     const readOnlyRoot = await createWorkspaceRoot();
     const readOnly = await startLegalworkServer(readOnlyRoot, { readOnly: true });

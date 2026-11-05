@@ -1,74 +1,75 @@
 import { afterEach, expect, test } from "bun:test";
 import type { UIMessage } from "ai";
+import type { OpenCodeEvent, SessionMessageInfo } from "@opencode/client";
+import { projectMessages, projectSession } from "../src/app/lib/opencode-view";
+import { createClient } from "../src/app/lib/opencode";
 import type { LegalworkSessionSnapshot } from "../src/app/lib/legalwork-server";
 import { createHomeMessage } from "../src/react-app/domains/session/home/home-message";
 import { submitHomeMessage, type PendingHomeMessage } from "../src/react-app/domains/session/home/home-submission";
 import { deriveRenderedSessionMessages } from "../src/react-app/domains/session/surface/session-render-state";
-import { __applySessionSyncEventForTest, __createWorkspaceSessionSyncForTest, seedSessionState, seedSubmittedMessage, trackWorkspaceSessionSync, transcriptKey } from "../src/react-app/domains/session/sync/session-sync";
+import { __applySessionSyncEventForTest, __createWorkspaceSessionSyncForTest, seedSessionState, seedSubmittedMessage, snapshotKey, trackWorkspaceSessionSync, transcriptKey } from "../src/react-app/domains/session/sync/session-sync";
 import { getReactQueryClient } from "../src/react-app/infra/query-client";
 
 afterEach(() => getReactQueryClient().clear());
 
-test("the first message survives an empty snapshot and an assistant arriving before its user event", () => {
-  const input = { workspaceId: "home-handoff", baseUrl: "http://localhost:1234", legalworkToken: "test" };
+test("the first message survives an empty snapshot and an assistant arriving before its user event", async () => {
   const sessionId = "home-session";
   const message = createHomeMessage();
+  const nativeUser: SessionMessageInfo = { id: message.id, type: "user", text: "hi", time: { created: message.created } };
+  const requests: string[] = [];
+  const server = Bun.serve({ port: 0, fetch(request) {
+    requests.push(new URL(request.url).pathname);
+    return Response.json({ data: nativeUser });
+  } });
+  const input = { workspaceId: "home-handoff", baseUrl: server.url.origin, legalworkToken: "test" };
   const user: UIMessage = {
     id: message.id, role: "user", metadata: { opencode: { created: message.created } },
     parts: [{ type: "text", text: "hi", providerMetadata: { opencode: { partId: message.partId } } }],
   };
+  const tokens = { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } };
   const snapshot: LegalworkSessionSnapshot = {
-    session: { id: sessionId, slug: "home", projectID: "project", directory: "/project", title: "Greeting", version: "1", time: { created: message.created, updated: message.created } },
+    session: projectSession({ id: sessionId, projectID: "project", location: { directory: "/project" }, title: "Greeting", cost: 0, tokens, time: { created: message.created, updated: message.created } }),
     status: { type: "idle" }, todos: [], messages: [],
   };
-  const cleanup = __createWorkspaceSessionSyncForTest(input);
+  const cleanup = __createWorkspaceSessionSyncForTest(input, createClient(server.url.origin));
   const release = trackWorkspaceSessionSync(input, sessionId);
   const cache = getReactQueryClient();
-  const rendered = () => deriveRenderedSessionMessages({
-    snapshot,
-    transcriptState: cache.getQueryData<UIMessage[]>(transcriptKey(input.workspaceId, sessionId)),
-  });
+  const rendered = () => deriveRenderedSessionMessages({ snapshot, transcriptState: cache.getQueryData<UIMessage[]>(transcriptKey(input.workspaceId, sessionId)) });
+  const emit = (event: OpenCodeEvent) => __applySessionSyncEventForTest(input, event);
+  const common = { id: "event", created: message.created + 1, location: { directory: "/project" }, durable: { aggregateID: sessionId, seq: 1, version: 1 } };
   try {
+    cache.setQueryData(snapshotKey(input.workspaceId, sessionId), snapshot);
     seedSubmittedMessage(input.workspaceId, sessionId, user);
     seedSessionState(input.workspaceId, snapshot);
     expect(rendered()).toEqual([user]);
-
-    __applySessionSyncEventForTest(input, { type: "message.updated", properties: { info: {
-      id: "msg_reply", sessionID: sessionId, role: "assistant", time: { created: message.created + 1 },
-    } } });
-    __applySessionSyncEventForTest(input, { type: "message.part.updated", properties: { part: {
-      id: "prt_reply", messageID: "msg_reply", sessionID: sessionId, type: "text", text: "Hello.",
-    } } });
+    emit({ ...common, type: "session.step.started", data: { sessionID: sessionId, assistantMessageID: "msg_reply", agent: "build", model: { providerID: "test", id: "test" }, started: message.created + 1 } });
+    emit({ ...common, type: "session.text.started", data: { sessionID: sessionId, assistantMessageID: "msg_reply", ordinal: 0 } });
+    emit({ ...common, type: "session.text.ended", data: { sessionID: sessionId, assistantMessageID: "msg_reply", ordinal: 0, text: "Hello." } });
     expect(rendered().map(item => item.role)).toEqual(["user", "assistant"]);
-    snapshot.messages = [{
-      info: {
-        id: "msg_reply", sessionID: sessionId, role: "assistant", parentID: message.id,
-        time: { created: message.created + 1 }, modelID: "test", providerID: "test", mode: "build", agent: "build",
-        path: { cwd: "/project", root: "/project" }, cost: 0,
-        tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
-      },
-      parts: [{ id: "prt_reply", messageID: "msg_reply", sessionID: sessionId, type: "text", text: "Hello." }],
-    }];
+    snapshot.messages = projectMessages(sessionId, [{ id: "msg_reply", type: "assistant", agent: "build", model: { providerID: "test", id: "test" }, time: { created: message.created + 1 }, tokens, cost: 0, content: [{ type: "text", text: "Hello." }] }]);
     seedSessionState(input.workspaceId, snapshot);
     expect(rendered().map(item => item.role)).toEqual(["user", "assistant"]);
 
-    // The engine echoes the supplied IDs; it must replace the cached message,
-    // not add another bubble or repeat the text part.
-    __applySessionSyncEventForTest(input, { type: "message.updated", properties: { info: {
-      id: message.id, sessionID: sessionId, role: "user", time: { created: message.created },
-    } } });
-    __applySessionSyncEventForTest(input, { type: "message.part.updated", properties: { part: {
-      id: message.partId, messageID: message.id, sessionID: sessionId, type: "text", text: "hi",
-    } } });
-    snapshot.messages = [{
-      info: { id: message.id, sessionID: sessionId, role: "user", time: { created: message.created }, agent: "build", model: { providerID: "test", modelID: "test" } },
-      parts: [{ id: message.partId, messageID: message.id, sessionID: sessionId, type: "text", text: "hi" }],
-    }];
+    // Native inbox delivery identifies the supplied message; the subsequent
+    // authoritative flat message read replaces the optimistic text once.
+    let unsubscribe = () => {};
+    const echoed = new Promise<void>(resolve => {
+      unsubscribe = cache.getQueryCache().subscribe(() => {
+        const messages = rendered();
+        if (messages[0]?.parts.some(part => part.type === "text" && part.providerMetadata?.opencode?.partId === `${message.id}:text`)) resolve();
+      });
+    });
+    try {
+      emit({ ...common, type: "session.inbox.delivered", data: { sessionID: sessionId, inboxID: message.id } });
+      await echoed;
+    } finally { unsubscribe(); }
+    snapshot.messages = projectMessages(sessionId, [nativeUser]);
     seedSessionState(input.workspaceId, snapshot);
     expect(rendered().map(item => item.role)).toEqual(["user", "assistant"]);
     expect(rendered()[0].parts).toHaveLength(1);
     expect(rendered()[0].parts[0]).toMatchObject({ type: "text", text: "hi" });
-  } finally { release(); cleanup(); }
+    expect(requests).toEqual([`/api/session/${sessionId}/message/${message.id}`]);
+  } finally { release(); cleanup(); server.stop(true); }
 });
 
 test("retry keeps the request message and part IDs while accepting edited text", async () => {

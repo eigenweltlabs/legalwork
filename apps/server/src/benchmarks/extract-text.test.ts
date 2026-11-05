@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { strToU8, zipSync } from "fflate";
-import { extractDeliverableText, MAX_EXTRACTED_CHARS } from "./extract-text.js";
+import { extractDeliverableText } from "./extract-text.js";
 
 let dir: string;
 
@@ -17,7 +17,14 @@ afterEach(() => {
 
 function writeZip(name: string, entries: Record<string, string>): string {
   const path = join(dir, name);
-  writeFileSync(path, zipSync(Object.fromEntries(Object.entries(entries).map(([key, value]) => [key, strToU8(value)]))));
+  writeFileSync(
+    path,
+    zipSync(
+      Object.fromEntries(
+        Object.entries(entries).map(([key, value]) => [key, strToU8(value)]),
+      ),
+    ),
+  );
   return path;
 }
 
@@ -37,7 +44,8 @@ describe("extractDeliverableText", () => {
 
   test("xlsx rows with shared strings", async () => {
     const path = writeZip("table.xlsx", {
-      "xl/sharedStrings.xml": "<sst><si><t>Market</t></si><si><t>Share</t></si></sst>",
+      "xl/sharedStrings.xml":
+        "<sst><si><t>Market</t></si><si><t>Share</t></si></sst>",
       "xl/worksheets/sheet1.xml":
         "<worksheet><sheetData>" +
         '<row><c t="s"><v>0</v></c><c t="s"><v>1</v></c></row>' +
@@ -51,22 +59,24 @@ describe("extractDeliverableText", () => {
 
   test("pptx slides in order", async () => {
     const path = writeZip("deck.pptx", {
-      "ppt/slides/slide2.xml": "<p:sld><a:p><a:r><a:t>Second</a:t></a:r></a:p></p:sld>",
-      "ppt/slides/slide1.xml": "<p:sld><a:p><a:r><a:t>First</a:t></a:r></a:p></p:sld>",
+      "ppt/slides/slide2.xml":
+        "<p:sld><a:p><a:r><a:t>Second</a:t></a:r></a:p></p:sld>",
+      "ppt/slides/slide1.xml":
+        "<p:sld><a:p><a:r><a:t>First</a:t></a:r></a:p></p:sld>",
     });
     const text = await extractDeliverableText(path);
     expect(text!.indexOf("First")).toBeLessThan(text!.indexOf("Second"));
   });
 
-  test("plain text formats pass through; long content truncates", async () => {
+  test("plain text formats retain full content beyond the old 80k preview", async () => {
     const mdPath = join(dir, "notes.md");
     writeFileSync(mdPath, "# Heading\nBody");
     expect(await extractDeliverableText(mdPath)).toBe("# Heading\nBody");
 
     const longPath = join(dir, "long.txt");
-    writeFileSync(longPath, "x".repeat(MAX_EXTRACTED_CHARS + 500));
-    const truncated = await extractDeliverableText(longPath);
-    expect(truncated!.endsWith("[… truncated]")).toBe(true);
+    writeFileSync(longPath, "x".repeat(120_000) + "TAIL-EVIDENCE");
+    const complete = await extractDeliverableText(longPath);
+    expect(complete).toBe("x".repeat(120_000) + "TAIL-EVIDENCE");
   });
 
   test("unsupported or corrupt files return null", async () => {

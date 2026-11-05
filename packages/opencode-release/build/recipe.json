@@ -1,0 +1,107 @@
+{
+  "schemaVersion": 1,
+  "kind": "legalwork-patched-source-build",
+  "baseVersion": "2.1.4",
+  "version": "2.1.4-legalwork.http-policy.3",
+  "channel": "legalwork",
+  "upstream": {
+    "repository": "https://github.com/anomalyco/opencode.git",
+    "tag": "v2.1.4",
+    "commit": "68bc26b7da1990ce10ffecfbc1e09eb13aa5d824"
+  },
+  "toolchain": {
+    "bun": "1.4.4",
+    "executables": {
+      "darwin-arm64": {
+        "package": "@oven/bun-darwin-aarch64",
+        "version": "1.4.4",
+        "tarball": "https://registry.npmjs.org/@oven/bun-darwin-aarch64/-/bun-darwin-aarch64-1.4.4.tgz",
+        "integrity": "sha512-zW/hxwc8sJAILGwB5eTC4i48ouGXf0V4lrxmEOk3JIE6JkYVW1TZh1E2pIempqsezgW1sckTIIDudFON8bJ2Mw==",
+        "sha256": "0a2237cdcfa0d16ef501d9acca9f0026309ef348bea7393a64e8d1e3609565cc"
+      },
+      "darwin-x64": {
+        "package": "@oven/bun-darwin-x64",
+        "version": "1.4.4",
+        "tarball": "https://registry.npmjs.org/@oven/bun-darwin-x64/-/bun-darwin-x64-1.4.4.tgz",
+        "integrity": "sha512-oKGcxLsvh4oHjAo28nPm8c/xN0o/OmGyj1IHYc94vprkWsW2hNg2keEZt5f40cI5Hvu4jDlSRTR0UNpv1UIAxw==",
+        "sha256": "c35307c7d45d65c5a385a58c4a6cb0bb9499e4e626abdee207c177a77ba666ab"
+      },
+      "linux-x64": {
+        "package": "@oven/bun-linux-x64",
+        "version": "1.4.4",
+        "tarball": "https://registry.npmjs.org/@oven/bun-linux-x64/-/bun-linux-x64-1.4.4.tgz",
+        "integrity": "sha512-CHbbkmHVM28T1GFq+6GL4Ao4ujwwYwj1CxFFwEFzLanPfNsId9AhbIP0Q4reWuWBkGimUkoQygrK7Rgjtj3vog==",
+        "sha256": "10702245766b225e70bbf6235fd6b47214fd94b4760d00ffaed8ab0df57ac235"
+      },
+      "linux-arm64": {
+        "package": "@oven/bun-linux-aarch64",
+        "version": "1.4.4",
+        "tarball": "https://registry.npmjs.org/@oven/bun-linux-aarch64/-/bun-linux-aarch64-1.4.4.tgz",
+        "integrity": "sha512-ZTVtpf9zmHSBVPX1sBwe5agGb/rN34yPGg/Hby8e2Ax2uCUA2URZKlZH7qLntK7qaFJCMXh9v0GWNYN2zINz1w==",
+        "sha256": "354c2b049c716aca07b2e5cddb887928ac58950675d1258bb6312083917793b6"
+      },
+      "win32-x64": {
+        "package": "@oven/bun-windows-x64",
+        "version": "1.4.4",
+        "tarball": "https://registry.npmjs.org/@oven/bun-windows-x64/-/bun-windows-x64-1.4.4.tgz",
+        "integrity": "sha512-a3LNctBVO8PjePsFZfwDleF2JXYf2BfQ1u/PLRnBDLnC2Riml+4+LgJpKj4xRGhB92KweGyQI5PXaTkP9qypMQ==",
+        "sha256": "cb1d8e6564e655e49d30cead359750a1cbbd12f42651caa4b62244d7bd93c244"
+      },
+      "win32-arm64": {
+        "package": "@oven/bun-windows-aarch64",
+        "version": "1.4.4",
+        "tarball": "https://registry.npmjs.org/@oven/bun-windows-aarch64/-/bun-windows-aarch64-1.4.4.tgz",
+        "integrity": "sha512-n0ep5ZRPCZY1+dqFJpnnRUZB1wy4GYU6At8RF+pyzySCLjkN9R4rFh2PtBHAgF/lg1vOl3/CeER3pDM+p40ATA==",
+        "sha256": "ee42e8757c6dce6d60435f079942960e56941c1783b77b7b72d3bb75c8677859"
+      }
+    }
+  },
+  "targets": [
+    "darwin-arm64",
+    "darwin-x64",
+    "darwin-x64-baseline",
+    "linux-arm64",
+    "linux-arm64-musl",
+    "linux-x64",
+    "linux-x64-baseline",
+    "linux-x64-musl",
+    "linux-x64-baseline-musl",
+    "windows-arm64",
+    "windows-x64",
+    "windows-x64-baseline"
+  ],
+  "inputs": {
+    "patch": {
+      "path": "docs/patches/opencode-2.1.4-mcp-http-policy-v3.patch",
+      "sha256": "9b822bb48049bfd49551380c9fb5cfe8acf4743bda6c4ebdb51f115f8ef033e0"
+    },
+    "lockfile": {
+      "path": "packages/opencode-release/build/inputs/bun.lock",
+      "sha256": "47359ba0731b02d14b9a93a6b71b2db104cf9b9716ab0b6371fe96f02c6d71b2"
+    },
+    "rootPackage": {
+      "path": "packages/opencode-release/build/inputs/root-package.json",
+      "sha256": "1767628e91b25f3b730c39edf67069a4575ff2d5509b0e494fa95ec6b693e246"
+    },
+    "testReceipt": {
+      "path": "docs/patches/opencode-2.1.4-mcp-http-policy-v3.receipt.json",
+      "sha256": "3921f70ac38eb3d5dbcece983da631f3f3d4cdda8dc9a7e4953f7cd264ed0aae"
+    }
+  },
+  "buildStatus": "tested-source-lock",
+  "testEvidence": {
+    "receiptSha256": "3921f70ac38eb3d5dbcece983da631f3f3d4cdda8dc9a7e4953f7cd264ed0aae",
+    "lockfileSha256": "47359ba0731b02d14b9a93a6b71b2db104cf9b9716ab0b6371fe96f02c6d71b2",
+    "patchSha256": "9b822bb48049bfd49551380c9fb5cfe8acf4743bda6c4ebdb51f115f8ef033e0",
+    "bun": "1.4.4",
+    "focusedTests": 188,
+    "randomizedHttpExecutions": 90,
+    "fullCodeModePassed": 1416,
+    "fullCorePassed": 6766,
+    "fullCoreSkipped": 43,
+    "fullCorePreexistingMacShellFailures": 7,
+    "fullCoreNewFailures": 0,
+    "canonicalCheckTasks": 34,
+    "rootSourceReviewSha256": "e585f41c07806ea7c000a720268fa2782144b1585f4b0120fdbff3f6552d44f1"
+  }
+}

@@ -1,5 +1,5 @@
 import type { DynamicToolUIPart, TextUIPart } from "ai";
-import type { ToolPart } from "@opencode-ai/sdk/v2/client";
+import type { ToolPart } from "@/app/lib/opencode-view";
 import { ViewPreviewSchema } from "@legalwork/types/views";
 
 import { safeStringify } from "@/app/utils";

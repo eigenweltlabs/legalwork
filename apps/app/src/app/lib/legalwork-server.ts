@@ -1,11 +1,13 @@
+import { trackLegalMemoryInterfaceRead } from "./legalmemory-interface-activity";
+import { LegalMemoryPermissionsSchema, type LegalMemoryPermissionReply } from "@legalwork/types/legalmemory";
 import type { CalendarEventDraft } from "@legalwork/types/calendar-event-draft";
 import type { LauncherSearchResult, LauncherSearchFolder, LauncherFileTransferInput, LauncherPreview, SavedSearch, SavedSearchInput, AssistantContextItem, AssistantConversation, AssistantConversationPage, AssistantExecutionTarget, AssistantSubmission, AssistantSubmitInput, AssistantWorkItem, AssistantWorkStatus, LauncherCatalogEntry, LauncherInvocation, LauncherSearchKind, LauncherSearchResponse, LauncherStagedContext, QuickAction, QuickActionInput } from "@legalwork/types/launcher";
 import type { EmailDraft } from "@legalwork/types/email-draft";
 import type { ConnectorWriteSetting, ConnectorCloudAccess } from "@legalwork/types/connectors";
-import type { PluginCreateOptions, PluginCreateRequest, PluginImportCandidate, PluginImportPreview, PluginImportProvider, PluginImportRequest } from "@legalwork/types/plugin-import";
+import type { PluginCreateOptions, PluginCreateRequest, PluginImportCandidate, PluginImportPreview, PluginImportProvider, PluginImportRequest, PluginImportUpdate } from "@legalwork/types/plugin-import";
 import type { WikiSuggestion, WikiSuggestionInput, WikiContribution } from "@legalwork/types/wiki-suggestions";
 import type { ProjectFileSource, ProjectFileLink } from "@legalwork/types/project-files";
-import type { SessionQueue, QueueAction } from "@legalwork/types/session-queue";
+import type { SessionQueue, QueueAction, SessionDispatch, SessionDispatchReceipt } from "@legalwork/types/session-queue";
 import type { AssistantAvatarIcon, AssistantOnboardingState, AssistantProfile, AssistantSettings, AssistantSettingsCatalog, AssistantChannelHistory, AssistantAttentionPage, AssistantAttentionItem, AssistantAttentionReply } from "@legalwork/types/main-assistant";
 import type { CloudAssistantStatus } from "@legalwork/types/cloud-assistant";
 import type { ScheduledTask, ScheduledTaskInput, ScheduledRun, TaskSchedule } from "@legalwork/types/scheduled-tasks";
@@ -40,7 +42,11 @@ import { storageTransferEventSchema, type StorageInput, type StorageTeamStatus, 
 import type { DeletedWiki, WikiGraphResponse, WikiCreateInput, WikiDocument, WikiEntry, WikiEntryOperation, WikiPage, WikiRevision, WikiSnapshot, WikiSyncStatus, WikiTrashEntry, WikiUpdateInput, WikiVault, WikiTeamOverview, WikiSharingInput } from "@legalwork/types/wiki";
 import { ViewGenerationChunkSchema, type ViewGenerationChunk } from "@legalwork/types/views";
 import type { SessionViewReview, ViewSaveSource, ViewInput, ViewOwner, ViewRecord, ViewSummary, ViewIssue, WikiDataQuery, WikiDataResult, WikiFields } from "@legalwork/types/views";
-import type { Message, Part, Session, Todo } from "@opencode-ai/sdk/v2/client";
+import type { SessionInfo, SessionMessageInfo, SessionStatus } from "@opencode/client";
+import { SessionHistoryProvenanceSchema, type SessionHistoryProvenance } from "@legalwork/types/session-history";
+import type { EngineProjectStatus } from "@legalwork/types/engine-project";
+import type { ConnectorConfigEdit, ConnectorDisplayItem } from "@legalwork/types/connector-config";
+import { projectSession, projectMessages, type SessionView as Session, type Todo, type MessageView, type SessionSnapshotView } from "./opencode-view";
 import { desktopFetch, desktopStreamFetch } from "./desktop";
 import { isDesktopRuntime } from "./runtime-env";
 import type { ExecResult, OpencodeConfigFile, WorkspaceInfo, WorkspaceList } from "./desktop";
@@ -540,6 +546,7 @@ export type LegalworkTaskNotification = {
 export type LegalworkWorkspaceInfo = WorkspaceInfo;
 
 export type LegalworkWorkspaceList = {
+  warnings?: string[];
   items: LegalworkWorkspaceInfo[];
   workspaces?: WorkspaceInfo[];
   activeId?: string | null;
@@ -553,35 +560,13 @@ export type LegalworkRecorderLiveTranscriptStatus = {
   error: string | null;
 };
 
-export type LegalworkSessionMessage = {
-  info: Message;
-  parts: Part[];
-};
-
-export type LegalworkSessionSnapshot = {
-  session: Session;
-  messages: LegalworkSessionMessage[];
-  todos: Todo[];
-  status:
-    | { type: "idle" }
-    | { type: "busy" }
-    | {
-        type: "retry";
-        attempt: number;
-        message: string;
-        next: number;
-        // Mirrors the engine's `SessionStatus` retry action (the chat renders
-        // it as a titled block with an optional external-link button).
-        action?: {
-          reason: string;
-          provider: string;
-          title: string;
-          message: string;
-          label: string;
-          link?: string;
-        };
-      };
-};
+export type LegalworkSessionMessage = MessageView;
+export type LegalworkSessionSnapshot = SessionSnapshotView;
+export type NativeSessionSnapshot = {session:SessionInfo;messages:SessionMessageInfo[];todos:Array<{content:string;status:string;priority?:string;id?:string}>;status:SessionStatus;historyProvenance?:SessionHistoryProvenance};
+function projectSessionSnapshot(snapshot:NativeSessionSnapshot):LegalworkSessionSnapshot {
+ const historical=snapshot.historyProvenance ? SessionHistoryProvenanceSchema.parse(snapshot.historyProvenance):undefined;
+ return {...snapshot,historyProvenance:historical,session:projectSession(snapshot.session),messages:projectMessages(snapshot.session.id,snapshot.messages,historical?.messages),todos:snapshot.todos.map((todo,index)=>({...todo,id:todo.id ?? `${snapshot.session.id}:todo:${index}`,priority:todo.priority ?? "medium"}))};
+}
 
 export type LegalworkPluginItem = {
   spec: string;
@@ -764,12 +749,7 @@ export type LegalworkCommandItem = {
   scope: "workspace" | "global";
 };
 
-export type LegalworkMcpItem = {
-  name: string;
-  config: Record<string, unknown>;
-  source: "config.project" | "config.global" | "config.remote";
-  disabledByTools?: boolean;
-};
+export type LegalworkMcpItem = ConnectorDisplayItem;
 
 /** What a remote MCP server told the server about signing in (see apps/server/src/mcp-probe.ts). */
 export type LegalworkMcpProbeResult = {
@@ -1173,42 +1153,6 @@ const LEGALWORK_INVITE_PARAM_TOKEN = "ow_token";
 const LEGALWORK_INVITE_PARAM_STARTUP = "ow_startup";
 const LEGALWORK_INVITE_PARAM_AUTO_CONNECT = "ow_auto_connect";
 
-export type LegalworkOpenCodeRouterHealthSnapshot = {
-  ok: boolean;
-  opencode: Record<string, unknown>;
-  channels: Record<string, unknown>;
-  config: Record<string, unknown>;
-  activity?: {
-    inboundToday?: number;
-    outboundToday?: number;
-    lastMessageAt?: number | null;
-    [key: string]: unknown;
-  };
-  agent?: {
-    loaded?: boolean;
-    selected?: string;
-    [key: string]: unknown;
-  };
-  [key: string]: unknown;
-};
-
-export type LegalworkOpenCodeRouterIdentityItem = {
-  id: string;
-  channel?: string;
-  enabled?: boolean;
-  peerId?: string;
-  [key: string]: unknown;
-};
-
-export type LegalworkOpenCodeRouterSendResult = {
-  ok: boolean;
-  sent: number;
-  attempted: number;
-  failures?: Array<{ identityId: string; peerId: string; error: string }>;
-  reason?: string;
-  [key: string]: unknown;
-};
-
 export type LegalworkConnectInvite = {
   url: string;
   token?: string;
@@ -1262,13 +1206,12 @@ export function readLegalworkServerSettings(): LegalworkServerSettings {
     const portOverride = portRaw ? Number(portRaw) : undefined;
     const token = window.localStorage.getItem(STORAGE_TOKEN) ?? undefined;
     const hostToken = window.localStorage.getItem(STORAGE_HOST_AUTH_KEY) ?? undefined;
-    const remoteAccessRaw = window.localStorage.getItem(STORAGE_REMOTE_ACCESS) ?? "";
     return {
       urlOverride: urlOverride ?? undefined,
       portOverride: Number.isNaN(portOverride) ? undefined : portOverride,
       token: token?.trim() || undefined,
       hostToken: hostToken?.trim() || undefined,
-      remoteAccessEnabled: remoteAccessRaw === "1",
+      remoteAccessEnabled: false,
     };
   } catch {
     return {};
@@ -1282,7 +1225,6 @@ export function writeLegalworkServerSettings(next: LegalworkServerSettings): Leg
     const portOverride = typeof next.portOverride === "number" ? next.portOverride : undefined;
     const token = next.token?.trim() || undefined;
     const hostToken = next.hostToken?.trim() || undefined;
-    const remoteAccessEnabled = next.remoteAccessEnabled === true;
 
     if (urlOverride) {
       window.localStorage.setItem(STORAGE_URL_OVERRIDE, urlOverride);
@@ -1308,11 +1250,7 @@ export function writeLegalworkServerSettings(next: LegalworkServerSettings): Leg
       window.localStorage.removeItem(STORAGE_HOST_AUTH_KEY);
     }
 
-    if (remoteAccessEnabled) {
-      window.localStorage.setItem(STORAGE_REMOTE_ACCESS, "1");
-    } else {
-      window.localStorage.removeItem(STORAGE_REMOTE_ACCESS);
-    }
+    window.localStorage.removeItem(STORAGE_REMOTE_ACCESS);
 
     return readLegalworkServerSettings();
   } catch {
@@ -1667,6 +1605,8 @@ async function requestBinary(
   return { data, contentType, filename, updatedAt };
 }
 
+let legalMemoryClientSequence = 0;
+
 export function createLegalworkServerClient(options: { baseUrl: string; token?: string; hostToken?: string }) {
   const baseUrl = options.baseUrl.replace(/\/+$/, "");
   const token = options.token;
@@ -1717,6 +1657,18 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
       }).catch(() => undefined);
     }
   }
+
+  const legalMemoryClientID = ++legalMemoryClientSequence;
+  const permissions = async (workspaceId: string, signal?: AbortSignal) => LegalMemoryPermissionsSchema.parse(await requestJson(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/legalmemory/permissions`, { token, hostToken, signal, timeoutMs: 0 }));
+  const replyPermission = (workspaceId: string, body: LegalMemoryPermissionReply, signal?: AbortSignal) => requestJson<{ replied: boolean }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/legalmemory/permissions`, { token, hostToken, signal, timeoutMs: 0, method: "POST", body });
+  const legalMemoryRequest = async <T>(workspaceId: string, path: string, body: unknown, options?: { signal?: AbortSignal }): Promise<T> => {
+    const controller = new AbortController();
+    const signal = options?.signal ? AbortSignal.any([controller.signal, options.signal]) : controller.signal;
+    const finish = trackLegalMemoryInterfaceRead({ id: `${legalMemoryClientID}:${workspaceId}`, workspaceId,
+      permissions: signal => permissions(workspaceId, signal), reply: (input, signal) => replyPermission(workspaceId, input, signal) }, controller);
+    try { return await requestJson<T>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/legalmemory/${path}`, { token, hostToken, method: "POST", body, signal, timeoutMs: 0 }); }
+    finally { finish(); }
+  };
 
   return {
     baseUrl,
@@ -1887,6 +1839,9 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         body: payload,
         timeoutMs: timeouts.binary,
       }),
+    dispatchSession: (workspaceId: string, sessionId: string, input: SessionDispatch, options?: { signal?: AbortSignal }) =>
+      requestJson<SessionDispatchReceipt>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/sessions/${encodeURIComponent(sessionId)}/dispatch`,
+        { token, hostToken, method: "POST", body: input, signal: options?.signal, timeoutMs: input.waitForCompletion ? 0 : timeouts.binary }),
     sessionMessageQueue: async (workspaceId: string, sessionId: string, previous?: SessionQueue): Promise<SessionQueue> => {
       const queue = await requestJson<SessionQueue | null>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/sessions/${encodeURIComponent(sessionId)}/queue${previous ? `?revision=${previous.revision}` : ""}`, { token, hostToken, timeoutMs: timeouts.sessionRead });
       if (queue) return queue;
@@ -1960,26 +1915,6 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         body: payload ?? {},
         timeoutMs: 300_000,
       }),
-    createRemoteWorkspace: (payload: {
-      baseUrl: string;
-      legalworkHostUrl?: string | null;
-      legalworkToken?: string | null;
-      legalworkWorkspaceId?: string | null;
-      legalworkWorkspaceName?: string | null;
-      displayName?: string | null;
-      directory?: string | null;
-      remoteType?: "legalwork" | "opencode";
-      sandboxBackend?: string | null;
-      sandboxRunId?: string | null;
-      sandboxContainerName?: string | null;
-    }) =>
-      requestJson<WorkspaceList>(baseUrl, "/workspaces/remote", {
-        token,
-        hostToken,
-        method: "POST",
-        body: payload,
-        timeoutMs: timeouts.activateWorkspace,
-      }),
     updateWorkspaceDisplayName: (workspaceId: string, displayName: string | null) =>
       requestJson<WorkspaceList>(baseUrl, `/workspaces/${encodeURIComponent(workspaceId)}/display-name`, {
         token,
@@ -2019,11 +1954,11 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
       if (options?.search?.trim()) query.set("search", options.search.trim());
       if (typeof options?.limit === "number") query.set("limit", String(options.limit));
       const suffix = query.size ? `?${query.toString()}` : "";
-      return requestJson<{ items: Session[] }>(
+      return requestJson<{ items: SessionInfo[] }>(
         baseUrl,
         `/workspace/${encodeURIComponent(workspaceId)}/sessions${suffix}`,
         { token, hostToken, timeoutMs: timeouts.sessionList },
-      );
+      ).then(result=>({items:result.items.map(projectSession)}));
     },
     benchmarkGetCatalog: (
       workspaceId: string,
@@ -2145,6 +2080,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         `/workspace/${encodeURIComponent(workspaceId)}/benchmarks/runs/${encodeURIComponent(runId)}/items/${encodeURIComponent(itemId)}`,
         { token, hostToken, timeoutMs: timeouts.benchmark },
       ),
+    benchmarkGetRunItemSession:(workspaceId:string,runId:string,itemId:string)=>requestJson<{item:NativeSessionSnapshot}>(baseUrl,`/workspace/${encodeURIComponent(workspaceId)}/benchmarks/runs/${encodeURIComponent(runId)}/items/${encodeURIComponent(itemId)}/session`,{token,hostToken,timeoutMs:timeouts.sessionRead}).then(result=>({item:projectSessionSnapshot(result.item)})),
     benchmarkAbortRun: (workspaceId: string, runId: string) =>
       requestJson<{ run: BenchmarkRunSummary }>(
         baseUrl,
@@ -2220,20 +2156,20 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         kind === "tasks" ? `/tasks/search?${new URLSearchParams({ q: query, ...(options?.projectOnly ? { projectId: workspaceId } : {}) })}` : `/workspace/${encodeURIComponent(workspaceId)}/search/${kind}?${new URLSearchParams({ q: query, ...(options?.retry ? { retry: "true" } : {}) })}`,
         { token, hostToken, signal, timeoutMs: 60_000 }),
     getSession: (workspaceId: string, sessionId: string) =>
-      requestJson<{ item: Session }>(
+      requestJson<{ item: SessionInfo }>(
         baseUrl,
         `/workspace/${encodeURIComponent(workspaceId)}/sessions/${encodeURIComponent(sessionId)}`,
         { token, hostToken, timeoutMs: timeouts.sessionRead },
-      ),
+      ).then(result=>({item:projectSession(result.item)})),
     getSessionMessages: (workspaceId: string, sessionId: string, options?: { limit?: number }) => {
       const query = new URLSearchParams();
       if (typeof options?.limit === "number") query.set("limit", String(options.limit));
       const suffix = query.size ? `?${query.toString()}` : "";
-      return requestJson<{ items: LegalworkSessionMessage[] }>(
+      return requestJson<{ items: SessionMessageInfo[]; historyProvenance?:SessionHistoryProvenance }>(
         baseUrl,
         `/workspace/${encodeURIComponent(workspaceId)}/sessions/${encodeURIComponent(sessionId)}/messages${suffix}`,
         { token, hostToken, timeoutMs: timeouts.sessionRead },
-      );
+      ).then(result=>({items:projectMessages(sessionId,result.items,result.historyProvenance ? SessionHistoryProvenanceSchema.parse(result.historyProvenance).messages:undefined)}));
     },
     recordSessionUsageLimit: (workspaceId: string, sessionId: string, messageId: string, limit?: import("@legalwork/types/provider-usage-limit").UsageLimitDetails | null) =>
       requestJson<{ ok: boolean }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/sessions/${encodeURIComponent(sessionId)}/usage-limit`, {
@@ -2243,11 +2179,11 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
       const query = new URLSearchParams();
       if (typeof options?.limit === "number") query.set("limit", String(options.limit));
       const suffix = query.size ? `?${query.toString()}` : "";
-      return requestJson<{ item: LegalworkSessionSnapshot }>(
+      return requestJson<{ item: NativeSessionSnapshot }>(
         baseUrl,
         `/workspace/${encodeURIComponent(workspaceId)}/sessions/${encodeURIComponent(sessionId)}/snapshot${suffix}`,
         { token, hostToken, timeoutMs: timeouts.sessionRead },
-      );
+      ).then(result=>({item:projectSessionSnapshot(result.item)}));
     },
     exportWorkspace: (
       workspaceId: string,
@@ -2309,7 +2245,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         { token, hostToken, method: "POST", body: input, timeoutMs: 60_000 },
       ),
     getConfig: (workspaceId: string) =>
-      requestJson<{ opencode: Record<string, unknown>; legalwork: Record<string, unknown>; updatedAt?: number | null }>(
+      requestJson<{ opencode: Record<string, unknown>; legalwork: Record<string, unknown>; providerDisplay?: Record<string, { hasCustomEndpoint: boolean; editable: boolean }>; authoredConfig?: { status: "resolved" | "approval_required" | "configuration_conflict" | "unavailable"; paths: string[] }; updatedAt?: number | null }>(
         baseUrl,
         `/workspace/${workspaceId}/config`,
         { token, hostToken, timeoutMs: timeouts.config },
@@ -2355,6 +2291,27 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         `/workspace/${encodeURIComponent(workspaceId)}/provider-repairs`,
         { token, hostToken, timeoutMs: timeouts.config },
       ),
+    listProviderCredentials: (workspaceId: string, providerId: string) =>
+      requestJson<{ items: Array<{ id: string; integrationID: string; label: string; active: boolean; type: "key" | "oauth" | "external" }> }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/providers/${encodeURIComponent(providerId)}/credentials`, { token, hostToken }),
+    disconnectProviderCredential: (workspaceId: string, providerId: string, credentialId: string) =>
+      requestJson<{ ok: boolean }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/providers/${encodeURIComponent(providerId)}/credentials/${encodeURIComponent(credentialId)}`, { token, hostToken, method: "DELETE" }),
+    setProviderEnabled: (workspaceId: string, providerId: string, enabled: boolean) =>
+      requestJson<{ updatedAt: number }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/providers/${encodeURIComponent(providerId)}/enabled`, {
+        token,
+        hostToken,
+        method: "PATCH",
+        body: { enabled },
+      }),
+    getEngineProjectStatus: (workspaceId: string) =>
+      requestJson<EngineProjectStatus>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/engine-project`, { token, hostToken }),
+    retryEngineRecovery: (workspaceId: string) =>
+      requestJson<EngineProjectStatus>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/engine-project/retry-recovery`, {
+        token, hostToken, method: "POST",
+      }),
+    approveEngineProject: (workspaceId: string, directory: string, pluginTargets: string[]) =>
+      requestJson<EngineProjectStatus>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/engine-project/approve`, {
+        token, hostToken, method: "POST", body: { directory, pluginTargets },
+      }),
     patchConfig: (workspaceId: string, payload: { opencode?: Record<string, unknown>; legalwork?: Record<string, unknown> }) =>
       requestJson<{ updatedAt?: number | null }>(baseUrl, `/workspace/${workspaceId}/config`, {
         token,
@@ -2383,7 +2340,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         method: "DELETE",
         timeoutMs: timeouts.config,
       }),
-    checkPluginImportUpdate: (workspaceId: string, pluginId: string) => requestJson<{ source: PluginImportRequest["source"]; scope: PluginImportRequest["scope"]; root: string; asWorkflow?: boolean; changed: boolean; preview: PluginImportPreview }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/plugin-imports/${encodeURIComponent(pluginId)}/update`, { token, hostToken, timeoutMs: 90_000 }),
+    checkPluginImportUpdate: (workspaceId: string, pluginId: string) => requestJson<PluginImportUpdate>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/plugin-imports/${encodeURIComponent(pluginId)}/update`, { token, hostToken, timeoutMs: 90_000 }),
     rollbackPluginImport: (workspaceId: string, pluginId: string) => requestJson<LegalworkCloudPluginInstallResult>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/plugin-imports/${encodeURIComponent(pluginId)}/rollback`, { token, hostToken, method: "POST", body: {} }),
     readPackageComponent: (workspaceId: string, pluginId: string, path: string) =>
       requestJson<{ content: string }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/cloud-plugins/${encodeURIComponent(pluginId)}/file?path=${encodeURIComponent(path)}`, { token, hostToken, timeoutMs: timeouts.config }),
@@ -2413,20 +2370,23 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         body: payload,
         timeoutMs: timeouts.config,
       }),
-    readOpencodeConfigFile: (workspaceId: string, scope: "project" | "global" = "project") => {
+    readOpencodeConfigFile: async (workspaceId: string, scope: "project" | "global" = "project") => {
+      if (!hostToken?.trim()) throw new Error("Raw OpenCode configuration requires trusted host access.");
       const query = `?scope=${scope}`;
       return requestJson<OpencodeConfigFile>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/opencode-config${query}`, {
         token,
         hostToken,
       });
     },
-    writeOpencodeConfigFile: (workspaceId: string, scope: "project" | "global", content: string) =>
-      requestJson<ExecResult>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/opencode-config`, {
+    writeOpencodeConfigFile: async (workspaceId: string, scope: "project" | "global", content: string) => {
+      if (!hostToken?.trim()) throw new Error("Raw OpenCode configuration requires trusted host access.");
+      return requestJson<ExecResult>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/opencode-config`, {
         token,
         hostToken,
         method: "POST",
         body: { scope, content },
-      }),
+      });
+    },
     // Eigenwelt platform connect: the server owns the OAuth loopback + code
     // exchange; the app opens the authorize URL and long-polls for the payload.
     // `plan` (from the plan screen) sends a firm without a subscription to that
@@ -2624,52 +2584,20 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         : requestJson<{ ok: true; path: string }>(baseUrl, path, { token, hostToken, method: "POST", body: input, timeoutMs: 900_000 });
     },
 
-    legalMemoryTreeRoots: (workspaceId: string) =>
-      requestJson<{ roots: LegalMemoryTreeRoot[] }>(
-        baseUrl,
-        `/workspace/${encodeURIComponent(workspaceId)}/legalmemory/tree/roots`,
-        { token, hostToken, method: "POST", body: {}, timeoutMs: timeouts.config },
-      ),
-    legalMemoryTreeChildren: (
-      workspaceId: string,
-      payload: { source_id: string; path?: string; offset?: number; limit?: number },
-    ) =>
-      requestJson<LegalMemoryTreePage>(
-        baseUrl,
-        `/workspace/${encodeURIComponent(workspaceId)}/legalmemory/tree/children`,
-        { token, hostToken, method: "POST", body: payload, timeoutMs: timeouts.config },
-      ),
-    legalMemoryTreeSearch: (workspaceId: string, payload: { query: string; limit?: number }) =>
-      requestJson<{ files: LegalMemoryTreeFile[] }>(
-        baseUrl,
-        `/workspace/${encodeURIComponent(workspaceId)}/legalmemory/tree/search`,
-        { token, hostToken, method: "POST", body: payload, timeoutMs: timeouts.config },
-      ),
-    /** Stored relations around a cited document, so the matter graph does not
-     * depend on the agent choosing to traverse. */
-    legalMemoryGraph: (workspaceId: string, payload: { document_id: string }) =>
-      requestJson<{ ok: boolean; graph: unknown }>(
-        baseUrl,
-        `/workspace/${encodeURIComponent(workspaceId)}/legalmemory/graph`,
-        { token, hostToken, method: "POST", body: payload, timeoutMs: timeouts.config },
-      ),
-    /** Fetch a cited LegalMemory original into the workspace and return where it
-     * landed. Takes the document id, never a URL: the server pulls the bytes
-     * over MCP itself, so no agent turn and no download endpoint are involved. */
-    legalMemoryOpen: (workspaceId: string, payload: { document_id: string }) =>
-      requestJson<{ ok: boolean; path: string; bytes: number; mimeType: string }>(
-        baseUrl,
-        `/workspace/${encodeURIComponent(workspaceId)}/legalmemory/open`,
-        { token, hostToken, method: "POST", body: payload, timeoutMs: timeouts.workspaceExport },
-      ),
-    /** Pull every document under a LegalMemory folder into the workspace,
-     * keeping the folder's shape, so a dropped folder becomes one path. */
-    legalMemoryOpenFolder: (workspaceId: string, payload: { source_id: string; path: string; name: string }) =>
-      requestJson<{ ok: boolean; path: string; files: number; bytes: number; skipped: number; truncated: boolean }>(
-        baseUrl,
-        `/workspace/${encodeURIComponent(workspaceId)}/legalmemory/open-folder`,
-        { token, hostToken, method: "POST", body: payload, timeoutMs: timeouts.legalMemoryFolderExport },
-      ),
+    legalMemoryPermissions: permissions,
+    legalMemoryReplyPermission: replyPermission,
+    legalMemoryTreeRoots: (workspaceId: string, options?: { signal?: AbortSignal }) =>
+      legalMemoryRequest<{ roots: LegalMemoryTreeRoot[] }>(workspaceId, "tree/roots", {}, options),
+    legalMemoryTreeChildren: (workspaceId: string, payload: { source_id: string; path?: string; offset?: number; limit?: number }, options?: { signal?: AbortSignal }) =>
+      legalMemoryRequest<LegalMemoryTreePage>(workspaceId, "tree/children", payload, options),
+    legalMemoryTreeSearch: (workspaceId: string, payload: { query: string; limit?: number }, options?: { signal?: AbortSignal }) =>
+      legalMemoryRequest<{ files: LegalMemoryTreeFile[] }>(workspaceId, "tree/search", payload, options),
+    legalMemoryGraph: (workspaceId: string, payload: { document_id: string }, options?: { signal?: AbortSignal }) =>
+      legalMemoryRequest<{ ok: boolean; graph: unknown }>(workspaceId, "graph", payload, options),
+    legalMemoryOpen: (workspaceId: string, payload: { document_id: string }, options?: { signal?: AbortSignal }) =>
+      legalMemoryRequest<{ ok: boolean; path: string; bytes: number; mimeType: string }>(workspaceId, "open", payload, options),
+    legalMemoryOpenFolder: (workspaceId: string, payload: { source_id: string; path: string; name: string }, options?: { signal?: AbortSignal }) =>
+      legalMemoryRequest<{ ok: boolean; path: string; files: number; bytes: number; skipped: number; truncated: boolean }>(workspaceId, "open-folder", payload, options),
     hubShareIntegration: (workspaceId: string, payload: { mcp: string; name?: string; description?: string }) =>
       requestJson<{ ok: boolean; id: string; version: number }>(
         baseUrl,
@@ -3243,9 +3171,19 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
       }),
     // Connectors are shared by every workspace the server hosts unless a
     // caller asks for one workspace's own entry.
+    startMcpOAuth: (workspaceId: string, server: string) =>
+      requestJson<import("@opencode/client").IntegrationAttempt & { integrationID: string; callback: { redirectUri: string } }>(baseUrl, `/workspace/${workspaceId}/mcp/oauth/start`, {
+        method: "POST", token, hostToken, body: { server }, timeoutMs: timeouts.mcpSetup,
+      }),
+    mcpOAuthStatus: (workspaceId: string, attempt: { integrationID: string; attemptID: string }) =>
+      requestJson<import("@opencode/client").IntegrationAttemptStatus>(baseUrl, `/workspace/${workspaceId}/mcp/oauth/status`, { method: "POST", token, hostToken, body: attempt }),
+    relayMcpOAuth: (workspaceId: string, response: { integrationID: string; attemptID: string; state: string; code?: string; error?: string; error_description?: string; iss?: string }) =>
+      requestJson<import("@opencode/client").IntegrationAttemptStatus>(baseUrl, `/workspace/${workspaceId}/mcp/oauth/relay`, { method: "POST", token, hostToken, body: response, timeoutMs: timeouts.mcpSetup }),
+    cancelMcpOAuth: (workspaceId: string, attempt: { integrationID: string; attemptID: string }) =>
+      requestJson<{ ok: true }>(baseUrl, `/workspace/${workspaceId}/mcp/oauth/cancel`, { method: "POST", token, hostToken, body: attempt }),
     addMcp: (
       workspaceId: string,
-      payload: { name: string; config: Record<string, unknown>; scope?: "global" | "workspace"; preserveScope?: boolean },
+      payload: { name: string; config: Record<string, unknown>; scope?: "global" | "workspace"; preserveScope?: boolean } & ConnectorConfigEdit,
     ) =>
       requestJson<{ items: LegalworkMcpItem[] }>(baseUrl, `/workspace/${workspaceId}/mcp`, {
         token,

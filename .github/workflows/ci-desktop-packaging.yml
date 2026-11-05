@@ -2,34 +2,31 @@ name: Desktop Package Smoke Tests
 
 on:
   workflow_call:
+    inputs:
+      windows-only:
+        description: Limit this acceptance call to the two fixed native Windows hosts
+        type: boolean
+        default: false
+      engine-build-mode:
+        description: Explicit source engine preparation mode
+        type: string
+        default: development
+      derivative-manifest-sha256:
+        description: Optional independent digest of the engine artifact produced in this workflow run
+        type: string
+        default: ''
 
 permissions:
   contents: read
 
 jobs:
   package-smoke:
-    name: Package and launch (${{ matrix.os }})
+    name: App and engine (${{ matrix.os }}, ${{ matrix.arch }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-            platform: linux
-            arch: x64
-            executable: linux-unpacked/legalwork
-          - os: windows-2022
-            target: x86_64-pc-windows-msvc
-            platform: win
-            arch: x64
-            executable: win-unpacked/LegalWork.exe
-          - os: windows-11-arm
-            target: aarch64-pc-windows-msvc
-            platform: win
-            arch: arm64
-            executable: win-arm64-unpacked/LegalWork.exe
+      matrix: ${{ fromJSON(inputs.windows-only && '{"include":[{"os":"windows-2022","target":"x86_64-pc-windows-msvc","platform":"win","arch":"x64","executable":"win-unpacked/LegalWork.exe"},{"os":"windows-11-arm","target":"aarch64-pc-windows-msvc","platform":"win","arch":"arm64","executable":"win-arm64-unpacked/LegalWork.exe"}]}' || '{"include":[{"os":"macos-14","target":"aarch64-apple-darwin","platform":"mac","arch":"arm64","executable":"mac-arm64/LegalWork.app/Contents/MacOS/LegalWork","securityTarget":"mac-arm64/LegalWork.app"},{"os":"macos-15-intel","target":"x86_64-apple-darwin","platform":"mac","arch":"x64","executable":"mac/LegalWork.app/Contents/MacOS/LegalWork","securityTarget":"mac/LegalWork.app"},{"os":"ubuntu-24.04","target":"x86_64-unknown-linux-gnu","platform":"linux","arch":"x64","executable":"linux-unpacked/legalwork"},{"os":"ubuntu-24.04-arm","target":"aarch64-unknown-linux-gnu","platform":"linux","arch":"arm64","executable":"linux-arm64-unpacked/legalwork"},{"os":"windows-2022","target":"x86_64-pc-windows-msvc","platform":"win","arch":"x64","executable":"win-unpacked/LegalWork.exe"},{"os":"windows-11-arm","target":"aarch64-pc-windows-msvc","platform":"win","arch":"arm64","executable":"win-arm64-unpacked/LegalWork.exe"}]}') }}
     defaults:
       run:
         shell: bash
@@ -50,14 +47,24 @@ jobs:
           node-version: 24.22.1
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.2
+          bun-version: 1.4.4
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@v4
+        if: inputs.derivative-manifest-sha256 != ''
+        with:
+          name: opencode-derivative-ci
+          path: ${{ runner.temp }}/opencode-derivative
+      - uses: ./.github/actions/setup-opencode
+        with:
+          archive-directory: ${{ inputs.derivative-manifest-sha256 != '' && format('{0}/opencode-derivative/archives', runner.temp) || '' }}
+          manifest-sha256: ${{ inputs.derivative-manifest-sha256 }}
+          build-mode: ${{ inputs.engine-build-mode }}
       - name: Test config migration, token-file migration and link policy
         run: node --test apps/desktop/electron/opencode-config-migration.test.mjs apps/desktop/electron/runtime.test.mjs apps/desktop/electron/ui-control-server.test.mjs apps/desktop/electron/safe-open.test.mjs
       - uses: actions/download-artifact@v4
         with:
-          name: sandbox-runtime-${{ matrix.platform == 'win' && 'win32' || matrix.platform }}-${{ matrix.arch }}
+          name: sandbox-runtime-${{ matrix.platform == 'win' && 'win32' || matrix.platform == 'mac' && 'darwin' || matrix.platform }}-${{ matrix.arch }}
           path: ${{ runner.temp }}/sandbox-runtime
       - name: Unpack protected runtime
         shell: bash
@@ -70,14 +77,25 @@ jobs:
       - name: Build desktop app and native dependencies
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: pnpm --filter @legalwork/desktop build:electron
+          LEGALWORK_OPENCODE_ARCHIVES: ${{ inputs.derivative-manifest-sha256 != '' && format('{0}/opencode-derivative/archives', runner.temp) || '' }}
+        run: pnpm --filter @legalwork/desktop ${{ inputs.engine-build-mode == 'production' && 'build:electron:production' || 'build:electron' }}
+      - name: Execute real engine, history, MCP and first-party tools
+        id: engine-tests
+        timeout-minutes: 10
+        run: >-
+          bun test --preload ./apps/server/test-preload.ts
+          apps/server/src/managed-opencode.released.test.ts
+          apps/server/src/engine-client.released.test.ts
+          apps/server/src/mcp-native-complete.released.test.ts
+          apps/server/src/opencode-plugins/native-office-host.integration.test.ts
+          apps/server/src/opencode-plugins/legalwork-raw-http.released.test.ts
       - name: Package desktop app
         run: pnpm --dir apps/desktop exec electron-builder --config electron-builder.yml --${{ matrix.platform }} --${{ matrix.arch }} --dir --publish never
       - name: Verify Linux AppImage packaging
         if: runner.os == 'Linux'
-        run: pnpm --dir apps/desktop exec electron-builder --config electron-builder.yml --linux AppImage --x64 --publish never
+        run: pnpm --dir apps/desktop exec electron-builder --config electron-builder.yml --linux AppImage --${{ matrix.arch }} --publish never
       - name: Verify shipped fuses, Node and document tools
-        run: pnpm --dir apps/desktop check:packaged-security "dist-electron/${{ matrix.executable }}"
+        run: pnpm --dir apps/desktop check:packaged-security "dist-electron/${{ matrix.securityTarget || matrix.executable }}"
       - name: Run isolation probe with the packaged Node and VM
         run: |
           bun build scripts/sandbox/probe.ts --target=node --outfile=scripts/sandbox/probe.mjs
@@ -117,3 +135,43 @@ jobs:
         if: runner.os == 'Linux'
         timeout-minutes: 3
         run: xvfb-run -a node apps/desktop/scripts/packaged-startup-regression.mjs "apps/desktop/dist-electron/${{ matrix.executable }}"
+      - name: Verify macOS native modules
+        if: runner.os == 'macOS'
+        timeout-minutes: 2
+        run: pnpm --dir apps/desktop test:native
+      - name: Verify macOS preview isolation
+        if: runner.os == 'macOS'
+        timeout-minutes: 2
+        run: pnpm --dir apps/desktop test:preview-security
+      - name: Verify macOS packaged startup
+        if: runner.os == 'macOS'
+        timeout-minutes: 3
+        run: node apps/desktop/scripts/packaged-startup-regression.mjs "apps/desktop/dist-electron/${{ matrix.executable }}"
+      # The bridge and packaged startup are independent gates; retain both
+      # outcomes if either fixture fails after the real engine tests passed.
+      - name: Verify the shipped engine uses protected execution
+        if: ${{ !cancelled() && steps.engine-tests.outcome == 'success' }}
+        env:
+          LEGALWORK_SANDBOX_INTEGRATION: '1'
+          LEGALWORK_SANDBOX_ENGINE_EVIDENCE_DIR: ${{ runner.temp }}/sandbox-engine-evidence
+        run: bun test --preload ./apps/server/test-preload.ts --timeout 180000 apps/server/src/agent-sandbox/engine.integration.test.ts
+      - name: Retain synthetic protected engine tool exchanges
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: protected-engine-bridge-${{ matrix.os }}-${{ matrix.arch }}
+          path: |
+            ${{ runner.temp }}/sandbox-engine-evidence/**/provider-*.request.json
+            ${{ runner.temp }}/sandbox-engine-evidence/**/provider-*.response.sse
+            ${{ runner.temp }}/sandbox-engine-evidence/**/result.json
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Retain redacted synthetic startup failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: packaged-startup-failure-${{ matrix.os }}-${{ matrix.arch }}
+          path: apps/desktop/.test-artifacts/packaged-startup/
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 7

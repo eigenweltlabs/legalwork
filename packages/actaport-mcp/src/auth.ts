@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { toolsetsSchema } from "./toolsets.js";
 export { coreToolCount, toolsetsSchema, toolsetSummaries } from "./toolsets.js";
 
 export const ACTAPORT_ORIGIN = "https://app.actaport.de";
@@ -10,6 +11,11 @@ export const credentialsSchema = z.object({
   password: z.string().min(1).max(4000),
 }).strict();
 export type Credentials = z.infer<typeof credentialsSchema>;
+export const connectionSchema = z.object({
+  credentials: credentialsSchema,
+  allowWrites: z.boolean().default(false),
+  toolsets: toolsetsSchema.default([]),
+});
 export type AccessToken = { accessToken: string; expiresAt: number };
 export type TokenProvider = (force?: boolean) => Promise<AccessToken>;
 const tokenSchema = z.object({ access_token: z.string().min(1), expires_in: z.number().positive() });

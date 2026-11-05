@@ -1,60 +1,20 @@
-/**
- * LegalWork Anthropic Adaptive Thinking Plugin
- *
- * Newer Anthropic models (Claude 5 family, e.g. "claude-fable-5") reject the
- * legacy extended-thinking payload `thinking: { type: "enabled", budgetTokens }`
- * with:
- *
- *   "thinking.type.enabled" is not supported for this model. Use
- *   "thinking.type.adaptive" and "output_config.effort" to control thinking behavior.
- *
- * The bundled OpenCode sidecar only emits the adaptive shape for model ids it
- * recognizes (Opus 4.6/4.7+, Sonnet 4.6). For newer ids it falls back to the
- * legacy shape, which fails. This plugin rewrites the legacy payload to
- * `thinking: { type: "adaptive" }` plus an `effort` level for models that
- * require it, just before the request is sent.
- */
+import { Plugin } from "@opencode/plugin";
+import { nativeProviderRequest } from "./native-provider-request.js";
 
-const LEGACY_HIGH_BUDGET_TOKENS = 16000;
-
-/**
- * Claude ids with a bare major version of 5 or higher (e.g. "claude-fable-5",
- * "claude-opus-5") require adaptive thinking. Versioned 4.x ids
- * ("claude-sonnet-4-5", "claude-opus-4-6") never match major >= 5 here;
- * the ones that support adaptive already get it from the sidecar.
- */
-function requiresAdaptiveThinking(apiId: string): boolean {
-  const match = /claude-[a-z]+-(\d+)(?:[.@-]|$)/i.exec(apiId);
-  if (!match) return false;
-  return Number(match[1]) >= 5;
+function record(value:unknown):value is Record<string,unknown>{return value!==null&&typeof value==="object"&&!Array.isArray(value);}
+/** Preserve the existing narrow correction for explicitly configured legacy
+ * thinking on Claude5+. Native adaptive defaults and explicit effort stay intact. */
+function adaptiveBody(body:string):string|null{
+  let parsed:unknown;try{parsed=JSON.parse(body);}catch{return null;}
+  if(!record(parsed)||typeof parsed.model!=="string"||!record(parsed.thinking)||parsed.thinking.type!=="enabled")return null;
+  const version=/claude-[a-z]+-(\d+)(?:[.@-]|$)/i.exec(parsed.model);if(!version||Number(version[1])<5)return null;
+  const budget=parsed.thinking.budget_tokens??parsed.thinking.budgetTokens;
+  const output=record(parsed.output_config)?parsed.output_config:{};
+  return JSON.stringify({...parsed,thinking:{type:"adaptive"},output_config:{...output,effort:output.effort??(typeof budget==="number"&&budget>16000?"max":"high")}});
 }
-
-function readBudgetTokens(thinking: Record<string, unknown>): number | null {
-  const budget = thinking.budgetTokens;
-  return typeof budget === "number" ? budget : null;
-}
-
-function rewriteLegacyThinkingOptions(apiId: string, options: Record<string, unknown>): void {
-  const thinking = options.thinking;
-  if (typeof thinking !== "object" || thinking === null || Array.isArray(thinking)) return;
-  const record: Record<string, unknown> = { ...thinking };
-  if (record.type !== "enabled") return;
-  if (!requiresAdaptiveThinking(apiId)) return;
-  const budget = readBudgetTokens(record);
-  options.thinking = { type: "adaptive" };
-  if (options.effort === undefined) {
-    options.effort = budget !== null && budget > LEGACY_HIGH_BUDGET_TOKENS ? "max" : "high";
-  }
-}
-
-// Single export: the OpenCode plugin loader treats every export of a plugin
-// module as a plugin factory, so helpers must stay module-private.
-export const LegalWorkAnthropicAdaptiveThinking = async () => ({
-  "chat.params": async (
-    input: { model: { id: string; api?: { id?: string } } },
-    output: { options: Record<string, unknown> },
-  ) => {
-    const apiId = input.model.api?.id ?? input.model.id;
-    rewriteLegacyThinkingOptions(apiId, output.options);
-  },
-});
+export default Plugin.define({id:"legalwork.anthropic.adaptive-thinking",async setup(ctx){
+  await ctx.session.hook("http.request",async event=>{
+    if(!event.request.headers.has("anthropic-version"))return;
+    event.request=await nativeProviderRequest(event.request,adaptiveBody);
+  });
+}});

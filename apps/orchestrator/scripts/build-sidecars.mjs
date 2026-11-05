@@ -5,6 +5,7 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  rmSync,
   statSync,
   writeFileSync,
 } from "node:fs";
@@ -42,19 +43,6 @@ if (!serverVersion) {
   );
 }
 
-const routerPkg = JSON.parse(
-  readFileSync(
-    resolve(repoRoot, "apps", "opencode-router", "package.json"),
-    "utf8",
-  ),
-);
-const routerVersion = String(routerPkg.version ?? "").trim();
-if (!routerVersion) {
-  throw new Error(
-    "opencode-router version missing in apps/opencode-router/package.json",
-  );
-}
-
 const run = (command, args, cwd) => {
   const result = spawnSync(command, args, { cwd, stdio: "inherit" });
   if (result.status !== 0) {
@@ -63,7 +51,6 @@ const run = (command, args, cwd) => {
 };
 
 run("pnpm", ["--filter", "legalwork-server", "build:bin:all"], repoRoot);
-run("pnpm", ["--filter", "opencode-router", "build:bin:all"], repoRoot);
 
 const targets = [
   { id: "darwin-arm64", bun: "bun-darwin-arm64" },
@@ -79,13 +66,13 @@ const sha256File = (path) => {
 };
 
 const serverDir = resolve(repoRoot, "apps", "server", "dist", "bin");
-const routerDir = resolve(repoRoot, "apps", "opencode-router", "dist", "bin");
 
+// Start with a clean bundle so retired sidecars cannot survive a rebuild.
+rmSync(outdir, { recursive: true, force: true });
 mkdirSync(outdir, { recursive: true });
 
 const entries = {
   "legalwork-server": { version: serverVersion, targets: {} },
-  "opencode-router": { version: routerVersion, targets: {} },
 };
 
 for (const target of targets) {
@@ -97,23 +84,23 @@ for (const target of targets) {
   const serverDest = join(outdir, `legalwork-server-${target.id}${ext}`);
   copyFileSync(serverSrc, serverDest);
 
-  const routerSrc = join(routerDir, `opencode-router-${target.bun}${ext}`);
-  if (!existsSync(routerSrc)) {
-    throw new Error(`Missing opencode-router binary at ${routerSrc}`);
-  }
-  const routerDest = join(outdir, `opencode-router-${target.id}${ext}`);
-  copyFileSync(routerSrc, routerDest);
-
   entries["legalwork-server"].targets[target.id] = {
     asset: basename(serverDest),
     sha256: sha256File(serverDest),
     size: statSync(serverDest).size,
   };
-  entries["opencode-router"].targets[target.id] = {
-    asset: basename(routerDest),
-    sha256: sha256File(routerDest),
-    size: statSync(routerDest).size,
-  };
+}
+
+// The server executable resolves its own content-addressed engine bundle.
+const { opencodeReleaseTarget } = await import("@legalwork/opencode-release");
+const { opencodeEngineSelection, stageSelectedOpencodeEngine } = await import("@legalwork/opencode-release/selection");
+for (const target of targets) {
+  const [os, arch] = target.id.split("-");
+  const engineTarget = opencodeReleaseTarget(os === "windows" ? "win32" : os, arch);
+  await stageSelectedOpencodeEngine({
+    binary: join(serverDir, "opencode-engine", opencodeEngineSelection.artifactId, engineTarget, os === "windows" ? "opencode.exe" : "opencode"),
+    directory: join(outdir, "opencode-engine", opencodeEngineSelection.artifactId, engineTarget), target: engineTarget,
+  });
 }
 
 const manifest = {

@@ -4,26 +4,34 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { WorkspaceInfo } from "../types.js";
-import { ReviewSessions, type ReviewSessionClient } from "./sessions.js";
+import type { SessionMessageAssistant, SessionMessageAssistantTool, SessionMessageInfo } from "@opencode/client";
+import { ReviewSessions, type ReviewSession, type ReviewSessionClient } from "./sessions.js";
 import { ReviewStore } from "./storage.js";
-
+function assistant(content: SessionMessageAssistant["content"]): SessionMessageAssistant {
+  return { type: "assistant", id: "msg_review", time: { created: 10 }, agent: "main", model: { providerID: "fixture", id: "fixture" }, content };
+}
+function completed(name: string, text: string): SessionMessageAssistantTool {
+  return { type: "tool", id: "tool_review", name, time: { created: 10 }, state: { status: "completed", input: {}, content: [{ type: "text", text }] } };
+}
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))); });
 async function fixture(sessionId: string | null | undefined = null) {
-  const root = await mkdtemp(join(tmpdir(), "review-session-")); roots.push(root);
+  const root = await mkdtemp(join(tmpdir(), "review-session-"));
+  roots.push(root);
   const workspace: WorkspaceInfo = { id: "project", name: "Test", path: root, preset: "starter", workspaceType: "local" };
   const store = new ReviewStore(root);
   const review = await store.create({ id: randomUUID(), name: "Commercial review", revision: 0, createdAt: 10, updatedAt: 10,
     settings: { mode: "llm", jev: null, llm: null }, columns: [], documents: [], cells: [], status: "draft", runId: null, error: null, sessionId });
-  const sessions = new Map<string, { id: string; directory: string; time: { created: number; updated: number; archived?: number } }>();
-  const messages = new Map<string, Array<{ parts: unknown[] }>>();
+  const sessions = new Map<string, ReviewSession>();
+  const messages = new Map<string, SessionMessageInfo[]>();
   const calls = { create: 0, list: 0, unarchive: 0 };
   const client: ReviewSessionClient = {
-    get: async id => sessions.get(id) ?? null,
+    get: async (id) => sessions.get(id) ?? null,
     list: async () => { calls.list++; return [...sessions.values()]; },
-    messages: async id => messages.get(id) ?? [],
-    create: async () => { calls.create++; const session = { id: `ses_${calls.create}`, directory: root, time: { created: 20, updated: 20 } }; sessions.set(session.id, session); return session; },
-    unarchive: async id => { calls.unarchive++; const session = sessions.get(id); if (session) session.time.archived = 0; },
+    messages: async (id) => messages.get(id) ?? [],
+    create: async () => { calls.create++; const session = { id: `ses_${calls.create}`, location: { directory: root }, time: { created: 20, updated: 20 } }; sessions.set(session.id, session); return session; },
+    unarchive: async (id) => { calls.unarchive++; const session = sessions.get(id); if (session)
+      session.time.archived = 0; },
   };
   return { root, workspace, store, review, sessions, messages, calls, client, service: new ReviewSessions(() => client) };
 }
@@ -35,12 +43,12 @@ test("manual review discussions deduplicate concurrent clicks and retries, prese
   expect(f.calls).toEqual({ create: 1, list: 0, unarchive: 0 });
   const stored = await f.store.read(f.review.id);
   expect(stored).toMatchObject({ sessionId: "ses_1", sessionCreatedForReview: true, status: "draft", columns: [], cells: [], revision: 1 });
-  f.messages.set("ses_1", [{ parts: [{ type: "text", text: "Existing conversation" }] }]);
+  f.messages.set("ses_1", [{ type: "user", id: "msg_existing", time: { created: 20 }, text: "Existing conversation" }]);
   expect(await new ReviewSessions(() => f.client).open(f.workspace, f.review.id)).toEqual({ sessionId: "ses_1", prefill: false });
 });
 test("agent origin continues the same archived session without prefilling or creating another", async () => {
   const f = await fixture("source");
-  f.sessions.set("source", { id: "source", directory: f.root, time: { created: 1, updated: 20, archived: 20 } });
+  f.sessions.set("source", { id: "source", location: { directory: f.root }, time: { created: 1, updated: 20, archived: 20 } });
   expect(await f.service.get(f.workspace, f.review.id)).toEqual({ sessionId: "source" });
   expect(await f.service.open(f.workspace, f.review.id)).toEqual({ sessionId: "source", prefill: false });
   expect(f.calls).toEqual({ create: 0, list: 0, unarchive: 1 });
@@ -50,18 +58,21 @@ test("old reviews recover their origin only from exact successful project-scoped
   const f = await fixture();
   await f.store.update(f.review.id, review => { delete review.sessionId; });
   const output = JSON.stringify({ ok: true, workspaceId: f.workspace.id, review: { id: f.review.id } });
-  for (const id of ["wrong", "source"]) f.sessions.set(id, { id, directory: f.root, time: { created: 1, updated: 20 } });
-  f.messages.set("wrong", [{ parts: [{ type: "text", text: output }, { type: "tool", tool: "legalwork_review_results", state: { status: "completed", output } }] }]);
-  f.messages.set("source", [{ parts: [{ type: "tool", tool: "legalwork_review_start", state: { status: "completed", output } }] }]);
+  for (const id of ["wrong", "source"])
+    f.sessions.set(id, { id, location: { directory: f.root }, time: { created: 1, updated: 20 } });
+  f.messages.set("wrong", [assistant([{ type: "text", text: output }, completed("legalwork_review_results", output)])]);
+  f.messages.set("source", [assistant([completed("legalwork_review_start", output)])]);
   expect(await f.service.get(f.workspace, f.review.id)).toEqual({ sessionId: "source" });
   expect(await f.service.open(f.workspace, f.review.id)).toEqual({ sessionId: "source", prefill: false });
-  expect(f.calls.create).toBe(0); expect(f.calls.list).toBe(1);
+  expect(f.calls.create).toBe(0);
+  expect(f.calls.list).toBe(1);
   expect((await f.store.read(f.review.id)).sessionId).toBe("source");
 });
 test("deleted or foreign-project origins open a new project session, never a broken or foreign link", async () => {
   for (const foreign of [false, true]) {
     const f = await fixture("source");
-    if (foreign) f.sessions.set("source", { id: "source", directory: `${f.root}-sibling`, time: { created: 1, updated: 20 } });
+    if (foreign)
+      f.sessions.set("source", { id: "source", location: { directory: `${f.root}-sibling` }, time: { created: 1, updated: 20 } });
     expect(await f.service.get(f.workspace, f.review.id)).toEqual({ sessionId: null });
     expect(await f.service.open(f.workspace, f.review.id)).toEqual({ sessionId: "ses_1", prefill: true });
   }
@@ -71,4 +82,19 @@ test("engine errors do not masquerade as a missing session or create duplicates"
   f.client.get = async () => { throw new Error("Engine unavailable"); };
   await expect(f.service.open(f.workspace, f.review.id)).rejects.toThrow("Engine unavailable");
   expect(f.calls.create).toBe(0);
+});
+test("native provenance reads all saved messages and ignores failed, unrelated and foreign review cards", async () => {
+  const f = await fixture();
+  await f.store.update(f.review.id, review => { delete review.sessionId; });
+  f.sessions.set("source", { id: "source", location: { directory: `${f.root}/nested` }, time: { created: 1, updated: 20 } });
+  const wrong = JSON.stringify({ ok: true, workspaceId: "foreign", review: { id: f.review.id } });
+  const correct = JSON.stringify({ ok: true, workspaceId: f.workspace.id, review: { id: f.review.id } });
+  f.messages.set("source", [
+    ...Array.from({ length: 150 }, (_, index): SessionMessageInfo => ({ type: "user", id: `msg_${index}`, time: { created: 10 }, text: "History" })),
+    assistant([completed("legalwork_review_create", wrong), { ...completed("legalwork_review_create", correct), state: { status: "error", input: {}, error: { type: "unknown", message: "Failed" } } }]),
+    assistant([{ ...completed("legalwork_review_create", correct), state: { status: "completed", input: {}, content: [{ type: "text", text: "<system-reminder>State</system-reminder>" }, { type: "text", text: correct }] } }]),
+  ]);
+  expect(await f.service.get(f.workspace, f.review.id)).toEqual({ sessionId: "source" });
+  f.sessions.get("source")!.location.directory = `${f.root}-foreign`;
+  expect(await f.service.get(f.workspace, f.review.id)).toEqual({ sessionId: null });
 });

@@ -1,10 +1,9 @@
 /**
  * Token limits LegalWork hands the engine for each model it configures.
  *
- * The engine uses a model's `limit.output` twice: as the cap on a single
- * response (its maxOutputTokens), and as room it reserves out of the context
- * window when deciding when to compact. When one response needs more than the
- * cap, it is cut off with `finish: length` and whatever it was writing is lost.
+ * The engine uses a model's `limit.output` when allocating response tokens and
+ * deciding when to compact. Native v2 fits that allowance to the remaining
+ * context and applies its own maximum; this module preserves reported limits.
  *
  * The real value belongs to whoever runs the model — the Eigenwelt gateway
  * reports it in the platform manifest, the user types it in for a custom
@@ -16,18 +15,14 @@
  */
 
 /**
- * The engine's own ceiling on a single response, applied to every model on top
- * of its `limit.output`: it sends min(limit.output, ceiling). Mirrors
- * OUTPUT_TOKEN_MAX in the pinned engine (v1.18.29), which the
- * OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX env var would override — LegalWork
- * does not set it.
+ * Historical v1 response ceiling, retained for compatibility with the legacy
+ * helper below. This is not v2's ceiling and does not clamp v2 model settings.
  */
 export const ENGINE_OUTPUT_CEILING = 32_000;
 
 /**
- * Output limit for a model whose source reports none. Equal to the engine
- * ceiling, so a model nobody described behaves the same whether it came
- * through Eigenwelt, a custom provider, or neither.
+ * Output limit only when a model's source reports none. Matches native 2.1.4's
+ * unknown-model fallback; reported limits such as 65,536 remain unchanged.
  */
 export const DEFAULT_OUTPUT_LIMIT = ENGINE_OUTPUT_CEILING;
 
@@ -78,9 +73,9 @@ export function resolveModelLimit(reported: { context?: unknown; output?: unknow
 }
 
 /**
- * The response length the engine actually enforces for a configured
- * `limit.output` — the configured value, but never above the engine ceiling
- * (and the ceiling itself when nothing is configured).
+ * Historical v1 response-length calculation, retained for compatibility.
+ * Native v2 owns its response allocation; no v2 production caller uses this
+ * helper. Use resolveModelLimit to preserve reported model settings.
  */
 export function enforcedOutputLimit(configuredOutput: unknown): number {
   const configured = tokenCount(configuredOutput);

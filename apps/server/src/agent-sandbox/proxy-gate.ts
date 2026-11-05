@@ -1,23 +1,17 @@
+import { nativeProxyPath } from "../native-proxy-policy.js";
 import { ApiError } from "../errors.js";
 import { z } from "zod";
 import { managedTools, managedToolName, managedNetworkGuard } from "./engine-policy.js";
 
-function enginePath(path: string): string {
-  const canonical = new URL(path, "http://engine.invalid").pathname;
-  try {
-    const decoded = decodeURIComponent(canonical).replace(/^\/opencode(?=\/|$)/, "").replace(/\/+$/, "");
-    if (/\\|\/\/{1,}|(?:^|\/)\.{1,2}(?:\/|$)|%/i.test(decoded)) throw new Error("Ambiguous path");
-    return decoded;
-  } catch { throw new ApiError(400, "invalid_path", "Invalid engine path."); }
-}
+const enginePath = nativeProxyPath;
 
 export function assertSandboxProxyAllowed(method: string, path: string): void {
   const decoded = enginePath(path);
-  if (/^\/(?:v2\/)?pty(?:\/|$)/.test(decoded) || /^\/session\/[^/]+\/shell$/.test(decoded)) {
+  if (/^\/(?:v2\/)?pty(?:\/|$)/.test(decoded) || /^\/session\/[^/]+\/shell$/.test(decoded) || decoded === "/shell" && method.toUpperCase() === "POST") {
     throw new ApiError(403, "sandbox_required", "Use the sandboxed shell tool. Direct engine terminals are disabled.");
   }
   if (!["GET", "HEAD"].includes(method.toUpperCase()) &&
-      (/^\/(?:global\/|v2\/)?config(?:\/|$)/.test(decoded) || decoded === "/mcp")) {
+      (/^\/(?:global\/|v2\/)?config(?:\/|$)/.test(decoded) || decoded === "/experimental/config" || decoded === "/websearch" || decoded === "/mcp")) {
     throw new ApiError(403, "sandbox_policy_owned", "Change settings and connected apps through LegalWork.");
   }
 }
@@ -27,6 +21,15 @@ export function assertSandboxProxyAllowed(method: string, path: string): void {
 export function sandboxSessionBody(path: string, body: ArrayBuffer | undefined): ArrayBuffer | undefined {
   if (!body || !/^\/session(?:\/|$)/.test(enginePath(path))) return body;
   const value = z.record(z.string(), z.unknown()).parse(JSON.parse(Buffer.from(body).toString()));
+  if (value.permissions !== undefined) {
+    const rules = z.array(z.object({ action: z.string(), resource: z.string(), effect: z.enum(["allow", "ask", "deny"]) })).parse(value.permissions);
+    const nativeTools: Record<string, string> = { shell: "legalwork_shell", webfetch: "legalwork_webfetch", websearch: "legalwork_websearch", codesearch: "legalwork_websearch" };
+    value.permissions = [
+      ...rules.map(rule => ({ ...rule, action: nativeTools[rule.action] ?? rule.action })),
+      ...Object.keys(nativeTools).map(action => ({ action, resource: "*", effect: "deny" })),
+      { action: managedNetworkGuard, resource: "*", effect: "deny" },
+    ];
+  }
   if (value.tools !== undefined) {
     const tools = z.record(z.string(), z.boolean()).parse(value.tools);
     for (const [builtin, managed] of Object.entries(managedTools)) {
@@ -41,9 +44,4 @@ export function sandboxSessionBody(path: string, body: ArrayBuffer | undefined):
       ...Object.keys(managedTools).map(permission => ({ permission, pattern: "*", action: "deny" })), { permission: managedNetworkGuard, pattern: "*", action: "deny" }];
   }
   return new TextEncoder().encode(JSON.stringify(value)).buffer;
-}
-
-export function assertNoHostShellInterpolation(value: string): void {
-  // OpenCode expands these BEFORE command.execute.before or shell.env hooks.
-  if (/!`/.test(value)) throw new ApiError(403, "sandbox_required", "Shell interpolation in shortcuts is disabled. Run the command with the sandboxed shell tool.");
 }

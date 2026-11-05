@@ -86,8 +86,30 @@ async function startLegalworkServer() {
     JSON.stringify({ mcp: { legalmemory: { type: "remote", url: APPLIANCE } } }),
     "utf8",
   );
+  // This server-route fixture stubs the native RPC boundary. The separate
+  // legalmemory-native.released suite exercises the actual released engine,
+  // OAuth, native permissions, cancellation and complete binary transport.
+  const engine = Bun.serve({ port: 0, async fetch(request) {
+    const url = new URL(request.url);
+    if (url.pathname === "/api/model") return Response.json({ location: { directory: root }, data: [] });
+    if (url.pathname === "/api/rpc/legalwork.legalmemory-access/servers") return Response.json({ output: { names: ["legalmemory"] } });
+    if (url.pathname === "/api/rpc/legalwork.legalmemory-access/request") {
+      const { input } = await request.json();
+      const operation = input.operation;
+      if (operation.type === "tree") {
+        const target = new URL(`/api/tree/${operation.name}`, APPLIANCE);
+        for (const [name, value] of Object.entries(operation.params)) target.searchParams.set(name, String(value));
+        return Response.json({ output: { ok: true, value: await (await fetch(target)).json() } });
+      }
+      const response = await fetch(APPLIANCE, { method: "POST", body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: operation.name, arguments: operation.args } }) });
+      return Response.json({ output: { ok: true, value: await response.json() } });
+    }
+    return new Response(null, { status: 404 });
+  } });
+  stops.push(() => engine.stop(true));
   const config: ServerConfig = {
     host: "127.0.0.1",
+    opencodeBaseUrl: engine.url.origin,
     port: 0,
     token: "owt_test_token",
     hostToken: "owt_host_token",

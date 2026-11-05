@@ -50,8 +50,25 @@ export function emptyToolPermissionsModel(): ToolPermissionsModel {
   };
 }
 
-/** Extract the raw `permission` record from an opencode config object. */
+/** Present the native ordered rules using the settings form's tool index. */
 export function readPermissionRecord(opencode: Record<string, unknown>): Record<string, unknown> {
+  if (Array.isArray(opencode.permissions)) {
+    const rules = opencode.permissions.filter(isRecord).flatMap(rule => typeof rule.action === "string" && typeof rule.resource === "string" && isPermissionAction(rule.effect)
+      ? [{ action: rule.action, resource: rule.resource, effect: rule.effect }] : []);
+    const actions = new Set(["*", ...MANAGED_PERMISSION_TOOLS.map(name => name === "bash" ? "shell" : name), ...rules.map(rule => rule.action)]);
+    const result: Record<string, unknown> = {};
+    for (const rule of rules) for (const action of actions) {
+      if (rule.action !== "*" && rule.action !== action) continue;
+      const name = action === "shell" ? "bash" : action;
+      if (rule.resource === "*") { result[name] = rule.effect; continue; }
+      const previous = result[name];
+      const patterns: Record<string, unknown> = isRecord(previous) ? { ...previous } : isPermissionAction(previous) ? { "*": previous } : {};
+      delete patterns[rule.resource];
+      patterns[rule.resource] = rule.effect;
+      result[name] = patterns;
+    }
+    return result;
+  }
   return isRecord(opencode.permission) ? opencode.permission : {};
 }
 

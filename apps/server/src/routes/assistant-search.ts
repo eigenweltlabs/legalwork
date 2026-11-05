@@ -31,10 +31,10 @@ export function registerAssistantSearchRoutes(options: {
   const projects = async (projectId?: string) => {
     if (projectId) {
       const workspace = await options.resolveWorkspace(config, projectId);
-      if (workspace.workspaceType === "remote") throw new ApiError(400, "local_project", "Search an accessible local or synced project.");
+
       return { workspaces: [workspace], unavailable: [] };
     }
-    const candidates = config.workspaces.filter(workspace => workspace.workspaceType !== "remote" && options.canAccessProject?.(workspace.id) !== false);
+    const candidates = config.workspaces.filter(workspace => options.canAccessProject?.(workspace.id) !== false);
     const results = await Promise.allSettled(candidates.map(workspace => options.resolveWorkspace(config, workspace.id)));
     const workspaces: WorkspaceInfo[] = [], unavailable: string[] = [];
     results.forEach((result, index) => { if (result.status === "fulfilled") workspaces.push(result.value); else unavailable.push(candidates[index].id); });

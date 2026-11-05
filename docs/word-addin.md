@@ -13,8 +13,9 @@ legalwork-server itself:
 
 ```
 Word task pane (WebView2 / WKWebView)
-  └─ https://localhost:47443/word-addin/taskpane.html   ← HTTPS add-in listener
-       ├─ /word-addin/bootstrap   same-origin pairing (returns client token)
+  └─ https://localhost:47443/word-addin/shell-v6.html   ← HTTPS add-in listener
+       ├─ /word-addin/bootstrap   public availability/version metadata
+       ├─ /word-addin/session     automatic installed-add-in connection
        ├─ /workspaces, /sessions… regular LegalWork server API (same origin)
        └─ /opencode/*             existing OpenCode proxy (same origin)
 ```
@@ -25,12 +26,20 @@ Key properties:
   shares the exact same fetch handler as the main HTTP listener, so the page,
   the API, and the OpenCode proxy are all same-origin. No CORS, no mixed
   content (which WKWebView on macOS would block).
-- **Pairing without secrets in URLs.** The pane fetches
-  `/word-addin/bootstrap` (same-origin only; the response is deliberately
-  never CORS-wrapped) and stores the current client token in its own
-  origin-scoped localStorage. Token rotation across server restarts is
-  handled automatically on the next pane load.
-- **Word integration.** Office.js is loaded in `taskpane.html`. A floating
+- **Automatic local connection.** Installation writes a private, user-scoped
+  manifest with an Office-only credential in its URL fragment. The fragment
+  never travels in an HTTP request. The pane exchanges it automatically for
+  an origin-bound Office credential; there is no code, approval dialog, or
+  recurring pairing. The connection survives LegalWork restarts. Existing
+  panes holding the former app credential migrate automatically, replacing
+  that credential after a successful exchange.
+- **Limited authority.** Office has collaborator access plus the workspace
+  picker, local workspace creation/activation, and voice operations needed by
+  the pane. Application/host credentials never enter the new pane. Office
+  cannot issue share tokens, read environment settings, or approve requests.
+  Removing the last Office add-in removes its installation credential and
+  stops the listener. The HTTPS listener always binds to loopback.
+- **Word integration.** Office.js is loaded in `app.html`. A floating
   dock (only rendered inside Word) offers: add the current selection or the
   whole document as chat context (`composer.set_text` control action), and
   insert the last assistant reply at the cursor (`session.latest_message` +
@@ -80,16 +89,20 @@ registration covers Word, Excel, and PowerPoint).
 3. Start the server with the add-in enabled:
 
    ```sh
-   bun apps/server/src/cli.ts --workspace <path> --word-addin
+   pnpm --filter legalwork-server dev -- --workspace <path> --word-addin
    ```
 
    You should see:
    `Word add-in listening on https://localhost:47443/word-addin/ (manifest: …/manifest.xml)`
 
-4. Download the manifest:
+4. Download the private manifest using the server's host token:
 
    ```sh
-   curl -k https://localhost:47443/word-addin/manifest.xml -o legalwork-word-addin.manifest.xml
+   umask 077
+   curl --cacert ~/.office-addin-dev-certs/ca.crt \
+     -H "X-LegalWork-Host-Token: $LEGALWORK_HOST_TOKEN" \
+     https://localhost:47443/word-addin/manifest.xml \
+     -o legalwork-word-addin.manifest.xml
    ```
 
 ## Sideloading
@@ -196,13 +209,17 @@ tells the user to open the pane.
 
 ## Security notes
 
-- The bootstrap endpoint returns the collaborator-scoped client token. It is
-  same-origin readable only: `/word-addin/*` responses are never CORS-wrapped,
-  so a malicious website cannot read it from a victim's browser. Any process
-  on the machine could call it — the same trust boundary as the config file
-  on disk that already contains the token.
-- The listener binds to the configured host (default `127.0.0.1`); the
-  manifest references `https://localhost`, so nothing is exposed on the LAN.
+- Bootstrap contains public metadata without credentials. Session creation
+  requires the locally installed manifest's credential or an existing valid
+  app credential during migration. Anonymous callers cannot obtain a session.
+- The manifest and installation credential are user-private files (mode 0600
+  on Unix). Downloading a credential-bearing manifest requires the host token.
+  Never publish an installed manifest or its URL fragment.
+- Office credentials are bound to the loopback origin and limited to the pane's
+  supported operations. They survive server restarts without user interaction;
+  reinstalling after removal of all Office add-ins rotates the credential.
+- Guest workspace sharing and persisted guest tokens have been removed. The
+  desktop API and Office listener stay on loopback.
 - Because the manifest points at localhost, this add-in is distributed by
   sideloading (or your own catalog), not AppSource.
 

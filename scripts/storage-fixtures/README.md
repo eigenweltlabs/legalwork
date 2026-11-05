@@ -6,7 +6,7 @@ workspace, credentials, or cloud accounts.
 
 ## Start services
 
-Requirements: pnpm, Bun 1.4.2+, uv 0.13.4+, Docker Compose, and `opencode` on PATH for the dev app.
+Requirements: Node.js from `.nvmrc` (or an updated Node 22, at least 22.15), pnpm, Bun 1.4.2+ for builds/tests, uv 0.13.4+, Docker Compose, and `opencode` on PATH for the dev app.
 
 ```sh
 pnpm install

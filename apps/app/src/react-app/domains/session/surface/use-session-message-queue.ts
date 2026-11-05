@@ -62,7 +62,7 @@ export function useSessionMessageQueue(client: LegalworkServerClient, workspaceI
   }, [client.baseUrl, workspaceId, sessionId]);
   useEffect(() => {
     if (!query.data) return;
-    const items = query.data.entries.filter(entry => entry.status !== "sending").map(entry => hydrateDraft(entry, claim.current?.token));
+    const items = query.data.entries.filter(entry => entry.status !== "sending" && entry.status !== "accepted").map(entry => hydrateDraft(entry, claim.current?.token));
     useComposerStateStore.setState(state => ({ queuedDrafts: { ...state.queuedDrafts, [sessionId]: items }, pausedQueues: { ...state.pausedQueues, [sessionId]: query.data.paused } }));
   }, [query.data, sessionId]);
   useEffect(() => {
@@ -109,7 +109,7 @@ export function useSessionMessageQueue(client: LegalworkServerClient, workspaceI
       claim.current = { id, token };
       const entry = state.entries.find(item => item.id === id);
       if (!entry) return;
-      useComposerStateStore.setState(current => ({ queuedDrafts: { ...current.queuedDrafts, [sessionId]: state.entries.filter(item => item.status !== "sending").map(item => hydrateDraft(item, token)) } }));
+      useComposerStateStore.setState(current => ({ queuedDrafts: { ...current.queuedDrafts, [sessionId]: state.entries.filter(item => item.status !== "sending" && item.status !== "accepted").map(item => hydrateDraft(item, token)) } }));
       useComposerStateStore.getState().editQueuedDraft(sessionId, id);
     },
     cancelEdit: async () => {
@@ -121,7 +121,7 @@ export function useSessionMessageQueue(client: LegalworkServerClient, workspaceI
     remove: (id: string) => update({ type: "remove", id, revision: latest.current?.revision ?? 0 }),
     reorder: async (ids: string[]) => {
       const action = (state: SessionQueue | undefined): QueueAction => ({ type: "reorder",
-        ids: reconcileQueuedOrder(ids, state?.entries.filter(entry => entry.status !== "sending").map(entry => entry.id) ?? ids),
+        ids: reconcileQueuedOrder(ids, state?.entries.filter(entry => entry.status !== "sending" && entry.status !== "accepted").map(entry => entry.id) ?? ids),
         revision: state?.revision ?? 0 });
       try { return await update(action(latest.current)); }
       catch (error) {

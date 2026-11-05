@@ -1,0 +1,498 @@
+diff --git a/packages/core/src/tool/mcp.ts b/packages/core/src/tool/mcp.ts
+index 6d1b8cc..4b61641 100644
+--- a/packages/core/src/tool/mcp.ts
++++ b/packages/core/src/tool/mcp.ts
+@@ -5,6 +5,7 @@ import { McpEvent } from "@opencode/schema/mcp-event"
+ import { Context, Effect, Fiber, type JsonSchema, Layer, Option, PubSub, Schema, Semaphore, Stream } from "effect"
+ import { makeLocationNode } from "@opencode/util/effect/app-node"
+ import { extension } from "mime-types"
++import { isDeepStrictEqual } from "node:util"
+ import { Bus } from "../bus.js"
+ 
+ import { Mcp } from "../mcp/index.js"
+@@ -23,7 +24,7 @@ export const namespace = (server: string) => server.replace(/[^a-zA-Z0-9_-]/g, "
+ export const name = (server: string, tool: string) => `${namespace(server)}_${tool.replace(/[^a-zA-Z0-9_-]/g, "_")}`
+ 
+ export interface Interface {
+-  /** Wait for the initial MCP tool registration to settle. */
++  /** Reconcile the current MCP catalog before a session takes its tool snapshot. */
+   readonly flush: Effect.Effect<void>
+ }
+ 
+@@ -119,8 +120,16 @@ export const layer = Layer.effect(
+       .pipe(Effect.forkScoped)
+     const reconcile = lock.withPermit(
+       Effect.gen(function* () {
+-        discovered = yield* mcp.tools()
+-        yield* tools.reload()
++        const current = yield* mcp.tools()
++        if (isDeepStrictEqual(current, discovered)) return
++        // Publishing the captured catalog and invalidating the registry form one local commit.
++        // Cancellation may stop the wait for the lock or catalog, but must not split this commit.
++        yield* Effect.uninterruptible(
++          Effect.gen(function* () {
++            discovered = current
++            yield* tools.reload()
++          }),
++        )
+       }),
+     )
+ 
+@@ -137,7 +146,14 @@ export const layer = Layer.effect(
+       Stream.runForEach(() => reconcile),
+       Effect.forkScoped({ startImmediately: true }),
+     )
+-    return Service.of({ flush: Effect.asVoid(Fiber.await(initial)) })
++    return Service.of({
++      flush: Effect.gen(function* () {
++        yield* Fiber.join(initial)
++        // A connected server's cache is already authoritative. Do not wait for the debounced
++        // ToolsChanged consumer: the session context takes an immutable snapshot after this call.
++        yield* reconcile
++      }),
++    })
+   }),
+ )
+ 
+diff --git a/packages/core/test/mcp.test.ts b/packages/core/test/mcp.test.ts
+index 70ad0cd..aedc711 100644
+--- a/packages/core/test/mcp.test.ts
++++ b/packages/core/test/mcp.test.ts
+@@ -39,6 +39,7 @@ import { McpResourceTools } from "@opencode/core/tool/plugin/mcp-resource"
+ import { Tool } from "@opencode/core/tool"
+ import { ToolOutput } from "@opencode/core/tool-output"
+ import {
++  Cause,
+   Context,
+   Deferred,
+   Effect,
+@@ -1340,9 +1341,7 @@ test("acknowledges completed MCP URL elicitations without returning internal con
+           const result = yield* Fiber.join(call)
+           expect(yield* forms.state(form.id)).toEqual({ status: "answered", answer: { elicitation: true } })
+           return result
+-        }).pipe(
+-          Effect.provide(resourceMcpLayer(server.url, (form) => recordForm(created, form))),
+-        )
++        }).pipe(Effect.provide(resourceMcpLayer(server.url, (form) => recordForm(created, form))))
+ 
+         expect(result.structured).toEqual({ action: "accept" })
+       }),
+@@ -1363,10 +1362,12 @@ test("cancels MCP elicitation forms when the server gives up on them", async ()
+           const { form } = yield* Deferred.await(created)
+           yield* Fiber.await(call)
+           // The server's cancellation and its tool error race; the form settles shortly after either.
+-          const state = yield* forms.state(form.id).pipe(
+-            Effect.repeat({ until: (state) => state.status !== "pending", schedule: Schedule.spaced("10 millis") }),
+-            Effect.timeout("2 seconds"),
+-          )
++          const state = yield* forms
++            .state(form.id)
++            .pipe(
++              Effect.repeat({ until: (state) => state.status !== "pending", schedule: Schedule.spaced("10 millis") }),
++              Effect.timeout("2 seconds"),
++            )
+           expect(state.status).toBe("cancelled")
+         }).pipe(Effect.provide(resourceMcpLayer(server.url, (form) => recordForm(created, form))))
+       }),
+@@ -2348,17 +2349,18 @@ testEffect(Layer.empty).effect("coalesces queued MCP tool notifications after in
+     const registration = yield* McpTool.Service
+     const bus = yield* Bus.Service
+     yield* registration.flush
+-    expect(reads).toBe(1)
+-    expect((yield* toolDefinitions(registry)).map((tool) => tool.name)).toEqual(["demo_read_1", "execute"])
++    // The admission barrier also reads the cached MCP catalog before snapshotting.
++    expect(reads).toBe(2)
++    expect((yield* toolDefinitions(registry)).map((tool) => tool.name)).toEqual(["demo_read_2", "execute"])
+ 
+     yield* bus.publish(McpEvent.ToolsChanged, { server: "demo" })
+-    yield* advance(() => reads >= 2)
+-    expect(reads).toBe(2)
+-    yield* Effect.forEach(Array.from({ length: 20 }), () => bus.publish(McpEvent.ToolsChanged, { server: "demo" }))
+     yield* advance(() => reads >= 3)
+-    yield* drain
+     expect(reads).toBe(3)
+-    expect((yield* toolDefinitions(registry)).map((tool) => tool.name)).toEqual(["demo_read_3", "execute"])
++    yield* Effect.forEach(Array.from({ length: 20 }), () => bus.publish(McpEvent.ToolsChanged, { server: "demo" }))
++    yield* advance(() => reads >= 4)
++    yield* drain
++    expect(reads).toBe(4)
++    expect((yield* toolDefinitions(registry)).map((tool) => tool.name)).toEqual(["demo_read_4", "execute"])
+   }).pipe(
+     Effect.provide(
+       AppNodeBuilder.build(LayerNode.group([Tool.node, McpTool.node, Bus.node]), [
+@@ -2382,6 +2384,354 @@ testEffect(Layer.empty).effect("coalesces queued MCP tool notifications after in
+   )
+ })
+ 
++testEffect(Layer.empty).effect(
++  "flushes the current MCP catalog before a snapshot without advancing the debounce clock",
++  () =>
++    Effect.gen(function* () {
++      const catalog = yield* Ref.make<Mcp.Tool[]>([])
++      const tool = (name: string, codemode: boolean, server = "demo") =>
++        ({
++          server: Mcp.ServerName.make(server),
++          name,
++          codemode,
++          inputSchema: { type: "object", properties: {} },
++        }) satisfies Mcp.Tool
++      yield* Effect.gen(function* () {
++        const registry = yield* Tool.Service
++        const registration = yield* McpTool.Service
++        const bus = yield* Bus.Service
++        yield* registration.flush
++        expect((yield* toolDefinitions(registry)).map((tool) => tool.name)).toEqual(["execute"])
++
++        yield* Ref.set(catalog, [tool("direct", false), tool("search", true, "other")])
++        yield* Effect.forEach(Array.from({ length: 20 }), () =>
++          Effect.forEach(["demo", "other"], (server) => bus.publish(McpEvent.ToolsChanged, { server })),
++        )
++        // An unrelated registry reload cannot stand in for native MCP reconciliation.
++        yield* registry.reload()
++        expect((yield* toolDefinitions(registry)).map((tool) => tool.name)).toEqual(["execute"])
++        yield* registration.flush
++        const first = yield* registry.snapshot()
++        expect(first.definitions.map((tool) => tool.name)).toEqual(["demo_direct", "execute"])
++        expect(first.codeModeCatalog && codeModeListings(first.codeModeCatalog).map((tool) => tool.path)).toEqual([
++          "other.search",
++        ])
++        for (const call of [
++          { type: "tool-call", id: "direct", name: "demo_direct", input: {} },
++          {
++            type: "tool-call",
++            id: "codemode",
++            name: "execute",
++            input: { code: "return await tools.other.search({})" },
++          },
++        ] satisfies Parameters<Tool.Snapshot["execute"]>[0]["call"][]) {
++          const result = yield* first.execute({ sessionID: Session.ID.make("ses_flush"), ...toolIdentity, call })
++          expect(result.output).toEqual(
++            call.id === "direct"
++              ? "direct"
++              : { output: "search", toolCalls: [{ tool: "other.search", status: "completed" }], files: [] },
++          )
++        }
++        // Reading an equal catalog must preserve the Code Mode cache identity.
++        yield* Ref.update(catalog, (current) =>
++          current.map((tool) => ({ ...tool, inputSchema: { ...tool.inputSchema } })),
++        )
++        yield* registration.flush
++        expect((yield* registry.snapshot()).codeModeCatalog).toBe(first.codeModeCatalog)
++
++        yield* Ref.set(catalog, [tool("replacement", false)])
++        yield* bus.publish(McpEvent.ToolsChanged, { server: "demo" })
++        yield* registration.flush
++        expect((yield* toolDefinitions(registry)).map((tool) => tool.name)).toEqual(["demo_replacement", "execute"])
++        // Already created snapshots remain immutable.
++        expect(first.definitions.map((tool) => tool.name)).toEqual(["demo_direct", "execute"])
++        expect(first.codeModeCatalog && codeModeListings(first.codeModeCatalog).map((tool) => tool.path)).toEqual([
++          "other.search",
++        ])
++        const replaced = yield* registry.snapshot()
++        expect(replaced.codeModeCatalog && codeModeListings(replaced.codeModeCatalog)).toEqual([])
++
++        yield* Ref.set(catalog, [])
++        yield* bus.publish(McpEvent.ToolsChanged, { server: "demo" })
++        yield* registration.flush
++        expect((yield* toolDefinitions(registry)).map((tool) => tool.name)).toEqual(["execute"])
++        yield* registration.flush
++        expect((yield* toolDefinitions(registry)).map((tool) => tool.name)).toEqual(["execute"])
++      }).pipe(
++        Effect.provide(
++          AppNodeBuilder.build(LayerNode.group([Tool.node, McpTool.node, Bus.node]), [
++            Mcp.node.replace(
++              Layer.mock(Mcp.Service, {
++                tools: () => Ref.get(catalog),
++                callTool: (input) =>
++                  Effect.succeed({
++                    server: Mcp.ServerName.make(input.server),
++                    tool: input.name,
++                    isError: false,
++                    content: [{ type: "text", text: input.name }],
++                  }),
++              }),
++            ),
++            Permission.node.replace(Layer.mock(Permission.Service, { assert: () => Effect.void })),
++            Image.node.replace(imagePassthrough),
++          ]),
++        ),
++      )
++    }),
++)
++
++for (const codemode of [false, true]) {
++  testEffect(Layer.empty).effect(
++    `flush exposes and executes immediately connected ${codemode ? "Code Mode" : "direct"} tools`,
++    () =>
++      Effect.gen(function* () {
++        const catalog = yield* Ref.make<Mcp.Tool[]>([])
++        yield* Effect.gen(function* () {
++          const registry = yield* Tool.Service
++          const registration = yield* McpTool.Service
++          const bus = yield* Bus.Service
++          yield* registration.flush
++          yield* Ref.set(catalog, [
++            {
++              server: Mcp.ServerName.make("demo"),
++              name: "ready",
++              codemode,
++              inputSchema: { type: "object", properties: {} },
++            },
++          ])
++          yield* bus.publish(McpEvent.ToolsChanged, { server: "demo" })
++          yield* registration.flush
++          const snapshot = yield* registry.snapshot()
++          if (codemode)
++            expect(
++              snapshot.codeModeCatalog && codeModeListings(snapshot.codeModeCatalog).map((tool) => tool.path),
++            ).toEqual(["demo.ready"])
++          else expect(snapshot.definitions.map((tool) => tool.name)).toEqual(["demo_ready", "execute"])
++          const result = yield* snapshot.execute({
++            sessionID: Session.ID.make("ses_flush_immediate"),
++            ...toolIdentity,
++            call: codemode
++              ? {
++                  type: "tool-call",
++                  id: "ready",
++                  name: "execute",
++                  input: { code: "return await tools.demo.ready({})" },
++                }
++              : { type: "tool-call", id: "ready", name: "demo_ready", input: {} },
++          })
++          expect(result.output).toEqual(
++            codemode
++              ? { output: "ready", toolCalls: [{ tool: "demo.ready", status: "completed" }], files: [] }
++              : "ready",
++          )
++        }).pipe(
++          Effect.provide(
++            AppNodeBuilder.build(LayerNode.group([Tool.node, McpTool.node, Bus.node]), [
++              Mcp.node.replace(
++                Layer.mock(Mcp.Service, {
++                  tools: () => Ref.get(catalog),
++                  callTool: (input) =>
++                    Effect.succeed({
++                      server: Mcp.ServerName.make(input.server),
++                      tool: input.name,
++                      isError: false,
++                      content: [{ type: "text", text: "ready" }],
++                    }),
++                }),
++              ),
++              Permission.node.replace(Layer.mock(Permission.Service, { assert: () => Effect.void })),
++              Image.node.replace(imagePassthrough),
++            ]),
++          ),
++        )
++      }),
++  )
++}
++
++testEffect(Layer.empty).effect("cancelling an MCP flush releases its reconciliation lock", () =>
++  Effect.gen(function* () {
++    const catalog = yield* Ref.make<Mcp.Tool[]>([])
++    const started = yield* Deferred.make<void>()
++    const held = yield* Deferred.make<void>()
++    let block = false
++    yield* Effect.gen(function* () {
++      const registry = yield* Tool.Service
++      const registration = yield* McpTool.Service
++      yield* registration.flush
++      block = true
++      const waiting = yield* registration.flush.pipe(Effect.forkScoped)
++      yield* Deferred.await(started)
++      // A second admission can be cancelled while the first owns the catalog lock.
++      const queued = yield* registration.flush.pipe(Effect.forkScoped)
++      yield* Effect.yieldNow
++      yield* Fiber.interrupt(queued)
++      const queuedExit = yield* Fiber.await(queued)
++      expect(Exit.isFailure(queuedExit)).toBe(true)
++      yield* Fiber.interrupt(waiting)
++      const waitingExit = yield* Fiber.await(waiting)
++      expect(Exit.isFailure(waitingExit)).toBe(true)
++      block = false
++      yield* Ref.set(catalog, [
++        {
++          server: Mcp.ServerName.make("demo"),
++          name: "after_cancel",
++          codemode: false,
++          inputSchema: { type: "object", properties: {} },
++        },
++      ])
++      yield* registration.flush
++      expect((yield* toolDefinitions(registry)).map((tool) => tool.name)).toEqual(["demo_after_cancel", "execute"])
++    }).pipe(
++      Effect.provide(
++        AppNodeBuilder.build(LayerNode.group([Tool.node, McpTool.node, Bus.node]), [
++          Mcp.node.replace(
++            Layer.mock(Mcp.Service, {
++              tools: () =>
++                Effect.gen(function* () {
++                  if (block) {
++                    yield* Deferred.succeed(started, undefined)
++                    yield* Deferred.await(held)
++                  }
++                  return yield* Ref.get(catalog)
++                }),
++            }),
++          ),
++          Permission.node.replace(Layer.mock(Permission.Service, { assert: () => Effect.void })),
++          Image.node.replace(imagePassthrough),
++        ]),
++      ),
++    )
++  }),
++)
++
++testEffect(Layer.empty).effect(
++  "flush preserves later transforms and permission filtering without a debounce wait",
++  () =>
++    Effect.gen(function* () {
++      const catalog = yield* Ref.make<Mcp.Tool[]>([])
++      const invoked: string[] = []
++      const asserted: Permission.AssertInput[] = []
++      const tool = (name: string, codemode: boolean) =>
++        ({
++          server: Mcp.ServerName.make("demo"),
++          name,
++          codemode,
++          inputSchema: { type: "object", properties: {} },
++        }) satisfies Mcp.Tool
++      yield* Effect.gen(function* () {
++        const registry = yield* Tool.Service
++        const registration = yield* McpTool.Service
++        yield* registration.flush
++        yield* registry.transform((editor) => {
++          editor.add({
++            name: "override",
++            options: { namespace: "demo", codemode: false },
++            description: "Later plugin override",
++            input: Schema.Struct({}),
++            output: Schema.String,
++            execute: () => Effect.succeed({ output: "plugin" }),
++          })
++          editor.update("demo_direct", (tool) => {
++            tool.description = "Later mutation"
++          })
++          editor.remove("demo_removed")
++        })
++        yield* Ref.set(catalog, [
++          tool("override", false),
++          tool("direct", false),
++          tool("search", true),
++          tool("removed", false),
++        ])
++        yield* registration.flush
++        const snapshot = yield* registry.snapshot()
++        expect(snapshot.definitions.map((tool) => tool.name)).toEqual(["demo_direct", "demo_override", "execute"])
++        expect(snapshot.definitions.find((tool) => tool.name === "demo_direct")?.description).toBe("Later mutation")
++        expect(
++          (yield* snapshot.execute({
++            sessionID: Session.ID.make("ses_flush_override"),
++            ...toolIdentity,
++            call: { type: "tool-call", id: "override", name: "demo_override", input: {} },
++          })).output,
++        ).toBe("plugin")
++        expect(invoked).toEqual([])
++        const filtered = yield* registry.snapshot([{ action: "demo_*", resource: "*", effect: "deny" }])
++        expect(filtered.definitions.map((tool) => tool.name)).toEqual(["execute"])
++        expect(filtered.codeModeCatalog && codeModeListings(filtered.codeModeCatalog)).toEqual([])
++        for (const call of [
++          { type: "tool-call", id: "direct", name: "demo_direct", input: {} },
++          { type: "tool-call", id: "codemode", name: "execute", input: { code: "return await tools.demo.search({})" } },
++        ] satisfies Parameters<Tool.Snapshot["execute"]>[0]["call"][]) {
++          const result = yield* snapshot
++            .execute({
++              sessionID: Session.ID.make("ses_flush_blocked"),
++              ...toolIdentity,
++              call,
++            })
++            .pipe(
++              Effect.catchTag("Tool.Error", (error) =>
++                Effect.succeed({ content: [{ type: "text", text: error.message }] }),
++              ),
++            )
++          expect(result.content).toEqual([
++            {
++              type: "text",
++              text: call.id === "direct" ? "Unable to execute demo_direct" : "Unable to execute demo_search",
++            },
++          ])
++        }
++        expect(asserted.map((input) => input.action)).toEqual(["demo_direct", "demo_search"])
++        expect(
++          asserted.every((input) => input.sessionID === "ses_flush_blocked" && input.source?.type === "tool"),
++        ).toBe(true)
++        expect(invoked).toEqual([])
++      }).pipe(
++        Effect.provide(
++          AppNodeBuilder.build(LayerNode.group([Tool.node, McpTool.node, Bus.node]), [
++            Mcp.node.replace(
++              Layer.mock(Mcp.Service, {
++                tools: () => Ref.get(catalog),
++                callTool: (input) =>
++                  Effect.sync(() => {
++                    invoked.push(input.name)
++                    return { server: Mcp.ServerName.make(input.server), tool: input.name, isError: false, content: [] }
++                  }),
++              }),
++            ),
++            Permission.node.replace(
++              Layer.mock(Permission.Service, {
++                assert: (input) =>
++                  Effect.suspend(() => {
++                    asserted.push(input)
++                    return Effect.fail(
++                      new Permission.BlockedError({ rules: [], permission: input.action, resources: input.resources }),
++                    )
++                  }),
++              }),
++            ),
++            Image.node.replace(imagePassthrough),
++          ]),
++        ),
++      )
++    }),
++)
++
++testEffect(Layer.empty).effect("flush propagates initial MCP registration failure", () =>
++  Effect.gen(function* () {
++    const registration = yield* McpTool.Service
++    const exit = yield* registration.flush.pipe(Effect.exit)
++    expect(Exit.isFailure(exit)).toBe(true)
++    if (Exit.isFailure(exit)) expect(Cause.pretty(exit.cause)).toContain("initial MCP discovery failed")
++  }).pipe(
++    Effect.provide(
++      AppNodeBuilder.build(LayerNode.group([Tool.node, McpTool.node, Bus.node]), [
++        Mcp.node.replace(Layer.mock(Mcp.Service, { tools: () => Effect.die("initial MCP discovery failed") })),
++        Permission.node.replace(Layer.mock(Permission.Service, { assert: () => Effect.void })),
++        Image.node.replace(imagePassthrough),
++      ]),
++    ),
++  ),
++)
++
+ it.effect("advertises MCP output schemas to Code Mode", () =>
+   Effect.gen(function* () {
+     const registry = yield* Tool.Service
+diff --git a/packages/core/test/session-generate.test.ts b/packages/core/test/session-generate.test.ts
+index 54abd80..b155ab9 100644
+--- a/packages/core/test/session-generate.test.ts
++++ b/packages/core/test/session-generate.test.ts
+@@ -53,6 +53,7 @@ import { Plugin } from "@opencode/core/plugin"
+ import { PluginHooks } from "@opencode/core/plugin/hooks"
+ import { PluginSupervisor } from "@opencode/core/plugin/supervisor"
+ import { Tool } from "@opencode/core/tool"
++import { McpTool } from "@opencode/core/tool/mcp"
+ import { asc, eq } from "drizzle-orm"
+ import { Effect, Fiber, Layer, Schema, Stream } from "effect"
+ import { TestClock } from "effect/testing"
+@@ -162,6 +163,8 @@ const it = testEffect(
+       McpInstructions.node.replace(mcp),
+       PluginSupervisor.node.replace(Layer.empty),
+       Tool.node.replace(tools),
++      // This fixture supplies its own immutable tool snapshot, not live MCP registrations.
++      McpTool.node.replace(Layer.mock(McpTool.Service, { flush: Effect.void })),
+       Location.node.replace(Location.boundNode({ directory: AbsolutePath.make("/project") })),
+     ],
+   ),

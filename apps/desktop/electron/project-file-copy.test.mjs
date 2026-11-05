@@ -39,7 +39,7 @@ test("resolves newly server-created projects without requiring a desktop registr
     assert.equal((await copyFilesIntoProject(resolved, [source])).files[0].status, "copied");
     await assert.rejects(resolveProjectFolder("unknown-project", [], info), /Local project not found/);
     await assert.rejects(resolveProjectFolder("remote-project", [], info), /Local project not found/);
-    await assert.rejects(resolveProjectFolder("new-project", [{ id: "new-project", name: "Remote", preset: "starter", workspaceType: "remote", path: project }], info), /Local project not found/);
+    await assert.rejects(resolveProjectFolder("new-project", [{ id: "new-project", workspaceType: "remote", path: project }], info), /Local project not found/);
   } finally { await new Promise((resolve) => server.close(resolve)); }
 });
 

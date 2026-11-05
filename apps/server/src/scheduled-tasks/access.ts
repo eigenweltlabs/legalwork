@@ -1,5 +1,6 @@
 import { z } from "zod";
-import type { Agent, PermissionConfig } from "@opencode-ai/sdk/v2";
+import type { AgentInfo } from "@opencode/client";
+type PermissionConfig = string | Record<string, "allow" | "ask" | "deny" | Record<string, "allow" | "ask" | "deny">>;
 
 export const PROJECT_TASK_AGENT = "legalwork-scheduled-project";
 export const ALL_PROJECTS_TASK_AGENT = "legalwork-scheduled-all";
@@ -25,6 +26,8 @@ export const PROJECT_TASK_TOOLS = new Set([
   "legalwork_schedule_clock", "legalwork_schedule_projects", "legalwork_schedule_project_list", "legalwork_schedule_project_read",
   "legalwork_recordings_list", "legalwork_recording_read",
   "todowrite", "question",
+  // Native Code Mode routes only the separately permitted child tools.
+  "execute",
 ]);
 
 const actionSchema = z.enum(["allow", "ask", "deny"]);
@@ -48,11 +51,11 @@ export function projectTaskPermissions(input: unknown = {}): PermissionConfig {
 }
 
 /** Do not silently run unrestricted when an external or stale engine lacks our agent. */
-export function hasProjectTaskBoundary(agent: Pick<Agent, "name" | "permission"> | undefined) {
-  if (agent?.name !== PROJECT_TASK_AGENT) return false;
+export function hasProjectTaskBoundary(agent: Pick<AgentInfo, "id" | "permissions"> | undefined) {
+  if (agent?.id !== PROJECT_TASK_AGENT) return false;
   let boundary = -1;
-  agent.permission.forEach((rule, index) => { if (rule.permission === "*" && rule.pattern === "*" && rule.action === "deny") boundary = index; });
+  agent.permissions.forEach((rule, index) => { if (rule.action === "*" && rule.resource === "*" && rule.effect === "deny") boundary = index; });
   // The engine appends access to its tool-output folder. No native file/shell
   // tool is permitted here, so this supporting permission cannot expose data.
-  return boundary >= 0 && agent.permission.slice(boundary + 1).every(rule => rule.action === "deny" || rule.permission === "external_directory" || PROJECT_TASK_TOOLS.has(rule.permission));
+  return boundary >= 0 && agent.permissions.slice(boundary + 1).every(rule => rule.effect === "deny" || rule.action === "external_directory" || PROJECT_TASK_TOOLS.has(rule.action));
 }

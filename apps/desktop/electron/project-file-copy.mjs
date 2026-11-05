@@ -5,7 +5,9 @@ import path from "node:path";
 /** Resolve only registered local projects, including projects created by the
  * server after desktop startup. Never accept a destination path from renderer.
  * @param {string} workspaceId
- * @param {import("@legalwork/types/workspace").WorkspaceWire[]} desktopWorkspaces
+ * Accept only the fields needed for a local path; a stale legacy record must
+ * still be rejected before a renderer request can reach the filesystem.
+ * @param {Array<{ id: string; path: string; workspaceType?: string }>} desktopWorkspaces
  * @param {Pick<import("@legalwork/types/desktop-ipc").LegalworkServerInfo, "running" | "baseUrl" | "ownerToken" | "clientToken">} server
  */
 export async function resolveProjectFolder(workspaceId, desktopWorkspaces, server) {

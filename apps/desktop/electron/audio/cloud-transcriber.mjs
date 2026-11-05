@@ -1,9 +1,11 @@
 import { EventEmitter } from "node:events";
 import WebSocket from "ws";
 import { DeferredCloudSpeakerPass } from "./deferred-cloud-speakers.mjs";
+import { createDictationSpeechDetector } from "./dictation-speech.mjs";
 
 const RATE = 16000;
 const MAX_QUEUE = RATE * 2 * 30;
+const SPEECH_PREROLL = RATE * 2 * 2;
 const ROTATE_MS = 8 * 60_000;
 const SPEAKER_TIMEOUT_MS = 55_000;
 
@@ -23,7 +25,7 @@ export function pcm16(buffer) {
 
 /** Worker-compatible transport, so capture, shortcuts and transcript storage stay shared. */
 export class CloudTranscriber extends EventEmitter {
-  constructor({ modelId, language, resolveConnection, socketFactory = (url, options) => new WebSocket(url, options), rotateMs = ROTATE_MS, onSpeakerPass = null }) {
+  constructor({ modelId, language, resolveConnection, socketFactory = (url, options) => new WebSocket(url, options), rotateMs = ROTATE_MS, onSpeakerPass = null, createSpeechDetector = createDictationSpeechDetector }) {
     super();
     this.modelId = modelId;
     this.language = language;
@@ -31,6 +33,7 @@ export class CloudTranscriber extends EventEmitter {
     this.socketFactory = socketFactory;
     this.rotateMs = rotateMs;
     this.onSpeakerPass = onSpeakerPass;
+    this.createSpeechDetector = createSpeechDetector;
     this.streams = new Map();
     this.stopped = false;
   }
@@ -42,7 +45,11 @@ export class CloudTranscriber extends EventEmitter {
       const stream = { id: message.streamId, mode: message.ephemeral ? "dictation" : "meeting",
         queue: [], queuedBytes: 0, sentSamples: 0, ending: false, rotating: false,
         ready: false, finished: false, cancelled: false, socket: null, timer: null, timeout: null,
-        speakerPass: null };
+        speakerPass: null, speechDetector: null };
+      if (message.ephemeral && this.createSpeechDetector) {
+        try { stream.speechDetector = this.createSpeechDetector(); }
+        catch { console.warn("[transcription] Local speech detection unavailable; using cloud transcription."); }
+      }
       if (!message.ephemeral && message.diarize) {
         try {
           stream.speakerPass = new DeferredCloudSpeakerPass({
@@ -55,7 +62,7 @@ export class CloudTranscriber extends EventEmitter {
         }
       }
       this.streams.set(stream.id, stream);
-      void this.connect(stream);
+      if (!stream.speechDetector) void this.connect(stream);
     }
     const stream = this.streams.get(message.streamId);
     if (message.type === "pcm" && stream && !stream.cancelled && !stream.finished) {
@@ -67,18 +74,49 @@ export class CloudTranscriber extends EventEmitter {
         stream.queue.push(frame);
         stream.queuedBytes += frame.length;
       }
+      if (stream.speechDetector) {
+        let speech = true;
+        try { speech = stream.speechDetector.accept(message.buffer); }
+        catch { /* An unavailable detector must never discard speech. */ }
+        if (speech) {
+          stream.speechDetector = null;
+          void this.connect(stream);
+        } else {
+          // Retain the onset without accumulating minutes of leading silence.
+          while (stream.queuedBytes > SPEECH_PREROLL) {
+            const frame = stream.queue[0];
+            const trim = Math.min(frame.length, stream.queuedBytes - SPEECH_PREROLL);
+            if (trim === frame.length) stream.queue.shift();
+            else stream.queue[0] = frame.subarray(trim);
+            stream.queuedBytes -= trim;
+          }
+        }
+      }
       if (stream.queuedBytes + (stream.socket?.bufferedAmount ?? 0) > MAX_QUEUE) {
         this.fail(stream, "Cloud transcription could not keep up. Your recording is saved on this device.");
       } else this.flush(stream);
     }
     if (message.type === "finalize" && stream) {
       stream.ending = true;
-      this.flush(stream);
+      if (stream.speechDetector) {
+        let speech = true;
+        try { speech = stream.speechDetector.finish(); }
+        catch { /* Preserve the recording if local detection fails. */ }
+        stream.speechDetector = null;
+        if (!speech) { void this.finish(stream); return; }
+        void this.connect(stream);
+        return;
+      }
+      // A quick empty dictation has nothing to drain, even if connection
+      // setup is still pending. Never classify quiet PCM as empty audio.
+      if (stream.mode === "dictation" && stream.sentSamples === 0 && stream.queuedBytes === 0) void this.finish(stream);
+      else this.flush(stream);
     }
     if (message.type === "drop" && stream && !stream.cancelled) {
       stream.cancelled = true;
       stream.speakerPass?.stop();
       clearTimeout(stream.timer);
+      if (!stream.socket) { this.dispose(stream); return; }
       if (stream.ready) stream.socket.send(JSON.stringify({ type: "cancel" }));
       else stream.socket?.close();
       stream.timeout = setTimeout(() => this.dispose(stream), 25_000);
@@ -221,6 +259,7 @@ export class CloudTranscriber extends EventEmitter {
 
   dispose(stream) {
     stream.finished = true;
+    stream.speechDetector = null;
     stream.speakerPass?.stop();
     clearTimeout(stream.timer);
     clearTimeout(stream.timeout);

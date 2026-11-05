@@ -5,14 +5,19 @@ export type McpOAuthPhase = "idle" | "preparing" | "waiting" | "completing" | "s
 export type McpOAuthState = {
   phase: McpOAuthPhase;
   authorizationUrl?: string;
+  instructions?: string;
+  mode?: "auto" | "code";
+  manual?: boolean;
   error?: string;
   notice?: string;
 };
 
 export type McpOAuthDriver = {
-  start: () => Promise<{ authorizationUrl?: string }>;
-  complete: (code: string) => Promise<{ status: string; error?: string }>;
-  receiveCode?: (state: string) => Promise<{ code: string }>;
+  start: () => Promise<{ authorizationUrl?: string; expiresAt?: number; instructions?: string; mode?: "auto" | "code"; manual?: boolean }>;
+  complete: (code: string, response?: { iss?: string }) => Promise<{ status: string; error?: string }>;
+  receiveCode?: (state: string) => Promise<{ code: string; iss?: string }>;
+  /** Native attempts own callbacks and validate completion on the engine. */
+  wait?: () => Promise<{ status: string; error?: string }>;
   dispose: () => void | Promise<void>;
   notice?: string;
 };
@@ -93,12 +98,12 @@ export function createMcpOAuthFlow(options: {
     pending = result.then(() => {}, () => {});
     return result;
   };
-  const complete = async (attempt: Attempt, code: string) => {
+  const complete = async (attempt: Attempt, code: string, response?: { iss?: string }) => {
     if (current !== attempt || state.phase !== "waiting" || !attempt.driver) return;
     const driver = attempt.driver;
     publish({ ...state, phase: "completing", error: undefined });
     try {
-      const result = await enqueue(attempt, () => driver.complete(code));
+      const result = await enqueue(attempt, () => response?.iss ? driver.complete(code, response) : driver.complete(code));
       if (current !== attempt) return;
       if (result.status !== "connected") {
         throw new Error(result.error || t("mcp.auth.provider_did_not_finish"));
@@ -117,7 +122,7 @@ export function createMcpOAuthFlow(options: {
       const attempt: Attempt = { controller: new AbortController() };
       current = attempt;
       publish({ phase: "preparing" });
-      attempt.timer = setTimeout(() => fail(attempt, new Error(t("mcp.auth.sign_in_timed_out"))), options.timeoutMs ?? 5 * 60_000);
+      if (options.timeoutMs !== 0) attempt.timer = setTimeout(() => fail(attempt, new Error(t("mcp.auth.sign_in_timed_out"))), options.timeoutMs ?? 5 * 60_000);
       try {
         // Wait for an abandoned engine request before preparing another attempt.
         const driver = await enqueue(attempt, async () => {
@@ -139,12 +144,24 @@ export function createMcpOAuthFlow(options: {
         const url = new URL(auth.authorizationUrl);
         if (url.protocol !== "https:" && url.protocol !== "http:") throw new Error(t("mcp.auth.invalid_authorization_link"));
         const oauthState = url.searchParams.get("state");
-        if (!oauthState) throw new Error(t("mcp.auth.missing_oauth_state"));
-        publish({ phase: "waiting", authorizationUrl: url.href, notice: driver.notice });
+        if (!oauthState && !driver.wait) throw new Error(t("mcp.auth.missing_oauth_state"));
+        if (auth.expiresAt !== undefined) {
+          clearTimeout(attempt.timer);
+          attempt.timer = setTimeout(() => fail(attempt, new Error(t("mcp.auth.sign_in_timed_out"))), Math.max(0, auth.expiresAt - Date.now()));
+        }
+        publish({ phase: "waiting", authorizationUrl: url.href, instructions: auth.instructions, mode: auth.mode, manual: auth.manual, notice: driver.notice });
         // Register the callback before opening the browser (fast SSO can return immediately).
-        if (driver.receiveCode) {
+        if (driver.wait) {
+          void driver.wait().then(result => {
+            if (current !== attempt) return;
+            if (result.status !== "connected") { fail(attempt, new Error(result.error || t("mcp.auth.provider_did_not_finish"))); return; }
+            release(attempt);
+            publish({ phase: "success" });
+          }, error => fail(attempt, error));
+        }
+        if (driver.receiveCode && oauthState) {
           void driver.receiveCode(oauthState).then(
-            ({ code }) => complete(attempt, code),
+            ({ code, iss }) => complete(attempt, code, { iss }),
             (error: unknown) => fail(attempt, error),
           );
         }
@@ -173,7 +190,7 @@ export function createMcpOAuthFlow(options: {
       const attempt = current;
       try {
         const code = parseMcpOAuthCallback(input, state.authorizationUrl);
-        await complete(attempt, code);
+        await complete(attempt, code, /^https?:\/\//i.test(input.trim()) ? { iss: new URL(input.trim()).searchParams.get("iss") ?? undefined } : undefined);
       } catch (error) {
         if (current === attempt) publish({ ...state, error: getMcpOAuthErrorMessage(error) });
       }

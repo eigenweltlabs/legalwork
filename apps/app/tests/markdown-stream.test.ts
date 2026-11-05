@@ -21,7 +21,7 @@ test("document chunks appear before saving and only completion commits the exact
 test("projects stay isolated; cancellation retains an unsaved preview and rejects later appends", async () => {
   await writeMarkdownChunk(input);
   await writeMarkdownChunk({ ...input, workspaceId: "project-b", sessionId: "task-b", content: "B" });
-  applyMarkdownStreamEvent("project-a", { type: "session.idle", properties: { sessionID: "task-a" } });
+  applyMarkdownStreamEvent("project-a", { type: "session.idle", data: { sessionID: "task-a" } });
   expect(item().status).toBe("failed");
   expect(Object.values(useMarkdownStreams.getState().items)[1].status).toBe("writing");
   await expect(writeMarkdownChunk({ ...input, append: true, complete: true })).rejects.toThrow("No active draft");

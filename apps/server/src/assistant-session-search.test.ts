@@ -10,13 +10,12 @@ test("session search pages beyond recent history across 500 projects and exclude
   const root = await mkdtemp(join(tmpdir(), "assistant-search-")), prior = process.env.OPENCODE_DB;
   process.env.OPENCODE_DB = join(root, "engine.db");
   const db = new Database(process.env.OPENCODE_DB);
-  db.exec("CREATE TABLE session (id TEXT PRIMARY KEY, title TEXT, directory TEXT, time_archived INTEGER); CREATE TABLE message (id TEXT PRIMARY KEY, data TEXT); CREATE TABLE part (id TEXT PRIMARY KEY, session_id TEXT, message_id TEXT, time_created INTEGER, data TEXT)");
+  db.exec("CREATE TABLE session_v2 (id TEXT PRIMARY KEY, title TEXT, directory TEXT, time_archived INTEGER); CREATE TABLE session_message (id TEXT PRIMARY KEY, session_id TEXT, time_created INTEGER, type TEXT, data TEXT)");
   const workspaces: WorkspaceInfo[] = Array.from({ length: 500 }, (_, i) => ({ id: `p-${i}`, name: `Project ${i}`, path: join(root, `project-${i}`), preset: "starter", workspaceType: "local" }));
   const config: ServerConfig = { host: "127.0.0.1", port: 0, token: "fixture", hostToken: "host", workspaces, authorizedRoots: [root], approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: [], readOnly: false, startedAt: 0, tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false };
-  const session = (id: string, path: string, archived: number | null = null) => db.query("INSERT INTO session VALUES (?, ?, ?, ?)").run(id, id, path, archived);
-  const part = (id: string, sessionId: string, time: number, data: unknown) => {
-    db.query("INSERT INTO message VALUES (?, ?)").run(id, JSON.stringify({ role: "assistant" }));
-    db.query("INSERT INTO part VALUES (?, ?, ?, ?, ?)").run(id, sessionId, id, time, JSON.stringify(data));
+  const session = (id: string, path: string, archived: number | null = null) => db.query("INSERT INTO session_v2 VALUES (?, ?, ?, ?)").run(id, id, path, archived);
+  const part = (id: string, sessionId: string, time: number, data: { type: string; text?: string; synthetic?: boolean; state?: { output: string } }) => {
+    db.query("INSERT INTO session_message VALUES (?, ?, ?, ?, ?)").run(id, sessionId, time, "assistant", JSON.stringify({ metadata: { legalworkSystemReminder: Boolean(data.synthetic) }, content: [data.type === "tool" ? { ...data, state: { content: [{ type: "text", text: data.state?.output }] } } : data] }));
   };
   try {
     session("today", workspaces[0].path); session("old-day", workspaces[499].path, 0);

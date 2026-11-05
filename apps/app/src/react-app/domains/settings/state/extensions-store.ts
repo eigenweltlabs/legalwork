@@ -176,7 +176,7 @@ export function createExtensionsStore(options: {
   projectDir: () => string;
   selectedWorkspaceId: () => string;
   selectedWorkspaceRoot: () => string;
-  workspaceType: () => "local" | "remote";
+  workspaceType: () => "local";
   legalworkServer: LegalworkServerStore;
   legalworkServerConnection?: () => {
     legalworkServerClient: LegalworkServerClient | null;
@@ -359,8 +359,6 @@ export function createExtensionsStore(options: {
     description: string,
     optionsOverride?: { overwrite?: boolean },
   ) => {
-    const isRemoteWorkspace = options.workspaceType() === "remote";
-    const isLocalWorkspace = options.workspaceType() === "local";
     const root = options.selectedWorkspaceRoot().trim();
     const { legalworkSnapshot, legalworkClient, legalworkWorkspaceId, hasLegalworkTarget } =
       await resolveWorkspaceServerTarget();
@@ -390,16 +388,10 @@ export function createExtensionsStore(options: {
       return;
     }
 
-    if (isRemoteWorkspace) {
-      throw new Error(t("extensions.server_unavailable_import_skills"));
-    }
-
     throw new Error(t("skills.desktop_required"));
   };
 
   const deleteWorkspaceSkill = async (name: string) => {
-    const isRemoteWorkspace = options.workspaceType() === "remote";
-    const isLocalWorkspace = options.workspaceType() === "local";
     const root = options.selectedWorkspaceRoot().trim();
     const { legalworkSnapshot, legalworkClient, legalworkWorkspaceId, hasLegalworkTarget } =
       await resolveWorkspaceServerTarget();
@@ -419,10 +411,6 @@ export function createExtensionsStore(options: {
     if (canUseLegalworkServer && legalworkClient && legalworkWorkspaceId) {
       await legalworkClient.deleteSkill(legalworkWorkspaceId, name);
       return;
-    }
-
-    if (isRemoteWorkspace) {
-      throw new Error(t("extensions.server_unavailable_remove_skills"));
     }
 
     throw new Error(t("skills.desktop_required"));
@@ -679,7 +667,6 @@ export function createExtensionsStore(options: {
     const repo = snapshot.hubRepo;
     if (!repo) return { ok: false, message: t("extensions.select_hub_repo") };
 
-    const isRemoteWorkspace = options.workspaceType() === "remote";
     const { legalworkSnapshot, legalworkClient, legalworkWorkspaceId, hasLegalworkTarget } =
       await resolveWorkspaceServerTarget();
     const canUseLegalworkServer =
@@ -687,7 +674,7 @@ export function createExtensionsStore(options: {
       legalworkSnapshot.legalworkServerCapabilities?.hub?.skills?.install !== false;
 
     if (!canUseLegalworkServer) {
-      if (isRemoteWorkspace) return { ok: false, message: t("extensions.server_unavailable_install_skills") };
+
       return { ok: false, message: t("extensions.hub_install_requires_server") };
     }
 
@@ -816,7 +803,7 @@ export function createExtensionsStore(options: {
 
   async function refreshSkillsOnce(optionsOverride?: { force?: boolean }) {
     const root = options.selectedWorkspaceRoot().trim();
-    const isLocalWorkspace = options.workspaceType() === "local";
+
     const { legalworkSnapshot, legalworkClient, legalworkWorkspaceId, hasLegalworkTarget } =
       await resolveWorkspaceServerTarget();
     const canUseLegalworkServer =
@@ -825,7 +812,7 @@ export function createExtensionsStore(options: {
 
     // Desktop: skills are GLOBAL — list from the shared skills dir (empty projectDir) so
     // the same set shows in every workspace, with no workspace selection required.
-    if (isDesktopRuntime() && options.workspaceType() !== "remote") {
+    if (isDesktopRuntime()) {
       if (skillsRoot !== "__global__") skillsLoaded = false;
       if (!optionsOverride?.force && skillsLoaded) return;
       if (refreshSkillsInFlight) return;
@@ -930,7 +917,7 @@ export function createExtensionsStore(options: {
       return;
     }
 
-    if (isLocalWorkspace && isDesktopRuntime()) {
+    if (isDesktopRuntime()) {
       if (root !== skillsRoot) skillsLoaded = false;
       if (!optionsOverride?.force && skillsLoaded) return;
       if (refreshSkillsInFlight) return;
@@ -1202,8 +1189,6 @@ export function createExtensionsStore(options: {
   }
 
   async function refreshPlugins(scopeOverride?: PluginScope) {
-    const isRemoteWorkspace = options.workspaceType() === "remote";
-    const isLocalWorkspace = options.workspaceType() === "local";
     const { legalworkSnapshot, legalworkClient, legalworkWorkspaceId, hasLegalworkTarget } =
       await resolveWorkspaceServerTarget();
     const canUseLegalworkServer =
@@ -1217,23 +1202,11 @@ export function createExtensionsStore(options: {
     const scope = scopeOverride ?? snapshot.pluginScope;
     const targetDir = options.projectDir().trim();
 
-    if (scope !== "project" && !isLocalWorkspace) {
-      mutateState((current) => ({
-        ...current,
-        pluginStatus: t("extensions.global_plugins_local_only"),
-        pluginList: [],
-        sidebarPluginStatus: t("extensions.global_plugins_need_local"),
-        sidebarPluginList: [],
-      }));
-      refreshPluginsInFlight = false;
-      return;
-    }
-
     if (scope === "project" && canUseLegalworkServer && legalworkClient && legalworkWorkspaceId) {
       mutateState((current) => ({
         ...current,
         pluginConfig: null,
-        pluginConfigPath: `opencode.json (${isRemoteWorkspace ? "remote" : "legalwork"} server)`,
+        pluginConfigPath: "opencode.json (legalwork server)",
       }));
 
       try {
@@ -1284,18 +1257,6 @@ export function createExtensionsStore(options: {
         pluginStatus: t("skills.plugin_management_host_only"),
         pluginList: [],
         sidebarPluginStatus: t("skills.plugins_host_only"),
-        sidebarPluginList: [],
-      }));
-      refreshPluginsInFlight = false;
-      return;
-    }
-
-    if (!isLocalWorkspace && !canUseLegalworkServer) {
-      mutateState((current) => ({
-        ...current,
-        pluginStatus: t("extensions.server_unavailable_plugins"),
-        pluginList: [],
-        sidebarPluginStatus: t("extensions.connect_server_plugins"),
         sidebarPluginList: [],
       }));
       refreshPluginsInFlight = false;
@@ -1383,7 +1344,6 @@ export function createExtensionsStore(options: {
     const isManualInput = pluginNameOverride == null;
     const triggerName = stripPluginVersion(pluginName);
 
-    const isLocalWorkspace = options.workspaceType() === "local";
     const { legalworkSnapshot, legalworkClient, legalworkWorkspaceId, hasLegalworkTarget } =
       await resolveWorkspaceServerTarget();
     const canUseLegalworkServer =
@@ -1392,11 +1352,6 @@ export function createExtensionsStore(options: {
 
     if (!pluginName) {
       if (isManualInput) setStateField("pluginStatus", t("skills.enter_plugin_name"));
-      return;
-    }
-
-    if (snapshot.pluginScope !== "project" && !isLocalWorkspace) {
-      setStateField("pluginStatus", t("extensions.global_plugins_local_only"));
       return;
     }
 
@@ -1420,11 +1375,6 @@ export function createExtensionsStore(options: {
 
     if (!isDesktopRuntime()) {
       setStateField("pluginStatus", t("skills.plugin_management_host_only"));
-      return;
-    }
-
-    if (!isLocalWorkspace) {
-      setStateField("pluginStatus", t("extensions.server_unavailable_plugins"));
       return;
     }
 
@@ -1479,17 +1429,11 @@ export function createExtensionsStore(options: {
       return;
     }
 
-    const isLocalWorkspace = options.workspaceType() === "local";
     const { legalworkSnapshot, legalworkClient, legalworkWorkspaceId, hasLegalworkTarget } =
       await resolveWorkspaceServerTarget();
     const canUseLegalworkServer =
       hasLegalworkTarget &&
       legalworkSnapshot.legalworkServerCapabilities?.plugins?.write !== false;
-
-    if (snapshot.pluginScope !== "project" && !isLocalWorkspace) {
-      setStateField("pluginStatus", t("extensions.global_plugins_local_only"));
-      return;
-    }
 
     if (snapshot.pluginScope === "project" && canUseLegalworkServer && legalworkClient && legalworkWorkspaceId) {
       try {
@@ -1510,11 +1454,6 @@ export function createExtensionsStore(options: {
 
     if (!isDesktopRuntime()) {
       setStateField("pluginStatus", t("skills.plugin_management_host_only"));
-      return;
-    }
-
-    if (!isLocalWorkspace) {
-      setStateField("pluginStatus", t("extensions.server_unavailable_plugins"));
       return;
     }
 
@@ -1554,7 +1493,7 @@ export function createExtensionsStore(options: {
 
   async function importStandaloneSkills(request: PluginImportRequest) {
     const target = await pluginImportTarget();
-    const globalRequest: PluginImportRequest = { ...request, scope: "global" };
+    const globalRequest: PluginImportRequest = { ...request, scope: "global", detectFormat: true };
     const previews = (await target.client.previewPluginImports(target.id, globalRequest)).items;
     if (previews.length !== 1 || previews[0]?.components.some(item => item.type !== "skill")) throw new Error(t("extensions.import_no_components"));
     const preview = previews[0]!;
@@ -1619,8 +1558,6 @@ export function createExtensionsStore(options: {
   }
 
   async function installSkillCreator(): Promise<{ ok: boolean; message: string }> {
-    const isRemoteWorkspace = options.workspaceType() === "remote";
-    const isLocalWorkspace = options.workspaceType() === "local";
     const { legalworkSnapshot, legalworkClient, legalworkWorkspaceId, hasLegalworkTarget } =
       await resolveWorkspaceServerTarget();
     const canUseLegalworkServer =
@@ -1655,19 +1592,8 @@ export function createExtensionsStore(options: {
       return { ok: false, message };
     }
 
-    if (isRemoteWorkspace) {
-      const message = t("extensions.server_unavailable_install_skills");
-      setStateField("skillsStatus", message);
-      return { ok: false, message };
-    }
     if (!isDesktopRuntime()) {
       const message = t("skills.desktop_required");
-      setStateField("skillsStatus", message);
-      return { ok: false, message };
-    }
-    if (!isLocalWorkspace) {
-      const message = t("extensions.local_workers_required_install");
-      options.setError(message);
       setStateField("skillsStatus", message);
       return { ok: false, message };
     }
@@ -1771,8 +1697,7 @@ export function createExtensionsStore(options: {
     const trimmed = name.trim();
     if (!trimmed) return null;
     const root = options.selectedWorkspaceRoot().trim();
-    const isRemoteWorkspace = options.workspaceType() === "remote";
-    const isLocalWorkspace = options.workspaceType() === "local";
+
     const { legalworkSnapshot, legalworkClient, legalworkWorkspaceId, hasLegalworkTarget } =
       await resolveWorkspaceServerTarget();
     const canUseLegalworkServer =
@@ -1800,16 +1725,8 @@ export function createExtensionsStore(options: {
       return null;
     }
 
-    if (isRemoteWorkspace) {
-      setStateField("skillsStatus", "LegalWork server unavailable. Connect to view skills.");
-      return null;
-    }
     if (!isDesktopRuntime()) {
       setStateField("skillsStatus", t("skills.desktop_required"));
-      return null;
-    }
-    if (!isLocalWorkspace) {
-      setStateField("skillsStatus", "Local workers are required to view skills.");
       return null;
     }
 
@@ -1827,8 +1744,7 @@ export function createExtensionsStore(options: {
     const trimmed = input.name.trim();
     if (!trimmed) throw new Error(t("extensions.skill_name_required"));
     const root = options.selectedWorkspaceRoot().trim();
-    const isRemoteWorkspace = options.workspaceType() === "remote";
-    const isLocalWorkspace = options.workspaceType() === "local";
+
     const { legalworkSnapshot, legalworkClient, legalworkWorkspaceId, hasLegalworkTarget } =
       await resolveWorkspaceServerTarget();
     const canUseLegalworkServer =
@@ -1869,17 +1785,9 @@ export function createExtensionsStore(options: {
       throw new Error(t("skills.pick_workspace_first"));
     }
 
-    if (isRemoteWorkspace) {
-      setStateField("skillsStatus", "LegalWork server unavailable. Connect to edit skills.");
-      throw new Error("LegalWork server unavailable. Connect to edit skills.");
-    }
     if (!isDesktopRuntime()) {
       setStateField("skillsStatus", t("skills.desktop_required"));
       throw new Error(t("skills.desktop_required"));
-    }
-    if (!isLocalWorkspace) {
-      setStateField("skillsStatus", "Local workers are required to edit skills.");
-      throw new Error("Local workers are required to edit skills.");
     }
 
     options.setBusy(true);
@@ -1911,8 +1819,7 @@ export function createExtensionsStore(options: {
     const trimmed = input.name.trim();
     if (!trimmed) return { ok: false, message: t("extensions.skill_name_required") };
     const root = options.selectedWorkspaceRoot().trim();
-    const isRemoteWorkspace = options.workspaceType() === "remote";
-    const isLocalWorkspace = options.workspaceType() === "local";
+
     const { legalworkSnapshot, legalworkClient, legalworkWorkspaceId, hasLegalworkTarget } =
       await resolveWorkspaceServerTarget();
     const canUseLegalworkServer =
@@ -1979,18 +1886,9 @@ export function createExtensionsStore(options: {
       setStateField("skillsStatus", message);
       return { ok: false, message };
     }
-    if (isRemoteWorkspace) {
-      const message = t("extensions.server_unavailable_create_skills");
-      setStateField("skillsStatus", message);
-      return { ok: false, message };
-    }
+
     if (!isDesktopRuntime()) {
       const message = t("skills.desktop_required");
-      setStateField("skillsStatus", message);
-      return { ok: false, message };
-    }
-    if (!isLocalWorkspace) {
-      const message = t("extensions.local_workers_required_create");
       setStateField("skillsStatus", message);
       return { ok: false, message };
     }

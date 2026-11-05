@@ -4,7 +4,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startServer } from "./server.js";
 import { modelCatalogFor, startModelCatalogRelay } from "./model-catalog.js";
-import { TokenService } from "./tokens.js";
 import type { ServerConfig } from "./types.js";
 
 test("authenticated Privacy changes gate the running engine relay and survive a new server instance", async () => {
@@ -29,10 +28,10 @@ test("authenticated Privacy changes gate the running engine relay and survive a 
     const headers = { Authorization: `Bearer ${config.token}`, "Content-Type": "application/json" };
     expect((await fetch(`${baseURL}/model-catalog/settings`)).status).toBe(401);
     expect(await (await fetch(`${baseURL}/model-catalog/settings`, { headers })).json()).toEqual({ onlineUpdatesEnabled: true });
-    const viewer = await new TokenService(config).create("viewer");
+    const retiredViewer = "owt_retired_viewer";
     expect((await fetch(`${baseURL}/model-catalog/settings`, {
-      method: "PUT", headers: { ...headers, Authorization: `Bearer ${viewer.token}` }, body: JSON.stringify({ onlineUpdatesEnabled: false }),
-    })).status).toBe(403);
+      method: "PUT", headers: { ...headers, Authorization: `Bearer ${retiredViewer}` }, body: JSON.stringify({ onlineUpdatesEnabled: false }),
+    })).status).toBe(401);
     expect((await fetch(`${baseURL}/model-catalog/settings`, { method: "PUT", headers, body: JSON.stringify({ onlineUpdatesEnabled: "false" }) })).status).toBe(400);
     expect(await (await fetch(`${relay.url}/api.json`)).json()).toEqual(registry);
     expect(requests).toBe(1);

@@ -1,5 +1,16 @@
+import { readChannelProvider } from "./channel-model.js";
+import { legalworkAssistantToolsPluginPath } from "./legalwork-extensions-plugin-path.js";
 import { PROJECT_TASK_AGENT, ALL_PROJECTS_TASK_AGENT, projectTaskPermissions, allProjectTaskPermissions } from "./scheduled-tasks/access.js";
 import { readSystemOneSettings } from "./systemone.js";
+import { nativeOpencodeConfig } from "./native-opencode-config.js";
+import { engineStorageDir } from "./engine-storage.js";
+import { runtimeDbPath } from "./runtime-db.js";
+import { embeddedNativePluginBundle } from "./native-plugin-assets.js";
+import { resolveCapabilityLibrary } from "./capability-library.js";
+import { managedSettingsFileSchema, type ManagedSettingsFile } from "./managed-engine-settings.js";
+import { legalworkPluginPath } from "./legalwork-extensions-plugin-path.js";
+import { archiveNativeProjectProjection, nativeEngineProjectRegistryPath, writeNativeEngineProjectRegistry, writeNativeProjectProjection } from "./engine-project.js";
+import { approvedNativePluginIdentities, approveNativePluginTargets, managedNativePluginTargets, nativePluginIdentity } from "./native-project-plugins.js";
 /**
  * Runtime OpenCode configuration injected via a server-managed config file
  * passed to the engine as OPENCODE_CONFIG.
@@ -14,15 +25,17 @@ import { readSystemOneSettings } from "./systemone.js";
  * runtime-DB write — unlike the previous OPENCODE_CONFIG_CONTENT env var,
  * which was frozen at spawn and reverted MCP state on each dispose.
  */
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { link, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { writeGeneratedConfigFile } from "./generated-config-file.js";
 import { statSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
-import { listSkills } from "./skills.js";
-import { pathToFileURL } from "node:url";
+import { listGlobalSkills, listSkills } from "./skills.js";
+import { commonManagedConfiguration } from "./managed-config-sources.js";
+import { prepareManagedGlobalLibrary } from "./managed-global-library.js";
+import { managedCoreLibraryRoot, managedCoreConfiguration, prepareManagedCoreLibrary } from "./managed-core-library.js";
 import { createHash, randomUUID } from "node:crypto";
 import {
   legalworkExtensionsPreviewPluginPath,
-  legalworkChromeDevtoolsPluginPath,
   legalworkSandboxPluginPath,
   legalworkCapabilitiesKnowledgePluginPath,
   legalworkLegalMemoryKnowledgePluginPath,
@@ -36,7 +49,6 @@ import {
   legalworkCalendarToolsPluginPath,
   legalworkDraftToolsPluginPath,
   legalworkScheduledTaskToolsPluginPath,
-  legalworkAssistantToolsPluginPath,
   legalworkProjectToolsPluginPath,
   legalworkToolOutputPluginPath,
   legalworkReviewToolsPluginPath,
@@ -80,9 +92,8 @@ import {
 import { eigenweltHasPremiumModels } from "./eigenwelt-auth.js";
 import { readEigenweltConnection } from "./eigenwelt-connection-store.js";
 import { repairRuntimeProviders } from "./runtime-provider-repair.js";
-import { sandboxEngineAgents, sandboxEnginePermissions } from "./agent-sandbox/engine-policy.js";
+import { nativeHostExecutionActions } from "./agent-sandbox/engine-policy.js";
 import { REVIEW_AGENT, reviewAgentConfig } from "./reviews/agent.js";
-import { readChannelProvider } from "./channel-model.js";
 
 const LEGALWORK_AGENT_PROMPT = `You are LegalWork — an AI agent that works alongside legal professionals inside a law firm.
 
@@ -94,7 +105,7 @@ Your job:
 - Automate repeatable firm work.
 - Keep behavior portable and reproducible.
 
-You are a full agentic coding and computer-use agent, and that power is yours to use. You can read, write, and edit files; run code and shell commands; use the browser and the computer; build and preview artifacts; and call, compose, and author skills and subagents. Use these capabilities directly to get the job done — don't claim you can't do something you have the tools for.
+You are a fully capable computer-use agent for legal and operational work. You can read, write, and edit files; run code and shell commands; use the browser and the computer; build and preview artifacts; and call, compose, and author skills and subagents. Use these capabilities directly to get the job done — don't claim you can't do something you have the tools for.
 
 ## How you work as a legal professional
 
@@ -139,7 +150,7 @@ LegalWork can preview, edit, and download standard artifacts when you create or 
 
 - Prefer standard output files for user-visible deliverables: Markdown (.md), Word documents (.docx), CSV (.csv), Excel workbooks (.xlsx), PowerPoint decks (.pptx), and browser previews (index.html or a local http://localhost:<port> URL). Legal deliverables — memos, redlined contracts, and document-review tables — are first-class.
 - After creating or updating an artifact, mention the exact workspace-relative file path in your final response, for example reports/diligence-summary.md or reviews/nda-review.html.
-- Read and inspect documents through direct file/document tools without changing the user's UI. Do not open source files or navigate to chats just to read them. Use matching inapp_* tools for an already-open live draft, preserving unsaved edits. Open a working document only when explicitly requested or when a project chat needs the live editor for a requested edit. In the main Assistant, opening/selecting files or navigating is allowed only on the user's explicit request. Share a file card to offer a deliverable without opening it.
+- For document, spreadsheet and presentation work, open the working file with inapp_documents_open before reading/editing it, then use the matching live inapp_* tools. For a new deliverable based on a template, use its copy_to option to create and open a separate workspace copy. An empty viewer means open the file, not switch to Python. Use a file pipeline only for an unsupported operation, an unavailable editor, or an explicit user request, and reopen the result for review.
 - Do not invent Workspace/<id>/... paths unless a tool returns them; prefer clean workspace-relative paths.
 - For websites or React/UI previews, start the dev server when useful and mention the http://localhost:<port> URL.
 - For spreadsheets, use .csv for simple tabular data and .xlsx when the user asks for Excel/XLS specifically.
@@ -162,35 +173,43 @@ LegalWork can preview, edit, and download standard artifacts when you create or 
 - After starting, end the turn with at most one short sentence in the user's language, such as "Review started." or "Prüfung gestartet." Never refer to the card as above or below; its placement can change. Do not narrate setup, enumerate columns or settings, add a Markdown table, or offer follow-up work. Report real blockers briefly.
 - When asked for results, call \`legalwork_review_results\` with the known review ID directly. Default overview gives full-scope counts/distributions; use answers for document-specific findings and evidence for exact sources and probabilities. Use its server-side filters, search and typed comparisons. Do not invent a revision or offset: continue with only the review ID and returned cursor. Respect coverage and read free-text answers before summarizing them. Never read internal result/tool-output files or run shell commands to retrieve review findings. Once the requested information is available, answer concisely and stop.`;
 
-// The bundled plugins live at absolute paths on disk. OpenCode loads each
-// plugin spec with a dynamic import(), and Node only accepts a `file://` URL
-// for an absolute path: a bare Windows path like `C:\…\plugin.js` is read as a
-// URL with a `c:` scheme and throws ERR_UNSUPPORTED_ESM_URL_SCHEME, which fails
-// the whole config load (providers won't list, tasks won't start). POSIX
-// absolute paths happen to import cleanly, which is why this only bit Windows.
-// Emit `file://` URLs so import() works on every platform — the same
-// convention used for directory plugins in plugins.ts.
+// Native configured plugins are directories. The released host resolves their
+// entrypoints and supplies its own plugin/effect runtime on every platform.
 async function bundledPluginSpec(absolutePath: string, config?: ServerConfig): Promise<string> {
   if (config && absolutePath.endsWith(".js")) {
     // Bundled plugins are standalone. Give changed code a new physical path:
     // the engine can retain imported modules across workspace disposal, even
     // when the file URL's query changes. Never relocate unbundled TS sources.
-    const content = await readFile(absolutePath);
+    const content = await readFile(absolutePath).catch(error => {
+      if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+      const embedded = embeddedNativePluginBundle(basename(dirname(absolutePath)));
+      if (embedded === undefined) throw error;
+      return Buffer.from(embedded);
+    });
     const hash = createHash("sha256").update(content).digest("hex");
     const directory = join(runtimeStorageDir(config), "bundled-plugins", hash);
     const destination = join(directory, basename(absolutePath));
     await mkdir(directory, { recursive: true });
+    const existing = await readFile(destination).catch(error => {
+      if (error instanceof Error && "code" in error && error.code === "ENOENT") return undefined;
+      throw error;
+    });
+    if (existing !== undefined) {
+      if (!existing.equals(content)) throw new Error("An immutable LegalWork plugin bundle was changed outside the application.");
+      return dirname(destination);
+    }
     const temporary = `${destination}.${randomUUID()}.tmp`;
-    await writeFile(temporary, content);
-    await rename(temporary, destination);
-    return pathToFileURL(destination).href;
+    try {
+      await writeFile(temporary, content, { mode: 0o600 });
+      try { await link(temporary, destination); }
+      catch (error) {
+        if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) throw error;
+        if (!(await readFile(destination)).equals(content)) throw new Error("An immutable LegalWork plugin bundle was changed outside the application.");
+      }
+    } finally { await rm(temporary, { force: true }); }
+    return dirname(destination);
   }
-  const url = pathToFileURL(absolutePath);
-  // Disposing an OpenCode workspace does not clear the JS module cache.
-  // A rebuilt bundled plugin must get a new import URL to expose its new tools.
-  const { mtimeMs, size } = statSync(absolutePath);
-  url.searchParams.set("v", `${mtimeMs}-${size}`);
-  return url.href;
+  return dirname(absolutePath);
 }
 
 // Tool permissions are global (one safety posture across workspaces);
@@ -204,10 +223,10 @@ async function memberRuntimeConfig(config?: ServerConfig, workspaceId?: string):
     : {};
 }
 
-export async function buildLegalworkRuntimeConfigObject(
+export async function buildLegalworkRuntimeSettings(
   config?: ServerConfig,
   workspaceId?: string,
-): Promise<Record<string, unknown>> {
+) {
   const runtimeConfig = await memberRuntimeConfig(config, workspaceId);
   const personalization = config
     ? await readGlobalPersonalizationSettings(config)
@@ -249,13 +268,13 @@ export async function buildLegalworkRuntimeConfigObject(
   // all models disabled). Never resurrect a stale per-workspace paid model.
   if (paidManifest) delete storedProviders[EIGENWELT_PROVIDER_ID];
   const providerMap = {
+    ...(await readChannelProvider()),
     // Never let a retired or unparsable stored block reach the engine: it
     // would invalidate this whole file. The startup repair also removes such
     // blocks from the DB and notifies the app.
     ...storedProviders,
     // Global injection wins over any stale per-workspace eigenwelt block.
     ...(paidProvider ? { [EIGENWELT_PROVIDER_ID]: paidProvider } : {}),
-    ...(await readChannelProvider()),
   };
   // The firm's tool permissions apply over the member's own.
   const { permission } = config
@@ -281,13 +300,9 @@ export async function buildLegalworkRuntimeConfigObject(
     // continue within the user's boundaries instead of silently ending the turn.
     experimental: { continue_loop_on_deny: true },
     tools: { legalwork_jev_corpus_question: jevSearchEnabled },
-    ...(config?.agentSandboxEnabled ? { lsp: false, formatter: false,
-      // Restore skill content discovery without allowing project configuration
-      // to load executable plugins into the host engine.
-      skills: { paths: workspace ? (await listSkills(workspace.path, true)).map((skill) => dirname(skill.path)) : [] },
-    } : {}),
+    skills: { paths: workspace ? (config?.engineConfigurationMode === "managed" ? await listGlobalSkills() : await listSkills(workspace.path, true)).map((skill) => dirname(skill.path)) : [] },
     provider: providerMap,
-    default_agent: runtimeConfig.default_agent ?? "legalwork",
+    default_agent: runtimeConfig.default_agent,
     agent: {
       ...runtimeAgentMap(runtimeConfig),
       [REVIEW_AGENT]: reviewAgentConfig(),
@@ -309,7 +324,6 @@ export async function buildLegalworkRuntimeConfigObject(
       },
     },
     plugin: (await Promise.all([
-      bundledPluginSpec(legalworkChromeDevtoolsPluginPath(), config),
       bundledPluginSpec(legalworkExtensionsPreviewPluginPath(), config),
       bundledPluginSpec(legalworkCapabilitiesKnowledgePluginPath(), config),
       bundledPluginSpec(legalworkLegalMemoryKnowledgePluginPath(), config),
@@ -341,16 +355,68 @@ export async function buildLegalworkRuntimeConfigObject(
       ? await allowedMemberConnectors(config, { ...sharedMcp, ...runtimeMcpMap(runtimeConfig) })
       : { ...sharedMcp, ...runtimeMcpMap(runtimeConfig) },
   };
-  if (config?.agentSandboxEnabled) {
-    return { ...result, permission: sandboxEnginePermissions(result.permission), agent: sandboxEngineAgents(result.agent) };
+  const { config: normalized, ...native } = nativeOpencodeConfig(result);
+  const core = config?.engineConfigurationMode === "managed" ? managedCoreConfiguration() : undefined;
+  const configuration = core ? { ...normalized, agents: { ...core.config.agents, ...normalized.agents }, commands: { ...core.config.commands, ...normalized.commands } } : normalized;
+  native.agentRequests = { ...core?.agentRequests, ...native.agentRequests };
+  const firmFilters = config ? nativeOpencodeConfig(await buildOrgPolicyEngineLayer(config, { permission: { ...runtimeConfig.permission } })).modelFilters : {};
+  // A member selection may narrow the firm's catalog, never expand it. These
+  // legacy filters also guard explicit requests, not only catalog display.
+  for (const [id, firm] of Object.entries(firmFilters)) {
+    const member = native.modelFilters[id];
+    native.modelFilters[id] = {
+      allow: firm.allow === undefined ? member?.allow
+        : member?.allow === undefined ? firm.allow : firm.allow.filter(model => member.allow?.includes(model)),
+      deny: [...new Set([...firm.deny ?? [], ...member?.deny ?? []])],
+    };
   }
-  return result;
+  const library = workspace ? await resolveCapabilityLibrary(workspace.path, config?.engineConfigurationMode === "managed", config?.engineConfigurationMode === "managed" ? managedCoreLibraryRoot(config) : undefined) : { nativeSkills: [] };
+  const providerActivation = { ...runtimeConfig.providerActivation };
+  // The firm's own providers remain enabled, as before the migration.
+  for (const id of firmProviderIds) delete providerActivation[id];
+  const filteredProviders = Object.fromEntries(Object.entries(configuration.providers ?? {}).map(([id, provider]) => {
+    const filter = native.modelFilters[id];
+    if (!filter || !provider.models) return [id, provider];
+    return [id, { ...provider, models: Object.fromEntries(Object.entries(provider.models).map(([modelID, model]) => [modelID,
+      filter.allow && !filter.allow.includes(modelID) || filter.deny?.includes(modelID) ? { ...model, disabled: true } : model])) }];
+  }));
+  return { configuration: { ...configuration, providers: filteredProviders,
+    policies: [...configuration.policies ?? [], ...Object.entries(providerActivation).map(([resource, effect]) => ({ action: "provider.use", resource, effect }))] },
+    ...native, providerActivation, skills: library.nativeSkills };
+}
+
+export async function buildLegalworkRuntimeConfigObject(config?: ServerConfig, workspaceId?: string): Promise<Record<string, unknown>> {
+  return { ...(await buildLegalworkRuntimeSettings(config, workspaceId)).configuration };
 }
 
 /** The firm's enforced engine layer, against the member's own settings of `workspaceId`. */
 export async function buildOrgPolicyEngineLayerFor(config: ServerConfig, workspaceId: string): Promise<Record<string, unknown>> {
   const own = await memberRuntimeConfig(config, workspaceId);
-  return buildOrgPolicyEngineLayer(config, { permission: { ...own.permission } });
+  const layer = nativeOpencodeConfig(await buildOrgPolicyEngineLayer(config, { permission: { ...own.permission } })).config;
+  const targets = async (path: string) => {
+    let value: unknown;
+    try { value = JSON.parse(await readFile(path, "utf8")); }
+    catch (error) {
+      if (error instanceof Error && "code" in error && error.code === "ENOENT") return [];
+      throw error;
+    }
+    if (!value || typeof value !== "object" || !("plugins" in value) || !Array.isArray(value.plugins)) return [];
+    return value.plugins.flatMap(plugin => typeof plugin === "string" ? plugin.startsWith("-") ? [] : [plugin]
+      : plugin && typeof plugin === "object" && "package" in plugin && typeof plugin.package === "string" ? [plugin.package] : []);
+  };
+  // Both the writer and the guard's repair path must preserve this complete
+  // pre-import policy. Repairing only firm tool rules would remove the plugin
+  // approvals and deactivate mandatory integrations on the next config load.
+  const [common, mandatory, approved] = await Promise.all([
+    targets(legalworkRuntimeConfigFilePath(config)), targets(mandatoryRuntimeConfigFilePath(config)),
+    config.engineConfigurationMode === "managed" || (await appliedOrgPolicy(config, "plugins.allowCustom"))?.value === false ? [] : approvedNativePluginIdentities(config),
+  ]);
+  return { ...layer, policies: [
+    { action: "integration.use", resource: "plugin:*", effect: "deny" },
+    ...[...new Set([...common, ...mandatory, ...approved].map(nativePluginIdentity))].map(target => ({ action: "integration.use", resource: `plugin:${target}`, effect: "allow" })),
+    ...(config.agentSandboxEnabled ? nativeHostExecutionActions.map(action => ({ action: "tool.use", resource: `${action}:*`, effect: "deny" })) : []),
+    ...layer.policies ?? [],
+  ] };
 }
 
 export async function buildLegalworkRuntimeConfig(config?: ServerConfig, workspaceId?: string): Promise<string> {
@@ -358,7 +424,19 @@ export async function buildLegalworkRuntimeConfig(config?: ServerConfig, workspa
 }
 
 export function legalworkRuntimeConfigFilePath(config: ServerConfig): string {
-  return join(runtimeStorageDir(config), "runtime-opencode-config.json");
+  return join(engineStorageDir(config), "runtime-opencode-config.json");
+}
+
+export function mandatoryRuntimeConfigFilePath(config: ServerConfig): string {
+  return join(engineStorageDir(config), "runtime-opencode-mandatory.json");
+}
+
+export async function legalworkMandatoryRuntimeConfigContent(config: ServerConfig): Promise<string> {
+  return readFile(mandatoryRuntimeConfigFilePath(config), "utf8");
+}
+
+export function managedEngineSettingsFilePath(config: ServerConfig): string {
+  return join(engineStorageDir(config), "runtime-opencode-settings.json");
 }
 
 /**
@@ -368,12 +446,11 @@ export function legalworkRuntimeConfigFilePath(config: ServerConfig): string {
  */
 export async function readEngineEigenweltProvider(config: ServerConfig): Promise<string | null> {
   try {
-    const file: unknown = JSON.parse(await readFile(legalworkRuntimeConfigFilePath(config), "utf8"));
-    const providers =
-      typeof file === "object" && file !== null && "provider" in file && typeof file.provider === "object"
-        ? file.provider
-        : null;
-    return JSON.stringify(providers && EIGENWELT_PROVIDER_ID in providers ? providers[EIGENWELT_PROVIDER_ID] : null);
+    const file = managedSettingsFileSchema.parse(JSON.parse(await readFile(managedEngineSettingsFilePath(config), "utf8")));
+    return JSON.stringify(Object.fromEntries(Object.entries(file.workspaces).sort(([left], [right]) => left.localeCompare(right)).map(([id, entry]) => {
+      const configuration = nativeOpencodeConfig(entry.configuration && typeof entry.configuration === "object" && !Array.isArray(entry.configuration) ? Object.fromEntries(Object.entries(entry.configuration)) : {}).config;
+      return [id, configuration.providers?.[EIGENWELT_PROVIDER_ID] ?? null];
+    })));
   } catch {
     return null;
   }
@@ -392,12 +469,71 @@ const fileWriteQueue = new Map<string, Promise<void>>();
 export async function writeLegalworkRuntimeConfigFile(config: ServerConfig, workspaceId: string): Promise<string> {
   const path = legalworkRuntimeConfigFilePath(config);
   const job = async () => {
-    const content = await buildLegalworkRuntimeConfig(config, workspaceId);
-    await mkdir(runtimeStorageDir(config), { recursive: true });
-    const tmp = `${path}.${randomUUID()}.tmp`;
-    await writeFile(tmp, content, { encoding: "utf8", mode: 0o600 });
-    await rename(tmp, path);
-    // The firm's enforced layer is rewritten with it, before every reload.
+    await mkdir(engineStorageDir(config), { recursive: true });
+    const workspaces: ManagedSettingsFile["workspaces"] = {};
+    const commonPlugins = new Set<string>();
+    const managed = config.engineConfigurationMode === "managed";
+    if (managed) await prepareManagedCoreLibrary(config);
+    const library = managed ? await prepareManagedGlobalLibrary(config) : { plugins: [] };
+    const sharedPlugins = (await appliedOrgPolicy(config, "plugins.allowCustom"))?.value === false ? [] : library.plugins ?? [];
+    for (const directory of config.managedEnginePluginDirectories ?? []) {
+      commonPlugins.add(await bundledPluginSpec(join(directory, "index.js"), config));
+    }
+    for (const workspace of config.workspaces) {
+      const settings = await buildLegalworkRuntimeSettings(config, workspace.id);
+      workspaces[workspace.id] = { ...settings, directory: workspace.directory?.trim() || workspace.path };
+      // Only application bundles belong in the common engine bootstrap.
+      // User-owned project plugins are still discovered by the released host.
+      for (const plugin of settings.configuration.plugins ?? []) {
+        if (typeof plugin === "string" && dirname(plugin) === join(runtimeStorageDir(config), "bundled-plugins")) commonPlugins.add(plugin);
+      }
+    }
+    const settingsPath = managedEngineSettingsFilePath(config);
+    const configurations = Object.values(workspaces).map(entry => nativeOpencodeConfig(entry.configuration && typeof entry.configuration === "object" && !Array.isArray(entry.configuration) ? Object.fromEntries(Object.entries(entry.configuration)) : {}).config);
+    const sharedConfiguration = managed ? commonManagedConfiguration(configurations) : {};
+    await writeGeneratedConfigFile(settingsPath, JSON.stringify({ version: 1, workspaces, sharedConfiguration }));
+    const mandatoryPlugins = [
+      { package: await bundledPluginSpec(legalworkPluginPath("legalwork-project-admission"), config), options: { registryPath: nativeEngineProjectRegistryPath(config), protectedHostExecution: config.agentSandboxEnabled === true } },
+      await bundledPluginSpec(legalworkPluginPath("legalwork-product-scope"), config),
+      await bundledPluginSpec(legalworkPluginPath("legalwork-digest-tools"), config),
+      await bundledPluginSpec(legalworkPluginPath("legalwork-history-image-tools"), config),
+      await bundledPluginSpec(legalworkPluginPath("legalwork-tool-image-original-capture"), config),
+      await bundledPluginSpec(legalworkPluginPath("legalwork-tool-image-originals"), config),
+      { package: await bundledPluginSpec(legalworkPluginPath("legalwork-managed-config"), config), options: { settingsPath, managedConfiguration: managed } },
+      { package: await bundledPluginSpec(legalworkPluginPath("legalwork-commands"), config), options: { settingsPath } },
+      await bundledPluginSpec(legalworkOrgPolicyGuardPluginPath(), config),
+      ...(config.agentSandboxEnabled ? [await bundledPluginSpec(legalworkSandboxPluginPath(), config)] : []),
+      // Observe the final permission effect so a denied native MCP call has
+      // an accurate human-facing status without changing its authorization.
+      { package: await bundledPluginSpec(legalworkPluginPath("legalwork-legalmemory"), config), options: { settingsPath } },
+    ];
+    // Existing explicit library selections are already person-managed. Newly
+    // discovered project executables still require the separate review action.
+    const selected = Object.values(workspaces).flatMap(entry => entry.configuration && typeof entry.configuration === "object" && "plugins" in entry.configuration && Array.isArray(entry.configuration.plugins)
+      ? entry.configuration.plugins.flatMap(plugin => typeof plugin === "string" && !commonPlugins.has(plugin) ? [plugin] : []) : []);
+    if (!managed) await approveNativePluginTargets(config, await managedNativePluginTargets(config, selected));
+    if (managed) for (const workspace of config.workspaces) await archiveNativeProjectProjection(config, workspace);
+    for (const workspace of managed ? [] : config.workspaces) {
+      const settings = workspaces[workspace.id];
+      if (!settings) continue;
+      const configuration = nativeOpencodeConfig(settings.configuration && typeof settings.configuration === "object" && !Array.isArray(settings.configuration) ? Object.fromEntries(Object.entries(settings.configuration)) : {}).config;
+      const projectConfiguration = { ...configuration, plugins: (configuration.plugins ?? []).filter(plugin => typeof plugin !== "string" || !commonPlugins.has(plugin)) };
+      try { await writeNativeProjectProjection(config, workspace, projectConfiguration); }
+      catch (error) {
+        // A project conflict holds only that project's agent. Its authored files
+        // and the server remain available for the actionable approval screen.
+        if (!(error instanceof Error && "code" in error && error.code === "project_engine_configuration_conflict")) throw error;
+      }
+    }
+    await writeNativeEngineProjectRegistry(config);
+    const content = JSON.stringify({ ...sharedConfiguration, $schema: "https://opencode.ai/config.json", update: "disable",
+      ...(!managed || configurations.every(configuration => configuration.default_agent === undefined) ? { default_agent: "legalwork" } : {}),
+      experimental: { ...sharedConfiguration.experimental, todo: true }, plugins: [...sharedPlugins, ...commonPlugins] });
+    await writeGeneratedConfigFile(path, content);
+    // The final process-owned directives restore mandatory guards even when a
+    // trusted authored document removes plugins. Only the unsafe native command
+    // expansion loader is replaced; native MCP discovery and execution remain.
+    await writeGeneratedConfigFile(mandatoryRuntimeConfigFilePath(config), JSON.stringify({ plugins: [...mandatoryPlugins, "-opencode.config.command"] }));
     await writeOrgPolicyEngineLayer(config, await buildOrgPolicyEngineLayerFor(config, workspaceId));
   };
   const previous = fileWriteQueue.get(path) ?? Promise.resolve();
@@ -412,16 +548,18 @@ export async function writeLegalworkRuntimeConfigFile(config: ServerConfig, work
  * instance rebuild reads fresh state instead of a spawn-time snapshot.
  * Returns an unsubscribe function.
  */
-export function keepLegalworkRuntimeConfigFileFresh(config: ServerConfig, workspaceId: string): () => void {
-  return onRuntimeOpencodeConfigWrite((writeConfig, writtenWorkspaceId) => {
+export function keepLegalworkRuntimeConfigFileFresh(config: ServerConfig, workspaceId: string): () => Promise<void> {
+  const database = runtimeDbPath(config);
+  let pending = Promise.resolve();
+  const unsubscribe = onRuntimeOpencodeConfigWrite((writeConfig, writtenWorkspaceId) => {
+    if (runtimeDbPath(writeConfig) !== database || runtimeDbPath(config) !== database) return;
     // Global tool-permission, personalisation and connector writes affect
     // every workspace's derived config.
-    if (
-      writtenWorkspaceId !== workspaceId &&
-      writtenWorkspaceId !== GLOBAL_TOOL_PERMISSIONS_ID &&
-      writtenWorkspaceId !== GLOBAL_PERSONALIZATION_ID &&
-      writtenWorkspaceId !== GLOBAL_MCP_ID
-    ) return;
-    void writeLegalworkRuntimeConfigFile(writeConfig, workspaceId).catch(() => undefined);
+    if (!config.workspaces.some(workspace => workspace.id === writtenWorkspaceId)
+      && ![GLOBAL_TOOL_PERMISSIONS_ID, GLOBAL_PERSONALIZATION_ID, GLOBAL_MCP_ID].includes(writtenWorkspaceId)) return;
+    // Each engine owns its generated files and process policy even when two
+    // LegalWork instances observe the same shared settings database.
+    pending = writeLegalworkRuntimeConfigFile(config, workspaceId).then(() => undefined, () => undefined);
   });
+  return async () => { unsubscribe(); await pending; };
 }

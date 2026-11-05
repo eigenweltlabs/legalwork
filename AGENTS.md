@@ -6,19 +6,18 @@ LegalWork helps users run agents, skills, and MCP. It is an open-source alternat
 
 LegalWork is a practical control surface for agentic work:
 
-* Run local and remote agent workflows from one place.
+* Run local agent workflows from one place.
 * Use OpenCode capabilities directly through LegalWork.
-* Compose desktop app, server, and messaging connectors without lock-in.
+* Compose desktop app and server without lock-in.
 * Treat the LegalWork app as a client of the LegalWork server API surface.
-* Connect to hosted workers through a simple user flow: `Add a worker` -> `Connect remote`.
+* Connect the app to a LegalWork server through its manual URL/token settings. Remote agent workspace registrations are retired; preserve legacy records as inactive configuration.
 
 ## Core Philosophy
 
 * **Local-first, cloud-ready**: LegalWork runs on your machine in one click and can connect to cloud workflows when needed.
 * **Server-consumption first**: the app should consume LegalWork server surfaces (self-hosted or hosted), not invent parallel behavior.
-* **Composable**: use the desktop app, WhatsApp/Slack/Telegram connectors, or server mode based on the task.
+* **Composable**: use the desktop app or server mode based on the task.
 * **Ejectable**: LegalWork is powered by OpenCode, so anything OpenCode can do is available in LegalWork, even before a dedicated UI exists.
-* **Sharing is caring**: start solo, then share quickly; one CLI or desktop command can spin up an instantly shareable instance.
 
 
 ## Pull Request Expectations (Fast Merge)
@@ -48,6 +47,14 @@ If you cannot run tests or capture the video, say so explicitly and explain why,
 - Use components from @/components when possible.
 - When creating new components, we prefer using shadcn/ui with (Base UI).
 - Assume most end users of LegalWork are non-technical.
+
+### User-facing help
+
+- Keep the bundled manual in `docs/user-guide/` up to date in the same change whenever user-facing features, screens, settings, labels or behavior change.
+- Write for questions users might ask: what a feature does, where to find it, how to set it up and use it, what prerequisites apply, and how to resolve common problems. Technical implementation notes do not replace this help.
+- Give complete steps with the actual button and menu labels, including entry steps such as **Add > Plugins > select a connector**. Use supported app links to relevant pages and describe the current app directly.
+- Cover new screens and settings in the guide and screen inventory mapping. Keep the `legalwork-help` skill's topic routing current so the agent can read the relevant page directly.
+- After updating help or UI translations, run `pnpm docs:generate` and `pnpm docs:check`, and include changes to the tracked bundle and screen inventory as applicable. The full i18n reference and its runtime module are generated during builds and ignored by Git; do not commit those copies. Keep user guides focused on using the app; put architecture and developer instructions in technical docs.
 
 ### Tech Stack Preferences
 

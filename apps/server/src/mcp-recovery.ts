@@ -30,10 +30,10 @@ export class McpRecovery {
     }
   }
 
-  beginAuth(name: string): void {
-    // Match the desktop's browser sign-in deadline. An abandoned dialog must
-    // not suspend recovery forever; active engine calls also hold mutate().
-    this.authorizing.set(name, this.now() + 5 * 60_000);
+  beginAuth(name: string, expiresAt = this.now() + 5 * 60_000): void {
+    // Native attempts supply their engine-owned expiry. The default supports
+    // callers without an attempt yet; active requests also hold mutate().
+    this.authorizing.set(name, expiresAt);
   }
 
   endAuth(name: string): void { this.authorizing.delete(name); }

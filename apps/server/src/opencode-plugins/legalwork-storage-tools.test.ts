@@ -4,7 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { workingCopy } from "../file-storage/working-copy.js";
 import { ApiError } from "../errors.js";
-import { LegalWorkStorageTools } from "./legalwork-storage-tools.js";
+import pluginDefinition from "./legalwork-storage-tools.js";
+import { nativePluginTools } from "./native-plugin-test-support.js";
+const LegalWorkStorageTools = (context = {}) => nativePluginTools(pluginDefinition, context);
 
 type Call = { url: URL; method: string; body: unknown };
 async function fixture(

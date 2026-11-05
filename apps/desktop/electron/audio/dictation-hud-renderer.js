@@ -23,6 +23,7 @@ const meteringStates = ["starting", "listening", "meeting-starting", "meeting-re
 const translations = {
   en: {
     starting: "Starting dictation", listening: "Listening", transcribing: "Transcribing…", inserting: "Inserting…",
+    copied: "Couldn’t insert text", copyInstructions: "Copied to clipboard. Select a text field and press {paste} to paste.",
     success: "Text inserted", cancelled: "Cancelled", error: "Dictation needs attention",
     start: "Start dictation", dictate: "Dictate", stop: "Finish and insert text", cancel: "Cancel dictation", dismiss: "Dismiss",
     click: "Click to dictate", release: "Release {shortcut} to insert", finish: "{shortcut} to finish",
@@ -33,6 +34,7 @@ const translations = {
   },
   de: {
     starting: "Diktat starten", listening: "Hört zu", transcribing: "Wird transkribiert…", inserting: "Wird eingefügt…",
+    copied: "Text konnte nicht eingefügt werden", copyInstructions: "In die Zwischenablage kopiert. Wähle ein Textfeld und drücke {paste}, um den Text einzufügen.",
     success: "Text eingefügt", cancelled: "Abgebrochen", error: "Diktat braucht Aufmerksamkeit",
     start: "Diktat starten", dictate: "Diktieren", stop: "Beenden und Text einfügen", cancel: "Diktat abbrechen", dismiss: "Schließen",
     click: "Klicken zum Diktieren", release: "{shortcut} loslassen zum Einfügen", finish: "{shortcut} zum Beenden",
@@ -124,7 +126,9 @@ bridge.onState((value) => {
   }
   startLabel.textContent = labels.dictate;
   label.textContent = value.state.startsWith("meeting-") ? value.meeting?.error || labels[value.state] : value.state === "error" ? (value.dock !== "bottom" && value.message) || labels.error : value.message || labels[value.state] || "";
-  bar.setAttribute("aria-label", labels[value.state] || labels.start);
+  const copyInstructions = labels.copyInstructions.replace("{paste}", value.platform === "darwin" ? "⌘V" : "Ctrl+V");
+  document.getElementById("copy-instructions").textContent = copyInstructions;
+  bar.setAttribute("aria-label", value.state === "copied" ? `${labels.copied}. ${copyInstructions}` : value.message || labels[value.state] || labels.start);
   const instruction = (value.mode === "hold" ? labels.release : labels.finish).replace("{shortcut}", shortcut);
   notice.textContent = value.state.startsWith("meeting-") ? value.meeting?.error || labels[value.state] : value.state === "error" ? value.message : value.state === "idle"
     ? value.message || labels.click + (shortcut ? " · " + shortcut : "") : value.state === "listening"

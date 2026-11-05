@@ -1,0 +1,254 @@
+{
+  "schemaVersion": 1,
+  "generatedBy": "scripts/gen-core-skills.mjs",
+  "note": "Source-defined routes and visible settings for the build that bundles this file. Runtime, platform, account and permissions can restrict them.",
+  "routes": [
+    {
+      "path": "*",
+      "guide": "getting-started.md",
+      "source": "apps/app/src/react-app/shell/app-root.tsx"
+    },
+    {
+      "path": "/",
+      "guide": "getting-started.md",
+      "source": "apps/app/src/react-app/shell/app-root.tsx"
+    },
+    {
+      "path": "/calendar",
+      "guide": "calendar.md",
+      "source": "apps/app/src/react-app/shell/app-root.tsx"
+    },
+    {
+      "path": "/evals",
+      "guide": "evaluations.md",
+      "source": "apps/app/src/react-app/shell/app-root.tsx"
+    },
+    {
+      "path": "/home",
+      "guide": "workspaces-chats.md",
+      "source": "apps/app/src/react-app/shell/app-root.tsx"
+    },
+    {
+      "path": "/projects",
+      "guide": "projects-sharing.md",
+      "source": "apps/app/src/react-app/shell/app-root.tsx"
+    },
+    {
+      "path": "/recorder",
+      "guide": "audio.md",
+      "source": "apps/app/src/react-app/shell/app-root.tsx"
+    },
+    {
+      "path": "/scheduled",
+      "guide": "scheduled-tasks.md",
+      "source": "apps/app/src/react-app/shell/app-root.tsx"
+    },
+    {
+      "path": "/session",
+      "guide": "workspaces-chats.md",
+      "source": "apps/app/src/react-app/shell/app-root.tsx"
+    },
+    {
+      "path": "/session/:sessionId",
+      "guide": "workspaces-chats.md",
+      "source": "apps/app/src/react-app/shell/app-root.tsx"
+    },
+    {
+      "path": "/settings/*",
+      "guide": "settings-privacy.md",
+      "source": "apps/app/src/react-app/shell/app-root.tsx"
+    },
+    {
+      "path": "/tasks",
+      "guide": "tasks-intake.md",
+      "source": "apps/app/src/react-app/shell/app-root.tsx"
+    },
+    {
+      "path": "/welcome",
+      "guide": "getting-started.md",
+      "source": "apps/app/src/react-app/shell/app-root.tsx"
+    },
+    {
+      "path": "/wikis",
+      "guide": "wiki.md",
+      "source": "apps/app/src/react-app/shell/app-root.tsx"
+    },
+    {
+      "path": "/wikis/:workspaceId",
+      "guide": "wiki.md",
+      "source": "apps/app/src/react-app/shell/app-root.tsx"
+    },
+    {
+      "path": "/wikis/:workspaceId/session/:sessionId",
+      "guide": "wiki.md",
+      "source": "apps/app/src/react-app/shell/app-root.tsx"
+    },
+    {
+      "path": "/workflows",
+      "guide": "skills-workflows.md",
+      "source": "apps/app/src/react-app/shell/app-root.tsx"
+    },
+    {
+      "path": "/workspace/:workspaceId/calendar",
+      "guide": "calendar.md",
+      "source": "apps/app/src/react-app/shell/app-root.tsx"
+    },
+    {
+      "path": "/workspace/:workspaceId/dashboards",
+      "guide": "dashboards.md",
+      "source": "apps/app/src/react-app/shell/app-root.tsx"
+    },
+    {
+      "path": "/workspace/:workspaceId/evals",
+      "guide": "evaluations.md",
+      "source": "apps/app/src/react-app/shell/app-root.tsx"
+    },
+    {
+      "path": "/workspace/:workspaceId/files",
+      "guide": "files-documents.md",
+      "source": "apps/app/src/react-app/shell/app-root.tsx"
+    },
+    {
+      "path": "/workspace/:workspaceId/project",
+      "guide": "projects-sharing.md",
+      "source": "apps/app/src/react-app/shell/app-root.tsx"
+    },
+    {
+      "path": "/workspace/:workspaceId/reviews",
+      "guide": "reviews.md",
+      "source": "apps/app/src/react-app/shell/app-root.tsx"
+    },
+    {
+      "path": "/workspace/:workspaceId/session",
+      "guide": "workspaces-chats.md",
+      "source": "apps/app/src/react-app/shell/app-root.tsx"
+    },
+    {
+      "path": "/workspace/:workspaceId/session/:sessionId",
+      "guide": "workspaces-chats.md",
+      "source": "apps/app/src/react-app/shell/app-root.tsx"
+    },
+    {
+      "path": "/workspace/:workspaceId/sessions",
+      "guide": "workspaces-chats.md",
+      "source": "apps/app/src/react-app/shell/app-root.tsx"
+    },
+    {
+      "path": "/workspace/:workspaceId/settings/*",
+      "guide": "settings-privacy.md",
+      "source": "apps/app/src/react-app/shell/app-root.tsx"
+    },
+    {
+      "path": "/workspace/:workspaceId/tasks",
+      "guide": "tasks-intake.md",
+      "source": "apps/app/src/react-app/shell/app-root.tsx"
+    }
+  ],
+  "settings": [
+    {
+      "id": "account",
+      "scope": "global",
+      "guide": "settings-privacy.md",
+      "source": "apps/app/src/react-app/domains/settings/shell/settings-page.tsx"
+    },
+    {
+      "id": "ai",
+      "scope": "global",
+      "guide": "models-fusion.md",
+      "source": "apps/app/src/react-app/domains/settings/shell/settings-page.tsx"
+    },
+    {
+      "id": "assistant",
+      "scope": "global",
+      "guide": "assistant.md",
+      "source": "apps/app/src/react-app/domains/settings/shell/settings-page.tsx"
+    },
+    {
+      "id": "debug",
+      "scope": "global",
+      "guide": "troubleshooting.md",
+      "source": "apps/app/src/react-app/domains/settings/shell/settings-page.tsx",
+      "developerOnly": true
+    },
+    {
+      "id": "environment",
+      "scope": "global",
+      "guide": "settings-privacy.md",
+      "source": "apps/app/src/react-app/domains/settings/shell/settings-page.tsx"
+    },
+    {
+      "id": "extensions",
+      "scope": "global",
+      "guide": "integrations.md",
+      "source": "apps/app/src/react-app/domains/settings/shell/settings-page.tsx"
+    },
+    {
+      "id": "general",
+      "scope": "global",
+      "guide": "settings-privacy.md",
+      "source": "apps/app/src/react-app/domains/settings/shell/settings-page.tsx"
+    },
+    {
+      "id": "notifications",
+      "scope": "global",
+      "guide": "tasks-intake.md",
+      "source": "apps/app/src/react-app/domains/settings/shell/settings-page.tsx"
+    },
+    {
+      "id": "office-addins",
+      "scope": "global",
+      "guide": "office-addins.md",
+      "source": "apps/app/src/react-app/domains/settings/shell/settings-page.tsx",
+      "desktopOnly": true
+    },
+    {
+      "id": "permissions",
+      "scope": "workspace",
+      "guide": "settings-privacy.md",
+      "source": "apps/app/src/react-app/domains/settings/shell/settings-page.tsx"
+    },
+    {
+      "id": "personalisation",
+      "scope": "global",
+      "guide": "settings-privacy.md",
+      "source": "apps/app/src/react-app/domains/settings/shell/settings-page.tsx"
+    },
+    {
+      "id": "preferences",
+      "scope": "global",
+      "guide": "settings-privacy.md",
+      "source": "apps/app/src/react-app/domains/settings/shell/settings-page.tsx"
+    },
+    {
+      "id": "recorder",
+      "scope": "global",
+      "guide": "recorder-settings.md",
+      "source": "apps/app/src/react-app/domains/settings/shell/settings-page.tsx",
+      "desktopOnly": true
+    },
+    {
+      "id": "safety",
+      "scope": "global",
+      "guide": "settings-privacy.md",
+      "source": "apps/app/src/react-app/domains/settings/shell/settings-page.tsx"
+    },
+    {
+      "id": "shell",
+      "scope": "global",
+      "guide": "settings-privacy.md",
+      "source": "apps/app/src/react-app/domains/settings/shell/settings-page.tsx"
+    },
+    {
+      "id": "tabular-review",
+      "scope": "global",
+      "guide": "reviews.md",
+      "source": "apps/app/src/react-app/domains/settings/shell/settings-page.tsx"
+    },
+    {
+      "id": "updates",
+      "scope": "global",
+      "guide": "troubleshooting.md",
+      "source": "apps/app/src/react-app/domains/settings/shell/settings-page.tsx"
+    }
+  ]
+}

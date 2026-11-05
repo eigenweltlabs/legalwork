@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 
-import { DEFAULT_OUTPUT_LIMIT } from "@legalwork/types/model-limits";
 import {
   customProviderModelEntry,
   customProviderModelFromEntry,
@@ -9,14 +8,13 @@ import {
 } from "../src/react-app/domains/connections/provider-auth/custom-provider-config";
 
 describe("custom provider model config", () => {
-  test("a context limit always produces a limit block with BOTH keys", () => {
+  test("a context override leaves output capacity to the native engine", () => {
     const entry = customProviderModelEntry({ id: "deepseek-chat", toolCall: true, reasoning: false, contextLimit: 128000 });
     expect(entry).toEqual({
       name: "deepseek-chat",
-      tool_call: true,
-      limit: { context: 128000, output: DEFAULT_OUTPUT_LIMIT },
+      capabilities: { tools: true, reasoning: { supported: false } },
+      limit: { context: 128000 },
     });
-    expect(DEFAULT_OUTPUT_LIMIT).toBe(32_000);
   });
 
   test("an output limit the user typed is written as given", () => {
@@ -32,7 +30,7 @@ describe("custom provider model config", () => {
       contextLimit: 32000,
       outputLimit: 8000,
     });
-    expect(entry).toEqual({ name: "m", tool_call: false, reasoning: true, limit: { context: 32000, output: 8000 } });
+    expect(entry).toEqual({ name: "m", capabilities: { tools: false, reasoning: { supported: true } }, limit: { context: 32000, output: 8000 } });
   });
 
   test("no context limit means no limit block at all", () => {
@@ -40,23 +38,21 @@ describe("custom provider model config", () => {
   });
 
   test("reading a stored entry back preserves both limits through a save round trip", () => {
-    const stored = { name: "m", tool_call: true, limit: { context: 200000, output: 16384 } };
+    const stored = { name: "m", capabilities: { tools: true, reasoning: { supported: false } }, limit: { context: 200000, output: 16384 } };
     const row = customProviderModelFromEntry("m", stored);
     expect(row).toEqual({ id: "m", toolCall: true, reasoning: false, contextLimit: 200000, outputLimit: 16384 });
     expect(customProviderModelEntry(row)).toEqual(stored);
   });
 
-  test("a stored entry with a broken limit is repaired on the next save", () => {
+  test("a context-only native limit is retained without introducing an output ceiling", () => {
     const row = customProviderModelFromEntry("m", { limit: { context: 4096 } });
     expect(row.outputLimit).toBeNull();
-    // Half the window, not the full default: 32k reserved out of a 4k context
-    // would leave the engine no room for input at all.
-    expect(customProviderModelEntry(row).limit).toEqual({ context: 4096, output: 2048 });
+    expect(customProviderModelEntry(row).limit).toEqual({ context: 4096 });
   });
 
   test("editing a model preserves its display name and exact API ID", () => {
     const id = "accounts/fireworks/models/deepseek-v4-pro";
-    const stored = { name: "DeepSeek V4 Pro", tool_call: false, reasoning: true };
+    const stored = { name: "DeepSeek V4 Pro", capabilities: { tools: false, reasoning: { supported: true } } };
     const row = customProviderModelFromEntry(id, stored);
     expect(row.id).toBe(id);
     expect(row.name).toBe("DeepSeek V4 Pro");
@@ -75,11 +71,9 @@ describe("findCustomModelLimitProblem", () => {
     ).toBeNull();
   });
 
-  test("an output limit needs a context limit to travel with", () => {
-    expect(findCustomModelLimitProblem([{ id: "m", contextLimit: null, outputLimit: 8_000 }])).toEqual({
-      modelId: "m",
-      reason: "output-needs-context",
-    });
+  test("an explicit output override may inherit the native context size", () => {
+    expect(findCustomModelLimitProblem([{ id: "m", contextLimit: null, outputLimit: 8_000 }])).toBeNull();
+    expect(customProviderModelEntry({ id: "m", outputLimit: 8_000 }).limit).toEqual({ output: 8_000 });
   });
 
   test("an output limit at least as large as the context is refused, not quietly replaced", () => {

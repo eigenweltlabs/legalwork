@@ -29,7 +29,7 @@ function keyFor(plan: PluginImportPlan, target: ImportTarget): string {
   // Re-review if an owned connector's setup changes, including an endpoint change.
   const owned = new Set(target.installed?.files.filter(file => file.objectType === "mcp").map(file => file.path.replace(/^opencode\.jsonc#mcp\./, "")));
   const setup = Object.fromEntries(Object.keys(plan.connectorConfigs ?? {}).filter(name => owned.has(name)).map(name => [name, target.current[name]]));
-  return createHash("sha256").update(JSON.stringify([plan.preview.id, plan.preview.digest, target.workspace, target.scope, setup, target.installed?.connectorDefaults, process.env.LEGALWORK_MCP_CLIENT_METADATA_URL, target.available?.map(item => [item.pluginId, item.provenance?.digest, item.importState?.readiness])])).digest("hex");
+  return createHash("sha256").update(JSON.stringify([plan.preview.id, plan.preview.digest, target.workspace, target.scope, plan.preview.provenance?.convertPluginSkills, plan.preview.provenance?.workflowSkillPaths, setup, target.installed?.connectorDefaults, process.env.LEGALWORK_MCP_CLIENT_METADATA_URL, target.available?.map(item => [item.pluginId, item.provenance?.digest, item.importState?.readiness])])).digest("hex");
 }
 
 /** Check from the actual LegalWork server; never execute imported programs or read another app's credentials. */
@@ -58,11 +58,8 @@ async function checkRemote(check: ConnectorImportCheck, config: Record<string, u
   if (config.oauth === false) return blocked("missing_authentication", "This provider requires authentication, but this export has no usable sign-in or credential configuration. Obtain a complete configuration from the provider.");
   if (probe.auth !== "oauth") return blocked("unknown_authentication", "The provider requires credentials but does not describe a supported sign-in method. Obtain an API key or registered OAuth configuration from the provider before importing.");
   if (probe.transport === "sse") return blocked("legacy_sse_oauth", "This connector requires OAuth on a legacy SSE-only endpoint. LegalWork's sign-in flow requires a Streamable HTTP endpoint. Ask the provider for its current HTTP configuration.");
-  if (typeof oauth.scope === "string" && probe.oauth?.scopesSupported.length) {
-    const requested = new Set(oauth.scope.split(/\s+/).filter(Boolean));
-    const advertised = new Set(probe.oauth.scopesSupported);
-    if (requested.size !== advertised.size || [...requested].some(scope => !advertised.has(scope))) return blocked("scope_change", "The provider advertises different permissions from this export. LegalWork's engine would request those advertised permissions. Review and correct the source permission configuration before importing.");
-  }
+  // Native v2 sends an explicit configured scope unchanged. Advertising broader
+  // permissions does not justify replacing or rejecting the source restriction.
   if (typeof oauth.clientId === "string" && oauth.clientId) {
     if (oauth.clientId === (options.clientMetadataUrl || process.env.LEGALWORK_MCP_CLIENT_METADATA_URL)) {
       try { await legalworkMcpClientIdentity(probe, typeof oauth.redirectUri === "string" ? oauth.redirectUri : "http://127.0.0.1:19876/mcp/oauth/callback", options); }

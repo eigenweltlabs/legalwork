@@ -5,6 +5,8 @@ import { buildWorkspaceInfos } from "./workspaces.js";
 import { parseList, readJsonFile, shortId } from "./utils.js";
 
 export interface CliArgs {
+  managedEngineStorageDirectory?: string;
+  managedEnginePluginDirectories?: string[];
   configPath?: string;
   host?: string;
   port?: number;
@@ -252,6 +254,12 @@ export async function resolveServerConfig(
   const configPath = cli.configPath ?? envConfigPath ?? resolve(homedir(), ".config", "legalwork", "server.json");
   const fileConfig = await loadFileConfig(configPath);
   const configDir = dirname(configPath);
+  const engineStorage = cli.managedEngineStorageDirectory ?? process.env.LEGALWORK_ENGINE_STORAGE_DIR?.trim();
+  const hostPlugins: unknown = cli.managedEnginePluginDirectories
+    ?? (process.env.LEGALWORK_ENGINE_PLUGIN_DIRECTORIES ? JSON.parse(process.env.LEGALWORK_ENGINE_PLUGIN_DIRECTORIES) : []);
+  if (!Array.isArray(hostPlugins) || !hostPlugins.every((path): path is string => typeof path === "string" && path.length > 0)) {
+    throw new Error("Host-generated engine plugin directories must be a JSON string array.");
+  }
 
   const envWorkspaces = parseList(process.env.LEGALWORK_WORKSPACES);
   let workspaceConfigs: WorkspaceConfig[] =
@@ -285,6 +293,8 @@ export async function resolveServerConfig(
     });
   }
 
+  const retiredCount = workspaceConfigs.filter(workspace => workspace.workspaceType === "remote").length;
+  const workspaceWarnings = retiredCount ? [`${retiredCount} saved remote agent workspace(s) are no longer supported. Their connection settings remain preserved in ${configPath}.`] : [];
   const workspaces = buildWorkspaceInfos(workspaceConfigs, configDir);
 
   const tokenFromEnv = process.env.LEGALWORK_TOKEN;
@@ -392,6 +402,8 @@ export async function resolveServerConfig(
     token,
     hostToken,
     configPath,
+    managedEngineStorageDirectory: engineStorage ? resolve(engineStorage) : undefined,
+    managedEnginePluginDirectories: hostPlugins.map(path => resolve(path)),
     opencodeBaseUrl,
     opencodeDirectory,
     opencodeUsername,
@@ -399,6 +411,7 @@ export async function resolveServerConfig(
     approval,
     corsOrigins,
     workspaces,
+    workspaceWarnings,
     authorizedRoots,
     readOnly,
     autoDownloadOcr: parseBoolean(process.env.LEGALWORK_OCR_AUTO_DOWNLOAD) ?? fileConfig.autoDownloadOcr ?? true,

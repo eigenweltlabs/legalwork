@@ -1,5 +1,11 @@
 # Local Assistant branch
 
+On 2026-10-27, the native OpenCode v2 migration through `965885b3` was merged
+into `codex/johannes-assistant`, preserving both histories. This includes the
+shared managed configuration and removal of separate folder approvals. The
+Assistant uses native session admission, message history, plugins and events;
+cloud activation and VM/channel execution remain on the cloud branch.
+
 `codex/johannes-assistant` is the desktop Assistant integration branch. On
 2026-10-20 it was updated from `ffceada9` by merging `dev` at `14975365`,
 preserving the existing branch history. Local improvements were selected from

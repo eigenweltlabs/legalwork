@@ -20,6 +20,7 @@ export function mcpAuthEntryFromServer(entry: McpServerEntry): McpDirectoryInfo 
     headers: entry.config.headers,
     oauth: connectorUsesOAuth(entry.config),
     oauthConfig: entry.config.oauth || undefined,
+    ...(entry.configured ? { existingConfig: entry.config, configured: entry.configured, editable: entry.editable } : {}),
   };
 }
 

@@ -317,7 +317,7 @@ export async function installGithubSkills(input: {
 }
 
 // Rename a project-installed skill to the `workflow-assistant-` prefix. Kept for
-// the (project-scoped) remote-workspace path; the desktop global path encodes the
+// project-scoped server API; the desktop global path encodes the
 // workflow prefix in the name directly.
 export async function promoteSkillToWorkflow(
   workspaceRoot: string,

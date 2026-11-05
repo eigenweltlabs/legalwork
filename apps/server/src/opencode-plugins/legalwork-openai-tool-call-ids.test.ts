@@ -1,21 +1,12 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { LegalWorkOpenAIToolCallIds } from "./legalwork-openai-tool-call-ids.js";
+import pluginDefinition from "./legalwork-openai-tool-call-ids.js";
+import { nativeProviderTestFetch } from "./native-plugin-test-support.js";
 
-const originalFetch = globalThis.fetch;
-const calls: { input: Parameters<typeof fetch>[0]; init?: RequestInit }[] = [];
-let patchedFetch: typeof fetch;
-
-beforeAll(async () => {
-  globalThis.fetch = Object.assign(async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
-    calls.push({ input, init });
-    return new Response("{}");
-  }, originalFetch);
-  await LegalWorkOpenAIToolCallIds();
-  patchedFetch = globalThis.fetch;
-  globalThis.fetch = originalFetch;
-});
-afterAll(() => { globalThis.fetch = originalFetch; });
+const calls:Array<{input:Parameters<typeof fetch>[0];init?:RequestInit}>=[];
+let patchedFetch:typeof fetch;let runtime:Awaited<ReturnType<typeof nativeProviderTestFetch>>["runtime"];
+beforeAll(async()=>{const fixture=await nativeProviderTestFetch(pluginDefinition,async request=>{calls.push({input:request,init:{body:await request.clone().text(),headers:request.headers}});return new Response("{}");});patchedFetch=fixture.send;runtime=fixture.runtime;});
+afterAll(async()=>{await runtime.close();});
 
 const signedId = `call_sample__thought__${"a".repeat(868)}`;
 const shortId = "call_short";
@@ -82,7 +73,7 @@ describe("OpenAI tool-call IDs", () => {
     calls.length = 0;
     await patchedFetch("https://models.example/responses", { method: "POST", body: "not JSON" });
     expect(calls[0]?.init?.body).toBe("not JSON");
-    expect(Object.keys(await import("./legalwork-openai-tool-call-ids.js"))).toEqual(["LegalWorkOpenAIToolCallIds"]);
+    expect(Object.keys(await import("./legalwork-openai-tool-call-ids.js"))).toEqual(["default"]);
   });
 
   test("avoids an existing short ID matching the hash of a long ID", async () => {
@@ -110,4 +101,14 @@ describe("OpenAI tool-call IDs", () => {
     controller.abort();
     expect(forwarded.signal.aborted).toBe(true);
   });
+});
+
+test("native WebSocket Responses use the same stable ID mapping and preserve control frames",async()=>{
+  const fixture=await nativeProviderTestFetch(pluginDefinition,async()=>new Response("{}"));
+  try{
+    const body={type:"response.create",model:"gpt-6.1-sol",input:[{type:"function_call",call_id:signedId,name:"read",arguments:"{}"},{type:"function_call_output",call_id:signedId,output:"ok"}]};
+    const event={frame:JSON.stringify(body)};await fixture.runtime.hook("session","experimental.ws.send",event);
+    expect(JSON.parse(event.frame)).toEqual({...body,input:body.input.map(item=>({...item,call_id:compactId(signedId)}))});
+    const control={frame:'{ "type": "session.update" }'};await fixture.runtime.hook("session","experimental.ws.send",control);expect(control.frame).toBe('{ "type": "session.update" }');expect(body.input[0].call_id).toBe(signedId);
+  }finally{await fixture.runtime.close();}
 });

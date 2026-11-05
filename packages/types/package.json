@@ -34,6 +34,7 @@
     "./office-editor": "./src/office-editor.ts",
     "./file-storage": "./src/file-storage.ts",
     "./model-limits": "./src/model-limits.ts",
+    "./native-model-display": "./src/native-model-display.ts",
     "./usage-control": "./src/usage-control.ts",
     "./provider-usage-limit": "./src/provider-usage-limit.ts",
     "./eigenwelt-checkout": "./src/eigenwelt-checkout.ts",
@@ -51,6 +52,10 @@
     "./calculation": "./src/calculation.ts",
     "./session-queue": "./src/session-queue.ts",
     "./main-assistant": "./src/main-assistant.ts",
+    "./session-history": "./src/session-history.ts",
+    "./legalmemory": "./src/legalmemory.ts",
+    "./session-visibility": "./src/session-visibility.ts",
+    "./engine-project": "./src/engine-project.ts",
     "./scheduled-tasks": "./src/scheduled-tasks.ts",
     "./org-policy": "./src/org-policy.ts",
     "./org-policy-view": "./src/org-policy-view.ts",
@@ -62,7 +67,8 @@
     "./wiki-suggestions": "./src/wiki-suggestions.ts",
     "./views": "./src/views.ts",
     "./line-diff": "./src/line-diff.ts",
-    "./cloud-assistant": "./src/cloud-assistant.ts"
+    "./cloud-assistant": "./src/cloud-assistant.ts",
+    "./opencode-view": "./src/opencode-view.ts"
   },
   "files": [
     "src",
@@ -76,6 +82,7 @@
   },
   "devDependencies": {
     "tsup": "^8.5.0",
-    "typescript": "^5.6.3"
+    "typescript": "^5.6.3",
+    "@opencode/client": "2.1.4"
   }
 }

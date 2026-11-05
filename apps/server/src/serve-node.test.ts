@@ -3,8 +3,19 @@ import { setTimeout as delay } from "node:timers/promises";
 import { serve } from "./serve-node.js";
 
 describe("serve", () => {
-  test("accepts the encoded size of a permitted wiki attachment", async () => {
-    const totalBytes = Math.ceil(100 * 1024 * 1024 * 4 / 3) + 32 * 1024;
+  test("an occupied port cannot replace or share another server's authenticated listener", async () => {
+    const first = await serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("first server") });
+    let second: Awaited<ReturnType<typeof serve>> | undefined;
+    try {
+      second = await serve({ hostname: "127.0.0.1", port: first.port, fetch: () => new Response("second server") });
+      expect(second.port).not.toBe(first.port);
+      expect(await (await fetch(`http://127.0.0.1:${first.port}`)).text()).toBe("first server");
+      expect(await (await fetch(`http://127.0.0.1:${second.port}`)).text()).toBe("second server");
+    } finally { await second?.stop(); await first.stop(); }
+  });
+
+  test("streams raw HTTP envelopes beyond the former 256 MiB ceiling", async () => {
+    const totalBytes = 256 * 1024 * 1024 + 1;
     const chunk = new Uint8Array(64 * 1024);
     let sent = 0;
     const body = new ReadableStream<Uint8Array>({ pull(controller) {
@@ -109,8 +120,10 @@ describe("serve", () => {
     });
 
     try {
-      const response = await fetch(`http://127.0.0.1:${server.port}/stream`);
-      await response.text().catch(() => undefined);
+      // A transport may expose the original prefix or reject the body. It
+      // must never append an unrelated second JSON response to that prefix.
+      const text = await fetch(`http://127.0.0.1:${server.port}/stream`).then(response => response.text()).catch(() => undefined);
+      if (text !== undefined) expect(text).toBe("partial");
       await delay(25);
 
       expect(uncaught).toEqual([]);

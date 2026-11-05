@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const cliPath = resolve(__dirname, "..", "dist", "cli.js");
-const serverCliPath = resolve(__dirname, "..", "..", "server", "src", "cli.ts");
+const serverCliPath = resolve(__dirname, "..", "..", "server", "dist", "cli.js");
 
 async function findFreePort() {
   return new Promise((resolvePort, reject) => {
@@ -91,7 +91,7 @@ const hostToken = "test-host-token";
 const legalworkUrl = `http://127.0.0.1:${port}`;
 
 const server = spawn(
-  "bun",
+  "node",
   [
     serverCliPath,
     "--host",

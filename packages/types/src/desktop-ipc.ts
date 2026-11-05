@@ -130,6 +130,7 @@ export type EngineDoctorResult = {
 };
 
 export type WorkspaceList = {
+  warnings?: string[];
   selectedId?: string;
   watchedId?: string | null;
   activeId?: string | null;
@@ -321,26 +322,6 @@ export type WorkspaceCreateInput = {
   preset?: string | null;
 };
 
-export type WorkspaceCreateRemoteInput = {
-  baseUrl: string;
-  remoteType?: "legalwork" | "opencode" | null;
-  directory?: string | null;
-  displayName?: string | null;
-  legalworkHostUrl?: string | null;
-  legalworkToken?: string | null;
-  legalworkClientToken?: string | null;
-  legalworkHostToken?: string | null;
-  legalworkWorkspaceId?: string | null;
-  legalworkWorkspaceName?: string | null;
-  sandboxBackend?: string | null;
-  sandboxRunId?: string | null;
-  sandboxContainerName?: string | null;
-};
-
-export type WorkspaceUpdateRemoteInput = WorkspaceCreateRemoteInput & {
-  workspaceId: string;
-};
-
 export type UiControlBridgeInfo = {
   baseUrl?: string;
   token?: string;
@@ -436,8 +417,6 @@ export type DesktopCommandMap = {
     args: [input: { workspaceId: string; paths: string[]; folder?: string }];
     result: WorkspaceCopyFilesResult;
   };
-  workspaceCreateRemote: { args: [input: WorkspaceCreateRemoteInput]; result: WorkspaceList };
-  workspaceUpdateRemote: { args: [input: WorkspaceUpdateRemoteInput]; result: WorkspaceList };
   workspaceUpdateDisplayName: {
     args: [input: { workspaceId: string; displayName?: string | null }];
     result: WorkspaceList;
@@ -646,7 +625,7 @@ export type DesktopCommandMap = {
   };
   mcpOAuthWait: {
     args: [options: { listenerId: string; state: string }];
-    result: { code: string };
+    result: { code: string; iss?: string };
   };
   mcpOAuthCancel: { args: [listenerId: string]; result: void };
   setWindowDecorations: { args: [decorated: boolean]; result: unknown };
@@ -937,5 +916,8 @@ export interface HostApprovalRequest {
     body: string;
     bodyFormat: "text" | "base64";
     bodyBytes: number;
+    /** Raw HTTP requests expose a complete expandable review, without summary truncation. */
+    complete?: boolean;
+    sha256?: string;
   };
 }

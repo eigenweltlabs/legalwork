@@ -48,12 +48,12 @@ function respond(response, status, message) {
 
 /**
  * Own the loopback callback in the desktop process, including for remote
- * engines. OpenCode's auth/start only creates a URL; it does not register a
- * callback waiter. The renderer passes the received code to auth/callback.
+ * engines. Native v2 owns its engine-side callback; a remote desktop forwards
+ * this response through LegalWork's attempt-bound callback transport.
  */
 export function createMcpOAuthCallbackBroker({ timeoutMs = 300_000 } = {}) {
   const ownerGenerations = new Map();
-  /** @type {Map<string, { owner: number, state: string | null, waiting: boolean, finish: (result: { code?: string, error?: string }) => void, result: Promise<{ code?: string, error?: string }> }>} */
+  /** @type {Map<string, { owner: number, state: string | null, waiting: boolean, finish: (result: { code?: string, error?: string, iss?: string }) => void, result: Promise<{ code?: string, error?: string, iss?: string }> }>} */
   const listeners = new Map();
 
   /** @param {{redirectUri?: string}} options */
@@ -61,9 +61,9 @@ export function createMcpOAuthCallbackBroker({ timeoutMs = 300_000 } = {}) {
     const generation = ownerGenerations.get(owner) ?? 0;
     const address = callbackAddress(options.redirectUri);
     const listenerId = randomUUID();
-    /** @type {(result: { code?: string, error?: string }) => void} */
+    /** @type {(result: { code?: string, error?: string, iss?: string }) => void} */
     let settle;
-    /** @type {Promise<{ code?: string, error?: string }>} */
+    /** @type {Promise<{ code?: string, error?: string, iss?: string }>} */
     const result = new Promise((resolve) => { settle = resolve; });
     let settled = false;
     let timer;
@@ -96,7 +96,7 @@ export function createMcpOAuthCallbackBroker({ timeoutMs = 300_000 } = {}) {
         return;
       }
       respond(response, 200, "Authorization received. Return to Legalwork to finish connecting.");
-      pending.finish({ code });
+      pending.finish({ code, ...(url.searchParams.get("iss") ? { iss: url.searchParams.get("iss") } : {}) });
     });
     const finish = (value) => {
       if (settled) return;
@@ -137,7 +137,7 @@ export function createMcpOAuthCallbackBroker({ timeoutMs = 300_000 } = {}) {
     const completed = await pending.result;
     if (completed.error) throw new Error(completed.error);
     if (!completed.code) throw new Error("The sign-in response did not contain an authorization code.");
-    return { code: completed.code };
+    return { code: completed.code, ...(completed.iss ? { iss: completed.iss } : {}) };
   }
 
   function cancel(listenerId, owner = 0) {

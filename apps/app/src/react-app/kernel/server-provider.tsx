@@ -9,7 +9,7 @@ import {
   useRef,
   type ReactNode,
 } from "react";
-import { createOpencodeClient } from "@opencode-ai/sdk/v2/client";
+import { OpenCode } from "@opencode/client";
 
 import { desktopFetch } from "../../app/lib/desktop";
 import { isWebDeployment } from "../../app/lib/legalwork-deployment";
@@ -75,15 +75,14 @@ async function checkHealth(url: string): Promise<boolean> {
   const token = readLegalworkToken();
   const headers =
     token && url.includes("/opencode") ? { Authorization: `Bearer ${token}` } : undefined;
-  const client = createOpencodeClient({
+  const client = OpenCode.make({
     baseUrl: url,
     headers,
-    signal: AbortSignal.timeout(3000),
     fetch: isDesktopRuntime() ? desktopFetch : undefined,
   });
-  return client.global
-    .health()
-    .then((result) => result.data?.healthy === true)
+  return client.server
+    .info({signal:AbortSignal.timeout(3000)})
+    .then(() => true)
     .catch(() => false);
 }
 

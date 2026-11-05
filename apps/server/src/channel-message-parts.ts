@@ -1,4 +1,4 @@
-import type { FilePartInput, TextPartInput } from "@opencode-ai/sdk/v2/client";
+import type { FilePartInput, TextPartInput } from "./assistant-engine.js";
 import type { ChannelReceipt } from "./channel-runtime.js";
 import { systemReminder } from "./opencode-plugins/app-state-reminders.js";
 

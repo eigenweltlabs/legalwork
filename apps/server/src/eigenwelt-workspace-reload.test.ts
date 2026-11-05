@@ -20,7 +20,7 @@ let config: ServerConfig;
 let app: Awaited<ReturnType<typeof startServer>>;
 let engine: ReturnType<typeof Bun.serve>;
 const reloaded: string[] = [];
-const statusAsked: string[] = [];
+let statusAsked = 0;
 
 const dir = (id: string) => join(temporary, id);
 
@@ -44,12 +44,13 @@ beforeAll(async () => {
     port: 0,
     fetch(req) {
       const url = new URL(req.url);
-      const directory = url.searchParams.get("directory") ?? "";
-      if (url.pathname === "/instance/dispose") reloaded.push(directory);
-      if (url.pathname === "/session/status") {
-        statusAsked.push(directory);
-        return Response.json({ ses_1: { type: directory === dir("ws_busy") ? "busy" : "idle" } });
+      const directory = url.searchParams.get("location[directory]") ?? "";
+      if (url.pathname === "/api/rpc/legalwork.managed-settings/refresh") { reloaded.push(directory); return Response.json({ refreshed: true }); }
+      if (url.pathname === "/api/session/active") {
+        statusAsked++;
+        return Response.json({ data: { ses_busy: { type: "running" } } });
       }
+      if (url.pathname === "/api/session/ses_busy") return Response.json({ data: { id: "ses_busy", location: { directory: dir("ws_busy") } } });
       return Response.json({});
     },
   });
@@ -98,14 +99,14 @@ const call = (method: string, path: string, body?: unknown) =>
 // The reloads run in the background, one workspace after another; the busy
 // workspace is checked last, so its status request marks the pass as done.
 async function reloadPassDone() {
-  for (let attempt = 0; attempt < 100 && !statusAsked.includes(dir("ws_busy")); attempt += 1) {
+  for (let attempt = 0; attempt < 100 && statusAsked < 2; attempt += 1) {
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
 }
 
 function reset() {
   reloaded.length = 0;
-  statusAsked.length = 0;
+  statusAsked = 0;
 }
 
 test("a sign-in from one workspace reloads the other idle workspaces' engines", async () => {

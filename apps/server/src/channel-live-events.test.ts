@@ -1,9 +1,9 @@
 import { test, expect } from "bun:test";
-import type { AssistantMessage, Part } from "@opencode-ai/sdk/v2";
+import type { AssistantMessage, Part } from "./assistant-engine.js";
 import { channelBrowserJobs, channelLiveEvents } from "./channel-live-events.js";
 
 const info = (id: string, parentID = "human"): AssistantMessage => ({id,parentID,sessionID:"session",role:"assistant",time:{created:1},
-  modelID:"test",providerID:"test",mode:"legalwork",agent:"legalwork",path:{cwd:"/owned",root:"/owned"},cost:0,
+  modelID:"test",providerID:"test",model:{ providerID:"test", modelID:"test" },agent:"legalwork",cost:0,
   tokens:{input:0,output:0,reasoning:0,cache:{read:0,write:0}}});
 const text = (id: string, value: string, closed: boolean): Part => ({id,sessionID:"session",messageID:"reply",type:"text",text:value,time:{start:1,...(closed ? {end:2} : {})}});
 const tool = (id: string, name: string, output: unknown): Part => ({id,sessionID:"session",messageID:"reply",type:"tool",tool:name,callID:id,
@@ -49,4 +49,13 @@ test("asynchronous browser sources come only from completed creation tools in th
   const pending=own.parts[0]; if(pending.type!=="tool") throw new Error("Invalid fixture");
   pending.state={status:"running",input:{},title:"",metadata:{},time:{start:1}};
   own.parts.splice(1,1);expect(channelBrowserJobs([own],"human")).toEqual([]);
+});
+
+
+test("native closed-text hints publish a completed bubble before its assistant step finishes", () => {
+  const info: AssistantMessage = { id: "reply", sessionID: "session", role: "assistant", parentID: "human", time: { created: 2 }, agent: "legalwork", model: { providerID: "fixture", modelID: "model" }, providerID: "fixture", modelID: "model", cost: 0, tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } } };
+  const part: Part = { id: "reply:content:0", sessionID: "session", messageID: "reply", type: "text", text: "I will check." };
+  const rows = [{ info, parts: [part] }];
+  expect(channelLiveEvents(rows, "human")).toEqual([]);
+  expect(channelLiveEvents(rows, "human", new Set([part.id]))).toMatchObject([{ event: { type: "message.created", text: "I will check." } }]);
 });

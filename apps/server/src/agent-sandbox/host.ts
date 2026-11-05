@@ -8,9 +8,9 @@ import { sandboxResources, type SandboxResult } from "./vm.js";
 
 export const hostShell = () => process.platform === "win32" ? "PowerShell" : "Bash";
 
-/** Unprotected execution still has bounded output, cancellation and a deadline.
- * It deliberately has the user's OS access. Tool approvals are handled by the service. */
-export async function runHostCommand(input: { command: string; cwd: string; timeoutMs: number; signal: AbortSignal }): Promise<SandboxResult> {
+/** Tool calls retain their existing capture/deadline defaults. Configured command
+ * expansion requests complete output and no inference-independent deadline. */
+export async function runHostCommand(input: { command: string; cwd: string; timeoutMs: number | null; capture?: "complete"; signal: AbortSignal }): Promise<SandboxResult> {
   input.signal.throwIfAborted();
   const windows = process.platform === "win32";
   const directory = windows ? await mkdtemp(join(tmpdir(), "legalwork-command-")) : undefined;
@@ -27,7 +27,7 @@ export async function runHostCommand(input: { command: string; cwd: string; time
       let size = 0, truncated = false, finished = false;
       let failure: Error | undefined;
       const capture = (data: Buffer) => {
-        const remaining = 1024 * 1024 - size;
+        const remaining = input.capture === "complete" ? data.length : 1024 * 1024 - size;
         if (data.length > remaining) truncated = true;
         if (remaining > 0) { const part = data.subarray(0, remaining); chunks.push(part); size += part.length; }
       };
@@ -56,7 +56,7 @@ export async function runHostCommand(input: { command: string; cwd: string; time
         else resolve({ output: Buffer.concat(chunks).toString("utf8"), exitCode: code ?? 1, truncated });
       };
       const abort = () => { failure = new Error("Command cancelled because the request or permissions changed."); kill(true); };
-      const timer = setTimeout(() => { failure = new Error("Command timed out."); kill(true); }, input.timeoutMs);
+      const timer = input.timeoutMs === null ? undefined : setTimeout(() => { failure = new Error("Command timed out."); kill(true); }, input.timeoutMs);
       child.stdout.on("data", capture);
       child.stderr.on("data", capture);
       child.once("error", error => finish(null, error));

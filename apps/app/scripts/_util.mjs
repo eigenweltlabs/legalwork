@@ -2,9 +2,18 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import net from "node:net";
-import { realpathSync, statSync } from "node:fs";
+import { constants, realpathSync, statSync } from "node:fs";
+import { access, mkdtemp, realpath, rm, stat } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { randomUUID } from "node:crypto";
 
-import { createOpencodeClient } from "@opencode-ai/sdk/v2/client";
+import { OpenCode } from "@opencode/client";
+import { opencodeReleaseTarget } from "../../../packages/opencode-release/index.mjs";
+import { opencodeEngineSelection } from "../../../packages/opencode-release/selection.mjs";
+
+const serverCredentials = new Map();
 
 function resolveBasicAuthHeader() {
   const password = process.env.OPENCODE_SERVER_PASSWORD?.trim() ?? "";
@@ -15,14 +24,39 @@ function resolveBasicAuthHeader() {
 }
 
 export function makeClient({ baseUrl, directory }) {
-  const authorization = resolveBasicAuthHeader();
-  return createOpencodeClient({
+  const authorization = serverCredentials.get(baseUrl) ?? resolveBasicAuthHeader();
+  return OpenCode.make({
     baseUrl,
-    directory,
     headers: authorization ? { Authorization: authorization } : undefined,
-    responseStyle: "data",
-    throwOnError: true,
   });
+}
+
+export async function readMessages(client, sessionID) {
+  const messages = [], seen = new Set();
+  let cursor;
+  do {
+    const page = await client.message.list({ sessionID, ...(cursor ? { cursor } : { order: "asc" }) });
+    messages.push(...page.data);
+    cursor = page.cursor.next;
+    if (cursor && seen.has(cursor)) throw new Error("The engine repeated a message page cursor");
+    if (cursor) seen.add(cursor);
+  } while (cursor);
+  return messages;
+}
+
+export function messageText(message) {
+  return message.type === "assistant" ? message.content.filter(part => part.type === "text").map(part => part.text).join("\n")
+    : typeof message.text === "string" ? message.text : message.payload?.text ?? "";
+}
+
+export async function readTodos(client, sessionID) {
+  for (const message of (await readMessages(client, sessionID)).toReversed()) {
+    if (message.type !== "assistant") continue;
+    for (const part of message.content.toReversed()) {
+      if (part.type === "tool" && part.name === "todowrite" && part.state.status === "completed" && Array.isArray(part.state.metadata?.todos)) return part.state.metadata.todos;
+    }
+  }
+  return [];
 }
 
 export async function findFreePort() {
@@ -42,6 +76,29 @@ export async function findFreePort() {
   return port;
 }
 
+export async function resolveOpencodeBinary({
+  env = process.env,
+  resourcesDirectory = fileURLToPath(new URL("../../desktop/resources/", import.meta.url)),
+  selection = opencodeEngineSelection,
+  platform = process.platform,
+  arch = process.arch,
+} = {}) {
+  const filename = platform === "win32" ? "opencode.exe" : "opencode";
+  const candidate = env.LEGALWORK_TEST_OPENCODE_BIN ?? env.OPENCODE_BIN
+    ?? (selection.kind === "derivative"
+      ? join(resourcesDirectory, "opencode-engine", selection.artifactId, opencodeReleaseTarget(platform, arch), filename)
+      : join(resourcesDirectory, "sidecars", filename));
+  if (!candidate.trim()) throw new Error("OpenCode test executable must be a nonempty path");
+  try {
+    const executable = await realpath(candidate);
+    if (!(await stat(executable)).isFile()) throw new Error("Expected a regular executable file");
+    await access(executable, constants.X_OK);
+    return executable;
+  } catch (cause) {
+    throw new Error(`OpenCode test executable is unavailable (${candidate}): ${cause.message}`, { cause });
+  }
+}
+
 export async function spawnOpencodeServe({
   directory,
   hostname = "127.0.0.1",
@@ -53,24 +110,37 @@ export async function spawnOpencodeServe({
   assert.ok(Number.isInteger(port) && port > 0, "port must be a positive integer");
 
   const cwd = realpathSync(directory);
+  const inheritedEnv = { ...process.env, ...env };
+  const executable = await resolveOpencodeBinary({ env: inheritedEnv });
   const args = ["serve", "--hostname", hostname, "--port", String(port)];
   for (const origin of corsOrigins) {
     args.push("--cors", origin);
   }
 
-  const child = spawn("opencode", args, {
+  const privateRoot = await mkdtemp(join(tmpdir(), "legalwork-native-script-"));
+  const password = randomUUID();
+  const child = spawn(executable, args, {
     cwd,
     stdio: ["ignore", "pipe", "pipe"],
     env: {
-      ...process.env,
-      ...env,
+      ...inheritedEnv,
       // Make it explicit we're a non-TUI client.
       OPENCODE_CLIENT: "legalwork-test",
+      OPENCODE_PASSWORD: password,
+      OPENCODE_DB: join(privateRoot, "engine.db"),
+      HOME: join(privateRoot, "home"),
+      USERPROFILE: join(privateRoot, "home"),
+      OPENCODE_CONFIG: env.OPENCODE_CONFIG ?? "",
+      OPENCODE_CONFIG_CONTENT: env.OPENCODE_CONFIG_CONTENT ?? "",
+      OPENCODE_CONFIG_DIR: env.OPENCODE_CONFIG_DIR ?? join(privateRoot, "config"),
+      XDG_CONFIG_HOME: env.XDG_CONFIG_HOME ?? join(privateRoot, "config"),
+      XDG_DATA_HOME: env.XDG_DATA_HOME ?? join(privateRoot, "data"),
+      XDG_STATE_HOME: env.XDG_STATE_HOME ?? join(privateRoot, "state"),
+      XDG_CACHE_HOME: env.XDG_CACHE_HOME ?? join(privateRoot, "cache"),
     },
   });
 
   const baseUrl = `http://${hostname}:${port}`;
-
   // If the process dies early or never becomes healthy, surface its output so
   // CI failures are diagnosable instead of showing an empty stderr.
   let stderr = "";
@@ -85,6 +155,14 @@ export async function spawnOpencodeServe({
     stdout += chunk;
   });
 
+  try {
+    await once(child, "spawn");
+  } catch (cause) {
+    await rm(privateRoot, { recursive: true, force: true });
+    throw new Error(`Cannot start OpenCode (${executable}): ${cause.message}`, { cause });
+  }
+  serverCredentials.set(baseUrl, `Basic ${Buffer.from(`opencode:${password}`).toString("base64")}`);
+
   async function waitForExit(ms) {
     return Promise.race([
       once(child, "exit").then(() => true),
@@ -97,9 +175,8 @@ export async function spawnOpencodeServe({
     baseUrl,
     child,
     async close() {
-      if (child.exitCode !== null || child.signalCode !== null) {
-        return;
-      }
+      try {
+        if (child.exitCode !== null || child.signalCode !== null) return;
 
       try {
         child.kill("SIGTERM");
@@ -120,6 +197,7 @@ export async function spawnOpencodeServe({
       }
 
       await waitForExit(2500);
+      } finally { serverCredentials.delete(baseUrl); await rm(privateRoot, { recursive: true, force: true }); }
     },
     getStderr() {
       return stderr;
@@ -146,10 +224,9 @@ export async function waitForHealthy(
       // yet accepting connections can otherwise block for the OS-level connect
       // timeout (tens of seconds on macOS), blowing past `timeoutMs` because
       // the loop can only re-check the deadline between awaits.
-      const health = await client.global.health({
+      const health = await client.server.info({
         signal: AbortSignal.timeout(requestTimeoutMs),
       });
-      assert.equal(health.healthy, true);
       assert.ok(typeof health.version === "string");
       return health;
     } catch (e) {
@@ -159,14 +236,14 @@ export async function waitForHealthy(
   }
 
   const msg = lastError instanceof Error ? lastError.message : String(lastError);
-  throw new Error(`Timed out waiting for /global/health: ${msg}`);
+  throw new Error(`Timed out waiting for /api/info: ${msg}`);
 }
 
 export function normalizeEvent(raw) {
   if (!raw || typeof raw !== "object") return null;
 
   if (typeof raw.type === "string") {
-    return { type: raw.type, properties: raw.properties };
+    return { type: raw.type, data: raw.data, location: raw.location };
   }
 
   if (raw.payload && typeof raw.payload === "object" && typeof raw.payload.type === "string") {

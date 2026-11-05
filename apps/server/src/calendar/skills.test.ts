@@ -14,6 +14,7 @@ test("only an installed standard skill with the tested executable can calculate"
     mock.module('node:os', () => ({ ...os, homedir: () => process.env.XDG_CONFIG_HOME }));
     import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
     import { join } from "node:path";
+    import { createHash } from "node:crypto";
     import assert from "node:assert/strict";
     const { ensureDeadlineSkills, calculateWithSkill } = await import(${JSON.stringify(source)});
     const project = join(process.env.XDG_CONFIG_HOME, "project");
@@ -21,8 +22,10 @@ test("only an installed standard skill with the tested executable can calculate"
     const name = "de-civil-deadlines", dir = join(process.env.XDG_CONFIG_HOME, "opencode", "skills", name);
     const input = { rule: "de-zpo-period", triggerDate: "2026-01-31", duration: 1, unit: "months", region: "NW", source: "Court service record" };
     await ensureDeadlineSkills();
-    assert.equal((await calculateWithSkill(project, name, input)).deadlineDay, "2026-03-02");
     const code = await readFile(join(dir, "calculate.mjs"), "utf8");
+    const result = await calculateWithSkill(project, name, input);
+    assert.equal(result.deadlineDay, "2026-03-02");
+    assert.equal(result.codeHash, createHash("sha256").update(code).digest("hex"));
     await writeFile(join(dir, "calculate.mjs"), code + "\\n// modified");
     await assert.rejects(calculateWithSkill(project, name, input), { code: "deadline_code_unreviewed" });
     await rm(join(dir, "calculate.mjs"));

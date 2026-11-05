@@ -1,20 +1,14 @@
-import type {
-  Message,
-  McpOAuthConfig,
-  Part,
-  PermissionRequest as ApiPermissionRequest,
-  PermissionV2Request,
-  QuestionRequest,
-  ProviderListResponse,
-  Session,
-} from "@opencode-ai/sdk/v2/client";
+import type { SessionInfo, PermissionRequest, FormInfo, ModelInfo, ProviderSettings } from "@opencode/client";
+import type { Part, MessageViewInfo as Message } from "./lib/opencode-view";
 import type { createClient } from "./lib/opencode";
 import type { OpencodeConfigFile, WorkspaceInfo } from "./lib/desktop-types";
-import type { ConnectorConfig } from "@legalwork/types/connector-config";
+import type { ConnectorConfig, ConnectorDisplayItem } from "@legalwork/types/connector-config";
 
 export type Client = ReturnType<typeof createClient>;
 
-export type ProviderListItem = ProviderListResponse["all"][number];
+export type ProviderListItem = { id:string;name:string;source:"custom"|"config"|"env"|"api";models:Record<string,ModelInfo>;env?:string[];api?:string;settings?:ProviderSettings;integrationID?:string;editableAsCustom?:boolean;configurationReadOnly?:boolean;hasCustomEndpoint?:boolean };
+/** Model-picker presentation assembled from the native provider/model/integration catalogs. */
+export type ProviderListView = { all: ProviderListItem[]; connected: string[]; default: Record<string, string> };
 
 export type SidebarSessionItem = {
   id: string;
@@ -151,10 +145,7 @@ export type ArtifactItem = {
   messageId?: string;
 };
 
-export type OpencodeEvent = {
-  type: string;
-  properties?: unknown;
-};
+export type OpencodeEvent = import("@opencode/client").OpenCodeEvent;
 
 export type SessionCompactionState = {
   running: boolean;
@@ -359,10 +350,13 @@ export type McpServerEntry = {
   name: string;
   config: McpServerConfig;
   source?: McpServerSource;
+  configured?: ConnectorDisplayItem["configured"];
+  editable?: boolean;
 };
 
 export type McpStatus =
   | { status: "connected" }
+  | { status: "pending" }
   | { status: "disabled" }
   | { status: "failed"; error: string }
   | { status: "needs_auth" }
@@ -395,20 +389,18 @@ export type ReloadTrigger = {
   path?: string;
 };
 
-export type PendingPermission = Omit<ApiPermissionRequest, "always"> & {
-  always: unknown;
-  receivedAt: number;
-  protocol: "legacy" | "v2" | "host";
-  host?: import("@legalwork/types/desktop-ipc").HostApprovalRequest;
-  v2?: Pick<PermissionV2Request, "action" | "resources" | "save">;
-  sourceSession?: { id: string; title: string };
-  toolInput?: { status: "loading" | "unavailable" } | { status: "ready"; value: Record<string, unknown> };
+export type PendingPermission = {
+  id:string;sessionID:string;permission:string;patterns:string[];metadata:Record<string,unknown>;always:unknown;
+  tool?:{messageID:string;callID:string};receivedAt:number;protocol:"v2"|"host";
+  host?:import("@legalwork/types/desktop-ipc").HostApprovalRequest;
+  v2?:Pick<PermissionRequest,"action"|"resources"|"save">;
+  sourceSession?:{id:string;title:string};toolInput?:{status:"loading"|"unavailable"}|{status:"ready";value:Record<string,unknown>};
 };
-
-export type PendingQuestion = QuestionRequest & {
-  receivedAt: number;
-  protocol?: "legacy" | "v2";
-  sourceSession?: { id: string; title: string };
+export type QuestionOption = {label:string;description:string};
+export type QuestionInfo = {header:string;question:string;options:QuestionOption[];multiple?:boolean;custom?:boolean};
+export type PendingQuestion = {
+  id:string;sessionID:string;questions:QuestionInfo[];receivedAt:number;protocol?:"v2";
+  form?:FormInfo;sourceSession?:{id:string;title:string};
 };
 
 export type TodoItem = {
@@ -450,7 +442,7 @@ export type ModelOption = {
 };
 
 export type SelectedSessionSnapshot = {
-  session: Session | null;
+  session: SessionInfo | null;
   status: string;
   modelLabel: string;
 };

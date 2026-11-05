@@ -13,12 +13,14 @@ import {
   RefreshCw,
   Trash2,
   Upload,
+  Workflow,
 } from "lucide-react";
 import { Badge, Button, Card, Row, Spinner } from "@legalwork/ui/react";
 
 import { toast } from "@/components/ui/sonner";
 import { ConfirmModal } from "@/react-app/design-system/modals/confirm-modal";
 import { t } from "@/i18n";
+import { presetConfiguration } from "@/app/native-preset";
 import type {
   EigenweltHubInstall,
   EigenweltHubItem,
@@ -34,6 +36,7 @@ import { usePremiumUpsell } from "@/react-app/domains/recorder/premium-upsell-co
 import { WORKFLOWS_PER_PAGE, WorkflowPagination } from "./workflow-pagination";
 import { IntegrationEmptyState, IntegrationLibraryRow, IntegrationLibrarySearchContext, useIntegrationLibraryLayout } from "./integration-library";
 import { FirmSkillDialog } from "./firm-skill-dialog";
+import { workflowDisplayName } from "../state/workflow-document";
 import { Button as LibraryButton } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
@@ -133,7 +136,7 @@ export function HubDownloadSection({
 }: HubDownloadSectionProps) {
   const meta = kindMeta(kind);
   const layout = useIntegrationLibraryLayout();
-  const library = kind === "skill" && Boolean(layout);
+  const library = (kind === "skill" || kind === "workflow" || kind === "review_set") && Boolean(layout);
   const librarySearch = useContext(IntegrationLibrarySearchContext);
   const search = librarySearch.query.trim().toLowerCase();
   const source = layout?.source ?? "all";
@@ -190,7 +193,7 @@ export function HubDownloadSection({
   const lastPage = Math.max(0, Math.ceil(items.length / WORKFLOWS_PER_PAGE) - 1);
   const currentPage = Math.min(page, lastPage);
   const visibleItems = kind === "workflow" ? items.slice(currentPage * WORKFLOWS_PER_PAGE, (currentPage + 1) * WORKFLOWS_PER_PAGE) : items;
-  useEffect(() => { setPage(0); }, [workspaceId, kind, memberFilter]);
+  useEffect(() => { setPage(0); }, [workspaceId, kind, memberFilter, search, source]);
   useEffect(() => { setPage((value) => Math.min(value, lastPage)); }, [lastPage]);
   useEffect(() => { if (listRef.current) listRef.current.scrollTop = 0; }, [currentPage, memberFilter]);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -226,10 +229,12 @@ export function HubDownloadSection({
     setBusyId(item.id);
     try {
       const detail = await legalworkClient.hubGet(workspaceId, item.id);
-      if (!detail.payload || typeof detail.payload !== "object") {
+      if (!detail.payload || typeof detail.payload !== "object" || Array.isArray(detail.payload)) {
         throw new Error(t("firm_hub.preset_invalid"));
       }
-      await legalworkClient.patchConfig(workspaceId, { opencode: detail.payload as Record<string, unknown> });
+      const current = await legalworkClient.getConfig(workspaceId);
+      const prepared = presetConfiguration(Object.fromEntries(Object.entries(detail.payload)), current.providerDisplay);
+      await legalworkClient.patchConfig(workspaceId, { opencode: prepared.configuration });
       // Presets apply from settings (not the install route), so record the pulled
       // version here to power "update available" on the next visit.
       await legalworkClient.hubRecordInstall(workspaceId, {
@@ -239,6 +244,7 @@ export function HubDownloadSection({
         name: item.name,
       });
       toast.success(t(wasInstalled ? "firm_hub.updated" : "firm_hub.preset_applied", { name: item.name }));
+      if (prepared.requiresSetup.length) toast.info(t("firm_hub.preset_setup_required"));
       await installsQuery.refetch();
       onConfigApplied?.();
     } catch (error) {
@@ -278,7 +284,8 @@ export function HubDownloadSection({
 
   // No workspace to install into — nothing to render.
   if (library && source === "personal") return null;
-  const libraryEmpty = <IntegrationEmptyState icon={Blocks} title={search ? t("integrations.no_skill_matches") : meta.empty} description={search ? t("integrations.search_hint") : meta.description} />;
+  const LibraryIcon = kind === "workflow" ? Workflow : kind === "review_set" ? BookOpen : Blocks;
+  const libraryEmpty = <IntegrationEmptyState icon={LibraryIcon} title={search ? t(kind === "workflow" ? "workflows.no_matches" : kind === "review_set" ? "review.library_empty" : "integrations.no_skill_matches") : meta.empty} description={search ? t("integrations.search_hint") : undefined} />;
   if (!connected) return library && (source === "team" || !librarySearch.hasOtherResults) ? libraryEmpty : null;
 
   // Connected but not on Plus: show the upsell, which opens the Plus modal.
@@ -286,11 +293,11 @@ export function HubDownloadSection({
     if (library && source !== "team") return librarySearch.hasOtherResults ? null : libraryEmpty;
     return (
       <div className="space-y-2">
-        <div className="flex items-center gap-2 text-ink">
+        {!library ? <div className="flex items-center gap-2 text-ink">
           {meta.icon}
           <h3 className="text-md font-semibold">{meta.title}</h3>
-        </div>
-        {meta.description ? <p className="text-sm text-subtext">{meta.description}</p> : null}
+        </div> : null}
+        {!library && meta.description ? <p className="text-sm text-subtext">{meta.description}</p> : null}
         <button
           type="button"
           onClick={() => upsell.open()}
@@ -304,12 +311,13 @@ export function HubDownloadSection({
   }
 
   return (
-    <div className={kind === "workflow" ? "flex h-full min-h-0 flex-col gap-2" : library ? "space-y-1 empty:hidden" : "space-y-2"}>
+    <div className={library ? "space-y-1 empty:hidden" : kind === "workflow" ? "flex h-full min-h-0 flex-col gap-2" : "space-y-2"}>
       {library ? <>
         {listQuery.isLoading ? <p role="status" className="text-sm text-muted-foreground">{t("firm_hub.loading")}</p> : null}
         {listQuery.error ? <p role="alert" className="text-sm text-destructive">{listQuery.error.message}</p> : null}
-        {items.length ? <TeamSkillRows items={items} firmItems={firmItems} busyId={busyId} read={readSkill} onAdd={item => setPendingInstall({ item, wasInstalled: false })} onRemove={item => void setAdded(item, false)} />
+        {items.length ? <TeamLibraryRows items={kind === "workflow" ? visibleItems : items} firmItems={firmItems} busyId={busyId} read={readSkill} onAdd={item => { if (kind === "review_set") void setAdded(item, true); else setPendingInstall({ item, wasInstalled: false }); }} onRemove={item => void setAdded(item, false)} />
           : !librarySearch.hasOtherResults && !listQuery.isLoading && !listQuery.error ? libraryEmpty : null}
+        {kind === "workflow" ? <WorkflowPagination page={currentPage} total={items.length} onPageChange={setPage} /> : null}
       </> : <>
       <div className="flex items-center gap-2 text-ink">
         {meta.icon}
@@ -405,7 +413,7 @@ export function HubDownloadSection({
 }
 
 /** The full team catalogue uses the same rows as personal skills, including optional items. */
-function TeamSkillRows(props: {
+function TeamLibraryRows(props: {
   items: EigenweltHubItem[];
   firmItems: Map<string, FirmHubItem>;
   busyId: string | null;
@@ -419,8 +427,9 @@ function TeamSkillRows(props: {
   return <div className="space-y-1">
     {props.items.map(item => {
       const firm = props.firmItems.get(item.id);
-      return <IntegrationLibraryRow key={item.id} name={prettifyName(item.name)} description={item.description} source={t("firm_hub.scope_team")} busy={props.busyId === item.id}
-        icon={<span className="grid size-9 shrink-0 place-items-center rounded-xl border border-border"><Blocks className="size-4 text-muted-foreground" /></span>}
+      const Icon = item.kind === "workflow" ? Workflow : item.kind === "review_set" ? BookOpen : Blocks;
+      return <IntegrationLibraryRow key={item.id} name={item.kind === "workflow" ? workflowDisplayName(item.name) : prettifyName(item.name, item.kind)} description={item.description} source={t("firm_hub.scope_team")} busy={props.busyId === item.id}
+        icon={<span className="grid size-9 shrink-0 place-items-center rounded-xl border border-border"><Icon className="size-4 text-muted-foreground" /></span>}
         onOpen={() => setSelected(item)}
         onRemove={firm?.installation === "optional" && firm.added ? () => props.onRemove(item) : undefined}
         actions={firm?.installation === "optional" && !firm.added ? <DropdownMenuItem onClick={() => props.onAdd(item)}><Download />{t("firm_hub.add")}</DropdownMenuItem> : undefined} />;

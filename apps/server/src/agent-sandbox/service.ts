@@ -28,8 +28,9 @@ import { WikiSync } from "../wiki/sync.js";
 import { assertWikiWorkspaceAccess, ownsWikis, wikiAgentCanAccess, wikiForDirectory } from "../wiki/access.js";
 import { buildWikiFilePolicy, wikiContentPath, wikiSafeSandboxMounts } from "../wiki/file-access-policy.js";
 import { canonicalFolderPath } from "../wiki/workspace-safety.js";
+import { rawHttpRequest, type RawHttpInput, type RawHttpNetwork } from "./raw-http.js";
 
-export type SandboxCommand = { command: string; description?: string; sessionID?: string; workdir?: string; skills?: string[]; write: boolean; timeoutMs: number };
+export type SandboxCommand = { command: string; description?: string; sessionID?: string; workdir?: string; skills?: string[]; write: boolean; timeoutMs: number | null; capture?: "complete" };
 export type AgentPermissionRule = { permission: string; pattern: string; action: PermissionAction };
 
 function restrictive(actions: PermissionAction[]): PermissionAction {
@@ -85,9 +86,11 @@ function authorizedFolders(entries: Record<string, unknown>): string[] {
 
 export class AgentSandboxService {
   private active = new Map<AbortController, Promise<void>>();
+  private stopping = false;
   private clearRemembered: Array<() => void>;
   constructor(readonly config: ServerConfig, readonly approvals: ApprovalService,
-    readonly backend: Pick<VmSandbox, "run" | "prepare" | "status"> = new VmSandbox()) {
+    readonly backend: Pick<VmSandbox, "run" | "prepare" | "status"> = new VmSandbox(),
+    private readonly rawHttpSend?: RawHttpNetwork["send"]) {
     this.clearRemembered = [
       onRuntimeOpencodeConfigWrite((config, id) => { if (config === this.config) approvals.forgetRemembered(id === GLOBAL_TOOL_PERMISSIONS_ID ? undefined : id); }),
       onSandboxSettingsChange(async config => { if (config === this.config) approvals.forgetRemembered(); }),
@@ -95,10 +98,13 @@ export class AgentSandboxService {
     ];
   }
 
-  stop(): void {
+  async stop(): Promise<void> {
+    this.stopping = true;
     this.clearRemembered.splice(0).forEach(unsubscribe => unsubscribe());
     this.approvals.forgetRemembered();
+    const pending = [...this.active.values()];
     for (const controller of this.active.keys()) controller.abort(new Error("LegalWork is stopping."));
+    await Promise.all(pending);
   }
 
   async setNetworkMode(mode: NetworkMode): Promise<void> {
@@ -162,7 +168,7 @@ export class AgentSandboxService {
         }
         const cwd = command.workdir || workspace.path;
         if (!isAbsolute(cwd)) throw new ApiError(400, "command_directory", "Use an absolute folder path on this computer.");
-        return { ...await withFileEditorHandoff(command, () => { signal.throwIfAborted(); return runHostCommand({ command: command.command, cwd, timeoutMs: command.timeoutMs, signal }); }), sandbox: "host" };
+        return { ...await withFileEditorHandoff(command, () => { signal.throwIfAborted(); return runHostCommand({ command: command.command, cwd, timeoutMs: command.timeoutMs, capture: command.capture, signal }); }), sandbox: "host" };
       }
       const writeAction = commandAction("edit");
       const externalRules = runtimeExternalDirectory(runtime);
@@ -215,7 +221,7 @@ export class AgentSandboxService {
       const cwd = sandboxPaths(command.workdir || "/workspace", safeMounts);
       if (!cwd.startsWith("/")) throw new ApiError(400, "sandbox_directory", "Use /workspace or an authorized sandbox folder.");
       const result = await withFileEditorHandoff(command, () => { executionSignal.throwIfAborted(); return this.backend.run({ command: sandboxPaths(command.command, safeMounts), cwd, mounts: safeMounts,
-        timeoutMs: command.timeoutMs, signal: executionSignal,
+        timeoutMs: command.timeoutMs, capture: command.capture, signal: executionSignal,
         // Scoped tool/agent rules require the request broker even in allow mode.
         networkMode: networkMode === "allow" && commandAction("webfetch") !== "allow" ? "approve" : networkMode,
         authorizeNetwork,
@@ -269,14 +275,23 @@ export class AgentSandboxService {
       });
   }
 
+  /** Code Mode's raw Fetch shares policy/revocation, without page-broker content limits. */
+  async rawHttp(workspace: WorkspaceInfo, input: RawHttpInput & { sessionID: string }, actor: Actor, parentSignal: AbortSignal,
+    agentRules: AgentPermissionRule[] = [], lineage: string[] = [input.sessionID], network?: RawHttpNetwork) {
+    return this.withPolicy(workspace, { sessionID: input.sessionID, description: `${input.method} ${input.url}` }, actor, parentSignal, agentRules, lineage,
+      async ({ settings, signal, authorizeNetwork }) => rawHttpRequest(input, request => authorizeNetwork(request, true), signal,
+        { allowPrivate: !settings.enabled || settings.networkMode === "allow", network, send: this.rawHttpSend }));
+  }
+
   private async withPolicy<T>(workspace: WorkspaceInfo, operation: { sessionID?: string; description?: string }, actor: Actor,
     parentSignal: AbortSignal, agentRules: AgentPermissionRule[], lineage: string[], work: (scope: {
       settings: Awaited<ReturnType<typeof effectiveSandbox>>;
       permissions: Record<string, unknown>;
       signal: AbortSignal;
       ask: (permission: string, pattern: string, summary: string, paths: string[], override?: PermissionAction, reviewable?: boolean, network?: ApprovalRequest["network"]) => Promise<void>;
-      authorizeNetwork: (request: OutboundRequest) => Promise<boolean>;
+      authorizeNetwork: (request: OutboundRequest, completeReview?: boolean) => Promise<boolean>;
     }) => Promise<T>): Promise<T> {
+    if (this.stopping) throw new ApiError(503, "server_stopping", "LegalWork is stopping.");
     const controller = new AbortController();
     let stopped: () => void = () => {};
     this.active.set(controller, new Promise<void>((resolve) => { stopped = resolve; }));
@@ -315,7 +330,7 @@ export class AgentSandboxService {
         }
         signal.throwIfAborted();
       };
-      const authorizeNetwork = async (request: OutboundRequest) => {
+      const authorizeNetwork = async (request: OutboundRequest, completeReview = false) => {
         signal.throwIfAborted();
         if (settings.enabled && settings.networkMode === "block") throw new ApiError(403, "sandbox_network_blocked", "All sandbox network traffic is blocked in Settings.");
         const bytes = Buffer.from(request.bodyBase64, "base64");
@@ -324,10 +339,12 @@ export class AgentSandboxService {
         const body = bodyFormat === "text" ? text : `Base64: ${request.bodyBase64}`;
         // The approval is bound to the in-memory immutable request. A changed
         // body, URL or header necessarily produces a separate request.
-        const preview = `${request.method} ${request.url}\n\nHeaders:\n${JSON.stringify(request.headers, null, 2)}\n\nBody (${request.bodyBytes} bytes):\n${body}\n\nRequest SHA-256: ${request.sha256}`;
+        const preview = completeReview ? `${request.method} ${request.url}\n\nRequest SHA-256: ${request.sha256}`
+          : `${request.method} ${request.url}\n\nHeaders:\n${JSON.stringify(request.headers, null, 2)}\n\nBody (${request.bodyBytes} bytes):\n${body}\n\nRequest SHA-256: ${request.sha256}`;
         const action = permissionAction(permissions, "webfetch", request.url);
-        await ask("webfetch", request.url, preview, [], settings.enabled && settings.networkMode === "approve" ? restrictive(["ask", action]) : action, preview.length <= 16000, { url: request.url, method: request.method, headers: request.headers,
-          body: bodyFormat === "text" ? text : request.bodyBase64, bodyFormat, bodyBytes: request.bodyBytes });
+        await ask("webfetch", request.url, preview, [], settings.enabled && settings.networkMode === "approve" ? restrictive(["ask", action]) : action, completeReview || preview.length <= 16000, { url: request.url, method: request.method, headers: request.headers,
+          body: bodyFormat === "text" ? text : request.bodyBase64, bodyFormat, bodyBytes: request.bodyBytes,
+          ...(completeReview ? { complete: true, sha256: request.sha256 } : {}) });
         return true;
       };
       return await work({ settings, permissions, signal, ask, authorizeNetwork });

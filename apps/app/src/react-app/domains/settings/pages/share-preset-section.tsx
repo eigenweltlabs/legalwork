@@ -16,11 +16,13 @@ import {
  * provider shape (keys are stripped again on the server) plus the model /
  * small_model defaults. Shared by the Firm Hub tab and the AI settings page.
  */
-export function buildPresetFragment(opencode: Record<string, unknown>): Record<string, unknown> {
+export function buildPresetFragment(opencode: Record<string, unknown>, providerDisplay: Record<string, { hasCustomEndpoint: boolean }> = {}): Record<string, unknown> {
   const fragment: Record<string, unknown> = {};
-  for (const key of ["provider", "model", "small_model"] as const) {
+  for (const key of ["providers", "provider", "model", "small_model"] as const) {
     if (opencode[key] !== undefined) fragment[key] = opencode[key];
   }
+  const setup = Object.fromEntries(Object.entries(providerDisplay).filter(([, value]) => value.hasCustomEndpoint).map(([id]) => [id, true]));
+  if (Object.keys(setup).length) fragment.providerSetup = setup;
   return fragment;
 }
 
@@ -41,7 +43,7 @@ export function SharePresetControl({ client, workspaceId, onShared }: SharePrese
     setSharing(true);
     try {
       const config = await client.getConfig(workspaceId);
-      const fragment = buildPresetFragment(config.opencode ?? {});
+      const fragment = buildPresetFragment(config.opencode ?? {}, config.providerDisplay);
       if (Object.keys(fragment).length === 0) {
         throw new Error(t("firm_hub.share_preset_empty"));
       }

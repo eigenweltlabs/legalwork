@@ -1,5 +1,5 @@
 import { basename } from "node:path";
-import type { TextPartInput } from "@opencode-ai/sdk/v2/client";
+import type { TextPartInput } from "./assistant-engine.js";
 import type { AssistantProfile } from "@legalwork/types/main-assistant";
 import { delegationLanguageInstructions } from "./assistant-handoff.js";
 

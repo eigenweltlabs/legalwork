@@ -1,61 +1,37 @@
-import { randomBytes } from "node:crypto";
-import { viewStreamParser } from "./view-stream-parser.js";
+import type { Plugin } from "@opencode/plugin";
+import { nativeEvents } from "./native-events.js";
 import type { ViewGenerationChunk } from "../views/generation-stream.js";
 
-const HEADER = "x-legalwork-view-stream";
-const requests = new Map<string, { at: number; publish: (chunk: ViewGenerationChunk) => Promise<void> }>();
-let installed: typeof fetch | undefined;
-
-/** Compatibility for engines that discard tool-input-delta (including bundled OpenCode 1.18.29).
- * Local request correlation is stripped before the request reaches the model provider. */
-export function installViewStreamBridge() {
-  if (globalThis.fetch !== installed) {
-    const base = globalThis.fetch;
-    const patched = async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
-      const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined));
-      const key = headers.get(HEADER);
-      if (!key) return base(input, init);
-      headers.delete(HEADER);
-      const source = requests.get(key);
-      const response = await base(input, { ...init, headers });
-      // Some compatible providers omit Content-Type on otherwise valid SSE responses.
-      const contentType = response.headers.get("content-type");
-      if (!source || !response.ok || !response.body || (contentType && !contentType.includes("text/event-stream"))) return response;
-      const latest = new Map<string, ViewGenerationChunk>();
-      let publishing = false;
-      const flush = async () => {
-        if (publishing) return;
-        publishing = true;
-        try {
-          while (latest.size) {
-            const chunks = [...latest.values()]; latest.clear();
-            await Promise.all(chunks.map(chunk => source.publish(chunk).catch(() => {})));
-          }
-        } finally { publishing = false; }
-      };
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      const feed = viewStreamParser(chunk => {
-        latest.set(chunk.callId, chunk);
-        if (!timer) timer = setTimeout(() => { timer = undefined; void flush(); }, 80);
-      });
-      const decoder = new TextDecoder();
-      const body = response.body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
-        transform(chunk, controller) { controller.enqueue(chunk); feed(decoder.decode(chunk, { stream: true })); },
-        flush() { feed(decoder.decode()); if (timer) clearTimeout(timer); void flush(); },
-      }));
-      return new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers });
-    };
-    globalThis.fetch = Object.assign(patched, base);
-    installed = globalThis.fetch;
-  }
-}
-
-export function viewStreamHeaders(publish: (chunk: ViewGenerationChunk) => Promise<void>) {
-  installViewStreamBridge();
-  const now = Date.now();
-  for (const [key, entry] of requests) if (entry.at < now - 600_000) requests.delete(key);
-  if (requests.size >= 256) requests.delete(requests.keys().next().value!);
-  const key = randomBytes(16).toString("hex");
-  requests.set(key, { at: now, publish });
-  return { [HEADER]: key };
+type Preview = {sessionID:string; messageID:string; chunk:ViewGenerationChunk};
+/** Native input events cover every provider transport, including WebSockets.
+ * These existing bounds affect live previews only; final metadata retains the complete view. */
+export function registerViewGeneration(ctx:Plugin.Context,publish:(sessionID:string,directory:string,chunk:ViewGenerationChunk)=>Promise<void>):()=>void{
+  const calls=new Map<string,Preview>(),latest=new Map<string,Preview>();
+  let timer:ReturnType<typeof setTimeout>|undefined, publishing=false,closed=false;
+  const flush=async()=>{
+    if(publishing||closed)return;publishing=true;
+    try{while(latest.size&&!closed){const updates=[...latest.values()];latest.clear();await Promise.all(updates.map(async({sessionID,chunk})=>{
+      try{const session=await ctx.session.get({sessionID});if(!closed)await publish(sessionID,session.location.directory,chunk);}catch{/* Preview errors never interrupt the tool or discard its final saved metadata. */}
+    }));}}finally{publishing=false;}
+  };
+  const queue=(key:string,value:Preview)=>{latest.set(key,{sessionID:value.sessionID,messageID:value.messageID,chunk:{...value.chunk}});if(!timer)timer=setTimeout(()=>{timer=undefined;void flush();},80);};
+  const stop=nativeEvents(ctx,event=>{
+    if(event.type==="session.deleted"){for(const[key,value]of calls)if(value.sessionID===event.data.sessionID){calls.delete(key);latest.delete(key);}return;}
+    if(event.type==="session.execution.succeeded"||event.type==="session.execution.failed"||event.type==="session.execution.interrupted"){
+      for(const[key,value]of calls)if(value.sessionID===event.data.sessionID)calls.delete(key);
+      void flush();return;
+    }
+    if(event.type!=="session.tool.input.started"&&event.type!=="session.tool.input.delta"&&event.type!=="session.tool.input.ended")return;
+    const key=`${event.data.sessionID}:${event.data.id}`;
+    if(event.type==="session.tool.input.started"){
+      if((event.data.name!=="view_create"&&event.data.name!=="view_update")||[...calls.values()].filter(value=>value.sessionID===event.data.sessionID&&value.messageID===event.data.assistantMessageID).length>=16)return;
+      const value={sessionID:event.data.sessionID,messageID:event.data.assistantMessageID,chunk:{callId:event.data.id,tool:event.data.name,raw:""}} satisfies Preview;calls.set(key,value);queue(key,value);return;
+    }
+    const value=calls.get(key);if(!value)return;
+    const raw=event.type==="session.tool.input.delta"?value.chunk.raw+event.data.delta:event.data.text;
+    if(raw.length>200_000){calls.delete(key);latest.delete(key);return;}
+    value.chunk.raw=raw;queue(key,value);
+    if(event.type==="session.tool.input.ended"){calls.delete(key);if(timer){clearTimeout(timer);timer=undefined;}void flush();}
+  },()=>{calls.clear();latest.clear();});
+  return()=>{closed=true;stop();if(timer)clearTimeout(timer);calls.clear();latest.clear();};
 }

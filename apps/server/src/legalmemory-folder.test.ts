@@ -3,7 +3,14 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { collectLegalMemoryFolderFiles, FOLDER_EXPORT_LIMITS } from "./legalmemory-fetch.js";
 
 const nativeFetch = globalThis.fetch;
-const server = { name: "legalmemory", url: "https://memory.firm.example/mcp" };
+const server = {
+  async callTool(): Promise<never> { throw new Error("Unexpected MCP fallback"); },
+  async tree(_operation: string, params: Record<string, string | number | undefined>) {
+    const url = new URL("https://memory.firm.example/api/tree/children");
+    for (const [name, value] of Object.entries(params)) if (value !== undefined) url.searchParams.set(name, String(value));
+    return (await fetch(url)).json();
+  },
+};
 
 type Level = { folders: { name: string; path: string }[]; files: string[] };
 

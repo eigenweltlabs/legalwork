@@ -22,7 +22,7 @@ const removedLocalConnection = z.object({ config: z.object({ kind: z.literal("lo
 
 export class StorageStore {
   readonly path: string;
-  constructor(config: ServerConfig) {
+  constructor(config: Pick<ServerConfig, "configPath">) {
     this.path =
       process.env.LEGALWORK_STORAGE_STORE ||
       join(

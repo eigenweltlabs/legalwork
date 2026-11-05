@@ -1,5 +1,7 @@
 import { expect, test } from "bun:test";
-import { LegalWorkCalendarTools } from "./legalwork-calendar-tools.js";
+import pluginDefinition from "./legalwork-calendar-tools.js";
+import { nativePluginTools } from "./native-plugin-test-support.js";
+const LegalWorkCalendarTools = (context = {}) => nativePluginTools(pluginDefinition, context);
 
 test("calendar tools use the chat's closest project and link the creating session", async () => {
   const oldUrl = process.env.LEGALWORK_SERVER_URL, oldToken = process.env.LEGALWORK_SERVER_TOKEN;

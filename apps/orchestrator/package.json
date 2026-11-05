@@ -1,20 +1,22 @@
 {
   "name": "legalwork-orchestrator",
   "version": "0.0.0",
-  "description": "LegalWork host orchestrator for opencode + LegalWork server + opencode-router",
+  "description": "LegalWork host orchestrator for OpenCode and LegalWork server",
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "LEGALWORK_DEV_MODE=1 bun src/cli.ts",
+    "dev": "node ../../packages/opencode-release/prepare.mjs --mode development --dev-mode --run bun src/cli.ts",
     "build": "tsc -p tsconfig.json",
     "build:bin": "node scripts/clean-dist.mjs && bun ./script/build.ts --outdir dist/bin --filename legalwork",
-    "build:bin:all": "node scripts/clean-dist.mjs && bun ./script/build.ts --outdir dist/bin --filename legalwork --target bun-darwin-arm64 --target bun-darwin-x64 --target bun-linux-x64 --target bun-linux-arm64 --target bun-windows-x64",
+    "build:bin:all": "node scripts/clean-dist.mjs && bun ./script/build.ts --engine-mode production --outdir dist/bin --filename legalwork --target bun-darwin-arm64 --target bun-darwin-x64 --target bun-linux-x64 --target bun-linux-arm64 --target bun-windows-x64",
     "build:bin:bundled": "node scripts/clean-dist.mjs && node ../desktop/scripts/prepare-sidecar.mjs --outdir dist && bun ./script/build.ts --outdir dist --filename legalwork && bun scripts/build-bin.ts",
     "build:sidecars": "node scripts/build-sidecars.mjs",
     "typecheck": "tsc -p tsconfig.typecheck.json",
-    "test:router": "pnpm build && node scripts/router.mjs",
-    "test:files": "pnpm build && node scripts/files-session.mjs",
-    "prepublishOnly": "node -e \"console.error('legalwork-orchestrator is published via apps/orchestrator/scripts/publish-npm.mjs (meta + platform packages)'); process.exit(1);\""
+    "test:cli": "bun test src/developer-launcher-retirement.test.ts",
+    "test:files": "pnpm --filter legalwork-server build && pnpm build && node scripts/files-session.mjs",
+    "prepublishOnly": "node -e \"console.error('legalwork-orchestrator is published via apps/orchestrator/scripts/publish-npm.mjs (meta + platform packages)'); process.exit(1);\"",
+    "test:messaging-removal": "pnpm build && node --test scripts/messaging-removal.test.mjs",
+    "build:bin:production": "node scripts/clean-dist.mjs && bun ./script/build.ts --engine-mode production --outdir dist/bin --filename legalwork"
   },
   "files": [
     "dist",
@@ -44,12 +46,12 @@
     "access": "public"
   },
   "dependencies": {
-    "@opencode-ai/sdk": "^1.18.29",
+    "@opencode/client": "2.1.4",
     "@opentui/core": "0.1.77",
     "@opentui/solid": "0.1.77",
-    "opencode-router": "0.0.0",
     "legalwork-server": "0.0.0",
-    "solid-js": "1.9.9"
+    "solid-js": "1.9.9",
+    "@legalwork/opencode-release": "workspace:*"
   },
   "devDependencies": {
     "@opentui/core-darwin-arm64": "0.1.77",

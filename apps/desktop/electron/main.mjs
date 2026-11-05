@@ -19,7 +19,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parse as parseYaml } from "yaml";
 
-import { app, BaseWindow, BrowserWindow, WebContentsView, clipboard, desktopCapturer, dialog, globalShortcut, ipcMain as electronIpcMain, nativeImage, nativeTheme, Notification, powerMonitor, powerSaveBlocker, protocol, safeStorage, screen, session, shell, systemPreferences } from "electron";
+import { app, autoUpdater, BaseWindow, BrowserWindow, WebContentsView, clipboard, desktopCapturer, dialog, globalShortcut, ipcMain as electronIpcMain, nativeImage, nativeTheme, Notification, powerMonitor, powerSaveBlocker, protocol, safeStorage, screen, session, shell, systemPreferences } from "electron";
 import { createActaportConnection, prepareActaportRuntime } from "./actaport.mjs";
 import { notificationIcon, showNativeNotification } from "./desktop-notifications.mjs";
 import { CommunicationNotifications } from "./communication-notifications.mjs";
@@ -35,7 +35,7 @@ import { MeetingMonitor } from "./audio/meeting-monitor.mjs";
 import { DictationMicrophones } from "./audio/dictation-microphones.mjs";
 import { RecorderService } from "./audio/recorder-service.mjs";
 import { SystemDictationService } from "./audio/system-dictation.mjs";
-import { SystemKeyMonitor } from "./audio/system-key-monitor.mjs";
+import { SystemKeyMonitor, resolveKeyMonitorPath } from "./audio/system-key-monitor.mjs";
 import { PowerLifecycle, PowerSessions } from "./power-lifecycle.mjs";
 import { AppTray } from "./tray.mjs";
 import { LauncherService } from "./launcher/launcher-service.mjs";
@@ -130,6 +130,7 @@ function actaportBundlePath(file) {
 let actaportConnection;
 function getActaportConnection() {
   actaportConnection ??= createActaportConnection({ directory: app.getPath("userData"), safeStorage,
+    loadVault: () => runtimeManager.credentialVault(),
     loadAuth: () => import(pathToFileURL(actaportBundlePath("auth.mjs")).href) });
   return actaportConnection;
 }
@@ -268,7 +269,8 @@ Add-Type -TypeDefinition $source -ErrorAction Stop
 if (-not [LegalWorkPaste]::Paste()) { exit 2 }
 `;
 
-function runChildProcess(executable, args) {
+/** @returns {Promise<boolean>} */
+function runChildProcess(executable, args, notInsertedCode = null) {
   return new Promise((resolve, reject) => {
     const child = spawn(executable, args, { stdio: "ignore", windowsHide: true });
     const timeout = setTimeout(() => {
@@ -281,17 +283,27 @@ function runChildProcess(executable, args) {
     });
     child.once("exit", (code) => {
       clearTimeout(timeout);
-      if (code === 0) resolve(undefined);
-      else reject(new Error(`Paste command exited with code ${code ?? "unknown"}.`));
+      if (code === 0) resolve(true);
+      else if (notInsertedCode !== null && code === notInsertedCode) resolve(false);
+      else reject(Object.assign(new Error(`Paste command exited with code ${code ?? "unknown"}.`), { exitCode: code }));
     });
   });
 }
 
-function runSystemPasteCommand(platform) {
+async function runSystemPasteCommand(platform) {
   if (platform === "darwin") {
+    const helper = resolveKeyMonitorPath(app);
+    if (existsSync(helper)) {
+      try {
+        return await runChildProcess(helper, ["--paste"], 4);
+      } catch (error) {
+        // An unresolved layout must not fall back to a different shortcut.
+        if (error.exitCode === 3) throw error;
+      }
+    }
     return runChildProcess("/usr/bin/osascript", [
       "-e",
-      "tell application \"System Events\" to key code 9 using command down",
+      'tell application "System Events" to keystroke "v" using command down',
     ]);
   }
   if (platform === "windows") {
@@ -303,6 +315,12 @@ function runSystemPasteCommand(platform) {
     ]);
   }
   return Promise.reject(new Error("Automatic paste is not available on this platform."));
+}
+
+function prepareSystemPasteCommand() {
+  if (process.platform !== "darwin") return;
+  const helper = resolveKeyMonitorPath(app);
+  if (existsSync(helper)) void runChildProcess(helper, ["--prepare-paste"]).catch(() => {});
 }
 
 async function showSupportLogsProgressWindow(parent) {
@@ -385,8 +403,7 @@ async function collectSupportLogsAndReveal() {
 
   const progressWindow = await showSupportLogsProgressWindow(parent);
   try {
-    // Give the progress window one paint before the synchronous diagnostics
-    // snapshot starts probing binaries and reading log tails.
+    // Give the progress window one paint before collecting diagnostics.
     await new Promise((resolve) => setTimeout(resolve, 80));
     // The embedded server's own requests (e.g. to GitHub) ignore the system
     // proxy that the app window uses, so record it to tell a proxy network
@@ -402,7 +419,7 @@ async function collectSupportLogsAndReveal() {
       ),
     };
     // Build after the dialog so the diagnostics snapshot is as fresh as possible.
-    writeFileSync(filePath, buildSupportBundleText({ app, runtimeManager, network }), "utf8");
+    writeFileSync(filePath, await buildSupportBundleText({ app, runtimeManager, network }), "utf8");
   } finally {
     if (!progressWindow.isDestroyed()) progressWindow.close();
   }
@@ -718,6 +735,8 @@ process.on("unhandledRejection", (reason) => {
 
 const browserPanel = createBrowserPanel({
   app, BaseWindow, WebContentsView, clipboard, session,
+  resolveEngine: () => runtimeManager.engineInfo(),
+  resolveLegalworkServer: () => runtimeManager.legalworkServerInfo(),
   authorizeBrowserAutomation: async (context) => requireBrowserNetwork(context, await runtimeManager.legalworkServerInfo()),
   resolveDownloadDirectory: async (context, windowUrl) => resolveBrowserProject(
     context, await workspaceStore.readWorkspaceState(), await runtimeManager.legalworkServerInfo(), windowUrl,
@@ -787,7 +806,7 @@ const callOverlay = new CallOverlay({
 const dictationHud = new DictationHud({
   onStart: () => systemDictation.toggleHandsFree(),
   onStop: () => recorderService().broadcast({ type: "system-dictation-stop" }),
-  onCancel: () => recorderService().broadcast({ type: "system-dictation-cancel" }),
+  onCancel: () => systemDictation.cancel(),
   onMeetingStart: () => {
     if (["starting", "listening", "transcribing", "inserting"].includes(systemDictation.runtimeState)) return;
     meetingMonitor.requestStart();
@@ -876,18 +895,26 @@ const systemDictation = new SystemDictationService({
   systemPreferences,
   shell,
   runPasteCommand: runSystemPasteCommand,
+  preparePaste: prepareSystemPasteCommand,
   keyMonitor: systemKeyMonitor,
   onToggle: () => recorderService().broadcast({ type: "system-dictation-toggle" }),
   onPress: () => recorderService().broadcast({ type: "system-dictation-press" }),
   onRelease: () => recorderService().broadcast({ type: "system-dictation-release" }),
-  onCancel: (reason) => recorderService().broadcast({ type: "system-dictation-cancel", reason }),
+  onCancel: (reason) => {
+    const recorder = recorderService();
+    recorder.broadcast({ type: "system-dictation-cancel", reason });
+    // Reset and release native work even if the dev renderer is reloading.
+    for (const [id, recording] of recorder.activeRecordings) {
+      if (recording.meta.ephemeral) void recorder.cancelRecording(id).catch(() => {});
+    }
+  },
   onStatus: (status) => {
     recorderService().broadcast({ type: "system-dictation-status", status });
     syncBackgroundPresence();
   },
   onState: (state, message, locale) => {
     if (state !== "listening") dictationMicrophones.setActive(null);
-    void dictationHud.setState(state, message, locale).catch((error) => console.warn("[dictation-hud]", error));
+    void dictationHud.setState(state === "cancelled" ? "idle" : state, message, locale).catch((error) => console.warn("[dictation-hud]", error));
   },
 });
 
@@ -964,6 +991,9 @@ notifyLauncherVoice = () => launcherService.notifyVoice();
 // destroying it, and a tray icon keeps the app reachable.
 
 let appIsQuitting = false;
+// Native update installation closes windows before app's before-quit event.
+// Mark the quit intent now so close-to-hide cannot block the installation.
+autoUpdater.on("before-quit-for-update", () => { appIsQuitting = true; });
 let windowsCloseHintShown = false;
 // --hidden comes from the login-item registration (Windows args); macOS
 // login-item launches are detected via wasOpenedAtLogin in whenReady.
@@ -1370,11 +1400,11 @@ function assertLegalworkServerReady(info) {
 // log and (partly) display. We also drop the same payload into a log file so a
 // failing machine can be diagnosed by sending one file — the on-screen message
 // alone is a generic catch-all that hides the real cause.
-function describeRuntimeBootFailure(error) {
+async function describeRuntimeBootFailure(error) {
   const message = error instanceof Error ? error.message : String(error);
   let diagnostics = null;
   try {
-    diagnostics = runtimeManager.collectRuntimeDiagnostics();
+    diagnostics = await runtimeManager.collectRuntimeDiagnostics();
   } catch {
     /* diagnostics are best-effort */
   }
@@ -1939,12 +1969,6 @@ const desktopCommandHandlers = {
       const state = await workspaceStore.readWorkspaceState();
       const root = await resolveProjectFolder(input.workspaceId, state.workspaces, await runtimeManager.legalworkServerInfo());
       return copyFilesIntoProject(root, input.paths, undefined, input.folder);
-  },
-  "workspaceCreateRemote": async (event, ...args) => {
-      return workspaceStore.createRemoteWorkspace(args[0] ?? {});
-  },
-  "workspaceUpdateRemote": async (event, ...args) => {
-      return workspaceStore.updateRemoteWorkspace(args[0] ?? {});
   },
   "workspaceUpdateDisplayName": async (event, ...args) => {
       return workspaceStore.updateWorkspaceDisplayName(args[0] ?? {});
@@ -2736,7 +2760,7 @@ const desktopCommandHandlers = {
   },
   "audioMeetingOpen": async (event) => openMeetingRecorder(),
   "audioSystemDictationSetState": async (event, ...args) => {
-      const state = ["idle", "starting", "listening", "transcribing", "inserting", "success", "cancelled", "error"].includes(args[0])
+      const state = ["idle", "starting", "listening", "transcribing", "inserting", "success", "copied", "cancelled", "error"].includes(args[0])
         ? args[0]
         : "idle";
       const status = systemDictation.setRuntimeState(state, String(args[1] ?? ""), args[2] === "de" ? "de" : "en");
@@ -3105,7 +3129,7 @@ async function createMainWindow() {
 
   // While dictation is armed (or a recording is finishing), closing the
   // window would kill the renderer that hosts the capture pipeline — hide it
-  // instead. Quit still closes for real via the before-quit flag.
+  // instead. Quit and update installation close for real via the quit flag.
   mainWindow.on("close", (event) => {
     if (appIsQuitting || !keepAliveOnClose()) return;
     const status = systemDictation.status();

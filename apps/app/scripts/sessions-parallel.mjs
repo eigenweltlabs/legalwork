@@ -31,7 +31,7 @@ try {
       console.log(`[${label}] starting...`);
       
       try {
-        const session = await client.session.create({ title: `Parallel session ${i + 1}` });
+        const session = await client.session.create({ location: { directory: server?.cwd ?? directory }, title: `Parallel session ${i + 1}` });
         const elapsed = Date.now() - start;
         console.log(`[${label}] created in ${elapsed}ms - ${session.id}`);
         return { label, ok: true, elapsed, id: session.id };
@@ -58,7 +58,7 @@ try {
   console.log("\nNow creating 3 more sessions sequentially...");
   for (let i = 0; i < 3; i++) {
     const start = Date.now();
-    const session = await client.session.create({ title: `Sequential session ${i + 1}` });
+    const session = await client.session.create({ location: { directory: server?.cwd ?? directory }, title: `Sequential session ${i + 1}` });
     const elapsed = Date.now() - start;
     console.log(`[sequential-${i + 1}] created in ${elapsed}ms - ${session.id}`);
   }

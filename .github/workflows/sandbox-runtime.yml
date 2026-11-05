@@ -73,11 +73,14 @@ jobs:
           node-version: 24.22.1
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.2
+          bun-version: 1.4.4
       - uses: pnpm/action-setup@v4
         with:
           version: 11.4.0
       - run: pnpm install --frozen-lockfile
+      - name: Prepare checksum-pinned Node for worker tests
+        if: inputs.run_tests
+        run: node apps/desktop/scripts/prepare-node-runtime.mjs
       - uses: actions/download-artifact@v4
         with:
           name: sandbox-guest-${{ matrix.arch }}
@@ -130,9 +133,28 @@ jobs:
         run: |
           binary="$RUNNER_TEMP/qemu/bin/qemu-system-${{ matrix.qemu }}"
           QEMU_SOURCE_DIR="$RUNNER_TEMP/qemu-11.1.2" SANDBOX_DEPENDENCY_LICENSES="$RUNNER_TEMP/qemu-deps/share/licenses" node scripts/sandbox/package-runtime.mjs "$binary"
-      - name: Test macOS compatibility audit
+      # Preserve the built runtime before validation so manual package diagnostics
+      # can run independently. Uploading it does not certify that tests passed.
+      - name: Preserve executable modes in runtime artifact
+        shell: bash
+        run: tar -czf sandbox-runtime.tgz -C apps/server/resources/agent-sandbox/runtime .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sandbox-runtime-${{ matrix.platform }}-${{ matrix.arch }}
+          path: sandbox-runtime.tgz
+      - name: Test packaged sandbox paths and macOS compatibility
         if: inputs.run_tests
-        run: node --test scripts/sandbox/macos-compatibility.test.mjs
+        run: node --test scripts/sandbox/probe-packaged.test.mjs scripts/sandbox/macos-compatibility.test.mjs
+      - name: Record temporary filesystem capacity
+        if: inputs.run_tests
+        shell: bash
+        run: |
+          for runtime in node bun; do
+            "$runtime" -e 'const fs = require("node:fs"), os = require("node:os"); const temporary = os.tmpdir(), space = fs.statfsSync(temporary); console.log(JSON.stringify({ kind: "sandbox-tmp-capacity", node: process.versions.node, bun: process.versions.bun, platform: process.platform, arch: process.arch, temporary, statfs: space, availableBytes: space.bavail * space.bsize }));'
+            temporary="$("$runtime" -e 'process.stdout.write(require("node:os").tmpdir())')"
+            if [ "$RUNNER_OS" = Windows ]; then temporary="$(cygpath -u "$temporary")"; fi
+            df -Pk "$temporary"
+          done
       - name: Exercise real isolation and permission enforcement
         if: inputs.run_tests
         timeout-minutes: 30
@@ -144,10 +166,3 @@ jobs:
             sysctl -i kern.hv_support kern.hv_vmm_present hw.optional.arm64
           fi
           bun test --preload ./apps/server/test-preload.ts --timeout 180000 apps/server/src/agent-sandbox apps/server/src/calculations/calculations.test.ts apps/server/src/approvals.test.ts apps/server/src/skill-package.test.ts
-      - name: Preserve executable modes in runtime artifact
-        shell: bash
-        run: tar -czf sandbox-runtime.tgz -C apps/server/resources/agent-sandbox/runtime .
-      - uses: actions/upload-artifact@v4
-        with:
-          name: sandbox-runtime-${{ matrix.platform }}-${{ matrix.arch }}
-          path: sandbox-runtime.tgz

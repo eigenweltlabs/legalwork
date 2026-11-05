@@ -33,7 +33,7 @@ export async function syncPreferences(config: ServerConfig, store: SyncObjects) 
       }
     } finally { db.close(); }
   }
-  const projects = config.workspaces.filter(workspace => workspace.workspaceType !== "remote").map(workspace =>
+  const projects = config.workspaces.map(workspace =>
     ProjectSchema.parse({ id: workspace.id, name: workspace.name, preset: workspace.preset, sourcePath: workspace.path }));
   const roots = new Map(config.workspaces.map(workspace => [workspace.id, workspace.path]));
   const ids = [GLOBAL_TOOL_PERMISSIONS_ID, GLOBAL_PERSONALIZATION_ID, ...projects.map(project => project.id)];

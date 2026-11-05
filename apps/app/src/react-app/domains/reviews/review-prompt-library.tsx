@@ -1,5 +1,5 @@
 import { reviewColumnLabel } from "./review-labels";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { BookOpen, Layers, List, Copy, MoreHorizontal, Pencil, Plus, Search, Share2, Trash2 } from "lucide-react";
 import { reviewLibraryKind, reviewLibraryPrompts, type ReviewLibraryEntry } from "@legalwork/types/reviews";
@@ -14,17 +14,21 @@ import { currentLocale, t } from "@/i18n";
 import { ReviewError, ReviewSelect } from "./review-ui";
 import { HubTabs } from "../settings/segmented-tabs";
 import { ReviewLibraryEditor } from "./review-library-editor";
+import { IntegrationLibraryActions, IntegrationLibrarySearchContext, IntegrationSearch, useIntegrationLibraryLayout } from "../settings/pages/integration-library";
 
 /** Where a saved prompt or set comes from, as its column says. */
 const SOURCE_COPY = { builtin: "review.starters", firm: "review.from_firm", personal: "review.saved" } as const;
 
 type Editor = { kind: "prompt" | "set"; entry?: ReviewLibraryEntry; initialColumnKey?: string };
-export function ReviewPromptLibrary({ client, workspaceId, onShareSet }: {
+export function ReviewPromptLibrary({ client, workspaceId, onShareSet, teamLibrary, onStartCreate }: {
   client: LegalworkServerClient; workspaceId: string;
+  teamLibrary?: ReactNode;
+  onStartCreate?: () => void;
   /** Share one of the user's own sets with the firm (Team); single prompts are not shared. */
   onShareSet?: (entry: ReviewLibraryEntry) => void;
 }) {
   const language = currentLocale(), queryClient = useQueryClient();
+  const layout = useIntegrationLibraryLayout();
   const query = useQuery({ queryKey: ["review-library", workspaceId, language], queryFn: () => client.reviewLibrary(workspaceId, language) });
   const [view, setView] = useState<"sets" | "prompts">("sets");
   const [search, setSearch] = useState("");
@@ -34,10 +38,17 @@ export function ReviewPromptLibrary({ client, workspaceId, onShareSet }: {
   const remove = useMutation({ mutationFn: (id: string) => client.removeReviewLibrary(workspaceId, id), onSuccess: async () => {
     await queryClient.invalidateQueries({ queryKey: ["review-library"] }); setRemoveTarget(null);
   } });
-  const entries = (query.data?.entries ?? []).filter(entry => source === "all" || entry.source === source);
+  const entries = (query.data?.entries ?? []).filter(entry => {
+    if (!layout) return source === "all" || entry.source === source;
+    if (teamLibrary && view === "sets" && entry.source === "firm") return false;
+    return !layout.source || layout.source === "all" || (layout.source === "team" ? entry.source === "firm" : entry.source === "personal");
+  });
   const matches = (...text: string[]) => text.join(" ").toLocaleLowerCase().includes(search.trim().toLocaleLowerCase());
   const sets = entries.filter(entry => reviewLibraryKind(entry) === "set");
   const prompts = reviewLibraryPrompts(entries);
+  const hasOtherResults = query.isPending || (view === "sets" ? sets.some(entry => matches(entry.name, entry.description, ...entry.tags, ...entry.columns.map(column => `${column.label} ${column.question}`))) : prompts.some(item => matches(item.column.label, item.column.question, item.column.hint, ...item.entry.tags, ...item.sets.map(set => set.name))));
+  const showTable = !layout || !teamLibrary || view !== "sets" || layout.source === "personal" || hasOtherResults;
+  const addButton = <Button size={layout ? "sm" : "default"} onClick={() => { onStartCreate?.(); setEditor({ kind: view === "sets" ? "set" : "prompt" }); }}><Plus className="size-4" />{t(view === "sets" ? "review.new_set" : "review.new_prompt")}</Button>;
   const edit = (entry: ReviewLibraryEntry, initialColumnKey?: string) => setEditor({ entry, kind: reviewLibraryKind(entry), initialColumnKey });
   const actions = (entry: ReviewLibraryEntry, initialColumnKey?: string) => <DropdownMenu>
     <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label={t("workflows.actions", { name: entry.name })} onClick={event => event.stopPropagation()} />}><MoreHorizontal className="size-4" /></DropdownMenuTrigger>
@@ -46,21 +57,22 @@ export function ReviewPromptLibrary({ client, workspaceId, onShareSet }: {
       {entry.source === "personal" && <DropdownMenuItem variant="destructive" onClick={event => { event.stopPropagation(); setRemoveTarget(entry); }}><Trash2 />{t(reviewLibraryKind(entry) === "set" ? "review.delete_set" : "review.delete_prompt")}</DropdownMenuItem>}
     </DropdownMenuContent>
   </DropdownMenu>;
-  return <section className="@container/library flex min-h-0 w-full flex-1 flex-col" aria-label={t("review.prompts_title")}>
-    <SectionHeading title={t("review.prompts_title")} description={t("review.prompts_body")} className="mb-5 shrink-0 flex-wrap" action={<Button onClick={() => setEditor({ kind: view === "sets" ? "set" : "prompt" })}><Plus className="size-4" />{t(view === "sets" ? "review.new_set" : "review.new_prompt")}</Button>} />
+  return <section className="@container/library flex min-h-0 w-full flex-1 flex-col overflow-hidden" aria-label={t("review.prompts_title")}>
+    {layout ? <><IntegrationLibraryActions>{addButton}</IntegrationLibraryActions><IntegrationSearch toolbar value={search} onChange={setSearch} label={t("review.search_library")} /></> : <SectionHeading title={t("review.prompts_title")} description={t("review.prompts_body")} className="mb-5 shrink-0 flex-wrap" action={addButton} />}
     <div className="mb-4 flex shrink-0 flex-wrap items-center gap-3">
       <HubTabs label={t("review.library")} value={view} onChange={setView} items={[
         { id: "sets", label: `${t("review.sets")} (${sets.length})`, icon: Layers },
         { id: "prompts", label: `${t("review.all_prompts")} (${prompts.length})`, icon: List },
       ]} />
-      <div className="flex w-full min-w-0 items-center gap-2 @min-[800px]/library:ml-auto @min-[800px]/library:w-auto @min-[800px]/library:flex-1 @min-[800px]/library:max-w-lg">
+      {!layout ? <div className="flex w-full min-w-0 items-center gap-2 @min-[800px]/library:ml-auto @min-[800px]/library:w-auto @min-[800px]/library:flex-1 @min-[800px]/library:max-w-lg">
         <div className="relative min-w-0 flex-1"><Search className="pointer-events-none absolute left-3 top-2.5 size-4 text-muted-foreground" /><Input className="h-9 pl-9" aria-label={t("review.search_library")} placeholder={t("review.search_library")} value={search} onChange={event => setSearch(event.target.value)} /></div>
         <div className="w-32 shrink-0"><ReviewSelect value={source} onChange={setSource} label={t("review.library_source")} options={[{ value: "all", label: t("review.all") }, { value: "builtin", label: t("review.starters") }, { value: "personal", label: t("review.saved") }]} /></div>
-      </div>
+      </div> : null}
     </div>
-    <p className="mb-4 text-xs text-muted-foreground">{t(view === "sets" ? "review.sets_body" : "review.all_prompts_body")}</p>
+    {!layout ? <p className="mb-4 text-xs text-muted-foreground">{t(view === "sets" ? "review.sets_body" : "review.all_prompts_body")}</p> : null}
     <ReviewError error={query.error || remove.error} />
-    <div className="min-h-0 overflow-auto rounded-xl border">
+    <div className="min-h-0 flex-1 space-y-1 overflow-auto overscroll-contain">
+    {showTable ? <div className="overflow-auto rounded-xl border">
       <Table><TableHeader><TableRow className="bg-muted/20 hover:bg-muted/20"><TableHead className="pl-4">{t(view === "sets" ? "review.set_name_short" : "review.prompt_name")}</TableHead><TableHead>{t(view === "sets" ? "review.prompts" : "review.kind")}</TableHead><TableHead>{t("review.library_source")}</TableHead><TableHead className="w-12" /></TableRow></TableHeader>
         <TableBody>
           {view === "sets" ? sets.filter(entry => matches(entry.name, entry.description, ...entry.tags, ...entry.columns.map(column => `${column.label} ${column.question}`))).map(entry => <TableRow key={entry.id} className="cursor-pointer" onClick={() => edit(entry)}>
@@ -75,6 +87,8 @@ export function ReviewPromptLibrary({ client, workspaceId, onShareSet }: {
         </TableBody>
       </Table>
       {(query.isPending || (view === "sets" ? !sets.some(entry => matches(entry.name, entry.description, ...entry.tags, ...entry.columns.map(column => `${column.label} ${column.question}`))) : !prompts.some(item => matches(item.column.label, item.column.question, item.column.hint, ...item.entry.tags, ...item.sets.map(set => set.name))))) && <div className="flex flex-col items-center gap-3 p-10 text-center text-sm text-muted-foreground"><BookOpen className="size-5" /><p>{t(query.isPending ? "review.loading" : "review.library_empty")}</p></div>}
+    </div> : null}
+    <IntegrationLibrarySearchContext.Provider value={{ query: search, hasOtherResults }}>{layout && view === "sets" ? teamLibrary : null}</IntegrationLibrarySearchContext.Provider>
     </div>
     {editor && <ReviewLibraryEditor client={client} workspaceId={workspaceId} {...editor} onClose={() => setEditor(null)} />}
     <ConfirmModal open={!!removeTarget} title={t(removeTarget && reviewLibraryKind(removeTarget) === "set" ? "review.delete_set" : "review.delete_prompt")} message={t("review.delete_library_body", { name: removeTarget?.name ?? "" })} confirmLabel={t("review.remove")} cancelLabel={t("review.cancel")} confirmButtonVariant="destructive" onCancel={() => setRemoveTarget(null)} onConfirm={() => { if (removeTarget && !remove.isPending) remove.mutate(removeTarget.id); }} />

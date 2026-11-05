@@ -63,12 +63,11 @@ src/index.react.tsx                       React entry
      └─ react-app/shell/providers.tsx     (AppProviders composition)
         ServerProvider
         └─ GlobalSDKProvider
-           └─ GlobalSyncProvider
-              └─ LocalProvider
-                 └─ react-app/shell/app-root.tsx → routes
-                    ├─ shell/session-route.tsx   → domains/session
-                    ├─ shell/settings-route.tsx  → domains/settings, connections
-                    └─ domains/{workspace,cloud,onboarding} flows
+           └─ LocalProvider
+              └─ react-app/shell/app-root.tsx → routes
+                 ├─ shell/session-route.tsx   → domains/session
+                 ├─ shell/settings-route.tsx  → domains/settings, connections
+                 └─ domains/{workspace,cloud,onboarding} flows
 ```
 
 ## State ownership

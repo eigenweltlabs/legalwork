@@ -1,3 +1,4 @@
+import { readSessionStatuses } from "@/app/lib/opencode-read";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { Client } from "@/app/types";
@@ -38,7 +39,7 @@ export function SessionSubagents({ workspaceId, workspaceRoot, sessionId, client
   const colors = useMemo(() => subagentColors(sessionId, sessions), [sessionId, sessions]);
   const runs = useQuery({
     queryKey: ["subagent-run-status", workspaceId], enabled: Boolean(client && ids),
-    queryFn: async () => ({ started: Date.now(), statuses: unwrap(await client!.session.status({ directory: workspaceRoot.trim() || undefined })) }),
+    queryFn: async () => ({ started: Date.now(), statuses: unwrap(await readSessionStatuses(client!,{ directory: workspaceRoot.trim() || undefined })) }),
     refetchInterval: 5000,
   });
   useEffect(() => {

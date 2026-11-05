@@ -1,8 +1,9 @@
 import type { ProviderListItem } from "../types";
 import type { ModelBehaviorOption } from "../types";
 import { t } from "../../i18n";
+import { nativeDefaultVariant, type NativeModelDisplay } from "@legalwork/types/native-model-display";
 
-type ProviderModel = ProviderListItem["models"][string];
+type ProviderModel = ProviderListItem["models"][string] & NativeModelDisplay;
 
 const WELL_KNOWN_VARIANT_ORDER = [
   "none",
@@ -20,7 +21,7 @@ export const normalizeModelBehaviorValue = (value: string | null) => {
 };
 
 const getVariantKeys = (model: ProviderModel) =>
-  Object.entries(model.variants ?? {}).filter(([, options]) => options.disabled !== true).map(([key]) => key);
+  model.variants.map(variant=>variant.id);
 
 const sortVariantKeys = (keys: string[]) =>
   keys.slice().sort((a, b) => {
@@ -67,7 +68,7 @@ const getBehaviorTitle = (
     }
     return t("app.model_behavior_title");
   }
-  if (model.capabilities?.reasoning) return t("model_behavior.title_builtin_reasoning");
+  if (model.compatibility?.reasoningField || model.compatibility?.requireReasoning) return t("model_behavior.title_builtin_reasoning");
   return t("model_behavior.title_standard_generation");
 };
 
@@ -121,12 +122,7 @@ export const getModelBehaviorOptions = (
   });
 };
 
-const defaultVariantKey = (model: ProviderModel) => getVariantKeys(model).find((key) => {
-  const entries = Object.entries(model.variants?.[key] ?? {}).filter(([name]) => name !== "disabled");
-  // A matching effort alone is insufficient if the variant adds other settings.
-  return entries.length > 0 && entries.every(([name, value]) =>
-    JSON.stringify(model.options?.[name]) === JSON.stringify(value));
-});
+const defaultVariantKey = nativeDefaultVariant;
 
 export const sanitizeModelBehaviorValue = (
   providerID: string,
@@ -165,7 +161,7 @@ export const getModelBehaviorSummary = (
     };
   }
 
-  if (model.capabilities?.reasoning) {
+  if (model.compatibility?.reasoningField || model.compatibility?.requireReasoning) {
     return {
       title,
       label: t("model_behavior.label_builtin"),

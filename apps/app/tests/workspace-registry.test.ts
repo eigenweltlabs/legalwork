@@ -8,9 +8,8 @@ const project = (id: string, path = `C:\\Projects\\${id}`): RouteWorkspace => ({
 test("a server refresh cannot resurrect a local project removed on sign-out", () => {
   const live = project("live");
   const removed = project("removed");
-  const remote: RouteWorkspace = { ...project("remote"), workspaceType: "remote", baseUrl: "https://worker.example.test" };
-  const merged = mergeRouteWorkspaces([live], [removed, live, remote]);
-  expect(merged.map((workspace) => workspace.id)).toEqual(["live", "remote"]);
+  const merged = mergeRouteWorkspaces([live], [removed, live]);
+  expect(merged.map((workspace) => workspace.id)).toEqual(["live"]);
   expect(resolveRouteWorkspaceId(merged, [removed.id, removed.id, live.id])).toBe(live.id);
 });
 
@@ -28,11 +27,12 @@ test("a migrated ID follows the matching path before falling back to the first p
   expect(resolveRouteWorkspaceId(merged, [saved.id], [saved])).toBe(canonical.id);
 });
 
-test("desktop remote routing wins over a stale local registration with the same ID", () => {
-  const remote: RouteWorkspace = { ...project("remote"), workspaceType: "remote", remoteType: "legalwork", baseUrl: "https://worker.example.test" };
-  const merged = mergeRouteWorkspaces([project("remote")], [remote]);
-  expect(merged).toEqual([remote]);
-  expect(resolveRouteWorkspaceId(merged, [remote.id])).toBe(remote.id);
+test("the server registry owns routing when desktop state has an old engine URL", () => {
+  const server = project("same");
+  const desktop = { ...server, baseUrl: "https://obsolete-engine.example" };
+  const merged = mergeRouteWorkspaces([server], [desktop]);
+  expect(merged).toEqual([server]);
+  expect(resolveRouteWorkspaceId(merged, [server.id])).toBe(server.id);
 });
 
 const chat = (id: string, updated: number): RouteSession => ({ id, slug: id, projectID: "project", directory: "/project", title: id, version: "1", time: { created: 1, updated } });

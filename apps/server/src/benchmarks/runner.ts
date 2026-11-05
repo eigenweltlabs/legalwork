@@ -21,15 +21,24 @@ import {
   resolveToolOverrides,
   type BenchmarkArm,
 } from "./ablation.js";
-import { ensureHarveyDocuments, type HarveyIndexEntry } from "./harvey-catalog.js";
-import { enforcedOutputLimit } from "../model-limits.js";
+import {
+  ensureHarveyDocuments,
+  type HarveyIndexEntry,
+} from "./harvey-catalog.js";
+import type {
+  OpenCodeClient,
+  SessionMessageAssistant,
+  SessionMessageInfo,
+  SessionPromptInput,
+  PermissionRule,
+} from "@opencode/client";
+import { listEngineMessages } from "../engine-client.js";
+import { mkdir, writeFile } from "node:fs/promises";
 import { extractDeliverableText } from "./extract-text.js";
 import {
   buildAgentPrompt,
   buildJudgePrompt,
   buildJudgeSystemPrompt,
-  JUDGE_BATCH_RESPONSE_SCHEMA,
-  parseJudgeVerdicts,
   parseJudgeVerdictsFromText,
   scoreVerdicts,
   type JudgeDecision,
@@ -44,50 +53,27 @@ import {
   type BenchmarkStore,
   type NewBenchmarkItem,
 } from "./store.js";
-import { parseStoredTaskJson, type BenchmarkTaskDefinition } from "./task-schema.js";
-import { join } from "node:path";
-import { collectDeliverables, prepareItemWorkDir, removeRunScratchDir } from "./workdir.js";
+import {
+  parseStoredTaskJson,
+  type BenchmarkTaskDefinition,
+} from "./task-schema.js";
+import {join,relative,isAbsolute,sep} from "node:path";
+import {canonicalFilePath} from "../file-write-lock.js";
+import {
+  itemWorkDir,
+  collectDeliverables,
+  prepareItemWorkDir,
+  removeRunScratchDir,
+} from "./workdir.js";
 
-// ---- opencode client surface (structural, so tests can inject fakes) --------
-
-type SdkResult<T> = { data?: T; error?: unknown; response?: Response };
-
-type AssistantMessageLike = {
-  id?: string;
-  role?: string;
-  /** Why the final step ended: "stop", "tool-calls", "length" (cut off at the output limit), … */
-  finish?: string;
-  error?: { name?: string; data?: { message?: string } };
-  cost?: number;
-  tokens?: unknown;
-  structured?: unknown;
-};
-
-type MessageEntryLike = { info?: AssistantMessageLike; parts?: Array<{ type?: string; text?: string }> };
-
-export type BenchmarkOpencodeClient = {
-  experimental?: {
-    tool?: {
-      ids(params: Record<string, unknown>): Promise<SdkResult<string[]>>;
-    };
-  };
-  session: {
-    create(params: Record<string, unknown>): Promise<SdkResult<{ id: string }>>;
-    prompt(params: Record<string, unknown>): Promise<SdkResult<{ info: AssistantMessageLike; parts?: unknown[] }>>;
-    promptAsync(params: Record<string, unknown>): Promise<SdkResult<unknown>>;
-    status(params?: Record<string, unknown>): Promise<SdkResult<Record<string, { type?: string } | undefined>>>;
-    messages(params: Record<string, unknown>): Promise<SdkResult<MessageEntryLike[]>>;
-    abort(params: Record<string, unknown>): Promise<SdkResult<unknown>>;
-    delete(params: Record<string, unknown>): Promise<SdkResult<unknown>>;
-  };
-  provider: {
-    list(params?: Record<string, unknown>): Promise<
-      SdkResult<{ all: Array<{ id: string; models: Record<string, unknown> }> }>
-    >;
-  };
-};
-
-export type CreateBenchmarkClient = (workspace: WorkspaceInfo, directory: string) => BenchmarkOpencodeClient;
+// The real native public client is also used by protocol fixtures. No legacy
+// SDK envelope or method facade is retained at the runner boundary.
+export type BenchmarkOpencodeClient = OpenCodeClient;
+export type CreateBenchmarkClient = (
+  workspace: WorkspaceInfo,
+  directory: string,
+) => OpenCodeClient;
+type AssistantMessageLike = SessionMessageAssistant;
 
 // ---- input validation --------------------------------------------------------
 
@@ -115,7 +101,11 @@ const runInputSchema = z.object({
  * baseline arm, so a caller that knows nothing about ablation keeps the old
  * tasks × models shape.
  */
-function resolveArms(input: Array<{ id?: string; label: string; config?: BenchmarkArm["config"] }> | undefined): BenchmarkArm[] {
+function resolveArms(
+  input:
+    | Array<{ id?: string; label: string; config?: BenchmarkArm["config"] }>
+    | undefined,
+): BenchmarkArm[] {
   if (!input?.length) return [BASELINE_ARM];
   const taken = new Set<string>();
   return input.map((arm) => {
@@ -132,7 +122,10 @@ function resolveArms(input: Array<{ id?: string; label: string; config?: Benchma
  * MessageOutputLengthError on the message.
  */
 function wasCutOffAtOutputLimit(message: AssistantMessageLike | null): boolean {
-  return message?.finish === "length" || message?.error?.name === "MessageOutputLengthError";
+  return (
+    message?.finish === "length" ||
+    message?.error?.type === "MessageOutputLengthError"
+  );
 }
 
 /**
@@ -140,7 +133,6 @@ function wasCutOffAtOutputLimit(message: AssistantMessageLike | null): boolean {
  * cut-off usually means the agent tried to write a whole deliverable in one
  * tool call; asked once or twice, it will split the work.
  */
-const OUTPUT_LIMIT_RECOVERY_ATTEMPTS = 2;
 
 const OUTPUT_LIMIT_RECOVERY_PROMPT =
   "Your previous response was cut off because it reached the model's output token limit, so nothing from that " +
@@ -149,9 +141,18 @@ const OUTPUT_LIMIT_RECOVERY_PROMPT =
   "calls — so that no single response is too long.";
 
 // The agent session must never stall on a permission prompt in a headless run.
-const ALLOW_ALL_PERMISSIONS = [{ permission: "*", pattern: "*", action: "allow" as const }];
+const ALLOW_ALL_PERMISSIONS: PermissionRule[] = [
+  { action: "*", resource: "*", effect: "allow" },
+];
 // The judge only ever needs to read deliverables; mutating tools are switched off.
-const JUDGE_TOOLS = { write: false, edit: false, patch: false, bash: false };
+const JUDGE_TOOLS = {
+  write: false,
+  edit: false,
+  patch: false,
+  bash: false,
+  shell: false,
+  apply_patch: false,
+};
 
 class BenchmarkAbortError extends Error {
   constructor() {
@@ -195,13 +196,16 @@ class Semaphore {
 
 type RunHandle = {
   abortRequested: boolean;
-  sessions: Map<string, { client: BenchmarkOpencodeClient; sessionID: string; directory: string }>;
+  sessions: Map<
+    string,
+    { client: BenchmarkOpencodeClient; sessionID: string; directory: string }
+  >;
 };
 
 type RunnerTimings = {
   pollIntervalMs: number;
-  itemTimeoutMs: number;
-  judgeTimeoutMs: number;
+  itemTimeoutMs: number | null;
+  judgeTimeoutMs: number | null;
 };
 
 export type BenchmarkRunnerOptions = {
@@ -209,6 +213,11 @@ export type BenchmarkRunnerOptions = {
   createClient: CreateBenchmarkClient;
   judgeConcurrency?: number;
   timings?: Partial<RunnerTimings>;
+  scenario?: {
+    permissionMode?: "normal" | "unattended-all-allow";
+    outputLimitRecoveryAttempts?: number;
+    judgeAttempts?: number;
+  };
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
 };
@@ -224,7 +233,10 @@ function defaultJudgeModel(): BenchmarkModelRef {
   const raw = process.env.LEGALWORK_BENCHMARK_JUDGE_MODEL?.trim();
   if (raw && raw.includes("/")) {
     const separator = raw.indexOf("/");
-    return { providerID: raw.slice(0, separator), modelID: raw.slice(separator + 1) };
+    return {
+      providerID: raw.slice(0, separator),
+      modelID: raw.slice(separator + 1),
+    };
   }
   return { providerID: "deepseek", modelID: "deepseek-v4-flash" };
 }
@@ -234,15 +246,51 @@ function errorMessage(error: unknown): string {
   return String(error);
 }
 
-function textFromParts(parts: Array<{ type?: string; text?: string }> | undefined): string {
-  if (!parts) return "";
-  return parts
-    .filter((part) => part.type === "text" && typeof part.text === "string")
-    .map((part) => part.text)
-    .join("\n");
+function textFromMessage(message: SessionMessageAssistant | null): string {
+  return (
+    message?.content
+      .flatMap((part) => (part.type === "text" ? [part.text] : []))
+      .join("\n") ?? ""
+  );
+}
+function tokenTotals(messages: SessionMessageInfo[]) {
+  const totals = {
+    input: 0,
+    output: 0,
+    reasoning: 0,
+    cache: { read: 0, write: 0 },
+  };
+  let cost = 0;
+  let reported = false;
+  for (const message of messages) {
+    if (message.type !== "assistant" && message.type !== "compaction") continue;
+    const tokens = "tokens" in message ? message.tokens : undefined;
+    if (tokens) {
+      totals.input += tokens.input;
+      totals.output += tokens.output;
+      totals.reasoning += tokens.reasoning;
+      totals.cache.read += tokens.cache.read;
+      totals.cache.write += tokens.cache.write;
+    }
+    if ("cost" in message && message.cost !== undefined) {
+      cost += message.cost;
+      reported = true;
+    }
+  }
+  return {
+    tokens: totals,
+    cost: reported ? cost : null,
+    currency: "USD-declared-by-native-MoneyUSD",
+  };
 }
 
-const TERMINAL_ITEM_STATUSES: BenchmarkItemStatus[] = ["passed", "failed", "error", "aborted", "interrupted"];
+const TERMINAL_ITEM_STATUSES: BenchmarkItemStatus[] = [
+  "passed",
+  "failed",
+  "error",
+  "aborted",
+  "interrupted",
+];
 
 export class BenchmarkRunner {
   private readonly config: ServerConfig;
@@ -252,27 +300,53 @@ export class BenchmarkRunner {
   private readonly now: () => number;
   private readonly sleep: (ms: number) => Promise<void>;
   private readonly active = new Map<string, RunHandle>();
-  /**
-   * Judge models whose provider rejects opencode's forced-tool-choice
-   * structured output (e.g. DeepSeek thinking mode). Once a model lands here,
-   * all further judge calls go straight to plain-JSON text mode instead of
-   * burning one doomed structured attempt per criterion.
-   */
-  private readonly judgeTextOnlyModels = new Set<string>();
+  private readonly scenario: {
+    permissionMode: "normal" | "unattended-all-allow";
+    outputLimitRecoveryAttempts: number;
+    judgeAttempts: number;
+  };
   private store!: BenchmarkStore;
   private ready: Promise<void> | null = null;
 
   constructor(options: BenchmarkRunnerOptions) {
     this.config = options.config;
     this.createClient = options.createClient;
-    this.judgeConcurrency = options.judgeConcurrency ?? envInt("LEGALWORK_BENCHMARK_JUDGE_CONCURRENCY", 2);
+    this.judgeConcurrency =
+      options.judgeConcurrency ??
+      envInt("LEGALWORK_BENCHMARK_JUDGE_CONCURRENCY", 2);
     this.timings = {
-      pollIntervalMs: options.timings?.pollIntervalMs ?? envInt("LEGALWORK_BENCHMARK_POLL_MS", 2000),
-      itemTimeoutMs: options.timings?.itemTimeoutMs ?? envInt("LEGALWORK_BENCHMARK_ITEM_TIMEOUT_MS", 20 * 60_000),
-      judgeTimeoutMs: options.timings?.judgeTimeoutMs ?? envInt("LEGALWORK_BENCHMARK_JUDGE_TIMEOUT_MS", 10 * 60_000),
+      pollIntervalMs:
+        options.timings?.pollIntervalMs ??
+        envInt("LEGALWORK_BENCHMARK_POLL_MS", 2000),
+      itemTimeoutMs:
+        options.timings?.itemTimeoutMs === null
+          ? null
+          : (options.timings?.itemTimeoutMs ??
+            envInt("LEGALWORK_BENCHMARK_ITEM_TIMEOUT_MS", 20 * 60_000)),
+      judgeTimeoutMs:
+        options.timings?.judgeTimeoutMs === null
+          ? null
+          : (options.timings?.judgeTimeoutMs ??
+            envInt("LEGALWORK_BENCHMARK_JUDGE_TIMEOUT_MS", 10 * 60_000)),
     };
+    this.scenario = {
+      permissionMode:
+        options.scenario?.permissionMode ?? "unattended-all-allow",
+      outputLimitRecoveryAttempts:
+        options.scenario?.outputLimitRecoveryAttempts ?? 2,
+      judgeAttempts: options.scenario?.judgeAttempts ?? 2,
+    };
+    if (
+      !Number.isInteger(this.scenario.outputLimitRecoveryAttempts) ||
+      this.scenario.outputLimitRecoveryAttempts < 0 ||
+      !Number.isInteger(this.scenario.judgeAttempts) ||
+      this.scenario.judgeAttempts < 1
+    )
+      throw new Error("Invalid explicit benchmark recovery/judge scenario");
     this.now = options.now ?? (() => Date.now());
-    this.sleep = options.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
+    this.sleep =
+      options.sleep ??
+      ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
   }
 
   /** Open the store and mark orphaned in-flight work from a previous process. */
@@ -294,7 +368,10 @@ export class BenchmarkRunner {
 
   // ---- run lifecycle ---------------------------------------------------------
 
-  async createRun(workspace: WorkspaceInfo, body: unknown): Promise<Record<string, unknown>> {
+  async createRun(
+    workspace: WorkspaceInfo,
+    body: unknown,
+  ): Promise<Record<string, unknown>> {
     await this.ensureReady();
     if (workspace.workspaceType !== "local") {
       throw new ApiError(
@@ -316,12 +393,21 @@ export class BenchmarkRunner {
     // from the Legal Agent Benchmark or created there) — runs never fetch
     // task definitions from the network.
     const uniqueTaskIds = Array.from(new Set(input.tasks));
-    const resolvedTasks: Array<{ source: "harvey" | "custom"; key: string; task: BenchmarkTaskDefinition; vertical: string }> = [];
+    const resolvedTasks: Array<{
+      source: "harvey" | "custom";
+      key: string;
+      task: BenchmarkTaskDefinition;
+      vertical: string;
+    }> = [];
     let catalogRef: string | null = null;
     for (const taskId of uniqueTaskIds) {
       const row = this.store.getTask(workspace.id, taskId);
       if (!row) {
-        throw new ApiError(400, "benchmark_task_not_found", `Unknown benchmark task: ${taskId}`);
+        throw new ApiError(
+          400,
+          "benchmark_task_not_found",
+          `Unknown benchmark task: ${taskId}`,
+        );
       }
       const task: BenchmarkTaskDefinition = {
         title: row.title,
@@ -333,7 +419,8 @@ export class BenchmarkRunner {
       };
       catalogRef = catalogRef ?? row.catalogRef;
       const vertical =
-        task.tags[0] ?? (row.source === "harvey" ? row.id.split("/")[1] ?? "" : "Custom");
+        task.tags[0] ??
+        (row.source === "harvey" ? (row.id.split("/")[1] ?? "") : "Custom");
       resolvedTasks.push({ source: row.source, key: row.id, task, vertical });
     }
 
@@ -365,12 +452,16 @@ export class BenchmarkRunner {
       {
         id: runId,
         workspaceId: workspace.id,
-        title: input.title || `Eval ${new Date(this.now()).toISOString().slice(0, 16).replace("T", " ")}`,
+        title:
+          input.title ||
+          `Eval ${new Date(this.now()).toISOString().slice(0, 16).replace("T", " ")}`,
         status: "pending",
         judgeProviderId: judgeModel.providerID,
         judgeModelId: judgeModel.modelID,
-        concurrency: input.concurrency ?? envInt("LEGALWORK_BENCHMARK_CONCURRENCY", 3),
+        concurrency:
+          input.concurrency ?? envInt("LEGALWORK_BENCHMARK_CONCURRENCY", 3),
         catalogRef,
+        scenarioJson: JSON.stringify(this.limitManifest()),
         createdAt: this.now(),
       },
       input.models,
@@ -382,44 +473,109 @@ export class BenchmarkRunner {
     return this.serializeRunSummary(this.store.getRun(runId)!);
   }
 
-  /**
-   * Tool ids the engine exposes for this workspace, for the ablation picker.
-   * Returns an empty list when the engine build predates the endpoint, so the
-   * UI degrades to free-text rather than erroring.
-   */
-  async listToolIds(workspace: WorkspaceInfo): Promise<string[]> {
-    const client = this.createClient(workspace, workspace.path);
-    const ids = client.experimental?.tool?.ids;
-    if (!ids) return [];
-    try {
-      const result = await ids.call(client.experimental!.tool!, { directory: workspace.path });
-      return Array.isArray(result.data) ? result.data.filter((id): id is string => typeof id === "string") : [];
-    } catch {
-      return [];
-    }
-  }
-
-  private async validateModels(workspace: WorkspaceInfo, models: BenchmarkModelRef[]): Promise<void> {
-    const client = this.createClient(workspace, workspace.path);
-    const result = await client.provider.list({ directory: workspace.path });
-    const providers = result.data?.all;
-    if (!providers) {
-      throw new ApiError(502, "opencode_request_failed", "Could not list providers to validate benchmark models");
-    }
-    const missing = models.filter((model) => {
-      const provider = providers.find((entry) => entry.id === model.providerID);
-      return !provider || !(model.modelID in provider.models);
+  /** Registered native tool IDs and their permission aliases for scoped ablation. */
+  private async toolCatalog(client: OpenCodeClient, directory: string) {
+    await client.model.list({ location: { directory } });
+    const result = await client.rpc.call({
+      rpcID: "legalwork.benchmarks",
+      method: "tools",
+      input: {},
+      location: { directory },
     });
-    if (missing.length) {
+    return z
+      .object({
+        tools: z.array(
+          z.object({
+            id: z.string(),
+            name: z.string(),
+            permission: z.string().optional(),
+          }),
+        ),
+      })
+      .parse(result.output).tools;
+  }
+  async listToolIds(workspace: WorkspaceInfo): Promise<string[]> {
+    return (
+      await this.toolCatalog(
+        this.createClient(workspace, workspace.path),
+        workspace.path,
+      )
+    ).map((tool) => tool.id);
+  }
+  private async toolPermissions(
+    client: OpenCodeClient,
+    directory: string,
+    overrides: Record<string, boolean> | undefined,
+  ): Promise<PermissionRule[]> {
+    const rules: PermissionRule[] =
+      this.scenario.permissionMode === "unattended-all-allow"
+        ? [...ALLOW_ALL_PERMISSIONS]
+        : [];
+    if (!overrides) return rules;
+    const tools = await this.toolCatalog(client, directory);
+    for (const [name, enabled] of Object.entries(overrides)) {
+      const tool = tools.find((tool) => tool.id === name || tool.name === name);
+      rules.push({
+        action: tool?.permission ?? name,
+        resource: "*",
+        effect: enabled ? "allow" : "deny",
+      });
+    }
+    return rules;
+  }
+  private async validateModels(
+    workspace: WorkspaceInfo,
+    models: BenchmarkModelRef[],
+  ): Promise<void> {
+    const available = (
+      await this.createClient(workspace, workspace.path).model.list({
+        location: { directory: workspace.path },
+      })
+    ).data;
+    const missing = models.filter(
+      (model) =>
+        !available.some(
+          (entry) =>
+            entry.providerID === model.providerID && entry.id === model.modelID,
+        ),
+    );
+    if (missing.length)
       throw new ApiError(
         400,
         "benchmark_model_unavailable",
         `Model(s) not available on this workspace: ${missing.map((model) => `${model.providerID}/${model.modelID}`).join(", ")}`,
       );
-    }
+  }
+  private async evidence(workDir: string, name: string, value: unknown) {
+    const directory = join(workDir, ".benchmark-evidence");
+    await mkdir(directory, { recursive: true, mode: 0o700 });
+    await writeFile(
+      join(directory, name),
+      JSON.stringify(value, null, 2) + "\n",
+      { mode: 0o600 },
+    );
+  }
+  private limitManifest() {
+    return {
+      protocol: "native-v2",
+      ...this.scenario,
+      ...this.timings,
+      outputCaps: false,
+      extractionCaps: false,
+      judgeMode:
+        "JSON-text-with-schema-validation; native public session prompt has no forced structured output",
+      notes: [
+        "Server benchmark unattended permissions/recovery are explicit scenario behavior; this is not the real Electron migration regression driver.",
+        "Watchdogs, when set, fail the item and retain full partial evidence. null means no task deadline.",
+        "Engine history cost is declared USD; gateway actual currency and all auxiliary requests require the transparent provider capture.",
+      ],
+    };
   }
 
-  private async executeRun(workspace: WorkspaceInfo, runId: string): Promise<void> {
+  private async executeRun(
+    workspace: WorkspaceInfo,
+    runId: string,
+  ): Promise<void> {
     const handle: RunHandle = { abortRequested: false, sessions: new Map() };
     this.active.set(runId, handle);
     try {
@@ -431,14 +587,27 @@ export class BenchmarkRunner {
       const agentSemaphore = new Semaphore(run.concurrency);
       const judgeSemaphore = new Semaphore(this.judgeConcurrency);
       await Promise.all(
-        items.map((item) => this.processItem({ workspace, run, item, handle, agentSemaphore, judgeSemaphore })),
+        items.map((item) =>
+          this.processItem({
+            workspace,
+            run,
+            item,
+            handle,
+            agentSemaphore,
+            judgeSemaphore,
+          }),
+        ),
       );
       this.store.updateRun(runId, {
         status: handle.abortRequested ? "aborted" : "completed",
         finishedAt: this.now(),
       });
     } catch (error) {
-      this.store.updateRun(runId, { status: "failed", error: errorMessage(error), finishedAt: this.now() });
+      this.store.updateRun(runId, {
+        status: "failed",
+        error: errorMessage(error),
+        finishedAt: this.now(),
+      });
     } finally {
       this.active.delete(runId);
     }
@@ -455,7 +624,11 @@ export class BenchmarkRunner {
     const { workspace, run, item, handle } = input;
     const task = parseStoredTaskJson(item.taskJson);
     if (!task) {
-      this.store.updateItem(item.id, { status: "error", error: "corrupt task snapshot", finishedAt: this.now() });
+      this.store.updateItem(item.id, {
+        status: "error",
+        error: "corrupt task snapshot",
+        finishedAt: this.now(),
+      });
       return;
     }
 
@@ -464,10 +637,16 @@ export class BenchmarkRunner {
     let deliverables: JudgeDeliverable[];
     try {
       if (handle.abortRequested) {
-        this.store.updateItem(item.id, { status: "aborted", finishedAt: this.now() });
+        this.store.updateItem(item.id, {
+          status: "aborted",
+          finishedAt: this.now(),
+        });
         return;
       }
-      this.store.updateItem(item.id, { status: "preparing", startedAt: this.now() });
+      this.store.updateItem(item.id, {
+        status: "preparing",
+        startedAt: this.now(),
+      });
 
       const documentsDir = await this.resolveDocumentsDir(workspace, item);
       workDir = await prepareItemWorkDir({
@@ -479,33 +658,57 @@ export class BenchmarkRunner {
       this.store.updateItem(item.id, { workDir });
 
       const client = this.createClient(workspace, workDir);
-      const session = await client.session.create({
-        directory: workDir,
-        title: `Benchmark: ${task.title} (${item.providerId}/${item.modelId})`,
-        permission: ALLOW_ALL_PERMISSIONS,
+      await client.model.list({ location: { directory: workDir } });
+      const armConfig =
+        this.store.listRunArms(run.id).find((arm) => arm.id === item.armId)
+          ?.config ?? {};
+      const toolOverrides = resolveToolOverrides(armConfig);
+      const permissions = await this.toolPermissions(
+        client,
+        workDir,
+        toolOverrides,
+      );
+      await this.evidence(workDir, "scenario.json", {
+        ...this.limitManifest(),
+        permissions,
+        armConfig,
       });
-      const sessionID = session.data?.id;
-      if (!sessionID) {
-        throw new Error(`could not create benchmark session: ${errorMessage(session.error ?? "empty response")}`);
-      }
-      this.store.updateItem(item.id, { sessionId: sessionID, status: "running" });
+      const session = await client.session.create({
+        location: { directory: workDir },
+        title: `Benchmark: ${task.title} (${item.providerId}/${item.modelId})`,
+        model: { providerID: item.providerId, id: item.modelId },
+        permissions,
+        metadata: {
+          legalworkBenchmark: {
+            runId: run.id,
+            itemId: item.id,
+            scenario: this.limitManifest(),
+          },
+        },
+      });
+      const sessionID = session.id;
+      this.store.updateItem(item.id, {
+        sessionId: sessionID,
+        status: "running",
+      });
       handle.sessions.set(item.id, { client, sessionID, directory: workDir });
 
-      const armConfig = this.store.listRunArms(run.id).find((arm) => arm.id === item.armId)?.config ?? {};
-      const toolOverrides = resolveToolOverrides(armConfig);
       // The restriction note is appended to the task prompt, NOT sent as
       // `system`: on this endpoint `system` REPLACES the agent's system prompt,
       // which would strip the normal harness instructions along with it.
       const restrictions = describeArmRestrictions(armConfig);
-      const promptText = restrictions ? `${buildAgentPrompt(task)}\n\n${restrictions}` : buildAgentPrompt(task);
-      const promptParams = (text: string) => ({
+      const promptText = restrictions
+        ? `${buildAgentPrompt(task)}\n\n${restrictions}`
+        : buildAgentPrompt(task);
+      const promptParams = (text: string): SessionPromptInput => ({
         sessionID,
-        directory: workDir,
-        model: { providerID: item.providerId, modelID: item.modelId },
-        ...(toolOverrides ? { tools: toolOverrides } : {}),
-        parts: [{ type: "text", text }],
+        text,
+        resume: true,
       });
-      const deadline = this.now() + this.timings.itemTimeoutMs;
+      const deadline =
+        this.timings.itemTimeoutMs === null
+          ? null
+          : this.now() + this.timings.itemTimeoutMs;
       let assistant = await this.runAgentPrompt({
         client,
         sessionID,
@@ -519,7 +722,8 @@ export class BenchmarkRunner {
       // ends. Ask the agent to carry on in smaller steps before giving up.
       for (
         let attempt = 0;
-        attempt < OUTPUT_LIMIT_RECOVERY_ATTEMPTS && wasCutOffAtOutputLimit(assistant);
+        attempt < this.scenario.outputLimitRecoveryAttempts &&
+        wasCutOffAtOutputLimit(assistant);
         attempt += 1
       ) {
         assistant = await this.runAgentPrompt({
@@ -536,23 +740,40 @@ export class BenchmarkRunner {
 
       const cutOff = wasCutOffAtOutputLimit(assistant);
       if (assistant?.error && !cutOff) {
-        const message = assistant.error.data?.message || assistant.error.name || "agent session failed";
+        const message =
+          assistant.error.message ||
+          assistant.error.type ||
+          "agent session failed";
         throw new Error(message);
       }
+      const history = await listEngineMessages(client, sessionID);
+      const usage = tokenTotals(history);
+      await this.evidence(workDir, "agent-history.json", {
+        session: await client.session.get({ sessionID }),
+        messages: history,
+        usage,
+      });
       this.store.updateItem(item.id, {
-        cost: typeof assistant?.cost === "number" ? assistant.cost : null,
-        tokensJson: assistant?.tokens ? JSON.stringify(assistant.tokens) : null,
+        cost: usage.cost,
+        tokensJson: JSON.stringify(usage.tokens),
       });
 
       const collected = await collectDeliverables(workDir, task.deliverables);
-      this.store.updateItem(item.id, { deliverablesFound: JSON.stringify(collected) });
+      this.store.updateItem(item.id, {
+        deliverablesFound: JSON.stringify(collected),
+      });
       // Still cut off and nothing written: the run failed on a limit, not on the
       // task. Judging it would score a missing file 0% and put a harness failure
       // on the leaderboard as if it were the model's answer. A deliverable that
       // did get written is complete (a tool call runs whole or not at all), so
       // that case is judged normally.
-      if (cutOff && !collected.deliverables.some((deliverable) => deliverable.relativePath)) {
-        throw new Error(await this.outputLimitFailureMessage(client, workDir, item));
+      if (
+        cutOff &&
+        !collected.deliverables.some((deliverable) => deliverable.relativePath)
+      ) {
+        throw new Error(
+          await this.outputLimitFailureMessage(client, workDir, item),
+        );
       }
       // Extract deliverable text once per item so each judge call is a single
       // completion instead of a tool-reading loop (which times out slow models).
@@ -560,7 +781,9 @@ export class BenchmarkRunner {
         collected.deliverables.map(async (deliverable) => ({
           ...deliverable,
           text: deliverable.relativePath
-            ? await extractDeliverableText(join(workDir, deliverable.relativePath))
+            ? await extractDeliverableText(
+                join(workDir, deliverable.relativePath),
+              )
             : null,
         })),
       );
@@ -577,12 +800,25 @@ export class BenchmarkRunner {
     try {
       if (handle.abortRequested) throw new BenchmarkAbortError();
       this.store.updateItem(item.id, { status: "judging" });
-      const verdicts = await this.judgeItem({ workspace, run, item, task, workDir, deliverables, handle });
+      const verdicts = await this.judgeItem({
+        workspace,
+        run,
+        item,
+        task,
+        workDir,
+        deliverables,
+        handle,
+      });
       const { score, nCriteria, nPassed } = scoreVerdicts(verdicts);
       // A wall of judge errors is a broken pipeline (e.g. the judge provider
       // rejecting every call), not a graded failure — surface it as such.
-      if (nCriteria > 0 && verdicts.every((verdict) => verdict.verdict === "error")) {
-        const reason = this.store.listVerdicts(item.id)[0]?.reasoning ?? "unknown judge error";
+      if (
+        nCriteria > 0 &&
+        verdicts.every((verdict) => verdict.verdict === "error")
+      ) {
+        const reason =
+          this.store.listVerdicts(item.id)[0]?.reasoning ??
+          "unknown judge error";
         this.store.updateItem(item.id, {
           status: "error",
           error: `judging failed for every criterion: ${reason}`,
@@ -609,14 +845,24 @@ export class BenchmarkRunner {
 
   private finalizeItemFailure(itemId: string, error: unknown): void {
     if (error instanceof BenchmarkAbortError) {
-      this.store.updateItem(itemId, { status: "aborted", finishedAt: this.now() });
+      this.store.updateItem(itemId, {
+        status: "aborted",
+        finishedAt: this.now(),
+      });
     } else {
-      this.store.updateItem(itemId, { status: "error", error: errorMessage(error), finishedAt: this.now() });
+      this.store.updateItem(itemId, {
+        status: "error",
+        error: errorMessage(error),
+        finishedAt: this.now(),
+      });
     }
   }
 
   /** Input documents come from the task row: uploaded dir for custom tasks, pinned download for Harvey. */
-  private async resolveDocumentsDir(workspace: WorkspaceInfo, item: BenchmarkItemRow): Promise<string | null> {
+  private async resolveDocumentsDir(
+    workspace: WorkspaceInfo,
+    item: BenchmarkItemRow,
+  ): Promise<string | null> {
     const row = this.store.getTask(workspace.id, item.taskKey);
     if (!row) return null;
     if (row.source === "custom") return row.documentsDir;
@@ -636,116 +882,80 @@ export class BenchmarkRunner {
     return ensureHarveyDocuments(this.config, row.catalogRef, entry);
   }
 
-  /** promptAsync + status polling; falls back to a synchronous prompt when the engine lacks prompt_async. */
+  /** Native admission is durable; an idle snapshot alone is not completion. */
   private async runAgentPrompt(input: {
-    client: BenchmarkOpencodeClient;
+    client: OpenCodeClient;
     sessionID: string;
     directory: string;
     handle: RunHandle;
-    params: Record<string, unknown>;
-    /**
-     * The reply already in the session when this prompt is sent. Until the
-     * engine picks the prompt up the session still reads idle, and its last
-     * assistant message is that earlier reply — so it must not count as the
-     * answer.
-     */
+    params: SessionPromptInput;
     afterMessageId?: string;
-    /**
-     * When the item's time runs out (epoch ms). Follow-ups in the same item
-     * share one deadline, so LEGALWORK_BENCHMARK_ITEM_TIMEOUT_MS stays a limit
-     * on the item rather than on each prompt in it.
-     */
-    deadline?: number;
-  }): Promise<AssistantMessageLike | null> {
-    const { client, sessionID, directory, handle } = input;
-    const deadline = input.deadline ?? this.now() + this.timings.itemTimeoutMs;
-    let started: SdkResult<unknown>;
-    try {
-      started = await client.session.promptAsync(input.params);
-    } catch (error) {
-      started = { error };
-    }
-
-    if (started.error !== undefined) {
-      const result = await this.withTimeout(
-        client.session.prompt(input.params),
-        Math.max(0, deadline - this.now()),
-        () => void client.session.abort({ sessionID, directory }).catch(() => undefined),
-        "agent session timed out",
-      );
-      return result.data?.info ?? null;
-    }
-
+    deadline: number | null;
+    traceLabel?: string;
+  }): Promise<SessionMessageAssistant | null> {
+    const { client, sessionID, handle } = input;
+    const admitted = await client.session.prompt(input.params);
+    await this.evidence(input.directory, `admission-${admitted.id}.json`, {
+      request: input.params,
+      receipt: admitted,
+    });
     for (;;) {
-      await this.sleep(this.timings.pollIntervalMs);
       if (handle.abortRequested) {
-        await client.session.abort({ sessionID, directory }).catch(() => undefined);
+        await client.session.interrupt({ sessionID }).catch(() => undefined);
         throw new BenchmarkAbortError();
       }
-      if (this.now() > deadline) {
-        await client.session.abort({ sessionID, directory }).catch(() => undefined);
+      if (input.deadline !== null && this.now() > input.deadline) {
+        await client.session.interrupt({ sessionID }).catch(() => undefined);
         throw new BenchmarkTimeoutError("agent session timed out");
       }
-      const status = await client.session.status({ directory });
-      const state = status.data?.[sessionID]?.type ?? "idle";
-      if (state !== "idle") continue;
-      const assistant = await this.lastAssistantMessage(client, sessionID, directory);
-      const isEarlierReply = Boolean(input.afterMessageId) && assistant?.id === input.afterMessageId;
-      if (assistant && !isEarlierReply) return assistant;
-      // promptAsync accepted but the engine has not started responding yet
+      const [active, inbox, history] = await Promise.all([
+        client.session.active(),
+        client.session.inbox.list({ sessionID }),
+        listEngineMessages(client, sessionID),
+      ]);
+      await this.evidence(
+        input.directory,
+        `${input.traceLabel ?? "agent"}-history.json`,
+        {
+          messages: history,
+          active: active[sessionID] ?? null,
+          inbox,
+          usage: tokenTotals(history),
+        },
+      );
+      const assistant = history
+        .filter(
+          (message): message is SessionMessageAssistant =>
+            message.type === "assistant",
+        )
+        .at(-1);
+      if (
+        !active[sessionID] &&
+        inbox.length === 0 &&
+        assistant &&
+        assistant.id !== input.afterMessageId &&
+        (assistant.time.completed !== undefined || assistant.error)
+      )
+        return assistant;
+      await this.sleep(this.timings.pollIntervalMs);
     }
   }
-
-  /**
-   * Why an item failed on the output limit, naming the limit the engine
-   * enforced when it can be looked up — the number is the fastest way to tell
-   * a model's real limit from a default someone never replaced.
-   */
   private async outputLimitFailureMessage(
-    client: BenchmarkOpencodeClient,
+    client: OpenCodeClient,
     directory: string,
     item: BenchmarkItemRow,
   ): Promise<string> {
-    let limit: number | null = null;
-    try {
-      const providers = (await client.provider.list({ directory })).data?.all ?? [];
-      const model = providers.find((provider) => provider.id === item.providerId)?.models[item.modelId] as
-        | { limit?: { output?: unknown } }
-        | undefined;
-      limit = enforcedOutputLimit(model?.limit?.output);
-    } catch {
-      limit = null;
-    }
-    const size = limit === null ? "" : ` (${limit.toLocaleString("en-US")} tokens)`;
-    return (
-      `The agent's response was cut off at the model's output limit${size} before it wrote the deliverable, ` +
-      `even after being asked ${OUTPUT_LIMIT_RECOVERY_ATTEMPTS}× to continue in smaller steps. ` +
-      "This is a limit on a single response, not a judgement of the answer, so the item was not scored."
+    const model = (
+      await client.model.list({ location: { directory } })
+    ).data.find(
+      (model) =>
+        model.providerID === item.providerId && model.id === item.modelId,
     );
+    const size = model?.limit.output
+      ? ` (${model.limit.output.toLocaleString("en-US")} tokens)`
+      : "";
+    return `The agent's response was cut off at the model's output limit${size} before it wrote the deliverable, even after being asked ${this.scenario.outputLimitRecoveryAttempts}× to continue in smaller steps. This is a limit on a single response, not a judgement of the answer, so the item was not scored.`;
   }
-
-  private async lastAssistantMessage(
-    client: BenchmarkOpencodeClient,
-    sessionID: string,
-    directory: string,
-  ): Promise<AssistantMessageLike | null> {
-    return (await this.lastAssistantEntry(client, sessionID, directory))?.info ?? null;
-  }
-
-  private async lastAssistantEntry(
-    client: BenchmarkOpencodeClient,
-    sessionID: string,
-    directory: string,
-  ): Promise<MessageEntryLike | null> {
-    const result = await client.session.messages({ sessionID, directory });
-    const entries = result.data ?? [];
-    for (let index = entries.length - 1; index >= 0; index -= 1) {
-      const entry = entries[index];
-      if (entry?.info?.role === "assistant") return entry;
-    }
-    return null;
-  }
-
   private async judgeItem(input: {
     workspace: WorkspaceInfo;
     run: BenchmarkRunRow;
@@ -756,89 +966,84 @@ export class BenchmarkRunner {
     handle: RunHandle;
   }): Promise<Array<{ verdict: "pass" | "fail" | "error" }>> {
     const { run, item, task, workDir, handle } = input;
-    const judgeModel = { providerID: run.judgeProviderId, modelID: run.judgeModelId };
-    const judgeModelKey = `${judgeModel.providerID}/${judgeModel.modelID}`;
     const client = this.createClient(input.workspace, workDir);
-    const prompt = buildJudgePrompt({ task, deliverables: input.deliverables });
-
-    // Batched judging: ONE session per task×model item. The judge gets the
-    // deliverable content once plus every criterion and answers with a single
-    // JSON array of independent verdicts.
-    //
-    // Attempt 0 uses opencode's structured output — implemented engine-side as
-    // a StructuredOutput tool with toolChoice "required", which some providers
-    // reject (DeepSeek thinking mode: "does not support this tool_choice").
-    // Attempt 1 retries with a plain JSON-in-text prompt and lenient parsing.
-    // A rejecting model is remembered so later items skip attempt 0 entirely.
+    const prompt = [
+      buildJudgeSystemPrompt(),
+      buildJudgePrompt({ task, deliverables: input.deliverables }),
+      "Return exactly the JSON verdicts object, one unique entry per criterion.",
+    ].join("\n\n");
     let decisions: Map<string, JudgeDecision> | null = null;
     let failureReason = "";
     let judgeSessionId: string | null = null;
-    for (let attempt = 0; attempt < 2 && !decisions; attempt += 1) {
+    for (
+      let attempt = 0;
+      attempt < this.scenario.judgeAttempts && !decisions;
+      attempt++
+    ) {
       if (handle.abortRequested) throw new BenchmarkAbortError();
-      const useStructuredOutput = attempt === 0 && !this.judgeTextOnlyModels.has(judgeModelKey);
+      const session = await client.session.create({
+        location: { directory: workDir },
+        title: `Benchmark judge: ${item.taskTitle}`,
+        model: { providerID: run.judgeProviderId, id: run.judgeModelId },
+        permissions: await this.toolPermissions(client, workDir, JUDGE_TOOLS),
+        metadata: {
+          legalworkBenchmarkJudge: {
+            itemId: item.id,
+            attempt,
+            mode: "JSON-text-schema-validated",
+            scenario: this.limitManifest(),
+          },
+        },
+      });
+      judgeSessionId = session.id;
+      handle.sessions.set(`judge:${item.id}`, {
+        client,
+        sessionID: session.id,
+        directory: workDir,
+      });
       try {
-        const session = await client.session.create({
+        const assistant = await this.runAgentPrompt({
+          client,
+          sessionID: session.id,
           directory: workDir,
-          title: `Benchmark judge: ${item.taskTitle}`,
-          permission: ALLOW_ALL_PERMISSIONS,
+          handle,
+          params: { sessionID: session.id, text: prompt, resume: true },
+          traceLabel: `judge-${attempt}`,
+          deadline:
+            this.timings.judgeTimeoutMs === null
+              ? null
+              : this.now() + this.timings.judgeTimeoutMs,
         });
-        const sessionID = session.data?.id;
-        if (!sessionID) throw new Error(errorMessage(session.error ?? "could not create judge session"));
-        judgeSessionId = sessionID;
-        const result = await this.withTimeout(
-          client.session.prompt({
-            sessionID,
-            directory: workDir,
-            model: judgeModel,
-            system: buildJudgeSystemPrompt(),
-            tools: JUDGE_TOOLS,
-            ...(useStructuredOutput
-              ? {
-                  format: {
-                    type: "json_schema",
-                    schema: JUDGE_BATCH_RESPONSE_SCHEMA as unknown as Record<string, unknown>,
-                    retryCount: 2,
-                  },
-                }
-              : {}),
-            parts: [
-              {
-                type: "text",
-                text: useStructuredOutput
-                  ? prompt
-                  : `${prompt}\n\nEnd your reply with ONLY the JSON verdicts object: {"verdicts": [{"id": "...", "verdict": "pass" | "fail", "reasoning": "..."}]}`,
-              },
-            ],
-          }),
-          this.timings.judgeTimeoutMs,
-          () => void client.session.abort({ sessionID, directory: workDir }).catch(() => undefined),
-          "judge call timed out",
+        if (assistant?.error) throw new Error(assistant.error.message);
+        decisions = parseJudgeVerdictsFromText(
+          textFromMessage(assistant),
+          task.criteria.map((criterion) => criterion.id),
         );
-        void client.session.delete({ sessionID, directory: workDir }).catch(() => undefined);
-        const info = result.data?.info;
-        if (info?.error) throw new Error(info.error.data?.message || info.error.name || "judge session failed");
-        decisions =
-          parseJudgeVerdicts(info?.structured) ??
-          parseJudgeVerdictsFromText(
-            textFromParts((result.data?.parts as Array<{ type?: string; text?: string }>) ?? undefined),
+        if (
+          !decisions ||
+          decisions.size !== task.criteria.length ||
+          task.criteria.some((criterion) => !decisions?.has(criterion.id))
+        )
+          throw new Error(
+            "Judge response must include exactly one verdict per known criterion",
           );
-        if (!decisions) throw new Error("judge returned no parseable verdicts");
       } catch (error) {
         if (error instanceof BenchmarkAbortError) throw error;
         failureReason = errorMessage(error);
-        // A timed-out or dropped HTTP response does not mean the engine failed:
-        // the verdicts may already sit in the session. Try to recover them
-        // before burning the retry.
-        if (judgeSessionId && error instanceof BenchmarkTimeoutError) {
-          const entry = await this.lastAssistantEntry(client, judgeSessionId, workDir).catch(() => null);
-          decisions =
-            parseJudgeVerdicts(entry?.info?.structured) ??
-            parseJudgeVerdictsFromText(textFromParts(entry?.parts));
-          if (decisions) continue;
-        }
-        if (useStructuredOutput && /tool_choice|structured|json_schema|response_format/i.test(failureReason)) {
-          this.judgeTextOnlyModels.add(judgeModelKey);
-        }
+        decisions = null;
+      } finally {
+        const history = await listEngineMessages(client, session.id).catch(
+          () => null,
+        );
+        await this.evidence(workDir, `judge-${attempt}.json`, {
+          session,
+          request: { text: prompt },
+          messages: history,
+          usage: history ? tokenTotals(history) : null,
+          failure: failureReason || null,
+        });
+        handle.sessions.delete(`judge:${item.id}`);
+        // Retain native judge sessions and complete evidence for diagnosis.
       }
     }
 
@@ -847,7 +1052,10 @@ export class BenchmarkRunner {
       const decision = decisions?.get(criterion.id) ?? null;
       const verdict = decision?.verdict ?? "error";
       const reasoning =
-        decision?.reasoning ?? (decisions ? "judge omitted this criterion from its verdicts" : failureReason);
+        decision?.reasoning ??
+        (decisions
+          ? "judge omitted this criterion from its verdicts"
+          : failureReason);
       this.store.upsertVerdict({
         itemId: item.id,
         criterionId: criterion.id,
@@ -862,33 +1070,20 @@ export class BenchmarkRunner {
     return verdicts;
   }
 
-  private async withTimeout<T>(
-    promise: Promise<T>,
-    timeoutMs: number,
-    onTimeout: () => void,
-    message: string,
-  ): Promise<T> {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const timeout = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => {
-        onTimeout();
-        reject(new BenchmarkTimeoutError(message));
-      }, timeoutMs);
-    });
-    try {
-      return await Promise.race([promise, timeout]);
-    } finally {
-      if (timer !== undefined) clearTimeout(timer);
-    }
-  }
-
   // ---- queries & control -----------------------------------------------------
 
-  private async requireRun(workspaceId: string, runId: string): Promise<BenchmarkRunRow> {
+  private async requireRun(
+    workspaceId: string,
+    runId: string,
+  ): Promise<BenchmarkRunRow> {
     await this.ensureReady();
     const run = runId ? this.store.getRun(runId) : null;
     if (!run || run.workspaceId !== workspaceId) {
-      throw new ApiError(404, "benchmark_run_not_found", "Benchmark run not found");
+      throw new ApiError(
+        404,
+        "benchmark_run_not_found",
+        "Benchmark run not found",
+      );
     }
     return run;
   }
@@ -899,29 +1094,66 @@ export class BenchmarkRunner {
   ): Promise<Array<Record<string, unknown>>> {
     await this.ensureReady();
     return this.store
-      .listRuns(workspace.id, { limit: options?.limit ?? 50, start: options?.start })
+      .listRuns(workspace.id, {
+        limit: options?.limit ?? 50,
+        start: options?.start,
+      })
       .map((run) => this.serializeRunSummary(run));
   }
 
-  async getRunDetail(workspace: WorkspaceInfo, runId: string): Promise<Record<string, unknown>> {
+  async getRunDetail(
+    workspace: WorkspaceInfo,
+    runId: string,
+  ): Promise<Record<string, unknown>> {
     const run = await this.requireRun(workspace.id, runId);
-    const items = this.store.listItems(run.id).map((item) => this.serializeItem(item));
+    const items = this.store
+      .listItems(run.id)
+      .map((item) => this.serializeItem(item));
     return { run: this.serializeRunSummary(run), items };
   }
 
-  async getRunProgress(workspace: WorkspaceInfo, runId: string): Promise<Record<string, unknown>> {
+  async getRunProgress(
+    workspace: WorkspaceInfo,
+    runId: string,
+  ): Promise<Record<string, unknown>> {
     const run = await this.requireRun(workspace.id, runId);
     const counts = this.store.countItemsByStatus(run.id);
     const total = Object.values(counts).reduce((sum, value) => sum + value, 0);
-    const completed = TERMINAL_ITEM_STATUSES.reduce((sum, status) => sum + counts[status], 0);
-    return { status: run.status, counts, progress: { completed, total }, updatedAt: this.now() };
+    const completed = TERMINAL_ITEM_STATUSES.reduce(
+      (sum, status) => sum + counts[status],
+      0,
+    );
+    return {
+      status: run.status,
+      counts,
+      progress: { completed, total },
+      updatedAt: this.now(),
+    };
   }
 
-  async getItemDetail(workspace: WorkspaceInfo, runId: string, itemId: string): Promise<Record<string, unknown>> {
+  /** Dedicated benchmark access never broadens ordinary project session scope. */
+  async getItemSessionIdentity(workspace:WorkspaceInfo,runId:string,itemId:string):Promise<{sessionID:string;workDir:string}>{
+    const run=await this.requireRun(workspace.id,runId);const item=this.store.getItem(itemId);
+    if(!item || item.runId!==run.id || !item.sessionId || !item.workDir)throw new ApiError(404,"benchmark_session_not_found","This benchmark item has no agent transcript.");
+    const [root,stored,expected]=await Promise.all([canonicalFilePath(workspace.path),canonicalFilePath(item.workDir),canonicalFilePath(itemWorkDir(workspace.path,run.id,item.id))]);
+    const local=relative(root,stored);
+    if(!local || isAbsolute(local) || local===".." || local.startsWith(`..${sep}`) || stored!==expected)throw new ApiError(404,"benchmark_session_not_found","This benchmark transcript does not belong to the item.");
+    return {sessionID:item.sessionId,workDir:item.workDir};
+  }
+
+  async getItemDetail(
+    workspace: WorkspaceInfo,
+    runId: string,
+    itemId: string,
+  ): Promise<Record<string, unknown>> {
     const run = await this.requireRun(workspace.id, runId);
     const item = itemId ? this.store.getItem(itemId) : null;
     if (!item || item.runId !== run.id) {
-      throw new ApiError(404, "benchmark_item_not_found", "Benchmark run item not found");
+      throw new ApiError(
+        404,
+        "benchmark_item_not_found",
+        "Benchmark run item not found",
+      );
     }
     const verdicts = this.store.listVerdicts(item.id).map((verdict) => ({
       criterionId: verdict.criterionId,
@@ -942,7 +1174,10 @@ export class BenchmarkRunner {
     return { item: this.serializeItem(item), task, verdicts, deliverables };
   }
 
-  async abortRun(workspace: WorkspaceInfo, runId: string): Promise<Record<string, unknown>> {
+  async abortRun(
+    workspace: WorkspaceInfo,
+    runId: string,
+  ): Promise<Record<string, unknown>> {
     const run = await this.requireRun(workspace.id, runId);
     if (!["pending", "running", "aborting"].includes(run.status)) {
       return this.serializeRunSummary(run);
@@ -953,25 +1188,57 @@ export class BenchmarkRunner {
       handle.abortRequested = true;
       for (const session of handle.sessions.values()) {
         void session.client.session
-          .abort({ sessionID: session.sessionID, directory: session.directory })
+          .interrupt({ sessionID: session.sessionID })
           .catch(() => undefined);
       }
     } else {
       // Not active in this process (should only happen around restarts): finalize directly.
-      for (const item of this.store.listItemsByStatus(run.id, ["pending", "preparing", "running", "judging"])) {
-        this.store.updateItem(item.id, { status: "aborted", finishedAt: this.now() });
+      for (const item of this.store.listItemsByStatus(run.id, [
+        "pending",
+        "preparing",
+        "running",
+        "judging",
+      ])) {
+        this.store.updateItem(item.id, {
+          status: "aborted",
+          finishedAt: this.now(),
+        });
       }
-      this.store.updateRun(run.id, { status: "aborted", finishedAt: this.now() });
+      this.store.updateRun(run.id, {
+        status: "aborted",
+        finishedAt: this.now(),
+      });
     }
     return this.serializeRunSummary(this.store.getRun(run.id)!);
   }
 
-  async resumeRun(workspace: WorkspaceInfo, runId: string): Promise<Record<string, unknown>> {
+  async resumeRun(
+    workspace: WorkspaceInfo,
+    runId: string,
+  ): Promise<Record<string, unknown>> {
     const run = await this.requireRun(workspace.id, runId);
     if (!["interrupted", "aborted", "failed"].includes(run.status)) {
-      throw new ApiError(409, "benchmark_run_active", "Only interrupted, aborted or failed runs can be resumed");
+      throw new ApiError(
+        409,
+        "benchmark_run_active",
+        "Only interrupted, aborted or failed runs can be resumed",
+      );
     }
-    const requeue = this.store.listItemsByStatus(run.id, ["pending", "interrupted", "aborted", "error"]);
+    if (
+      run.scenarioJson &&
+      run.scenarioJson !== JSON.stringify(this.limitManifest())
+    )
+      throw new ApiError(
+        409,
+        "benchmark_scenario_changed",
+        "This run used different benchmark scenario settings. Restore those settings or create a separate comparison run.",
+      );
+    const requeue = this.store.listItemsByStatus(run.id, [
+      "pending",
+      "interrupted",
+      "aborted",
+      "error",
+    ]);
     for (const item of requeue) {
       this.store.deleteVerdictsForItem(item.id);
       this.store.updateItem(item.id, {
@@ -989,15 +1256,26 @@ export class BenchmarkRunner {
         tokensJson: null,
       });
     }
-    this.store.updateRun(run.id, { status: "pending", error: null, finishedAt: null });
+    this.store.updateRun(run.id, {
+      status: "pending",
+      error: null,
+      finishedAt: null,
+    });
     void this.executeRun(workspace, run.id).catch(() => undefined);
     return this.serializeRunSummary(this.store.getRun(run.id)!);
   }
 
   async deleteRun(workspace: WorkspaceInfo, runId: string): Promise<void> {
     const run = await this.requireRun(workspace.id, runId);
-    if (this.active.has(run.id) || ["pending", "running", "aborting"].includes(run.status)) {
-      throw new ApiError(409, "benchmark_run_active", "Abort the run before deleting it");
+    if (
+      this.active.has(run.id) ||
+      ["pending", "running", "aborting"].includes(run.status)
+    ) {
+      throw new ApiError(
+        409,
+        "benchmark_run_active",
+        "Abort the run before deleting it",
+      );
     }
     this.store.deleteRun(run.id);
     await removeRunScratchDir(workspace.path, run.id);
@@ -1008,20 +1286,32 @@ export class BenchmarkRunner {
   serializeRunSummary(run: BenchmarkRunRow): Record<string, unknown> {
     /** Mean rubric pass rate: average of nPassed/nCriteria over judged items. */
     function meanRubricPassRate(list: BenchmarkItemRow[]): number | null {
-      const judged = list.filter((item) => item.nCriteria !== null && item.nCriteria > 0 && item.nPassed !== null);
+      const judged = list.filter(
+        (item) =>
+          item.nCriteria !== null &&
+          item.nCriteria > 0 &&
+          item.nPassed !== null,
+      );
       if (!judged.length) return null;
-      return judged.reduce((sum, item) => sum + item.nPassed! / item.nCriteria!, 0) / judged.length;
+      return (
+        judged.reduce((sum, item) => sum + item.nPassed! / item.nCriteria!, 0) /
+        judged.length
+      );
     }
     const items = this.store.listItems(run.id);
     const models = this.store.runModels(run.id);
     const counts = this.store.countItemsByStatus(run.id);
     const total = items.length;
-    const completed = items.filter((item) => TERMINAL_ITEM_STATUSES.includes(item.status)).length;
+    const completed = items.filter((item) =>
+      TERMINAL_ITEM_STATUSES.includes(item.status),
+    ).length;
     const taskCount = new Set(items.map((item) => item.taskKey)).size;
 
     const scoreByModel = models.map((model) => {
       const modelItems = items.filter(
-        (item) => item.providerId === model.providerID && item.modelId === model.modelID,
+        (item) =>
+          item.providerId === model.providerID &&
+          item.modelId === model.modelID,
       );
       const scored = modelItems.filter((item) => item.score !== null);
       return {
@@ -1031,22 +1321,42 @@ export class BenchmarkRunner {
         failed: modelItems.filter((item) => item.status === "failed").length,
         error: modelItems.filter((item) => item.status === "error").length,
         avgScore: scored.length
-          ? scored.reduce((sum, item) => sum + (item.score ?? 0), 0) / scored.length
+          ? scored.reduce((sum, item) => sum + (item.score ?? 0), 0) /
+            scored.length
           : null,
         rubricPassRate: meanRubricPassRate(modelItems),
-        criteriaPassed: modelItems.reduce((sum, item) => sum + (item.nPassed ?? 0), 0),
-        criteriaTotal: modelItems.reduce((sum, item) => sum + (item.nCriteria ?? 0), 0),
+        criteriaPassed: modelItems.reduce(
+          (sum, item) => sum + (item.nPassed ?? 0),
+          0,
+        ),
+        criteriaTotal: modelItems.reduce(
+          (sum, item) => sum + (item.nCriteria ?? 0),
+          0,
+        ),
       };
     });
     const allScored = items.filter((item) => item.score !== null);
 
     return {
+      scenario: run.scenarioJson
+        ? JSON.parse(run.scenarioJson)
+        : {
+            recorded: false,
+            limitations: [
+              "Legacy run predates scenario evidence; resumed mixed-version items are not a comparable native baseline.",
+            ],
+          },
       id: run.id,
       title: run.title,
       status: run.status,
-      judgeModel: { providerID: run.judgeProviderId, modelID: run.judgeModelId },
+      judgeModel: {
+        providerID: run.judgeProviderId,
+        modelID: run.judgeModelId,
+      },
       models,
-      arms: this.store.listRunArms(run.id).map((arm) => ({ id: arm.id, label: arm.label, config: arm.config })),
+      arms: this.store
+        .listRunArms(run.id)
+        .map((arm) => ({ id: arm.id, label: arm.label, config: arm.config })),
       concurrency: run.concurrency,
       catalogRef: run.catalogRef,
       createdAt: run.createdAt,

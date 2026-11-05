@@ -7,6 +7,15 @@ provider and engine defaults, unsupported saved choices, streaming, and a comple
 read-tool round trip on every model. It verifies the effort on both sides of each
 tool call. These checks establish protocol compatibility, not reasoning quality.
 
+The v2 migration ports this matrix to the released `@opencode/client`, native
+provider configuration, explicit session locations/model selection, asynchronous
+admission/wait, and complete paginated message history. On OpenCode 2.1.4 the
+isolated synthetic matrix passes all 113 checks across 15 models, including each
+read-tool round trip. It preserves manifest context/output limits and variants.
+Its existing 120-second request/completion watchdog is confined to this smoke
+test; it does not limit production agent runs. The older Electron and live
+provider results below describe the recorded v1 runs, not new v2 live coverage.
+
 For an isolated engine with synthetic responses:
 
 ```sh

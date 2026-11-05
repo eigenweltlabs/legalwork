@@ -10,7 +10,7 @@ import type { ProjectField } from "@legalwork/types/workspace";
 import type { ServerConfig, TokenScope, WorkspaceInfo } from "../types.js";
 import { ensureDir, exists, shortId } from "../utils.js";
 import { ensureWorkspaceFiles } from "../workspace-init.js";
-import { workspaceIdForPath, workspaceIdForRemote } from "../workspaces.js";
+import { workspaceIdForPath } from "../workspaces.js";
 import { addRoute, type RequestContext, type Route } from "./registry.js";
 import { initializeProjectFields, parseProjectFields, createDefaultProjectFolder, defaultProjectRoot, readProjectDetails, updateProjectDetails, updateProjectFieldValues } from "../project-store.js";
 import { WikiStore } from "../wiki/store.js";
@@ -51,130 +51,6 @@ function readStringField(value: unknown, key: string): string {
   return typeof field === "string" ? field.trim() : "";
 }
 
-function normalizeRemoteDirectory(value: unknown): string {
-  if (typeof value !== "string") return "";
-  return value.trim().replace(/\\/g, "/").replace(/\/+$/, "");
-}
-
-function parseLegalworkWorkspaceIdFromUrl(input: string | null | undefined): string | null {
-  const raw = input?.trim() ?? "";
-  if (!raw) return null;
-  try {
-    const url = new URL(raw);
-    const segments = url.pathname.split("/").filter(Boolean);
-    const workspaceIndex = segments.indexOf("workspace");
-    const legacyIndex = segments.indexOf("w");
-    const mountIndex = workspaceIndex >= 0 ? workspaceIndex : legacyIndex;
-    return mountIndex >= 0 && segments[mountIndex + 1]
-      ? decodeURIComponent(segments[mountIndex + 1])
-      : null;
-  } catch {
-    const match = raw.match(/\/(?:workspace|w)\/([^/?#]+)/);
-    if (!match?.[1]) return null;
-    try {
-      return decodeURIComponent(match[1]);
-    } catch {
-      return match[1];
-    }
-  }
-}
-
-function stripLegalworkWorkspaceMount(input: string | null | undefined): string | null {
-  const raw = input?.trim() ?? "";
-  if (!raw) return null;
-  try {
-    const url = new URL(raw);
-    const segments = url.pathname.split("/").filter(Boolean);
-    const workspaceIndex = segments.indexOf("workspace");
-    const legacyIndex = segments.indexOf("w");
-    const mountIndex = workspaceIndex >= 0 ? workspaceIndex : legacyIndex;
-    if (mountIndex >= 0 && segments[mountIndex + 1]) {
-      const prefix = segments.slice(0, mountIndex).join("/");
-      url.pathname = prefix ? `/${prefix}` : "/";
-    }
-    return url.toString().replace(/\/+$/, "");
-  } catch {
-    return raw.replace(/\/(?:workspace|w)\/[^/?#]+.*$/, "").replace(/\/+$/, "") || raw;
-  }
-}
-
-function legalworkRemoteWorkspaceId(hostUrl: string, workspaceId: string | null | undefined): string {
-  const remoteWorkspaceId = workspaceId?.trim() || parseLegalworkWorkspaceIdFromUrl(hostUrl);
-  return remoteWorkspaceId ? `rem_${remoteWorkspaceId}` : workspaceIdForRemote(hostUrl, null);
-}
-
-function workspaceDirectoryCandidates(workspace: Record<string, unknown>): string[] {
-  const opencode = isRecord(workspace.opencode) ? workspace.opencode : {};
-  return [workspace.directory, workspace.path, opencode.directory]
-    .map(normalizeRemoteDirectory)
-    .filter(Boolean);
-}
-
-function selectLegalworkWorkspaceForConnection(list: unknown, directory: string | null): Record<string, unknown> | null {
-  if (!isRecord(list)) return null;
-  const rawItems = Array.isArray(list.items)
-    ? list.items
-    : Array.isArray(list.workspaces)
-      ? list.workspaces
-      : [];
-  const items = rawItems.filter(isRecord);
-  if (!items.length) return null;
-
-  const expectedDirectory = normalizeRemoteDirectory(directory);
-  if (expectedDirectory) {
-    return items.find((item) => workspaceDirectoryCandidates(item).includes(expectedDirectory)) ?? null;
-  }
-
-  const activeId = readStringField(list, "activeId");
-  return (activeId ? items.find((item) => readStringField(item, "id") === activeId) : null) ?? items[0] ?? null;
-}
-
-function legalworkWorkspaceDisplayName(workspace: Record<string, unknown>): string | null {
-  return readStringField(workspace, "displayName")
-    || readStringField(workspace, "legalworkWorkspaceName")
-    || readStringField(workspace, "name")
-    || readStringField(workspace, "id")
-    || null;
-}
-
-async function fetchLegalworkWorkspaceList(hostUrl: string, token: string, hostToken: string): Promise<unknown> {
-  const url = `${hostUrl.replace(/\/+$/, "")}/workspaces`;
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 8_000);
-  const headers = new Headers();
-  if (token) headers.set("Authorization", `Bearer ${token}`);
-  if (hostToken) headers.set("X-LegalWork-Host-Token", hostToken);
-
-  try {
-    const response = await fetch(url, { headers, signal: controller.signal });
-    if (!response.ok) {
-      throw new ApiError(
-        502,
-        "legalwork_workspace_discovery_failed",
-        `LegalWork workspace discovery failed (${response.status} ${response.statusText || "HTTP error"})`,
-      );
-    }
-    return await response.json();
-  } catch (error) {
-    if (error instanceof ApiError) throw error;
-    throw new ApiError(502, "legalwork_workspace_discovery_failed", "LegalWork workspace discovery failed", {
-      error: String(error),
-    });
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
-async function discoverLegalworkWorkspace(input: {
-  hostUrl: string;
-  token: string;
-  hostToken: string;
-  directory: string | null;
-}): Promise<Record<string, unknown> | null> {
-  const list = await fetchLegalworkWorkspaceList(input.hostUrl, input.token, input.hostToken);
-  return selectLegalworkWorkspaceForConnection(list, input.directory);
-}
-
 function ensurePlainObject(value: unknown): Record<string, unknown> {
   if (!isRecord(value)) return {};
   return value;
@@ -197,26 +73,13 @@ async function readServerConfigFile(configPath: string): Promise<Record<string, 
 }
 
 function serializeWorkspaceConfigEntry(workspace: WorkspaceInfo): Record<string, unknown> {
-  const isLocalWorkspace = workspace.workspaceType !== "remote";
   return {
-    id: workspace.id,
-    path: workspace.path,
-    name: workspace.name,
-    preset: workspace.preset,
-    workspaceType: workspace.workspaceType,
-    ...(workspace.remoteType ? { remoteType: workspace.remoteType } : {}),
-    ...(!isLocalWorkspace && workspace.baseUrl ? { baseUrl: workspace.baseUrl } : {}),
-    ...(!isLocalWorkspace && workspace.directory ? { directory: workspace.directory } : {}),
+    id: workspace.id, path: workspace.path, name: workspace.name,
+    preset: workspace.preset, workspaceType: "local",
     ...(workspace.displayName ? { displayName: workspace.displayName } : {}),
-    ...(workspace.legalworkHostUrl ? { legalworkHostUrl: workspace.legalworkHostUrl } : {}),
-    ...(workspace.legalworkToken ? { legalworkToken: workspace.legalworkToken } : {}),
-    ...(workspace.legalworkWorkspaceId ? { legalworkWorkspaceId: workspace.legalworkWorkspaceId } : {}),
-    ...(workspace.legalworkWorkspaceName ? { legalworkWorkspaceName: workspace.legalworkWorkspaceName } : {}),
     ...(workspace.sandboxBackend ? { sandboxBackend: workspace.sandboxBackend } : {}),
     ...(workspace.sandboxRunId ? { sandboxRunId: workspace.sandboxRunId } : {}),
     ...(workspace.sandboxContainerName ? { sandboxContainerName: workspace.sandboxContainerName } : {}),
-    ...(!isLocalWorkspace && workspace.opencodeUsername ? { opencodeUsername: workspace.opencodeUsername } : {}),
-    ...(!isLocalWorkspace && workspace.opencodePassword ? { opencodePassword: workspace.opencodePassword } : {}),
   };
 }
 
@@ -228,7 +91,10 @@ export async function persistServerWorkspaceState(config: ServerConfig): Promise
     const parsed = await readServerConfigFile(configPath);
     const next = {
       ...parsed,
-      workspaces: config.workspaces.map(serializeWorkspaceConfigEntry),
+      workspaces: [
+        ...config.workspaces.map(serializeWorkspaceConfigEntry),
+        ...(Array.isArray(parsed.workspaces) ? parsed.workspaces.filter(entry => isRecord(entry) && entry.workspaceType === "remote") : []),
+      ],
       authorizedRoots: Array.from(new Set(config.authorizedRoots.map((root) => resolve(root)))),
     };
 
@@ -266,7 +132,7 @@ export async function registerLocalProject(
   const workspacePath = resolve(input.folderPath);
   await assertProjectFolderIndependent(workspacePath, await new WikiStore(config).list());
   await ensureDir(workspacePath);
-  await ensureWorkspaceFiles(workspacePath, input.preset);
+  await ensureWorkspaceFiles(workspacePath, input.preset, { bundledCore: config.engineConfigurationMode !== "managed" });
   if (input.projectFields) await initializeProjectFields(workspacePath, input.projectFields);
 
   const workspace: WorkspaceInfo = {
@@ -342,9 +208,12 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
   };
   const resolveWorkspaceForRegistry = async (id: string): Promise<WorkspaceInfo> => {
     const workspace = registeredWorkspace(id);
-    if (workspace.workspaceType === "remote") return { ...workspace, path: workspace.path?.trim() ?? "" };
     return resolveWorkspace(config, id);
   };
+
+  addRoute(routes, "POST", "/workspaces/remote", "host", () => {
+    throw new ApiError(410, "remote_workspaces_retired", "Remote agent workspaces are no longer supported. Saved connection settings remain preserved in their original configuration.");
+  });
 
   // Native folder picker, provided by the desktop app hosting the server.
   // The Office task pane's webview cannot open OS dialogs itself, so it asks
@@ -467,99 +336,6 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
   addRoute(routes, "POST", "/workspaces/local", "host", (ctx) => createLocalWorkspace(ctx));
   // Agents can create a fresh project using collaborator permissions, without host folder-registration access.
   addRoute(routes, "POST", "/workspaces/projects", "client", (ctx) => createLocalWorkspace(ctx, true));
-
-  addRoute(routes, "POST", "/workspaces/remote", "host", async (ctx) => {
-    ensureWritable(config);
-    const body = await readJsonBody(ctx.request);
-    const baseUrl = readStringField(body, "baseUrl");
-    if (!baseUrl) {
-      throw new ApiError(400, "invalid_payload", "baseUrl is required");
-    }
-    if (!/^https?:\/\//i.test(baseUrl)) {
-      throw new ApiError(400, "invalid_payload", "baseUrl must start with http:// or https://");
-    }
-
-    const remoteType = readStringField(body, "remoteType") === "opencode" ? "opencode" : "legalwork";
-    const directory = readStringField(body, "directory") || null;
-    const displayName = readStringField(body, "displayName") || null;
-    const rawLegalworkHostUrl = readStringField(body, "legalworkHostUrl") || null;
-    const legalworkHostUrl = remoteType === "legalwork"
-      ? stripLegalworkWorkspaceMount(rawLegalworkHostUrl ?? baseUrl)
-      : rawLegalworkHostUrl;
-    const legalworkToken = readStringField(body, "legalworkToken");
-    const legalworkHostToken = readStringField(body, "legalworkHostToken");
-    const sandboxBackend = readStringField(body, "sandboxBackend");
-    const sandboxRunId = readStringField(body, "sandboxRunId");
-    const sandboxContainerName = readStringField(body, "sandboxContainerName");
-    let legalworkWorkspaceId = remoteType === "legalwork"
-      ? readStringField(body, "legalworkWorkspaceId")
-        || parseLegalworkWorkspaceIdFromUrl(rawLegalworkHostUrl)
-        || parseLegalworkWorkspaceIdFromUrl(baseUrl)
-      : "";
-    let legalworkWorkspaceName = readStringField(body, "legalworkWorkspaceName") || null;
-
-    if (remoteType === "legalwork" && !legalworkWorkspaceId) {
-      const discovered = await discoverLegalworkWorkspace({
-        hostUrl: legalworkHostUrl ?? baseUrl,
-        token: legalworkToken,
-        hostToken: legalworkHostToken,
-        directory,
-      });
-      legalworkWorkspaceId = discovered ? readStringField(discovered, "id") : "";
-      legalworkWorkspaceName = discovered ? legalworkWorkspaceDisplayName(discovered) : legalworkWorkspaceName;
-      if (!legalworkWorkspaceId) {
-        throw new ApiError(
-          400,
-          "legalwork_workspace_not_found",
-          directory
-            ? `LegalWork server has no workspace matching ${directory}.`
-            : "LegalWork server returned no workspaces.",
-        );
-      }
-    }
-
-    const workspace: WorkspaceInfo = {
-      id: remoteType === "legalwork"
-        ? legalworkRemoteWorkspaceId(legalworkHostUrl ?? baseUrl, legalworkWorkspaceId)
-        : workspaceIdForRemote(baseUrl, directory),
-      name: displayName ?? legalworkWorkspaceName ?? "Remote workspace",
-      path: directory ?? "",
-      preset: "remote",
-      workspaceType: "remote",
-      remoteType,
-      baseUrl: remoteType === "legalwork" ? (legalworkHostUrl ?? baseUrl) : baseUrl,
-      ...(directory ? { directory } : {}),
-      ...(displayName ? { displayName } : {}),
-      ...(remoteType === "legalwork" && legalworkHostUrl ? { legalworkHostUrl } : {}),
-      ...(legalworkToken ? { legalworkToken } : {}),
-      ...(remoteType === "legalwork" && legalworkWorkspaceId ? { legalworkWorkspaceId } : {}),
-      ...(remoteType === "legalwork" && legalworkWorkspaceName ? { legalworkWorkspaceName } : {}),
-      ...(sandboxBackend ? { sandboxBackend } : {}),
-      ...(sandboxRunId ? { sandboxRunId } : {}),
-      ...(sandboxContainerName ? { sandboxContainerName } : {}),
-    };
-
-    revokeWikiProjectEverywhere(config, workspace.id);
-    config.workspaces = [workspace, ...config.workspaces.filter((entry) => entry.id !== workspace.id)];
-    const persisted = await persistServerWorkspaceState(config);
-    onWorkspacesChanged();
-
-    await recordAudit(workspace.path, {
-      id: shortId(),
-      workspaceId: workspace.id,
-      actor: ctx.actor ?? { type: "host" },
-      action: "workspace.create",
-      target: workspace.path || workspace.baseUrl || "workspace",
-      summary: `Created remote workspace ${workspace.name}`,
-      timestamp: Date.now(),
-    });
-
-    return jsonResponse({
-      activeId: workspace.id,
-      workspaces: config.workspaces.map(serializeWorkspace),
-      persisted,
-    }, 201);
-  });
 
   addRoute(routes, "PATCH", "/workspaces/:id/display-name", "host", async (ctx) => {
     ensureWritable(config);

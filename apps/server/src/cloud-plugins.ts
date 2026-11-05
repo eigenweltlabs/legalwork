@@ -7,10 +7,10 @@ import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 import type { ServerConfig } from "./types.js";
 import { ApiError } from "./errors.js";
 import { parseFrontmatter, buildFrontmatter } from "./frontmatter.js";
-import { addMcp, removeMcp } from "./mcp.js";
+import { addMcp } from "./mcp.js";
 import { ensureDir } from "./utils.js";
 import { globalOpencodeConfigDir, globalSkillsDir } from "./workspace-files.js";
-import { GLOBAL_MCP_ID, readRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
+import { GLOBAL_MCP_ID, readRuntimeOpencodeConfig, writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
 import { connectorConfigVariables } from "./connector-config.js";
 import type { PluginImportProvenance, PluginImportHistory, PluginImportReadiness, PluginImportRequirement } from "@legalwork/types/plugin-import";
 import { provenanceSchema, importStateSchema, importHistorySchema } from "./plugin-import-state.js";
@@ -676,6 +676,16 @@ function cloudPluginMcpNameFromPath(path: string): string | null {
   return OPENCODE_MCP_NAME_RE.test(name) ? name : null;
 }
 
+/** A package owns only these exact connector names in its installed scope.
+ * Remove the set in one update so concurrent per-name writes cannot restore it. */
+async function removePluginMcps(config: ServerConfig, registryId: string, names: string[]) {
+  if (!names.length) return;
+  const removed = new Set(names);
+  await writeRuntimeOpencodeConfig(config, registryId, current => ({ ...current,
+    mcp: Object.fromEntries(Object.entries(current.mcp ?? {}).filter(([name]) => !removed.has(name))),
+  }));
+}
+
 /**
  * MCPs the plugins installed in a workspace brought along. They belong to
  * that workspace like the plugin does, not to the shared connector row.
@@ -784,7 +794,7 @@ export async function installCloudPlugin(input: {
     const name = file.objectType === "mcp" && !nextPaths.has(file.path) ? cloudPluginMcpNameFromPath(file.path) : null;
     return name ? [name] : [];
   });
-  await Promise.all(removedMcpNames.map((name) => removeMcp(input.serverConfig, input.workspaceId, name)));
+  await removePluginMcps(input.serverConfig, input.workspaceId, removedMcpNames);
 
   const imported: CloudImportedPlugin = {
     ...(input.resolved.plugin.provenance ? { provenance: input.resolved.plugin.provenance } : {}),
@@ -846,14 +856,16 @@ export async function removeCloudPlugin(input: {
   if (!imported) throw new ApiError(404, "cloud_plugin_not_installed", "Marketplace package is not installed in this workspace.");
 
   for (const file of imported.files) if (file.path.startsWith(".opencode/")) await assertPluginDestination(input.workspaceRoot, file.path, imported.scope === "global");
+  const mcpNames: string[] = [];
   await Promise.all(imported.files.map(async (file) => {
     const mcpName = file.objectType === "mcp" ? cloudPluginMcpNameFromPath(file.path) : null;
     if (mcpName) {
-      await removeMcp(input.serverConfig, registryId, mcpName);
+      mcpNames.push(mcpName);
       return;
     }
     await removePluginWorkspaceFile(input.workspaceRoot, file.path, imported.scope === "global");
   }));
+  await removePluginMcps(input.serverConfig, registryId, mcpNames);
 
   await writeInstalledCloudPlugins(input.serverConfig, registryId, current => {
     const plugins = { ...current.plugins };

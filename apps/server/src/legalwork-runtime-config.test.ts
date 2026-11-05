@@ -1,42 +1,54 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { Config } from "@opencode/schema/config";
+import { Schema } from "effect";
+import { mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { z } from "zod";
+import { isAbsolute, join } from "node:path";
 
 import { parseEigenweltEntitlements } from "./eigenwelt-auth.js";
 import { writeEigenweltConnection } from "./eigenwelt-connection-store.js";
 import { writeCachedEigenweltPaidManifest } from "./eigenwelt-paid-manifest.js";
+import { engineProjectStatus } from "./engine-project.js";
+import { legalworkPluginPath } from "./legalwork-extensions-plugin-path.js";
 import {
+  buildLegalworkRuntimeSettings,
   keepLegalworkRuntimeConfigFileFresh,
   legalworkRuntimeConfigFilePath,
+  managedEngineSettingsFilePath,
+  mandatoryRuntimeConfigFilePath,
   writeLegalworkRuntimeConfigFile,
 } from "./legalwork-runtime-config.js";
+import { managedSettingsFileSchema, readManagedEngineSettings, type ManagedEngineSettings } from "./managed-engine-settings.js";
+import { orgPolicyEngineDir } from "./org-policy-engine.js";
+import type { NativeConfig } from "./native-opencode-config.js";
 import {
+  GLOBAL_MCP_ID,
   GLOBAL_PERSONALIZATION_ID,
   GLOBAL_TOOL_PERMISSIONS_ID,
-  readRuntimeOpencodeConfig,
   writeRuntimeOpencodeConfig,
 } from "./runtime-opencode-config-store.js";
 import type { ServerConfig } from "./types.js";
 
 const roots: string[] = [];
-const cleanups: Array<() => void> = [];
+const cleanups: Array<() => Promise<unknown>> = [];
 let previousDb: string | undefined;
 
 afterEach(async () => {
-  while (cleanups.length) cleanups.pop()?.();
+  while (cleanups.length) await cleanups.pop()?.();
   while (roots.length) await rm(roots.pop()!, { recursive: true, force: true });
   if (previousDb === undefined) delete process.env.LEGALWORK_RUNTIME_DB;
   else process.env.LEGALWORK_RUNTIME_DB = previousDb;
 });
 
 async function setup() {
-  const root = await mkdtemp(join(tmpdir(), "legalwork-runtime-config-file-"));
-  roots.push(root);
+  const temporary = await realpath(await mkdtemp(join(tmpdir(), "legalwork-runtime-config-file-")));
+  roots.push(temporary);
+  const root = join(temporary, "project");
+  await mkdir(root);
   previousDb = process.env.LEGALWORK_RUNTIME_DB;
-  process.env.LEGALWORK_RUNTIME_DB = join(root, "runtime.sqlite");
+  process.env.LEGALWORK_RUNTIME_DB = join(temporary, "runtime.sqlite");
   const config: ServerConfig = {
+    configPath: join(temporary, "server.json"),
     host: "127.0.0.1",
     port: 0,
     token: "owt_test_token",
@@ -57,10 +69,98 @@ async function setup() {
   return { root, config };
 }
 
-async function readConfigFile(config: ServerConfig): Promise<Record<string, unknown>> {
-  const raw = await readFile(legalworkRuntimeConfigFilePath(config), "utf8");
-  return JSON.parse(raw) as Record<string, unknown>;
+async function addWorkspace(config: ServerConfig) {
+  const directory = join(config.workspaces[0]!.path, "..", "other-project");
+  await mkdir(directory);
+  config.workspaces.push({ id: "ws_other", name: "Other workspace", path: directory, preset: "starter", workspaceType: "local" });
+  config.authorizedRoots.push(directory);
 }
+
+async function readSettings(config: ServerConfig, workspaceID = "ws_1") {
+  const workspace = config.workspaces.find(item => item.id === workspaceID);
+  if (!workspace) throw new Error(`Missing test workspace ${workspaceID}`);
+  return readManagedEngineSettings(managedEngineSettingsFilePath(config), workspace.path);
+}
+
+async function readConfigurationFile(path: string) {
+  return Schema.decodeUnknownSync(Config.Info)(JSON.parse(await readFile(path, "utf8")), { onExcessProperty: "error" });
+}
+
+function pluginTargets(plugins: NativeConfig["plugins"]) {
+  return (plugins ?? []).map(plugin => typeof plugin === "string" ? plugin : plugin.package);
+}
+
+async function bundledSources(plugins: NativeConfig["plugins"]) {
+  return Promise.all(pluginTargets(plugins).map(async target => ({ target, source: await readFile(join(target, "index.js"), "utf8") })));
+}
+
+async function expectBundle(sources: Awaited<ReturnType<typeof bundledSources>>, name: string) {
+  const original = await readFile(legalworkPluginPath(name), "utf8");
+  expect(sources.some(plugin => plugin.source === original)).toBe(true);
+}
+
+function watch(config: ServerConfig) {
+  const stop = keepLegalworkRuntimeConfigFileFresh(config, "ws_1");
+  // Drain the writer after unsubscribing, so fixture cleanup cannot race an
+  // already queued fire-and-forget refresh. Assertions still observe refreshes.
+  cleanups.push(async () => { stop(); await writeLegalworkRuntimeConfigFile(config, "ws_1"); });
+}
+
+async function waitForSettings(config: ServerConfig, predicate: (settings: ManagedEngineSettings) => boolean, workspaceID = "ws_1") {
+  let settings = await readSettings(config, workspaceID);
+  for (let attempt = 0; attempt < 50 && !predicate(settings); attempt += 1) {
+    await new Promise(resolve => setTimeout(resolve, 20));
+    settings = await readSettings(config, workspaceID);
+  }
+  return settings;
+}
+
+test("shared settings notifications refresh each owner's private engine files and stop cleanly", async () => {
+  const { config } = await setup();
+  const other = { ...config, managedEngineStorageDirectory: join(config.workspaces[0]!.path, "..", "other-engine"), agentSandboxEnabled: false };
+  config.agentSandboxEnabled = true;
+  await Promise.all([writeLegalworkRuntimeConfigFile(config, "ws_1"), writeLegalworkRuntimeConfigFile(other, "ws_1")]);
+  const stop = keepLegalworkRuntimeConfigFileFresh(config, "ws_1");
+  const stopOther = keepLegalworkRuntimeConfigFileFresh(other, "ws_1");
+  cleanups.push(stop, stopOther);
+  await writeRuntimeOpencodeConfig(other, GLOBAL_MCP_ID, () => ({ mcp: { first: { type: "remote", url: "https://first.example/mcp", enabled: false } } }));
+  for (const owner of [config, other]) {
+    expect((await waitForSettings(owner, settings => "first" in (settings.configuration.mcp?.servers ?? {}))).configuration.mcp?.servers).toHaveProperty("first");
+  }
+  const protectedPolicy = await readConfigurationFile(join(orgPolicyEngineDir(config), "opencode.json"));
+  expect(protectedPolicy.policies).toContainEqual({ action: "tool.use", resource: "shell:*", effect: "deny" });
+  expect((await readConfigurationFile(join(orgPolicyEngineDir(other), "opencode.json"))).policies).not.toContainEqual({ action: "tool.use", resource: "shell:*", effect: "deny" });
+  await stop();
+  const stopped = await readFile(managedEngineSettingsFilePath(config), "utf8");
+  await writeRuntimeOpencodeConfig(other, GLOBAL_MCP_ID, () => ({ mcp: { second: { type: "remote", url: "https://second.example/mcp", enabled: false } } }));
+  await stopOther();
+  expect(await readFile(managedEngineSettingsFilePath(config), "utf8")).toBe(stopped);
+  expect((await readSettings(other)).configuration.mcp?.servers).toHaveProperty("second");
+});
+
+test("unchanged managed settings preserve watched file identities while real edits still publish", async () => {
+  const { config } = await setup();
+  await writeLegalworkRuntimeConfigFile(config, "ws_1");
+  const paths = [
+    legalworkRuntimeConfigFilePath(config),
+    managedEngineSettingsFilePath(config),
+    mandatoryRuntimeConfigFilePath(config),
+    join(orgPolicyEngineDir(config), "opencode.json"),
+  ];
+  const before = await Promise.all(paths.map(async path => {
+    const info = await stat(path);
+    return { ino: info.ino, mtimeMs: info.mtimeMs, content: await readFile(path, "utf8") };
+  }));
+  await writeLegalworkRuntimeConfigFile(config, "ws_1");
+  for (const [index, path] of paths.entries()) {
+    const info = await stat(path);
+    expect({ ino: info.ino, mtimeMs: info.mtimeMs, content: await readFile(path, "utf8") }).toEqual(before[index]);
+  }
+  await writeRuntimeOpencodeConfig(config, "ws_1", current => ({ ...current, mcp: { updated: { type: "remote", url: "https://connector.example/mcp", enabled: false } } }));
+  await writeLegalworkRuntimeConfigFile(config, "ws_1");
+  expect(await readFile(managedEngineSettingsFilePath(config), "utf8")).not.toBe(before[1]?.content);
+  expect((await stat(managedEngineSettingsFilePath(config))).mode & 0o777).toBe(0o600);
+});
 
 test("protected engine configuration retains installed skill discovery", async () => {
   const { root, config } = await setup();
@@ -72,345 +172,304 @@ test("protected engine configuration retains installed skill discovery", async (
   await mkdir(folder, { recursive: true });
   await writeFile(join(folder, "SKILL.md"), "---\nname: protected-helper\ndescription: An installed helper\n---\nUse the protected shell.\n");
   await writeLegalworkRuntimeConfigFile(config, "ws_1");
-  expect(await readConfigFile(config)).toMatchObject({ skills: { paths: expect.arrayContaining([folder, visible]) }, lsp: false, formatter: false });
+  const settings = await readSettings(config);
+  expect(settings.configuration.skills).toEqual(expect.arrayContaining([folder, visible]));
+  expect(settings.skills).toEqual(expect.arrayContaining([
+    expect.objectContaining({ id: "protected-helper", path: join(folder, "SKILL.md"), content: expect.stringContaining("Use the protected shell.") }),
+    expect.objectContaining({ id: "wiki-setup", path: join(visible, "SKILL.md"), content: expect.stringContaining("Read this wiki's guidance.") }),
+  ]));
 });
 
-test.each([false, true])("the built-in review worker is registered with sandboxing=%s", async (sandboxed) => {
+test.each([false, true])("the built-in review worker is registered with sandboxing=%s", async sandboxed => {
   const { config } = await setup();
   config.agentSandboxEnabled = sandboxed;
   await writeRuntimeOpencodeConfig(config, "ws_1", () => ({
     agent: { "document-extractor": { disable: true, model: "other/model", prompt: "Stored override", permission: { "*": "allow" } } },
   }));
   await writeLegalworkRuntimeConfigFile(config, "ws_1");
-  const parsed = await readConfigFile(config);
-  expect(parsed).toMatchObject({ agent: { "document-extractor": {
+  const settings = await readSettings(config);
+  const worker = settings.configuration.agents?.["document-extractor"];
+  expect(worker).toMatchObject({
     description: "Internal grounded text inference worker for saved project reviews.",
-    mode: "subagent", hidden: true, temperature: 0.1,
-    prompt: expect.stringContaining("Use only the evidence and column definition provided in this request."),
-    tools: { "*": false }, permission: { "*": "deny" },
-  } } });
-  expect(parsed).not.toHaveProperty("agent.document-extractor.disable");
-  expect(parsed).not.toHaveProperty("agent.document-extractor.model");
-  expect(parsed).not.toHaveProperty("agent.document-extractor.prompt", "Stored override");
+    mode: "subagent", hidden: true,
+    system: expect.stringContaining("Use only the evidence and column definition provided in this request."),
+    permissions: expect.arrayContaining([
+      { action: "*", resource: "*", effect: "deny" },
+      { action: "legalwork_review_submit", resource: "*", effect: "allow" },
+    ]),
+  });
+  expect(settings.agentRequests["document-extractor"]).toMatchObject({ temperature: 0.1 });
+  expect(worker?.disabled).toBeUndefined();
+  expect(worker?.model).toBeUndefined();
+  expect(worker?.system).not.toBe("Stored override");
 });
 
 test("saved-output access is enabled before user rules and bundled with the runtime", async () => {
   const { config } = await setup();
   await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permission: { "*": "deny", read: "deny" } }));
   await writeLegalworkRuntimeConfigFile(config, "ws_1");
-  const denied = await readConfigFile(config);
-  expect(denied).toMatchObject({ permission: { legalwork_tool_output_read: "allow", "*": "deny", read: "deny" } });
-  const rules = Object.keys(Object(denied.permission));
-  expect(rules.indexOf("legalwork_tool_output_read")).toBeLessThan(rules.indexOf("*"));
-  expect(JSON.stringify(denied.plugin)).toContain("legalwork-tool-output");
+  const denied = (await readSettings(config)).configuration;
+  expect(denied.permissions).toEqual(expect.arrayContaining([
+    { action: "legalwork_tool_output_read", resource: "*", effect: "allow" },
+    { action: "*", resource: "*", effect: "deny" },
+    { action: "read", resource: "*", effect: "deny" },
+  ]));
+  const rules = denied.permissions ?? [];
+  expect(rules.findIndex(rule => rule.action === "legalwork_tool_output_read")).toBeLessThan(rules.findIndex(rule => rule.action === "*"));
+  await expectBundle(await bundledSources(denied.plugins), "legalwork-tool-output");
   await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permission: { "*": "allow", legalwork_tool_output_read: "deny" } }));
   await writeLegalworkRuntimeConfigFile(config, "ws_1");
-  const explicit = await readConfigFile(config);
-  expect(explicit).toMatchObject({ permission: { legalwork_tool_output_read: "deny" } });
-  expect(Object.keys(Object(explicit.permission)).indexOf("legalwork_tool_output_read")).toBeGreaterThan(Object.keys(Object(explicit.permission)).indexOf("*"));
+  const explicit = (await readSettings(config)).configuration.permissions ?? [];
+  expect(explicit).toContainEqual({ action: "legalwork_tool_output_read", resource: "*", effect: "deny" });
+  expect(explicit.findIndex(rule => rule.action === "legalwork_tool_output_read")).toBeGreaterThan(explicit.findIndex(rule => rule.action === "*"));
 });
 
-describe("legalwork runtime config file", () => {
-  test("a cold channel worker gains its managed model after boot and refreshes a rotated key", async () => {
-    const { root, config } = await setup();
-    const previousSelection = process.env.LEGALWORK_CHANNEL_MODEL;
-    const previousConfigHome = process.env.XDG_CONFIG_HOME;
-    process.env.LEGALWORK_CHANNEL_MODEL = join(root, "channel-model.json");
-    process.env.XDG_CONFIG_HOME = join(root, "config");
-    try {
-      await writeRuntimeOpencodeConfig(config, "ws_1", current => ({ ...current,
-        agent: { reviewer: { mode: "subagent" } },
-      }));
-      await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, current => ({ ...current, permission: { bash: "ask" } }));
-      await writeLegalworkRuntimeConfigFile(config, "ws_1");
-      expect((await readConfigFile(config)).provider).toEqual({});
-
-      await mkdir(join(process.env.XDG_CONFIG_HOME, "opencode"), { recursive: true });
-      await writeFile(process.env.LEGALWORK_CHANNEL_MODEL, JSON.stringify({ providerID: "eigenwelt-cloud", modelID: "test-model" }));
-      const file = join(process.env.XDG_CONFIG_HOME, "opencode/opencode.json");
-      const provider = (apiKey: string) => ({ npm: "@ai-sdk/openai-compatible", options: { baseURL: "https://model.example/v1", apiKey }, models: { "test-model": { name: "Test" } } });
-      await writeFile(file, JSON.stringify({ model: "unrelated/default", permission: { bash: "allow" }, provider: { "eigenwelt-cloud": provider("scoped-first"), unrelated: provider("private-other") } }));
-      await writeLegalworkRuntimeConfigFile(config, "ws_1");
-      const before = z.object({ provider: z.record(z.string(), z.object({ options: z.object({ apiKey: z.string() }) })), permission: z.object({ bash: z.string() }), agent: z.record(z.string(), z.unknown()) }).parse(await readConfigFile(config));
-      expect(Object.keys(before.provider)).toEqual(["eigenwelt-cloud"]);
-      expect(before.provider["eigenwelt-cloud"].options.apiKey).toBe("scoped-first");
-      expect(before.permission.bash).toBe("ask");
-      expect(before.agent.reviewer).toEqual({ mode: "subagent" });
-
-      await writeFile(file, JSON.stringify({ provider: { "eigenwelt-cloud": provider("scoped-rotated") } }));
-      await writeLegalworkRuntimeConfigFile(config, "ws_1");
-      const after = z.object({ provider: z.record(z.string(), z.object({ options: z.object({ apiKey: z.string() }) })) }).parse(await readConfigFile(config));
-      expect(after.provider["eigenwelt-cloud"].options.apiKey).toBe("scoped-rotated");
-      expect((await readRuntimeOpencodeConfig(config, "ws_1")).provider).toBeUndefined();
-      expect((await readConfigFile(config)).model).toBeUndefined();
-    } finally {
-      if (previousSelection === undefined) delete process.env.LEGALWORK_CHANNEL_MODEL;
-      else process.env.LEGALWORK_CHANNEL_MODEL = previousSelection;
-      if (previousConfigHome === undefined) delete process.env.XDG_CONFIG_HOME;
-      else process.env.XDG_CONFIG_HOME = previousConfigHome;
+describe("legalwork runtime config files", () => {
+  test("shared Firecrawl OAuth settings stay app-owned and do not create an executable project plugin", async () => {
+    const { config } = await setup();
+    config.engineProjectTrustRequired = true;
+    await addWorkspace(config);
+    await writeRuntimeOpencodeConfig(config, GLOBAL_MCP_ID, () => ({ mcp: {
+      firecrawl: { type: "remote", url: "https://mcp.firecrawl.dev/v2/mcp-oauth", enabled: true, oauth: {} },
+    } }));
+    await writeLegalworkRuntimeConfigFile(config, "ws_1");
+    for (const workspace of config.workspaces) {
+      const settings = await readSettings(config, workspace.id);
+      expect(settings.configuration.mcp?.servers?.firecrawl).toEqual({ type: "remote", url: "https://mcp.firecrawl.dev/v2/mcp-oauth", disabled: false, oauth: {} });
+      const review = await engineProjectStatus(config, workspace);
+      expect(review.state).toBe("approval_required");
+      expect(review.plugins).toEqual([]);
     }
+    // The shared selection is data for the native loader, not an extra host
+    // plugin or a connector sign-in implementation owned by LegalWork.
+    const common = await readConfigurationFile(legalworkRuntimeConfigFilePath(config));
+    expect(common.mcp).toBeUndefined();
+    expect(pluginTargets(common.plugins).some(target => /firecrawl/i.test(target))).toBe(false);
   });
 
-  test("writes runtime-DB MCPs and legalwork defaults into the file", async () => {
+  test("writes native project MCPs and defaults, with common and mandatory plugin layers", async () => {
     const { config } = await setup();
-    await writeRuntimeOpencodeConfig(config, "ws_1", (current) => ({
+    await writeRuntimeOpencodeConfig(config, "ws_1", current => ({
       ...current,
       mcp: { posthog: { type: "remote", url: "https://mcp.posthog.com/mcp", enabled: true } },
       agent: { reviewer: { mode: "subagent", model: "opencode/big-pickle" } },
     }));
+    expect(await writeLegalworkRuntimeConfigFile(config, "ws_1")).toBe(legalworkRuntimeConfigFilePath(config));
 
-    const path = await writeLegalworkRuntimeConfigFile(config, "ws_1");
-    expect(path).toBe(legalworkRuntimeConfigFilePath(config));
+    const settings = await readSettings(config);
+    const parsed = settings.configuration;
+    expect(parsed).toEqual(Schema.decodeUnknownSync(Config.Info)((await buildLegalworkRuntimeSettings(config, "ws_1")).configuration));
+    expect(parsed.mcp?.servers?.posthog).toMatchObject({ disabled: false, url: "https://mcp.posthog.com/mcp" });
+    expect(parsed.default_agent).toBeUndefined();
+    expect(parsed.providers?.eigenwelt).toBeUndefined();
+    expect(parsed.agents?.["legalwork-scheduled-project"]).toMatchObject({ hidden: true, mode: "primary", permissions: expect.arrayContaining([
+      { action: "*", resource: "*", effect: "deny" }, { action: "legalwork_project_read", resource: "*", effect: "allow" },
+    ]) });
+    expect(parsed.agents?.["legalwork-scheduled-all"]).toMatchObject({ hidden: true, mode: "primary", permissions: expect.arrayContaining([
+      { action: "legalwork_ui_execute_action", resource: "*", effect: "deny" },
+      { action: "legalwork_ui_list_actions", resource: "*", effect: "deny" },
+      { action: "legalwork_ui_snapshot", resource: "*", effect: "deny" },
+    ]) });
+    expect(parsed.agents?.legalwork?.system).toContain("start-tabular-review");
+    expect(parsed.agents?.legalwork?.system).toContain("at most one short sentence");
+    expect(parsed.agents?.reviewer?.model).toMatchObject({ providerID: "opencode", model: "big-pickle" });
 
-    const parsed = await readConfigFile(config);
-    const mcp = parsed.mcp as Record<string, Record<string, unknown>>;
-    expect(mcp.posthog?.enabled).toBe(true);
-    expect(parsed.default_agent).toBe("legalwork");
-    expect(Array.isArray(parsed.plugin)).toBe(true);
-    expect(JSON.stringify(parsed.plugin)).not.toContain("legalwork-document-tools");
-    // Direct Anthropic access uses the engine's manual API-key authentication.
-    expect(JSON.stringify(parsed.plugin)).not.toContain("anthropic-auth");
-    expect(JSON.stringify(parsed.plugin)).toContain("legalwork-anthropic-adaptive-thinking");
-    expect(JSON.stringify(parsed.plugin)).toContain("legalwork-anthropic-tool-schema");
-    expect((parsed.plugin as string[]).every((plugin) => plugin.startsWith("file://"))).toBe(true);
-    // No server-injected provider blocks: the engine treats any config-defined
-    // provider as always-connected, so the eigenwelt provider only exists when
-    // written into the per-workspace runtime config at connect time.
-    expect((parsed.provider as Record<string, unknown> | undefined)?.eigenwelt).toBeUndefined();
-    const agents = parsed.agent as Record<string, Record<string, unknown>>;
-    expect(agents["legalwork-scheduled-project"]).toMatchObject({ hidden: true, mode: "primary", permission: { "*": "deny", legalwork_project_read: "allow" } });
-    expect(agents["legalwork-scheduled-all"]).toMatchObject({ hidden: true, mode: "primary", permission: { legalwork_ui_execute_action: "deny", legalwork_ui_list_actions: "deny", legalwork_ui_snapshot: "deny" } });
-    expect(JSON.stringify(parsed.plugin)).toContain("legalwork-scheduled-task-tools");
-    expect(agents.legalwork.prompt).toContain("start-tabular-review");
-    expect(agents.legalwork.prompt).toContain("at most one short sentence");
-    expect(agents.reviewer?.model).toBe("opencode/big-pickle");
+    const common = await readConfigurationFile(legalworkRuntimeConfigFilePath(config));
+    expect(common).toMatchObject({ update: "disable", default_agent: "legalwork", experimental: { todo: true } });
+    expect(common.agents).toBeUndefined();
+    expect(common.providers).toBeUndefined();
+    expect(common.mcp).toBeUndefined();
+    const sources = await bundledSources(common.plugins);
+    await expectBundle(sources, "legalwork-anthropic-adaptive-thinking");
+    await expectBundle(sources, "legalwork-anthropic-tool-schema");
+    await expectBundle(sources, "legalwork-scheduled-task-tools");
+    expect(sources.some(plugin => plugin.source.includes('id: "legalwork.document-tools"'))).toBe(false);
+    expect(sources.some(plugin => plugin.source.includes('id: "anthropic-auth"'))).toBe(false);
+    const mandatory = await readConfigurationFile(mandatoryRuntimeConfigFilePath(config));
+    expect(pluginTargets(mandatory.plugins)).toContain("-opencode.config.command");
+    const guards = await bundledSources(mandatory.plugins?.filter(plugin => typeof plugin !== "string" || !plugin.startsWith("-")));
+    await expectBundle(guards, "legalwork-commands");
+    await expectBundle(guards, "legalwork-project-admission");
+    await expectBundle(guards, "legalwork-managed-config");
+    await expectBundle(guards, "legalwork-org-policy-guard");
+    await expectBundle(guards, "legalwork-product-scope");
+    const workspace = config.workspaces[0]!;
+    const status = await engineProjectStatus(config, workspace);
+    expect(status.projection.diagnostic).toBeUndefined();
+    expect(status.projection.path).toBeString();
+    if (!status.projection.path) throw new Error("Missing native project projection");
+    const projection = await readFile(status.projection.path, "utf8");
+    expect(projection).toContain("{file:");
+    expect(projection).not.toContain("https://mcp.posthog.com/mcp");
+    expect(projection).not.toContain("start-tabular-review");
   });
 
-  test("bundled plugin specs are file:// URLs so import() works on Windows", async () => {
+  test("bundled plugins use host-resolved directory entrypoints on every platform", async () => {
     const { config } = await setup();
     await writeLegalworkRuntimeConfigFile(config, "ws_1");
-
-    const parsed = await readConfigFile(config);
-    const plugins = parsed.plugin as string[];
-    const localPlugins = plugins.filter((spec) => /legalwork-[a-z-]+\.(?:js|ts)\?v=/.test(spec));
-    // Every bundled plugin resolves to a file on disk, so each must be a
-    // file:// URL. A bare absolute path (esp. a Windows `C:\…` path) makes
-    // OpenCode's dynamic import() throw ERR_UNSUPPORTED_ESM_URL_SCHEME and
-    // fails the whole config load — no providers, no tasks.
-    expect(localPlugins.some((spec) => /legalwork-storage-tools\.(?:js|ts)\?v=/.test(spec))).toBe(true);
-    expect(localPlugins.some((spec) => /legalwork-wiki-tools\.(?:js|ts)\?v=/.test(spec))).toBe(true);
-    expect(localPlugins.length).toBeGreaterThan(0);
-    for (const spec of localPlugins) {
-      expect(spec.startsWith("file://")).toBe(true);
-      expect(new URL(spec).searchParams.get("v")).toMatch(/^\d+(\.\d+)?-\d+$/);
+    const sources = await bundledSources((await readConfigurationFile(legalworkRuntimeConfigFilePath(config))).plugins);
+    expect(sources.length).toBeGreaterThan(0);
+    await expectBundle(sources, "legalwork-storage-tools");
+    await expectBundle(sources, "legalwork-wiki-tools");
+    // The v2 host resolves index.js from the native directory entry. LegalWork
+    // no longer passes a bare Windows JS path to dynamic import(), or a v1 URL.
+    for (const { target } of sources) {
+      expect(isAbsolute(target)).toBe(true);
+      expect(target.startsWith("file:")).toBe(false);
+      expect(target).not.toContain("?v=");
+      expect((await stat(target)).isDirectory()).toBe(true);
+      expect((await stat(join(target, "index.js"))).isFile()).toBe(true);
     }
   });
 
-  test("keepLegalworkRuntimeConfigFileFresh rewrites the file on runtime-DB writes", async () => {
+  test("keepLegalworkRuntimeConfigFileFresh rewrites native settings on runtime-DB writes", async () => {
     const { config } = await setup();
     await writeLegalworkRuntimeConfigFile(config, "ws_1");
-    cleanups.push(keepLegalworkRuntimeConfigFileFresh(config, "ws_1"));
-
-    await writeRuntimeOpencodeConfig(config, "ws_1", (current) => ({
-      ...current,
+    watch(config);
+    await writeRuntimeOpencodeConfig(config, "ws_1", current => ({ ...current,
       mcp: { stripe: { type: "remote", url: "https://mcp.stripe.com", enabled: false } },
     }));
-
-    // The refresh is fire-and-forget; poll briefly for the rewrite.
-    let mcp: Record<string, Record<string, unknown>> = {};
-    for (let attempt = 0; attempt < 50; attempt += 1) {
-      const parsed = await readConfigFile(config);
-      mcp = (parsed.mcp ?? {}) as Record<string, Record<string, unknown>>;
-      if (mcp.stripe) break;
-      await new Promise((resolve) => setTimeout(resolve, 20));
-    }
-    expect(mcp.stripe?.enabled).toBe(false);
+    const settings = await waitForSettings(config, value => !!value.configuration.mcp?.servers?.stripe);
+    expect(settings.configuration.mcp?.servers?.stripe).toMatchObject({ disabled: true, url: "https://mcp.stripe.com" });
   });
 
-  test("writes for other workspaces do not rewrite the primary file", async () => {
+  test("writes for unregistered workspaces do not leak into registered settings", async () => {
     const { config } = await setup();
     await writeLegalworkRuntimeConfigFile(config, "ws_1");
-    cleanups.push(keepLegalworkRuntimeConfigFileFresh(config, "ws_1"));
-
-    await writeRuntimeOpencodeConfig(config, "ws_other", (current) => ({
-      ...current,
+    watch(config);
+    const before = await readFile(managedEngineSettingsFilePath(config), "utf8");
+    await writeRuntimeOpencodeConfig(config, "ws_other", current => ({ ...current,
       mcp: { other: { type: "remote", url: "https://example.com/mcp", enabled: true } },
     }));
-    await new Promise((resolve) => setTimeout(resolve, 50));
-
-    const parsed = await readConfigFile(config);
-    const mcp = (parsed.mcp ?? {}) as Record<string, Record<string, unknown>>;
-    expect(mcp.other).toBeUndefined();
+    await new Promise(resolve => setTimeout(resolve, 50));
+    expect(await readFile(managedEngineSettingsFilePath(config), "utf8")).toBe(before);
+    expect((await readSettings(config)).configuration.mcp?.servers?.other).toBeUndefined();
   });
 
-  test("global tool permissions land in every workspace's file and rewrite it on change", async () => {
+  test("global tool permissions reach every workspace while external directories stay local", async () => {
     const { config } = await setup();
-    await writeRuntimeOpencodeConfig(config, "ws_1", (current) => ({
-      ...current,
+    await addWorkspace(config);
+    await writeRuntimeOpencodeConfig(config, "ws_1", current => ({ ...current,
       permission: { external_directory: { "/tmp/shared/*": "allow" } },
     }));
     await writeLegalworkRuntimeConfigFile(config, "ws_1");
-    cleanups.push(keepLegalworkRuntimeConfigFileFresh(config, "ws_1"));
-
-    // A write to the reserved global row must rebuild this workspace's file.
-    await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, (current) => ({
-      ...current,
-      permission: { bash: "ask" },
-    }));
-
-    let permission: Record<string, unknown> = {};
-    for (let attempt = 0; attempt < 50; attempt += 1) {
-      const parsed = await readConfigFile(config);
-      permission = (parsed.permission ?? {}) as Record<string, unknown>;
-      if (permission.bash) break;
-      await new Promise((resolve) => setTimeout(resolve, 20));
+    watch(config);
+    await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, current => ({ ...current, permission: { bash: "ask" } }));
+    for (const workspaceID of ["ws_1", "ws_other"]) {
+      const settings = await waitForSettings(config, value => !!value.configuration.permissions?.some(rule => rule.action === "shell"), workspaceID);
+      expect(settings.configuration.permissions).toContainEqual({ action: "shell", resource: "*", effect: "ask" });
+      expect(settings.configuration.permissions?.some(rule => rule.action === "external_directory" && rule.resource === "/tmp/shared/*")).toBe(workspaceID === "ws_1");
     }
-    // Global tool key + this workspace's own external_directory, merged.
-    expect(permission.bash).toBe("ask");
-    expect(permission.external_directory).toEqual({ "/tmp/shared/*": "allow" });
   });
 
-  test("global personalisation rewrites the active workspace config", async () => {
+  test("shared connectors reach every workspace and preserve workspace-specific overrides", async () => {
     const { config } = await setup();
-    await writeLegalworkRuntimeConfigFile(config, "ws_1");
-    cleanups.push(keepLegalworkRuntimeConfigFileFresh(config, "ws_1"));
-
-    // Saved while local memories existed: the flags stay in the stored JSON.
-    const saved: { customInstructions: string; localMemoriesEnabled: boolean; allowToolAssistedMemory: boolean; personality: "professional" } = {
-      customInstructions: "Use concise issue-rule-analysis conclusions.",
-      localMemoriesEnabled: true,
-      allowToolAssistedMemory: false,
-      personality: "professional",
-    };
-    await writeRuntimeOpencodeConfig(config, GLOBAL_PERSONALIZATION_ID, (current) => ({
-      ...current,
-      personalization: saved,
+    await addWorkspace(config);
+    await writeRuntimeOpencodeConfig(config, "ws_1", current => ({ ...current,
+      mcp: { shared: { type: "remote", url: "https://project.example/mcp", enabled: false } },
     }));
-
-    let prompt = "";
-    let plugins: string[] = [];
-    for (let attempt = 0; attempt < 50; attempt += 1) {
-      const parsed = await readConfigFile(config);
-      const agents = parsed.agent as Record<string, Record<string, unknown>>;
-      prompt = typeof agents.legalwork?.prompt === "string" ? agents.legalwork.prompt : "";
-      plugins = Array.isArray(parsed.plugin) ? parsed.plugin.filter((item) => typeof item === "string") : [];
-      if (prompt.includes("issue-rule-analysis")) break;
-      await new Promise((resolve) => setTimeout(resolve, 20));
+    await writeLegalworkRuntimeConfigFile(config, "ws_1");
+    watch(config);
+    await writeRuntimeOpencodeConfig(config, GLOBAL_MCP_ID, current => ({ ...current,
+      mcp: { shared: { type: "remote", url: "https://shared.example/mcp", enabled: true }, global: { type: "remote", url: "https://global.example/mcp", enabled: true } },
+    }));
+    for (const workspaceID of ["ws_1", "ws_other"]) {
+      const settings = await waitForSettings(config, value => !!value.configuration.mcp?.servers?.global, workspaceID);
+      expect(settings.configuration.mcp?.servers?.global).toMatchObject({ url: "https://global.example/mcp", disabled: false });
+      expect(settings.configuration.mcp?.servers?.shared).toMatchObject(workspaceID === "ws_1"
+        ? { url: "https://project.example/mcp", disabled: true }
+        : { url: "https://shared.example/mcp", disabled: false });
     }
+  });
 
-    expect(prompt).toContain("Use concise issue-rule-analysis conclusions.");
-    expect(prompt).not.toContain("Local memory policy");
-    expect(plugins.some((plugin) => plugin.includes("agent-memory"))).toBe(false);
+  test("global personalisation rewrites every workspace without restoring retired local memory", async () => {
+    const { config } = await setup();
+    await addWorkspace(config);
+    await writeLegalworkRuntimeConfigFile(config, "ws_1");
+    watch(config);
+    const saved: { customInstructions: string; localMemoriesEnabled: boolean; allowToolAssistedMemory: boolean; personality: "professional" } = {
+      customInstructions: "Use concise issue-rule-analysis conclusions.", localMemoriesEnabled: true, allowToolAssistedMemory: false, personality: "professional",
+    };
+    await writeRuntimeOpencodeConfig(config, GLOBAL_PERSONALIZATION_ID, current => ({ ...current, personalization: saved }));
+    for (const workspaceID of ["ws_1", "ws_other"]) {
+      const settings = await waitForSettings(config, value => !!value.configuration.agents?.legalwork?.system?.includes("issue-rule-analysis"), workspaceID);
+      expect(settings.configuration.agents?.legalwork?.system).toContain("Use concise issue-rule-analysis conclusions.");
+      expect(settings.configuration.agents?.legalwork?.system).not.toContain("Local memory policy");
+    }
+    const sources = await bundledSources((await readConfigurationFile(legalworkRuntimeConfigFilePath(config))).plugins);
+    expect(sources.some(plugin => plugin.source.includes('id: "legalwork.agent-memory"'))).toBe(false);
   });
 
   test("project instruction updates require approval even with broad tool allow rules", async () => {
     const { config } = await setup();
-    await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, current => ({
-      ...current,
+    await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, current => ({ ...current,
       permission: { legalwork_project_set_instructions: "allow", "*": "allow", bash: "ask" },
     }));
     await writeLegalworkRuntimeConfigFile(config, "ws_1");
-    const parsed = await readConfigFile(config);
-    if (typeof parsed.permission !== "object" || parsed.permission === null) throw new Error("Permission config missing");
-    expect(parsed.permission).toMatchObject({ "*": "allow", bash: "ask", legalwork_project_set_instructions: "ask" });
-    expect(Object.keys(parsed.permission).at(-1)).toBe("legalwork_project_set_instructions");
-    await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, current => ({
-      ...current, permission: { legalwork_project_set_instructions: "deny" },
-    }));
+    const permissions = (await readSettings(config)).configuration.permissions;
+    expect(permissions).toEqual(expect.arrayContaining([
+      { action: "*", resource: "*", effect: "allow" }, { action: "shell", resource: "*", effect: "ask" },
+      { action: "legalwork_project_set_instructions", resource: "*", effect: "ask" },
+    ]));
+    const instruction = permissions?.findIndex(rule => rule.action === "legalwork_project_set_instructions") ?? -1;
+    expect(instruction).toBeGreaterThan(permissions?.findIndex(rule => rule.action === "*") ?? -1);
+    expect(instruction).toBeGreaterThan(permissions?.findIndex(rule => rule.action === "shell") ?? -1);
+    await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, current => ({ ...current, permission: { legalwork_project_set_instructions: "deny" } }));
     await writeLegalworkRuntimeConfigFile(config, "ws_1");
-    expect((await readConfigFile(config)).permission).toMatchObject({ legalwork_project_set_instructions: "deny" });
+    expect((await readSettings(config)).configuration.permissions).toContainEqual({ action: "legalwork_project_set_instructions", resource: "*", effect: "deny" });
   });
 });
 
-describe("eigenwelt free provider injection", () => {
-  // The cached manifest now carries this DEVICE's own key (minted once via
-  // /api/public/free-key) — limits are per-key on the gateway.
-  const FREE_MANIFEST = {
-    baseURL: "https://free.gateway.test/v1",
-    apiKey: "sk-device-key-1",
-    models: [
-      { id: "ewl-free-small", name: "EWL Free Small", contextLength: 32000 },
-      { id: "ewl-free-base" },
-    ],
-  };
-
-  type FreeProviderBlock = {
-    npm?: string;
-    name?: string;
-    options?: { baseURL?: string; apiKey?: string; headers?: Record<string, string> };
-    models?: Record<string, { name?: string; tool_call?: boolean; reasoning?: boolean; limit?: { context?: number; output?: number } }>;
-  };
-
-  test("free tier retired: zen is always disabled, no eigenwelt-free block", async () => {
+describe("eigenwelt free provider retirement", () => {
+  test("zen is always disabled without duplicating saved provider denials", async () => {
     const { config } = await setup();
-    // The user's runtime DB may disable other providers — preserved, deduped.
-    await writeRuntimeOpencodeConfig(config, "ws_1", (current) => ({
-      ...current,
-      disabled_providers: ["openrouter", "opencode"],
-    }));
-
+    await writeRuntimeOpencodeConfig(config, "ws_1", current => ({ ...current, disabled_providers: ["openrouter", "opencode"] }));
     await writeLegalworkRuntimeConfigFile(config, "ws_1");
-    const parsed = await readConfigFile(config);
-
-    expect((parsed.provider as Record<string, unknown> | undefined)?.["eigenwelt-free"]).toBeUndefined();
-    const disabled = parsed.disabled_providers as string[];
-    expect(disabled).toContain("opencode");
-    expect(disabled).toContain("openrouter");
-    expect(disabled.filter((id) => id === "opencode")).toHaveLength(1);
+    const parsed = (await readSettings(config)).configuration;
+    expect(parsed.providers?.["eigenwelt-free"]).toBeUndefined();
+    expect(parsed.policies).toContainEqual({ action: "provider.use", resource: "openrouter", effect: "deny" });
+    expect(parsed.policies?.filter(rule => rule.action === "provider.use" && rule.resource === "opencode" && rule.effect === "deny")).toHaveLength(1);
   });
 
   test("zen stays disabled even with an empty runtime DB", async () => {
     const { config } = await setup();
     await writeLegalworkRuntimeConfigFile(config, "ws_1");
-    const parsed = await readConfigFile(config);
-    expect((parsed.provider as Record<string, unknown> | undefined)?.["eigenwelt-free"]).toBeUndefined();
-    expect(((parsed.disabled_providers ?? []) as string[])).toContain("opencode");
+    const parsed = (await readSettings(config)).configuration;
+    expect(parsed.providers?.["eigenwelt-free"]).toBeUndefined();
+    expect(parsed.policies).toContainEqual({ action: "provider.use", resource: "opencode", effect: "deny" });
   });
 
-  test("runtime-DB providers survive the config build unclobbered", async () => {
+  test("runtime-DB provider identity, models, and transport settings survive native conversion", async () => {
     const { config } = await setup();
-    // Paid eigenwelt provider (connect flow) lives in the runtime DB.
-    await writeRuntimeOpencodeConfig(config, "ws_1", (current) => ({
-      ...current,
-      provider: {
-        eigenwelt: {
-          npm: "@ai-sdk/openai-compatible",
-          name: "Eigenwelt Subscription",
-          options: { baseURL: "https://paid.gateway.test/v1" },
-          models: { "ewl-pro": { name: "EWL Pro", limit: { context: 200000, output: 16384 } } },
-        },
-      },
-    }));
-
+    await writeRuntimeOpencodeConfig(config, "ws_1", current => ({ ...current, provider: { eigenwelt: {
+      npm: "@ai-sdk/openai-compatible", name: "Eigenwelt Subscription", options: { baseURL: "https://paid.gateway.test/v1" },
+      models: { "ewl-pro": { name: "EWL Pro", limit: { context: 200000, output: 16384 } } },
+    } } }));
     await writeLegalworkRuntimeConfigFile(config, "ws_1");
-    const parsed = await readConfigFile(config);
-    const providers = parsed.provider as Record<string, FreeProviderBlock>;
-    expect(providers.eigenwelt?.name).toBe("Eigenwelt Subscription");
+    expect((await readSettings(config)).configuration.providers?.eigenwelt).toMatchObject({
+      name: "Eigenwelt Subscription", package: "@opencode/ai/providers/openai-compatible", settings: { baseURL: "https://paid.gateway.test/v1" },
+      models: { "ewl-pro": { name: "EWL Pro", limit: { context: 200000, output: 16384 } } },
+    });
   });
 });
 
 describe("eigenwelt paid provider injection", () => {
-  test("serves every workspace, whichever one the firm signed in from", async () => {
+  test("serves every registered workspace, whichever one the firm signed in from", async () => {
     const { config } = await setup();
-    await writeCachedEigenweltPaidManifest(config, {
-      baseURL: "https://paid.gateway.test/v1",
-      apiKey: "sk-firm-key",
-      models: [{ id: "Eigenwelt Europe" }],
-    });
-    // Signed in while ws_1 was open; the file is then built for another
-    // workspace (switching makes it the primary one). The models must stay.
-    await writeEigenweltConnection(config, {
-      platformToken: "access",
-      entitlements: parseEigenweltEntitlements({ plan: "plus", features: ["premium_models"] }) ?? null,
-    });
-
+    await addWorkspace(config);
+    await writeCachedEigenweltPaidManifest(config, { baseURL: "https://paid.gateway.test/v1", apiKey: "sk-firm-key", models: [{ id: "Eigenwelt Europe" }] });
+    await writeEigenweltConnection(config, { platformToken: "access",
+      entitlements: parseEigenweltEntitlements({ plan: "plus", features: ["premium_models"] }) ?? null });
     await writeLegalworkRuntimeConfigFile(config, "ws_other");
-    const providers = (await readConfigFile(config)).provider as Record<string, { models?: Record<string, unknown> }>;
-    expect(Object.keys(providers.eigenwelt?.models ?? {})).toEqual(["Eigenwelt Europe"]);
+    const manifest = managedSettingsFileSchema.parse(JSON.parse(await readFile(managedEngineSettingsFilePath(config), "utf8")));
+    expect(Object.keys(manifest.workspaces).sort()).toEqual(["ws_1", "ws_other"]);
+    for (const workspaceID of ["ws_1", "ws_other"]) {
+      expect(Object.keys((await readSettings(config, workspaceID)).configuration.providers?.eigenwelt?.models ?? {})).toEqual(["Eigenwelt Europe"]);
+    }
   });
 });
 
-test.each([false, true])("an empty Sync manifest removes stale workspace models (BYO connected: %s)", async (byo) => {
+test.each([false, true])("an empty Sync manifest removes stale workspace models (BYO connected: %s)", async byo => {
   const { config } = await setup();
   await writeCachedEigenweltPaidManifest(config, { baseURL: "https://paid.gateway.test/v1", apiKey: "paid-key", models: [] });
   await writeEigenweltConnection(config, { platformToken: "access",
@@ -420,8 +479,8 @@ test.each([false, true])("an empty Sync manifest removes stale workspace models 
     ...(byo ? { openai: { models: { "gpt-test": { name: "My OpenAI model" } } } } : {}),
   } }));
   await writeLegalworkRuntimeConfigFile(config, "ws_1");
-  const providers = (await readConfigFile(config)).provider;
+  const providers = (await readSettings(config)).configuration.providers;
   if (byo) expect(providers).toMatchObject({ openai: { models: { "gpt-test": { name: "My OpenAI model" } } } });
-  else expect(providers).toEqual({});
-  expect(providers).not.toHaveProperty("eigenwelt");
+  else expect(Object.keys(providers ?? {})).toEqual([]);
+  expect(providers?.eigenwelt).toBeUndefined();
 });

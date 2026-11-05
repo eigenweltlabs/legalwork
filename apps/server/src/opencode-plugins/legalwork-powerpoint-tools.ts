@@ -1,5 +1,7 @@
+import { registerPrimaryContext } from "./native-review-worker.js";
+import { Plugin } from "@opencode/plugin";
 import { z } from "zod";
-import { getBooleanProperty, inAppDocumentSurface, uiBridgeRequest } from "../inapp-document-bridge.js";
+import { getBooleanProperty, inAppDocumentSurface, taskDocumentSnapshot } from "../inapp-document-bridge.js";
 
 import {
   callOfficeTool,
@@ -8,7 +10,8 @@ import {
   officePaneIfKnown,
   type OpenCodeContext,
 } from "./office-plugin-shared.js";
-import { appStateReminders, type SavedConversations } from "./app-state-reminders.js";
+import { registerAppStateReminders } from "./native-app-state-reminders.js";
+import { nativeTool } from "./native-tool.js";
 
 /**
  * Agent tools for the Microsoft PowerPoint presentation open next to the
@@ -37,7 +40,7 @@ Only use file/code fallback when neither live editor is available, when the requ
 
 async function callPowerPointTool(context: OpenCodeContext, tool: string, args: Record<string, unknown>) {
   if (!await officePaneForHost("powerpoint", context.directory)) {
-    const surface = context.sessionID ? inAppDocumentSurface(await uiBridgeRequest("/snapshot"), context.sessionID) : null;
+    const surface = context.sessionID ? inAppDocumentSurface(await taskDocumentSnapshot(context.sessionID), context.sessionID) : null;
     return JSON.stringify({
       ok: false,
       error: "This tool requires the Microsoft PowerPoint add-in, which is not connected. It does not operate on LegalWork's PPTX viewer.",
@@ -98,7 +101,7 @@ const runCodeArgs = z.object({
 
 /** The active presentation as reported to the model: LegalWork's viewer first, then a Microsoft PowerPoint pane. */
 async function readPresentationState(sessionID: string, directory?: string): Promise<string | null> {
-  const snapshot = await uiBridgeRequest("/snapshot");
+  const snapshot = await taskDocumentSnapshot(sessionID);
   const surface = inAppDocumentSurface(snapshot, sessionID);
   if (surface?.format === "pptx") {
     return `## Active presentation: LegalWork's PPTX viewer
@@ -111,84 +114,87 @@ This conversation is using LegalWork's in-app viewer, not Microsoft PowerPoint. 
   return pane === undefined || getBooleanProperty(snapshot, "ok") === false ? null : "";
 }
 
-export const LegalWorkPowerPointTools = async (plugin: SavedConversations = {}) => {
-  const presentation = appStateReminders(
-    "powerpoint",
-    (sessionID) => readPresentationState(sessionID, plugin.directory),
-    "No presentation is active any more, neither in LegalWork's viewer nor in Microsoft PowerPoint. Earlier PowerPoint reminders no longer apply.",
-    plugin,
-  );
-  return ({
-  "experimental.chat.system.transform": async (
-    _input: unknown,
-    output: { system: string[] },
-  ) => {
-    output.system.push(PPT_TOOLS_INSTRUCTION);
+export default Plugin.define({
+  id: "legalwork.office.powerpoint",
+  async setup(ctx) {
+    const cleanup = await registerAppStateReminders(ctx, {
+      topic: "powerpoint",
+      read: readPresentationState,
+      cleared: "No presentation is active any more, neither in LegalWork's viewer nor in Microsoft PowerPoint. Earlier PowerPoint reminders no longer apply.",
+    });
+    await registerPrimaryContext(ctx, (event) => {
+      event.system.push({ type: "text", text: PPT_TOOLS_INSTRUCTION });
+    });
+    await ctx.tool.transform((editor) => {
+      editor.add(nativeTool(ctx, {
+        name: "ppt_read_presentation",
+        description:
+          "Get the text outline of the PowerPoint presentation open next to the LegalWork pane: every slide with its text-bearing shapes (name, index, text). Call this first to orient.",
+        schema: z.object({}),
+        async execute(args, context) {
+          return callPowerPointTool(context, "ppt_read_presentation", args);
+        },
+      }));
+      editor.add(nativeTool(ctx, {
+        name: "ppt_read_slide",
+        description: "Read one slide in detail: all shapes with their names, indexes, and text.",
+        schema: readSlideArgs,
+        async execute(args, context) {
+          return callPowerPointTool(context, "ppt_read_slide", args);
+        },
+      }));
+      editor.add(nativeTool(ctx, {
+        name: "ppt_read_selection",
+        description: "Read what the user currently has selected in PowerPoint: the selected text (if any) and the selected slide numbers.",
+        schema: z.object({}),
+        async execute(args, context) {
+          return callPowerPointTool(context, "ppt_read_selection", args);
+        },
+      }));
+      editor.add(nativeTool(ctx, {
+        name: "ppt_set_shape_text",
+        description:
+          "Replace the entire text of one shape on a slide. Returns the previous text so the change is reviewable. Use ppt_read_slide first to get the shape name/index.",
+        schema: setShapeTextArgs,
+        async execute(args, context) {
+          return callPowerPointTool(context, "ppt_set_shape_text", args);
+        },
+      }));
+      editor.add(nativeTool(ctx, {
+        name: "ppt_replace_text",
+        description:
+          "Find exact text across the presentation (or one slide) and replace one occurrence, keeping the rest of the shape text intact. Reports all match locations when ambiguous.",
+        schema: replaceTextArgs,
+        async execute(args, context) {
+          return callPowerPointTool(context, "ppt_replace_text", args);
+        },
+      }));
+      editor.add(nativeTool(ctx, {
+        name: "ppt_add_slide",
+        description: "Append a new blank slide at the end of the presentation.",
+        schema: z.object({}),
+        async execute(args, context) {
+          return callPowerPointTool(context, "ppt_add_slide", args);
+        },
+      }));
+      editor.add(nativeTool(ctx, {
+        name: "ppt_add_text_box",
+        description: "Add a text box to a slide (positions in points). Prefer editing existing shapes; use this for genuinely new content.",
+        schema: addTextBoxArgs,
+        async execute(args, context) {
+          return callPowerPointTool(context, "ppt_add_text_box", args);
+        },
+      }));
+      editor.add(nativeTool(ctx, {
+        name: "ppt_run_code",
+        description:
+          "Escape hatch: run Office.js (PowerPoint JavaScript API) code against the open presentation for anything the typed ppt_* tools cannot do — shape formatting, fills, fonts, positions, adding/deleting shapes and slides. PowerPoint has NO tracked changes and NO comments: list every change you make with a before/after summary so the user can review or undo. Errors return the Office.js debugInfo so you can fix the snippet and retry. Prefer the typed tools when they fit.",
+        schema: runCodeArgs,
+        async execute(args, context) {
+          return callPowerPointTool(context, "ppt_run_code", args);
+        },
+      }));
+    });
+    return cleanup;
   },
-  "chat.message": presentation.userMessage,
-  "tool.execute.after": presentation.toolResult,
-  event: presentation.event,
-  tool: {
-    ppt_read_presentation: {
-      description:
-        "Get the text outline of the PowerPoint presentation open next to the LegalWork pane: every slide with its text-bearing shapes (name, index, text). Call this first to orient.",
-      args: {},
-      async execute(_rawArgs: unknown, context: OpenCodeContext) {
-        return callPowerPointTool(context, "ppt_read_presentation", {});
-      },
-    },
-    ppt_read_slide: {
-      description: "Read one slide in detail: all shapes with their names, indexes, and text.",
-      args: readSlideArgs.shape,
-      async execute(rawArgs: unknown, context: OpenCodeContext) {
-        return callPowerPointTool(context, "ppt_read_slide", readSlideArgs.parse(rawArgs));
-      },
-    },
-    ppt_read_selection: {
-      description: "Read what the user currently has selected in PowerPoint: the selected text (if any) and the selected slide numbers.",
-      args: {},
-      async execute(_rawArgs: unknown, context: OpenCodeContext) {
-        return callPowerPointTool(context, "ppt_read_selection", {});
-      },
-    },
-    ppt_set_shape_text: {
-      description:
-        "Replace the entire text of one shape on a slide. Returns the previous text so the change is reviewable. Use ppt_read_slide first to get the shape name/index.",
-      args: setShapeTextArgs.shape,
-      async execute(rawArgs: unknown, context: OpenCodeContext) {
-        return callPowerPointTool(context, "ppt_set_shape_text", setShapeTextArgs.parse(rawArgs));
-      },
-    },
-    ppt_replace_text: {
-      description:
-        "Find exact text across the presentation (or one slide) and replace one occurrence, keeping the rest of the shape text intact. Reports all match locations when ambiguous.",
-      args: replaceTextArgs.shape,
-      async execute(rawArgs: unknown, context: OpenCodeContext) {
-        return callPowerPointTool(context, "ppt_replace_text", replaceTextArgs.parse(rawArgs));
-      },
-    },
-    ppt_add_slide: {
-      description: "Append a new blank slide at the end of the presentation.",
-      args: {},
-      async execute(_rawArgs: unknown, context: OpenCodeContext) {
-        return callPowerPointTool(context, "ppt_add_slide", {});
-      },
-    },
-    ppt_add_text_box: {
-      description: "Add a text box to a slide (positions in points). Prefer editing existing shapes; use this for genuinely new content.",
-      args: addTextBoxArgs.shape,
-      async execute(rawArgs: unknown, context: OpenCodeContext) {
-        return callPowerPointTool(context, "ppt_add_text_box", addTextBoxArgs.parse(rawArgs));
-      },
-    },
-    ppt_run_code: {
-      description:
-        "Escape hatch: run Office.js (PowerPoint JavaScript API) code against the open presentation for anything the typed ppt_* tools cannot do — shape formatting, fills, fonts, positions, adding/deleting shapes and slides. PowerPoint has NO tracked changes and NO comments: list every change you make with a before/after summary so the user can review or undo. Errors return the Office.js debugInfo so you can fix the snippet and retry. Prefer the typed tools when they fit.",
-      args: runCodeArgs.shape,
-      async execute(rawArgs: unknown, context: OpenCodeContext) {
-        return callPowerPointTool(context, "ppt_run_code", runCodeArgs.parse(rawArgs));
-      },
-    },
-  },
-  });
-};
+});

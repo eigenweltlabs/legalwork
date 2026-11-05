@@ -1,59 +1,7 @@
-import { createOpencodeClient, type Message, type Part, type Session, type Todo } from "@opencode-ai/sdk/v2/client";
-
+import { OpenCode, type OpenCodeClient } from "@opencode/client";
 import { desktopFetch, desktopStreamFetch } from "./desktop";
-import { createLegalworkServerClient, LegalworkServerError } from "./legalwork-server";
 import { isDesktopRuntime } from "./runtime-env";
 import { t } from "@/i18n";
-
-type FieldsResult<T> =
-  | ({ data: T; error?: undefined } & { request: Request; response: Response })
-  | ({ data?: undefined; error: unknown } & { request: Request; response: Response });
-
-type PromptAsyncParameters = {
-  sessionID: string;
-  directory?: string;
-  messageID?: string;
-  model?: { providerID: string; modelID: string };
-  agent?: string;
-  noReply?: boolean;
-  tools?: { [key: string]: boolean };
-  system?: string;
-  variant?: string;
-  parts?: unknown[];
-  reasoning_effort?: string;
-};
-
-type CommandParameters = {
-  sessionID: string;
-  directory?: string;
-  messageID?: string;
-  agent?: string;
-  model?: string;
-  arguments?: string;
-  command?: string;
-  variant?: string;
-  parts?: unknown[];
-  reasoning_effort?: string;
-};
-
-type SessionListParameters = {
-  directory?: string;
-  roots?: boolean;
-  start?: number;
-  search?: string;
-  limit?: number;
-};
-
-type SessionLookupParameters = {
-  sessionID: string;
-  directory?: string;
-};
-
-type SessionMessagesParameters = {
-  sessionID: string;
-  directory?: string;
-  limit?: number;
-};
 
 export type OpencodeAuth = {
   username?: string;
@@ -67,7 +15,7 @@ const DEFAULT_OPENCODE_REQUEST_TIMEOUT_MS = 10_000;
 const ENGINE_BOOTSTRAP_TIMEOUT_MS = 90_000;
 const OAUTH_OPENCODE_REQUEST_TIMEOUT_MS = 5 * 60_000;
 const MCP_AUTH_OPENCODE_REQUEST_TIMEOUT_MS = 90_000;
-const SESSION_LONG_RUNNING_URL_RE = /\/session\/[^/?#]+\/(?:command|prompt_async|summarize)(?:[?#]|$)/;
+const SESSION_LONG_RUNNING_URL_RE = /\/session\/[^/?#]+\/(?:command|prompt|synthetic|shell|compact|wait)(?:[?#]|$)/;
 
 function getRequestUrl(input: RequestInfo | URL): string {
   if (typeof input === "string") return input;
@@ -81,81 +29,30 @@ export function resolveRequestTimeoutMs(input: RequestInfo | URL, fallbackMs: nu
   // The first metadata read initializes plugins and their dependencies. On a
   // fresh Windows profile this took over a minute. Avoid timing out and
   // queueing retries behind the same initialization work.
-  if (!(input instanceof Request && input.method !== "GET") && /\/(?:provider(?:\/auth)?|config(?:\/providers)?|mcp|session)(?:[?#]|$)/.test(url)) {
+  if (!(input instanceof Request && input.method !== "GET") && /\/api\/(?:model|provider|integration|agent|skill|command|plugin|mcp|session|experimental\/config)(?:[?#]|$)/.test(url)) {
     return Math.max(fallbackMs, ENGINE_BOOTSTRAP_TIMEOUT_MS);
   }
-  if (SESSION_LONG_RUNNING_URL_RE.test(url) || (input instanceof Request && input.method === "POST" && /\/session\/[^/?#]+\/message(?:[?#]|$)/.test(url))) {
+  if (SESSION_LONG_RUNNING_URL_RE.test(url)) {
     return 0;
   }
-  // Disposing an instance may wait for OneDrive-backed files. Give the
-  // direct recovery path the same window as the server-managed reload.
-  if (/\/instance\/dispose(?:[?#]|$)/.test(url)) {
+  // Reloading a location may wait for OneDrive-backed files. Give the
+  // explicit recovery path the same window as the server-managed reload.
+  if (/\/location\/reload(?:[?#]|$)/.test(url)) {
     return Math.max(fallbackMs, 90_000);
   }
-  // The OAuth callback long-polls until the user finishes signing in. Cut
-  // short, the app reloads the engine, which drops the pending sign-in.
-  if (/\/provider\/[^/]+\/oauth\//.test(url) || /\/mcp\/auth\/callback\b/.test(url)) {
+  // Native connection admission/completion may exchange credentials or run
+  // an external command. Preserve the existing sign-in request window. The
+  // modal polls native attempt status and uses the engine's expiry.
+  if (/\/api\/integration\/[^/]+\/connect\/(?:oauth|command|key|external)(?:[/?#]|$)/.test(url)) {
     return Math.max(fallbackMs, OAUTH_OPENCODE_REQUEST_TIMEOUT_MS);
   }
-  if (/\/mcp\/.*auth\b/.test(url)) {
-    return Math.max(fallbackMs, MCP_AUTH_OPENCODE_REQUEST_TIMEOUT_MS);
-  }
-  // Adding a connector performs remote discovery and an initial handshake
-  // before returning needs_auth. Cutting it short prevents sign-in opening.
-  if (input instanceof Request && input.method === "POST" && /\/mcp(?:[?#]|$)/.test(url)) {
+  // Remote connector discovery and the first handshake can be slow.
+  if (/\/api\/experimental\/mcp\/[^/]+\/(?:connect|auth)(?:[/?#]|$)/.test(url)) {
     return Math.max(fallbackMs, MCP_AUTH_OPENCODE_REQUEST_TIMEOUT_MS);
   }
   return fallbackMs;
 }
 
-
-function buildDirectoryHeader(directory?: string) {
-  if (!directory?.trim()) return undefined;
-  const trimmed = directory.trim();
-  return /[^\x00-\x7F]/.test(trimmed) ? encodeURIComponent(trimmed) : trimmed;
-}
-
-async function postSessionRequest<T>(
-  fetchImpl: typeof globalThis.fetch,
-  baseUrl: string,
-  path: string,
-  body: Record<string, unknown>,
-  options?: { headers?: Record<string, string>; directory?: string; throwOnError?: boolean },
-): Promise<FieldsResult<T>> {
-  const headers = new Headers(options?.headers);
-  headers.set("Content-Type", "application/json");
-  const directoryHeader = buildDirectoryHeader(options?.directory);
-  if (directoryHeader) {
-    headers.set("x-opencode-directory", directoryHeader);
-  }
-
-  const response = await fetchImpl(`${baseUrl}${path}`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify(body),
-  });
-
-  const request = new Request(`${baseUrl}${path}`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify(body),
-  });
-
-  if (response.ok) {
-    const data = response.status === 204 ? ({} as T) : ((await response.json()) as T);
-    return { data, request, response };
-  }
-
-  const text = await response.text();
-  let error: unknown = text;
-  try {
-    error = text ? JSON.parse(text) : text;
-  } catch {
-    // ignore
-  }
-  if (options?.throwOnError) throw error;
-  return { error, request, response };
-}
 
 export function resolveLegalworkWorkspaceMount(baseUrl: string): { baseUrl: string; workspaceId: string } | null {
   try {
@@ -172,67 +69,6 @@ export function resolveLegalworkWorkspaceMount(baseUrl: string): { baseUrl: stri
     };
   } catch {
     return null;
-  }
-}
-
-function createSyntheticResult<T>(
-  url: string,
-  method: string,
-  input:
-    | { ok: true; data: T; status?: number }
-    | { ok: false; error: unknown; status?: number },
-): FieldsResult<T> {
-  const request = new Request(url, { method });
-  const response = new Response(input.ok ? JSON.stringify(input.data) : null, {
-    status: input.status ?? (input.ok ? 200 : 500),
-    headers: { "Content-Type": "application/json" },
-  });
-  if (input.ok) {
-    return { data: input.data, request, response };
-  }
-  return { error: input.error, request, response };
-}
-
-async function wrapLegalworkRead<T>(
-  url: string,
-  read: () => Promise<T>,
-  options?: { throwOnError?: boolean },
-): Promise<FieldsResult<T>> {
-  try {
-    return createSyntheticResult(url, "GET", { ok: true, data: await read() });
-  } catch (error) {
-    if (options?.throwOnError) throw error;
-    return createSyntheticResult(url, "GET", {
-      ok: false,
-      error,
-      status: error instanceof LegalworkServerError ? error.status : 500,
-    });
-  }
-}
-
-function shouldFallbackToLegacySessionRead(error: unknown): boolean {
-  if (!(error instanceof LegalworkServerError)) return false;
-  return error.status === 404 || error.status === 405 || error.status === 501;
-}
-
-async function wrapLegalworkReadWithFallback<T>(
-  url: string,
-  read: () => Promise<T>,
-  fallback: () => Promise<FieldsResult<T>>,
-  options?: { throwOnError?: boolean },
-): Promise<FieldsResult<T>> {
-  try {
-    return createSyntheticResult(url, "GET", { ok: true, data: await read() });
-  } catch (error) {
-    if (!shouldFallbackToLegacySessionRead(error)) {
-      if (options?.throwOnError) throw error;
-      return createSyntheticResult(url, "GET", {
-        ok: false,
-        error,
-        status: error instanceof LegalworkServerError ? error.status : 500,
-      });
-    }
-    return fallback();
   }
 }
 
@@ -351,199 +187,26 @@ const createDesktopFetch = (auth?: OpencodeAuth) => {
   };
 };
 
-export function unwrap<T>(result: FieldsResult<T>): NonNullable<T> {
-  if (result.data !== undefined) {
-    return result.data as NonNullable<T>;
-  }
-  const error = result.error;
-  const message = error instanceof Error
-    ? error.message
-    : typeof error === "object" && error !== null && "message" in error && typeof error.message === "string"
-      ? error.message
-      : typeof error === "string"
-        ? error
-        : JSON.stringify(error);
-  throw new Error(message || t("app.unknown_error"));
-}
 
-export function createClient(baseUrl: string, directory?: string, auth?: OpencodeAuth) {
-  const headers: Record<string, string> = {};
-  if (!isDesktopRuntime()) {
-    const authHeader = resolveAuthHeader(auth);
-    if (authHeader) {
-      headers.Authorization = authHeader;
-    }
-    if (auth?.mode === "legalwork" && auth.hostToken) headers["X-LegalWork-Host-Token"] = auth.hostToken;
-  }
-
-  const transportFetch = isDesktopRuntime()
-    ? createDesktopFetch(auth)
-    : (input: RequestInfo | URL, init?: RequestInit) =>
-        fetchWithTimeout(globalThis.fetch, input, init, DEFAULT_OPENCODE_REQUEST_TIMEOUT_MS);
-  const fetchImpl = async (input: RequestInfo | URL, init?: RequestInit) => {
-    const request = input instanceof Request && !init ? input : new Request(input, init);
-    const url = new URL(request.url);
-    const messagePath = url.pathname.match(/^(.*\/session\/[^/]+)\/(?:message|prompt_async|command|shell)$/);
-    if (request.method === "POST" && messagePath) {
-      // Resuming a conversation restores it before sending, including queued
-      // prompts, steering, commands and direct OpenCode connections. Reads and
-      // opening an archived chat must leave its archive state unchanged.
-      url.pathname = messagePath[1];
-      const restoreHeaders = new Headers(request.headers);
-      restoreHeaders.set("Content-Type", "application/json");
-      restoreHeaders.delete("Content-Length");
-      const restored = await transportFetch(new Request(url, {
-        method: "PATCH",
-        headers: restoreHeaders,
-        body: JSON.stringify({ time: { archived: 0 } }),
-        signal: request.signal,
-      }));
-      if (!restored.ok) return restored;
-      await restored.body?.cancel();
-    }
-    return transportFetch(input, init);
-  };
-  const client = createOpencodeClient({
-    baseUrl,
-    directory,
-    headers: Object.keys(headers).length ? headers : undefined,
-    fetch: fetchImpl,
-  });
-
-  const session = client.session as typeof client.session;
-  const legalworkMount = auth?.mode === "legalwork" ? resolveLegalworkWorkspaceMount(baseUrl) : null;
-  const legalworkSessionClient =
-    legalworkMount && auth?.token
-      ? createLegalworkServerClient({ baseUrl: legalworkMount.baseUrl, token: auth.token, hostToken: auth.hostToken })
-      : null;
-  // TODO(2026-04-12): remove the old-server compatibility path here once all
-  // LegalWork servers expose the workspace-scoped session read APIs.
-  const sessionOverrides = session as any as {
-    list: (parameters?: SessionListParameters, options?: { throwOnError?: boolean }) => Promise<FieldsResult<Session[]>>;
-    get: (parameters: SessionLookupParameters, options?: { throwOnError?: boolean }) => Promise<FieldsResult<Session>>;
-    messages: (parameters: SessionMessagesParameters, options?: { throwOnError?: boolean }) => Promise<FieldsResult<Array<{ info: Message; parts: Part[] }>>>;
-    todo: (parameters: SessionLookupParameters, options?: { throwOnError?: boolean }) => Promise<FieldsResult<Todo[]>>;
-    promptAsync: (parameters: PromptAsyncParameters, options?: { throwOnError?: boolean }) => Promise<FieldsResult<{}>>;
-    command: (parameters: CommandParameters, options?: { throwOnError?: boolean }) => Promise<FieldsResult<{}>>;
-  };
-
-  const listOriginal = sessionOverrides.list.bind(session);
-  sessionOverrides.list = (parameters?: SessionListParameters, options?: { throwOnError?: boolean }) => {
-    if (!legalworkMount || !legalworkSessionClient) {
-      return listOriginal(parameters, options);
-    }
-    const query = new URLSearchParams();
-    if (typeof parameters?.roots === "boolean") query.set("roots", String(parameters.roots));
-    if (typeof parameters?.start === "number") query.set("start", String(parameters.start));
-    if (parameters?.search?.trim()) query.set("search", parameters.search.trim());
-    if (typeof parameters?.limit === "number") query.set("limit", String(parameters.limit));
-    const url = `${legalworkMount.baseUrl}/workspace/${encodeURIComponent(legalworkMount.workspaceId)}/sessions${query.size ? `?${query.toString()}` : ""}`;
-    return wrapLegalworkReadWithFallback(
-      url,
-      async () => (await legalworkSessionClient.listSessions(legalworkMount.workspaceId, parameters)).items,
-      () => listOriginal(parameters, options),
-      options,
-    );
-  };
-
-  const getOriginal = sessionOverrides.get.bind(session);
-  sessionOverrides.get = (parameters: SessionLookupParameters, options?: { throwOnError?: boolean }) => {
-    if (!legalworkMount || !legalworkSessionClient) {
-      return getOriginal(parameters, options);
-    }
-    const url = `${legalworkMount.baseUrl}/workspace/${encodeURIComponent(legalworkMount.workspaceId)}/sessions/${encodeURIComponent(parameters.sessionID)}`;
-    return wrapLegalworkReadWithFallback(
-      url,
-      async () => (await legalworkSessionClient.getSession(legalworkMount.workspaceId, parameters.sessionID)).item,
-      () => getOriginal(parameters, options),
-      options,
-    );
-  };
-
-  const messagesOriginal = sessionOverrides.messages.bind(session);
-  sessionOverrides.messages = (parameters: SessionMessagesParameters, options?: { throwOnError?: boolean }) => {
-    if (!legalworkMount || !legalworkSessionClient) {
-      return messagesOriginal(parameters, options);
-    }
-    const query = new URLSearchParams();
-    if (typeof parameters.limit === "number") query.set("limit", String(parameters.limit));
-    const url = `${legalworkMount.baseUrl}/workspace/${encodeURIComponent(legalworkMount.workspaceId)}/sessions/${encodeURIComponent(parameters.sessionID)}/messages${query.size ? `?${query.toString()}` : ""}`;
-    return wrapLegalworkReadWithFallback(
-      url,
-      async () =>
-        (await legalworkSessionClient.getSessionMessages(legalworkMount.workspaceId, parameters.sessionID, {
-          limit: parameters.limit,
-        })).items,
-      () => messagesOriginal(parameters, options),
-      options,
-    );
-  };
-
-  const todoOriginal = sessionOverrides.todo.bind(session);
-  sessionOverrides.todo = (parameters: SessionLookupParameters, options?: { throwOnError?: boolean }) => {
-    if (!legalworkMount || !legalworkSessionClient) {
-      return todoOriginal(parameters, options);
-    }
-    const url = `${legalworkMount.baseUrl}/workspace/${encodeURIComponent(legalworkMount.workspaceId)}/sessions/${encodeURIComponent(parameters.sessionID)}/snapshot`;
-    return wrapLegalworkReadWithFallback(
-      url,
-      async () => (await legalworkSessionClient.getSessionSnapshot(legalworkMount.workspaceId, parameters.sessionID)).item.todos,
-      () => todoOriginal(parameters, options),
-      options,
-    );
-  };
-
-  const promptAsyncOriginal = sessionOverrides.promptAsync.bind(session);
-  sessionOverrides.promptAsync = (parameters: PromptAsyncParameters, options?: { throwOnError?: boolean }) => {
-    if (!("reasoning_effort" in parameters)) {
-      return promptAsyncOriginal(parameters, options);
-    }
-    const { sessionID, directory: requestDirectory, ...body } = parameters;
-    return postSessionRequest(fetchImpl, baseUrl, `/session/${encodeURIComponent(sessionID)}/prompt_async`, body, {
-      headers: Object.keys(headers).length ? headers : undefined,
-      directory: requestDirectory ?? directory,
-      throwOnError: options?.throwOnError,
-    });
-  };
-
-  const commandOriginal = sessionOverrides.command.bind(session);
-  sessionOverrides.command = (parameters: CommandParameters, options?: { throwOnError?: boolean }) => {
-    if (!("reasoning_effort" in parameters)) {
-      return commandOriginal(parameters, options);
-    }
-    const { sessionID, directory: requestDirectory, ...body } = parameters;
-    return postSessionRequest(fetchImpl, baseUrl, `/session/${encodeURIComponent(sessionID)}/command`, body, {
-      headers: Object.keys(headers).length ? headers : undefined,
-      directory: requestDirectory ?? directory,
-      throwOnError: options?.throwOnError,
-    });
-  };
-
+/** Native client calls return their value directly and throw typed errors. */
+export function unwrap<T>(value:T):T { return value; }
+const clientContexts=new WeakMap<OpenCodeClient,{baseUrl:string;directory?:string;auth?:OpencodeAuth}>();
+export function getClientContext(client:OpenCodeClient) {return clientContexts.get(client);}
+export function createClient(baseUrl:string, directory?:string, auth?:OpencodeAuth) {
+  const headers:Record<string,string>={};
+  const authHeader=resolveAuthHeader(auth);
+  if(authHeader) headers.Authorization=authHeader;
+  if(auth?.mode==="legalwork" && auth.hostToken) headers["X-LegalWork-Host-Token"]=auth.hostToken;
+  const fetch=isDesktopRuntime() ? createDesktopFetch(auth) : (input:RequestInfo|URL,init?:RequestInit)=>fetchWithTimeout(globalThis.fetch,input,init,DEFAULT_OPENCODE_REQUEST_TIMEOUT_MS);
+  const client=OpenCode.make({baseUrl,headers,fetch});
+  clientContexts.set(client,{baseUrl,directory,auth});
   return client;
 }
-
-export async function waitForHealthy(
-  client: ReturnType<typeof createClient>,
-  options?: { timeoutMs?: number; pollMs?: number },
-) {
-  const timeoutMs = options?.timeoutMs ?? 10_000;
-  const pollMs = options?.pollMs ?? 250;
-
-  const start = Date.now();
-  let lastError: string | null = null;
-
-  while (Date.now() - start < timeoutMs) {
-    try {
-      const health = unwrap(await client.global.health());
-      if (health.healthy) {
-        return health;
-      }
-      lastError = "Server reported unhealthy";
-    } catch (error) {
-      lastError = error instanceof Error ? error.message : t("app.unknown_error");
-    }
-    await new Promise((resolve) => setTimeout(resolve, pollMs));
+export async function waitForHealthy(client:ReturnType<typeof createClient>,options?:{timeoutMs?:number;pollMs?:number}) {
+  const start=Date.now();let lastError:unknown;
+  while(Date.now()-start<(options?.timeoutMs ?? 10_000)) {
+    try { return await client.server.info(); } catch(error) {lastError=error;}
+    await new Promise(resolve=>setTimeout(resolve,options?.pollMs ?? 250));
   }
-
-  throw new Error(lastError ?? t("server.health_timeout"));
+  throw lastError ?? new Error(t("server.health_timeout"));
 }

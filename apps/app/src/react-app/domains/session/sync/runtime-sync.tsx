@@ -1,7 +1,8 @@
 /** @jsxImportSource react */
 import { useSessionInboxStore } from "../sidebar/session-inbox-store";
 import { useEffect } from "react";
-import type { Session, SessionStatus } from "@opencode-ai/sdk/v2/client";
+import type { SessionView as Session } from "@/app/lib/opencode-view";
+import type { SessionStatus } from "@opencode/client";
 
 import type { LegalworkSessionSnapshot } from "@/app/lib/legalwork-server";
 import { getReactQueryClient } from "@/react-app/infra/query-client";

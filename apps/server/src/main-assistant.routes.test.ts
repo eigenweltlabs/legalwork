@@ -11,12 +11,13 @@ test("assistant HTTP provisioning, scheduling, source scope, delegation and perm
     import { mkdir, readFile, realpath, writeFile } from "node:fs/promises";
     import { join } from "node:path";
     const { startServer } = await import(${JSON.stringify(new URL("./server.ts", import.meta.url).href)});
+    const { nativeAssistantFixture } = await import(${JSON.stringify(new URL("./assistant-engine.test-support.ts", import.meta.url).href)});
     const root = process.env.XDG_CONFIG_HOME, folder = join(root, "matter");
     await mkdir(folder);
     const sessions = new Map(); const deliveries = []; const finished = new Set(); const notices = new Map();
     let failSend = false, failReads = false; const running = new Set(); const disposals = [];
     let pendingApprovals = [], pendingQuestions = []; const attentionReplies = [];
-    const engine = Bun.serve({ port: 0, async fetch(request) {
+    const engine = Bun.serve({ port: 0, fetch: nativeAssistantFixture(async request => {
       const url = new URL(request.url), path = url.pathname;
       const directory = decodeURIComponent(request.headers.get("x-opencode-directory") || url.searchParams.get("directory") || folder);
       if (path === "/permission") return Response.json(pendingApprovals);
@@ -39,11 +40,11 @@ test("assistant HTTP provisioning, scheduling, source scope, delegation and perm
       }
       if (path.endsWith("/prompt_async")) { const sessionId = path.split("/")[2]; const input = await request.json(); deliveries.push({ sessionId, directory, ...input }); if (!failSend) { running.add(sessionId); if (input.messageID) notices.set(input.messageID, { info: { id: input.messageID, sessionID: sessionId, role: "user" }, parts: input.parts }); } return new Response(null, { status: failSend ? 503 : 204 }); }
       if (path.endsWith("/todo")) return failReads ? new Response(null, { status: 503 }) : Response.json([{ content: "Review draft", status: "pending", priority: "medium" }]);
-      if (path.endsWith("/message")) return Response.json([{ info: { id: "last-reply", sessionID: path.split("/")[2], role: "assistant", time: { created: Date.now(), ...(finished.has(path.split("/")[2]) ? { completed: Date.now() } : {}) }, finish: finished.has(path.split("/")[2]) ? "stop" : undefined, providerID: "fixture-provider", modelID: "chosen-model" }, parts: [{ type: "text", text: "Draft ready; awaiting partner review." }, { type: "text", synthetic: true, text: "hidden reminder" }] }]);
+      if (path.endsWith("/message")) return failReads ? new Response(null, { status: 503 }) : Response.json([{ info: { id: "last-reply", sessionID: path.split("/")[2], role: "assistant", time: { created: Date.now(), ...(finished.has(path.split("/")[2]) ? { completed: Date.now() } : {}) }, finish: finished.has(path.split("/")[2]) ? "stop" : undefined, providerID: "fixture-provider", modelID: "chosen-model" }, parts: [{ type: "text", text: "Draft ready; awaiting partner review." }, { type: "text", synthetic: true, text: "hidden reminder" }, { type: "tool", tool: "todowrite", state: { status: "completed", input: {}, metadata: { todos: [{ content: "Review draft", status: "pending", priority: "medium" }] }, output: "[]" } }] }]);
       if (path.includes("/message/")) return notices.has(path.split("/").at(-1)) ? Response.json(notices.get(path.split("/").at(-1))) : new Response(null, { status: 404 });
       if (path.startsWith("/session/")) { const item = sessions.get(path.split("/")[2]); return item ? Response.json(item) : new Response(null, { status: 404 }); }
       return Response.json({});
-    }});
+    }, folder) });
     const config = { host: "127.0.0.1", port: 0, token: "fixture", hostToken: "host", configPath: join(root, "server.json"), projectsDirectory: join(root, "projects"),
       opencodeBaseUrl: engine.url.origin, approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: [],
       workspaces: [{ id: "matter", name: "Matter", path: folder, preset: "starter", workspaceType: "local", baseUrl: engine.url.origin }],
@@ -326,18 +327,10 @@ test("assistant HTTP provisioning, scheduling, source scope, delegation and perm
       assert.equal(returned.parts[0].synthetic, true);
       assert.ok(returned.parts[0].text.includes("Draft ready; awaiting partner review."));
       assert.ok(!returned.parts[0].text.includes("hidden reminder"));
-      const issued = await fetch(base + "/tokens", { method: "POST", headers: { "x-legalwork-host-token": "host", "content-type": "application/json" }, body: JSON.stringify({ scope: "viewer", label: "reader" }) });
-      const viewer = (await issued.json()).token;
-      assert.equal((await call("/assistant/attention/reply", "POST", { workspaceId: project.project.id, sessionId: result.delegation.sessionId, id: "request", revision: "revision", kind: "approval", reply: "once" }, viewer)).status, 403);
-      assert.equal((await call("/assistant/recordings", "GET", undefined, viewer)).status, 200);
-      assert.equal((await call("/assistant/recordings/rec-2", "DELETE", undefined, viewer)).status, 403);
-      assert.equal((await call("/assistant/recorder", "POST", { action: "start" }, viewer)).status, 403);
-      assert.equal((await call(overviewUrl, "GET", undefined, viewer)).status, 200);
+      // v2 retires shared viewer tokens; they cannot access Assistant data.
+      for (const route of ["/assistant/history", "/assistant/recordings", overviewUrl])
+        assert.equal((await call(route, "GET", undefined, "retired-viewer-token")).status, 401);
       assert.equal((await call(overviewUrl, "GET", undefined, "wrong")).status, 401);
-      assert.equal((await call("/assistant/profile", "PATCH", { name: "No", icon: "cat" }, viewer)).status, 403);
-      assert.equal((await call("/assistant/history", "GET", undefined, viewer)).status, 200);
-      for (const route of ["/assistant/current", "/assistant/projects", "/assistant/delegate", "/assistant/name", "/assistant/onboarding", "/assistant/onboarding/view"]) assert.equal((await call(route, "POST", input, viewer)).status, 403);
-      assert.equal((await call("/assistant/session-control", "POST", { ...control, action: "stop" }, viewer)).status, 403);
       running.add(control.sessionId);
       const stopped = await (await call("/assistant/session-control", "POST", { ...control, action: "stop" })).json();
       assert.equal(stopped.stopped, true); assert.equal(running.has(control.sessionId), false);
@@ -358,7 +351,7 @@ test("assistant HTTP provisioning, scheduling, source scope, delegation and perm
       assert.equal(settings.projectAccess.mode, "all");
       assert.equal((await call("/assistant/settings", "PATCH", settings)).status, 403, "Agent bearer cannot change its own access");
       assert.equal((await call("/assistant/settings/catalog")).status, 403);
-      assert.equal((await call("/assistant/settings", "PATCH", settings, viewer)).status, 403);
+      assert.equal((await call("/assistant/settings", "PATCH", settings, "retired-viewer-token")).status, 401);
       assert.equal((await hostCall("/assistant/settings", "PATCH", { ...settings, projectAccess: { mode: "invalid", projectIds: [] } })).status, 400);
       const skillPath = join(folder, ".opencode", "skills", "selected-resource", "SKILL.md");
       await mkdir(join(folder, ".opencode", "skills", "selected-resource"), { recursive: true });
@@ -409,7 +402,7 @@ test("assistant HTTP provisioning, scheduling, source scope, delegation and perm
     } finally { await server.stop(); engine.stop(true); }
   `);
   try {
-    const child = Bun.spawn([process.execPath, script], { env: { ...process.env, XDG_CONFIG_HOME: root, LEGALWORK_RUNTIME_DB: join(root, "runtime.sqlite"), LEGALWORK_PROJECTS_DIR: join(root, "projects") }, stdout: "pipe", stderr: "pipe" });
+    const child = Bun.spawn([process.execPath, script], { env: { ...process.env, XDG_CONFIG_HOME: root, OPENCODE_DB: join(root, "engine.sqlite"), LEGALWORK_RUNTIME_DB: join(root, "runtime.sqlite"), LEGALWORK_PROJECTS_DIR: join(root, "projects") }, stdout: "pipe", stderr: "pipe" });
     const [exit, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
     expect({ exit, failure: exit === 0 ? "" : stdout + stderr }).toEqual({ exit: 0, failure: "" });
     expect(stdout).toContain("assistant HTTP checks passed");

@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import type { UIMessage } from "ai";
-import type { PermissionRequest, PermissionV2Request, QuestionRequest } from "@opencode-ai/sdk/v2/client";
+import type { PermissionRequest, PermissionRequest as PermissionV2Request, FormInfo as QuestionRequest, SessionMessageInfo } from "@opencode/client";
+import { projectSession,projectMessages } from "../src/app/lib/opencode-view";
+import { permissionWithReceivedAt } from "../src/react-app/domains/session/sync/interaction-state";
 
 import type { LegalworkSessionSnapshot } from "../src/app/lib/legalwork-server";
 import { getReactQueryClient } from "../src/react-app/infra/query-client";
@@ -49,10 +51,10 @@ function permission(id: string, sessionID: string): PermissionRequest {
   return {
     id,
     sessionID,
-    permission: "bash",
-    patterns: ["echo ok"],
+    action: "bash",
+    resources: ["echo ok"],
     metadata: {},
-    always: [],
+    save: [],
   };
 }
 
@@ -67,18 +69,8 @@ function v2Permission(id: string, sessionID: string): PermissionV2Request {
   };
 }
 
-function question(id: string, sessionID: string): QuestionRequest {
-  return {
-    id,
-    sessionID,
-    questions: [
-      {
-        header: "Choice",
-        question: "Pick one",
-        options: [{ label: "Yes", description: "Proceed" }],
-      },
-    ],
-  };
+function question(id:string,sessionID:string):QuestionRequest {
+ return {id,sessionID,title:"Choice",fields:[{key:"choice",type:"string",title:"Choice",description:"Pick one",options:[{value:"Yes",label:"Yes",description:"Proceed"}]}]};
 }
 
 function uiMessage(id: string, role: "user" | "assistant", text: string): UIMessage {
@@ -93,35 +85,8 @@ function snapshotWithMessages(
   messages: Array<{ id: string; role: "user" | "assistant"; text: string }>,
   sessionId = "session-a",
 ): LegalworkSessionSnapshot {
-  return {
-    session: {
-      id: sessionId,
-      parentID: undefined,
-      title: "Test session",
-      time: { created: 1, updated: 2 },
-      share: undefined,
-      version: "0",
-    },
-    messages: messages.map((message, index) => ({
-      info: {
-        id: message.id,
-        role: message.role,
-        sessionID: sessionId,
-        time: { created: index + 1 },
-      },
-      parts: [
-        {
-          id: `part_${message.id}`,
-          type: "text",
-          text: message.text,
-          sessionID: sessionId,
-          messageID: message.id,
-        },
-      ],
-    })),
-    todos: [],
-    status: { type: "idle" },
-  } as unknown as LegalworkSessionSnapshot;
+  const tokens={input:0,output:0,reasoning:0,cache:{read:0,write:0}};
+  return {session:projectSession({id:sessionId,projectID:"fixture",location:{directory:"/fixture"},title:"Test session",time:{created:1,updated:2},cost:0,tokens}),messages:projectMessages(sessionId,messages.map<SessionMessageInfo>((message,index)=>message.role==="user" ? {id:message.id,type:"user",text:message.text,time:{created:index+1}}:{id:message.id,type:"assistant",agent:"legalwork",model:{id:"fixture",providerID:"fixture"},time:{created:index+1},content:[{type:"text",text:message.text}]})),todos:[],status:{type:"idle"}};
 }
 
 afterEach(() => {
@@ -157,7 +122,7 @@ describe("session permission sync", () => {
   test("keeps live permissions that arrive after a snapshot starts", () => {
     getReactQueryClient().setQueryData(permissionKey("workspace-a", "session-a"), [
       {
-        ...permission("perm-live", "session-a"),
+        ...permissionWithReceivedAt(permission("perm-live", "session-a"),200),
         receivedAt: 200,
       },
     ]);
@@ -172,7 +137,7 @@ describe("session permission sync", () => {
   test("drops stale permissions that predate a fresh snapshot", () => {
     getReactQueryClient().setQueryData(permissionKey("workspace-a", "session-a"), [
       {
-        ...permission("perm-stale", "session-a"),
+        ...permissionWithReceivedAt(permission("perm-stale", "session-a"),100),
         receivedAt: 100,
       },
     ]);
@@ -206,8 +171,8 @@ describe("session permission sync", () => {
 
     try {
       __applySessionSyncEventForTest(syncInput, {
-        type: "permission.v2.asked",
-        properties: v2Permission("perm-v2-live", "session-a"),
+        type: "permission.asked",
+        data: v2Permission("perm-v2-live", "session-a"),
       });
 
       expect(getReactQueryClient().getQueryData(permissionKey("workspace-a", "session-a"))).toMatchObject([
@@ -215,8 +180,8 @@ describe("session permission sync", () => {
       ]);
 
       __applySessionSyncEventForTest(syncInput, {
-        type: "permission.v2.replied",
-        properties: { sessionID: "session-a", requestID: "perm-v2-live", reply: "once" },
+        type: "permission.replied",
+        data: { sessionID: "session-a", requestID: "perm-v2-live", reply: "once" },
       });
 
       expect(getReactQueryClient().getQueryData(permissionKey("workspace-a", "session-a"))).toEqual([]);
@@ -246,18 +211,18 @@ describe("session question sync", () => {
 
     try {
       __applySessionSyncEventForTest(syncInput, {
-        type: "question.asked",
-        properties: question("question-live", "session-a"),
-      } as any);
+        type: "form.created",
+        data: {form:question("question-live", "session-a")},
+      });
 
       expect(getReactQueryClient().getQueryData(questionKey("workspace-a", "session-a"))).toMatchObject([
         { id: "question-live", sessionID: "session-a" },
       ]);
 
       __applySessionSyncEventForTest(syncInput, {
-        type: "question.replied",
-        properties: { sessionID: "session-a", requestID: "question-live", answers: [["Yes"]] },
-      } as any);
+        type: "form.replied",
+        data: { sessionID: "session-a", id: "question-live", answer: {choice:"Yes"} },
+      });
 
       expect(getReactQueryClient().getQueryData(questionKey("workspace-a", "session-a"))).toEqual([]);
     } finally {
@@ -280,7 +245,7 @@ describe("session transcript sync", () => {
     try {
       __applySessionSyncEventForTest(syncInput, {
         type: "session.idle",
-        properties: { sessionID: "session-a" },
+        data: { sessionID: "session-a" },
       });
 
       expect(queryClient.getQueryState(artifactKey)?.isInvalidated).toBe(true);
@@ -342,31 +307,9 @@ describe("session transcript sync", () => {
       releaseSessionA();
       const releaseSessionB = trackWorkspaceSessionSync(syncInput, "session-b");
 
-      __applySessionSyncEventForTest(syncInput, {
-        type: "message.updated",
-        properties: { info: { id: "msg-assistant", role: "assistant", sessionID: "session-a" } },
-      } as any);
-      __applySessionSyncEventForTest(syncInput, {
-        type: "message.part.updated",
-        properties: {
-          part: {
-            id: "part-assistant",
-            type: "text",
-            text: "",
-            sessionID: "session-a",
-            messageID: "msg-assistant",
-          },
-        },
-      } as any);
-      __applySessionSyncEventForTest(syncInput, {
-        type: "message.part.delta",
-        properties: {
-          sessionID: "session-a",
-          messageID: "msg-assistant",
-          partID: "part-assistant",
-          delta: "still streaming after switch",
-        },
-      } as any);
+      __applySessionSyncEventForTest(syncInput,{type:"session.step.started",id:"event",created:1,data:{sessionID:"session-a",assistantMessageID:"msg-assistant",agent:"legalwork",model:{id:"fixture",providerID:"fixture"},started:1}});
+      __applySessionSyncEventForTest(syncInput,{type:"session.text.started",id:"event",created:1,data:{sessionID:"session-a",assistantMessageID:"msg-assistant",ordinal:0}});
+      __applySessionSyncEventForTest(syncInput,{type:"session.text.delta",id:"event",created:1,data:{sessionID:"session-a",assistantMessageID:"msg-assistant",ordinal:0,delta:"still streaming after switch"}});
 
       await Promise.resolve();
 
@@ -390,31 +333,9 @@ describe("session transcript sync", () => {
     try {
       expect(__hasWorkspaceSessionSyncForTest(syncInput)).toBe(true);
 
-      __applySessionSyncEventForTest(syncInput, {
-        type: "message.updated",
-        properties: { info: { id: "msg-route-leave", role: "assistant", sessionID: "session-a" } },
-      } as any);
-      __applySessionSyncEventForTest(syncInput, {
-        type: "message.part.updated",
-        properties: {
-          part: {
-            id: "part-route-leave",
-            type: "text",
-            text: "",
-            sessionID: "session-a",
-            messageID: "msg-route-leave",
-          },
-        },
-      } as any);
-      __applySessionSyncEventForTest(syncInput, {
-        type: "message.part.delta",
-        properties: {
-          sessionID: "session-a",
-          messageID: "msg-route-leave",
-          partID: "part-route-leave",
-          delta: "stream survived settings route",
-        },
-      } as any);
+      __applySessionSyncEventForTest(syncInput,{type:"session.step.started",id:"event",created:1,data:{sessionID:"session-a",assistantMessageID:"msg-route-leave",agent:"legalwork",model:{id:"fixture",providerID:"fixture"},started:1}});
+      __applySessionSyncEventForTest(syncInput,{type:"session.text.started",id:"event",created:1,data:{sessionID:"session-a",assistantMessageID:"msg-route-leave",ordinal:0}});
+      __applySessionSyncEventForTest(syncInput,{type:"session.text.delta",id:"event",created:1,data:{sessionID:"session-a",assistantMessageID:"msg-route-leave",ordinal:0,delta:"stream survived settings route"}});
 
       await Promise.resolve();
 
@@ -437,8 +358,8 @@ describe("session metadata sync", () => {
     client.setQueryData(key, snapshotWithMessages([]));
     try {
       __applySessionSyncEventForTest(input, {
-        type: "session.updated",
-        properties: { info: { id: "session-a", title: "Eigenwelt Labs Intro Slides Addition", time: { created: 1, updated: 500 } } },
+        type: "session.renamed",id:"event",created:500,
+        data: {sessionID:"session-a",title:"Eigenwelt Labs Intro Slides Addition"},
       });
       expect(client.getQueryData<LegalworkSessionSnapshot>(key)?.session).toMatchObject({
         id: "session-a", title: "Eigenwelt Labs Intro Slides Addition", time: { updated: 500 },
@@ -459,13 +380,13 @@ test("a mounted sibling chat remains subscribed after route focus releases it", 
   releaseRoute();
   try {
     for (const sessionID of ["session-a", "session-b"]) {
-      __applySessionSyncEventForTest(input, { type: "session.idle", properties: { sessionID } });
-      __applySessionSyncEventForTest(input, { type: "permission.asked", properties: permission(`permission-${sessionID}`, sessionID) });
-      __applySessionSyncEventForTest(input, { type: "question.asked", properties: question(`question-${sessionID}`, sessionID) });
+      __applySessionSyncEventForTest(input, { type: "session.idle", data: { sessionID } });
+      __applySessionSyncEventForTest(input, { type: "permission.asked", data: permission(`permission-${sessionID}`, sessionID) });
+      __applySessionSyncEventForTest(input, { type: "form.created", data: {form:question(`question-${sessionID}`, sessionID)} });
       expect(getReactQueryClient().getQueryData(permissionKey(input.workspaceId, sessionID))).toMatchObject([{ sessionID }]);
       expect(getReactQueryClient().getQueryData(questionKey(input.workspaceId, sessionID))).toMatchObject([{ sessionID }]);
     }
-    __applySessionSyncEventForTest(input, { type: "permission.asked", properties: permission("foreign", "session-c") });
+    __applySessionSyncEventForTest(input, { type: "permission.asked", data: permission("foreign", "session-c") });
     // Unopened chats now retain requests for subagent recovery, but each pane
     // still selects only its own chat and descendants.
     expect(getReactQueryClient().getQueryData(permissionKey(input.workspaceId, "session-c"))).toMatchObject([{ sessionID: "session-c" }]);

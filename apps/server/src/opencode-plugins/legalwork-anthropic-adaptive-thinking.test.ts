@@ -1,55 +1,20 @@
-import { describe, expect, test } from "bun:test";
-import { LegalWorkAnthropicAdaptiveThinking } from "./legalwork-anthropic-adaptive-thinking.js";
+import { expect,test } from "bun:test";
+import definition from "./legalwork-anthropic-adaptive-thinking.js";
+import { nativeProviderTestFetch } from "./native-plugin-test-support.js";
 
-async function runHook(apiId: string, options: Record<string, unknown>) {
-  const hooks = await LegalWorkAnthropicAdaptiveThinking();
-  const output: { options: Record<string, unknown> } = { options };
-  await hooks["chat.params"]({ model: { id: apiId, api: { id: apiId } } }, output);
-  return output.options;
+async function rewrite(model:string,thinking:unknown,output_config?:unknown,anthropic=true){
+  const originalFetch=globalThis.fetch;
+  const f=await nativeProviderTestFetch(definition,async request=>Response.json(await request.json()));
+  try{const response=await f.send("https://provider.example/messages",{method:"POST",headers:anthropic?{"anthropic-version":"2023-06-01"}:{},body:JSON.stringify({model,thinking,output_config})});expect(globalThis.fetch).toBe(originalFetch);return response.json();}finally{await f.runtime.close();}
 }
-
-describe("LegalWorkAnthropicAdaptiveThinking chat.params", () => {
-  test("rewrites legacy enabled thinking to adaptive for Claude 5-family ids", async () => {
-    expect(await runHook("claude-fable-5", { thinking: { type: "enabled", budgetTokens: 16000 } })).toEqual({
-      thinking: { type: "adaptive" },
-      effort: "high",
-    });
-    expect(await runHook("claude-fable-5-20260601", { thinking: { type: "enabled", budgetTokens: 31999 } })).toEqual({
-      thinking: { type: "adaptive" },
-      effort: "max",
-    });
-    expect(await runHook("claude-opus-5", { thinking: { type: "enabled", budgetTokens: 16000 } })).toEqual({
-      thinking: { type: "adaptive" },
-      effort: "high",
-    });
-  });
-
-  test("keeps an existing effort", async () => {
-    expect(
-      await runHook("claude-fable-5", { thinking: { type: "enabled", budgetTokens: 16000 }, effort: "low" }),
-    ).toEqual({ thinking: { type: "adaptive" }, effort: "low" });
-  });
-
-  test("leaves adaptive payloads untouched", async () => {
-    expect(await runHook("claude-fable-5", { thinking: { type: "adaptive" }, effort: "high" })).toEqual({
-      thinking: { type: "adaptive" },
-      effort: "high",
-    });
-  });
-
-  test("leaves 4.x and older models untouched", async () => {
-    const legacy = { thinking: { type: "enabled", budgetTokens: 16000 } };
-    expect(await runHook("claude-sonnet-4-5", structuredClone(legacy))).toEqual(legacy);
-    expect(await runHook("claude-opus-4-1-20250805", structuredClone(legacy))).toEqual(legacy);
-    expect(await runHook("claude-3-5-sonnet-20241022", structuredClone(legacy))).toEqual(legacy);
-  });
-
-  test("no-ops when options carry no thinking config", async () => {
-    expect(await runHook("claude-fable-5", { temperature: 0.2 })).toEqual({ temperature: 0.2 });
-  });
-
-  test("module exposes only the plugin factory", async () => {
-    const mod = await import("./legalwork-anthropic-adaptive-thinking.js");
-    expect(Object.keys(mod)).toEqual(["LegalWorkAnthropicAdaptiveThinking"]);
-  });
+test("native Anthropic dispatch corrects explicit legacy thinking only for Claude5+",async()=>{
+  expect(await rewrite("claude-fable-5",{type:"enabled",budget_tokens:16000})).toMatchObject({thinking:{type:"adaptive"},output_config:{effort:"high"}});
+  expect(await rewrite("claude-fable-5-20260601",{type:"enabled",budget_tokens:31999})).toMatchObject({thinking:{type:"adaptive"},output_config:{effort:"max"}});
+  expect(await rewrite("claude-opus-5",{type:"enabled",budget_tokens:16000},{effort:"low",format:{type:"json_schema"}})).toMatchObject({thinking:{type:"adaptive"},output_config:{effort:"low",format:{type:"json_schema"}}});
+});
+test("native adaptive,older Claude and unrelated provider requests remain unchanged",async()=>{
+  for(const model of["claude-sonnet-4-5","claude-opus-4-1-20250805","claude-3-5-sonnet-20241022"]){expect(await rewrite(model,{type:"enabled",budget_tokens:16000})).toEqual({model,thinking:{type:"enabled",budget_tokens:16000}});}
+  expect(await rewrite("claude-fable-5",{type:"adaptive"},{effort:"high"})).toMatchObject({thinking:{type:"adaptive"},output_config:{effort:"high"}});
+  expect(await rewrite("claude-fable-5",{type:"enabled",budget_tokens:16000},undefined,false)).toEqual({model:"claude-fable-5",thinking:{type:"enabled",budget_tokens:16000}});
+  expect(Object.keys(await import("./legalwork-anthropic-adaptive-thinking.js"))).toEqual(["default"]);
 });

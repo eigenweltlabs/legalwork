@@ -1,18 +1,17 @@
+import {ensureNativeCatalogReady} from "@/app/lib/opencode-catalog-ready";
+import { projectSession } from "@/app/lib/opencode-view";
+import { sendSessionPrompt } from "@/app/lib/system-reminder";
+import { sendSessionCommand } from "@/app/lib/system-reminder";
+import { createSessionView } from "@/app/lib/opencode-read";
 import { usePanelTabStore } from "../panel/panel-tab-store";
 import { registerEmptySession } from "../sidebar/session-list-visibility";
-import type {
-  Agent,
-  AgentPartInput,
-  FilePartInput,
-  Session,
-  SubtaskPartInput,
-  TextPartInput,
-} from "@opencode-ai/sdk/v2/client";
+import type { AgentPartInput, FilePartInput, SessionView as Session, SubtaskPartInput, TextPartInput } from "@/app/lib/opencode-view";
+import type { AgentInfo as Agent } from "@opencode/client";
 
 import { t } from "../../../../i18n";
 import { eigenweltProviderRecoveryMessage } from "./eigenwelt-provider-error";
 import { unwrap } from "../../../../app/lib/opencode";
-import { buildSessionPromptRequest } from "../../../../app/lib/system-reminder";
+import { buildSessionPromptRequest, resolvePromptSkill } from "../../../../app/lib/system-reminder";
 import {
   abortSession as abortSessionTyped,
   abortSessionSafe,
@@ -158,7 +157,7 @@ export function createSessionActionsStore(options: {
     emitChange();
   };
 
-  type PartInput = TextPartInput | FilePartInput | AgentPartInput | SubtaskPartInput;
+  type PartInput = import("@/app/lib/opencode-view").PromptPart;
 
   const attachmentToFilePart = async (attachment: ComposerAttachment): Promise<FilePartInput> => {
     const mime = attachmentMime(attachment);
@@ -191,6 +190,10 @@ export function createSessionActionsStore(options: {
     };
 
     for (const part of draft.parts) {
+      if(part.type==="skill") {
+        const client=options.client();if(!client)throw new Error(t("app.error_not_connected"));
+        parts.push(await resolvePromptSkill(client,part.name,root));continue;
+      }
       if (part.type === "agent") {
         parts.push({ type: "agent", name: part.name } as AgentPartInput);
         continue;
@@ -403,7 +406,7 @@ export function createSessionActionsStore(options: {
     try {
       mark("health:start");
       try {
-        await withTimeout(c.global.health(), 3_000, "health");
+        await withTimeout(c.server.info(), 3_000, "health");
         mark("health:ok");
       } catch (healthErr) {
         mark("health:error", {
@@ -416,7 +419,7 @@ export function createSessionActionsStore(options: {
       try {
         const directory = toSessionTransportDirectory(workspaceRoot) || undefined;
         mark("session:create:start");
-        rawResult = await c.session.create({ directory });
+        rawResult = await createSessionView(c,{ directory });
         mark("session:create:ok");
       } catch (createErr) {
         mark("session:create:error", {
@@ -425,7 +428,7 @@ export function createSessionActionsStore(options: {
         throw createErr;
       }
 
-      const session = unwrap(rawResult);
+      const session = projectSession(rawResult);
       registerEmptySession(session.id);
       if (initialPrompt) {
         saveSessionDraft(id, session.id, {
@@ -594,7 +597,7 @@ export function createSessionActionsStore(options: {
         const files = await buildCommandFileParts(resolvedDraft);
 
         unwrap(
-          await c.session.command({
+          await sendSessionCommand(c,{
             sessionID,
             command: command.name,
             arguments: command.arguments,
@@ -606,7 +609,7 @@ export function createSessionActionsStore(options: {
           }),
         );
       } else {
-        const result = await c.session.promptAsync(buildSessionPromptRequest({
+        const result = await sendSessionPrompt(c,buildSessionPromptRequest({
           sessionID,
           model,
           agent: agent ?? undefined,
@@ -810,7 +813,7 @@ export function createSessionActionsStore(options: {
     const root = options.selectedWorkspaceRoot().trim();
     const directory = toSessionTransportDirectory(root);
     const params = directory ? { sessionID: trimmed, directory } : { sessionID: trimmed };
-    unwrap(await c.session.delete(params));
+    unwrap(await c.session.remove({sessionID:trimmed}));
     usePanelTabStore.getState().clearSession(trimmed);
     clearSessionDraft(options.selectedWorkspaceId().trim(), trimmed);
 
@@ -850,7 +853,8 @@ export function createSessionActionsStore(options: {
   async function listAgents(): Promise<Agent[]> {
     const c = options.client();
     if (!c) return [];
-    const list = unwrap(await c.app.agents());
+    await ensureNativeCatalogReady(c,options.selectedWorkspaceRoot());
+    const list = (await c.agent.list({location:{directory:options.selectedWorkspaceRoot()}})).data;
     return list.filter((agent) => !agent.hidden && agent.mode !== "subagent");
   }
 
@@ -893,14 +897,13 @@ export function createSessionActionsStore(options: {
     try {
       const directory = options.runtimeWorkspaceRoot().trim() || options.selectedWorkspaceRoot().trim();
       const result = unwrap(
-        await activeClient.find.files({
+        await activeClient.file.find({
           query: trimmed,
-          dirs: "true",
           limit: 50,
-          directory: directory || undefined,
+          location: directory ? {directory}:undefined,
         }),
       );
-      return result;
+      return result.data.map(file=>file.path);
     } catch {
       return [];
     }

@@ -73,7 +73,8 @@ export function registerCalendarRoutes(options: {
     sessions: (await options.listSessions(workspace, ctx.url.searchParams.get("search")?.slice(0, 255))).filter(session => resolve(session.directory) === resolve(workspace.path)).map(({ id, title }) => ({ id, title })) }));
   route("POST", "/calculate", async (ctx, workspace) => {
     const input = z.strictObject({ skill: z.string(), input: z.unknown() }).parse(await body(ctx));
-    return { calculation: (await calendarStore(config)).recordCalculation(workspace.id, await calculateWithSkill(workspace.path, input.skill, input.input), DEADLINE_CODE_HASH) };
+    const result = await calculateWithSkill(workspace.path, input.skill, input.input);
+    return { calculation: (await calendarStore(config)).recordCalculation(workspace.id, result, result.codeHash) };
   });
   route("POST", "/run", async (ctx, workspace) => {
     const input = z.object({ skill: z.string().min(1), input: z.record(z.string(), z.unknown()) }).parse(await body(ctx));
@@ -148,7 +149,7 @@ export function registerCalendarRoutes(options: {
   addRoute(options.routes, "POST", "/calendar/reminders/claim", "client", async ctx => {
     options.requireClientScope(ctx, "collaborator"); await collectCalendarReminders(config);
     const connection = await readEigenweltConnection(config);
-    const visible = new Set<string>(); for (const workspace of config.workspaces) if (workspace.workspaceType !== "remote" && await calendarVisible(config, workspace)) visible.add(workspace.id);
+    const visible = new Set<string>(); for (const workspace of config.workspaces) if (await calendarVisible(config, workspace)) visible.add(workspace.id);
     const reminders = (await calendarStore(config)).claimReminders(visible, connection.account?.userId ?? null);
     try {
       if (connectedTaskOrgId(connection)) {

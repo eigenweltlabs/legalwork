@@ -149,3 +149,13 @@ test("pending OAuth pauses every instance sharing credentials, then ends or expi
   await recovery.recover(b);
   expect(b.connects).toEqual(["notes"]);
 });
+
+test("native OAuth pauses recovery for the engine's full attempt lifetime", async () => {
+  let now = 0;
+  const recovery = new McpRecovery(() => now, 0);
+  recovery.beginAuth("notes", 20 * 60_000);
+  let connects = 0;
+  const input = { engine: "native", directory: "/project", statuses: { notes: { status: "failed" } }, connectors: async () => [{ name: "notes", config: { type: "remote", enabled: true } }], readStatuses: async () => ({ notes: { status: "failed" } }), connect: async () => { connects += 1; } };
+  now = 6 * 60_000; await recovery.recover(input); expect(connects).toBe(0);
+  now = 21 * 60_000; await recovery.recover(input); expect(connects).toBe(1);
+});

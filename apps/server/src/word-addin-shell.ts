@@ -40,7 +40,7 @@
  * Without a bump, existing installs keep rendering the old shell for up
  * to a year. Increment the number.
  */
-export const WORD_ADDIN_SHELL_VERSION = "5";
+export const WORD_ADDIN_SHELL_VERSION = "6";
 
 export function buildWordAddinShellHtml(): string {
   return `<!doctype html>
@@ -116,6 +116,16 @@ export function buildWordAddinShellHtml(): string {
     document.getElementById("open-btn").textContent = "LegalWork öffnen";
     document.getElementById("retry-btn").textContent = "Erneut versuchen";
   }
+
+  // The fragment comes from the private local manifest, never an HTTP URL.
+  // Capture it before navigating to the app bundle.
+  try {
+    var launch = new URLSearchParams(location.hash.slice(1)).get("office_launch");
+    if (launch && /^[A-Za-z0-9_-]{64}$/.test(launch)) {
+      localStorage.setItem("legalwork.office.launch", launch);
+      history.replaceState(null, "", location.pathname + location.search);
+    }
+  } catch (e) { /* app reports unavailable storage */ }
 
   var SHELL_VERSION = "${WORD_ADDIN_SHELL_VERSION}";
   var handedOff = false;

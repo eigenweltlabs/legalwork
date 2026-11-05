@@ -5,6 +5,13 @@ import test from "node:test";
 import WebSocket from "ws";
 import { createBrowserAutomationBroker } from "./browser-automation-broker.mjs";
 
+function deferred() {
+  /** @type {() => void} */
+  let release = () => { throw new Error("Deferred promise is not initialized"); };
+  const promise = new Promise(resolve => { release = () => resolve(undefined); });
+  return { promise, resolve: release };
+}
+
 function browserTab(id) {
   const tab = Object.assign(new EventEmitter(), {
     id,
@@ -19,6 +26,7 @@ function browserTab(id) {
     debugger: Object.assign(new EventEmitter(), {
       attach: () => { assert.equal(tab.attached, false); tab.attached = true; },
       detach: () => { tab.attached = false; tab.emit("debugger-detached"); },
+      /** @returns {Promise<Record<string, unknown>>} */
       sendCommand: async (method, params) => {
         tab.commands.push({ method, params });
         return { result: { value: "Example page" } };
@@ -210,4 +218,101 @@ test("policy revocation closes a running page without waiting for another tool c
   t.after(() => clearTimeout(deadline));
   await Promise.race([closed, once(tab, "policy-timeout").then(() => { throw new Error("Page was not revoked"); })]);
   assert.equal(tab.destroyed, true);
+});
+
+test("capture, thumbnail and raw CDP serialize without frame subscribers or changing explicit screenshot parameters", async t => {
+  const broker = createBrowserAutomationBroker({ authorize: async () => {} });
+  t.after(() => broker.close());
+  const tab = browserTab(80), native = deferred(), started = deferred();
+  let count = 0, active = 0, maximum = 0, previewPrepared = false;
+  tab.debugger.sendCommand = async (method, params) => {
+    tab.commands.push({ method, params });
+    if (method === "Page.getLayoutMetrics") return { cssContentSize: { width: 1700, height: 3500 } };
+    assert.equal(method, "Page.captureScreenshot");
+    active++; maximum = Math.max(maximum, active);
+    if (++count === 1) { started.resolve(); await native.promise; }
+    active--;
+    return { data: "complete-original-image" };
+  };
+  // A subscriber call would throw: this fixture intentionally exposes none.
+  const context = { sessionId: "owned-chat" };
+  const grant = await broker.grant(tab, () => [], context);
+  const [target] = await (await fetch(`${grant.browser_url}/json/list`)).json();
+  const client = await connect(target.webSocketDebuggerUrl); t.after(() => client.terminate());
+  const first = fetch(`${grant.browser_url}/capture`, { method: "POST", headers: { "x-legalwork-browser-session": context.sessionId }, body: JSON.stringify({ fullPage: false }) });
+  await started.promise;
+  const preview = broker.preview(tab, () => { previewPrepared = true; });
+  const params = { format: "webp", quality: 91, captureBeyondViewport: true, clip: { x: 7, y: 11, width: 2300, height: 1900, scale: 0.75 } };
+  const raw = command(client, { id: 1, method: "Page.captureScreenshot", params });
+  assert.equal(previewPrepared, false);
+  assert.equal(count, 1);
+  native.resolve();
+  const response = await first;
+  assert.deepEqual(await response.json(), { mime: "image/png", data: "complete-original-image" });
+  assert.equal(await preview, "data:image/png;base64,complete-original-image");
+  assert.deepEqual((await raw).result, { data: "complete-original-image" });
+  assert.equal(maximum, 1);
+  assert.equal(previewPrepared, true);
+  const screenshots = tab.commands.filter(item => item.method === "Page.captureScreenshot");
+  assert.equal(screenshots[0].params.captureBeyondViewport, false);
+  assert.equal(screenshots[0].params.clip, undefined);
+  assert.deepEqual(screenshots[1].params.clip, { x: 0, y: 0, width: 1200, height: 800, scale: 0.4 });
+  assert.deepEqual(screenshots[2].params, params);
+});
+
+test("HTTP Stop restores caller visibility immediately but the next capture waits for the true native reply", async t => {
+  const broker = createBrowserAutomationBroker({ authorize: async () => {} });
+  t.after(() => broker.close());
+  const tab = browserTab(81), native = deferred(), started = deferred(), restored = deferred();
+  const controller = new AbortController();
+  let calls = 0, active = 0, maximum = 0;
+  tab.debugger.sendCommand = async method => {
+    if (method === "Page.getLayoutMetrics") return { cssContentSize: { width: 1600, height: 2400 } };
+    active++; maximum = Math.max(maximum, active);
+    if (++calls === 1) { started.resolve(); await native.promise; }
+    active--; return { data: "original-image" };
+  };
+  const context = { sessionId: "owned-chat" };
+  const grant = await broker.grant(tab, () => [], context, undefined, () => () => restored.resolve());
+  const options = { method: "POST", headers: { "x-legalwork-browser-session": context.sessionId }, body: "{}" };
+  const first = fetch(`${grant.browser_url}/capture`, { ...options, signal: controller.signal });
+  await started.promise;
+  controller.abort(new Error("User Stop"));
+  await assert.rejects(first, /User Stop/);
+  await restored.promise;
+  const second = fetch(`${grant.browser_url}/capture`, options);
+  assert.equal(calls, 1);
+  native.resolve();
+  const response = await second;
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { mime: "image/png", data: "original-image" });
+  assert.equal(calls, 2);
+  assert.equal(maximum, 1);
+});
+
+test("a queued screenshot rechecks permission at actual admission and never dispatches after revocation", async t => {
+  let allowed = true, starts = 0, denials = 0;
+  const broker = createBrowserAutomationBroker({ authorize: async () => {
+    if (!allowed) { denials++; throw new Error("Browser access was revoked while queued."); }
+  } });
+  t.after(() => broker.close());
+  const tab = browserTab(82), native = deferred(), started = deferred();
+  tab.debugger.sendCommand = async method => {
+    if (method === "Page.getLayoutMetrics") return { cssContentSize: { width: 1400, height: 2200 } };
+    starts++; started.resolve(); await native.promise; return { data: "complete-image" };
+  };
+  const context = { sessionId: "owned-chat" };
+  const grant = await broker.grant(tab, () => [], context);
+  const options = { method: "POST", headers: { "x-legalwork-browser-session": context.sessionId }, body: "{}" };
+  const first = fetch(`${grant.browser_url}/capture`, options);
+  await started.promise;
+  // Direct preview enters the same queue without a second HTTP scheduling race.
+  const second = broker.preview(tab);
+  const denied = assert.rejects(second, /capability was revoked/);
+  allowed = false; native.resolve();
+  await denied;
+  await (await first).arrayBuffer();
+  assert.equal(starts, 1);
+  assert.equal(denials, 1);
+  assert.equal(tab.isDestroyed(), true);
 });

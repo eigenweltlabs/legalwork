@@ -2,7 +2,7 @@ import { hasProjectFileDrag, readProjectFilesDrag } from "@/app/lib/project-file
 import type { ProjectFileSource } from "@legalwork/types/project-files";
 /** @jsxImportSource react */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { Agent } from "@opencode-ai/sdk/v2/client";
+import type { AgentInfo as Agent } from "@opencode/client";
 import { AppWindowMac, ArrowUp, AudioLines, Blend, ChevronDown, ChevronRight, FileText, Paperclip, Phone, Plug, Plus, Settings, Square, Terminal, X, Zap } from "lucide-react";
 import fuzzysort from "fuzzysort";
 import { toast } from "@/components/ui/sonner";

@@ -1,6 +1,16 @@
 import assert from "node:assert/strict";
 import { test } from "bun:test";
-import { networkApprovalContent } from "../src/react-app/domains/session/chat/network-approval-content";
+import { networkApprovalContent, rawNetworkApprovalText } from "../src/react-app/domains/session/chat/network-approval-content";
+
+test("complete raw review retains every field, secret header and binary/text request byte", () => {
+  const body = JSON.stringify(Object.fromEntries(Array.from({ length: 100 }, (_, index) => [`field-${index}`, "body:" + "x".repeat(500)])));
+  const network = { method: "POST", url: "https://example.com/?apiKey=full-query", headers: { authorization: "full-header" }, body, bodyFormat: "text", bodyBytes: Buffer.byteLength(body), complete: true, sha256: "a".repeat(64) };
+  assert.deepEqual(networkApprovalContent(network).fields, []);
+  assert.equal(networkApprovalContent(network).resource, "/");
+  const complete = rawNetworkApprovalText(network);
+  assert.ok(complete.includes(body)); assert.ok(complete.includes("full-header")); assert.ok(complete.includes(network.url)); assert.ok(complete.includes(network.sha256));
+  assert.ok(rawNetworkApprovalText({ ...network, body: "AAH/", bodyFormat: "base64", bodyBytes: 3 }).includes("Base64 (3 bytes):\nAAH/"));
+});
 
 test("network review explains the action and shows query data, form fields and credentials", async () => {
   const content = networkApprovalContent({ method: "POST", url: "https://example.com/upload?matter=Test+matter",

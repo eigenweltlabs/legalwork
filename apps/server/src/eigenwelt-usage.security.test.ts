@@ -3,7 +3,6 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startServer } from "./server.js";
-import { TokenService } from "./tokens.js";
 import type { ServerConfig } from "./types.js";
 
 test("billing routes reject collaborators, viewers and unauthenticated clients before using the owner's identity", async () => {
@@ -17,25 +16,23 @@ test("billing routes reject collaborators, viewers and unauthenticated clients b
     authorizedRoots: [root], readOnly: false, startedAt: Date.now(),
     tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false,
   };
-  const tokens = new TokenService(config);
-  const viewer = await tokens.create("viewer");
-  const owner = await tokens.create("owner");
+  const retiredViewer = "owt_retired_viewer";
   const server = await startServer(config);
   try {
     const url = `http://127.0.0.1:${server.port}/workspace/ws_test/eigenwelt/usage`;
     for (const method of ["GET", "POST"]) {
-      for (const token of [undefined, "invalid", config.token, viewer.token]) {
+      for (const token of [undefined, "invalid", config.token, retiredViewer]) {
         const response = await fetch(url, {
           method,
           headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
           ...(method === "POST" ? { body: JSON.stringify({ action: "topUp", amountCents: 5000 }) } : {}),
         });
-        expect(response.status).toBe(token === config.token || token === viewer.token ? 403 : 401);
+        expect(response.status).toBe(token === config.token ? 403 : 401);
       }
       // The owner passes local authorization, then needs an actual platform
       // sign-in. No remote identity or payment service is contacted here.
       const response = await fetch(url, {
-        method, headers: { Authorization: `Bearer ${owner.token}`, "Content-Type": "application/json" },
+        method, headers: { "X-LegalWork-Host-Token": config.hostToken, "Content-Type": "application/json" },
         ...(method === "POST" ? { body: JSON.stringify({ action: "paymentDetails" }) } : {}),
       });
       expect(response.status).toBe(401);

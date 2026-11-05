@@ -1,11 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { once } from "node:events";
+import { EventEmitter, once } from "node:events";
 import fsp from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { WebSocketServer } from "ws";
 import { CloudTranscriber, pcm16 } from "./audio/cloud-transcriber.mjs";
+import { createDictationSpeechDetector } from "./audio/dictation-speech.mjs";
 import { RecorderService } from "./audio/recorder-service.mjs";
 
 const until = async condition => {
@@ -51,6 +52,7 @@ async function fixture(t, options = {}) {
   if (!address || typeof address === "string") throw new Error("Expected a TCP address");
   const resolveConnection = async (model = "gemini-transcribe-live-eu") => ({ url: `ws://127.0.0.1:${address.port}/v1/transcription/live?model=${model}`, apiKey: "fixture-subscription-key" });
   const worker = new CloudTranscriber({ modelId: "gemini-transcribe-live-eu", language: "de", resolveConnection,
+    createSpeechDetector: options.createSpeechDetector ?? null,
     ...(options.rotateMs ? { rotateMs: options.rotateMs } : {}) });
   const events = [];
   worker.on("message", event => events.push(event));
@@ -172,6 +174,134 @@ test("shutdown cancels background work and a restart clears the interrupted proc
 test("PCM conversion keeps the sample count and gain; clips non-finite input safely", () => {
   const buffer = pcm16(new Float32Array([-1, -.5, 0, .5, 1, NaN, 2]).buffer);
   assert.deepEqual(Array.from({ length: 7 }, (_, i) => buffer.readInt16LE(i * 2)), [-32768, -16384, 0, 16384, 32767, 0, 32767]);
+});
+
+test("silent dictation finishes locally without resolving a cloud connection", async t => {
+  let connections = 0;
+  const worker = new CloudTranscriber({ modelId: "gemini-transcribe-live-eu", language: "de",
+    createSpeechDetector: () => ({ accept: () => false, finish: () => false }),
+    resolveConnection: async () => { connections += 1; throw new Error("Silence must stay local"); },
+  });
+  t.after(() => worker.kill());
+  const events = [];
+  worker.on("message", event => events.push(event));
+  worker.postMessage({ type: "begin", streamId: "silent", ephemeral: true });
+  for (let i = 0; i < 60; i++) worker.postMessage({ type: "pcm", streamId: "silent", buffer: new Float32Array(16000).buffer });
+  const queued = worker.streams.get("silent")?.queuedBytes;
+  worker.postMessage({ type: "finalize", streamId: "silent" });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(connections, 0);
+  assert.ok(queued <= 16000 * 2 * 2, "leading silence uses a bounded two-second buffer");
+  assert.deepEqual(events, [{ type: "finalized", streamId: "silent" }]);
+  assert.equal(worker.streams.size, 0);
+});
+
+test("local speech detection opens the cloud with the complete buffered onset and quiet PCM", async t => {
+  let chunks = 0;
+  const { worker, requests, events } = await fixture(t, {
+    createSpeechDetector: () => ({ accept: () => ++chunks === 2, finish: () => true }),
+  });
+  const onset = new Float32Array(4096).fill(.0001);
+  const tail = new Float32Array(4096).fill(.0002);
+  worker.postMessage({ type: "pcm", streamId: "r", buffer: onset.buffer });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(requests.length, 0);
+  worker.postMessage({ type: "pcm", streamId: "r", buffer: tail.buffer });
+  worker.postMessage({ type: "finalize", streamId: "r" });
+  await until(() => events.some(event => event.type === "finalized"));
+  assert.deepEqual(Buffer.concat(requests[0].frames), pcm16(new Float32Array([...onset, ...tail]).buffer));
+  assert.equal(events.find(event => event.type === "segment").text, "70.388,50 Euro.");
+});
+
+test("speech detected in the final local frame still sends the recording", async t => {
+  const { worker, requests, events } = await fixture(t, {
+    createSpeechDetector: () => ({ accept: () => false, finish: () => true }),
+  });
+  const samples = new Float32Array(100).fill(.0001);
+  worker.postMessage({ type: "pcm", streamId: "r", buffer: samples.buffer });
+  worker.postMessage({ type: "finalize", streamId: "r" });
+  await until(() => events.some(event => event.type === "finalized"));
+  assert.deepEqual(Buffer.concat(requests[0].frames), pcm16(samples.buffer));
+  assert.ok(events.some(event => event.type === "segment"));
+});
+
+test("real local detection finishes silent PCM without opening the cloud", async t => {
+  const { worker, requests, events } = await fixture(t, { createSpeechDetector: createDictationSpeechDetector });
+  worker.postMessage({ type: "pcm", streamId: "r", buffer: new Float32Array(16000).buffer });
+  worker.postMessage({ type: "finalize", streamId: "r" });
+  await until(() => events.some(event => event.type === "finalized"));
+  assert.deepEqual(events, [{ type: "finalized", streamId: "r" }]);
+  assert.deepEqual(requests, []);
+});
+
+test("cancelling local silence frees the session and permits the next dictation immediately", async t => {
+  let chunks = 0;
+  const { worker, requests, events } = await fixture(t, {
+    createSpeechDetector: () => ({ accept: () => ++chunks === 2, finish: () => false }),
+  });
+  worker.postMessage({ type: "pcm", streamId: "r", buffer: new Float32Array(4096).buffer });
+  worker.postMessage({ type: "drop", streamId: "r" });
+  assert.equal(worker.streams.size, 0);
+  worker.postMessage({ type: "begin", streamId: "next", ephemeral: true });
+  const samples = new Float32Array(4096).fill(.1);
+  worker.postMessage({ type: "pcm", streamId: "next", buffer: samples.buffer });
+  worker.postMessage({ type: "finalize", streamId: "next" });
+  await until(() => events.some(event => event.type === "finalized" && event.streamId === "next"));
+  assert.deepEqual(Buffer.concat(requests[0].frames), pcm16(samples.buffer));
+  assert.equal(events.some(event => event.streamId === "r"), false);
+});
+
+test("a failed local detector preserves the audio and uses cloud transcription", async t => {
+  const { worker, requests, events } = await fixture(t, {
+    createSpeechDetector: () => ({ accept: () => { throw new Error("Detector unavailable"); }, finish: () => false }),
+  });
+  const samples = new Float32Array(4096).fill(.001);
+  worker.postMessage({ type: "pcm", streamId: "r", buffer: samples.buffer });
+  worker.postMessage({ type: "finalize", streamId: "r" });
+  await until(() => events.some(event => event.type === "finalized"));
+  assert.deepEqual(Buffer.concat(requests[0].frames), pcm16(samples.buffer));
+  assert.ok(events.some(event => event.type === "segment"));
+});
+
+test("an empty dictation finishes without waiting for connection setup or opening a late socket", async t => {
+  const connection = new EventEmitter();
+  let sockets = 0;
+  const worker = new CloudTranscriber({ modelId: "gemini-transcribe-live-eu", language: "de",
+    resolveConnection: () => once(connection, "ready").then(([value]) => value),
+    socketFactory: () => { sockets += 1; throw new Error("An empty dictation must not open a socket"); },
+  });
+  t.after(() => worker.kill());
+  const events = [];
+  worker.on("message", event => events.push(event));
+  worker.postMessage({ type: "begin", streamId: "empty", ephemeral: true });
+  worker.postMessage({ type: "finalize", streamId: "empty" });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(events, [{ type: "finalized", streamId: "empty" }]);
+  assert.equal(worker.streams.size, 0);
+  connection.emit("ready", { url: "ws://127.0.0.1/unused", apiKey: "fixture-key" });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(sockets, 0);
+});
+
+test("quiet nonempty dictation still sends all audio and waits for its final transcript", async t => {
+  const { worker, requests, events } = await fixture(t, { readyDelay: 40 });
+  const samples = new Float32Array(1600).fill(.0001);
+  worker.postMessage({ type: "pcm", streamId: "r", buffer: samples.buffer });
+  worker.postMessage({ type: "finalize", streamId: "r" });
+  assert.equal(events.some(event => event.type === "finalized"), false);
+  await until(() => events.some(event => event.type === "finalized"));
+  assert.deepEqual(Buffer.concat(requests[0].frames), pcm16(samples.buffer));
+  assert.equal(events.find(event => event.type === "segment").text, "70.388,50 Euro.");
+});
+
+test("an empty dictation on an already ready socket finishes without requesting transcription", async t => {
+  const { worker, requests, events } = await fixture(t);
+  await until(() => worker.streams.get("r")?.ready);
+  worker.postMessage({ type: "finalize", streamId: "r" });
+  await until(() => events.some(event => event.type === "finalized"));
+  assert.deepEqual(requests[0].commands, []);
+  assert.deepEqual(events, [{ type: "finalized", streamId: "r" }]);
+  assert.equal(worker.streams.size, 0);
 });
 
 test("buffers opening audio and release, sends the tail, and uses the subscription key only in headers", async t => {

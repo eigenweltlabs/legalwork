@@ -1,4 +1,4 @@
-import type { Part, Session } from "@opencode-ai/sdk/v2/client";
+import type { Part, SessionView as Session } from "@/app/lib/opencode-view";
 import { t } from "../../i18n";
 import type {
   ArtifactItem,
@@ -263,6 +263,7 @@ export function safeStringify(value: unknown) {
           lowerKey.includes("token") ||
           lowerKey.includes("authorization") ||
           lowerKey.includes("cookie") ||
+          lowerKey.includes("password") ||
           lowerKey.includes("secret")
         ) {
           return "[redacted]";
@@ -317,31 +318,10 @@ export function normalizeDirectoryPath(input?: string | null) {
   return isWindowsPlatform() || isMacPlatform() ? normalized.toLowerCase() : normalized;
 }
 
-export function normalizeEvent(raw: unknown): OpencodeEvent | null {
-  if (!raw || typeof raw !== "object") {
-    return null;
-  }
-
-  const record = raw as Record<string, unknown>;
-
-  if (typeof record.type === "string") {
-    return {
-      type: record.type,
-      properties: record.properties,
-    };
-  }
-
-  if (record.payload && typeof record.payload === "object") {
-    const payload = record.payload as Record<string, unknown>;
-    if (typeof payload.type === "string") {
-      return {
-        type: payload.type,
-        properties: payload.properties,
-      };
-    }
-  }
-
-  return null;
+/** The native client validates/decode events; raw bridge boundaries require this shape check. */
+export function normalizeEvent(raw:unknown):OpencodeEvent|null {
+ if(!raw || typeof raw!=="object" || !("type" in raw) || typeof raw.type!=="string" || !("data" in raw)) return null;
+ return raw as OpencodeEvent;
 }
 
 export function formatRelativeTime(timestampMs: number) {
@@ -392,57 +372,6 @@ export function fitSkillNameLength(name: string): string {
   return fitted;
 }
 
-const SANDBOX_DOCKER_OFFLINE_HINTS = [
-  "cannot connect to the docker daemon",
-  "is the docker daemon running",
-  "docker daemon",
-  "docker desktop",
-  "docker engine",
-  "error during connect",
-  "docker.sock",
-  "docker_socket",
-  "open //./pipe/docker_engine",
-];
-
-const SANDBOX_NETWORK_HINTS = [
-  "failed to fetch",
-  "fetch failed",
-  "networkerror",
-  "request timed out",
-  "timeout",
-  "connection refused",
-  "econnrefused",
-  "connection reset",
-  "socket hang up",
-  "enotfound",
-  "getaddrinfo",
-  "could not connect",
-];
-
-export function isSandboxWorkspace(workspace: WorkspaceInfo) {
-  return (
-    workspace.workspaceType === "remote" &&
-    (workspace.sandboxBackend === "docker" ||
-      workspace.sandboxBackend === "microsandbox" ||
-      Boolean(workspace.sandboxRunId?.trim()) ||
-      Boolean(workspace.sandboxContainerName?.trim()))
-  );
-}
-
-export function isRemoteConnectionWorkspace(workspace: WorkspaceInfo) {
-  return workspace.id.trim().startsWith("rem_");
-}
-
-export function isRemoteConnectionErrorMessage(message?: string | null) {
-  const value = message?.trim().toLowerCase() ?? "";
-  return (
-    value.includes("remote worker") ||
-    value.includes("cannot reach ") ||
-    value.includes("health check failed") ||
-    value.includes("worker connection failed")
-  );
-}
-
 export function redactTokenLikeText(value: string): string {
   return value
     .replace(/([?&](?:access_token|api_key|key|password|token)=)[^&\s]+/gi, "$1[redacted]")
@@ -451,40 +380,9 @@ export function redactTokenLikeText(value: string): string {
     .replace(/\bowt_[a-z0-9_-]+\b/gi, "owt_[redacted]");
 }
 
-export function getWorkspaceTaskLoadErrorDisplay(workspace: WorkspaceInfo, error?: string | null) {
-  const raw = redactTokenLikeText(error?.trim() ?? "");
-  const fallbackTitle = raw || t("workspace.failed_load_tasks");
-  if (!raw || !isSandboxWorkspace(workspace)) {
-    return {
-      tone: "error" as const,
-      label: "Error",
-      message: raw && workspace.workspaceType === "remote" ? raw : t("workspace.failed_load_tasks"),
-      title: fallbackTitle,
-    };
-  }
-
-  const normalized = raw.toLowerCase();
-  const hasDockerHint = SANDBOX_DOCKER_OFFLINE_HINTS.some((hint) => normalized.includes(hint));
-  const hasNetworkHint = SANDBOX_NETWORK_HINTS.some((hint) => normalized.includes(hint));
-  const host = `${workspace.baseUrl ?? ""} ${workspace.legalworkHostUrl ?? ""}`.toLowerCase();
-  const localHost = host.includes("localhost") || host.includes("127.0.0.1");
-
-  if (!hasDockerHint && !(localHost && hasNetworkHint)) {
-    return {
-      tone: "error" as const,
-      label: "Error",
-      message: t("workspace.failed_load_tasks"),
-      title: fallbackTitle,
-    };
-  }
-
-  const message = t("workspace.sandbox_offline");
-  return {
-    tone: "offline" as const,
-    label: "Offline",
-    message,
-    title: `${message}\n\n${raw}`,
-  };
+export function getWorkspaceTaskLoadErrorDisplay(_workspace: WorkspaceInfo, error?: string | null) {
+  const message = redactTokenLikeText(error?.trim() ?? "") || t("workspace.failed_load_tasks");
+  return { tone: "error", label: "Error", message, title: message };
 }
 
 export function parseTemplateFrontmatter(raw: string) {

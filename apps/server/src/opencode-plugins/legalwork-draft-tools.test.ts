@@ -1,14 +1,16 @@
 import { expect, test } from "bun:test";
-import { LegalWorkDraftTools } from "./legalwork-draft-tools.js";
+import pluginDefinition from "./legalwork-draft-tools.js";
+import { nativePluginTools } from "./native-plugin-test-support.js";
+const LegalWorkDraftTools = (context = {}) => nativePluginTools(pluginDefinition, context);
 
 test("meeting requests use the editable card without a connected calendar or background save", async () => {
-  const plugin = await LegalWorkDraftTools(), output = { system: ["Existing instructions"] };
-  await plugin["experimental.chat.system.transform"]({}, output);
-  expect(output.system[0]).toBe("Existing instructions");
-  expect(output.system[1]).toContain("legalwork_calendar_event_draft");
-  expect(output.system[1]).toContain("without connecting Google or Outlook");
-  expect(output.system[1]).toContain("do not save the event in the background");
-  expect(output.system[1]).toContain("guest emails in attendees");
+  const plugin = await LegalWorkDraftTools(), output = { system: [{type:"text",text:"Existing instructions"}] };
+  await plugin.runtime.hook("session", "context", output);
+  expect(output.system[0].text).toBe("Existing instructions");
+  expect(output.system[1].text).toContain("legalwork_calendar_event_draft");
+  expect(output.system[1].text).toContain("without connecting Google or Outlook");
+  expect(output.system[1].text).toContain("do not save the event in the background");
+  expect(output.system[1].text).toContain("guest emails in attendees");
   expect(plugin.tool.legalwork_calendar_event_draft.description).toContain("Add to LegalWork calendar");
 });
 

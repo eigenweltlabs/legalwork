@@ -21,21 +21,19 @@ test("draft HTTP routes enforce auth, revisions, workspace boundaries and read-o
     const server = await startServer(config), base = "http://127.0.0.1:" + server.port;
     const call = (path, method="GET", body, token="test") => fetch(base + path, { method, headers: { authorization: "Bearer " + token, "content-type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
     try {
-      const issued = await fetch(base + "/tokens", { method: "POST", headers: { "x-legalwork-host-token": "host", "content-type": "application/json" }, body: JSON.stringify({ scope: "viewer", label: "draft-test" }) });
-      assert.equal(issued.status, 201);
-      const viewer = (await issued.json()).token;
+      const viewer = "owt_retired_viewer";
       for (const kind of ["email", "calendar"]) {
         const path = "/workspace/project/" + kind + "-drafts";
         const input = kind === "email"
           ? { to: "client@example.com", subject: "Review contract", body: "Please review.", attachments: [{ path: "contract.txt", contentType: "text/plain" }] }
           : { title: "Contract review", start: "2026-10-13T14:00:00", end: "2026-10-13T15:00:00", timeZone: "Europe/Berlin", attendees: "guest@example.com", organizer: "host@example.com", location: "Office", url: "https://example.com/meeting", reminders: [15, 60] };
         assert.equal((await call(path, "POST", input, "bad")).status, 401);
-        assert.equal((await call(path, "POST", input, viewer)).status, 403);
+        assert.equal((await call(path, "POST", input, viewer)).status, 401);
         const created = await call(path, "POST", input);
         assert.equal(created.status, 200);
         const draft = (await created.json()).draft, itemPath = path + "/" + draft.id;
-        assert.equal((await call(itemPath, "GET", undefined, viewer)).status, 200);
-        assert.equal((await call(itemPath, "PUT", draft, viewer)).status, 403);
+        assert.equal((await call(itemPath, "GET", undefined, viewer)).status, 401);
+        assert.equal((await call(itemPath, "PUT", draft, viewer)).status, 401);
         assert.equal((await call("/workspace/other/" + kind + "-drafts/" + draft.id)).status, 404);
         assert.equal((await call("/workspace/other/" + kind + "-drafts/" + draft.id, "PUT", draft)).status, 409);
         const raw = await call("/workspace/project/files/raw?path=" + encodeURIComponent(draft.path));
@@ -56,7 +54,7 @@ test("draft HTTP routes enforce auth, revisions, workspace boundaries and read-o
           const action = "/workspace/project/calendar/drafts/" + saved.id;
           assert.equal((await (await call(action)).json()).item, null);
           assert.equal((await call(action, "POST", { draftRevision: saved.revision }, "bad")).status, 401);
-          assert.equal((await call(action, "POST", { draftRevision: saved.revision }, viewer)).status, 403);
+          assert.equal((await call(action, "POST", { draftRevision: saved.revision }, viewer)).status, 401);
           assert.equal((await call("/workspace/other/calendar/drafts/" + saved.id, "POST", { draftRevision: saved.revision })).status, 404);
           assert.equal((await call(action, "POST", { draftRevision: draft.revision })).status, 409);
           const added = await call(action, "POST", { draftRevision: saved.revision });

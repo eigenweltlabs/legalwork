@@ -1,0 +1,84 @@
+name: Windows OpenCode archive acceptance
+on:
+  workflow_call:
+    inputs:
+      manifest-sha256:
+        description: Independently reviewed complete distribution digest
+        type: string
+        required: true
+permissions:
+  contents: read
+jobs:
+  install:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2022
+            arch: x64
+          - os: windows-11-arm
+            arch: arm64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24.22.1
+      - uses: actions/download-artifact@v4
+        with:
+          name: opencode-derivative-ci
+          path: ${{ runner.temp }}/opencode-derivative
+      - name: Select the exact reviewed distribution for this test checkout
+        env:
+          MANIFEST_SHA256: ${{ inputs.manifest-sha256 }}
+        run: node scripts/ci/select-opencode-derivative.mjs "$RUNNER_TEMP/opencode-derivative/derivative-release.json" "$MANIFEST_SHA256"
+      - uses: ./.github/actions/setup-opencode
+        with:
+          archive-directory: ${{ runner.temp }}/opencode-derivative/archives
+          manifest-sha256: ${{ inputs.manifest-sha256 }}
+      - name: Verify native archive extraction and actual selected engine
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { createHash } from 'node:crypto';
+          import { mkdtemp, readFile, stat, writeFile } from 'node:fs/promises';
+          import path from 'node:path';
+          import { spawnSync } from 'node:child_process';
+          import { opencodeArchiveTarExecutable, downloadOpencodeBinary, opencodeReleaseTarget } from './packages/opencode-release/index.mjs';
+          import { opencodeEngineSelection, verifySelectedOpencodeEngine } from './packages/opencode-release/selection.mjs';
+          const target = opencodeReleaseTarget();
+          const root = await mkdtemp(path.join(process.env.RUNNER_TEMP, 'native-archive-check-'));
+          const tool = opencodeArchiveTarExecutable();
+          assert.equal(tool, path.join(process.env.SystemRoot, 'System32', 'tar.exe'));
+          const tar = spawnSync(tool, ['--version'], { encoding: 'utf8', windowsHide: true });
+          assert.equal(tar.status, 0, tar.stderr); assert.match(tar.stdout, /bsdtar/i);
+          const originalRoot = process.env.SystemRoot;
+          try {
+            process.env.SystemRoot = path.join(root, 'missing-os-tools');
+            assert.throws(opencodeArchiveTarExecutable, /Windows system tar is required/);
+          } finally { process.env.SystemRoot = originalRoot; }
+          const candidate = await verifySelectedOpencodeEngine(process.env.LEGALWORK_TEST_OPENCODE_BIN);
+          assert.equal(JSON.parse(await readFile(path.join(candidate.directory, 'provenance.json'), 'utf8')).target, target);
+          const version = spawnSync(candidate.path, ['--version'], { encoding: 'utf8', windowsHide: true });
+          assert.equal(version.status, 0, version.stderr); assert.equal(version.stdout.trim(), `opencode v${opencodeEngineSelection.version}`);
+          // Exercise the public official archive path too, without executing or
+          // shipping the old upstream binary. Its pinned SRI remains mandatory.
+          const official = await downloadOpencodeBinary({ destination: path.join(root, 'official-opencode.exe'), cacheDirectory: path.join(root, 'official-cache'), target });
+          assert.ok((await stat(official.destination)).size > 0);
+          const report = { platform: process.platform, arch: process.arch, target, nativeTar: tool, nativeTarVersion: tar.stdout.trim(), missingNativeToolRejected: true,
+            selectedVersion: opencodeEngineSelection.version, selectedBinarySha256: candidate.sha256, actualSelectedEngineExecuted: true,
+            officialArchiveExtractedWithPinnedIntegrity: true, officialBinaryExecuted: false,
+            officialBinarySha256: createHash('sha256').update(await readFile(official.destination)).digest('hex'), fullPackageStartupTested: false };
+          await writeFile(path.join(process.env.RUNNER_TEMP, 'windows-opencode-archive-acceptance.json'), JSON.stringify(report, null, 2) + '\n');
+          console.log(JSON.stringify(report));
+          NODE
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-opencode-archive-${{ matrix.arch }}
+          path: ${{ runner.temp }}/windows-opencode-archive-acceptance.json
+          if-no-files-found: error
+          retention-days: 7

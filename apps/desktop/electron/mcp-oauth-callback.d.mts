@@ -7,7 +7,7 @@ export function watchMcpOAuthOwner(
 ): void;
 export function createMcpOAuthCallbackBroker(options?: { timeoutMs?: number }): {
   listen(options?: { redirectUri?: string }, owner?: number): Promise<{ listenerId: string; redirectUri: string }>;
-  wait(options: { listenerId: string; state: string }, owner?: number): Promise<{ code: string }>;
+  wait(options: { listenerId: string; state: string }, owner?: number): Promise<{ code: string; iss?: string }>;
   cancel(listenerId: string, owner?: number): void;
   cancelOwner(owner: number): void;
   close(): void;

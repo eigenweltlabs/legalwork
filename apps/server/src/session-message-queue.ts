@@ -9,11 +9,13 @@ import type { ServerConfig } from "./types.js";
 export type QueueTransport = {
   confirmed?: (workspaceId: string, sessionId: string, entry: QueueEntry) => Promise<boolean>;
   idle: (workspaceId: string, sessionId: string) => Promise<boolean>;
-  send: (workspaceId: string, sessionId: string, entry: QueueEntry) => Promise<void | { pause: boolean; reason?: "stop" | "error" }>;
+  send: (workspaceId: string, sessionId: string, entry: QueueEntry) => Promise<void | { pause: boolean; reason?: "stop" | "error" } | { accepted: true }>;
+  settled?: (workspaceId: string, sessionId: string, entry: QueueEntry) => Promise<{ pause: boolean; reason?: "stop" | "error" } | undefined>;
 };
 /** Only use before calling a delivery endpoint; later failures may have been accepted. */
 export class QueuePreparationError extends Error {}
 const keyOf = (workspaceId: string, sessionId: string) => JSON.stringify([workspaceId, sessionId]);
+const inFlight = (entry: QueueEntry) => entry.status === "sending" || entry.status === "accepted";
 const conflict = () => new ApiError(409, "queue_changed", "The queue changed in another window. Refresh and try again.");
 
 /** One backend dispatcher; atomic private files survive renderer and server
@@ -28,6 +30,7 @@ export class SessionMessageQueue {
   private ready: Promise<void>;
   private timer: ReturnType<typeof setInterval>;
   private stopped = false;
+  private changes = new Map<string, Set<() => void>>();
   constructor(private directory: string, private transport: QueueTransport) {
     this.ready = this.load();
     // Keep startup failures observable by API calls without an unhandled rejection.
@@ -85,6 +88,29 @@ export class SessionMessageQueue {
     const current = await this.read(workspaceId, sessionId);
     return revision === String(current.revision) ? null : current;
   }
+  /** Wait for the durable entry lifecycle, including pre-admission staging.
+   * State notifications avoid a polling loop or an arbitrary task deadline. */
+  async waitForEntry(workspaceId: string, sessionId: string, id: string, signal: AbortSignal) {
+    const key = keyOf(workspaceId, sessionId);
+    for (;;) {
+      signal.throwIfAborted();
+      if (this.stopped) throw new ApiError(503, "server_stopped", "The server stopped while waiting for the queued message.");
+      let wake = () => {};
+      const changed = new Promise<void>(resolve => { wake = resolve; });
+      const listeners = this.changes.get(key) ?? new Set<() => void>();
+      this.changes.set(key, listeners); listeners.add(wake);
+      signal.addEventListener("abort", wake, { once: true });
+      try {
+        const entry = (await this.read(workspaceId, sessionId)).entries.find(entry => entry.id === id);
+        if (!entry) return;
+        if (entry.status === "failed" || entry.status === "uncertain") throw new ApiError(409, "queue_delivery_unconfirmed", entry.error ?? "Message delivery could not be confirmed. Check the conversation before retrying.", { entryId: id });
+        await changed;
+      } finally {
+        signal.removeEventListener("abort", wake); listeners.delete(wake);
+        if (!listeners.size) this.changes.delete(key);
+      }
+    }
+  }
   private async change(workspaceId: string, sessionId: string, update: (queue: SessionQueue) => void) {
     await this.ready;
     const key = keyOf(workspaceId, sessionId);
@@ -97,6 +123,7 @@ export class SessionMessageQueue {
       queue.revision++;
       await this.persist(queue);
       this.states.set(key, queue);
+      for (const listener of this.changes.get(key) ?? []) listener();
       if (queue.entries.length) this.pending.add(key); else this.pending.delete(key);
       return structuredClone(queue);
     })();
@@ -117,14 +144,14 @@ export class SessionMessageQueue {
         if (entry) {
           if (!action.editToken) return; // A retried enqueue is idempotent.
           if (entry.lastEditToken === action.editToken) return;
-          if (entry.status === "sending" || entry.edit?.token !== action.editToken) throw conflict();
+          if (inFlight(entry) || entry.edit?.token !== action.editToken) throw conflict();
           Object.assign(entry, { draft: action.draft, execution: action.execution, messageId: action.messageId, status: "queued", lastEditToken: action.editToken });
           delete entry.edit; delete entry.error;
         } else {
           if (action.editToken) throw conflict();
           if (queue.entries.length >= 100) throw new ApiError(400, "queue_full", "The queue is full.");
           queue.entries.push({ id: action.id, draft: action.draft, execution: action.execution, messageId: action.messageId, status: "queued" });
-          if (queue.paused && queue.pauseReason === "stop" && !queue.entries.some(item => item.status === "uncertain")) {
+          if (action.resumeStopped !== false && queue.paused && queue.pauseReason === "stop" && !queue.entries.some(item => item.status === "uncertain")) {
             queue.paused = false; delete queue.pauseReason;
             queue.resumeRevision = queue.revision + 1;
           }
@@ -137,13 +164,13 @@ export class SessionMessageQueue {
         if (!action.paused) for (const item of queue.entries) { if (item.status === "failed") item.status = "queued"; delete item.error; }
       } else if (action.type === "reorder") {
         const requested = new Set(action.ids);
-        const waiting = queue.entries.filter(item => item.status !== "sending");
+        const waiting = queue.entries.filter(item => !inFlight(item));
         if (requested.size !== action.ids.length || requested.size !== waiting.length || waiting.some(item => !requested.has(item.id))) throw conflict();
         waiting.sort((a, b) => action.ids.indexOf(a.id) - action.ids.indexOf(b.id));
         // The in-flight delivery keeps its place and cannot be sent a second time.
-        queue.entries = [...queue.entries.filter(item => item.status === "sending"), ...waiting];
+        queue.entries = [...queue.entries.filter(item => inFlight(item)), ...waiting];
       } else {
-        if (!entry || entry.status === "sending") throw conflict();
+        if (!entry || inFlight(entry)) throw conflict();
         if (action.type === "edit") {
           if (entry.status === "uncertain" || (entry.edit && entry.edit.token !== action.token)) throw conflict();
           entry.edit = { token: action.token, expires: now + 120_000 };
@@ -177,14 +204,31 @@ export class SessionMessageQueue {
       for (const entry of queue.entries.filter(entry => entry.status === "uncertain")) {
         if (await this.transport.confirmed?.(queue.workspaceId, queue.sessionId, entry).catch(() => false)) {
           await this.change(queue.workspaceId, queue.sessionId, current => {
-            current.entries = current.entries.filter(item => item.id !== entry.id);
-            current.completedIds = [...current.completedIds, entry.id].slice(-500);
+            if (this.transport.settled) {
+              const accepted = current.entries.find(item => item.id === entry.id);
+              if (accepted) { accepted.status = "accepted"; delete accepted.error; }
+            } else {
+              current.entries = current.entries.filter(item => item.id !== entry.id);
+              current.completedIds = [...current.completedIds, entry.id].slice(-500);
+            }
             if (current.pauseReason === "error" && !current.entries.some(item => item.status === "uncertain" || item.status === "failed")) {
               current.paused = false;
               delete current.pauseReason;
             }
           });
         }
+      }
+      for (const entry of (this.states.get(key) ?? queue).entries.filter(entry => entry.status === "accepted")) {
+        const outcome = await this.transport.settled?.(queue.workspaceId, queue.sessionId, entry).catch(() => undefined);
+        if (outcome === undefined) continue;
+        await this.change(queue.workspaceId, queue.sessionId, current => {
+          current.entries = current.entries.filter(item => item.id !== entry.id);
+          current.completedIds = [...current.completedIds, entry.id].slice(-500);
+          if (outcome.pause && (current.resumeRevision ?? 0) <= (entry.dispatchRevision ?? current.revision)) {
+            current.paused = true;
+            current.pauseReason = outcome.reason ?? "error";
+          }
+        });
       }
       if (queue.entries.some(entry => entry.edit && entry.edit.expires <= Date.now())) {
         await this.change(queue.workspaceId, queue.sessionId, current => {
@@ -214,7 +258,7 @@ export class SessionMessageQueue {
     await this.change(workspaceId, sessionId, queue => {
       const first = queue.entries[0];
       if (queue.paused || !first || first.status !== "queued" || queue.entries.some(entry => entry.edit)) return;
-      first.status = "sending"; item = structuredClone(first); dispatchRevision = queue.revision;
+      first.status = "sending"; first.dispatchRevision = queue.revision; item = structuredClone(first); dispatchRevision = queue.revision;
     });
     if (!item || this.stopped) return;
     return { item, revision: dispatchRevision };
@@ -223,6 +267,11 @@ export class SessionMessageQueue {
     try {
       const result = await this.transport.send(workspaceId, sessionId, sent);
       await this.change(workspaceId, sessionId, queue => {
+        if (result && "accepted" in result) {
+          const accepted = queue.entries.find(entry => entry.id === sent.id);
+          if (accepted) { accepted.status = "accepted"; delete accepted.error; }
+          return;
+        }
         queue.entries = queue.entries.filter(entry => entry.id !== sent.id);
         queue.completedIds = [...queue.completedIds, sent.id].slice(-500);
         if (result?.pause && (queue.resumeRevision ?? 0) <= dispatchRevision) {
@@ -235,8 +284,13 @@ export class SessionMessageQueue {
         await this.transport.confirmed?.(workspaceId, sessionId, sent).catch(() => false);
       await this.change(workspaceId, sessionId, queue => {
         if (confirmed) {
-          queue.entries = queue.entries.filter(entry => entry.id !== sent.id);
-          queue.completedIds = [...queue.completedIds, sent.id].slice(-500);
+          if (this.transport.settled) {
+            const accepted = queue.entries.find(entry => entry.id === sent.id);
+            if (accepted) { accepted.status = "accepted"; delete accepted.error; }
+          } else {
+            queue.entries = queue.entries.filter(entry => entry.id !== sent.id);
+            queue.completedIds = [...queue.completedIds, sent.id].slice(-500);
+          }
           return;
         }
         const entry = queue.entries.find(entry => entry.id === sent.id);
@@ -255,13 +309,15 @@ export class SessionMessageQueue {
     this.removed.add(key);
     await this.writes.get(key)?.catch(() => {});
     this.states.delete(key); this.pending.delete(key);
+    for (const listener of this.changes.get(key) ?? []) listener();
     const name = createHash("sha256").update(key).digest("hex") + ".json";
     await rm(join(this.directory, name), { force: true });
   }
-  stop() { this.stopped = true; clearInterval(this.timer); }
+  stop() { this.stopped = true; clearInterval(this.timer); for (const listeners of this.changes.values()) for (const listener of listeners) listener(); }
 }
 
 const queues = new WeakMap<ServerConfig, SessionMessageQueue>();
+export function registeredMessageQueue(config: ServerConfig) { return queues.get(config); }
 export function getMessageQueue(config: ServerConfig) {
   const queue = queues.get(config);
   if (!queue) throw new Error("The message queue is not ready.");

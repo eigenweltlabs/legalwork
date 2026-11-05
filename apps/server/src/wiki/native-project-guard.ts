@@ -3,11 +3,11 @@ import { canonicalFolderPath } from "./workspace-safety.js";
 import { within } from "../agent-sandbox/files.js";
 import { ApiError } from "../errors.js";
 
-export const wikiNativeFileTools = new Set(["read", "edit", "write", "apply_patch", "patch", "multiedit", "glob", "grep", "list", "bash", "legalwork_task_attach", "benchmark_create_task", "legalwork_skill_create"]);
+export const wikiNativeFileTools = new Set(["read", "edit", "write", "apply_patch", "patch", "multiedit", "glob", "grep", "list", "bash", "shell", "legalwork_task_attach", "benchmark_create_task", "legalwork_skill_create"]);
 /** Native host tools must never turn a project's read-only chat grant into write access. */
 export async function assertWikiNativeFileAccess(root: string, tool: string, args: Record<string, unknown>, directory = root): Promise<void> {
   if (!wikiNativeFileTools.has(tool)) return;
-  if (tool === "bash") throw new ApiError(403, "wiki_sandbox_required", "Use legalwork_shell with protected execution enabled in a wiki chat. Native host commands cannot enforce project access.");
+  if (tool === "bash" || tool === "shell") throw new ApiError(403, "wiki_sandbox_required", "Use legalwork_shell with protected execution enabled in a wiki chat. Native host commands cannot enforce project access.");
   const deny = () => new ApiError(403, "wiki_native_project_access", "Use wiki_project_files/wiki_project_read for approved project files, or protected execution. Native file tools in a wiki chat can only access its own wiki.");
   if (tool === "legalwork_task_attach" || tool === "benchmark_create_task" || tool === "legalwork_skill_create") {
     const paths = tool === "legalwork_task_attach" ? args.paths : tool === "benchmark_create_task" ? args.documentPaths : args.resourcePaths;

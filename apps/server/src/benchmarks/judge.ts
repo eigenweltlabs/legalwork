@@ -73,20 +73,31 @@ export function buildJudgePrompt(input: {
   deliverables: JudgeDeliverable[];
 }): string {
   const fileLines = input.deliverables.map((deliverable) => {
-    if (!deliverable.relativePath) return `- ${deliverable.name} — MISSING: the agent did not produce this file`;
-    if (deliverable.text) return `- ${deliverable.name} — content included below`;
+    if (!deliverable.relativePath)
+      return `- ${deliverable.name} — MISSING: the agent did not produce this file`;
+    if (deliverable.text)
+      return `- ${deliverable.name} — content included below`;
     return `- ${deliverable.name} — read the file at \`${deliverable.relativePath}\``;
   });
   const contentSections = input.deliverables
     .filter((deliverable) => deliverable.text)
-    .flatMap((deliverable) => ["", `## Content of ${deliverable.name}`, "", deliverable.text!]);
+    .flatMap((deliverable) => [
+      "",
+      `## Content of ${deliverable.name}`,
+      "",
+      deliverable.text!,
+    ]);
   const criteriaSections = input.task.criteria.flatMap((criterion) => [
     "",
     `### ${criterion.id}: ${criterion.title}`,
-    ...(criterion.deliverables.length ? [`Applies to: ${criterion.deliverables.join(", ")}`] : []),
+    ...(criterion.deliverables.length
+      ? [`Applies to: ${criterion.deliverables.join(", ")}`]
+      : []),
     criterion.matchCriteria,
   ]);
-  const needsReading = input.deliverables.some((deliverable) => deliverable.relativePath && !deliverable.text);
+  const needsReading = input.deliverables.some(
+    (deliverable) => deliverable.relativePath && !deliverable.text,
+  );
   return [
     "## Task given to the agent",
     `Title: ${input.task.title}`,
@@ -94,7 +105,9 @@ export function buildJudgePrompt(input: {
     input.task.instructions.trim(),
     "",
     "## Deliverable file(s) to evaluate",
-    ...(fileLines.length ? fileLines : ["- (the task defines no deliverable files)"]),
+    ...(fileLines.length
+      ? fileLines
+      : ["- (the task defines no deliverable files)"]),
     ...contentSections,
     "",
     `## Criteria to judge (${input.task.criteria.length})`,
@@ -106,18 +119,27 @@ export function buildJudgePrompt(input: {
   ].join("\n");
 }
 
-function normalizeDecision(value: unknown): (JudgeDecision & { id: string }) | null {
+function normalizeDecision(
+  value: unknown,
+): (JudgeDecision & { id: string }) | null {
   if (typeof value !== "object" || value === null) return null;
   const record = value as Record<string, unknown>;
   const id = typeof record.id === "string" ? record.id.trim() : "";
-  const verdict = typeof record.verdict === "string" ? record.verdict.trim().toLowerCase() : "";
+  const verdict =
+    typeof record.verdict === "string"
+      ? record.verdict.trim().toLowerCase()
+      : "";
   if (!id || (verdict !== "pass" && verdict !== "fail")) return null;
-  const reasoning = typeof record.reasoning === "string" ? record.reasoning.trim() : "";
+  const reasoning =
+    typeof record.reasoning === "string" ? record.reasoning.trim() : "";
   return { id, verdict, reasoning };
 }
 
 /** Parse a structured batch response into criterionId → decision. */
-export function parseJudgeVerdicts(value: unknown): Map<string, JudgeDecision> | null {
+export function parseJudgeVerdicts(
+  value: unknown,
+  expectedIds?: readonly string[],
+): Map<string, JudgeDecision> | null {
   let candidate = value;
   if (typeof candidate === "string") {
     try {
@@ -129,10 +151,22 @@ export function parseJudgeVerdicts(value: unknown): Map<string, JudgeDecision> |
   if (typeof candidate !== "object" || candidate === null) return null;
   const verdicts = (candidate as Record<string, unknown>).verdicts;
   if (!Array.isArray(verdicts)) return null;
+  if (expectedIds && verdicts.length !== expectedIds.length) return null;
   const decisions = new Map<string, JudgeDecision>();
   for (const entry of verdicts) {
     const decision = normalizeDecision(entry);
-    if (decision) decisions.set(decision.id, { verdict: decision.verdict, reasoning: decision.reasoning });
+    if (
+      expectedIds &&
+      (!decision ||
+        decisions.has(decision.id) ||
+        !expectedIds.includes(decision.id))
+    )
+      return null;
+    if (decision)
+      decisions.set(decision.id, {
+        verdict: decision.verdict,
+        reasoning: decision.reasoning,
+      });
   }
   return decisions.size ? decisions : null;
 }
@@ -144,14 +178,21 @@ export function parseJudgeVerdicts(value: unknown): Map<string, JudgeDecision> |
  * prose, reasoning, or a markdown fence. The LAST parseable verdicts object
  * wins (thinking models put their reasoning first and the answer at the end).
  */
-export function parseJudgeVerdictsFromText(text: string): Map<string, JudgeDecision> | null {
+export function parseJudgeVerdictsFromText(
+  text: string,
+  expectedIds?: readonly string[],
+): Map<string, JudgeDecision> | null {
   const trimmed = text.trim();
   if (!trimmed) return null;
-  const direct = parseJudgeVerdicts(trimmed);
+  const direct = parseJudgeVerdicts(trimmed, expectedIds);
   if (direct) return direct;
 
   let last: Map<string, JudgeDecision> | null = null;
-  for (let start = trimmed.indexOf("{"); start !== -1; start = trimmed.indexOf("{", start + 1)) {
+  for (
+    let start = trimmed.indexOf("{");
+    start !== -1;
+    start = trimmed.indexOf("{", start + 1)
+  ) {
     let depth = 0;
     let inString = false;
     let escaped = false;
@@ -171,7 +212,10 @@ export function parseJudgeVerdictsFromText(text: string): Map<string, JudgeDecis
       else if (char === "}") {
         depth -= 1;
         if (depth === 0) {
-          const parsed = parseJudgeVerdicts(trimmed.slice(start, end + 1));
+          const parsed = parseJudgeVerdicts(
+            trimmed.slice(start, end + 1),
+            expectedIds,
+          );
           if (parsed) last = parsed;
           break;
         }
@@ -182,12 +226,18 @@ export function parseJudgeVerdictsFromText(text: string): Map<string, JudgeDecis
 }
 
 /** Binary all-pass scoring with pass-count diagnostics (Harvey's methodology). */
-export function scoreVerdicts(verdicts: Array<{ verdict: "pass" | "fail" | "error" }>): {
+export function scoreVerdicts(
+  verdicts: Array<{ verdict: "pass" | "fail" | "error" }>,
+): {
   score: number;
   nCriteria: number;
   nPassed: number;
 } {
   const nCriteria = verdicts.length;
   const nPassed = verdicts.filter((entry) => entry.verdict === "pass").length;
-  return { score: nCriteria > 0 && nPassed === nCriteria ? 1 : 0, nCriteria, nPassed };
+  return {
+    score: nCriteria > 0 && nPassed === nCriteria ? 1 : 0,
+    nCriteria,
+    nPassed,
+  };
 }

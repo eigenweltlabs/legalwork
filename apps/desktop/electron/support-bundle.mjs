@@ -61,7 +61,7 @@ export function defaultSupportBundleFileName() {
  * picks where the file goes). `network` is how this machine reaches GitHub,
  * which main.mjs looks up asynchronously.
  */
-export function buildSupportBundleText({ app, runtimeManager, network = null }) {
+export async function buildSupportBundleText({ app, runtimeManager, network = null }) {
   const parts = [];
 
   const meta = {
@@ -80,7 +80,7 @@ export function buildSupportBundleText({ app, runtimeManager, network = null }) 
   if (network) parts.push(section("Network", JSON.stringify(network, null, 2)));
 
   try {
-    const diagnostics = runtimeManager.collectRuntimeDiagnostics();
+    const diagnostics = await runtimeManager.collectRuntimeDiagnostics();
     parts.push(section("Runtime diagnostics", JSON.stringify(diagnostics, null, 2)));
   } catch (error) {
     parts.push(section("Runtime diagnostics", `collection failed: ${error instanceof Error ? error.message : String(error)}`));

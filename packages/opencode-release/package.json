@@ -1,0 +1,43 @@
+{
+  "name": "@legalwork/opencode-release",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./index.d.mts",
+      "import": "./index.mjs"
+    },
+    "./release.json": "./release.json",
+    "./candidate": {
+      "types": "./candidate.d.mts",
+      "import": "./candidate.mjs"
+    },
+    "./derivative": {
+      "types": "./derivative.d.mts",
+      "import": "./derivative.mjs"
+    },
+    "./derivative-release.json": "./derivative-release.json",
+    "./selection": {
+      "types": "./selection.d.mts",
+      "import": "./selection.mjs"
+    }
+  },
+  "files": [
+    "index.mjs",
+    "index.d.mts",
+    "release.json",
+    "candidate.mjs",
+    "candidate.d.mts",
+    "build/recipe.json",
+    "derivative.mjs",
+    "derivative.d.mts",
+    "derivative-release.json",
+    "build-policy.mjs",
+    "selection.json",
+    "generated/selection.json",
+    "selection.mjs",
+    "selection.d.mts",
+    "install.mjs"
+  ]
+}

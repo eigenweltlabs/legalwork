@@ -139,6 +139,9 @@ contextBridge.exposeInMainWorld("__LEGALWORK_ELECTRON__", {
     },
   },
   browser: {
+    registerConnection(value) { return ipcRenderer.invoke("legalwork:browser:registerConnection", value); },
+    attachSession(context) { return ipcRenderer.invoke("legalwork:browser:attachSession", context); },
+    connection(tabId, context) { return ipcRenderer.invoke("legalwork:browser:connection", tabId, context); },
     show(bounds, tabId) { return ipcRenderer.invoke("legalwork:browser:show", bounds, tabId); },
     hide(tabId) { return ipcRenderer.invoke("legalwork:browser:hide", tabId); },
     openUrl(url, provider, context) { return ipcRenderer.invoke("legalwork:browser:openUrl", url, provider, context); },

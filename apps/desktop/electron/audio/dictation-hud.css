@@ -9,6 +9,7 @@
   --primary:#252529;
   --primary-fg:#fff;
   --success:#12a150;
+  --warning:#b4690e;
   --danger:#e5484d;
   --ease:cubic-bezier(.16,1,.3,1)
 }
@@ -23,6 +24,7 @@
   --primary:#ececee;
   --primary-fg:#1c1c20;
   --success:#32b56b;
+  --warning:#efb45b;
   --danger:#f16a6e;
 }
 
@@ -129,7 +131,7 @@ svg {
   stroke-linejoin:round
 }
 
-#cancel,#stop,#dismiss,#check,#label,#start {
+#cancel,#stop,#dismiss,#check,#copy,#copy-instructions,#label,#start {
   display:none
 }
 
@@ -258,7 +260,8 @@ body[data-state=listening] #cancel,
 body[data-state=listening] #stop,
 body[data-state=starting] #cancel,
 body[data-state=starting] #stop,
-body[data-state=transcribing] #cancel {
+body[data-state=transcribing] #cancel,
+body[data-state=inserting] #cancel {
   display:flex
 }
 
@@ -275,7 +278,8 @@ body[data-state=starting] #waveform i {
   will-change:transform
 }
 
-body[data-state=transcribing] #bar {
+body[data-state=transcribing] #bar,
+body[data-state=inserting] #bar {
   width:160px;
   gap:7px
 }
@@ -562,6 +566,27 @@ html body:is([data-dock=left],[data-dock=right]):is([data-state=transcribing],[d
 html body:is([data-dock=left],[data-dock=right]) #label { opacity:0; transition:opacity 140ms }
 html body:is([data-dock=left],[data-dock=right]) #bar[data-hovered=true] #label { opacity:1 }
 
+/* Clipboard recovery stays visible long enough to read, without taking focus. */
+html body:is([data-dock=bottom],[data-dock=left],[data-dock=right])[data-state=copied] #bar {
+  display:grid; grid-template-columns:20px minmax(0,1fr) 22px;
+  width:340px; max-width:calc(100% - 16px); height:auto; min-height:0;
+  padding:14px; gap:6px 10px; border-radius:14px;
+}
+body[data-state=copied] #notice { display:none }
+body[data-state=copied] #visual { grid-column:1; grid-row:1; width:20px; height:20px; color:var(--warning) }
+body[data-state=copied] #waveform { display:none }
+body[data-state=copied] #copy { display:block; width:18px; height:18px }
+html body:is([data-dock=bottom],[data-dock=left],[data-dock=right])[data-state=copied] #label {
+  display:block; grid-column:2; grid-row:1; position:static;
+  width:auto; max-width:none; max-height:none; margin:0; padding:0; border:0;
+  background:none; box-shadow:none; opacity:1; transform:none;
+  font-size:13px; font-weight:600; white-space:normal; line-height:1.4;
+}
+body[data-state=copied] #copy-instructions {
+  display:block; grid-column:2 / 4; grid-row:2;
+  color:var(--muted); font-size:12px; line-height:1.5;
+}
+body[data-state=copied] #dismiss { display:flex; grid-column:3; grid-row:1; align-self:start }
 /* Floating companion: a handle into the Assistant with a quiet attention badge. */
 #assistant { display:none; position:relative; width:28px; height:28px; border-radius:7px; align-items:center; justify-content:center }
 #assistant svg { width:16px; height:16px }

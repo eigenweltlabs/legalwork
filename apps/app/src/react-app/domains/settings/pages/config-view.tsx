@@ -16,9 +16,7 @@ import { t } from "../../../../i18n";
 import {
   ConfigDiagnosticsSection,
   ConfigEngineReloadSection,
-  ConfigMessagingIdentitiesSection,
   ConfigServerConnectionSection,
-  ConfigServerSharingSection,
   ConfigWorkspaceSummary,
 } from "./config-view-sections";
 import { configLocalReducer, initialConfigLocalState } from "./config-view-state";
@@ -52,8 +50,6 @@ function buildDiagnosticsBundleJson(input: {
   canReloadWorkspace: boolean;
   clientConnected: boolean;
   developerMode: boolean;
-  hostConnectUrl: string;
-  hostConnectUrlUsesMdns: boolean;
   hostInfo: LegalworkServerInfo | null;
   legalworkServerSettings: LegalworkServerSettings;
   legalworkServerStatus: LegalworkServerStatus;
@@ -95,10 +91,6 @@ function buildDiagnosticsBundleJson(input: {
     },
     reload: {
       canReloadWorkspace: input.canReloadWorkspace,
-    },
-    sharing: {
-      hostConnectUrl: input.hostConnectUrl || null,
-      hostConnectUrlUsesMdns: input.hostConnectUrlUsesMdns,
     },
     performance: {
       retainedEntries: perfLogs.length,
@@ -208,31 +200,12 @@ export function ConfigView(props: ConfigViewProps) {
   })();
 
   const hostInfo = props.legalworkServerHostInfo;
-  const hostRemoteAccessEnabled = hostInfo?.remoteAccessEnabled === true;
-  const hostStatusLabel = !hostInfo?.running
-    ? t("config.host_offline")
-    : hostRemoteAccessEnabled
-      ? t("config.host_remote_enabled")
-      : t("config.host_local_only");
-  const hostStatusStyle = !hostInfo?.running
-    ? "bg-gray-4/60 text-gray-11 border-gray-7/50"
-    : "bg-green-7/10 text-green-11 border-green-7/20";
-  const hostConnectUrl =
-    hostInfo?.connectUrl ??
-    hostInfo?.mdnsUrl ??
-    hostInfo?.lanUrl ??
-    hostInfo?.baseUrl ??
-    "";
-  const hostConnectUrlUsesMdns = hostConnectUrl.includes(".local");
-
   const diagnosticsBundleJson = useMemo(() => {
     return buildDiagnosticsBundleJson({
       anyActiveRuns: props.anyActiveRuns,
       canReloadWorkspace: props.canReloadWorkspace,
       clientConnected: props.clientConnected,
       developerMode: props.developerMode,
-      hostConnectUrl,
-      hostConnectUrlUsesMdns,
       hostInfo,
       legalworkServerSettings: props.legalworkServerSettings,
       legalworkServerStatus: props.legalworkServerStatus,
@@ -240,8 +213,6 @@ export function ConfigView(props: ConfigViewProps) {
       runtimeWorkspaceId: props.runtimeWorkspaceId,
     });
   }, [
-    hostConnectUrl,
-    hostConnectUrlUsesMdns,
     hostInfo,
     props.anyActiveRuns,
     props.canReloadWorkspace,
@@ -322,20 +293,6 @@ export function ConfigView(props: ConfigViewProps) {
           onCopy={handleCopy}
         />
       ) : null}
-      {hostInfo ? (
-        <ConfigServerSharingSection
-          hostInfo={hostInfo}
-          hostConnectUrl={hostConnectUrl}
-          hostRemoteAccessEnabled={hostRemoteAccessEnabled}
-          hostConnectUrlUsesMdns={hostConnectUrlUsesMdns}
-          hostStatusLabel={hostStatusLabel}
-          hostStatusStyle={hostStatusStyle}
-          tokenVisible={tokenVisible}
-          copyingField={copyingField}
-          onCopy={handleCopy}
-          onToggleToken={(key) => dispatchLocal({ type: "toggleToken", key })}
-        />
-      ) : null}
       <ConfigServerConnectionSection
         busy={props.busy}
         legalworkUrl={legalworkUrl}
@@ -355,7 +312,6 @@ export function ConfigView(props: ConfigViewProps) {
         onSave={() => props.updateLegalworkServerSettings(buildLegalworkSettings())}
         onReset={props.resetLegalworkServerSettings}
       />
-      <ConfigMessagingIdentitiesSection />
       {!isDesktopRuntime() ? <div className="text-xs text-gray-9">{t("config.desktop_only_hint")}</div> : null}
     </section>
   );

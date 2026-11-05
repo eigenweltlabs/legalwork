@@ -7,21 +7,26 @@ import type { ServerConfig } from "../types.js";
 import { WikiStore } from "../wiki/store.js";
 import { ViewRepository, workspaceViewFiles } from "./repository.js";
 
-const toolSchema = z.object({ type: z.literal("tool"), tool: z.enum(["view_create", "view_update"]), callID: z.string(), state: z.object({ status: z.literal("completed"), output: z.unknown(), metadata: z.record(z.string(), z.unknown()).optional() }) });
-const messagesSchema = z.array(z.object({ parts: z.array(z.unknown()) }));
+const toolSchema = z.object({ type: z.literal("tool"), name: z.enum(["view_create", "view_update"]), id: z.string(), state: z.object({
+  status: z.literal("completed"), content: z.array(z.object({ type: z.string(), text: z.string().optional() }).passthrough()), metadata: z.record(z.string(), z.unknown()).optional(),
+}) });
+const messagesSchema = z.array(z.object({ type: z.string(), content: z.array(z.unknown()).optional() }).passthrough());
 export function sessionViewPreviews(messages: unknown): SessionViewPreview[] {
   const result: SessionViewPreview[] = [];
-  for (const message of messagesSchema.parse(messages)) for (const raw of message.parts) {
-    const part = toolSchema.safeParse(raw);
-    if (!part.success) continue;
-    const { callID: callId, state } = part.data;
-    let value = state.metadata?.legalworkViewPreview ?? state.output;
-    if (typeof value === "string") {
-      try { value = JSON.parse(value.replace(/(?:\n\n<system-reminder topic="[^"\r\n]+">\n[\s\S]*?\n<\/system-reminder>)+\s*$/u, "")); } catch { value = null; }
+  for (const message of messagesSchema.parse(messages)) {
+    if (message.type !== "assistant") continue;
+    for (const raw of message.content ?? []) {
+      const part = toolSchema.safeParse(raw);
+      if (!part.success) continue;
+      const { id: callId, state } = part.data;
+      let value: unknown = state.metadata?.legalworkViewPreview ?? state.content.flatMap(item => item.type === "text" && item.text ? [item.text] : []).join("\n");
+      if (typeof value === "string") {
+        try { value = JSON.parse(value.replace(/(?:\n\n<system-reminder topic="[^"\r\n]+">\n[\s\S]*?\n<\/system-reminder>)+\s*$/u, "")); } catch { value = null; }
+      }
+      const preview = ViewPreviewSchema.safeParse(value);
+      if (preview.success) result.push({ callId, title: preview.data.input.title, preview: preview.data });
+      else if (state.metadata?.truncated === true) result.push({ callId, title: "Dashboard preview (content unavailable)" });
     }
-    const preview = ViewPreviewSchema.safeParse(value);
-    if (preview.success) result.push({ callId, title: preview.data.input.title, preview: preview.data });
-    else if (state.metadata?.truncated === true) result.push({ callId, title: "Dashboard preview (content unavailable)" });
   }
   return result;
 }
@@ -53,7 +58,7 @@ export async function savedSessionViews(config: ServerConfig): Promise<SavedSess
     const wikis = await store.list();
     const repositories = [
       ...wikis.map(wiki => new ViewRepository({ kind: "wiki", id: wiki.id }, { list: async () => (await store.files(wiki.id)).map(file => file.path), read: path => store.readAsset(wiki.id, path), write: async () => { throw new Error("Read only"); } })),
-      ...config.workspaces.filter(workspace => workspace.workspaceType !== "remote" && !wikis.some(wiki => wiki.workspaceId === workspace.id)).map(workspace => new ViewRepository({ kind: "workspace", id: workspace.id }, workspaceViewFiles(workspace.path))),
+      ...config.workspaces.filter(workspace => !wikis.some(wiki => wiki.workspaceId === workspace.id)).map(workspace => new ViewRepository({ kind: "workspace", id: workspace.id }, workspaceViewFiles(workspace.path))),
     ];
     const records: ViewRecord[] = [];
     for (const repository of repositories) {

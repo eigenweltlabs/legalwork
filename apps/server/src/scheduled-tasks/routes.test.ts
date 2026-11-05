@@ -13,36 +13,53 @@ test("authenticated HTTP lifecycle, local scope, restart delivery and engine int
     const { ScheduledTaskStore } = await import(${JSON.stringify(new URL("./store.ts", import.meta.url).href)});
     const root = process.env.XDG_CONFIG_HOME, folder = join(root, "project");
     await mkdir(join(folder, ".git"), { recursive: true });
-    const sessions = new Map([["existing", { id: "existing", title: "Matter chat", directory: folder, time: {} }], ["foreign", { id: "foreign", title: "Other project", directory: root, time: {} }], ["archived", { id: "archived", title: "Archived", directory: folder, time: { archived: 1 } }]]);
+    const sessions = new Map([["existing", { id: "existing", title: "Matter chat", location: { directory: folder }, time: {} }], ["foreign", { id: "foreign", title: "Other project", location: { directory: root }, time: {} }], ["archived", { id: "archived", title: "Archived", location: { directory: folder }, time: { archived: 1 } }]]);
     const { Database } = await import("bun:sqlite");
     const inboxDb = new Database(process.env.OPENCODE_DB);
-    inboxDb.exec("CREATE TABLE session (id TEXT PRIMARY KEY, directory TEXT, time_updated INTEGER, time_archived INTEGER); CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT, time_created INTEGER, data TEXT); CREATE INDEX message_session ON message(session_id);");
-    for (const session of sessions.values()) inboxDb.query("INSERT INTO session VALUES (?, ?, ?, ?)").run(session.id, session.directory, Date.now(), session.time.archived ?? null);
-    inboxDb.query("INSERT INTO message VALUES (?, ?, ?, ?)").run("user", "existing", 100, JSON.stringify({ role: "user" }));
-    inboxDb.query("INSERT INTO message VALUES (?, ?, ?, ?)").run("summary", "existing", 200, JSON.stringify({ role: "assistant", summary: true }));
+    // Native v2 read-model fixture; real native scheduling behavior is covered
+    // separately by scheduled-tasks/engine.test.ts.
+    inboxDb.exec("CREATE TABLE session_v2 (id TEXT PRIMARY KEY, directory TEXT, time_updated INTEGER, time_archived INTEGER); CREATE TABLE session_message (id TEXT PRIMARY KEY, session_id TEXT, type TEXT, time_created INTEGER, data TEXT); CREATE INDEX message_session ON session_message(session_id);");
+    for (const session of sessions.values()) inboxDb.query("INSERT INTO session_v2 VALUES (?, ?, ?, ?)").run(session.id, session.location.directory, Date.now(), session.time.archived ?? null);
+    inboxDb.query("INSERT INTO session_message VALUES (?, ?, ?, ?, ?)").run("user", "existing", "user", 100, JSON.stringify({ text: "Matter question" }));
+    inboxDb.query("INSERT INTO session_message VALUES (?, ?, ?, ?, ?)").run("summary", "existing", "compaction", 200, JSON.stringify({}));
     const deliveries = [];
+    const deliveryWaiters = new Map();
+    const waitForDelivery = count => deliveries.length >= count ? Promise.resolve() : new Promise(resolve => deliveryWaiters.set(count, resolve));
     let restrictiveAgent = true;
-    let busy = false, failStatuses = false;
-    const agents = () => [{ name: "legalwork-scheduled-project", permission: restrictiveAgent ? [{ permission: "*", pattern: "*", action: "deny" }, { permission: "legalwork_project_read", pattern: "*", action: "allow" }] : [] }, { name: "legalwork-scheduled-all", permission: [] }];
+    const agents = () => [{ id: "legalwork-scheduled-project", permissions: restrictiveAgent ? [{ action: "*", resource: "*", effect: "deny" }, { action: "legalwork_project_read", resource: "*", effect: "allow" }] : [] }, { id: "legalwork-scheduled-all", permissions: [] }];
     const engine = Bun.serve({ port: 0, fetch: async request => {
       const path = new URL(request.url).pathname;
-      if (path === "/agent") return Response.json(agents());
-      if (path === "/session/status") return failStatuses ? new Response(null, { status: 503 }) : Response.json(busy ? { existing: { type: "busy" } } : {});
-      if (path === "/session" && request.method === "GET") return Response.json([...sessions.values()]);
-      if (path === "/session" && request.method === "POST") {
+      if (path === "/api/agent") return Response.json({ location: { directory: folder }, data: agents() });
+      if (path === "/api/model") return Response.json({ location: { directory: folder }, data: [] });
+      if (path === "/api/session/active") return Response.json({ data: {} });
+      if (path === "/api/session" && request.method === "GET") return Response.json({ data: [...sessions.values()].filter(session => session.location.directory === folder), cursor: { next: null } });
+      if (path === "/api/session" && request.method === "POST") {
         const id = "new-" + sessions.size;
-        const session = { id, title: (await request.json()).title, directory: folder, time: {} };
+        const input = await request.json();
+        assert.deepEqual(input.location, { directory: folder });
+        const session = { id, title: input.title, location: input.location, time: {} };
         sessions.set(id, session);
-        inboxDb.query("INSERT INTO session VALUES (?, ?, ?, ?)").run(id, folder, Date.now(), null);
-        return Response.json(session);
+        inboxDb.query("INSERT INTO session_v2 VALUES (?, ?, ?, ?)").run(id, folder, Date.now(), null);
+        return Response.json({ data: session });
       }
-      if (path.endsWith("/prompt_async")) {
-        deliveries.push(await request.json());
-        inboxDb.query("INSERT INTO message VALUES (?, ?, ?, ?)").run("reply-" + deliveries.length, path.split("/")[2], 300, JSON.stringify({ role: "assistant", finish: "stop", time: { completed: 400 } }));
-        return new Response(null, { status: 204 });
+      const id = path.split("/")[3], session = sessions.get(id);
+      if (!session) return Response.json({ error: "Unknown session" }, { status: 404 });
+      if (path.endsWith("/inbox")) return Response.json({ data: [] });
+      if (path.endsWith("/message")) return Response.json({ data: [], cursor: { next: null } });
+      if (path.endsWith("/agent") && request.method === "POST") { session.agent = (await request.json()).agent; return new Response(null, { status: 204 }); }
+      if (path.endsWith("/model") && request.method === "POST") { session.model = (await request.json()).model; return new Response(null, { status: 204 }); }
+      if (path.endsWith("/prompt")) {
+        const input = await request.json();
+        deliveries.push({ ...input, agent: session.agent, model: session.model });
+        deliveryWaiters.get(deliveries.length)?.();
+        deliveryWaiters.delete(deliveries.length);
+        inboxDb.query("INSERT INTO session_message VALUES (?, ?, ?, ?, ?)").run("reply-" + deliveries.length, id, "assistant", 300, JSON.stringify({ time: { completed: 400 } }));
+        session.outcome = "succeeded";
+        return Response.json({ data: { type: "user", id: input.id, text: input.text, time: { created: 300 } } });
       }
-      if (path.startsWith("/session/")) { const session = sessions.get(path.split("/")[2]); return session ? Response.json(session) : new Response(null, { status: 404 }); }
-      return Response.json({});
+      if (request.method === "PATCH") { const input = await request.json(); if (input.archived === false) delete session.time.archived; return new Response(null, { status: 204 }); }
+      if (path === "/api/session/" + id) return Response.json({ data: session });
+      return Response.json({ error: "Unexpected native request: " + path }, { status: 404 });
     } });
     const config = { host: "127.0.0.1", port: 0, token: "test", hostToken: "host", configPath: join(root, "server.json"),
       approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: [], opencodeBaseUrl: "http://127.0.0.1:" + engine.port,
@@ -56,6 +73,8 @@ test("authenticated HTTP lifecycle, local scope, restart delivery and engine int
     const call = (path, method="GET", body, token="test") => fetch(base + path, { method, headers: { authorization: "Bearer " + token, "content-type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
     const path = "/workspace/project/scheduled-tasks";
     try {
+      // A persisted queue admission is not proof of the later native HTTP send.
+      await waitForDelivery(1);
       for (let i=0; i<100 && store.runs(seed.id)[0]?.status !== "sent"; i++) await Bun.sleep(20);
       assert.equal(deliveries.length, 1);
       const inbox = await (await call("/session-inbox")).json();
@@ -65,56 +84,39 @@ test("authenticated HTTP lifecycle, local scope, restart delivery and engine int
       assert.equal(inbox.sessions.find(entry => entry.sessionId === "existing").assistantAt, 0);
       assert.deepEqual(inbox.sessions.find(entry => entry.sessionId === store.runs(seed.id)[0].sessionId).automation, { runId: store.runs(seed.id)[0].id, at: Date.parse(store.runs(seed.id)[0].startedAt), pinRunId: store.runs(seed.id)[0].id });
       assert.equal(inbox.sessions.find(entry => entry.sessionId === store.runs(seed.id)[0].sessionId).assistantAt, 400);
-      // Acknowledgements and intermediate tool calls are completed messages,
-      // but only the terminal result counts as a new reply.
-      const addMessage = (id, data) => inboxDb.query("INSERT INTO message VALUES (?, ?, ?, ?)").run(id, "existing", 500, JSON.stringify(data));
-      addMessage("ack", { role: "assistant", finish: "tool-calls", time: { completed: 600 } });
-      addMessage("streaming", { role: "assistant", time: { created: 700 } });
-      busy = true;
-      let activity = (await (await call("/session-inbox")).json()).sessions.find(entry => entry.sessionId === "existing");
-      assert.equal(activity.assistantAt, 0); assert.equal(activity.status, "busy");
-      failStatuses = true;
-      activity = (await (await call("/session-inbox")).json()).sessions.find(entry => entry.sessionId === "existing");
-      assert.equal(activity.status, "unknown");
-      failStatuses = false; busy = false;
-      addMessage("final", { role: "assistant", finish: "stop", time: { completed: 800 } });
-      activity = (await (await call("/session-inbox")).json()).sessions.find(entry => entry.sessionId === "existing");
-      assert.equal(activity.assistantAt, 800); assert.equal(activity.status, "idle");
       assert.equal(store.runs(seed.id)[0].status, "sent");
       assert.equal(store.runs(seed.id)[0].dueAt, new Date(missedDueAt).toISOString());
       assert.ok(Date.parse(store.runs(seed.id)[0].startedAt) >= missedDueAt + 5 * 60000);
-      assert.equal(deliveries[0].parts[0].text, "[Scheduled task: Catch up]\\n\\nReview the matter");
-      assert.deepEqual(deliveries[0].parts[0].metadata, { legalworkScheduledTask: { taskId: seed.id, workspaceId: "project", title: "Catch up" } });
+      assert.equal(deliveries[0].text, "[Scheduled task: Catch up]\\n\\nReview the matter");
+      assert.deepEqual(deliveries[0].metadata, { legalworkScheduledTask: { taskId: seed.id, workspaceId: "project", title: "Catch up" } });
       assert.equal(deliveries[0].permission, undefined);
       assert.equal(deliveries[0].agent, "legalwork-scheduled-project");
       assert.equal(store.get("project", seed.id).projectAccess, "project");
       assert.equal(store.get("project", seed.id).reuseChat, false);
       assert.equal(store.runs(seed.id)[0].projectAccess, "project");
       assert.equal((await call(path, "GET", undefined, "wrong")).status, 401);
-      const issued = await fetch(base + "/tokens", { method: "POST", headers: { "x-legalwork-host-token": "host", "content-type": "application/json" }, body: JSON.stringify({ scope: "viewer", label: "test" }) });
-      const viewer = (await issued.json()).token;
-      assert.equal((await call(path, "GET", undefined, viewer)).status, 200);
-      assert.equal((await call(path, "POST", {}, viewer)).status, 403);
+      const viewer = "owt_retired_viewer";
+      assert.equal((await call(path, "GET", undefined, viewer)).status, 401);
+      assert.equal((await call(path, "POST", {}, viewer)).status, 401);
       const draft = { title: "Daily review", prompt: "Summarize open questions", sessionId: "existing", reuseChat: true, pinSession: false, model: { providerID: "test", modelID: "model" }, schedule: { kind: "rrule", startAt: "2099-01-01T09:00:00", timeZone: "Europe/Berlin", rrule: "FREQ=DAILY" } };
       assert.equal((await call(path, "POST", { ...draft, wikiScope: "owner" })).status, 400);
       const ownerCreated = await fetch(base + path, { method: "POST", headers: { "x-legalwork-host-token": "host", "content-type": "application/json" }, body: JSON.stringify(draft) });
       const ownerTask = (await ownerCreated.json()).task;
       assert.equal(ownerTask.wikiScope, "owner");
-      const collaboratorIssued = await fetch(base + "/tokens", { method: "POST", headers: { "x-legalwork-host-token": "host", "content-type": "application/json" }, body: JSON.stringify({ scope: "collaborator", label: "schedule editor" }) });
-      const collaborator = (await collaboratorIssued.json()).token;
+      const collaborator = config.token;
       assert.equal((await call(path + "/" + ownerTask.id, "PATCH", { revision: 1, wikiScope: "owner" }, collaborator)).status, 400);
       const downgraded = (await (await call(path + "/" + ownerTask.id, "PATCH", { revision: 1, title: "Collaborator review" }, collaborator)).json()).task;
       assert.equal(downgraded.wikiScope, "collaborator");
       assert.equal((await call(path + "/" + ownerTask.id, "DELETE", { revision: 2 })).status, 200);
       assert.equal((await call(path, "POST", { ...draft, sessionId: "foreign" })).status, 400);
       assert.equal((await call(path, "POST", { ...draft, sessionId: "archived" })).status, 400);
-      assert.equal((await call("/workspace/remote/scheduled-tasks", "POST", draft)).status, 400);
+      assert.equal((await call("/workspace/remote/scheduled-tasks", "POST", draft)).status, 404);
       assert.equal((await call(path + "/preview", "POST", { schedule: { ...draft.schedule, rrule: "FREQ=DAILY;BYMONTH=2;BYMONTHDAY=30" } })).status, 400);
       const chats = await (await call(path + "/chats")).json(); assert.deepEqual(chats.sessions.map(chat => chat.id), ["existing", store.runs(seed.id)[0].sessionId]);
       const preview = await (await call(path + "/preview", "POST", { schedule: draft.schedule })).json(); assert.equal(preview.occurrences.length, 3);
       const created = await call(path, "POST", draft); assert.equal(created.status, 200); const task = (await created.json()).task;
       assert.equal((await call("/workspace/other/scheduled-tasks/"+task.id)).status, 404);
-      assert.equal((await call(path+"/"+task.id, "PATCH", { revision: 1, status: "paused" }, viewer)).status, 403);
+      assert.equal((await call(path+"/"+task.id, "PATCH", { revision: 1, status: "paused" }, viewer)).status, 401);
       const paused = (await (await call(path+"/"+task.id, "PATCH", { revision: 1, status: "paused" })).json()).task; assert.equal(paused.status, "paused");
       assert.equal(paused.model.providerID, "test");
       assert.equal(paused.projectAccess, "project");
@@ -150,10 +152,11 @@ test("authenticated HTTP lifecycle, local scope, restart delivery and engine int
       const chosenModel = { providerID: "selected-provider", modelID: "selected-model" };
       store.update("project", broad.id, broad.revision, { model: chosenModel });
       server = await startServer(config);
+      await waitForDelivery(2);
       for (let i=0; i<100 && store.runs(broad.id)[0]?.status !== "sent"; i++) await Bun.sleep(20);
       assert.equal(deliveries.length, 2);
       assert.equal(deliveries[1].agent, "legalwork-scheduled-all");
-      assert.deepEqual(deliveries[1].model, chosenModel);
+      assert.deepEqual(deliveries[1].model, { providerID: chosenModel.providerID, id: chosenModel.modelID });
       console.log("scheduled HTTP checks passed");
     } finally { await server.stop(); engine.stop(true); inboxDb.close(); }
   `);

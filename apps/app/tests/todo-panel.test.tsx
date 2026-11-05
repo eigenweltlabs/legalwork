@@ -2,6 +2,8 @@ import { afterEach, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { QueryClient } from "@tanstack/react-query";
 import type { TodoItem } from "../src/app/types";
+import type { OpenCodeEvent } from "@opencode/client";
+import { projectSession } from "../src/app/lib/opencode-view";
 import { getReactQueryClient } from "../src/react-app/infra/query-client";
 import { hasUnfinishedTodos, TodoPanel } from "../src/react-app/domains/session/surface/todo-panel";
 import {
@@ -21,7 +23,7 @@ const todos: TodoItem[] = [
   { id: "report", content: "Write report", status: "pending", priority: "high" },
 ];
 const snapshot: LegalworkSessionSnapshot = {
-  session: { id: "plan-chat", title: "Diligence", time: { created: 1, updated: 2 }, version: "0" },
+  session: projectSession({ id: "plan-chat", projectID: "fixture", location: { directory: "/fixture" }, title: "Diligence", time: { created: 1, updated: 2 }, cost: 0, tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } } }),
   messages: [], todos: [], status: { type: "idle" },
 };
 
@@ -76,12 +78,16 @@ test("session metadata and idle transitions cannot replace a live plan with an o
   cache.setQueryData(snapshotKey(input.workspaceId, snapshot.session.id), snapshot);
   seedSessionState(input.workspaceId, snapshot);
   try {
-    __applySessionSyncEventForTest(input, { type: "todo.updated", properties: { sessionID: snapshot.session.id, todos } });
-    __applySessionSyncEventForTest(input, { type: "session.updated", properties: { info: { id: snapshot.session.id, title: "Updated diligence" } } });
+    const common = { id: "event", created: 3, location: { directory: "/fixture" }, durable: { aggregateID: snapshot.session.id, seq: 1, version: 1 } };
+    const emit = (event: OpenCodeEvent) => __applySessionSyncEventForTest(input, event);
+    emit({ ...common, type: "session.tool.input.started", data: { sessionID: snapshot.session.id, assistantMessageID: "assistant", id: "todos", name: "todowrite" } });
+    emit({ ...common, type: "session.tool.called", data: { sessionID: snapshot.session.id, assistantMessageID: "assistant", id: "todos", input: { todos }, executed: true } });
+    emit({ ...common, durable: { ...common.durable, version: 2 }, type: "session.tool.success", data: { sessionID: snapshot.session.id, assistantMessageID: "assistant", id: "todos", content: [{ type: "text", text: "Plan updated" }], metadata: { todos }, executed: true } });
+    emit({ ...common, type: "session.metadata.updated", data: { sessionID: snapshot.session.id, metadata: { reviewed: true } } });
     const replayed = cache.getQueryData<LegalworkSessionSnapshot>(snapshotKey(input.workspaceId, snapshot.session.id));
     if (!replayed) throw new Error("Missing cached session");
     seedSessionState(input.workspaceId, replayed);
-    __applySessionSyncEventForTest(input, { type: "session.idle", properties: { sessionID: snapshot.session.id } });
+    __applySessionSyncEventForTest(input, { id: "idle", created: 4, type: "session.idle", data: { sessionID: snapshot.session.id } });
     expect(cache.getQueryData(todoKey(input.workspaceId, snapshot.session.id))).toEqual(todos);
     expect(cache.getQueryData(todoKey("another-project", snapshot.session.id))).toBeUndefined();
   } finally { release(); cleanup(); }

@@ -1,20 +1,5 @@
-/**
- * Guards the packaged OpenCode plugins' module resolution.
- *
- * electron-builder copies server/dist/opencode-plugins to
- * Resources/opencode-plugins, outside the asar and outside every node_modules
- * tree. The engine loads each file by URL, so a bare import in one of them has
- * nothing to resolve against: node: builtins are all a plugin may rely on.
- * Everything else has to be bundled in.
- *
- * A plugin that fails to import is skipped silently -- no error, no log, the
- * tools simply never register. Dev stays green because it loads the TypeScript
- * straight out of apps/server/src, where the repo's node_modules is right
- * there. That shipped: `bun build` was writing its bundles to a nested
- * dist/opencode-plugins/src/opencode-plugins/, so the flat tsc output was
- * packaged instead, and six plugins (Word, Excel, PowerPoint, benchmark,
- * extensions preview, skill tools) lost every tool to a bare `zod` import.
- */
+/** Released native plugins carry host-provided @opencode/plugin and effect imports.
+ * Every other package must be bundled before the directory is copied outside node_modules. */
 import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -31,19 +16,22 @@ const pluginDir = resolve(__dirname, "..", "server", "dist", "opencode-plugins")
  * `from\s*"` pattern took the text up to the next quote for an import.
  */
 const IMPORT =
-  /\b(?:import|export)\b[\p{ID_Continue}$\s*{},]*?\bfrom\s*["']([^"'.][^"']*)["']|\bimport\s*\(\s*["']([^"'.][^"']*)["']/gu;
+  /\b(?:import|export)\b[\p{ID_Continue}$\s*{},]*?\bfrom\s*["']([^"'.][^"']*)["']|\bimport\s*\(\s*["']([^"'.][^"']*)["']|\bimport\s*["']([^"'.][^"']*)["']/gu;
 
 export function findUnresolvableImports(dir = pluginDir) {
   const offenders = [];
   // Mirrors the electron-builder filter: tests are not packaged and are
   // never loaded as plugins.
   const packaged = (name) => name.endsWith(".js") && !name.endsWith(".test.js");
-  for (const file of readdirSync(dir).filter(packaged).sort()) {
+  const walk = (directory, prefix = "") => readdirSync(directory, { withFileTypes: true }).flatMap(entry => entry.isDirectory()
+    ? walk(join(directory, entry.name), join(prefix, entry.name))
+    : packaged(entry.name) ? [join(prefix, entry.name)] : []);
+  for (const file of walk(dir).sort()) {
     const source = readFileSync(join(dir, file), "utf8");
     const bare = new Set();
     for (const match of source.matchAll(IMPORT)) {
-      const specifier = match[1] ?? match[2];
-      if (!isBuiltin(specifier)) bare.add(specifier);
+      const specifier = match[1] ?? match[2] ?? match[3];
+      if (!isBuiltin(specifier) && !/^(?:@opencode\/plugin|effect)(?:\/|$)/.test(specifier)) bare.add(specifier);
     }
     if (bare.size > 0) offenders.push({ file, imports: [...bare].sort() });
   }
@@ -61,5 +49,5 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     console.error("Bundle the dependency in (apps/server `build` runs bun build over these entry points).");
     process.exit(1);
   }
-  console.log("Packaged OpenCode plugins are self-contained.");
+  console.log("Packaged native plugin imports resolve through the released host or bundled code.");
 }

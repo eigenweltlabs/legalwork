@@ -1,13 +1,13 @@
 import { useEffect, useState } from "react";
 
-import { unwrap } from "../../../app/lib/opencode";
-import type { Client, McpStatusMap } from "../../../app/types";
+import { readMcpStatuses } from "./native-mcp";
+import type { Client } from "../../../app/types";
 
 const REFRESH_INTERVAL_MS = 60_000;
 
 /**
  * Live count of connected MCP servers for the active workspace, polled from
- * opencode's mcp.status. Used by the session status bar so it reflects real
+ * OpenCode's native MCP catalog. Used by the session status bar so it reflects real
  * connectivity instead of a hardcoded value.
  */
 export function useMcpConnectedCount(client: Client | null, directory: string): number {
@@ -22,9 +22,9 @@ export function useMcpConnectedCount(client: Client | null, directory: string): 
     let cancelled = false;
     const refresh = async () => {
       try {
-        const status = unwrap(await client.mcp.status({ directory }));
+        const status = await readMcpStatuses(client, directory);
         if (cancelled) return;
-        const values = Object.values(status as McpStatusMap);
+        const values = Object.values(status);
         setCount(values.filter((entry) => entry.status === "connected").length);
       } catch {
         if (!cancelled) setCount(0);

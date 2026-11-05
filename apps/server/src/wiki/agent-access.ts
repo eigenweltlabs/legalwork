@@ -5,19 +5,23 @@ import { isAbsolute, relative, sep } from "node:path";
 import { z } from "zod";
 import type { Actor, ServerConfig, TokenScope, WorkspaceInfo } from "../types.js";
 import { ApiError } from "../errors.js";
+import { reviewExecutionActor } from "../reviews/execution-actor.js";
+import { reviewWorkerClaims } from "../reviews/worker.js";
 
 type SessionOrigin = { sessionId: string; directory: string; scope: TokenScope; generation: string; scheduledProjects?: "all" | string[] };
 export const SessionAuthoritySchema = z.object({ scope: z.enum(["owner", "collaborator", "viewer"]), scheduledProjects: z.union([z.literal("all"), z.array(z.string())]).optional(), sourceSessionId: z.string().optional() });
 export type SessionAuthority = z.infer<typeof SessionAuthoritySchema>;
 type SessionLookup = (workspace: WorkspaceInfo, sessionId: string, directory: string, signal: AbortSignal) => Promise<unknown>;
-type RuntimeAccess = { token: string; sessions: Map<string, SessionOrigin>; parents: Map<string, string>; revoked: Set<string>; lookup?: SessionLookup; changed?: (sessionId: string, origin: SessionOrigin | null) => void };
+type ReviewWorkerAccess = { workspace: WorkspaceInfo; directory: string; claimId: string; scope: "owner" | "collaborator" };
+type RuntimeAccess = { token: string; sessions: Map<string, SessionOrigin>; parents: Map<string, string>; revoked: Set<string>;
+  reviewWorkers: Map<string, ReviewWorkerAccess>; reservedWorkers: Set<string>; changed?: (sessionId: string, origin: SessionOrigin | null) => void; lookup?: SessionLookup };
 const runtimes = new WeakMap<ServerConfig, RuntimeAccess>();
 const sessionSchema = z.object({ id: z.string().min(1).max(200), directory: z.string().min(1), parentID: z.string().min(1).max(200).optional() });
 
 function runtime(config: ServerConfig): RuntimeAccess {
   let access = runtimes.get(config);
   if (!access) {
-    access = { token: randomBytes(32).toString("hex"), sessions: new Map(), parents: new Map(), revoked: new Set() };
+    access = { token: randomBytes(32).toString("hex"), sessions: new Map(), parents: new Map(), revoked: new Set(), reviewWorkers: new Map(), reservedWorkers: new Set() };
     runtimes.set(config, access);
   }
   return access;
@@ -54,6 +58,28 @@ export async function ensureWikiAgentToken(config: ServerConfig): Promise<string
   return runtime(config).token;
 }
 
+/** One server-created inference attempt, with no general workspace or inherited authority. */
+export async function grantReviewWorkerAccess(config: ServerConfig, input: {
+  workspace: WorkspaceInfo; sessionId: string; claimId: string; actor: Actor; signal: AbortSignal;
+}): Promise<() => void> {
+  const actor = reviewExecutionActor(input.actor), access = runtime(config);
+  input.signal.throwIfAborted();
+  const directory = await realpath(input.workspace.directory || input.workspace.path);
+  const registered = config.workspaces.find(workspace => workspace.id === input.workspace.id);
+  if (!registered || await realpath(registered.directory || registered.path) !== directory)
+    throw new ApiError(403, "wiki_agent_workspace_denied", "This inference workspace is unavailable.");
+  reviewWorkerClaims(config).get(input.workspace, input.sessionId, input.claimId);
+  if (access.sessions.has(input.sessionId) || access.reservedWorkers.has(input.sessionId))
+    throw new ApiError(403, "review_worker_access_invalid", "This inference session already has an origin.");
+  input.signal.throwIfAborted();
+  access.reservedWorkers.add(input.sessionId);
+  access.reviewWorkers.set(input.sessionId, { workspace: { ...input.workspace }, directory, claimId: input.claimId, scope: actor.scope });
+  const revoke = () => { access.reviewWorkers.delete(input.sessionId); reviewWorkerClaims(config).remove(input.sessionId); };
+  input.signal.addEventListener("abort", revoke, { once: true });
+  if (input.signal.aborted) { revoke(); input.signal.throwIfAborted(); }
+  return () => { revoke(); input.signal.removeEventListener("abort", revoke); };
+}
+
 /** Called by the authenticated proxy, never from request-body identity claims. */
 export async function grantWikiAgentSession(config: ServerConfig, input: {
   sessionId: string;
@@ -62,6 +88,8 @@ export async function grantWikiAgentSession(config: ServerConfig, input: {
   scheduledProjects?: "all" | string[];
 }, beforeCommit?: () => void): Promise<void> {
   if (!input.sessionId || input.sessionId.length > 200) throw new ApiError(403, "wiki_agent_session_invalid", "The agent session is unknown.");
+  if (runtime(config).reservedWorkers.has(input.sessionId))
+    throw new ApiError(403, "review_worker_access_invalid", "An inference worker cannot become a general chat.");
   const directory = await realpath(input.directory).catch(() => null);
   beforeCommit?.();
   if (!directory) {
@@ -135,7 +163,7 @@ async function inheritedOrigin(config: ServerConfig, access: RuntimeAccess, sess
   const visited = new Set<string>();
   let id: string | undefined = sessionId;
   while (id && visited.size < 64) {
-    if (visited.has(id) || access.revoked.has(id) || signal.aborted) return;
+    if (visited.has(id) || access.revoked.has(id) || access.reservedWorkers.has(id) || signal.aborted) return;
     visited.add(id);
     const session = sessionSchema.safeParse(await lookup(source.workspace, id, directory, signal).catch(() => null));
     if (!session.success || session.data.id !== id || await realpath(session.data.directory).catch(() => null) !== directory || signal.aborted) return;
@@ -169,15 +197,15 @@ function narrowWikiPath(method: string, pathname: string): boolean {
   return ["GET", "PUT", "DELETE"].includes(method) && /^\/wikis\/[^/]+\/page$/.test(pathname);
 }
 
-/** Existing storage/sandbox/skill tools need the originating member's access to their own wiki workspace. */
+/** First-party tools retain the originating member's access to their own workspace. */
 function workspaceToolPath(method: string, pathname: string): string | null {
   const match = pathname.match(/^\/workspace\/([^/]+)\/(.+)$/);
   if (!match) return null;
   const route = match[2]!;
   const suggestion = (["GET", "POST"].includes(method) && route === "wiki-suggestions") || (["GET", "PUT"].includes(method) && /^wiki-suggestions\/[^/]+$/.test(route));
   const allowed = suggestion || (method === "GET"
-    ? /^(?:storage\/roots|storage\/[^/]+\/(?:capabilities|children|search|file)|sandbox\/session\/[^/]+|skills|skills\/[^/]+\/(?:composed|package-file))$/.test(route)
-    : method === "POST" && /^(?:storage\/[^/]+\/(?:checkout|filename-search|from-workspace|rename|folders)|sandbox\/(?:execute|web)|sessions\/[^/]+\/review-recovery|skills|skills\/(?!hub\/)[^/]+\/resources)$/.test(route));
+    ? /^(?:storage\/roots|storage\/[^/]+\/(?:capabilities|children|search|file)|sandbox\/session\/[^/]+|reviews\/workers\/[^/]+\/contract|sessions\/[^/]+\/(?:history-images|tool-image-originals|tool-output\/authorize)|skills|skills\/[^/]+\/(?:composed|package-file))$/.test(route)
+    : method === "POST" && /^(?:storage\/[^/]+\/(?:checkout|filename-search|from-workspace|rename|folders)|sandbox\/(?:execute|command|web|http)|office-tools\/execute|reviews\/workers\/[^/]+\/submit|sessions\/[^/]+\/(?:review-recovery|history-images\/read|tool-image-originals\/(?:capture|read|crop|export))|skills|skills\/(?!hub\/)[^/]+\/resources)$/.test(route));
   return allowed ? decodeURIComponent(match[1]!) : null;
 }
 
@@ -192,6 +220,7 @@ export async function authenticateWikiAgentRequest(config: ServerConfig, request
   sessionId: string;
   originSessionId: string;
   generation: string;
+  reviewWorker?: true;
   scheduledProjects?: "all" | string[];
 } | null> {
   const token = request.headers.get("x-legalwork-wiki-agent-token");
@@ -204,7 +233,7 @@ export async function authenticateWikiAgentRequest(config: ServerConfig, request
   const pathname = new URL(request.url).pathname;
   const toolWorkspaceId = workspaceToolPath(request.method, pathname);
   if (!narrowWikiPath(request.method, pathname) && !toolWorkspaceId)
-    throw new ApiError(403, "wiki_agent_endpoint_denied", "This agent credential is limited to wiki page tools.");
+    throw new ApiError(403, "wiki_agent_endpoint_denied", "This agent credential is limited to session-scoped tools.");
   const sessionId = request.headers.get("x-legalwork-wiki-agent-session");
   if (!sessionId || sessionId.length > 200) throw new ApiError(403, "wiki_agent_session_unknown", "Run this task through an authenticated LegalWork session before accessing wikis.");
   const claimed = request.headers.get("x-legalwork-wiki-agent-directory");
@@ -212,6 +241,22 @@ export async function authenticateWikiAgentRequest(config: ServerConfig, request
   try { decoded = claimed ? decodeURIComponent(claimed) : null; } catch { /* Invalid encoded claims fail closed. */ }
   const directory = decoded ? await realpath(decoded).catch(() => null) : null;
   if (!directory) throw new ApiError(403, "wiki_agent_directory_mismatch", "The wiki request does not match this session's working directory.");
+  if (access.reservedWorkers.has(sessionId)) {
+    const worker = access.reviewWorkers.get(sessionId);
+    if (!worker) throw new ApiError(403, "wiki_agent_session_unknown", "This inference attempt is no longer active.");
+    const route = pathname.match(/^\/workspace\/([^/]+)\/reviews\/workers\/([^/]+)\/(contract|submit)$/);
+    if (!route || !(request.method === "GET" && route[3] === "contract" || request.method === "POST" && route[3] === "submit"))
+      throw new ApiError(403, "wiki_agent_endpoint_denied", "An inference worker can only read its contract and submit its answer.");
+    if (decodeURIComponent(route[2]) !== sessionId)
+      throw new ApiError(403, "wiki_agent_session_mismatch", "Use review submission only for this worker chat.");
+    if (decodeURIComponent(route[1]) !== worker.workspace.id)
+      throw new ApiError(403, "wiki_agent_workspace_denied", "Use only this inference attempt's workspace.");
+    if (directory !== worker.directory)
+      throw new ApiError(403, "wiki_agent_directory_mismatch", "This inference attempt belongs to another directory.");
+    reviewWorkerClaims(config).get(worker.workspace, sessionId, worker.claimId);
+    return { directory, sessionId, originSessionId: sessionId, generation: worker.claimId, reviewWorker: true,
+      actor: { type: "remote", clientId: `review-worker:${sessionId}`, scope: worker.scope, tokenHash: createHash("sha256").update(access.token).digest("hex") } };
+  }
   const origin = access.sessions.get(sessionId) ?? await inheritedOrigin(config, access, sessionId, directory, request.signal);
   if (!origin) throw new ApiError(403, "wiki_agent_session_unknown", "Run this task through an authenticated LegalWork session before accessing wikis.");
   if (directory !== origin.directory)
@@ -222,9 +267,21 @@ export async function authenticateWikiAgentRequest(config: ServerConfig, request
       throw new ApiError(403, "wiki_agent_session_mismatch", "Use this chat's own delegation context.");
   }
   if (toolWorkspaceId) {
+    const toolOutput = pathname.match(/\/sessions\/([^/]+)\/tool-output\/authorize$/);
+    if (toolOutput && decodeURIComponent(toolOutput[1]) !== sessionId)
+      throw new ApiError(403, "wiki_agent_session_mismatch", "Read saved tool outputs only through this chat's history scope.");
+    const historyImages = pathname.match(/\/sessions\/([^/]+)\/history-images(?:\/read)?$/);
+    if (historyImages && decodeURIComponent(historyImages[1]) !== sessionId)
+      throw new ApiError(403, "wiki_agent_session_mismatch", "Read stored images only through this chat's history scope.");
+    const originals = pathname.match(/\/sessions\/([^/]+)\/tool-image-originals(?:\/(?:capture|read|crop|export))?$/);
+    if (originals && decodeURIComponent(originals[1]) !== sessionId)
+      throw new ApiError(403, "wiki_agent_session_mismatch", "Use original images only through this chat's history scope.");
     const recovery = pathname.match(/\/sessions\/([^/]+)\/review-recovery$/);
     if (recovery && decodeURIComponent(recovery[1]) !== sessionId)
       throw new ApiError(403, "wiki_agent_session_mismatch", "Use recovery only for this chat.");
+    const worker = pathname.match(/\/reviews\/workers\/([^/]+)\/(?:contract|submit)$/);
+    if (worker && decodeURIComponent(worker[1]) !== sessionId)
+      throw new ApiError(403, "wiki_agent_session_mismatch", "Use review submission only for this worker chat.");
     const candidates = await Promise.all(config.workspaces.map(async item => ({
       id: item.id, root: await realpath(item.directory || item.path).catch(() => null),
     })));

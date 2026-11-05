@@ -55,14 +55,96 @@ function baseConfig(root: string): ServerConfig {
 const AUTH = { Authorization: "Bearer owt_test_client_token" };
 const JSON_HEADERS = { ...AUTH, "Content-Type": "application/json" };
 
-async function startTestServer() {
+async function startTestServer(readOnly = true) {
   const root = await createWorkspaceRoot();
-  const server = await startServer(baseConfig(root));
+  const config = baseConfig(root);
+  config.readOnly = readOnly;
+  const server = await startServer(config);
   stops.push(() => server.stop());
   return { baseUrl: `http://127.0.0.1:${server.port}/workspace/ws_word_test/office-tools` };
 }
 
 describe("office tool relay", () => {
+  test("read-only server rejects edits and arbitrary code before any Office pane receives them", async () => {
+    const { baseUrl } = await startTestServer();
+    const tools = [
+      "word_replace_text", "word_insert_text", "word_add_comment", "word_run_code",
+      "excel_write_cells", "excel_highlight_range", "excel_add_worksheet", "excel_add_comment", "excel_run_code",
+      "ppt_set_shape_text", "ppt_replace_text", "ppt_add_slide", "ppt_add_text_box", "ppt_run_code",
+      "word_read_unregistered", "custom_office_action",
+    ];
+    for (const host of ["Word", "Excel", "PowerPoint"]) {
+      await fetch(`${baseUrl}/poll?wait=0&host=${host}`, { headers: AUTH });
+    }
+    for (const tool of tools) {
+      const response = await fetch(`${baseUrl}/execute`, {
+        method: "POST", headers: JSON_HEADERS,
+        body: JSON.stringify({ tool, timeoutMs: 1000, args: { code: "return { text: 'a caller cannot prove this code is read-only' };" } }),
+      });
+      expect(response.status).toBe(403);
+      expect(await response.json()).toMatchObject({ ok: false, code: "read_only" });
+    }
+    for (const host of ["Word", "Excel", "PowerPoint"]) {
+      const response = await fetch(`${baseUrl}/poll?wait=0&host=${host}`, { headers: AUTH });
+      expect(await response.json()).toEqual({ requests: [] });
+    }
+  });
+
+  test("read-only server preserves every typed Office read and its complete pane result", async () => {
+    const { baseUrl } = await startTestServer();
+    const readers = [
+      { host: "Word", tools: ["word_read_document", "word_read_selection", "word_search"] },
+      { host: "Excel", tools: ["excel_read_workbook", "excel_read_range", "excel_read_selection", "excel_search"] },
+      { host: "PowerPoint", tools: ["ppt_read_presentation", "ppt_read_slide", "ppt_read_selection"] },
+    ];
+    for (const { host, tools } of readers) {
+      await fetch(`${baseUrl}/poll?wait=0&host=${host}`, { headers: AUTH });
+      for (const tool of tools) {
+        const pending = fetch(`${baseUrl}/execute`, {
+          method: "POST", headers: JSON_HEADERS,
+          body: JSON.stringify({ tool, args: { query: "exact source", range: "A1:B2", slide_number: 1 } }),
+        });
+        const response = await fetch(`${baseUrl}/poll?wait=5&host=${host}`, { headers: AUTH });
+        const body: unknown = await response.json();
+        expect(body).toMatchObject({ requests: [{ tool }] });
+        if (!body || typeof body !== "object" || !("requests" in body) || !Array.isArray(body.requests)) throw new Error("Missing pane request");
+        const request: unknown = body.requests[0];
+        if (!request || typeof request !== "object" || !("id" in request) || typeof request.id !== "string") throw new Error("Missing pane request ID");
+        const result = { host, tool, text: "full Office content ".repeat(4000), annotations: [{ id: "last", text: "complete tail" }] };
+        await fetch(`${baseUrl}/requests/${request.id}/result`, {
+          method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ ok: true, result }),
+        });
+        const completed = await pending;
+        expect(completed.status).toBe(200);
+        expect(await completed.json()).toEqual({ ok: true, result });
+      }
+    }
+  });
+
+  test("ordinary writable server still relays document edits and raw Office code", async () => {
+    const { baseUrl } = await startTestServer(false);
+    for (const { host, tool } of [
+      { host: "Word", tool: "word_replace_text" }, { host: "Word", tool: "word_run_code" },
+      { host: "Excel", tool: "excel_write_cells" }, { host: "Excel", tool: "excel_run_code" },
+      { host: "PowerPoint", tool: "ppt_replace_text" }, { host: "PowerPoint", tool: "ppt_run_code" },
+    ]) {
+      await fetch(`${baseUrl}/poll?wait=0&host=${host}`, { headers: AUTH });
+      const pending = fetch(`${baseUrl}/execute`, {
+        method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ tool, args: { anchor: "old", replacement: "new", code: "return 'allowed';" } }),
+      });
+      const response = await fetch(`${baseUrl}/poll?wait=5&host=${host}`, { headers: AUTH });
+      const body: unknown = await response.json();
+      expect(body).toMatchObject({ requests: [{ tool }] });
+      if (!body || typeof body !== "object" || !("requests" in body) || !Array.isArray(body.requests)) throw new Error("Missing pane request");
+      const request: unknown = body.requests[0];
+      if (!request || typeof request !== "object" || !("id" in request) || typeof request.id !== "string") throw new Error("Missing pane request ID");
+      await fetch(`${baseUrl}/requests/${request.id}/result`, {
+        method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ ok: true, result: "allowed" }),
+      });
+      expect(await (await pending).json()).toEqual({ ok: true, result: "allowed" });
+    }
+  });
+
   test("execute fails fast when no pane is connected", async () => {
     const { baseUrl } = await startTestServer();
 
@@ -251,5 +333,43 @@ describe("office tool relay", () => {
     await poll;
     await Bun.sleep(100);
     expect((await readStatus(baseUrl)).connected).toBe(false);
+  });
+
+  test("stopping an HTTP tool call removes its queued edit before the pane can receive it", async () => {
+    const { baseUrl } = await startTestServer(false);
+    await fetch(`${baseUrl}/poll?wait=0&host=Word`, { headers: AUTH });
+    const controller = new AbortController();
+    const execution = fetch(`${baseUrl}/execute`, {
+      method: "POST", headers: JSON_HEADERS, signal: controller.signal,
+      body: JSON.stringify({ tool: "word_replace_text", args: { anchor: "old", replacement: "new" } }),
+    }).catch(() => null);
+    await Bun.sleep(100);
+    controller.abort();
+    await execution;
+    await Bun.sleep(100);
+    const payload: unknown = await (await fetch(`${baseUrl}/poll?wait=0&host=Word`, { headers: AUTH })).json();
+    expect(payload).toEqual({ requests: [] });
+  });
+
+  test("stopping a delivered HTTP action rejects its late result without sending it again", async () => {
+    const { baseUrl } = await startTestServer(false);
+    await fetch(`${baseUrl}/poll?wait=0&host=Word`, { headers: AUTH });
+    const controller = new AbortController();
+    const execution = fetch(`${baseUrl}/execute`, {
+      method: "POST", headers: JSON_HEADERS, signal: controller.signal,
+      body: JSON.stringify({ tool: "word_replace_text", args: { anchor: "old", replacement: "new" } }),
+    }).catch(() => null);
+    await Bun.sleep(100);
+    const delivered = await (await fetch(`${baseUrl}/poll?wait=0&host=Word`, { headers: AUTH })).json();
+    const requestId: unknown = delivered.requests?.[0]?.id;
+    expect(typeof requestId).toBe("string");
+    controller.abort();
+    await execution;
+    await Bun.sleep(100);
+    const result = await fetch(`${baseUrl}/requests/${requestId}/result`, {
+      method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ ok: true, result: "changed" }),
+    });
+    expect(await result.json()).toEqual({ accepted: false });
+    expect(await (await fetch(`${baseUrl}/poll?wait=0&host=Word`, { headers: AUTH })).json()).toEqual({ requests: [] });
   });
 });

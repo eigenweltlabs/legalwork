@@ -1,5 +1,8 @@
+import { nativePluginTools } from "./native-plugin-test-support.js";
+import { nativeToolBefore } from "./native-plugin-test-support.js";
+const LegalWorkReviewTools = (context = {}) => nativePluginTools(LegalWorkReviewToolsDefinition, context);
 import { afterAll, beforeEach, expect, test } from "bun:test";
-import { LegalWorkReviewTools } from "./legalwork-review-tools.js";
+import LegalWorkReviewToolsDefinition from "./legalwork-review-tools.js";
 import { z } from "zod";
 import { SavedReviewSchema } from "@legalwork/types/reviews";
 const originalUrl = process.env.LEGALWORK_SERVER_URL, originalToken = process.env.LEGALWORK_SERVER_TOKEN;
@@ -69,23 +72,23 @@ const id = "8d421fb4-3f23-49e3-a5a2-01a2f3cd9911";
 test.each(["workflow-assistant-due-diligence", "workflow-assistant-saas-acquisition-dd"])("%s report handoff redirects generated programs while allowing prose, arithmetic and other workflows", async (skillName) => {
   exportFixture = true;
   const dd = await LegalWorkReviewTools(), scoped = { ...context, sessionID: "direct-dd" };
-  await dd["tool.execute.before"]({ tool: "skill", sessionID: scoped.sessionID }, { args: { name: skillName } });
-  await dd["tool.execute.before"]({ tool: "skill", sessionID: scoped.sessionID }, { args: { name: "author-review-prompts" } });
+  await nativeToolBefore(dd.runtime,"skill",{ id: skillName },scoped.sessionID);
+  await nativeToolBefore(dd.runtime,"skill",{ id: "author-review-prompts" },scoped.sessionID);
   await dd.tool.legalwork_review_report_prepare.execute({ reviewIds: [id], evidenceIndexes: ["source-index.json"] }, scoped);
-  await dd["tool.execute.before"]({ tool: "skill", sessionID: scoped.sessionID }, { args: { name: "docx-edit" } });
+  await nativeToolBefore(dd.runtime,"skill",{ id: "docx-edit" },scoped.sessionID);
   for (const [tool,args] of [["legalwork_shell", { command: "cat << 'EOF' > scratch/build_report.py\nimport json\nEOF" }],
-    ["write", { filePath: "/project/scratch/build_report.py", content: "import json" }],
-    ["bash", { command: "python3 -c 'import json; " + "print(1);".repeat(100) + "'" }]] satisfies Array<[string, Record<string, unknown>]>) {
-    await expect(dd["tool.execute.before"]({ tool, sessionID: scoped.sessionID }, { args })).rejects.toThrow("Write legal prose");
-    await dd["tool.execute.before"]({ tool, sessionID: "another-workflow" }, { args });
+    ["write", { path: "/project/scratch/build_report.py", content: "import json" }],
+    ["shell", { command: "python3 -c 'import json; " + "print(1);".repeat(100) + "'" }]] satisfies Array<[string, Record<string, unknown>]>) {
+    await expect(nativeToolBefore(dd.runtime,tool,args,scoped.sessionID)).rejects.toThrow("Write legal prose");
+    await nativeToolBefore(dd.runtime,tool,args,"another-workflow");
   }
-  for (const [tool,args] of [["write", { filePath: "/project/reports/draft.json", content: "{}" }],
-    ["bash", { command: "python3 -c 'print(410000+24000)'" }],
-    ["bash", { command: "python3 -c 'print(sum([" + "1,".repeat(800) + "]))'" }],
-    ["bash", { command: 'python3 "installed skill/scripts/report_from_reviews.py" --data reports/draft.json' }]] satisfies Array<[string, Record<string, unknown>]>)
-    await dd["tool.execute.before"]({ tool, sessionID: scoped.sessionID }, { args });
-  await dd["tool.execute.before"]({ tool: "todowrite", sessionID: scoped.sessionID }, { args: { todos: [{ status: "completed" }] } });
-  await dd["tool.execute.before"]({ tool: "write", sessionID: scoped.sessionID }, { args: { filePath: "/project/later-task.py" } });
+  for (const [tool,args] of [["write", { path: "/project/reports/draft.json", content: "{}" }],
+    ["shell", { command: "python3 -c 'print(410000+24000)'" }],
+    ["shell", { command: "python3 -c 'print(sum([" + "1,".repeat(800) + "]))'" }],
+    ["shell", { command: 'python3 "installed skill/scripts/report_from_reviews.py" --data reports/draft.json' }]] satisfies Array<[string, Record<string, unknown>]>)
+    await nativeToolBefore(dd.runtime,tool,args,scoped.sessionID);
+  await nativeToolBefore(dd.runtime,"todowrite",{ todos: [{ status: "completed" }] },scoped.sessionID);
+  await nativeToolBefore(dd.runtime,"write",{ path: "/project/later-task.py" },scoped.sessionID);
 });
 
 test("one preparation exports full review data, measured draft fields and original excerpts without inference", async () => {
@@ -108,8 +111,8 @@ test("report preparation preserves open cells and rejects mismatched evidence be
   reportFixture = true; reportWrongHash = true; calls.length = 0;
   expect(JSON.parse(await plugin.tool.legalwork_review_report_prepare.execute(input, context))).toMatchObject({ ok: false, error: { message: expect.stringContaining("source version") } });
   expect(calls.some(call => call.method === "POST")).toBe(false);
-  expect(JSON.parse(await plugin.tool.legalwork_review_report_prepare.execute({ ...input, reviewIds: [id,id] }, context)).ok).toBe(false);
-  expect(JSON.parse(await plugin.tool.legalwork_review_report_prepare.execute({ ...input, outputPrefix: "reports/../room" }, context)).ok).toBe(false);
+  await expect(plugin.tool.legalwork_review_report_prepare.execute({ ...input, reviewIds: [id,id] }, context)).rejects.toThrow();
+  await expect(plugin.tool.legalwork_review_report_prepare.execute({ ...input, outputPrefix: "reports/../room" }, context)).rejects.toThrow();
 });
 
 test("native report preparation binds renamed reviews through installed library provenance", async () => {
@@ -219,8 +222,8 @@ test("launch rejects changed sets or missing context before creating, and retain
 
 test("old model/row tools are removed and the agent is instructed to read enforced settings", async () => {
   expect(Object.keys(plugin.tool)).not.toContain("tabular_review_row"); expect(Object.keys(plugin.tool)).not.toContain("tabular_review_models");
-  const output: { system: string[] } = { system: [] }; await plugin["experimental.chat.system.transform"]({}, output);
-  expect(output.system.join(" ")).toContain("BEFORE proposing"); expect(output.system.join(" ")).toContain("No free-text");
+  const output: { system: Array<{type:"text";text:string}>; tools: Record<string, unknown> } = { system: [], tools: {} }; await plugin.runtime.hook("session","context",output);
+  expect(output.system.map((item:{text:string})=>item.text).join(" ")).toContain("BEFORE proposing"); expect(output.system.map((item:{text:string})=>item.text).join(" ")).toContain("No free-text");
 });
 test("review tools are scoped to the exact or closest registered project, never a sibling", async () => {
   expect(JSON.parse(await plugin.tool.legalwork_review_settings.execute({}, { directory: "/project/nested/docs" })).ok).toBe(true);
@@ -230,9 +233,8 @@ test("review tools are scoped to the exact or closest registered project, never 
   expect(calls).toHaveLength(0);
 });
 test("agents cannot override mode or inject backend/model settings into create or start", async () => {
-  const result = await plugin.tool.legalwork_review_create.execute({ name: "Review", files: ["a.txt"], columns: [], settings: { mode: "llm" } }, context);
-  expect(JSON.parse(result).ok).toBe(false); expect(calls).toHaveLength(0);
-  expect(JSON.parse(await plugin.tool.legalwork_review_start.execute({ reviewId: id, revision: 0, mode: "llm" }, context)).ok).toBe(false);
+  await expect(plugin.tool.legalwork_review_create.execute({ name: "Review", files: ["a.txt"], columns: [], settings: { mode: "llm" } }, context)).rejects.toThrow(); expect(calls).toHaveLength(0);
+  await expect(plugin.tool.legalwork_review_start.execute({ reviewId: id, revision: 0, mode: "llm" }, context)).rejects.toThrow();
   expect(calls).toHaveLength(0);
 });
 test("create generates stable per-session retry IDs and preserves server policy errors", async () => {
@@ -249,11 +251,11 @@ test("create generates stable per-session retry IDs and preserves server policy 
     await plugin.tool.legalwork_review_create.execute(args, ctx);
     expect(z.object({ requestId: z.string().uuid() }).parse(calls.at(-1)?.body).requestId).not.toBe(first);
   }
-  expect(plugin.tool.legalwork_review_create.args).not.toHaveProperty("requestId");
-  expect(plugin.tool.legalwork_review_create.args).not.toHaveProperty("sessionId");
-  expect(plugin.tool.legalwork_review_start.args).not.toHaveProperty("sessionId");
+  expect(Reflect.get(plugin.tool.legalwork_review_create.input,"properties")).not.toHaveProperty("requestId");
+  expect(Reflect.get(plugin.tool.legalwork_review_create.input,"properties")).not.toHaveProperty("sessionId");
+  expect(Reflect.get(plugin.tool.legalwork_review_start.input,"properties")).not.toHaveProperty("sessionId");
   calls.length = 0;
-  expect(JSON.parse(await plugin.tool.legalwork_review_create.execute({ ...input, requestId: id }, context)).ok).toBe(false);
+  await expect(plugin.tool.legalwork_review_create.execute({ ...input, requestId: id }, context)).rejects.toThrow();
   expect(calls).toHaveLength(0);
 });
 
@@ -283,18 +285,18 @@ test("result queries forward filters through the project-scoped read-only endpoi
   expect(calls.filter(call => call.method !== "GET")).toHaveLength(1);
   await plugin.tool.legalwork_review_results.execute({ reviewId: id, cursor: "opaque-next-page" }, context);
   expect(calls.at(-1)?.body).toEqual({ cursor: "opaque-next-page" });
-  expect(plugin.tool.legalwork_review_results.args).not.toHaveProperty("revision");
-  expect(plugin.tool.legalwork_review_results.args).not.toHaveProperty("offset");
+  expect(Reflect.get(plugin.tool.legalwork_review_results.input,"properties")).not.toHaveProperty("revision");
+  expect(Reflect.get(plugin.tool.legalwork_review_results.input,"properties")).not.toHaveProperty("offset");
 });
 
 test("agents can discuss saved JEV results without rerunning, and result tools retain scope and validation", async () => {
-  const output: { system: string[] } = { system: [] }; await plugin["experimental.chat.system.transform"]({}, output);
-  expect(output.system.join(" ")).toContain("not discussion of already-saved results");
-  expect(output.system.join(" ")).toContain("Never start, recreate or rerun a review merely to read its results");
-  expect(output.system.join(" ")).toContain("usableAnswer=true");
+  const output: { system: Array<{type:"text";text:string}>; tools: Record<string, unknown> } = { system: [], tools: {} }; await plugin.runtime.hook("session","context",output);
+  expect(output.system.map((item:{text:string})=>item.text).join(" ")).toContain("not discussion of already-saved results");
+  expect(output.system.map((item:{text:string})=>item.text).join(" ")).toContain("Never start, recreate or rerun a review merely to read its results");
+  expect(output.system.map((item:{text:string})=>item.text).join(" ")).toContain("usableAnswer=true");
   expect(JSON.parse(await plugin.tool.legalwork_review_results.execute({ reviewId: id }, { directory: "/project-elsewhere" })).ok).toBe(false);
   calls.length = 0;
-  expect(JSON.parse(await plugin.tool.legalwork_review_results.execute({ reviewId: id, limit: 500 }, context)).ok).toBe(false);
+  await expect(plugin.tool.legalwork_review_results.execute({ reviewId: id, limit: 500 }, context)).rejects.toThrow();
   expect(calls).toHaveLength(0);
 });
 
@@ -314,7 +316,7 @@ test("corpus questions preserve per-document wording, use project scope and carr
 test("Jev starts a whole named folder immediately and caps optional waits and page sizes", async () => {
   const tool = plugin.tool.legalwork_jev_corpus_question;
   const input = { paths: ["Jev Search Corpus"], question: "Does this document contain a change-of-control clause?", answers: ["Yes"], limit: 100, waitSeconds: 60 };
-  expect(z.object(tool.args).safeParse(input).success).toBe(true);
+  expect(tool.input).toMatchObject({type:"object",properties:{paths:{type:"array"}}});
   expect(JSON.parse(await tool.execute(input, context)).ok).toBe(true);
   expect(calls.at(-1)).toMatchObject({ path: "/workspace/project/reviews/corpus/query", body: { ...input, limit: 50, waitSeconds: 0 } });
   expect(calls.filter(call => call.method === "POST")).toHaveLength(1);
@@ -332,23 +334,23 @@ test("file browsing accepts oversized pages and a quoted empty root without extr
 
 test("bounded folder hints let the model select a named subfolder without a discovery tool loop", async () => {
   const scoped = await LegalWorkReviewTools(context);
-  const output: { system: string[] } = { system: [] };
-  await scoped["experimental.chat.system.transform"]({}, output);
-  expect(output.system.join(" ")).toContain("ONE job");
-  expect(output.system.join(" ")).toContain("not the project root");
+  const output: { system: Array<{type:"text";text:string}>; tools: Record<string, unknown> } = { system: [], tools: {} };
+  await scoped.runtime.hook("session","context",output);
+  expect(output.system.map((item:{text:string})=>item.text).join(" ")).toContain("ONE job");
+  expect(output.system.map((item:{text:string})=>item.text).join(" ")).toContain("not the project root");
   // The listing changes as folders appear, so it arrives as a reminder, not in the system prompt.
-  expect(output.system.join(" ")).not.toContain("Available top-level project folders");
-  const message: { message: { id: string }; parts: object[] } = { message: { id: "msg_test" }, parts: [] };
-  await scoped["chat.message"]({ sessionID: "ses_review" }, message);
-  const hints = message.parts.map(part => String(Reflect.get(part, "text"))).join(" ");
+  expect(output.system.map((item:{text:string})=>item.text).join(" ")).not.toContain("Available top-level project folders");
+  const message={sessionID:"ses_review",messageID:"msg_test",prompt:{text:""}};
+  await scoped.runtime.hook("session","prompt",message);
+  const hints=message.prompt.text;
   expect(hints).toContain("Available top-level project folders");
   expect(hints).toContain('"Contracts/Archive"');
   expect(hints).not.toContain("a.pdf"); expect(hints).not.toContain("Private name");
   expect(calls.filter(call => call.path.endsWith("/project/contents"))).toHaveLength(1);
   // Cached for 15 seconds, and unchanged state adds nothing to later results.
-  const result = { output: "done" };
-  await scoped["tool.execute.after"]({ sessionID: "ses_review" }, result);
-  expect(result.output).toBe("done");
+  const result={sessionID:"ses_review",status:"completed",result:{content:"done"}};
+  await scoped.runtime.hook("tool","execute.after",result);
+  expect(result.result.content).toBe("done");
   expect(calls.filter(call => call.path.endsWith("/project/contents"))).toHaveLength(1);
 });
 
@@ -359,6 +361,18 @@ test("agents can wait for multiple reviews in their project without model or exe
   calls.length = 0;
   expect(JSON.parse(await plugin.tool.legalwork_review_wait.execute(input, { directory: "/project-elsewhere" })).ok).toBe(false);
   expect(calls).toHaveLength(0);
-  const output: { system: string[] } = { system: [] }; await plugin["experimental.chat.system.transform"]({}, output);
-  expect(output.system.join(" ")).toContain("start all requested reviews and use legalwork_review_wait");
+  const output: { system: Array<{type:"text";text:string}>; tools: Record<string, unknown> } = { system: [], tools: {} }; await plugin.runtime.hook("session","context",output);
+  expect(output.system.map((item:{text:string})=>item.text).join(" ")).toContain("start all requested reviews and use legalwork_review_wait");
+});
+
+test("native library output accurately describes full definitions and compact summaries", async () => {
+  launchFixture = true;
+  const native = plugin.runtime.tools.get("legalwork_review_library");
+  const schema = z.fromJSONSchema(z.record(z.string(), z.unknown()).parse(native?.output));
+  const full = await plugin.tool.legalwork_review_library.executeResult({ detail: "full" }, context);
+  const summary = await plugin.tool.legalwork_review_library.executeResult({ detail: "summary" }, context);
+  expect(schema.safeParse(full.output).success).toBe(true);
+  expect(schema.safeParse(summary.output).success).toBe(true);
+  expect(summary.output).toMatchObject({ data: { entries: [{ columnCount: 1, jevCompatible: true, columns: [{ key: "ip", label: "IP", kind: "classification" }] }] } });
+  expect(JSON.stringify(full.output)).toContain("Does {{target}} own the IP?");
 });

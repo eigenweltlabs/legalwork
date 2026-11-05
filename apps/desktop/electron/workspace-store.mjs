@@ -1,13 +1,12 @@
 // Desktop workspace persistence and bootstrap configuration. This module owns
-// on-disk workspace state, per-workspace legalwork.json files, remote workspace
-// normalization/discovery, and the workspace-facing command operations.
+// on-disk local workspace state, per-workspace legalwork.json files, legacy
+// record preservation, and the workspace-facing command operations.
 import { createHash, randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
 import { lstat, mkdir, readFile, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { legalworkWorkspaceDisplayName, selectLegalworkWorkspaceForConnection } from "./remote-workspace.mjs";
 import { ensureOpencodeStateDir } from "./opencode-state-dir.mjs";
 import { exportWorkspaceConfig, importWorkspaceConfig } from "./workspace-archive.mjs";
 
@@ -324,25 +323,12 @@ export function createWorkspaceStore({ app, defaultDenBaseUrl, defaultRequireSig
     const workspaces = [];
     for (const entry of config.workspaces) {
       if (!isRecord(entry)) continue;
-      const workspaceType = entry.workspaceType === "remote" ? "remote" : "local";
+      if (entry.workspaceType === "remote") continue;
       const rawPath = typeof entry.path === "string" ? entry.path.trim() : "";
-      const normalizedPath = workspaceType === "local"
-        ? await normalizeLocalWorkspacePath(normalizeRecoveredWorkspacePath(rawPath))
-        : rawPath;
-      if (workspaceType === "local" && (!normalizedPath || !(await pathExists(normalizedPath)))) continue;
-
-      const baseUrl = typeof entry.baseUrl === "string" ? entry.baseUrl.trim() : "";
-      const directory = typeof entry.directory === "string" && entry.directory.trim() ? entry.directory.trim() : null;
-      const remoteType = entry.remoteType === "opencode" ? "opencode" : "legalwork";
-      const legalworkWorkspaceId = typeof entry.legalworkWorkspaceId === "string" ? entry.legalworkWorkspaceId.trim() : "";
-      const id = typeof entry.id === "string" && entry.id.trim()
-        ? entry.id.trim()
-        : workspaceType === "remote"
-          ? remoteType === "legalwork"
-            ? legalworkRemoteWorkspaceId(baseUrl, legalworkWorkspaceId)
-            : remoteWorkspaceId(baseUrl, directory)
-          : localWorkspaceId(normalizedPath);
-      const key = workspaceType === "remote" ? id : normalizeWorkspacePathKey(normalizedPath);
+      const normalizedPath = await normalizeLocalWorkspacePath(normalizeRecoveredWorkspacePath(rawPath));
+      if (!normalizedPath || !(await pathExists(normalizedPath))) continue;
+      const id = typeof entry.id === "string" && entry.id.trim() ? entry.id.trim() : localWorkspaceId(normalizedPath);
+      const key = normalizeWorkspacePathKey(normalizedPath);
       if (!key || seen.has(key)) continue;
       seen.add(key);
       workspaces.push(normalizeWorkspaceEntry({
@@ -354,8 +340,7 @@ export function createWorkspaceStore({ app, defaultDenBaseUrl, defaultRequireSig
           : path.basename(normalizedPath) || "Workspace",
         displayName: typeof entry.displayName === "string" ? entry.displayName : undefined,
         preset: typeof entry.preset === "string" && entry.preset.trim() ? entry.preset.trim() : "starter",
-        workspaceType,
-        ...(workspaceType === "remote" ? { remoteType, baseUrl, directory } : {}),
+        workspaceType: "local",
       }));
     }
     return workspaces;
@@ -375,104 +360,16 @@ export function createWorkspaceStore({ app, defaultDenBaseUrl, defaultRequireSig
     return stableWorkspaceId(workspacePath);
   }
 
-  function remoteWorkspaceId(baseUrl, directory) {
-    const key = String(directory ?? "").trim()
-      ? `remote::${baseUrl}::${String(directory).trim()}`
-      : `remote::${baseUrl}`;
-    return stableWorkspaceId(key);
-  }
-
-  function parseLegalworkWorkspaceIdFromUrl(input) {
-    const raw = String(input ?? "").trim();
-    if (!raw) return null;
-    try {
-      const url = new URL(raw);
-      const segments = url.pathname.split("/").filter(Boolean);
-      const workspaceIndex = segments.indexOf("workspace");
-      const legacyIndex = segments.indexOf("w");
-      const mountIndex = workspaceIndex >= 0 ? workspaceIndex : legacyIndex;
-      return mountIndex >= 0 && segments[mountIndex + 1]
-        ? decodeURIComponent(segments[mountIndex + 1])
-        : null;
-    } catch {
-      const match = raw.match(/\/(?:workspace|w)\/([^/?#]+)/);
-      if (!match?.[1]) return null;
-      try {
-        return decodeURIComponent(match[1]);
-      } catch {
-        return match[1];
-      }
-    }
-  }
-
-  function stripLegalworkWorkspaceMount(input) {
-    const raw = String(input ?? "").trim();
-    if (!raw) return null;
-    try {
-      const url = new URL(raw);
-      const segments = url.pathname.split("/").filter(Boolean);
-      const workspaceIndex = segments.indexOf("workspace");
-      const legacyIndex = segments.indexOf("w");
-      const mountIndex = workspaceIndex >= 0 ? workspaceIndex : legacyIndex;
-      if (mountIndex >= 0 && segments[mountIndex + 1]) {
-        const prefix = segments.slice(0, mountIndex).join("/");
-        url.pathname = prefix ? `/${prefix}` : "/";
-      }
-      return url.toString().replace(/\/+$/, "");
-    } catch {
-      return raw.replace(/\/(?:workspace|w)\/[^/?#]+.*$/, "").replace(/\/+$/, "") || raw;
-    }
-  }
-
-  function legalworkRemoteWorkspaceId(hostUrl, workspaceId) {
-    const remoteWorkspaceId = String(workspaceId ?? "").trim() || parseLegalworkWorkspaceIdFromUrl(hostUrl);
-    if (remoteWorkspaceId) return `rem_${remoteWorkspaceId}`;
-    return `rem_${createHash("sha256").update(`legalwork::${hostUrl}`).digest("hex").slice(0, 12)}`;
-  }
-
-  async function fetchLegalworkWorkspaceList(hostUrl, token, hostToken) {
-    const url = `${String(hostUrl ?? "").replace(/\/+$/, "")}/workspaces`;
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 8_000);
-    const headers = new Headers();
-    const bearerToken = String(token ?? "").trim();
-    const hostAuthToken = String(hostToken ?? "").trim();
-    if (bearerToken) headers.set("Authorization", `Bearer ${bearerToken}`);
-    if (hostAuthToken) headers.set("X-LegalWork-Host-Token", hostAuthToken);
-
-    try {
-      const response = await fetch(url, { headers, signal: controller.signal });
-      if (!response.ok) {
-        throw new Error(`LegalWork workspace discovery failed (${response.status} ${response.statusText || "HTTP error"})`);
-      }
-      return await response.json();
-    } finally {
-      clearTimeout(timeout);
-    }
-  }
-
-  async function discoverLegalworkWorkspace({ hostUrl, token, hostToken, directory }) {
-    const list = await fetchLegalworkWorkspaceList(hostUrl, token, hostToken);
-    return selectLegalworkWorkspaceForConnection(list, directory);
-  }
-
   function normalizeWorkspaceEntry(input) {
     return {
       id: String(input.id),
       name: String(input.name ?? "Workspace"),
       path: String(input.path ?? ""),
       preset: String(input.preset ?? "starter"),
-      workspaceType: input.workspaceType === "remote" ? "remote" : "local",
-      remoteType: input.remoteType ?? null,
+      workspaceType: "local",
       baseUrl: input.baseUrl ?? null,
       directory: input.directory ?? null,
       displayName: input.displayName ?? null,
-      legalworkHostUrl: input.legalworkHostUrl ?? null,
-      legalworkToken: input.legalworkToken ?? null,
-      legalworkClientToken: input.legalworkClientToken ?? null,
-      legalworkHostToken: input.legalworkHostToken ?? null,
-      legalworkWorkspaceId: input.legalworkWorkspaceId ?? null,
-      legalworkWorkspaceName: input.legalworkWorkspaceName ?? null,
       sandboxBackend: input.sandboxBackend ?? null,
       sandboxRunId: input.sandboxRunId ?? null,
       sandboxContainerName: input.sandboxContainerName ?? null,
@@ -501,8 +398,14 @@ export function createWorkspaceStore({ app, defaultDenBaseUrl, defaultRequireSig
     const outputPath = workspaceStatePath();
     const selectedId = String(nextState?.selectedId ?? nextState?.activeId ?? "");
     const watchedId = typeof nextState?.watchedId === "string" ? nextState.watchedId : "";
+    // Retired records are archival input only. Keep the original connection
+    // configuration on disk across local edits, without returning credentials.
+    const previous = await readJsonFile(outputPath, EMPTY_WORKSPACE_LIST);
+    const retired = Array.isArray(previous.workspaces) ? previous.workspaces.filter(entry => entry?.workspaceType === "remote") : [];
+    const activeWorkspaces = nextState.workspaces.filter(entry => entry?.workspaceType !== "remote");
     const output = {
       ...nextState,
+      workspaces: [...activeWorkspaces, ...retired],
       recoveryCompleted: true,
       // Tauri's Rust state uses selectedWorkspaceId/watchedWorkspaceId on disk
       // with activeId as a legacy alias. Keep Electron's selectedId/watchedId
@@ -514,7 +417,7 @@ export function createWorkspaceStore({ app, defaultDenBaseUrl, defaultRequireSig
       activeId: selectedId || null,
     };
     await writeJsonFileAtomic(outputPath, output);
-    return output;
+    return { ...output, workspaces: activeWorkspaces };
   }
 
   async function readWorkspaceStateUnchecked() {
@@ -568,66 +471,14 @@ export function createWorkspaceStore({ app, defaultDenBaseUrl, defaultRequireSig
         changed = true;
       }
     }
-    const idMap = new Map();
-    const migratedWorkspaces = workspaces.map((entry) => {
-      const workspace = entry && typeof entry === "object" ? entry : normalizeWorkspaceEntry(entry ?? {});
-      if (workspace.workspaceType !== "remote" || workspace.remoteType !== "legalwork") return workspace;
-
-      const remoteWorkspaceId = String(workspace.legalworkWorkspaceId ?? "").trim()
-        || parseLegalworkWorkspaceIdFromUrl(workspace.legalworkHostUrl)
-        || parseLegalworkWorkspaceIdFromUrl(workspace.baseUrl);
-      if (!remoteWorkspaceId) return workspace;
-
-      const hostUrl = stripLegalworkWorkspaceMount(workspace.legalworkHostUrl) || stripLegalworkWorkspaceMount(workspace.baseUrl);
-      const nextId = legalworkRemoteWorkspaceId(hostUrl ?? workspace.baseUrl, remoteWorkspaceId);
-      idMap.set(workspace.id, nextId);
-      const nextWorkspace = {
-        ...workspace,
-        id: nextId,
-        baseUrl: hostUrl,
-        legalworkWorkspaceId: remoteWorkspaceId,
-        legalworkHostUrl: hostUrl,
-      };
-      if (workspace.id !== nextWorkspace.id || workspace.baseUrl !== nextWorkspace.baseUrl || workspace.legalworkWorkspaceId !== nextWorkspace.legalworkWorkspaceId || workspace.legalworkHostUrl !== nextWorkspace.legalworkHostUrl) {
-        changed = true;
-      }
-      return nextWorkspace;
-    });
-    // Older desktop state can contain multiple LegalWork remote entries that
-    // normalize to the same rem_<workspaceId> after stripping worker mounts.
-    // Collapse them here so React never receives duplicate workspace keys.
-    const workspaceIndexById = new Map();
-    const dedupedWorkspaces = [];
-    for (const workspace of migratedWorkspaces) {
-      const workspaceId = String(workspace?.id ?? "").trim();
-      if (!workspaceId) {
-        dedupedWorkspaces.push(workspace);
-        continue;
-      }
-      const existingIndex = workspaceIndexById.get(workspaceId);
-      if (existingIndex === undefined) {
-        workspaceIndexById.set(workspaceId, dedupedWorkspaces.length);
-        dedupedWorkspaces.push(workspace);
-        continue;
-      }
-      // Keep the later entry: normal mutations replace-then-push refreshed
-      // remote workspaces, and there is no persisted updatedAt to compare.
-      dedupedWorkspaces[existingIndex] = workspace;
-      changed = true;
-    }
-
-    const migratedSelectedId = idMap.get(selectedId) ?? selectedId;
-    const migratedWatchedId = watchedId ? idMap.get(watchedId) ?? watchedId : null;
-    const migratedActiveId = activeId ? idMap.get(activeId) ?? activeId : null;
-    if (migratedSelectedId !== selectedId || migratedWatchedId !== watchedId || migratedActiveId !== activeId) changed = true;
-
-    const nextState = {
-      recoveryCompleted: true,
-      selectedId: migratedSelectedId,
-      watchedId: migratedWatchedId,
-      activeId: migratedActiveId,
-      workspaces: dedupedWorkspaces,
-    };
+    const retired = workspaces.filter(entry => entry?.workspaceType === "remote");
+    workspaces = workspaces.filter(entry => entry?.workspaceType !== "remote");
+    const warnings = retired.length ? [`${retired.length} saved remote agent workspace(s) are no longer supported. Their connection settings remain preserved in ${workspaceStatePath()}.`] : [];
+    const selected = workspaces.some(entry => entry.id === selectedId) ? selectedId : workspaces[0]?.id ?? "";
+    const watched = workspaces.some(entry => entry.id === watchedId) ? watchedId : selected || null;
+    const active = workspaces.some(entry => entry.id === activeId) ? activeId : selected || null;
+    if (selected !== selectedId || watched !== watchedId || active !== activeId) changed = true;
+    const nextState = { recoveryCompleted: true, selectedId: selected, watchedId: watched, activeId: active, workspaces, warnings };
 
     if (changed) {
       return writeWorkspaceStateUnchecked(nextState);
@@ -725,144 +576,6 @@ export function createWorkspaceStore({ app, defaultDenBaseUrl, defaultRequireSig
     });
   }
 
-  async function createRemoteWorkspace(input = {}) {
-    const baseUrl = String(input.baseUrl ?? "").trim();
-    if (!baseUrl) throw new Error("baseUrl is required");
-    if (!baseUrl.startsWith("http://") && !baseUrl.startsWith("https://")) {
-      throw new Error("baseUrl must start with http:// or https://");
-    }
-    const remoteType = input.remoteType === "opencode" ? "opencode" : "legalwork";
-    const directory = typeof input.directory === "string" && input.directory.trim() ? input.directory.trim() : null;
-    const rawLegalworkHostUrl = typeof input.legalworkHostUrl === "string" && input.legalworkHostUrl.trim()
-      ? input.legalworkHostUrl.trim()
-      : null;
-    const legalworkHostUrl = remoteType === "legalwork"
-      ? stripLegalworkWorkspaceMount(rawLegalworkHostUrl ?? baseUrl)
-      : rawLegalworkHostUrl;
-    const legalworkWorkspaceId = typeof input.legalworkWorkspaceId === "string" && input.legalworkWorkspaceId.trim()
-      ? input.legalworkWorkspaceId.trim()
-      : remoteType === "legalwork"
-        ? parseLegalworkWorkspaceIdFromUrl(rawLegalworkHostUrl) || parseLegalworkWorkspaceIdFromUrl(baseUrl)
-        : null;
-    let resolvedLegalworkWorkspaceId = legalworkWorkspaceId;
-    let resolvedLegalworkWorkspaceName = input.legalworkWorkspaceName ?? null;
-    if (remoteType === "legalwork" && !resolvedLegalworkWorkspaceId) {
-      const discovered = await discoverLegalworkWorkspace({
-        hostUrl: legalworkHostUrl ?? baseUrl,
-        token: input.legalworkToken,
-        hostToken: input.legalworkHostToken,
-        directory,
-      });
-      if (!discovered?.id) {
-        throw new Error(
-          directory
-            ? `LegalWork server has no workspace matching ${directory}.`
-            : "LegalWork server returned no workspaces.",
-        );
-      }
-      resolvedLegalworkWorkspaceId = String(discovered.id).trim();
-      resolvedLegalworkWorkspaceName = legalworkWorkspaceDisplayName(discovered);
-    }
-    const id = remoteType === "legalwork"
-      ? legalworkRemoteWorkspaceId(legalworkHostUrl ?? baseUrl, resolvedLegalworkWorkspaceId)
-      : remoteWorkspaceId(baseUrl, directory);
-    const workspace = normalizeWorkspaceEntry({
-      id,
-      name: String(input.displayName ?? resolvedLegalworkWorkspaceName ?? "Remote workspace"),
-      displayName: input.displayName ?? null,
-      path: directory ?? "",
-      preset: "remote",
-      workspaceType: "remote",
-      remoteType,
-      baseUrl: remoteType === "legalwork" ? (legalworkHostUrl ?? baseUrl) : baseUrl,
-      directory,
-      legalworkHostUrl,
-      legalworkToken: input.legalworkToken ?? null,
-      legalworkClientToken: input.legalworkClientToken ?? null,
-      legalworkHostToken: input.legalworkHostToken ?? null,
-      legalworkWorkspaceId: resolvedLegalworkWorkspaceId,
-      legalworkWorkspaceName: resolvedLegalworkWorkspaceName,
-      sandboxBackend: input.sandboxBackend ?? null,
-      sandboxRunId: input.sandboxRunId ?? null,
-      sandboxContainerName: input.sandboxContainerName ?? null,
-    });
-    return mutateWorkspaceState((state) => {
-      state.workspaces = state.workspaces.filter((entry) => entry.id !== workspace.id);
-      state.workspaces.push(workspace);
-      state.selectedId = workspace.id;
-      state.activeId = workspace.id;
-      return state;
-    });
-  }
-
-  async function updateRemoteWorkspace(input = {}) {
-    const workspaceId = String(input.workspaceId ?? "").trim();
-    if (!workspaceId) throw new Error("workspaceId is required");
-    const { workspaceId: _workspaceId, ...patch } = input;
-    return mutateWorkspaceState(async (state) => {
-      const existing = state.workspaces.find((entry) => entry.id === workspaceId);
-      if (!existing) return state;
-
-      let nextWorkspace = { ...existing, ...patch };
-      const nextRemoteType = nextWorkspace.remoteType === "opencode" ? "opencode" : "legalwork";
-      if (nextRemoteType === "legalwork") {
-        const rawHostUrl = typeof nextWorkspace.legalworkHostUrl === "string" && nextWorkspace.legalworkHostUrl.trim()
-          ? nextWorkspace.legalworkHostUrl.trim()
-          : null;
-        const nextBaseUrl = String(nextWorkspace.baseUrl ?? "").trim();
-        const hostUrl = stripLegalworkWorkspaceMount(rawHostUrl ?? nextBaseUrl);
-        const directory = typeof nextWorkspace.directory === "string" && nextWorkspace.directory.trim()
-          ? nextWorkspace.directory.trim()
-          : null;
-        const parsedWorkspaceId = parseLegalworkWorkspaceIdFromUrl(rawHostUrl) || parseLegalworkWorkspaceIdFromUrl(nextBaseUrl);
-        let remoteWorkspaceId = parsedWorkspaceId || (
-          typeof nextWorkspace.legalworkWorkspaceId === "string" && nextWorkspace.legalworkWorkspaceId.trim()
-            ? nextWorkspace.legalworkWorkspaceId.trim()
-            : null
-        );
-        let remoteWorkspaceName = nextWorkspace.legalworkWorkspaceName ?? null;
-        if (!remoteWorkspaceId) {
-          const discovered = await discoverLegalworkWorkspace({
-            hostUrl: hostUrl ?? nextBaseUrl,
-            token: nextWorkspace.legalworkToken,
-            hostToken: nextWorkspace.legalworkHostToken,
-            directory,
-          });
-          if (!discovered?.id) {
-            throw new Error(
-              directory
-                ? `LegalWork server has no workspace matching ${directory}.`
-                : "LegalWork server returned no workspaces.",
-            );
-          }
-          remoteWorkspaceId = String(discovered.id).trim();
-          remoteWorkspaceName = legalworkWorkspaceDisplayName(discovered);
-        }
-        const nextId = legalworkRemoteWorkspaceId(hostUrl ?? nextBaseUrl, remoteWorkspaceId);
-        nextWorkspace = normalizeWorkspaceEntry({
-          ...nextWorkspace,
-          id: nextId,
-          baseUrl: hostUrl ?? nextBaseUrl,
-          legalworkHostUrl: hostUrl,
-          directory,
-          remoteType: "legalwork",
-          legalworkWorkspaceId: remoteWorkspaceId,
-          legalworkWorkspaceName: remoteWorkspaceName,
-        });
-        if (nextId !== workspaceId) {
-          if (state.selectedId === workspaceId) state.selectedId = nextId;
-          if (state.activeId === workspaceId) state.activeId = nextId;
-          if (state.watchedId === workspaceId) state.watchedId = nextId;
-        }
-      }
-
-      state.workspaces = state.workspaces.map((entry) =>
-        entry.id === workspaceId ? nextWorkspace : entry,
-      );
-      return state;
-    });
-  }
-
   async function updateWorkspaceDisplayName(input = {}) {
     const workspaceId = String(input.workspaceId ?? "").trim();
     if (!workspaceId) throw new Error("workspaceId is required");
@@ -952,7 +665,6 @@ export function createWorkspaceStore({ app, defaultDenBaseUrl, defaultRequireSig
 
   return {
     addAuthorizedRoot,
-    createRemoteWorkspace,
     createWorkspace,
     debugDesktopBootstrapConfig,
     defaultWorkspaceLegalworkConfig,
@@ -968,7 +680,6 @@ export function createWorkspaceStore({ app, defaultDenBaseUrl, defaultRequireSig
     setDesktopBootstrapConfig,
     setRuntimeActiveWorkspace,
     setSelectedWorkspace,
-    updateRemoteWorkspace,
     updateWorkspaceDisplayName,
     writeWorkspaceLegalworkConfig,
     writeWorkspaceState,

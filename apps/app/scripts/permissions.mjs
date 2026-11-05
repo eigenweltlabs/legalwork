@@ -1,164 +1,43 @@
 import assert from "node:assert/strict";
-import { writeFile } from "node:fs/promises";
-
-import {
-  findFreePort,
-  makeClient,
-  normalizeEvent,
-  parseArgs,
-  spawnOpencodeServe,
-  waitForHealthy,
-} from "./_util.mjs";
+import { findFreePort, makeClient, parseArgs, spawnOpencodeServe, waitForHealthy } from "./_util.mjs";
 
 const args = parseArgs(process.argv.slice(2));
 const directory = args.get("dir") ?? process.cwd();
-
-const port = await findFreePort();
-const server = await spawnOpencodeServe({ directory, port });
-
+const server = await spawnOpencodeServe({ directory, port: await findFreePort() });
 try {
-  const client = makeClient({ baseUrl: server.baseUrl, directory: server.cwd });
+  const client = makeClient({ baseUrl: server.baseUrl });
   await waitForHealthy(client);
-
-  const requirePermission = args.get("require") === "true";
-
-  // Pick an agent name (session.shell requires it).
-  const agents = await client.app.agents();
-  const agentName = agents?.[0]?.name ?? "default";
-
-  // Create a session that asks for tool permission.
-  const session = await client.session.create({
-    title: "LegalWork permission test",
-    permission: [
-      {
-        permission: "bash",
-        pattern: "*",
-        action: "ask",
-      },
-    ],
-  });
-
-  const events = [];
-  const controller = new AbortController();
-  const sub = await client.event.subscribe(undefined, { signal: controller.signal });
-
-  let asked = null;
-  let shellError = null;
-  let externalRead = null;
-
-  const reader = (async () => {
-    try {
-      for await (const raw of sub.stream) {
-        const evt = normalizeEvent(raw);
-        if (!evt) continue;
-        events.push(evt);
-        if (evt.type === "permission.asked") {
-          asked = evt;
-          break;
-        }
-      }
-    } catch {
-      // Ignore abort errors.
-    }
-  })();
-
-  // Try to trigger a bash tool call without needing UI.
-  // This endpoint requires an agent name, and may still fail if no provider/model is configured.
-  try {
-    await client.session.shell({
-      sessionID: session.id,
-      agent: agentName,
-      command: "pwd",
-    });
-  } catch (e) {
-    shellError = e instanceof Error ? e.message : String(e);
+  const location = { directory: server.cwd };
+  await client.model.list({ location });
+  const agents = (await client.agent.list({ location })).data;
+  const agent = agents.find(item => item.mode !== "subagent" && !item.hidden)?.id;
+  assert.ok(agent, "No primary native agent is available");
+  const session = await client.session.create({ location, agent, title: "LegalWork permission test",
+    permissions: [{ action: "shell", resource: "*", effect: "ask" }] });
+  let finished = false, shellError;
+  const shell = client.session.shell({ sessionID: session.id, command: "pwd" }).catch(error => {
+    shellError = error instanceof Error ? error.message : String(error);
+  }).finally(() => { finished = true; });
+  let pending = [];
+  const deadline = Date.now() + 10000;
+  while (!pending.length && !finished && Date.now() < deadline) {
+    pending = await client.permission.list({ sessionID: session.id });
+    if (!pending.length) await new Promise(resolve => setTimeout(resolve, 50));
   }
-
-  // Try to trigger an external-directory permission request deterministically.
-  const externalPath = "/tmp/legalwork-permission-test.txt";
-  await writeFile(externalPath, "legalwork permission test\n", "utf8");
-
-  try {
-    await client.file.read({ path: externalPath });
-    externalRead = { path: externalPath, firstAttempt: "ok" };
-  } catch (e) {
-    externalRead = {
-      path: externalPath,
-      firstAttempt: "error",
-      firstError: e instanceof Error ? e.message : String(e),
-    };
-  }
-
-  await new Promise((r) => setTimeout(r, 2200));
-
-  controller.abort();
-  await Promise.race([reader, new Promise((r) => setTimeout(r, 500))]);
-
-  const pending = await client.permission.list();
-  assert.ok(Array.isArray(pending));
-
-  const reqFromEvent =
-    asked && asked.properties && typeof asked.properties === "object" ? asked.properties : null;
-  const reqFromList = pending.find((p) => p && p.sessionID === session.id) ?? pending[0] ?? null;
-  const req = reqFromEvent ?? reqFromList;
-
-  if (req) {
-    assert.ok(typeof req.id === "string");
-
-    await client.permission.reply({ requestID: req.id, reply: "once" });
-
-    if (externalRead && externalRead.firstAttempt === "error") {
-      try {
-        await client.file.read({ path: externalRead.path });
-        externalRead.afterReply = "ok";
-      } catch (e) {
-        externalRead.afterReply = "error";
-        externalRead.afterReplyError = e instanceof Error ? e.message : String(e);
-      }
-    }
-
-    console.log(
-      JSON.stringify({
-        ok: true,
-        baseUrl: server.baseUrl,
-        sessionId: session.id,
-        agentName,
-        shellError,
-        externalRead,
-        permissionAsked: true,
-        requestId: req.id,
-        requestedPermission: req.permission,
-        pendingCountBeforeReply: pending.length,
-        observedEventTypes: Array.from(new Set(events.map((e) => e.type))).slice(0, 25),
-      }),
-    );
+  const request = pending[0];
+  if (!request) {
+    await client.session.interrupt({ sessionID: session.id });
+    await shell;
+    assert.notEqual(args.get("require"), "true", `No shell permission request observed: ${shellError ?? "no pending request"}`);
   } else {
-    if (requirePermission) {
-      assert.fail(
-        `No permission request observed (agent=${agentName}). shellError=${shellError ?? "<none>"}`,
-      );
-    }
-
-    console.log(
-      JSON.stringify({
-        ok: true,
-        baseUrl: server.baseUrl,
-        sessionId: session.id,
-        agentName,
-        shellError,
-        externalRead,
-        permissionAsked: false,
-        note:
-          "No permission request observed. This usually means the server never attempted a tool call (often due to missing agent/model/provider configuration).",
-        pendingCount: pending.length,
-        observedEventTypes: Array.from(new Set(events.map((e) => e.type))).slice(0, 25),
-      }),
-    );
+    assert.equal(request.action, "shell");
+    await client.permission.reply({ sessionID: session.id, requestID: request.id, decision: "once" });
+    await shell;
+    assert.equal(shellError, undefined);
+    assert.equal((await client.permission.list({ sessionID: session.id })).length, 0);
   }
-} catch (e) {
-  const message = e instanceof Error ? e.message : String(e);
-  console.error(JSON.stringify({ ok: false, error: message, stderr: server.getStderr() }));
+  console.log(JSON.stringify({ ok: true, permissionAsked: Boolean(request), sessionId: session.id, agent, ...(shellError ? { shellError } : {}) }));
+} catch (error) {
+  console.error(JSON.stringify({ ok: false, error: error instanceof Error ? error.message : String(error), stderr: server.getStderr() }));
   process.exitCode = 1;
-} finally {
-  await server.close();
-}
+} finally { await server.close(); }

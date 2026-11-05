@@ -13,13 +13,19 @@ legalwork-server --workspace /path/to/workspace --approval auto
 
 For a persistent personal assistant VM, see [Personal assistant cloud sync](../../docs/cloud-assistant-sync.md).
 
-Or from source with Bun 1.4.2+ (older runtimes can truncate FTPS transfers):
+For development, use the Node.js version in `.nvmrc` (or an updated Node.js
+22 release, at least 22.15) and the repository's existing pnpm/Bun build tools:
 
 ```bash
 pnpm --filter legalwork-server dev -- \
   --workspace /path/to/workspace \
   --approval auto
 ```
+
+This builds the server's JavaScript and runs it with your existing Node.js.
+After building, `pnpm --filter legalwork-server start -- ...` starts the same
+server without rebuilding. Bun remains a build and test tool; this does not
+install or bundle another runtime, and Electron still runs its embedded server.
 
 The server logs the client token and host token on boot when they are auto-generated.
 
@@ -62,10 +68,6 @@ Defaults to `~/.config/legalwork/server.json` (override with `LEGALWORK_SERVER_C
 - `LEGALWORK_OPENCODE_USERNAME`
 - `LEGALWORK_OPENCODE_PASSWORD`
 
-Token management (scoped tokens):
-
-- `LEGALWORK_TOKEN_STORE` path to token store JSON (default: alongside `server.json`)
-
 File injection / artifacts:
 
 - `LEGALWORK_INBOX_ENABLED` (`1` | `0`)
@@ -106,11 +108,11 @@ Sandbox advertisement (for capability discovery):
 - `POST /workspace/:id/import/preview`
 - `POST /workspace/:id/import`
 
-Token management (host/owner auth):
-
-- `GET /tokens`
-- `POST /tokens` (body: `{ "scope": "owner"|"collaborator"|"viewer", "label"?: string }`)
-- `DELETE /tokens/:id`
+Workspace guest sharing has been removed. The `/tokens` endpoints return 404,
+and persisted share tokens (including viewer and owner tokens) are no longer
+accepted. The configured application bearer token and host header credential
+remain available for the desktop and explicitly operated servers. Desktop
+servers always bind to `127.0.0.1`; legacy remote-access settings are ignored.
 
 Inbox/outbox:
 
@@ -137,23 +139,12 @@ OpenCode proxy:
 - `GET|POST|... /opencode/*`
 - `GET|POST|... /w/:id/opencode/*`
 
-OpenCode Router proxy:
-
-- `GET|POST|... /opencode-router/*`
-- `GET|POST|... /w/:id/opencode-router/*`
-
-Auth policy:
-- `GET /opencode-router/health` requires client auth.
-- All other `/opencode-router/*` endpoints require host/owner auth.
-
 ## Approvals
 
 Gated HTTP writes use the configured host approval mode. These approvals are separate from OpenCode's tool permission prompts.
 
-Host APIs accept either:
-
-- `X-LegalWork-Host-Token: <token>` (legacy host token), or
-- `Authorization: Bearer <token>` where the token scope is `owner`.
+Host APIs require `X-LegalWork-Host-Token: <token>`.
+Bearer owner tokens have been retired.
 
 Approvals endpoints:
 
@@ -191,8 +182,8 @@ their operator; the setting cannot control those processes.
 Catalog redirects are rejected and failures never fall back to a third-party
 URL. For development, `OPENCODE_MODELS_URL` may target a loopback server. Remote
 catalog overrides must use `https://platform.eigenweltlabs.com`. The standalone
-orchestrator router uses Eigenwelt directly; without a LegalWork settings server,
-operators can disable its catalog updates with `OPENCODE_DISABLE_MODELS_FETCH=1`.
+orchestrator-managed engine uses its LegalWork settings server. Operators of
+external engines can disable catalog updates with `OPENCODE_DISABLE_MODELS_FETCH=1`.
 
 Deploy the model-api mirror before releasing this client. The catalog switch
 does not affect model inference, custom provider discovery, Eigenwelt billing

@@ -102,60 +102,36 @@ test("prefers server config workspaces when desktop state is empty", async () =>
   }
 });
 
-test("normalizes recovered remote LegalWork entries before persisting", async () => {
-  const root = await mkdtemp(path.join(tmpdir(), "legalwork-workspace-store-"));
-  const userData = path.join(root, "userData");
-  const serverConfig = path.join(root, "server.json");
-  await mkdir(userData, { recursive: true });
+test("archives legacy remote registrations without exposing credentials or losing them on local edits", async (t) => {
+  const { userData, store } = await isolatedStore(t);
+  const remote = { id: "rem_old", name: "Old worker", workspaceType: "remote", baseUrl: "https://retired.example", legalworkToken: "preserve-secret" };
+  const local = { id: "ws_local", name: "Local", path: userData, workspaceType: "local" };
+  const registry = path.join(userData, "legalwork-workspaces.json");
+  await writeFile(registry, JSON.stringify({ recoveryCompleted: true, selectedId: remote.id, activeId: remote.id, workspaces: [remote, local] }));
+  const state = await store.readWorkspaceState();
+  assert.deepEqual(state.workspaces, [local]);
+  assert.equal(state.selectedId, local.id);
+  assert.match(state.warnings[0], /no longer supported/);
+  assert.ok(!JSON.stringify(state).includes("preserve-secret"));
+  await store.updateWorkspaceDisplayName({ workspaceId: local.id, displayName: "Renamed" });
+  const saved = JSON.parse(await readFile(registry, "utf8"));
+  assert.deepEqual(saved.workspaces.find(entry => entry.id === remote.id), remote);
+  assert.equal(saved.workspaces.find(entry => entry.id === local.id).displayName, "Renamed");
+  assert.deepEqual((await store.readWorkspaceState()).workspaces.map(entry => entry.id), [local.id]);
+});
 
-  await writeFile(
-    path.join(userData, "legalwork-workspaces.json"),
-    JSON.stringify({ selectedId: "", activeId: null, watchedId: null, workspaces: [] }),
-    "utf8",
-  );
-  await writeFile(
-    serverConfig,
-    JSON.stringify({
-      workspaces: [
-        {
-          id: "legacy_one",
-          path: "/workspace",
-          workspaceType: "remote",
-          remoteType: "legalwork",
-          baseUrl: "https://worker.example.com/workspace/ws_remote",
-        },
-        {
-          id: "legacy_two",
-          path: "/workspace",
-          workspaceType: "remote",
-          remoteType: "legalwork",
-          baseUrl: "https://worker.example.com/w/ws_remote",
-        },
-      ],
-    }),
-    "utf8",
-  );
-
-  const previous = process.env.LEGALWORK_SERVER_CONFIG;
-  process.env.LEGALWORK_SERVER_CONFIG = serverConfig;
-  try {
-    const store = createWorkspaceStore({
-      app: { getPath: (name) => name === "userData" ? userData : root },
-      defaultDenBaseUrl: "https://example.test",
-      defaultRequireSignin: false,
-      forceRequireSignin: false,
-    });
-
-    const state = await store.readWorkspaceState();
-    assert.equal(state.workspaces.length, 1);
-    assert.equal(state.workspaces[0].id, "rem_ws_remote");
-    assert.equal(state.workspaces[0].baseUrl, "https://worker.example.com");
-    assert.equal(state.workspaces[0].legalworkWorkspaceId, "ws_remote");
-    assert.equal(state.selectedId, "rem_ws_remote");
-  } finally {
-    if (previous === undefined) delete process.env.LEGALWORK_SERVER_CONFIG;
-    else process.env.LEGALWORK_SERVER_CONFIG = previous;
-  }
+test("a registry containing only retired workers stays recoverable and has no active project", async t => {
+  const { userData, store } = await isolatedStore(t);
+  const registry = path.join(userData, "legalwork-workspaces.json");
+  const remote = { id: "rem_only", workspaceType: "remote", legalworkToken: "archived-secret" };
+  await writeFile(registry, JSON.stringify({ recoveryCompleted: true, selectedId: remote.id, watchedId: remote.id, activeId: remote.id, workspaces: [remote] }));
+  const state = await store.readWorkspaceState();
+  assert.deepEqual(state.workspaces, []);
+  assert.equal(state.selectedId, "");
+  assert.equal(state.activeId, null);
+  assert.equal(state.watchedId, null);
+  assert.ok(state.warnings[0].includes(registry));
+  assert.deepEqual(JSON.parse(await readFile(registry, "utf8")).workspaces, [remote]);
 });
 
 test("selecting a server-created project persists it across desktop restart without replacing project metadata", async () => {

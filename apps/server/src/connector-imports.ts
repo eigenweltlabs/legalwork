@@ -6,7 +6,7 @@ import { parse as parseToml } from "smol-toml";
 import type { PluginImportCandidate, PluginImportConnector, PluginImportProvider } from "@legalwork/types/plugin-import";
 import { ApiError } from "./errors.js";
 import { connectorConfigVariables, isCredentialHeader } from "./connector-config.js";
-import { assessImportedConnector } from "./connector-import-compatibility.js";
+import { assessImportedConnector, importedConnectorScope } from "./connector-import-compatibility.js";
 import { connectorProgramAvailable } from "./connector-program.js";
 
 const MAX_CONFIG_BYTES = 16 * 1024 * 1024;
@@ -119,12 +119,13 @@ export function normalizeImportedConnector(original: Record<string, unknown>, wa
       }
     } catch { /* Invalid and templated URLs are assessed separately. */ }
   }
-  if (record(original.oauth)) {
-    const oauth = original.oauth;
+  const scope = importedConnectorScope(original);
+  if (record(original.oauth) || typeof scope === "string" && original.oauth !== false) {
+    const oauth = record(original.oauth) ? original.oauth : {};
     config.oauth = {
       ...(typeof (oauth.clientId ?? oauth.client_id) === "string" ? { clientId: oauth.clientId ?? oauth.client_id } : {}),
       ...(typeof (oauth.clientSecret ?? oauth.client_secret) === "string" ? { clientSecret: oauth.clientSecret ?? oauth.client_secret } : {}),
-      ...(typeof (oauth.scope ?? oauth.scopes) === "string" ? { scope: oauth.scope ?? oauth.scopes } : {}),
+      ...(typeof scope === "string" ? { scope } : {}),
       ...(oauth.tokenEndpointAuthMethod === "client_secret_post" && !oauth.clientSecret && !oauth.client_secret ? { clientSecret: "${OAUTH_CLIENT_SECRET}" } : {}),
       ...(typeof (oauth.callbackPort ?? oauth.callback_port) === "number" ? { callbackPort: oauth.callbackPort ?? oauth.callback_port } : {}),
       ...(typeof (oauth.redirectUri ?? oauth.callbackUrl ?? oauth.callback_url) === "string" ? { redirectUri: oauth.redirectUri ?? oauth.callbackUrl ?? oauth.callback_url } : {}),
@@ -140,6 +141,7 @@ export function normalizeImportedConnector(original: Record<string, unknown>, wa
       } catch { /* Compatibility assessment reports invalid callbacks. */ }
     }
   }
+  if (typeof scope === "string") delete config.scopes;
   if (original.oauth === undefined && Object.keys(headers).some(isCredentialHeader)) config.oauth = false;
   // Context7 normalizes OAuth callbacks to localhost during authorization and
   // token exchange. Use the same host when its automatic client is registered.

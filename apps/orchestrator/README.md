@@ -1,8 +1,13 @@
 # LegalWork Orchestrator
 
-Host orchestrator for opencode + LegalWork server + opencode-router. This is a CLI-first way to run host mode without the desktop UI.
+Host orchestrator for OpenCode and LegalWork server. This is a CLI-first way to run host mode without the desktop UI.
 
 Published on npm as `legalwork-orchestrator` and installs the `legalwork` command.
+
+The legacy Slack/Telegram messaging bridge has been removed. Old enable flags
+are rejected, and messaging configuration cannot start a connector. Previously
+generated bot tools and native messaging plugins are moved into
+`retired-messaging-tools` on startup, preserving their contents and local edits.
 
 ## Quick start
 
@@ -20,45 +25,38 @@ legalwork serve --workspace /path/to/workspace
 
 `legalwork` ships as a compiled binary, so Bun is not required at runtime.
 
-If npm skips the optional platform package, `postinstall` falls back to downloading the matching
-binary from the `legalwork-orchestrator-v<version>` GitHub release. Override the download host with
-`LEGALWORK_ORCHESTRATOR_DOWNLOAD_BASE_URL` when you need to use a mirror.
+The npm platform package includes its local server and the engine's complete verified
+artifact. GitHub raw-binary downloads and mirror overrides are retired. If npm skips
+optional platform packages, enable optional dependencies and reinstall; no postinstall
+network fallback fetches a standalone executable.
 
-`legalwork` downloads and caches the `legalwork-server`, `opencode-router`, and `opencode` sidecars on
-first run using a SHA-256 manifest. Use `--sidecar-dir` or `LEGALWORK_SIDECAR_DIR` to control the
-cache location, and `--sidecar-base-url` / `--sidecar-manifest` to point at a custom host.
-
-Use `--sidecar-source` to control where `legalwork-server` and `opencode-router` are resolved
-(`auto` | `bundled` | `downloaded` | `external`), and `--opencode-source` to control
-`opencode` resolution. Set `LEGALWORK_SIDECAR_SOURCE` / `LEGALWORK_OPENCODE_SOURCE` to
-apply the same policies via env vars.
-
-By default the manifest is fetched from
-`https://github.com/eigenweltlabs/legalwork/releases/download/legalwork-orchestrator-v<version>/legalwork-orchestrator-sidecars.json`.
-
-OpenCode Router is optional. If it exits, `legalwork` continues running unless you pass
-`--opencode-router-required` or set `LEGALWORK_OPENCODE_ROUTER_REQUIRED=1`.
+`--sidecar-source` and `--opencode-source` accept `auto`, `bundled` or `external`.
+`auto` uses a local bundle or, for the engine, the exact prepared local archives/cache.
+`--sidecar-dir` / `LEGALWORK_SIDECAR_DIR` control that local cache. The former
+`downloaded`, `--sidecar-base-url`, `--sidecar-manifest` and download-mirror environment
+variables fail with a retirement message before starting runtime work.
 
 For development overrides only, set `LEGALWORK_ALLOW_EXTERNAL=1` or pass `--allow-external` to use
-locally installed `legalwork-server` or `opencode-router` binaries.
+locally installed `legalwork-server` binaries.
 
 Add `--verbose` (or `LEGALWORK_VERBOSE=1`) to print extra diagnostics about resolved binaries.
 
-OpenCode hot reload is enabled by default when launched via `legalwork`.
-Tune it with:
+OpenCode 2 owns native configuration watching. The former hot-reload/debounce/cooldown
+flags and environment variables remain parseable for existing launch commands, but emit
+a compatibility diagnostic because the released engine no longer supports those controls.
 
-- `--opencode-hot-reload` / `--no-opencode-hot-reload`
-- `--opencode-hot-reload-debounce-ms <ms>`
-- `--opencode-hot-reload-cooldown-ms <ms>`
+In `start`/`serve`, the independently deployed LegalWork server owns one authenticated
+OpenCode process, its private database, history readiness, and native service restart
+continuity. Clients connect through LegalWork's authenticated Bearer proxy;
+native Basic credentials stay private. Folder automation still requires approval
+before an agent can run, including in `--approval auto` mode.
 
-Equivalent env vars:
-
-- `LEGALWORK_OPENCODE_HOT_RELOAD` (router mode)
-- `LEGALWORK_OPENCODE_HOT_RELOAD_DEBOUNCE_MS`
-- `LEGALWORK_OPENCODE_HOT_RELOAD_COOLDOWN_MS`
-- `LEGALWORK_OPENCODE_HOT_RELOAD` (start/serve mode)
-- `LEGALWORK_OPENCODE_HOT_RELOAD_DEBOUNCE_MS`
-- `LEGALWORK_OPENCODE_HOT_RELOAD_COOLDOWN_MS`
+Runtime settings and the shared capability library keep their existing LegalWork storage.
+Engine-generated config, service registration, and v2 database use a separate directory
+under the orchestrator's `--data-dir`. This prevents stopping the CLI from stopping a
+desktop-owned engine. The existing `none` versus Docker/container execution boundary is
+preserved. Separate processes read the same saved settings; this does not add a cross-process
+settings notification protocol.
 
 Or from source:
 
@@ -67,7 +65,10 @@ pnpm --filter legalwork-orchestrator dev -- \
   start --workspace /path/to/workspace --approval auto --allow-external
 ```
 
-When `LEGALWORK_DEV_MODE=1` is set, orchestrator uses an isolated OpenCode dev state for config, auth, data, cache, and state. LegalWork's repo-level `pnpm dev` commands enable this automatically so local development does not reuse your personal OpenCode environment.
+When `LEGALWORK_DEV_MODE=1` is set, managed OpenCode uses private development config,
+database, cache and service state without importing personal OpenCode history by default.
+An explicit `OPENCODE_DB` override remains authoritative. LegalWork's repo-level `pnpm dev`
+commands enable development mode automatically.
 
 The command prints pairing URLs by default and withholds live credentials from stdout to avoid leaking them into shell history or collected logs. Use `--json` only when you explicitly need the raw pairing secrets in command output.
 
@@ -93,9 +94,9 @@ Notes:
 - `--sandbox auto` prefers Apple `container` on supported Macs (arm64), otherwise Docker.
 - Docker backend requires `docker` on your PATH.
 - Apple container backend requires the `container` CLI (https://github.com/apple/container).
-- In sandbox mode, sidecars are resolved for a Linux target (and `--sidecar-source` / `--opencode-source`
-  are effectively `downloaded`).
-- Custom `--*-bin` overrides are not supported in sandbox mode yet.
+- Sandbox mode requires Linux artifacts from local builds/prepared archives. It does not download standalone sidecars.
+- On a non-Linux host, supply the locally built Linux server with `--legalwork-server-bin` and `--allow-external`.
+  An explicit `--opencode-bin` must match the engine's compiled target and artifact pins.
 - Use `--sandbox-image` to pick an image with the toolchain you want available to OpenCode.
 - Use `--sandbox-persist-dir` to control the host directory mounted at `/persist` inside the container.
 
@@ -115,7 +116,7 @@ Override with `LEGALWORK_SANDBOX_MOUNT_ALLOWLIST`.
 
 ## Logging
 
-`legalwork` emits a unified log stream from OpenCode, LegalWork server, and opencode-router. Use JSON format for
+`legalwork` emits a unified log stream from OpenCode and LegalWork server. Use JSON format for
 structured, OpenTelemetry-friendly logs and a stable run id for correlation.
 
 ```bash
@@ -132,25 +133,17 @@ volume.
 LegalWork server logs every request with method, path, status, and duration. Disable this when running
 `legalwork-server` directly by setting `LEGALWORK_LOG_REQUESTS=0` or passing `--no-log-requests`.
 
-## Router daemon (multi-workspace)
+## Existing developer daemons
 
-The router keeps a single OpenCode process alive and switches workspaces JIT using the `directory` parameter.
+The extra developer engine launcher and its workspace/instance registry commands are retired. Use `legalwork serve --workspace /path/to/matter` for the supported server runtime. Self-hosting, manual server connections and file commands remain supported.
 
-```bash
-legalwork daemon start
-legalwork workspace add /path/to/workspace-a
-legalwork workspace add /path/to/workspace-b
-legalwork workspace list --json
-legalwork workspace path <id>
-legalwork instance dispose <id>
-```
-
-Use `LEGALWORK_DATA_DIR` or `--data-dir` to isolate router state in tests.
+Original `legalwork-orchestrator-state.json` and private `opencode-config` files stay intact. `legalwork daemon status --data-dir <original-directory>` and `legalwork daemon stop --data-dir <original-directory>` remain available for an existing daemon. They verify its saved PID, start time and exact loopback health identity before requesting shutdown; they never start another engine or kill a saved PID.
 
 ## Pairing notes
 
 - Use the **LegalWork connect URL** and **client token** to connect a remote LegalWork client.
-- The LegalWork server advertises the **OpenCode connect URL** plus optional basic auth credentials to the client.
+- In `start`/`serve`, the **OpenCode connect URL** uses the LegalWork token through its
+  scoped proxy; the native engine's Basic credentials are never advertised.
 
 ## Approvals (manual mode)
 
@@ -169,8 +162,11 @@ legalwork approvals reply <id> --allow \
 ```bash
 legalwork status \
   --legalwork-url http://<host>:8787 \
-  --opencode-url http://<host>:4096
+  --opencode-url http://<host>:8787/opencode \
+  --legalwork-token <client-token>
 ```
+
+Managed status checks the authenticated native process identity and LegalWork's metadata-only startup readiness without activating a project. A direct standalone native server still accepts `--opencode-username` and `--opencode-password`.
 
 ## File sessions (JIT catalog + batch read/write)
 
@@ -222,12 +218,12 @@ This starts the services, verifies health + SSE events, then exits cleanly.
 
 ## Local development
 
-Point to source CLIs for fast iteration:
+Build the server JavaScript and run it with the development Node runtime:
 
 ```bash
+pnpm --filter legalwork-server build
 legalwork start \
   --workspace /path/to/workspace \
   --allow-external \
-  --legalwork-server-bin apps/server/src/cli.ts \
-  --opencode-router-bin apps/opencode-router/dist/cli.js
+  --legalwork-server-bin apps/server/dist/cli.js
 ```

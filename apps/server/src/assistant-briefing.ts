@@ -19,13 +19,13 @@ export async function hasBriefingSessionThreshold(config: ServerConfig, accessib
   const sessions = new Set<string>();
   try {
     for (const entry of config.workspaces) {
-      if (entry.workspaceType === "remote") continue;
+
       let workspace: WorkspaceInfo;
       try { workspace = await accessible(entry.id); } catch { continue; }
       const root = workspace.opencode?.directory || workspace.directory || workspace.path;
       const canonical = await realpath(root).catch(() => resolve(root));
-      const rows = db.all(`SELECT s.id FROM session s WHERE s.directory IN (?, ?) AND s.parent_id IS NULL
-        AND (? = '0' OR EXISTS (SELECT 1 FROM message m WHERE m.session_id = s.id AND json_extract(m.data, '$.role') = 'user')) LIMIT 6`,
+      const rows = db.all(`SELECT s.id FROM session_v2 s WHERE s.directory IN (?, ?) AND s.parent_id IS NULL
+        AND (? = '0' OR EXISTS (SELECT 1 FROM session_message m WHERE m.session_id = s.id AND m.type = 'user')) LIMIT 6`,
       [root, canonical, isMainAssistant(workspace) ? "1" : "0"]);
       for (const row of rows) sessions.add(String(row.id));
       if (sessions.size > 5) return true;

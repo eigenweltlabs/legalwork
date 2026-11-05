@@ -1,26 +1,17 @@
-const { readFileSync } = require("node:fs");
+const { existsSync, readFileSync } = require("node:fs");
 const path = require("node:path");
+const { version } = require("@legalwork/opencode-release/release.json");
 
-// Run against copied resources before signing, and again before startup smoke
-// tests: opening the renderer does not prove the engine can start.
+// The v2 CLI provides effect and @opencode/plugin as host-instance virtual
+// modules. Validate the packaging contract instead of shipping a second copy.
 function assertPackagedOpencodeSdk(resources) {
   const bundle = path.join(resources, "opencode-sdk");
-  const root = JSON.parse(readFileSync(path.join(bundle, "package.json"), "utf8"));
-  const checked = new Set();
-  function check(name) {
-    if (checked.has(name)) return;
-    checked.add(name);
-    const file = path.join(bundle, "node_modules", name, "package.json");
-    let manifest;
-    try { manifest = JSON.parse(readFileSync(file, "utf8")); }
-    catch (cause) { throw new Error(`Missing packaged OpenCode SDK dependency: ${name}`, { cause }); }
-    if (manifest.name !== name) throw new Error(`Invalid packaged OpenCode SDK dependency: ${name}`);
-    if (name === "@opencode-ai/plugin" && manifest.version !== root.dependencies[name]) {
-      throw new Error("Packaged OpenCode plugin SDK version does not match its manifest");
-    }
-    for (const dependency of Object.keys(manifest.dependencies ?? {})) check(dependency);
+  const manifest = JSON.parse(readFileSync(path.join(bundle, "package.json"), "utf8"));
+  if (manifest.opencode?.version !== version || manifest.opencode?.runtime !== "released-cli" ||
+      JSON.stringify(manifest.opencode?.providedModules) !== JSON.stringify(["@opencode/plugin", "effect"])) {
+    throw new Error("Packaged OpenCode host-runtime declaration does not match the pinned engine");
   }
-  check("@opencode-ai/plugin");
+  if (existsSync(path.join(bundle, "node_modules"))) throw new Error("Packaged OpenCode must use the host's plugin/effect modules, without a foreign SDK tree");
   return bundle;
 }
 

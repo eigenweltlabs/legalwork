@@ -122,9 +122,12 @@ declare global {
         installAndRestart?: () => Promise<{ ok: boolean; reason?: string }>;
       };
       browser?: {
+        registerConnection?: (connection: { baseUrl: string; token: string }) => Promise<{ connectionId: string }>;
+        attachSession?: (context: { workspaceId: string; sessionId: string; directory?: string; connectionId?: string; takeControl?: boolean }) => Promise<{ attached: boolean }>;
+        connection?: (tabId: string, context: { workspaceId: string; sessionId: string; directory?: string; connectionId?: string }) => Promise<unknown>;
         show?: (bounds: { x: number; y: number; width: number; height: number }, tabId?: string) => Promise<void>;
         hide?: (tabId?: string) => Promise<void>;
-        openUrl?: (url: string, provider?: "auto" | "builtin" | "external", context?: { directory?: string; workspaceId?: string; sessionId?: string }) => Promise<{
+        openUrl?: (url: string, provider?: "auto" | "builtin" | "external", context?: { directory?: string; workspaceId?: string; sessionId?: string; connectionId?: string }) => Promise<{
           provider: "builtin";
           browser_url: string;
           target_id: string;
@@ -460,8 +463,6 @@ const {
   workspaceSetSelected,
   workspaceSetRuntimeActive,
   workspaceCreate,
-  workspaceCreateRemote,
-  workspaceUpdateRemote,
   workspaceUpdateDisplayName,
   workspaceForget,
   workspaceAddAuthorizedRoot,
@@ -602,8 +603,6 @@ export {
   workspaceSetSelected,
   workspaceSetRuntimeActive,
   workspaceCreate,
-  workspaceCreateRemote,
-  workspaceUpdateRemote,
   workspaceUpdateDisplayName,
   workspaceForget,
   workspaceAddAuthorizedRoot,

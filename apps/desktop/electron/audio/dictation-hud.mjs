@@ -65,8 +65,8 @@ export class DictationHud {
       if (action === "start" && this.state === "idle" && this.status.enabled && this.status.registered) this.actions.onStart();
       if (action === "stop" && this.state === "listening") this.actions.onStop();
       if (action === "stop" && this.state === "starting") this.actions.onCancel();
-      if (action === "cancel" && ["starting", "listening", "transcribing"].includes(this.state)) this.actions.onCancel();
-      if (action === "dismiss" && ["error", "success", "cancelled"].includes(this.state)) void this.setState("idle");
+      if (action === "cancel" && ["starting", "listening", "transcribing", "inserting"].includes(this.state)) this.actions.onCancel();
+      if (action === "dismiss" && ["error", "success", "copied", "cancelled"].includes(this.state)) void this.setState("idle");
     };
     this.onPointer = (event, interactive) => {
       if (!this.window || event.sender !== this.window.webContents || typeof interactive !== "boolean") return;
@@ -337,7 +337,8 @@ export class DictationHud {
     this.message = message;
     this.locale = locale;
     const displayed = this.displayState;
-    const settleMs = ["error", "meeting-error"].includes(displayed) ? 4_000
+    const settleMs = displayed === "copied" ? 8_000
+      : ["error", "meeting-error"].includes(displayed) ? 4_000
       : displayed === "idle" && message ? 2_000
       : ["success", "cancelled"].includes(displayed) ? 1_200 : 0;
     const settleKey = settleMs ? JSON.stringify([displayed, message, this.meeting?.error]) : "";

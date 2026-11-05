@@ -7,6 +7,7 @@ import type { ServerConfig, WorkspaceInfo, TokenScope } from "../types.js";
 import type { AgentSandboxService, AgentPermissionRule } from "../agent-sandbox/service.js";
 import { addRoute, type Route, type RequestContext } from "./registry.js";
 import { networkModeSchema, readSandboxDefault, applicationSandbox, effectiveSandbox, sandboxSettingsSchema, writeSessionSandbox } from "../agent-sandbox/settings.js";
+import { rawHttpInputSchema } from "../agent-sandbox/raw-http.js";
 
 const commandSchema = z.object({
   command: z.string().min(1).max(128000),
@@ -17,6 +18,18 @@ const commandSchema = z.object({
   timeoutMs: z.number().int().min(1).max(600000).default(120000),
   agent: z.string().min(1).max(200),
   sessionID: z.string().min(1).max(200),
+}).strict();
+// Template interpolation inherits native commands' complete output and lifetime.
+// This endpoint shares every execution, file, network and actor permission check.
+const templateCommandSchema = z.object({
+  command: z.string().min(1),
+  description: z.string().optional(),
+  workdir: z.string().optional(),
+  write: z.literal(true),
+  timeoutMs: z.null(),
+  capture: z.literal("complete"),
+  agent: z.string().min(1),
+  sessionID: z.string().min(1),
 }).strict();
 
 export function registerAgentSandboxRoutes(options: {
@@ -85,10 +98,29 @@ export function registerAgentSandboxRoutes(options: {
     const rules = await options.agentRules(workspace, input.sessionID, input.agent);
     return jsonResponse(await sandbox.web(workspace, input, ctx.actor ?? { type: "remote", scope: "viewer" }, ctx.request.signal, rules, lineage));
   });
+  addRoute(routes, "POST", "/workspace/:id/sandbox/http", "client", async (ctx) => {
+    options.requireClientScope(ctx, "collaborator");
+    if (!config.agentSandboxEnabled) throw new ApiError(409, "sandbox_unavailable", "Managed HTTP access is unavailable on this worker.");
+    const input = rawHttpInputSchema.extend({ sessionID: z.string().min(1), agent: z.string().min(1) })
+      .parse(await options.readJsonBodyLimited(ctx.request, Number.MAX_SAFE_INTEGER));
+    const workspace = await options.resolveWorkspace(config, ctx.params.id);
+    const lineage = await options.sessionLineage(workspace, input.sessionID);
+    const rules = await options.agentRules(workspace, input.sessionID, input.agent);
+    return jsonResponse(await sandbox.rawHttp(workspace, input, ctx.actor ?? { type: "remote", scope: "viewer" }, ctx.request.signal, rules, lineage));
+  });
   addRoute(routes, "POST", "/workspace/:id/sandbox/execute", "client", async (ctx) => {
     options.requireClientScope(ctx, "collaborator");
     if (!config.agentSandboxEnabled) throw new ApiError(409, "sandbox_unavailable", "Protected execution is unavailable on this worker.");
     const input = commandSchema.parse(await options.readJsonBodyLimited(ctx.request, 256000));
+    const workspace = await options.resolveWorkspace(config, ctx.params.id);
+    const lineage = await options.sessionLineage(workspace, input.sessionID);
+    const rules = await options.agentRules(workspace, input.sessionID, input.agent);
+    return jsonResponse(await sandbox.run(workspace, input, ctx.actor ?? { type: "remote", scope: "viewer" }, ctx.request.signal, rules, lineage));
+  });
+  addRoute(routes, "POST", "/workspace/:id/sandbox/command", "client", async (ctx) => {
+    options.requireClientScope(ctx, "collaborator");
+    if (!config.agentSandboxEnabled) throw new ApiError(409, "sandbox_unavailable", "Managed command execution is unavailable.");
+    const input = templateCommandSchema.parse(await options.readJsonBodyLimited(ctx.request, Number.MAX_SAFE_INTEGER));
     const workspace = await options.resolveWorkspace(config, ctx.params.id);
     const lineage = await options.sessionLineage(workspace, input.sessionID);
     const rules = await options.agentRules(workspace, input.sessionID, input.agent);

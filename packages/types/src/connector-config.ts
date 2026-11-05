@@ -10,6 +10,34 @@ export type ConnectorConfig = {
   timeout?: number;
 };
 
+/** Read-only connection metadata. Saved executable values and credentials are
+ * deliberately absent; submitting this view must never replace a definition. */
+export type ConnectorDisplayItem = {
+  name: string;
+  source: "config.project" | "config.global" | "config.remote";
+  editable: boolean;
+  disabledByTools?: boolean;
+  config: Pick<ConnectorConfig, "type" | "enabled" | "timeout" | "oauth">;
+  configured: {
+    url: boolean;
+    command: boolean;
+    cwd: boolean;
+    headers: string[];
+    environment: string[];
+    oauth: boolean;
+    variables: string[];
+  };
+};
+
+/** Omitted values keep the server's saved definition. Removal is explicit. */
+export type ConnectorEditRemovals = {
+  removeHeaders?: string[];
+  removeEnvironment?: string[];
+  resetFields?: Array<"cwd" | "timeout" | "oauth">;
+};
+
+export type ConnectorConfigEdit = ConnectorEditRemovals & { variables?: Record<string, string>; executable?: string; arguments?: string[] };
+
 /** Imported templates and native engine environment references both need setup before hot-add. */
 const variablePattern = /\$\{([^}]+)\}|\{env:([^}]+)\}/g;
 export function connectorConfigVariables(config: unknown): string[] {

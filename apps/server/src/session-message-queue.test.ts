@@ -7,7 +7,7 @@ import { QueuePreparationError, SessionMessageQueue, type QueueTransport } from 
 import { queueActionSchema, queuedPromptPayload } from "./session-queue-schema.js";
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => { await Promise.all(cleanups.splice(0).map(fn => fn())); });
-const message = (text = "hello"): Extract<QueueAction, { type: "enqueue" }> => ({ type: "enqueue", id: crypto.randomUUID(), draft: { mode: "prompt", text, parts: [{ type: "text", text }], attachments: [], editor: { mentions: {}, pasteParts: [] } }, execution: { kind: "prompt", model: { providerID: "test", modelID: "test" }, parts: [{ type: "text", text }] } });
+const message = (text = "hello"): Extract<QueueAction, { type: "enqueue" }> => ({ type: "enqueue", id: crypto.randomUUID(), draft: { mode: "prompt", text, parts: [{ type: "text", text }], attachments: [], editor: { mentions: {}, pasteParts: [] } }, execution: { kind: "prompt", model: { providerID: "test", id: "test" }, text } });
 async function setup(transport: QueueTransport) {
   const dir = await mkdtemp(join(tmpdir(), "legalwork-queue-test-"));
   const queue = new SessionMessageQueue(dir, transport);
@@ -102,14 +102,15 @@ test("hidden queued context survives validation and restart without changing the
   const { queue, dir } = await setup(transport);
   const a = message();
   if (a.execution.kind !== "prompt") throw new Error("Expected prompt");
-  const reminder: (typeof a.execution.parts)[number] = { type: "text", text: "<system-reminder>\nAttachment context\n</system-reminder>", synthetic: true };
-  const parsed = queueActionSchema.parse({ ...a, execution: { ...a.execution, parts: [...a.execution.parts, reminder] } });
+  const reminder = "<system-reminder>\nAttachment context\n</system-reminder>";
+  const parsed = queueActionSchema.parse({ ...a, execution: { ...a.execution, text: `${a.execution.text}\n\n${reminder}`, metadata: { legalworkPrompt: { visibleText: a.execution.text, reminders: [reminder] } } } });
   await queue.act("w", "s", parsed); queue.stop();
   const restored = new SessionMessageQueue(dir, transport); cleanups.push(async () => restored.stop());
   const execution = (await restored.read("w", "s")).entries[0].execution;
   if (execution.kind !== "prompt") throw new Error("Expected prompt");
   const payload = queuedPromptPayload(execution);
-  expect(payload.parts).toEqual([...a.execution.parts, reminder]);
+  expect(payload.text).toBe(`hello\n\n${reminder}`);
+  expect(payload.metadata).toEqual({ legalworkPrompt: { visibleText: "hello", reminders: [reminder] } });
   expect(payload).not.toHaveProperty("system");
   expect(payload).not.toHaveProperty("kind");
 });
@@ -130,15 +131,16 @@ test("whole-plugin chips survive shared queue validation, restart and editing", 
   expect(edited.entries[0].draft.editor.mentions).toEqual({ [value]: "plugin" });
   expect(edited.entries[0].draft.text).toEndWith("to review changes");
 });
-test("legacy queued context dispatches as a hidden message part without mutating the saved entry", () => {
-  const execution = message().execution;
-  if (execution.kind !== "prompt") throw new Error("Expected prompt");
-  execution.system = "Legacy Fusion and attachment context";
-  const payload = queuedPromptPayload(execution);
+test("legacy queued context migrates to atomic native text without changing the source", () => {
+  const original = { ...message(), execution: { kind: "prompt", model: { providerID: "test", modelID: "test" }, system: "Legacy Fusion and attachment context", parts: [{ type: "text", text: "hello" }] } };
+  const parsed = queueActionSchema.parse(original);
+  if (parsed.type !== "enqueue" || parsed.execution.kind !== "prompt") throw new Error("Expected prompt");
+  const payload = queuedPromptPayload(parsed.execution);
   expect(payload).not.toHaveProperty("system");
-  expect(payload.parts.at(-1)).toEqual({ type: "text", text: "<system-reminder>\nLegacy Fusion and attachment context\n</system-reminder>", synthetic: true });
-  expect(queuedPromptPayload(execution)).toEqual(payload);
-  expect(execution.parts).toHaveLength(1);
+  expect(payload.text).toBe("hello\n\n<system-reminder>\nLegacy Fusion and attachment context\n</system-reminder>");
+  expect(payload.metadata).toEqual({ legalworkPrompt: { visibleText: "hello", reminders: ["<system-reminder>\nLegacy Fusion and attachment context\n</system-reminder>"] } });
+  expect(original.execution.parts).toHaveLength(1);
+  expect(original.execution.system).toBe("Legacy Fusion and attachment context");
 });
 test("editing reserves the item across windows; stale changes cannot overwrite it", async () => {
   const { queue } = await setup({ idle: async () => false, send: async () => {} });
@@ -259,6 +261,27 @@ test("a plain message resumes Stop even before the aborted response returns", as
   expect((await queue.read("w", "s")).paused).toBe(true);
 });
 
+test("background scheduled admission never resumes a stopped chat, including after restart", async () => {
+  const sent: string[] = [];
+  const transport: QueueTransport = { idle: async () => true, send: async (_workspace, _session, entry) => { sent.push(entry.id); } };
+  const { queue, dir } = await setup(transport);
+  await queue.act("w", "s", { type: "pause", paused: true, reason: "stop" });
+  const scheduled = { ...message("scheduled work"), resumeStopped: false };
+  const accepted = await queue.act("w", "s", scheduled);
+  expect(accepted.paused).toBe(true);
+  expect(accepted.entries[0].status).toBe("queued");
+  expect(sent).toEqual([]);
+  queue.stop();
+  const restarted = new SessionMessageQueue(dir, transport);
+  cleanups.push(async () => restarted.stop());
+  await restarted.tick();
+  expect((await restarted.read("w", "s")).paused).toBe(true);
+  expect(sent).toEqual([]);
+  await restarted.act("w", "s", { type: "pause", paused: false });
+  await until(async () => sent.includes(scheduled.id));
+  expect(sent).toEqual([scheduled.id]);
+});
+
 test("definite preparation failures remain retryable and conditional reads skip unchanged payloads", async () => {
   let fail = true;
   const { queue } = await setup({ idle: async () => true, send: async () => { if (fail) throw new QueuePreparationError("Could not restore the chat"); } });
@@ -337,4 +360,51 @@ test("delivery reconciliation preserves an explicit user pause", async () => {
   await queue.tick();
   expect((await queue.read("w", "s")).entries).toHaveLength(0);
   expect((await queue.read("w", "s")).paused).toBe(true);
+});
+
+test("native acceptance survives restart, blocks edits and pauses follow-ups on failure", async () => {
+  let outcome: { pause: boolean; reason: "error" } | undefined;
+  const sent: string[] = [];
+  const transport: QueueTransport = {
+    idle: async () => true,
+    send: async (_workspace, _session, entry) => { sent.push(entry.id); return { accepted: true }; },
+    settled: async () => outcome,
+  };
+  const { queue, dir } = await setup(transport);
+  const first = message("first"), second = message("second");
+  await queue.act("w", "s", first);
+  await until(async () => (await queue.read("w", "s")).entries[0]?.status === "accepted");
+  const state = await queue.act("w", "s", second);
+  await expect(queue.act("w", "s", { type: "edit", id: first.id, token: crypto.randomUUID(), revision: state.revision })).rejects.toThrow();
+  await expect(queue.act("w", "s", { type: "remove", id: first.id, revision: state.revision })).rejects.toThrow();
+  queue.stop();
+  const restored = new SessionMessageQueue(dir, transport); cleanups.push(async () => restored.stop());
+  expect((await restored.read("w", "s")).entries[0].status).toBe("accepted");
+  await restored.tick();
+  expect(sent).toEqual([first.id]);
+  outcome = { pause: true, reason: "error" };
+  await restored.tick();
+  const failed = await restored.read("w", "s");
+  expect(failed.paused).toBe(true);
+  expect(failed.entries.map(entry => entry.id)).toEqual([second.id]);
+  expect(sent).toEqual([first.id]);
+});
+
+test("an uncertain dispatch reconciles to native acceptance without sending twice", async () => {
+  const sent: string[] = [];
+  let accepted = false;
+  const transport: QueueTransport = {
+    idle: async () => true,
+    send: async (_workspace, _session, entry) => { sent.push(entry.id); throw new Error("connection lost after native admission"); },
+    confirmed: async () => accepted,
+    settled: async () => undefined,
+  };
+  const { queue } = await setup(transport);
+  const first = message();
+  await queue.act("w", "s", first);
+  await until(async () => (await queue.read("w", "s")).entries[0]?.status === "uncertain");
+  accepted = true;
+  await queue.tick();
+  expect((await queue.read("w", "s")).entries[0].status).toBe("accepted");
+  expect(sent).toEqual([first.id]);
 });

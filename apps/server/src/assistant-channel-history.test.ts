@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
-import { createOpencodeClient } from "@opencode-ai/sdk/v2/client";
+import { createAssistantTestClient } from "./assistant-engine.test-support.js";
 import { AssistantChannelHistory, completedDesktopBubbles, channelHistoryContext } from "./assistant-channel-history.js";
 import { writeEigenweltConnection } from "./eigenwelt-connection-store.js";
 import type { ServerConfig } from "./types.js";
@@ -19,7 +19,7 @@ async function fixture() {
     tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false };
   let enabled = true;
   const open = (extra?: Partial<Parameters<typeof AssistantChannelHistory.open>[1]>) => AssistantChannelHistory.open(join(root, "runtime.sqlite"), { config, enabled: () => enabled,
-    assistant: { history: () => ({ days: [], nextBefore: null }) }, client: () => createOpencodeClient({ baseUrl: "http://127.0.0.1:1" }), ...extra });
+    assistant: { history: () => ({ days: [], nextBefore: null }) }, client: () => createAssistantTestClient({ baseUrl: "http://127.0.0.1:1" }), ...extra });
   const store = await open();
   const account = (userId: string) => writeEigenweltConnection(config, { account: { userId, orgId: "org_history", orgName: "Test", userName: null, userEmail: null }, platformToken: "fixture", accessTokenExpiresAt: Date.now() + 3600000 });
   return { root, config, store, open, account, disable: () => { enabled = false; } };
@@ -93,7 +93,7 @@ test("pulling and replaying a cloud turn never sends a prompt to the local engin
   let engineCalls = 0;
   const engine = Bun.serve({ port: 0, fetch() { engineCalls++; return Response.json({}); } });
   const page = { events: [event("1", "user", "Do this in the VM"), event("2", "assistant", "Cloud result")], nextCursor: "2", hasMore: false };
-  const store = await f.open({ client: () => createOpencodeClient({ baseUrl: engine.url.origin }), fetch: async url => {
+  const store = await f.open({ client: () => createAssistantTestClient({ baseUrl: engine.url.origin }), fetch: async url => {
     const cursor = new URL(String(url)).searchParams.get("cursor");
     return Response.json(cursor === "0" ? page : { events: [], nextCursor: "2", hasMore: false });
   } });
@@ -138,7 +138,7 @@ test("completed local turns recover a lost response with stable IDs and never ca
   const journal = new Map<string, ReturnType<typeof event> & { desktop: { deviceId: string; messageId: string; createdAt: string } }>();
   let lost = false; const attempts: string[] = [];
   const store = await f.open({ assistant: { history: () => ({ days: [{ date: "2026-10-09", sessionId: "day" }], nextBefore: null }) },
-    client: () => createOpencodeClient({ baseUrl: engine.url.origin }), fetch: async (url, init) => {
+    client: () => createAssistantTestClient({ baseUrl: engine.url.origin }), fetch: async (url, init) => {
       if (init?.method === "POST") {
         const bubble = posted.parse(JSON.parse(String(init.body))); attempts.push(bubble.messageId);
         const key = `${bubble.deviceId}:${bubble.messageId}`;

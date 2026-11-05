@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import type { PluginImportUpdate } from "@legalwork/types/plugin-import";
 import { mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -8,6 +9,9 @@ import { preparePluginImport, reviewedPluginImport, assertImportable } from "./p
 import { installPluginImport, rollbackPluginImport } from "./plugin-import-install.js";
 import { readInstalledCloudPlugins, resolveWorkspaceInstallPath } from "./cloud-plugins.js";
 import type { ServerConfig } from "./types.js";
+import { GLOBAL_MCP_ID, readRuntimeOpencodeConfig, writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
+import { startServer } from "./server.js";
+import { parseFrontmatter } from "./frontmatter.js";
 
 const skill = "---\nname: review\ndescription: Review documents\n---\nRead references/checklist.md.\n";
 const schema = "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json";
@@ -22,6 +26,175 @@ async function fixture(run: (root: string, config: ServerConfig) => Promise<void
   finally { if (previous.discovery === undefined) delete process.env.LEGALWORK_PLUGIN_DISCOVERY_HOME; else process.env.LEGALWORK_PLUGIN_DISCOVERY_HOME = previous.discovery; if (previous.claude === undefined) delete process.env.CLAUDE_CONFIG_DIR; else process.env.CLAUDE_CONFIG_DIR = previous.claude; if (previous.db === undefined) delete process.env.LEGALWORK_RUNTIME_DB; else process.env.LEGALWORK_RUNTIME_DB = previous.db; if (previous.xdg === undefined) delete process.env.XDG_CONFIG_HOME; else process.env.XDG_CONFIG_HOME = previous.xdg; await rm(root, { recursive: true, force: true }); }
 }
 async function plan(path: string, root: string) { const [value] = await resolvePluginImports({ source: { provider: "claude", path }, scope: "project" }, root); if (!value) throw new Error("No import plan"); return value; }
+
+for (const provider of ["claude", "chatgpt"] satisfies Array<"claude" | "chatgpt">) {
+  test(`${provider} plugin skills explicitly become workflows while the full plugin and connector survive install and update`, () => fixture(async (root, config) => {
+    const source = join(root, "workflow-kit");
+    const manifest = provider === "claude" ? ".claude-plugin/plugin.json" : ".codex-plugin/plugin.json";
+    await files(source, {
+      [manifest]: '{"name":"review-kit"}',
+      "skills/review/SKILL.md": skill,
+      "skills/review/references/checklist.md": "Check the document's main provisions.",
+      "skills/summarize/SKILL.md": "---\nname: summarize\ndescription: Summarize findings\n---\nSummarize the findings.",
+      "agents/reviewer.md": "---\nname: reviewer\ndescription: Review documents\n---\nReview the document.",
+      "commands/report.md": "Prepare a report.",
+      ".mcp.json": '{"mcpServers":{"docs":{"type":"http","url":"https://docs.example/mcp","headers":{"Authorization":"Bearer ${DOCS_KEY}"}}}}',
+    });
+    const request = { source: { provider, path: source }, scope: "global", asWorkflow: true, workflowSkillsOnly: true } satisfies Parameters<typeof resolvePluginImports>[0];
+    const [ordinary] = await resolvePluginImports(request, root);
+    expect(ordinary?.preview.components.filter(item => item.type === "skill").every(item => !item.installedName.startsWith("workflow-"))).toBe(true);
+    const [converted] = await resolvePluginImports({ ...request, convertPluginSkills: true }, root);
+    if (!converted) throw new Error("No converted plugin plan");
+    if (!ordinary) throw new Error("No ordinary plugin plan");
+    expect(converted.preview.id).toBe(ordinary.preview.id);
+    const connectorName = ordinary.preview.components.find(item => item.type === "mcp")?.installedName;
+    expect(converted.preview.components.find(item => item.type === "mcp")?.installedName).toBe(connectorName);
+    if (!connectorName) throw new Error("Missing connector");
+    const emptyTarget = { workspace: root, scope: "global", current: {} } satisfies Parameters<typeof preparePluginImport>[1];
+    const probe = { fetch: async (_input, init) => {
+      expect(new Headers(init?.headers).has("authorization")).toBe(false);
+      return Response.json({ jsonrpc: "2.0", id: 1, result: { protocolVersion: "2025-06-18", capabilities: {}, serverInfo: { name: "fixture", version: "1" } } });
+    } } satisfies NonNullable<Parameters<typeof preparePluginImport>[2]>;
+    const ordinaryReview = await preparePluginImport(ordinary, emptyTarget, probe);
+    expect(() => reviewedPluginImport(converted, emptyTarget, ordinaryReview.preview.validationId)).toThrow("review");
+    await installPluginImport(config, "test", root, ordinaryReview, true);
+    await writeRuntimeOpencodeConfig(config, GLOBAL_MCP_ID, current => ({ ...current, mcp: { [connectorName]: { type: "remote", url: "https://docs.example/mcp", enabled: false, headers: { Authorization: "Bearer saved-fixture-key" } } } }));
+    const original = (await readInstalledCloudPlugins(config, GLOBAL_MCP_ID)).plugins[ordinary.preview.id];
+    const target = { ...emptyTarget, installed: original, current: (await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID)).mcp ?? {} };
+    const prepared = await preparePluginImport(converted, target, probe);
+    const reviewed = reviewedPluginImport(converted, target, prepared.preview.validationId);
+    const workflows = reviewed.preview.components.filter(item => item.type === "skill");
+    expect(workflows).toHaveLength(2);
+    expect(workflows.every(item => item.installedName.startsWith("workflow-assistant-"))).toBe(true);
+    expect(reviewed.preview.components.filter(item => item.type !== "skill").map(item => item.type).sort()).toEqual(["agent", "command", "mcp"]);
+    expect(reviewed.preview.components.filter(item => item.type !== "skill").every(item => !item.installedName.startsWith("workflow-"))).toBe(true);
+    await installPluginImport(config, "test", root, reviewed, true);
+    const [installed] = Object.values((await readInstalledCloudPlugins(config, GLOBAL_MCP_ID)).plugins);
+    expect(installed?.sourceKind).toBe("plugin");
+    expect(installed?.provenance?.asWorkflow).toBe(true);
+    expect(installed?.provenance?.convertPluginSkills).toBe(true);
+    expect(installed?.files.filter(file => file.objectType === "mcp")).toHaveLength(1);
+    expect((await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID)).mcp?.[connectorName]).toMatchObject({ headers: { Authorization: "Bearer saved-fixture-key" } });
+    const checklist = reviewed.resourceFiles.find(file => file.path.endsWith("/references/checklist.md") && file.path.includes("/skills/"));
+    if (!checklist) throw new Error("Missing workflow supporting file");
+    expect(await readFile(resolveWorkspaceInstallPath(root, checklist.path, true), "utf8")).toBe("Check the document's main provisions.");
+    await writeFile(join(source, "skills/review/SKILL.md"), `${skill}\nExplain the revised findings.`);
+    const [updated] = await resolvePluginImports({ ...request, asWorkflow: installed?.provenance?.asWorkflow, convertPluginSkills: installed?.provenance?.convertPluginSkills }, root);
+    if (!updated) throw new Error("Missing update plan");
+    expect(updated.preview.id).toBe(reviewed.preview.id);
+    expect(updated.preview.components.filter(item => item.type === "skill").map(item => item.installedName)).toEqual(workflows.map(item => item.installedName));
+    const refreshed = await preparePluginImport(updated, { ...target, installed, current: (await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID)).mcp ?? {} }, probe);
+    await installPluginImport(config, "test", root, refreshed, true);
+    expect(Object.values((await readInstalledCloudPlugins(config, GLOBAL_MCP_ID)).plugins)).toHaveLength(1);
+  }));
+}
+
+for (const provider of ["claude", "chatgpt"] satisfies Array<"claude" | "chatgpt">) {
+  test(`${provider} converts only selected skill paths and binds review, installation and rollback to that selection`, () => fixture(async (root, config) => {
+    const source = join(root, "selective-kit");
+    await files(source, {
+      [provider === "claude" ? ".claude-plugin/plugin.json" : ".codex-plugin/plugin.json"]: '{"name":"selective-kit"}',
+      "skills/contracts/SKILL.md": skill,
+      "skills/contracts/references/checklist.md": "Check the contracts.",
+      "skills/evidence/SKILL.md": skill,
+      "agents/reviewer.md": "Review evidence.",
+    });
+    const request = { source: { provider, path: source }, scope: "global", asWorkflow: true, workflowSkillsOnly: true } satisfies Parameters<typeof resolvePluginImports>[0];
+    const [ordinary] = await resolvePluginImports(request, root);
+    const [selected] = await resolvePluginImports({ ...request, workflowSkillPaths: ["skills/contracts/SKILL.md"] }, root);
+    const [different] = await resolvePluginImports({ ...request, workflowSkillPaths: ["skills/evidence/SKILL.md"] }, root);
+    const [none] = await resolvePluginImports({ ...request, workflowSkillPaths: [] }, root);
+    if (!ordinary || !selected || !different || !none) throw new Error("Missing selection plans");
+    for (const item of [selected, different, none]) expect(item.preview.id).toBe(ordinary.preview.id);
+    expect(selected.preview.digest).toBe(different.preview.digest);
+    expect(selected.preview.components.filter(item => item.asWorkflow)).toMatchObject([{ sourcePath: "skills/contracts/SKILL.md" }]);
+    expect(selected.preview.components.find(item => item.sourcePath === "skills/evidence/SKILL.md")?.asWorkflow).toBe(false);
+    expect(selected.preview.components.filter(item => item.type === "agent")).toHaveLength(1);
+    expect(none.preview.components.some(item => item.asWorkflow)).toBe(false);
+    expect(none.preview.provenance?.workflowSkillPaths).toEqual([]);
+    const target = { workspace: root, scope: "global", current: {} } satisfies Parameters<typeof preparePluginImport>[1];
+    await installPluginImport(config, "test", root, await preparePluginImport(ordinary, target), true);
+    const original = (await readInstalledCloudPlugins(config, GLOBAL_MCP_ID)).plugins[ordinary.preview.id];
+    const reviewed = await preparePluginImport(selected, { ...target, installed: original });
+    expect(() => reviewedPluginImport(different, { ...target, installed: original }, reviewed.preview.validationId)).toThrow("review");
+    expect(() => reviewedPluginImport(none, { ...target, installed: original }, reviewed.preview.validationId)).toThrow("review");
+    await installPluginImport(config, "test", root, reviewed, true);
+    const installed = (await readInstalledCloudPlugins(config, GLOBAL_MCP_ID)).plugins[selected.preview.id];
+    expect(installed?.provenance?.workflowSkillPaths).toEqual(["skills/contracts/SKILL.md"]);
+    expect(installed?.files.filter(item => item.objectType === "skill" && item.title.startsWith("workflow-assistant-"))).toHaveLength(1);
+    for (const component of selected.resolved.memberships) {
+      const path = component.configObject?.currentRelativePath;
+      if (path && component.configObject?.objectType === "skill") {
+        const actual = parseFrontmatter(await readFile(resolveWorkspaceInstallPath(root, path, true), "utf8"));
+        const expected = parseFrontmatter(component.configObject?.latestVersion?.rawSourceText ?? "");
+        expect(actual.data).toEqual(expected.data);
+        expect(actual.body.trim()).toBe(expected.body.trim());
+      }
+    }
+    const converted = selected.preview.components.find(item => item.asWorkflow);
+    const destination = selected.resolved.memberships.find(item => item.configObject?.title === converted?.installedName)?.configObject?.currentRelativePath;
+    if (!destination) throw new Error("Missing converted skill");
+    expect(await readFile(resolveWorkspaceInstallPath(root, join(dirname(destination), "references/checklist.md"), true), "utf8")).toBe("Check the contracts.");
+    await rollbackPluginImport(config, "test", root, selected.preview.id, true);
+    const restored = (await readInstalledCloudPlugins(config, GLOBAL_MCP_ID)).plugins[selected.preview.id];
+    expect(restored?.provenance?.workflowSkillPaths).toBeUndefined();
+    expect(restored?.files.some(item => item.title.startsWith("workflow-assistant-"))).toBe(false);
+    expect(Object.keys((await readInstalledCloudPlugins(config, GLOBAL_MCP_ID)).plugins)).toHaveLength(1);
+  }));
+}
+
+test("conversion selections normalize unique package paths and reject unsafe or malformed choices", () => {
+  const request = { source: { provider: "claude", path: "/plugin" }, scope: "global" };
+  expect(parsePluginImportRequest({ ...request, workflowSkillPaths: ["skills/z/SKILL.md", "./skills/a/SKILL.md", "skills/z/SKILL.md"] }).workflowSkillPaths).toEqual(["skills/a/SKILL.md", "skills/z/SKILL.md"]);
+  expect(parsePluginImportRequest({ ...request, workflowSkillPaths: [] }).workflowSkillPaths).toEqual([]);
+  for (const workflowSkillPaths of [["../SKILL.md"], ["/private/SKILL.md"], ["skills/../SKILL.md"], "all", [42]]) {
+    expect(() => parsePluginImportRequest({ ...request, workflowSkillPaths })).toThrow();
+  }
+});
+
+test("converted workflows with long similar names install as distinct skills", () => fixture(async (root, config) => {
+  const source = join(root, "long-names");
+  await files(source, {
+    ".claude-plugin/plugin.json": '{"name":"document-review-collection"}',
+    "skills/contracts/SKILL.md": "---\nname: document-review-contracts\n---\nReview contracts.",
+    "skills/evidence/SKILL.md": "---\nname: document-review-evidence\n---\nReview evidence.",
+  });
+  const [converted] = await resolvePluginImports({ source: { provider: "claude", path: source }, scope: "global", convertPluginSkills: true }, root);
+  if (!converted) throw new Error("Missing workflow plan");
+  const names = converted.preview.components.map(item => item.installedName);
+  expect(new Set(names).size).toBe(2);
+  expect(names.every(name => name.startsWith("workflow-assistant-") && name.length <= 64)).toBe(true);
+  await installPluginImport(config, "test", root, await preparePluginImport(converted, { workspace: root, scope: "global", current: {} }), true);
+  const installed = (await readInstalledCloudPlugins(config, GLOBAL_MCP_ID)).plugins[converted.preview.id];
+  expect(installed?.files.filter(file => file.objectType === "skill")).toHaveLength(2);
+}));
+
+test("the tracked update API retains explicit plugin-to-workflow conversion", () => fixture(async (root, config) => {
+  const source = join(root, "review-kit");
+  await files(source, { ".claude-plugin/plugin.json": '{"name":"review-kit"}', "skills/review/SKILL.md": skill });
+  const request = { source: { provider: "claude", path: source }, scope: "global", asWorkflow: true, workflowSkillsOnly: true, convertPluginSkills: true, workflowSkillPaths: ["skills/review/SKILL.md"] } satisfies Parameters<typeof resolvePluginImports>[0];
+  const [plan] = await resolvePluginImports(request, root);
+  if (!plan) throw new Error("No workflow plan");
+  const prepared = await preparePluginImport(plan, { workspace: root, scope: "global", current: {} });
+  await installPluginImport(config, "test", root, prepared, true);
+  await writeFile(join(source, "skills/review/SKILL.md"), `${skill}\nExplain the findings.`);
+  await files(source, { "skills/new/SKILL.md": "---\nname: new-skill\n---\nNew skill." });
+  const server = await startServer(config);
+  const base = `http://127.0.0.1:${server.port}/workspace/test/plugin-imports`;
+  const headers = { authorization: "Bearer client", "x-legalwork-host-token": "owner", "content-type": "application/json" };
+  try {
+    const response = await fetch(`${base}/${encodeURIComponent(plan.preview.id)}/update`, { headers });
+    expect(response.status).toBe(200);
+    const update: PluginImportUpdate = await response.json();
+    expect(update).toMatchObject({ changed: true, asWorkflow: true, convertPluginSkills: true, preview: { id: plan.preview.id } });
+    expect(update.workflowSkillPaths).toEqual(["skills/review/SKILL.md"]);
+    expect(update.preview.components.find(item => item.sourcePath === "skills/review/SKILL.md")?.installedName).toStartWith("workflow-assistant-");
+    expect(update.preview.components.find(item => item.sourcePath === "skills/new/SKILL.md")?.asWorkflow).toBe(false);
+    const installed = await fetch(`${base}/install`, { method: "POST", headers, body: JSON.stringify({ source: update.source, scope: update.scope, root: update.root, digest: update.preview.digest, validationId: update.preview.validationId, asWorkflow: update.asWorkflow, convertPluginSkills: update.convertPluginSkills, workflowSkillPaths: update.workflowSkillPaths }) });
+    expect(installed.status).toBe(200);
+    expect(Object.values((await readInstalledCloudPlugins(config, GLOBAL_MCP_ID)).plugins)).toHaveLength(1);
+  } finally { await server.stop(); }
+}));
 
 test("different publishers with the same name have independent identity while source edits retain identity", () => fixture(async root => {
   for (const folder of ["first", "second"]) await files(join(root, folder), { ".claude-plugin/plugin.json": '{"name":"review"}', "skills/review/SKILL.md": skill });

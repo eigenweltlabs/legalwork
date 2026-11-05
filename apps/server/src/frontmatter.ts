@@ -21,10 +21,10 @@ function sanitize(content: string): string {
 
 export function parseFrontmatter(content: string): { data: Record<string, unknown>; body: string } {
   try {
-    const parsed = matter(content);
+    const parsed = matter(content, {});
     return { data: parsed.data, body: parsed.content };
   } catch {
-    const parsed = matter(sanitize(content));
+    const parsed = matter(sanitize(content), {});
     return { data: parsed.data, body: parsed.content };
   }
 }

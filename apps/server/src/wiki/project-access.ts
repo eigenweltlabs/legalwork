@@ -45,7 +45,7 @@ export function forgetWikiProjectAccess(config: ServerConfig, sessionId: string)
 }
 export async function requireWikiProjectAccess(config: ServerConfig, sessionId: string, projectId: string, wikiId: string, origin: string, scope: TokenScope) {
   const grant = access.get(config)?.get(sessionId)?.grants.get(projectId);
-  const project = config.workspaces.find(item => item.id === projectId && item.workspaceType !== "remote");
+  const project = config.workspaces.find(item => item.id === projectId);
   const root = project ? await realpath(project.directory || project.path).catch(() => null) : null;
   if (!grant || grant.wikiId !== wikiId || grant.origin !== origin || grant.scope !== scope || grant.root !== root) {
     if (grant && grant.root !== root) revokeWikiProjectAccess(config, sessionId, projectId);
@@ -74,7 +74,7 @@ export async function validWikiProjectGrants(config: ServerConfig, sessionId: st
 /** Project folders cannot be reached through a broad, previously authorized mount. */
 export async function wikiProjectSandboxMounts(config: ServerConfig, wikiId: string, wikiWorkspaceIds: Set<string>, sessionId: string,
   origin: string, scope: TokenScope, mounts: SandboxMount[]): Promise<SandboxMount[]> {
-  const roots = (await Promise.all(config.workspaces.filter(project => !wikiWorkspaceIds.has(project.id) && project.workspaceType !== "remote")
+  const roots = (await Promise.all(config.workspaces.filter(project => !wikiWorkspaceIds.has(project.id))
     .map(project => realpath(project.directory || project.path).catch(() => null)))).filter(root => root !== null);
   const grants = await validWikiProjectGrants(config, sessionId, wikiId, origin, scope);
   // Retain the boundary after unregister/revoke. Otherwise the same root could

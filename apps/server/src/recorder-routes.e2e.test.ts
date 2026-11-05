@@ -6,7 +6,9 @@ import { join } from "node:path";
 import { startServer } from "./server.js";
 import type { RecorderLiveTranscriptStatus, ServerConfig } from "./types.js";
 import { authenticateWikiAgentRequest, ensureWikiAgentToken, grantWikiAgentSession, revokeWikiAgentSession } from "./wiki/agent-access.js";
-import { RECORDING_TOOLS } from "./opencode-plugins/recording-tools.js";
+import { Plugin } from "@opencode/plugin";
+import { recordingTools } from "./opencode-plugins/recording-tools.js";
+import { nativePluginTools } from "./opencode-plugins/native-plugin-test-support.js";
 import { PROJECT_TASK_AGENT, ALL_PROJECTS_TASK_AGENT } from "./scheduled-tasks/access.js";
 import type { AudioRecordingMeta } from "@legalwork/types/audio";
 import { writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
@@ -120,6 +122,7 @@ describe("recording library access", () => {
     process.env.LEGALWORK_SERVER_TOKEN = TOKEN;
     process.env.LEGALWORK_WIKI_AGENT_TOKEN = await ensureWikiAgentToken(config);
     const context = { directory: root, sessionID: "recording-chat" };
+    const {tool: RECORDING_TOOLS} = await nativePluginTools(Plugin.define({id:"recording-fixture",async setup(ctx){await ctx.tool.transform(editor=>{for(const tool of recordingTools(ctx))editor.add(tool);});}}));
     const list = async () => JSON.parse(await RECORDING_TOOLS.legalwork_recordings_list.execute({ period: "yesterday", timeZone: "Europe/Berlin" }, context));
     try {
       expect((await list()).ok).toBe(false);

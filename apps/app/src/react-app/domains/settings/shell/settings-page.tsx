@@ -403,13 +403,14 @@ export function SettingsSidebar(props: SettingsSidebarProps) {
 }
 
 export function SettingsPage(props: SettingsPageProps) {
+  const library = props.activeTab === "extensions" || props.activeTab === "workflows";
   return (
-    <SettingsContent>
-      <SettingsPanel key={props.activeTab} className={props.activeTab === "extensions" ? "lw-enter lg:max-w-5xl" : "lw-enter"}>
-        {props.activeTab !== "extensions" ? <SettingsPanelHeading>
+    <SettingsContent scrollable={!library}>
+      {!library ? <SettingsPanel key={props.activeTab} className="lw-enter shrink-0">
+        <SettingsPanelHeading>
           <SettingsPanelTitle>{getSettingsTabLabel(props.activeTab)}</SettingsPanelTitle>
           <SettingsPanelDescription>{getSettingsTabDescription(props.activeTab)}</SettingsPanelDescription>
-        </SettingsPanelHeading> : null}
+        </SettingsPanelHeading>
 
         {props.showUpdateToolbar && props.activeTab === "general" ? (
           <SettingsPanelToolbar>
@@ -436,9 +437,9 @@ export function SettingsPage(props: SettingsPageProps) {
             ) : null}
           </SettingsPanelToolbar>
         ) : null}
-      </SettingsPanel>
+      </SettingsPanel> : null}
 
-      <OrgPolicyBanner showSignIn={props.activeTab !== "account"} />
+      {library ? <div className="lw-page-content shrink-0 pt-8 empty:hidden"><OrgPolicyBanner /></div> : <OrgPolicyBanner showSignIn={props.activeTab !== "account"} />}
 
       {props.children}
     </SettingsContent>

@@ -62,7 +62,7 @@ export function registerWikiSuggestionRoutes(options: {
     const items: WikiContribution[] = [];
     const unavailableProjects: string[] = [];
     for (const project of config.workspaces) {
-      if (project.workspaceType === "remote" || wikis.some(item => item.workspaceId === project.id)) continue;
+      if (wikis.some(item => item.workspaceId === project.id)) continue;
       try {
         const root = await realpath(project.directory || project.path);
         if (!await wikiAgentCanAccess(config, wikis, wiki, root)) continue;

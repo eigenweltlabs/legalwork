@@ -1,3 +1,4 @@
+import { createSessionView } from "@/app/lib/opencode-read";
 import type { CalendarItem } from "@legalwork/types/calendar";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { createClient, unwrap } from "@/app/lib/opencode";
@@ -23,7 +24,7 @@ export async function startCalendarSession(input: {
   const root = input.workspace.path?.trim() || undefined;
   const directory = toSessionTransportDirectory(root ?? "") || undefined;
   const opencode = createClient(endpoint.opencodeBaseUrl, root, { token: endpoint.token, mode: "legalwork" });
-  const session = unwrap(await opencode.session.create({ directory, title: input.item.title }));
+  const session = unwrap(await createSessionView(opencode,{ directory, title: input.item.title }));
   try {
     await input.client.calendarWrite(input.workspaceId, `/${input.item.id}`, {
       revision: input.item.revision, sessionIds: [...new Set([...input.item.sessionIds, session.id])],

@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import type { Part } from "@opencode-ai/sdk/v2/client";
+import type { Part } from "../src/app/lib/opencode-view";
+import { projectMessage,projectSession } from "../src/app/lib/opencode-view";
+import { createClient } from "../src/app/lib/opencode";
 import type { UIMessage } from "ai";
 import type { LegalworkSessionSnapshot } from "../src/app/lib/legalwork-server";
 import { snapshotToUIMessages } from "../src/react-app/domains/session/sync/usechat-adapter";
@@ -14,6 +16,8 @@ import {
   trackWorkspaceSessionSync,
   transcriptKey,
   statusKey,
+  snapshotKey,
+  seedSessionState,
 } from "../src/react-app/domains/session/sync/session-sync";
 import {
   parseDynamicToolUIPart,
@@ -24,7 +28,7 @@ afterEach(() => {
   getReactQueryClient().clear();
 });
 
-test("scheduled task identity survives live delivery and snapshot reload", () => {
+test("scheduled task identity survives live delivery and snapshot reload", async () => {
   const input = { workspaceId: "scheduled-project", baseUrl: "http://127.0.0.1:1234", legalworkToken: "token" };
   const sessionId = "scheduled-chat";
   const metadata = { taskId: "101ec043-4ef0-4df7-88b6-4690869e8830", workspaceId: input.workspaceId, title: "Recordings [daily]" };
@@ -32,19 +36,22 @@ test("scheduled task identity survives live delivery and snapshot reload", () =>
     id: "run-text", messageID: "run", sessionID: sessionId, type: "text", text: `[Scheduled task: ${metadata.title}]\n\nRead yesterday's recordings`,
     metadata: { legalworkScheduledTask: metadata },
   };
-  const info = { id: "run", sessionID: sessionId, role: "user", time: { created: 1 }, agent: "legalwork-scheduled-project", model: { providerID: "test", modelID: "test" } } satisfies LegalworkSessionSnapshot["messages"][number]["info"];
-  const snapshot: LegalworkSessionSnapshot = { session: { id: sessionId, title: "Scheduled", version: "1", time: { created: 1, updated: 2 } },
-    messages: [{ info, parts: [part] }], todos: [], status: { type: "idle" } };
+  const native={id:"run",type:"user" as const,time:{created:1},text:part.text,metadata:part.metadata};
+  const session=projectSession({id:sessionId,title:"Scheduled",projectID:"project",location:{directory:"/fixture"},cost:0,tokens:{input:0,output:0,reasoning:0,cache:{read:0,write:0}},time:{created:1,updated:2}});
+  const snapshot:LegalworkSessionSnapshot={session,messages:projectMessage(sessionId,native),todos:[],status:{type:"idle"}};
   const expected = { ...metadata, prompt: "Read yesterday's recordings" };
   expect(parseScheduledRunMessage(snapshotToUIMessages(snapshot)[0])).toEqual(expected);
-  const cleanup = __createWorkspaceSessionSyncForTest(input);
-  const release = trackWorkspaceSessionSync(input, sessionId);
+  const server=Bun.serve({port:0,fetch:()=>Response.json({data:native})});
+  const cleanup=__createWorkspaceSessionSyncForTest(input,createClient(server.url.origin));
+  const release=trackWorkspaceSessionSync(input,sessionId);
   try {
-    __applySessionSyncEventForTest(input, { type: "message.updated", properties: { info } });
-    __applySessionSyncEventForTest(input, { type: "message.part.updated", properties: { part } });
-    const messages = getReactQueryClient().getQueryData<UIMessage[]>(transcriptKey(input.workspaceId, sessionId)) ?? [];
+    getReactQueryClient().setQueryData(snapshotKey(input.workspaceId,sessionId),snapshot);
+    __applySessionSyncEventForTest(input,{type:"session.inbox.delivered",id:"event",created:2,data:{sessionID:sessionId,inboxID:"run"}});
+    const deadline=Date.now()+1000;
+    while(!getReactQueryClient().getQueryData<UIMessage[]>(transcriptKey(input.workspaceId,sessionId))?.length){if(Date.now()>deadline)throw new Error("Native user admission did not reconcile");await new Promise(resolve=>setTimeout(resolve,5));}
+    const messages=getReactQueryClient().getQueryData<UIMessage[]>(transcriptKey(input.workspaceId,sessionId)) ?? [];
     expect(parseScheduledRunMessage(messages[0])).toEqual(expected);
-  } finally { release(); cleanup(); }
+  }finally{release();cleanup();server.stop(true);}
 });
 
 test("compaction summaries stay out of the rendered conversation", () => {
@@ -62,13 +69,10 @@ test("live compaction metadata hides internal text without marking the agent idl
   const cache = getReactQueryClient();
   cache.setQueryData(statusKey(input.workspaceId, "summary-session"), { type: "busy" });
   try {
-    __applySessionSyncEventForTest(input, { type: "message.updated", properties: { info: {
-      id: "internal-summary", role: "assistant", sessionID: "summary-session", summary: true,
-      finish: "stop", time: { created: 1, completed: 2 },
-    } } });
-    __applySessionSyncEventForTest(input, { type: "message.part.updated", properties: { part: {
-      id: "summary-text", messageID: "internal-summary", sessionID: "summary-session", type: "text", text: "Objective: internal handoff",
-    } } });
+    const compact={id:"internal-summary",type:"compaction" as const,status:"running" as const,reason:"auto" as const,time:{created:1},summary:"Objective: internal handoff"};
+    const session=projectSession({id:"summary-session",title:"Summary",projectID:"project",location:{directory:"/fixture"},cost:0,tokens:{input:0,output:0,reasoning:0,cache:{read:0,write:0}},time:{created:1,updated:1}});
+    seedSessionState(input.workspaceId,{session,messages:projectMessage(session.id,compact),todos:[],status:{type:"busy"}});
+    __applySessionSyncEventForTest(input,{type:"session.compaction.started",id:"event",created:1,data:{sessionID:session.id,reason:"auto"}});
     const transcript = cache.getQueryData<UIMessage[]>(transcriptKey(input.workspaceId, "summary-session")) ?? [];
     expect(isCompactionMessage(transcript[0])).toBe(true);
     expect(groupMessages(transcript, "ready")).toEqual([]);
@@ -185,10 +189,17 @@ describe("tool part mapper", () => {
     const cleanup = __createWorkspaceSessionSyncForTest(input);
     const release = trackWorkspaceSessionSync(input, part.sessionID);
     try {
-      __applySessionSyncEventForTest(input, { type: "message.updated", properties: { info: { id: part.messageID, role: "assistant", sessionID: part.sessionID } } });
-      __applySessionSyncEventForTest(input, { type: "message.part.updated", properties: { part } });
+      const event = (type: string, data: object) => __applySessionSyncEventForTest(input, { type, id: "event", created: 1,
+        durable: { aggregateID: part.sessionID, seq: "1", version: 1 }, data: { sessionID: part.sessionID, assistantMessageID: part.messageID, ...data } });
+      event("session.step.started", {});
+      event("session.tool.input.started", { id: part.callID, name: part.tool });
+      event("session.tool.called", { id: part.callID, input: part.state.input });
+      event("session.tool.success", { id: part.callID, content: [{ type: "text", text: output }], metadata: {} });
       const messages = getReactQueryClient().getQueryData<UIMessage[]>(transcriptKey(input.workspaceId, part.sessionID)) ?? [];
-      expect(messages[0]?.parts).toEqual([mapped]);
+      expect(messages[0]?.parts).toMatchObject([{ type: "dynamic-tool", toolName: part.tool, state: "output-available" }]);
+      const live = messages[0]?.parts[0];
+      expect(parseAssistantNameResult(live && "output" in live ? live.output : undefined)).toEqual(result);
+      expect(getAssistantRenderGroups(messages[0]?.parts ?? [], false)[0]?.kind).toBe("assistant-name");
     } finally { release(); cleanup(); }
   });
 
@@ -232,24 +243,12 @@ describe("tool part mapper", () => {
     const release = trackWorkspaceSessionSync(syncInput, "session-a");
 
     try {
-      __applySessionSyncEventForTest(syncInput, {
-        type: "message.updated",
-        properties: { info: { id: "msg-a", role: "assistant", sessionID: "session-a" } },
-      } as any);
-      __applySessionSyncEventForTest(syncInput, {
-        type: "message.part.updated",
-        properties: { part: writeToolPart("pending", {}) },
-      } as any);
-
+      __applySessionSyncEventForTest(syncInput,{type:"session.step.started",id:"event",created:1,data:{sessionID:"session-a",assistantMessageID:"msg-a",agent:"legalwork",model:{providerID:"fixture",id:"fixture"},started:1}});
+      __applySessionSyncEventForTest(syncInput,{type:"session.tool.input.started",id:"event",created:1,data:{sessionID:"session-a",assistantMessageID:"msg-a",id:"tool",name:"write"}});
       let transcript = getReactQueryClient().getQueryData<UIMessage[]>(transcriptKey("workspace-a", "session-a"));
       expect(transcript?.[0]?.parts ?? []).toEqual([]);
 
-      __applySessionSyncEventForTest(syncInput, {
-        type: "message.part.updated",
-        properties: {
-          part: writeToolPart("running", { content: "hello", filePath: "src/main.ts" }),
-        },
-      } as any);
+      __applySessionSyncEventForTest(syncInput,{type:"session.tool.called",id:"event",created:1,data:{sessionID:"session-a",assistantMessageID:"msg-a",id:"tool",input:{content:"hello",filePath:"src/main.ts"},executed:true}});
 
       transcript = getReactQueryClient().getQueryData<UIMessage[]>(transcriptKey("workspace-a", "session-a"));
       expect(transcript?.[0]?.parts[0]).toMatchObject({
@@ -273,7 +272,7 @@ test("finishing an agent run refreshes its project file list without invalidatin
   const other = ["workspace-files", "workspace-files-b", "reports"];
   cache.setQueryData(own, { entries: [] }); cache.setQueryData(other, { entries: [] });
   try {
-    __applySessionSyncEventForTest(syncInput, { type: "session.idle", properties: { sessionID: "session-files" } });
+    __applySessionSyncEventForTest(syncInput, { type: "session.idle",id:"event",created:1, data: { sessionID: "session-files" } });
     expect(cache.getQueryState(own)?.isInvalidated).toBe(true);
     expect(cache.getQueryState(other)?.isInvalidated).toBe(false);
   } finally { cleanup(); }

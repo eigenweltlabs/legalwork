@@ -2,6 +2,8 @@ import { readdir, rm, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { mkdir } from "node:fs/promises";
 import { ApiError } from "../errors.js";
+import { createEngineClient, getWorkspaceEngineSession, listEngineMessages, workspaceEngineLocation } from "../engine-client.js";
+import { buildSessionSnapshot, sessionTodos } from "../session-read-model.js";
 import type { ServerConfig, TokenScope, WorkspaceInfo } from "../types.js";
 import { shortId } from "../utils.js";
 import {
@@ -22,6 +24,7 @@ import type { BenchmarkLatestResultRow, BenchmarkStore, BenchmarkTaskRow } from 
 import { removeTaskDocumentsScratchDir, stageTaskDocuments } from "../benchmarks/workdir.js";
 import { buildTasksZip, MAX_ZIP_TASKS, parseTasksZip } from "../benchmarks/task-zip.js";
 import { aggregateModelAnalytics } from "../benchmarks/analytics.js";
+import { benchmarkModelTransportFingerprint } from "../benchmarks/model-transport.js";
 import type { BenchmarkRunner } from "../benchmarks/runner.js";
 import {
   BENCHMARK_WORK_TYPES,
@@ -184,6 +187,29 @@ export function registerBenchmarkRoutes(options: RegisterBenchmarkRoutesOptions)
     getStore,
     runner,
   } = options;
+
+  // Explicit opt-in benchmark observation uses host authority, never the
+  // public arbitrary-RPC proxy. Plugin, method and canonical scope are fixed.
+  addRoute(routes, "GET", "/workspace/:id/benchmarks/observer/catalog", "host", async ctx => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const client = createEngineClient(config, workspace);
+    const location = workspaceEngineLocation(workspace);
+    await client.model.list({ location }, { signal: ctx.request.signal });
+    const result = await client.rpc.call({ rpcID: "legalwork-benchmark-observer", method: "catalog", input: {}, location }, { signal: ctx.request.signal });
+    return jsonResponse(result.output);
+  });
+
+  addRoute(routes, "GET", "/workspace/:id/benchmarks/observer/model-transport", "host", async ctx => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const modelID = ctx.url.searchParams.get("modelID");
+    if (!modelID) throw new ApiError(400, "invalid_query", "modelID is required");
+    const result = await createEngineClient(config, workspace).model.list({ location: workspaceEngineLocation(workspace) }, { signal: ctx.request.signal });
+    const model = result.data.find(item => item.providerID === "benchmark" && item.id === modelID);
+    if (!model) throw new ApiError(404, "benchmark_model_unavailable", "The selected benchmark model is not available in this project");
+    const baseURL = model.settings?.baseURL, apiKey = model.settings?.apiKey;
+    if (typeof baseURL !== "string" || typeof apiKey !== "string") throw new ApiError(409, "benchmark_transport_unavailable", "The selected benchmark transport cannot be attested");
+    return jsonResponse({ kind: "benchmark-model-transport-attestation", providerID: "benchmark", modelID, algorithm: "sha256", fingerprint: benchmarkModelTransportFingerprint(baseURL, apiKey) });
+  });
 
   // ---- Harvey catalog -------------------------------------------------------
 
@@ -570,6 +596,18 @@ export function registerBenchmarkRoutes(options: RegisterBenchmarkRoutesOptions)
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const item = await runner.getItemDetail(workspace, (ctx.params.runId ?? "").trim(), (ctx.params.itemId ?? "").trim());
     return jsonResponse(item);
+  });
+
+  addRoute(routes, "GET", "/workspace/:id/benchmarks/runs/:runId/items/:itemId/session", "client", async ctx => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const identity = await runner.getItemSessionIdentity(workspace, ctx.params.runId, ctx.params.itemId);
+    // Benchmark chats belong to an item-specific nested directory. Membership
+    // is checked in the persisted run before using that exact engine location.
+    const itemWorkspace = { ...workspace, directory: identity.workDir };
+    const client = createEngineClient(config, itemWorkspace);
+    const session = await getWorkspaceEngineSession(client, itemWorkspace, identity.sessionID);
+    const [messages, active] = await Promise.all([listEngineMessages(client, session.id), client.session.active()]);
+    return jsonResponse({ item: buildSessionSnapshot({ session, messages, todos: sessionTodos(messages) ?? [], active: active[session.id] }) });
   });
 
   addRoute(routes, "POST", "/workspace/:id/benchmarks/runs/:runId/abort", "client", async (ctx) => {

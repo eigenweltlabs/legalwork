@@ -240,6 +240,35 @@ test("cloud readiness opens no connection, cannot capture a local choice, and pr
   assert.equal(fs.existsSync(saved.audioPath), true);
 });
 
+test("cancel interrupts a pending cloud finalization and cannot recreate its files", async t => {
+  const userDataDir = await tempDir("lw-cancel-finalize-");
+  const worker = new FakeWorker();
+  worker.postMessage = message => { worker.messages.push(message); };
+  const service = new RecorderService({ userDataDir });
+  service.worker = worker;
+  service.workerReady = true;
+  service.loadedModel = { modelId: "gemini-transcribe-live-eu", language: "en" };
+  const meta = await service.startRecording({ modelId: "gemini-transcribe-live-eu", ephemeral: true });
+  const recording = service.activeRecordings.get(meta.id);
+  const stopping = service.stopRecording(meta.id).then(() => "completed", error => error.message);
+  t.after(async () => {
+    recording.resolveFinalized?.();
+    await stopping;
+    service.stopWorker();
+    await fsp.rm(userDataDir, { recursive: true, force: true });
+  });
+  await new Promise(resolve => setImmediate(resolve));
+  await service.cancelRecording(meta.id);
+  assert.equal(await Promise.race([stopping, new Promise(resolve => setTimeout(() => resolve("pending"), 500))]), "Recording cancelled.");
+  assert.equal(fs.existsSync(meta.folderPath), false);
+  assert.equal(service.activeRecordings.has(meta.id), false);
+  const next = await service.startRecording({ modelId: "gemini-transcribe-live-eu", ephemeral: true });
+  service.handleWorkerMessage({ type: "finalized", streamId: meta.id });
+  assert.equal(service.activeRecordings.has(next.id), true);
+  assert.equal(fs.existsSync(meta.folderPath), false);
+  await service.cancelRecording(next.id);
+});
+
 test("recorder service records, transcribes, finalizes files", async () => {
   const userDataDir = await tempDir("lw-recorder-");
   const fakeWorker = new FakeWorker();

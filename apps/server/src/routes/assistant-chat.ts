@@ -27,7 +27,7 @@ export function registerAssistantChatRoutes(options: Parameters<typeof registerM
     if (!parsed.success) throw new ApiError(400, "assistant_file", "Provide a file path, title and the current Assistant chat.");
     const { workspace } = await source(parsed.data);
     const project = parsed.data.projectId ? await options.resolveWorkspace(config, parsed.data.projectId) : workspace;
-    if (project.workspaceType === "remote") throw new ApiError(400, "assistant_file_project", "Choose an accessible local or synced project.");
+
     const root = await realpath(project.path);
     const path = await resolveWithinRoot(root, parsed.data.path);
     const info = await stat(path).catch(() => null);

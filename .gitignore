@@ -77,3 +77,15 @@ apns.json
 
 # Locked plugin SDK staged at build time for offline engine startup.
 apps/desktop/resources/opencode-sdk/
+
+# Digest-verified OpenCode download archives used by local builds/tests.
+/.cache/opencode/
+/.cache/opencode-v2-release/
+
+# Engine source-build outputs; reviewed source policy stays tracked.
+/packages/opencode-release/generated/
+/.legalwork/opencode-build/
+
+# Full help translations are generated from the app's locale tables at build time.
+docs/user-guide/i18n.json
+apps/server/src/help-i18n.generated.ts

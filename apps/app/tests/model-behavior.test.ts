@@ -1,19 +1,18 @@
 import { describe, expect, test } from "bun:test";
-import type { Model } from "@opencode-ai/sdk/v2/client";
+import type { ModelInfo } from "@opencode/client";
 import { getModelBehaviorSummary, sanitizeModelBehaviorValue } from "../src/app/lib/model-behavior";
 import { parseSessionChoiceOverrides, parseWorkspaceModelVariants, serializeSessionChoiceOverrides } from "../src/react-app/kernel/model-config";
 
-function model(efforts: string[], defaultEffort?: string): Model {
-  const modalities = { text: true, audio: false, image: false, video: false, pdf: false };
+function model(efforts: string[], defaultEffort?: string): ModelInfo {
   return {
-    id: "test", providerID: "eigenwelt", name: "Test",
-    api: { id: "test", url: "http://127.0.0.1/v1", npm: "@ai-sdk/openai-compatible" },
-    capabilities: { temperature: true, reasoning: true, attachment: false, toolcall: true,
-      input: modalities, output: modalities, interleaved: false },
-    cost: { input: 0, output: 0, cache: { read: 0, write: 0 } },
-    limit: { context: 128_000, output: 16_000 }, status: "active", headers: {}, release_date: "",
-    options: defaultEffort ? { reasoningEffort: defaultEffort } : {},
-    variants: Object.fromEntries(efforts.map((effort) => [effort, { reasoningEffort: effort }])),
+    id: "test", modelID: "test", providerID: "eigenwelt", name: "Test", enabled: true,
+    package: "@opencode/ai/providers/openai-compatible",
+    capabilities: { tools: true, input: ["text"], output: ["text"] },
+    cost: [{ input: 0, output: 0, cache: { read: 0, write: 0 } }],
+    limit: { context: 128_000, output: 16_000 }, status: "active", headers: {}, time: { released: 0 },
+    settings: defaultEffort ? { reasoningEffort: defaultEffort } : {},
+    compatibility: { reasoningField: "reasoning_content" },
+    variants: efforts.map(id => ({ id, settings: { reasoningEffort: id } })),
   };
 }
 
@@ -44,7 +43,7 @@ describe("catalog variants", () => {
     expect(unconfigured.value).toBeNull();
     expect(unconfigured.options.some((option) => option.label === unconfigured.label)).toBe(false);
     const configured = model(["low", "high"], "high");
-    configured.variants = { high: { reasoningEffort: "high", custom: { budget: 42 } }, low: { reasoningEffort: "low" } };
+    configured.variants = [{ id: "high", settings: { reasoningEffort: "high", custom: { budget: 42 } } }, { id: "low", settings: { reasoningEffort: "low" } }];
     const summary = getModelBehaviorSummary("custom", configured, null);
     expect(summary.value).toBeNull();
     expect(summary.label).not.toBe("high");
@@ -56,6 +55,15 @@ describe("catalog variants", () => {
     expect(summary.label).toBe("high");
     expect(summary.value).toBeNull();
   });
+  test("a native default matches its body and headers too, without treating a different budget as the same variant", () => {
+    const configured = model(["high"], "high");
+    configured.headers = { "X-Mode": "careful" };
+    configured.body = { thinking: { type: "enabled", budget: 9000 }, unaffected: true };
+    configured.variants = [{ id: "high", settings: { reasoningEffort: "high" }, headers: { "x-mode": "careful" }, body: { thinking: { budget: 9000 } } }];
+    expect(getModelBehaviorSummary("custom", configured, null).label).toBe("high");
+    configured.variants[0]!.body = { thinking: { budget: 12000 } };
+    expect(getModelBehaviorSummary("custom", configured, null).label).not.toBe("high");
+  });
 
   test("custom catalog keys preserve their case and options", () => {
     const custom = model(["CustomBudget", "adaptive", "balanced"]);
@@ -63,6 +71,18 @@ describe("catalog variants", () => {
       expect(getModelBehaviorSummary("custom", custom, key).value).toBe(key);
     }
     expect(sanitizeModelBehaviorValue("custom", custom, "custombudget")).toBe("CustomBudget");
+  });
+
+  test("trusted public metadata retains private header-only defaults and explicit absence of a match", () => {
+    const projected = { ...model(["HeaderOnly"]), settings: {}, headers: {}, variants: [{ id: "HeaderOnly" }], legalwork: { defaultVariantID: "HeaderOnly" } };
+    const selected = getModelBehaviorSummary("custom", projected, null);
+    expect(selected.label).toBe("HeaderOnly");
+    expect(selected.value).toBeNull();
+    expect(selected.options[0]?.isDefault).toBe(true);
+    const noMatch = { ...model(["high"], "high"), legalwork: { defaultVariantID: null } };
+    expect(getModelBehaviorSummary("custom", noMatch, null).label).not.toBe("high");
+    expect(getModelBehaviorSummary("custom", noMatch, "high").value).toBe("high");
+    expect(getModelBehaviorSummary("custom", { ...projected, legalwork: { defaultVariantID: "removed" } }, null).options.some(option => option.isDefault)).toBe(false);
   });
 
   test("saved session and workspace choices preserve literal keys, including former default sentinels", () => {
@@ -85,7 +105,7 @@ describe("catalog variants", () => {
 
   test("disabled variants cannot be selected and built-in reasoning still works", () => {
     const configured = model(["low", "high"]);
-    configured.variants = { ...configured.variants, medium: { disabled: true } };
+    // Disabled variants have already been removed by the native catalog.
     expect(sanitizeModelBehaviorValue("custom", configured, "medium")).toBeNull();
     const summary = getModelBehaviorSummary("eigenwelt", model([]), "medium");
     expect(summary.options).toEqual([]);

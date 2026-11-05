@@ -12,6 +12,11 @@ import { DEADLINE_CODE } from "./calculator-code.js";
 import { DEADLINE_RULE_VERSION, DEADLINE_SKILLS, DeadlineInputSchema } from "./deadline-rules.js";
 
 export const DEADLINE_CODE_HASH = createHash("sha256").update(DEADLINE_CODE).digest("hex");
+// Exact reviewed bundles from dev and the earlier migration build; same rules.
+const PREVIOUS_CODE_HASHES = new Set([
+  "601e3c01a042647e0260965622b7a3ba42a563318592606d034f67adb81adbff",
+  "9bee79e8895bc3144f9d3c23aad3d6ffbfccd8077ffc382d1f0e44831871b341",
+]);
 const resultSchema = z.object({ skill: z.string(), version: z.string(), rule: z.string(), input: DeadlineInputSchema,
   deadlineDay: z.iso.date(), cutoff: z.iso.datetime(), timeZone: z.string(), trace: z.array(z.string()), sources: z.array(z.string()) });
 let installing: Promise<void> | null = null;
@@ -54,12 +59,14 @@ export async function calculateWithSkill(workspacePath: string, skillName: strin
   const path = join(installed.path, "..", "calculate.mjs");
   let code: string;
   try { code = await readFile(path, "utf8"); } catch { throw new ApiError(422, "deadline_code_missing", "This installed skill needs its tested calculation code."); }
-  if (createHash("sha256").update(code).digest("hex") !== DEADLINE_CODE_HASH) throw new ApiError(422, "deadline_code_unreviewed", "The installed calculation code changed; reinstall a tested release before calculating.");
+  const codeHash = createHash("sha256").update(code).digest("hex");
+  const reviewedPreviousCode = DEADLINE_RULE_VERSION === "2026.10.04.1" && PREVIOUS_CODE_HASHES.has(codeHash);
+  if (codeHash !== DEADLINE_CODE_HASH && !reviewedPreviousCode) throw new ApiError(422, "deadline_code_unreviewed", "The installed calculation code changed; reinstall a tested release before calculating.");
   const module: unknown = await import(pathToFileURL(path).href);
   const calculator = z.object({ calculate: z.custom<(input: unknown) => unknown>(value => typeof value === "function") }).parse(module);
   try {
     const result = resultSchema.parse(calculator.calculate(input));
-    return { ...result, version: `${result.version} [${context.chain.map(item => `${item.name}@${item.hash.slice(0, 12)}`).join(", ")}]` };
+    return { ...result, codeHash, version: `${result.version} [${context.chain.map(item => `${item.name}@${item.hash.slice(0, 12)}`).join(", ")}]` };
   }
   catch (error) {
     const refusal = z.object({ status: z.number(), code: z.string(), message: z.string() }).safeParse(error);

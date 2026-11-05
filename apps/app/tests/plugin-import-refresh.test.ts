@@ -39,6 +39,19 @@ test("a successful import does not fetch a redundant preview", async () => {
   expect(checks).toBe(0);
 });
 
+test("workflow conversion survives an expired review without falling back to ordinary skills", async () => {
+  const options = { ...request, asWorkflow: true, workflowSkillsOnly: true, convertPluginSkills: true, workflowSkillPaths: ["skills/review/SKILL.md"] };
+  const converted: PluginImportPreview = { ...reviewed, format: "claude", components: [{ type: "skill", name: "review", installedName: "workflow-assistant-review" }, ...reviewed.components] };
+  const received: PluginImportRequest[] = [];
+  const result = await installReviewedPluginImport({
+    installPluginImport: async value => { received.push(value); if (received.length === 1) throw expired(); return { ...converted, validationId: "fresh" }; },
+    previewPluginImports: async value => { expect(value).toMatchObject({ ...options, root: converted.root, recheck: true }); return [{ ...converted, validationId: "fresh" }]; },
+  }, options, converted, () => {});
+  expect(result?.components).toEqual(converted.components);
+  expect(received).toHaveLength(2);
+  for (const value of received) expect(value).toMatchObject(options);
+});
+
 test("changed source, permissions, setup or losses refresh the review without installing unseen changes", async () => {
   for (const change of [
     { digest: "changed-source" },

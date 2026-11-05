@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import type { PermissionRequest, PermissionV2Request, QuestionRequest, Session } from "@opencode-ai/sdk/v2/client";
+import type { PermissionRequest, PermissionRequest as PermissionV2Request, FormInfo as QuestionRequest, SessionInfo } from "@opencode/client";
+import { projectSession } from "../src/app/lib/opencode-view";
 import { createClient } from "../src/app/lib/opencode";
 import { createLegalworkServerClient } from "../src/app/lib/legalwork-server";
 import type { PendingPermission, PendingQuestion } from "../src/app/types";
@@ -21,18 +22,19 @@ const workspaceId = "subagent-tests";
 const syncInput = { workspaceId, baseUrl: "http://127.0.0.1:1", legalworkToken: "fixture" };
 const queryClient = getReactQueryClient();
 const permission = (id = "approval", sessionID = "child"): PermissionRequest => ({
-  id, sessionID, permission: "bash", patterns: ["echo example"], metadata: {}, always: [],
+  id, sessionID, action: "bash", resources: ["echo example"], metadata: {}, save: [],
 });
 const v2Permission = (id = "approval-v2", sessionID = "child"): PermissionV2Request => ({
   id, sessionID, action: "file.read", resources: ["/outside/example.txt"], metadata: {}, save: [],
 });
 const question = (id = "question", sessionID = "child"): QuestionRequest => ({
-  id, sessionID, questions: [{ header: "Choice", question: "Continue?", options: [{ label: "Yes", description: "Continue" }] }],
+  id, sessionID, title: "Choice", fields: [{key:"choice",type:"string",title:"Continue?",options:[{value:"Yes",label:"Yes",description:"Continue"}]}],
 });
-const session = (id: string, parentID?: string): Session => ({
-  id, parentID, title: `Chat ${id}`, slug: id, projectID: "project", directory: "/fixture",
-  version: "1", time: { created: 1, updated: 2 },
+const nativeSession = (id: string, parentID?: string): SessionInfo => ({
+  id, parentID, title: `Chat ${id}`, projectID: "project", location:{directory:"/fixture"},
+  time: { created: 1, updated: 2 },cost:0,tokens:{input:0,output:0,reasoning:0,cache:{read:0,write:0}},
 });
+const session = (id:string,parentID?:string)=>projectSession(nativeSession(id,parentID));
 const pendingPermissions = (id = "child") => queryClient.getQueryData<PendingPermission[]>(permissionKey(workspaceId, id)) ?? [];
 const pendingQuestions = (id = "child") => queryClient.getQueryData<PendingQuestion[]>(questionKey(workspaceId, id)) ?? [];
 const cleanups: Array<() => void> = [];
@@ -44,9 +46,10 @@ afterEach(() => {
 });
 
 function testSync() {
-  cleanups.push(__createWorkspaceSessionSyncForTest(syncInput));
+  const {client}=testClient();
+  cleanups.push(__createWorkspaceSessionSyncForTest(syncInput,client));
   cleanups.push(trackWorkspaceSessionSync(syncInput, "parent"));
-  return (type: string, properties: unknown) => __applySessionSyncEventForTest(syncInput, { type, properties });
+  return (type: string, data: unknown) => __applySessionSyncEventForTest(syncInput, { type, data });
 }
 
 async function waitUntil(check: () => boolean, timeout = 3000) {
@@ -69,12 +72,11 @@ function testClient(handler?: (request: Request) => Response | Promise<Response>
         calls.push({ path, body: await request.json() });
         return path.startsWith("/api/") ? new Response(null, { status: 204 }) : Response.json(true);
       }
-      if (path.startsWith("/session/")) {
-        const id = path.slice("/session/".length);
-        return Response.json(session(id, id === "child" ? "parent" : undefined));
+      if (path.startsWith("/api/session/")) {
+        const id = path.slice("/api/session/".length);
+        return Response.json({data:nativeSession(id,id === "child" ? "parent" : id === "grandchild" ? "child":undefined)});
       }
-      if (path === "/permission" || path === "/question") return Response.json([]);
-      if (path === "/api/permission/request" || path === "/api/question/request") return Response.json({ data: [], location: {} });
+      if(path === "/api/permission/request" || path === "/api/form") return Response.json({data:[]});
       return new Response(null, { status: 404 });
     },
   });
@@ -83,38 +85,40 @@ function testClient(handler?: (request: Request) => Response | Promise<Response>
 }
 
 describe("subagent request scope", () => {
-  test("keeps requests from unopened children for both permission protocols and question protocols", () => {
+  test("keeps native permissions and forms from unopened children", () => {
     const emit = testSync();
     emit("permission.asked", permission());
-    emit("permission.v2.asked", v2Permission());
-    emit("question.asked", question());
-    emit("question.v2.asked", question("question-v2"));
-    expect(pendingPermissions().map((item) => item.protocol)).toEqual(["legacy", "v2"]);
-    expect(pendingQuestions().map((item) => item.protocol)).toEqual(["legacy", "v2"]);
+    emit("permission.asked", v2Permission());
+    emit("form.created", {form:question()});
+    emit("form.created", {form:question("question-v2")});
+    expect(pendingPermissions().map((item) => item.protocol)).toEqual(["v2", "v2"]);
+    expect(pendingQuestions().map((item) => item.protocol)).toEqual(["v2", "v2"]);
     expect(useSessionActivityStore.getState().getStatus(workspaceId, "child")).toBe("waiting");
   });
 
-  test("discovers descendants live, forwards new-child metadata, and isolates unrelated chats", () => {
+  test("discovers descendants live, forwards new-child metadata, and isolates unrelated chats", async () => {
     const emit = testSync();
     const updates: string[] = [];
     cleanups.push(ensureWorkspaceSessionSync({ ...syncInput, onSessionUpdated: (update) => updates.push(update.sessionId) }));
     for (const info of [session("parent"), session("child", "parent"), session("grandchild", "child"), session("other")]) {
-      emit("session.created", { info });
+      emit("session.created", {sessionID:info.id});
     }
+    await waitUntil(()=>Boolean(queryClient.getQueryData<InteractionSessions>(interactionSessionsKey(workspaceId))?.grandchild));
     const sessions = queryClient.getQueryData<InteractionSessions>(interactionSessionsKey(workspaceId))!;
     expect(interactionSessionIds("parent", sessions)).toEqual(["parent", "child", "grandchild"]);
     expect(interactionSessionIds("child", sessions)).toEqual(["child", "grandchild"]);
     expect(interactionSessionIds("other", sessions)).toEqual(["other"]);
-    expect(updates).toEqual(["parent", "child", "grandchild", "other"]);
+    expect(new Set(updates)).toEqual(new Set(["parent", "child", "grandchild", "other"]));
     expect(queryClient.getQueryData(interactionSessionsKey("another-workspace"))).toBeUndefined();
   });
 
-  test("stores an early approval until the child creation event establishes its ancestry", () => {
+  test("stores an early approval until the child creation event establishes its ancestry", async () => {
     const emit = testSync();
     emit("permission.asked", permission());
     expect(pendingPermissions()).toHaveLength(1);
     expect(interactionSessionIds("parent", {})).toEqual(["parent"]);
-    emit("session.created", { info: session("child", "parent") });
+    emit("session.created", {sessionID:"child"});
+    await waitUntil(()=>Boolean(queryClient.getQueryData<InteractionSessions>(interactionSessionsKey(workspaceId))?.child));
     expect(interactionSessionIds("parent", queryClient.getQueryData<InteractionSessions>(interactionSessionsKey(workspaceId))!))
       .toEqual(["parent", "child"]);
     expect(pendingPermissions()).toHaveLength(1);
@@ -129,17 +133,17 @@ describe("subagent request scope", () => {
   test("replies in another chat remove only the owner's request and clear waiting state", () => {
     const emit = testSync();
     emit("permission.asked", permission("parent-approval", "parent"));
-    emit("permission.v2.asked", v2Permission());
-    emit("permission.v2.replied", { sessionID: "child", requestID: "approval-v2", reply: "reject" });
+    emit("permission.asked", v2Permission());
+    emit("permission.replied", { sessionID: "child", requestID: "approval-v2", reply: "reject" });
     expect(pendingPermissions()).toEqual([]);
     expect(pendingPermissions("parent")).toHaveLength(1);
     expect(useSessionActivityStore.getState().getStatus(workspaceId, "child")).toBe("idle");
-    emit("question.v2.asked", question());
-    emit("question.v2.rejected", { sessionID: "child", requestID: "question" });
+    emit("form.created", {form:question()});
+    emit("form.cancelled", { sessionID: "child", id: "question" });
     expect(pendingQuestions()).toEqual([]);
   });
 
-  test("deleting a child removes its nested requests and keeps unrelated approvals", () => {
+  test("deleting a child removes its nested requests and keeps unrelated approvals", async () => {
     const emit = testSync();
     const previousPanels = usePanelTabStore.getState().sessions;
     cleanups.push(() => usePanelTabStore.setState({ sessions: previousPanels }));
@@ -150,14 +154,15 @@ describe("subagent request scope", () => {
     usePanelTabStore.getState().openTab(scope, {
       id: "contract", type: "artifact", label: "Contract", value: "contract.docx", preview: "word",
     });
-    emit("session.created", { info: session("child", "parent") });
-    emit("session.created", { info: session("grandchild", "child") });
+    emit("session.created", {sessionID:"child"});
+    emit("session.created", {sessionID:"grandchild"});
     emit("permission.asked", permission());
-    emit("question.asked", question("nested-question", "grandchild"));
+    emit("form.created", {form:question("nested-question", "grandchild")});
     emit("permission.asked", permission("other-approval", "other"));
-    emit("session.deleted", { info: { id: "child" } });
+    await waitUntil(()=>Boolean(queryClient.getQueryData<InteractionSessions>(interactionSessionsKey(workspaceId))?.grandchild));
+    emit("session.deleted", {sessionID:"child"});
     emit("permission.asked", permission("late"));
-    emit("session.updated", { info: session("child", "parent") });
+    emit("session.renamed", {sessionID:"child",title:"Late rename"});
     expect(pendingPermissions()).toEqual([]);
     expect(pendingQuestions("grandchild")).toEqual([]);
     expect(pendingPermissions("other")).toHaveLength(1);
@@ -205,9 +210,9 @@ describe("recovery and reply routing", () => {
 
   test("a sandbox request resolves an unopened child's parent for the existing chat queue", async () => {
     const { server } = testClient((request) => {
-      if (new URL(request.url).pathname !== "/event") return;
+      if (new URL(request.url).pathname !== "/api/event") return;
       return new Response(new ReadableStream<Uint8Array>({ start(controller) {
-        controller.enqueue(new TextEncoder().encode('data: {"type":"server.connected","properties":{}}\n\n'));
+        controller.enqueue(new TextEncoder().encode('data: {"type":"server.connected","data":{}}\n\n'));
       } }), { headers: { "Content-Type": "text/event-stream" } });
     });
     const input = { workspaceId, baseUrl: server.url.origin, legalworkToken: "fixture" };
@@ -223,8 +228,8 @@ describe("recovery and reply routing", () => {
   test("recovers unopened child approvals and questions and resolves missing ancestors", async () => {
     const { client } = testClient((request) => {
       const path = new URL(request.url).pathname;
-      if (path === "/permission") return Response.json([permission()]);
-      if (path === "/api/question/request") return Response.json({ data: [question()], location: {} });
+      if (path === "/api/permission/request") return Response.json({data:[permission()]});
+      if (path === "/api/form") return Response.json({ data: [question()], location: {} });
     });
     const updates: string[] = [];
     await refreshWorkspaceInteractions({ client, workspaceId, snapshot: createInteractionSnapshot(), isCurrent: () => true,
@@ -236,13 +241,13 @@ describe("recovery and reply routing", () => {
       .toEqual(["parent", "child"]);
   });
 
-  test("a failed API version does not erase its requests when another version refreshes", async () => {
+  test("a failed permission refresh preserves pending native requests while forms refresh", async () => {
     seedPermissionState(workspaceId, "child", [permission("stale"), v2Permission()]);
     const { client } = testClient((request) => {
       if (new URL(request.url).pathname === "/api/permission/request") return new Response(null, { status: 503 });
     });
     await refreshWorkspaceInteractions({ client, workspaceId, snapshot: createInteractionSnapshot(), isCurrent: () => true, onSessionUpdated: () => {} });
-    expect(pendingPermissions().map((item) => item.id)).toEqual(["approval-v2"]);
+    expect(new Set(pendingPermissions().map((item) => item.id))).toEqual(new Set(["stale", "approval-v2"]));
   });
 
   test("late snapshots cannot restore answered requests or drop newly arrived requests", () => {
@@ -252,7 +257,7 @@ describe("recovery and reply routing", () => {
     snapshot.permissions.set(interactionRequestKey("child", "approval"), false);
     seedPermissionState(workspaceId, "child", [permission("new")]);
     snapshot.permissions.set(interactionRequestKey("child", "new"), true);
-    seedPermissionState(workspaceId, "child", [permission()], { snapshot, protocol: "legacy" });
+    seedPermissionState(workspaceId, "child", [permission()], { snapshot, protocol: "v2" });
     expect(pendingPermissions().map((item) => item.id)).toEqual(["new"]);
     expect(useSessionActivityStore.getState().getStatus(workspaceId, "child")).toBe("waiting");
     snapshot.questions.set(interactionRequestKey("child", "question"), false);
@@ -262,7 +267,7 @@ describe("recovery and reply routing", () => {
 
   test("cancelled recovery does not write stale workspace state", async () => {
     const { client } = testClient((request) => {
-      if (new URL(request.url).pathname === "/permission") return Response.json([permission()]);
+      if (new URL(request.url).pathname === "/api/permission/request") return Response.json({data:[permission()]});
     });
     await refreshWorkspaceInteractions({ client, workspaceId, snapshot: createInteractionSnapshot(), isCurrent: () => false, onSessionUpdated: () => {} });
     expect(pendingPermissions()).toEqual([]);
@@ -274,8 +279,8 @@ describe("recovery and reply routing", () => {
     let lookupStarted = false;
     const { client } = testClient((request) => {
       const path = new URL(request.url).pathname;
-      if (path === "/permission") return Response.json([permission()]);
-      if (path === "/session/child") {
+      if (path === "/api/permission/request") return Response.json({data:[permission()]});
+      if (path === "/api/session/child") {
         lookupStarted = true;
         return new Promise<Response>((resolve) => { finishLookup = resolve; });
       }
@@ -286,7 +291,7 @@ describe("recovery and reply routing", () => {
       onSessionUpdated: (update) => updates.push(update.sessionId) });
     await waitUntil(() => lookupStarted);
     snapshot.deletedSessions.add("child");
-    finishLookup(Response.json(session("child", "parent")));
+    finishLookup(Response.json({data:nativeSession("child","parent")}));
     await recovery;
     expect(updates).toEqual([]);
     expect(queryClient.getQueryData(interactionSessionsKey(workspaceId))).toBeUndefined();
@@ -299,13 +304,13 @@ describe("recovery and reply routing", () => {
     let emit = (_type: string, _properties: unknown) => {};
     const { server } = testClient((request) => {
       const path = new URL(request.url).pathname;
-      if (path === "/permission") {
+      if (path === "/api/permission/request") {
         snapshotStarted = true;
         return new Promise<Response>((resolve) => { finishSnapshot = (response) => { snapshotReturned = true; resolve(response); }; });
       }
-      if (path !== "/event") return;
+      if (path !== "/api/event") return;
       return new Response(new ReadableStream<Uint8Array>({ start(controller) {
-        emit = (type, properties) => controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ type, properties })}\n\n`));
+        emit = (type, properties) => controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ id:"event",created:Date.now(),type,data:properties })}\n\n`));
         emit("server.connected", {});
       } }), { headers: { "Content-Type": "text/event-stream" } });
     });
@@ -317,23 +322,23 @@ describe("recovery and reply routing", () => {
     emit("permission.asked", permission("live"));
     emit("permission.replied", { sessionID: "child", requestID: "answered", reply: "once" });
     await waitUntil(() => pendingPermissions().length === 1 && pendingPermissions()[0]?.id === "live");
-    finishSnapshot(Response.json([permission("answered"), permission("snapshot-only")]));
+    finishSnapshot(Response.json({data:[permission("answered"), permission("snapshot-only")]}));
     await waitUntil(() => snapshotReturned && pendingPermissions().some((item) => item.id === "snapshot-only"));
     expect(new Set(pendingPermissions().map((item) => item.id))).toEqual(new Set(["live", "snapshot-only"]));
     expect(useSessionActivityStore.getState().getStatus(workspaceId, "child")).toBe("waiting");
   });
 
-  test("child permission and question responses reach their original protocol endpoints", async () => {
+  test("child permission and form responses reach their owning native endpoints", async () => {
     seedPermissionState(workspaceId, "child", [permission(), v2Permission()]);
     seedQuestionState(workspaceId, "child", [question()], { protocol: "v2" });
     const { client, calls } = testClient();
-    await replyToPermission(client, pendingPermissions().find((item) => item.protocol === "legacy")!, "once", "/fixture");
-    await replyToPermission(client, pendingPermissions().find((item) => item.protocol === "v2")!, "reject", "/fixture");
+    await replyToPermission(client, pendingPermissions().find((item) => item.id === "approval")!, "once", "/fixture");
+    await replyToPermission(client, pendingPermissions().find((item) => item.id === "approval-v2")!, "reject", "/fixture");
     await replyToQuestion(client, pendingQuestions()[0]!, [["Yes"]], "/fixture");
     expect(calls).toEqual([
-      { path: "/permission/approval/reply", body: { reply: "once" } },
-      { path: "/api/session/child/permission/approval-v2/reply", body: { reply: "reject" } },
-      { path: "/api/session/child/question/question/reply", body: { answers: [["Yes"]] } },
+      { path: "/api/session/child/permission/approval/reply", body: { decision: "once" } },
+      { path: "/api/session/child/permission/approval-v2/reply", body: { decision: "reject" } },
+      { path: "/api/session/child/form/question/reply", body: { answer:{choice:"Yes"} } },
     ]);
   });
 
@@ -350,13 +355,13 @@ describe("recovery and reply routing", () => {
     let connections = 0;
     const { server } = testClient((request) => {
       const path = new URL(request.url).pathname;
-      if (path === "/permission") return Response.json([permission(connections > 1 ? "after-reconnect" : "initial")]);
-      if (path !== "/event") return;
+      if (path === "/api/permission/request") return Response.json({data:[permission(connections > 1 ? "after-reconnect" : "initial")]});
+      if (path !== "/api/event") return;
       connections++;
-      if (connections === 1) return new Response('data: {"type":"server.connected","properties":{}}\n\n',
+      if (connections === 1) return new Response('data: {"type":"server.connected","data":{}}\n\n',
         { headers: { "Content-Type": "text/event-stream" } });
       const stream = new ReadableStream<Uint8Array>({ start(controller) {
-        controller.enqueue(new TextEncoder().encode('data: {"type":"server.connected","properties":{}}\n\n'));
+        controller.enqueue(new TextEncoder().encode('data: {"type":"server.connected","data":{}}\n\n'));
       } });
       return new Response(stream, { headers: { "Content-Type": "text/event-stream" } });
     });

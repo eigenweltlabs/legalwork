@@ -60,6 +60,21 @@ describe("parseToolPermissions", () => {
     expect(readPermissionRecord({ permission: "allow" })).toEqual({});
     expect(readPermissionRecord({ permission: { edit: "ask" } })).toEqual({ edit: "ask" });
   });
+
+  test("native ordered permissions retain shell aliases, resource rules and later wildcard precedence", () => {
+    const permission = readPermissionRecord({ permissions: [
+      { action: "*", resource: "*", effect: "deny" },
+      { action: "shell", resource: "*", effect: "ask" },
+      { action: "shell", resource: "git *", effect: "allow" },
+      { action: "external_directory", resource: "/shared/*", effect: "allow" },
+    ] });
+    expect(permission.bash).toEqual({ "*": "ask", "git *": "allow" });
+    expect(permission.edit).toBe("deny");
+    expect(permission.external_directory).toEqual({ "*": "deny", "/shared/*": "allow" });
+    expect(readPermissionRecord({ permissions: [
+      { action: "shell", resource: "git *", effect: "allow" }, { action: "*", resource: "*", effect: "deny" },
+    ] }).bash).toBe("deny");
+  });
 });
 
 describe("serializeToolPermissionsPatch", () => {

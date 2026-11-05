@@ -39,7 +39,7 @@ export function WorkflowsWorkspace({ workspaceId, client, children, active = tru
     window.addEventListener(PANEL_OPEN_TAB_EVENT, open);
     return () => window.removeEventListener(PANEL_OPEN_TAB_EVENT, open);
   }, [scope, workspaceId]);
-  return <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden" data-workflows-workspace>
+  return <div className="flex h-full min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden" data-workflows-workspace>
     <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1">
       <ResizablePanel id="workflow-library" minSize={mobile ? "0px" : "280px"} className={cn("flex min-h-0 flex-col", mobile && visible && "hidden")}>
         {children}

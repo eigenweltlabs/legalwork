@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import type { ProviderListResponse } from "@opencode-ai/sdk/v2/client";
+import type { ProviderListView } from "../src/app/types";
 
 import {
   countConnectedProviders,
@@ -26,7 +26,7 @@ const EIGENWELT_MODEL = { providerID: "eigenwelt", modelID: "ewl-1" };
 const providerList = (input: {
   connected: string[];
   models?: Record<string, string[]>;
-}): ProviderListResponse => ({
+}): ProviderListView => ({
   all: Object.entries(input.models ?? { eigenwelt: ["ewl-1"] }).map(([id, modelIds]) => ({
     id,
     name: id,
@@ -40,7 +40,7 @@ const providerList = (input: {
   })),
   connected: input.connected,
   default: {},
-}) as unknown as ProviderListResponse;
+}) as unknown as ProviderListView;
 
 const signedIn = providerList({ connected: ["eigenwelt"] });
 const signedOut = providerList({ connected: [] });

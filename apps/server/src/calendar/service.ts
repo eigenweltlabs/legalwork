@@ -36,7 +36,7 @@ export async function calendarOccurrences(config: ServerConfig, workspace: Works
 export async function globalCalendarOccurrences(config: ServerConfig, from: string, to: string, workspaces = config.workspaces): Promise<CalendarOccurrence[]> {
   if (to <= from || to > addDays(from, 366)) throw new ApiError(400, "calendar_range", "Choose a date range of at most one year.");
   const store = await calendarStore(config), links = await projectSyncStore(config);
-  const visible = (await Promise.all(workspaces.filter(workspace => workspace.workspaceType !== "remote").map(async workspace => await calendarVisible(config, workspace) ? workspace : null)))
+  const visible = (await Promise.all(workspaces.map(async workspace => await calendarVisible(config, workspace) ? workspace : null)))
     .filter((workspace): workspace is WorkspaceInfo => workspace !== null);
   const names = new Map(visible.map(workspace => [workspace.id, workspace.displayName || workspace.name || workspace.id]));
   const result = visible.flatMap(workspace => store.list(workspace.id).flatMap(item => occurrences(item, names.get(workspace.id)!, from, to)));
@@ -88,7 +88,7 @@ export async function calendarExport(config: ServerConfig, workspace: WorkspaceI
 export async function collectCalendarReminders(config: ServerConfig, now = Date.now()) {
   const store = await calendarStore(config), today = new Date(now).toISOString().slice(0, 10);
   for (const workspace of config.workspaces) {
-    if (workspace.workspaceType === "remote" || !(await calendarVisible(config, workspace))) continue;
+    if (!(await calendarVisible(config, workspace))) continue;
     for (const item of store.list(workspace.id)) {
       if (item.status !== "active") continue;
       for (const occurrence of occurrences(item, workspace.name || workspace.id, addDays(today, -30), addDays(today, 366))) {

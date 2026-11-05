@@ -16,8 +16,18 @@ const TASK: BenchmarkTaskDefinition = {
   instructions: "Draft the memo covering sections A and B.",
   deliverables: ["memo.docx", "summary.md"],
   criteria: [
-    { id: "C-001", title: "Has section A", deliverables: ["memo.docx"], matchCriteria: "PASS if section A present." },
-    { id: "C-002", title: "Summary exists", deliverables: ["summary.md"], matchCriteria: "PASS if summary present." },
+    {
+      id: "C-001",
+      title: "Has section A",
+      deliverables: ["memo.docx"],
+      matchCriteria: "PASS if section A present.",
+    },
+    {
+      id: "C-002",
+      title: "Summary exists",
+      deliverables: ["summary.md"],
+      matchCriteria: "PASS if summary present.",
+    },
   ],
 };
 
@@ -54,7 +64,12 @@ describe("buildJudgePrompt (batched)", () => {
     const prompt = buildJudgePrompt({
       task: TASK,
       deliverables: [
-        { name: "memo.docx", relativePath: "memo.docx", size: 120, text: "Section A: the memo body." },
+        {
+          name: "memo.docx",
+          relativePath: "memo.docx",
+          size: 120,
+          text: "Section A: the memo body.",
+        },
         { name: "summary.md", relativePath: null, size: null },
       ],
     });
@@ -81,10 +96,18 @@ describe("parseJudgeVerdicts", () => {
         { id: "C-002", verdict: "FAIL", reasoning: "missing" },
       ],
     });
-    expect(decisions?.get("C-001")).toEqual({ verdict: "pass", reasoning: "found it" });
-    expect(decisions?.get("C-002")).toEqual({ verdict: "fail", reasoning: "missing" });
+    expect(decisions?.get("C-001")).toEqual({
+      verdict: "pass",
+      reasoning: "found it",
+    });
+    expect(decisions?.get("C-002")).toEqual({
+      verdict: "fail",
+      reasoning: "missing",
+    });
 
-    const fromString = parseJudgeVerdicts('{"verdicts": [{"id": "C-001", "verdict": "pass", "reasoning": "ok"}]}');
+    const fromString = parseJudgeVerdicts(
+      '{"verdicts": [{"id": "C-001", "verdict": "pass", "reasoning": "ok"}]}',
+    );
     expect(fromString?.size).toBe(1);
   });
 
@@ -116,7 +139,9 @@ describe("parseJudgeVerdictsFromText", () => {
   test("extracts the verdicts from prose, fences and thinking-style replies", () => {
     const fenced =
       'Here are my verdicts:\n```json\n{"verdicts": [{"id": "C-001", "verdict": "fail", "reasoning": "missing {section}"}]}\n```\nDone.';
-    expect(parseJudgeVerdictsFromText(fenced)?.get("C-001")?.verdict).toBe("fail");
+    expect(parseJudgeVerdictsFromText(fenced)?.get("C-001")?.verdict).toBe(
+      "fail",
+    );
 
     const thinking = [
       'First I thought {"verdicts": [{"id": "C-001", "verdict": "fail", "reasoning": "initial hunch"}]} but re-reading,',
@@ -131,7 +156,9 @@ describe("parseJudgeVerdictsFromText", () => {
 
   test("returns null for garbage", () => {
     expect(parseJudgeVerdictsFromText("no json here")).toBeNull();
-    expect(parseJudgeVerdictsFromText('The config is {"a": 1} and nothing else.')).toBeNull();
+    expect(
+      parseJudgeVerdictsFromText('The config is {"a": 1} and nothing else.'),
+    ).toBeNull();
     expect(parseJudgeVerdictsFromText("")).toBeNull();
   });
 });
@@ -156,4 +183,25 @@ describe("scoreVerdicts", () => {
     });
     expect(scoreVerdicts([])).toEqual({ score: 0, nCriteria: 0, nPassed: 0 });
   });
+});
+
+test("native JSON judge rejects duplicate, missing and unknown criterion IDs", () => {
+  const text = (ids: string[]) =>
+    JSON.stringify({
+      verdicts: ids.map((id) => ({
+        id,
+        verdict: "pass",
+        reasoning: "Source-backed evidence",
+      })),
+    });
+  expect(
+    parseJudgeVerdictsFromText(text(["C-1", "C-2"]), ["C-1", "C-2"])?.size,
+  ).toBe(2);
+  expect(
+    parseJudgeVerdictsFromText(text(["C-1", "C-1", "C-2"]), ["C-1", "C-2"]),
+  ).toBeNull();
+  expect(parseJudgeVerdictsFromText(text(["C-1"]), ["C-1", "C-2"])).toBeNull();
+  expect(
+    parseJudgeVerdictsFromText(text(["C-1", "UNKNOWN"]), ["C-1", "C-2"]),
+  ).toBeNull();
 });

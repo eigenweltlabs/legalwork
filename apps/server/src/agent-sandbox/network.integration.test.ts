@@ -42,6 +42,8 @@ PY`, "block");
   }, 180000);
 
   test("allow supports direct TCP, UDP, DNS and verified HTTPS without approval", async () => {
+    const url = "https://raw.githubusercontent.com/eigenweltlabs/legalwork/7ad46c806fbd872aa2c1886674a5cf2f7c50715c/LICENSE";
+    const digest = "ae2380682b457ec03e2b36b54a64e2cc6c21727c3d3b64dfb3c6f16ee4c6ebae";
     const sockets = new Set<Socket>();
     const tcp = createServer((socket) => { sockets.add(socket); socket.on("close", () => sockets.delete(socket)); socket.pipe(socket); });
     const tcp6 = createServer((socket) => { sockets.add(socket); socket.on("close", () => sockets.delete(socket)); socket.pipe(socket); });
@@ -55,7 +57,7 @@ PY`, "block");
     if (!tcpAddress || typeof tcpAddress === "string") throw new Error("Missing TCP address");
     try {
       const result = await execute(`python3 - <<'PY'
-import socket, urllib.request, os
+import socket, urllib.request, os, hashlib
 assert 'HTTPS_PROXY' not in os.environ
 with socket.create_connection(('10.0.2.2', ${tcpAddress.port}), timeout=10) as s:
     s.sendall(b'direct-tcp-canary')
@@ -67,10 +69,11 @@ with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
     s.settimeout(10); s.sendto(b'direct-udp-canary', ('10.0.2.2', ${udp.address().port}))
     assert s.recv(100) == b'direct-udp-canary'
 assert socket.getaddrinfo('example.com', 443)
-assert b'Example Domain' in urllib.request.urlopen('https://example.com/', timeout=20).read()
+data = urllib.request.urlopen('${url}', timeout=20).read()
+assert hashlib.sha256(data).hexdigest() == '${digest}', 'HTTPS body digest mismatch'
 print('TCP UDP DNS HTTPS passed')
 PY`, "allow");
-      expect(result.exitCode).toBe(0);
+      expect(result.exitCode, `Direct network exit ${result.exitCode}; combined stdout/stderr:\n${result.output}`).toBe(0);
       expect(result.output.trim()).toBe("TCP UDP DNS HTTPS passed");
     } finally { for (const socket of sockets) socket.destroy(); tcp.close(); tcp6.close(); udp.close(); }
   }, 180000);

@@ -24,9 +24,7 @@ export function ProjectPersonalisationProvider(props: {
   const workspace = props.groups.find((group) => group.workspace.id === projectId)?.workspace;
   const endpoint = useMemo(() => resolveWorkspaceEndpoint(workspace, {
     baseUrl: props.client?.baseUrl, token: props.client?.token,
-  }), [workspace?.id, workspace?.workspaceType, workspace?.baseUrl, workspace?.legalworkHostUrl,
-    workspace?.legalworkToken, workspace?.legalworkClientToken, workspace?.legalworkHostToken,
-    workspace?.legalworkWorkspaceId, props.client?.baseUrl, props.client?.token]);
+  }), [workspace?.id, workspace?.workspaceType, workspace?.baseUrl, props.client?.baseUrl, props.client?.token]);
 
   return <ProjectPersonalisationContext.Provider value={setProjectId}>
     {props.children}

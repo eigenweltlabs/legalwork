@@ -11,7 +11,24 @@ const manifest = z.object({
   homepage: z.string().optional(), repository: z.string().optional(), license: z.string().optional(),
   keywords: z.array(z.string()).optional(), extensions: z.unknown().optional(),
 });
-const remote = { url: z.string().min(1).refine(value => { try { const url = new URL(value); return ["http:", "https:"].includes(url.protocol) && !url.username && !url.password && !value.includes("${"); } catch { return false; } }), headers: z.record(z.string().regex(/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/), z.string().refine(value => !/[\r\n]/.test(value))).optional() };
+const endpoint = z.string().min(1).refine(value => { try { const url = new URL(value); return ["http:", "https:"].includes(url.protocol) && !url.username && !url.password && !url.hash && !value.includes("${"); } catch { return false; } });
+const scopes = z.array(z.string().refine(value => Boolean(value.trim())));
+const oauth = {
+  client: z.discriminatedUnion("mode", [
+    z.object({ mode: z.literal("provided"), clientId: z.string().min(1), tokenEndpointAuthMethod: z.enum(["none", "client_secret_basic", "client_secret_post", "private_key_jwt"]).optional() }).strict(),
+    z.object({ mode: z.literal("dcr") }).strict(), z.object({ mode: z.literal("cimd") }).strict(),
+  ]).optional(),
+  authorizationUrl: endpoint.optional(), tokenUrl: endpoint.optional(), registrationUrl: endpoint.optional(), authorizationServerBase: endpoint.optional(), resource: endpoint.optional(),
+  baseScopes: scopes.optional(), defaultScopes: scopes.optional(), oidcEnabled: z.boolean().optional(), oidcConfigurationUrl: endpoint.optional(), oidcUserinfoEndpoint: endpoint.optional(), oidcScopesSupported: scopes.optional(),
+};
+// The portable core schema is closed. OpenAI additionally documents this auth
+// profile in mcp.json; validate it before checking what our runtime can preserve.
+const extensions = z.object({ "com.openai": z.object({ auth: z.discriminatedUnion("type", [
+  z.object({ type: z.literal("none") }).strict(),
+  z.object({ type: z.literal("oauth"), ...oauth }).strict(), z.object({ type: z.literal("mixed"), ...oauth }).strict(),
+  z.object({ type: z.literal("api_key"), headerScheme: z.enum(["bearer", "basic", "custom_header"]), headerName: z.string().optional() }).strict(),
+]) }).strict() }).strict().optional();
+const remote = { url: endpoint, headers: z.record(z.string().regex(/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/), z.string().refine(value => !/[\r\n]/.test(value))).optional(), extensions };
 const entry = z.discriminatedUnion("type", [
   z.object({ type: z.literal("stdio"), command: z.string().min(1).refine(value => !value.includes("${")), args: z.array(z.string()).optional(), env: z.record(z.string(), z.string()).refine(value => !Object.hasOwn(value, "PLUGIN_ROOT") && !Object.hasOwn(value, "PLUGIN_DATA")).optional(), cwd: z.string().regex(/^(?:\.\/|\$\{PLUGIN_ROOT\}(?:\/|$)|\$\{PLUGIN_DATA\}(?:\/|$))/).optional() }).strict(),
   z.object({ type: z.literal("streamable-http"), ...remote }).strict(),

@@ -5,6 +5,26 @@ export function importRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
+/** Claude pins a string under oauth.scopes; Codex pins a top-level list.
+ * null means an explicit declaration cannot be ported without changing it. */
+export function importedConnectorScope(source: Record<string, unknown>): string | null | undefined {
+  const oauth = importRecord(source.oauth) ? source.oauth : {};
+  const values: string[] = [];
+  for (const field of ["scope", "scopes"]) {
+    const value = oauth[field];
+    if (value === undefined) continue;
+    if (typeof value !== "string" || !value.trim()) return null;
+    values.push(value);
+  }
+  if (source.scopes !== undefined) {
+    if (!Array.isArray(source.scopes) || !source.scopes.length || source.scopes.some(value => typeof value !== "string" || !value || /\s/.test(value))) return null;
+    values.push(source.scopes.join(" "));
+  }
+  const identity = (value: string) => JSON.stringify([...new Set(value.trim().split(/\s+/))].sort());
+  if (values.some(value => identity(value) !== identity(values[0]))) return null;
+  return values[0];
+}
+
 /** Assess source semantics before normalization can discard unsupported settings. */
 export function assessImportedConnector(name: string, installedName: string, source: Record<string, unknown>, config: Record<string, unknown>): ConnectorImportCheck {
   const base = { name, installedName };
@@ -24,11 +44,14 @@ export function assessImportedConnector(name: string, installedName: string, sou
   if (hostBindings.some(key => forwarded.includes(key) || Object.hasOwn(environment, key))) return block("source_runtime", "This connector depends on the original ChatGPT/Codex desktop runtime or its private communication channel. Those services do not transfer to LegalWork. Obtain a standalone connector configuration instead.");
   if (["enabled_tools", "disabled_tools", "default_tools_approval_mode", "omit_tools_from"].some(key => source[key] !== undefined) || importRecord(source.tools) && Object.values(source.tools).some(value => importRecord(value) && value.approval_mode !== undefined)) return block("tool_policy", "This connector declares tool access or approval rules that LegalWork cannot preserve. Adapt those rules to LegalWork before importing so the connector does not gain different permissions.");
   const oauth = importRecord(source.oauth) ? source.oauth : {};
-  if (typeof oauth.scopes === "string") return block("pinned_scopes", "This connector pins the permissions requested during sign-in. LegalWork's engine can request the provider's broader advertised permissions instead, so this configuration cannot be imported with the same restriction.");
+  if (importedConnectorScope(source) === null) return block("pinned_scopes", "This connector declares empty, invalid or conflicting sign-in permissions that LegalWork cannot preserve. Obtain a configuration approved for LegalWork before importing.");
   const auth = importRecord(source.extensions) && importRecord(source.extensions["com.openai"]) && importRecord(source.extensions["com.openai"].auth) ? source.extensions["com.openai"].auth : {};
   if (auth.type !== undefined && !["none", "api_key", "oauth", "mixed"].includes(String(auth.type))) return block("authentication", "The source declares an authentication method LegalWork does not support.");
+  const fixedDefaultScopes = Array.isArray(auth.defaultScopes) && auth.defaultScopes.length > 0
+    && (auth.baseScopes === undefined || Array.isArray(auth.baseScopes) && auth.baseScopes.length === 0);
+  if ((auth.baseScopes !== undefined || auth.defaultScopes !== undefined) && !fixedDefaultScopes) return block("pinned_scopes", "This connector uses default or required sign-in permission rules that LegalWork cannot preserve. Obtain a configuration approved for LegalWork before importing.");
   const overrides = ["authServerMetadataUrl", "authorizationUrl", "tokenUrl", "registrationUrl", "authorizationServerBase", "resource", "oidcConfigurationUrl", "oidcUserinfoEndpoint", "oidcScopesSupported"];
-  if (overrides.some(key => oauth[key] !== undefined || auth[key] !== undefined) || auth.oidcEnabled === true) return block("oauth_override", "This connector requires custom sign-in discovery, endpoints or identity settings that LegalWork cannot preserve. Ask the provider for a standard MCP OAuth configuration.");
+  if (overrides.some(key => oauth[key] !== undefined || auth[key] !== undefined) || auth.oidcEnabled !== undefined) return block("oauth_override", "This connector requires custom sign-in discovery, endpoints or identity settings that LegalWork cannot preserve. Ask the provider for a standard MCP OAuth configuration.");
   const client = importRecord(auth.client) ? auth.client : {};
   const method = client.tokenEndpointAuthMethod ?? oauth.tokenEndpointAuthMethod;
   if (method !== undefined && !["none", "client_secret_post"].includes(String(method))) return block("client_authentication", `This connector requires ${String(method)} client authentication. LegalWork currently supports public clients and client_secret_post.`);
@@ -44,6 +67,7 @@ export function assessImportedConnector(name: string, installedName: string, sou
   if (configuredOAuth.callbackPort !== undefined && (typeof configuredOAuth.callbackPort !== "number" || !Number.isInteger(configuredOAuth.callbackPort) || configuredOAuth.callbackPort < 1 || configuredOAuth.callbackPort > 65535)) return block("callback", "This connector has an invalid sign-in callback port.");
   if (method === "none" && configuredOAuth.clientSecret) return block("client_authentication", "This export includes a client secret for a public OAuth client. Obtain a configuration with the correct client authentication method.");
   if (client.mode === "provided" && !configuredOAuth.clientId) return block("missing_registration", "The provider requires a registered OAuth application, but this export does not include its client ID. Ask your administrator for a LegalWork-compatible registration.");
+  if (auth.type === "api_key" && auth.headerName !== undefined && auth.headerScheme !== "custom_header") return block("credential_header", "An API key header name is only valid with custom-header authentication. Obtain a corrected configuration from the provider.");
   if (auth.type === "api_key" && (!auth.headerScheme || !["bearer", "basic", "custom_header"].includes(String(auth.headerScheme)) || auth.headerScheme === "custom_header" && (typeof auth.headerName !== "string" || !/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(auth.headerName) || /^host$/i.test(auth.headerName)))) return block("credential_header", "This export does not define a valid API key header. Ask the provider for a corrected configuration.");
   if (connectorConfigVariables(config).some(input => /^(?:CLAUDE_(?:PLUGIN_DATA|PROJECT_DIR|SESSION_ID)|CODEX_(?:THREAD_ID|PROJECT_DIR|SESSION_ID))$/.test(input))) return block("platform_configuration", "This connector depends on runtime values supplied by its original app. LegalWork cannot reproduce that runtime.");
   const url = typeof config.url === "string" ? config.url : undefined;

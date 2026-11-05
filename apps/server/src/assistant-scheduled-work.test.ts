@@ -1,5 +1,6 @@
+import { createAssistantTestClient } from "./assistant-engine.test-support.js";
 import { expect, test } from "bun:test";
-import { createOpencodeClient, type Session } from "@opencode-ai/sdk/v2/client";
+import { type Session } from "./assistant-engine.js";
 import { ScheduledTaskSchema } from "./scheduled-tasks/schema.js";
 import type { TrackedDelegation } from "./assistant-delegations.js";
 import type { WorkspaceInfo } from "./types.js";
@@ -11,7 +12,7 @@ test("Assistant schedules create fresh workers linked to the current day and nev
   const task = ScheduledTaskSchema.parse({ id: "00000000-0000-4000-8000-000000000001", workspaceId: workspace.id,
     title: "Morning briefing", prompt: "Read the source records and save briefings/today.md.", sessionId: "legacy-daily", reuseChat: true, model: null,
     schedule: { kind: "once", startAt: "2026-10-20T06:00:00Z", timeZone: "UTC" }, revision: 1, status: "active", nextRunAt: null, createdAt: "2026-10-20T00:00:00Z", updatedAt: "2026-10-20T00:00:00Z" });
-  const session = (id: string, parentID?: string, directory = workspace.path): Session => ({ id, parentID, directory, title: id, slug: id, projectID: "assistant", version: "1", time: { created: 1, updated: 1 } });
+  const session = (id: string, parentID?: string, directory = workspace.path): Session => ({ id, parentID, directory, title: id, projectID: "assistant", location: { directory }, cost: 0, tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } }, time: { created: 1, updated: 1 } });
   const sessions = new Map([session("day-one"), session("day-two")].map(item => [item.id, item]));
   const creates: { title: string; parentID: string }[] = [];
   const limits: string[] = [];
@@ -30,7 +31,7 @@ test("Assistant schedules create fresh workers linked to the current day and nev
     const item = sessions.get(url.pathname.split("/")[2]);
     return item ? Response.json(item) : new Response(null, { status: 404 });
   } });
-  const client = createOpencodeClient({ baseUrl: engine.url.origin, directory: workspace.path });
+  const client = createAssistantTestClient({ baseUrl: engine.url.origin, directory: workspace.path });
   let date = "one";
   const assistant = { current: async () => ({ workspace, day: { date, sessionId: `day-${date}` } }) };
   const tracked: TrackedDelegation[] = [];
@@ -49,7 +50,7 @@ test("Assistant schedules create fresh workers linked to the current day and nev
     }
     expect(creates.map(item => item.parentID)).toEqual(["day-one", "day-one", "day-two"]);
     expect(new Set(tracked.map(item => item.sessionId)).size).toBe(3);
-    expect(limits).toEqual(["1", "1", "1"]);
+    expect(limits).toEqual(["100", "100", "100"]);
     const child = session("explicit", "day-two");
     expect((await prepareAssistantScheduledWork({ ...task, model: { providerID: "explicit", modelID: "model" } }, workspace, child, client, delegations)).model).toEqual({ providerID: "explicit", modelID: "model" });
     await expect(prepareAssistantScheduledWork(task, workspace, session("daily"), client, delegations)).rejects.toThrow("isolated worker");

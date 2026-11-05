@@ -1,125 +1,102 @@
-import { describe, expect, test } from "bun:test";
-import { LegalWorkLegalMemoryKnowledge } from "./legalwork-legalmemory-knowledge.js";
+import { afterEach, describe, expect, test } from "bun:test";
+import LegalMemory from "./legalwork-legalmemory-knowledge.js";
+import { nativePluginTestRuntime, nativeTestInvocation } from "./native-plugin-test-support.js";
 
-function statusClient(statuses: Record<string, { status: string }>) {
-  return {
-    mcp: {
-      status: async (_options: { directory?: string }) => ({ data: statuses }),
-    },
-  };
+const runtimes: Array<ReturnType<typeof nativePluginTestRuntime>> = [];
+afterEach(async () => { for (const runtime of runtimes.splice(0)) await runtime.close(); });
+async function memoryRuntime(statuses: Record<string, { status: string }> = {}) {
+  const runtime = nativePluginTestRuntime("/project/firm");
+  runtime.mcp(statuses);
+  runtimes.push(runtime);
+  await runtime.start(LegalMemory);
+  return runtime;
+}
+async function prompt(runtime: Awaited<ReturnType<typeof memoryRuntime>>, sessionID = "ses_1") {
+  const event = { sessionID, messageID: "msg_user", prompt: { text: "" } };
+  await runtime.hook("session", "prompt", event);
+  return event.prompt.text.trim();
+}
+function text(content: unknown): string {
+  return typeof content === "string" ? content : Array.isArray(content)
+    ? content.map(part => part?.type === "text" ? part.text : "").join("\n") : "";
 }
 
-type Plugin = Awaited<ReturnType<typeof LegalWorkLegalMemoryKnowledge>>;
-
-/** The reminder text a new user message receives, "" when none. */
-async function userMessageReminder(plugin: Plugin, sessionID = "ses_1") {
-  const output: { message: { id: string }; parts: object[] } = { message: { id: "msg_1" }, parts: [] };
-  await plugin["chat.message"]({ sessionID }, output);
-  return output.parts.map((part) => String(Reflect.get(part, "text"))).join("\n");
-}
-
-describe("LegalWork LegalMemory knowledge plugin", () => {
-  test("reports the use-LegalMemory-first section as a reminder, never in the system prompt", async () => {
-    const plugin = await LegalWorkLegalMemoryKnowledge({
-      directory: "/tmp/ws",
-      client: statusClient({ legalmemory: { status: "connected" } }),
-    });
-    expect("experimental.chat.system.transform" in plugin).toBe(false);
-
-    const reminder = await userMessageReminder(plugin);
+describe("native LegalMemory awareness", () => {
+  test("keeps complete use-first and source-citation guidance in durable reminders", async () => {
+    const runtime = await memoryRuntime({ legalmemory: { status: "connected" } });
+    const reminder = await prompt(runtime);
     expect(reminder).toStartWith('<system-reminder topic="legalmemory">');
-    expect(reminder).toContain("LegalMemory is connected");
     expect(reminder).toContain("SEARCH LEGALMEMORY FIRST");
     expect(reminder).toContain("Do NOT search LegalMemory for a direct, fully specified edit");
-    // The markdown-link form, which is what the model measurably emits.
     expect(reminder).toContain("[<document title>](legalmemory://document/<document_id>)");
-    // The interface renders the Sources list, so the model must not write one.
-    expect(reminder).toContain("DO NOT write your own \"Sources\"");
-    // Reported once: an unchanged connection adds nothing to later messages.
-    expect(await userMessageReminder(plugin)).toBe("");
+    expect(reminder).toContain('DO NOT write your own "Sources"');
+    expect(await prompt(runtime)).toBe("");
+    expect(runtime.mcpRequests.every(input => JSON.stringify(input) === JSON.stringify({ location: { directory: "/project/firm" } }))).toBe(true);
   });
 
-  test("recognizes the appliance's own sample server name", async () => {
-    const plugin = await LegalWorkLegalMemoryKnowledge({
-      directory: "/tmp/ws",
-      client: statusClient({ "knowledge-index": { status: "connected" } }),
-    });
-    expect(await userMessageReminder(plugin)).toContain("LegalMemory is connected");
+  test("recognizes the appliance's own sample name and respects the current location", async () => {
+    const runtime = await memoryRuntime({ "knowledge-index": { status: "connected" } });
+    runtime.move("/project/other");
+    expect(await prompt(runtime)).toContain("LegalMemory is connected");
+    expect(runtime.mcpRequests.at(-1)).toEqual({ location: { directory: "/project/other" } });
   });
 
-  test("stays silent when the server is configured but not connected", async () => {
-    const plugin = await LegalWorkLegalMemoryKnowledge({
-      directory: "/tmp/ws",
-      client: statusClient({ legalmemory: { status: "needs_auth" }, notion: { status: "connected" } }),
-    });
-    expect(await userMessageReminder(plugin)).toBe("");
+  test("does not invent availability from an empty or unauthenticated MCP catalog", async () => {
+    const runtime = await memoryRuntime({ legalmemory: { status: "needs_auth" }, notion: { status: "connected" } });
+    expect(await prompt(runtime)).toBe("");
+    runtime.mcp({});
+    expect(await prompt(runtime)).toBe("");
+    runtime.failMcp(new Error("unavailable"));
+    expect(await prompt(runtime)).toBe("");
   });
 
-  test("stays silent when the status check tells us nothing", async () => {
-    const plugin = await LegalWorkLegalMemoryKnowledge({ directory: "/tmp/ws" });
-    expect(await userMessageReminder(plugin)).toBe("");
-  });
-
-  test("stays silent when the status map is empty", async () => {
-    const plugin = await LegalWorkLegalMemoryKnowledge({
-      directory: "/tmp/ws",
-      client: statusClient({}),
-    });
-    expect(await userMessageReminder(plugin)).toBe("");
-  });
-
-  test("revokes cached tools and guidance immediately in the same chat", async () => {
-    const statuses = { legalmemory: { status: "connected" } };
-    const plugin = await LegalWorkLegalMemoryKnowledge({ client: statusClient(statuses) });
-    const tool = { tool: "legalmemory_get_document" };
-    await plugin["tool.execute.before"](tool);
-    expect(await userMessageReminder(plugin)).toContain("LegalMemory is connected");
+  test("revokes tools mid-turn and reports disconnect while other work remains available", async () => {
+    const statuses = { legalmemory: { status: "connected" } }, runtime = await memoryRuntime(statuses);
+    const call = { ...nativeTestInvocation("ses_1"), tool: "legalmemory_get_document", input: {} };
+    await runtime.hook("tool", "execute.before", call);
+    await prompt(runtime);
     statuses.legalmemory.status = "disabled";
-    await expect(plugin["tool.execute.before"](tool)).rejects.toThrow("disconnected");
-    // The disconnect reaches the model on the next tool result of the same run.
-    const result = { output: "search done" };
-    await plugin["tool.execute.after"]({ tool: "storage_search", sessionID: "ses_1" }, result);
-    expect(result.output).toStartWith('search done\n\n<system-reminder topic="legalmemory">');
-    expect(result.output).toContain("LegalMemory is no longer connected");
-    await plugin["tool.execute.before"]({ tool: "storage_search" });
+    await expect(runtime.hook("tool", "execute.before", call)).rejects.toThrow("disconnected");
+    const result = { sessionID: "ses_1", tool: "storage_search", status: "completed", result: { content: "search done" } };
+    await runtime.hook("tool", "execute.after", result);
+    expect(text(result.result.content)).toContain("LegalMemory is no longer connected");
+    await expect(runtime.hook("tool", "execute.before", { ...call, tool: "grep" })).resolves.toBeUndefined();
     statuses.legalmemory.status = "connected";
-    await plugin["tool.execute.before"](tool);
+    await expect(runtime.hook("tool", "execute.before", call)).resolves.toBeUndefined();
   });
 
-  test("fails closed on status errors without reporting a change", async () => {
-    const plugin = await LegalWorkLegalMemoryKnowledge({
-      client: { mcp: { status: async () => { throw new Error("unavailable"); } } },
-    });
-    expect(await userMessageReminder(plugin)).toBe("");
-    await expect(plugin["tool.execute.before"]({ tool: "knowledge-index_list_matters" })).rejects.toThrow("disconnected");
-    await expect(plugin["tool.execute.before"]({ tool: "knowledge_index_list_matters" })).rejects.toThrow("disconnected");
-    await plugin["tool.execute.before"]({ tool: "grep" });
+  test("fails closed on status errors without publishing a false disconnect", async () => {
+    const runtime = await memoryRuntime();
+    runtime.failMcp(new Error("unavailable"));
+    expect(await prompt(runtime)).toBe("");
+    for (const tool of ["knowledge-index_list_matters", "knowledge_index_list_matters"]) {
+      await expect(runtime.hook("tool", "execute.before", { ...nativeTestInvocation(), tool, input: {} })).rejects.toThrow("disconnected");
+    }
   });
 
-  test("keeps a large matter page searchable without losing any data", async () => {
-    const value = { results: Array.from({ length: 100 }, (_, index) => ({
-      id: `matter-${index}`, title: `MAT-00005 / ${index}`, summary: "Verträge und Gebühren ".repeat(80),
-    })), page: { total: 100 } };
-    const text = JSON.stringify(value);
-    expect(Buffer.byteLength(text)).toBeGreaterThan(65_536);
-    const output = { content: [{ type: "text", text }] };
-    const plugin = await LegalWorkLegalMemoryKnowledge();
-    await plugin["tool.execute.after"]({ tool: "legalmemory_list_matters" }, output);
-    expect(JSON.parse(output.content[0].text)).toEqual(value);
-    expect(output.content[0].text.split("\n").filter((line) => line.includes("MAT-00005"))).toHaveLength(100);
-    expect(Math.max(...output.content[0].text.split("\n").map((line) => Buffer.byteLength(line)))).toBeLessThan(16_384);
+  test("keeps large JSON pages lossless and searchable while retaining native attachments", async () => {
+    const runtime = await memoryRuntime();
+    const value = { results: Array.from({ length: 100 }, (_, index) => ({ id: `matter-${index}`, title: `MAT-00005 / ${index}`, summary: "Verträge und Gebühren ".repeat(80) })), page: { total: 100 } };
+    const compact = JSON.stringify(value);
+    expect(Buffer.byteLength(compact)).toBeGreaterThan(65536);
+    const attachment = { type: "file", mime: "image/png", uri: "data:image/png;base64,YQ==" };
+    const event = { sessionID: "ses_1", tool: "legalmemory_list_matters", status: "completed", result: { content: [{ type: "text", text: compact }, attachment] } };
+    await runtime.hook("tool", "execute.after", event);
+    const formatted = text(event.result.content);
+    expect(JSON.parse(formatted)).toEqual(value);
+    expect(formatted.split("\n").filter(line => line.includes("MAT-00005"))).toHaveLength(100);
+    expect(event.result.content[1]).toEqual(attachment);
   });
 
-  test("preserves non-JSON output and other MCP results", async () => {
-    const text = "plain text ".repeat(10_000);
-    const output = { content: [{ type: "text", text }, { type: "image", data: "image" }] };
-    const plugin = await LegalWorkLegalMemoryKnowledge();
-    await plugin["tool.execute.after"]({ tool: "legalmemory_get_document" }, output);
-    expect(output.content[0].text).toBe(text);
-    expect(output.content[1].data).toBe("image");
-    const other = { content: [{ type: "text", text: JSON.stringify({ text }) }] };
-    const before = other.content[0].text;
-    await plugin["tool.execute.after"]({ tool: "other_tool" }, other);
-    expect(other.content[0].text).toBe(before);
+  test("preserves non-JSON output and unrelated connector output", async () => {
+    const runtime = await memoryRuntime();
+    const value = "plain text ".repeat(10000);
+    const event = { sessionID: "ses_1", tool: "legalmemory_get_document", status: "completed", result: { content: value } };
+    await runtime.hook("tool", "execute.after", event);
+    expect(event.result.content).toBe(value);
+    const other = { sessionID: "ses_1", tool: "other_tool", status: "completed", result: { content: JSON.stringify({ value }) } };
+    const before = other.result.content;
+    await runtime.hook("tool", "execute.after", other);
+    expect(other.result.content).toBe(before);
   });
 });

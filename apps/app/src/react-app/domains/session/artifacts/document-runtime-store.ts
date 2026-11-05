@@ -8,6 +8,7 @@ import { usePanelTabStore, workspacePanelKey } from "../panel/panel-tab-store";
 import { storageFileTab } from "../panel/storage-file-tab";
 import { createDocumentTaskQueue } from "./document-task-queue";
 import { openBackgroundTab } from "../background/open-background-tab";
+import { t } from "@/i18n";
 
 export type DocumentProject = { projectId: string; workspaceId: string; workspaceRoot: string; client: LegalworkServerClient; isRemoteWorkspace: boolean };
 export type Registration = { surface: LegalworkControlSurface; action: LegalworkControlAction; ready: () => boolean; dirty: () => boolean; updatedAt?: () => number | null };
@@ -121,6 +122,21 @@ export function createDocumentRuntime(createHost = () => document.createElement(
   };
   return {
     entries, changed, ensure, close, getProject, taskSessions, prune,
+    async openSession(args: unknown, callerSessionId: string | undefined, navigate: (path: string) => void) {
+      const sessionId = stringArg(args, "sessionId"), project = await getProject(sessionId);
+      if (callerSessionId) {
+        taskSessions.set(callerSessionId, sessionId);
+        return { ok: true, sessionId, workspaceId: project.projectId, background: true, message: "The session is available to this task. Read it with session.read_transcript. The user's view is unchanged." };
+      }
+      // Navigation alone does not select the chat when this route is already
+      // mounted beside a document. Keep the editor and select its owning chat.
+      const panels = usePanelTabStore.getState(), scope = workspacePanelKey(project.projectId);
+      const chat = panels.sessions[scope]?.tabs.find(tab => tab.type === "chat" && tab.sessionId === sessionId);
+      if (chat) panels.selectTab(scope, chat.id);
+      else panels.adoptChat(scope, sessionId, t("session.default_title"), { preserveLayout: true });
+      navigate(`/workspace/${encodeURIComponent(project.projectId)}/session/${encodeURIComponent(sessionId)}`);
+      return { ok: true, navigatedTo: sessionId };
+    },
     dismiss: (entry: Entry, sessionId: string) => { entry.dismissed.add(sessionId); changed(); },
     releaseTask: (sessionId: string) => {
       selected.delete(sessionId); taskSessions.delete(sessionId);

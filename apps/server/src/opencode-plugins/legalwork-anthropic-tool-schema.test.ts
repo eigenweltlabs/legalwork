@@ -1,28 +1,11 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { LegalWorkAnthropicToolSchema } from "./legalwork-anthropic-tool-schema.js";
+import pluginDefinition from "./legalwork-anthropic-tool-schema.js";
+import { nativeProviderTestFetch } from "./native-plugin-test-support.js";
 
-const calls: { input: Parameters<typeof fetch>[0]; init?: RequestInit }[] = [];
-const fakeBase = Object.assign(
-  async (input: Parameters<typeof fetch>[0], init?: RequestInit): Promise<Response> => {
-    calls.push({ input, init });
-    return new Response("{}");
-  },
-  globalThis.fetch,
-);
-
-const originalFetch = globalThis.fetch;
-let patchedFetch: typeof fetch;
-
-beforeAll(async () => {
-  globalThis.fetch = fakeBase;
-  await LegalWorkAnthropicToolSchema();
-  patchedFetch = globalThis.fetch;
-  globalThis.fetch = originalFetch;
-});
-
-afterAll(() => {
-  globalThis.fetch = originalFetch;
-});
+const calls:Array<{input:Parameters<typeof fetch>[0];init?:RequestInit}>=[];
+let patchedFetch:typeof fetch;let runtime:Awaited<ReturnType<typeof nativeProviderTestFetch>>["runtime"];
+beforeAll(async()=>{const fixture=await nativeProviderTestFetch(pluginDefinition,async request=>{calls.push({input:request,init:{body:await request.clone().text(),headers:request.headers}});return new Response("{}");});patchedFetch=fixture.send;runtime=fixture.runtime;});
+afterAll(async()=>{await runtime.close();});
 
 const ANTHROPIC_HEADERS = { "anthropic-version": "2023-06-01", "content-type": "application/json" };
 
@@ -57,7 +40,7 @@ async function send(body: unknown, headers: Record<string, string> = ANTHROPIC_H
   return JSON.parse(sent);
 }
 
-describe("LegalWorkAnthropicToolSchema fetch patch", () => {
+describe("LegalWorkAnthropicToolSchema native model request hook", () => {
   test("flattens a top-level anyOf into a plain object schema", async () => {
     const body = await send({
       model: "claude-fable-5",
@@ -120,6 +103,6 @@ describe("LegalWorkAnthropicToolSchema fetch patch", () => {
 
   test("module exposes only the plugin factory", async () => {
     const mod = await import("./legalwork-anthropic-tool-schema.js");
-    expect(Object.keys(mod)).toEqual(["LegalWorkAnthropicToolSchema"]);
+    expect(Object.keys(mod)).toEqual(["default"]);
   });
 });

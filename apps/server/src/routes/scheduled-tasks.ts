@@ -19,8 +19,8 @@ export function registerScheduledTaskRoutes(options: {
   requireClientScope: (ctx: RequestContext, scope: TokenScope) => void;
   resolveWorkspace: (config: ServerConfig, id: string) => Promise<WorkspaceInfo>;
   listSessions: (workspace: WorkspaceInfo, search?: string) => Promise<{ id: string; title: string; directory: string; time: { archived?: number } }[]>;
-  getSession: (workspace: WorkspaceInfo, id: string) => Promise<{ directory: string; time: { archived?: number } } | null>;
   getStatuses: (workspace: WorkspaceInfo) => Promise<Record<string, { type: "idle" | "busy" | "retry" }>>;
+  getSession: (workspace: WorkspaceInfo, id: string) => Promise<{ directory: string; time: { archived?: number } } | null>;
 }) {
   const { config, store } = options;
   const body = (ctx: RequestContext) => options.readJsonBodyLimited(ctx.request, 50000);
@@ -31,7 +31,7 @@ export function registerScheduledTaskRoutes(options: {
       // Task records stay manageable when the project's drive is disconnected.
       const workspace = config.workspaces.find(item => item.id === ctx.params.id);
       if (!workspace) throw new ApiError(404, "workspace_not_found", "Workspace not found.");
-      if (workspace.workspaceType === "remote") throw new ApiError(400, "local_schedule_only", "Scheduled tasks run in a local project on this computer.");
+
       try { return options.jsonResponse(await action(ctx, workspace)); }
       catch (error) { if (error instanceof z.ZodError) throw new ApiError(400, "scheduled_task_input", "Check the task title, instructions and schedule.", { issues: error.issues }); throw error; }
     });
@@ -46,7 +46,7 @@ export function registerScheduledTaskRoutes(options: {
   };
   addRoute(options.routes, "GET", "/scheduled-tasks", "client", async ctx => {
     options.requireClientScope(ctx, "viewer");
-    const local = new Set(config.workspaces.filter(workspace => workspace.workspaceType !== "remote").map(workspace => workspace.id));
+    const local = new Set(config.workspaces.map(workspace => workspace.id));
     const tasks = store.list().filter(task => local.has(task.workspaceId));
     if (!ctx.url.searchParams.has("limit")) return options.jsonResponse({ tasks });
     const input = z.object({ limit: z.coerce.number().int().min(1).max(50), query: z.string().max(300).default(""), cursor: z.string().optional(), status: z.enum(["active", "paused", "completed"]).optional() }).safeParse(Object.fromEntries(ctx.url.searchParams));
@@ -68,7 +68,7 @@ export function registerScheduledTaskRoutes(options: {
   addRoute(options.routes, "GET", "/scheduled-tasks/projects", "client", async ctx => {
     options.requireClientScope(ctx, "viewer");
     const projects = [];
-    for (const item of config.workspaces.filter(workspace => workspace.workspaceType !== "remote")) {
+    for (const item of config.workspaces) {
       try { const workspace = await options.resolveWorkspace(config, item.id); projects.push({ id: workspace.id, name: workspace.name, path: workspace.path }); }
       catch { /* Unavailable or unauthorized projects are not accessible to scheduled work. */ }
     }
@@ -77,23 +77,18 @@ export function registerScheduledTaskRoutes(options: {
   addRoute(options.routes, "GET", "/session-inbox", "client", async ctx => {
     options.requireClientScope(ctx, "viewer");
     const workspaces = [];
-    for (const item of config.workspaces.filter(workspace => workspace.workspaceType !== "remote")) {
+    for (const item of config.workspaces) {
       try { workspaces.push(await options.resolveWorkspace(config, item.id)); } catch { /* Not accessible. */ }
     }
-    // Reconcile unopened projects too. A failed status read is never proof that
-    // work finished, and must not turn an intermediate reply into an unread dot.
     const entries = await readSessionInbox(config, workspaces, store.sessionActivity());
-    const snapshots = new Map(await Promise.all(workspaces
-      .filter(workspace => entries.some(entry => entry.workspaceId === workspace.id))
-      .map(async workspace => {
-        const statuses = await options.getStatuses(workspace).catch(() => null);
-        return [workspace.id, statuses] as const;
-      })));
-    const sessions = entries.map(entry => {
+    const snapshots = new Map(await Promise.all(workspaces.filter(workspace => entries.some(entry => entry.workspaceId === workspace.id)).map(async workspace => {
+      const statuses = await options.getStatuses(workspace).catch(() => null);
+      return [workspace.id, statuses] satisfies [string, Record<string, { type: "idle" | "busy" | "retry" }> | null];
+    })));
+    return options.jsonResponse({ sessions: entries.map(entry => {
       const statuses = snapshots.get(entry.workspaceId);
-      return { ...entry, status: statuses ? (statuses[entry.sessionId]?.type ?? "idle") : "unknown" };
-    });
-    return options.jsonResponse({ sessions });
+      return { ...entry, status: statuses ? statuses[entry.sessionId]?.type ?? "idle" : "unknown" };
+    }) });
   });
   route("GET", "", async (_ctx, workspace) => ({ tasks: store.list(workspace.id) }));
   route("GET", "/chats", async (ctx, workspace) => ({ sessions: (await options.listSessions(await options.resolveWorkspace(config, workspace.id), ctx.url.searchParams.get("search")?.slice(0, 200)))

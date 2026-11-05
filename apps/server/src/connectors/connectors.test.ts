@@ -579,11 +579,9 @@ test("HTTP routes and tool calls deny personal account access to collaborators a
   stops.push(() => server.stop());
   const base = `http://127.0.0.1:${server.port}`;
   expect((await nativeFetch(`${base}/connectors`)).status).toBe(401);
-  for (const scope of ["collaborator", "viewer"]) {
-    const issued = await nativeFetch(`${base}/tokens`, { method: "POST", headers: { "x-legalwork-host-token": config.hostToken, "Content-Type": "application/json" }, body: JSON.stringify({ scope }) });
-    const token = z.object({ token: z.string() }).parse(await issued.json()).token;
+  for (const token of [config.token, "owt_retired_viewer"]) {
     const headers = { Authorization: `Bearer ${token}`, "Content-Type": "application/json",
-      "x-legalwork-connector-token": scope === "viewer" ? connectorRuntimeCapability(config) : "invalid-grant" };
+      "x-legalwork-connector-token": token !== config.token ? connectorRuntimeCapability(config) : "invalid-grant" };
     expect((await nativeFetch(`${base}/connectors`, { headers })).status).toBe(401);
     expect((await nativeFetch(`${base}/connectors/outlook-calendar/activation`, { method: "PUT", headers, body: JSON.stringify({ connectionId: connection.id, active: true }) })).status).toBe(401);
     requests.length = 0;
@@ -591,22 +589,18 @@ test("HTTP routes and tool calls deny personal account access to collaborators a
       for (const extensionId of [definition.id, ` \t${definition.id}\n`]) {
         const denied = await nativeFetch(`${base}/experimental/extensions/call`, { method: "POST", headers,
           body: JSON.stringify({ extensionId, action: " status ", access: { personalConnections: true } }) });
-        expect(denied.status).toBe(403);
-        expect(await denied.json()).toMatchObject({ code: "forbidden" });
+        expect(denied.status).toBe(token === config.token ? 403 : 401);
       }
     }
     expect(requests).toHaveLength(0);
   }
   expect((await nativeFetch(`${base}/connectors`, { headers: { "x-legalwork-host-token": config.hostToken } })).status).toBe(200);
-  const owner = await nativeFetch(`${base}/tokens`, { method: "POST", headers: { "x-legalwork-host-token": config.hostToken, "Content-Type": "application/json" }, body: JSON.stringify({ scope: "owner" }) });
-  const ownerToken = z.object({ token: z.string() }).parse(await owner.json()).token;
   const runtimeHeaders = { Authorization: `Bearer ${config.token}`, "Content-Type": "application/json", "x-legalwork-connector-token": connectorRuntimeCapability(config) };
   const clientHeaders = { Authorization: `Bearer ${config.token}`, "Content-Type": "application/json" };
   const extensionCall = { extensionId: " gmail ", action: "test_connection" };
   expect((await nativeFetch(`${base}/experimental/extensions/call`, { method: "POST", headers: clientHeaders, body: JSON.stringify(extensionCall) })).status).toBe(403);
   const authorizedHeaders: Record<string, string>[] = [runtimeHeaders,
-    { "x-legalwork-host-token": config.hostToken, "Content-Type": "application/json" },
-    { Authorization: `Bearer ${ownerToken}`, "Content-Type": "application/json" }];
+    { "x-legalwork-host-token": config.hostToken, "Content-Type": "application/json" }];
   for (const headers of authorizedHeaders) {
     for (const extensionId of ["gmail", " \tgmail\n"]) {
       expect((await nativeFetch(`${base}/experimental/extensions/call`, { method: "POST", headers,

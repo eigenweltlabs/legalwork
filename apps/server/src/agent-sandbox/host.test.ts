@@ -30,6 +30,16 @@ test("host runner bounds output without blocking the child", async () => {
   expect(result.truncated).toBe(true);
   expect(Buffer.byteLength(result.output)).toBe(1024 * 1024);
 });
+test("configured commands keep complete output and remain cancellable without a default deadline", async () => {
+  const command = process.platform === "win32" ? "[Console]::Write('x' * 2000000)" : "head -c 2000000 /dev/zero";
+  const result = await runHostCommand({ command, cwd: process.cwd(), timeoutMs: null, capture: "complete", signal: new AbortController().signal });
+  expect(result.truncated).toBe(false);
+  expect(Buffer.byteLength(result.output)).toBe(2000000);
+  const controller = new AbortController();
+  const running = runHostCommand({ command: process.platform === "win32" ? "Start-Sleep -Seconds 30" : "sleep 30", cwd: process.cwd(), timeoutMs: null, capture: "complete", signal: controller.signal });
+  setTimeout(() => controller.abort(), 100);
+  await expect(running).rejects.toThrow("cancelled");
+});
 test("host command timeout and cancellation settle promptly", async () => {
   const sleep = process.platform === "win32" ? "Start-Sleep -Seconds 30" : "sleep 30";
   await expect(run(sleep, 100)).rejects.toThrow("timed out");

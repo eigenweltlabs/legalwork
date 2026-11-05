@@ -1,13 +1,19 @@
 import { expect, spyOn, test } from "bun:test";
-import chromeDevtools from "./legalwork-chrome-devtools.js";
+import { LegalWorkExtensionsPreview } from "./legalwork-extensions-preview.js";
+import { nativePluginTestRuntime } from "./native-plugin-test-support.js";
 
-test("bundled browser plugin registers tools without network", async () => {
+test("native browser extensions register offline with truthful structured results", async () => {
   const network = spyOn(globalThis, "fetch").mockRejectedValue(new Error("Plugin registration must stay offline"));
+  const runtime = nativePluginTestRuntime();
   try {
-    const browser = await chromeDevtools();
-    expect(await browser.tool.browser_version.execute()).toBe("opencode-chrome-devtools@1.0.4");
-    expect(Object.keys(browser.tool)).toContain("browser_list");
-    expect(Object.keys(browser.tool)).toContain("browser_screenshot");
+    await runtime.start(LegalWorkExtensionsPreview);
+    for (const name of ["legalwork_browser_open_url", "legalwork_browser_connect", "legalwork_browser_upload", "legalwork_browser_capture", "legalwork_browser_batch", "legalwork_browser_downloads"]) {
+      const tool = runtime.tools.get(name);
+      expect(tool).toBeDefined();
+      expect(tool?.input).toBeDefined();
+      expect(tool?.output).toBeDefined();
+    }
+    expect(runtime.tools.has("browser_version")).toBe(false);
     expect(network).not.toHaveBeenCalled();
-  } finally { network.mockRestore(); }
+  } finally { await runtime.close(); network.mockRestore(); }
 });

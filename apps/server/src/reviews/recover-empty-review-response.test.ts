@@ -1,70 +1,35 @@
-import { afterAll, beforeEach, expect, test } from "bun:test";
-import { createOpencodeClient } from "@opencode-ai/sdk";
+import { expect,test } from "bun:test";
+import { Plugin } from "@opencode/plugin";
+import { nativePluginTestRuntime } from "../opencode-plugins/native-plugin-test-support.js";
+import { nativeEvents } from "../opencode-plugins/native-events.js";
 import { recoverEmptyReviewResponse } from "./recover-empty-review-response.js";
 
-let finish = "stop", error = false, text = "", hasTool = false, pending = true, busy = false, changed = false, summary = false, synthetic = false, longRun = false, savedReview = true, reminder = false;
-const prompts: unknown[] = [];
-const user = { id: "user", role: "user", agent: "legalwork", model: { providerID: "eigenwelt", modelID: "Gemini" } };
-const server = Bun.serve({ port: 0, async fetch(request) {
-  const url = new URL(request.url);
-  if (url.pathname.endsWith("/prompt_async")) { prompts.push(await request.json()); return new Response(null, { status: 204 }); }
-  if (url.pathname.endsWith("/todo")) return Response.json([{ content: "Write DD report", status: pending ? "in_progress" : "completed", priority: "high", id: "todo" }]);
-  if (url.pathname === "/session/status") return Response.json({ test: { type: busy ? "busy" : "idle" } });
-  const parent = { info: user, parts: [{ type: "text", text: "Run DD", synthetic }, ...(reminder ? [{ type: "text", text: "<system-reminder>\nProject configuration\n</system-reminder>", synthetic: true }] : [])] };
-  if (url.pathname.endsWith("/message/user")) return Response.json(parent);
-  const last = { info: { id: "empty", role: "assistant", parentID: "user", finish, summary, ...(error ? { error: { name: "APIError", data: { message: "Budget has been exceeded" } } } : {}) },
-    parts: [{ type: "reasoning", text: "Preparing the report" }, ...(text ? [{ type: "text", text }] : []), ...(hasTool ? [{ type: "tool", tool: "write" }] : [])] };
-  const history = [parent, ...(savedReview ? [{ info: { role: "assistant" }, parts: [{ type: "tool", tool: "legalwork_review_results" }] }] : []),
-    ...(longRun ? Array.from({ length: 30 }, (_, index) => ({ info: { id: `step-${index}`, role: "assistant" }, parts: [{ type: "tool", tool: "read" }] })) : []), last];
-  return Response.json(url.searchParams.get("limit") === "1" && changed ? [{ info: { ...user, id: "new-input" }, parts: [] }] : history.slice(-Number(url.searchParams.get("limit") ?? 100)));
-} });
-const client = createOpencodeClient({ baseUrl: server.url.origin });
-const idle = { event: { type: "session.idle", properties: { sessionID: "test" } } } satisfies Parameters<ReturnType<typeof recoverEmptyReviewResponse>>[0];
-beforeEach(() => { finish = "stop"; error = false; text = ""; hasTool = false; pending = true; busy = false; changed = false; summary = false; synthetic = false; longRun = false; savedReview = true; reminder = false; prompts.length = 0; });
-afterAll(() => server.stop(true));
+const user={type:"user",id:"user",text:"Run DD",metadata:{legalworkPrompt:{visibleText:"Run DD",reminders:["Project context"]}}};
+const assistant={type:"assistant",id:"empty",finish:"stop",content:[{type:"reasoning",text:"Preparing the report"}]};
+async function fixture(){
+  const runtime=nativePluginTestRuntime(),sent:Array<[string,string]>=[];
+  runtime.histories.set("session",[user,assistant]);
+  const plugin=Plugin.define({id:"recovery-fixture",setup:ctx=>nativeEvents(ctx,recoverEmptyReviewResponse(ctx,async(sessionID,messageID)=>{sent.push([sessionID,messageID]);}))});await runtime.start(plugin);
+  return{runtime,sent,plugin,idle:()=>runtime.event({type:"session.execution.succeeded",data:{sessionID:"session"}})};
+}
 
-test("recovers an empty normal stop once using the same model and saved work", async () => {
-  const recover = recoverEmptyReviewResponse(client, "/project");
-  await recover(idle); await recover(idle);
-  expect(prompts).toHaveLength(1);
-  expect(prompts[0]).toMatchObject({ agent: user.agent, model: user.model, parts: [{ type: "text", synthetic: true, text: expect.stringContaining("Reuse existing reviews") }] });
+test("native normal reasoning-only stops delegate once to the authoritative saved-review gate",async()=>{
+  const f=await fixture();try{await f.idle();await f.idle();expect(f.sent).toEqual([["session","empty"]]);}finally{await f.runtime.close();}
 });
-test("never continues real answers, tool calls, budget errors, compaction or finished tasks", async () => {
-  for (const change of [() => { text = "Need approval"; }, () => { hasTool = true; }, () => { error = true; }, () => { finish = "length"; }, () => { summary = true; }, () => { pending = false; }, () => { synthetic = true; }]) {
-    beforeCase(); change(); await recoverEmptyReviewResponse(client)(idle); expect(prompts).toHaveLength(0);
-  }
+test("answers, tool calls, errors, budget stops, compaction and synthetic turns never recover",async()=>{
+  const f=await fixture();try{
+    for(const last of [{...assistant,content:[{type:"text",text:"Need approval"}]},{...assistant,content:[...assistant.content,{type:"tool",name:"read"}]},{...assistant,error:{type:"budget",message:"Budget exceeded"}},{...assistant,finish:"length"},{type:"compaction",id:"compact",status:"completed"},{type:"synthetic",id:"synthetic",text:"Continue"}]){
+      f.runtime.histories.set("session",[user,last]);await f.idle();
+    }
+    await f.runtime.event({type:"session.execution.failed",data:{sessionID:"session"}});await f.runtime.event({type:"session.execution.interrupted",data:{sessionID:"session"}});expect(f.sent).toEqual([]);
+  }finally{await f.runtime.close();}
 });
-test("an app-state reminder next to the user's own text does not block recovery", async () => {
-  reminder = true;
-  await recoverEmptyReviewResponse(client)(idle);
-  expect(prompts).toHaveLength(1);
+test("restart respects the durable recovery marker and never treats a synthetic as new user permission",async()=>{
+  const f=await fixture();try{
+    f.runtime.histories.set("session",[user,{type:"synthetic",id:"recovery",text:"Continue",metadata:{legalworkReviewRecovery:true}},assistant]);await f.idle();expect(f.sent).toEqual([]);
+    await f.runtime.close();await f.runtime.start(f.plugin);await f.idle();expect(f.sent).toEqual([]);
+  }finally{await f.runtime.close();}
 });
-test("new human input and a concurrently running session cancel recovery", async () => {
-  changed = true; await recoverEmptyReviewResponse(client)(idle); expect(prompts).toHaveLength(0);
-  changed = false; busy = true; await recoverEmptyReviewResponse(client)(idle); expect(prompts).toHaveLength(0);
-});
-test("recovers the DD stop when its human request and review calls are outside the latest message page", async () => {
-  longRun = true;
-  await recoverEmptyReviewResponse(client)(idle);
-  expect(prompts).toHaveLength(1);
-});
-test("live review events support arbitrarily long workflows, while unrelated stops do not recover", async () => {
-  longRun = true; savedReview = false;
-  await recoverEmptyReviewResponse(client)(idle);
-  expect(prompts).toHaveLength(0);
-  const recover = recoverEmptyReviewResponse(client);
-  await recover({ event: { type: "message.part.updated", properties: { part: {
-    type: "tool", id: "review-tool", messageID: "review-message", sessionID: "test", callID: "review-call", tool: "legalwork_review_start",
-    state: { status: "completed", input: {}, output: "Started", title: "Start review", metadata: {}, time: { start: 1, end: 2 } },
-  } } } });
-  await recover(idle);
-  expect(prompts).toHaveLength(1);
-});
-function beforeCase() { finish = "stop"; error = false; text = ""; hasTool = false; pending = true; summary = false; synthetic = false; }
-
-test("managed recovery delegates to the server gate without a direct engine send", async () => {
-  const calls: string[][] = [];
-  await recoverEmptyReviewResponse(client, "/project", async (sessionId, messageId) => { calls.push([sessionId, messageId]); })(idle);
-  expect(calls).toEqual([["test", "empty"]]);
-  expect(prompts).toHaveLength(0);
+test("each new human request may recover once while app reminders remain part of that original request",async()=>{
+  const f=await fixture();try{await f.idle();f.runtime.histories.set("session",[user,assistant,{...user,id:"user2"},{...assistant,id:"empty2"}]);await f.idle();expect(f.sent).toEqual([["session","empty"],["session","empty2"]]);}finally{await f.runtime.close();}
 });

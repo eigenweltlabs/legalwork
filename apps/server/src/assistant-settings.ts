@@ -9,7 +9,7 @@ import type { ServerConfig } from "./types.js";
 /** Metadata only: selection neither installs packages nor loads their instructions. */
 export async function assistantSettingsCatalog(config: ServerConfig): Promise<AssistantSettingsCatalog> {
   const resources = new Map<string, AssistantResource>();
-  const projects = config.workspaces.filter(project => project.workspaceType !== "remote" && !isMainAssistant(project));
+  const projects = config.workspaces.filter(project => !isMainAssistant(project));
   const unavailable: string[] = [];
   const add = (item: Omit<AssistantResource, "id">, key = item.reference) => {
     const id = JSON.stringify([item.kind, item.projectId, key]);
@@ -28,7 +28,7 @@ export async function assistantSettingsCatalog(config: ServerConfig): Promise<As
   for (const skill of await listGlobalSkills()) add({ kind: skill.kind === "workflow" ? "workflow" : "skill", name: skill.name,
     description: skill.description, reference: skill.path, projectId: null, projectName: null });
   // Include global skills independently of project name overrides, then each project's own library.
-  const roots = config.workspaces.filter(project => project.workspaceType !== "remote");
+  const roots = config.workspaces;
   for (let offset = 0; offset < roots.length; offset += 8) {
     await Promise.all(roots.slice(offset, offset + 8).map(async project => {
       try {
@@ -58,5 +58,5 @@ export function assistantSettingsContext(settings: AssistantSettings, resources:
 /** Selected metadata is captured on save: no library scan or full package load on a chat turn. */
 export function createAssistantSettingsContext(config: ServerConfig, assistant: MainAssistant) {
   return () => assistantSettingsContext(assistant.settings(), assistant.resourceMetadata(), id =>
-    config.workspaces.some(project => project.id === id && project.workspaceType !== "remote") && assistant.canAccessProject(id));
+    config.workspaces.some(project => project.id === id) && assistant.canAccessProject(id));
 }

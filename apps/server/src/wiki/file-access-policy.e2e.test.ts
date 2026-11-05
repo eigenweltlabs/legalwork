@@ -1,10 +1,13 @@
+import { nativePluginTools } from "../opencode-plugins/native-plugin-test-support.js";
+import { nativeToolBefore } from "../opencode-plugins/native-plugin-test-support.js";
+const LegalWorkWikiTools = (context = {}) => nativePluginTools(LegalWorkWikiToolsDefinition, context);
 import { afterEach, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { startServer } from "../server.js";
 import { registerLocalProject } from "../routes/workspaces.js";
-import { LegalWorkWikiTools } from "../opencode-plugins/legalwork-wiki-tools.js";
+import LegalWorkWikiToolsDefinition from "../opencode-plugins/legalwork-wiki-tools.js";
 import { ensureWikiAgentToken, grantWikiAgentSession } from "./agent-access.js";
 import { WikiStore } from "./store.js";
 import type { ServerConfig } from "../types.js";
@@ -21,7 +24,11 @@ test("wiki tools respect project access without overriding host file access", as
     startedAt: Date.now(), tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false, agentSandboxEnabled: false,
   };
   const { workspace } = await registerLocalProject(config, { folderPath: join(root, "project"), name: "Project", preset: "starter" });
-  workspace.baseUrl = "http://127.0.0.1:1";
+  const engine = Bun.serve({ port: 0, fetch: request => new URL(request.url).pathname === "/api/session/project-session"
+    ? Response.json({ data: { id: "project-session", location: { directory: workspace.path } } })
+    : Response.json({ error: "Not found" }, { status: 404 }) });
+  cleanup.push(async () => { engine.stop(true); });
+  workspace.baseUrl = engine.url.origin;
   const store = new WikiStore(config); cleanup.push(() => store.close());
   const wiki = await store.create({ name: "Private disabled wiki", template: "blank" });
   await store.update(wiki.id, { allowInProjects: false });
@@ -37,17 +44,17 @@ test("wiki tools respect project access without overriding host file access", as
       if (value === undefined) delete process.env[key]; else process.env[key] = value;
   });
   const project = await LegalWorkWikiTools({ directory: workspace.path });
-  await expect(project["tool.execute.before"]({ tool: "read", sessionID: "project-session" }, { args: { filePath: join(root, "outside.txt") } })).resolves.toBeUndefined();
+  await expect(nativeToolBefore(project.runtime,"read",{ path: join(root, "outside.txt") },"project-session")).resolves.toBeUndefined();
   expect(project).not.toHaveProperty("shell.env");
   const ownWiki = await LegalWorkWikiTools({ directory: wiki.root });
-  await expect(ownWiki["tool.execute.before"]({ tool: "read", sessionID: "wiki-session" }, { args: { filePath: join(workspace.path, "outside.txt") } })).rejects.toMatchObject({ code: "wiki_native_project_access" });
-  await expect(ownWiki["tool.execute.before"]({ tool: "write", sessionID: "wiki-session" }, { args: { filePath: join(workspace.path, "new.txt") } })).rejects.toMatchObject({ code: "wiki_native_project_access" });
-  await expect(ownWiki["tool.execute.before"]({ tool: "read", sessionID: "wiki-session" }, { args: { filePath: join(wiki.root, "AGENTS.md") } })).resolves.toBeUndefined();
-  expect(JSON.parse(await project.tool.wiki_list.execute({}, { sessionID: "project-session" })).wikis).toEqual([]);
+  await expect(nativeToolBefore(ownWiki.runtime,"read",{ path: join(workspace.path, "outside.txt") },"wiki-session")).rejects.toMatchObject({ code: "wiki_native_project_access" });
+  await expect(nativeToolBefore(ownWiki.runtime,"write",{ path: join(workspace.path, "new.txt") },"wiki-session")).rejects.toMatchObject({ code: "wiki_native_project_access" });
+  await expect(nativeToolBefore(ownWiki.runtime,"read",{ path: join(wiki.root, "AGENTS.md") },"wiki-session")).resolves.toBeUndefined();
+  expect(JSON.parse(await project.tool.wiki_list.execute({}, { sessionID: "project-session", directory: workspace.path })).wikis).toEqual([]);
   const headers = { authorization: `Bearer ${config.token}`, "x-legalwork-host-token": config.hostToken, "content-type": "application/json" };
-  for (const path of ["/session/project-session/shell", "/pty"]) {
+  for (const [path, code] of [["/api/session/project-session/shell", "sandbox_required"], ["/api/pty", "engine_terminal_disabled"]]) {
     const response = await fetch(`${base}/workspace/${workspace.id}/opencode${path}`, { method: "POST", headers, body: "{}" });
     expect(response.status).toBe(403);
-    expect(await response.json()).toMatchObject({ code: "sandbox_required" });
+    expect(await response.json()).toMatchObject({ code });
   }
 });

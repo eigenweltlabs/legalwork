@@ -121,3 +121,114 @@ test("single microphone retains the dictation protocol and one recording file", 
   await capture.stop();
   expect(sources).toEqual([undefined]);
 });
+
+test("canceling a pending microphone request releases startup and stops a late stream", async () => {
+  let resolveMicrophone: (stream: Stream) => void = () => {};
+  const microphone = new Promise<Stream>(resolve => { resolveMicrophone = resolve; });
+  Object.assign(navigator.mediaDevices, { getUserMedia: () => microphone });
+  const controller = new AbortController();
+  const stream = new Stream("late microphone");
+  const start = startCapture(["microphone"], {
+    onPcm: () => {}, onMediaChunk: () => {}, onSourceEnded: () => {},
+  }, { dictation: true, signal: controller.signal });
+  const outcome = start.then(() => "started", error => error.name);
+  let next: Awaited<ReturnType<typeof startCapture>> | null = null;
+  try {
+    controller.abort();
+    expect(await Promise.race([outcome, new Promise(resolve => setTimeout(() => resolve("pending"), 30))])).toBe("AbortError");
+    expect(contexts[0].state).toBe("closed");
+    Object.assign(navigator.mediaDevices, { getUserMedia: async () => new Stream("next microphone") });
+    next = await startCapture(["microphone"], { onPcm: () => {}, onMediaChunk: () => {}, onSourceEnded: () => {} });
+  } finally {
+    resolveMicrophone(stream);
+    const handle = await start.catch(() => null);
+    await handle?.stop();
+  }
+  await new Promise(resolve => setTimeout(resolve, 0));
+  expect(stream.track.readyState).toBe("ended");
+  expect(contexts[1].state).toBe("running");
+  await next?.stop();
+});
+
+test("cancellation interrupts a suspended audio context whose resume never completes", async () => {
+  let resume: () => void = () => {};
+  const pending = new Promise<void>(resolve => { resume = resolve; });
+  class SuspendedContext extends Context {
+    state = "suspended";
+    async resume() { await pending; this.state = "running"; }
+  }
+  Object.assign(globalThis, { AudioContext: SuspendedContext });
+  const controller = new AbortController();
+  const starting = startCapture(["microphone"], { onPcm: () => {}, onMediaChunk: () => {}, onSourceEnded: () => {} }, { dictation: true, signal: controller.signal });
+  const outcome = starting.then(() => "started", error => error.name);
+  try {
+    await new Promise(resolve => setTimeout(resolve, 0));
+    controller.abort();
+    expect(await Promise.race([outcome, new Promise(resolve => setTimeout(() => resolve("pending"), 30))])).toBe("AbortError");
+    expect(contexts[0].state).toBe("closed");
+  } finally {
+    resume();
+    await (await starting.catch(() => null))?.stop();
+  }
+});
+
+test("a suspended context opens the microphone before resuming audio", async () => {
+  let microphoneOpened = false;
+  const resumeOrder: boolean[] = [];
+  class SuspendedContext extends Context {
+    state = "suspended";
+    async resume() { resumeOrder.push(microphoneOpened); this.state = "running"; }
+  }
+  Object.assign(globalThis, { AudioContext: SuspendedContext });
+  Object.assign(navigator.mediaDevices, { getUserMedia: async () => { microphoneOpened = true; return new Stream("microphone"); } });
+  const capture = await startCapture(["microphone"], { onPcm: () => {}, onMediaChunk: () => {}, onSourceEnded: () => {} }, { dictation: true });
+  try { expect(resumeOrder).toEqual([true]); }
+  finally { await capture.stop(); }
+});
+
+test("cancel immediately closes the microphone even when the encoder never acknowledges Stop", async () => {
+  const controller = new AbortController();
+  const capture = await startCapture(["microphone"], { onPcm: () => {}, onMediaChunk: () => {}, onSourceEnded: () => {} }, { dictation: true, signal: controller.signal });
+  recorders[0].stop = () => { recorders[0].state = "inactive"; };
+  const stopping = capture.stop().then(() => "stopped", error => error.name);
+  controller.abort();
+  expect(contexts[0].inputs[0].source.track.readyState).toBe("ended");
+  expect(contexts[0].state).toBe("closed");
+  expect(await Promise.race([stopping, new Promise(resolve => setTimeout(() => resolve("pending"), 30))])).toBe("AbortError");
+});
+
+test("finishing dictation flushes transcription without waiting for the playback encoder", async () => {
+  const pcm: number[] = [];
+  const media: ArrayBuffer[] = [];
+  const capture = await startCapture(["microphone"], { onPcm: chunk => pcm.push(...new Float32Array(chunk)), onMediaChunk: chunk => media.push(chunk), onSourceEnded: () => {} }, { dictation: true });
+  recorders[0].stop = () => { recorders[0].state = "inactive"; };
+  const stopping = capture.stop();
+  try {
+    expect(await Promise.race([stopping.then(() => "stopped"), new Promise(resolve => setTimeout(() => resolve("pending"), 30))])).toBe("stopped");
+    expect(pcm).toEqual([.125]);
+    expect(media).toEqual([]);
+    expect(contexts[0].state).toBe("closed");
+  } finally {
+    recorders[0].dispatchEvent(new Event("stop"));
+    await stopping;
+  }
+});
+
+test("finishing dictation bounds a suspended audio context even when resume never acknowledges", async () => {
+  const capture = await startCapture(["microphone"], { onPcm: () => {}, onMediaChunk: () => {}, onSourceEnded: () => {} }, { dictation: true });
+  let releaseResume = () => {};
+  const pending = new Promise<void>(resolve => { releaseResume = resolve; });
+  contexts[0].state = "suspended";
+  contexts[0].resume = () => pending;
+  Object.assign(window, { setTimeout: (callback: () => void, ms: number) => setTimeout(callback, Math.min(ms, 10)) });
+  const stopping = capture.stop();
+  try {
+    const outcome = stopping.then(() => "stopped", error => error.message);
+    expect(await Promise.race([outcome, new Promise(resolve => setTimeout(() => resolve("pending"), 50))])).toBe("recorder.capture_finish_failed");
+    expect(contexts[0].inputs[0].source.track.readyState).toBe("ended");
+    expect(contexts[0].state).toBe("closed");
+  } finally {
+    releaseResume();
+    await stopping.catch(() => {});
+  }
+});

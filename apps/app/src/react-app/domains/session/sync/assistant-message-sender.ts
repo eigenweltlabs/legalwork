@@ -1,5 +1,5 @@
 import { AssistantProfileSchema, AssistantSharedFilesSchema } from "@legalwork/types/main-assistant";
-import type { TextPart } from "@opencode-ai/sdk/v2/client";
+import type { TextPart } from "@/app/lib/opencode-view";
 import type { UIMessage } from "ai";
 
 export function textPartProviderMetadata(part: TextPart) {

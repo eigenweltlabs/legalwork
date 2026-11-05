@@ -2,12 +2,13 @@
 
 import { mkdir } from "node:fs/promises";
 import { connectorRuntimeCapability } from "./connectors/capability.js";
-import { join } from "node:path";
-import { runtimeStorageDir } from "./runtime-opencode-config-store.js";
+import { join, resolve } from "node:path";
+import { resolveServerOpencodeExecutable } from "./server-opencode-executable.js";
+import { engineStorageDir } from "./engine-storage.js";
 
 import { parseCliArgs, printHelp, resolveServerConfig } from "./config.js";
-import { createManagedOpencodeServer, type ManagedOpencodeServer } from "./managed-opencode.js";
-import { createServerLogger, startServer, syncAllWorkspacesRuntimeMcpToEngine } from "./server.js";
+import { type ManagedOpencodeServer } from "./managed-opencode.js";
+import { createServerLogger, startServer } from "./server.js";
 import { ensureWorkspaceFiles } from "./workspace-init.js";
 import { globalSkillsDir } from "./workspace-files.js";
 import { ensureBundledWorkflows } from "./bundled-workflows.js";
@@ -16,6 +17,7 @@ import {
   keepLegalworkRuntimeConfigFileFresh,
   legalworkRuntimeConfigFilePath,
   writeLegalworkRuntimeConfigFile,
+  legalworkMandatoryRuntimeConfigContent,
 } from "./legalwork-runtime-config.js";
 import { globalOpenCodeConfigPath } from "./mcp.js";
 import { importConnectorsIntoSharedRow } from "./mcp-shared-store.js";
@@ -26,6 +28,7 @@ import { refreshEigenweltProviderModels } from "./eigenwelt-auth.js";
 import { ensureWikiAgentToken } from "./wiki/agent-access.js";
 import pkg from "../package.json" with { type: "json" };
 import { orgPolicyEngineDir } from "./org-policy-engine.js";
+import { createConfiguredManagedEngine, startManagedEngineLifecycle } from "./managed-engine-lifecycle.js";
 import { bootCloudSync } from "./cloud-sync/lifecycle.js";
 import { runCloudSyncCli } from "./cloud-sync/cli.js";
 
@@ -47,10 +50,15 @@ if (args.version) {
 }
 
 const config = await resolveServerConfig(args);
-config.agentSandboxEnabled = process.env.LEGALWORK_MANAGE_OPENCODE === "1" && !config.opencodeBaseUrl;
-const cloudSync = await bootCloudSync(config);
+const managedEngine = process.env.LEGALWORK_MANAGE_OPENCODE === "1" && !config.opencodeBaseUrl;
+config.agentSandboxEnabled = managedEngine && process.env.LEGALWORK_MANAGED_OPENCODE_SANDBOX !== "0";
+config.engineProjectTrustRequired = managedEngine;
+config.engineConfigurationMode = managedEngine ? "managed" : "native-project";
 const logger = createServerLogger(config);
 let managedOpencode: ManagedOpencodeServer | null = null;
+let managedLifecycle: Awaited<ReturnType<typeof startManagedEngineLifecycle>> | null = null;
+let stopConfigRefresh: (() => Promise<void>) | null = null;
+const cloudSync = await bootCloudSync(config);
 if (config.cloudSync) config.cloudSync.onLeaseLost = () => { void managedOpencode?.close(); };
 
 if (cloudSync?.replica.settings.role === "executor" && process.env.LEGALWORK_MANAGE_OPENCODE !== "1")
@@ -60,7 +68,7 @@ if (!config.readOnly) {
   await ensureBundledWorkflows();
   for (const workspace of config.workspaces) {
     if (config.cloudSync && !config.cloudSync.shouldSyncFiles(workspace.id)) continue;
-    await ensureWorkspaceFiles(workspace.path, workspace.preset ?? "starter");
+    await ensureWorkspaceFiles(workspace.path, workspace.preset ?? "starter", { bundledCore: config.engineConfigurationMode !== "managed" });
   }
 }
 // Drop retired / unparsable provider blocks from the runtime DB BEFORE the
@@ -85,7 +93,7 @@ const server = await startServer(config, { onListening: async (port) => {
       // instance rebuild, and keepLegalworkRuntimeConfigFileFresh rewrites it
       // on every runtime-DB write — so disposes always pick up current state.
       const runtimeConfigPath = await writeLegalworkRuntimeConfigFile(config, workspace.id);
-      keepLegalworkRuntimeConfigFileFresh(config, workspace.id);
+      stopConfigRefresh = keepLegalworkRuntimeConfigFileFresh(config, workspace.id);
       // Fire-and-forget: pick up models added on the Eigenwelt gateway since the
       // provider was connected (no-op unless provider.eigenwelt is configured).
       void refreshEigenweltProviderModels(config, workspace.id);
@@ -96,13 +104,22 @@ const server = await startServer(config, { onListening: async (port) => {
       // can never migrate the engine's schema out from under it (issue #62).
       const managedDb = await prepareManagedOpencodeEngineDb(config);
       if (managedDb) process.env.OPENCODE_DB = managedDb.path;
-      const engineHome = join(runtimeStorageDir(config), "engine-home");
+      const engineHome = join(engineStorageDir(config), "engine-home");
       await mkdir(engineHome, { recursive: true });
+      const database = managedDb?.path || (process.env.OPENCODE_DB ? resolve(managedOpencodeCwd, process.env.OPENCODE_DB) : "");
+      if (!database) throw new Error("A private managed engine database is required for native restart recovery.");
+      process.env.OPENCODE_DB = database;
+      const service = { configDirectory: orgPolicyEngineDir(config), stateDirectory: join(engineHome, "state") };
       const dependencies = await prepareManagedOpencodeDependencies(config);
-      if (!dependencies.seeded) console.warn(`[legalwork-server] Bundled engine dependencies unavailable (${dependencies.reason}); runtime package installation may be required.`);
-      managedOpencode = await createManagedOpencodeServer({
-        bin: process.env.LEGALWORK_OPENCODE_BIN,
-        cwd: managedOpencodeCwd,
+      if (dependencies.reason === "bundle-unavailable") console.warn("[legalwork-server] Prepare desktop resources to validate the released engine's bundled runtime declaration.");
+      managedLifecycle = await startManagedEngineLifecycle({ config, database, service, create: async (mode, beforeSpawn) => {
+        const engine = await createConfiguredManagedEngine(config, {
+        bin: await resolveServerOpencodeExecutable(process.env.LEGALWORK_OPENCODE_BIN),
+        ...(process.env.LEGALWORK_MANAGED_OPENCODE_PORT ? { port: Number(process.env.LEGALWORK_MANAGED_OPENCODE_PORT) } : {}),
+        ...(process.env.LEGALWORK_MANAGED_OPENCODE_LOG_LEVEL ? { logLevel: process.env.LEGALWORK_MANAGED_OPENCODE_LOG_LEVEL } : {}),
+        cwd: process.env.LEGALWORK_MANAGED_OPENCODE_CWD?.trim() || engineHome,
+        beforeSpawn,
+          ...(mode === "service" ? { service } : { parentLease: true }),
         excludedPorts: [config.port],
         env: {
           ...(process.env.LEGALWORK_DEV_MODE ? { LEGALWORK_DEV_MODE: process.env.LEGALWORK_DEV_MODE } : {}),
@@ -112,39 +129,30 @@ const server = await startServer(config, { onListening: async (port) => {
           LEGALWORK_WIKI_AGENT_TOKEN: await ensureWikiAgentToken(config),
           LEGALWORK_CONNECTOR_TOKEN: connectorRuntimeCapability(config),
           OPENCODE_CONFIG: runtimeConfigPath,
-          OPENCODE_DISABLE_PROJECT_CONFIG: "true",
+          OPENCODE_CONFIG_PROJECT_DISABLE: "1",
           OPENCODE_TEST_HOME: engineHome,
           XDG_CONFIG_HOME: join(engineHome, "config"),
           OPENCODE_CONFIG_DIR: orgPolicyEngineDir(config),
-          OPENCODE_CONFIG_CONTENT: "",
-          ...(managedDb ? { OPENCODE_DB: managedDb.path } : {}),
+          OPENCODE_CONFIG_CONTENT: await legalworkMandatoryRuntimeConfigContent(config),
+          XDG_STATE_HOME: service.stateDirectory,
+          OPENCODE_DB: database,
+          OPENCODE_MODELS_URL: `${serverUrl}/model-catalog`,
+          ...(process.env.LEGALWORK_ENGINE_DATA_HOME ? { XDG_DATA_HOME: process.env.LEGALWORK_ENGINE_DATA_HOME } : {}),
         },
-      });
-      config.opencodeBaseUrl = managedOpencode.url;
-      config.opencodeUsername = managedOpencode.username;
-      config.opencodePassword = managedOpencode.password;
-      for (const entry of config.workspaces) {
-        entry.baseUrl ??= managedOpencode.url;
-        entry.opencodeUsername ??= managedOpencode.username;
-        entry.opencodePassword ??= managedOpencode.password;
-        entry.directory ??= entry.path;
-      }
-      logger.log("info", `Managed OpenCode listening on ${managedOpencode.url}`);
+        });
+        managedOpencode = engine;
+        return engine;
+      } });
+      logger.log("info", `Managed OpenCode listening on ${managedLifecycle.engine.url}`);
     }
   }
 } }).catch(async (error: unknown) => {
-  await managedOpencode?.close();
+  await stopConfigRefresh?.();
+  if (managedLifecycle) await managedLifecycle.close(); else await managedOpencode?.close();
   await cloudSync?.stop();
   throw error;
 });
 
-
-// The runtime config file above only covers workspaces[0]. Push every
-// workspace's runtime-DB MCPs into the engine so they aren't invisible
-// until a manual reload. Best-effort.
-if (managedOpencode) {
-  void syncAllWorkspacesRuntimeMcpToEngine(config);
-}
 
 const url = `http://${config.host}:${server.port}`;
 logger.log("info", `LegalWork server listening on ${url}`);
@@ -173,21 +181,13 @@ if (args.verbose) {
   logger.log("info", `Host token source: ${config.hostTokenSource}`);
 }
 
-const shutdown = async () => {
-  await managedOpencode?.close();
-  await server.stop();
-  if (cloudSync) {
-    try { await cloudSync.replica.tick(); }
-    catch (error) { logger.log("error", `Final cloud checkpoint failed: ${error instanceof Error ? error.message : "Sync unavailable"}`); }
-    await cloudSync.stop();
-  }
+const shutdown = () => {
+  return (async () => { await stopConfigRefresh?.(); if (managedLifecycle) await managedLifecycle.close(); else await managedOpencode?.close(); await server.stop(); if (cloudSync) { try { await cloudSync.replica.tick(); } finally { await cloudSync.stop(); } } })();
 };
 
-process.once("SIGINT", async () => {
-  await shutdown();
-  process.exit(0);
+process.once("SIGINT", () => {
+  void shutdown().finally(() => process.exit(0));
 });
-process.once("SIGTERM", async () => {
-  await shutdown();
-  process.exit(0);
+process.once("SIGTERM", () => {
+  void shutdown().finally(() => process.exit(0));
 });

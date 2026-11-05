@@ -2,7 +2,7 @@ import { readFile, realpath, stat } from "node:fs/promises";
 import { basename, extname, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { z } from "zod";
-import type { OpencodeClient } from "@opencode-ai/sdk/v2/client";
+import type { AssistantEngineClient } from "./assistant-engine.js";
 import { ChannelRuntime, ChannelOwner, ChannelInput, ChannelCommand, ChannelFileResult, ChannelOutcomeDiagnostics, channelObservationVersion } from "./channel-runtime.js";
 import { ApiError } from "./errors.js";
 import { runtimeDbPath } from "./runtime-db.js";
@@ -31,7 +31,7 @@ const sharedFileTypes: Record<string, string> = { ".txt": "text/plain", ".md": "
 
 export async function registerChannelRuntimeRoutes(options: {
   config: ServerConfig; routes: Route[]; assistant: MainAssistant; delegations: AssistantDelegations; schedules: ScheduledTaskStore;
-  client: (workspace: WorkspaceInfo) => OpencodeClient;
+  client: (workspace: WorkspaceInfo) => AssistantEngineClient;
   workspace: (id: string) => Promise<WorkspaceInfo>;
   json: (value: unknown, status?: number) => Response;
   body: (request: Request, maxBytes: number) => Promise<Record<string, unknown>>;
@@ -51,13 +51,14 @@ export async function registerChannelRuntimeRoutes(options: {
   };
   const target = async (input: { workspaceId: string; sessionId: string }) => {
     const workspace = await options.workspace(input.workspaceId);
-    if (workspace.workspaceType === "remote" || !isMainAssistant(workspace)) throw new ApiError(409, "channel_session", "Channel session is outside the Assistant.");
+    if (!isMainAssistant(workspace)) throw new ApiError(409, "channel_session", "Channel session is outside the Assistant.");
     const client = options.client(workspace);
     const session = await client.session.get({ sessionID: input.sessionId }, requestOptions());
     if (!session.data || session.data.time.archived || resolve(session.data.directory) !== resolve(workspace.path))
       throw new ApiError(409, "channel_session", "Channel session is no longer available.");
     return { workspace, client };
   };
+  const closedText = new Map<string, Set<string>>();
   const runtime = await ChannelRuntime.open(runtimeDbPath(config), {
     current: async () => { const current = await options.assistant.current(); return { workspaceId: current.workspace.id, sessionId: current.day.sessionId }; },
     validate: async input => { await target(input); },
@@ -92,8 +93,11 @@ export async function registerChannelRuntimeRoutes(options: {
     retry: async receipt => { const { client } = await target(receipt); return retryChannelTurn(client, receipt); },
     watch: async (receipt, notify, signal) => {
       const workspace = await options.workspace(receipt.workspaceId);
-      if (workspace.workspaceType === "remote" || !isMainAssistant(workspace)) return;
-      await watchChannelEvents(options.client(workspace), receipt.sessionId, receipt.messageId, notify, signal);
+      if (!isMainAssistant(workspace)) return;
+      const closed = new Set<string>(); closedText.set(receipt.id, closed);
+      try { await watchChannelEvents(options.client(workspace), receipt.sessionId, receipt.messageId, notify, signal,
+        (messageId, ordinal) => closed.add(`${messageId}:content:${ordinal}`)); }
+      finally { if (closedText.get(receipt.id) === closed) closedText.delete(receipt.id); }
     },
     result: async input => {
       const { workspace, client } = await target(input);
@@ -101,7 +105,7 @@ export async function registerChannelRuntimeRoutes(options: {
       if (!statuses.data) throw new Error("Session status unavailable");
       const response = await client.session.messages({ sessionID: input.sessionId, limit: 100 }, requestOptions());
       const turn = (response.data ?? []).filter(message => message.info.role === "assistant" && message.info.parentID === input.messageId);
-      const events = channelLiveEvents(turn, input.messageId);
+      const events = channelLiveEvents(turn, input.messageId, closedText.get(input.id));
       const browserJobs = channelBrowserJobs(turn, input.messageId);
       if (statuses.data[input.sessionId] && statuses.data[input.sessionId].type !== "idle") return { state: "running", events, browserJobs };
       const final = turn.at(-1);
@@ -125,7 +129,7 @@ export async function registerChannelRuntimeRoutes(options: {
         try {
           const output = z.object({ file: z.object({ path: z.string(), title: z.string().optional(), source: z.object({ workspaceId: z.string() }).optional() }) }).parse(channelToolOutput(part.state.output));
           const project = output.file.source ? await options.workspace(output.file.source.workspaceId) : workspace;
-          if (project.workspaceType === "remote") continue;
+
           const path = await resolveWithinRoot(await realpath(project.path), output.file.path);
           const info = await stat(path);
           if (!info.isFile() || info.size > 25 * 1024 * 1024) continue;
@@ -143,7 +147,7 @@ export async function registerChannelRuntimeRoutes(options: {
     // Verify the project and parent link before stopping each child.
     for (const input of sessions) {
       const workspace = await options.workspace(input.workspaceId);
-      if (workspace.workspaceType === "remote") throw new Error("Delegated project unavailable");
+
       const client = options.client(workspace);
       const parent = (await client.session.get({ sessionID: input.sessionId }, requestOptions())).data;
       if (!parent || resolve(parent.directory) !== resolve(workspace.path)) throw new Error("Delegated session changed");
@@ -206,7 +210,7 @@ export async function registerChannelRuntimeRoutes(options: {
     if (!provider) throw new ApiError(503, "channel_model", "Channel provider unavailable.");
     const fingerprint = createHash("sha256").update(JSON.stringify({ provider, selected })).digest("hex");
     return options.json(await runtime.configure(fingerprint, async () => {
-      const workspaces = options.config.workspaces.filter(workspace => workspace.workspaceType !== "remote");
+      const workspaces = options.config.workspaces;
       for (const workspace of workspaces) {
         const statuses = (await options.client(workspace).session.status({}, requestOptions())).data;
         if (!statuses || Object.values(statuses).some(status => status.type !== "idle")) throw new ApiError(409, "channel_busy", "Model configuration waits for idle sessions.");
@@ -214,11 +218,11 @@ export async function registerChannelRuntimeRoutes(options: {
       // Global OpenCode config is cached at process start. Its runtime file is
       // re-read on dispose, so refresh the managed provider there before reload.
       const primary = options.config.workspaces[0];
-      if (!primary || primary.workspaceType === "remote") throw new ApiError(409, "channel_session", "Local Assistant configuration is unavailable.");
+      if (!primary) throw new ApiError(409, "channel_session", "Local Assistant configuration is unavailable.");
       await writeLegalworkRuntimeConfigFile(options.config, primary.id);
-      for (const workspace of workspaces) await options.client(workspace).instance.dispose({}, requestOptions());
-      const providers = (await options.client(primary).config.providers({}, requestOptions())).data;
-      if (!providers?.providers.some(provider => provider.id === selected.providerID && selected.modelID in provider.models))
+      for (const workspace of workspaces) await options.client(workspace).native.location.reload(requestOptions());
+      const providers = await options.client(primary).native.model.list({ location: { directory: primary.path } }, requestOptions());
+      if (!providers.data.some(model => model.providerID === selected.providerID && (model.modelID === selected.modelID || model.id === selected.modelID)))
         throw new ApiError(503, "channel_model", "The engine has not loaded the channel model.");
     }));
   });

@@ -10,7 +10,7 @@ export function useViewSaveDestinations(client: LegalworkServerClient) {
   return useQuery({ queryKey: ["view-save-destinations", client.baseUrl], queryFn: async () => {
     const [projects, wikis] = await Promise.all([client.listWorkspaces(), client.listWikis()]);
     return [
-      ...projects.items.filter(project => project.workspaceType !== "remote" && !wikis.items.some(wiki => wiki.workspaceId === project.id))
+      ...projects.items.filter(project => !wikis.items.some(wiki => wiki.workspaceId === project.id))
         .map(project => ({ owner: { kind: "workspace", id: project.id } satisfies ViewOwner, name: project.displayName || project.name })),
       ...wikis.items.filter(wiki => wiki.writable).map(wiki => ({ owner: { kind: "wiki", id: wiki.id } satisfies ViewOwner, name: wiki.name })),
     ];

@@ -13,7 +13,7 @@
  * or LEGALWORK_SKIP_OFFICE_SIDELOAD=1.
  */
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, platform } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -110,13 +110,16 @@ async function buildManifest() {
     log(`WARNING: ${manifestModulePath} not built yet; skipping manifest sideload`);
     return null;
   }
-  const { buildWordAddinManifest, WORD_ADDIN_MANIFEST_IDS } = await import(
+  const { buildWordAddinManifest, loadOfficeConnectionToken, WORD_ADDIN_MANIFEST_IDS } = await import(
     pathToFileURL(manifestModulePath).href
   );
   const portRaw = Number.parseInt(process.env.LEGALWORK_WORD_ADDIN_PORT ?? "", 10);
   const port = Number.isFinite(portRaw) && portRaw > 0 ? portRaw : 47443;
   return {
-    manifest: buildWordAddinManifest({ baseUrl: `https://localhost:${port}` }),
+    manifest: buildWordAddinManifest({
+      baseUrl: `https://localhost:${port}`,
+      connectionToken: await loadOfficeConnectionToken(process.env.LEGALWORK_WORD_ADDIN_KEY || join(homedir(), ".office-addin-dev-certs", "localhost.key")),
+    }),
     manifestId: WORD_ADDIN_MANIFEST_IDS?.all ?? "47744a24-6fd7-4ee5-b981-97b16ce5d488",
   };
 }
@@ -133,11 +136,12 @@ function sideloadMac(manifest) {
     try {
       mkdirSync(wefDir, { recursive: true });
       const current = existsSync(target) ? readFileSync(target, "utf8") : null;
+      if (current !== null) chmodSync(target, 0o600);
       if (current === manifest) {
         log(`${app}: manifest up to date`);
         continue;
       }
-      writeFileSync(target, manifest, "utf8");
+      writeFileSync(target, manifest, { encoding: "utf8", mode: 0o600 });
       log(`${app}: manifest ${current ? "updated" : "installed"} (restart ${app} to pick it up)`);
     } catch (error) {
       log(`${app}: WARNING: could not write manifest: ${error?.message ?? error}`);
@@ -158,7 +162,8 @@ function sideloadWindows(manifest, manifestId) {
   try {
     mkdirSync(dir, { recursive: true });
     const current = existsSync(target) ? readFileSync(target, "utf8") : null;
-    if (current !== manifest) writeFileSync(target, manifest, "utf8");
+    if (current !== manifest) writeFileSync(target, manifest, { encoding: "utf8", mode: 0o600 });
+    chmodSync(target, 0o600);
   } catch (error) {
     log(`WARNING: could not write manifest: ${error?.message ?? error}`);
     return;

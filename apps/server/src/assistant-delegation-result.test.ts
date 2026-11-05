@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { createOpencodeClient } from "@opencode-ai/sdk/v2/client";
+import { createAssistantTestClient } from "./assistant-engine.test-support.js";
 import { readDelegationResult } from "./assistant-delegation-result.js";
 
 test("reads pending questions and approvals while busy, then the final reply; never confuses idle or tools with completion", async () => {
@@ -18,7 +18,7 @@ test("reads pending questions and approvals while busy, then the final reply; ne
     if (path === "/api/session/child/permission") return Response.json({ data: permissions });
     return new Response(null, { status: 404 });
   } });
-  const client = createOpencodeClient({ baseUrl: engine.url.origin });
+  const client = createAssistantTestClient({ baseUrl: engine.url.origin });
   try {
     expect(await readDelegationResult(client, "child")).toBeNull();
     questions = [{ id: "q1", sessionID: "child", questions: [{ question: "Which agreement?" }] }, { id: "other", sessionID: "another-chat", questions: [{ question: "Private question" }] }];

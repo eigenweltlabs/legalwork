@@ -1,3 +1,5 @@
+import { Plugin } from "@opencode/plugin";
+import { nativeTool, nativeToolSignal } from "./native-tool.js";
 import { readFile } from "node:fs/promises";
 import { basename, isAbsolute, join } from "node:path";
 import { z } from "zod";
@@ -134,7 +136,7 @@ async function sessionAblation(sessionID: string): Promise<SessionAblation> {
       `${url}/benchmarks/session-ablation?session=${encodeURIComponent(sessionID)}`,
       {
         headers: { Authorization: `Bearer ${token}` },
-        signal: AbortSignal.timeout(ABLATION_LOOKUP_TIMEOUT_MS),
+        signal: nativeToolSignal(ABLATION_LOOKUP_TIMEOUT_MS),
       },
     );
     if (response.ok) {
@@ -148,29 +150,26 @@ async function sessionAblation(sessionID: string): Promise<SessionAblation> {
   ablationCache.set(sessionID, { at: Date.now(), value });
   return value;
 }
+export default Plugin.define({id:"legalwork.benchmarks",async setup(ctx){
+// Read-only application support for the ablation picker and exact native
+// permission aliases; this registers no additional model-visible tool.
+await ctx.rpc.register({id:"legalwork.benchmarks",methods:{tools:{input:{type:"object",properties:{},additionalProperties:false},output:{type:"object",properties:{tools:{type:"array",items:{type:"object"}}},required:["tools"]}}},events:{}},{
+  tools:async()=>({tools:(await ctx.tool.list()).map(tool=>({id:tool.id,name:tool.name,...(tool.options?.permission ? {permission:tool.options.permission}:{})}))}),
+});
 
-export const LegalWorkBenchmarkTools = async () => ({
-  "tool.execute.before": async (
-    input: { tool: string; sessionID?: string; callID?: string },
-    output: { args: Record<string, unknown> },
-  ) => {
-    if (input.tool !== SKILL_TOOL) return;
-    const sessionID = input.sessionID?.trim();
-    if (!sessionID) return;
-    const ablation = await sessionAblation(sessionID);
-    if (!ablation) return;
-    const name = typeof output.args?.name === "string" ? output.args.name : "";
-    if (!name) return;
-    const decision = resolveSkillDecision(ablation.skills, name);
-    // Throwing is how a plugin denies a tool call; the message reaches the model.
-    if (!decision.allowed) throw new Error(decision.reason);
-  },
-  tool: {
-    benchmark_create_task: {
-      description:
+
+await ctx.tool.hook("execute.before",async event=>{
+if(event.tool!=="skill"&&event.tool!=="legalwork_skill_load")return;
+const ablation=await sessionAblation(event.sessionID);if(!ablation)return;
+const parsed=z.object({id:z.string().optional(),name:z.string().optional()}).safeParse(event.input);
+const name=parsed.success?(event.tool==="skill"?parsed.data.id:parsed.data.name):undefined;if(!name)return;
+const decision=resolveSkillDecision(ablation.skills,name);if(!decision.allowed)throw new Error(decision.reason);
+});
+await ctx.tool.transform(editor=>{
+editor.add(nativeTool(ctx,{name:"benchmark_create_task",description:
         "Create a task in the LegalWork benchmark's Tasks table. Use when the user wants to create/add a benchmark task, eval, or test case — i.e. define a legal task (instructions + expected deliverables + pass/fail criteria) to compare how connected models perform. Optionally attach input documents by path (documentPaths) — the files the model must read. The task is saved as an editable custom task the user can then run.",
-      args: createTaskArgs.shape,
-      async execute(rawArgs: unknown, context: OpenCodeContext) {
+schema: createTaskArgs,
+async execute(rawArgs: unknown, context: OpenCodeContext) {
         const args = createTaskArgs.parse(rawArgs);
         const url = serverUrl();
         const token = serverToken();
@@ -200,7 +199,7 @@ export const LegalWorkBenchmarkTools = async () => ({
               criteria: args.criteria,
               ...(documents.length ? { documents } : {}),
             }),
-            signal: AbortSignal.timeout(CREATE_TASK_TIMEOUT_MS),
+            signal: nativeToolSignal(CREATE_TASK_TIMEOUT_MS),
           });
           const text = await response.text();
           if (!response.ok) {
@@ -231,7 +230,6 @@ export const LegalWorkBenchmarkTools = async () => ({
         } catch (error) {
           return JSON.stringify({ ok: false, error: error instanceof Error ? error.message : String(error) });
         }
-      },
-    },
-  },
+      }}));
 });
+}});

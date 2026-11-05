@@ -1,4 +1,4 @@
-import { hasStoredProviderAuth, readStoredProviderApiKey } from "./custom-provider-model-refresh.js";
+import { readStoredProviderApiKey } from "./custom-provider-model-refresh.js";
 import { EIGENWELT_PROVIDER_ID } from "./eigenwelt-paid-manifest.js";
 import type { FirmOcr } from "./ocr/manager.js";
 import { memberKeyRef } from "./ocr/manager.js";
@@ -45,7 +45,6 @@ export async function orgChatProviderBlocks(config: ServerConfig): Promise<Recor
   const blocks: Record<string, unknown> = {};
   for (const provider of providers) {
     const key = await firmKey(config, provider.key);
-    if (!key && !(await hasStoredProviderAuth(orgChatEngineId(provider)))) continue;
     const { source } = provider;
     if (source.type === "catalog") {
       // A member's own key or sign-in stays with the engine; the firm's key and resource go in the options.
@@ -58,7 +57,8 @@ export async function orgChatProviderBlocks(config: ServerConfig): Promise<Recor
       continue;
     }
     const custom = { ...provider, source };
-    const models = await customModels(custom, key ?? (await readStoredProviderApiKey(provider.id, null)));
+    const memberKey = key ?? await readStoredProviderApiKey(config, provider.id, null).catch(() => "");
+    const models = await customModels(custom, memberKey);
     if (models.length === 0) continue;
     blocks[provider.id] = {
       npm: source.apiType === "responses" ? "@ai-sdk/openai" : "@ai-sdk/openai-compatible",

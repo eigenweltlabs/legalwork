@@ -1,3 +1,4 @@
+import { readTodos } from "./_util.mjs";
 import assert from "node:assert/strict";
 
 import { findFreePort, makeClient, parseArgs, spawnOpencodeServe, waitForHealthy } from "./_util.mjs";
@@ -12,9 +13,9 @@ try {
   const client = makeClient({ baseUrl: server.baseUrl, directory: server.cwd });
   await waitForHealthy(client);
 
-  const session = await client.session.create({ title: "LegalWork todos test" });
+  const session = await client.session.create({ location: { directory: server?.cwd ?? directory }, title: "LegalWork todos test" });
 
-  const todos = await client.session.todo({ sessionID: session.id });
+  const todos = await readTodos(client, session.id);
   assert.ok(Array.isArray(todos));
 
   console.log(

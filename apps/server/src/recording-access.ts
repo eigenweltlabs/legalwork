@@ -31,7 +31,7 @@ export async function recordingAccess(config: ServerConfig, request: Request, ap
     await check();
     if (!visible(meta)) throw new ApiError(403, "recording_project_denied", "This scheduled task can read only its configured projects and global recordings.");
     if (agent.scheduledProjects !== undefined || !meta.projectIds?.length) return;
-    const projects = (await Promise.all(config.workspaces.filter(item => item.workspaceType !== "remote").map(async workspace => {
+    const projects = (await Promise.all(config.workspaces.map(async workspace => {
       const root = await realpath(workspace.directory || workspace.path).catch(() => null);
       return root ? [{ ...workspace, root }] : [];
     }))).flat();

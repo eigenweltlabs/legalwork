@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { QuestionInfo } from "@opencode-ai/sdk/v2/client";
+import type { QuestionInfo } from "../src/app/types";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 

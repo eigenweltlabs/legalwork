@@ -6,7 +6,7 @@ import { MemoryRouter } from "react-router-dom";
 import { QueryClientProvider } from "@tanstack/react-query";
 import type { WorkspaceSessionGroup } from "@/app/types";
 import { snapshotKey } from "@/react-app/domains/session/sync/session-sync";
-import type { Session } from "@opencode-ai/sdk/v2/client";
+import type { SessionView as Session } from "@/app/lib/opencode-view";
 import { createLegalworkServerClient } from "@/app/lib/legalwork-server";
 import { AppSidebar } from "@/react-app/domains/session/sidebar/app-sidebar";
 import { ProjectPersonalisationProvider } from "@/react-app/domains/workspace/project-personalisation-modal";

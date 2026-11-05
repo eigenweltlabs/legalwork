@@ -35,6 +35,9 @@ export type McpDirectoryInfo = {
   timeout?: number;
   /** Update an existing owned connector without changing its scope or identity. */
   existingConfig?: import("@legalwork/types/connector-config").ConnectorConfig;
+  configured?: import("@legalwork/types/connector-config").ConnectorDisplayItem["configured"];
+  editable?: boolean;
+  configEdit?: import("@legalwork/types/connector-config").ConnectorConfigEdit;
   /** Static auth headers for a remote MCP (e.g. { Authorization: "Bearer …" }).
    * When set, the server connects via these headers and skips OAuth — the way to
    * connect token-authed servers like iManage that reject the engine's OAuth redirect. */
@@ -489,6 +492,19 @@ export const MCP_QUICK_CONNECT: McpDirectoryInfo[] = [
     type: "remote",
     oauth: true,
     kind: "mcp",
+  },
+  {
+    name: "Firecrawl",
+    serverName: "firecrawl",
+    get description() { return t("mcp.quick_connect_firecrawl_desc"); },
+    // Account sign-in exposes firecrawl_gov_search; the keyless endpoint
+    // offers only the general Search, Scrape and Parse tools.
+    url: "https://mcp.firecrawl.dev/v2/mcp-oauth",
+    type: "remote",
+    oauth: true,
+    kind: "mcp",
+    get setupNote() { return t("mcp.quick_connect_firecrawl_note"); },
+    setupUrl: "https://docs.firecrawl.dev/mcp-server",
   },
   {
     get name() { return t("mcp.quick_connect_dingduff_title"); },

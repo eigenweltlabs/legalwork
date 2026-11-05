@@ -7,7 +7,7 @@ import { HashRouter } from "react-router-dom";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { setAnalyticsConsentOverride, setAnalyticsDistinctId } from "@/app/lib/analytics";
 import { getLegalWorkDeployment } from "@/app/lib/legalwork-deployment";
-import { writeLegalworkServerSettings } from "@/app/lib/legalwork-server";
+import { readLegalworkServerSettings, writeLegalworkServerSettings } from "@/app/lib/legalwork-server";
 import { bootstrapTheme } from "@/app/theme";
 import { initLocale, t } from "@/i18n";
 import { getReactQueryClient } from "@/react-app/infra/query-client";
@@ -76,9 +76,8 @@ function startAnalyticsIdentityPoll() {
 }
 
 /**
- * Pair with the server that serves this page. The bootstrap endpoint is
- * same-origin only and hands out the current client token, so the pane
- * survives server restarts with rotated tokens.
+ * Connect automatically using the credential installed with the Office add-in.
+ * The shared desktop host and client tokens never enter the Office webview.
  */
 async function connectToServer(): Promise<void> {
   const response = await fetch("/word-addin/bootstrap", { cache: "no-store" });
@@ -86,20 +85,32 @@ async function connectToServer(): Promise<void> {
     throw new Error(`Bootstrap failed with status ${response.status}`);
   }
   const data = (await response.json()) as {
-    token?: unknown;
-    hostToken?: unknown;
     analyticsDistinctId?: unknown;
     analyticsEnabled?: unknown;
   };
-  const token = typeof data.token === "string" ? data.token.trim() : "";
-  if (!token) {
-    throw new Error("Bootstrap response did not include a token");
+  const stored = readLegalworkServerSettings();
+  let token = stored.token?.startsWith("office_") ? stored.token : "";
+  if (token) {
+    const check = await fetch("/whoami", { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" });
+    if (!check.ok) token = "";
   }
-  const hostToken = typeof data.hostToken === "string" ? data.hostToken.trim() : "";
+  if (!token) {
+    const launch = localStorage.getItem("legalwork.office.launch");
+    if (!launch && !stored.token) throw new Error(t("word_addin.connection_failed"));
+    const response = await fetch("/word-addin/session", {
+      method: "POST", headers: launch
+        ? { "X-Legalwork-Office-Launch": launch }
+        : { Authorization: `Bearer ${stored.token}` },
+    });
+    if (!response.ok) throw new Error(t("word_addin.connection_failed"));
+    const session = await response.json();
+    if (typeof session.token !== "string" || !session.token.startsWith("office_")) throw new Error(t("word_addin.connection_failed"));
+    token = session.token;
+  }
+  // Replace older shared credentials only after the automatic handoff succeeds.
   writeLegalworkServerSettings({
     urlOverride: window.location.origin,
     token,
-    hostToken: hostToken || undefined,
   });
   // Adopt the desktop's analytics identity BEFORE analytics initializes; keep
   // polling for changes.
@@ -153,13 +164,16 @@ function ConnectScreen({ state, onRetry }: { state: ConnectionState; onRetry: ()
 
 const platform = createDefaultPlatform();
 const queryClient = getReactQueryClient();
+// React StrictMode mounts share one automatic connection request.
+let pendingConnection: Promise<void> | null = null;
 
 function WordAddinApp() {
   const [state, setState] = React.useState<ConnectionState>({ status: "connecting" });
 
   const connect = React.useCallback(() => {
     setState({ status: "connecting" });
-    void connectToServer()
+    pendingConnection ??= connectToServer().finally(() => { pendingConnection = null; });
+    void pendingConnection
       .then(() => setState({ status: "ready" }))
       .catch((error: unknown) => {
         setState({

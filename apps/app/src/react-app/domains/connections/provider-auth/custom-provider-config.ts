@@ -1,15 +1,4 @@
-/**
- * Mapping between the custom-provider form and the engine's provider `models`
- * block, in both directions. Kept pure (no store, no React) so it is testable.
- *
- * The engine requires BOTH `limit.context` and `limit.output` when a `limit`
- * is present. A block with only `context` invalidates the whole runtime config
- * and takes the engine down for every workspace, so `limit` is always written
- * with both keys here — via resolveModelLimit, the same rule the server uses
- * for Eigenwelt models.
- */
-import { resolveModelLimit } from "@legalwork/types/model-limits";
-
+/** Native model overrides preserve the user's explicit limits. Unset limits inherit engine capacity. */
 export type CustomProviderModelFields = {
   id: string;
   name?: string;
@@ -25,32 +14,27 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-/**
- * Engine `models.<id>` entry for one form row. `limit` is written only when a
- * context limit is set, and then with both keys: the output limit the user
- * gave, or the default for that context window.
- */
+/** Serialize one native model override without inventing token limits. */
 export function customProviderModelEntry(
   model: Partial<CustomProviderModelFields> & { id: string },
 ): Record<string, unknown> {
   const entry: Record<string, unknown> = { name: model.name?.trim() || model.id };
-  if (model.toolCall !== undefined) entry.tool_call = model.toolCall;
-  if (model.reasoning) entry.reasoning = true;
-  if (typeof model.contextLimit === "number" && model.contextLimit > 0) {
-    entry.limit = resolveModelLimit({ context: model.contextLimit, output: model.outputLimit }).limit;
-  }
+  if (model.toolCall !== undefined || model.reasoning !== undefined) entry.capabilities = {
+    ...(model.toolCall === undefined ? {} : { tools: model.toolCall }),
+    ...(model.reasoning === undefined ? {} : { reasoning: { supported: model.reasoning } }),
+  };
+  const limit = {
+    ...(typeof model.contextLimit === "number" && model.contextLimit > 0 ? { context: model.contextLimit } : {}),
+    ...(typeof model.outputLimit === "number" && model.outputLimit > 0 ? { output: model.outputLimit } : {}),
+  };
+  if (Object.keys(limit).length) entry.limit = limit;
   return entry;
 }
 
 export type CustomModelLimitProblem = {
   modelId: string;
-  /**
-   * output-needs-context: an output limit only reaches the engine inside a
-   * `limit` block, which needs the context window too.
-   * output-not-below-context: an output limit at least as large as the window
-   * leaves no room for input, so the engine could not use it.
-   */
-  reason: "output-needs-context" | "output-not-below-context";
+  /** An output limit at least as large as the context leaves no room for input. */
+  reason: "output-not-below-context";
 };
 
 /**
@@ -63,8 +47,7 @@ export function findCustomModelLimitProblem(
 ): CustomModelLimitProblem | null {
   for (const model of models) {
     if (model.outputLimit === null) continue;
-    if (model.contextLimit === null) return { modelId: model.id, reason: "output-needs-context" };
-    if (model.outputLimit >= model.contextLimit) return { modelId: model.id, reason: "output-not-below-context" };
+    if (model.contextLimit !== null && model.outputLimit >= model.contextLimit) return { modelId: model.id, reason: "output-not-below-context" };
   }
   return null;
 }
@@ -76,8 +59,8 @@ export function customProviderModelFromEntry(id: string, raw: unknown): CustomPr
   return {
     id,
     ...(typeof model.name === "string" && model.name.trim() && model.name.trim() !== id ? { name: model.name.trim() } : {}),
-    toolCall: typeof model.tool_call === "boolean" ? model.tool_call : true,
-    reasoning: typeof model.reasoning === "boolean" ? model.reasoning : false,
+    toolCall: isPlainRecord(model.capabilities) && typeof model.capabilities.tools === "boolean" ? model.capabilities.tools : true,
+    reasoning: isPlainRecord(model.capabilities) && isPlainRecord(model.capabilities.reasoning) ? model.capabilities.reasoning.supported === true : false,
     contextLimit: typeof limit.context === "number" ? limit.context : null,
     outputLimit: typeof limit.output === "number" ? limit.output : null,
   };

@@ -44,102 +44,42 @@ let githubServer: ReturnType<typeof Bun.serve>;
 
 // ---- mock opencode engine ----------------------------------------------------
 
-type MockSession = { directory: string; state: "idle" | "busy" };
+type MockSession = { directory: string; state: "idle" | "busy"; judge: boolean; replies: Array<Record<string, unknown>> };
 let opencodeServer: ReturnType<typeof Bun.serve>;
 const mockSessions = new Map<string, MockSession>();
 let sessionCounter = 0;
-
 function startMockOpencode() {
-  return Bun.serve({
-    port: 0,
-    fetch: async (request) => {
-      const url = new URL(request.url);
-      const path = url.pathname;
-      const directory = decodeURIComponent(request.headers.get("x-opencode-directory") ?? "");
-
-      if (request.method === "GET" && path === "/provider") {
-        return Response.json({
-          all: [
-            { id: "prov", name: "Prov", source: "config", env: [], options: {}, models: { "model-a": { name: "Model A" } } },
-            {
-              id: "deepseek",
-              name: "DeepSeek",
-              source: "api",
-              env: [],
-              options: {},
-              models: { "deepseek-v4-flash": { name: "DeepSeek V4 Flash" } },
-            },
-          ],
-          default: {},
-          connected: ["prov", "deepseek"],
-        });
-      }
-      if (request.method === "POST" && path === "/session") {
-        const id = `ses-${++sessionCounter}`;
-        mockSessions.set(id, { directory, state: "idle" });
-        return Response.json({ id, slug: id, projectID: "p", directory, title: "t", version: "1", time: { created: 1, updated: 1 } });
-      }
-      if (request.method === "GET" && path === "/session/status") {
-        const map: Record<string, { type: string }> = {};
-        for (const [id, session] of mockSessions) map[id] = { type: session.state };
-        return Response.json(map);
-      }
-      const promptAsync = path.match(/^\/session\/([^/]+)\/prompt_async$/);
-      if (request.method === "POST" && promptAsync) {
-        const session = mockSessions.get(promptAsync[1]!)!;
-        session.state = "busy";
-        setTimeout(() => {
-          writeFileSync(join(session.directory, "memo.docx"), "the memo");
-          session.state = "idle";
-        }, 30);
-        return new Response(null, { status: 204 });
-      }
-      const message = path.match(/^\/session\/([^/]+)\/message$/);
-      if (request.method === "GET" && message) {
-        return Response.json([
-          {
-            info: { id: "msg-1", sessionID: message[1], role: "assistant", cost: 0.02, tokens: { input: 10, output: 5 } },
-            parts: [],
-          },
-        ]);
-      }
-      if (request.method === "POST" && message) {
-        const body = (await request.json()) as Record<string, unknown>;
-        if (body.format) {
-          // batched judge call → structured verdicts for every listed criterion
-          const promptText = String(
-            (body.parts as Array<{ text?: string }> | undefined)?.[0]?.text ?? "",
-          );
-          const criterionIds = Array.from(
-            new Set(Array.from(promptText.matchAll(/### (C-\d+):/g), (match) => match[1]!)),
-          );
-          return Response.json({
-            info: {
-              id: "msg-judge",
-              sessionID: message[1],
-              role: "assistant",
-              structured: {
-                verdicts: criterionIds.map((id) => ({
-                  id,
-                  verdict: "pass",
-                  reasoning: "deliverable satisfies the criterion",
-                })),
-              },
-            },
-            parts: [],
-          });
-        }
-        return Response.json({ info: { id: "msg-x", sessionID: message[1], role: "assistant" }, parts: [] });
-      }
-      if (request.method === "POST" && /^\/session\/[^/]+\/abort$/.test(path)) {
-        return Response.json(true);
-      }
-      if (request.method === "DELETE" && /^\/session\/[^/]+$/.test(path)) {
-        return Response.json(true);
-      }
-      return new Response(`mock opencode: unhandled ${request.method} ${path}`, { status: 404 });
-    },
-  });
+  const sessionInfo = (id: string, session: MockSession) => ({ id, projectID: "p", location: { directory: session.directory }, title: "Benchmark fixture", time: { created: 1, updated: 2 } });
+  return Bun.serve({ port: 0, async fetch(request) {
+    const url = new URL(request.url), path = url.pathname;
+    if (path === "/api/model") return Response.json({ data: [{ providerID: "prov", id: "model-a" }, { providerID: "deepseek", id: "deepseek-v4-flash" }].map(model => ({ ...model, modelID: model.id, name: model.id, limit: { context: 100000, output: 16384 } })) });
+    if (path === "/api/rpc/legalwork.benchmarks/tools") return Response.json({ output: { tools: ["read", "write", "edit", "shell", "apply_patch", "skill"].map(name => ({ id: name, name, permission: name })) } });
+    if (path === "/api/session" && request.method === "POST") {
+      const body = await request.json(), id = `ses-${++sessionCounter}`;
+      const session: MockSession = { directory: body.location.directory, state: "idle", judge: String(body.title).startsWith("Benchmark judge:"), replies: [] };
+      mockSessions.set(id, session); return Response.json({ data: sessionInfo(id, session) });
+    }
+    if (path === "/api/session/active") return Response.json({ data: Object.fromEntries([...mockSessions].filter(([,session]) => session.state === "busy").map(([id]) => [id, { type: "running" }])) });
+    const match = /^\/api\/session\/([^/]+)(?:\/(.+))?$/.exec(path), id = match?.[1], session = id ? mockSessions.get(id) : undefined;
+    if (!session || !id) return Response.json({ message: "Missing fixture session" }, { status: 404 });
+    const operation = match?.[2];
+    if (!operation && request.method === "GET") return Response.json({ data: sessionInfo(id, session) });
+    if (!operation && request.method === "DELETE") { mockSessions.delete(id); return new Response(null, { status: 204 }); }
+    if (operation === "inbox") return Response.json({ data: [] });
+    if (operation === "message") return Response.json({ data: session.replies, cursor: {} });
+    if (operation === "interrupt") { session.state = "idle"; return Response.json({ interrupted: true }); }
+    if (operation === "prompt") {
+      const body = await request.json(); session.state = "busy";
+      setTimeout(() => {
+        if (!session.judge) writeFileSync(join(session.directory, "memo.docx"), "the memo");
+        const criterionIds = [...new Set(Array.from(String(body.text).matchAll(/### (C-\d+):/g), match => match[1]))];
+        session.replies.push({ id: `msg-${id}-${session.replies.length}`, type: "assistant", agent: "legalwork", model: { providerID: "prov", id: "model-a" }, time: { created: 2, completed: 3 }, finish: "stop", cost: 0.02, tokens: { input: 10, output: 5, reasoning: 0, cache: { read: 0, write: 0 } }, content: session.judge ? [{ type: "text", text: JSON.stringify({ verdicts: criterionIds.map(id => ({ id, verdict: "pass", reasoning: "deliverable satisfies the criterion" })) }) }] : [] });
+        session.state = "idle";
+      }, 30);
+      return Response.json({ data: { id: `user-${id}`, type: "user", text: body.text, time: { created: 1 } } });
+    }
+    return new Response(`mock native opencode: unhandled ${request.method} ${path}`, { status: 404 });
+  } });
 }
 
 beforeAll(() => {

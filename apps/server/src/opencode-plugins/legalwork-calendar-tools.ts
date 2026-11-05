@@ -1,10 +1,13 @@
 import { assistantWorkspace } from "./assistant-workspace.js";
+import { registerPrimaryContext } from "./native-review-worker.js";
+import { Plugin } from "@opencode/plugin";
+import { nativeTool, nativeToolSignal, nativeResponseOutput } from "./native-tool.js";
 import { CALCULATION_INTERACTION_GUIDANCE } from "../calculations/guidance.js";
 import { CalculationPresentationInputSchema } from "../calculations/schema.js";
 import { z } from "zod";
 import { resolveWorkspaceId, serverToken, serverUrl, type OpenCodeContext } from "./office-plugin-shared.js";
 import { DeadlineInputSchema } from "../calendar/deadline-rules.js";
-import { CalendarCreateSchema, CalendarPatchSchema } from "@legalwork/types/calendar";
+import { CalendarCreateSchema, CalendarPatchSchema, CalendarItemSchema, DeadlineCalculationSchema } from "@legalwork/types/calendar";
 
 async function request(context: OpenCodeContext, method: string, path: string, data?: unknown, projectId?: string) {
   const url = serverUrl(), token = serverToken();
@@ -12,7 +15,7 @@ async function request(context: OpenCodeContext, method: string, path: string, d
   try {
     const workspace = await assistantWorkspace(context, projectId);
     const response = await fetch(`${url}/workspace/${encodeURIComponent(workspace)}/calendar${path}`, { method,
-      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: data === undefined ? undefined : JSON.stringify(data), signal: AbortSignal.timeout(path === "/run" || path === "/present" ? 120000 : 30000) });
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: data === undefined ? undefined : JSON.stringify(data), signal: nativeToolSignal(path === "/run" || path === "/present" ? 120000 : 30000) });
     const result: unknown = await response.json();
     // Calendar titles, descriptions, sources and imported properties are untrusted reference data.
     const nextStep = path === "/calculate" && response.ok
@@ -66,3 +69,20 @@ export const LegalWorkCalendarTools = async () => ({
       execute: (raw: unknown, context: OpenCodeContext) => { const input = patch.parse(raw); return request(context, "PATCH", `/${input.itemId}`, input.patch, input.projectId); } },
   },
 });
+
+export default Plugin.define({ id: "legalwork.calendar", async setup(ctx) {
+  const definitions = await LegalWorkCalendarTools();
+  await registerPrimaryContext(ctx, async event => {
+    const output: { system: string[] } = { system: [] };
+    await definitions["experimental.chat.system.transform"]({}, output);
+    for (const text of output.system) event.system.push({ type: "text", text });
+  });
+  await ctx.tool.transform(editor => {
+    for (const [name, definition] of Object.entries(definitions.tool)) editor.add(nativeTool(ctx, {
+      name, description: definition.description, schema: z.object(definition.args), execute: definition.execute,
+      ...(["legalwork_calendar_create", "legalwork_calendar_get", "legalwork_calendar_update"].includes(name)
+        ? { outputSchema: nativeResponseOutput(z.object({ item: CalendarItemSchema.optional() }).passthrough()) }
+        : name === "legalwork_deadline_calculate" ? { outputSchema: nativeResponseOutput(z.object({ calculation: DeadlineCalculationSchema.optional() }).passthrough()) } : {}),
+    }));
+  });
+} });

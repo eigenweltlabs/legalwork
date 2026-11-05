@@ -24,7 +24,7 @@ function host(name: string) {
     return Response.json({ items });
   } });
   stops.push(() => server.stop(true));
-  const workspace: RouteWorkspace = { id: `rem_${name}`, name, displayNameResolved: name, path: "", preset: "starter", workspaceType: "remote", baseUrl: server.url.origin, legalworkToken: "viewer", legalworkHostToken: name, legalworkWorkspaceId: "same-id" };
+  const workspace: RouteWorkspace = { id: "same-id", name, displayNameResolved: name, path: "", preset: "starter", workspaceType: "local", baseUrl: server.url.origin };
   return { workspace, calls, expire: () => { items = []; }, fail: () => { failed = true; }, scope: hostApprovalScope(server.url.origin, "same-id") };
 }
 const pending = (scope: string) => cache.getQueryData<PendingPermission[]>(permissionKey(scope, "same-chat")) ?? [];
@@ -42,29 +42,17 @@ test("a local reconciliation removes expired approvals and their waiting state",
   expect(useSessionActivityStore.getState().getStatus("same-id", "same-chat")).toBe("idle");
 });
 
-test("remote hosts receive their own credentials and independent approval snapshots", async () => {
-  const first = host("first"), second = host("second");
+test("retired remote records cannot route requests or inherit desktop approval authority", () => {
+  const legacy = { id: "rem_old", workspaceType: "remote", baseUrl: "https://retired.example", legalworkToken: "old" };
   const local = createLegalworkServerClient({ baseUrl: "http://127.0.0.1:1", token: "local-client", hostToken: "local-secret" });
-  await refreshHostApprovals(local, [first.workspace, second.workspace], () => true);
-  expect(pending(first.scope).map(item => item.id)).toEqual(["host:first"]);
-  expect(pending(second.scope).map(item => item.id)).toEqual(["host:second"]);
-  expect(first.calls[0].token).toBe("first"); expect(second.calls[0].token).toBe("second");
-  const endpoint = resolveWorkspaceEndpoint(first.workspace, { localClient: local, baseUrl: local.baseUrl, token: local.token })!;
-  await replyToPermission(createClient(endpoint.opencodeBaseUrl), pending(first.scope)[0], "once", "", endpoint.client);
-  expect(first.calls[1]).toEqual({ path: "/approvals/first", token: "first", body: { reply: "allow", workspaceId: "same-id", sessionID: "same-chat" } });
-  second.fail();
-  await refreshHostApprovals(local, [first.workspace, second.workspace], () => true);
-  expect(pending(first.scope)).toEqual([]);
-  expect(pending(second.scope).map(item => item.id)).toEqual(["host:second"]);
+  expect(resolveWorkspaceEndpoint(legacy, { localClient: local, baseUrl: local.baseUrl, token: local.token })).toBeNull();
 });
 
-test("a remote viewer never inherits local approval authority and stale feeds cannot seed state", async () => {
-  const remote = host("owner");
-  const local = createLegalworkServerClient({ baseUrl: "http://127.0.0.1:1", token: "local-client", hostToken: "local-secret" });
-  const viewer = { ...remote.workspace, legalworkHostToken: null };
-  expect(resolveWorkspaceEndpoint(viewer, { localClient: local, baseUrl: local.baseUrl, token: local.token })?.client.canApprove).toBe(false);
-  await refreshHostApprovals(local, [viewer], () => true);
-  expect(remote.calls).toEqual([]);
-  await refreshHostApprovals(null, [remote.workspace], () => false);
-  expect(pending(remote.scope)).toEqual([]);
+test("manual server selection still routes a local project with only the selected connection credentials", () => {
+  const workspace = { id: "ws_project", workspaceType: "local", baseUrl: "https://obsolete-engine.example" };
+  const selected = createLegalworkServerClient({ baseUrl: "https://selected-server.example", token: "selected-client" });
+  const endpoint = resolveWorkspaceEndpoint(workspace, { localClient: selected, baseUrl: selected.baseUrl, token: selected.token });
+  expect(endpoint?.client).toBe(selected);
+  expect(endpoint?.mountedBaseUrl).toBe("https://selected-server.example/workspace/ws_project");
+  expect(endpoint?.hostToken).toBeUndefined();
 });

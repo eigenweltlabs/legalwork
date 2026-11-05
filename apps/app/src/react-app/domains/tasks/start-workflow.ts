@@ -1,3 +1,5 @@
+import { sendSessionPrompt } from "@/app/lib/system-reminder";
+import { createSessionView } from "@/app/lib/opencode-read";
 /**
  * "Start workflow" / "Start session" — work on a task in a folder.
  *
@@ -131,20 +133,19 @@ export async function startTaskWorkflow(input: StartWorkflowInput): Promise<Star
   });
   const transportDirectory = toSessionTransportDirectory(workspaceRoot) || undefined;
   const session = unwrap(
-    await opencode.session.create({
+    await createSessionView(opencode,{
       directory: transportDirectory,
       title: input.task.title,
     }),
   );
 
   if (input.workflowName) {
-    const result = await opencode.session.promptAsync({
+    const result = await sendSessionPrompt(opencode,{
       sessionID: session.id,
       directory: transportDirectory,
       model: input.model ?? undefined,
       parts: [{ type: "text", text: buildSeedPrompt(input.task, input.workflowName, attachmentPaths) }],
     });
-    if (result.error !== undefined) throw new Error(t("tasks.run_prompt_failed"));
   } else {
     prefillTaskSession(session.id, input.task.id);
   }

@@ -25,11 +25,11 @@ function fixture(failLink = false) {
     if (request.method === "PATCH") return failLink
       ? Response.json({ message: "Revision conflict" }, { status: 409 })
       : Response.json({ item: { ...item, revision: 4, sessionIds: [...item.sessionIds, sessionId] } });
-    return Response.json({ id: sessionId, title: item.title });
+    return Response.json({ data: { id: sessionId, title: item.title, projectID: "fixture", location: { directory: "/project" }, cost: 0, tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } }, time: { created: 1, updated: 1 } } });
   } });
   const baseUrl = server.url.origin;
   const client = createLegalworkServerClient({ baseUrl, token: "test-token" });
-  const workspace: RouteWorkspace = { id: "project", name: "Project", path: "/project", displayNameResolved: "Project" };
+  const workspace: RouteWorkspace = { id: "project", name: "Project", path: "/project", displayNameResolved: "Project", workspaceType: "local", preset: "starter" };
   return { input: { item, client, workspaceId: "project", workspace, baseUrl, token: "test-token" }, sessionId, calls,
     stop() { server.stop(true); useComposerStateStore.getState().clearSession(sessionId); } };
 }
@@ -39,7 +39,7 @@ test("starting from a deadline links the chat, preserves its other links, and pr
   try {
     expect(await startCalendarSession(f.input)).toBe(f.sessionId);
     expect(f.calls).toEqual([
-      { method: "POST", path: "/workspace/project/opencode/session", body: { title: item.title } },
+      { method: "POST", path: "/workspace/project/opencode/api/session", body: { title: item.title, location: { directory: "/project" } } },
       { method: "PATCH", path: `/workspace/project/calendar/${item.id}`, body: { revision: 3, sessionIds: ["existing-chat", f.sessionId] } },
     ]);
     const draft = useComposerStateStore.getState().sessions[f.sessionId];
@@ -49,14 +49,13 @@ test("starting from a deadline links the chat, preserves its other links, and pr
   } finally { f.stop(); }
 });
 
-test("remote deadline chats use the owning server's workspace ID", async () => {
+test("deadline chats use the manually selected server instead of a stale project engine URL", async () => {
   const f = fixture();
   try {
-    await startCalendarSession({ ...f.input, baseUrl: "http://127.0.0.1:1", workspace: {
-      ...f.input.workspace, id: "rem_project", workspaceType: "remote", legalworkWorkspaceId: "project",
-      legalworkHostUrl: f.input.baseUrl, legalworkToken: "remote-token",
+    await startCalendarSession({ ...f.input, workspace: {
+      ...f.input.workspace, baseUrl: "https://obsolete-engine.example",
     } });
-    expect(f.calls.map(call => call.path)).toEqual(["/workspace/project/opencode/session", `/workspace/project/calendar/${item.id}`]);
+    expect(f.calls.map(call => call.path)).toEqual(["/workspace/project/opencode/api/session", `/workspace/project/calendar/${item.id}`]);
   } finally { f.stop(); }
 });
 

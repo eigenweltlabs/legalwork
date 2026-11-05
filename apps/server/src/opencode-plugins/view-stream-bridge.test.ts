@@ -1,58 +1,41 @@
-import { afterEach, expect, test } from "bun:test";
-import { createServer } from "node:http";
-import { installViewStreamBridge, viewStreamHeaders } from "./view-stream-bridge.js";
+import { expect,test } from "bun:test";
+import { Plugin } from "@opencode/plugin";
+import { nativePluginTestRuntime } from "./native-plugin-test-support.js";
+import { registerViewGeneration } from "./view-stream-bridge.js";
 import type { ViewGenerationChunk } from "../views/generation-stream.js";
 
-const originalFetch = globalThis.fetch;
-afterEach(() => { globalThis.fetch = originalFetch; });
+async function fixture(){
+  const runtime=nativePluginTestRuntime("/project"),chunks:Array<{sessionID:string;directory:string;chunk:ViewGenerationChunk}>=[];
+  let fail=false;
+  const fetch=globalThis.fetch;
+  await runtime.start(Plugin.define({id:"view-fixture",setup:ctx=>registerViewGeneration(ctx,async(sessionID,directory,chunk)=>{if(fail)throw new Error("offline");chunks.push({sessionID,directory,chunk});})}));
+  const send=(type:string,id:string,extra:Record<string,unknown>={},sessionID="session")=>runtime.event({type,data:{sessionID,assistantMessageID:"assistant",id,...extra}});
+  return{runtime,chunks,send,fail:()=>{fail=true;},fetch};
+}
 
-test.each([undefined, "text/event-stream"])("the bridge forwards provider bytes and strips local correlation headers (Content-Type: %s)", async contentType => {
-  const payload = [
-    { type: "response.output_item.added", item: { id: "item", call_id: "call", type: "function_call", name: "view_create", arguments: "" } },
-    { type: "response.function_call_arguments.delta", item_id: "item", delta: '{"input":{"program":"' },
-    { type: "response.function_call_arguments.delta", item_id: "item", delta: 'root = Stack()"}}' },
-  ].map(event => `data: ${JSON.stringify(event)}\n\n`).join("");
-  let headers: Headers | undefined;
-  const server = createServer((request, response) => {
-    headers = new Headers();
-    for (const [name, value] of Object.entries(request.headers)) if (typeof value === "string") headers.set(name, value);
-    if (contentType) response.setHeader("content-type", contentType);
-    response.end(payload);
-  });
-  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
-  const address = server.address();
-  if (!address || typeof address === "string") throw new Error("Missing test server port");
-  const url = `http://127.0.0.1:${address.port}`;
-  try {
-    const chunks: ViewGenerationChunk[] = [];
-    const local = viewStreamHeaders(async chunk => { chunks.push(chunk); });
-    const response = await fetch(url, { headers: { ...local, authorization: "Bearer provider-credential" } });
-    expect(response.headers.get("content-type")).toBe(contentType ?? null);
-    expect(await response.text()).toBe(payload);
-    expect(headers?.has("x-legalwork-view-stream")).toBe(false);
-    expect(headers?.get("authorization")).toBe("Bearer provider-credential");
-    await new Promise(resolve => setTimeout(resolve, 1));
-    expect(chunks.at(-1)).toEqual({ callId: "call", tool: "view_create", raw: '{"input":{"program":"root = Stack()"}}' });
-    // A failed preview destination does not interrupt the provider response.
-    const failure = await fetch(url, { headers: viewStreamHeaders(async () => { throw new Error("offline"); }) });
-    expect(await failure.text()).toBe(payload);
-  } finally { server.closeAllConnections(); server.close(); }
+test("native partial input previews preserve parallel JSON and final replay boundaries without touching fetch",async()=>{
+  const f=await fixture();try{
+    await f.send("session.tool.input.started","c1",{name:"view_create"});await f.send("session.tool.input.started","c2",{name:"view_update"});
+    await f.send("session.tool.input.delta","c1",{delta:'{"input":{"program":"Stack('});await f.send("session.tool.input.delta","c2",{delta:'{"input":{"title":"Second"'});
+    await Bun.sleep(100);expect(f.chunks.find(item=>item.chunk.callId==="c1")?.chunk.raw).toBe('{"input":{"program":"Stack(');
+    const final='{"input":{"program":"Stack()\\n"}}';await f.send("session.tool.input.ended","c1",{text:final});await f.send("session.tool.input.ended","c2",{text:'{"input":{"title":"Second"}}'});await Bun.sleep(0);
+    expect(f.chunks.filter(item=>item.chunk.callId==="c1").at(-1)?.chunk.raw).toBe(final);expect(f.chunks.filter(item=>item.chunk.callId==="c2").at(-1)?.chunk.raw).toBe('{"input":{"title":"Second"}}');expect(globalThis.fetch).toBe(f.fetch);
+  }finally{await f.runtime.close();}
 });
 
-test("the bridge reinstalls when another fetch wrapper replaces it and preserves that wrapper", async () => {
-  installViewStreamBridge();
-  const calls: Headers[] = [];
-  globalThis.fetch = Object.assign(async (_input: Parameters<typeof fetch>[0], init?: RequestInit) => {
-    calls.push(new Headers(init?.headers));
-    return new Response("provider response", { headers: { "content-type": "text/plain" } });
-  }, originalFetch);
-  const local = viewStreamHeaders(async () => {});
-  const installed = globalThis.fetch;
-  const response = await fetch("https://provider.example", { headers: { ...local, authorization: "Bearer provider-credential" } });
-  expect(await response.text()).toBe("provider response");
-  expect(calls).toHaveLength(1);
-  expect(calls[0].has("x-legalwork-view-stream")).toBe(false);
-  expect(calls[0].get("authorization")).toBe("Bearer provider-credential");
-  viewStreamHeaders(async () => {});
-  expect(globalThis.fetch).toBe(installed);
+test("previews resolve the active session directory and isolate reused call IDs across chats",async()=>{
+  const f=await fixture();try{
+    await f.send("session.tool.input.started","same",{name:"view_create"},"one");await f.send("session.tool.input.started","same",{name:"view_update"},"two");f.runtime.move("/moved");
+    await f.send("session.tool.input.ended","same",{text:'{"title":"One"}'},"one");await f.send("session.tool.input.ended","same",{text:'{"title":"Two"}'},"two");await Bun.sleep(0);
+    expect(f.chunks.at(-1)).toMatchObject({sessionID:"two",directory:"/moved",chunk:{tool:"view_update",raw:'{"title":"Two"}'}});
+    expect(f.chunks.some(item=>item.sessionID==="one"&&item.chunk.raw==='{"title":"One"}')).toBe(true);
+    f.fail();await f.send("session.tool.input.started","offline",{name:"view_create"});await f.send("session.tool.input.ended","offline",{text:"{}"});
+  }finally{await f.runtime.close();}
+});
+
+test("preview-only size limits and cleanup never alter provider input or final artifacts",async()=>{
+  const f=await fixture();try{
+    await f.send("session.tool.input.started","large",{name:"view_create"});await f.send("session.tool.input.delta","large",{delta:"x".repeat(200001)});await Bun.sleep(100);expect(f.chunks).toHaveLength(0);
+    await f.send("session.tool.input.started","unrelated",{name:"wiki_read"});await f.send("session.tool.input.ended","unrelated",{text:"{}"});await Bun.sleep(0);expect(f.chunks).toHaveLength(0);
+  }finally{await f.runtime.close();}
 });

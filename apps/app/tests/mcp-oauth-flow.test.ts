@@ -432,3 +432,26 @@ describe("MCP OAuth manual callback validation", () => {
     }
   });
 });
+
+describe("native MCP OAuth attempts", () => {
+  test("engine-owned callbacks finish through native status without a URL state or app listener", async () => {
+    const completion = deferred<{ status: string }>();
+    const driver = makeDriver({
+      start: async () => ({ authorizationUrl: "https://native.test/device", mode: "auto", instructions: "Use code ABC", expiresAt: Date.now() + 600_000 }),
+      wait: () => completion.promise,
+    });
+    const { flow, nextPhase } = harness({ driver, timeoutMs: 0 });
+    await flow.start();
+    expect(flow.getState()).toMatchObject({ phase: "waiting", mode: "auto", instructions: "Use code ABC" });
+    const success = nextPhase("success"); completion.resolve({ status: "connected" }); await success;
+    expect(driver.complete).not.toHaveBeenCalled(); expect(driver.dispose).toHaveBeenCalledTimes(1);
+  });
+  test("native expiry owns the deadline and cancellation cannot complete a replaced attempt", async () => {
+    const completion = deferred<{ status: string }>();
+    const driver = makeDriver({ start: async () => ({ authorizationUrl: "https://native.test/code", mode: "code", expiresAt: Date.now() + 15 }), wait: () => completion.promise });
+    const { flow, nextPhase } = harness({ driver, timeoutMs: 0 });
+    const expired = nextPhase("error"); await flow.start(); await expired;
+    completion.resolve({ status: "connected" }); await Promise.resolve();
+    expect(flow.getState().phase).toBe("error"); expect(driver.dispose).toHaveBeenCalledTimes(1);
+  });
+});

@@ -1,2 +1,10 @@
 apps/app/public/third-party/** linguist-vendored
 *.pdf binary
+
+# Source-build provenance verifies these reviewed text bytes on every host.
+packages/opencode-release/** text eol=lf
+docs/patches/opencode-2.1.4-mcp-http-policy-v3.patch text eol=lf
+docs/patches/opencode-2.1.4-mcp-http-policy-v3.receipt.json text eol=lf
+
+# The browser generator checks its reviewed source/output bytes on every host.
+apps/desktop/electron/browser-native/** text eol=lf

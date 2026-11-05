@@ -1,5 +1,4 @@
 import { z } from "zod";
-import type { ProviderConfig } from "@opencode-ai/sdk/v2/client";
 
 export function modelCatalogBaseURL(): string {
   const baseURL = process.env.OPENCODE_MODELS_URL?.trim().replace(/\/+$/, "") ||
@@ -28,15 +27,18 @@ const model = z.object({
   limit: z.object({ context: z.number().nonnegative(), output: z.number().nonnegative(), input: z.number().nonnegative().optional() }),
   modalities: z.object({ input: z.array(modality).optional(), output: z.array(modality).optional() }).optional(),
   status: z.enum(["alpha", "beta", "deprecated", "active"]).optional(),
-  provider: z.object({ npm: z.string().optional(), api: z.string().optional() }).optional(),
-});
+  provider: z.object({ npm: z.string().optional(), api: z.string().optional(), shape: z.enum(["responses", "completions"]).optional() }).passthrough().optional(),
+  reasoning_options: z.array(z.json()).optional(),
+  experimental: z.json().optional(),
+}).passthrough();
+export type CatalogModel = z.infer<typeof model>;
 export const modelCatalogSchema = z.record(z.string(), z.object({
   models: z.record(z.string(), z.unknown()),
 }).passthrough()).refine((value) => Object.keys(value).length > 0);
 const catalogProvider = z.object({ models: z.record(z.string(), model) });
 
 /** Keep catalog capabilities for new built-in models without replacing user overrides. */
-export function providerModelsFromCatalog(providerId: string, value: unknown): NonNullable<ProviderConfig["models"]> {
+export function providerModelsFromCatalog(providerId: string, value: unknown): Record<string, CatalogModel> {
   const result = z.record(z.string(), z.unknown()).safeParse(value);
   if (!result.success) throw new Error("The model catalog returned invalid model information.");
   if (!result.data[providerId]) throw new Error(`No model catalog is available for ${providerId}.`);

@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "kind": "source-build",
+  "version": "2.1.4-legalwork.http-policy.3",
+  "baseVersion": "2.1.4",
+  "productionMacSigner": {
+    "mode": "developer-id",
+    "identitySha1": "5eccdbc844b673d12b8528f6b8ea5f41f6d4e4a6",
+    "certificateSha256": "dec87895435a1392571678dfd71a8ebeea873a7e3602b372de65dd217a79a228",
+    "teamId": "9VTQ834B95"
+  }
+}

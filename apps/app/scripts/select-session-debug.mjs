@@ -1,3 +1,4 @@
+import { readMessages, readTodos } from "./_util.mjs";
 import assert from "node:assert/strict";
 
 import {
@@ -52,13 +53,13 @@ try {
   for (let i = 0; i < count; i += 1) {
     console.log(`\n=== Iteration ${i + 1}/${count} ===`);
 
-    const health = await withTiming("global.health", async () => client.global.health());
+    const health = await withTiming("global.health", async () => client.server.info());
     console.log(JSON.stringify(health));
 
     let sessionId = sessionIdOverride;
     if (!sessionId) {
       const create = await withTiming("session.create", async () =>
-        client.session.create({ title: `Debug session ${i + 1}`, directory }),
+        client.session.create({ location: { directory: server?.cwd ?? directory }, title: `Debug session ${i + 1}`, directory }),
       );
       console.log(JSON.stringify(create));
       assert.ok(create.ok, "session.create failed");
@@ -69,14 +70,14 @@ try {
     console.log(JSON.stringify(list));
 
     const messages = await withTiming("session.messages", async () =>
-      client.session.messages({ sessionID: sessionId, limit: 50 }),
+      readMessages(client, sessionId),
     );
     console.log(JSON.stringify(messages));
 
-    const todos = await withTiming("session.todo", async () => client.session.todo({ sessionID: sessionId }));
+    const todos = await withTiming("session.todo", async () => readTodos(client, sessionId));
     console.log(JSON.stringify(todos));
 
-    const permissions = await withTiming("permission.list", async () => client.permission.list());
+    const permissions = await withTiming("permission.list", async () => client.permission.request.list());
     console.log(JSON.stringify(permissions));
   }
 } catch (e) {

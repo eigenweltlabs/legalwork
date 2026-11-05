@@ -1,9 +1,12 @@
 import { expect, test } from "bun:test";
-import { createOpencodeClient } from "@opencode-ai/sdk";
+import { createAssistantTestClient } from "../assistant-engine.test-support.js";
 import { LegalWorkAssistantTools } from "./legalwork-assistant-tools.js";
 import { LegalWorkCalendarTools } from "./legalwork-calendar-tools.js";
-import { LegalWorkScheduledTaskTools } from "./legalwork-scheduled-task-tools.js";
-import { LegalWorkTaskTools } from "./legalwork-task-tools.js";
+import schedulingPlugin from "./legalwork-scheduled-task-tools.js";
+import { nativePluginTools } from "./native-plugin-test-support.js";
+const LegalWorkScheduledTaskTools = () => nativePluginTools(schedulingPlugin);
+import taskPlugin from "./legalwork-task-tools.js";
+const LegalWorkTaskTools = () => nativePluginTools(taskPlugin);
 
 test("Assistant global CRUD uses exact targets and does not link its chat into another project", async () => {
   const oldUrl = process.env.LEGALWORK_SERVER_URL, oldToken = process.env.LEGALWORK_SERVER_TOKEN;
@@ -14,6 +17,7 @@ test("Assistant global CRUD uses exact targets and does not link its chat into a
     expect(request.headers.get("authorization")).toBe("Bearer fixture");
     if (url.pathname === "/workspaces") return Response.json({ items: [{ id: "assistant", path: "/Assistant" }, { id: "matter", path: "/Matter" }] });
     if (url.pathname === "/assistant") return Response.json({ workspace: { id: "assistant", path: "/Assistant" } });
+    if (url.pathname === "/assistant/access") return Response.json({ projectIds: ["assistant", "matter"] });
     calls.push({ path: url.pathname + url.search, method: request.method, body: request.body ? await request.json() : null });
     return Response.json({ task: { id: "task-one", projectId: "matter" }, items: [], tasks: [] });
   } });
@@ -21,7 +25,9 @@ test("Assistant global CRUD uses exact targets and does not link its chat into a
   try {
     const context = { directory: "/Assistant", sessionID: "today", messageID: "running" };
     const calendar = (await LegalWorkCalendarTools()).tool;
-    const schedules = (await LegalWorkScheduledTaskTools({ client: createOpencodeClient({ baseUrl: server.url.origin }) })).tool;
+    const scheduling = await LegalWorkScheduledTaskTools();
+    scheduling.runtime.histories.set("today", [{ id: "running", type: "assistant", model: { providerID: "fixture", id: "model" }, content: [] }]);
+    const schedules = scheduling.tool;
     const assistant = (await LegalWorkAssistantTools()).tool;
     const tasks = (await LegalWorkTaskTools()).tool;
     if (!tasks) throw new Error("Missing task tools");

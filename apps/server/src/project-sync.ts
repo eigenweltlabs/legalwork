@@ -202,7 +202,7 @@ function nameOf(workspace: WorkspaceInfo): string {
 }
 
 function workspaceOf(config: ServerConfig, workspaceId: string): WorkspaceInfo | null {
-  return config.workspaces.find((entry) => entry.id === workspaceId && entry.workspaceType !== "remote") ?? null;
+  return config.workspaces.find((entry) => entry.id === workspaceId) ?? null;
 }
 
 function folderSettings(settings: ProjectSyncSettings, cloud: boolean): ProjectSyncSettings {
@@ -362,7 +362,7 @@ async function pushPersonalization(platform: ProjectSyncPlatform, client: Intake
 /** A registered local project whose folder already carries this firm project's id. */
 async function registeredCopy(config: ServerConfig, store: ProjectSyncStore, projectId: string): Promise<WorkspaceInfo | null> {
   for (const workspace of config.workspaces) {
-    if (workspace.workspaceType === "remote" || store.linkByWorkspace(workspace.id)) continue;
+    if (store.linkByWorkspace(workspace.id)) continue;
     const details = await readProjectDetails(workspace.path).catch(() => null);
     if (details?.syncProjectId === projectId) return workspace;
   }

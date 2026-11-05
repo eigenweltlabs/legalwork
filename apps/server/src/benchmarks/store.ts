@@ -4,7 +4,11 @@ import type { ServerConfig } from "../types.js";
 import { ensureDir } from "../utils.js";
 import type { AnalyticsRow } from "./analytics.js";
 import { BASELINE_ARM, parseArmConfig, type BenchmarkArm } from "./ablation.js";
-import { parseStoredTaskJson, type BenchmarkTaskSource, type BenchmarkWorkType } from "./task-schema.js";
+import {
+  parseStoredTaskJson,
+  type BenchmarkTaskSource,
+  type BenchmarkWorkType,
+} from "./task-schema.js";
 
 export type BenchmarkRunStatus =
   | "pending"
@@ -39,6 +43,7 @@ export type BenchmarkRunRow = {
   judgeModelId: string;
   concurrency: number;
   catalogRef: string | null;
+  scenarioJson?: string | null;
   createdAt: number;
   startedAt: number | null;
   finishedAt: number | null;
@@ -150,7 +155,10 @@ export type BenchmarkItemPatch = Partial<
 >;
 
 export type BenchmarkRunPatch = Partial<
-  Pick<BenchmarkRunRow, "status" | "startedAt" | "finishedAt" | "error" | "title">
+  Pick<
+    BenchmarkRunRow,
+    "status" | "startedAt" | "finishedAt" | "error" | "title"
+  >
 >;
 
 type Statement = {
@@ -175,6 +183,7 @@ CREATE TABLE IF NOT EXISTS benchmark_runs (
   judge_model_id TEXT NOT NULL,
   concurrency INTEGER NOT NULL DEFAULT 3,
   catalog_ref TEXT,
+  scenario_json TEXT,
   created_at INTEGER NOT NULL,
   started_at INTEGER,
   finished_at INTEGER,
@@ -280,25 +289,44 @@ CREATE TABLE IF NOT EXISTS benchmark_tree_cache (
  * Every step is a no-op when already applied.
  */
 function migrate(db: SqliteHandle): void {
+  const runColumns = db.prepare("PRAGMA table_info(benchmark_runs)").all();
+  if (
+    !runColumns.some(
+      (row) =>
+        typeof row === "object" &&
+        row !== null &&
+        "name" in row &&
+        row.name === "scenario_json",
+    )
+  )
+    db.exec("ALTER TABLE benchmark_runs ADD COLUMN scenario_json TEXT");
   const columns = new Set(
-    (db.prepare("PRAGMA table_info(benchmark_run_items)").all() as Array<{ name?: string }>).flatMap((row) =>
-      typeof row.name === "string" ? [row.name] : [],
-    ),
+    (
+      db.prepare("PRAGMA table_info(benchmark_run_items)").all() as Array<{
+        name?: string;
+      }>
+    ).flatMap((row) => (typeof row.name === "string" ? [row.name] : [])),
   );
   // Pre-ablation runs were all-capabilities, which is exactly the baseline arm.
   if (!columns.has("arm_id")) {
-    db.exec("ALTER TABLE benchmark_run_items ADD COLUMN arm_id TEXT NOT NULL DEFAULT 'full'");
+    db.exec(
+      "ALTER TABLE benchmark_run_items ADD COLUMN arm_id TEXT NOT NULL DEFAULT 'full'",
+    );
   }
   if (!columns.has("arm_label")) {
-    db.exec("ALTER TABLE benchmark_run_items ADD COLUMN arm_label TEXT NOT NULL DEFAULT 'Full'");
+    db.exec(
+      "ALTER TABLE benchmark_run_items ADD COLUMN arm_label TEXT NOT NULL DEFAULT 'Full'",
+    );
   }
   // The plugin resolves an arm policy from a session id on every skill call.
-  db.exec("CREATE INDEX IF NOT EXISTS idx_benchmark_run_items_session ON benchmark_run_items(session_id)");
+  db.exec(
+    "CREATE INDEX IF NOT EXISTS idx_benchmark_run_items_session ON benchmark_run_items(session_id)",
+  );
 }
 
 const RUN_COLUMNS = `id, workspace_id AS workspaceId, title, status,
   judge_provider_id AS judgeProviderId, judge_model_id AS judgeModelId,
-  concurrency, catalog_ref AS catalogRef, created_at AS createdAt,
+  concurrency, catalog_ref AS catalogRef, scenario_json AS scenarioJson, created_at AS createdAt,
   started_at AS startedAt, finished_at AS finishedAt, error`;
 
 const ITEM_COLUMNS = `id, run_id AS runId, task_source AS taskSource, task_key AS taskKey,
@@ -338,11 +366,15 @@ const RUN_PATCH_COLUMNS: Record<keyof Required<BenchmarkRunPatch>, string> = {
   title: "title",
 };
 
-export function benchmarksDbPath(config: Pick<ServerConfig, "configPath">): string {
+export function benchmarksDbPath(
+  config: Pick<ServerConfig, "configPath">,
+): string {
   const override = process.env.LEGALWORK_BENCHMARKS_DB?.trim();
   if (override) return resolve(override);
   const configPath = config.configPath?.trim();
-  const configDir = configPath ? dirname(configPath) : join(homedir(), ".config", "legalwork");
+  const configDir = configPath
+    ? dirname(configPath)
+    : join(homedir(), ".config", "legalwork");
   return join(configDir, "benchmarks.sqlite");
 }
 
@@ -403,8 +435,8 @@ export class BenchmarkStore {
     this.transaction(() => {
       this.db
         .prepare(
-          `INSERT INTO benchmark_runs (id, workspace_id, title, status, judge_provider_id, judge_model_id, concurrency, catalog_ref, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO benchmark_runs (id, workspace_id, title, status, judge_provider_id, judge_model_id, concurrency, catalog_ref, scenario_json, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           run.id,
@@ -415,6 +447,7 @@ export class BenchmarkStore {
           run.judgeModelId,
           run.concurrency,
           run.catalogRef,
+          run.scenarioJson ?? null,
           run.createdAt,
         );
       const insertModel = this.db.prepare(
@@ -427,7 +460,13 @@ export class BenchmarkStore {
         "INSERT INTO benchmark_run_arms (run_id, arm_id, label, config_json, position) VALUES (?, ?, ?, ?, ?)",
       );
       arms.forEach((arm, position) => {
-        insertArm.run(run.id, arm.id, arm.label, JSON.stringify(arm.config ?? {}), position);
+        insertArm.run(
+          run.id,
+          arm.id,
+          arm.label,
+          JSON.stringify(arm.config ?? {}),
+          position,
+        );
       });
       const insertItem = this.db.prepare(
         `INSERT INTO benchmark_run_items (id, run_id, task_source, task_key, task_title, work_type, vertical, task_json, provider_id, model_id, arm_id, arm_label, status)
@@ -454,10 +493,16 @@ export class BenchmarkStore {
 
   listRunArms(runId: string): BenchmarkArm[] {
     const rows = this.db
-      .prepare("SELECT arm_id AS id, label, config_json AS configJson FROM benchmark_run_arms WHERE run_id = ? ORDER BY position")
+      .prepare(
+        "SELECT arm_id AS id, label, config_json AS configJson FROM benchmark_run_arms WHERE run_id = ? ORDER BY position",
+      )
       .all(runId) as Array<{ id: string; label: string; configJson: string }>;
     if (!rows.length) return [BASELINE_ARM];
-    return rows.map((row) => ({ id: row.id, label: row.label, config: parseArmConfig(row.configJson) }));
+    return rows.map((row) => ({
+      id: row.id,
+      label: row.label,
+      config: parseArmConfig(row.configJson),
+    }));
   }
 
   /**
@@ -465,7 +510,9 @@ export class BenchmarkStore {
    * engine reports. Backs the plugin's skill gate, so it must stay a cheap
    * indexed lookup — it runs on every `skill` tool call in the process.
    */
-  getArmBySessionId(sessionId: string): (BenchmarkArm & { runId: string }) | null {
+  getArmBySessionId(
+    sessionId: string,
+  ): (BenchmarkArm & { runId: string }) | null {
     const row = this.db
       .prepare(
         `SELECT i.run_id AS runId, i.arm_id AS id, i.arm_label AS label, a.config_json AS configJson
@@ -474,17 +521,29 @@ export class BenchmarkStore {
           WHERE i.session_id = ?
           LIMIT 1`,
       )
-      .get(sessionId) as { runId: string; id: string; label: string; configJson: string | null } | undefined;
+      .get(sessionId) as
+      | { runId: string; id: string; label: string; configJson: string | null }
+      | undefined;
     if (!row) return null;
-    return { runId: row.runId, id: row.id, label: row.label, config: parseArmConfig(row.configJson) };
+    return {
+      runId: row.runId,
+      id: row.id,
+      label: row.label,
+      config: parseArmConfig(row.configJson),
+    };
   }
 
   getRun(runId: string): BenchmarkRunRow | null {
-    const row = this.db.prepare(`SELECT ${RUN_COLUMNS} FROM benchmark_runs WHERE id = ?`).get(runId);
+    const row = this.db
+      .prepare(`SELECT ${RUN_COLUMNS} FROM benchmark_runs WHERE id = ?`)
+      .get(runId);
     return (row as BenchmarkRunRow | undefined) ?? null;
   }
 
-  listRuns(workspaceId: string, options?: { limit?: number; start?: number }): BenchmarkRunRow[] {
+  listRuns(
+    workspaceId: string,
+    options?: { limit?: number; start?: number },
+  ): BenchmarkRunRow[] {
     const limit = options?.limit ?? 100;
     const start = options?.start ?? 0;
     return this.db
@@ -498,15 +557,21 @@ export class BenchmarkStore {
     if (!statuses.length) return [];
     const placeholders = statuses.map(() => "?").join(", ");
     return this.db
-      .prepare(`SELECT ${RUN_COLUMNS} FROM benchmark_runs WHERE status IN (${placeholders})`)
+      .prepare(
+        `SELECT ${RUN_COLUMNS} FROM benchmark_runs WHERE status IN (${placeholders})`,
+      )
       .all(...statuses) as BenchmarkRunRow[];
   }
 
   updateRun(runId: string, patch: BenchmarkRunPatch): void {
-    const entries = Object.entries(patch).filter(([, value]) => value !== undefined);
+    const entries = Object.entries(patch).filter(
+      ([, value]) => value !== undefined,
+    );
     if (!entries.length) return;
     const setters = entries
-      .map(([key]) => `${RUN_PATCH_COLUMNS[key as keyof BenchmarkRunPatch]} = ?`)
+      .map(
+        ([key]) => `${RUN_PATCH_COLUMNS[key as keyof BenchmarkRunPatch]} = ?`,
+      )
       .join(", ");
     this.db
       .prepare(`UPDATE benchmark_runs SET ${setters} WHERE id = ?`)
@@ -520,9 +585,15 @@ export class BenchmarkStore {
           "DELETE FROM benchmark_criterion_verdicts WHERE item_id IN (SELECT id FROM benchmark_run_items WHERE run_id = ?)",
         )
         .run(runId);
-      this.db.prepare("DELETE FROM benchmark_run_items WHERE run_id = ?").run(runId);
-      this.db.prepare("DELETE FROM benchmark_run_models WHERE run_id = ?").run(runId);
-      this.db.prepare("DELETE FROM benchmark_run_arms WHERE run_id = ?").run(runId);
+      this.db
+        .prepare("DELETE FROM benchmark_run_items WHERE run_id = ?")
+        .run(runId);
+      this.db
+        .prepare("DELETE FROM benchmark_run_models WHERE run_id = ?")
+        .run(runId);
+      this.db
+        .prepare("DELETE FROM benchmark_run_arms WHERE run_id = ?")
+        .run(runId);
       this.db.prepare("DELETE FROM benchmark_runs WHERE id = ?").run(runId);
     });
   }
@@ -537,11 +608,16 @@ export class BenchmarkStore {
 
   listItems(runId: string): BenchmarkItemRow[] {
     return this.db
-      .prepare(`SELECT ${ITEM_COLUMNS} FROM benchmark_run_items WHERE run_id = ? ORDER BY task_key, provider_id, model_id`)
+      .prepare(
+        `SELECT ${ITEM_COLUMNS} FROM benchmark_run_items WHERE run_id = ? ORDER BY task_key, provider_id, model_id`,
+      )
       .all(runId) as BenchmarkItemRow[];
   }
 
-  listItemsByStatus(runId: string, statuses: BenchmarkItemStatus[]): BenchmarkItemRow[] {
+  listItemsByStatus(
+    runId: string,
+    statuses: BenchmarkItemStatus[],
+  ): BenchmarkItemRow[] {
     if (!statuses.length) return [];
     const placeholders = statuses.map(() => "?").join(", ");
     return this.db
@@ -552,15 +628,21 @@ export class BenchmarkStore {
   }
 
   getItem(itemId: string): BenchmarkItemRow | null {
-    const row = this.db.prepare(`SELECT ${ITEM_COLUMNS} FROM benchmark_run_items WHERE id = ?`).get(itemId);
+    const row = this.db
+      .prepare(`SELECT ${ITEM_COLUMNS} FROM benchmark_run_items WHERE id = ?`)
+      .get(itemId);
     return (row as BenchmarkItemRow | undefined) ?? null;
   }
 
   updateItem(itemId: string, patch: BenchmarkItemPatch): void {
-    const entries = Object.entries(patch).filter(([, value]) => value !== undefined);
+    const entries = Object.entries(patch).filter(
+      ([, value]) => value !== undefined,
+    );
     if (!entries.length) return;
     const setters = entries
-      .map(([key]) => `${ITEM_PATCH_COLUMNS[key as keyof BenchmarkItemPatch]} = ?`)
+      .map(
+        ([key]) => `${ITEM_PATCH_COLUMNS[key as keyof BenchmarkItemPatch]} = ?`,
+      )
       .join(", ");
     this.db
       .prepare(`UPDATE benchmark_run_items SET ${setters} WHERE id = ?`)
@@ -569,7 +651,9 @@ export class BenchmarkStore {
 
   countItemsByStatus(runId: string): Record<BenchmarkItemStatus, number> {
     const rows = this.db
-      .prepare("SELECT status, COUNT(*) AS count FROM benchmark_run_items WHERE run_id = ? GROUP BY status")
+      .prepare(
+        "SELECT status, COUNT(*) AS count FROM benchmark_run_items WHERE run_id = ? GROUP BY status",
+      )
       .all(runId) as Array<{ status: BenchmarkItemStatus; count: number }>;
     const counts: Record<BenchmarkItemStatus, number> = {
       pending: 0,
@@ -622,7 +706,9 @@ export class BenchmarkStore {
   }
 
   deleteVerdictsForItem(itemId: string): void {
-    this.db.prepare("DELETE FROM benchmark_criterion_verdicts WHERE item_id = ?").run(itemId);
+    this.db
+      .prepare("DELETE FROM benchmark_criterion_verdicts WHERE item_id = ?")
+      .run(itemId);
   }
 
   upsertTask(row: BenchmarkTaskRow): void {
@@ -663,19 +749,25 @@ export class BenchmarkStore {
 
   getTask(workspaceId: string, taskId: string): BenchmarkTaskRow | null {
     const row = this.db
-      .prepare(`SELECT ${TASK_COLUMNS} FROM benchmark_tasks WHERE workspace_id = ? AND id = ?`)
+      .prepare(
+        `SELECT ${TASK_COLUMNS} FROM benchmark_tasks WHERE workspace_id = ? AND id = ?`,
+      )
       .get(workspaceId, taskId);
     return (row as BenchmarkTaskRow | undefined) ?? null;
   }
 
   listTasks(workspaceId: string): BenchmarkTaskRow[] {
     return this.db
-      .prepare(`SELECT ${TASK_COLUMNS} FROM benchmark_tasks WHERE workspace_id = ? ORDER BY created_at DESC, id`)
+      .prepare(
+        `SELECT ${TASK_COLUMNS} FROM benchmark_tasks WHERE workspace_id = ? ORDER BY created_at DESC, id`,
+      )
       .all(workspaceId) as BenchmarkTaskRow[];
   }
 
   deleteTask(workspaceId: string, taskId: string): void {
-    this.db.prepare("DELETE FROM benchmark_tasks WHERE workspace_id = ? AND id = ?").run(workspaceId, taskId);
+    this.db
+      .prepare("DELETE FROM benchmark_tasks WHERE workspace_id = ? AND id = ?")
+      .run(workspaceId, taskId);
   }
 
   /**
@@ -733,7 +825,9 @@ export class BenchmarkStore {
                AND i2.arm_id = i.arm_id
            )`,
       )
-      .all(workspaceId) as Array<Omit<AnalyticsRow, "tags"> & { taskJson: string }>;
+      .all(workspaceId) as Array<
+      Omit<AnalyticsRow, "tags"> & { taskJson: string }
+    >;
     return rows.map(({ taskJson, ...row }) => ({
       ...row,
       tags: parseStoredTaskJson(taskJson)?.tags ?? [],
@@ -742,7 +836,9 @@ export class BenchmarkStore {
 
   getCatalogHead(): { ref: string; fetchedAt: number } | null {
     const row = this.db
-      .prepare("SELECT ref, fetched_at AS fetchedAt FROM benchmark_catalog_head WHERE slot = 1")
+      .prepare(
+        "SELECT ref, fetched_at AS fetchedAt FROM benchmark_catalog_head WHERE slot = 1",
+      )
       .get();
     return (row as { ref: string; fetchedAt: number } | undefined) ?? null;
   }
@@ -757,7 +853,11 @@ export class BenchmarkStore {
   }
 
   getCatalogIndex(ref: string): string | null {
-    const row = this.db.prepare("SELECT index_json AS indexJson FROM benchmark_catalog_cache WHERE ref = ?").get(ref);
+    const row = this.db
+      .prepare(
+        "SELECT index_json AS indexJson FROM benchmark_catalog_cache WHERE ref = ?",
+      )
+      .get(ref);
     return (row as { indexJson: string } | undefined)?.indexJson ?? null;
   }
 
@@ -778,7 +878,9 @@ export class BenchmarkStore {
    */
   getCachedTree(treeSha: string): string[] | null {
     const row = this.db
-      .prepare("SELECT paths_json AS pathsJson FROM benchmark_tree_cache WHERE tree_sha = ?")
+      .prepare(
+        "SELECT paths_json AS pathsJson FROM benchmark_tree_cache WHERE tree_sha = ?",
+      )
       .get(treeSha);
     const pathsJson = (row as { pathsJson: string } | undefined)?.pathsJson;
     if (!pathsJson) return null;
@@ -801,12 +903,19 @@ export class BenchmarkStore {
 
   getCachedTask(ref: string, taskKey: string): string | null {
     const row = this.db
-      .prepare("SELECT task_json AS taskJson FROM benchmark_task_cache WHERE ref = ? AND task_key = ?")
+      .prepare(
+        "SELECT task_json AS taskJson FROM benchmark_task_cache WHERE ref = ? AND task_key = ?",
+      )
       .get(ref, taskKey);
     return (row as { taskJson: string } | undefined)?.taskJson ?? null;
   }
 
-  setCachedTask(ref: string, taskKey: string, taskJson: string, fetchedAt: number): void {
+  setCachedTask(
+    ref: string,
+    taskKey: string,
+    taskJson: string,
+    fetchedAt: number,
+  ): void {
     this.db
       .prepare(
         `INSERT INTO benchmark_task_cache (ref, task_key, task_json, fetched_at) VALUES (?, ?, ?, ?)
@@ -817,22 +926,37 @@ export class BenchmarkStore {
 
   listCachedTasks(ref: string): Array<{ taskKey: string; taskJson: string }> {
     return this.db
-      .prepare("SELECT task_key AS taskKey, task_json AS taskJson FROM benchmark_task_cache WHERE ref = ?")
+      .prepare(
+        "SELECT task_key AS taskKey, task_json AS taskJson FROM benchmark_task_cache WHERE ref = ?",
+      )
       .all(ref) as Array<{ taskKey: string; taskJson: string }>;
   }
 
   countCachedTasks(ref: string): number {
-    const row = this.db.prepare("SELECT COUNT(*) AS count FROM benchmark_task_cache WHERE ref = ?").get(ref);
+    const row = this.db
+      .prepare(
+        "SELECT COUNT(*) AS count FROM benchmark_task_cache WHERE ref = ?",
+      )
+      .get(ref);
     return (row as { count: number } | undefined)?.count ?? 0;
   }
 
   /** Mark orphaned in-flight work as interrupted. Called once on server boot. */
   recoverInterrupted(now: number): { runs: number; items: number } {
     return this.transaction(() => {
-      const activeRuns = this.listRunsByStatus(["pending", "running", "aborting"]);
+      const activeRuns = this.listRunsByStatus([
+        "pending",
+        "running",
+        "aborting",
+      ]);
       let items = 0;
       for (const run of activeRuns) {
-        const inFlight = this.listItemsByStatus(run.id, ["pending", "preparing", "running", "judging"]);
+        const inFlight = this.listItemsByStatus(run.id, [
+          "pending",
+          "preparing",
+          "running",
+          "judging",
+        ]);
         for (const item of inFlight) {
           this.updateItem(item.id, { status: "interrupted", finishedAt: now });
           items += 1;
@@ -846,7 +970,9 @@ export class BenchmarkStore {
 
 const storeByPath = new Map<string, Promise<BenchmarkStore>>();
 
-export async function openBenchmarkStore(config: Pick<ServerConfig, "configPath">): Promise<BenchmarkStore> {
+export async function openBenchmarkStore(
+  config: Pick<ServerConfig, "configPath">,
+): Promise<BenchmarkStore> {
   const path = benchmarksDbPath(config);
   const existing = storeByPath.get(path);
   if (existing) return existing;

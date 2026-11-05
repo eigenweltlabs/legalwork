@@ -1,11 +1,10 @@
 /** @jsxImportSource react */
 import { RefreshCcw } from "lucide-react";
 
-import type { LegalworkServerInfo } from "../../../../app/lib/desktop";
 import { t } from "../../../../i18n";
 import { Button } from "@/components/ui/button";
 import { TextInput } from "../../../design-system/text-input";
-import type { LegalworkTestState, TokenVisibilityKey } from "./config-view-state";
+import type { LegalworkTestState } from "./config-view-state";
 
 export function ConfigWorkspaceSummary(props: { runtimeWorkspaceId: string | null }) {
   return (
@@ -77,83 +76,6 @@ export function ConfigDiagnosticsSection(props: {
   );
 }
 
-function TokenRow(props: {
-  label: string;
-  tokenValue: string | null | undefined;
-  hint: string;
-  visible: boolean;
-  toggle: () => void;
-  copyKey: string;
-  copyingField: string | null;
-  onCopy: (value: string, field: string) => void | Promise<void>;
-}) {
-  return (
-    <div className="flex items-center justify-between bg-gray-1 p-3 rounded-xl border border-gray-6 gap-3">
-      <div className="min-w-0">
-        <div className="text-xs font-medium text-gray-11">{props.label}</div>
-        <div className="text-xs text-gray-7 font-mono truncate">
-          {props.visible ? props.tokenValue || "—" : props.tokenValue ? "••••••••••••" : "—"}
-        </div>
-        <div className="text-[11px] text-gray-8 mt-1">{props.hint}</div>
-      </div>
-      <div className="flex items-center gap-2 shrink-0">
-        <Button variant="outline" size="sm" onClick={props.toggle} disabled={!props.tokenValue}>
-          {props.visible ? t("common.hide") : t("common.show")}
-        </Button>
-        <Button variant="outline" size="sm" onClick={() => props.onCopy(props.tokenValue ?? "", props.copyKey)} disabled={!props.tokenValue}>
-          {props.copyingField === props.copyKey ? t("config.copied") : t("config.copy")}
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-export function ConfigServerSharingSection(props: {
-  hostInfo: LegalworkServerInfo;
-  hostConnectUrl: string;
-  hostRemoteAccessEnabled: boolean;
-  hostConnectUrlUsesMdns: boolean;
-  hostStatusLabel: string;
-  hostStatusStyle: string;
-  tokenVisible: Record<TokenVisibilityKey, boolean>;
-  copyingField: string | null;
-  onCopy: (value: string, field: string) => void | Promise<void>;
-  onToggleToken: (key: TokenVisibilityKey) => void;
-}) {
-  const hostUrlHint = !props.hostRemoteAccessEnabled
-    ? t("config.remote_access_off_hint")
-    : props.hostConnectUrlUsesMdns
-      ? t("config.mdns_hint")
-      : t("config.local_ip_hint");
-  return (
-    <div className="bg-gray-2/30 border border-gray-6/50 rounded-2xl p-5 space-y-4">
-      <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-        <div>
-          <div className="text-sm font-medium text-gray-12">{t("config.server_sharing_title")}</div>
-          <div className="text-xs text-gray-10">{t("config.server_sharing_desc")}</div>
-        </div>
-        <div className={`text-xs px-2 py-1 rounded-full border ${props.hostStatusStyle}`}>{props.hostStatusLabel}</div>
-      </div>
-      <div className="grid gap-3">
-        <div className="flex items-center justify-between bg-gray-1 p-3 rounded-xl border border-gray-6 gap-3">
-          <div className="min-w-0">
-            <div className="text-xs font-medium text-gray-11">{t("config.server_url_label")}</div>
-            <div className="text-xs text-gray-7 font-mono truncate">{props.hostConnectUrl || t("config.starting_server")}</div>
-            {props.hostConnectUrl ? <div className="text-[11px] text-gray-8 mt-1">{hostUrlHint}</div> : null}
-          </div>
-          <Button variant="outline" size="sm" className="shrink-0" onClick={() => props.onCopy(props.hostConnectUrl, "host-url")} disabled={!props.hostConnectUrl}>
-            {props.copyingField === "host-url" ? t("config.copied") : t("config.copy")}
-          </Button>
-        </div>
-        <TokenRow label={t("config.collaborator_token_label")} tokenValue={props.hostInfo.clientToken} hint={props.hostRemoteAccessEnabled ? t("config.collaborator_token_remote_hint") : t("config.collaborator_token_disabled_hint")} visible={props.tokenVisible.client} toggle={() => props.onToggleToken("client")} copyKey="client-token" copyingField={props.copyingField} onCopy={props.onCopy} />
-        <TokenRow label={t("config.owner_token_label")} tokenValue={props.hostInfo.ownerToken} hint={props.hostRemoteAccessEnabled ? t("config.owner_token_remote_hint") : t("config.owner_token_disabled_hint")} visible={props.tokenVisible.owner} toggle={() => props.onToggleToken("owner")} copyKey="owner-token" copyingField={props.copyingField} onCopy={props.onCopy} />
-        <TokenRow label={t("config.host_admin_token_label")} tokenValue={props.hostInfo.hostToken} hint={t("config.host_admin_token_hint")} visible={props.tokenVisible.host} toggle={() => props.onToggleToken("host")} copyKey="host-token" copyingField={props.copyingField} onCopy={props.onCopy} />
-      </div>
-      <div className="text-xs text-gray-9">{t("config.server_sharing_menu_hint")}</div>
-    </div>
-  );
-}
-
 export function ConfigServerConnectionSection(props: {
   busy: boolean;
   legalworkUrl: string;
@@ -214,15 +136,6 @@ function ConfigConnectionTestStatus(props: { state: LegalworkTestState; message:
   return (
     <div className={`text-xs ${props.state === "success" ? "text-green-11" : props.state === "error" ? "text-red-11" : "text-gray-9"}`} role="status" aria-live="polite">
       {props.state === "testing" ? t("config.testing_connection") : (props.message ?? t("config.connection_status_updated"))}
-    </div>
-  );
-}
-
-export function ConfigMessagingIdentitiesSection() {
-  return (
-    <div className="bg-gray-2/30 border border-gray-6/50 rounded-2xl p-5 space-y-2">
-      <div className="text-sm font-medium text-gray-12">{t("config.messaging_identities_title")}</div>
-      <div className="text-xs text-gray-10">{t("config.messaging_identities_desc")}</div>
     </div>
   );
 }

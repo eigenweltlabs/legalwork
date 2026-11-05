@@ -1,3 +1,4 @@
+import { readMessages, readTodos } from "./_util.mjs";
 import assert from "node:assert/strict";
 
 import {
@@ -52,7 +53,7 @@ try {
   });
 
   await step("path.get", async () => {
-    const path = await client.path.get();
+    const path = await client.location.get({ location: { directory: server.cwd } });
     assert.ok(typeof path.directory === "string");
     return path;
   });
@@ -60,50 +61,50 @@ try {
   let sessionId;
 
   await step("session.create", async () => {
-    const session = await client.session.create({ title: "LegalWork e2e" });
+    const session = await client.session.create({ location: { directory: server?.cwd ?? directory }, title: "LegalWork e2e" });
     sessionId = session.id;
     assert.ok(sessionId);
     return { id: session.id, title: session.title };
   });
 
   await step("session.list", async () => {
-    const sessions = await client.session.list({ limit: 50 });
+    const sessions = (await client.session.list({ limit: 50 })).data;
     assert.ok(Array.isArray(sessions));
     assert.ok(sessions.some((s) => s.id === sessionId));
     return { count: sessions.length };
   });
 
   await step("session.messages (initial)", async () => {
-    const msgs = await client.session.messages({ sessionID: sessionId, limit: 50 });
+    const msgs = await readMessages(client, sessionId);
     assert.ok(Array.isArray(msgs));
     return { count: msgs.length };
   });
 
   await step("session.prompt noReply", async () => {
-    await client.session.prompt({
+    await client.session.synthetic({
       sessionID: sessionId,
-      noReply: true,
-      parts: [{ type: "text", text: "LegalWork e2e context injection" }],
+      resume: false,
+      text: "LegalWork e2e context injection",
     });
-    const msgs = await client.session.messages({ sessionID: sessionId, limit: 50 });
+    const msgs = await readMessages(client, sessionId);
     assert.ok(Array.isArray(msgs));
     return { count: msgs.length };
   });
 
   await step("session.todo", async () => {
-    const todos = await client.session.todo({ sessionID: sessionId });
+    const todos = await readTodos(client, sessionId);
     assert.ok(Array.isArray(todos));
     return { count: todos.length };
   });
 
   await step("event.subscribe", async () => {
     const controller = new AbortController();
-    const sub = await client.event.subscribe(undefined, { signal: controller.signal });
+    const sub = await client.event.subscribe({ signal: controller.signal });
     const events = [];
 
     const reader = (async () => {
       try {
-        for await (const raw of sub.stream) {
+        for await (const raw of sub) {
           const evt = normalizeEvent(raw);
           if (!evt) continue;
           events.push(evt);
@@ -133,11 +134,9 @@ try {
   if (requireAi) {
     await step("AI run (optional)", async () => {
       // This requires provider credentials configured for the opencode server.
-      await client.session.prompt({
-        sessionID: sessionId,
-        parts: [{ type: "text", text: "Say hello in one sentence." }],
-      });
-      const msgs = await client.session.messages({ sessionID: sessionId, limit: 50 });
+      await client.session.prompt({ sessionID: sessionId, text: "Say hello in one sentence." });
+      await client.session.wait({ sessionID: sessionId });
+      const msgs = await readMessages(client, sessionId);
       return { messagesCount: msgs.length };
     });
   } else {

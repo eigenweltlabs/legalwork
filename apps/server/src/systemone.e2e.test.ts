@@ -137,15 +137,7 @@ beforeAll(async () => {
   process.env.EIGENWELT_PLATFORM_URL = platform.url.origin;
   server = await startServer(config);
   base = `http://127.0.0.1:${server.port}`;
-  const issued = await fetch(`${base}/tokens`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-legalwork-host-token": config.hostToken,
-    },
-    body: JSON.stringify({ scope: "viewer", label: "SystemOne viewer" }),
-  });
-  viewer = z.object({ token: z.string() }).parse(await issued.json()).token;
+  viewer = "owt_retired_viewer";
 });
 afterAll(async () => {
   await server?.stop();
@@ -158,8 +150,8 @@ afterAll(async () => {
 
 test("auth and scope are enforced, malformed requests cannot execute", async () => {
   expect((await call("GET", "/settings", undefined, null)).status).toBe(401);
-  expect((await call("POST", "", { request }, viewer)).status).toBe(403);
-  expect((await call("PUT", "/providers", {}, viewer)).status).toBe(403);
+  expect((await call("POST", "", { request }, viewer)).status).toBe(401);
+  expect((await call("PUT", "/providers", {}, viewer)).status).toBe(401);
   expect(
     (await call("POST", "", { request: { state: "x", questions: {} } })).status,
   ).toBe(400);

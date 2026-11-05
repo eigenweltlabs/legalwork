@@ -4,6 +4,7 @@ import { access, mkdir } from "node:fs/promises";
 import { createServer } from "node:net";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
+import { developmentEngineEnvironment } from "../packages/opencode-release/prepare.mjs";
 
 const cwd = process.cwd();
 const tmpDir = path.join(cwd, "tmp");
@@ -128,26 +129,23 @@ const legalworkToken = process.env.LEGALWORK_TOKEN ?? randomUUID();
 const legalworkHostToken = process.env.LEGALWORK_HOST_TOKEN ?? randomUUID();
 const legalworkServerBin = path.join(
   cwd,
-  "apps/server/dist/bin/legalwork-server",
-);
-const opencodeRouterBin = path.join(
-  cwd,
-  "apps/opencode-router/dist/bin/opencode-router",
+  "apps/server/dist/cli.js",
 );
 
 const ensureLegalworkServer = async () => {
+  const engineEnvironment = await developmentEngineEnvironment({ checkOnly: !autoBuildEnabled, includeBinary: true });
   try {
     await access(legalworkServerBin);
   } catch {
     if (!autoBuildEnabled) {
       logLine(
-        `[dev:headless-web] Missing LegalWork server binary at ${legalworkServerBin}`,
+        `[dev:headless-web] Missing LegalWork server build at ${legalworkServerBin}`,
       );
       logLine(
         "[dev:headless-web] Auto-build disabled (LEGALWORK_DEV_HEADLESS_WEB_AUTOBUILD=0)",
       );
       logLine(
-        "[dev:headless-web] Run: pnpm --filter legalwork-server build:bin",
+        "[dev:headless-web] Run: pnpm --filter legalwork-server build",
       );
       logLine(
         "[dev:headless-web] Or unset/enable LEGALWORK_DEV_HEADLESS_WEB_AUTOBUILD to auto-build.",
@@ -156,13 +154,13 @@ const ensureLegalworkServer = async () => {
     }
 
     logLine(
-      `[dev:headless-web] Missing LegalWork server binary at ${legalworkServerBin}`,
+      `[dev:headless-web] Missing LegalWork server build at ${legalworkServerBin}`,
     );
     logLine(
-      "[dev:headless-web] Auto-building: pnpm --filter legalwork-server build:bin",
+      "[dev:headless-web] Auto-building: pnpm --filter legalwork-server build",
     );
     try {
-      await runCommand("pnpm", ["--filter", "legalwork-server", "build:bin"]);
+      await runCommand("pnpm", ["--filter", "legalwork-server", "build"]);
       await access(legalworkServerBin);
     } catch (error) {
       logLine(
@@ -171,57 +169,12 @@ const ensureLegalworkServer = async () => {
       process.exit(1);
     }
   }
-};
-
-const ensureOpencodeRouter = async () => {
-  try {
-    await access(opencodeRouterBin);
-  } catch {
-    if (!autoBuildEnabled) {
-      logLine(
-        `[dev:headless-web] Missing opencode-router binary at ${opencodeRouterBin}`,
-      );
-      logLine(
-        "[dev:headless-web] Auto-build disabled (LEGALWORK_DEV_HEADLESS_WEB_AUTOBUILD=0)",
-      );
-      logLine(
-        "[dev:headless-web] Run: pnpm --filter opencode-router build:bin",
-      );
-      logLine(
-        "[dev:headless-web] Or unset/enable LEGALWORK_DEV_HEADLESS_WEB_AUTOBUILD to auto-build.",
-      );
-      process.exit(1);
-    }
-
-    logLine(
-      `[dev:headless-web] Missing opencode-router binary at ${opencodeRouterBin}`,
-    );
-    logLine(
-      "[dev:headless-web] Auto-building: pnpm --filter opencode-router build:bin",
-    );
-    try {
-      await runCommand("pnpm", ["--filter", "opencode-router", "build:bin"]);
-      await access(opencodeRouterBin);
-    } catch (error) {
-      logLine(
-        `[dev:headless-web] Auto-build failed: ${error instanceof Error ? error.message : String(error)}`,
-      );
-      process.exit(1);
-    }
-  }
+  return engineEnvironment;
 };
 
 const legalworkUrl = `http://${clientHost}:${legalworkPort}`;
 const webUrl = `http://${clientHost}:${webPort}`;
-// In practice we want opencode-router on for end-to-end messaging tests.
-// Allow opt-out via LEGALWORK_DEV_OPENCODE_ROUTER=0.
-const opencodeRouterEnabled =
-  process.env.LEGALWORK_DEV_OPENCODE_ROUTER == null
-    ? true
-    : readBool(process.env.LEGALWORK_DEV_OPENCODE_ROUTER);
-const opencodeRouterRequired = readBool(
-  process.env.LEGALWORK_DEV_OPENCODE_ROUTER_REQUIRED,
-);
+
 const viteEnv = {
   ...process.env,
   HOST: viteHost,
@@ -240,13 +193,10 @@ const headlessEnv = {
   LEGALWORK_HOST_TOKEN: legalworkHostToken,
   LEGALWORK_SERVER_BIN: legalworkServerBin,
   LEGALWORK_SIDECAR_SOURCE: process.env.LEGALWORK_SIDECAR_SOURCE ?? "external",
-  OPENCODE_ROUTER_BIN: process.env.OPENCODE_ROUTER_BIN ?? opencodeRouterBin,
+
 };
 
-await ensureLegalworkServer();
-if (opencodeRouterEnabled) {
-  await ensureOpencodeRouter();
-}
+Object.assign(headlessEnv, await ensureLegalworkServer());
 
 logLine("[dev:headless-web] Starting services");
 logLine(`[dev:headless-web] Workspace: ${workspace}`);
@@ -254,9 +204,7 @@ logLine(`[dev:headless-web] LegalWork server: ${legalworkUrl}`);
 logLine(`[dev:headless-web] Web host: ${viteHost}`);
 logLine(`[dev:headless-web] Web port: ${webPort}`);
 logLine(`[dev:headless-web] Web URL: ${webUrl}`);
-logLine(
-  `[dev:headless-web] OpenCodeRouter: ${opencodeRouterEnabled ? "on" : "off"} (set LEGALWORK_DEV_OPENCODE_ROUTER=0 to disable)`,
-);
+
 logLine("[dev:headless-web] LEGALWORK_TOKEN: [REDACTED]");
 logLine("[dev:headless-web] LEGALWORK_HOST_TOKEN: [REDACTED]");
 logLine(
@@ -296,9 +244,7 @@ const headlessProcess = spawnLogged(
     "--approval",
     "auto",
     "--allow-external",
-    "--opencode-router",
-    opencodeRouterEnabled ? "true" : "false",
-    ...(opencodeRouterRequired ? ["--opencode-router-required"] : []),
+
     ...(remoteAccessEnabled ? ["--remote-access"] : []),
     "--legalwork-port",
     String(legalworkPort),

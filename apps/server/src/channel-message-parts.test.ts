@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { FilePartInput } from "@opencode-ai/sdk/v2/client";
+import type { FilePartInput } from "./assistant-engine.js";
 import type { ChannelReceipt } from "./channel-runtime.js";
 import { channelMessageParts } from "./channel-message-parts.js";
 

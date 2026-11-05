@@ -1,4 +1,6 @@
 import { spawnSync } from "child_process";
+import { downloadOpencodeBinary, opencodeReleaseTarget } from "../electron/opencode-release.mjs";
+import { engineBuildMode, prepareForBuild } from "../../../packages/opencode-release/prepare.mjs";
 import { createHash } from "crypto";
 import {
   chmodSync,
@@ -15,7 +17,6 @@ import {
   writeFileSync,
 } from "fs";
 import { dirname, join, resolve } from "path";
-import { tmpdir } from "os";
 import { fileURLToPath } from "url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -34,20 +35,6 @@ const sidecarOverride = process.env.LEGALWORK_SIDECAR_DIR?.trim() || readArg("--
 const sidecarDir = sidecarOverride ? resolve(sidecarOverride) : join(__dirname, "..", "resources", "sidecars");
 const constantsPath = resolve(__dirname, "..", "..", "..", "constants.json");
 
-const opencodeGithubRepo = (() => {
-  const raw =
-    process.env.OPENCODE_GITHUB_REPO?.trim() ||
-    process.env.LEGALWORK_OPENCODE_GITHUB_REPO?.trim() ||
-    "anomalyco/opencode";
-  const normalized = raw
-    .replace(/^https:\/\/github\.com\//i, "")
-    .replace(/\.git$/i, "")
-    .trim();
-  if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(normalized)) {
-    return "anomalyco/opencode";
-  }
-  return normalized;
-})();
 const opencodeVersion = (() => {
   try {
     const raw = readFileSync(constantsPath, "utf8");
@@ -65,7 +52,6 @@ const normalizeVersion = (value) => {
   return raw.startsWith("v") ? raw.slice(1) : raw;
 };
 
-const opencodeAssetOverride = process.env.OPENCODE_ASSET?.trim() || null;
 
 // Target triple for native platform binaries
 const resolvedTargetTriple = (() => {
@@ -115,7 +101,6 @@ const opencodeTargetName = resolvedTargetTriple
 const opencodeTargetPath = opencodeTargetName ? join(sidecarDir, opencodeTargetName) : null;
 
 const opencodeCandidatePath = opencodeTargetPath ?? opencodePath;
-let existingOpencodeVersion = null;
 
 // legalwork-server paths
 const legalworkServerBaseName = "legalwork-server";
@@ -202,20 +187,10 @@ const readDirectory = (dir) => {
   });
 };
 
-const findOpencodeBinary = (dir) => {
-  const candidates = readDirectory(dir);
-  return (
-    candidates.find((file) => file.endsWith(`/${opencodeBaseName}`) || file.endsWith(`\\${opencodeBaseName}`)) ??
-    candidates.find((file) => file.endsWith("/opencode.exe") || file.endsWith("\\opencode.exe")) ??
-    candidates.find((file) => file.endsWith("/opencode") || file.endsWith("\\opencode")) ??
-    null
-  );
-};
-
 const readBinaryVersion = (filePath) => {
   try {
     const result = spawnSync(filePath, ["--version"], { encoding: "utf8" });
-    if (result.status === 0 && result.stdout) return result.stdout.trim();
+    if (result.status === 0 && result.stdout) return result.stdout.trim().replace(/^opencode v?/, "").replace(/^v/, "");
   } catch {
     // ignore
   }
@@ -259,155 +234,62 @@ const adHocSignDarwinSidecars = (paths) => {
   }
 };
 
-const parseChecksum = (content, assetName) => {
-  const lines = content.split(/\r?\n/);
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    const [hash, name] = trimmed.split(/\s+/);
-    if (name === assetName) return hash.toLowerCase();
-    if (trimmed.endsWith(` ${assetName}`)) {
-      return trimmed.split(/\s+/)[0]?.toLowerCase() ?? null;
-    }
-  }
-  return null;
-};
-
 // legalwork-server is no longer compiled as a sidecar binary — it runs
 // in-process inside Electron via a direct import of the server library.
 const didBuildLegalworkServer = false;
 
 // Server binary copy/sign skipped — runs in-process.
 
-if (!existingOpencodeVersion && opencodeCandidatePath) {
-  existingOpencodeVersion =
-    existsSync(opencodeCandidatePath) && !isStubBinary(opencodeCandidatePath)
-      ? readBinaryVersion(opencodeCandidatePath)
-      : null;
-}
-
-const normalizedOpencodeVersion = normalizeVersion(opencodeVersion);
-
-if (!normalizedOpencodeVersion) {
-  console.error(
-    `OpenCode version could not be resolved from ${constantsPath}.`
-  );
-  process.exit(1);
-}
-
-const opencodeAssetByTarget = {
-  "aarch64-apple-darwin": "opencode-darwin-arm64.zip",
-  "x86_64-apple-darwin": "opencode-darwin-x64-baseline.zip",
-  "x86_64-unknown-linux-gnu": "opencode-linux-x64-baseline.tar.gz",
-  "aarch64-unknown-linux-gnu": "opencode-linux-arm64.tar.gz",
-  "x86_64-pc-windows-msvc": "opencode-windows-x64-baseline.zip",
-  "aarch64-pc-windows-msvc": "opencode-windows-arm64.zip",
+const releaseTargetByTriple = {
+  "aarch64-apple-darwin": "darwin-arm64",
+  "x86_64-apple-darwin": "darwin-x64-baseline",
+  "x86_64-unknown-linux-gnu": "linux-x64-baseline",
+  "aarch64-unknown-linux-gnu": "linux-arm64",
+  "x86_64-unknown-linux-musl": "linux-x64-baseline-musl",
+  "aarch64-unknown-linux-musl": "linux-arm64-musl",
+  "x86_64-pc-windows-msvc": "windows-x64-baseline",
+  "aarch64-pc-windows-msvc": "windows-arm64",
 };
-
-const opencodeAsset =
-  opencodeAssetOverride ?? (resolvedTargetTriple ? opencodeAssetByTarget[resolvedTargetTriple] : null);
-
-const opencodeUrl = opencodeAsset
-  ? `https://github.com/${opencodeGithubRepo}/releases/download/v${normalizedOpencodeVersion}/${opencodeAsset}`
-  : null;
-
-const shouldDownloadOpencode =
-  !opencodeCandidatePath ||
-  !existsSync(opencodeCandidatePath) ||
-  isStubBinary(opencodeCandidatePath) ||
-  !existingOpencodeVersion ||
-  existingOpencodeVersion !== normalizedOpencodeVersion;
-
-if (!shouldDownloadOpencode) {
-  console.log(`OpenCode sidecar already present (${existingOpencodeVersion}).`);
+const releaseTarget = releaseTargetByTriple[resolvedTargetTriple];
+if (!releaseTarget) throw new Error(`No reviewed OpenCode binary for target ${resolvedTargetTriple}`);
+const engineMode = engineBuildMode(process.argv.slice(2));
+const preparedEngine = await prepareForBuild({ mode: engineMode,
+  ...(engineMode === "development" ? { targets: [releaseTarget] } : {}) });
+const { installSelectedOpencodeEngine, opencodeEngineSelection } = await import("@legalwork/opencode-release/selection");
+const declaredOpencodeBaseVersion = normalizeVersion(opencodeVersion);
+if (declaredOpencodeBaseVersion !== opencodeEngineSelection.baseVersion) throw new Error(`OpenCode base API in ${constantsPath} does not match its reviewed engine selection.`);
+const normalizedOpencodeVersion = opencodeEngineSelection.version;
+// Re-verify the pinned archive even on incremental/offline builds. Never use
+// GitHub's latest (v1), npm tags, or an unverified PATH executable for packaging.
+const selectedEngineResources = resolve(sidecarDir, "..", "opencode-engine");
+mkdirSync(selectedEngineResources, { recursive: true });
+let installedOpencodePath = opencodeCandidatePath;
+let opencodeSource;
+if (opencodeEngineSelection.kind === "derivative") {
+  const installed = await installSelectedOpencodeEngine({
+    directory: join(selectedEngineResources, opencodeEngineSelection.artifactId, releaseTarget),
+    cacheDirectory: process.env.LEGALWORK_OPENCODE_CACHE || resolve(__dirname, "../../../.cache/opencode-derivative"),
+    archiveDirectory: preparedEngine.archiveDirectory,
+    target: releaseTarget,
+  });
+  installedOpencodePath = installed.path;
+  opencodeSource = { kind: "legalwork-derivative", version: installed.version, baseVersion: installed.baseVersion,
+    target: installed.target, provenanceSha256: installed.candidateBuild.provenanceSha256 };
+} else {
+  const installed = await downloadOpencodeBinary({
+    destination: opencodeCandidatePath,
+    cacheDirectory: process.env.LEGALWORK_OPENCODE_CACHE || resolve(__dirname, "../../../.cache/opencode"),
+    target: releaseTarget,
+    version: normalizedOpencodeVersion,
+  });
+  opencodeSource = { kind: "official", package: installed.package, integrity: installed.integrity };
+  if (opencodeCandidatePath !== opencodePath) copyFileSync(opencodeCandidatePath, opencodePath);
 }
-
-if (shouldDownloadOpencode) {
-  if (!opencodeAsset || !opencodeUrl) {
-    console.error(
-      `No OpenCode asset configured for target ${resolvedTargetTriple ?? "unknown"}. Set OPENCODE_ASSET to override.`
-    );
-    process.exit(1);
-  }
-
-  mkdirSync(sidecarDir, { recursive: true });
-
-  const stamp = Date.now();
-  const archivePath = join(tmpdir(), `opencode-${stamp}-${opencodeAsset}`);
-  const extractDir = join(tmpdir(), `opencode-${stamp}`);
-
-  mkdirSync(extractDir, { recursive: true });
-
-  if (process.platform === "win32") {
-    const psQuote = (value) => `'${value.replace(/'/g, "''")}'`;
-    const psScript = [
-      "$ErrorActionPreference = 'Stop'",
-      `Invoke-WebRequest -Uri ${psQuote(opencodeUrl)} -OutFile ${psQuote(archivePath)}`,
-      `Expand-Archive -Path ${psQuote(archivePath)} -DestinationPath ${psQuote(extractDir)} -Force`,
-    ].join("; ");
-
-    const result = spawnSync("powershell", ["-NoProfile", "-Command", psScript], {
-      stdio: "inherit",
-    });
-
-    if (result.status !== 0) {
-      process.exit(result.status ?? 1);
-    }
-  } else {
-    const downloadResult = spawnSync("curl", ["-fsSL", "-o", archivePath, opencodeUrl], {
-      stdio: "inherit",
-    });
-    if (downloadResult.status !== 0) {
-      process.exit(downloadResult.status ?? 1);
-    }
-
-    mkdirSync(extractDir, { recursive: true });
-
-    if (opencodeAsset.endsWith(".zip")) {
-      const unzipResult = spawnSync("unzip", ["-q", archivePath, "-d", extractDir], {
-        stdio: "inherit",
-      });
-      if (unzipResult.status !== 0) {
-        process.exit(unzipResult.status ?? 1);
-      }
-    } else if (opencodeAsset.endsWith(".tar.gz")) {
-      const tarResult = spawnSync("tar", ["-xzf", archivePath, "-C", extractDir], {
-        stdio: "inherit",
-      });
-      if (tarResult.status !== 0) {
-        process.exit(tarResult.status ?? 1);
-      }
-    } else {
-      console.error(`Unknown OpenCode archive type: ${opencodeAsset}`);
-      process.exit(1);
-    }
-  }
-
-  const extractedBinary = findOpencodeBinary(extractDir);
-  if (!extractedBinary) {
-    console.error("OpenCode binary not found after extraction.");
-    process.exit(1);
-  }
-
-  const opencodeTargets = [opencodeTargetPath, opencodePath].filter(Boolean);
-  for (const target of opencodeTargets) {
-    try {
-      if (existsSync(target)) {
-        unlinkSync(target);
-      }
-    } catch {
-      // ignore
-    }
-    copyFileSync(extractedBinary, target);
-    try {
-      chmodSync(target, 0o755);
-    } catch {
-      // ignore
-    }
-  }
-
-  console.log(`OpenCode sidecar updated to ${normalizedOpencodeVersion}.`);
+if (releaseTarget === opencodeReleaseTarget()) {
+  const actual = readBinaryVersion(installedOpencodePath);
+  if (actual !== normalizedOpencodeVersion) throw new Error(`OpenCode executable is ${actual}, expected ${normalizedOpencodeVersion}`);
 }
+console.log(`OpenCode ${normalizedOpencodeVersion}: verified ${opencodeSource.kind} artifact for ${releaseTarget}`);
 
 // Build orchestrator sidecar
 let didBuildOrchestrator = false;
@@ -429,6 +311,8 @@ if (shouldBuildOrchestrator) {
   }
   const orchestratorArgs = [
     orchestratorBuildScript,
+    "--engine-mode",
+    engineMode,
     "--outdir",
     sidecarDir,
     "--filename",
@@ -483,8 +367,7 @@ if (existsSync(orchestratorBuildPath)) {
 }
 
 adHocSignDarwinSidecars([
-  opencodePath,
-  opencodeTargetPath,
+  ...(opencodeEngineSelection.kind === "official" ? [opencodePath, opencodeTargetPath] : []),
   // legalwork-server runs in-process — no binary to sign.
   orchestratorBuildPath,
   orchestratorPath,
@@ -512,7 +395,8 @@ const orchestratorVersion = (() => {
 const versions = {
   opencode: {
     version: normalizedOpencodeVersion,
-    sha256: opencodeCandidatePath && existsSync(opencodeCandidatePath) ? sha256File(opencodeCandidatePath) : null,
+    source: opencodeSource,
+    sha256: existsSync(installedOpencodePath) ? sha256File(installedOpencodePath) : null,
   },
   "legalwork-server": {
     version: legalworkServerVersion,

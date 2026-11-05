@@ -38,7 +38,11 @@ test("saved speaker audio is analyzed only at Stop, in bounded batches, then rem
   try {
     for (let i = 0; i < 10; i++) {
       pass.feed(audio(100, 20000));
-      await new Promise(resolve => setImmediate(resolve));
+      // Each synthetic chunk contains twenty seconds of audio; let its disk
+      // write finish before feeding the next chunk at faster-than-real time.
+      await new Promise((resolve, reject) => {
+        pass.writer.write(Buffer.alloc(0), error => error ? reject(error) : resolve());
+      });
     }
     assert.equal(requests.length, 0);
     assert.equal(results.length, 0);

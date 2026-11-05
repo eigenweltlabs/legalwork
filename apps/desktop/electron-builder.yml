@@ -15,16 +15,19 @@ files:
   - "!server/dist/opencode-plugins/**"
   - package.json
 extraResources:
+  # Cloud dictation detects silence locally before opening a paid session.
+  - from: node_modules/@ricky0123/vad-web/dist/silero_vad_legacy.onnx
+    to: speech/silero_vad_legacy.onnx
+  - from: resources/opencode-engine
+    to: opencode-engine
   - from: resources/licenses
     to: licenses
   - from: resources/opencode-sdk
     to: opencode-sdk
     filter:
       - package.json
-  # FileMatcher always skips a source's root node_modules directory. Copy
-  # its contents as a separate resource so the SDK dependency graph ships.
-  - from: resources/opencode-sdk/node_modules
-    to: opencode-sdk/node_modules
+  # v2 provides effect and @opencode/plugin inside the released CLI. The
+  # declaration above is deliberate: do not copy a foreign node_modules tree.
   - from: resources/actaport-mcp
     to: actaport-mcp
     filter:
@@ -48,10 +51,10 @@ extraResources:
   - from: server/dist/opencode-plugins
     to: opencode-plugins
     filter:
-      - "*.js"
-      - "!*.test.js"
+      - "*/index.js"
       # Do not ship a retired plugin left by an incremental server build.
-      - "!legalwork-anthropic-auth.js"
+      - "!legalwork-anthropic-auth/**"
+      - "!legalwork-chrome-devtools/**"
   # The runtime dock/window icon, which the .icns baked in below cannot supply:
   # resolveAppIconPath() reads these out of `process.resourcesPath/icons` so the
   # dock can swap to the ink plate when macOS is in dark mode. Without them a

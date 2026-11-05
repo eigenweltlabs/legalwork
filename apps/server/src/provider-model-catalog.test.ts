@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { modelCatalogBaseURL, providerModelsFromCatalog } from "./provider-model-catalog.js";
-import type { ProviderConfig } from "@opencode-ai/sdk/v2/client";
+import type { CatalogModel } from "./provider-model-catalog.js";
 
 const originalEnv = {
   OPENCODE_MODELS_URL: process.env.OPENCODE_MODELS_URL,
@@ -33,7 +33,9 @@ test("uses Eigenwelt's catalog when the override is blank", () => {
 });
 
 test("rejects third-party overrides, credentials, queries, and insecure remote URLs", () => {
-  for (const url of ["https://models.opencode.ai", "https://platform.eigenweltlabs.com.other.example", "http://platform.eigenweltlabs.com", "https://user:secret@platform.eigenweltlabs.com", "https://platform.eigenweltlabs.com/?user=123"]) {
+  const fixtureURL = new URL("https://platform.eigenweltlabs.com");
+  fixtureURL.username = "user"; fixtureURL.password = "secret";
+  for (const url of ["https://models.opencode.ai", "https://platform.eigenweltlabs.com.other.example", "http://platform.eigenweltlabs.com", fixtureURL.href, "https://platform.eigenweltlabs.com/?user=123"]) {
     process.env.OPENCODE_MODELS_URL = url;
     expect(modelCatalogBaseURL).toThrow();
   }
@@ -42,8 +44,8 @@ test("rejects third-party overrides, credentials, queries, and insecure remote U
 test("keeps catalog capabilities and token limits without importing unrelated providers", () => {
   const details = { name: "New reasoning model", reasoning: true, tool_call: true, attachment: true,
     limit: { context: 200000, output: 64000 }, cost: { input: 2, output: 8 },
-    modalities: { input: ["text", "image", "pdf"], output: ["text"] } } satisfies NonNullable<ProviderConfig["models"]>[string];
-  expect(providerModelsFromCatalog("anthropic", { anthropic: { models: { "model-1": { ...details, knowledge: "2026-09" } } }, unrelated: { models: "invalid" } })).toEqual({ "model-1": details });
+    modalities: { input: ["text", "image", "pdf"], output: ["text"] }, reasoning_options: [{ type: "effort", values: ["low", "high"] }], knowledge: "2026-09" } satisfies CatalogModel;
+  expect(providerModelsFromCatalog("anthropic", { anthropic: { models: { "model-1": details } }, unrelated: { models: "invalid" } })).toEqual({ "model-1": details });
 });
 
 test("reports malformed or missing provider information", () => {

@@ -126,3 +126,9 @@ test("temporary LLM connection resets retry within the shared request budget", a
   expect(calls).toBe(3);
   expect(reviewModelError({ message: "Connection reset by server", statusCode: 401 })).not.toBeInstanceOf(ReviewRetryError);
 });
+
+test("native model errors retain HTTP status and provider cooldown without retrying billing or auth", () => {
+  expect(reviewModelError({ type: "provider", message: "Busy", status: 429, retryAfterMs: 4200 })).toMatchObject({ retryAfterMs: 4200 });
+  expect(reviewModelError({ type: "provider", message: "Rejected", status: 401 })).not.toBeInstanceOf(ReviewRetryError);
+  expect(reviewModelError({ type: "provider", message: "You have no credits remaining.", status: 429, retryAfterMs: 4200 })).not.toBeInstanceOf(ReviewRetryError);
+});

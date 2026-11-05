@@ -19,11 +19,12 @@ export function resolveConnectorState(input: {
 }
 
 export function configuredConnectorState(entry: McpServerEntry, status?: McpStatus): ConnectorState {
-  if (connectorNeedsSetup(entry.config)) return "needs_setup";
+  if (connectorNeedsSetup(entry.config, entry.configured)) return "needs_setup";
   return resolveConnectorState({ enabled: entry.config.enabled !== false, status: status?.status });
 }
 
 const messages = {
+  pending: "status.connecting",
   connected: null,
   disabled: "integrations.connector_needs_enable",
   needs_auth: "firm_hub.connector_needs_sign_in",
@@ -35,6 +36,7 @@ const messages = {
 } satisfies Record<ConnectorState, string | null>;
 
 const dots = {
+  pending: "bg-amber-9",
   connected: null,
   disabled: null,
   needs_auth: "bg-amber-9",

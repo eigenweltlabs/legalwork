@@ -25,7 +25,7 @@ function makeStore() {
   const legalworkServer = createLegalworkServerStore({
     startupPreference: () => "local", documentVisible: () => true, developerMode: () => false, runtimeWorkspaceId: () => null, activeClient: () => null,
     selectedWorkspaceDisplay: () => ({ id: "local", name: "Local", path: "/tmp/workspace", preset: "", workspaceType: "local" }),
-    restartLocalServer: async () => false, createRemoteWorkspaceFlow: async () => false,
+    restartLocalServer: async () => false,
   });
   return createExtensionsStore({
     client: () => null, projectDir: () => "/tmp/workspace", selectedWorkspaceId: () => "local", selectedWorkspaceRoot: () => "/tmp/workspace", workspaceType: () => "local", legalworkServer,

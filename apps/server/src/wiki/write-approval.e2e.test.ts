@@ -79,19 +79,19 @@ async function descendantFixture() {
   const f = await fixture();
   const directory = await realpath(f.project);
   const sessions = new Map([
-    ["matter-chat", { id: "matter-chat", directory, parentID: undefined }],
-    ["child-chat", { id: "child-chat", directory, parentID: "matter-chat" }],
+    ["matter-chat", { id: "matter-chat", location: { directory }, parentID: undefined }],
+    ["child-chat", { id: "child-chat", location: { directory }, parentID: "matter-chat" }],
   ]);
   const engineRequests: string[] = [];
   const engine = await serve({ hostname: "127.0.0.1", port: 0, fetch: request => {
     const path = new URL(request.url).pathname;
-    if (!path.startsWith("/session/")) return Response.json({ error: "Not found" }, { status: 404 });
+    if (!path.startsWith("/api/session/")) return Response.json({ error: "Not found" }, { status: 404 });
     expect(request.headers.get("authorization")).toBe(`Basic ${Buffer.from("wiki-engine:test-secret").toString("base64")}`);
-    expect(request.headers.get("x-opencode-directory")).toBe(directory);
-    const id = decodeURIComponent(path.slice("/session/".length));
+    expect(request.headers.get("x-opencode-directory")).toBeNull();
+    const id = decodeURIComponent(path.slice("/api/session/".length));
     engineRequests.push(id);
     const record = sessions.get(id);
-    return record ? Response.json(record) : Response.json({ error: "Unknown session" }, { status: 404 });
+    return record ? Response.json({ data: record }) : Response.json({ error: "Unknown session" }, { status: 404 });
   } });
   stops.push(() => engine.stop());
   const workspace = f.config.workspaces.find(item => item.id === "matter");
@@ -118,7 +118,7 @@ test("a revoked ancestor and changed engine lineage cannot retain child wiki acc
   if (!original) throw new Error("Child session missing");
   f.sessions.set("child-chat", { ...original, parentID: "unregistered-parent" });
   expect((await f.child(`${f.base}/page?path=Client.md`)).status).toBe(403);
-  f.sessions.set("child-chat", { ...original, directory: f.root });
+  f.sessions.set("child-chat", { ...original, location: { directory: f.root } });
   expect((await f.child("/wikis")).status).toBe(403);
   f.sessions.set("child-chat", original);
   await grantWikiAgentSession(f.config, { sessionId: "matter-chat", directory: join(f.root, "unavailable"), scope: "owner" });

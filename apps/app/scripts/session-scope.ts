@@ -59,10 +59,6 @@ try {
     );
   });
 
-  step("remote connect still waits for remote discovery", () => {
-    assert.equal(resolveScopedClientDirectory({ workspaceType: "remote", targetRoot: starterRoot }), "");
-  });
-
   step("scope matching is stable on desktop-style paths", () => {
     assert.equal(scopedRootsMatch(`${starterRoot}/`, starterRoot.toUpperCase()), true);
     assert.equal(scopedRootsMatch(starterRoot, otherRoot), false);

@@ -343,8 +343,9 @@ test("disconnect waits for refresh, removes the grant and blocks the late token"
   try {
     // Release the upstream refresh only after disconnect has removed the
     // account metadata and is waiting to erase its in-flight grant.
-    for (let attempt = 0; attempt < 50 && (await localOAuthConnections(config, "gmail")).length; attempt++) {
-      await new Promise<void>((resolve) => setImmediate(resolve));
+    const deadline = performance.now() + 2000;
+    while ((await localOAuthConnections(config, "gmail")).length && performance.now() < deadline) {
+      await new Promise<void>((resolve) => setTimeout(resolve, 10));
     }
     expect(await localOAuthConnections(config, "gmail")).toEqual([]);
     release.resolve();
@@ -630,7 +631,10 @@ test("late invalid_grant from an obsolete refresh cannot poison a successfully u
   expect((await callback(reconnect.authorization)).status).toBe(200);
   const activating = reconnect.flows.status(reconnect.flow.flowId);
   try {
-    for (let attempt = 0; attempt < 50 && (await privateState("outlook")).connections[0].grantKey === oldKey; attempt++) await new Promise<void>((resolve) => setImmediate(resolve));
+    const deadline = performance.now() + 2000;
+    while ((await privateState("outlook")).connections[0].grantKey === oldKey && performance.now() < deadline) {
+      await new Promise<void>((resolve) => setTimeout(resolve, 10));
+    }
     expect((await privateState("outlook")).connections[0].grantKey).not.toBe(oldKey);
     release.resolve();
     expect(await refreshResult).toMatchObject({ code: "connector_reconnect_required" });

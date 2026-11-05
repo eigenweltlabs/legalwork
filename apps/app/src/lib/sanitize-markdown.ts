@@ -20,6 +20,7 @@ export function sanitizeMarkdownHtml(value: string) {
       "data-legalwork-image-toggle-label",
       "data-legalwork-legalmemory-ref",
       "data-legalwork-link-href",
+      "data-legalwork-app-link",
       "data-legalwork-link-chevron",
       "data-legalwork-shiki",
       "data-legalwork-task-ref",

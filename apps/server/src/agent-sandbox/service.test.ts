@@ -6,6 +6,7 @@ import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promi
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AgentSandboxService, type AgentPermissionRule } from "./service.js";
+import type { RawHttpNetwork } from "./raw-http.js";
 import { explicitFileApprovals, managedPermissionRules } from "./engine-policy.js";
 import { webInputSchema } from "./web.js";
 import { brokerRequest, type OutboundRequest, type OutboundResponse, prepareOutboundRequest } from "./network.js";
@@ -22,7 +23,7 @@ const roots: string[] = [];
 const services: AgentSandboxService[] = [];
 const configs: ServerConfig[] = [];
 afterEach(async () => {
-  services.splice(0).forEach(service => service.stop());
+  await Promise.all(services.splice(0).map(service => service.stop()));
   for (const config of configs.splice(0)) {
     await closeRuntimeOpencodeConfig(config);
     await resetOrgPolicyRuntimeForTests(config);
@@ -40,7 +41,7 @@ afterEach(async () => {
   }
 });
 
-async function fixture(permissions: Record<string, unknown>, approve = true, onRun?: (input: SandboxRun) => Promise<void>) {
+async function fixture(permissions: Record<string, unknown>, approve = true, onRun?: (input: SandboxRun) => Promise<void>, rawHttpSend?: RawHttpNetwork["send"]) {
   const root = await mkdtemp(join(tmpdir(), "legalwork-sandbox-policy-"));
   roots.push(root);
   const matter = join(root, "matter");
@@ -60,7 +61,7 @@ async function fixture(permissions: Record<string, unknown>, approve = true, onR
   const service = new AgentSandboxService(config, approvals, {
     status: async () => ({ available: true }), prepare: async () => "test-image",
     run: async (input) => { executions.push(input); await onRun?.(input); return { output: "done", exitCode: 0, truncated: false }; },
-  });
+  }, rawHttpSend);
   services.push(service);
   const run = (write = false) => service.run(workspace, { command: "python report.py", write, timeoutMs: 1000 },
     { type: "remote", scope: "collaborator" }, new AbortController().signal);
@@ -75,6 +76,78 @@ test("shell denial prevents runtime launch", async () => {
 });
 
 const networkRequest = () => prepareOutboundRequest({ url: "https://example.com/", method: "POST", headers: {}, bodyBase64: Buffer.from("test body").toString("base64") });
+
+test("raw HTTP offers full large request review before DNS and keeps each chat's settings", async () => {
+  const f = await fixture({ webfetch: "allow" });
+  await writeSessionSandbox(f.config, f.workspace.id, "blocked", { enabled: true, networkMode: "block" });
+  const body = "complete request:" + "x".repeat(40000);
+  const input = { sessionID: "approved", url: "https://example.com/raw", method: "POST", headers: { authorization: "private token" }, bodyBase64: Buffer.from(body).toString("base64") };
+  const events: string[] = [];
+  const network = { resolve: async () => { events.push("dns"); return [{ address: "93.184.216.34", family: 4 }]; },
+    send: async () => { events.push("connect"); return { status: 200, statusText: "OK", headers: {}, bodyBase64: "AAH/" }; } };
+  await expect(f.service.rawHttp(f.workspace, { ...input, sessionID: "blocked" }, { type: "host" }, new AbortController().signal, [], undefined, network)).rejects.toThrow("blocked");
+  const running = f.service.rawHttp(f.workspace, input, { type: "host" }, new AbortController().signal, [], undefined, network);
+  const [approval] = await waitForWebApproval(f.service);
+  expect(approval.network).toMatchObject({ complete: true, body, bodyBytes: Buffer.byteLength(body), headers: input.headers });
+  expect(approval.network?.sha256).toMatch(/^[a-f0-9]{64}$/);
+  expect(approval.summary).not.toContain(body);
+  expect(events).toEqual([]);
+  f.service.approvals.respond(approval.id, "allow");
+  expect(await running).toMatchObject({ status: 200, bodyBase64: "AAH/" });
+  expect(events).toEqual(["dns", "connect"]);
+  expect(f.service.approvals.list()).toEqual([]);
+});
+
+test("raw HTTP respects agent denial and cancels approval/body transport when policy is revoked", async () => {
+  const f = await fixture({ webfetch: "allow" });
+  const input = { sessionID: "chat", url: "https://example.com/raw", method: "GET", headers: {} };
+  let sent = 0;
+  let connected: () => void = () => {};
+  const connection = new Promise<void>(resolve => { connected = resolve; });
+  const network = { resolve: async () => [{ address: "93.184.216.34", family: 4 }],
+    send: async (_: unknown, __: unknown, signal: AbortSignal): Promise<{ status: number; statusText: string; headers: Record<string, string>; bodyBase64: string }> => {
+      sent++; connected(); return new Promise((_, reject) => signal.addEventListener("abort", () => reject(signal.reason), { once: true }));
+    } };
+  await expect(f.service.rawHttp(f.workspace, input, { type: "host" }, new AbortController().signal,
+    [{ permission: "webfetch", pattern: "*", action: "deny" }], undefined, network)).rejects.toThrow("blocked by your permissions");
+  expect(sent).toBe(0);
+  const waiting = f.service.rawHttp(f.workspace, input, { type: "host" }, new AbortController().signal, [], undefined, network).catch(error => error);
+  await waitForWebApproval(f.service);
+  await writeSessionSandbox(f.config, f.workspace.id, "chat", { enabled: true, networkMode: "block" });
+  expect(await waiting).toBeInstanceOf(Error); expect(sent).toBe(0); expect(f.service.approvals.list()).toEqual([]);
+  await writeSessionSandbox(f.config, f.workspace.id, "chat", { enabled: true, networkMode: "allow" });
+  const running = f.service.rawHttp(f.workspace, input, { type: "host" }, new AbortController().signal, [], undefined, network).catch(error => error);
+  await connection;
+  await writeSessionSandbox(f.config, f.workspace.id, "chat", { enabled: true, networkMode: "block" });
+  expect(await running).toBeInstanceOf(Error); expect(sent).toBe(1);
+});
+
+test("shutdown waits for the host-owned HTTP transport to finish cleanup and cancels pending consent", async () => {
+  let entered: () => void = () => {}, release: () => void = () => {};
+  const started = new Promise<void>(done => { entered = done; }), cleanup = new Promise<void>(done => { release = done; });
+  let requests = 0;
+  const f = await fixture({ webfetch: "allow" }, true, undefined, async (_request, _address, signal) => {
+    requests++; entered();
+    await new Promise<void>(done => signal.addEventListener("abort", () => done(), { once: true }));
+    await cleanup; signal.throwIfAborted();
+    throw new Error("Unreachable transport completion");
+  });
+  await writeSessionSandbox(f.config, f.workspace.id, "active", { enabled: true, networkMode: "allow" });
+  const input = { url: "http://127.0.0.1/owned-fixture", method: "GET", headers: {} };
+  const waiting = f.service.rawHttp(f.workspace, { ...input, sessionID: "waiting" }, { type: "host" }, new AbortController().signal).catch(error => error);
+  await waitForWebApproval(f.service);
+  const running = f.service.rawHttp(f.workspace, { ...input, sessionID: "active" }, { type: "host" }, new AbortController().signal).catch(error => error);
+  await started;
+  let stopped = false;
+  const stopping = f.service.stop().then(() => { stopped = true; });
+  await Bun.sleep(1);
+  expect(stopped).toBe(false); expect(requests).toBe(1);
+  expect(await waiting).toBeInstanceOf(Error); expect(f.service.approvals.list()).toEqual([]);
+  release(); await stopping;
+  expect(stopped).toBe(true); expect(await running).toBeInstanceOf(Error);
+  await expect(f.service.rawHttp(f.workspace, { ...input, sessionID: "after-stop" }, { type: "host" }, new AbortController().signal)).rejects.toThrow("stopping");
+  expect(requests).toBe(1);
+});
 
 test("sandbox off permits host reads and writes with external wikis registered", async () => {
   const f = await fixture({ bash: "allow", read: "allow", edit: "allow", webfetch: "allow" });

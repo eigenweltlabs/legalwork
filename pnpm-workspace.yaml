@@ -1,6 +1,13 @@
 minimumReleaseAge: 4320
 minimumReleaseAgeExclude:
-  - "@opencode-ai/sdk"
+  # Exact OpenCode v2 packages reviewed for the engine migration.
+  - "@opencode/client@2.1.4"
+  - "@opencode/plugin@2.1.4"
+  - "@opencode/plugin-browser@2.1.4"
+  - "@opencode/schema@2.1.4"
+  - "@opencode/protocol@2.1.4"
+  - "@opencode/ai@2.1.4"
+  - "@opencode/util@2.1.4"
   # Explicitly allow the reviewed Electron security update.
   - "electron@43.8.3"
   # Pinned standalone OpenUI runtime reviewed for the reversible wiki prototype.
@@ -39,7 +46,6 @@ allowBuilds:
   # Optional msgpackr native accelerator; the bundled SDK uses the JavaScript fallback.
   msgpackr-extract: false
   ssh2: false
-  "@whiskeysockets/baileys": true
   better-sqlite3: true
   core-js: false
   electron: true

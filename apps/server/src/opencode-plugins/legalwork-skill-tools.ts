@@ -1,3 +1,6 @@
+import { registerPrimaryContext } from "./native-review-worker.js";
+import { Plugin } from "@opencode/plugin";
+import { nativeTool, nativeToolSignal, nativeObjectOutput } from "./native-tool.js";
 import { SkillLessonInputSchema } from "../skill-lesson-schema.js";
 import { readFile } from "node:fs/promises";
 import { basename, isAbsolute, join } from "node:path";
@@ -97,7 +100,7 @@ async function requestJson(
       ...(options.body ? { "Content-Type": "application/json" } : {}),
     },
     ...(options.body ? { body: JSON.stringify(options.body) } : {}),
-    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    signal: nativeToolSignal(REQUEST_TIMEOUT_MS),
   });
   const text = await response.text();
   let payload: unknown = null;
@@ -151,24 +154,18 @@ async function attachResources(
   }
   return { attached, warnings };
 }
-
-export const LegalWorkSkillTools = async () => {
-  // Package grants are scoped to the workspace and chat, never the library.
-  // They contain locations, not copies of instructions or resource bytes.
-  const loaded = new Map<string, Map<string, z.infer<typeof packageEntry>>>();
-  function sessionKey(workspace: string, context: OpenCodeContext) {
+export default Plugin.define({id:"legalwork.skills",async setup(ctx){
+const loaded = new Map<string, Map<string, z.infer<typeof packageEntry>>>();
+function sessionKey(workspace: string, context: OpenCodeContext) {
     if (!context.sessionID || !context.ask) throw new Error("Skill resources require a chat identity and permission checks.");
     return `${workspace}:${context.sessionID}`;
   }
-  return {
-  "experimental.chat.system.transform": async (_input: unknown, output: { system: string[] }) => {
-    output.system.push(SKILL_TOOLS_INSTRUCTION + "\nUse legalwork_skill_load for installed skills and workflows, then legalwork_skill_read with its exact package file references for attached Markdown and Word resources. Helpers run through legalwork_shell with the returned skills and mount paths, under normal execution permissions.\nBefore calculating legal deadlines, use legalwork_skill_load to read the jurisdiction skill AND its expert corrections. When a lawyer corrects you, distinguish an extracted fact, a matter-specific exception, a reusable rule, and a code defect. Propose the exact correction and project/global scope. On an explicit request to remember/save it, call legalwork_skill_create with kind=workflow, lesson={base, appliesWhen, correction, examples}, and a new descriptive name. The correction appears in Workflows and loads automatically with its base. Preserve the base. Include both the corrected case and a nearby case whose correct behavior must not change. Never claim these examples are executed tests. Reload the composed skill before retrying, including in a new session.");
-  },
-  tool: {
-    legalwork_skill_load: {
-      description: "Load an installed skill or workflow, its expert corrections and its full package of attached resources. Returns exact file references for legalwork_skill_read and shell mounts. Use this for all workflows and skills, including deadlines. Resolves dependencies and refuses changed base versions.",
-      args: { name: z.string().min(1) },
-      async execute(raw: unknown, context: OpenCodeContext) {
+await registerPrimaryContext(ctx,event=>{event.system.push({type:"text",text:SKILL_TOOLS_INSTRUCTION + "\nUse legalwork_skill_load for installed skills and workflows, then legalwork_skill_read with its exact package file references for attached Markdown and Word resources. Helpers run through legalwork_shell with the returned skills and mount paths, under normal execution permissions.\nBefore calculating legal deadlines, use legalwork_skill_load to read the jurisdiction skill AND its expert corrections. When a lawyer corrects you, distinguish an extracted fact, a matter-specific exception, a reusable rule, and a code defect. Propose the exact correction and project/global scope. On an explicit request to remember/save it, call legalwork_skill_create with kind=workflow, lesson={base, appliesWhen, correction, examples}, and a new descriptive name. The correction appears in Workflows and loads automatically with its base. Preserve the base. Include both the corrected case and a nearby case whose correct behavior must not change. Never claim these examples are executed tests. Reload the composed skill before retrying, including in a new session."});});
+
+await ctx.tool.transform(editor=>{
+editor.add(nativeTool(ctx,{name:"legalwork_skill_load", outputSchema: nativeObjectOutput(z.object({ok:z.literal(true),payload:z.object({chain:z.array(packageEntry)}).passthrough()}).passthrough()),permission:"domain",description: "Load an installed skill or workflow, its expert corrections and its full package of attached resources. Returns exact file references for legalwork_skill_read and shell mounts. Use this for all workflows and skills, including deadlines. Resolves dependencies and refuses changed base versions.",
+schema: z.object({ name: z.string().min(1) }),
+async execute(raw: unknown, context: OpenCodeContext) {
         const { name } = z.object({ name: z.string().min(1) }).parse(raw);
         const workspace = await resolveWorkspaceId(context, { requireDirectory: true });
         const key = sessionKey(workspace, context);
@@ -183,12 +180,10 @@ export const LegalWorkSkillTools = async () => {
         for (const entry of chain) grants.set(entry.name, entry);
         loaded.set(key, grants);
         return JSON.stringify(result);
-      },
-    },
-    legalwork_skill_read: {
-      description: "Read an attached resource from a skill or workflow already loaded in this chat. Reads Markdown, other UTF-8 files and Word document text directly from the installed package, including updates. Does not execute helpers, grant library-wide access or copy files into the project. Existing skill and read permissions apply. For long files follow nextOffset; Word drawings and tracked changes may require visual review.",
-      args: resourceArgs.shape,
-      async execute(raw: unknown, context: OpenCodeContext) {
+      }}));
+editor.add(nativeTool(ctx,{name:"legalwork_skill_read",permission:"domain",description: "Read an attached resource from a skill or workflow already loaded in this chat. Reads Markdown, other UTF-8 files and Word document text directly from the installed package, including updates. Does not execute helpers, grant library-wide access or copy files into the project. Existing skill and read permissions apply. For long files follow nextOffset; Word drawings and tracked changes may require visual review.",
+schema: resourceArgs,
+async execute(raw: unknown, context: OpenCodeContext) {
         const input = resourceArgs.parse(raw);
         const workspace = await resolveWorkspaceId(context, { requireDirectory: true });
         const entry = loaded.get(sessionKey(workspace, context))?.get(input.name);
@@ -197,13 +192,11 @@ export const LegalWorkSkillTools = async () => {
         await context.ask!({ permission: "read", patterns: [join(entry.directory, input.path)], always: [], metadata: {} });
         const query = new URLSearchParams({ directory: entry.directory, path: input.path, offset: String(input.offset ?? 0) });
         return JSON.stringify(await requestJson(`/workspace/${encodeURIComponent(workspace)}/skills/${encodeURIComponent(input.name)}/package-file?${query}`, { context }));
-      },
-    },
-    legalwork_skill_create: {
-      description:
+      }}));
+editor.add(nativeTool(ctx,{name:"legalwork_skill_create",description:
         "Save reusable instructions through the ordinary skill library. User-facing playbooks and corrections appear in Workflows; supporting capabilities appear in Settings > Integrations > Skills. Both are automatically discoverable within their project/global scope. Use when the user asks to create, save or remember instructions. For tabular-review prompts and sets, use the author-review-prompts skill and legalwork_review_library_save instead.",
-      args: createArgs.shape,
-      async execute(rawArgs: unknown, context: OpenCodeContext) {
+schema: createArgs,
+async execute(rawArgs: unknown, context: OpenCodeContext) {
         const args = createArgs.parse(rawArgs);
         const kind = args.lesson ? "workflow" : args.kind ?? "skill";
         const workflowType = args.workflowType ?? "assistant";
@@ -274,13 +267,11 @@ export const LegalWorkSkillTools = async () => {
         } catch (error) {
           return JSON.stringify({ ok: false, error: error instanceof Error ? error.message : String(error) });
         }
-      },
-    },
-    legalwork_skill_list: {
-      description:
+      }}));
+editor.add(nativeTool(ctx,{name:"legalwork_skill_list", outputSchema: nativeObjectOutput(z.object({ok:z.literal(true),skills:z.array(z.object({name:z.string(),description:z.string(),kind:z.string(),scope:z.string().optional()}).passthrough()),workflows:z.array(z.object({name:z.string(),description:z.string(),kind:z.string(),scope:z.string().optional()}).passthrough())}).passthrough()),description:
         "List the skills and workflows installed in this LegalWork workspace, including the firm's shared library. Use before creating one to avoid duplicating an existing skill or workflow, or when the user asks what skills/workflows they have.",
-      args: listArgs.shape,
-      async execute(_rawArgs: unknown, context: OpenCodeContext) {
+schema: listArgs,
+async execute(_rawArgs: unknown, context: OpenCodeContext) {
         try {
           const workspaceId = await resolveWorkspaceId(context);
           const result = await requestJson(`/workspace/${encodeURIComponent(workspaceId)}/skills?includeGlobal=true`, { context });
@@ -310,8 +301,6 @@ export const LegalWorkSkillTools = async () => {
         } catch (error) {
           return JSON.stringify({ ok: false, error: error instanceof Error ? error.message : String(error) });
         }
-      },
-    },
-  },
-  };
-};
+      }}));
+});
+}});

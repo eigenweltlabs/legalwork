@@ -1,4 +1,4 @@
-import type { OpencodeClient } from "@opencode-ai/sdk/v2/client";
+import type { AssistantEngineClient } from "../assistant-engine.js";
 import type { MainAssistant } from "../main-assistant.js";
 import { isMainAssistant } from "../main-assistant.js";
 import type { AssistantDelegations } from "../assistant-delegations.js";
@@ -8,7 +8,7 @@ import { readAssistantAttention } from "../assistant-attention.js";
 import type { PushEvent } from "./apns.js";
 
 export async function readPushEvents(config: ServerConfig, assistant: MainAssistant, delegations: AssistantDelegations,
-  client: (workspace: WorkspaceInfo) => OpencodeClient): Promise<PushEvent[]> {
+  client: (workspace: WorkspaceInfo) => AssistantEngineClient): Promise<PushEvent[]> {
   const workspace = config.workspaces.find(isMainAssistant);
   if (!workspace) return [];
   const events: PushEvent[] = [];

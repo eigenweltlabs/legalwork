@@ -428,7 +428,7 @@ export function TasksPane(props: TasksPaneProps) {
         draftKey={artifactDocumentKey(props.workspaceId, draftScope, `task:${selectedTask.id}`)}
         saving={updateTask.isPending || resolveConflict.isPending}
         task={selectedTask}
-        projects={props.workspaces.filter((workspace) => workspace.workspaceType !== "remote").map((workspace) => ({ id: workspace.id, name: workspace.displayNameResolved }))}
+        projects={props.workspaces.map((workspace) => ({ id: workspace.id, name: workspace.displayNameResolved }))}
         submission={detailQuery.data?.submission}
         notes={detailQuery.data?.notes ?? []}
         submissionPending={detailQuery.isLoading}

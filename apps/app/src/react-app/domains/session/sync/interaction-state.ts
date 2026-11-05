@@ -1,4 +1,7 @@
-import type { Part, PermissionRequest, PermissionV2Request, QuestionRequest, Session } from "@opencode-ai/sdk/v2/client";
+import { fieldVisible } from "../modals/native-form-panel";
+import type { PermissionRequest, FormInfo, SessionMessageInfo, FormAnswer } from "@opencode/client";
+import type { Part } from "@/app/lib/opencode-view";
+import { readSession } from "@/app/lib/opencode-read";
 import type { Client, PendingPermission, PendingQuestion } from "@/app/types";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { t } from "@/i18n";
@@ -72,17 +75,9 @@ export type InteractionSnapshot = {
 export const createInteractionSnapshot = (): InteractionSnapshot => ({
   startedAt: Date.now(), permissions: new Map(), questions: new Map(), deletedSessions: new Set(),
 });
-type SeedOptions = { snapshotStartedAt?: number; protocol?: "legacy" | "v2"; snapshot?: InteractionSnapshot };
+type SeedOptions = { snapshotStartedAt?: number; protocol?: "v2"; snapshot?: InteractionSnapshot };
 
-type PermissionSeed = PermissionRequest | PermissionV2Request;
-
-function isV2PermissionRequest(permission: PermissionSeed): permission is PermissionV2Request {
-  return "action" in permission;
-}
-
-function legacyPermissionWithReceivedAt(permission: PermissionRequest, receivedAt: number): PendingPermission {
-  return { ...permission, receivedAt, protocol: "legacy" };
-}
+type PermissionSeed = PermissionRequest;
 
 function v2PermissionKind(action: string): string {
   if (action === "external_directory") return "external_directory";
@@ -92,7 +87,7 @@ function v2PermissionKind(action: string): string {
   return action;
 }
 
-function v2PermissionWithReceivedAt(permission: PermissionV2Request, receivedAt: number): PendingPermission {
+function v2PermissionWithReceivedAt(permission: PermissionRequest, receivedAt: number): PendingPermission {
   const metadata: Record<string, unknown> = {
     ...(permission.metadata ?? {}),
     action: permission.action,
@@ -105,7 +100,7 @@ function v2PermissionWithReceivedAt(permission: PermissionV2Request, receivedAt:
     patterns: permission.resources,
     metadata,
     always: permission.save ?? [],
-    ...(permission.source ? { tool: { messageID: permission.source.messageID, callID: permission.source.callID } } : {}),
+    ...(permission.source ? { tool: { messageID: permission.source.messageID, callID: permission.source.id } } : {}),
     receivedAt,
     protocol: "v2",
     v2: {
@@ -116,11 +111,7 @@ function v2PermissionWithReceivedAt(permission: PermissionV2Request, receivedAt:
   };
 }
 
-export function permissionWithReceivedAt(permission: PermissionSeed, receivedAt: number): PendingPermission {
-  return isV2PermissionRequest(permission)
-    ? v2PermissionWithReceivedAt(permission, receivedAt)
-    : legacyPermissionWithReceivedAt(permission, receivedAt);
-}
+export function permissionWithReceivedAt(permission:PermissionRequest,receivedAt:number):PendingPermission {return v2PermissionWithReceivedAt(permission,receivedAt);}
 
 /** The engine's MCP permission event omits arguments. Read only its exact tool call. */
 export function permissionToolInput(
@@ -139,8 +130,8 @@ export function permissionToolInput(
   return part.state.input;
 }
 
-export function questionWithReceivedAt(question: QuestionRequest, receivedAt: number, protocol: "legacy" | "v2" = "legacy"): PendingQuestion {
-  return { ...question, receivedAt, protocol };
+export function questionWithReceivedAt(form:FormInfo,receivedAt:number):PendingQuestion {
+ return {id:form.id,sessionID:form.sessionID,form,protocol:"v2",receivedAt,questions:form.fields.flatMap(field=>field.type==="string" || field.type==="multiselect" ? [{header:field.title ?? form.title,question:field.description ?? field.title ?? form.title,options:field.options?.map(option=>({label:option.label,description:option.description ?? ""})) ?? [],multiple:field.type==="multiselect",custom:field.custom}] : [])};
 }
 
 export function sortInteractionRequests(a: { receivedAt: number; id: string }, b: { receivedAt: number; id: string }) {
@@ -181,7 +172,7 @@ export function seedPermissionState(
 export function seedQuestionState(
   workspaceId: string,
   sessionId: string,
-  questions: QuestionRequest[],
+  questions: FormInfo[],
   options: SeedOptions = {},
 ) {
   if (options.snapshot?.deletedSessions.has(sessionId)) return;
@@ -191,12 +182,12 @@ export function seedQuestionState(
     const receivedAtById = new Map(current.map((question) => [question.id, question.receivedAt]));
     const seeded = questions.flatMap((question) =>
       question.sessionID === sessionId && !options.snapshot?.questions.has(interactionRequestKey(sessionId, question.id))
-        ? [questionWithReceivedAt(question, receivedAtById.get(question.id) ?? now, options.protocol)] : [],
+        ? [questionWithReceivedAt(question, receivedAtById.get(question.id) ?? now)] : [],
     );
     const seededIds = new Set(seeded.map((question) => question.id));
     const snapshotStartedAt = options.snapshot?.startedAt ?? options.snapshotStartedAt;
     const retained = current.filter((question) => {
-      if (options.protocol && (question.protocol ?? "legacy") !== options.protocol) return true;
+      if (options.protocol && question.protocol !== options.protocol) return true;
       const changed = options.snapshot?.questions.get(interactionRequestKey(sessionId, question.id));
       if (changed === false) return false;
       return !seededIds.has(question.id) && (changed === true ||
@@ -223,7 +214,7 @@ export async function resolveInteractionLineage(input: Pick<RecoveryInput, "clie
     seen.add(id);
     let info: InteractionSession | undefined = getReactQueryClient().getQueryData<InteractionSessions>(interactionSessionsKey(input.workspaceId))?.[id];
     if (!info) {
-      const session: Session = unwrap(await input.client.session.get({ sessionID: id }));
+      const session = await readSession(input.client,id);
       if (!input.isCurrent(id)) return;
       seedInteractionSession(input.workspaceId, session);
       input.onSessionUpdated({ sessionId: session.id, info: session });
@@ -233,61 +224,49 @@ export async function resolveInteractionLineage(input: Pick<RecoveryInput, "clie
   }
 }
 
-// Recover every protocol independently. A failed endpoint must never erase
-// requests from that protocol, or delay recovery from an endpoint that works.
-export async function refreshWorkspaceInteractions(input: RecoveryInput) {
-  const queryClient = getReactQueryClient();
-  const resolveLineage = (id: string) => resolveInteractionLineage({
-    ...input,
-    isCurrent: (sessionId) => input.isCurrent(sessionId) && (!sessionId || !input.snapshot.deletedSessions.has(sessionId)),
-  }, id);
-  const recoverPermissions = async (read: () => Promise<PermissionSeed[]>, protocol: "legacy" | "v2") => {
-    const requests = (await read()).filter((item) => !input.snapshot.deletedSessions.has(item.sessionID));
-    if (!input.isCurrent()) return;
-    const ids = new Set(requests.map((item) => item.sessionID));
-    for (const [, pending] of queryClient.getQueriesData<PendingPermission[]>({ queryKey: ["react-session-permissions", input.workspaceId] })) {
-      for (const item of pending ?? []) if (item.protocol === protocol) ids.add(item.sessionID);
-    }
-    for (const id of ids) seedPermissionState(input.workspaceId, id, requests, { protocol, snapshot: input.snapshot });
-    await Promise.allSettled([...new Set(requests.map((item) => item.sessionID))].map(resolveLineage));
-  };
-  const recoverQuestions = async (read: () => Promise<QuestionRequest[]>, protocol: "legacy" | "v2") => {
-    const requests = (await read()).filter((item) => !input.snapshot.deletedSessions.has(item.sessionID));
-    if (!input.isCurrent()) return;
-    const ids = new Set(requests.map((item) => item.sessionID));
-    for (const [, pending] of queryClient.getQueriesData<PendingQuestion[]>({ queryKey: ["react-session-questions", input.workspaceId] })) {
-      for (const item of pending ?? []) if ((item.protocol ?? "legacy") === protocol) ids.add(item.sessionID);
-    }
-    for (const id of ids) seedQuestionState(input.workspaceId, id, requests, { protocol, snapshot: input.snapshot });
-    await Promise.allSettled([...new Set(requests.map((item) => item.sessionID))].map(resolveLineage));
-  };
-  await Promise.allSettled([
-    recoverPermissions(async () => unwrap(await input.client.permission.list()), "legacy"),
-    recoverPermissions(async () => unwrap(await input.client.v2.permission.request.list()).data, "v2"),
-    recoverQuestions(async () => unwrap(await input.client.question.list()), "legacy"),
-    recoverQuestions(async () => unwrap(await input.client.v2.question.request.list()).data, "v2"),
-  ]);
+/** A new live subscription always reconciles pending requests authoritatively. */
+export async function refreshWorkspaceInteractions(input:RecoveryInput) {
+ const cache=getReactQueryClient();
+ const [permissions,forms]=await Promise.allSettled([input.client.permission.request.list(),input.client.form.list()]);
+ if(!input.isCurrent())return;
+ const ids=new Set<string>();
+ if(permissions.status==="fulfilled") {
+  const requests=permissions.value.data;
+  for(const item of requests)ids.add(item.sessionID);
+  for(const [,pending] of cache.getQueriesData<PendingPermission[]>({queryKey:["react-session-permissions",input.workspaceId]}))for(const item of pending ?? [])ids.add(item.sessionID);
+  for(const id of ids)seedPermissionState(input.workspaceId,id,requests,{protocol:"v2",snapshot:input.snapshot});
+ }
+ if(forms.status==="fulfilled") {
+  const requests=forms.value.data;
+  for(const item of requests)ids.add(item.sessionID);
+  for(const [,pending] of cache.getQueriesData<PendingQuestion[]>({queryKey:["react-session-questions",input.workspaceId]}))for(const item of pending ?? [])ids.add(item.sessionID);
+  for(const id of ids)seedQuestionState(input.workspaceId,id,requests,{protocol:"v2",snapshot:input.snapshot});
+ }
+ await Promise.allSettled([...ids].map(id=>resolveInteractionLineage({
+  ...input,
+  isCurrent:sessionID=>input.isCurrent(sessionID) && (!sessionID || !input.snapshot.deletedSessions.has(sessionID)),
+ },id)));
 }
 
 export async function replyToPermission(client: Client, permission: PendingPermission, reply: "once" | "always" | "reject", directory: string, serverClient?: LegalworkServerClient | null) {
   if (permission.protocol === "host") {
     if (!serverClient?.canApprove || !permission.host || (reply === "always" && !permission.host.canRemember)) throw new Error(t("app.error_request_failed"));
     await serverClient.replyHostApproval(permission.host, reply === "once" ? "allow" : reply === "always" ? "always" : "deny");
-  } else if (permission.protocol === "v2") {
-    const result = await client.v2.session.permission.reply({ sessionID: permission.sessionID, requestID: permission.id, reply });
-    if (result.error !== undefined) unwrap(result);
   } else {
-    unwrap(await client.permission.reply({ requestID: permission.id, reply, directory: directory || undefined }));
+    await client.permission.reply({sessionID:permission.sessionID,requestID:permission.id,decision:reply});
   }
 }
 
-export async function replyToQuestion(client: Client, question: PendingQuestion, answers: string[][], directory: string) {
-  if (question.protocol === "v2") {
-    const result = await client.v2.session.question.reply({
-      sessionID: question.sessionID, requestID: question.id, questionV2Reply: { answers },
-    });
-    if (result.error !== undefined) unwrap(result);
-  } else {
-    unwrap(await client.question.reply({ requestID: question.id, answers, directory: directory || undefined }));
-  }
+export async function replyToQuestion(client:Client,question:PendingQuestion,answers:string[][],_directory:string) {
+ if(!question.form)throw new Error("Question form is unavailable.");
+ const answer:FormAnswer={};
+ for(const [index,field] of question.form.fields.entries()) {
+  if(field.type!=="external" && !fieldVisible(field,question.form,answers) && !field.hidden)continue;
+  const values=answers[index] ?? [];
+  if(field.type==="multiselect")answer[field.key]=values;
+  else if(field.type==="boolean")answer[field.key]=values[0]==="true";
+  else if(field.type==="number" || field.type==="integer")answer[field.key]=Number(values[0]);
+  else if(field.type==="string")answer[field.key]=values[0] ?? "";
+ }
+ await client.session.form.reply({sessionID:question.sessionID,formID:question.id,answer});
 }

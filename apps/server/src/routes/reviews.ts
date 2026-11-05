@@ -7,6 +7,9 @@ import { ReviewService } from "../reviews/service.js";
 import { ReviewSessions } from "../reviews/sessions.js";
 import { ReviewLibrary } from "../reviews/library.js";
 import { ReviewSettingsSchema } from "../reviews/schema.js";
+import { reviewWorkerContract, submitReviewWorker } from "../reviews/worker-authority.js";
+import { authenticateWikiAgentRequest } from "../wiki/agent-access.js";
+import { reviewExecutionActor } from "../reviews/execution-actor.js";
 
 export function registerReviewRoutes(options: {
   routes: Route[]; config: ServerConfig; reviews: ReviewService; corpus?: CorpusService; reviewSessions: ReviewSessions;
@@ -30,6 +33,17 @@ export function registerReviewRoutes(options: {
       }
     });
   };
+  route("GET", "/workers/:sessionId/contract", async (ctx, workspace) => {
+    if (!(await authenticateWikiAgentRequest(options.config, ctx.request))?.reviewWorker)
+      throw new ApiError(403, "review_worker_access_required", "This endpoint requires its active inference worker credential.");
+    const claim = await reviewWorkerContract(options.config, workspace, ctx.params.sessionId);
+    return { id: claim.id, schema: claim.schema, instructions: claim.instructions };
+  });
+  route("POST", "/workers/:sessionId/submit", async (ctx, workspace) => {
+    if (!(await authenticateWikiAgentRequest(options.config, ctx.request))?.reviewWorker)
+      throw new ApiError(403, "review_worker_access_required", "This endpoint requires its active inference worker credential.");
+    return submitReviewWorker(options.config, workspace, ctx.params.sessionId, await ctx.request.json());
+  });
   route("GET", "/corpus/:job", async (ctx, workspace) => {
     if (!options.corpus) throw new ApiError(503, "corpus_unavailable", "Corpus questions are unavailable.");
     const { jobId, status, question, kind, total, processed, counts } = await options.corpus.query(workspace, { jobId: ctx.params.job, waitSeconds: 0 });
@@ -87,7 +101,7 @@ export function registerReviewRoutes(options: {
     const input = z.strictObject({ revision: z.number().int().nonnegative(), settings: ReviewSettingsSchema }).parse(await body(ctx));
     return reviews.saveSettings(workspace, input.settings, ctx.params.review, input.revision);
   });
-  route("POST", "/:review/start", async (ctx, workspace) => reviews.start(workspace, ctx.params.review, await body(ctx)));
+  route("POST", "/:review/start", async (ctx, workspace) => reviews.start(workspace, ctx.params.review, await body(ctx), reviewExecutionActor(ctx.actor)));
   route("POST", "/:review/cancel", (ctx, workspace) => reviews.cancel(workspace, ctx.params.review));
   route("GET", "/:review/source/:document", (ctx, workspace) => reviews.verifySource(workspace, ctx.params.review, ctx.params.document, ctx.url.searchParams.get("sourceHash") ?? undefined));
   route("GET", "/:review/recognition/:document", (ctx, workspace) => reviews.recognitionPage(workspace, ctx.params.review, ctx.params.document, ctx.request.signal,

@@ -42,9 +42,9 @@ export async function writeMarkdownChunk(input: {
 }
 
 /** Interrupted previews remain inspectable but can never masquerade as saved files. */
-export function applyMarkdownStreamEvent(workspaceId: string, event: { type: string; properties?: unknown }) {
-  if (!["session.idle", "session.error", "session.deleted"].includes(event.type)) return;
-  const p = event.properties;
+export function applyMarkdownStreamEvent(workspaceId: string, event: { type: string; data?: unknown }) {
+  if (!["session.idle", "session.execution.failed", "session.execution.interrupted", "session.deleted"].includes(event.type)) return;
+  const p = event.data;
   if (!p || typeof p !== "object" || !("sessionID" in p)) return;
   useMarkdownStreams.setState(state => ({ items: Object.fromEntries(Object.entries(state.items).map(([id, item]) => [id,
     item.workspaceId === workspaceId && item.sessionId === p.sessionID && item.status === "writing" ? { ...item, status: "failed" } : item,

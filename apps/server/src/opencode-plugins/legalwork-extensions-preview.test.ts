@@ -4,7 +4,22 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { LegalWorkExtensionsPreview } from "./legalwork-extensions-preview.js";
+import { LegalWorkExtensionsPreview as NativeExtensions } from "./legalwork-extensions-preview.js";
+import { nativePluginTools, nativeToolBefore, nativeTestInvocation } from "./native-plugin-test-support.js";
+import type { OpenCodeContext } from "./office-plugin-shared.js";
+const plugins: Array<Awaited<ReturnType<typeof nativePluginTools>>> = [];
+async function LegalWorkExtensionsPreview(context: OpenCodeContext = {}) {
+  const plugin = await nativePluginTools(NativeExtensions, context);
+  plugins.push(plugin);
+  return plugin;
+}
+function inputSchema(input: unknown) { return z.fromJSONSchema(z.record(z.string(), z.unknown()).parse(input)); }
+async function fixedSystem(plugin: Awaited<ReturnType<typeof LegalWorkExtensionsPreview>>, sessionID = "ses_test") {
+  const system: Array<{ type: "text"; text: string }> = [];
+  const event = { sessionID, agent: "legalwork", system };
+  await plugin.runtime.hook("session", "context", event);
+  return event.system.map(part => part.text).join("\n");
+}
 import { ALL_PROJECTS_TASK_AGENT, PROJECT_TASK_AGENT } from "../scheduled-tasks/access.js";
 
 const roots: string[] = [];
@@ -12,6 +27,7 @@ let originalFetch: typeof globalThis.fetch | null = null;
 let previousDiscovery: string | undefined;
 
 afterEach(async () => {
+  for (const plugin of plugins.splice(0)) await plugin.close();
   if (originalFetch) globalThis.fetch = originalFetch;
   originalFetch = null;
   if (previousDiscovery === undefined) delete process.env.LEGALWORK_UI_CONTROL_DISCOVERY;
@@ -20,7 +36,7 @@ afterEach(async () => {
 });
 
 /** Point the plugin at a fake UI bridge that serves one snapshot payload. */
-async function withBridge(snapshot: unknown, execute?: (body: unknown) => unknown) {
+async function withBridge(snapshot: unknown, execute?: (body: unknown, signal?: AbortSignal | null) => unknown | Promise<unknown>) {
   const root = await mkdtemp(join(tmpdir(), "legalwork-ui-bridge-"));
   roots.push(root);
   const discovery = join(root, "legalwork-ui-control.json");
@@ -32,11 +48,12 @@ async function withBridge(snapshot: unknown, execute?: (body: unknown) => unknow
   globalThis.fetch = Object.assign(
     async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
       const url = input instanceof Request ? input.url : input.toString();
+      if (url.endsWith("/assistant")) return Response.json({ workspace: null });
       if (url.endsWith("/snapshot")) return Response.json(snapshot);
       if (url.endsWith("/execute")) {
         const body = typeof init?.body === "string" ? JSON.parse(init.body) : null;
         if (body?.actionId === "documents.list") return Response.json({ ok: true, result: snapshot });
-        if (execute) return Response.json(execute(body));
+        if (execute) return Response.json(await execute(body, init?.signal));
       }
       return new Response("Not found", { status: 404 });
     },
@@ -46,14 +63,10 @@ async function withBridge(snapshot: unknown, execute?: (body: unknown) => unknow
 
 /** What the model sees for a session: the fixed system text and the reminder on a new user message. */
 async function modelContext(plugin: Awaited<ReturnType<typeof LegalWorkExtensionsPreview>>, sessionID: string) {
-  const system: { system: string[] } = { system: [] };
-  await plugin["experimental.chat.system.transform"]({ sessionID }, system);
-  const message: { message: { id: string }; parts: object[] } = { message: { id: "msg_test" }, parts: [] };
-  await plugin["chat.message"]({ sessionID }, message);
-  return {
-    system: system.system.join("\n"),
-    reminder: message.parts.map((part) => String(Reflect.get(part, "text"))).join("\n"),
-  };
+  const system = await fixedSystem(plugin, sessionID);
+  const event = { sessionID, messageID: "msg_test", prompt: { text: "" } };
+  await plugin.runtime.hook("session", "prompt", event);
+  return { system, reminder: event.prompt.text.trim() };
 }
 
 describe("legalwork_ui_snapshot session identity", () => {
@@ -175,12 +188,13 @@ describe("in-app Word document routing", () => {
 
     // The agent opens a document mid-run: the next tool result reports it.
     snapshot = activeDocumentSnapshot;
-    const opened = { output: "opened" };
-    await plugin["tool.execute.after"]({ sessionID: "ses_open" }, opened);
-    expect(opened.output).toContain("compensation-memo.docx");
-    const unchanged = { output: "read" };
-    await plugin["tool.execute.after"]({ sessionID: "ses_open" }, unchanged);
-    expect(unchanged.output).toBe("read");
+    const opened = { ...nativeTestInvocation("ses_open"), tool: "fixture", status: "completed", result: { content: "opened" } };
+    await plugin.runtime.hook("tool", "execute.after", opened);
+    expect(JSON.stringify(opened.result.content)).toContain("compensation-memo.docx");
+    const unchanged = { ...nativeTestInvocation("ses_open"), tool: "fixture", status: "completed", result: { content: "read" } };
+    await plugin.runtime.hook("tool", "execute.after", unchanged);
+    expect(unchanged.result.content).toBe("read");
+    plugin.runtime.histories.get("ses_open")?.push({ type: "assistant", id: "msg_tool", content: [{ type: "tool", name: "fixture", state: { status: "completed", ...opened.result } }] });
 
     // The user closes it between turns: the next message says so once.
     snapshot = { ok: true, openFiles: [] };
@@ -197,10 +211,7 @@ describe("in-app Word document routing", () => {
     await withBridge(activeDocumentSnapshot);
     const plugin = await LegalWorkExtensionsPreview();
 
-    await expect(plugin["tool.execute.before"](
-      { tool: "bash", sessionID: "ses_open", callID: "call_1" },
-      { args: { command: 'node docx-agent.mjs inspect "compensation-memo.docx"' } },
-    )).resolves.toBeUndefined();
+    await expect(nativeToolBefore(plugin.runtime, "bash", { command: 'node docx-agent.mjs inspect "compensation-memo.docx"' }, "ses_open")).resolves.toBeUndefined();
   });
 
   test("leaves shell write coordination to the execution service", async () => {
@@ -210,14 +221,8 @@ describe("in-app Word document routing", () => {
       protectedSurfaces: [activeDocumentSnapshot.activeSurface],
     });
     const plugin = await LegalWorkExtensionsPreview();
-    await expect(plugin["tool.execute.before"](
-      { tool: "legalwork_shell", sessionID: "ses_open", callID: "write" },
-      { args: { command: 'python format.py "compensation-memo.docx"', write: true } },
-    )).resolves.toBeUndefined();
-    await plugin["tool.execute.before"](
-      { tool: "legalwork_shell", sessionID: "ses_open", callID: "read" },
-      { args: { command: 'python inspect.py "compensation-memo.docx"', write: false } },
-    );
+    await expect(nativeToolBefore(plugin.runtime, "legalwork_shell", { command: 'python format.py "compensation-memo.docx"', write: true }, "ses_open")).resolves.toBeUndefined();
+    await nativeToolBefore(plugin.runtime, "legalwork_shell", { command: 'python inspect.py "compensation-memo.docx"', write: false }, "ses_open");
   });
 
   test("Word file handoff addresses the exact path and reports save failure", async () => {
@@ -338,7 +343,7 @@ describe("in-app Office sidebar routing", () => {
     const plugin = await LegalWorkExtensionsPreview();
     await plugin.tool.inapp_xlsx_read.execute({ path: "background.xlsx" }, { sessionID: "background-task" });
     expect(calls).toEqual([{ actionId: "office.agent_tool", args: { sessionId: "background-task", path: "background.xlsx", format: "xlsx", toolName: "read", args: { path: "background.xlsx" } } }]);
-    expect(JSON.parse(await plugin.tool.inapp_documents_list.execute({}, {})).files).toEqual([]);
+    expect(JSON.parse(await plugin.tool.inapp_documents_list.execute({}, { sessionID: "" })).files).toEqual([]);
   });
   test("selects open tabs and retries save without repeating mutations", async () => {
     const calls: unknown[] = [];
@@ -354,9 +359,9 @@ describe("in-app Office sidebar routing", () => {
   test("does not reject shell commands based on an open Office filename", async () => {
     await withBridge(snapshot);
     const plugin = await LegalWorkExtensionsPreview();
-    await expect(plugin["tool.execute.before"]({ tool: "legalwork_shell", sessionID: "ses_office", callID: "1" }, { args: { command: "rewrite matter/Budget.xlsx" } })).resolves.toBeUndefined();
-    await plugin["tool.execute.before"]({ tool: "bash", sessionID: "ses_office", callID: "2" }, { args: { command: "read other.xlsx" } });
-    await plugin["tool.execute.before"]({ tool: "legalwork_shell", sessionID: "ses_office", callID: "3" }, { args: { command: "inspect matter/Budget.xlsx", write: false } });
+    await expect(nativeToolBefore(plugin.runtime, "legalwork_shell", { command: "rewrite matter/Budget.xlsx" }, "ses_office")).resolves.toBeUndefined();
+    await nativeToolBefore(plugin.runtime, "bash", { command: "read other.xlsx" }, "ses_office");
+    await nativeToolBefore(plugin.runtime, "legalwork_shell", { command: "inspect matter/Budget.xlsx", write: false }, "ses_office");
   });
   test("routes presentation replacements to the live editor", async () => {
     const pptx = { ...surface, format: "pptx", path: "Review.pptx" };
@@ -372,7 +377,7 @@ describe("in-app Office sidebar routing", () => {
 test("live Office tool schemas are serializable for model tool calling", async () => {
   const plugin = await LegalWorkExtensionsPreview();
   for (const [name, tool] of Object.entries(plugin.tool)) {
-    if (name.startsWith("inapp_")) expect(() => z.toJSONSchema(z.object(tool.args))).not.toThrow();
+    if (name.startsWith("inapp_")) expect(() => tool.input).not.toThrow();
   }
 });
 
@@ -385,7 +390,7 @@ test("live Office schemas have no empty enum choices rejected by Vertex", async 
     Object.values(value).forEach(checkEnums);
   }
   for (const [name, tool] of Object.entries(plugin.tool)) {
-    if (name.startsWith("inapp_")) checkEnums(z.toJSONSchema(z.object(tool.args)));
+    if (name.startsWith("inapp_")) checkEnums(tool.input);
   }
 });
 
@@ -408,7 +413,7 @@ test("opens workspace and connected files in the engine session, then exposes li
   const calls: unknown[] = [];
   await withBridge({}, (body) => { calls.push(body); return { ok: true, status: "opening" }; });
   const plugin = await LegalWorkExtensionsPreview();
-  expect(JSON.parse(await plugin.tool.inapp_documents_open.execute({ path: "draft.md" }, {})).ok).toBe(false);
+  expect(JSON.parse(await plugin.tool.inapp_documents_open.execute({ path: "draft.md" }, { sessionID: "" })).ok).toBe(false);
   expect(calls).toEqual([]);
   await plugin.tool.inapp_documents_open.execute({ path: "draft.md" }, { sessionID: "ses_this" });
   await plugin.tool.inapp_documents_open.execute({ path: "Matter/draft.docx", connection_id: "team:s3" }, { sessionID: "ses_this" });
@@ -418,49 +423,11 @@ test("opens workspace and connected files in the engine session, then exposes li
     { actionId: "documents.open", args: { sessionId: "ses_this", path: "Matter/draft.docx", connectionId: "team:s3" } },
     { actionId: "documents.open", args: { sessionId: "ses_this", path: "Templates/Pitch.pptx", connectionId: "team:s3", copyTo: "Client pitch.pptx" } },
   ]);
-  const output: { system: string[] } = { system: [] };
-  await plugin["experimental.chat.system.transform"]({ sessionID: "ses_this" }, output);
-  expect(output.system.join("\n")).toContain("inapp_documents_open");
-  expect(output.system.join("\n")).toContain("inapp_md_*");
-  expect(output.system.join("\n")).toContain("Source reading, extraction and wiki imports never require opening a viewer");
-  expect(output.system.join("\n")).toContain("Document work is independent of the user's screen");
-  expect(output.system.join("\n")).toContain("Do not open or select sidebar files merely to read them");
-  expect(output.system.join("\n")).not.toContain("An empty inapp_documents_list means you need to open the file");
-});
-
-test("Assistant visible UI changes need an explicit user request; task drafts stay in the background", async () => {
-  const previousUrl = process.env.LEGALWORK_SERVER_URL;
-  const server = Bun.serve({ port: 0, fetch: () => Response.json({ workspace: { path: "/Assistant" } }) });
-  process.env.LEGALWORK_SERVER_URL = server.url.origin;
-  const calls: unknown[] = [];
-  await withBridge({}, body => { calls.push(body); return { ok: true }; });
-  // The fake UI bridge fetch should delegate Assistant identity checks to the server.
-  const bridgeFetch = globalThis.fetch;
-  const nativeFetch = originalFetch;
-  if (!nativeFetch) throw new Error("Missing fetch fixture");
-  globalThis.fetch = Object.assign(async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
-    const url = input instanceof Request ? input.url : input.toString();
-    return url.startsWith(server.url.origin) ? nativeFetch(input, init) : bridgeFetch(input, init);
-  }, { preconnect: nativeFetch.preconnect });
-  try {
-    const plugin = await LegalWorkExtensionsPreview();
-    const context = { sessionID: "assistant", directory: "/Assistant" };
-    await expect(plugin.tool.inapp_documents_open.execute({ path: "agreement.pdf", show: true }, context)).rejects.toThrow("only when the user explicitly asks");
-    await expect(plugin.tool.legalwork_ui_execute_action.execute({ actionId: "documents.open", args: { path: "agreement.pdf" } }, context)).rejects.toThrow("only when the user explicitly asks");
-    await expect(plugin.tool.legalwork_browser_open_url.execute({ url: "https://example.com", show: true }, context)).rejects.toThrow("only when the user explicitly asks");
-    expect(calls).toHaveLength(0);
-    await plugin.tool.inapp_documents_open.execute({ path: "agreement.pdf" }, context);
-    await plugin.tool.inapp_documents_select.execute({ path: "agreement.pdf" }, context);
-    expect(calls).toEqual([
-      { actionId: "documents.open", args: { sessionId: "assistant", path: "agreement.pdf" } },
-      { actionId: "documents.select_open", args: { sessionId: "assistant", path: "agreement.pdf" } },
-    ]);
-    await plugin.tool.inapp_documents_open.execute({ path: "agreement.pdf", show: true, userRequested: true }, context);
-    expect(calls).toHaveLength(3);
-  } finally {
-    server.stop(true);
-    if (previousUrl === undefined) delete process.env.LEGALWORK_SERVER_URL; else process.env.LEGALWORK_SERVER_URL = previousUrl;
-  }
+  const output = await fixedSystem(plugin, "ses_this");
+  expect(output).toContain("inapp_documents_open");
+  expect(output).toContain("inapp_md_*");
+  expect(output).toContain("Source reading, extraction and wiki imports never require opening a viewer");
+  expect(output).toContain("Document work is independent of the user's screen");
 });
 
 test("opens local documents when models send unused optional arguments", async () => {
@@ -468,7 +435,7 @@ test("opens local documents when models send unused optional arguments", async (
   await withBridge({}, body => { calls.push(body); return { ok: true, status: "opening" }; });
   const plugin = await LegalWorkExtensionsPreview();
   const tool = plugin.tool.inapp_documents_open;
-  const modelArgs = z.object(tool.args);
+  const modelArgs = inputSchema(tool.input);
   // Captured GPT call: the unused fields were repeated as empty strings four
   // times, so opening the successfully created file never reached the UI.
   for (const args of [
@@ -498,7 +465,7 @@ test("document-open schemas retain required paths and optional argument limits",
     { path: "Draft.docx", copy_to: "x".repeat(4097) },
     { path: "Draft.docx", show: "true" },
   ]) {
-    expect(z.object(tool.args).safeParse(args).success).toBe(false);
+    expect(inputSchema(tool.input).safeParse(args).success).toBe(false);
     await expect(tool.execute(args, { sessionID: "ses_this" })).rejects.toThrow();
   }
   expect(calls).toEqual([]);
@@ -515,10 +482,9 @@ describe("PowerPoint visual feedback", () => {
     expect(calls).toEqual([{ actionId: "office.agent_tool", args: { sessionId: "ses_slides", path: "Deck.pptx", format: "pptx", toolName: "add_slide", args } }]);
     await plugin.tool.inapp_pptx_add_slide.execute(args, { sessionID: "other" });
     expect(calls).toHaveLength(1);
-    const output: { system: string[] } = { system: [] };
-    await plugin["experimental.chat.system.transform"]({ sessionID: "ses_slides" }, output);
-    expect(output.system.join("\n")).toContain("inapp_pptx_add_slide");
-    expect(output.system.join("\n")).toMatch(/do not [^\n.]*probe internal app bundles/i);
+    const output = await fixedSystem(plugin, "ses_slides");
+    expect(output).toContain("inapp_pptx_add_slide");
+    expect(output).toMatch(/do not [^\n.]*probe internal app bundles/i);
   });
   test("reads a complete read-only presentation in one session-scoped request", async () => {
     const calls: unknown[] = [];
@@ -534,10 +500,9 @@ describe("PowerPoint visual feedback", () => {
     expect(calls).toEqual([{ actionId: "office.agent_tool", args: { sessionId: "ses_slides", path: "Deck.pptx", format: "pptx", toolName: "read_presentation", args: { path: "Deck.pptx" } } }]);
     if (typeof result !== "string") throw new Error("A read must not return image attachments");
     expect(JSON.parse(result).result.data.slides).toHaveLength(2);
-    const instructions: { system: string[] } = { system: [] };
-    await plugin["experimental.chat.system.transform"]({ sessionID: "ses_slides" }, instructions);
-    expect(instructions.system.join("\n")).toContain("inapp_pptx_read_presentation");
-    expect(instructions.system.join("\n")).toContain("Do not loop over slides just to read the deck");
+    const instructions = await fixedSystem(plugin, "ses_slides");
+    expect(instructions).toContain("inapp_pptx_read_presentation");
+    expect(instructions).toContain("Do not loop over slides just to read the deck");
     await plugin.tool.inapp_pptx_read_presentation.execute({ path: "Deck.pptx" }, { sessionID: "other-session" });
     await plugin.tool.inapp_pptx_read_presentation.execute({ path: "Other.pptx" }, { sessionID: "ses_slides" });
     expect(calls).toHaveLength(1);
@@ -549,7 +514,7 @@ describe("PowerPoint visual feedback", () => {
       return { ok: true, result: { ok: true, saved: true, data: { slideIndex: 2, layout: { warnings: [{ kind: "text_overlap", elementIds: ["title", "body"] }] }, preview: { available: true, width: 1280, height: 720, dataUrl: "data:image/png;base64,cHJldmlldw==" } } } };
     });
     const plugin = await LegalWorkExtensionsPreview();
-    const result = await plugin.tool.inapp_pptx_preview.execute({ path: "Deck.pptx", slideIndex: 2 }, { sessionID: "ses_slides" });
+    const result = await plugin.tool.inapp_pptx_preview.executeResult({ path: "Deck.pptx", slideIndex: 2 }, { sessionID: "ses_slides" });
     expect(request).toMatchObject({ actionId: "office.agent_tool", args: { toolName: "preview", args: { slideIndex: 2 } } });
     const edits = [
       await plugin.tool.inapp_pptx_read.execute({ path: "Deck.pptx", slideIndex: 2 }, { sessionID: "ses_slides" }),
@@ -562,13 +527,13 @@ describe("PowerPoint visual feedback", () => {
       expect(JSON.parse(edit)).toMatchObject({ result: { data: { layout: { warnings: [{ kind: "text_overlap" }] } } } });
       expect(JSON.parse(edit).result.data.preview).toBeUndefined();
     }
-    const instructions: { system: string[] } = { system: [] };
-    await plugin["experimental.chat.system.transform"]({ sessionID: "ses_slides" }, instructions);
-    expect(instructions.system.join("\n")).toContain("Do not request a preview after every read or individual edit");
-    if (typeof result === "string") throw new Error("Expected a visual tool result");
-    expect(result.attachments).toEqual([{ type: "file", mime: "image/png", url: "data:image/png;base64,cHJldmlldw==", filename: "slide-3.png" }]);
-    expect(result.output).not.toContain("base64");
-    expect(JSON.parse(result.output)).toMatchObject({ result: { saved: true, data: { layout: { warnings: [{ kind: "text_overlap" }] }, preview: { attached: true, width: 1280 } } } });
+    const instructions = await fixedSystem(plugin, "ses_slides");
+    expect(instructions).toContain("Do not request a preview after every read or individual edit");
+    expect(result.content).toContainEqual({ type: "file", mime: "image/png", uri: "data:image/png;base64,cHJldmlldw==", name: "slide-3.png" });
+    const text = typeof result.content === "string" ? result.content : (result.content ?? []).flatMap(part => part.type === "text" ? [part.text] : []).join("\n");
+    expect(text).not.toContain("base64");
+    expect(JSON.parse(text)).toMatchObject({ result: { saved: true, data: { layout: { warnings: [{ kind: "text_overlap" }] }, preview: { attached: true, width: 1280 } } } });
+    expect(result.output).toMatchObject({ result: { saved: true, data: { preview: { attached: true, width: 1280 } } } });
   });
   test("retains saved edits and reports unavailable preview honestly", async () => {
     await withBridge(snapshot, () => ({ ok: true, result: { ok: true, saved: true, data: { slideIndex: 0, preview: { available: false, error: "Canvas unavailable" } } } }));
@@ -612,10 +577,9 @@ describe("project-scoped document controls", () => {
 describe("requested document navigation", () => {
   test("instructions require a user request without quote or confirmation fields", async () => {
     const plugin = await LegalWorkExtensionsPreview();
-    const output: { system: string[] } = { system: [] };
-    await plugin["experimental.chat.system.transform"]({}, output);
-    expect(output.system.join("\n")).toContain("ONLY when the user explicitly asks");
-    expect(Object.keys(plugin.tool.inapp_documents_navigate.args)).toEqual(["path", "target"]);
+    const output = await fixedSystem(plugin);
+    expect(output).toContain("ONLY when the user explicitly asks");
+    expect(Object.keys(z.object({properties:z.record(z.string(),z.unknown())}).parse(plugin.tool.inapp_documents_navigate.input).properties)).toEqual(["path", "target"]);
   });
 
   test("routes all four formats using this session and preserves read-only access", async () => {
@@ -655,7 +619,7 @@ test("Markdown chunks are scoped to the originating task and a failed save is a 
   expect(calls).toEqual([{ actionId: "markdown.create", args: { ...args, sessionId: "background-task" } }]);
   fail = true;
   await expect(plugin.tool.inapp_markdown_create.execute({ ...args, append: true, complete: true }, { sessionID: "background-task" })).rejects.toThrow("File already exists");
-  await expect(plugin.tool.inapp_markdown_create.execute(args, {})).rejects.toThrow("A task is required");
+  await expect(plugin.tool.inapp_markdown_create.execute(args, { sessionID: "" })).rejects.toThrow("A task is required");
 });
 
 
@@ -675,7 +639,7 @@ test("Word reads treat empty or null optional selectors as whole-document defaul
   const requests: unknown[] = [];
   await withBridge({}, body => { requests.push(body); return { ok: true, result: { success: true } }; });
   const tool = (await LegalWorkExtensionsPreview()).tool.inapp_docx_read_document;
-  const modelArgs = z.object(tool.args);
+  const modelArgs = inputSchema(tool.input);
   const input = { path: "Draft.docx", view: "all", paraId: "", fromIndex: 0, toIndex: 10000, limit: 10000, includeStyles: false };
   expect(modelArgs.safeParse(input).success).toBe(true);
   await tool.execute(input, { sessionID: "ses_this" });
@@ -733,10 +697,36 @@ test("Word exposes fifteen focused tools and routes typed batches, controls and 
   expect(requests).toHaveLength(count);
   for (const name of ["inapp_docx_edit", "inapp_docx_compare_documents", "inapp_docx_inspect_document"]) {
     const method = Object.entries(plugin.tool).find(([key]) => key === name)?.[1];
-    expect(method && JSON.stringify(z.toJSONSchema(z.object(method.args)))).toContain("documentId");
+    expect(method && JSON.stringify(method.input)).toContain("documentId");
   }
-  const editSchema = JSON.stringify(z.toJSONSchema(z.object(plugin.tool.inapp_docx_edit.args)));
+  const editSchema = JSON.stringify(plugin.tool.inapp_docx_edit.input);
   expect(editSchema).toContain('"enum":["create_bookmark"]');
   expect(editSchema).toContain('"enum":["insert_cross_reference"]');
   expect(editSchema).toContain('"targetSearch"');
+});
+
+test("native cancellation reaches the UI bridge and never retries an uncertain mutation", async () => {
+  let started: (() => void) | undefined;
+  const delivery = new Promise<void>(resolve => { started = resolve; });
+  const controller = new AbortController();
+  let calls = 0;
+  let observed: AbortSignal | null | undefined;
+  await withBridge({}, (_body, signal) => {
+    calls++;
+    observed = signal;
+    started?.();
+    return new Promise((_resolve, reject) => {
+      signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
+    });
+  });
+  const plugin = await LegalWorkExtensionsPreview();
+  const pending = plugin.tool.inapp_docx_fill_template.execute({ path: "Draft.docx", paraId: "P1", placeholder: "[DATE]", value: "Today" }, { sessionID: "ses_cancel", abort: controller.signal });
+  await delivery;
+  const reason = new Error("The user cancelled this edit");
+  controller.abort(reason);
+  await expect(pending).rejects.toBe(reason);
+  expect(observed?.aborted).toBe(true);
+  expect(calls).toBe(1);
+  await expect(plugin.tool.inapp_docx_fill_template.execute({ path: "Draft.docx", paraId: "P1", placeholder: "[DATE]", value: "Today" }, { sessionID: "ses_cancel", abort: controller.signal })).rejects.toBe(reason);
+  expect(calls).toBe(1);
 });

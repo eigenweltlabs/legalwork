@@ -1,3 +1,5 @@
+import { registerPrimaryContext } from "./native-review-worker.js";
+import { Plugin } from "@opencode/plugin";
 import { z } from "zod";
 
 import {
@@ -5,9 +7,9 @@ import {
   describeOpenDocument,
   officePaneForHost,
   officePaneIfKnown,
-  type OpenCodeContext,
 } from "./office-plugin-shared.js";
-import { appStateReminders, type SavedConversations } from "./app-state-reminders.js";
+import { registerAppStateReminders } from "./native-app-state-reminders.js";
+import { nativeTool, nativeToolContext } from "./native-tool.js";
 
 /**
  * Agent tools for editing the Microsoft Word document that is open next to
@@ -131,7 +133,7 @@ export function isOpenWordFilePipelineCall(
   args: Record<string, unknown>,
   documentUrl: string | null,
 ): boolean {
-  if (!documentUrl || (tool !== "bash" && tool !== "legalwork_shell" && tool !== "task")) return false;
+  if (!documentUrl || !["shell", "legalwork_shell", "subagent"].includes(tool)) return false;
   const text = JSON.stringify(args).toLowerCase();
   if (!FILE_BACKEND_MARKERS.some((marker) => text.includes(marker))) return false;
 
@@ -140,102 +142,98 @@ export function isOpenWordFilePipelineCall(
   return text.includes(documentUrl.toLowerCase()) || text.includes(decodedUrl) || Boolean(name && text.includes(name));
 }
 
-export const LegalWorkWordTools = async (pluginInput?: SavedConversations) => {
-  const wordPane = appStateReminders(
-    "word-pane",
-    async () => {
-      const pane = await officePaneIfKnown("word", pluginInput?.directory);
-      if (pane === undefined) return null;
-      return pane ? wordModeInstruction(pane.documentUrl) : "";
-    },
-    "The LegalWork pane in Microsoft Word is no longer connected. Earlier Word reminders no longer apply; word_* tools are unavailable until the user opens the pane again.",
-    pluginInput,
-  );
-  return ({
-  "experimental.chat.system.transform": async (
-    _input: unknown,
-    output: { system: string[] },
-  ) => {
-    output.system.push(WORD_TOOLS_INSTRUCTION);
+export default Plugin.define({
+  id: "legalwork.office.word",
+  async setup(ctx) {
+    const cleanup = await registerAppStateReminders(ctx, {
+      topic: "word-pane",
+      read: async (_sessionID, directory) => {
+        const pane = await officePaneIfKnown("word", directory);
+        if (pane === undefined) return null;
+        return pane ? wordModeInstruction(pane.documentUrl) : "";
+      },
+      cleared: "The LegalWork pane in Microsoft Word is no longer connected. Earlier Word reminders no longer apply; word_* tools are unavailable until the user opens the pane again.",
+    });
+    await registerPrimaryContext(ctx, (event) => {
+      event.system.push({ type: "text", text: WORD_TOOLS_INSTRUCTION });
+    });
+    await ctx.tool.hook("execute.before", async (event) => {
+      if (!["shell", "legalwork_shell", "subagent"].includes(event.tool)) return;
+      if (!event.input || typeof event.input !== "object" || Array.isArray(event.input)) return;
+      const context = await nativeToolContext(ctx, event);
+      const pane = await officePaneForHost("word", context.directory);
+      if (!pane || !isOpenWordFilePipelineCall(event.tool, Object.fromEntries(Object.entries(event.input)), pane.documentUrl)) return;
+      throw new Error(
+        "The target document is open in Microsoft Word. The FILE DOCX pipeline is disabled for that document: use word_* tools for live tracked changes, or stop and retry if the Word relay is not ready.",
+      );
+    });
+    await ctx.tool.transform((editor) => {
+      editor.add(nativeTool(ctx, {
+        name: "word_read_document",
+        description:
+          "Read the text of the Microsoft Word document currently open next to the LegalWork pane. Returns the document text (possibly truncated), its length, and the document URL. Use this before any edit so anchors are exact.",
+        schema: readDocumentArgs,
+        async execute(args, context) {
+          return callOfficeTool(context, "word_read_document", args);
+        },
+      }));
+      editor.add(nativeTool(ctx, {
+        name: "word_read_selection",
+        description: "Read the text the user currently has selected in the Word document.",
+        schema: z.object({}),
+        async execute(args, context) {
+          return callOfficeTool(context, "word_read_selection", args);
+        },
+      }));
+      editor.add(nativeTool(ctx, {
+        name: "word_search",
+        description:
+          "Search the Word document for exact text and return each match with its surrounding paragraph, so you can pick the right occurrence before editing.",
+        schema: searchArgs,
+        async execute(args, context) {
+          return callOfficeTool(context, "word_search", args);
+        },
+      }));
+      editor.add(nativeTool(ctx, {
+        name: "word_replace_text",
+        description:
+          "Replace exact text in the Word document as a tracked change (redline). The anchor must be copied verbatim from the document. If the anchor matches multiple places, the tool reports the count and you must pass occurrence. An empty replacement deletes the text.",
+        schema: replaceArgs,
+        async execute(args, context) {
+          return callOfficeTool(context, "word_replace_text", args);
+        },
+      }));
+      editor.add(nativeTool(ctx, {
+        name: "word_insert_text",
+        description:
+          "Insert text into the Word document as a tracked change — at the start/end of the document, or before/after an exact anchor text.",
+        schema: insertArgs,
+        async execute(args, context) {
+          if ((args.location === "before_anchor" || args.location === "after_anchor") && !args.anchor) {
+            return JSON.stringify({ ok: false, error: "anchor is required for before_anchor/after_anchor" });
+          }
+          return callOfficeTool(context, "word_insert_text", args);
+        },
+      }));
+      editor.add(nativeTool(ctx, {
+        name: "word_add_comment",
+        description:
+          "Attach a Word comment to exact text in the document, e.g. to explain the rationale for a tracked change you just made. Unavailable on Word versions without WordApi 1.4 — put the rationale in the chat reply instead.",
+        schema: commentArgs,
+        async execute(args, context) {
+          return callOfficeTool(context, "word_add_comment", args);
+        },
+      }));
+      editor.add(nativeTool(ctx, {
+        name: "word_run_code",
+        description:
+          "Escape hatch: run Office.js (Word JavaScript API) code against the open document for anything the typed word_* tools cannot do — character formatting (bold, fonts, colors, highlights), paragraph styles (headings, quotes), tables, headers/footers, sections, lists, page setup. Change tracking is forced on when the Word version supports it, so document edits appear as reviewable redlines; otherwise the result flags trackedChanges: false. Errors return the Office.js debugInfo so you can fix the snippet and retry. Prefer the typed tools when they fit.",
+        schema: runCodeArgs,
+        async execute(args, context) {
+          return callOfficeTool(context, "word_run_code", args);
+        },
+      }));
+    });
+    return cleanup;
   },
-  "chat.message": wordPane.userMessage,
-  "tool.execute.after": wordPane.toolResult,
-  event: wordPane.event,
-  "tool.execute.before": async (
-    input: { tool: string },
-    output: { args: Record<string, unknown> },
-  ) => {
-    const pane = await officePaneForHost("word", pluginInput?.directory);
-    if (!pane || !isOpenWordFilePipelineCall(input.tool, output.args, pane.documentUrl)) return;
-    throw new Error(
-      "The target document is open in Microsoft Word. The FILE DOCX pipeline is disabled for that document: use word_* tools for live tracked changes, or stop and retry if the Word relay is not ready.",
-    );
-  },
-  tool: {
-    word_read_document: {
-      description:
-        "Read the text of the Microsoft Word document currently open next to the LegalWork pane. Returns the document text (possibly truncated), its length, and the document URL. Use this before any edit so anchors are exact.",
-      args: readDocumentArgs.shape,
-      async execute(rawArgs: unknown, context: OpenCodeContext) {
-        const args = readDocumentArgs.parse(rawArgs ?? {});
-        return callOfficeTool(context, "word_read_document", args);
-      },
-    },
-    word_read_selection: {
-      description: "Read the text the user currently has selected in the Word document.",
-      args: {},
-      async execute(_rawArgs: unknown, context: OpenCodeContext) {
-        return callOfficeTool(context, "word_read_selection", {});
-      },
-    },
-    word_search: {
-      description:
-        "Search the Word document for exact text and return each match with its surrounding paragraph, so you can pick the right occurrence before editing.",
-      args: searchArgs.shape,
-      async execute(rawArgs: unknown, context: OpenCodeContext) {
-        const args = searchArgs.parse(rawArgs);
-        return callOfficeTool(context, "word_search", args);
-      },
-    },
-    word_replace_text: {
-      description:
-        "Replace exact text in the Word document as a tracked change (redline). The anchor must be copied verbatim from the document. If the anchor matches multiple places, the tool reports the count and you must pass occurrence. An empty replacement deletes the text.",
-      args: replaceArgs.shape,
-      async execute(rawArgs: unknown, context: OpenCodeContext) {
-        const args = replaceArgs.parse(rawArgs);
-        return callOfficeTool(context, "word_replace_text", args);
-      },
-    },
-    word_insert_text: {
-      description:
-        "Insert text into the Word document as a tracked change — at the start/end of the document, or before/after an exact anchor text.",
-      args: insertArgs.shape,
-      async execute(rawArgs: unknown, context: OpenCodeContext) {
-        const args = insertArgs.parse(rawArgs);
-        if ((args.location === "before_anchor" || args.location === "after_anchor") && !args.anchor) {
-          return JSON.stringify({ ok: false, error: "anchor is required for before_anchor/after_anchor" });
-        }
-        return callOfficeTool(context, "word_insert_text", args);
-      },
-    },
-    word_add_comment: {
-      description:
-        "Attach a Word comment to exact text in the document, e.g. to explain the rationale for a tracked change you just made. Unavailable on Word versions without WordApi 1.4 — put the rationale in the chat reply instead.",
-      args: commentArgs.shape,
-      async execute(rawArgs: unknown, context: OpenCodeContext) {
-        const args = commentArgs.parse(rawArgs);
-        return callOfficeTool(context, "word_add_comment", args);
-      },
-    },
-    word_run_code: {
-      description:
-        "Escape hatch: run Office.js (Word JavaScript API) code against the open document for anything the typed word_* tools cannot do — character formatting (bold, fonts, colors, highlights), paragraph styles (headings, quotes), tables, headers/footers, sections, lists, page setup. Change tracking is forced on when the Word version supports it, so document edits appear as reviewable redlines; otherwise the result flags trackedChanges: false. Errors return the Office.js debugInfo so you can fix the snippet and retry. Prefer the typed tools when they fit.",
-      args: runCodeArgs.shape,
-      async execute(rawArgs: unknown, context: OpenCodeContext) {
-        const args = runCodeArgs.parse(rawArgs);
-        return callOfficeTool(context, "word_run_code", args);
-      },
-    },
-  },
-  });
-};
+});

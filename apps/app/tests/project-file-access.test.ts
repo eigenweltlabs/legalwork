@@ -7,7 +7,6 @@ import type { WorkspaceSessionGroup } from "../src/app/types";
 const groups: WorkspaceSessionGroup[] = [
   { workspace: { id: "a", name: "Source", path: "/fixture/a", preset: "starter", workspaceType: "local" }, status: "ready", sessions: [] },
   { workspace: { id: "b", name: "Target", path: "/fixture/b", preset: "starter", workspaceType: "local" }, status: "ready", sessions: [] },
-  { workspace: { id: "rem_c", name: "Remote", path: "/fixture/c", preset: "starter", workspaceType: "remote", baseUrl: "https://saved.example", legalworkWorkspaceId: "server-c", legalworkToken: "saved-token" }, status: "ready", sessions: [] },
 ];
 const source = { projectId: "a", workspaceId: "a", path: "same.md", name: "same.md" };
 
@@ -15,7 +14,7 @@ test("source resolution uses registered project endpoints and rejects mismatched
   const local = createLegalworkServerClient({ baseUrl: "http://localhost:4000", token: "local-token" });
   const access = createProjectFileAccess(groups, local, () => "draft");
   expect(access.sourceProject(source).client).toBe(local);
-  expect(access.sourceProject({ ...source, projectId: "rem_c", workspaceId: "server-c" }).baseUrl).toBe("https://saved.example");
+  expect(() => access.sourceProject({ ...source, projectId: "rem_c", workspaceId: "server-c" })).toThrow();
   expect(() => access.sourceProject({ ...source, projectId: "unknown" })).toThrow();
   expect(() => access.sourceProject({ ...source, workspaceId: "b" })).toThrow();
   expect(access.identify(local, "b", { path: "same.md", name: "same.md" })).toEqual({ ...source, projectId: "b", workspaceId: "b" });

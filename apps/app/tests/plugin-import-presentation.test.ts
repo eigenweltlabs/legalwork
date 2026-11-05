@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { groupPluginImportCandidates, importedConnectorPlugin, importedSkillPlugin, pluginImportCandidateKey, pluginImportConnectorName, pluginImportDestination, pluginImportName, pluginImportSkillName } from "../src/react-app/domains/settings/pages/plugin-import-presentation";
 import type { PluginImportPreview } from "@legalwork/types/plugin-import";
 import { readWorkspaceImports } from "../src/app/lib/extension-imports";
+import { packageParts } from "../src/react-app/domains/settings/pages/plugin-package-contents";
 
 test("whole plugins containing one connector remain plugins; only connector imports open connector setup", () => {
   const preview: PluginImportPreview = { id: "import:claude:github:global", digest: "reviewed", name: "github", description: null, version: null, format: "claude", root: "", fileCount: 2, bytes: 300, warnings: [], components: [{ type: "mcp", name: "github", installedName: "github-unique-installed-name" }] };
@@ -13,6 +14,12 @@ test("whole plugins containing one connector remain plugins; only connector impo
   expect(pluginImportDestination({ ...preview, format: "skills", components: [{ type: "skill", name: "review", installedName: "review-installed-name" }] })).toEqual({ tab: "skills", connectorName: null });
 });
 
+test("converted plugin reviews count workflows without relabelling connectors, agents or commands", () => {
+  expect(packageParts(["skill", "mcp"], true)).toBe("1 workflow · 1 connector");
+  expect(packageParts(["skill", "skill", "agent", "command"], true)).toBe("2 workflows · 1 command · 1 agent");
+  expect(packageParts(["skill", "mcp"])).toBe("1 skill · 1 connector");
+});
+
 test("provider display names hide internal app IDs without changing plugin identity", () => {
   expect(pluginImportName({ name: "app-6a9a3c1cd0108191807da33c4cd319ed", displayName: "Clerk" })).toBe("Clerk");
   expect(pluginImportName({ name: "google-drive" })).toBe("Google Drive");
@@ -22,6 +29,7 @@ test("provider display names hide internal app IDs without changing plugin ident
   expect(skill.name).toBe("patent-studio-2cbe85ce-claim-review");
   expect(pluginImportSkillName({ ...skill, path: "/home/skills/custom/SKILL.md" })).toBe(skill.name);
   expect(pluginImportSkillName({ ...skill, path: skill.path.replace(/\//g, "\\") })).toBe("Claim Review");
+  expect(pluginImportSkillName({ name: `workflow-assistant-${skill.name}`, path: skill.path.replace(skill.name, `workflow-assistant-${skill.name}`) })).toBe("Claim Review");
 });
 
 test("discovery groups copies by canonical identity and keeps the latest version plus all source choices", () => {

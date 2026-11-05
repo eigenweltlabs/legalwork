@@ -4,7 +4,7 @@ import { registerAssistantSessionRoutes } from "./assistant-sessions.js";
 import type { AssistantSessionQueue } from "../assistant-session-queue.js";
 import { join, resolve } from "node:path";
 import { z } from "zod";
-import type { createOpencodeClient } from "@opencode-ai/sdk/v2/client";
+import type { createAssistantEngineClient } from "../assistant-engine.js";
 import { ApiError } from "../errors.js";
 import { isMainAssistant, type MainAssistant } from "../main-assistant.js";
 import { createDefaultProjectFolder, defaultProjectRoot, readProjectDetails } from "../project-store.js";
@@ -67,7 +67,7 @@ export function registerMainAssistantRoutes(options: {
   ensureWritable: (config: ServerConfig) => void;
   requireClientScope: (ctx: RequestContext, scope: TokenScope) => void;
   resolveWorkspace: (config: ServerConfig, id: string) => Promise<WorkspaceInfo>;
-  client: (workspace: WorkspaceInfo) => ReturnType<typeof createOpencodeClient>;
+  client: (workspace: WorkspaceInfo) => ReturnType<typeof createAssistantEngineClient>;
   changed: () => void;
   requireApproval: (ctx: RequestContext, input: Omit<ApprovalRequest, "id" | "createdAt" | "actor">) => Promise<void>;
 }) {
@@ -226,7 +226,7 @@ export function registerMainAssistantRoutes(options: {
     const projects = [];
     const unavailable: string[] = [];
     const matches: { entry: WorkspaceInfo; score: number; match: string }[] = [];
-    const local = config.workspaces.filter(entry => entry.workspaceType !== "remote" && assistant.canAccessProject(entry.id));
+    const local = config.workspaces.filter(entry => assistant.canAccessProject(entry.id));
     // Search matter/client metadata as well as names, with bounded filesystem concurrency.
     for (let offset = 0; offset < local.length; offset += 16) {
       const batch = await Promise.all(local.slice(offset, offset + 16).map(async entry => {
@@ -258,7 +258,7 @@ export function registerMainAssistantRoutes(options: {
     const input = z.object({ sessionLimit: z.coerce.number().int().min(1).max(10).default(5), taskLimit: z.coerce.number().int().min(1).max(50).default(15) }).safeParse(Object.fromEntries(ctx.url.searchParams));
     if (!input.success) throw new ApiError(400, "overview_query", "Use up to 10 recent chats and 50 tasks.");
     const workspace = await accessible(ctx.params.id);
-    if (workspace.workspaceType === "remote") throw new ApiError(400, "local_project", "Choose an accessible local or synced project.");
+
     return jsonResponse(await assistantProjectOverview(config, workspace, options.client(workspace), input.data, ctx.request.signal));
   });
   addRoute(routes, "GET", "/assistant/projects/:id/sessions/:sessionId", "client", async ctx => {
@@ -296,7 +296,6 @@ export function registerMainAssistantRoutes(options: {
     const workspace = await accessible(input.workspaceId);
     assertAssistantDispatchAuthority(authority, workspace.id);
     await options.sessionAccess.checkDirectory(workspace.path, authority);
-    if (workspace.workspaceType === "remote" || source.workspaceType === "remote") throw new ApiError(400, "delegation_local", "Choose an available local project.");
     if (isMainAssistant(workspace)) throw new ApiError(400, "delegation_project", "Delegate project work to a project, not back to the assistant.");
     // An explicitly chosen project is an execution constraint enforced here, not a prompt suggestion.
     const bound = await options.submissions.activeConstraint(input.sourceSessionId);

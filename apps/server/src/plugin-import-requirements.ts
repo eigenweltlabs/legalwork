@@ -2,6 +2,22 @@ import { satisfies, valid, validRange } from "semver";
 import type { PluginImportPreview, PluginImportRequirement } from "@legalwork/types/plugin-import";
 import type { CloudImportedPlugin } from "./cloud-plugins.js";
 
+/** OpenAI defaults a missing apps map to empty. IDs still describe hosted apps,
+ * not endpoint configurations that another host can connect to. */
+export function appConnectionRequirements(source: string, path: string): PluginImportRequirement[] {
+  const invalid = (): PluginImportRequirement[] => [{ kind: "app", name: path, code: "invalid_apps", required: true, status: "blocked", message: `The app connections in ${path} cannot be read. Correct this file or remove its declaration if the plugin does not use app connections.` }];
+  let file: unknown;
+  try { file = JSON.parse(source); } catch { return invalid(); }
+  if (!file || typeof file !== "object" || Array.isArray(file)) return invalid();
+  if (!("apps" in file) || file.apps === null) return [];
+  const apps = file.apps;
+  // Empty optional scaffolds carry no connection requirements, including older
+  // generators that emitted an empty list instead of an empty object.
+  if (Array.isArray(apps) && apps.length === 0) return [];
+  if (!apps || typeof apps !== "object" || Array.isArray(apps)) return invalid();
+  return Object.keys(apps).map(name => ({ kind: "app", name, code: "registered_apps", required: true, status: "blocked", message: `${name} uses a ChatGPT app connection. Its app ID and account session cannot be transferred. Obtain a portable connector configuration before importing this plugin.` }));
+}
+
 export function pluginRequirements(manifest: Record<string, unknown>): PluginImportRequirement[] {
   const result: PluginImportRequirement[] = [];
   if (manifest.dependencies !== undefined) {

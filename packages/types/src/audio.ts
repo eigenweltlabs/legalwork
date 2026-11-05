@@ -340,10 +340,12 @@ export type AudioSystemDictationRuntimeState =
   | "transcribing"
   | "inserting"
   | "success"
+  | "copied"
   | "cancelled"
   | "error";
 
 export type AudioSystemDictationPasteResult = {
+  /** The OS accepted the paste command; receiving apps provide no universal receipt. */
   pasted: boolean;
   copied: boolean;
   error: string | null;

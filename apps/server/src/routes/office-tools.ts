@@ -15,6 +15,14 @@ interface RegisterOfficeToolRoutesOptions {
   resolveWorkspace: (config: ServerConfig, id: string) => Promise<WorkspaceInfo>;
 }
 
+// Exact handlers reviewed in the Office panes. Arbitrary Office.js can write
+// through globals even when a caller describes its snippet as a read.
+const READ_ONLY_OFFICE_TOOLS = new Set([
+  "word_read_document", "word_read_selection", "word_search",
+  "excel_read_workbook", "excel_read_range", "excel_read_selection", "excel_search",
+  "ppt_read_presentation", "ppt_read_slide", "ppt_read_selection",
+]);
+
 /**
  * Office task pane (Word/Excel) tool relay endpoints.
  *
@@ -49,12 +57,19 @@ export function registerOfficeToolRoutes(options: RegisterOfficeToolRoutesOption
     if (!tool) {
       return jsonResponse({ ok: false, error: "Missing tool name" }, 400);
     }
+    if (config.readOnly && !READ_ONLY_OFFICE_TOOLS.has(tool)) {
+      return jsonResponse({
+        ok: false,
+        code: "read_only",
+        error: "This server is read-only. Office edits and arbitrary Office.js code are disabled; use the document-reading tools.",
+      }, 403);
+    }
     const args =
       body.args && typeof body.args === "object" && !Array.isArray(body.args)
         ? (body.args as Record<string, unknown>)
         : {};
     const timeoutMs = typeof body.timeoutMs === "number" ? body.timeoutMs : undefined;
-    const result = await officeTools.execute(workspace.id, tool, args, timeoutMs);
+    const result = await officeTools.execute(workspace.id, tool, args, timeoutMs, ctx.request.signal);
     return jsonResponse(result);
   });
 

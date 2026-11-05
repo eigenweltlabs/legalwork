@@ -32,11 +32,9 @@ export type {
   SandboxDoctorResult,
   UpdaterEnvironment,
   WorkspaceCreateInput,
-  WorkspaceCreateRemoteInput,
   WorkspaceExportSummary,
   WorkspaceList,
   WorkspaceLegalworkConfig,
-  WorkspaceUpdateRemoteInput,
 } from "@legalwork/types/desktop-ipc";
 
 // Canonical wire shape shared with legalwork-server and the desktop bridge.

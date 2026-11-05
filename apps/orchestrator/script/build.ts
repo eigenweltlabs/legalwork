@@ -1,5 +1,6 @@
 import { mkdirSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { engineBuildMode, engineTargetsForBuild, prepareForBuild, stagePreparedEngineBuild } from "../../../packages/opencode-release/prepare.mjs";
 import solidPlugin from "../node_modules/@opentui/solid/scripts/solid-plugin";
 
 const bunRuntime = (globalThis as typeof globalThis & {
@@ -106,22 +107,6 @@ async function buildOnce(entrypoint: string, outdir: string, filename: string, t
   } catch {
     // ignore
   }
-  try {
-    const constants = JSON.parse(
-      readFileSync(resolve("..", "..", "constants.json"), "utf8"),
-    ) as { opencodeVersion?: string };
-    if (
-      typeof constants.opencodeVersion === "string" &&
-      constants.opencodeVersion.trim()
-    ) {
-      define.__LEGALWORK_PINNED_OPENCODE_VERSION__ = `\"${constants.opencodeVersion
-        .trim()
-        .replace(/^v/, "")}\"`;
-    }
-  } catch {
-    // ignore
-  }
-
   const resolvedTarget = target ?? defaultTarget();
   const result = await bun.build({
     tsconfig: "./tsconfig.json",
@@ -142,6 +127,10 @@ async function buildOnce(entrypoint: string, outdir: string, filename: string, t
 }
 
 const options = readArgs(bun.argv.slice(2));
+const engineMode = engineBuildMode(bun.argv.slice(2));
+const preparedEngine = await prepareForBuild({ mode: engineMode, ...(engineMode === "development" ? { targets: engineTargetsForBuild(options.targets) } : {}) });
+await stagePreparedEngineBuild({ prepared: preparedEngine, outputDirectory: options.outdir,
+  targets: engineTargetsForBuild(options.targets) });
 const entrypoint = resolve("src", "cli.ts");
 const targets = options.targets.length ? options.targets : [undefined];
 

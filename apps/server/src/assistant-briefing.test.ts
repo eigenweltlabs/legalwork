@@ -18,21 +18,21 @@ test("briefing eligibility starts at six root chats, across projects, without co
   const prior = process.env.OPENCODE_DB;
   process.env.OPENCODE_DB = join(root, "engine.sqlite");
   const db = new Database(process.env.OPENCODE_DB);
-  db.exec("CREATE TABLE session (id TEXT PRIMARY KEY, directory TEXT, parent_id TEXT); CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT, data TEXT)");
+  db.exec("CREATE TABLE session_v2 (id TEXT PRIMARY KEY, directory TEXT, parent_id TEXT); CREATE TABLE session_message (id TEXT PRIMARY KEY, session_id TEXT, type TEXT)");
   const config = configFor(root);
-  config.workspaces = ["one", "two", "assistant", "denied", "remote"].map(id => ({ id, name: id, path: join(root, id), preset: id === "assistant" ? "main-assistant" : "starter", workspaceType: id === "remote" ? "remote" : "local" }));
+  config.workspaces = ["one", "two", "assistant", "denied"].map(id => ({ id, name: id, path: join(root, id), preset: id === "assistant" ? "main-assistant" : "starter", workspaceType: "local" }));
   const accessible = async (id: string) => {
     if (id === "denied") throw new Error("Access ended");
     const workspace = config.workspaces.find(item => item.id === id);
     if (!workspace) throw new Error("Missing");
     return workspace;
   };
-  const add = (id: string, project: string, parent: string | null = null) => db.query("INSERT INTO session VALUES (?, ?, ?)").run(id, join(root, project), parent);
+  const add = (id: string, project: string, parent: string | null = null) => db.query("INSERT INTO session_v2 VALUES (?, ?, ?)").run(id, join(root, project), parent);
   try {
     for (let i = 0; i < 5; i++) add(`chat-${i}`, i % 2 ? "one" : "two");
     for (let i = 0; i < 8; i++) { add(`empty-day-${i}`, "assistant"); add(`denied-${i}`, "denied"); add(`remote-${i}`, "remote"); add(`child-${i}`, "one", "chat-1"); }
     expect(await hasBriefingSessionThreshold(config, accessible)).toBe(false);
-    db.query("INSERT INTO message VALUES (?, ?, ?)").run("user-message", "empty-day-0", JSON.stringify({ role: "user" }));
+    db.query("INSERT INTO session_message VALUES (?, ?, ?)").run("user-message", "empty-day-0", "user");
     expect(await hasBriefingSessionThreshold(config, accessible)).toBe(true);
   } finally {
     db.close();

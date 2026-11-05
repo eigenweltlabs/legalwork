@@ -1,86 +1,64 @@
 name: Set up pinned OpenCode
-description: Install the engine version used by LegalWork
+description: Install LegalWork's selected, independently pinned OpenCode engine
 inputs:
-  repository:
-    default: anomalyco/opencode
-    description: Repository containing engine releases
+  build-mode:
+    description: Explicit development or production source preparation mode
+    required: false
+    default: development
+  archive-directory:
+    description: Exact reviewed local derivative archive directory (optional)
+    required: false
+  manifest-sha256:
+    description: Independent manifest digest required with a supplied archive directory
+    required: false
+  build-cache-directory:
+    description: Owned cache for verified source preparation (optional)
+    required: false
+  cache-directory:
+    description: Verified archive cache directory (optional)
+    required: false
 runs:
   using: composite
   steps:
+    - name: Prepare the current source policy or verify its same-run handoff
+      id: prepared
+      shell: bash
+      env:
+        BUILD_MODE: ${{ inputs.build-mode }}
+        BUILD_ARCHIVES: ${{ inputs.archive-directory }}
+        BUILD_MANIFEST_SHA256: ${{ inputs.manifest-sha256 }}
+        BUILD_CACHE_DIRECTORY: ${{ inputs.build-cache-directory }}
+      run: |
+        node --input-type=module <<'NODE'
+        import assert from 'node:assert/strict';
+        import { appendFile } from 'node:fs/promises';
+        import path from 'node:path';
+        import { prepareOpencodeEngine } from './packages/opencode-release/build/prepare.mjs';
+        import recipe from './packages/opencode-release/build/recipe.json' with { type: 'json' };
+        const mode = process.env.BUILD_MODE;
+        assert.ok(['development', 'production'].includes(mode), 'An explicit development or production build mode is required');
+        const archiveDirectory = process.env.BUILD_ARCHIVES;
+        const manifestSha256 = process.env.BUILD_MANIFEST_SHA256;
+        assert.equal(Boolean(archiveDirectory), Boolean(manifestSha256), 'A supplied archive directory requires its independent manifest SHA256 together');
+        if (archiveDirectory) assert.equal(path.basename(path.resolve(archiveDirectory)), 'archives');
+        if (mode === 'production') assert.ok(archiveDirectory, 'Production setup requires the complete independently pinned same-run signed distribution');
+        const prepared = await prepareOpencodeEngine({ mode,
+          ...(mode === 'production' ? { targets: recipe.targets } : {}),
+          ...(process.env.BUILD_CACHE_DIRECTORY ? { cacheDirectory: path.resolve(process.env.BUILD_CACHE_DIRECTORY) } : {}),
+          ...(archiveDirectory ? { distributionDirectory: path.dirname(path.resolve(archiveDirectory)), manifestSha256 } : {}) });
+        assert.ok(!/[\r\n]/.test(prepared.archiveDirectory), 'Prepared archive paths cannot contain newlines');
+        await appendFile(process.env.GITHUB_OUTPUT, `archive-directory=${prepared.archiveDirectory}\n`);
+        await appendFile(process.env.GITHUB_ENV, `LEGALWORK_OPENCODE_ARCHIVES=${prepared.archiveDirectory}\n`);
+        console.log(JSON.stringify({ mode: prepared.mode, sourceKey: prepared.sourceKey, manifestSha256: prepared.manifestSha256, targets: prepared.targets }));
+        NODE
     - name: Install OpenCode CLI
       shell: bash
       env:
-        GITHUB_TOKEN: ${{ github.token }}
-        OPENCODE_GITHUB_REPO: ${{ inputs.repository }}
+        LEGALWORK_OPENCODE_ARCHIVES: ${{ steps.prepared.outputs.archive-directory }}
+        LEGALWORK_OPENCODE_SETUP_CACHE: ${{ inputs.cache-directory }}
       run: |
         set -euo pipefail
-
-        repo="${OPENCODE_GITHUB_REPO:-anomalyco/opencode}"
-        version="$(node -e "const fs=require('fs'); const parsed=JSON.parse(fs.readFileSync('constants.json','utf8')); process.stdout.write(String(parsed.opencodeVersion||'').trim().replace(/^v/,''));")"
-        version="$(echo "$version" | tr -d '\r\n' | sed 's/^v//')"
-
-        if [ -z "$version" ]; then
-          echo "Unable to resolve OpenCode version from constants.json." >&2
-          exit 1
-        fi
-
-        arch="$(uname -m)"
-        case "${RUNNER_OS}" in
-          Linux)
-            if [ "$arch" = "aarch64" ] || [ "$arch" = "arm64" ]; then
-              opencode_asset="opencode-linux-arm64.tar.gz"
-            else
-              opencode_asset="opencode-linux-x64-baseline.tar.gz"
-            fi
-            ;;
-          macOS)
-            if [ "$arch" = "arm64" ]; then
-              opencode_asset="opencode-darwin-arm64.zip"
-            else
-              opencode_asset="opencode-darwin-x64-baseline.zip"
-            fi
-            ;;
-          *)
-            echo "Unsupported OS: ${RUNNER_OS}" >&2
-            exit 1
-            ;;
-        esac
-
-        url="https://github.com/${repo}/releases/download/v${version}/${opencode_asset}"
-        tmp_dir="$RUNNER_TEMP/opencode"
-        extract_dir="$tmp_dir/extracted"
-        rm -rf "$tmp_dir"
-        mkdir -p "$extract_dir"
-
-        curl_headers=()
-        if [ -n "${GITHUB_TOKEN:-}" ]; then
-          curl_headers+=( -H "Authorization: Bearer ${GITHUB_TOKEN}" )
-        fi
-
-        curl -fsSL --retry 5 --retry-all-errors --retry-delay 2 "${curl_headers[@]}" -o "$tmp_dir/$opencode_asset" "$url"
-
-        if [[ "$opencode_asset" == *.tar.gz ]]; then
-          tar -xzf "$tmp_dir/$opencode_asset" -C "$extract_dir"
-        else
-          unzip -q "$tmp_dir/$opencode_asset" -d "$extract_dir"
-        fi
-
-        if [ -f "$extract_dir/opencode" ]; then
-          bin_path="$extract_dir/opencode"
-        elif [ -f "$extract_dir/opencode.exe" ]; then
-          bin_path="$extract_dir/opencode.exe"
-        else
-          echo "OpenCode binary not found in archive" >&2
-          ls -la "$extract_dir"
-          exit 1
-        fi
-
-        install_dir="$HOME/.opencode/bin"
-        mkdir -p "$install_dir"
-        cp "$bin_path" "$install_dir/opencode"
-        chmod 755 "$install_dir/opencode"
-        echo "$install_dir" >> "$GITHUB_PATH"
-
-    - name: Verify OpenCode
-      shell: bash
-      run: opencode --version
+        node packages/opencode-release/install.mjs \
+          --install-root "$RUNNER_TEMP/legalwork-opencode" \
+          --cache-directory "${LEGALWORK_OPENCODE_SETUP_CACHE:-$RUNNER_TEMP/legalwork-opencode-cache}" \
+          --github-actions

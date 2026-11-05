@@ -10,6 +10,7 @@
 
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { realpath } from "node:fs/promises";
+import { z } from "zod";
 
 export type OpenCodeContext = {
   agent?: string;
@@ -49,9 +50,7 @@ export async function workspaceToolHeaders(context?: OpenCodeContext): Promise<R
   return headers;
 }
 
-type WorkspaceListPayload = {
-  items?: Array<{ id?: unknown; path?: unknown }>;
-};
+const workspaceListSchema = z.object({ items: z.array(z.object({ id: z.string(), path: z.string() })) });
 
 // Keyed by server URL: the cached ids belong to one server, so an engine
 // pointed at a different LegalWork server must not read the previous one's.
@@ -66,13 +65,10 @@ export async function listWorkspaces(context?: OpenCodeContext): Promise<Array<{
   }
   const response = await fetch(`${url}/workspaces`, {
     headers,
-    signal: AbortSignal.timeout(8_000),
+    signal: context?.abort ? AbortSignal.any([context.abort, AbortSignal.timeout(8_000)]) : AbortSignal.timeout(8_000),
   });
   if (!response.ok) throw new Error(`Workspace lookup failed: HTTP ${response.status}`);
-  const payload = (await response.json()) as WorkspaceListPayload;
-  const items = (payload.items ?? []).flatMap((item) =>
-    typeof item.id === "string" && typeof item.path === "string" ? [{ id: item.id, path: item.path }] : [],
-  );
+  const { items } = workspaceListSchema.parse(await response.json());
   if (!sessionScoped) workspaceCache = { at: Date.now(), url, items };
   return items;
 }
@@ -107,15 +103,16 @@ export async function callOfficeTool(
     if (!url || !token) {
       return JSON.stringify({ ok: false, error: "LegalWork server connection is not configured for this engine." });
     }
-    const workspaceId = await resolveWorkspaceId(context);
+    context.abort?.throwIfAborted();
+    const workspaceId = await resolveWorkspaceId(context, { requireDirectory: true });
     const response = await fetch(`${url}/workspace/${encodeURIComponent(workspaceId)}/office-tools/execute`, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${token}`,
+        ...await workspaceToolHeaders(context),
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ tool, args, timeoutMs: OFFICE_TOOL_TIMEOUT_MS }),
-      signal: AbortSignal.timeout(OFFICE_TOOL_TIMEOUT_MS + 10_000),
+      signal: context.abort ? AbortSignal.any([context.abort, AbortSignal.timeout(OFFICE_TOOL_TIMEOUT_MS + 10_000)]) : AbortSignal.timeout(OFFICE_TOOL_TIMEOUT_MS + 10_000),
     });
     const text = await response.text();
     try {
@@ -124,7 +121,10 @@ export async function callOfficeTool(
       return JSON.stringify({ ok: false, error: text || `HTTP ${response.status}` });
     }
   } catch (error) {
-    return JSON.stringify({ ok: false, error: error instanceof Error ? error.message : String(error) });
+    // Cancellation is a native engine control signal, never a successful tool result.
+    context.abort?.throwIfAborted();
+    return JSON.stringify({ ok: false, error: error instanceof Error ? error.message : String(error),
+      nextStep: "An Office action may already have been delivered. Inspect the live document before retrying a change; do not replay it automatically." });
   }
 }
 
@@ -151,7 +151,7 @@ const paneStatusCache = new Map<string, { at: number; status: OfficePaneStatus }
  */
 export async function officePaneStatus(directory?: string): Promise<OfficePaneStatus> {
   const normalizedDirectory = directory?.trim() ?? "";
-  const cacheKey = normalizedDirectory || "*";
+  const cacheKey = `${serverUrl()}\0${serverToken()}\0${normalizedDirectory}`;
   const cached = paneStatusCache.get(cacheKey);
   // A disconnected result can become stale as soon as an Office pane starts
   // polling. Cache only positive detection so a just-opened pane is visible to
@@ -169,11 +169,10 @@ export async function officePaneStatus(directory?: string): Promise<OfficePaneSt
     if (url && token) {
       const items = await listWorkspaces();
       const candidates = normalizedDirectory
-        ? items.filter(
-            (item) =>
-              item.path === normalizedDirectory ||
-              normalizedDirectory.startsWith(`${item.path}/`),
-          )
+        ? items.filter((item) => {
+            const path = relative(resolve(item.path), resolve(normalizedDirectory));
+            return path === "" || (!isAbsolute(path) && path !== ".." && !path.startsWith(`..${sep}`));
+          }).sort((a, b) => b.path.length - a.path.length).slice(0, 1)
         : items.slice(0, 5);
       for (const item of candidates) {
         const response = await fetch(
@@ -184,15 +183,12 @@ export async function officePaneStatus(directory?: string): Promise<OfficePaneSt
           status = { connected: false, hosts: [], failed: true };
           continue;
         }
-        const payload = (await response.json()) as {
-          connected?: unknown;
-          hosts?: unknown;
-        };
-        if (payload.connected === true && Array.isArray(payload.hosts)) {
+        const payload = z.object({ connected: z.boolean(), hosts: z.array(z.unknown()) }).parse(await response.json());
+        if (payload.connected) {
           const hosts = payload.hosts.flatMap((entry) => {
             if (!entry || typeof entry !== "object") return [];
-            const host = (entry as { host?: unknown }).host;
-            const documentUrl = (entry as { documentUrl?: unknown }).documentUrl;
+            const host: unknown = Reflect.get(entry, "host");
+            const documentUrl: unknown = Reflect.get(entry, "documentUrl");
             return typeof host === "string" && host
               ? [{ host: host.toLowerCase(), documentUrl: typeof documentUrl === "string" && documentUrl ? documentUrl : null }]
               : [];

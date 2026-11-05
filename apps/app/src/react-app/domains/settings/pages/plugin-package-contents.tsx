@@ -13,8 +13,8 @@ const sections = [
   { type: "agent", label: "skills.package_agents", Icon: Bot },
 ];
 
-export function packageParts(types: readonly string[]): string {
-  return sections.map(({ type, label }) => ({ label, count: types.filter(each => each === type).length })).filter(({ count }) => count > 0).map(({ label, count }) => t(label, { count })).join(" · ");
+export function packageParts(types: readonly string[], skillsAsWorkflows = false): string {
+  return sections.map(({ type, label }) => ({ label: skillsAsWorkflows && type === "skill" ? "skills.package_workflows" : label, count: types.filter(each => each === type).length })).filter(({ count }) => count > 0).map(({ label, count }) => t(label, { count })).join(" · ");
 }
 
 /** Display labels never substitute for the installed identity used to open/edit. */

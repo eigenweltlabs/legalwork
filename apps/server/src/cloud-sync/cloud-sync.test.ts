@@ -429,6 +429,9 @@ describe("private replica checkpoints", () => {
     db.run("INSERT INTO scheduled_task_runs VALUES (?, ?)", ["pending", JSON.stringify({ status: "dispatching" })]);
     db.run("INSERT INTO scheduled_task_runs VALUES (?, ?)", ["history", JSON.stringify({ status: "sent" })]);
     db.exec("INSERT INTO assistant_session_queue VALUES ('q', '{}'); INSERT INTO assistant_delegations VALUES ('d', '{}')");
+    const preferences = { systemPromptAddition: "/Users/private/Keep this exact instruction", resourceIds: ["skill-one"], projectAccess: { mode: "none", projectIds: [] } };
+    db.exec("CREATE TABLE assistant_settings (id INTEGER PRIMARY KEY, settings TEXT NOT NULL, routing TEXT NOT NULL)");
+    db.run("INSERT INTO assistant_settings VALUES (1, ?, '[]')", [JSON.stringify(preferences)]);
     const checkpoint = await exportCheckpoint(source, remote, { companionSeed: true });
     const copy = join(root, "companion-seed.sqlite");
     await getBlob(remote, checkpoint.runtime!, copy);
@@ -437,6 +440,9 @@ describe("private replica checkpoints", () => {
       expect(restored.query("SELECT json_extract(data, '$.status') AS status, json_extract(data, '$.nextRunAt') AS due FROM scheduled_tasks WHERE id = 'active'").get()).toEqual({ status: "paused", due: null });
       expect(restored.query("SELECT json_extract(data, '$.status') AS status FROM scheduled_tasks WHERE id = 'completed'").get()).toEqual({ status: "completed" });
       expect(restored.query("SELECT id FROM scheduled_task_runs").all()).toEqual([{ id: "history" }]);
+      const settings = restored.query<{ settings: string; routing: string }, []>("SELECT settings, routing FROM assistant_settings WHERE id = 1").get()!;
+      expect(JSON.parse(settings.settings)).toEqual(preferences);
+      expect(JSON.parse(settings.routing)).toEqual([]);
       expect(restored.query("SELECT id FROM assistant_session_queue").all()).toEqual([]);
       expect(restored.query("SELECT id FROM assistant_delegations").all()).toEqual([]);
       expect(db.query("SELECT json_extract(data, '$.status') AS status FROM scheduled_tasks WHERE id = 'active'").get()).toEqual({ status: "active" });

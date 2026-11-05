@@ -70,16 +70,20 @@ print(json.dumps(checks))
   assert.notEqual(blocked.exitCode, 0);
   assert.deepEqual(requests, ["https://example.com/"]);
   results.https_request_inspected_and_denied = true;
+  // IANA's example-domain HTTP service is best effort. Use existing immutable
+  // source bytes for the successful fetch; denial probes never contact IANA.
+  const approvedUrl = "https://raw.githubusercontent.com/eigenweltlabs/legalwork/7ad46c806fbd872aa2c1886674a5cf2f7c50715c/LICENSE";
+  const approvedSha256 = "ae2380682b457ec03e2b36b54a64e2cc6c21727c3d3b64dfb3c6f16ee4c6ebae";
   const approvedRequests: string[] = [];
   const approved = await sandbox.run({ command: `set -e
-python3 -c 'import urllib.request; assert b"Example Domain" in urllib.request.urlopen("https://example.com/").read(); print("Python HTTPS passed")'
-node -e 'fetch("https://example.com/").then(r=>r.text()).then(t=>{if(!t.includes("Example Domain")) process.exit(1); console.log("Node HTTPS passed")})'`,
+python3 -c 'import hashlib, urllib.request; data = urllib.request.urlopen("${approvedUrl}").read(); assert hashlib.sha256(data).hexdigest() == "${approvedSha256}"; print("Python HTTPS passed")'
+node -e 'fetch("${approvedUrl}").then(async r=>{if(!r.ok) throw new Error("HTTPS status " + r.status); const data=Buffer.from(await r.arrayBuffer()); if(require("node:crypto").createHash("sha256").update(data).digest("hex")!=="${approvedSha256}") throw new Error("HTTPS body digest mismatch"); console.log("Node HTTPS passed")})'`,
     cwd: "/workspace", mounts: [{ source: workspace, target: "/workspace", writable: false }], timeoutMs: 30000,
     signal: AbortSignal.timeout(180000), authorizeNetwork: async (request) => {
       approvedRequests.push(request.url); return true;
     } });
   assert.equal(approved.exitCode, 0, approved.output);
-  assert.deepEqual(approvedRequests, Array(2).fill("https://example.com/"));
+  assert.deepEqual(approvedRequests, Array(2).fill(approvedUrl));
   assert.ok(approved.output.includes("Python HTTPS passed"));
   assert.ok(approved.output.includes("Node HTTPS passed"));
   results.python_and_node_approved_https = true;

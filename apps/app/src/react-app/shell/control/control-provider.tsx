@@ -642,7 +642,6 @@ export function LegalworkRouteControlActions() {
           { id: "open-computer-use", label: "Open Computer Use", description: "Control your computer with screenshots and mouse/keyboard actions." },
           { id: "skills", label: "Skills", description: "Install specialized skill packs for specific workflows." },
           { id: "automations", label: "Automations", description: "Schedule recurring tasks and background agents." },
-          { id: "sharing", label: "Share sessions", description: "Share workspace sessions with collaborators via LegalWork Cloud." },
         ],
         hint: "Use settings.panel.open to configure any of these. For example: settings.panel.open({panel:'ai'}) for providers, settings.panel.open({panel:'extensions'}) for MCPs.",
       }),

@@ -107,7 +107,7 @@ Object.assign(browserWindow, {
   },
 });
 
-function makeStore(remote = false, fileFallback = false, routeConnection = false) {
+function makeStore(selectedServer = false, fileFallback = false, routeConnection = false) {
   const legalworkServer = createLegalworkServerStore({
     startupPreference: () => "local",
     documentVisible: () => true,
@@ -116,10 +116,9 @@ function makeStore(remote = false, fileFallback = false, routeConnection = false
     activeClient: () => null,
     selectedWorkspaceDisplay: () => ({ id: "local", name: "Local", path: "/tmp/workspace", preset: "", workspaceType: "local" }),
     restartLocalServer: async () => false,
-    createRemoteWorkspaceFlow: async () => false,
   });
   const localServerSnapshot = legalworkServer.getSnapshot();
-  // Desktop and remote alike save through the LegalWork server; on desktop it
+  // Desktop and manually selected servers save through the LegalWork server; on desktop it
   // is the embedded one, owning the shared connector store.
   const connectedServer: typeof legalworkServer = {
     ...legalworkServer,
@@ -135,10 +134,10 @@ function makeStore(remote = false, fileFallback = false, routeConnection = false
     projectDir: () => "/tmp/workspace",
     selectedWorkspaceId: () => selectedWorkspaceId,
     selectedWorkspaceRoot: () => "/tmp/workspace",
-    workspaceType: () => remote ? "remote" : "local",
+    workspaceType: () => "local",
     legalworkServer: fileFallback ? legalworkServer : connectedServer,
     ...(routeConnection ? { legalworkServerConnection: () => connectedServer.getSnapshot() } : {}),
-    runtimeWorkspaceId: () => remote ? "remote" : null,
+    runtimeWorkspaceId: () => selectedServer ? "selected-server-project" : null,
     developerMode: () => false,
     markReloadRequired: (reason, trigger) => { reloads.push({ reason, trigger }); },
   });
@@ -190,21 +189,28 @@ describe("connection store success reporting", () => {
             serverAdds.push(await request.json());
             remoteSaveStarted?.();
             await remoteSaveWait;
-            if (saveError) return Response.json({ code: "runtime_unavailable", message: saveError }, { status: 500 });
+            if (saveError || engineSaveError) return Response.json({ code: "runtime_unavailable", message: saveError || engineSaveError }, { status: 500 });
           }
           if (status.actaport) return Response.json({ items: [{ name: "actaport", config: { type: "local", command: ["node", "/tmp/bundled-actaport/index.mjs"] }, source: "config.local" }] });
           if (status["open-computer-use"]) return Response.json({ items: [{ name: "open-computer-use", config: { type: "local", ...openComputerUseConfig }, source: "config.local" }] });
           serverListReads += 1;
           return Response.json({ items: emptyServerList || serverListReads <= emptyServerReads ? [] : [{ name: "test-server", config: { type: "remote", url: entry.url }, source: "config.remote" }], ...(registrationFailed ? { engineSync: { status: "failed", failures: [{ name: "test-server", error: "Registration failed" }] } } : {}) });
         }
-        if (pathname !== "/mcp") throw new Error(`Unexpected request: ${request.url}`);
-        if (request.method === "POST") engineAdds.push(await request.json());
-        if (request.method === "POST" && engineSaveError) return Response.json({ message: engineSaveError }, { status: 500 });
+        const added = pathname.match(/^\/api\/experimental\/mcp\/([^/]+)$/);
+        if (added && request.method === "PUT") {
+          const body = await request.json();
+          engineAdds.push({ name: decodeURIComponent(added[1]), config: body.config });
+          if (engineSaveError) return Response.json({ message: engineSaveError }, { status: 500 });
+          return new Response(null, { status: 204 });
+        }
+        if (pathname === "/api/model") return Response.json({ location: { directory: "/tmp/workspace" }, data: [] });
+        if (pathname === "/api/config") return Response.json([]);
+        if (pathname !== "/api/mcp") throw new Error(`Unexpected request: ${request.url}`);
         const engineStatus = status;
         engineStatusRequests += 1;
         engineStatusStarted?.();
         await engineStatusWait;
-        return Response.json(engineStatus);
+        return Response.json({ location: { directory: "/tmp/workspace", projectID: "project" }, data: Object.entries(engineStatus).map(([name, status]) => ({ name, status })) });
       },
     });
   });
@@ -312,7 +318,7 @@ describe("connection store success reporting", () => {
     await store.completeMcpAuthModal();
     expect(connectedEvents()).toHaveLength(1);
     expect(store.getSnapshot().mcpStatus).toBe("Connected");
-    expect(reloads).toEqual([{ reason: "mcp", trigger: { type: "mcp", name: "test-server", action: "added" } }]);
+    expect(reloads).toEqual([]);
   });
 
   test("a healthy empty connector list has no legacy configuration banner", async () => {
@@ -323,12 +329,12 @@ describe("connection store success reporting", () => {
     expect(store.getSnapshot().mcpStatus).toBeNull();
   });
 
-  test("missing or empty config files use the library empty state without file-setup instructions", async () => {
+  test("engine-only clients read the native catalog without relying on desktop config files", async () => {
     const store = makeStore(false, true);
     for (const exists of [false, true]) {
       configExists = exists;
       await store.refreshMcpServers();
-      expect(store.getSnapshot().mcpServers).toEqual([]);
+      expect(store.getSnapshot().mcpServers.map(server => server.name)).toEqual(["test-server"]);
       expect(store.getSnapshot().mcpStatus).toBeNull();
     }
   });
@@ -349,7 +355,7 @@ describe("connection store success reporting", () => {
     expect(store.getSnapshot().mcpAuthEntry?.serverName).toBe("test-server");
     expect(reloads).toEqual([]);
     store.closeMcpAuthModal();
-    expect(reloads).toEqual([{ reason: "mcp", trigger: { type: "mcp", name: "test-server", action: "updated" } }]);
+    expect(reloads).toEqual([]);
   });
 
   test("a rejected enable cannot start sign-in or claim successful activation", async () => {
@@ -374,14 +380,14 @@ describe("connection store success reporting", () => {
     expect(store.getSnapshot().mcpAuthModalOpen).toBe(false);
   });
 
-  test("closing sign-in never emits a success event, but still applies the saved connector", async () => {
+  test("closing sign-in never emits success or schedules a redundant settings refresh", async () => {
     const store = makeStore();
     await store.connectMcp({ ...entry, oauth: true });
     expect(reloads).toHaveLength(0);
     store.closeMcpAuthModal();
     await store.completeMcpAuthModal();
     expect(connectedEvents()).toHaveLength(0);
-    expect(reloads).toHaveLength(1);
+    expect(reloads).toHaveLength(0);
   });
 
   test("a failed custom connection retains its engine error and never emits success", async () => {
@@ -405,7 +411,7 @@ describe("connection store success reporting", () => {
     const store = makeStore();
     expect(await store.connectMcp({ ...entry, ...config, existingConfig: config, oauth: false })).toBe(true);
     expect(serverAdds[0]).toMatchObject({ name: "test-server", preserveScope: true, config: { ...config, enabled: true } });
-    expect(engineAdds[0]).toMatchObject({ name: "test-server", config: { ...config, enabled: true } });
+    expect(engineAdds).toEqual([]);
     store.dispose();
   });
 
@@ -425,10 +431,10 @@ describe("connection store success reporting", () => {
     expect(store.getSnapshot().mcpStatus).toBe("Connected");
     expect(connectedEvents()).toHaveLength(1);
     // Nothing to wait for: other workspaces get the connector on the reload.
-    expect(reloads).toHaveLength(1);
+    expect(reloads).toHaveLength(0);
   });
 
-  test("remote workspace OAuth credentials are saved on the selected server, without local config writes or a spurious reload", async () => {
+  test("manually selected LegalWork server saves OAuth connector settings, without local config writes or a spurious reload", async () => {
     status = { "test-server": { status: "needs_auth" } };
     const store = makeStore(true);
     expect(await store.connectMcp({ ...entry, oauthConfig: { clientId: "remote-client", clientSecret: "remote-secret" } })).toBe(true);
@@ -448,7 +454,7 @@ describe("connection store success reporting", () => {
     expect(await store.connectMcp(integration)).toBe(true);
     const config = { type: "local", enabled: true, ...openComputerUseConfig };
     expect(serverAdds).toEqual([{ name: "open-computer-use", config }]);
-    expect(engineAdds).toEqual([{ name: "open-computer-use", config }]);
+    expect(engineAdds).toEqual([]);
     expect(openComputerUseCalls).toBe(1);
     expect(store.getSnapshot().mcpAuthModalOpen).toBe(false);
   });
@@ -462,15 +468,6 @@ describe("connection store success reporting", () => {
     expect(serverAdds).toHaveLength(0);
     expect(engineAdds).toHaveLength(0);
     expect(store.getSnapshot().mcpStatus).toContain(openComputerUseError);
-  });
-
-  test("remote workers cannot install or receive the local desktop command", async () => {
-    const integration = MCP_QUICK_CONNECT.find((item) => item.id === "open-computer-use");
-    if (!integration) throw new Error("Open Computer Use is missing from the integration directory");
-    expect(await makeStore(true).connectMcp(integration)).toBe(false);
-    expect(openComputerUseCalls).toBe(0);
-    expect(serverAdds).toHaveLength(0);
-    expect(engineAdds).toHaveLength(0);
   });
 
   test("explicitly disabled OAuth stays disabled in persisted config even when old client settings exist", async () => {
@@ -506,13 +503,6 @@ describe("connection store success reporting", () => {
       environment: { ACTAPORT_CONNECTION_FILE: "/tmp/actaport-connection.json", ACTAPORT_ALLOW_WRITES: "0", ACTAPORT_TOOLSETS: "" } } });
     expect(JSON.stringify(serverAdds)).not.toContain("clientSecret");
     expect(JSON.stringify(serverAdds)).not.toContain("password");
-  });
-
-  test("Actaport desktop credentials cannot be sent to a remote worker", async () => {
-    const actaport = MCP_QUICK_CONNECT.find((item) => item.serverName === "actaport");
-    if (!actaport) throw new Error("Missing Actaport extension");
-    expect(await makeStore(true).connectMcp(actaport)).toBe(false);
-    expect(serverAdds).toHaveLength(0);
   });
 
   test("a save that finishes after switching workspaces cannot start OAuth for the new selection", async () => {

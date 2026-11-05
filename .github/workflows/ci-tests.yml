@@ -7,20 +7,150 @@ on:
       - codex/projects-akte-workspace
   workflow_dispatch:
     inputs:
-      package_desktop:
-        description: Build and launch desktop packages on Linux and Windows
+      mac_signing_acceptance:
+        description: Only compile, production-sign and execute the three Mac engine targets without publishing
         type: boolean
         default: false
+      production_engine:
+        description: Use the production-signed source engine for package acceptance without publishing
+        type: boolean
+        default: false
+      package_desktop:
+        description: Build and execute desktop and reviewed engine on all six shipped OS/CPU configurations
+        type: boolean
+        default: false
+      unit_acceptance:
+        description: Run the full Linux and Mac unit jobs against an exact reused engine; does not validate six-platform packages
+        type: boolean
+        default: false
+      windows_archive_acceptance:
+        description: Verify Windows x64 and ARM64 archives, protected engine tools and packaged startup with exact producer reuse
+        type: boolean
+        default: false
+      native_source_acceptance:
+        description: Only run all six native host cold-build, real integration and warm-cache engine checks
+        type: boolean
+        default: false
+      engine_reuse_run_id:
+        description: Optional same-repository producer run ID (requires independent manifest SHA256)
+        type: string
+        default: ''
+      engine_reuse_manifest_sha256:
+        description: Independent SHA256 of that producer's complete twelve-target engine manifest
+        type: string
+        default: ''
 
 permissions:
   contents: read
 
 concurrency:
-  group: legalwork-tests-${{ github.event.pull_request.number || github.ref }}
+  group: legalwork-tests-${{ github.event.pull_request.number || github.ref }}${{ github.event_name == 'workflow_dispatch' && inputs.mac_signing_acceptance && '-mac-signing' || '' }}${{ github.event_name == 'workflow_dispatch' && inputs.package_desktop && !inputs.mac_signing_acceptance && format('-package-{0}', github.run_id) || '' }}${{ github.event_name == 'workflow_dispatch' && inputs.unit_acceptance && !inputs.package_desktop && !inputs.mac_signing_acceptance && format('-unit-{0}', github.run_id) || '' }}${{ github.event_name == 'workflow_dispatch' && inputs.windows_archive_acceptance && !inputs.package_desktop && !inputs.unit_acceptance && !inputs.mac_signing_acceptance && format('-windows-archive-{0}', github.run_id) || '' }}${{ github.event_name == 'workflow_dispatch' && inputs.native_source_acceptance && format('-native-source-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
 jobs:
+  engine-build-inputs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Reject contradictory production package inputs
+        env:
+          PRODUCTION_ENGINE: ${{ inputs.production_engine }}
+          PACKAGE_DESKTOP: ${{ inputs.package_desktop }}
+          SIGNING_ONLY: ${{ inputs.mac_signing_acceptance }}
+          UNIT_ONLY: ${{ inputs.unit_acceptance }}
+          WINDOWS_ONLY: ${{ inputs.windows_archive_acceptance }}
+          NATIVE_SOURCE_ONLY: ${{ inputs.native_source_acceptance }}
+          REUSE_RUN: ${{ inputs.engine_reuse_run_id }}
+          REUSE_PIN: ${{ inputs.engine_reuse_manifest_sha256 }}
+        run: |
+          if [ "$NATIVE_SOURCE_ONLY" = true ] && { [ "$PRODUCTION_ENGINE" = true ] || [ "$PACKAGE_DESKTOP" = true ] || [ "$SIGNING_ONLY" = true ] || [ "$UNIT_ONLY" = true ] || [ "$WINDOWS_ONLY" = true ] || [ -n "$REUSE_RUN" ] || [ -n "$REUSE_PIN" ]; }; then
+            echo 'native_source_acceptance cannot be combined with production, package, signing, unit, Windows archive or engine reuse inputs.' >&2
+            exit 1
+          fi
+          if [ "$PRODUCTION_ENGINE" = true ] && { [ "$PACKAGE_DESKTOP" != true ] || [ "$SIGNING_ONLY" = true ] || [ "$UNIT_ONLY" = true ] || [ "$WINDOWS_ONLY" = true ] || [ -n "$REUSE_RUN" ] || [ -n "$REUSE_PIN" ]; }; then
+            echo 'production_engine requires package_desktop with a fresh source build and no other focused mode.' >&2
+            exit 1
+          fi
+  signing-inputs:
+    if: github.event_name == 'workflow_dispatch' && inputs.mac_signing_acceptance && !inputs.native_source_acceptance
+    runs-on: ubuntu-latest
+    steps:
+      - name: Reject contradictory manual modes
+        env:
+          PACKAGE_DESKTOP: ${{ inputs.package_desktop }}
+          UNIT_ACCEPTANCE: ${{ inputs.unit_acceptance }}
+          WINDOWS_ARCHIVE_ACCEPTANCE: ${{ inputs.windows_archive_acceptance }}
+        run: |
+          if [ "$PACKAGE_DESKTOP" = true ] || [ "$UNIT_ACCEPTANCE" = true ] || [ "$WINDOWS_ARCHIVE_ACCEPTANCE" = true ]; then
+            echo 'mac_signing_acceptance cannot be combined with package_desktop, unit_acceptance or windows_archive_acceptance.' >&2
+            exit 1
+          fi
+  unit-inputs:
+    if: github.event_name == 'workflow_dispatch' && inputs.unit_acceptance && !inputs.native_source_acceptance
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require an exclusive focused mode and exact engine reuse
+        env:
+          PACKAGE_DESKTOP: ${{ inputs.package_desktop }}
+          MAC_SIGNING_ACCEPTANCE: ${{ inputs.mac_signing_acceptance }}
+          WINDOWS_ARCHIVE_ACCEPTANCE: ${{ inputs.windows_archive_acceptance }}
+          ENGINE_REUSE_RUN_ID: ${{ inputs.engine_reuse_run_id }}
+          ENGINE_REUSE_MANIFEST_SHA256: ${{ inputs.engine_reuse_manifest_sha256 }}
+        run: |
+          if [ "$PACKAGE_DESKTOP" = true ] || [ "$MAC_SIGNING_ACCEPTANCE" = true ] || [ "$WINDOWS_ARCHIVE_ACCEPTANCE" = true ]; then
+            echo 'unit_acceptance cannot be combined with package_desktop, mac_signing_acceptance or windows_archive_acceptance.' >&2
+            exit 1
+          fi
+          if [ -z "$ENGINE_REUSE_RUN_ID" ] || [ -z "$ENGINE_REUSE_MANIFEST_SHA256" ]; then
+            echo 'unit_acceptance requires an engine producer run and independent manifest SHA256.' >&2
+            exit 1
+          fi
+  windows-archive-inputs:
+    if: github.event_name == 'workflow_dispatch' && inputs.windows_archive_acceptance && !inputs.native_source_acceptance
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require only Windows archive acceptance and exact engine reuse
+        env:
+          PACKAGE_DESKTOP: ${{ inputs.package_desktop }}
+          MAC_SIGNING_ACCEPTANCE: ${{ inputs.mac_signing_acceptance }}
+          UNIT_ACCEPTANCE: ${{ inputs.unit_acceptance }}
+          ENGINE_REUSE_RUN_ID: ${{ inputs.engine_reuse_run_id }}
+          ENGINE_REUSE_MANIFEST_SHA256: ${{ inputs.engine_reuse_manifest_sha256 }}
+        run: |
+          if [ "$PACKAGE_DESKTOP" = true ] || [ "$MAC_SIGNING_ACCEPTANCE" = true ] || [ "$UNIT_ACCEPTANCE" = true ] || [ -z "$ENGINE_REUSE_RUN_ID" ] || [ -z "$ENGINE_REUSE_MANIFEST_SHA256" ]; then
+            echo 'windows_archive_acceptance requires exact reuse inputs and cannot be combined with other manual modes.' >&2
+            exit 1
+          fi
+  windows-archive-acceptance:
+    needs: [windows-archive-inputs, opencode-derivative]
+    if: github.event_name == 'workflow_dispatch' && inputs.windows_archive_acceptance && !inputs.native_source_acceptance && needs.windows-archive-inputs.result == 'success' && needs.opencode-derivative.result == 'success'
+    uses: ./.github/workflows/ci-windows-opencode-install.yml
+    with:
+      manifest-sha256: ${{ needs.opencode-derivative.outputs.manifest-sha256 }}
+  windows-protected-runtime:
+    needs: [windows-archive-inputs, engine-build-inputs]
+    if: github.event_name == 'workflow_dispatch' && inputs.windows_archive_acceptance && !inputs.native_source_acceptance && needs.windows-archive-inputs.result == 'success' && needs.engine-build-inputs.result == 'success'
+    uses: ./.github/workflows/sandbox-runtime.yml
+    with:
+      targets: win32-x64,win32-arm64
+      run_tests: false
+  windows-desktop-acceptance:
+    needs: [windows-archive-inputs, opencode-derivative, windows-protected-runtime]
+    if: github.event_name == 'workflow_dispatch' && inputs.windows_archive_acceptance && !inputs.native_source_acceptance && needs.windows-archive-inputs.result == 'success' && needs.opencode-derivative.result == 'success' && needs.windows-protected-runtime.result == 'success'
+    uses: ./.github/workflows/ci-desktop-packaging.yml
+    with:
+      windows-only: true
+      derivative-manifest-sha256: ${{ needs.opencode-derivative.outputs.manifest-sha256 }}
+      engine-build-mode: development
+  mac-signing-acceptance:
+    needs: [signing-inputs, engine-build-inputs]
+    if: github.event_name == 'workflow_dispatch' && inputs.mac_signing_acceptance && !inputs.unit_acceptance && !inputs.windows_archive_acceptance && !inputs.native_source_acceptance
+    uses: ./.github/workflows/mac-engine-signing-acceptance.yml
+    secrets:
+      APPLE_CODESIGN_CERT_P12_BASE64: ${{ secrets.APPLE_CODESIGN_CERT_P12_BASE64 }}
+      APPLE_CODESIGN_CERT_PASSWORD: ${{ secrets.APPLE_CODESIGN_CERT_PASSWORD }}
   sandbox-changes:
+    needs: engine-build-inputs
+    if: github.event_name != 'workflow_dispatch' || (!inputs.mac_signing_acceptance && !inputs.unit_acceptance && !inputs.windows_archive_acceptance && !inputs.native_source_acceptance)
     runs-on: ubuntu-latest
     outputs:
       required: ${{ steps.changes.outputs.required }}
@@ -47,11 +177,48 @@ jobs:
       needs.sandbox-changes.outputs.required == 'true' &&
       !(github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'skip-sandbox-tests'))
     uses: ./.github/workflows/sandbox-runtime.yml
+  engine-source-build:
+    needs: engine-build-inputs
+    if: >-
+      github.event_name == 'workflow_dispatch' && needs.engine-build-inputs.result == 'success' &&
+      (inputs.native_source_acceptance || (inputs.package_desktop && !inputs.mac_signing_acceptance && !inputs.unit_acceptance && !inputs.windows_archive_acceptance))
+    permissions:
+      contents: read
+    uses: ./.github/workflows/ci-opencode-source-hosts.yml
+  opencode-derivative:
+    needs: engine-build-inputs
+    if: >-
+      always() && !cancelled() && needs.engine-build-inputs.result == 'success' && (
+      github.event_name != 'workflow_dispatch' || (!inputs.native_source_acceptance && !inputs.mac_signing_acceptance &&
+      ((!inputs.unit_acceptance && !inputs.windows_archive_acceptance) ||
+      (inputs.unit_acceptance && !inputs.package_desktop && !inputs.windows_archive_acceptance && inputs.engine_reuse_run_id != '' && inputs.engine_reuse_manifest_sha256 != '') ||
+      (inputs.windows_archive_acceptance && !inputs.package_desktop && !inputs.unit_acceptance && inputs.engine_reuse_run_id != '' && inputs.engine_reuse_manifest_sha256 != ''))))
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/ci-opencode-derivative.yml
+    with:
+      build-mode: ${{ inputs.production_engine && 'production' || 'development' }}
+      reuse-run-id: ${{ inputs.engine_reuse_run_id }}
+      reuse-manifest-sha256: ${{ inputs.engine_reuse_manifest_sha256 }}
+    secrets:
+      APPLE_CODESIGN_CERT_P12_BASE64: ${{ inputs.production_engine && secrets.APPLE_CODESIGN_CERT_P12_BASE64 || '' }}
+      APPLE_CODESIGN_CERT_PASSWORD: ${{ inputs.production_engine && secrets.APPLE_CODESIGN_CERT_PASSWORD || '' }}
   desktop-packaging:
-    if: github.event_name == 'workflow_dispatch' && inputs.package_desktop
-    needs: sandbox-runtime
+    # Manual package diagnostics may exercise a built runtime after a sandbox
+    # assertion fails. The failed sandbox workflow still keeps the run red.
+    if: >-
+      always() && github.event_name == 'workflow_dispatch' &&
+      inputs.package_desktop && !inputs.mac_signing_acceptance && !inputs.unit_acceptance && !inputs.windows_archive_acceptance &&
+      needs.opencode-derivative.result == 'success' &&
+      (needs.sandbox-runtime.result == 'success' || needs.sandbox-runtime.result == 'failure')
+    needs: [sandbox-runtime, opencode-derivative]
     uses: ./.github/workflows/ci-desktop-packaging.yml
+    with:
+      derivative-manifest-sha256: ${{ needs.opencode-derivative.outputs.manifest-sha256 }}
+      engine-build-mode: ${{ inputs.production_engine && 'production' || 'development' }}
   windows-meetings:
+    if: github.event_name != 'workflow_dispatch' || (!inputs.mac_signing_acceptance && !inputs.unit_acceptance && !inputs.windows_archive_acceptance && !inputs.native_source_acceptance)
     runs-on: windows-latest
     timeout-minutes: 5
     steps:
@@ -63,6 +230,7 @@ jobs:
         run: node --test apps/desktop/electron/windows-meeting-probe.test.mjs apps/desktop/electron/meeting-monitor.test.mjs
 
   windows-drafts:
+    if: github.event_name != 'workflow_dispatch' || (!inputs.mac_signing_acceptance && !inputs.unit_acceptance && !inputs.windows_archive_acceptance && !inputs.native_source_acceptance)
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v6
@@ -73,6 +241,8 @@ jobs:
         with:
           version: 11.4.0
       - run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Verify bundled help generation on Windows
+        run: node --test scripts/gen-core-skills.test.mjs
       - name: Test portable drafts
         run: pnpm test:drafts
       - name: Test Windows Outlook handoff
@@ -81,6 +251,8 @@ jobs:
         run: node --test apps/desktop/electron/packaged-server-deps.test.mjs
 
   legalwork-tests:
+    needs: opencode-derivative
+    if: always() && !(github.event_name == 'workflow_dispatch' && (inputs.mac_signing_acceptance || inputs.windows_archive_acceptance || inputs.native_source_acceptance)) && needs.opencode-derivative.result == 'success'
     runs-on: ${{ matrix.os }}
 
     strategy:
@@ -102,26 +274,50 @@ jobs:
         with:
           version: 11.4.0
 
+      - uses: actions/download-artifact@v4
+        if: needs.opencode-derivative.result == 'success'
+        with:
+          name: opencode-derivative-ci
+          path: ${{ runner.temp }}/opencode-derivative
       - uses: ./.github/actions/setup-opencode
         with:
-          repository: ${{ vars.OPENCODE_GITHUB_REPO || 'anomalyco/opencode' }}
+          archive-directory: ${{ needs.opencode-derivative.result == 'success' && format('{0}/opencode-derivative/archives', runner.temp) || '' }}
+          manifest-sha256: ${{ needs.opencode-derivative.outputs.manifest-sha256 }}
+          build-mode: ${{ inputs.production_engine && 'production' || 'development' }}
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.2
+          bun-version: 1.4.4
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Typecheck app and build server
-        if: runner.os == 'Linux'
+      - name: Prepare checksum-pinned Node for worker tests
+        run: node apps/desktop/scripts/prepare-node-runtime.mjs
+
+      - name: Verify bundled user documentation and translations
         run: |
-          pnpm --filter @legalwork/app typecheck
-          pnpm --filter legalwork-server build
+          node --test scripts/gen-core-skills.test.mjs
+          pnpm docs:check
+
+      - name: Typecheck app
+        if: runner.os == 'Linux'
+        run: pnpm --filter @legalwork/app typecheck
+
+      - name: Build server and native plugins
+        run: pnpm --filter legalwork-server build
 
       - name: Run app unit tests
         run: pnpm --filter @legalwork/app test
+      - name: Verify engine source policy, preparation and immutable artifacts
+        run: node --test packages/opencode-release/*.test.mjs packages/opencode-release/build/*.test.mjs
+
+      - name: Verify retired downloads and complete local CLI bundles
+        run: bun test apps/orchestrator/src/retired-binary-downloads.test.mjs
+
+      - name: Verify synthetic startup failure diagnostics
+        run: node --test apps/desktop/scripts/packaged-startup-diagnostics.test.mjs
 
       - name: Verify recorder capture and dictation
         run: |
@@ -131,6 +327,11 @@ jobs:
       - name: Run server unit tests
         run: pnpm --filter legalwork-server test
 
+      - name: Verify released engine authentication, native plugin modules, and shutdown
+        run: |
+          node --test apps/desktop/electron/opencode-release.test.mjs
+          bun test --preload ./apps/server/test-preload.ts apps/server/src/managed-opencode.released.test.ts
+
       - name: Verify scheduling and file search with the shipped engine
         run: |
           pnpm --filter legalwork-server build
@@ -138,6 +339,9 @@ jobs:
 
       - name: Verify built draft routes load in Node
         run: pnpm test:drafts:build
+
+      - name: Verify Node development-server history and restart
+        run: node --test apps/server/scripts/dev-node.test.mjs
 
       - name: Verify whole-agent prompt cache contract
         env:
@@ -193,7 +397,10 @@ jobs:
         run: pnpm --filter @legalwork/app test:e2e
 
   sandbox-engine:
-    needs: sandbox-runtime
+    needs: [sandbox-runtime, opencode-derivative]
+    if: >-
+      always() && !cancelled() && needs.sandbox-runtime.result == 'success' &&
+      needs.opencode-derivative.result == 'success'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -209,11 +416,20 @@ jobs:
           version: 11.4.0
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.2
+          bun-version: 1.4.4
+      - uses: actions/download-artifact@v4
+        if: needs.opencode-derivative.result == 'success'
+        with:
+          name: opencode-derivative-ci
+          path: ${{ runner.temp }}/opencode-derivative
       - uses: ./.github/actions/setup-opencode
         with:
-          repository: ${{ vars.OPENCODE_GITHUB_REPO || 'anomalyco/opencode' }}
+          archive-directory: ${{ needs.opencode-derivative.result == 'success' && format('{0}/opencode-derivative/archives', runner.temp) || '' }}
+          manifest-sha256: ${{ needs.opencode-derivative.outputs.manifest-sha256 }}
+          build-mode: ${{ inputs.production_engine && 'production' || 'development' }}
       - run: pnpm install --frozen-lockfile
+      - name: Prepare checksum-pinned Node for worker tests
+        run: node apps/desktop/scripts/prepare-node-runtime.mjs
       - uses: actions/download-artifact@v4
         with:
           name: sandbox-runtime-${{ runner.os == 'macOS' && 'darwin-arm64' || 'linux-x64' }}

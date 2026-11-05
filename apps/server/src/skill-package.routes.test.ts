@@ -1,3 +1,5 @@
+import { nativePluginTools } from "./opencode-plugins/native-plugin-test-support.js";
+const LegalWorkSkillTools = (context = {}) => nativePluginTools(LegalWorkSkillToolsDefinition, context);
 import { expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -6,7 +8,7 @@ import { z } from "zod";
 import { startServer } from "./server.js";
 import { upsertSkill } from "./skills.js";
 import { upsertSkillResource } from "./skill-resources.js";
-import { LegalWorkSkillTools } from "./opencode-plugins/legalwork-skill-tools.js";
+import LegalWorkSkillToolsDefinition from "./opencode-plugins/legalwork-skill-tools.js";
 import type { OpenCodeContext } from "./opencode-plugins/office-plugin-shared.js";
 import type { ServerConfig } from "./types.js";
 

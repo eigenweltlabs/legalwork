@@ -152,7 +152,7 @@ export function useDesktopRuntimeBoot() {
         const workspace = selectedId
           ? list.workspaces.find((w) => w.id === selectedId)
           : undefined;
-        if (!workspace || workspace.workspaceType === "remote") {
+        if (!workspace) {
           await startServerWithoutDesktopWorkspace();
           return;
         }
@@ -255,7 +255,7 @@ export function useDesktopRuntimeBoot() {
         // No running engine. Tauri now mirrors Electron: engine_start boots
         // legalwork-server and lets that server manage OpenCode.
         const localPaths = list.workspaces.flatMap((entry: WorkspaceInfo) => {
-          const path = entry.workspaceType !== "remote" ? entry.path?.trim() ?? "" : "";
+          const path = entry.path?.trim() ?? "";
           return path ? [path] : [];
         });
         const workspacePathsFor = (root: string) => {
@@ -282,7 +282,7 @@ export function useDesktopRuntimeBoot() {
         if (!engineStartResult) {
           const fallback = list.workspaces.find((entry) => {
             const path = entry.path?.trim() ?? "";
-            return entry.workspaceType !== "remote" && path && path !== workspaceRoot;
+            return path && path !== workspaceRoot;
           });
           const fallbackRoot = fallback?.path?.trim() ?? "";
           if (fallback && fallbackRoot) {

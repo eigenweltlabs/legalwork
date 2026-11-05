@@ -43,7 +43,7 @@ export function useSessionInbox(client: LegalworkServerClient | null, workspaces
         reconcileInboxActivity(sessions);
         const changed = new Set(useSessionInboxStore.getState().receive(sessions));
         const fullRefresh = Date.now() - lastFullRefresh >= 30_000;
-        const targets = latest.current.workspaces.filter(workspace => workspace.workspaceType !== "remote" && (
+        const targets = latest.current.workspaces.filter(workspace => (
           fullRefresh || changed.has(workspaceServerId(workspace)) ||
           inboxNeedsRefresh(sessions.filter(entry => entry.workspaceId === workspaceServerId(workspace)), latest.current.listed[workspace.id] ?? [])
         ));

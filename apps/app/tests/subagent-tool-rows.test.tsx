@@ -1,7 +1,8 @@
 import { afterEach, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { DynamicToolUIPart, UIMessage } from "ai";
-import type { ToolPart } from "@opencode-ai/sdk/v2/client";
+import type { ToolPart } from "../src/app/lib/opencode-view";
+import type { OpenCodeEvent } from "@opencode/client";
 import type { WorkspaceSessionGroup } from "../src/app/types";
 import { getReactQueryClient } from "../src/react-app/infra/query-client";
 import { SubagentRow } from "../src/components/chat/subagent-tool-row";
@@ -111,8 +112,16 @@ test("session ids survive both the tool mapper and live updates, so rows can ope
     for (const part of [running, completed]) {
       const mapped = parseDynamicToolUIPart(part)!;
       expect(subagentSessionId(mapped)).toBe("child-1");
-      __applySessionSyncEventForTest(input, { type: "message.updated", properties: { info: { id: "assistant", role: "assistant", sessionID: "parent" } } });
-      __applySessionSyncEventForTest(input, { type: "message.part.updated", properties: { part } });
+      const common = { id: "event", created: 1, location: { directory: "/fixture" }, durable: { aggregateID: "parent", seq: 1, version: 1 } };
+      const emit = (event: OpenCodeEvent) => __applySessionSyncEventForTest(input, event);
+      if (part.state.status === "running") {
+        emit({ ...common, type: "session.step.started", data: { sessionID: "parent", assistantMessageID: "assistant", agent: "legalwork", model: { providerID: "fixture", id: "model" }, started: 1 } });
+        emit({ ...common, type: "session.tool.input.started", data: { sessionID: "parent", assistantMessageID: "assistant", id: part.callID, name: part.tool } });
+        emit({ ...common, type: "session.tool.called", data: { sessionID: "parent", assistantMessageID: "assistant", id: part.callID, input: part.state.input, executed: true } });
+        emit({ ...common, type: "session.tool.progress", data: { sessionID: "parent", assistantMessageID: "assistant", id: part.callID, metadata: part.state.metadata } });
+      } else if (part.state.status === "completed") {
+        emit({ ...common, durable: { ...common.durable, version: 2 }, type: "session.tool.success", data: { sessionID: "parent", assistantMessageID: "assistant", id: part.callID, content: [{ type: "text", text: part.state.output }], metadata: part.state.metadata, executed: true } });
+      }
       const transcript = getReactQueryClient().getQueryData<UIMessage[]>(transcriptKey(input.workspaceId, "parent")) ?? [];
       const livePart = transcript[0].parts.find(part => part.type === "dynamic-tool");
       expect(livePart && subagentSessionId(livePart)).toBe("child-1");

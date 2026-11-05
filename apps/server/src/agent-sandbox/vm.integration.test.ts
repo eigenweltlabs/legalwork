@@ -151,6 +151,46 @@ echo approved > allowed.txt`, true);
     expect((await readFile(join(workspace, "allowed.txt"), "utf8")).trim()).toBe("approved");
   }, 180_000);
 
+  test("command expansion preserves complete output without an execution deadline and still supports Stop", async () => {
+    const source = "Complete legal automation output: " + "§".repeat(600_000) + "END-OF-OUTPUT";
+    const result = await sandbox.run({
+      command: "python3 -c \"import sys; sys.stdout.write('Complete legal automation output: ' + '§' * 600000 + 'END-OF-OUTPUT')\"",
+      cwd: "/workspace", mounts: [{ source: workspace, target: "/workspace", writable: false }],
+      timeoutMs: null, capture: "complete", signal: new AbortController().signal, authorizeNetwork: async () => false,
+    });
+    expect(result.exitCode).toBe(0);
+    expect(result.truncated).toBe(false);
+    expect(result.output).toBe(source);
+
+    const controller = new AbortController();
+    let started: () => void = () => {};
+    const ready = new Promise<void>(resolve => { started = resolve; });
+    const pending = sandbox.run({
+      command: "echo unfinished > complete-command-cancelled.txt; curl -s https://example.com/complete-command-cancelled",
+      cwd: "/workspace", mounts: [{ source: workspace, target: "/workspace", writable: true }],
+      timeoutMs: null, capture: "complete", signal: controller.signal,
+      authorizeNetwork: async () => {
+        started();
+        await new Promise<void>(resolve => {
+          controller.signal.addEventListener("abort", () => resolve(), { once: true });
+          if (controller.signal.aborted) resolve();
+        });
+        return false;
+      },
+    });
+    const settled = pending.then(() => null, (error: unknown) => error);
+    try {
+      await Promise.race([ready, settled.then(() => { throw new Error("Command exited before its permission check"); })]);
+      controller.abort(new Error("Stop command expansion"));
+      const error = await settled;
+      expect(error instanceof Error && error.message).toBe("Stop command expansion");
+      expect(await readFile(join(workspace, "complete-command-cancelled.txt")).catch(() => null)).toBeNull();
+    } finally {
+      controller.abort();
+      await settled;
+    }
+  }, 180_000);
+
   test("large binary transfers and installed read-only helpers survive transport backpressure", async () => {
     const skill = await mkdtemp(join(tmpdir(), "sandbox-skill-"));
     const requests = spyOn(SandboxFilesystem.prototype, "request");
@@ -299,18 +339,23 @@ print(json.dumps(results))
   }, 180_000);
 
   test("approved curl, Python and Node HTTPS can complete through the broker", async () => {
+    // The successful request needs immutable bytes; IANA's example HTTP service
+    // is best effort. The preceding denied request still uses example.com.
+    const url = "https://raw.githubusercontent.com/eigenweltlabs/legalwork/7ad46c806fbd872aa2c1886674a5cf2f7c50715c/LICENSE";
+    const digest = "ae2380682b457ec03e2b36b54a64e2cc6c21727c3d3b64dfb3c6f16ee4c6ebae";
     const requests: string[] = [];
     const result = await sandbox.run({ command: `set -e
-curl --silent --show-error --fail https://example.com/
-python3 -c 'import urllib.request; assert b"Example Domain" in urllib.request.urlopen("https://example.com/").read(); print("Python HTTPS passed")'
-node -e 'fetch("https://example.com/").then(r=>r.text()).then(t=>{if(!t.includes("Example Domain")) process.exit(1); console.log("Node HTTPS passed")})'`,
+curl --silent --show-error --fail "${url}" -o /tmp/approved-https-license
+python3 -c 'import hashlib; from pathlib import Path; assert hashlib.sha256(Path("/tmp/approved-https-license").read_bytes()).hexdigest() == "${digest}", "Curl HTTPS body digest mismatch"; print("Curl HTTPS passed")'
+python3 -c 'import hashlib, urllib.request; data = urllib.request.urlopen("${url}").read(); assert hashlib.sha256(data).hexdigest() == "${digest}", "Python HTTPS body digest mismatch"; print("Python HTTPS passed")'
+node -e 'fetch("${url}").then(async r=>{if(!r.ok) throw new Error("HTTPS status " + r.status); const data=Buffer.from(await r.arrayBuffer()); if(require("node:crypto").createHash("sha256").update(data).digest("hex")!=="${digest}") throw new Error("Node HTTPS body digest mismatch"); console.log("Node HTTPS passed")})'`,
       cwd: "/workspace", mounts: [{ source: workspace, target: "/workspace", writable: false }],
       timeoutMs: 30_000, signal: new AbortController().signal,
       authorizeNetwork: async (request) => { requests.push(request.url); return true; },
     });
-    expect(result.exitCode).toBe(0);
-    expect(requests).toEqual(Array(3).fill("https://example.com/"));
-    expect(result.output).toContain("Example Domain");
+    expect(result.exitCode, `Approved HTTPS exit ${result.exitCode}; combined stdout/stderr:\n${result.output}`).toBe(0);
+    expect(requests).toEqual(Array(3).fill(url));
+    expect(result.output).toContain("Curl HTTPS passed");
     expect(result.output).toContain("Python HTTPS passed");
     expect(result.output).toContain("Node HTTPS passed");
   }, 180_000);

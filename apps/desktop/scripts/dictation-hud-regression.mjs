@@ -89,6 +89,53 @@ app.whenReady().then(async () => {
       };
     })()`);
     const state = () => window.webContents.executeJavaScript(`({state:document.body.dataset.state, label:document.getElementById('label').textContent, notice:document.getElementById('notice').textContent, slow:document.body.dataset.slow, heights:[...document.querySelectorAll('#waveform i')].map(b=>b.getBoundingClientRect().height)})`);
+    for (const dark of [false, true]) {
+      nativeTheme.themeSource = dark ? "dark" : "light";
+      for (const dock of DOCKS) {
+        hud.dock = dock;
+        hud.positionWindow();
+        for (const [locale, title] of [["en", "Couldn’t insert text"], ["de", "Text konnte nicht eingefügt werden"]]) {
+          await hud.setState("idle", "", locale);
+          await hud.setState("copied", "", locale);
+          await delay(350);
+          assert.equal((await state()).label, title);
+          const recovery = await window.webContents.executeJavaScript(`(() => {
+            const bar=document.getElementById('bar'), label=document.getElementById('label'), instructions=document.getElementById('copy-instructions');
+            const r=bar.getBoundingClientRect();
+            return {aria:bar.getAttribute('aria-label'),instructions:instructions.textContent,opacity:getComputedStyle(label).opacity,width:r.width,height:r.height,fits:r.x>=0&&r.y>=0&&r.right<=innerWidth&&r.bottom<=innerHeight,dismiss:getComputedStyle(document.getElementById('dismiss')).display,check:getComputedStyle(document.getElementById('check')).display};
+          })()`);
+          assert.ok(recovery.aria.includes(title) && recovery.aria.includes(recovery.instructions), "screen readers receive the failure and recovery instructions");
+          assert.ok(recovery.instructions.includes("⌘V"));
+          assert.equal(recovery.opacity, "1", "recovery is visible without hovering");
+          assert.ok(recovery.width >= 300 && recovery.height >= 80 && recovery.fits, "larger recovery card fits every dock");
+          assert.equal(recovery.dismiss, "flex");
+          assert.equal(recovery.check, "none", "clipboard recovery is not shown as insertion success");
+          if (output) await writeFile(path.join(output, `copied-${dock}-${locale}-${dark ? "dark" : "light"}.png`), (await window.webContents.capturePage()).toPNG());
+        }
+      }
+    }
+    await delay(1_300);
+    assert.equal((await state()).state, "copied", "recovery remains long enough to read and paste manually");
+    await hud.setStatus({ ...status, platform: "windows" });
+    assert.ok((await window.webContents.executeJavaScript("document.getElementById('copy-instructions').textContent")).includes("Ctrl+V"));
+    const recoveryDismiss = await center("dismiss");
+    input({ type:"mouseDown", ...recoveryDismiss, button:"left", clickCount:1 });
+    input({ type:"mouseUp", ...recoveryDismiss, button:"left", clickCount:1 });
+    await delay(100);
+    assert.equal((await state()).state, "idle", "the recovery notice can be dismissed");
+    await hud.setStatus(status);
+    hud.dock = "bottom";
+    hud.positionWindow();
+    await hud.setState("idle", "", "en");
+    if (process.argv.includes("--clipboard")) {
+      await hud.setState("copied");
+      await delay(4_100);
+      await hud.setStatus(status);
+      await delay(4_100);
+      assert.equal((await state()).state, "idle", "clipboard recovery expires after eight seconds despite a status refresh");
+      console.log("PASS: clipboard recovery in both themes and languages, every dock, platform paste shortcuts, dismissal and eight-second expiry");
+      return;
+    }
     for (const dock of DOCKS) {
       hud.dock = dock;
       hud.positionWindow();
@@ -399,7 +446,7 @@ app.whenReady().then(async () => {
     assert.equal(dotMotion.movingDots, dotMotion.reduced ? 0 : 3, "each dot takes a turn across the loop");
     await delay(6_200);
     assert.equal((await state()).slow, "true");
-    await hud.setState("success");
+    await hud.setState("success", "", "en");
     await delay(1_300);
     assert.equal((await state()).state, "idle");
     await hud.setStatus({ ...status, enabled: false });
@@ -547,8 +594,7 @@ app.whenReady().then(async () => {
     screen.getCursorScreenPoint = nativeCursor;
     await rm(userData, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
-  app.exit(0);
-}).catch((error) => {
+}).then(() => app.exit(0)).catch((error) => {
   writeSync(2, `${error.stack || error}\n`);
   app.exit(1);
 });

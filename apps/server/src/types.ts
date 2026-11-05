@@ -2,9 +2,14 @@ import type { HostApprovalRequest } from "@legalwork/types/desktop-ipc";
 import type { AudioRecordingDetail, AudioRecordingMeta } from "@legalwork/types/audio";
 import type { WorkspaceWire } from "@legalwork/types/workspace";
 
-export type WorkspaceType = "local" | "remote";
-
-export type RemoteType = "opencode" | "legalwork";
+/** Host callbacks are never loaded from saved configuration or exposed over HTTP. */
+export type ServerRuntimeOptions = {
+  modelDownloadFetch?: import("./ocr/models.js").ModelDownloadFetch;
+  documentLayout?: import("./document-preparation/structure.js").DocumentLayout;
+  rawHttpNodeExecutable?: () => string;
+  toolImageRasterRuntime?: () => import("./tool-image-raster.js").ToolImageRasterRuntime;
+  onListening?: (port: number) => Promise<void>;
+};
 
 export type ApprovalMode = "manual" | "auto";
 
@@ -21,15 +26,11 @@ export interface WorkspaceConfig {
   path: string;
   name?: string;
   preset?: string;
-  workspaceType?: WorkspaceType;
-  remoteType?: RemoteType;
+  /** Legacy remote records are read only to preserve their original configuration. */
+  workspaceType?: "local" | "remote";
   baseUrl?: string;
   directory?: string;
   displayName?: string;
-  legalworkHostUrl?: string;
-  legalworkToken?: string;
-  legalworkWorkspaceId?: string;
-  legalworkWorkspaceName?: string;
   sandboxBackend?: string;
   sandboxRunId?: string;
   sandboxContainerName?: string;
@@ -42,15 +43,10 @@ export interface WorkspaceInfo {
   name: string;
   path: string;
   preset: string;
-  workspaceType: WorkspaceType;
-  remoteType?: RemoteType;
+  workspaceType: "local";
   baseUrl?: string;
   directory?: string;
   displayName?: string;
-  legalworkHostUrl?: string;
-  legalworkToken?: string;
-  legalworkWorkspaceId?: string;
-  legalworkWorkspaceName?: string;
   sandboxBackend?: string;
   sandboxRunId?: string;
   sandboxContainerName?: string;
@@ -64,13 +60,18 @@ export interface WorkspaceInfo {
   };
 }
 
+/** Public workspace metadata excludes the engine's private connection secrets. */
+export type WorkspaceMetadata = Omit<WorkspaceInfo, "opencodeUsername" | "opencodePassword" | "opencode"> & {
+  opencode?: Pick<NonNullable<WorkspaceInfo["opencode"]>, "baseUrl" | "directory">;
+};
+
 // Compile-time contract tripwires against the shared wire shape consumed by
 // apps/app (packages/types/src/workspace.ts). The first check rejects fields
 // whose values no longer fit the wire contract; the second rejects fields the
 // contract does not know about. Both are erased at build time.
 type Extends<A extends B, B> = A;
-type _WorkspaceInfoFitsWire = Extends<WorkspaceInfo, WorkspaceWire>;
-type _WorkspaceInfoKeysKnown = Extends<keyof WorkspaceInfo, keyof WorkspaceWire>;
+type _WorkspaceInfoFitsWire = Extends<WorkspaceMetadata, WorkspaceWire>;
+type _WorkspaceInfoKeysKnown = Extends<keyof WorkspaceMetadata, keyof WorkspaceWire>;
 
 export interface OpencodeConfigFile {
   path: string;
@@ -169,6 +170,22 @@ export interface ServerConfig {
   requestHostApproval?: HostApprovalHandler;
   /** Host-owned managed execution capability, not the user’s sandbox preference. Routes both native and protected commands; never accepted from API config patches. */
   agentSandboxEnabled?: boolean;
+  /** Host-owned admission boundary for native project automation discovery. */
+  engineProjectTrustRequired?: boolean;
+  /** Host-owned source policy. Managed engines ignore project/ancestor native discovery. */
+  engineConfigurationMode?: "managed" | "native-project";
+  managedEngineStorageDirectory?: string;
+  /** Host-owned history identity and current owned connection; never client configuration. */
+  managedImageAffinity?: (workspace: WorkspaceInfo) => import("./managed-image-affinity.js").ManagedImageAffinity | undefined;
+  /** Explicit host-generated integrations; never read from authored/API config. */
+  managedEnginePluginDirectories?: string[];
+  managedEngineStarting?: boolean;
+  waitForManagedEngineEndpoint?: () => Promise<void>;
+  /** Host-only coordinator state; never accepted from project/client config. */
+  managedEngineRecoveryState?: () => { mode: "service" | "recovery" | "promoting"; heldSessions: Array<{ id: string; directory: string }>; error?: { code: string; message: string } };
+  retryManagedEngineRecovery?: () => Promise<void>;
+  withManagedEngineAdmission?: (sessionID: string, action: () => Promise<Response>) => Promise<Response>;
+  observeManagedEngineResponse?: (request: { method: string; path: string; directory: string }, response: Response) => Promise<void>;
   opencodeBaseUrl?: string;
   opencodeDirectory?: string;
   opencodeUsername?: string;
@@ -176,6 +193,7 @@ export interface ServerConfig {
   approval: ApprovalConfig;
   corsOrigins: string[];
   workspaces: WorkspaceInfo[];
+  workspaceWarnings?: string[];
   authorizedRoots: string[];
   readOnly: boolean;
   /** Background setup of the layout model and the small OCR model when selected; enabled by resolved host config. */

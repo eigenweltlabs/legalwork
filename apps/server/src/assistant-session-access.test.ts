@@ -7,7 +7,7 @@ import { AssistantSessionAccess, assistantRequestAuthority, assertAssistantDispa
 import { authenticateWikiAgentRequest, configureWikiAgentSessionLookup, currentWikiAgentSession, ensureWikiAgentToken, grantWikiAgentSession, revokeWikiAgentSession } from "./wiki/agent-access.js";
 import { createAssistantSessionQueue } from "./assistant-session-executor.js";
 import { MainAssistant } from "./main-assistant.js";
-import { createOpencodeClient } from "@opencode-ai/sdk/v2/client";
+import { createAssistantTestClient } from "./assistant-engine.test-support.js";
 import { z } from "zod";
 
 const roots: string[] = [];
@@ -139,7 +139,7 @@ test("real queued executor initializes restored project tools before dispatch an
   } });
   try {
     const assistant = await MainAssistant.open(config, path, () => { throw new Error("Queue must not create another chat"); }, () => {});
-    const client = createOpencodeClient({ baseUrl: engine.url.origin, directory: project });
+    const client = createAssistantTestClient({ baseUrl: engine.url.origin, directory: project });
     const makeQueue = (permissions: AssistantSessionAccess) => createAssistantSessionQueue(path, {
       config: activeConfig, access: permissions, assistant, workspace: async id => {
         const workspace = config.workspaces.find(item => item.id === id); if (!workspace) throw new Error("Unknown project"); return workspace;

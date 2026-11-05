@@ -3,8 +3,114 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { EventEmitter } from "node:events";
+import { spawnSync } from "node:child_process";
+import { runInNewContext } from "node:vm";
+import { fileURLToPath } from "node:url";
 
 import { SystemDictationService } from "./audio/system-dictation.mjs";
+
+async function pasteCommandFixture(codes = [0], helperAvailable = true) {
+  const source = await readFile(new URL("./main.mjs", import.meta.url), "utf8");
+  const start = source.indexOf("const WINDOWS_PASTE_SCRIPT =");
+  const end = source.indexOf("async function showSupportLogsProgressWindow", start);
+  const calls = [];
+  const context = {
+    setTimeout, clearTimeout, app: {},
+    existsSync: () => helperAvailable,
+    resolveKeyMonitorPath: () => "/helpers/LegalWorkKeyMonitor",
+    spawn: (executable, args) => {
+      calls.push({ executable, args });
+      const child = Object.assign(new EventEmitter(), { kill: () => {} });
+      queueMicrotask(() => child.emit("exit", codes.shift() ?? 0));
+      return child;
+    },
+  };
+  runInNewContext(source.slice(start, end) + "\nthis.runPaste = runSystemPasteCommand;", context);
+  return { runPaste: context.runPaste, calls };
+}
+
+test("accepted paste commands succeed without inspecting the focused field", async () => {
+  const mac = await pasteCommandFixture();
+  assert.equal(await mac.runPaste("darwin"), true);
+  assert.equal(mac.calls[0].executable, "/helpers/LegalWorkKeyMonitor");
+  assert.equal(mac.calls[0].args[0], "--paste");
+  const windows = await pasteCommandFixture();
+  assert.equal(await windows.runPaste("windows"), true);
+  assert.match(windows.calls[0].args.at(-1), /LegalWorkPaste\]::Paste\(\)/);
+  assert.doesNotMatch(windows.calls[0].args.at(-1), /HasEditableFocus|AutomationElement|ValuePattern/);
+});
+
+test("observed insertion failure retains clipboard recovery without a second paste", async () => {
+  const mac = await pasteCommandFixture([4]);
+  assert.equal(await mac.runPaste("darwin"), false);
+  assert.equal(mac.calls.length, 1);
+  const unknown = await pasteCommandFixture([0]);
+  assert.equal(await unknown.runPaste("darwin"), true, "unreadable editors retain normal paste and clipboard restoration");
+});
+
+test("native paste observes field contents only after both key events", async () => {
+  const source = await readFile(new URL("../native/key-monitor/Sources/KeyMonitor/Paste.swift", import.meta.url), "utf8");
+  const paste = source.slice(source.indexOf("func runPasteMode()"));
+  assert.ok(paste.indexOf("verifyPasteDelivery(") > paste.indexOf("keyUp.post("));
+  assert.doesNotMatch(paste.slice(0, paste.indexOf("keyDown.post(")), /AXFocusedUIElement|AXValue|AXRole|verifyPasteDelivery/);
+});
+
+test("native delivery distinguishes absent fields, readable failures and unsupported editors", { skip: process.platform !== "darwin" }, async t => {
+  const directory = await tempDir();
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const main = path.join(directory, "main.swift");
+  const executable = path.join(directory, "delivery-test");
+  await writeFile(main, `import AppKit
+assert(classifyPasteDelivery(role: "AXTextArea", value: "Before. Hello world. After.", expected: "Hello world.") == .inserted)
+assert(classifyPasteDelivery(role: "AXTextField", value: "HELLO\\nworld.", expected: "Hello world.") == .inserted)
+assert(classifyPasteDelivery(role: "AXGroup", value: "Hello world.", expected: "Hello world.") == .inserted)
+assert(classifyPasteDelivery(role: "AXTextArea", value: "", expected: "Hello world.") == .awaitingText)
+assert(classifyPasteDelivery(role: "AXTextArea", value: "Unchanged text", expected: "Hello world.") == .awaitingText)
+assert(classifyPasteDelivery(role: "AXButton", value: nil, expected: "Hello world.") == .notInserted)
+assert(classifyPasteDelivery(role: "AXWebArea", value: nil, expected: "Hello world.") == .notInserted)
+assert(classifyPasteDelivery(role: nil, value: nil, expected: "Hello world.", noFocusedElement: true) == .notInserted)
+assert(classifyPasteDelivery(role: "AXTextArea", value: nil, expected: "Hello world.") == .unknown)
+assert(classifyPasteDelivery(role: "AXGroup", value: nil, expected: "Hello world.") == .unknown)
+assert(classifyPasteDelivery(role: "CustomEditor", value: "Other", expected: "Hello world.") == .unknown)
+assert(classifyPasteDelivery(role: nil, value: nil, expected: "Hello world.") == .unknown)
+assert(classifyPasteDelivery(role: "AXButton", value: nil, expected: "") == .unknown)
+`);
+  const compiled = spawnSync("/usr/bin/swiftc", [fileURLToPath(new URL("../native/key-monitor/Sources/KeyMonitor/PasteDelivery.swift", import.meta.url)), main, "-o", executable], { encoding: "utf8", timeout: 30_000 });
+  assert.equal(compiled.status, 0, compiled.stderr);
+  const run = spawnSync(executable, { encoding: "utf8", timeout: 5_000 });
+  assert.equal(run.status, 0, run.stderr);
+});
+
+test("macOS falls back when the native paste command fails or is missing", async () => {
+  for (const helperAvailable of [true, false]) {
+    const fixture = await pasteCommandFixture(helperAvailable ? [2, 0] : [0], helperAvailable);
+    assert.equal(await fixture.runPaste("darwin"), true);
+    const fallback = fixture.calls.at(-1);
+    assert.equal(fallback.executable, "/usr/bin/osascript");
+    assert.match(fallback.args[1], /keystroke "v" using command down/);
+    assert.doesNotMatch(fallback.args[1], /AXFocusedUIElement|AXValue|AXRole|settable/);
+  }
+});
+
+test("unresolved keyboard layouts and failed commands preserve the failure result", async () => {
+  const layout = await pasteCommandFixture([3]);
+  await assert.rejects(layout.runPaste("darwin"), /exited with code 3/);
+  assert.equal(layout.calls.length, 1, "do not post a different key as a layout fallback");
+  const mac = await pasteCommandFixture([2, 1]);
+  await assert.rejects(mac.runPaste("darwin"), /exited with code 1/);
+  const windows = await pasteCommandFixture([2]);
+  await assert.rejects(windows.runPaste("windows"), /exited with code 2/);
+});
+
+test("the macOS fallback script compiles", { skip: process.platform !== "darwin" }, async t => {
+  const fixture = await pasteCommandFixture([0], false);
+  await fixture.runPaste("darwin");
+  const directory = await tempDir();
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const result = spawnSync("/usr/bin/osacompile", ["-o", path.join(directory, "paste.scpt"), "-e", fixture.calls[0].args[1]], { encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+});
 
 class FakeShortcuts {
   constructor(blocked = []) {
@@ -82,6 +188,19 @@ class FakeClipboard {
     this.formats.set(format, Buffer.from(data));
   }
 
+  readHTML() { return this.readBuffer("text/html").toString(); }
+
+  readRTF() { return this.readBuffer("text/rtf").toString(); }
+
+  readImage() { return { isEmpty: () => true }; }
+
+  write(data) {
+    this.clear();
+    for (const [name, format] of [["text", "text/plain"], ["html", "text/html"], ["rtf", "text/rtf"]]) {
+      if (data[name] !== undefined) this.formats.set(format, Buffer.from(data[name]));
+    }
+  }
+
   readText() {
     return this.formats.get("text/plain")?.toString("utf8") ?? "";
   }
@@ -107,7 +226,7 @@ test("system dictation persists, registers fallback shortcut, and handles cancel
     globalShortcut: shortcuts,
     clipboard: new FakeClipboard(),
     shell: { openExternal: async () => {} },
-    runPasteCommand: async () => {},
+    runPasteCommand: async () => true,
     onToggle: () => { toggles += 1; },
     onCancel: () => { cancels += 1; },
   });
@@ -147,7 +266,9 @@ test("system dictation persists, registers fallback shortcut, and handles cancel
   shortcuts.callbacks.get("Escape")?.();
   assert.equal(cancels, 3);
   service.setRuntimeState("inserting");
-  assert.equal(shortcuts.callbacks.has("Escape"), false);
+  assert.equal(shortcuts.callbacks.has("Escape"), true);
+  shortcuts.callbacks.get("Escape")?.();
+  assert.equal(cancels, 4);
   service.setRuntimeState("idle");
   assert.equal(shortcuts.callbacks.has("Escape"), false);
 
@@ -163,7 +284,7 @@ test("system dictation persists, registers fallback shortcut, and handles cancel
     globalShortcut: restoredShortcuts,
     clipboard: new FakeClipboard(),
     shell: { openExternal: async () => {} },
-    runPasteCommand: async () => {},
+    runPasteCommand: async () => true,
     onToggle: () => {},
     onCancel: () => {},
   });
@@ -173,6 +294,25 @@ test("system dictation persists, registers fallback shortcut, and handles cancel
   assert.equal(restoredStatus.registered, true);
   restored.dispose();
   await rm(userDataDir, { recursive: true, force: true });
+});
+
+test("cancelling before native paste dispatch skips the shortcut and restores the clipboard", async t => {
+  const userDataDir = await tempDir();
+  const clipboard = new FakeClipboard();
+  clipboard.writeText("Previous copy");
+  let commands = 0;
+  const service = new SystemDictationService({
+    userDataDir, platform: "darwin", globalShortcut: new FakeShortcuts(), clipboard,
+    systemPreferences: { isTrustedAccessibilityClient: () => true }, shell: { openExternal: async () => {} },
+    runPasteCommand: async () => { commands += 1; return true; }, onToggle: () => {}, onCancel: () => {},
+  });
+  t.after(async () => { service.dispose(); await rm(userDataDir, { recursive: true, force: true }); });
+  const paste = service.pasteText("Cancelled transcript");
+  await new Promise(resolve => setTimeout(resolve, 10));
+  service.cancel();
+  assert.equal((await paste).pasted, false);
+  assert.equal(commands, 0);
+  assert.equal(clipboard.readText(), "Previous copy");
 });
 
 test("macOS dictation requires Accessibility and preserves the clipboard after paste", async () => {
@@ -193,7 +333,7 @@ test("macOS dictation requires Accessibility and preserves the clipboard after p
       },
     },
     shell: { openExternal: async (url) => { openedUrl = url; } },
-    runPasteCommand: async () => { pasteCount += 1; },
+    runPasteCommand: async () => { pasteCount += 1; return true; },
     onToggle: () => {},
     onCancel: () => {},
   });
@@ -219,6 +359,60 @@ test("macOS dictation requires Accessibility and preserves the clipboard after p
   await rm(userDataDir, { recursive: true, force: true });
 });
 
+test("successful paste restores an empty clipboard and preserves a newly copied value", async t => {
+  const userDataDir = await tempDir();
+  const clipboard = new FakeClipboard();
+  clipboard.clear();
+  let copyDuringPaste = false;
+  const service = new SystemDictationService({
+    userDataDir, platform: "darwin", globalShortcut: new FakeShortcuts(), clipboard,
+    systemPreferences: { isTrustedAccessibilityClient: () => true },
+    shell: { openExternal: async () => {} },
+    runPasteCommand: async () => { if (copyDuringPaste) clipboard.writeText("New user copy"); return true; },
+    onToggle: () => {}, onCancel: () => {},
+  });
+  t.after(() => { service.dispose(); return rm(userDataDir, { recursive: true, force: true }); });
+  assert.deepEqual(await service.pasteText("Dictation"), { pasted: true, copied: true, error: null });
+  assert.deepEqual(clipboard.availableFormats(), []);
+  copyDuringPaste = true;
+  await service.pasteText("Second dictation");
+  assert.equal(clipboard.readText(), "New user copy");
+});
+
+test("recording prepares observation once per start and never waits for or requires it", async t => {
+  const userDataDir = await tempDir();
+  let preparations = 0;
+  const service = new SystemDictationService({
+    userDataDir, platform: "darwin", globalShortcut: new FakeShortcuts(), clipboard: new FakeClipboard(),
+    shell: { openExternal: async () => {} }, runPasteCommand: async () => true,
+    preparePaste: () => { preparations += 1; throw new Error("AX unsupported"); },
+    onToggle: () => {}, onCancel: () => {},
+  });
+  t.after(() => { service.dispose(); return rm(userDataDir, { recursive: true, force: true }); });
+  service.setRuntimeState("starting");
+  service.setRuntimeState("starting");
+  service.setRuntimeState("listening");
+  assert.equal(service.runtimeState, "listening");
+  assert.equal(preparations, 1);
+  service.setRuntimeState("cancelled");
+  service.setRuntimeState("starting");
+  assert.equal(preparations, 2);
+});
+
+test("when an attempted paste reports failure dictation stays on the clipboard", async t => {
+  const userDataDir = await tempDir();
+  const clipboard = new FakeClipboard();
+  const service = new SystemDictationService({
+    userDataDir, platform: "darwin", globalShortcut: new FakeShortcuts(), clipboard,
+    systemPreferences: { isTrustedAccessibilityClient: () => true },
+    shell: { openExternal: async () => {} }, runPasteCommand: async () => false,
+    onToggle: () => {}, onCancel: () => {},
+  });
+  t.after(async () => { service.dispose(); await rm(userDataDir, { recursive: true, force: true }); });
+  assert.deepEqual(await service.pasteText("Keep this dictated text."), { pasted: false, copied: true, error: null });
+  assert.equal(clipboard.readText(), "Keep this dictated text.");
+});
+
 test("native shortcut monitoring supports modifier-only capture and both dictation gestures", async (t) => {
   t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: 1_000 });
   const userDataDir = await tempDir();
@@ -234,7 +428,7 @@ test("native shortcut monitoring supports modifier-only capture and both dictati
     clipboard: new FakeClipboard(),
     systemPreferences: { isTrustedAccessibilityClient: () => true },
     shell: { openExternal: async () => {} },
-    runPasteCommand: async () => {},
+    runPasteCommand: async () => true,
     onToggle: () => { toggles += 1; },
     onPress: () => { presses += 1; },
     onRelease: () => { releases += 1; },
@@ -302,7 +496,7 @@ test("a monitor reset releases a latched hold and clears chord state", async (t)
     clipboard: new FakeClipboard(),
     systemPreferences: { isTrustedAccessibilityClient: () => true },
     shell: { openExternal: async () => {} },
-    runPasteCommand: async () => {},
+    runPasteCommand: async () => true,
     onToggle: () => {},
     onPress: () => { presses += 1; },
     onRelease: () => { releases += 1; },
@@ -346,7 +540,7 @@ async function gestureService(t, platform = "darwin", accelerator = "Fn") {
   const service = new SystemDictationService({
     userDataDir, platform, globalShortcut: shortcuts, keyMonitor,
     clipboard: new FakeClipboard(), systemPreferences: { isTrustedAccessibilityClient: () => true },
-    shell: { openExternal: async () => {} }, runPasteCommand: async () => {},
+    shell: { openExternal: async () => {} }, runPasteCommand: async () => true,
     onPress: () => { events.push("start"); service.setRuntimeState("starting"); },
     onRelease: () => { events.push("finish"); service.setRuntimeState("transcribing"); },
     onToggle: () => { events.push("toggle"); service.setRuntimeState("starting"); },
@@ -572,6 +766,19 @@ test("a press during completion debounce cannot latch or restart dictation", asy
   assert.deepEqual(events, ["start", "finish", "start", "finish"]);
 });
 
+test("cancel frees every busy state before the renderer responds and allows an immediate restart", async t => {
+  const { service, shortcuts, events } = await gestureService(t);
+  service.onCancel = () => { events.push("cancel"); };
+  for (const state of ["starting", "listening", "transcribing", "inserting"]) {
+    service.setRuntimeState(state);
+    shortcuts.callbacks.get("Escape")();
+    assert.equal(service.runtimeState, "idle");
+    service.pressShortcut();
+    assert.equal(events.at(-1), "start");
+    assert.equal(service.runtimeState, "starting");
+  }
+});
+
 test("Escape, monitor reset, and disposal clear a pending double-tap", async (t) => {
   const { service, keyMonitor, shortcuts, events } = await gestureService(t);
   await keyMonitor.emit("down", "Fn");
@@ -618,7 +825,7 @@ test("an empty dictation is a successful no-op that preserves rich clipboard dat
   let pasteCount = 0;
   const service = new SystemDictationService({
     userDataDir, platform: "darwin", globalShortcut: new FakeShortcuts(), clipboard,
-    shell: { openExternal: async () => {} }, runPasteCommand: async () => { pasteCount += 1; },
+    shell: { openExternal: async () => {} }, runPasteCommand: async () => { pasteCount += 1; return true; },
     onToggle: () => {}, onCancel: () => {},
   });
   t.after(async () => { service.dispose(); await rm(userDataDir, { recursive: true, force: true }); });
@@ -639,7 +846,7 @@ test("refreshAfterResume restarts the monitor and re-registers only a lost chord
     clipboard: new FakeClipboard(),
     systemPreferences: { isTrustedAccessibilityClient: () => true },
     shell: { openExternal: async () => {} },
-    runPasteCommand: async () => {},
+    runPasteCommand: async () => true,
     onToggle: () => {},
     onCancel: () => {},
   });
@@ -667,7 +874,7 @@ test("refreshAfterResume re-registers the Electron chord the OS lost", async () 
     globalShortcut: shortcuts,
     clipboard: new FakeClipboard(),
     shell: { openExternal: async () => {} },
-    runPasteCommand: async () => {},
+    runPasteCommand: async () => true,
     onToggle: () => { toggles += 1; },
     onCancel: () => {},
   });
@@ -699,7 +906,7 @@ test("overlay appearance defaults to app mode, persists each choice, and rejects
   const updates = [];
   const options = {
     userDataDir, platform: "win32", globalShortcut: new FakeShortcuts(), clipboard: new FakeClipboard(),
-    shell: { openExternal: async () => {} }, runPasteCommand: async () => {},
+    shell: { openExternal: async () => {} }, runPasteCommand: async () => true,
     onToggle: () => {}, onCancel: () => {}, onStatus: status => updates.push(status.appearance),
   };
   try {

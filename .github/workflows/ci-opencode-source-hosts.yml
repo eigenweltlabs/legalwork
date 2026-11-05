@@ -1,0 +1,138 @@
+name: Native OpenCode source-build host acceptance
+on:
+  workflow_call:
+permissions:
+  contents: read
+jobs:
+  native-source:
+    name: Native source build (${{ matrix.platform }}, ${{ matrix.arch }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            platform: darwin
+            arch: arm64
+          - os: macos-15-intel
+            platform: darwin
+            arch: x64
+          - os: ubuntu-24.04
+            platform: linux
+            arch: x64
+          - os: ubuntu-24.04-arm
+            platform: linux
+            arch: arm64
+          - os: windows-2022
+            platform: win32
+            arch: x64
+          - os: windows-11-arm
+            platform: win32
+            arch: arm64
+    defaults:
+      run:
+        shell: bash
+    env:
+      EXPECTED_PLATFORM: ${{ matrix.platform }}
+      EXPECTED_ARCH: ${{ matrix.arch }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Enable Windows long paths
+        if: runner.os == 'Windows'
+        run: git config --global core.longpaths true
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24.22.1
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.4.0
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - name: Require a real native host and a cold source preparation
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { lstat } from 'node:fs/promises';
+          import path from 'node:path';
+          assert.equal(process.platform, process.env.EXPECTED_PLATFORM);
+          assert.equal(process.arch, process.env.EXPECTED_ARCH);
+          for (const filename of ['packages/opencode-release/generated', path.join(process.env.RUNNER_TEMP, 'opencode-native-source-build')]) {
+            await assert.rejects(lstat(filename), { code: 'ENOENT' });
+          }
+          NODE
+      - name: Install LegalWork's frozen dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build and install the actual host engine from reviewed source
+        uses: ./.github/actions/setup-opencode
+        with:
+          build-mode: development
+          build-cache-directory: ${{ runner.temp }}/opencode-native-source-build
+      - name: Build server and native plugins
+        run: pnpm --filter legalwork-server build
+      - name: Execute the native source-built engine and its real integrations
+        run: >-
+          bun test --preload ./apps/server/test-preload.ts
+          apps/server/src/managed-opencode.released.test.ts
+          apps/server/src/engine-client.released.test.ts
+          apps/server/src/mcp-native-complete.released.test.ts
+          apps/server/src/opencode-plugins/native-office-host.integration.test.ts
+          apps/server/src/opencode-plugins/legalwork-raw-http.released.test.ts
+      - name: Verify the real host compiler, engine identity and warm preparation
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { createHash } from 'node:crypto';
+          import { readFile, readdir, writeFile } from 'node:fs/promises';
+          import path from 'node:path';
+          import { spawnSync } from 'node:child_process';
+          import { checkPreparedOpencodeEngine, prepareOpencodeEngine } from './packages/opencode-release/build/prepare.mjs';
+          import { opencodeReleaseTarget } from './packages/opencode-release/index.mjs';
+          import { verifySelectedOpencodeEngine } from './packages/opencode-release/selection.mjs';
+          import recipe from './packages/opencode-release/build/recipe.json' with { type: 'json' };
+          const options = { mode: 'development', cacheDirectory: path.join(process.env.RUNNER_TEMP, 'opencode-native-source-build') };
+          const prepared = await checkPreparedOpencodeEngine(options);
+          const target = opencodeReleaseTarget();
+          assert.deepEqual(prepared.targets, [target]);
+          const installed = await verifySelectedOpencodeEngine(process.env.LEGALWORK_TEST_OPENCODE_BIN);
+          const provenance = JSON.parse(await readFile(path.join(installed.directory, 'provenance.json'), 'utf8'));
+          const host = `${process.platform}-${process.arch}`;
+          assert.equal(provenance.target, target);
+          assert.equal(provenance.compiler.version, '1.4.4');
+          assert.equal(provenance.compiler.sha256, recipe.toolchain.executables[host].sha256);
+          const version = spawnSync(installed.path, ['--version'], { encoding: 'utf8', windowsHide: true });
+          assert.equal(version.status, 0, version.stderr);
+          assert.equal(version.stdout.trim(), `opencode v${recipe.version}`);
+          const before = await Promise.all([readFile(prepared.receiptPath), readFile(prepared.selectionPath), readdir(prepared.cacheDirectory)]);
+          const warm = await prepareOpencodeEngine(options);
+          assert.equal(warm.sourceKey, prepared.sourceKey);
+          assert.equal(warm.archiveDirectory, prepared.archiveDirectory);
+          assert.deepEqual(await readFile(warm.receiptPath), before[0]);
+          assert.deepEqual(await readFile(warm.selectionPath), before[1]);
+          assert.deepEqual((await readdir(warm.cacheDirectory)).sort(), before[2].sort());
+          const report = { host, target, version: recipe.version, mode: warm.mode, sourceKey: warm.sourceKey,
+            compilerSha256: provenance.compiler.sha256, binarySha256: installed.sha256,
+            manifestSha256: warm.manifestSha256, selectorSha256: createHash('sha256').update(before[1]).digest('hex'),
+            coldBuildRequired: true, actualNativeEngineExecuted: true, warmIdentityAndCacheUnchanged: true,
+            prebuiltDistributionSupplied: false, productionSigningClaimed: false, fullPackagedAppStartupClaimed: false };
+          await writeFile(path.join(process.env.RUNNER_TEMP, 'native-source-host-acceptance.json'), JSON.stringify(report, null, 2) + '\n');
+          console.log(JSON.stringify(report));
+          NODE
+      - name: Retain source identity and native execution evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: opencode-source-host-${{ matrix.platform }}-${{ matrix.arch }}
+          path: |
+            ${{ runner.temp }}/native-source-host-acceptance.json
+            packages/opencode-release/generated/selection.json
+            packages/opencode-release/generated/receipt.json
+            ${{ runner.temp }}/opencode-native-source-build/*/builds.json
+            ${{ runner.temp }}/opencode-native-source-build/*/build-*/result.json
+            ${{ runner.temp }}/opencode-native-source-build/*/build-*/artifact/provenance.json
+            ${{ runner.temp }}/opencode-native-source-build/*/build-*/build-evidence/
+            ${{ runner.temp }}/opencode-native-source-build/*/distribution/derivative-release.json
+          retention-days: 7

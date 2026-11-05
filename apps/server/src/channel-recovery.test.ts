@@ -1,12 +1,12 @@
 import { test, expect } from "bun:test";
-import type { AssistantMessage, Message, Part, UserMessage } from "@opencode-ai/sdk/v2";
-import { createOpencodeClient } from "@opencode-ai/sdk/v2/client";
+import type { AssistantMessage, Message, Part, UserMessage } from "./assistant-engine.js";
+import { createAssistantTestClient } from "./assistant-engine.test-support.js";
 import { channelRecoveryPlan, retryableChannelError, retryChannelTurn } from "./channel-recovery.js";
 import type { ChannelReceipt } from "./channel-runtime.js";
 
-const user: UserMessage = { id: "human", sessionID: "session", role: "user", time: { created: 1 }, agent: "legalwork", model: { providerID: "test", modelID: "test" } };
+const user: UserMessage = { id: "human", sessionID: "session", role: "user", time: { created: 1 }, agent: "legalwork", model: { providerID: "test", modelID: "test" }, modelID: "test", providerID: "test", cost: 0, tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } } };
 const assistant = (finish?: string): AssistantMessage => ({ id: "reply", parentID: "human", sessionID: "session", role: "assistant", time: { created: 2, completed: 3 },
-  modelID: "test", providerID: "test", mode: "legalwork", agent: "legalwork", path: { cwd: "/owned", root: "/owned" }, cost: 0,
+  modelID: "test", providerID: "test", model: { providerID: "test", modelID: "test" }, agent: "legalwork",  cost: 0,
   tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } }, finish });
 const history = (info = assistant("stop"), parts: Part[] = []): { info: Message; parts: Part[] }[] => [{ info: user, parts: [] }, { info, parts }];
 const completedTool: Part = { id: "tool", sessionID: "session", messageID: "reply", type: "tool", tool: "send_email", callID: "call",
@@ -38,9 +38,9 @@ test("transient provider failures retry, but cancellations, permissions and perm
   expect(retryableChannelError(error)).toBe(false);
   expect(channelRecoveryPlan(history({ ...assistant(), error }), "human")).toBeNull();
 });
-test("engine recovery wakes the same message with no repeated text or attachments, removing only the empty attempt", async () => {
+test("engine recovery wakes the same message with no repeated text or attachments, preserving native history", async () => {
   const requests: { method: string; path: string; body: unknown }[] = [];
-  const client = createOpencodeClient({ baseUrl: "http://engine.test", fetch: Object.assign(async (input: RequestInfo | URL, init?: RequestInit) => {
+  const client = createAssistantTestClient({ baseUrl: "http://engine.test", fetch: Object.assign(async (input: RequestInfo | URL, init?: RequestInit) => {
     const request = new Request(input, init);
     const url = new URL(request.url); requests.push({ method: request.method, path: url.pathname, body: request.method === "POST" ? await request.json() : null });
     if (url.pathname === "/session/status") return Response.json({});
@@ -49,11 +49,11 @@ test("engine recovery wakes the same message with no repeated text or attachment
     return Response.json(history());
   }, { preconnect: () => {} }) });
   expect(await retryChannelTurn(client, receipt)).toBe(true);
-  expect(requests.filter(r => r.method === "DELETE").map(r => r.path)).toEqual(["/session/session/message/reply"]);
+  expect(requests.filter(r => r.method === "DELETE").map(r => r.path)).toEqual([]);
   expect(requests.at(-1)?.body).toEqual({ messageID: "human", agent: "legalwork", model: user.model, parts: [] });
 });
 test("a still-running engine is inspected without dispatching another prompt", async () => {
   let requests = 0;
-  const client = createOpencodeClient({ baseUrl: "http://engine.test", fetch: Object.assign(async () => { requests++; return Response.json({ session: { type: "busy" } }); }, { preconnect: () => {} }) });
+  const client = createAssistantTestClient({ baseUrl: "http://engine.test", fetch: Object.assign(async () => { requests++; return Response.json({ session: { type: "busy" } }); }, { preconnect: () => {} }) });
   expect(await retryChannelTurn(client, receipt)).toBe(true); expect(requests).toBe(1);
 });

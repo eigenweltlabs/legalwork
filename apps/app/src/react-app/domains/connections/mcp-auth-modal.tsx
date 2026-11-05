@@ -7,8 +7,9 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import type { McpDirectoryInfo } from "@/app/constants";
-import { mcpOAuthListen, mcpOAuthWait, mcpOAuthCancel, openDesktopUrl } from "@/app/lib/desktop";
-import { unwrap } from "@/app/lib/opencode";
+import { openDesktopUrl, legalworkServerInfo, mcpOAuthListen, mcpOAuthWait, mcpOAuthCancel } from "@/app/lib/desktop";
+import { createNativeMcpOAuthDriver } from "./native-mcp-oauth-driver";
+import { readMcpStatuses } from "./native-mcp";
 import { getMcpIdentityKey, resolveMcpSignInName } from "@/app/mcp";
 import { classifyMcpOAuthError, getMcpOAuthErrorMessage } from "@/app/mcp-oauth-errors";
 import { createMcpOAuthFlow, type McpOAuthDriver, type McpOAuthState } from "@/app/mcp-oauth-flow";
@@ -63,6 +64,7 @@ export function McpAuthModal(props: McpAuthModalProps) {
 
   const [flow] = useState(() => createMcpOAuthFlow({
     onChange: setState,
+    timeoutMs: 0, // The engine publishes each native attempt expiry.
     openBrowser: async (url) => {
       if (isDesktopRuntime()) return openDesktopUrl(url);
       // Popup blockers often reject an async open. A direct user-activated link
@@ -86,14 +88,14 @@ export function McpAuthModal(props: McpAuthModalProps) {
         throw new Error(t("mcp.auth.client_registration_required"));
       }
       let directory = normalizeDirectoryPath(latest.current.projectDir).replace(/^\/private\/tmp(?=\/|$)/, "/tmp");
-      if (!directory) directory = unwrap(await client.path.get()).directory;
+      if (!directory) directory = (await client.location.get()).directory;
       signal.throwIfAborted();
       if (!directory) throw new Error(t("mcp.pick_workspace_first"));
 
       let reloaded = false;
       const readStatus = async () => {
         client = latest.current.client ?? client;
-        return unwrap(await client.mcp.status({ directory }))[name];
+        return (await readMcpStatuses(client, directory))[name];
       };
       const reload = async () => {
         if (latest.current.isRemoteWorkspace || !latest.current.onReloadEngine || reloaded) {
@@ -130,70 +132,18 @@ export function McpAuthModal(props: McpAuthModalProps) {
       if (!status) await reload();
       if (status?.status === "disabled") throw new Error(t("mcp.auth.server_disabled"));
 
-      let listenerId: string | undefined;
-      let notice: string | undefined;
-      const oauth = entry.oauthConfig;
-      const redirectUri = oauth?.redirectUri ?? `http://127.0.0.1:${oauth?.callbackPort ?? 19876}/mcp/oauth/callback`;
-      let cleanup: Promise<void> | undefined;
-      const dispose = () => {
-        signal.removeEventListener("abort", onAbort);
-        if (listenerId && !cleanup) cleanup = mcpOAuthCancel(listenerId).catch(() => {});
-        return cleanup;
-      };
-      const onAbort = () => { void dispose(); };
-      signal.addEventListener("abort", onAbort, { once: true });
-      if (isDesktopRuntime()) {
-        const listen = async () => {
-          const listener = await mcpOAuthListen({ redirectUri });
-          listenerId = listener.listenerId;
-          if (signal.aborted) { await dispose(); signal.throwIfAborted(); }
-        };
-        try {
-          await listen();
-        } catch (error) {
-          signal.throwIfAborted();
-          // Old engine-owned OAuth listeners hold the callback port until restart.
-          // Apply once, when idle, then let the app bind before starting OAuth.
-          if (getMcpOAuthErrorMessage(error).includes("MCP_OAUTH_CALLBACK_IN_USE") && !latest.current.isRemoteWorkspace && latest.current.onReloadEngine && !reloaded) {
-            await reload();
-            try { await listen(); } catch (retryError) {
-              signal.throwIfAborted();
-              notice = t("mcp.auth.automatic_return_unavailable", { message: getMcpOAuthErrorMessage(retryError) });
-            }
-          } else {
-            notice = t("mcp.auth.automatic_return_unavailable", { message: getMcpOAuthErrorMessage(error) });
-          }
-        }
-      } else {
-        notice = t("mcp.auth.callback_error_notice");
-      }
-      signal.throwIfAborted();
-      setPreparation(t("mcp.auth.requesting_link"));
-      const authClient = client;
-      const activeListenerId = listenerId;
-      return {
-        start: async () => {
-          try {
-            return unwrap(await authClient.mcp.auth.start({ name, directory }));
-          } catch (error) {
-            // Some engine versions mask discovery errors on auth/start as a
-            // generic 500, while mcp/status retains the provider's explanation.
-            const message = getMcpOAuthErrorMessage(error);
-            if (/unexpected server error|check server logs/i.test(message)) {
-              const snapshot = await authClient.mcp.status({ directory }).catch(() => null);
-              const currentStatus = snapshot?.data?.[name];
-              if (currentStatus && "error" in currentStatus && currentStatus.error) {
-                throw new Error(currentStatus.error);
-              }
-            }
-            throw error;
-          }
+      return createNativeMcpOAuthDriver({ client, directory, server: name, signal,
+        desktop: isDesktopRuntime() ? {
+          localServerUrl: async () => (await legalworkServerInfo()).baseUrl,
+          listen: mcpOAuthListen, wait: mcpOAuthWait, cancel: mcpOAuthCancel,
+        } : undefined,
+        finish: async () => {
+          await client.mcp.connect({ location: { directory }, server: name });
+          const status = (await readMcpStatuses(client, directory))[name];
+          if (status?.status !== "connected") throw new Error(status && "error" in status ? status.error : t("mcp.auth.provider_did_not_finish"));
+          return { status: "connected" };
         },
-        complete: async (code) => unwrap(await authClient.mcp.auth.callback({ name, directory, code })),
-        receiveCode: activeListenerId ? (state) => mcpOAuthWait({ listenerId: activeListenerId, state }) : undefined,
-        dispose,
-        notice,
-      };
+      });
     },
   }));
 
@@ -324,14 +274,15 @@ export function McpAuthModal(props: McpAuthModalProps) {
                   void navigator.clipboard.writeText(state.authorizationUrl ?? "").then(() => setCopied(true), () => setActionError(t("mcp.auth.copy_failed")));
                 }}>{copied ? t("mcp.auth.copied") : t("mcp.auth.copy_link")}</Button>
               </div>
-              <details open={Boolean(state.notice)}>
+              {state.instructions ? <p className="whitespace-pre-wrap text-sm">{state.instructions}</p> : null}
+              {state.mode !== "auto" || state.manual ? <details open={Boolean(state.notice) || state.mode === "code"}>
                 <summary className="cursor-pointer text-xs font-medium">{t("mcp.auth.finish_with_callback")}</summary>
                 <div className="mt-3 space-y-3">
                   <p className="text-xs text-dls-secondary">{t("mcp.auth.callback_help")}</p>
                   <TextInput label={t("mcp.auth.callback_label")} placeholder={t("mcp.auth.callback_placeholder")} value={callbackInput} onChange={(event) => setCallbackInput(event.currentTarget.value)} />
                   <Button onClick={() => void flow.submit(callbackInput)} disabled={!callbackInput.trim()}>{t("mcp.auth.complete_connection")}</Button>
                 </div>
-              </details>
+              </details> : null}
             </div>
           ) : null}
         </div>

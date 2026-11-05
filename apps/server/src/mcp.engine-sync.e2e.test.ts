@@ -1,11 +1,13 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
-import { startServer, syncAllWorkspacesRuntimeMcpToEngine } from "./server.js";
+import { startServer } from "./server.js";
 import { writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
 import type { ServerConfig } from "./types.js";
+import { readManagedEngineSettings } from "./managed-engine-settings.js";
+import { nativeOpencodeConfig } from "./native-opencode-config.js";
 
 type Served = { port: number; stop: (closeActiveConnections?: boolean) => void | Promise<void> };
 
@@ -14,6 +16,7 @@ type EngineRequest = {
   pathname: string;
   search: string;
   body: unknown;
+  definitions?: Record<string, unknown>;
 };
 
 // Keep the engine sync retry backoff tiny so failure-path tests stay fast.
@@ -43,19 +46,22 @@ function startMockOpencode(options?: { failMcpNames?: string[]; disconnectStatus
       const body = request.method === "POST" ? await request.json().catch(() => null) : null;
       requests.push({ method: request.method, pathname: url.pathname, search: url.search, body });
 
-      if (url.pathname === "/instance/dispose") return Response.json({ disposed: true });
-      if (url.pathname === "/mcp" && request.method === "POST") {
-        const name = (body as { name?: string } | null)?.name;
-        if (name && options?.failMcpNames?.includes(name)) {
-          return Response.json({ code: "mcp_invalid", message: "Invalid MCP config" }, { status: 500 });
-        }
-        return Response.json({});
+      if (url.pathname === "/api/info") return Response.json({ version: "2.1.4", pid: process.pid });
+      if (url.pathname === "/api/config") return Response.json([]);
+      if (url.pathname === "/api/rpc/legalwork.managed-settings/refresh") {
+        const path = process.env.LEGALWORK_RUNTIME_DB;
+        if (!path) throw new Error("The fixture requires a private runtime store");
+        const settings = await readManagedEngineSettings(join(dirname(path), "runtime-opencode-settings.json"), url.searchParams.get("location[directory]") ?? "");
+        const native = nativeOpencodeConfig(settings.configuration && typeof settings.configuration === "object" && !Array.isArray(settings.configuration) ? Object.fromEntries(Object.entries(settings.configuration)) : {}).config;
+        const latest = requests.at(-1);
+        if (latest) latest.definitions = native.mcp?.servers ?? {};
+        if (Object.keys(native.mcp?.servers ?? {}).some(name => options?.failMcpNames?.includes(name))) return Response.json({ code: "refresh_failed" }, { status: 500 });
+        return Response.json({ refreshed: true });
       }
-      if (url.pathname.match(/^\/mcp\/[^/]+\/disconnect$/) && request.method === "POST") {
-        if (options?.failDisconnectDirectories?.includes(url.searchParams.get("directory") ?? "")) {
-          return Response.json({}, { status: 500 });
-        }
-        return Response.json({}, { status: options?.disconnectStatus ?? 200 });
+      if (/^\/api\/experimental\/mcp\/[^/]+\/disconnect$/.test(url.pathname) && request.method === "POST") {
+        if (options?.failDisconnectDirectories?.includes(url.searchParams.get("location[directory]") ?? "")) return Response.json({}, { status: 500 });
+        const status = options?.disconnectStatus ?? 204;
+        return status === 204 ? new Response(null, { status }) : Response.json({}, { status });
       }
       return Response.json({ code: "not_found", message: "Not found" }, { status: 404 });
     },
@@ -151,9 +157,9 @@ describe("runtime MCP engine sync", () => {
         body: JSON.stringify({ name: "posthog", config: POSTHOG_CONFIG, scope: "global" }),
       });
       expect(response.status).toBe(200);
-      const adds = mock.requests.filter((entry) => entry.method === "POST" && entry.pathname === "/mcp");
-      expect(adds.map((entry) => new URLSearchParams(entry.search).get("directory")).sort()).toEqual([rootA, rootB].sort());
-      expect(adds.every((entry) => JSON.stringify(entry.body) === JSON.stringify({ name: "posthog", config: POSTHOG_CONFIG }))).toBe(true);
+      const adds = mock.requests.filter((entry) => entry.method === "POST" && entry.pathname === "/api/rpc/legalwork.managed-settings/refresh");
+      expect(adds.map((entry) => new URLSearchParams(entry.search).get("location[directory]")).sort()).toEqual([rootA, rootB].sort());
+      expect(adds.every(entry => entry.definitions?.posthog !== undefined)).toBe(true);
 
       mock.requests.length = 0;
       const removal = await fetch(`${legalwork.base}/workspace/ws_2/mcp/posthog`, {
@@ -161,8 +167,8 @@ describe("runtime MCP engine sync", () => {
         headers: auth(legalwork.token),
       });
       expect(removal.status).toBe(200);
-      const disconnects = mock.requests.filter((entry) => entry.pathname === "/mcp/posthog/disconnect");
-      expect(disconnects.map((entry) => new URLSearchParams(entry.search).get("directory")).sort()).toEqual([rootA, rootB].sort());
+      const disconnects = mock.requests.filter((entry) => entry.pathname === "/api/experimental/mcp/posthog/disconnect");
+      expect(disconnects.map((entry) => new URLSearchParams(entry.search).get("location[directory]")).sort()).toEqual([rootA, rootB].sort());
     } finally {
       if (previousDb === undefined) delete process.env.LEGALWORK_RUNTIME_DB;
       else process.env.LEGALWORK_RUNTIME_DB = previousDb;
@@ -196,11 +202,13 @@ describe("runtime MCP engine sync", () => {
       options.failDisconnectDirectories = [];
       expect((await remove()).status).toBe(200);
       const directories = mock.requests
-        .filter((entry) => entry.pathname === "/mcp/legalmemory/disconnect")
-        .map((entry) => new URLSearchParams(entry.search).get("directory"));
+        .filter((entry) => entry.pathname === "/api/experimental/mcp/legalmemory/disconnect")
+        .map((entry) => new URLSearchParams(entry.search).get("location[directory]"));
       expect(directories).toEqual([rootA, rootB, rootA, rootB]);
       const response = await fetch(`${legalwork.base}/workspace/ws_3/mcp`, { headers: auth(legalwork.token) });
-      expect(await response.json()).toMatchObject({ items: [expect.objectContaining({ name: "legalmemory", config: POSTHOG_CONFIG })] });
+      const displayed = await response.json();
+      expect(displayed.items).toHaveLength(1);
+      expect(displayed.items[0]).toMatchObject({ name: "legalmemory", config: { type: "remote", enabled: true, oauth: {} }, configured: { url: true } });
     } finally {
       if (previousDb === undefined) delete process.env.LEGALWORK_RUNTIME_DB;
       else process.env.LEGALWORK_RUNTIME_DB = previousDb;
@@ -224,10 +232,10 @@ describe("runtime MCP engine sync", () => {
       });
       expect(response.status).toBe(200);
 
-      const addRequest = mock.requests.find((entry) => entry.method === "POST" && entry.pathname === "/mcp");
+      const addRequest = mock.requests.find((entry) => entry.method === "POST" && entry.pathname === "/api/rpc/legalwork.managed-settings/refresh");
       expect(addRequest).toBeDefined();
-      expect(addRequest?.body).toEqual({ name: "posthog", config: POSTHOG_CONFIG });
-      expect(addRequest?.search).toContain(`directory=${encodeURIComponent(workspaceRoot)}`);
+      expect(addRequest?.definitions?.posthog).toMatchObject({ type: "remote", url: POSTHOG_CONFIG.url, disabled: false, oauth: {} });
+      expect(addRequest?.search).toContain(`location%5Bdirectory%5D=${encodeURIComponent(workspaceRoot)}`);
     } finally {
       if (previousDb === undefined) delete process.env.LEGALWORK_RUNTIME_DB;
       else process.env.LEGALWORK_RUNTIME_DB = previousDb;
@@ -256,11 +264,11 @@ describe("runtime MCP engine sync", () => {
       });
       expect(reloadResponse.status).toBe(200);
 
-      const disposeIndex = mock.requests.findIndex((entry) => entry.pathname === "/instance/dispose");
-      const syncIndex = mock.requests.findIndex((entry) => entry.method === "POST" && entry.pathname === "/mcp");
+      const disposeIndex = mock.requests.findIndex((entry) => entry.pathname === "/api/rpc/legalwork.managed-settings/refresh");
+      const syncIndex = mock.requests.findIndex((entry) => entry.method === "POST" && entry.pathname === "/api/rpc/legalwork.managed-settings/refresh");
       expect(disposeIndex).toBeGreaterThanOrEqual(0);
-      expect(syncIndex).toBeGreaterThan(disposeIndex);
-      expect(mock.requests[syncIndex]?.body).toEqual({ name: "posthog", config: POSTHOG_CONFIG });
+      expect(syncIndex).toBeGreaterThanOrEqual(disposeIndex);
+      expect(mock.requests[syncIndex]?.definitions?.posthog).toMatchObject({ type: "remote", url: POSTHOG_CONFIG.url });
     } finally {
       if (previousDb === undefined) delete process.env.LEGALWORK_RUNTIME_DB;
       else process.env.LEGALWORK_RUNTIME_DB = previousDb;
@@ -290,9 +298,9 @@ describe("runtime MCP engine sync", () => {
       });
       expect(toggleResponse.status).toBe(200);
 
-      const syncRequest = mock.requests.find((entry) => entry.method === "POST" && entry.pathname === "/mcp");
+      const syncRequest = mock.requests.find((entry) => entry.method === "POST" && entry.pathname === "/api/rpc/legalwork.managed-settings/refresh");
       expect(syncRequest).toBeDefined();
-      expect(syncRequest?.body).toEqual({ name: "posthog", config: { ...POSTHOG_CONFIG, enabled: false } });
+      expect(syncRequest?.definitions?.posthog).toMatchObject({ type: "remote", disabled: true });
     } finally {
       if (previousDb === undefined) delete process.env.LEGALWORK_RUNTIME_DB;
       else process.env.LEGALWORK_RUNTIME_DB = previousDb;
@@ -322,10 +330,10 @@ describe("runtime MCP engine sync", () => {
       expect(removeResponse.status).toBe(200);
 
       const disconnectRequest = mock.requests.find(
-        (entry) => entry.method === "POST" && entry.pathname === "/mcp/posthog/disconnect",
+        (entry) => entry.method === "POST" && entry.pathname === "/api/experimental/mcp/posthog/disconnect",
       );
       expect(disconnectRequest).toBeDefined();
-      expect(disconnectRequest?.search).toContain(`directory=${encodeURIComponent(workspaceRoot)}`);
+      expect(disconnectRequest?.search).toContain(`location%5Bdirectory%5D=${encodeURIComponent(workspaceRoot)}`);
     } finally {
       if (previousDb === undefined) delete process.env.LEGALWORK_RUNTIME_DB;
       else process.env.LEGALWORK_RUNTIME_DB = previousDb;
@@ -348,9 +356,9 @@ describe("runtime MCP engine sync", () => {
         method: "DELETE", headers: auth(legalwork.token),
       });
       expect((await remove()).status).toBe(502);
-      options.disconnectStatus = 200;
+      options.disconnectStatus = 204;
       expect((await remove()).status).toBe(200);
-      expect(mock.requests.filter((entry) => entry.pathname === "/mcp/legalmemory/disconnect")).toHaveLength(2);
+      expect(mock.requests.filter((entry) => entry.pathname === "/api/experimental/mcp/legalmemory/disconnect")).toHaveLength(2);
       options.disconnectStatus = 404;
       expect((await remove()).status).toBe(200);
     } finally {
@@ -382,7 +390,7 @@ describe("runtime MCP engine sync", () => {
     }
   });
 
-  test("reload keeps registering remaining MCPs when one entry fails", async () => {
+  test("a failed native location refresh preserves all saved connector definitions and reports the failure", async () => {
     const workspaceRoot = await createWorkspaceRoot();
     const previousDb = process.env.LEGALWORK_RUNTIME_DB;
     process.env.LEGALWORK_RUNTIME_DB = join(workspaceRoot, "runtime.sqlite");
@@ -404,16 +412,17 @@ describe("runtime MCP engine sync", () => {
         method: "POST",
         headers: auth(legalwork.token),
       });
-      expect(reloadResponse.status).toBe(200);
+      expect(reloadResponse.status).toBe(502);
 
       const syncedNames = mock.requests
-        .filter((entry) => entry.method === "POST" && entry.pathname === "/mcp")
-        .map((entry) => (entry.body as { name?: string } | null)?.name);
+        .filter((entry) => entry.method === "POST" && entry.pathname === "/api/rpc/legalwork.managed-settings/refresh")
+        .flatMap(entry => Object.keys(entry.definitions ?? {}));
       // "bad" fails with a 500 but must not block the entries after it.
       expect(syncedNames).toContain("bad");
       expect(syncedNames).toContain("posthog");
-      // 5xx entries are retried once.
-      expect(syncedNames.filter((name) => name === "bad").length).toBe(2);
+      // Native configuration refresh is atomic for the location. A failed
+      // refresh retains every saved definition for the next successful load.
+      expect(syncedNames.filter((name) => name === "bad").length).toBe(1);
 
       // The failure is surfaced on the MCP list endpoint instead of being
       // swallowed silently.
@@ -426,53 +435,7 @@ describe("runtime MCP engine sync", () => {
       };
       expect(listBody.engineSync?.status).toBe("failed");
       expect(listBody.engineSync?.failures.map((failure) => failure.name)).toContain("bad");
-      expect(listBody.engineSync?.failures.map((failure) => failure.name)).not.toContain("posthog");
-    } finally {
-      if (previousDb === undefined) delete process.env.LEGALWORK_RUNTIME_DB;
-      else process.env.LEGALWORK_RUNTIME_DB = previousDb;
-    }
-  });
-
-  test("startup sync pushes runtime MCPs for every workspace", async () => {
-    const rootA = await createWorkspaceRoot();
-    const rootB = await createWorkspaceRoot();
-    const previousDb = process.env.LEGALWORK_RUNTIME_DB;
-    process.env.LEGALWORK_RUNTIME_DB = join(rootA, "runtime.sqlite");
-    try {
-      const mock = startMockOpencode();
-      const baseUrl = `http://127.0.0.1:${mock.server.port}`;
-      const config: ServerConfig = {
-        host: "127.0.0.1",
-        port: 0,
-        token: "owt_test_token",
-        hostToken: "owt_host_token",
-        approval: { mode: "auto", timeoutMs: 1000 },
-        corsOrigins: ["*"],
-        workspaces: [
-          { id: "ws_1", name: "A", path: rootA, preset: "starter", workspaceType: "local", baseUrl },
-          { id: "ws_2", name: "B", path: rootB, preset: "starter", workspaceType: "local", baseUrl },
-          { id: "ws_offline", name: "Disconnected", path: join(rootB, "missing"), preset: "starter", workspaceType: "local", baseUrl },
-        ],
-        authorizedRoots: [rootA, rootB],
-        readOnly: false,
-        startedAt: Date.now(),
-        tokenSource: "cli",
-        hostTokenSource: "cli",
-        logFormat: "pretty",
-        logRequests: false,
-      };
-
-      await writeRuntimeOpencodeConfig(config, "ws_1", (current) => ({ ...current, mcp: { posthog: POSTHOG_CONFIG } }));
-      await writeRuntimeOpencodeConfig(config, "ws_2", (current) => ({ ...current, mcp: { stripe: POSTHOG_CONFIG } }));
-      await writeRuntimeOpencodeConfig(config, "ws_offline", (current) => ({ ...current, mcp: { offline: POSTHOG_CONFIG } }));
-
-      await syncAllWorkspacesRuntimeMcpToEngine(config);
-
-      const syncs = mock.requests.filter((entry) => entry.method === "POST" && entry.pathname === "/mcp");
-      const byName = new Map(syncs.map((entry) => [(entry.body as { name?: string } | null)?.name, entry.search]));
-      expect(byName.get("posthog")).toContain(`directory=${encodeURIComponent(rootA)}`);
-      expect(byName.get("stripe")).toContain(`directory=${encodeURIComponent(rootB)}`);
-      expect(mock.requests.some((entry) => entry.search.includes(encodeURIComponent(join(rootB, "missing"))))).toBe(false);
+      expect(listBody.engineSync?.failures.map((failure) => failure.name)).toContain("posthog");
     } finally {
       if (previousDb === undefined) delete process.env.LEGALWORK_RUNTIME_DB;
       else process.env.LEGALWORK_RUNTIME_DB = previousDb;

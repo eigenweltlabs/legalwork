@@ -8,7 +8,11 @@ Open **Extensions → Actaport**, enter the Kanzlei-Alias (realm), Client ID, Cl
 
 Before a customer visit, confirm the API add-on is already activated and the customer has all five API credentials supplied by Actaport. An ordinary Actaport account alone is insufficient. See the official [authentication requirements](https://api.actaport.de/api-docs/rest-api/introduction/authentication). Actaport provides [no separate public sandbox](https://api.actaport.de/api-docs/code-example/testing), so a real account is required for live acceptance. Use the local desktop worker for the bundled connection.
 
-Credentials are encrypted with Electron safeStorage on the user's device. Linux's `basic_text` fallback is rejected. The desktop exposes a capability-protected loopback token service; MCP configuration contains its private discovery-file path and a write-mode flag, never API credentials. The MCP process receives short-lived access tokens. Disconnect removes saved credentials and revokes token access. One Actaport connection belongs to each desktop profile and is shared across its local workspaces.
+Credentials and access settings use the local server's existing encrypted `storage-oauth.vault`, shared with cloud-storage OAuth grants and Nango connections. Actaport has a profile-specific entry; it uses the same encryption, key configuration (`LEGALWORK_ENCRYPTION_KEY` or the vault's private key file), validation and write lock as those connections. The server's configuration and `LEGALWORK_STORAGE_STORE` override determine the vault location.
+
+On first access, previous `actaport-credentials.enc` files are decrypted with Electron safeStorage and imported into the shared vault. The old file is removed only after a successful vault write; failed unlocks or writes preserve it for retry. An existing vault entry takes precedence over a leftover old file. safeStorage is used only for this migration, never for new credential writes. New connections follow the shared vault's availability rules; importing an old Linux `basic_text` file is rejected.
+
+The desktop exposes a capability-protected loopback token service; MCP configuration contains its private discovery-file path and a write-mode flag, never API credentials. The MCP process receives short-lived access tokens. Disconnect removes saved credentials and revokes token access. One Actaport connection belongs to each desktop profile and is shared across its local workspaces.
 
 The 15 everyday tools find/read matters, search/read contacts, list/read deadlines and tasks, list follow-ups and notes, search/list/read documents, download files and check asynchronous download status. All are read-only. Select additional groups in the connection settings only when needed:
 
@@ -23,7 +27,7 @@ The settings show the number of selected tools and reconnect MCP after changes. 
 
 Read-only is the default. **Allow changes in Actaport** adds writes only within selected groups. For everyday changes, select **Additional matter tools** as well. Revoking a group or write permission blocks its calls in an already-running process before an API request. MCP annotations describe each action; the client's normal approval rules govern individual calls. Existing saved connections without group settings migrate to the 15-tool default. Replacing credentials resets groups and write permission.
 
-The bundled desktop connection targets the local worker. Remote/headless workers can run the standalone server with their own private credentials; desktop keychain credentials are not transferred to a remote worker.
+The bundled desktop connection targets the local worker. Remote/headless workers can run the standalone server with their own private credentials; desktop credentials are not transferred to a remote worker.
 
 ## Standalone / headless
 
@@ -84,6 +88,7 @@ Some write operations, such as `createKostenstelle`, declare no body. This imple
 pnpm --filter @legalwork/actaport-mcp typecheck
 pnpm --filter @legalwork/actaport-mcp test
 node apps/desktop/scripts/prepare-actaport-mcp.mjs
+pnpm --filter legalwork-server build
 node --test apps/desktop/electron/actaport.test.mjs
 pnpm --filter @legalwork/app typecheck
 pnpm --filter @legalwork/desktop typecheck:electron

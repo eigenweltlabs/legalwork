@@ -68,7 +68,7 @@ async function ensureWorkspaceLegalworkConfig(workspaceRoot: string, preset: str
  * versions it is a no-op (and a core file the user deletes simply comes back). Files for
  * OTHER skills are never touched. Returns the reload reasons for any files written.
  */
-async function ensureCoreOpencodeFiles(workspaceRoot: string): Promise<ReloadReason[]> {
+export async function ensureCoreOpencodeFiles(workspaceRoot: string): Promise<ReloadReason[]> {
   const reasons = new Set<ReloadReason>(await retireLegacyReview(workspaceRoot));
   const stampPath = join(workspaceRoot, ".opencode", ".legalwork-core");
   const prev = (await exists(stampPath)) ? (await readFile(stampPath, "utf8")).trim() : "";
@@ -102,7 +102,7 @@ async function ensureOpencodeConfig(workspaceRoot: string): Promise<boolean> {
   return false;
 }
 
-export async function ensureWorkspaceFiles(workspaceRoot: string, presetInput: string): Promise<EnsureWorkspaceFilesResult> {
+export async function ensureWorkspaceFiles(workspaceRoot: string, presetInput: string, options: { bundledCore?: boolean } = {}): Promise<EnsureWorkspaceFilesResult> {
   const preset = normalizePreset(presetInput);
   if (!workspaceRoot.trim()) {
     throw new ApiError(400, "invalid_workspace_path", "workspace path is required");
@@ -125,7 +125,7 @@ export async function ensureWorkspaceFiles(workspaceRoot: string, presetInput: s
   const reloadReasons = new Set<ReloadReason>();
   if (await ensureOpencodeConfig(workspaceRoot)) reloadReasons.add("config");
   const legalworkConfigChanged = await ensureWorkspaceLegalworkConfig(workspaceRoot, preset);
-  for (const reason of await ensureCoreOpencodeFiles(workspaceRoot)) reloadReasons.add(reason);
+  if (options.bundledCore !== false) for (const reason of await ensureCoreOpencodeFiles(workspaceRoot)) reloadReasons.add(reason);
   return {
     changed: legalworkConfigChanged || reloadReasons.size > 0,
     reloadReasons: Array.from(reloadReasons),

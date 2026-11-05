@@ -7,10 +7,11 @@ import { Button } from "@/components/ui/button";
 
 type SettingsContentProps = {
   children: React.ReactNode;
+  scrollable?: boolean;
 };
 
 export function SettingsContent(props: SettingsContentProps) {
-  return <div className="flex min-h-0 min-w-0 flex-1 flex-col items-center gap-7 overflow-y-auto px-5 py-7 md:gap-8 md:p-8">{props.children}</div>;
+  return <div className={cn("flex min-h-0 min-w-0 flex-1 flex-col", props.scrollable === false ? "overflow-hidden" : "items-center gap-7 overflow-y-auto px-5 py-7 md:gap-8 md:p-8")}>{props.children}</div>;
 }
 
 type SettingsPanelProps = {

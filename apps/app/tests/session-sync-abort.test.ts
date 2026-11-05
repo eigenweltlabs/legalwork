@@ -21,7 +21,7 @@ test("a late abort event clears the red status, keeps the transcript and pauses 
       activity.setRunStatus(input.workspaceId, sessionId, { type: prior });
       activity.setError(input.workspaceId, sessionId, "Old aborted status");
       __applySessionSyncEventForTest(input, {
-        type: "session.error", properties: { sessionID: sessionId, error: { name: "MessageAbortedError", data: { message: "Aborted" } } },
+        type: "session.execution.interrupted", id:"event",created:1,data: { sessionID: sessionId },
       });
       expect(activity.getStatus(input.workspaceId, sessionId)).toBe("idle");
       expect(activity.getSessionError(input.workspaceId, sessionId)).toBeNull();
@@ -31,7 +31,7 @@ test("a late abort event clears the red status, keeps the transcript and pauses 
     const transcript = query.getQueryData<UIMessage[]>(transcriptKey(input.workspaceId, sessionId));
     expect(transcript?.at(-1)?.parts).toContainEqual(expect.objectContaining({ type: "text", text: "Stopped by you" }));
     expect(transcript?.at(-1)?.metadata).toMatchObject({ opencode: { stopped: true } });
-    __applySessionSyncEventForTest(input, { type: "session.status", properties: { sessionID: sessionId, status: { type: "idle" } } });
+    __applySessionSyncEventForTest(input, { type: "session.status", id:"event",created:1,data: { sessionID: sessionId, status: { type: "idle" } } });
     expect(activity.getStatus(input.workspaceId, sessionId)).toBe("idle");
   } finally { release(); dispose(); activity.removeSession(input.workspaceId, sessionId); query.clear(); }
 });
@@ -42,10 +42,10 @@ test("provider failures and budget-triggered aborts retain their recovery error"
   const dispose = __createWorkspaceSessionSyncForTest(input);
   const activity = useSessionActivityStore.getState();
   try {
-    __applySessionSyncEventForTest(input, { type: "session.error", properties: { sessionID: sessionId, error: { name: "APIError", data: { message: "Provider unavailable" } } } });
+    __applySessionSyncEventForTest(input, { type: "session.execution.failed", id:"event",created:1,data: { sessionID: sessionId, error: { type: "api", message: "Provider unavailable" } } });
     expect(activity.getStatus(input.workspaceId, sessionId)).toBe("error");
     markEigenweltBudgetStop(sessionId, Date.now(), "Budget exhausted");
-    __applySessionSyncEventForTest(input, { type: "session.error", properties: { sessionID: sessionId, error: { name: "MessageAbortedError", data: { message: "Aborted" } } } });
+    __applySessionSyncEventForTest(input, { type: "session.execution.interrupted", id:"event",created:1,data: { sessionID: sessionId } });
     expect(activity.getStatus(input.workspaceId, sessionId)).toBe("error");
     expect(activity.getSessionError(input.workspaceId, sessionId)).toBe("Budget exhausted");
   } finally { dispose(); activity.removeSession(input.workspaceId, sessionId); getReactQueryClient().clear(); }

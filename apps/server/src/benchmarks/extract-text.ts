@@ -11,9 +11,6 @@ import { readFile } from "node:fs/promises";
 import { extname } from "node:path";
 import { unzipSync, type Unzipped } from "fflate";
 
-/** Character cap per deliverable — keeps prompts inside sane context budgets. */
-export const MAX_EXTRACTED_CHARS = 80_000;
-
 const XML_ENTITIES: Record<string, string> = {
   "&amp;": "&",
   "&lt;": "<",
@@ -24,19 +21,25 @@ const XML_ENTITIES: Record<string, string> = {
 
 function decodeXmlEntities(text: string): string {
   return text
-    .replace(/&(amp|lt|gt|quot|apos);/g, (entity) => XML_ENTITIES[entity] ?? entity)
-    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => String.fromCodePoint(Number.parseInt(hex, 16)))
-    .replace(/&#(\d+);/g, (_, code) => String.fromCodePoint(Number.parseInt(code, 10)));
+    .replace(
+      /&(amp|lt|gt|quot|apos);/g,
+      (entity) => XML_ENTITIES[entity] ?? entity,
+    )
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) =>
+      String.fromCodePoint(Number.parseInt(hex, 16)),
+    )
+    .replace(/&#(\d+);/g, (_, code) =>
+      String.fromCodePoint(Number.parseInt(code, 10)),
+    );
 }
 
 function stripTags(xml: string): string {
   return decodeXmlEntities(xml.replace(/<[^>]+>/g, ""));
 }
 
-function truncate(text: string): string {
-  const cleaned = text.replace(/\n{3,}/g, "\n\n").trim();
-  if (cleaned.length <= MAX_EXTRACTED_CHARS) return cleaned;
-  return `${cleaned.slice(0, MAX_EXTRACTED_CHARS)}\n\n[… truncated]`;
+/** Full extraction; native model capacity errors stay visible to the benchmark. */
+function clean(text: string): string {
+  return text.replace(/\n{3,}/g, "\n\n").trim();
 }
 
 function unzip(buffer: Buffer): Unzipped | null {
@@ -63,7 +66,7 @@ function extractDocx(buffer: Buffer): string | null {
     .replace(/<w:tab[^>]*\/>/g, "\t")
     .replace(/<w:br[^>]*\/>/g, "\n")
     .replace(/<\/w:p>/g, "\n");
-  return truncate(stripTags(withBreaks));
+  return clean(stripTags(withBreaks));
 }
 
 /** pptx slides in order. */
@@ -72,14 +75,17 @@ function extractPptx(buffer: Buffer): string | null {
   if (!zip) return null;
   const slides = Object.keys(zip)
     .filter((path) => /^ppt\/slides\/slide\d+\.xml$/.test(path))
-    .sort((a, b) => Number(a.match(/\d+/)?.[0] ?? 0) - Number(b.match(/\d+/)?.[0] ?? 0));
+    .sort(
+      (a, b) =>
+        Number(a.match(/\d+/)?.[0] ?? 0) - Number(b.match(/\d+/)?.[0] ?? 0),
+    );
   if (!slides.length) return null;
   const parts = slides.map((path, index) => {
     const xml = entryText(zip, path) ?? "";
     const withBreaks = xml.replace(/<\/a:p>/g, "\n");
     return `--- Slide ${index + 1} ---\n${stripTags(withBreaks)}`;
   });
-  return truncate(parts.join("\n\n"));
+  return clean(parts.join("\n\n"));
 }
 
 /**
@@ -90,26 +96,32 @@ function extractXlsx(buffer: Buffer): string | null {
   const zip = unzip(buffer);
   if (!zip) return null;
   const sharedXml = entryText(zip, "xl/sharedStrings.xml") ?? "";
-  const shared = Array.from(sharedXml.matchAll(/<si>([\s\S]*?)<\/si>/g)).map((match) => stripTags(match[1]!));
+  const shared = Array.from(sharedXml.matchAll(/<si>([\s\S]*?)<\/si>/g)).map(
+    (match) => stripTags(match[1]!),
+  );
   const sheets = Object.keys(zip)
     .filter((path) => /^xl\/worksheets\/sheet\d+\.xml$/.test(path))
     .sort();
   if (!sheets.length) return null;
   const parts = sheets.map((path) => {
     const xml = entryText(zip, path) ?? "";
-    const rows = Array.from(xml.matchAll(/<row[^>]*>([\s\S]*?)<\/row>/g)).map((row) => {
-      const cells = Array.from(row[1]!.matchAll(/<c([^>]*)>([\s\S]*?)<\/c>/g)).map((cell) => {
-        const attributes = cell[1] ?? "";
-        const value = cell[2]?.match(/<v>([\s\S]*?)<\/v>/)?.[1] ?? "";
-        if (/t="s"/.test(attributes)) return shared[Number(value)] ?? "";
-        const inline = cell[2]?.match(/<t[^>]*>([\s\S]*?)<\/t>/)?.[1];
-        return stripTags(inline ?? value);
-      });
-      return cells.join("\t");
-    });
+    const rows = Array.from(xml.matchAll(/<row[^>]*>([\s\S]*?)<\/row>/g)).map(
+      (row) => {
+        const cells = Array.from(
+          row[1]!.matchAll(/<c([^>]*)>([\s\S]*?)<\/c>/g),
+        ).map((cell) => {
+          const attributes = cell[1] ?? "";
+          const value = cell[2]?.match(/<v>([\s\S]*?)<\/v>/)?.[1] ?? "";
+          if (/t="s"/.test(attributes)) return shared[Number(value)] ?? "";
+          const inline = cell[2]?.match(/<t[^>]*>([\s\S]*?)<\/t>/)?.[1];
+          return stripTags(inline ?? value);
+        });
+        return cells.join("\t");
+      },
+    );
     return `--- ${path.replace("xl/worksheets/", "")} ---\n${rows.join("\n")}`;
   });
-  return truncate(parts.join("\n\n"));
+  return clean(parts.join("\n\n"));
 }
 
 const PLAIN_TEXT_EXTENSIONS = new Set([
@@ -131,7 +143,9 @@ const PLAIN_TEXT_EXTENSIONS = new Set([
  * Best-effort plain-text extraction for a deliverable/input file.
  * Returns null when the format is unsupported (e.g. pdf) or parsing fails.
  */
-export async function extractDeliverableText(path: string): Promise<string | null> {
+export async function extractDeliverableText(
+  path: string,
+): Promise<string | null> {
   let buffer: Buffer;
   try {
     buffer = await readFile(path);
@@ -145,7 +159,7 @@ export async function extractDeliverableText(path: string): Promise<string | nul
     if (extension === ".xlsx") return extractXlsx(buffer);
     if (PLAIN_TEXT_EXTENSIONS.has(extension)) {
       const text = new TextDecoder("utf-8", { fatal: true }).decode(buffer);
-      return truncate(text);
+      return clean(text);
     }
   } catch {
     return null;

@@ -11,7 +11,7 @@
  *    the tap be created yet refuses to enable it. Detected end-to-end by
  *    the helper's `--check` probe, never by reading the pane state alone.
  *  - accessibility: pasting the transcript via a synthetic keystroke.
- *  - automation: the paste runs through System Events, which needs Apple
+ *  - automation: the fallback paste runs through System Events, which needs Apple
  *    Events consent. Its one-time alert is the permission users dismiss
  *    without reading; afterwards paste fails with a generic error unless
  *    we re-detect and deep-link the Automation pane.
@@ -103,6 +103,8 @@ async function inputMonitoringStatus(app, platform, spawnFn) {
 /** @returns {Promise<import("@legalwork/types/audio").AudioDictationPermissionState>} */
 async function automationStatus(app, platform, spawnFn) {
   if (platform !== "darwin") return "not-required";
+  // Native CGEvent paste needs Accessibility, not Apple Events consent.
+  if (fs.existsSync(resolveKeyMonitorPath(app))) return "not-required";
   const result = await runHelperMode(app, "--check-automation", CHECK_TIMEOUT_MS, spawnFn);
   if (!result || typeof result.state !== "string") return "unavailable";
   return ["granted", "denied", "not-determined"].includes(result.state)

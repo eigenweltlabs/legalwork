@@ -8,6 +8,7 @@ import { usePanelTabStore } from "../../session/panel/panel-tab-store";
 import type { SkillsExtensionsStore } from "../pages/skills-view";
 import { flushStagedResources, type StagedResourceFile } from "../pages/skill-resources-panel";
 import { newWorkflowContent, readWorkflowDocument, renameWorkflowTitle, workflowDisplayName, workflowName, workflowTitle, workflowType, writeWorkflowDocument, type WorkflowType } from "./workflow-document";
+import { pluginImportSkillName } from "../pages/plugin-import-presentation";
 
 export type WorkflowServices = {
   extensions: Pick<SkillsExtensionsStore, "skills" | "readSkill" | "saveSkill" | "createSkill" | "skillResources" | "skillResourcesStatus" | "refreshSkillResources" | "readSkillResource" | "saveSkillResource" | "deleteSkillResource">;
@@ -120,7 +121,7 @@ export async function openWorkflow(workspaceId: string, skill: SkillCard) {
   if (existing && (existing.loading || existing.saving || workflowDirty(existing))) { showWorkflow(existing); return; }
   const draft: WorkflowDraft = {
     id: existing?.id ?? workflowDraftId(workspaceId, skill.name), workspaceId, contextKey: services.contextKey, name: skill.name,
-    title: workflowDisplayName(skill.name), description: skill.description ?? "", savedDescription: skill.description ?? "",
+    title: workflowDisplayName(pluginImportSkillName(skill)), description: skill.description ?? "", savedDescription: skill.description ?? "",
     type: workflowType(skill), body: "", savedBody: "", baseline: "", isNew: false, loading: true, saving: false, error: null, staged: [],
   };
   addDraft(draft);

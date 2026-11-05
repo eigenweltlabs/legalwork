@@ -21,11 +21,11 @@ try {
 
   const events = [];
   const controller = new AbortController();
-  const sub = await client.event.subscribe(undefined, { signal: controller.signal });
+  const sub = await client.event.subscribe({ signal: controller.signal });
 
   const reader = (async () => {
     try {
-      for await (const raw of sub.stream) {
+      for await (const raw of sub) {
         const evt = normalizeEvent(raw);
         if (!evt) continue;
         events.push(evt);
@@ -37,7 +37,7 @@ try {
   })();
 
   // Trigger something that should emit events.
-  const created = await client.session.create({ title: "LegalWork events test" });
+  const created = await client.session.create({ location: { directory: server?.cwd ?? directory }, title: "LegalWork events test" });
 
   // Wait briefly to collect events.
   await new Promise((r) => setTimeout(r, 1200));

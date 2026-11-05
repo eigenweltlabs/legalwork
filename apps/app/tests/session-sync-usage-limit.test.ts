@@ -10,6 +10,13 @@ import {
 import { useComposerStateStore } from "../src/react-app/domains/session/surface/composer-state-store";
 import { parseProviderUsageLimit, providerFromUsageLimitError } from "../src/app/lib/provider-usage-limit";
 import type { UIMessage } from "ai";
+import { projectSession,projectMessages } from "../src/app/lib/opencode-view";
+
+const tokens={input:0,output:0,reasoning:0,cache:{read:0,write:0}};
+const session=(id:string,directory:string)=>({id,projectID:"fixture",location:{directory},title:"Quota fixture",time:{created:1,updated:2},cost:0,tokens});
+const assistant=(id:string,providerID:string)=>({id,type:"assistant" as const,agent:"legalwork",model:{id:"fixture",providerID},time:{created:2},content:[]});
+const messagePage=(id:string,providerID:string)=>({data:[assistant(id,providerID)],cursor:{}});
+
 
 test("a gateway admission reason survives stopping a background retry and is persisted with its turn", async () => {
   const limit = { reason: "organization_limit", requiredMicros: 200000, availableMicros: 90000 };
@@ -19,18 +26,18 @@ test("a gateway admission reason survives stopping a background retry and is per
     port: 0,
     async fetch(request) {
       const path = new URL(request.url).pathname;
-      if (path.endsWith("/messages")) {
-        return Response.json({ items: [{ info: { id: "gateway-turn", role: "assistant", providerID: "eigenwelt" }, parts: [] }] });
+      if (path.endsWith("/message")) {
+        return Response.json(messagePage("gateway-turn","eigenwelt"));
       }
       if (path.endsWith("/usage-limit")) {
         persisted.push(await request.json());
         return Response.json({ ok: true });
       }
-      if (path.endsWith("/abort")) {
+      if (path.endsWith("/interrupt")) {
         aborts++;
-        return Response.json(true);
+        return Response.json({interrupted:true});
       }
-      return Response.json({ item: { id: "gateway-session", directory: "/project/gateway" } });
+      return Response.json({data:session("gateway-session","/project/gateway")});
     },
   });
   const input = {
@@ -42,9 +49,9 @@ test("a gateway admission reason survives stopping a background retry and is per
   const query = getReactQueryClient();
   try {
     __applySessionSyncEventForTest(input, {
-      type: "session.next.retried",
-      properties: {
-        sessionID: "gateway-session",
+      type: "session.retry.scheduled",
+      data: {
+        sessionID: "gateway-session", attempt:1,at:Date.now()+1000,
         error: {
           statusCode: 429,
           message: "HTTP 429",
@@ -57,8 +64,8 @@ test("a gateway admission reason survives stopping a background retry and is per
     expect(persisted).toEqual([{ messageId: "gateway-turn", limit }]);
     expect(useComposerStateStore.getState().pausedQueues["gateway-session"]).toBe(true);
     __applySessionSyncEventForTest(input, {
-      type: "session.error",
-      properties: { sessionID: "gateway-session", error: { name: "MessageAbortedError", data: { message: "The message was interrupted" } } },
+      type: "session.execution.interrupted",
+      data: { sessionID: "gateway-session", error: { name: "MessageAbortedError", data: { message: "The message was interrupted" } } },
     });
     const messages = query.getQueryData<UIMessage[]>(transcriptKey(input.workspaceId, "gateway-session"));
     const part = messages?.at(-1)?.parts.find(part => part.type === "text");
@@ -77,22 +84,18 @@ test("the first quota retry aborts a background task in its workspace and pauses
     port: 0,
     async fetch(request) {
       const url = new URL(request.url);
-      if (url.pathname.endsWith("/messages")) {
-        return Response.json({ items: [{ info: { id: "assistant-turn", role: "assistant", providerID: "openai" }, parts: [] }] });
+      if (url.pathname.endsWith("/message")) {
+        return Response.json(messagePage("assistant-turn","openai"));
       }
       if (url.pathname === "/workspace/quota-workspace/sessions/quota-session/usage-limit") {
         persisted.push(await request.json());
         return Response.json({ ok: true });
       }
-      if (url.pathname.endsWith("/abort")) {
+      if (url.pathname.endsWith("/interrupt")) {
         aborts.push(url);
-        return Response.json(true);
+        return Response.json({interrupted:true});
       }
-      return Response.json({
-        id: "quota-session",
-        directory: "/project/quota",
-        model: { providerID: "openai" },
-      });
+      return Response.json({data:session("quota-session","/project/quota")});
     },
   });
   const input = {
@@ -103,16 +106,12 @@ test("the first quota retry aborts a background task in its workspace and pauses
   const dispose = __createWorkspaceSessionSyncForTest(input);
   const query = getReactQueryClient();
   query.setQueryData(snapshotKey(input.workspaceId, "quota-session"), {
-    session: { id: "quota-session", directory: "/project/quota" },
-    messages: [
-      {
-        info: { id: "previous-turn", role: "assistant", providerID: "anthropic" },
-      },
-    ],
+    session: projectSession(session("quota-session","/project/quota")),
+    messages: projectMessages("quota-session",[assistant("previous-turn","anthropic")]),
   });
   const event = {
     type: "session.status",
-    properties: {
+    data: {
       sessionID: "quota-session",
       status: {
         type: "retry",
@@ -129,7 +128,7 @@ test("the first quota retry aborts a background task in its workspace and pauses
       await Bun.sleep(10);
     expect(aborts).toHaveLength(1);
     expect(persisted).toEqual([{ messageId: "assistant-turn" }]);
-    expect(aborts[0].searchParams.get("directory")).toBe("/project/quota");
+    expect(aborts[0].pathname).toBe("/workspace/quota-workspace/opencode/api/session/quota-session/interrupt");
     expect(useComposerStateStore.getState().pausedQueues["quota-session"]).toBe(
       true,
     );
@@ -151,9 +150,9 @@ test("temporary throttling does not abort the task", async () => {
   let calls = 0;
   const server = Bun.serve({
     port: 0,
-    fetch() {
-      calls++;
-      return Response.json(true);
+    fetch(request) {
+      if(new URL(request.url).pathname.endsWith("/interrupt"))calls++;
+      return Response.json({interrupted:true});
     },
   });
   const input = {
@@ -165,7 +164,7 @@ test("temporary throttling does not abort the task", async () => {
   try {
     __applySessionSyncEventForTest(input, {
       type: "session.status",
-      properties: {
+      data: {
         sessionID: "rate-session",
         status: {
           type: "retry",
@@ -192,18 +191,18 @@ test("a structured Anthropic spend cap stops the first retry and persists provid
     port: 0,
     async fetch(request) {
       const url = new URL(request.url);
-      if (url.pathname.endsWith("/messages")) {
-        return Response.json({ items: [{ info: { id: "anthropic-turn", role: "assistant", providerID: "anthropic" }, parts: [] }] });
+      if (url.pathname.endsWith("/message")) {
+        return Response.json(messagePage("anthropic-turn","anthropic"));
       }
       if (url.pathname.endsWith("/usage-limit")) {
         persisted.push(await request.json());
         return Response.json({ ok: true });
       }
-      if (url.pathname.endsWith("/abort")) {
+      if (url.pathname.endsWith("/interrupt")) {
         aborts++;
-        return Response.json(true);
+        return Response.json({interrupted:true});
       }
-      return Response.json({ item: { id: sessionId, directory: "/project/anthropic" } });
+      return Response.json({data:session(sessionId,"/project/anthropic")});
     },
   });
   const input = { workspaceId, baseUrl: new URL(`/workspace/${workspaceId}/opencode`, server.url).toString(), legalworkToken: "test" };
@@ -216,11 +215,11 @@ test("a structured Anthropic spend cap stops the first retry and persists provid
     responseBody: JSON.stringify({ type: "error", error: { type: "rate_limit_error", details: { error_code: "enforced_spend_limit_reached" } } }),
   };
   try {
-    const event = { type: "session.next.retried", properties: { sessionID: sessionId, attempt: 1, error } };
+    const event = { type: "session.retry.scheduled", data: { sessionID: sessionId, attempt: 1,at:Date.now()+1000, error } };
     __applySessionSyncEventForTest(input, event);
     __applySessionSyncEventForTest(input, event);
-    // The legacy prose event must not override or race away the structured decision.
-    __applySessionSyncEventForTest(input, { type: "session.status", properties: { sessionID: sessionId, status: { type: "retry", attempt: 1, message: "You've hit your usage limit", next: Date.now() + 1000 } } });
+    // The native status prose event must not override or race away the structured retry decision.
+    __applySessionSyncEventForTest(input, { type: "session.status", data: { sessionID: sessionId, status: { type: "retry", attempt: 1, message: "You've hit your usage limit", next: Date.now() + 1000 } } });
     for (let attempt = 0; attempt < 50 && !persisted.length; attempt++) await Bun.sleep(10);
     expect(aborts).toBe(1);
     expect(persisted).toEqual([{ messageId: "anthropic-turn" }]);
@@ -242,12 +241,12 @@ test("Anthropic throttling stays retryable even when prose mentions a usage limi
     port: 0,
     fetch(request) {
       const path = new URL(request.url).pathname;
-      if (path.endsWith("/messages")) {
+      if (path.endsWith("/message")) {
         messageReads++;
-        return Response.json({ items: [{ info: { id: "throttled-turn", role: "assistant", providerID: "anthropic" }, parts: [] }] });
+        return Response.json(messagePage("throttled-turn","anthropic"));
       }
-      if (path.endsWith("/abort")) { aborts++; return Response.json(true); }
-      return Response.json({ item: { id: "anthropic-rate-session", directory: "/project/anthropic" } });
+      if (path.endsWith("/interrupt")) { aborts++; return Response.json({interrupted:true}); }
+      return Response.json({data:session("anthropic-rate-session","/project/anthropic")});
     },
   });
   const input = { workspaceId: "anthropic-rate-workspace", baseUrl: new URL("/workspace/anthropic-rate-workspace/opencode", server.url).toString(), legalworkToken: "test" };
@@ -255,10 +254,10 @@ test("Anthropic throttling stays retryable even when prose mentions a usage limi
   const message = "You've hit your usage limit; retry shortly.";
   try {
     __applySessionSyncEventForTest(input, {
-      type: "session.next.retried",
-      properties: { sessionID: "anthropic-rate-session", attempt: 1, error: { message, statusCode: 429, isRetryable: true, responseHeaders: { "retry-after": "2" }, responseBody: JSON.stringify({ type: "error", error: { type: "rate_limit_error", message } }) } },
+      type: "session.retry.scheduled",
+      data: { sessionID: "anthropic-rate-session", attempt: 1, error: { message, statusCode: 429, isRetryable: true, responseHeaders: { "retry-after": "2" }, responseBody: JSON.stringify({ type: "error", error: { type: "rate_limit_error", message } }) } },
     });
-    __applySessionSyncEventForTest(input, { type: "session.status", properties: { sessionID: "anthropic-rate-session", status: { type: "retry", attempt: 1, message, next: Date.now() + 1000 } } });
+    __applySessionSyncEventForTest(input, { type: "session.status", data: { sessionID: "anthropic-rate-session", status: { type: "retry", attempt: 1, message, next: Date.now() + 1000 } } });
     for (let attempt = 0; attempt < 50 && !messageReads; attempt++) await Bun.sleep(10);
     expect(messageReads).toBeGreaterThan(0);
     expect(aborts).toBe(0);
@@ -277,8 +276,8 @@ test("a terminal Anthropic billing failure immediately shows recovery and pauses
   try {
     query.setQueryData(snapshotKey(input.workspaceId, "anthropic-billing-session"), { session: { id: "anthropic-billing-session" }, messages: [{ info: { id: "billing-turn", role: "assistant", providerID: "anthropic" } }] });
     __applySessionSyncEventForTest(input, {
-      type: "session.error",
-      properties: { sessionID: "anthropic-billing-session", error: { name: "APIError", data: { statusCode: 402, message: "Payment cannot be completed.", isRetryable: false, responseBody: JSON.stringify({ type: "error", error: { type: "billing_error" } }) } } },
+      type: "session.execution.failed",
+      data: { sessionID: "anthropic-billing-session", error: { name: "APIError", data: { statusCode: 402, message: "Payment cannot be completed.", isRetryable: false, responseBody: JSON.stringify({ type: "error", error: { type: "billing_error" } }) } } },
     });
     expect(useComposerStateStore.getState().pausedQueues["anthropic-billing-session"]).toBe(true);
     const messages = query.getQueryData<UIMessage[]>(transcriptKey(input.workspaceId, "anthropic-billing-session"));

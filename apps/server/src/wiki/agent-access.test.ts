@@ -208,6 +208,55 @@ test("skill tools keep the session origin and stay limited to their own workspac
     await expect(authenticateWikiAgentRequest(config, request(path, { method }))).rejects.toMatchObject({ code: "wiki_agent_endpoint_denied" });
 });
 
+test("ordinary Office, command, HTTP and review worker calls retain their recorded workspace and chat", async () => {
+  const { config, root, request } = await fixture();
+  const nested = join(root, "wiki"); await mkdir(nested);
+  config.workspaces.push({ id: "wiki", name: "Wiki", path: nested, preset: "starter", workspaceType: "local" });
+  await grantWikiAgentSession(config, { sessionId: "session-1", directory: root, scope: "collaborator" });
+  const routes = [
+    ["office-tools/execute", "POST"], ["sandbox/command", "POST"], ["sandbox/http", "POST"],
+    ["reviews/workers/session-1/contract", "GET"], ["reviews/workers/session-1/submit", "POST"],
+  ];
+  for (const [route, method] of routes) {
+    const make = (workspace = "project", sessionID = "session-1") => {
+      const original = request(`/workspace/${workspace}/${route}`, { method });
+      return new Request(original, method === "POST" ? { body: JSON.stringify({ sessionID }) } : undefined);
+    };
+    expect(await authenticateWikiAgentRequest(config, make())).toMatchObject({ sessionId: "session-1", actor: { scope: "collaborator" } });
+    await expect(authenticateWikiAgentRequest(config, make("wiki"))).rejects.toMatchObject({ code: "wiki_agent_workspace_denied" });
+    if (route.startsWith("sandbox/"))
+      await expect(authenticateWikiAgentRequest(config, make("project", "other"))).rejects.toMatchObject({ code: "wiki_agent_session_mismatch" });
+  }
+  for (const [route, method] of [["reviews/workers/other/contract", "GET"], ["reviews/workers/other/submit", "POST"]])
+    await expect(authenticateWikiAgentRequest(config, request(`/workspace/project/${route}`, { method }))).rejects.toMatchObject({ code: "wiki_agent_session_mismatch" });
+  for (const [route, method] of [["office-tools/poll", "GET"], ["office-tools/requests/other/result", "POST"],
+    ["reviews/settings", "PUT"], ["reviews/workers/session-1/contract", "POST"], ["reviews/workers/session-1/submit", "GET"], ["sandbox/command", "PATCH"]])
+    await expect(authenticateWikiAgentRequest(config, request(`/workspace/project/${route}`, { method }))).rejects.toMatchObject({ code: "wiki_agent_endpoint_denied" });
+});
+
+test("new first-party routes do not turn Wiki roots or descendants into owner credentials", async () => {
+  const { config, root, request } = await fixture();
+  const wiki = join(root, "wiki"); await mkdir(wiki);
+  config.workspaces.push({ id: "wiki", name: "Wiki", path: wiki, preset: "starter", workspaceType: "local" });
+  await grantWikiAgentSession(config, { sessionId: "wiki-root", directory: wiki, scope: "collaborator" });
+  configureWikiAgentSessionLookup(config, async (_workspace, id) => ({ id, directory: wiki, ...(id === "child" ? { parentID: "wiki-root" } : {}) }));
+  for (const session of ["wiki-root", "child"]) {
+    const own = request("/workspace/wiki/office-tools/execute", { session, directory: wiki, method: "POST" });
+    expect((await authenticateWikiAgentRequest(config, own))?.actor.scope).toBe("collaborator");
+    await expect(authenticateWikiAgentRequest(config, request("/workspace/project/office-tools/execute", { session, directory: wiki, method: "POST" }))).rejects.toMatchObject({ code: "wiki_agent_workspace_denied" });
+    await expect(authenticateWikiAgentRequest(config, request("/workspace/wiki/office-tools/execute", { session, directory: root, method: "POST" }))).rejects.toMatchObject({ code: session === "child" ? "wiki_agent_session_unknown" : "wiki_agent_directory_mismatch" });
+  }
+  await grantWikiAgentSession(config, { sessionId: "wiki-root", directory: wiki, scope: "viewer" });
+  expect((await authenticateWikiAgentRequest(config, request("/workspace/wiki/office-tools/execute", { session: "child", directory: wiki, method: "POST" })))?.actor.scope).toBe("viewer");
+  revokeWikiAgentSession(config, "wiki-root");
+  await expect(authenticateWikiAgentRequest(config, request("/workspace/wiki/office-tools/execute", { session: "child", directory: wiki, method: "POST" }))).rejects.toMatchObject({ code: "wiki_agent_session_unknown" });
+  for (const header of ["x-legalwork-wiki-agent-session", "x-legalwork-wiki-agent-directory"]) {
+    const missing = request("/workspace/wiki/office-tools/execute", { session: "child", directory: wiki, method: "POST" });
+    missing.headers.delete(header);
+    await expect(authenticateWikiAgentRequest(config, missing)).rejects.toMatchObject({ code: header.endsWith("session") ? "wiki_agent_session_unknown" : "wiki_agent_directory_mismatch" });
+  }
+});
+
 test("verified descendants retain live scope and ancestor changes abort grants and pending approvals", async () => {
   const { config, root, request } = await fixture();
   const parents: Record<string, string | undefined> = { child: "middle", middle: "parent" };

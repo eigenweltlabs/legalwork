@@ -1,10 +1,8 @@
-import { isReviewWorkerSession } from "@legalwork/types/reviews";
-// Shared pure helpers for the workspace-scoped routes (session-route,
-// settings-route). These were duplicated in both route files and had drifted:
-// settings-route was missing the remote-workspace clobber fix in
-// mergeRouteWorkspaces and used older session-status logic. One copy now.
+import { isRetiredRemoteWorkspace } from "@legalwork/types/workspace";
+import { isInternalSession } from "@legalwork/types/session-visibility";
+// Shared project routing, naming and session-status helpers.
 
-import type { Session } from "@opencode-ai/sdk/v2/client";
+import type { SessionView as Session } from "@/app/lib/opencode-view";
 
 import type { LegalworkWorkspaceInfo } from "@/app/lib/legalwork-server";
 import type { WorkspaceInfo } from "@/app/lib/desktop-types";
@@ -32,6 +30,15 @@ export type RouteSession = Session & {
   slug?: string | null;
 };
 
+function isSessionView(info:Record<string,unknown>):info is Session {
+ const location=info.location;const time=info.time;const tokens=info.tokens;
+ if(typeof info.id!=="string" || typeof info.title!=="string" || typeof info.directory!=="string" || typeof info.projectID!=="string" || typeof info.cost!=="number")return false;
+ if(!location || typeof location!=="object" || !("directory" in location) || typeof location.directory!=="string")return false;
+ if(!time || typeof time!=="object" || !("created" in time) || typeof time.created!=="number" || !("updated" in time) || typeof time.updated!=="number")return false;
+ if(!tokens || typeof tokens!=="object" || !("input" in tokens) || typeof tokens.input!=="number" || !("output" in tokens) || typeof tokens.output!=="number" || !("reasoning" in tokens) || typeof tokens.reasoning!=="number" || !("cache" in tokens))return false;
+ const cache=tokens.cache;return Boolean(cache && typeof cache==="object" && "read" in cache && typeof cache.read==="number" && "write" in cache && typeof cache.write==="number");
+}
+
 /** Runtime data can improve a listed session, but cannot resurrect a deleted one. */
 export function preferLoadedSession(fetched: RouteSession[], loaded: RouteSession | null): RouteSession[] {
   if (!loaded) return fetched;
@@ -39,7 +46,7 @@ export function preferLoadedSession(fetched: RouteSession[], loaded: RouteSessio
 }
 
 export function upsertRuntimeSession(sessions: RouteSession[], update: { sessionId: string; info: Record<string, unknown> }): RouteSession[] {
-  if (isReviewWorkerSession(update.info)) return sessions;
+  if (isInternalSession(update.info)) return sessions;
   const index = sessions.findIndex((session) => session.id === update.sessionId);
   if (index >= 0) {
     const next = { ...sessions[index]!, ...update.info, id: update.sessionId };
@@ -50,17 +57,8 @@ export function upsertRuntimeSession(sessions: RouteSession[], update: { session
   const time = info.time;
   // New sessions arrive from the engine as complete records. Partial updates
   // may update a known session, but cannot invent a sidebar entry.
-  if (typeof info.title !== "string" || typeof info.slug !== "string" ||
-      typeof info.projectID !== "string" || typeof info.directory !== "string" ||
-      typeof info.version !== "string" || !time || typeof time !== "object" ||
-      !("created" in time) || typeof time.created !== "number" ||
-      !("updated" in time) || typeof time.updated !== "number") return sessions;
-  const session: RouteSession = {
-    ...info, id: update.sessionId, title: info.title, slug: info.slug,
-    projectID: info.projectID, directory: info.directory, version: info.version,
-    time: { ...time, created: time.created, updated: time.updated },
-    parentID: typeof info.parentID === "string" ? info.parentID : undefined,
-  };
+  if(!isSessionView(info))return sessions;
+  const session:RouteSession={...info,id:update.sessionId};
   return [...sessions, session];
 }
 
@@ -69,7 +67,7 @@ export function mapDesktopWorkspace(workspace: WorkspaceInfo): RouteWorkspace {
     ...workspace,
     displayNameResolved:
       workspace.displayName?.trim() ||
-      workspace.name?.trim() ||
+    workspace.name?.trim() ||
       workspace.path?.trim() ||
       t("session.workspace_fallback"),
   };
@@ -78,8 +76,7 @@ export function mapDesktopWorkspace(workspace: WorkspaceInfo): RouteWorkspace {
 export function workspaceLabel(workspace: LegalworkWorkspaceInfo) {
   return (
     workspace.displayName?.trim() ||
-    workspace.legalworkWorkspaceName?.trim() ||
-    workspace.name?.trim() ||
+      workspace.name?.trim() ||
     workspace.path?.trim() ||
     t("session.workspace_fallback")
   );
@@ -152,18 +149,7 @@ export function mergeRouteWorkspaces(
     }),
   );
 
-  // If a server workspace's id matches a desktop workspace marked as remote,
-  // skip the server's view entirely. The local LegalWork server may have stale
-  // registrations from earlier (buggy) activate calls that show up here as
-  // `workspaceType: "local"`, which would otherwise clobber the desktop's
-  // remote routing fields and send workspace-scoped requests back to the
-  // local server.
-  const remoteDesktopIds = new Set(
-    desktopWorkspaces.flatMap((workspace) => workspace.workspaceType === "remote" ? [workspace.id] : []),
-  );
-  const filteredServer = serverWorkspaces.filter((workspace) => !remoteDesktopIds.has(workspace.id));
-
-  const mergedServer = filteredServer.map((workspace) => {
+  const mergedServer = serverWorkspaces.filter(workspace => !isRetiredRemoteWorkspace(workspace)).map((workspace) => {
     const match =
       desktopById.get(workspace.id) ??
       desktopByPath.get(normalizeDirectoryPath(workspace.path ?? ""));
@@ -185,26 +171,7 @@ export function mergeRouteWorkspaces(
     };
   });
 
-  const mergedIds = new Set(mergedServer.map((workspace) => workspace.id));
-  const mergedPaths = new Set(
-    mergedServer.flatMap((workspace) => {
-      const path = normalizeDirectoryPath(workspace.path ?? "");
-      return path ? [path] : [];
-    }),
-  );
-
-  const missingDesktop = desktopWorkspaces.filter((workspace) => {
-    // A successful server list is authoritative for local projects. The
-    // desktop remembers selection/history, including firm projects removed
-    // on sign-out. Reintroducing those entries makes every scoped API 404.
-    if (workspace.workspaceType !== "remote") return false;
-    if (mergedIds.has(workspace.id)) return false;
-    const normalizedPath = normalizeDirectoryPath(workspace.path ?? "");
-    if (normalizedPath && mergedPaths.has(normalizedPath)) return false;
-    return true;
-  });
-
-  return [...mergedServer, ...missingDesktop];
+  return mergedServer;
 }
 
 /** Resolve saved IDs only against projects the current connection can serve. */

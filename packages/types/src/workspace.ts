@@ -6,17 +6,19 @@ import { z } from "zod";
  * Producers:
  * - legalwork-server (apps/server): `GET /workspaces` and friends — emits plain
  *   optionals (never null) plus the `opencode*` engine credential fields.
- * - desktop Electron IPC bridge (apps/desktop main.mjs): emits explicit nulls
- *   and the desktop-managed `legalworkClientToken`/`legalworkHostToken`.
+ * - desktop Electron IPC bridge (apps/desktop main.mjs): emits explicit nulls.
  *
  * Consumers (apps/app) must treat every optional field as possibly absent,
  * undefined, or null. Producer-side types assert assignability against this
  * shape (see apps/server/src/types.ts) so drift fails typecheck instead of
  * surfacing as runtime undefined-field bugs.
  */
-export type WorkspaceKind = "local" | "remote";
+export type WorkspaceKind = "local";
 
-export type WorkspaceRemoteKind = "opencode" | "legalwork";
+/** Read-only discriminator for archived records from versions with remote agent workspaces. */
+export function isRetiredRemoteWorkspace(value: unknown): boolean {
+  return typeof value === "object" && value !== null && "workspaceType" in value && value.workspaceType === "remote";
+}
 
 /** Project information travels with the folder; documents remain ordinary files. */
 export type ProjectField = {
@@ -184,17 +186,9 @@ export type WorkspaceWire = {
   path: string;
   preset: string;
   workspaceType: WorkspaceKind;
-  remoteType?: WorkspaceRemoteKind | null;
   baseUrl?: string | null;
   directory?: string | null;
   displayName?: string | null;
-  legalworkHostUrl?: string | null;
-  legalworkToken?: string | null;
-  /** Desktop IPC only: tokens for desktop-managed remote workspaces. */
-  legalworkClientToken?: string | null;
-  legalworkHostToken?: string | null;
-  legalworkWorkspaceId?: string | null;
-  legalworkWorkspaceName?: string | null;
   /**
    * Vocabulary differs per producer today ("docker" | "microsandbox" on the
    * desktop, "none" | "docker" | "container" in legalwork-server), so the wire
@@ -203,14 +197,10 @@ export type WorkspaceWire = {
   sandboxBackend?: string | null;
   sandboxRunId?: string | null;
   sandboxContainerName?: string | null;
-  /** legalwork-server only: credentials for the proxied opencode engine. */
-  opencodeUsername?: string | null;
-  opencodePassword?: string | null;
+  /** Connection metadata only; engine credentials remain private to the host. */
   opencode?: {
     baseUrl?: string;
     directory?: string;
-    username?: string;
-    password?: string;
   } | null;
 };
 

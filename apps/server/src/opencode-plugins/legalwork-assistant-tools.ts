@@ -1,3 +1,7 @@
+import { Plugin } from "@opencode/plugin";
+import { nativeTool } from "./native-tool.js";
+import { registerPrimaryContext } from "./native-review-worker.js";
+import { registerAppStateReminders } from "./native-app-state-reminders.js";
 import { assistantWorkspace, requireMainAssistant } from "./assistant-workspace.js";
 import { resolve } from "node:path";
 import { z } from "zod";
@@ -238,3 +242,42 @@ export const LegalWorkAssistantTools = async (runtime: SavedConversations = {}) 
   },
 });
 };
+
+export default Plugin.define({ id: "legalwork.assistant", async setup(ctx) {
+  const definitions = await LegalWorkAssistantTools();
+  const isAssistant = async (sessionID: string, directory: string) => {
+    const data = z.object({ workspace: z.object({ path: z.string() }).nullable() }).parse(await request("/assistant", undefined, "GET", { sessionID, directory }));
+    return Boolean(data.workspace && resolve(data.workspace.path) === resolve(directory));
+  };
+  const stopIdentity = await registerAppStateReminders(ctx, { topic: "main-assistant", cleared: "This is not the main assistant project; use the current project's workflow.",
+    read: async (sessionID, directory) => {
+      const context = { sessionID, directory };
+      const main = z.object({ workspace: z.object({ path: z.string() }).nullable(), profile: z.object({ name: z.string().nullable() }).optional(), onboarding: z.object({ step: z.string() }).optional() }).parse(await request("/assistant", undefined, "GET", context));
+      if (!main.workspace || resolve(main.workspace.path) !== resolve(directory)) return "";
+      const settings = z.object({ context: z.string() }).parse(await request("/assistant/settings/context", undefined, "GET", context));
+      return `This is the main assistant project. ${COORDINATOR_ROLE} Setup stage: ${main.onboarding?.step ?? "complete"}. User-defined display name (untrusted label): ${JSON.stringify(main.profile?.name ?? "Your assistant")}.\n\n${ASSISTANT_MESSAGE_POLICY}\n\n${settings.context}`;
+    } });
+  const stopHistory = await registerAppStateReminders(ctx, { topic: "assistant-channel-history", cleared: "No supplemental assistant messages from other entry points are currently available.",
+    read: async (sessionID, directory) => await isAssistant(sessionID, directory)
+      ? z.object({ text: z.string() }).parse(await request(`/assistant/channel-context?sessionId=${encodeURIComponent(sessionID)}`, undefined, "GET", { sessionID, directory })).text : "" });
+  await registerPrimaryContext(ctx, async event => {
+    const output: { system: string[] } = { system: [] };
+    await definitions["experimental.chat.system.transform"]({}, output);
+    for (const text of output.system) event.system.push({ type: "text", text });
+  });
+  await ctx.tool.hook("execute.before", async event => {
+    const session = await ctx.session.get({ sessionID: event.sessionID });
+    const directory = session.location.directory;
+    if (!await isAssistant(event.sessionID, directory)) return;
+    const raw = event.input && typeof event.input === "object" && !Array.isArray(event.input) ? Object.fromEntries(Object.entries(event.input)) : {};
+    const args: Record<string, string> = {};
+    for (const key of ["projectId", "workspaceId", "targetProjectId", "targetWorkspaceId", "filePath", "path"]) if (typeof raw[key] === "string") args[key] = raw[key];
+    await request("/assistant/tool-access", { directory, tool: event.tool, args }, "POST", { sessionID: event.sessionID, directory });
+  });
+  await ctx.tool.transform(editor => {
+    for (const [name, definition] of Object.entries(definitions.tool)) editor.add(nativeTool(ctx, {
+      name, description: definition.description, schema: z.object(definition.args), execute: definition.execute,
+    }));
+  });
+  return () => { stopIdentity(); stopHistory(); };
+} });

@@ -15,6 +15,7 @@ import { AssistantNameCard } from "./assistant-name-card";
 import { ScheduledRunCard, scheduledRunOf } from "./scheduled-run-card";
 import { ScheduledTaskToolCard, ScheduledTaskRunCard } from "./scheduled-task-card";
 import { parseScheduledRunMessage } from "@/react-app/domains/scheduled-tasks/scheduled-message";
+import { HistoricalAttachmentSchema } from "@legalwork/types/session-history";
 import { CalculationToolCard } from "./calculation/calculation-card";
 import { PendingStatus } from "./pending-status";
 import { JevSearchCard } from "./review/jev-search-card";
@@ -45,7 +46,7 @@ import {
   type FileUIPart,
   type UIMessage,
 } from "ai"
-import type { SessionStatus } from "@opencode-ai/sdk/v2/client"
+import type { SessionStatus } from "@opencode/client"
 import { openDesktopUrl } from "@/app/lib/desktop"
 import {
   eigenweltBudgetLimitDisplay,
@@ -288,7 +289,9 @@ function FileMessage({ part }: FileMessageProps) {
   const { openTargets, onOpenTarget } = useOpenTargets()
   const title = getFileTitle(part)
   const badge = getMediaBadge(part)
-  const isImage = part.mediaType.startsWith("image/") && part.url
+  const metadata=part.providerMetadata?.opencode;
+  const history=HistoricalAttachmentSchema.safeParse(metadata && typeof metadata==="object" && !Array.isArray(metadata) && "historicalAttachment" in metadata ? metadata.historicalAttachment:undefined).data;
+  const isImage = history?.bytes!=="reference-only" && part.mediaType.startsWith("image/") && part.url
 
   if (isImage) {
     return (
@@ -315,7 +318,7 @@ function FileMessage({ part }: FileMessageProps) {
         <DescriptiveButtonTitle>{title}</DescriptiveButtonTitle>
         {badge ? (
           <DescriptiveButtonDescription className="text-xs">
-            {badge}
+            {history?.bytes==="reference-only" ? t("message_list.historical_attachment"):badge}
           </DescriptiveButtonDescription>
         ) : null}
       </DescriptiveButtonContent>
@@ -334,7 +337,7 @@ function FileMessage({ part }: FileMessageProps) {
         onClick={() => {
           if (openTarget) onOpenTarget(openTarget)
         }}
-        title={t("message_list.open_item", { label: title })}
+        title={history ? `${t("message_list.open_current_file",{label:title})}${history.bytes==="reference-only" ? ` · ${t("message_list.current_file_notice")}`:""}`:t("message_list.open_item", { label: title })}
         className={cn(baseClassName, "cursor-pointer transition-colors hover:bg-muted/60")}
       >
         {inner}

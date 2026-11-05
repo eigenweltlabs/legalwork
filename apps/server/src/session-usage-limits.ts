@@ -1,5 +1,5 @@
 import { dirname } from "node:path";
-import type { SessionMessagesResponse2 } from "@opencode-ai/sdk/v2/client";
+import type { SessionMessageInfo } from "@opencode/client";
 import { openSqlite, runtimeDbPath, type SqliteHandle } from "./runtime-db.js";
 import type { ServerConfig } from "./types.js";
 import { ensureDir } from "./utils.js";
@@ -56,8 +56,8 @@ export async function applySessionUsageLimits(
   config: ServerConfig,
   workspaceId: string,
   sessionId: string,
-  messages: SessionMessagesResponse2,
-): Promise<SessionMessagesResponse2> {
+  messages: SessionMessageInfo[],
+): Promise<SessionMessageInfo[]> {
   const db = await store(config);
   const rows = db.all(
     "SELECT message_id,provider_id,limit_json,stop_reason FROM session_usage_limits WHERE workspace_id=? AND session_id=?",
@@ -71,22 +71,12 @@ export async function applySessionUsageLimits(
     ),
   );
   return messages.map((message) => {
-    const provider = providers.get(message.info.id);
-    if (provider === undefined || message.info.role !== "assistant")
-      return message;
-    return {
-      ...message,
-      info: {
-        ...message.info,
-        error: {
-          name: "UnknownError",
-          data: {
-            message:
-              provider.reason ?? providerUsageLimitErrorText(provider.providerId, provider.limit),
-          },
-        },
-      },
-    };
+    const provider = providers.get(message.id);
+    if (provider === undefined || message.type !== "assistant") return message;
+    return { ...message, error: {
+      type: "legalwork.usage-limit",
+      message: provider.reason ?? providerUsageLimitErrorText(provider.providerId, provider.limit),
+    } };
   });
 }
 

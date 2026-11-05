@@ -6,10 +6,14 @@ import { join } from "node:path";
 
 import { eigenweltPlatformUrl } from "./eigenwelt-auth.js";
 import { closeEigenweltConnectionForTests, writeEigenweltConnection } from "./eigenwelt-connection-store.js";
-import { buildOrgPolicyEngineLayerFor, legalworkRuntimeConfigFilePath, writeLegalworkRuntimeConfigFile } from "./legalwork-runtime-config.js";
+import { buildOrgPolicyEngineLayerFor, managedEngineSettingsFilePath, writeLegalworkRuntimeConfigFile } from "./legalwork-runtime-config.js";
+import { readManagedEngineSettings } from "./managed-engine-settings.js";
+import { Config } from "@opencode/schema/config";
+import { Schema } from "effect";
 import { appliedOrgPolicy, releaseOrgPolicyKey, requireOrgPolicyUnmanaged, resetOrgPolicyRuntimeForTests, scheduleOrgPolicySync } from "./org-policy.js";
 import { orgPolicyEngineDir, orgPolicyEngineLayerIntact } from "./org-policy-engine.js";
 import { LegalWorkOrgPolicyGuard } from "./opencode-plugins/legalwork-org-policy-guard.js";
+import { nativePluginTestRuntime } from "./opencode-plugins/native-plugin-test-support.js";
 import { closeRuntimeOpencodeConfig, GLOBAL_TOOL_PERMISSIONS_ID, writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
 import type { ServerConfig } from "./types.js";
 import { OcrManager } from "./ocr/manager.js";
@@ -76,8 +80,11 @@ async function setup(entries: Record<string, unknown>, secrets: Record<string, s
   return { config, root };
 }
 
-async function readJson(path: string): Promise<Record<string, unknown>> {
-  return JSON.parse(await readFile(path, "utf8"));
+async function readJson(path: string) {
+  return Schema.decodeUnknownSync(Config.Info)(JSON.parse(await readFile(path, "utf8")), { onExcessProperty: "error" });
+}
+async function readRuntime(config: ServerConfig) {
+  return (await readManagedEngineSettings(managedEngineSettingsFilePath(config), config.workspaces[0]!.path)).configuration;
 }
 
 describe("the firm's tool permissions in the engine", () => {
@@ -152,15 +159,14 @@ describe("the firm's tool permissions in the engine", () => {
     const { config } = await setup({ "tools.permissions": { mode: "enforced", value: { bash: "allow", edit: "ask" } } });
     config.agentSandboxEnabled = true;
     await writeLegalworkRuntimeConfigFile(config, "ws_1");
-    for (const path of [legalworkRuntimeConfigFilePath(config), join(orgPolicyEngineDir(config), "opencode.json")]) {
-      const layer = await readJson(path);
-      expect(layer.permission).toMatchObject({ bash: "deny", legalwork_shell: "allow", edit: "ask" });
-      expect(layer.agent).toMatchObject({
-        legalwork: { permission: { bash: "deny" } },
-        build: { permission: { bash: "deny" } },
-        plan: { permission: { bash: "deny" } },
-      });
+    for (const layer of [await readRuntime(config), await readJson(join(orgPolicyEngineDir(config), "opencode.json"))]) {
+      expect(layer.permissions).toEqual(expect.arrayContaining([
+        { action: "shell", resource: "*", effect: "allow" },
+        { action: "edit", resource: "*", effect: "ask" },
+      ]));
     }
+    const enforced = await readJson(join(orgPolicyEngineDir(config), "opencode.json"));
+    expect(enforced.policies).toEqual(expect.arrayContaining(["shell", "bash", "webfetch", "websearch", "codesearch"].map(action => ({ action: "tool.use", resource: `${action}:*`, effect: "deny" }))));
   });
 
   test("protected commands enforce firm rules before launch even with stale agent permissions", async () => {
@@ -221,65 +227,61 @@ describe("the firm's tool permissions in the engine", () => {
     }));
     await writeLegalworkRuntimeConfigFile(config, "ws_1");
 
-    const runtime = await readJson(legalworkRuntimeConfigFilePath(config));
+    const runtime = await readRuntime(config);
     // The member's stricter bash rule stays; edit follows the firm.
-    expect(runtime.permission).toMatchObject({ bash: "deny", edit: "ask", webfetch: "allow" });
+    expect(runtime.permissions).toEqual(expect.arrayContaining([
+      { action: "shell", resource: "*", effect: "deny" }, { action: "edit", resource: "*", effect: "ask" }, { action: "webfetch", resource: "*", effect: "allow" },
+    ]));
     const layer = await readJson(join(orgPolicyEngineDir(config), "opencode.json"));
-    expect(layer).toEqual({
-      // Already there, so the engine never rewrites the file to add it.
-      $schema: "https://opencode.ai/config.json",
-      permission: { bash: "deny", edit: "ask" },
-      agent: { legalwork: { permission: { bash: "deny", edit: "ask" } } },
-    });
-    expect(await orgPolicyEngineLayerIntact(config, await buildOrgPolicyEngineLayerFor(config, "ws_1"))).toBe(true);
+    expect(layer.permissions).toHaveLength(2);
+    expect(layer.permissions).toEqual(expect.arrayContaining([{ action: "shell", resource: "*", effect: "deny" }, { action: "edit", resource: "*", effect: "ask" }]));
+    expect(layer.agents?.legalwork?.permissions).toEqual(layer.permissions);
+    const expected = await buildOrgPolicyEngineLayerFor(config, "ws_1");
+    expect(await orgPolicyEngineLayerIntact(config, { ...expected, policies: layer.policies })).toBe(true);
   });
 
   test("after sign-out, rules the member takes back stop applying", async () => {
     const { config } = await setup({ "tools.permissions": { mode: "enforced", value: { edit: "deny" } } });
     await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permission: { edit: "allow" } }));
     await writeLegalworkRuntimeConfigFile(config, "ws_1");
-    expect((await readJson(legalworkRuntimeConfigFilePath(config))).permission).toMatchObject({ edit: "deny" });
+    expect((await readRuntime(config)).permissions).toContainEqual({ action: "edit", resource: "*", effect: "deny" });
 
     await writeEigenweltConnection(config, { platformToken: null, account: null, platformURL: null });
     await scheduleOrgPolicySync(config, { force: true });
     await releaseOrgPolicyKey(config, "tools.permissions");
     await writeLegalworkRuntimeConfigFile(config, "ws_1");
-    expect((await readJson(legalworkRuntimeConfigFilePath(config))).permission).toMatchObject({ edit: "allow" });
-    expect(await readJson(join(orgPolicyEngineDir(config), "opencode.json"))).toEqual({ $schema: "https://opencode.ai/config.json" });
+    expect((await readRuntime(config)).permissions).toContainEqual({ action: "edit", resource: "*", effect: "allow" });
+    expect((await readJson(join(orgPolicyEngineDir(config), "opencode.json"))).permissions).toEqual([]);
   });
 });
 
 describe("the guard plugin", () => {
-  test("refuses what the firm denies, and calls it covers while the engine's rules are looser", async () => {
+  test("native evaluation preserves stricter rules and requires firm approval after saved grants", async () => {
     process.env.LEGALWORK_SERVER_URL = "http://legalwork.test";
-    let guard: Record<string, unknown> = { orgName: "Kanzlei", permission: { bash: { "*": "ask", "rm *": "deny" }, edit: "ask" }, blockedMcpServers: ["crm"] };
+    let guard: Record<string, unknown> = { orgName: "Kanzlei", permission: { bash: { "*": "ask", "rm *": "deny" }, edit: "ask" }, blockedMcpServers: ["crm"], allowedProviders: ["eigenwelt"] };
     fakeFetch((url) => (url.endsWith("/org-policy/guard") ? Response.json(guard) : new Response(null, { status: 404 })));
-    let engine: Record<string, unknown> = { permission: { bash: { "*": "ask", "rm *": "deny" }, edit: "ask" } };
-    // Like the engine's SDK: its methods read their own `this`.
-    class SdkConfig {
-      private readonly source = () => engine;
-      async get() {
-        return { data: this.source() };
-      }
-    }
-    const hooks = await LegalWorkOrgPolicyGuard({ client: { config: new SdkConfig() } });
-    const call = (tool: string, args: Record<string, unknown>) => hooks["tool.execute.before"]({ tool }, { args });
-
-    await call("bash", { command: "ls -la" });
-    await call("read", { filePath: "/x" });
-    await expect(call("bash", { command: "rm -rf /" })).rejects.toThrow("Kanzlei does not allow");
-    await expect(call("crm_search", {})).rejects.toThrow('the connector "crm"');
-
-    // A project file loosened the engine's rules: refused until restored.
-    setSystemTime(new Date(Date.now() + 10_000));
-    engine = { permission: { bash: "allow", edit: "ask" } };
-    await expect(call("bash", { command: "ls" })).rejects.toThrow("until its settings are restored");
-    await call("edit", { filePath: "/x" });
+    const runtime = nativePluginTestRuntime();
+    await runtime.start(LegalWorkOrgPolicyGuard);
+    cleanups.push(() => runtime.close());
+    const call = async (name: string, resource: string, effect: "allow" | "ask" | "deny" = "allow") => {
+      const event = { action: name, resources: [resource], effect };
+      await runtime.hook("permission", "evaluate", event);
+      return event.effect;
+    };
+    expect(await call("shell", "ls -la")).toBe("ask");
+    expect(await call("read", "/x")).toBe("allow");
+    expect(await call("shell", "rm -rf /")).toBe("deny");
+    expect(await call("shell", "ls", "deny")).toBe("deny");
+    expect(await call("crm_search", "*")).toBe("deny");
+    await expect(runtime.hook("tool", "execute.before", { tool: "crm_search" })).rejects.toThrow('the connector "crm"');
+    await expect(runtime.hook("session", "model.request", { model: { providerID: "custom" } })).rejects.toThrow('the AI provider "custom"');
+    await runtime.hook("session", "model.request", { model: { providerID: "eigenwelt" } });
 
     // Nothing enforced: everything goes through.
     setSystemTime(new Date(Date.now() + 20_000));
-    guard = { orgName: "Kanzlei", permission: {}, blockedMcpServers: [] };
-    await call("bash", { command: "rm -rf /" });
+    guard = { orgName: null, permission: {}, blockedMcpServers: [], allowedProviders: null };
+    expect(await call("shell", "rm -rf /")).toBe("allow");
+    await runtime.hook("session", "model.request", { model: { providerID: "custom" } });
   });
 });
 
@@ -294,7 +296,9 @@ describe("the firm's switches for members' own providers and connectors", () => 
   test("chat: the engine enables only Eigenwelt's provider", async () => {
     const { config } = await setup(entries);
     await writeLegalworkRuntimeConfigFile(config, "ws_1");
-    expect((await readJson(join(orgPolicyEngineDir(config), "opencode.json"))).enabled_providers).toEqual(["eigenwelt"]);
+    expect((await readJson(join(orgPolicyEngineDir(config), "opencode.json"))).policies?.filter(rule => rule.action === "provider.use")).toEqual([
+      { action: "provider.use", resource: "*", effect: "deny" }, { action: "provider.use", resource: "eigenwelt", effect: "allow" },
+    ]);
   });
 
   test("SystemOne and OCR refuse own providers", async () => {
@@ -310,7 +314,7 @@ describe("the firm's switches for members' own providers and connectors", () => 
     const { config } = await setup(entries);
     await writeRuntimeOpencodeConfig(config, "ws_1", () => ({ mcp: { mine: { type: "remote", url: "https://mine.example.com" }, "legalwork-ui": { type: "local", command: ["npx"] } } }));
     await writeLegalworkRuntimeConfigFile(config, "ws_1");
-    expect(Object.keys((await readJson(legalworkRuntimeConfigFilePath(config))).mcp ?? {})).toEqual(["legalwork-ui"]);
+    expect(Object.keys((await readRuntime(config)).mcp?.servers ?? {})).toEqual(["legalwork-ui"]);
     await expect(requireHubInstallAllowed(config, "mcp")).rejects.toMatchObject({ code: "org_policy_disallowed" });
     await requireHubInstallAllowed(config, "skill");
   });
@@ -347,25 +351,33 @@ describe("the firm's own providers", () => {
     // A member's disconnect does not switch the firm's provider off.
     await writeRuntimeOpencodeConfig(config, "ws_1", () => ({ disabled_providers: ["anthropic", "groq"] }));
     await writeLegalworkRuntimeConfigFile(config, "ws_1");
-    expect((await readJson(legalworkRuntimeConfigFilePath(config))).disabled_providers).toEqual(["groq", "opencode"]);
+    expect((await readRuntime(config)).policies?.filter(rule => rule.action === "provider.use")).toEqual([
+      { action: "provider.use", resource: "groq", effect: "deny" }, { action: "provider.use", resource: "opencode", effect: "deny" },
+    ]);
     const layer = await readJson(join(orgPolicyEngineDir(config), "opencode.json"));
-    expect(layer.enabled_providers).toEqual(["eigenwelt", "anthropic", "openai", "org-azure-1"]);
-    expect(layer.provider).toEqual({
-      anthropic: { name: "Kanzlei Claude", options: { apiKey: "sk-firm" }, whitelist: ["claude-sonnet-4-5"] },
+    expect(layer.policies?.filter(rule => rule.action === "provider.use")).toEqual([
+      { action: "provider.use", resource: "*", effect: "deny" }, ...["eigenwelt", "anthropic", "openai", "org-azure-1"].map((resource): { action: "provider.use"; resource: string; effect: "allow" } => ({ action: "provider.use", resource, effect: "allow" })),
+    ]);
+    expect(layer.providers).toMatchObject({
+      anthropic: { name: "Kanzlei Claude", settings: { apiKey: "sk-firm" } },
       "org-azure-1": {
-        npm: "@ai-sdk/openai",
+        package: "@opencode/ai/providers/openai/responses",
         name: "Kanzlei Azure",
-        options: { baseURL: "https://azure.example.com/v1" },
-        models: { "gpt-5": { name: "gpt-5", tool_call: true } },
+        settings: { baseURL: "https://azure.example.com/v1" },
+        models: { "gpt-5": { name: "gpt-5", capabilities: { tools: true } } },
       },
     });
+    expect((await readManagedEngineSettings(managedEngineSettingsFilePath(config), config.workspaces[0]!.path)).modelFilters.anthropic).toEqual({ allow: ["claude-sonnet-4-5"], deny: [] });
 
     // Signed out: the firm's key goes, and with it the provider; the member's own key stays.
     await writeEigenweltConnection(config, { platformToken: null, account: null, platformURL: null });
     await scheduleOrgPolicySync(config, { force: true });
     await writeLegalworkRuntimeConfigFile(config, "ws_1");
-    const provider = (await readJson(join(orgPolicyEngineDir(config), "opencode.json"))).provider;
-    expect(Object.keys(provider ?? {})).toEqual(["org-azure-1"]);
+    const provider = (await readJson(join(orgPolicyEngineDir(config), "opencode.json"))).providers;
+    // Native provider identities remain discoverable for a future sign-in;
+    // the withdrawn firm credential must not remain executable configuration.
+    expect(provider?.["org-azure-1"]?.settings?.baseURL).toBe("https://azure.example.com/v1");
+    expect(provider?.anthropic?.settings?.apiKey).toBeUndefined();
     expect(JSON.stringify(provider)).not.toContain("sk-firm");
   });
 
@@ -403,10 +415,10 @@ describe("the firm's workspace settings", () => {
     });
     await writeRuntimeOpencodeConfig(config, "ws_1", () => ({ mcp: { "open-computer-use": { type: "local", command: ["open-computer-use", "mcp"] }, "legalwork-ui": { type: "local", command: ["npx"] } } }));
     await writeLegalworkRuntimeConfigFile(config, "ws_1");
-    const runtime = await readJson(legalworkRuntimeConfigFilePath(config));
-    expect(JSON.stringify(runtime.agent)).toContain("## Firm instructions");
-    expect(JSON.stringify(runtime.agent)).toContain("Cite German law with paragraph numbers.");
-    expect(Object.keys(runtime.mcp ?? {})).toEqual(["legalwork-ui"]);
+    const runtime = await readRuntime(config);
+    expect(JSON.stringify(runtime.agents)).toContain("## Firm instructions");
+    expect(JSON.stringify(runtime.agents)).toContain("Cite German law with paragraph numbers.");
+    expect(Object.keys(runtime.mcp?.servers ?? {})).toEqual(["legalwork-ui"]);
     await expect(requireConnectorAllowed(config, "open-computer-use")).rejects.toMatchObject({ code: "org_policy_disallowed" });
 
     const defaults = new ReviewDefaults(root, {

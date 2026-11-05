@@ -1,3 +1,6 @@
+import { sendSessionPrompt } from "@/app/lib/system-reminder";
+import { readMessages } from "@/app/lib/opencode-read";
+import { readSessionStatuses } from "@/app/lib/opencode-read";
 /**
  * Fusion mode orchestration, modeled on the engine's subagent (task tool)
  * system: the main chat receives one normal prompt, the main model decides
@@ -12,14 +15,7 @@
  *    answer in the main session. The differentiated Fusion columns mirror the
  *    resulting task-tool parts.
  */
-import type {
-  AgentPartInput,
-  FilePartInput,
-  Message,
-  Part,
-  TextPartInput,
-  ToolPart,
-} from "@opencode-ai/sdk/v2/client";
+import type { AgentPartInput, FilePartInput, MessageViewInfo as Message, Part, TextPartInput, ToolPart } from "@/app/lib/opencode-view";
 
 import { unwrap } from "@/app/lib/opencode";
 import { systemReminderPart } from "@/app/lib/system-reminder";
@@ -34,7 +30,7 @@ import { t } from "@/i18n";
 const FUSION_TASK_POLL_MS = 1200;
 const FUSION_TASK_TIMEOUT_MS = 15 * 60_000;
 
-export type FusionPromptParts = Array<TextPartInput | FilePartInput | AgentPartInput>;
+export type FusionPromptParts = import("@/app/lib/opencode-view").PromptPart[];
 
 export type RunFusionSendInput = {
   client: Client;
@@ -67,7 +63,7 @@ function sleep(ms: number) {
 type MessageWithParts = { info: Message; parts: Part[] };
 
 async function listMessages(client: Client, sessionID: string, directory?: string): Promise<MessageWithParts[]> {
-  return unwrap(await client.session.messages({ sessionID, directory }));
+  return unwrap(await readMessages(client,{ sessionID, directory }));
 }
 
 /**
@@ -101,7 +97,7 @@ async function readMainSessionBaseline(
 
 async function isSessionBusy(client: Client, sessionID: string, directory?: string): Promise<boolean | null> {
   try {
-    const statuses = unwrap(await client.session.status({ directory }));
+    const statuses = unwrap(await readSessionStatuses(client,{ directory }));
     const status = statuses[sessionID];
     return status !== undefined && status.type !== "idle";
   } catch {
@@ -373,7 +369,7 @@ export async function runFusionSend(input: RunFusionSendInput): Promise<void> {
   })]
     .filter((section): section is string => Boolean(section?.trim()))
     .join("\n\n");
-  const result = await client.session.promptAsync({
+  const result = await sendSessionPrompt(client,{
     sessionID: mainSessionId,
     directory,
     parts: [...parts, systemReminderPart(fusionContext)],
@@ -381,10 +377,6 @@ export async function runFusionSend(input: RunFusionSendInput): Promise<void> {
     agent,
     ...(variant ? { variant } : {}),
   });
-  if (result.error) {
-    setPhase(mainSessionId, "error");
-    throw new Error(describeError(result.error));
-  }
   await monitorFusionTaskProgress({
     client,
     directory,

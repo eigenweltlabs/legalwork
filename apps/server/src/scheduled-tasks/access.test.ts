@@ -1,7 +1,9 @@
+import { nativePluginTools } from "../opencode-plugins/native-plugin-test-support.js";
+const LegalWorkScheduledTaskTools = (context = {}) => nativePluginTools(LegalWorkScheduledTaskToolsDefinition, context);
 import { expect, test } from "bun:test";
 import { ScheduledTaskInputSchema } from "./schema.js";
 import { ALL_PROJECTS_TASK_AGENT, PROJECT_TASK_AGENT, hasProjectTaskBoundary, projectTaskPermissions, allProjectTaskPermissions } from "./access.js";
-import { LegalWorkScheduledTaskTools } from "../opencode-plugins/legalwork-scheduled-task-tools.js";
+import LegalWorkScheduledTaskToolsDefinition from "../opencode-plugins/legalwork-scheduled-task-tools.js";
 
 test("project-only agent denies unscoped tools and preserves user tool permissions", () => {
   expect(projectTaskPermissions({ "*": "ask", "legalwork_project_*": "deny", legalwork_calendar_get: "allow" })).toMatchObject({
@@ -13,9 +15,9 @@ test("project-only agent denies unscoped tools and preserves user tool permissio
   expect(projectTaskPermissions()).toMatchObject({ legalwork_recordings_list: "allow", legalwork_recording_read: "allow" });
   expect(projectTaskPermissions({ "legalwork_recording*": "deny" })).toMatchObject({ legalwork_recordings_list: "deny", legalwork_recording_read: "deny" });
   expect(hasProjectTaskBoundary(undefined)).toBe(false);
-  expect(hasProjectTaskBoundary({ name: PROJECT_TASK_AGENT, permission: [{ permission: "*", pattern: "*", action: "deny" }, { permission: "legalwork_project_read", pattern: "*", action: "allow" }] })).toBe(true);
+  expect(hasProjectTaskBoundary({ id: PROJECT_TASK_AGENT, permissions: [{ action: "*", resource: "*", effect: "deny" }, { action: "legalwork_project_read", resource: "*", effect: "allow" }] })).toBe(true);
   for (const permission of ["*", "bash", "read", "task", "mcp_*", "legalwork_schedule_update"]) {
-    expect(hasProjectTaskBoundary({ name: PROJECT_TASK_AGENT, permission: [{ permission: "*", pattern: "*", action: "deny" }, { permission, pattern: "*", action: "allow" }] })).toBe(false);
+    expect(hasProjectTaskBoundary({ id: PROJECT_TASK_AGENT, permissions: [{ action: "*", resource: "*", effect: "deny" }, { action: permission, resource: "*", effect: "allow" }] })).toBe(false);
   }
 });
 

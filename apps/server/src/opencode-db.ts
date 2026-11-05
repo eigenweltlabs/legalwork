@@ -1,9 +1,11 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import type { OpenCodeClient, JsonValue, SessionInfo } from "@opencode/client";
+import { findApiError } from "./errors.js";
 import { existsSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
 
-import Database from "better-sqlite3";
+
 
 type SeedMessage = {
   role: "assistant" | "user";
@@ -99,141 +101,42 @@ export function findExistingOpencodeDbPath(): string | null {
   return candidateOpencodeDbPaths().find((candidate) => existsSync(candidate)) ?? null;
 }
 
-function findOpencodeSessionDbPath(sessionId: string, inputPath?: string): string | null {
-  const candidates = (inputPath ? [inputPath] : candidateOpencodeDbPaths()).filter((candidate) => existsSync(candidate));
-  for (const dbPath of candidates) {
-    const db = new Database(dbPath, { readonly: true });
-    try {
-      const session = db.prepare("select id from session where id = ?1").get(sessionId);
-      if (session) return dbPath;
-    } catch {
-      // ignore non-matching dbs
-    } finally {
-      db.close();
-    }
+/** Create template history atomically through the native import API. V2
+ * rejects an existing ID, so a retried template import cannot overwrite a chat. */
+export async function createSeededOpencodeSession(input: {
+  client: OpenCodeClient; workspaceRoot: string; workspaceId: string;
+  templateId: string; title: string; messages: SeedMessage[]; now?: number;
+}): Promise<SessionInfo> {
+  const id = `ses_blueprint_${createHash("sha256").update(`${input.workspaceId}\0${input.templateId}`).digest("hex")}`;
+  const existing = await input.client.session.get({ sessionID: id }).catch(error => {
+    if (findApiError(error)?.status === 404) return null;
+    throw error;
+  });
+  if (existing) {
+    if (existing.location.directory !== input.workspaceRoot || existing.metadata?.legalworkBlueprintTemplate !== input.templateId)
+      throw new Error("The template chat identity belongs to another project or template.");
+    return existing;
   }
-  return null;
-}
-
-function randomBase62(length: number): string {
-  const chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
-  const bytes = randomBytes(length);
-  let output = "";
-  for (let index = 0; index < length; index += 1) {
-    output += chars[bytes[index]! % 62];
-  }
-  return output;
-}
-
-function ascendingId(prefix: "msg" | "prt", timestamp: number, counter: number): string {
-  const now = BigInt(timestamp) * 0x1000n + BigInt(counter);
-  const bytes = Buffer.alloc(6);
-  for (let index = 0; index < 6; index += 1) {
-    bytes[index] = Number((now >> BigInt(40 - 8 * index)) & 0xffn);
-  }
-  return `${prefix}_${bytes.toString("hex")}${randomBase62(14)}`;
-}
-
-export function seedOpencodeSessionMessages(input: {
-  sessionId: string;
-  workspaceRoot: string;
-  messages: SeedMessage[];
-  dbPath?: string;
-  now?: number;
-}): { inserted: number; skipped: boolean } {
-  const sessionId = input.sessionId.trim();
-  if (!sessionId) {
-    throw new Error("sessionId is required");
-  }
-
-  const messages = input.messages.filter((item) => item.text.trim());
-  if (!messages.length) {
-    return { inserted: 0, skipped: true };
-  }
-
-  const explicitDbPath = input.dbPath?.trim() || undefined;
-  const dbPath = findOpencodeSessionDbPath(sessionId, explicitDbPath) || explicitDbPath || resolveOpencodeDbPath();
-  if (!existsSync(dbPath)) {
-    throw new Error(`OpenCode database not found at ${dbPath}`);
-  }
-
-  const db = new Database(dbPath);
-  db.exec("PRAGMA foreign_keys = ON");
-
-  try {
-    const run = db.transaction(() => {
-      const session = db.prepare("select id from session where id = ?1").get(sessionId);
-      if (!session) {
-        throw new Error(`OpenCode session not found: ${sessionId}`);
-      }
-
-      const existing = db.prepare("select count(1) as count from message where session_id = ?1").get(sessionId) as { count?: number } | null;
-      if ((existing?.count ?? 0) > 0) {
-        return { inserted: 0, skipped: true };
-      }
-
-      const insertMessage = db.prepare(
-        "insert into message (id, session_id, time_created, time_updated, data) values (?1, ?2, ?3, ?4, ?5)",
-      );
-      const insertPart = db.prepare(
-        "insert into part (id, message_id, session_id, time_created, time_updated, data) values (?1, ?2, ?3, ?4, ?5, ?6)",
-      );
-      const updateSession = db.prepare("update session set time_updated = ?2 where id = ?1");
-
-      const startedAt = input.now ?? Date.now();
-      let counter = 0;
-      let lastUserId: string | null = null;
-
-      messages.forEach((item, index) => {
-        const createdAt = startedAt + index;
-        counter += 1;
-        const messageId = ascendingId("msg", createdAt, counter);
-        counter += 1;
-        const partId = ascendingId("prt", createdAt, counter);
-
-        const messageData =
-          item.role === "user"
-            ? {
-                role: "user",
-                time: { created: createdAt },
-                summary: { diffs: [] },
-                agent: DEFAULT_AGENT,
-                model: { providerID: DEFAULT_PROVIDER, modelID: DEFAULT_MODEL },
-              }
-            : {
-                role: "assistant",
-                time: { created: createdAt, completed: createdAt },
-                parentID: lastUserId ?? messageId,
-                modelID: DEFAULT_MODEL,
-                providerID: DEFAULT_PROVIDER,
-                mode: DEFAULT_AGENT,
-                agent: DEFAULT_AGENT,
-                path: { cwd: input.workspaceRoot, root: input.workspaceRoot },
-                cost: 0,
-                tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
-              };
-
-        insertMessage.run(messageId, sessionId, createdAt, createdAt, JSON.stringify(messageData));
-        insertPart.run(
-          partId,
-          messageId,
-          sessionId,
-          createdAt,
-          createdAt,
-          JSON.stringify({ type: "text", text: item.text.trim() }),
-        );
-
-        if (item.role === "user") {
-          lastUserId = messageId;
-        }
-      });
-
-      updateSession.run(sessionId, startedAt + messages.length);
-      return { inserted: messages.length, skipped: false };
-    });
-
-    return run();
-  } finally {
-    db.close();
-  }
+  const now = input.now ?? Date.now();
+  const location = { directory: input.workspaceRoot };
+  const project = (await input.client.location.get({ location })).project;
+  const messages = input.messages.filter(message => message.text.trim()).map((message, index): JsonValue => {
+    const created = now + index, id = `msg_${randomUUID().replaceAll("-", "")}`;
+    const metadata = { legalworkBlueprintSeed: true };
+    if (message.role === "user") return { type: "user", id, text: message.text, time: { created }, metadata };
+    return { type: "assistant", id, agent: DEFAULT_AGENT, model: { providerID: DEFAULT_PROVIDER, id: DEFAULT_MODEL },
+      content: [{ type: "text", text: message.text }], finish: "stop", time: { created, completed: created }, metadata };
+  });
+  return input.client.session.import({ location,
+    info: { id, projectID: project.id, location, title: input.title, agent: DEFAULT_AGENT,
+      cost: 0, tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+      time: { created: now, updated: now + messages.length }, metadata: { legalworkBlueprintTemplate: input.templateId } }, messages,
+  }).catch(async error => {
+    // A second window may have imported the same template after our lookup.
+    // Only accept that race when the immutable project/template identity agrees.
+    if (findApiError(error)?.status !== 409) throw error;
+    const winner = await input.client.session.get({ sessionID: id });
+    if (winner.location.directory !== input.workspaceRoot || winner.metadata?.legalworkBlueprintTemplate !== input.templateId) throw error;
+    return winner;
+  });
 }

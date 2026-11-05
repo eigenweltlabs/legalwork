@@ -72,7 +72,7 @@ export function PluginDetailsDialog(props: { plugin: ImportedPlugin; busy: boole
         </div>
       </DialogContent>
     </Dialog>
-    {update && props.imports ? <PluginImportDialog store={props.imports} initialSource={update.source} initialRoot={update.root} initialAsWorkflow={update.asWorkflow} onClose={() => setUpdate(null)} onImported={() => { setUpdate(null); props.onChanged?.(); props.onClose(); }} /> : null}
+    {update && props.imports ? <PluginImportDialog store={props.imports} initialSource={update.source} initialRoot={update.root} initialAsWorkflow={update.asWorkflow} initialConvertPluginSkills={update.convertPluginSkills} initialWorkflowSkillPaths={update.workflowSkillPaths} onClose={() => setUpdate(null)} onImported={() => { setUpdate(null); props.onChanged?.(); props.onClose(); }} /> : null}
     {component && props.access ? skill ? <SkillDetailsDialog key={component.path} skill={skill} extensions={props.access.skillStore} canEdit={props.access.canEditSkills} busy={props.busy} pluginName={name} onClose={back} /> : component.objectType === "mcp" ? props.access.renderConnector(pluginFileInstalledName(component), back, name) : <PluginDocumentDialog key={component.path} plugin={props.plugin} file={component} read={props.access.readComponent} onBack={back} /> : null}
   </>;
 }

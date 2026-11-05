@@ -165,6 +165,7 @@ describe("engine config build", () => {
     }));
 
     const built = await buildLegalworkRuntimeConfigObject(config, WORKSPACE_ID);
-    expect(built.provider).toEqual({ ollama: LOCAL_BLOCK });
+    expect(built.providers).toMatchObject({ ollama: { name: "Ollama", package: "@opencode/ai/providers/openai-compatible", settings: { baseURL: "http://localhost:11434/v1" }, models: { llama3: { name: "llama3", limit: { context: 8192, output: 4096 } } } } });
+    expect(built.providers).not.toHaveProperty("eigenwelt-free");
   });
 });

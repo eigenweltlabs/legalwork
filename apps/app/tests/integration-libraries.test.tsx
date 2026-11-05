@@ -15,6 +15,9 @@ import { HubDownloadSection } from "../src/react-app/domains/settings/pages/hub-
 import { FIRM_HUB_QUERY_KEY } from "../src/react-app/domains/connections/firm-hub";
 import { eigenweltEntitlementsQueryKey } from "../src/react-app/domains/connections/eigenwelt-entitlements";
 import type { ConnectorState } from "../src/react-app/domains/settings/pages/connector-status";
+import { WorkflowsView } from "../src/react-app/domains/settings/pages/workflows-view";
+import { ReviewPromptLibrary } from "../src/react-app/domains/reviews/review-prompt-library";
+import { ReviewLibraryEntrySchema } from "@legalwork/types/reviews";
 
 const noop = () => {};
 const ok = async () => ({ ok: true, message: "" });
@@ -205,6 +208,66 @@ test("embedded team skills use the library search and show an empty result rathe
   expect(match).toContain("Offered Review");
   expect(match).not.toContain("Team Research");
   expect(renderSkillSources("team", "no-match")).toContain("No matching skills");
+});
+
+function workflowLibrary(source: IntegrationLibrarySource, query = "", page = false) {
+  const queries = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+  const client = createLegalworkServerClient({ baseUrl: "https://example.invalid" });
+  const shared = { id: "shared-workflow", kind: "workflow", name: "workflow-assistant-team-review", description: "Review shared by the team", createdByUserId: "author", version: 1, updatedAt: "2026-10-25" };
+  queries.setQueryData(eigenweltEntitlementsQueryKey(), { entitlements: { features: ["admin_hub"] }, connected: true });
+  queries.setQueryData(["eigenwelt-hub", "workflow", "test"], [shared, { ...shared, id: "optional", name: "workflow-assistant-optional-check", description: "Optional team check" }]);
+  queries.setQueryData(FIRM_HUB_QUERY_KEY, { connected: true, items: [{ ...shared, installation: "automatic", added: false }, { ...shared, id: "optional", installation: "optional", added: false }] });
+  const team = <HubDownloadSection legalworkClient={client} workspaceId="test" kind="workflow" readSkill={unused} />;
+  const store = { ...extensions, workspaceContextKey: () => "test", skills: () => [
+    { name: "workflow-assistant-personal-review", path: "/skills/personal-review", description: "Personal document review" },
+    { name: shared.name, path: "/firm/shared-review", description: shared.description, firm: "automatic" },
+    ...skills,
+  ] };
+  const html = renderToStaticMarkup(<QueryClientProvider client={queries}>
+    {page ? <WorkflowsView workspaceId="test" workspaceName="Test" busy={false} canInstallSkillCreator canUseDesktopTools extensions={store} onOpenLink={noop} createSessionAndOpen={noop} firmDownloadView={team} />
+      : <IntegrationLibraryLayoutContext.Provider value={{ actions: null, search: null, source }}><IntegrationLibrarySearchContext.Provider value={{ query, hasOtherResults: false }}>{team}</IntegrationLibrarySearchContext.Provider></IntegrationLibraryLayoutContext.Provider>}
+  </QueryClientProvider>);
+  queries.clear();
+  return html;
+}
+
+test("Workflows defaults to the combined library without duplicate installed team items or the old Local toggle", () => {
+  const html = workflowLibrary("all", "", true);
+  expect(html).toContain("Personal Review");
+  expect(html.match(/>Team Review</g)).toHaveLength(1);
+  expect(html).toContain("Optional Check");
+  expect(html).not.toContain(">skill-13<");
+  expect(html).not.toContain(">Local<");
+  expect(html).not.toContain('aria-label="Library scope"');
+  expect(html).toContain('title="Library source"');
+});
+
+test("team workflows obey the same source and search filters as integration skills", () => {
+  expect(workflowLibrary("personal")).not.toContain("Team Review");
+  const team = workflowLibrary("team", "optional");
+  expect(team).toContain("Optional Check");
+  expect(team).not.toContain("Team Review");
+  expect(team).not.toContain("Workflows shared by");
+  expect(workflowLibrary("team", "nothing matches")).toContain("No workflows match your search.");
+});
+
+test("the prompt library follows the page's All, Personal and Team filter", () => {
+  const queries = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+  const client = createLegalworkServerClient({ baseUrl: "https://example.invalid" });
+  queries.setQueryData(["review-library", "test", "en"], { entries: ["builtin", "personal", "firm"].map(source => ReviewLibraryEntrySchema.parse({
+    id: source, kind: "set", version: 1, name: `${source} review set`, source, language: "en", updatedAt: 1,
+    columns: [{ key: "test", label: "Test", question: "Test?", kind: "text" }],
+  })) });
+  const render = (source: IntegrationLibrarySource) => renderToStaticMarkup(<QueryClientProvider client={queries}><IntegrationLibraryLayoutContext.Provider value={{ actions: null, search: null, source }}><ReviewPromptLibrary client={client} workspaceId="test" /></IntegrationLibraryLayoutContext.Provider></QueryClientProvider>);
+  const all = render("all"), personal = render("personal"), team = render("team");
+  for (const name of ["builtin", "personal", "firm"]) expect(all).toContain(`${name} review set`);
+  expect(personal).toContain("personal review set");
+  expect(personal).not.toContain("firm review set");
+  expect(personal).not.toContain("builtin review set");
+  expect(team).toContain("firm review set");
+  expect(team).not.toContain("personal review set");
+  expect(team).not.toContain("builtin review set");
+  queries.clear();
 });
 
 function renderStorage(team = false, empty = false) {
