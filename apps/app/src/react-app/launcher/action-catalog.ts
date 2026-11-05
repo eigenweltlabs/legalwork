@@ -66,8 +66,10 @@ export function primaryResultAction(result: LauncherSearchResult): LauncherSearc
 }
 /** Only advertised actions the provider can execute are offered; the order is stable per kind. */
 export function resultActionMenu(result: LauncherSearchResult, selectedCount: number): LauncherSearchResult["actions"] {
-  const order: LauncherSearchResult["actions"] = ["complete", "attach", "ask", "compare", "summarize", "hand-to-assistant", "reveal", "open-external", "copy-to-project", "move-to-project", "copy-path", "copy-reference"];
-  return order.filter(action => action !== primaryResultAction(result) && result.actions.includes(action) && (action !== "compare" || selectedCount >= 2));
+  const actions = new Set(result.actions);
+  // Older providers and cached recents still advertise Attach/Hand to Assistant.
+  if (actions.has("attach") || actions.has("hand-to-assistant") || actions.has("ask")) actions.add("chat-with-assistant");
+  if (actions.has("chat-with-assistant")) actions.add("ask");
+  const order: LauncherSearchResult["actions"] = ["complete", "chat-with-assistant", "ask", "summarize", "compare", "reveal", "open-external", "copy-to-project", "move-to-project", "copy-reference"];
+  return order.filter(action => action !== primaryResultAction(result) && actions.has(action) && (action !== "compare" || selectedCount >= 2));
 }
-
-export function canPreviewResult(result: LauncherSearchResult) { return result.kind === "files" && result.fileType !== "folder"; }

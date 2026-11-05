@@ -19,7 +19,7 @@ export type LauncherSearchDeps = {
   fileContentSearch: (workspace: WorkspaceInfo, query: string, signal: AbortSignal) => Promise<ContentSearchResponse>;
   budgetMs?: number;
 };
-const FILE_ACTIONS: LauncherSearchResult["actions"] = ["open", "reveal", "open-external", "attach", "ask", "compare", "summarize", "copy-to-project", "move-to-project", "copy-path", "pin"];
+const FILE_ACTIONS: LauncherSearchResult["actions"] = ["open", "reveal", "open-external", "chat-with-assistant", "ask", "compare", "summarize", "copy-to-project", "move-to-project", "pin"];
 
 export function titleScore(title: string, query: string): { match: LauncherSearchResult["match"]; score: number } | null {
   const terms = query.normalize("NFC").trim().toLowerCase().split(/\s+/).filter(Boolean);
@@ -95,7 +95,7 @@ export async function searchLauncher(deps: LauncherSearchDeps, input: LauncherSe
         if (input.projectId && !recording.projectIds?.includes(input.projectId)) continue;
         const score = titleScore(recording.title, query) ?? { match: "content" as const, score: 300 };
         items.push({ id: recording.id, kind: "recordings", workspaceId: recording.projectIds?.[0] ?? null, sourceId: "recordings", title: recording.title, updatedAt: recording.createdAt, durationMs: recording.durationMs, status: recording.status,
-          match: score.match, score: score.score, actions: ["play", "open", "attach", "ask"] });
+          match: score.match, score: score.score, actions: ["play", "open", "chat-with-assistant", "ask"] });
       }
       source({ id: "recordings", kind: "recordings", workspaceId: null, label: "Recordings", coverage: "complete", count: recordings.length });
     } catch (error) { source({ id: "recordings", kind: "recordings", workspaceId: null, label: "Recordings", coverage: timedOut(error) ? "partial" : "unavailable", count: 0, limited: timedOut(error), error: timedOut(error) ? TOO_SLOW : error instanceof Error ? error.message : String(error) }); }

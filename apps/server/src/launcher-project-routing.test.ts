@@ -28,12 +28,13 @@ test("project Ask submits directly into the registered project session and rejec
       jsonResponse: (body: unknown, status = 200) => Response.json(body, { status }), changed: () => {},
       requireClientScope: (_ctx: unknown, scope: string) => { if (scope === "collaborator" && !writable) throw new Error("read-only"); }, ensureWritable: () => {},
       readJsonBodyLimited: (request: Request) => request.json(), resolveWorkspace: async (_config: unknown, id: string) => { const item = [project, assistant].find(item => item.id === id); if (!item) throw new Error("unknown workspace"); return item; },
+      sessionAccess: { authorize: async (sessionId: string, directory: string) => { expect(sessionId).toBe("project-chat"); expect(directory).toBe(project.path); } },
       client: () => engine,
     } as unknown as Parameters<typeof registerAssistantConversationRoutes>[0]);
     const call = async (method: string, path: string, body?: unknown) => {
       const route = matchRoute(routes, method, path)!;
       const request = new Request(`http://localhost${path}`, { method, ...(body ? { body: JSON.stringify(body) } : {}) });
-      return route.handler({ request, url: new URL(request.url), params: route.params } as RequestContext);
+      return route.handler({ request, url: new URL(request.url), params: route.params, actor: { type: "host" } } as RequestContext);
     };
     await call("GET", "/assistant/conversations/current"); expect(created).toBe(0);
     const result = await (await call("POST", "/launcher/project-chat", { workspaceId: "A", operationId: "first_ask" })).json();

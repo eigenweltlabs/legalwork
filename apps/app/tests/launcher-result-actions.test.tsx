@@ -5,15 +5,17 @@ import { resultActionMenu } from "../src/react-app/launcher/action-catalog";
 import { LauncherActionMenu, LauncherResultList } from "../src/react-app/launcher/launcher-results";
 import { resultKey } from "../src/react-app/launcher/launcher-search-session";
 
-const file: LauncherSearchResult = { id: "contract.pdf", kind: "files", workspaceId: "project", sourceId: "local:project", title: "Contract", path: "contract.pdf", fileType: "pdf", updatedAt: 0, score: 1, match: "recent", actions: ["open", "attach", "compare", "pin"] };
+const file: LauncherSearchResult = { id: "contract.pdf", kind: "files", workspaceId: "project", sourceId: "local:project", title: "Contract", path: "contract.pdf", fileType: "pdf", updatedAt: 0, score: 1, match: "recent", actions: ["open", "attach", "compare", "pin", "copy-path"] };
 const noop = () => {};
 
-test("legacy providers cannot reintroduce pin controls into launcher actions", () => {
-  expect(resultActionMenu(file, 1)).toEqual(["attach"]);
-  expect(resultActionMenu(file, 2)).toEqual(["attach", "compare"]);
+test("legacy providers use distinct chat actions and cannot reintroduce pin or copy-path controls", () => {
+  expect(resultActionMenu(file, 1)).toEqual(["chat-with-assistant", "ask"]);
+  expect(resultActionMenu(file, 2)).toEqual(["chat-with-assistant", "ask", "compare"]);
   const html = renderToStaticMarkup(<LauncherActionMenu result={file} multiSelected={0} pinned extra={["open-in-app", "hide"]} projects={[]} onRun={noop} onExtra={noop} onTransfer={noop} onClose={noop} />);
   expect(html).not.toContain("lucide-pin");
-  expect(html.match(/role="menuitem"/g)).toHaveLength(3);
+  expect(html).not.toContain("Copy path");
+  expect(html).not.toContain("Attach to draft");
+  expect(html.match(/role="menuitem"/g)).toHaveLength(4);
 });
 
 test("previously pinned files render as ordinary launcher results", () => {

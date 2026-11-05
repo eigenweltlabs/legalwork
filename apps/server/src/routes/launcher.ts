@@ -104,10 +104,10 @@ export function registerLauncherRoutes(options: Parameters<typeof registerMainAs
   });
   addRoute(routes, "POST", "/launcher/folders/:id/attach", "client", async ctx => {
     write(ctx);
-    const input = parse(z.object({ path: z.string().min(1).max(4096) }), await options.readJsonBodyLimited(ctx.request, 8000), "search_folder_file", "Choose a file to attach.");
+    const input = parse(z.object({ path: z.string().min(1).max(4096), workspaceId: z.string().min(1).max(200).optional() }), await options.readJsonBodyLimited(ctx.request, 8000), "search_folder_file", "Choose a file to attach.");
     const file = await options.searchFolders.file(ctx.params.id, input.path);
     if (file.info.size > 64 * 1024 * 1024) throw new ApiError(413, "attachment_size", "Choose a file smaller than 64 MiB.");
-    const workspace = await options.assistant.workspace();
+    const workspace = input.workspaceId ? await options.resolveWorkspace(config, input.workspaceId) : await options.assistant.workspace();
     const name = basename(file.absolute), folder = `.legalwork/attachments/${randomUUID()}`;
     const destination = await launcherDestination(workspace.path, folder, true);
     await writeFile(resolve(destination, name), await readFile(file.absolute), { flag: "wx", mode: 0o600 });

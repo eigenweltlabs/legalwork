@@ -186,6 +186,29 @@ new line; **Command+Enter** (**Ctrl+Enter** on Windows) sends it. Messages wait
 for the current answer to finish and keep the model and agent selected when
 you sent them, including after a restart.
 
+For a file or other search result, press **Right** to choose a chat action:
+
+- **Chat with Assistant** opens the general Assistant and adds the selected
+  content to its draft. It preserves any text already in that draft and waits
+  for your question.
+- **Ask about this** starts a new, ordinary project chat with the selected
+  content attached. Type your question and send it with **Command/Ctrl+Enter**.
+- **Summarize**, where available, starts a new project chat and sends the
+  summary request immediately. The **Summarize this document** suggestion
+  does the same for the document you are viewing.
+
+Project actions use the result's own project. For Wiki files or added search
+folders, they use your current project; if there is no clear destination,
+choose a project with **Up/Down** and **Enter**, or cancel with **Esc**.
+Files from added search folders are copied into the chosen chat's project.
+These actions do not reuse an existing project chat. General Assistant access
+still requires an eligible Eigenwelt plan; project chats can use your configured
+provider/API key just as they do in the main app.
+
+Files open in their normal document view; the mini-bar has no separate file
+preview or **Copy path** action. **Copy to Clipboard** still copies local files
+for pasting into another application.
+
 Search and project navigation load independently of the general Assistant.
 Your saved conversations remain readable if your Assistant subscription ends;
 starting new work with the general Assistant still requires an eligible plan.

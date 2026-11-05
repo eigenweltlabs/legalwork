@@ -16,7 +16,7 @@ export const DEFAULT_LAUNCHER_ALIASES: Record<LauncherSearchKind, string> = { fi
 
 export const LauncherCoverageSchema = z.enum(["complete", "partial", "filename-only", "indexing", "searching", "unavailable", "offline"]);
 export type LauncherCoverage = z.infer<typeof LauncherCoverageSchema>;
-export const LauncherResultActionSchema = z.enum(["open", "reveal", "open-external", "attach", "ask", "compare", "summarize", "copy-path", "copy-reference", "pin", "complete", "play", "resume", "hand-to-assistant", "copy-to-project", "move-to-project"]);
+export const LauncherResultActionSchema = z.enum(["open", "reveal", "open-external", "chat-with-assistant", "attach", "ask", "compare", "summarize", "copy-path", "copy-reference", "pin", "complete", "play", "resume", "hand-to-assistant", "copy-to-project", "move-to-project"]);
 export type LauncherResultAction = z.infer<typeof LauncherResultActionSchema>;
 export const LauncherMatchSchema = z.enum(["exact", "prefix", "word", "substring", "fuzzy", "content", "metadata", "recent"]);
 export const LauncherSearchResultSchema = z.object({

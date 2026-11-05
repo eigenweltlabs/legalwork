@@ -62,19 +62,20 @@ test("folder files join search with provenance and filters, but never become a p
   } finally { index.dispose(); await rm(root, { recursive: true, force: true }); }
 });
 
-test("folder routes require owner configuration and copy explicit attachments into the Assistant", async () => {
+test("folder routes copy explicit attachments into the chosen project without initializing the Assistant", async () => {
   const root = await mkdtemp(join(tmpdir(), "folder-routes-"));
   const fileIndex = new LauncherFileIndex({ watch: false });
   try {
-    const path = join(root, "files"), assistantPath = join(root, "assistant"); await mkdir(path); await mkdir(assistantPath);
+    const path = join(root, "files"), assistantPath = join(root, "assistant"), projectPath = join(root, "project"); await mkdir(path); await mkdir(assistantPath); await mkdir(projectPath);
     await writeFile(join(path, "contract.txt"), "original");
     const searchFolders = await LauncherFolders.open(join(root, "db.sqlite"));
-    const routes: Route[] = []; let scope = "owner";
+    const routes: Route[] = []; let scope = "owner", assistantCalls = 0;
     // Minimal route fixture; unrelated service dependencies are not invoked.
     registerLauncherRoutes({ routes, searchFolders, fileIndex, config: { workspaces: [] }, ensureWritable: () => {},
       requireClientScope: (_ctx: unknown, required: string) => { if (required === "owner" && scope !== "owner") throw new Error("owner required"); },
       jsonResponse: (value: unknown, status = 200) => Response.json(value, { status }), readJsonBodyLimited: (request: Request) => request.json(),
-      assistant: { workspace: async () => ({ id: "assistant", path: assistantPath }) },
+      assistant: { workspace: async () => { assistantCalls++; return { id: "assistant", path: assistantPath }; } },
+      resolveWorkspace: async (_config: unknown, id: string) => { if (id !== "project") throw new Error("project unavailable"); return { id, path: projectPath }; },
     } as unknown as Parameters<typeof registerLauncherRoutes>[0]);
     const send = async (method: string, url: string, body?: object) => {
       const matched = matchRoute(routes, method, url)!;
@@ -83,8 +84,15 @@ test("folder routes require owner configuration and copy explicit attachments in
     };
     scope = "viewer"; await expect(send("POST", "/launcher/folders", { path })).rejects.toThrow("owner required");
     scope = "owner"; const { folder } = await (await send("POST", "/launcher/folders", { path })).json();
+    const { item: projectItem } = await (await send("POST", `/launcher/folders/${folder.id}/attach`, { path: "contract.txt", workspaceId: "project" })).json();
+    expect(projectItem.workspaceId).toBe("project");
+    expect(await readFile(join(projectPath, projectItem.path), "utf8")).toBe("original");
+    expect(assistantCalls).toBe(0);
+    await expect(send("POST", `/launcher/folders/${folder.id}/attach`, { path: "contract.txt", workspaceId: "deleted" })).rejects.toThrow("project unavailable");
+    expect(assistantCalls).toBe(0);
     const { item } = await (await send("POST", `/launcher/folders/${folder.id}/attach`, { path: "contract.txt" })).json();
     expect(item.workspaceId).toBe("assistant");
+    expect(assistantCalls).toBe(1);
     expect(await readFile(join(assistantPath, item.path), "utf8")).toBe("original");
     await writeFile(join(path, "contract.txt"), "changed");
     expect(await readFile(join(assistantPath, item.path), "utf8")).toBe("original");

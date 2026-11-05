@@ -6,7 +6,7 @@ import type { LauncherDetail } from "./launcher-details";
 import { persistentContext } from "./launcher-context-lifecycle";
 
 export type LauncherView = "idle" | "results" | "commands" | "conversation" | "work" | "detail" | "hidden" | "history";
-export type LauncherOverlay = { kind: "actions"; resultKey: string } | { kind: "preview"; resultKey: string } | { kind: "navigation-actions"; id: string } | { kind: "context-menu" } | { kind: "sort" } | null;
+export type LauncherOverlay = { kind: "actions"; resultKey: string } | { kind: "navigation-actions"; id: string } | { kind: "context-menu" } | { kind: "sort" } | null;
 export type ProjectScope = { id: string; name: string };
 export type LauncherConversationBinding = { conversationId: string; sessionId: string; workspaceId: string; title: string; archived: boolean; pinned: boolean };
 export type StagedPreview = { id: string; dataUrl: string };

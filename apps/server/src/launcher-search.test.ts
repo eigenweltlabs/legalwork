@@ -27,7 +27,7 @@ test("one query fans out to every source, keeps per-source coverage, and never r
     };
     const all = await searchLauncher(deps, { query: "mietvertrag", kinds: ["files", "projects", "chats", "tasks", "recordings"], content: true, limit: 50 }, new AbortController().signal);
     expect(all.items.map(item => `${item.kind}:${item.id}`)).toEqual(["files:Mietvertrag Müller.docx", "tasks:task-1", "chats:ses-1", "recordings:rec-1", "files:Notes.md"]);
-    expect(all.items[0]).toMatchObject({ match: "prefix", path: "Mietvertrag Müller.docx", actions: expect.arrayContaining(["attach", "compare"]) });
+    expect(all.items[0]).toMatchObject({ match: "prefix", path: "Mietvertrag Müller.docx", actions: expect.arrayContaining(["chat-with-assistant", "compare"]) });
     expect(all.items[4]).toMatchObject({ match: "content", excerpt: "Der Mietvertrag endet…" });
     expect(all.items.find(item => item.kind === "tasks")).toMatchObject({ sourceKind: "project", subtitle: mueller.name });
     expect(all.items.find(item => item.kind === "chats")).toMatchObject({ sourceKind: "project", subtitle: mueller.name });

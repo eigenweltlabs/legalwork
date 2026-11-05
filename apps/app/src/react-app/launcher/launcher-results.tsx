@@ -38,7 +38,7 @@ export function coverageLabel(sources: LauncherSourceState[]) {
   if (sources.some(source => source.coverage === "partial" || source.limited)) return t("launcher.coverage.partial");
   return "";
 }
-export type LauncherExtraAction = "preview" | "open-in-app" | "copy-to-clipboard" | "hide";
+export type LauncherExtraAction = "open-in-app" | "copy-to-clipboard" | "hide";
 export function actionLabel(action: LauncherResultAction | "run" | "open-conversation" | LauncherExtraAction) { return t(`launcher.result_action.${action}`); }
 
 export function LauncherResultList(props: {
