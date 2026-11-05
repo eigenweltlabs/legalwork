@@ -168,7 +168,7 @@ async function runtimeDb(config: ServerConfig, importLegacy = false): Promise<Ru
     return { configJson: JSON.stringify(normalizeRuntimeOpencodeConfig(nativeRuntimeConfigRecord(imported))), sourceVersion: imported.sourceVersion, noticesJson: JSON.stringify(imported.notices) };
   } : undefined, importLegacy ? (_workspaceId, source) => {
     const value: unknown = JSON.parse(source);
-    if (!isRecord(value) || value.configurationVersion !== 2 || value.mcp === undefined) return;
+    if (!isRecord(value) || value.configurationVersion !== 2) return;
     const repaired = upgradeRuntimeConfigRecord(value);
     if (!repaired.migrated) return;
     return { configJson: JSON.stringify(normalizeRuntimeOpencodeConfig(nativeRuntimeConfigRecord(repaired))), sourceVersion: repaired.sourceVersion, noticesJson: JSON.stringify(repaired.notices) };

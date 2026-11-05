@@ -249,6 +249,7 @@ import { WorkspaceProvider } from "./workspace-provider";
 import {
   countConnectedProviders,
   ensureProviderListQuery,
+  getAvailableDefaultModel,
   getConnectedProviderItems,
   isModelAvailableInConnectedProviders,
   refreshProviderListQueries,
@@ -1013,34 +1014,16 @@ export function SessionRoute() {
       cancelled = true;
     };
   }, [client, repairWorkspaceId]);
-  // Connected to Eigenwelt but no USABLE model — either nothing is selected
-  // (fresh installs default to null) OR the selection points at a model the
-  // gateway no longer serves (the catalog changed under us, e.g. a model was
-  // swapped). Auto-pick the gateway's default/only model so the composer
-  // never sits on a dead model — critical now the picker is a plain label
-  // when a single model is served (there is no manual way out).
+  // A fresh connection must leave the composer ready to use. Native provider
+  // defaults also follow Azure's background catalog-to-deployment discovery.
   useEffect(() => {
     const list = providerListQuery.data;
-    if (!list) return;
-    // A valid, still-available selection is left untouched.
-    if (local.prefs.defaultModel && !selectedModelUnavailable) return;
-    const eigenwelt = getConnectedProviderItems(list).find((provider) => provider.id === "eigenwelt");
-    if (!eigenwelt) return;
-    const modelIds = Object.keys(eigenwelt.models ?? {});
-    if (modelIds.length === 0) return;
-    const preferred = list.default?.["eigenwelt"];
-    const modelID = preferred && eigenwelt.models?.[preferred] ? preferred : modelIds[0];
+    if (!list || !getAvailableDefaultModel(list, local.prefs.defaultModel)) return;
     setPrefs((previous) => {
-      // No-op when it already matches, so a stale selection can't render-loop.
-      if (
-        previous.defaultModel?.providerID === "eigenwelt" &&
-        previous.defaultModel?.modelID === modelID
-      ) {
-        return previous;
-      }
-      return { ...previous, defaultModel: { providerID: "eigenwelt", modelID }, modelVariant: null };
+      const model = getAvailableDefaultModel(list, previous.defaultModel);
+      return model ? { ...previous, defaultModel: model, modelVariant: null } : previous;
     });
-  }, [local.prefs.defaultModel, selectedModelUnavailable, providerListQuery.data, setPrefs]);
+  }, [local.prefs.defaultModel, providerListQuery.data, setPrefs]);
   // Creating a chat only needs a reachable workspace — `session.create` never
   // touches a model. A missing or dead model selection must NOT block it: the
   // new chat opens with the connect-AI bar above the composer, which is where
@@ -2481,7 +2464,7 @@ export function SessionRoute() {
     }
     if (!client) throw new Error(t("session_route.create_server_unavailable"));
     const model = homeModel.model;
-    if (!model) throw new Error(t("session_route.no_model"));
+    if (!model) throw new Error(t(usableProviderCount > 0 ? "notifications.select_model" : "session_route.no_model"));
     if (homeModel.unavailable) throw new Error(t("session_route.model_unavailable"));
     homeSending.current = true;
     try {
@@ -2779,11 +2762,13 @@ export function SessionRoute() {
         connectedProviderIds: providerConnectedIds,
         authMethods: sessionProviderAuthSnapshot.providerAuthMethods,
         onSelect: sessionProviderAuthStore.startProviderAuth,
-        onSubmitApiKey: async (providerId, apiKey) => {
-          const result = await sessionProviderAuthStore.submitProviderApiKey(providerId, apiKey);
-          modelPicker.setRecentProviderIds(new Set([providerId]));
-          modelPicker.setQuery("");
-          modelPicker.setOpen(true);
+        onSubmitApiKey: async (providerId, apiKey, answer) => {
+          const result = await sessionProviderAuthStore.submitProviderApiKey(providerId, apiKey, answer);
+          if (onboardingStage === "done") {
+            modelPicker.setRecentProviderIds(new Set([providerId]));
+            modelPicker.setQuery("");
+            modelPicker.setOpen(true);
+          }
           return result;
         },
         onSubmitCustomProvider: sessionProviderAuthStore.submitCustomProvider,

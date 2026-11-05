@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import type { FormFields } from "@opencode/client";
 import { createProviderAuthStore } from "../src/react-app/domains/connections/provider-auth/store";
 import { supportedProviderAuthMethods } from "../src/react-app/domains/connections/provider-auth/methods";
 import { nativeProviderFixture } from "./native-provider-fixture";
@@ -71,6 +72,29 @@ describe("native subscription OAuth", () => {
     expect(store.getSnapshot().providerAuthStartOAuth).toBe(false);
     expect(store.getSnapshot().providerAuthModalOpen).toBe(false);
   });
+});
+describe("API-key connection forms", () => {
+  const cases: Array<{ providerId: string; form: FormFields; answer: Record<string, string> }> = [
+    { providerId: "azure", form: [{ type: "string", key: "resourceName", title: "Azure resource", required: true }],
+      answer: { resourceName: "synthetic-resource" } },
+    { providerId: "cloudflare-ai-gateway", form: [
+      { type: "string", key: "accountId", title: "Cloudflare account", required: true },
+      { type: "string", key: "gatewayId", title: "Cloudflare gateway", required: true },
+    ], answer: { accountId: "synthetic-account", gatewayId: "synthetic-gateway" } },
+    { providerId: "snowflake-cortex", form: [{ type: "string", key: "account", title: "Snowflake account", required: true }],
+      answer: { account: "synthetic-account" } },
+  ];
+  for (const { providerId, form, answer } of cases) {
+    test(`${providerId} preserves the required fields with its API key`, async () => {
+      const { store, calls, integrations } = providerStore();
+      integrations.push({ id: providerId, name: providerId, connections: [], methods: [{ type: "key", label: "API key", form }] });
+      await store.openProviderAuthModal({ preferredProviderId: providerId });
+      expect(store.getSnapshot().providerAuthMethods[providerId][0].form).toEqual(form);
+      await store.submitProviderApiKey(providerId, " synthetic-key ", answer);
+      expect(calls.find(call => call.path.endsWith(`/${providerId}/connect/key`))?.body).toEqual({ key: "synthetic-key", answer });
+      expect(calls.some(call => call.path === "/api/location/reload")).toBe(false);
+    });
+  }
 });
 describe("Anthropic API key policy", () => {
   test("retains manual entry and rejects stale OAuth intents", async () => {

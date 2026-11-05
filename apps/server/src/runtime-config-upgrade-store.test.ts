@@ -107,6 +107,49 @@ test.each([false, true])("v1 UI custom providers import with their exact selecte
   expect((await readRuntimeOpencodeConfig(config, "project")).providerModelSelection).toEqual({ openai: [] });
 }));
 
+for (const [oldID, id] of [["azure-cognitive-services", "azure"], ["google-vertex-anthropic", "google-vertex"]]) {
+  test.each(["legacy", "blocked", "native"])(`startup repairs %s ${oldID} settings once and retains later edits`, kind => fixture(async (config, path) => {
+    const settings = { apiKey: "synthetic-key", baseURL: "https://custom.example.invalid/v1" };
+    const original = JSON.stringify(kind === "native" ? { configurationVersion: 2,
+      providers: { [oldID]: { package: "@opencode/ai/providers/openai-compatible", settings, models: { selected: {}, excluded: { disabled: true } } } },
+      agents: { legalwork: { model: { providerID: oldID, model: "selected" } } },
+      policies: [{ action: "provider.use", resource: oldID, effect: "deny" }],
+      providerActivation: { [oldID]: "deny" }, providerModelSelection: { [oldID]: ["selected"] },
+    } : { provider: { [oldID]: { npm: "@ai-sdk/openai-compatible", options: settings, whitelist: ["selected"], models: { selected: {}, excluded: {} } } },
+      agent: { legalwork: { model: `${oldID}/selected` } }, disabled_providers: [oldID], providerActivation: { [oldID]: "deny" } });
+    if (kind === "native") {
+      const previousBuild = await openNativeConfigState(path);
+      previousBuild.upsert({ workspaceId: "project", configJson: original, updatedAt: 1 });
+      previousBuild.close();
+    } else {
+      seed(path, "project", original);
+      if (kind === "blocked") {
+        const previousBuild = await openNativeConfigState(path, () => { throw new Error("Previous import failed"); });
+        previousBuild.close();
+      }
+    }
+    await bootstrapRuntimeOpencodeConfig(config);
+    const imported = await readRuntimeOpencodeConfig(config, "project");
+    expect(Object.keys(imported.providers ?? {})).toEqual([id]);
+    expect(imported.providers?.[id].settings).toEqual(settings);
+    expect(imported.agents?.legalwork.model).toMatchObject({ providerID: id, model: "selected" });
+    expect(imported.policies).toEqual([{ action: "provider.use", resource: id, effect: "deny" }]);
+    expect(imported.providerActivation).toEqual({ [id]: "deny" });
+    expect(imported.providerModelSelection).toEqual({ [id]: ["selected"] });
+    const backups = await readRuntimeConfigUpgradeBackups(config, "project");
+    expect(backups).toHaveLength(1);
+    expect(backups[0]?.configJson).toBe(original);
+    await writeRuntimeOpencodeConfig(config, "project", current => ({ ...current,
+      providers: { [id]: { ...current.providers?.[id], settings: { ...settings, apiKey: "synthetic-newer-key" } } }, providerModelSelection: { [id]: [] } }));
+    const edited = row(path, "project");
+    await closeRuntimeOpencodeConfig(config);
+    await bootstrapRuntimeOpencodeConfig(config);
+    expect(row(path, "project")).toEqual(edited);
+    expect((await readRuntimeOpencodeConfig(config, "project")).providerModelSelection).toEqual({ [id]: [] });
+    expect(await readRuntimeConfigUpgradeBackups(config, "project")).toEqual(backups);
+  }));
+}
+
 test.each(["normal", "sandbox-repair"])("%s writes notify every revocation listener before surfacing the first failure", async kind => fixture(async (config, path) => {
   const id = kind === "normal" ? "project" : SANDBOX_DEFAULT_ID;
   if (kind === "sandbox-repair") seed(path, id, "{ invalid original sandbox");

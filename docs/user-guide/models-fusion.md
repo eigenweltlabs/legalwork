@@ -10,12 +10,22 @@ For ChatGPT, choose **Add provider > Continue with ChatGPT**, complete sign-in i
 
 Select a connected model using the chat's model picker. Search by model or provider. Disabling a provider in the picker hides its models from selection; disconnecting its credentials is a separate settings action. A model listed by a provider may still be unavailable to your account, region or quota. Use the actual provider error to diagnose this.
 
+When no chat model has been selected yet, connecting your first provider selects its available default model automatically, including during onboarding. Onboarding continues to the remaining setup steps without opening the chat's model picker. You can change the model in the chat's model picker after setup. An existing available selection is kept. If Azure discovery replaces catalog model IDs with deployment names, the selection follows an available deployment from the same provider.
+
+If a provider is connected but no model is selected, the Home composer shows **Select model**, which opens the model picker. **Connect a model provider** appears when no provider is connected.
+
+For Azure, open **Settings > AI Providers > Add provider**, choose **Azure**, and enter your resource name and API key. LegalWork discovers the resource's deployments automatically; choose the deployment name in the chat's model picker. You do not need to enter model definitions yourself. A model marked deprecated in the public catalog can still appear when Azure reports a matching deployment. Deprecation does not extend Azure's retirement date or guarantee continued access.
+
+After adding a deployment, reconnect Azure to reload its deployment list. If discovery fails, the provider can show its general catalog instead of your resource's deployments. Check the resource name, key, network access and Azure firewall rules before retrying. Switching accounts loads the new account's deployments.
+
 Choosing a model in a regular chat also sets the default for new regular chats.
 Existing chats keep their own selections. The personal Assistant has its own
 model and thinking effort under **Customize assistant > Advanced**; regular chat
 choices do not change them. See [Personal Assistant](assistant.md).
 
 When upgrading from the earlier engine, LegalWork keeps custom providers and their selected models. You do not need to recreate a provider. Models you excluded from that provider stay excluded from the project's model selection.
+
+Older Azure Cognitive Services and Google Vertex Anthropic settings move to **Azure** and **Google Vertex**. Saved endpoints, API keys in those settings, selected models and provider restrictions carry forward. This also repairs settings already transferred by an earlier upgrade. Choose the connected model in the chat's model picker after upgrading.
 
 Keys can originate from a settings connection, environment variables or managed configuration. The AI Providers page identifies their source. An environment-managed connection may not be removable through the ordinary disconnect button; change it at the source instead. Store service secrets under **Settings > Secrets** when the relevant integration needs environment variables. Never paste a secret into a prompt as a setup shortcut.
 
