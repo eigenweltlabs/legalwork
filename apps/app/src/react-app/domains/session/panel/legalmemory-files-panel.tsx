@@ -15,6 +15,7 @@ import { writeLegalMemoryFileDrag, writeLegalMemoryFolderDrag } from "@/app/lib/
 import { LEGALMEMORY_CONNECTION_CHANGED_EVENT } from "@/app/lib/legalmemory-connection";
 import {
   LegalworkServerError,
+  isLoopbackLegalworkServerUrl,
   type LegalMemoryTreeFile,
   type LegalMemoryTreeFolder,
   type LegalMemoryTreePage,
@@ -114,6 +115,8 @@ function LegalMemoryFilesPanelContent({
   const storageRoots = useQuery({
     queryKey: ["storage-roots", workspaceId, client?.baseUrl],
     queryFn: () => client!.storageRoots(workspaceId!),
+    // Internet-offline does not make the desktop's loopback server unreachable.
+    networkMode: client && isLoopbackLegalworkServerUrl(client.baseUrl) ? "always" : "online",
     enabled: Boolean(client && workspaceId),
     refetchInterval: 30_000,
     staleTime: 30_000,

@@ -58,6 +58,8 @@ LegalWork checks local account and permission changes before further requests. F
 
 If the firm connection service is temporarily unavailable, previously loaded firm connections stay visible in Memory Drive as **Connection unavailable**. Their files cannot be opened or changed until access is verified again. Use the refresh button to retry; Memory Drive also checks again automatically. Signing out, changing accounts, or confirmed removal of a firm connection clears its previous entry.
 
+In the desktop app, Memory Drive can still refresh through LegalWork's local server when the computer loses internet access. Previously loaded folders can remain visible until the next access check; allow about a minute for the cached access check and request timeout. Personal connections can remain listed because their configuration is stored locally; a visible entry alone does not confirm that its storage service is reachable.
+
 ## Team storage
 
 Connections shared by your firm appear alongside your other connections and are marked **Firm managed** on their detail page. Personal connections are marked **My own**. The detail page shows status, ownership and access together, with **File Storage Integration** identifying the connection type. Admins can share a connection and choose whether everyone receives it automatically or members add it themselves with **Add to Memory Drive**. Removing it from one workspace differs from removing the team's connection. Team features depend on sign-in, entitlements and role. Local connection credentials belong to the LegalWork installation running the connection. A separately operated LegalWork server has its own credentials.
