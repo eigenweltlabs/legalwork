@@ -1403,7 +1403,7 @@ export function SessionPage(props: SessionPageProps) {
             </> : null}
             <ResizablePanel id="session-content" minSize="360px" className="min-w-0">
               <main className="flex h-full min-w-0 flex-col overflow-hidden border-r border-border">
-                {reconnectNotice}
+                {!canRenderWorkspace && reconnectNotice}
                 {props.legalworkServerClient && props.runtimeWorkspaceId ? <EngineProjectRecovery client={props.legalworkServerClient} workspaceId={props.runtimeWorkspaceId} /> : null}
 
           <ResizablePanelGroup orientation="vertical" className="min-h-0 flex-1 overflow-hidden">
@@ -1585,6 +1585,7 @@ export function SessionPage(props: SessionPageProps) {
             } : undefined}
             key={workspaceScope}
             sessionId={workspaceScope}
+            notice={reconnectNotice}
             controlSessionIds={controlSessionIds}
             client={props.legalworkServerClient}
             workspaceId={props.runtimeWorkspaceId ?? props.selectedWorkspaceId}

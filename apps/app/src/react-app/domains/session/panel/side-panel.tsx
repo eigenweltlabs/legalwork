@@ -115,6 +115,7 @@ type SidePanelProps = {
   visible?: boolean;
   projectId?: string;
   renderChat?: (sessionId: string, active: boolean) => React.ReactNode;
+  notice?: React.ReactNode;
   onFocusChat?: (sessionId: string) => void;
   onCloseChat?: (sessionId: string, nextSessionId: string | null) => void;
   onNewChat?: (pane: string) => void;
@@ -740,6 +741,7 @@ function SidePanelContent({
   isRemoteWorkspace = false,
   onClose,
   renderChat,
+  notice,
   visible: workspaceVisible = true,
   onFocusChat,
   onCloseChat,
@@ -1057,6 +1059,7 @@ function SidePanelContent({
     return <TabDropZone workspaceId={projectId ?? workspaceId} onChatDrop={onDropChat} onProjectViewDrop={renderProjectView ? (view, pane, split) => dropProjectTab(projectViewTab(view, projectViewLabel(view)), pane, split) : undefined} onProjectItemDrop={renderProjectView ? dropProjectTab : undefined} pane={pane.id} dragging={draggingTab} edge={Boolean(tab) && !sameLoneTab} splitBlocked={panes.length >= MAX_DOCUMENT_PANES && !relocating} inset
       shieldFileDrops={tab?.type === "artifact" || tab?.type === "browser" || tab?.type === "wiki"}
       label={t("side_panel.drop_to_move_here")} onDrop={(id, split) => moveToPane(id, pane.id, split)} onFileDrop={openFilesInViewer} className="flex min-h-0 flex-1 flex-col">
+      {notice}
       {/* Keep editor toolbars in their own stacking context, below the drop overlay. */}
       {tab ? <div ref={destinationRef(pane.id)} className="isolate min-h-0 flex-1 overflow-hidden" /> : <PanelEmpty
         onNewChat={onNewChat ? () => onNewChat(pane.id) : undefined}
