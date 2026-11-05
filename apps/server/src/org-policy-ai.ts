@@ -46,7 +46,6 @@ async function orgChatProviderDefinitions(config: ServerConfig, withFirmKey: boo
     const { source } = provider;
     if (Boolean(key) !== withFirmKey) continue;
     if (source.type === "catalog") {
-      if (provider.models !== "all") throw new Error("The firm's model allowlist requires native model-policy support. Its restrictions have been retained; the provider cannot be broadened.");
       // A member's own key or sign-in stays with the engine; firm-owned values
       // use native provider settings.
       const settings = { ...(source.resourceName ? { resourceName: source.resourceName } : {}), ...(key ? { apiKey: key } : {}) };
@@ -74,6 +73,18 @@ async function orgChatProviderDefinitions(config: ServerConfig, withFirmKey: boo
 /** The engine ids of the firm's chat providers: they stay on whatever the member disconnected. */
 export async function orgChatEngineIds(config: ServerConfig): Promise<string[]> {
   return ((await appliedOrgPolicy(config, "ai.chat.providers"))?.value ?? []).map(orgChatEngineId);
+}
+
+/** The mandatory native provider/model transforms enforce these inventories.
+ * Intersect restrictions sharing an engine ID; never broaden a member's list. */
+export async function orgChatModelSelection(config: ServerConfig, own: Record<string, string[]>): Promise<Record<string, string[]>> {
+  const selections = { ...own };
+  for (const provider of (await appliedOrgPolicy(config, "ai.chat.providers"))?.value ?? []) {
+    if (provider.models === "all") continue;
+    const id = orgChatEngineId(provider), previous = selections[id];
+    selections[id] = previous === undefined ? provider.models : provider.models.filter(model => previous.includes(model));
+  }
+  return selections;
 }
 
 /** Only firm-supplied keys may force-enable a configured provider. */

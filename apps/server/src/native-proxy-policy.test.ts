@@ -22,6 +22,12 @@ test("coding worktree routes are excluded while legal file/history operations re
     expect(() => assertNativeProxyRoute(actor, "GET", path)).not.toThrow();
   }
 });
+test("stateless generation cannot bypass project model-request policies", () => {
+  for (const path of ["/generate/text", "/api/generate/text", "/opencode/api/generate/text", "/api/%67enerate/text"]) {
+    expect(() => assertNativeProxyRoute(actor, "POST", path)).toThrow("Use a project chat");
+  }
+  expect(() => assertNativeProxyRoute(actor, "POST", "/api/session/chat/generate")).not.toThrow();
+});
 test("native session selectors and absolute file paths retain their meaning", () => {
   expect(nativeProxySessionID("/api/experimental/session/s_1/export")).toBe("s_1");
   expect(nativeProxySessionID("/api/session/active")).toBeUndefined();
