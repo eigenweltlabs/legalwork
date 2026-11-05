@@ -8157,6 +8157,7 @@ const de = {
   "launcher.result_action.copy-reference": "Verweis kopieren",
   "launcher.result_action.pin": "Anheften",
   "launcher.result_action.unpin": "Lösen",
+  "launcher.result_action.reopen": "Aufgabe wieder öffnen",
   "launcher.result_action.complete": "Als erledigt markieren",
   "launcher.result_action.play": "Abspielen",
   "launcher.result_action.resume": "Fortsetzen",

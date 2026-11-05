@@ -1,3 +1,4 @@
+import { launcherResultActions } from "@legalwork/types/launcher";
 import { existingLauncherFiles } from "./launcher-file-visibility.js";
 import { compareLauncherResults, isLauncherInternalPath } from "@legalwork/types/launcher";
 import { basename, extname } from "node:path";
@@ -19,7 +20,6 @@ export type LauncherSearchDeps = {
   fileContentSearch: (workspace: WorkspaceInfo, query: string, signal: AbortSignal) => Promise<ContentSearchResponse>;
   budgetMs?: number;
 };
-const FILE_ACTIONS: LauncherSearchResult["actions"] = ["open", "reveal", "open-external", "chat-with-assistant", "ask", "compare", "summarize", "copy-to-project", "move-to-project", "pin"];
 
 export function titleScore(title: string, query: string): { match: LauncherSearchResult["match"]; score: number } | null {
   const terms = query.normalize("NFC").trim().toLowerCase().split(/\s+/).filter(Boolean);
@@ -71,7 +71,7 @@ export async function searchLauncher(deps: LauncherSearchDeps, input: LauncherSe
       if (!match) continue;
       const score = match.match === "exact" ? 1000 : match.match === "literal" ? 700 - match.score * 50 : match.match === "all" ? 0 : 150 - match.score * 10;
       items.push({ id: workspace.id, kind: "projects", workspaceId: workspace.id, sourceId: `local:${workspace.id}`, title: deps.projectName(workspace), subtitle: workspace.path, updatedAt: 0,
-        match: match.match === "exact" ? "exact" : match.match === "literal" ? "substring" : match.match === "approximate" ? "fuzzy" : "recent", score, actions: ["open", "ask"] });
+        match: match.match === "exact" ? "exact" : match.match === "literal" ? "substring" : match.match === "approximate" ? "fuzzy" : "recent", score, actions: [] });
       count++;
     }
     source({ id: "projects", kind: "projects", workspaceId: null, label: "Projects", coverage: unavailable.length ? "partial" : "complete", count });
@@ -82,7 +82,7 @@ export async function searchLauncher(deps: LauncherSearchDeps, input: LauncherSe
       for (const task of tasks) {
         const score = titleScore(task.title, query) ?? { match: "content" as const, score: 300 };
         items.push({ id: task.id, kind: "tasks", workspaceId: task.workspaceId || null, sourceId: "tasks", title: task.title, excerpt: task.excerpt || undefined, updatedAt: task.updatedAt, completed: task.completed,
-          match: score.match, score: score.score - (task.completed ? 100 : 0), actions: task.completed ? ["open", "hand-to-assistant"] : ["open", "complete", "hand-to-assistant"] });
+          match: score.match, score: score.score - (task.completed ? 100 : 0), actions: [] });
       }
       source({ id: "tasks", kind: "tasks", workspaceId: null, label: "Tasks", coverage: tasks.length > 60 ? "partial" : "complete", count: tasks.length, limited: tasks.length > 60 });
     } catch (error) { source({ id: "tasks", kind: "tasks", workspaceId: null, label: "Tasks", coverage: timedOut(error) ? "partial" : "unavailable", count: 0, limited: timedOut(error), error: timedOut(error) ? TOO_SLOW : error instanceof Error ? error.message : String(error) }); }
@@ -95,7 +95,7 @@ export async function searchLauncher(deps: LauncherSearchDeps, input: LauncherSe
         if (input.projectId && !recording.projectIds?.includes(input.projectId)) continue;
         const score = titleScore(recording.title, query) ?? { match: "content" as const, score: 300 };
         items.push({ id: recording.id, kind: "recordings", workspaceId: recording.projectIds?.[0] ?? null, sourceId: "recordings", title: recording.title, updatedAt: recording.createdAt, durationMs: recording.durationMs, status: recording.status,
-          match: score.match, score: score.score, actions: ["play", "open", "chat-with-assistant", "ask"] });
+          match: score.match, score: score.score, actions: [] });
       }
       source({ id: "recordings", kind: "recordings", workspaceId: null, label: "Recordings", coverage: "complete", count: recordings.length });
     } catch (error) { source({ id: "recordings", kind: "recordings", workspaceId: null, label: "Recordings", coverage: timedOut(error) ? "partial" : "unavailable", count: 0, limited: timedOut(error), error: timedOut(error) ? TOO_SLOW : error instanceof Error ? error.message : String(error) }); }
@@ -113,7 +113,7 @@ export async function searchLauncher(deps: LauncherSearchDeps, input: LauncherSe
         if (query || filter.browse || filter.types?.length || filter.modifiedAfter !== null) for (const found of deps.fileIndex.search(workspace.id, query, input.sort && input.sort !== "relevance" ? input.limit : 40, filter)) {
           seen.add(found.entry.path);
           fileItems.push({ id: found.entry.path, kind: "files", workspaceId: workspace.id, sourceId: `local:${workspace.id}`, title: found.entry.name, subtitle: label, sourceKind: workspace.preset === "wiki" ? "wiki" : "project", path: found.entry.path, updatedAt: found.entry.mtimeMs,
-            revision: `${found.entry.mtimeMs}:${found.entry.size}`, fileType: found.entry.directory ? "folder" : found.entry.ext.replace(/^\./, ""), size: found.entry.size, match: found.match, score: found.score, actions: found.entry.directory ? ["open"] : FILE_ACTIONS });
+            revision: `${found.entry.mtimeMs}:${found.entry.size}`, fileType: found.entry.directory ? "folder" : found.entry.ext.replace(/^\./, ""), size: found.entry.size, match: found.match, score: found.score, actions: [] });
         }
         const state = deps.fileIndex.state(workspace.id);
         let coverage: LauncherSourceState["coverage"] = state === "indexing" || (index.building && !index.complete) ? "indexing" : "filename-only";
@@ -125,7 +125,7 @@ export async function searchLauncher(deps: LauncherSearchDeps, input: LauncherSe
             for (const result of response.items) {
               if (isLauncherInternalPath(result.id) || seen.has(result.id) || !result.sources?.length || !passes(result.id, result.updatedAt)) continue;
               fileItems.push({ id: result.id, kind: "files", workspaceId: workspace.id, sourceId: `local:${workspace.id}`, title: basename(result.id), subtitle: label, sourceKind: workspace.preset === "wiki" ? "wiki" : "project", path: result.id, excerpt: result.sources[0]?.quote, updatedAt: result.updatedAt,
-                fileType: extname(result.id).replace(/^\./, "").toLowerCase(), match: "content", score: 300, incomplete: result.incomplete, actions: FILE_ACTIONS, sources: result.sources });
+                fileType: extname(result.id).replace(/^\./, "").toLowerCase(), match: "content", score: 300, incomplete: result.incomplete, actions: [], sources: result.sources });
             }
             coverage = preparing ? "indexing" : coverage === "indexing" ? "indexing" : limited ? "partial" : "complete";
           } catch { coverage = coverage === "indexing" ? "indexing" : "filename-only"; }
@@ -144,7 +144,7 @@ export async function searchLauncher(deps: LauncherSearchDeps, input: LauncherSe
         for (const result of response.items) {
           const score = titleScore(result.title, query) ?? { match: "content" as const, score: 300 };
           items.push({ id: result.id, kind: "chats", workspaceId: workspace.id, sourceId: `local:${workspace.id}`, title: result.title, subtitle: label, excerpt: result.excerpt || undefined, updatedAt: result.updatedAt, sessionId: result.id, messageId: result.messageId,
-            match: score.match, score: score.score, actions: ["resume", "open", "ask"] });
+            match: score.match, score: score.score, actions: [] });
         }
         source({ id: `chats:${workspace.id}`, kind: "chats", workspaceId: workspace.id, label, coverage: response.limited ? "partial" : "complete", count: response.items.length, limited: response.limited });
       } catch (error) { source({ id: `chats:${workspace.id}`, kind: "chats", workspaceId: workspace.id, label, coverage: signal.aborted ? "searching" : timedOut(error) ? "partial" : "unavailable", count: 0, limited: timedOut(error), error: timedOut(error) ? TOO_SLOW : error instanceof Error ? error.message : String(error) }); }
@@ -158,6 +158,7 @@ export async function searchLauncher(deps: LauncherSearchDeps, input: LauncherSe
     item.subtitle ??= deps.projectName(workspace);
     item.sourceKind = workspace.preset === "wiki" ? "wiki" : "project";
   }
+  for (const item of items) item.actions = launcherResultActions(item);
   items.sort((a, b) => compareLauncherResults(a, b, input.sort));
   // Projects are navigation targets without an activity timestamp. Keep their
   // name matches while applying the date constraint to dated content sources.

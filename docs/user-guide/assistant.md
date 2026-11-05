@@ -197,6 +197,31 @@ For a file or other search result, press **Right** to choose a chat action:
   summary request immediately. The **Summarize this document** suggestion
   does the same for the document you are viewing.
 
+The action menu follows the item type, not how you reached it. Search results,
+recent items and files inside a project or folder use the same rules. **Chat
+with Assistant** shows the avatar you selected in Assistant settings.
+
+| Item | Actions |
+| --- | --- |
+| File | Chat with Assistant, Ask about this, Summarize; Compare for multiple selected files. Project files can be copied or moved to another project. Wiki files can be copied into a project. |
+| Folder or project | Browse with Enter; Open in app and Hide. Added local folders instead offer Open with default app and Reveal in folder. |
+| Chat | Continue with Enter; Open in app and Hide. There is no extra Ask about this, summary or file action. |
+| Task | Open/edit with Enter; mark done or reopen, Chat with Assistant, Ask about this, Copy to Clipboard, Open in app and Hide. |
+| Recording | Open its details with Enter; Chat with Assistant, Ask about this, Copy to Clipboard for its transcript, Open in app and Hide. |
+
+Ordinary files do not repeat **Open in app** in their menu because Enter
+already opens the document. **Copy to Clipboard** for files and folders needs
+a local desktop connection. **Reveal in folder** is offered for explicitly
+added local search folders, not an app-managed project directory. Added-folder
+files open with their default application on Enter. Remote sources do not offer
+local file-manager actions. Transfer choices require a different destination
+project, and multi-file actions must be supported by every selected item.
+
+In a task, recording, project or folder detail view, the **Actions** button
+opens that item's menu; **Command/Ctrl+K** also works from detail controls.
+**Right** on a child row opens that child's actions. **Esc** closes the menu
+before returning to the previous view. Hide always applies to the focused item.
+
 Project actions use the result's own project. For Wiki files or added search
 folders, they use your current project; if there is no clear destination,
 choose a project with **Up/Down** and **Enter**, or cancel with **Esc**.

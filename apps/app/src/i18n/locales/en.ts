@@ -7808,6 +7808,7 @@ export default {
   "launcher.result_action.copy-reference": "Copy reference",
   "launcher.result_action.pin": "Pin",
   "launcher.result_action.unpin": "Unpin",
+  "launcher.result_action.reopen": "Reopen task",
   "launcher.result_action.complete": "Mark done",
   "launcher.result_action.play": "Play",
   "launcher.result_action.resume": "Resume",

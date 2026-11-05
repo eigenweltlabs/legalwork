@@ -35,3 +35,10 @@ export function suggestedRecents(items: LauncherRecent[], projectId: string | un
   };
   return [...items].sort((a, b) => score(b) - score(a) || b.openedAt - a.openedAt).slice(0, 4);
 }
+
+/** Refresh display state without recording another open or changing recency. */
+export function updateLauncherRecent(server: string, result: LauncherSearchResult) {
+  const { excerpt: _excerpt, sources: _sources, ...metadata } = result;
+  const items = readLauncherRecents(server).map(item => identity(item.result) === identity(result) ? { ...item, result: metadata } : item);
+  try { localStorage.setItem(key(server), JSON.stringify(items)); window.dispatchEvent(new Event("legalwork:launcher-recents")); } catch { /* Storage may be unavailable. */ }
+}

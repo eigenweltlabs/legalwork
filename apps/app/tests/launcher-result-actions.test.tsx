@@ -1,21 +1,61 @@
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { LauncherSearchResult } from "@legalwork/types/launcher";
-import { resultActionMenu } from "../src/react-app/launcher/action-catalog";
-import { LauncherActionMenu, LauncherResultList } from "../src/react-app/launcher/launcher-results";
+import { primaryResultAction, launcherActionSelection, resultActionMenu } from "../src/react-app/launcher/action-catalog";
+import { LauncherActionMenu, LauncherResultList, launcherExtraActions } from "../src/react-app/launcher/launcher-results";
+import { assistantAvatarImages } from "../src/react-app/domains/session/sidebar/assistant-avatar-assets";
 import { resultKey } from "../src/react-app/launcher/launcher-search-session";
 
 const file: LauncherSearchResult = { id: "contract.pdf", kind: "files", workspaceId: "project", sourceId: "local:project", title: "Contract", path: "contract.pdf", fileType: "pdf", updatedAt: 0, score: 1, match: "recent", actions: ["open", "attach", "compare", "pin", "copy-path"] };
 const noop = () => {};
 
-test("legacy providers use distinct chat actions and cannot reintroduce pin or copy-path controls", () => {
-  expect(resultActionMenu(file, 1)).toEqual(["chat-with-assistant", "ask"]);
-  expect(resultActionMenu(file, 2)).toEqual(["chat-with-assistant", "ask", "compare"]);
-  const html = renderToStaticMarkup(<LauncherActionMenu result={file} multiSelected={0} pinned extra={["open-in-app", "hide"]} projects={[]} onRun={noop} onExtra={noop} onTransfer={noop} onClose={noop} />);
+test("file actions match across search, directory browsing and legacy recent metadata", () => {
+  const expected = ["chat-with-assistant", "ask", "summarize", "copy-to-project", "move-to-project"];
+  const layers: LauncherSearchResult[] = [file, { ...file, actions: ["open"] }, { ...file, actions: ["open", "ask", "summarize", "reveal"] }];
+  for (const item of layers) {
+    expect(resultActionMenu(item)).toEqual(expected);
+    expect(primaryResultAction(item)).toBe("open");
+    expect(launcherExtraActions(item, true)).toEqual(["copy-to-clipboard", "hide"]);
+  }
+  const html = renderToStaticMarkup(<LauncherActionMenu result={file} selection={[file]} assistantIcon="fox" extra={launcherExtraActions(file, true)} projects={[]} onRun={noop} onExtra={noop} onTransfer={noop} onClose={noop} />);
+  expect(html).toContain(assistantAvatarImages.fox);
+  expect(html).not.toContain(assistantAvatarImages.cat);
   expect(html).not.toContain("lucide-pin");
   expect(html).not.toContain("Copy path");
   expect(html).not.toContain("Attach to draft");
-  expect(html.match(/role="menuitem"/g)).toHaveLength(4);
+  expect(html).not.toContain("Open in app");
+  expect(html.match(/role="menuitem"/g)).toHaveLength(5);
+});
+
+test("chats and containers never inherit file/Assistant actions from cached metadata", () => {
+  for (const item of [{ ...file, kind: "chats" }, { ...file, kind: "projects" }, { ...file, fileType: "folder" }] satisfies LauncherSearchResult[]) {
+    expect(resultActionMenu(item)).toEqual([]);
+    expect(launcherExtraActions(item, false)).toEqual(["open-in-app", "hide"]);
+  }
+  const externalFolder = { ...file, workspaceId: null, folderId: "library", fileType: "folder" };
+  expect(resultActionMenu(externalFolder, [externalFolder], true)).toEqual(["open-external", "reveal"]);
+  expect(resultActionMenu(externalFolder, [externalFolder], false)).toEqual([]);
+  expect(launcherExtraActions(externalFolder, false)).toEqual(["hide"]);
+});
+
+test("tasks and recordings expose only actions that their handlers support", () => {
+  expect(resultActionMenu({ ...file, kind: "tasks", completed: false })).toEqual(["complete", "chat-with-assistant", "ask"]);
+  expect(resultActionMenu({ ...file, kind: "tasks", completed: true })).toEqual(["reopen", "chat-with-assistant", "ask"]);
+  expect(resultActionMenu({ ...file, kind: "tasks", workspaceId: null })).toEqual(["chat-with-assistant", "ask"]);
+  expect(resultActionMenu({ ...file, kind: "recordings" })).toEqual(["chat-with-assistant", "ask"]);
+});
+
+test("multi-file actions use the focused selection and the intersection of supported source operations", () => {
+  const added = { ...file, id: "other", folderId: "library", workspaceId: null };
+  const selected = new Set([resultKey(file), resultKey(added)]);
+  expect(launcherActionSelection(file, [file, added], selected)).toEqual([file, added]);
+  expect(launcherActionSelection(file, [added], selected)).toEqual([file]);
+  const unrelated = { ...file, id: "unrelated" };
+  expect(launcherActionSelection(unrelated, [file, added], selected)).toEqual([unrelated]);
+  expect(resultActionMenu(file, [file, added])).toEqual(["chat-with-assistant", "ask", "summarize", "compare"]);
+  const wiki: LauncherSearchResult = { ...file, id: "wiki", sourceKind: "wiki" };
+  expect(resultActionMenu(wiki)).toEqual(["chat-with-assistant", "ask", "summarize", "copy-to-project"]);
+  expect(resultActionMenu(file, [file, wiki])).not.toContain("move-to-project");
 });
 
 test("previously pinned files render as ordinary launcher results", () => {

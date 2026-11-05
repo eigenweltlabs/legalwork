@@ -1,3 +1,4 @@
+import { launcherResultActions } from "@legalwork/types/launcher";
 import { readdir, realpath, stat } from "node:fs/promises";
 import { extname, isAbsolute, resolve, sep } from "node:path";
 import { isLauncherInternalPath, type LauncherSearchResult } from "@legalwork/types/launcher";
@@ -17,7 +18,7 @@ export async function browseLauncherDirectory(input: { root: string; path: strin
     const info = await stat(resolve(directory, entry.name)).catch(() => null);
     if (!info) continue;
     items.push({ id: path, kind: "files", workspaceId: input.workspaceId, folderId: input.folderId, sourceId: input.folderId ? `folder:${input.folderId}` : `local:${input.workspaceId}`,
-      title: entry.name, subtitle: input.name, sourceKind: input.sourceKind, path, updatedAt: info.mtimeMs, size: info.size, fileType: entry.isDirectory() ? "folder" : extname(entry.name).slice(1).toLowerCase(), match: "recent", score: 0, actions: entry.isDirectory() ? ["open"] : ["open", "chat-with-assistant", "summarize"] });
+      title: entry.name, subtitle: input.name, sourceKind: input.sourceKind, path, updatedAt: info.mtimeMs, size: info.size, fileType: entry.isDirectory() ? "folder" : extname(entry.name).slice(1).toLowerCase(), match: "recent", score: 0, actions: [] });
   }
-  return { items, truncated: entries.length > 2000 };
+  return { items: items.map(item => ({ ...item, actions: launcherResultActions(item) })), truncated: entries.length > 2000 };
 }

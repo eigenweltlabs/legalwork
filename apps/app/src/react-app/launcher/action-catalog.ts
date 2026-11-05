@@ -1,3 +1,5 @@
+import { resultKey } from "./launcher-search-session";
+import { launcherResultActions } from "@legalwork/types/launcher";
 import type { LauncherCatalogEntry, LauncherInvocationAction, LauncherSearchResult } from "@legalwork/types/launcher";
 import { t } from "@/i18n";
 
@@ -59,17 +61,21 @@ export function catalogArguments(entry: LauncherCatalogEntry, query: string) {
   return matched ? value.slice(matched.length).trim() : "";
 }
 
-/** The visible primary action of a result row: what Enter does. */
-export function primaryResultAction(result: LauncherSearchResult): LauncherSearchResult["actions"][number] {
-  if (["chats", "recordings", "tasks", "projects"].includes(result.kind)) return "open";
-  return result.actions[0] ?? "open";
+/** Enter always opens the item; the action menu never duplicates it. */
+export function primaryResultAction(_result: LauncherSearchResult): "open" { return "open"; }
+
+/** Actions apply to the focused result, or to every member of its explicit selection. */
+export function launcherActionSelection(result: LauncherSearchResult, results: LauncherSearchResult[], selected: Set<string>) {
+  const items = selected.has(resultKey(result)) ? results.filter(item => selected.has(resultKey(item))) : [];
+  return items.some(item => resultKey(item) === resultKey(result)) ? items : [result];
 }
-/** Only advertised actions the provider can execute are offered; the order is stable per kind. */
-export function resultActionMenu(result: LauncherSearchResult, selectedCount: number): LauncherSearchResult["actions"] {
-  const actions = new Set(result.actions);
-  // Older providers and cached recents still advertise Attach/Hand to Assistant.
-  if (actions.has("attach") || actions.has("hand-to-assistant") || actions.has("ask")) actions.add("chat-with-assistant");
-  if (actions.has("chat-with-assistant")) actions.add("ask");
-  const order: LauncherSearchResult["actions"] = ["complete", "chat-with-assistant", "ask", "summarize", "compare", "reveal", "open-external", "copy-to-project", "move-to-project", "copy-reference"];
-  return order.filter(action => action !== primaryResultAction(result) && actions.has(action) && (action !== "compare" || selectedCount >= 2));
+export function resultActionMenu(result: LauncherSearchResult, selection: LauncherSearchResult[] = [result], localExternal = false): LauncherSearchResult["actions"] {
+  const actions = launcherResultActions(result).filter(action => action !== "open"
+    && selection.every(item => launcherResultActions(item).includes(action))
+    && (action !== "compare" || selection.length >= 2));
+  if (localExternal && result.kind === "files" && result.folderId && selection.length === 1) {
+    if (result.fileType === "folder") actions.push("open-external");
+    actions.push("reveal");
+  }
+  return actions;
 }

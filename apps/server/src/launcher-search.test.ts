@@ -49,6 +49,10 @@ test("one query fans out to every source, keeps per-source coverage, and never r
     expect(noRecorder.sources[0]).toMatchObject({ coverage: "unavailable", error: expect.stringContaining("desktop app") });
     const browseFiles = await searchLauncher(deps, { query: "", kinds: ["files"], content: false, limit: 10 }, new AbortController().signal);
     expect(browseFiles.items.map(item => item.title)).toContain("Mietvertrag Müller.docx");
+    const directory = await browseLauncherDirectory({ root, path: "", workspaceId: mueller.id, sourceKind: "project", name: mueller.name });
+    expect(directory.items.find(item => item.id === all.items[0].id)?.actions).toEqual(all.items[0].actions);
+    expect(all.items.find(item => item.kind === "chats")?.actions).toEqual(["open"]);
+    expect(projects.items[0].actions).toEqual(["open"]);
     const chatQueries: string[] = [];
     const browseChats = await searchLauncher({ ...deps, sessionSearch: async (workspace, query, signal) => { chatQueries.push(query); return deps.sessionSearch(workspace, query, signal); } }, { query: "", kinds: ["chats"], content: false, limit: 10 }, new AbortController().signal);
     expect(chatQueries).toEqual(["", ""]);
@@ -67,6 +71,7 @@ test("one query fans out to every source, keeps per-source coverage, and never r
     const wikiContent = await searchLauncher(withWiki, { query: "mietvertrag", kinds: ["files"], content: true, limit: 50 }, new AbortController().signal);
     expect(wikiContent.items.find(item => item.workspaceId === wiki.id && item.match === "content")?.sourceKind).toBe("wiki");
     const wikiBrowse = await browseLauncherDirectory({ root, path: "", workspaceId: wiki.id, sourceKind: "wiki", name: wiki.name });
+    expect(wikiBrowse.items.find(item => item.title === "Mietvertrag Müller.docx")?.actions).toEqual(wikiResults.items.find(item => item.kind === "files" && item.workspaceId === wiki.id)?.actions);
     expect(wikiBrowse.items.length).toBeGreaterThan(0);
     expect(wikiBrowse.items.every(item => item.sourceKind === "wiki" && item.subtitle === wiki.name)).toBe(true);
     const readSources: string[] = [];

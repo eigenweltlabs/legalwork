@@ -42,7 +42,7 @@ export function useLauncherDetailItems(detail: LauncherDetail | null, query: str
   });
 }
 
-export function LauncherTaskDetail({ result, onOpenChat, onOpenApp }: { result: LauncherSearchResult; onOpenChat: (sessionId: string, workspaceId: string) => void; onOpenApp: () => void }) {
+export function LauncherTaskDetail({ result, onOpenChat, onOpenApp, onUpdated }: { result: LauncherSearchResult; onUpdated: (result: LauncherSearchResult) => void; onOpenChat: (sessionId: string, workspaceId: string) => void; onOpenApp: () => void }) {
   const { client, assistant, workspaces } = useLauncherShell();
   const workspaceId = result.workspaceId ?? assistant?.workspaceId ?? workspaces[0]?.id;
   const task = useQuery({ queryKey: ["launcher-task", client.baseUrl, workspaceId, result.id], enabled: Boolean(workspaceId), queryFn: () => client.getTask(workspaceId ?? "", result.id) });
@@ -59,7 +59,9 @@ export function LauncherTaskDetail({ result, onOpenChat, onOpenApp }: { result: 
     if (!task.data || !workspaceId || running.current) return;
     running.current = true;
     setBusy(true); setError(null);
-    try { await client.patchTask(workspaceId, result.id, patch); await task.refetch(); if (editing) closeEditor(); }
+    try { await client.patchTask(workspaceId, result.id, patch); const refreshed = await task.refetch();
+      if (refreshed.data) onUpdated({ ...result, title: refreshed.data.task.title, completed: refreshed.data.task.status === "done", status: refreshed.data.task.status, updatedAt: Date.parse(refreshed.data.task.updatedAt) });
+      if (editing) closeEditor(); }
     catch (error) { setError(String(error)); }
     finally { running.current = false; setBusy(false); }
   };

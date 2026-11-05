@@ -16,7 +16,7 @@ export const DEFAULT_LAUNCHER_ALIASES: Record<LauncherSearchKind, string> = { fi
 
 export const LauncherCoverageSchema = z.enum(["complete", "partial", "filename-only", "indexing", "searching", "unavailable", "offline"]);
 export type LauncherCoverage = z.infer<typeof LauncherCoverageSchema>;
-export const LauncherResultActionSchema = z.enum(["open", "reveal", "open-external", "chat-with-assistant", "attach", "ask", "compare", "summarize", "copy-path", "copy-reference", "pin", "complete", "play", "resume", "hand-to-assistant", "copy-to-project", "move-to-project"]);
+export const LauncherResultActionSchema = z.enum(["open", "reveal", "open-external", "chat-with-assistant", "attach", "ask", "compare", "summarize", "copy-path", "copy-reference", "pin", "complete", "reopen", "play", "resume", "hand-to-assistant", "copy-to-project", "move-to-project"]);
 export type LauncherResultAction = z.infer<typeof LauncherResultActionSchema>;
 export const LauncherMatchSchema = z.enum(["exact", "prefix", "word", "substring", "fuzzy", "content", "metadata", "recent"]);
 export const LauncherSearchResultSchema = z.object({
@@ -29,6 +29,21 @@ export const LauncherSearchResultSchema = z.object({
   sources: z.array(z.object({ path: z.string(), hash: z.string(), page: z.number().nullable(), source: z.enum(["native", "ocr"]), quote: z.string(), preparationPath: z.string().optional() })).optional(),
 });
 export type LauncherSearchResult = z.infer<typeof LauncherSearchResultSchema>;
+
+/** One action policy for search, directory browsing and cached recent items.
+ * Saved/provider action arrays are compatibility metadata, not the current UI policy. */
+export function launcherResultActions(result: Pick<LauncherSearchResult, "kind" | "workspaceId" | "folderId" | "path" | "fileType" | "completed" | "sourceKind">): LauncherResultAction[] {
+  if (result.kind === "chats" || result.kind === "projects" || result.fileType === "folder") return ["open"];
+  if (result.kind === "tasks") return ["open", ...(result.workspaceId ? [result.completed ? "reopen" : "complete"] satisfies LauncherResultAction[] : []), "chat-with-assistant", "ask"];
+  if (result.kind === "recordings") return ["open", "chat-with-assistant", "ask"];
+  if (!result.path || !result.workspaceId && !result.folderId) return ["open"];
+  const actions: LauncherResultAction[] = ["open", "chat-with-assistant", "ask", "summarize", "compare"];
+  if (result.workspaceId && !result.folderId) {
+    actions.push("copy-to-project");
+    if (result.sourceKind !== "wiki") actions.push("move-to-project");
+  }
+  return actions;
+}
 const launcherNameCollator = new Intl.Collator("en", { numeric: true, sensitivity: "base" });
 /** Shared by providers and the client so pagination and later content hits keep the chosen order. */
 export function compareLauncherResults(a: Pick<LauncherSearchResult, "title" | "updatedAt" | "score" | "id">, b: Pick<LauncherSearchResult, "title" | "updatedAt" | "score" | "id">, sort: LauncherSort = "relevance") {

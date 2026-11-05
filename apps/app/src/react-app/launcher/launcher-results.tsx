@@ -1,3 +1,5 @@
+import { AssistantAvatar } from "@/react-app/domains/session/sidebar/assistant-appearance";
+import type { AssistantIcon } from "@legalwork/types/main-assistant";
 import { LauncherResultOrigin } from "./launcher-result-origin";
 import { useEffect, useRef, useState } from "react";
 import { CheckSquare, ChevronRight, File, FileText, Folder, Image, ListTodo, Mail, MessageSquare, Mic, Presentation, Sheet, Square } from "lucide-react";
@@ -39,6 +41,14 @@ export function coverageLabel(sources: LauncherSourceState[]) {
   return "";
 }
 export type LauncherExtraAction = "open-in-app" | "copy-to-clipboard" | "hide";
+export function launcherExtraActions(result: LauncherSearchResult, copyable: boolean): LauncherExtraAction[] {
+  const actions: LauncherExtraAction[] = [];
+  // Ordinary files already open in their document app on Enter. External folders open in the file manager.
+  if (result.kind !== "files" || result.fileType === "folder" && !result.folderId && result.workspaceId) actions.push("open-in-app");
+  if (copyable) actions.push("copy-to-clipboard");
+  actions.push("hide");
+  return actions;
+}
 export function actionLabel(action: LauncherResultAction | "run" | "open-conversation" | LauncherExtraAction) { return t(`launcher.result_action.${action}`); }
 
 export function LauncherResultList(props: {
@@ -57,8 +67,8 @@ export function LauncherResultList(props: {
         const multi = props.multiSelect.has(key);
         const details = [item.path && item.path !== item.title ? item.path : null, item.completed ? t("tasks.status_done") : item.status, item.updatedAt ? formatRelativeTime(item.updatedAt) : null].filter(Boolean).join(" · ");
         return <div key={key} id={optionId(key)} data-launcher-item role="option" aria-selected={props.selectedKey === key} data-key={key} data-selected={props.selectedKey === key} data-multi={multi} className="launcher-row"
-          onMouseMove={() => props.onSelect(key)} onClick={event => { if (event.metaKey || event.ctrlKey) props.onToggleMulti(key); else props.onRun(item, primary); }} onContextMenu={event => { event.preventDefault(); props.onSelect(key); props.onOpenActions(key); }}>
-          <span className="launcher-row-icon" onClick={event => { event.stopPropagation(); props.onToggleMulti(key); }} aria-hidden="true">{item.kind === "files" ? multi ? <CheckSquare className="size-4" /> : props.multiSelect.size ? <Square className="size-4" /> : <Icon className="size-4" /> : <Icon className="size-4" />}</span>
+          onMouseMove={() => props.onSelect(key)} onClick={event => { if ((event.metaKey || event.ctrlKey) && item.kind === "files" && item.fileType !== "folder") props.onToggleMulti(key); else props.onRun(item, primary); }} onContextMenu={event => { event.preventDefault(); props.onSelect(key); props.onOpenActions(key); }}>
+          <span className="launcher-row-icon" onClick={event => { if (item.kind === "files" && item.fileType !== "folder") { event.stopPropagation(); props.onToggleMulti(key); } }} aria-hidden="true">{item.kind === "files" && item.fileType !== "folder" ? multi ? <CheckSquare className="size-4" /> : props.multiSelect.size ? <Square className="size-4" /> : <Icon className="size-4" /> : <Icon className="size-4" />}</span>
           <div className="launcher-row-main">
             <div className="launcher-row-title"><Highlight text={item.title} query={props.query} /></div>
             <div className="launcher-row-meta">{item.subtitle && <LauncherResultOrigin item={item} />}{item.subtitle && details ? " · " : ""}{details}{item.incomplete ? ` · ${t("content_search.partial")}` : ""}</div>
@@ -72,8 +82,8 @@ export function LauncherResultList(props: {
 }
 
 export type LauncherTransferAction = "copy-to-project" | "move-to-project";
-export function LauncherActionMenu(props: { result: LauncherSearchResult; multiSelected: number; pinned: boolean; extra: LauncherExtraAction[]; projects: { id: string; name: string }[]; onRun: (action: LauncherResultAction) => void; onExtra: (action: LauncherExtraAction) => void; onTransfer: (action: LauncherTransferAction, projectId: string) => void; onClose: () => void }) {
-  const actions = resultActionMenu(props.result, props.multiSelected).filter(action => (action !== "copy-to-project" && action !== "move-to-project") || props.projects.length > 0);
+export function LauncherActionMenu(props: { result: LauncherSearchResult; selection: LauncherSearchResult[]; assistantIcon?: AssistantIcon; localExternal?: boolean; extra: LauncherExtraAction[]; projects: { id: string; name: string }[]; onRun: (action: LauncherResultAction) => void; onExtra: (action: LauncherExtraAction) => void; onTransfer: (action: LauncherTransferAction, projectId: string) => void; onClose: () => void }) {
+  const actions = resultActionMenu(props.result, props.selection, props.localExternal).filter(action => (action !== "copy-to-project" && action !== "move-to-project") || props.projects.length > 0);
   // Copy and move ask for the destination inside the same menu; nothing moves before a project is chosen.
   const [pick, setPick] = useState<LauncherTransferAction | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -102,9 +112,9 @@ export function LauncherActionMenu(props: { result: LauncherSearchResult; multiS
   </div>;
   return <div ref={menuRef} className="launcher-actions-menu" role="menu" aria-label={props.result.title}>
     {props.extra.filter(action => action !== "hide").map(action => <button key={action} type="button" role="menuitem" onMouseMove={event => event.currentTarget.focus()} onClick={() => props.onExtra(action)}>{actionLabel(action)}</button>)}
-    {actions.length > 0 && <div role="separator" className="launcher-menu-separator" />}
-    {actions.map(action => <button key={action} type="button" role="menuitem" onMouseMove={event => event.currentTarget.focus()} onClick={() => { if (action === "copy-to-project" || action === "move-to-project") setPick(action); else props.onRun(action); }}>{actionLabel(action)}{action === "compare" && props.multiSelected >= 2 ? ` (${props.multiSelected})` : ""}</button>)}
-    <div role="separator" className="launcher-menu-separator" />
+    {actions.length > 0 && props.extra.some(action => action !== "hide") && <div role="separator" className="launcher-menu-separator" />}
+    {actions.map(action => <button key={action} type="button" role="menuitem" onMouseMove={event => event.currentTarget.focus()} onClick={() => { if (action === "copy-to-project" || action === "move-to-project") setPick(action); else props.onRun(action); }}>{action === "chat-with-assistant" && <AssistantAvatar icon={props.assistantIcon} className="size-4" />}{actionLabel(action)}{action === "compare" ? ` (${props.selection.length})` : ""}</button>)}
+    {(actions.length > 0 || props.extra.some(action => action !== "hide")) && props.extra.includes("hide") && <div role="separator" className="launcher-menu-separator" />}
     {props.extra.filter(action => action === "hide").map(action => <button key={action} type="button" role="menuitem" onMouseMove={event => event.currentTarget.focus()} onClick={() => props.onExtra(action)}>{actionLabel(action)}</button>)}
   </div>;
 }
