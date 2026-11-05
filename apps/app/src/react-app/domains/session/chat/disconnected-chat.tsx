@@ -23,7 +23,6 @@ export function DisconnectedChat({ workspaceId, sessionId }: { workspaceId: stri
 
   return <div className="h-full overflow-y-auto">
     <div className="mx-auto max-w-[800px] px-6 py-6">
-      {snapshot?.session.title && <h2 className="mb-6 text-sm font-medium text-dls-secondary">{snapshot.session.title}</h2>}
       <EnvironmentVariableProvider client={null}>
         <MessageListProvider workspaceId={workspaceId} sessionId={sessionId} readOnly
           showThinking={false} developerMode={false} displaySuggestions={false} providerConnectedCount={0}

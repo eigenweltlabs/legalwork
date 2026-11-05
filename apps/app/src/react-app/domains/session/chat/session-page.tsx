@@ -845,8 +845,8 @@ export function SessionPage(props: SessionPageProps) {
   const previousRouteChat = useRef<string | null>(props.sidebar.activeNav === "wikis" ? `${panelStateSessionId}:${props.selectedSessionId}` : null);
   const closingSubagent = useRef<string | null>(null);
   const selectedSessionTitle = useMemo(
-    () => isAssistantChat(props.selectedSessionId) ? props.sidebar.assistantProfile?.name ?? t("assistant.title") : sessionInfo(props.selectedSessionId)?.title ?? sessionTitleForId(props.sidebar.workspaceSessionGroups, props.selectedSessionId),
-    [props.selectedSessionId, props.sidebar.workspaceSessionGroups, isAssistantChat, sessionInfo, props.sidebar.assistantProfile?.name],
+    () => isAssistantChat(props.selectedSessionId) ? props.sidebar.assistantProfile?.name ?? t("assistant.title") : sessionInfo(props.selectedSessionId)?.title ?? workspacePanel.tabs.find(tab => tab.type === "chat" && tab.sessionId === props.selectedSessionId)?.label ?? sessionTitleForId(props.sidebar.workspaceSessionGroups, props.selectedSessionId),
+    [props.selectedSessionId, props.sidebar.workspaceSessionGroups, isAssistantChat, sessionInfo, props.sidebar.assistantProfile?.name, workspacePanel.tabs],
   );
   useEffect(() => {
     if (!assistantWorkspace) return;
@@ -948,7 +948,7 @@ export function SessionPage(props: SessionPageProps) {
       reactSessionToken &&
       props.surface,
   );
-  const canRenderWorkspace = canRenderReactSurface || Boolean(props.legalworkServerClient && props.runtimeWorkspaceId);
+  const canRenderWorkspace = canRenderReactSurface || Boolean(props.legalworkServerClient && props.runtimeWorkspaceId) || workspacePanel.tabs.length > 0;
   // The chat owns snapshot loading once its endpoint is ready. Background
   // workspace refreshes must not unmount an already-visible conversation.
   const showSessionLoadingState = !canRenderReactSurface &&
@@ -1587,7 +1587,7 @@ export function SessionPage(props: SessionPageProps) {
             sessionId={workspaceScope}
             controlSessionIds={controlSessionIds}
             client={props.legalworkServerClient}
-            workspaceId={props.runtimeWorkspaceId}
+            workspaceId={props.runtimeWorkspaceId ?? props.selectedWorkspaceId}
             workspaceRoot={props.selectedWorkspaceRoot}
             isRemoteWorkspace={props.surface?.isRemoteWorkspace ?? false}
             projects={props.workspaces.map(workspace => ({ id: workspace.id, name: workspace.displayName || workspace.name || workspace.id }))}
@@ -1608,12 +1608,12 @@ export function SessionPage(props: SessionPageProps) {
                 openSessionTab(props.selectedWorkspaceId, id);
               }
             }}
-            onNewChat={assistantWorkspace ? undefined : pane => { void props.sidebar.onCreateChatInWorkspace(props.selectedWorkspaceId, { paneId: pane }); }}
+            onNewChat={assistantWorkspace || !props.legalworkServerClient || !props.runtimeWorkspaceId ? undefined : pane => { void props.sidebar.onCreateChatInWorkspace(props.selectedWorkspaceId, { paneId: pane }); }}
             onFocusChat={id => openSessionTab(props.selectedWorkspaceId, id)}
             onCloseChat={(id, nextId) => {
               if (id === props.selectedSessionId) navigate(wikiWorkspace ? wikiWorkspaceRoute(props.selectedWorkspaceId, nextId) : workspaceSessionRoute(props.selectedWorkspaceId, nextId) + (nextId ? "" : "?view=workspace"), { replace: true });
             }}
-            renderChat={(sessionId, active) => props.surface ? <WorkspaceChat
+            renderChat={(sessionId, active) => props.surface && props.legalworkServerClient && props.runtimeWorkspaceId && reactSessionBaseUrl && reactSessionToken ? <WorkspaceChat
               {...props.surface!}
               assistantDate={isAssistantChat(sessionId) ? props.sidebar.assistantDay?.date : undefined}
               assistantOnboarding={isAssistantChat(sessionId) ? props.surface.assistantOnboarding : undefined}
@@ -1632,7 +1632,7 @@ export function SessionPage(props: SessionPageProps) {
               realtimeVoiceSupported={active && realtimeVoiceSupported}
               realtimeVoiceActive={active && voiceSidePanelOpen}
               onRealtimeVoiceActiveChange={active => active ? setCurrentSidePanel("voice") : closeVoicePanel()}
-            /> : <div className="p-6 text-muted-foreground">{t("session.loading_detail")}</div>}
+            /> : <DisconnectedChat workspaceId={props.runtimeWorkspaceId ?? props.selectedWorkspaceId} sessionId={sessionId} />}
           />
         </ControlActionScope>
       </DocumentPane>}
