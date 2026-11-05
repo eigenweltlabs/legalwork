@@ -27,6 +27,20 @@ async function entries(directory: string): Promise<string[]> {
   return [directory, ...(await Promise.all(children.map(name => entries(join(directory, name))))).flat()];
 }
 
+async function directories(root: string): Promise<string[]> {
+  const result: string[] = [];
+  const pending = [root];
+  while (pending.length) {
+    const directory = pending.pop();
+    if (!directory) continue;
+    result.push(directory);
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      if (entry.isDirectory() && !entry.isSymbolicLink()) pending.push(join(directory, entry.name));
+    }
+  }
+  return result;
+}
+
 async function pinMac(directory: string): Promise<PinResult> {
   // macOS has no public third-party setter for Finder's persistent pin. Use
   // Finder's File Provider attribute only after its own diagnostic identifies
@@ -36,11 +50,15 @@ async function pinMac(directory: string): Promise<PinResult> {
     throw error;
   });
   if (!/\bisKeepDownloaded\s*=\s*[01];/.test(before)) return "unsupported";
-  const paths = await entries(directory);
-  for (let offset = 0; offset < paths.length; offset += 50) {
-    await run("/usr/bin/xattr", ["-s", "-w", pinAttribute, "1", ...paths.slice(offset, offset + 50)]);
+  // Pin folders, as Finder does. Files inherit their containing folder's policy. Writing
+  // an attribute onto every cloud-only helper can itself hydrate its contents
+  // and make a large batch time out after the folder was already pinned.
+  await run("/usr/bin/xattr", ["-s", "-w", pinAttribute, "1", directory]);
+  const folders = await directories(directory);
+  for (let offset = 1; offset < folders.length; offset += 50) {
+    await run("/usr/bin/xattr", ["-s", "-w", pinAttribute, "1", ...folders.slice(offset, offset + 50)]);
   }
-  for (let attempt = 0; attempt < 6; attempt++) {
+  for (let attempt = 0; attempt < 20; attempt++) {
     const after = await run("/usr/bin/fileproviderctl", ["evaluate", directory]);
     if (/\bisKeepDownloaded\s*=\s*1;/.test(after)) return "requested";
     await new Promise(done => setTimeout(done, 250));
@@ -161,7 +179,7 @@ export async function keepProjectStateDownloaded(root: string): Promise<void> {
       if (error instanceof Error && "code" in error && error.code === "ENOENT") return;
       if (!warnings.has(directory)) {
         warnings.add(directory);
-        console.warn(`[project-availability] Could not request Keep Downloaded for ${directory}; use the storage client's offline option. Project access will continue.`);
+        console.warn(`[project-availability] Could not confirm Keep Downloaded for ${directory}; use the storage client's offline option. Project access will continue.`);
       }
     }
   }));
