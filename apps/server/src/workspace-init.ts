@@ -10,6 +10,7 @@ import { legalworkConfigPath, opencodeConfigPath } from "./workspace-files.js";
 import { readJsoncFile } from "./jsonc.js";
 import { ensureOpencodeStateDir } from "./opencode-state-dir.js";
 import type { ReloadReason } from "./types.js";
+import { keepProjectStateDownloaded } from "./project-availability.js";
 
 // One hash over all bundled-core file contents. Bumps whenever the app ships a new
 // version of these files, which triggers a refresh of the private shared library.
@@ -117,6 +118,7 @@ export async function ensureWorkspaceFiles(workspaceRoot: string, presetInput: s
   // engine's instance bootstrap throw EEXIST, which 500s every route for this
   // workspace (issue #62).
   const stateDir = await ensureOpencodeStateDir(workspaceRoot);
+  await keepProjectStateDownloaded(workspaceRoot);
   if (stateDir.movedTo) {
     console.warn(
       `[workspace-init] ${stateDir.path} was a file, not a folder; moved it to ${stateDir.movedTo} so OpenCode can start.`,

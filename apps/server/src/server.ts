@@ -99,6 +99,7 @@ import { recordAudit, readAuditEntries, readLastAudit } from "./audit.js";
 import { ReloadEventStore } from "./events.js";
 import { computeReloadFingerprint } from "./reload-fingerprint.js";
 import { startReloadWatchers } from "./reload-watcher.js";
+import { keepProjectStateDownloaded } from "./project-availability.js";
 import { globalOpencodeConfigDir, globalSkillsDir, opencodeConfigPath, legalworkConfigPath, projectCommandsDir, projectPluginsDir, projectSkillsDir } from "./workspace-files.js";
 import { ensureDir, exists, hashToken, shortId, tokensMatch } from "./utils.js";
 import { ensureWorkspaceFiles, readRawOpencodeConfig } from "./workspace-init.js";
@@ -856,6 +857,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
   const logger = createServerLogger(config);
   const wikiStore = new WikiStore(config);
   await wikiStore.list();
+  if (!config.readOnly) await Promise.all(config.workspaces.map(workspace => keepProjectStateDownloaded(workspace.path)));
   let watcherHandle = startReloadWatchers({ config, reloadEvents, logger });
   reloadBaselineRefreshers.set(
     config,

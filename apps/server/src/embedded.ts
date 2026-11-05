@@ -15,6 +15,7 @@ import { resolveServerConfig, type CliArgs } from "./config.js";
 import { resolveEngineExecutable, type ManagedOpencodeServer, type OpencodeExecutionSnapshot } from "./managed-opencode.js";
 import { startServer } from "./server.js";
 import { ensureWorkspaceFiles } from "./workspace-init.js";
+import { keepProjectStateDownloaded } from "./project-availability.js";
 import { globalSkillsDir } from "./workspace-files.js";
 import { ensureBundledWorkflows } from "./bundled-workflows.js";
 import { retireSharedLegacyReview } from "./reviews/retire-legacy.js";
@@ -102,6 +103,9 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
   config.pickDirectory = options.pickDirectory ?? null;
   config.projectsDirectory = options.projectsDirectory;
   config.recorder = options.recorder ?? null;
+  // Request pins before any startup reader can hydrate project configuration.
+  // This also covers existing projects; new folders are pinned at creation.
+  if (!config.readOnly) await Promise.all(config.workspaces.map(workspace => keepProjectStateDownloaded(workspace.path)));
 
   // Spawn managed OpenCode if requested and no explicit base URL was provided.
   const managed: {
