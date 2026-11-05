@@ -98,6 +98,7 @@ import type { OpenTargetOptions } from "@/lib/target-provider";
 import { SidePanel } from "../panel/side-panel";
 import { DocumentPane } from "../panel/document-pane";
 import { WorkspaceChat } from "./workspace-chat";
+import { DisconnectedChat } from "./disconnected-chat";
 import { isAssistantConversation } from "./assistant-conversation";
 import { subagentTabLifecycle } from "../panel/subagent-tab-lifecycle";
 import { useSessionActivityStore } from "../status/session-activity-store";
@@ -1501,9 +1502,7 @@ export function SessionPage(props: SessionPageProps) {
                       </div>
                     </div>
                   ) : props.selectedSessionId ? (
-                    <div className="px-6 py-16 text-center text-sm text-dls-secondary">
-                      {t("session.loading_detail")}
-                    </div>
+                    <DisconnectedChat workspaceId={props.selectedWorkspaceId} sessionId={props.selectedSessionId} />
                   ) : (
                     <WelcomeSurface replayKey={props.selectedWorkspaceId}>
                       <TaskSuggestionCards
