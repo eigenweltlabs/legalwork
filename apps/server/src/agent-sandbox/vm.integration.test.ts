@@ -136,6 +136,7 @@ PY` });
 python3 - <<'PY'
 import docx, openpyxl, pptx, pypdf, reportlab, PIL
 from reportlab.pdfgen import canvas
+assert tuple(map(int, pypdf.__version__.split('.'))) >= (6, 21, 4)
 d = docx.Document(); d.add_paragraph('protected document'); d.save('probe.docx')
 assert docx.Document('probe.docx').paragraphs[0].text == 'protected document'
 w = openpyxl.Workbook(); w.active['A1'] = 42; w.save('probe.xlsx')
