@@ -110,8 +110,10 @@ export function registerStorageRoutes({
     !config.readOnly &&
     (ctx.actor?.type === "host" || ctx.actor?.scope === "owner" || ctx.actor?.scope === "collaborator");
   const lookup = async (workspaceId: string, id: string) => {
-    const item = isTeamStorage(id)
-      ? (await team.list(workspaceId)).connections.find((item) => item.id === id)
+    const shared = isTeamStorage(id) ? await team.list(workspaceId) : null;
+    if (shared?.status.error) throw new ApiError(503, "storage_team_unavailable", shared.status.error);
+    const item = shared
+      ? shared.connections.find((item) => item.id === id)
       : (await personal(workspaceId)).find((item) => item.id === id);
     if (!item)
       throw new ApiError(404, "storage_not_found", "This team connection is unavailable. Refresh Memory Drive.");
@@ -248,6 +250,7 @@ export function registerStorageRoutes({
     });
     return jsonResponse({
       ...(shared.status.error ? { teamError: shared.status.error } : {}),
+      ...(shared.unavailable ? { unavailableRoots: shared.unavailable.filter(item => owner || !item.ownerOnly).map(item => item.root) } : {}),
       roots: [...linkedRoots, ...connections
         .map((item) => ({
           id: item.id,

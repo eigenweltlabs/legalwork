@@ -130,11 +130,12 @@ function LegalMemoryFilesPanelContent({
     return () => window.removeEventListener(STORAGE_CHANGED_EVENT, refreshStorage);
   }, [storageRoots.refetch, storageQueryClient, workspaceId]);
   const allStorageRoots = storageRoots.data?.roots ?? [];
+  const unavailableStorageRoots = storageRoots.data?.unavailableRoots ?? [];
   // Linked folders scope the agent's tools; don't duplicate their source tree or search results.
   const browserRoots = allStorageRoots.filter((root) => !root.sourceConnectionId || !allStorageRoots.some((source) => source.id === root.sourceConnectionId));
   const storageCatalogRevision = JSON.stringify(browserRoots.map((root) => [root.id, root.revision, root.writable]));
   const storageRefreshKey = `${storageRevision}:${storageCatalogRevision}`;
-  const hasStorage = browserRoots.length > 0;
+  const hasStorage = browserRoots.length > 0 || unavailableStorageRoots.length > 0;
 
   const rootsQuery = useQuery({
     queryKey: ["legalmemory-tree-roots", workspaceId, client?.baseUrl] as const,
@@ -401,15 +402,24 @@ function LegalMemoryFilesPanelContent({
           })}
         </section>}
 
-        {client && workspaceId && hasStorage ? (
+        {client && workspaceId && (hasStorage || storageRoots.data?.teamError) ? (
           <div className={cn("min-h-0 overflow-y-auto", rootsQuery.data?.roots.length ? "max-h-[60%] shrink-0 border-b border-border/50" : "flex-1")}>
-            {searchQuery ? <StorageDriveSearch key={`${workspaceId}:${searchQuery}:${storageRefreshKey}`} client={client} workspaceId={workspaceId} roots={browserRoots} query={searchQuery} refreshKey={storageRefreshKey} onOpenFile={onOpenStorageFile} onConnectStorage={onConnectStorage} /> : null}
-            <div hidden={Boolean(searchQuery)}>
-            <StorageDriveTree key={workspaceId} client={client} workspaceId={workspaceId} roots={browserRoots} onOpenFile={onOpenStorageFile} onConnectStorage={onConnectStorage} />
-            </div>
+            {browserRoots.length > 0 ? <>
+              {searchQuery ? <StorageDriveSearch key={`${workspaceId}:${searchQuery}:${storageRefreshKey}`} client={client} workspaceId={workspaceId} roots={browserRoots} query={searchQuery} refreshKey={storageRefreshKey} onOpenFile={onOpenStorageFile} onConnectStorage={onConnectStorage} /> : null}
+              <div hidden={Boolean(searchQuery)}>
+                <StorageDriveTree key={workspaceId} client={client} workspaceId={workspaceId} roots={browserRoots} onOpenFile={onOpenStorageFile} onConnectStorage={onConnectStorage} />
+              </div>
+            </> : null}
+            {unavailableStorageRoots.map(root => (
+              <div key={root.id} role="status" aria-disabled="true" className="flex items-center gap-2 px-4 py-2 text-xs text-muted-foreground" title={storageRoots.data?.teamError}>
+                <HardDrive className="size-4 shrink-0" />
+                <span className="min-w-0 flex-1 truncate">{root.name}</span>
+                <span>{t("project_browser.file_unavailable")}</span>
+              </div>
+            ))}
+            {storageRoots.data?.teamError ? <p role="alert" className="px-4 py-2 text-xs text-destructive">{storageRoots.data.teamError}</p> : null}
           </div>
         ) : null}
-        {storageRoots.data?.teamError ? <p role="alert" className="px-4 py-2 text-xs text-destructive">{storageRoots.data.teamError}</p> : null}
         {storageRoots.isError ? <div role="alert" className="px-4 py-2 text-xs text-destructive">{storageRoots.error.message}<Button variant="ghost" size="sm" onClick={() => void storageRoots.refetch()}>{t("storage.retry")}</Button></div> : null}
         {storageRoots.isLoading && !hasStorage ? <div className="flex items-center gap-2 px-4 py-2 text-xs text-muted-foreground"><Loader2 className="size-3 animate-spin" />{t("storage.loading")}</div> : null}
 

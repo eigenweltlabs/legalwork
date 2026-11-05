@@ -35,6 +35,28 @@ function renderSearch(cache: QueryClient, searchRoots = roots) {
 }
 
 describe("Memory Drive filename search", () => {
+  test("keeps unavailable firm names visible without browse actions or a setup prompt", async () => {
+    const cache = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    cache.setQueryData(["storage-roots", "workspace", client.baseUrl], {
+      roots: [], unavailableRoots: [{ id: "team:shared", name: "Firm documents", kind: "s3", writable: false }],
+      teamError: "Team connections could not sync. Try again.",
+    });
+    await cache.prefetchQuery({
+      queryKey: ["legalmemory-tree-roots", "workspace", client.baseUrl],
+      queryFn: () => { throw new LegalworkServerError(409, "legalmemory_not_configured", "Connect LegalMemory"); },
+    });
+    const html = renderToStaticMarkup(<QueryClientProvider client={cache}>
+      <LegalMemoryFilesPanel client={client} workspaceId="workspace" onOpenFile={() => {}} onOpenStorageFile={() => {}} onClose={() => {}} />
+    </QueryClientProvider>);
+    expect(html).toContain('role="status" aria-disabled="true"');
+    expect(html).toContain("Firm documents");
+    expect(html).toContain("Connection unavailable");
+    expect(html).toContain("Team connections could not sync. Try again.");
+    expect(html).not.toContain('aria-label="Firm documents"');
+    expect(html).not.toContain("Connect file storage");
+    expect(html).not.toContain('aria-label="New folder"');
+    cache.clear();
+  });
   test("cloud search presents readable locations while keeping native identities in its source data", () => {
     const cache = new QueryClient();
     const root: StorageRoot = { id: "google", name: "Google Drive", kind: "oauth", provider: "google-drive", writable: true };
