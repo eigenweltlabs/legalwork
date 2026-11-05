@@ -32,6 +32,6 @@ export function LauncherTransferForm({ transfer, onClose }: { transfer: Launcher
     <p>{project?.displayName || project?.name} · {remaining.length} {t("launcher.kind.files")}</p>
     <LauncherFolderPicker workspaceId={transfer.workspaceId} value={folder} onChange={setFolder} autoFocus disabled={busy} />
     {error && <p role="alert" className="text-destructive text-sm">{error}</p>}
-    <div className="launcher-form-actions"><Button type="button" variant="ghost" disabled={busy} onClick={onClose}>{t("common.cancel")}<kbd>Esc</kbd></Button><Button disabled={busy} type="submit">{busy ? t("launcher.flow.saving") : t(transfer.mode === "copy" ? "launcher.result_action.copy-to-project" : "launcher.result_action.move-to-project")}<LauncherSubmitHint /></Button></div>
+    <div className="launcher-form-actions"><Button type="button" variant="ghost" disabled={busy} onClick={onClose}>{t("common.cancel")}<kbd>Esc</kbd></Button><Button disabled={busy} type="submit">{busy ? t("launcher.flow.saving") : t(transfer.mode === "copy" ? "launcher.transfer.copy" : "launcher.transfer.move")}<LauncherSubmitHint /></Button></div>
   </LauncherForm>;
 }

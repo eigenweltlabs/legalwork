@@ -139,7 +139,7 @@ the selected source. Switching to another category clears the file source filter
 
 To change the result order, type **sort** or **sorted** (**sortieren** in German)
 and press **Enter** on **Sort results**. Use **Up/Down** to choose **Name A–Z**,
-**Name Z–A**, **Most recently updated**, **Oldest updated first**, or **Relevance**,
+**Name Z–A**, **Most recent**, **Oldest**, or **Relevance**,
 then press **Enter**. **Esc** or **Left** closes the menu without changing the
 order. The sort chip reopens this menu; its remove button restores relevance.
 This works for search categories such as files and tasks and when browsing a
@@ -162,10 +162,13 @@ When saving a document, use **Tab** to reach **Project**, then **Enter**,
 **Space**, or **Down** to open its dropdown. Choose with **Up/Down** and
 **Enter**. The **Folder** picker starts at **Project root** or your current
 folder. Type to narrow the folders shown, press **Down** to select one, and
-**Enter** or **Right** to browse inside it. **Left** goes up; **Use this folder**
-or **Command+Enter** (**Ctrl+Enter** on Windows) confirms the current folder,
-using the same confirmation shortcut as Save. **Esc** closes the picker before leaving the form.
-The same folder picker is available when copying or moving files.
+**Enter** or **Right** to browse inside it. **Left** goes up. With a folder row
+focused, **Command+Enter** (**Ctrl+Enter** on Windows) selects that folder
+directly; the button reads **Use folder {name}**. Returning focus to the search
+field changes it back to **Use this folder**, confirming the folder currently
+being browsed. **Esc** closes the picker before leaving the form.
+The same folder picker is available when copying or moving files. Finish those
+forms with **Copy** or **Move**, or use the same Command/Ctrl+Enter shortcut.
 
 File search, templates and recent items are checked against the files that
 currently exist. Deleted files and folders drop out of the mini-bar; browsing

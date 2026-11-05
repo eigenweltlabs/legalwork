@@ -132,6 +132,7 @@ html.launcher-window, html.launcher-window body, html.launcher-window #root { ba
 .launcher-chip > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .launcher-chip button { flex-shrink: 0; }
 .launcher-chip button.launcher-chip-label { display: block; flex-shrink: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; margin-left: 0; opacity: 1; }
+.launcher-chip[data-kind="sort"] { flex-shrink: 0; max-width: none; }
 
 .launcher-root[data-form-active="true"] .launcher-entry,
 .launcher-root[data-form-active="true"] .launcher-footer,
