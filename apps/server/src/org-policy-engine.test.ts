@@ -285,7 +285,7 @@ describe("the firm's tool permissions in the engine", () => {
 describe("the guard plugin", () => {
   test("native evaluation preserves stricter rules and requires firm approval after saved grants", async () => {
     process.env.LEGALWORK_SERVER_URL = "http://legalwork.test";
-    let guard: Record<string, unknown> = { orgName: "Kanzlei", permission: [{ action: "shell", resource: "*", effect: "ask" }, { action: "shell", resource: "rm *", effect: "deny" }, { action: "edit", resource: "*", effect: "ask" }], blockedMcpServers: ["crm"], allowedProviders: ["eigenwelt"] };
+    let guard: Record<string, unknown> = { orgName: "Kanzlei", permission: [{ action: "shell", resource: "*", effect: "ask" }, { action: "shell", resource: "rm *", effect: "deny" }, { action: "edit", resource: "*", effect: "ask" }], blockedMcpServers: ["crm"], allowedProviders: ["eigenwelt"], allowedModels: { eigenwelt: ["allowed"] } };
     fakeFetch((url) => (url.endsWith("/org-policy/guard") ? Response.json(guard) : new Response(null, { status: 404 })));
     const runtime = nativePluginTestRuntime();
     await runtime.start(LegalWorkOrgPolicyGuard);
@@ -302,7 +302,8 @@ describe("the guard plugin", () => {
     expect(await call("crm_search", "*")).toBe("deny");
     await expect(runtime.hook("tool", "execute.before", { tool: "crm_search" })).rejects.toThrow('the connector "crm"');
     await expect(runtime.hook("session", "model.request", { model: { providerID: "custom" } })).rejects.toThrow('the AI provider "custom"');
-    await runtime.hook("session", "model.request", { model: { providerID: "eigenwelt" } });
+    await runtime.hook("session", "model.request", { model: { providerID: "eigenwelt", id: "allowed" } });
+    await expect(runtime.hook("session", "model.request", { model: { providerID: "eigenwelt", id: "blocked" } })).rejects.toThrow('the AI model "blocked"');
 
     // Nothing enforced: everything goes through.
     setSystemTime(new Date(Date.now() + 20_000));
@@ -401,7 +402,9 @@ describe("the firm's own providers", () => {
 
   test.skipIf(!process.env.LEGALWORK_TEST_OPENCODE_BIN)("restricted firm DigitalOcean models generate while excluded models stay blocked across restart and refresh", async () => {
     const calls: string[] = [];
+    let allowedModels: Record<string, string[]> = {};
     const provider = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
+      if (new URL(request.url).pathname === "/org-policy/guard") return Response.json({ orgName: "Fixture firm", permission: [], blockedMcpServers: [], allowedProviders: null, allowedModels });
       const { model } = z.object({ model: z.string() }).parse(await request.json());
       calls.push(model);
       const chunk = (delta: unknown, finish_reason: string | null) => `data: ${JSON.stringify({ id: "fixture", object: "chat.completion.chunk", created: 1, model, choices: [{ index: 0, delta, finish_reason }] })}\n\n`;
@@ -416,11 +419,15 @@ describe("the firm's own providers", () => {
     await writeLegalworkRuntimeConfigFile(config, "ws_1");
     const published = await readManagedEngineSettings(managedEngineSettingsFilePath(config), config.workspaces[0]!.path);
     expect(published.providerModelSelection).toEqual({ digitalocean: ["allowed"] });
+    allowedModels = published.providerModelSelection ?? {};
     let settingsPath = "";
     const writeSettings = (directory: string, selections = published.providerModelSelection) => writeFile(settingsPath, JSON.stringify({ version: 2, sharedConfiguration: {}, workspaces: {
       fixture: { ...published, directory, providerModelSelection: selections },
     } }));
     globalThis.fetch = realFetch;
+    const previousServerUrl = process.env.LEGALWORK_SERVER_URL;
+    process.env.LEGALWORK_SERVER_URL = provider.url.origin;
+    cleanups.push(() => { if (previousServerUrl === undefined) delete process.env.LEGALWORK_SERVER_URL; else process.env.LEGALWORK_SERVER_URL = previousServerUrl; });
     const engine = await nativeMcpEngine(async root => {
       settingsPath = join(root, "settings.json"); await writeSettings(join(root, "project"));
       await writeFile(join(root, "project", "opencode.json"), JSON.stringify({ providers: { digitalocean: definition, fallback: definition } }));
@@ -428,8 +435,13 @@ describe("the firm's own providers", () => {
       const built = await Bun.build({ entrypoints: [fileURLToPath(new URL("./opencode-plugins/legalwork-managed-config.ts", import.meta.url))], outdir: plugin,
         naming: "index.js", target: "node", format: "esm", external: ["@opencode/plugin", "@opencode/plugin/*", "effect", "effect/*"] });
       if (!built.success) throw new AggregateError(built.logs, "Firm selection plugin build failed");
+      const guardPlugin = join(root, "guard-plugin");
+      const guardBuild = await Bun.build({ entrypoints: [fileURLToPath(new URL("./opencode-plugins/legalwork-org-policy-guard.ts", import.meta.url))], outdir: guardPlugin,
+        naming: "index.js", target: "node", format: "esm", external: ["@opencode/plugin", "@opencode/plugin/*", "effect", "effect/*"] });
+      if (!guardBuild.success) throw new AggregateError(guardBuild.logs, "Firm guard plugin build failed");
       return { plugins: [
         { package: plugin, options: { settingsPath } },
+        guardPlugin,
       ] };
     });
     cleanups.push(() => engine.close());
@@ -446,15 +458,27 @@ describe("the firm's own providers", () => {
       expect((await generate("digitalocean", "allowed")).text).toBe("firm selection enforced");
       await expect(generate("digitalocean", "blocked")).rejects.toThrow();
       await expect(generate("digitalocean", "unknown")).rejects.toThrow();
-      await expect(client.generate.text({ model: { providerID: "digitalocean", id: "blocked" }, prompt: "Fixture" })).rejects.toThrow();
       expect((await generate("fallback", "blocked")).text).toBe("firm selection enforced");
     }
     expect(calls).toEqual(["allowed", "blocked", "allowed", "blocked"]);
+    // Native explicit overrides run after external catalog transforms. Even
+    // an authored re-enable must fail at actual session request admission.
+    await writeFile(join(engine.directory, "opencode.json"), JSON.stringify({ providers: {
+      digitalocean: { ...definition, models: { allowed: {}, blocked: { disabled: false } } }, fallback: definition,
+    } }));
+    await engine.restart();
+    const permitted = await engine.client().session.create({ location: engine.location, model: { providerID: "digitalocean", id: "allowed" } });
+    expect((await engine.client().session.generate({ sessionID: permitted.id, prompt: "Fixture" })).text).toBe("firm selection enforced");
+    const rejected = await engine.client().session.create({ location: engine.location, model: { providerID: "digitalocean", id: "blocked" } });
+    await expect(engine.client().session.generate({ sessionID: rejected.id, prompt: "Fixture" })).rejects.toThrow();
+    expect(calls).toEqual(["allowed", "blocked", "allowed", "blocked", "allowed"]);
     await writeSettings(engine.directory, { digitalocean: [] });
+    // Remove the hostile override to exercise the ordinary empty-inventory UI.
+    await writeFile(join(engine.directory, "opencode.json"), JSON.stringify({ providers: { digitalocean: definition, fallback: definition } }));
+    await engine.restart();
     await engine.client().rpc(managedSettingsRpc).refresh({}, { location: engine.location });
     expect((await engine.client().model.list({ location: engine.location })).data.some(model => model.providerID === "digitalocean")).toBe(false);
-    await expect(engine.client().generate.text({ model: { providerID: "digitalocean", id: "allowed" }, prompt: "Fixture" })).rejects.toThrow();
-    expect(calls).toHaveLength(4);
+    expect(calls).toHaveLength(5);
   }, 60_000);
 
   test.skipIf(!nativeMcpBinary)("released engine keeps firm-allowed OpenAI disconnected until a native credential exists", async () => {

@@ -6,6 +6,7 @@ const action = z.enum(["allow", "ask", "deny"]);
 const guardSchema = z.object({ orgName: z.string().nullable(),
   permission: z.array(z.object({ action: z.string(), resource: z.string(), effect: action })),
   blockedMcpServers: z.array(z.string()), allowedProviders: z.array(z.string()).nullable(),
+  allowedModels: z.record(z.string(), z.array(z.string())).default({}),
 });
 type Guard = z.infer<typeof guardSchema>;
 const STRICTNESS = { allow: 0, ask: 1, deny: 2 };
@@ -75,6 +76,8 @@ export const LegalWorkOrgPolicyGuard = Plugin.define({ id: "legalwork.org-policy
   await ctx.session.hook("model.request", async event => {
     const guard = await readGuard();
     if (guard.allowedProviders && !guard.allowedProviders.includes(event.model.providerID)) throw refusal(guard.orgName, 'the AI provider "' + event.model.providerID + '"');
+    const allowed = guard.allowedModels[event.model.providerID];
+    if (allowed && !allowed.includes(event.model.id)) throw refusal(guard.orgName, 'the AI model "' + event.model.id + '"');
   });
 } });
 export default LegalWorkOrgPolicyGuard;

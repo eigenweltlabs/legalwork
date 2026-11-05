@@ -284,7 +284,7 @@ import { firmHubConnectorNames, firmHubSkills, onFirmHubChange, readFirmHubSkill
 import { appliedOrgPolicy, onOrgPolicyChange, readOrgPolicyView, releaseOrgPolicyKey, requireOrgPolicyAllows, requireOrgPolicyToolsUnmanaged, requireOrgPolicyUnmanaged, scheduleOrgPolicySync } from "./org-policy.js";
 import { orgPolicyEngineLayerIntact, orgPolicyPermissions, writeOrgPolicyEngineLayer } from "./org-policy-engine.js";
 import { allowedMemberConnectors, requireConnectorAllowed, requireHubInstallAllowed } from "./org-policy-items.js";
-import { orgChatEngineIds, orgEnabledProviders, orgOcr } from "./org-policy-ai.js";
+import { orgChatEngineIds, orgChatModelSelection, orgEnabledProviders, orgOcr } from "./org-policy-ai.js";
 import { isOrgPolicyKey } from "./org-policy-schema.js";
 import {
   EIGENWELT_INTAKE_MAX_UPLOAD_BYTES,
@@ -3143,7 +3143,7 @@ function createRoutes(
     const blockedMcpServers = [...memberConnectors]
       .filter((name) => !allowed.has(name) && !firmConnectors.has(name))
       .map((name) => name.replace(/[^a-zA-Z0-9_-]/g, "_"));
-    return jsonResponse({ orgName: view.orgName, permission: enforced, blockedMcpServers, allowedProviders: await orgEnabledProviders(config) });
+    return jsonResponse({ orgName: view.orgName, permission: enforced, blockedMcpServers, allowedProviders: await orgEnabledProviders(config), allowedModels: await orgChatModelSelection(config, {}) });
   });
   addRoute(routes, "POST", "/org-policy/release", "client", async (ctx) => {
     requireClientScope(ctx, "owner");
