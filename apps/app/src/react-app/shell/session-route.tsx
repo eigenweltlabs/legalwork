@@ -2764,9 +2764,11 @@ export function SessionRoute() {
         onSelect: sessionProviderAuthStore.startProviderAuth,
         onSubmitApiKey: async (providerId, apiKey, answer) => {
           const result = await sessionProviderAuthStore.submitProviderApiKey(providerId, apiKey, answer);
-          modelPicker.setRecentProviderIds(new Set([providerId]));
-          modelPicker.setQuery("");
-          modelPicker.setOpen(true);
+          if (onboardingStage === "done") {
+            modelPicker.setRecentProviderIds(new Set([providerId]));
+            modelPicker.setQuery("");
+            modelPicker.setOpen(true);
+          }
           return result;
         },
         onSubmitCustomProvider: sessionProviderAuthStore.submitCustomProvider,

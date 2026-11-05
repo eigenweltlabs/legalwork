@@ -10,7 +10,7 @@ For ChatGPT, choose **Add provider > Continue with ChatGPT**, complete sign-in i
 
 Select a connected model using the chat's model picker. Search by model or provider. Disabling a provider in the picker hides its models from selection; disconnecting its credentials is a separate settings action. A model listed by a provider may still be unavailable to your account, region or quota. Use the actual provider error to diagnose this.
 
-When no chat model has been selected yet, connecting your first provider selects its available default model automatically, including during onboarding. You can change it in the chat's model picker. An existing available selection is kept. If Azure discovery replaces catalog model IDs with deployment names, the selection follows an available deployment from the same provider.
+When no chat model has been selected yet, connecting your first provider selects its available default model automatically, including during onboarding. Onboarding continues to the remaining setup steps without opening the chat's model picker. You can change the model in the chat's model picker after setup. An existing available selection is kept. If Azure discovery replaces catalog model IDs with deployment names, the selection follows an available deployment from the same provider.
 
 If a provider is connected but no model is selected, the Home composer shows **Select model**, which opens the model picker. **Connect a model provider** appears when no provider is connected.
 
