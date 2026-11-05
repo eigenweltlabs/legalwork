@@ -1,3 +1,4 @@
+import { existingLauncherFiles } from "../launcher-file-visibility.js";
 import { createLauncherDocument } from "../launcher-document.js";
 import { browseLauncherDirectory } from "../launcher-browse.js";
 import { constants as fsConstants } from "node:fs";
@@ -9,7 +10,7 @@ import { recordAudit } from "../audit.js";
 import { shortId } from "../utils.js";
 import { launcherDestination } from "../launcher-file-destination.js";
 import { z } from "zod";
-import { AssistantContextItemSchema, AssistantWorkStatusSchema, LAUNCHER_SEARCH_KINDS, LauncherFileTransferInputSchema, LauncherInvocationSchema, LauncherInvocationSourceSchema, LauncherSearchKindSchema, QuickActionInputSchema, SavedSearchInputSchema } from "@legalwork/types/launcher";
+import { AssistantContextItemSchema, AssistantWorkStatusSchema, LAUNCHER_SEARCH_KINDS, LauncherFileTransferInputSchema, LauncherInvocationSchema, LauncherInvocationSourceSchema, LauncherSearchKindSchema, LauncherSearchResultSchema, QuickActionInputSchema, SavedSearchInputSchema } from "@legalwork/types/launcher";
 import { ApiError } from "../errors.js";
 import { assistantRequestAuthority, assertAssistantDispatchAuthority } from "../assistant-session-access.js";
 import { isMainAssistant } from "../main-assistant.js";
@@ -51,6 +52,26 @@ export function registerLauncherRoutes(options: Parameters<typeof registerMainAs
     return jsonResponse(result, 201);
   });
   addRoute(routes, "GET", "/launcher/folders", "client", async ctx => { read(ctx); return jsonResponse({ folders: options.searchFolders.list() }); });
+  // Read-only validation of cached recent files and configured search roots.
+  addRoute(routes, "POST", "/launcher/files/visible", "client", async ctx => {
+    read(ctx);
+    const { items } = parse(z.object({ items: z.array(LauncherSearchResultSchema).max(100) }), await options.readJsonBodyLimited(ctx.request, 256_000), "launcher_files", "Choose files to check.");
+    const groups = new Map<string, typeof items>();
+    for (const item of items) {
+      if (item.kind !== "files") continue;
+      const key = item.folderId ? `folder:${item.folderId}` : `workspace:${item.workspaceId}`;
+      const group = groups.get(key) ?? [];
+      group.push(item); groups.set(key, group);
+    }
+    const visible = await Promise.all([...groups.values()].map(async group => {
+      const first = group[0];
+      try {
+        const root = first.folderId ? (await options.searchFolders.root(first.folderId)).path : first.workspaceId ? (await options.resolveWorkspace(config, first.workspaceId)).path : null;
+        return root ? await existingLauncherFiles(root, group) : [];
+      } catch { return []; }
+    }));
+    return jsonResponse({ items: visible.flat() });
+  });
   addRoute(routes, "GET", "/launcher/browse", "client", async ctx => {
     read(ctx);
     const input = parse(z.object({ workspaceId: z.string().min(1).optional(), folderId: z.string().min(1).optional(), path: z.string().max(4096).default("") }), Object.fromEntries(ctx.url.searchParams), "launcher_browse", "Choose a project or search folder.");
@@ -190,7 +211,7 @@ export function registerLauncherRoutes(options: Parameters<typeof registerMainAs
   // Previews read what the result points at; nothing here reaches a model.
   addRoute(routes, "GET", "/launcher/preview", "client", async ctx => {
     read(ctx);
-    const input = parse(z.object({ kind: LauncherSearchKindSchema, id: z.string().min(1).max(4096), workspaceId: z.string().max(200).optional(), folderId: z.string().max(100).optional() }), Object.fromEntries(ctx.url.searchParams), "launcher_preview", "Name the result to preview.");
+    const input = parse(z.object({ kind: LauncherSearchKindSchema, LauncherSearchResultSchema, id: z.string().min(1).max(4096), workspaceId: z.string().max(200).optional(), folderId: z.string().max(100).optional() }), Object.fromEntries(ctx.url.searchParams), "launcher_preview", "Name the result to preview.");
     const signal = AbortSignal.any([ctx.request.signal, AbortSignal.timeout(15_000)]);
     const workspaceOf = async () => { if (!input.workspaceId) throw new ApiError(400, "launcher_preview", "This preview needs a project."); return options.resolveWorkspace(config, input.workspaceId); };
     const size = (bytes: number) => bytes >= 1_048_576 ? `${(bytes / 1_048_576).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;

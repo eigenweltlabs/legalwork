@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import type { LauncherSearchResult } from "@legalwork/types/launcher";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { LauncherFolderPicker } from "./launcher-folder-picker";
 import { t } from "@/i18n";
 import { useLauncherShell } from "./launcher-shell";
 import { LauncherForm, LauncherSubmitHint } from "./launcher-form";
@@ -19,6 +19,7 @@ export function LauncherTransferForm({ transfer, onClose }: { transfer: Launcher
     if (running.current) return;
     running.current = true; setBusy(true); setError(null);
     try {
+      await client.listWorkspaceDirectory(transfer.workspaceId, folder);
       for (const item of remaining) {
         await client.transferLauncherFile({ sourceWorkspaceId: item.workspaceId ?? "", targetWorkspaceId: transfer.workspaceId, path: item.path ?? "", folder, mode: transfer.mode });
         setRemaining(items => items.filter(other => other !== item));
@@ -29,7 +30,7 @@ export function LauncherTransferForm({ transfer, onClose }: { transfer: Launcher
   };
   return <LauncherForm title={t(transfer.mode === "copy" ? "launcher.result_action.copy-to-project" : "launcher.result_action.move-to-project")} busy={busy} onClose={onClose} onSubmit={() => void submit()}>
     <p>{project?.displayName || project?.name} · {remaining.length} {t("launcher.kind.files")}</p>
-    <label>{t("launcher.flow.folder")}<Input value={folder} autoFocus disabled={busy} onChange={event => setFolder(event.target.value)} /></label>
+    <LauncherFolderPicker workspaceId={transfer.workspaceId} value={folder} onChange={setFolder} autoFocus disabled={busy} />
     {error && <p role="alert" className="text-destructive text-sm">{error}</p>}
     <div className="launcher-form-actions"><Button type="button" variant="ghost" disabled={busy} onClick={onClose}>{t("common.cancel")}<kbd>Esc</kbd></Button><Button disabled={busy} type="submit">{busy ? t("launcher.flow.saving") : t(transfer.mode === "copy" ? "launcher.result_action.copy-to-project" : "launcher.result_action.move-to-project")}<LauncherSubmitHint /></Button></div>
   </LauncherForm>;

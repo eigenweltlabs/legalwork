@@ -17,11 +17,13 @@ export function LauncherForm({ title, busy, onClose, onSubmit, children }: {
     wasBusy.current = busy;
   }, [busy]);
   return <form ref={form} tabIndex={-1} className="launcher-create-form" aria-label={title} aria-busy={busy}
-    onFocusCapture={event => { if (event.target !== form.current) { lastControl.current = event.target; event.target.scrollIntoView({ block: "nearest" }); } }}
+    onFocusCapture={event => { if (event.target !== form.current && form.current?.contains(event.target)) { lastControl.current = event.target; event.target.scrollIntoView({ block: "nearest" }); } }}
     onSubmit={event => { event.preventDefault(); if (!busy) onSubmit(); }}
     onKeyDown={event => {
       if (event.defaultPrevented || isComposingKeyEvent(event)) return;
       event.stopPropagation();
+      // Portalled dropdowns own Escape, Enter and Tab until they close.
+      if (event.target instanceof Node && !event.currentTarget.contains(event.target)) return;
       if (busy) { if (["Tab", "Enter", "Escape"].includes(event.key)) event.preventDefault(); return; }
       if (event.key === "Escape") { event.preventDefault(); onClose(); }
       else if ((isMacPlatform() ? event.metaKey : event.ctrlKey) && event.key === "Enter") {

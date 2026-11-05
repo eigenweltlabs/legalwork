@@ -24,6 +24,7 @@ export function useLauncherDetailItems(detail: LauncherDetail | null, query: str
   return useQuery<{ items: LauncherSearchResult[]; truncated: boolean }>({
     queryKey: ["launcher-detail-items", client.baseUrl, result?.workspaceId, result?.folderId, result?.path, category, directory ? null : query, directory ? null : filter],
     enabled: Boolean(result && (directory || category)),
+    staleTime: 0, refetchInterval: directory ? 2000 : false, refetchOnWindowFocus: "always",
     select: response => directory ? { ...response, items: response.items.filter(item => item.title.toLocaleLowerCase().includes(fileQuery) && matchesLauncherFileFilter(item, fileFilter)) } : response,
     queryFn: async ({ signal }) => {
       if (!result) return { items: [], truncated: false };

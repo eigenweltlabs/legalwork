@@ -1,3 +1,4 @@
+import { existingLauncherFiles } from "./launcher-file-visibility.js";
 import { isLauncherInternalPath } from "@legalwork/types/launcher";
 import { basename, extname } from "node:path";
 import { matchesSearch, searchExcerpt, type ContentSearchResponse, type ContentSearchResult } from "./search-schema.js";
@@ -103,13 +104,14 @@ export async function searchLauncher(deps: LauncherSearchDeps, input: LauncherSe
     await eachLimited(scoped, 4, async workspace => {
       const label = deps.projectName(workspace);
       try {
+        const fileItems: LauncherSearchResult[] = [];
         const index = await deps.fileIndex.ensure(workspace.id, workspace.path, false);
         const seen = new Set<string>();
         const filter = { types: input.fileTypes ?? null, modifiedAfter: input.modifiedAfter ?? null, browse: input.kinds.length === 1 };
         const passes = (path: string, updatedAt: number) => (!filter.types?.length || filter.types.includes(extname(path).replace(/^\./, "").toLowerCase())) && (filter.modifiedAfter === null || updatedAt >= filter.modifiedAfter);
         if (query || filter.browse || filter.types?.length || filter.modifiedAfter !== null) for (const found of deps.fileIndex.search(workspace.id, query, 40, filter)) {
           seen.add(found.entry.path);
-          items.push({ id: found.entry.path, kind: "files", workspaceId: workspace.id, sourceId: `local:${workspace.id}`, title: found.entry.name, subtitle: label, path: found.entry.path, updatedAt: found.entry.mtimeMs,
+          fileItems.push({ id: found.entry.path, kind: "files", workspaceId: workspace.id, sourceId: `local:${workspace.id}`, title: found.entry.name, subtitle: label, path: found.entry.path, updatedAt: found.entry.mtimeMs,
             revision: `${found.entry.mtimeMs}:${found.entry.size}`, fileType: found.entry.directory ? "folder" : found.entry.ext.replace(/^\./, ""), size: found.entry.size, match: found.match, score: found.score, actions: found.entry.directory ? ["open"] : FILE_ACTIONS });
         }
         const state = deps.fileIndex.state(workspace.id);
@@ -121,13 +123,15 @@ export async function searchLauncher(deps: LauncherSearchDeps, input: LauncherSe
             preparing = response.preparing ?? 0; limited ||= Boolean(response.limited);
             for (const result of response.items) {
               if (isLauncherInternalPath(result.id) || seen.has(result.id) || !result.sources?.length || !passes(result.id, result.updatedAt)) continue;
-              items.push({ id: result.id, kind: "files", workspaceId: workspace.id, sourceId: `local:${workspace.id}`, title: basename(result.id), subtitle: label, path: result.id, excerpt: result.sources[0]?.quote, updatedAt: result.updatedAt,
+              fileItems.push({ id: result.id, kind: "files", workspaceId: workspace.id, sourceId: `local:${workspace.id}`, title: basename(result.id), subtitle: label, path: result.id, excerpt: result.sources[0]?.quote, updatedAt: result.updatedAt,
                 fileType: extname(result.id).replace(/^\./, "").toLowerCase(), match: "content", score: 300, incomplete: result.incomplete, actions: FILE_ACTIONS, sources: result.sources });
             }
             coverage = preparing ? "indexing" : coverage === "indexing" ? "indexing" : limited ? "partial" : "complete";
           } catch { coverage = coverage === "indexing" ? "indexing" : "filename-only"; }
         }
-        source({ id: `files:${workspace.id}`, kind: "files", workspaceId: workspace.id, label, coverage, count: items.filter(item => item.kind === "files" && item.workspaceId === workspace.id).length, limited, preparing });
+        const visible = await existingLauncherFiles(workspace.path, fileItems);
+        items.push(...visible);
+        source({ id: `files:${workspace.id}`, kind: "files", workspaceId: workspace.id, label, coverage, count: visible.length, limited, preparing });
       } catch (error) { source({ id: `files:${workspace.id}`, kind: "files", workspaceId: workspace.id, label, coverage: "unavailable", count: 0, error: error instanceof Error ? error.message : String(error) }); }
     });
   }

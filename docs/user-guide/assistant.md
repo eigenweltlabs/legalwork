@@ -126,6 +126,19 @@ suggestions can be restored through **Hidden items**. The history and saved
 searches view lets you reopen previous conversations or reuse a search with
 its saved category and project.
 
+When saving a document, use **Tab** to reach **Project**, then **Enter**,
+**Space**, or **Down** to open its dropdown. Choose with **Up/Down** and
+**Enter**. The **Folder** picker starts at **Project root** or your current
+folder. Type to narrow the folders shown, press **Down** to select one, and
+**Enter** or **Right** to browse inside it. **Left** goes up; **Use this folder**
+confirms the destination. **Esc** closes the picker before leaving the form.
+The same folder picker is available when copying or moving files.
+
+File search, templates and recent items are checked against the files that
+currently exist. Deleted files and folders drop out of the mini-bar; browsing
+and open folder pickers refresh while visible. These checks do not repair or
+change file deletion or sync behavior.
+
 To ask a question, type it and press **Shift+Enter** or **Command+Enter**
 (**Ctrl+Enter** on Windows). You can send the same text from a search without
 retyping it. The general Assistant is the default. When you are working in a

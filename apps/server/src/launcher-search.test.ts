@@ -11,6 +11,7 @@ test("one query fans out to every source, keeps per-source coverage, and never r
   const fileIndex = new LauncherFileIndex({ watch: false });
   try {
     await writeFile(join(root, "Mietvertrag Müller.docx"), "x");
+    await writeFile(join(root, "Notes.md"), "Der Mietvertrag endet…");
     const mueller: WorkspaceInfo = { id: "mueller", name: "Müller ./. Schmidt", path: root, preset: "starter", workspaceType: "local" };
     const other: WorkspaceInfo = { id: "other", name: "Other", path: join(root, "missing"), preset: "starter", workspaceType: "local" };
     await fileIndex.ensure("mueller", root, true);

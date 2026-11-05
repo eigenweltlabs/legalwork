@@ -1,3 +1,4 @@
+import { existingLauncherFiles } from "./launcher-file-visibility.js";
 import { isLauncherInternalPath } from "@legalwork/types/launcher";
 import { basename, extname } from "node:path";
 import type { LauncherSearchResponse, LauncherSearchResult } from "@legalwork/types/launcher";
@@ -40,8 +41,9 @@ export async function searchFolderFiles(folders: LauncherFolders, index: Launche
             coverage = result.preparing || coverage === "indexing" ? "indexing" : limited || result.skipped ? "partial" : "complete";
           } catch { /* Filename results remain useful when extraction is unavailable. */ }
         }
-        response.items.push(...found);
-        response.sources.push({ id: sourceId, kind: "files", workspaceId: null, label: folder.name, coverage, count: found.length, limited });
+        const visible = await existingLauncherFiles(folder.path, found);
+        response.items.push(...visible);
+        response.sources.push({ id: sourceId, kind: "files", workspaceId: null, label: folder.name, coverage, count: visible.length, limited });
       } catch (error) {
         index.invalidate(sourceId);
         response.unavailable.push(sourceId);

@@ -82,7 +82,14 @@ test("folder routes require owner configuration and copy explicit attachments in
     expect(await readFile(join(assistantPath, item.path), "utf8")).toBe("original");
     await writeFile(join(path, "contract.txt"), "changed");
     expect(await readFile(join(assistantPath, item.path), "utf8")).toBe("original");
+    const cached = { id: "contract.txt", path: "contract.txt", kind: "files", title: "contract.txt", folderId: folder.id, workspaceId: null, sourceId: `folder:${folder.id}`, score: 0, updatedAt: 1, match: "recent", actions: ["open"], fileType: "txt" };
+    scope = "viewer";
+    expect((await (await send("POST", "/launcher/files/visible", { items: [cached] })).json()).items).toHaveLength(1);
+    expect((await (await send("POST", "/launcher/files/visible", { items: [{ ...cached, path: "missing.txt" }] })).json()).items).toEqual([]);
+    expect(await readFile(join(path, "contract.txt"), "utf8")).toBe("changed");
+    scope = "owner";
     await send("DELETE", `/launcher/folders/${folder.id}`);
     expect(await readFile(join(path, "contract.txt"), "utf8")).toBe("changed");
+    expect((await (await send("POST", "/launcher/files/visible", { items: [cached] })).json()).items).toEqual([]);
   } finally { fileIndex.dispose(); await rm(root, { recursive: true, force: true }); }
 });
