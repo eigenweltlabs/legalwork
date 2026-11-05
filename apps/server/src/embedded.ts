@@ -123,7 +123,7 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
     for (const workspace of config.workspaces) {
       // A disconnected cloud project must not prevent the shared server from
       // starting. Its requests retry initialization and return the real error.
-      await ensureWorkspaceFiles(workspace.path, workspace.preset ?? "starter", { bundledCore: !managedEngine }).catch((error: unknown) => {
+      await ensureWorkspaceFiles(workspace.path, workspace.preset ?? "starter").catch((error: unknown) => {
         console.warn(`[workspace-init] ${workspace.path}: ${error instanceof Error ? error.message : String(error)}`);
       });
     }

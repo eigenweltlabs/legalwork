@@ -12,7 +12,7 @@ import { ensureOpencodeStateDir } from "./opencode-state-dir.js";
 import type { ReloadReason } from "./types.js";
 
 // One hash over all bundled-core file contents. Bumps whenever the app ships a new
-// version of these files, which is the trigger to refresh already-seeded workspaces.
+// version of these files, which triggers a refresh of the private shared library.
 const CORE_BUNDLE_HASH = createHash("sha1")
   .update(CORE_OPENCODE_FILES.map((f) => `${f.path} ${f.content}`).join(" "))
   .digest("hex");
@@ -62,7 +62,7 @@ async function ensureWorkspaceLegalworkConfig(workspaceRoot: string, preset: str
 }
 
 /**
- * Seed the bundled document tools and internal inference agents into the workspace. These are
+ * Seed the bundled document tools and internal inference agents into the private library. These are
  * APP-MANAGED: a hash stamp (`.opencode/.legalwork-core`) records the bundle version,
  * and when the app ships a new bundle the stale copies are refreshed in place. Between
  * versions it is a no-op (and a core file the user deletes simply comes back). Files for
@@ -72,7 +72,7 @@ export async function ensureCoreOpencodeFiles(workspaceRoot: string): Promise<Re
   const reasons = new Set<ReloadReason>(await retireLegacyReview(workspaceRoot));
   const stampPath = join(workspaceRoot, ".opencode", ".legalwork-core");
   const prev = (await exists(stampPath)) ? (await readFile(stampPath, "utf8")).trim() : "";
-  // Refresh when the bundle changed (or this workspace was never stamped). This overwrites
+  // Refresh when the bundle changed (or this library was never stamped). This overwrites
   // older bundled copies so design/format updates actually reach existing workspaces.
   const refresh = prev !== CORE_BUNDLE_HASH;
   for (const file of CORE_OPENCODE_FILES) {
@@ -102,7 +102,7 @@ async function ensureOpencodeConfig(workspaceRoot: string): Promise<boolean> {
   return false;
 }
 
-export async function ensureWorkspaceFiles(workspaceRoot: string, presetInput: string, options: { bundledCore?: boolean } = {}): Promise<EnsureWorkspaceFilesResult> {
+export async function ensureWorkspaceFiles(workspaceRoot: string, presetInput: string): Promise<EnsureWorkspaceFilesResult> {
   const preset = normalizePreset(presetInput);
   if (!workspaceRoot.trim()) {
     throw new ApiError(400, "invalid_workspace_path", "workspace path is required");
@@ -125,7 +125,9 @@ export async function ensureWorkspaceFiles(workspaceRoot: string, presetInput: s
   const reloadReasons = new Set<ReloadReason>();
   if (await ensureOpencodeConfig(workspaceRoot)) reloadReasons.add("config");
   const legalworkConfigChanged = await ensureWorkspaceLegalworkConfig(workspaceRoot, preset);
-  if (options.bundledCore !== false) for (const reason of await ensureCoreOpencodeFiles(workspaceRoot)) reloadReasons.add(reason);
+  for (const reason of await retireLegacyReview(workspaceRoot)) reloadReasons.add(reason);
+  // Bundled capabilities belong only to prepareManagedCoreLibrary. Project
+  // initialization must never seed or overwrite an authored/legacy package.
   return {
     changed: legalworkConfigChanged || reloadReasons.size > 0,
     reloadReasons: Array.from(reloadReasons),
