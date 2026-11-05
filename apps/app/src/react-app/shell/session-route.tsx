@@ -2464,7 +2464,7 @@ export function SessionRoute() {
     }
     if (!client) throw new Error(t("session_route.create_server_unavailable"));
     const model = homeModel.model;
-    if (!model) throw new Error(t("session_route.no_model"));
+    if (!model) throw new Error(t(usableProviderCount > 0 ? "notifications.select_model" : "session_route.no_model"));
     if (homeModel.unavailable) throw new Error(t("session_route.model_unavailable"));
     homeSending.current = true;
     try {
