@@ -66,5 +66,19 @@ test("one query fans out to every source, keeps per-source coverage, and never r
     const wikiBrowse = await browseLauncherDirectory({ root, path: "", workspaceId: wiki.id, sourceKind: "wiki", name: wiki.name });
     expect(wikiBrowse.items.length).toBeGreaterThan(0);
     expect(wikiBrowse.items.every(item => item.sourceKind === "wiki" && item.subtitle === wiki.name)).toBe(true);
+    const readSources: string[] = [];
+    for (const [sourceKind, workspaceId] of [["project", mueller.id], ["wiki", wiki.id]] satisfies ["project" | "wiki", string][]) {
+      readSources.length = 0;
+      const filtered = await searchLauncher({ ...withWiki, fileContentSearch: async (workspace, query, signal) => {
+        readSources.push(workspace.id); return deps.fileContentSearch(workspace, query, signal);
+      } }, { query: "mietvertrag", kinds: ["files"], content: true, limit: 1, sourceKind, fileTypes: ["md"], modifiedAfter: 2 }, new AbortController().signal);
+      expect(readSources).toEqual([workspaceId]);
+      expect(filtered.items).toHaveLength(1);
+      expect(filtered.items[0]).toMatchObject({ id: "Notes.md", workspaceId, sourceKind, match: "content" });
+      expect(filtered.sources.map(item => item.workspaceId)).toEqual([workspaceId]);
+    }
+    const foldersOnly = await searchLauncher(withWiki, { query: "", kinds: ["files"], content: false, limit: 50, sourceKind: "folder" }, new AbortController().signal);
+    expect(foldersOnly.items).toEqual([]);
+    expect(foldersOnly.sources).toEqual([]);
   } finally { fileIndex.dispose(); await rm(root, { recursive: true, force: true }); }
 });

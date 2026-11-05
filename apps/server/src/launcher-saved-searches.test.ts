@@ -13,6 +13,12 @@ test("saved searches keep their scope, deduplicate the same search and join the 
     const filtered = store.create({ name: "Recent PDFs", query: "Mietvertrag", kind: "files", projectId: "mueller", fileTypes: ["pdf"], modifiedAfter: 1000 }, 999);
     expect(filtered.id).not.toBe(lease.id);
     expect(store.get(filtered.id)).toMatchObject({ fileTypes: ["pdf"], modifiedAfter: 1000 });
+    const wiki = store.create({ name: "Wiki contracts", query: "Mietvertrag", kind: "files", projectId: null, sourceKind: "wiki" });
+    const project = store.create({ name: "Project contracts", query: "Mietvertrag", kind: "files", projectId: null, sourceKind: "project" });
+    expect(wiki.id).not.toBe(project.id);
+    expect(store.get(wiki.id)?.sourceKind).toBe("wiki");
+    expect(store.create({ name: "Again", query: "Mietvertrag", kind: "files", projectId: null, sourceKind: "wiki" }).id).toBe(wiki.id);
+    store.remove(wiki.id); store.remove(project.id);
     store.remove(filtered.id);
     expect(() => store.create({ name: "Empty", query: "", kind: null, projectId: null })).toThrow("needs words");
     const open = store.create({ name: "Open tasks", query: "", kind: "tasks", projectId: null }, 1002);

@@ -10,7 +10,7 @@ import { recordAudit } from "../audit.js";
 import { shortId } from "../utils.js";
 import { launcherDestination } from "../launcher-file-destination.js";
 import { z } from "zod";
-import { AssistantContextItemSchema, AssistantWorkStatusSchema, LAUNCHER_SEARCH_KINDS, LauncherFileTransferInputSchema, LauncherInvocationSchema, LauncherInvocationSourceSchema, LauncherSearchKindSchema, LauncherSearchResultSchema, QuickActionInputSchema, SavedSearchInputSchema } from "@legalwork/types/launcher";
+import { AssistantContextItemSchema, AssistantWorkStatusSchema, LAUNCHER_SEARCH_KINDS, LauncherFileTransferInputSchema, LauncherFileSourceKindSchema, LauncherInvocationSchema, LauncherInvocationSourceSchema, LauncherSearchKindSchema, LauncherSearchResultSchema, QuickActionInputSchema, SavedSearchInputSchema } from "@legalwork/types/launcher";
 import { ApiError } from "../errors.js";
 import { assistantRequestAuthority, assertAssistantDispatchAuthority } from "../assistant-session-access.js";
 import { isMainAssistant } from "../main-assistant.js";
@@ -114,8 +114,8 @@ export function registerLauncherRoutes(options: Parameters<typeof registerMainAs
     return jsonResponse({ item: { id: `ref_${randomUUID()}`, type: "file", workspaceId: workspace.id, path: `${folder}/${name}`, name,
       revision: `${file.info.mtimeMs}:${file.info.size}`, sourceLabel: `${file.folder.name} · ${input.path}` } }, 201);
   });
-  const accessible = async () => {
-    const candidates = config.workspaces.filter(workspace => !isMainAssistant(workspace));
+  const accessible = async (sourceKind?: z.infer<typeof LauncherFileSourceKindSchema>) => {
+    const candidates = config.workspaces.filter(workspace => !isMainAssistant(workspace) && (!sourceKind || sourceKind === (workspace.preset === "wiki" ? "wiki" : "project")));
     const results = await Promise.allSettled(candidates.map(workspace => options.resolveWorkspace(config, workspace.id)));
     const workspaces: WorkspaceInfo[] = [], unavailable: string[] = [];
     results.forEach((result, index) => { if (result.status === "fulfilled") workspaces.push(result.value); else unavailable.push(candidates[index].id); });
@@ -128,19 +128,19 @@ export function registerLauncherRoutes(options: Parameters<typeof registerMainAs
   addRoute(routes, "GET", "/launcher/search", "client", async ctx => {
     read(ctx);
     const input = parse(z.object({ q: z.string().trim().max(300).default(""), kinds: z.string().max(100).optional(), projectId: z.string().max(200).optional(), content: z.enum(["1", "0"]).optional(), limit: z.coerce.number().int().min(1).max(200).default(80),
-      types: z.string().max(200).optional(), since: z.coerce.number().int().positive().optional() }),
+      types: z.string().max(200).optional(), since: z.coerce.number().int().positive().optional(), sourceKind: LauncherFileSourceKindSchema.optional() }),
       Object.fromEntries(ctx.url.searchParams), "launcher_query", "Check the search query, categories and project scope.");
     const fileTypes = input.types ? input.types.split(",").map(type => type.trim().toLowerCase().replace(/^\./, "")).filter(type => /^[a-z0-9]{1,8}$/.test(type)) : undefined;
     const kinds = input.kinds ? input.kinds.split(",").map(kind => LauncherSearchKindSchema.parse(kind.trim())) : [...LAUNCHER_SEARCH_KINDS];
     const orgId = connectedTaskOrgId(await readEigenweltConnection(config));
     const store = await taskStore(config);
-    const [extra, response] = await Promise.all([searchFolderFiles(options.searchFolders, fileIndex, { query: input.q, kinds, projectId: input.projectId, content: input.content === "1", limit: input.limit, fileTypes, modifiedAfter: input.since },
+    const [extra, response] = await Promise.all([searchFolderFiles(options.searchFolders, fileIndex, { query: input.q, kinds, projectId: input.projectId, content: input.content === "1", limit: input.limit, fileTypes, modifiedAfter: input.since, sourceKind: input.sourceKind },
       (folder, signal) => searchFileContents(folder, input.q, signal, options.preparation), ctx.request.signal), searchLauncher({
-      workspaces: accessible, projectName, fileIndex, recordings: recordings(),
+      workspaces: () => accessible(kinds.length === 1 && kinds[0] === "files" ? input.sourceKind : undefined), projectName, fileIndex, recordings: recordings(),
       tasks: async (query, projectId) => store.searchTasks(query, orgId, projectId ?? "", Boolean(projectId)),
       sessionSearch: (workspace, query, signal) => searchSessionContents(config, workspace, query, signal),
       fileContentSearch: (workspace, query, signal) => searchFileContents(workspace, query, signal, options.preparation),
-    }, { query: input.q, kinds, projectId: input.projectId, content: input.content === "1", limit: input.limit, fileTypes: fileTypes?.length ? fileTypes : undefined, modifiedAfter: input.since }, ctx.request.signal)]);
+    }, { query: input.q, kinds, projectId: input.projectId, content: input.content === "1", limit: input.limit, fileTypes: fileTypes?.length ? fileTypes : undefined, modifiedAfter: input.since, sourceKind: input.sourceKind }, ctx.request.signal)]);
     // The Assistant's own conversations are chats too: resume them in place.
     const assistant = config.workspaces.find(isMainAssistant);
     if (assistant && kinds.includes("chats") && (input.q.length >= 2 || !input.q.trim() && kinds.length === 1) && (!input.projectId || input.projectId === assistant.id)) {

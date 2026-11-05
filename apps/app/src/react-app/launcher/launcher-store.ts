@@ -76,7 +76,7 @@ export type LauncherState = {
 const initial = {
   detail: null as LauncherDetail | null,
   workspaceContext: null as LauncherWorkspaceContext | null,
-  view: "idle" as LauncherView, input: "", category: null, fileFilter: { types: null, modifiedAfter: null } as LauncherFileFilter, scope: null, target: { kind: "assistant" } as AssistantExecutionTarget, results: [], sources: [], searchPending: false, searchError: null, catalog: [],
+  view: "idle" as LauncherView, input: "", category: null, fileFilter: { types: null, modifiedAfter: null, sourceKind: null } as LauncherFileFilter, scope: null, target: { kind: "assistant" } as AssistantExecutionTarget, results: [], sources: [], searchPending: false, searchError: null, catalog: [],
   selection: { id: null, source: "auto" } as LauncherSelection, multiSelect: new Set<string>(), overlay: null as LauncherOverlay, context: [], previews: [], conversation: null, origin: null, pinned: false, positionMoved: false, attentionCount: 0, approval: null as LauncherApprovalRequest | null, voice: null as LauncherVoiceState | null, notice: null,
   invocation: null as LauncherInvocation | null, visible: true,
 };
@@ -86,7 +86,7 @@ export const useLauncherStore = create<LauncherState>((set) => ({
   setInvocation: invocation => set({ invocation }),
   setVisible: visible => set({ visible }),
   setInput: input => set(state => ({ input, ...(state.input !== input ? { selection: { id: null, source: "auto" }, ...(state.view !== "conversation" ? { multiSelect: new Set<string>(), overlay: null } : {}) } : {}) })),
-  setCategory: category => set({ category }),
+  setCategory: category => set(state => ({ category, fileFilter: category && category !== "files" ? { ...state.fileFilter, types: null, sourceKind: null } : state.fileFilter })),
   setFileFilter: filter => set(state => ({ fileFilter: { ...state.fileFilter, ...filter } })),
   // A search scope never silently becomes the execution target; the target changes only through its own control.
   setScope: scope => set({ scope }),
@@ -119,6 +119,6 @@ export const useLauncherStore = create<LauncherState>((set) => ({
   // Dismissal keeps drafts and deliberate attachments. Captured selections always expire.
   reset: () => set(state => {
     const keepDraft = state.view === "conversation";
-    return { ...state, detail: null, workspaceContext: state.workspaceContext ? { ...state.workspaceContext, selection: undefined } : null, view: keepDraft ? "conversation" : "idle", input: keepDraft ? state.input : "", scope: keepDraft ? state.scope : null, target: keepDraft ? state.target : { kind: "assistant" }, category: keepDraft ? state.category : null, fileFilter: keepDraft ? state.fileFilter : { types: null, modifiedAfter: null }, context: persistentContext(state.context).filter(item => keepDraft || item.type !== "clipboard"), results: [], sources: [], searchPending: false, searchError: null, selection: { id: null, source: "auto" }, multiSelect: new Set(), overlay: null, notice: null };
+    return { ...state, detail: null, workspaceContext: state.workspaceContext ? { ...state.workspaceContext, selection: undefined } : null, view: keepDraft ? "conversation" : "idle", input: keepDraft ? state.input : "", scope: keepDraft ? state.scope : null, target: keepDraft ? state.target : { kind: "assistant" }, category: keepDraft ? state.category : null, fileFilter: keepDraft ? state.fileFilter : { types: null, modifiedAfter: null, sourceKind: null }, context: persistentContext(state.context).filter(item => keepDraft || item.type !== "clipboard"), results: [], sources: [], searchPending: false, searchError: null, selection: { id: null, source: "auto" }, multiSelect: new Set(), overlay: null, notice: null };
   }),
 }));

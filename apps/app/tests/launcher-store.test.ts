@@ -48,3 +48,16 @@ test("attached tasks survive a fresh screen selection and dismissal, and remain 
   store.removeContext("task_one");
   expect(useLauncherStore.getState().context).toEqual([]);
 });
+
+test("file sources combine with other filters, clear on category change and reset on dismissal", () => {
+  const store = useLauncherStore.getState();
+  store.setView("results"); store.setCategory("files");
+  store.setFileFilter({ sourceKind: "wiki", types: ["pdf"], modifiedAfter: 10 });
+  store.setFileFilter({ modifiedAfter: 20 });
+  expect(useLauncherStore.getState().fileFilter).toEqual({ sourceKind: "wiki", types: ["pdf"], modifiedAfter: 20 });
+  store.setCategory("tasks");
+  expect(useLauncherStore.getState().fileFilter).toEqual({ sourceKind: null, types: null, modifiedAfter: 20 });
+  store.setCategory("files"); store.setFileFilter({ sourceKind: "project" });
+  store.reset();
+  expect(useLauncherStore.getState().fileFilter).toEqual({ sourceKind: null, types: null, modifiedAfter: null });
+});

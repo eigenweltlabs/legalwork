@@ -31,7 +31,7 @@ export function useLauncherDetailItems(detail: LauncherDetail | null, query: str
       if (directory) {
         return client.launcherBrowse({ workspaceId: result.workspaceId ?? undefined, folderId: result.folderId, path: result.path ?? "" }, signal);
       }
-      const response = await client.launcherSearch({ query, kinds: category ? [category] : [], projectId: result.workspaceId, fileTypes: filter.types, modifiedAfter: filter.modifiedAfter }, signal);
+      const response = await client.launcherSearch({ query, kinds: category ? [category] : [], projectId: result.workspaceId, fileTypes: filter.types, modifiedAfter: filter.modifiedAfter, sourceKind: filter.sourceKind }, signal);
       return { items: response.items, truncated: response.sources.some(source => source.limited) };
     },
   });

@@ -5,7 +5,7 @@ import { LauncherCreateForm, excerptText, type LauncherCreate } from "./launcher
 import { launcherBrowserRoute, launcherFileRoute } from "./launcher-handoff";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Bookmark, Calculator, CalendarDays, Clipboard, Folder, Globe, MessageSquare, FilePlus2, EyeOff, Eye, ListChecks, Loader2, Mic, MoreHorizontal, MousePointerSquareDashed, Paperclip, Plus, RotateCcw, ScanLine, Sparkles, X } from "lucide-react";
+import { ArrowLeft, Bookmark, BookOpen, Calculator, CalendarDays, Clipboard, Folder, Globe, MessageSquare, FilePlus2, EyeOff, Eye, ListChecks, Loader2, Mic, MoreHorizontal, MousePointerSquareDashed, Paperclip, Plus, RotateCcw, ScanLine, Sparkles, X } from "lucide-react";
 import type { LauncherWorkspaceContext, AssistantContextItem, AssistantSubmission, LauncherCatalogEntry, LauncherFileFilter, LauncherInvocation, LauncherResultAction, LauncherSearchKind, LauncherSearchResult, SavedSearch } from "@legalwork/types/launcher";
 import { LAUNCHER_SEARCH_KINDS, isLauncherInternalPath } from "@legalwork/types/launcher";
 import { Button } from "@/components/ui/button";
@@ -41,7 +41,7 @@ import { voiceCoordinator } from "./voice-coordinator";
 import { LauncherNavigationHistory } from "./launcher-navigation";
 import { calculate } from "./launcher-calculator";
 import { LauncherNavigationRows, type NavigationRow } from "./launcher-navigation-rows";
-import { typedFilterSuggestions, dateFilterLabel, FILE_TYPE_PRESETS, namedFileTypeFilter } from "./launcher-typed-filters";
+import { typedFilterSuggestions, fileSourceSuggestions, dateFilterLabel, FILE_TYPE_PRESETS, namedFileTypeFilter } from "./launcher-typed-filters";
 import { handleLauncherFocusKey, launcherControls } from "./launcher-focus";
 import { readHiddenItems, writeHiddenItems, type HiddenLauncherItem } from "./launcher-hidden";
 import { LauncherRowMenu } from "./launcher-row-menu";
@@ -52,10 +52,10 @@ import "./launcher.css";
 
 const KIND_HINT: Record<LauncherSearchKind, string> = { files: "launcher.kind.files", projects: "launcher.kind.projects", chats: "launcher.kind.chats", tasks: "launcher.kind.tasks", recordings: "launcher.kind.recordings" };
 const TRANSLATION_LANGUAGE_KEY = "legalwork.launcher.translation-language";
-/** File finder filters: a few named groups of extensions and a modification floor, both shown as removable chips. */
+/** File finder filters: a few named groups of extensions and a modification floor, shown as removable chips. */
 function fileFilterLabels(filter: LauncherFileFilter) {
   const type = filter.types ? Object.entries(FILE_TYPE_PRESETS).find(([, types]) => types.join() === filter.types?.join())?.[0] : null;
-  return { type: filter.types ? (type ? t(`launcher.typed.${type}`) : filter.types.join(", ")) : null, modified: filter.modifiedAfter === null ? null : dateFilterLabel(filter.modifiedAfter) };
+  return { type: filter.types ? (type ? t(`launcher.typed.${type}`) : filter.types.join(", ")) : null, modified: filter.modifiedAfter === null ? null : dateFilterLabel(filter.modifiedAfter), source: filter.sourceKind ? t(`launcher.typed.source_${filter.sourceKind}`) : null };
 }
 
 export function LauncherPanel() {
@@ -145,10 +145,10 @@ export function LauncherPanel() {
   const entry = parseLauncherEntry(store.input);
   const mode: "search" | "command" | "ask" | "conversation" = store.view === "conversation" ? "conversation" : store.view === "history" || store.view === "hidden" ? "search" : entry.mode;
   const singleLineInput = mode !== "conversation" && mode !== "ask";
-  const hasSearchChips = Boolean(store.category || store.scope || store.fileFilter.types?.length || store.fileFilter.modifiedAfter);
-  const namedCategory = mode === "search" && !store.category ? namedCategoryQuery(entry.text) : null;
+  const hasSearchChips = Boolean(store.category || store.scope || store.fileFilter.types?.length || store.fileFilter.modifiedAfter || store.fileFilter.sourceKind);
+  const namedCategory = mode === "search" && !store.category && !store.fileFilter.sourceKind ? namedCategoryQuery(entry.text) : null;
   const namedFileType = mode === "search" && !store.fileFilter.types?.length ? namedFileTypeFilter(entry.text) : null;
-  const searchCategory = namedFileType ? "files" : store.category ?? namedCategory?.category ?? null;
+  const searchCategory = namedFileType || store.fileFilter.sourceKind ? "files" : store.category ?? namedCategory?.category ?? null;
   const searchText = namedFileType ? "" : namedCategory?.rest ?? entry.text;
   const showCommands = entry.mode === "command" && (store.view === "commands" || store.view === "conversation");
   const commandWorkspaceId = store.view === "conversation" ? store.target.kind === "project" ? store.target.workspaceId : assistant?.workspaceId : null;
@@ -220,16 +220,16 @@ export function LauncherPanel() {
   }, [uploading, conversation, drafts, owner, store.view, store.input, store.context, store.target, store.scope, mode, entry.text, local.prefs.defaultModel, local.prefs.modelVariant]);
 
   // Search: two-phase session bound to the current category and scope.
-  const session = useMemo(() => new LauncherSearchSession((input, signal) => client.launcherSearch({ query: input.query, kinds: input.kinds, projectId: input.projectId, content: input.content, fileTypes: input.fileTypes, modifiedAfter: input.modifiedAfter }, signal)), [client]);
+  const session = useMemo(() => new LauncherSearchSession((input, signal) => client.launcherSearch({ query: input.query, kinds: input.kinds, projectId: input.projectId, content: input.content, fileTypes: input.fileTypes, modifiedAfter: input.modifiedAfter, sourceKind: input.sourceKind }, signal)), [client]);
   useEffect(() => session.subscribe(snapshot => useLauncherStore.getState().setResults(snapshot.items, snapshot.sources, snapshot.pending, snapshot.error)), [session]);
   useEffect(() => () => session.cancel(), [session]);
-  const hasFileFilter = Boolean(store.fileFilter.types?.length || store.fileFilter.modifiedAfter);
+  const hasFileFilter = Boolean(store.fileFilter.types?.length || store.fileFilter.modifiedAfter || store.fileFilter.sourceKind);
   const runSearch = useCallback(() => {
     const state = useLauncherStore.getState();
-    const entry = parseLauncherEntry(state.input), named = !state.category ? namedCategoryQuery(entry.text) : null;
+    const entry = parseLauncherEntry(state.input), named = !state.category && !state.fileFilter.sourceKind ? namedCategoryQuery(entry.text) : null;
     const fileType = !state.fileFilter.types?.length ? namedFileTypeFilter(entry.text) : null;
-    const category = fileType ? "files" : state.category ?? named?.category;
-    session.search({ query: fileType ? "" : named?.rest ?? entry.text, kinds: category ? [category] : [...LAUNCHER_SEARCH_KINDS], projectId: state.scope?.id ?? null, fileTypes: fileType?.extensions ?? state.fileFilter.types, modifiedAfter: state.fileFilter.modifiedAfter });
+    const category = fileType || state.fileFilter.sourceKind ? "files" : state.category ?? named?.category;
+    session.search({ query: fileType ? "" : named?.rest ?? entry.text, kinds: category ? [category] : [...LAUNCHER_SEARCH_KINDS], projectId: state.scope?.id ?? null, fileTypes: fileType?.extensions ?? state.fileFilter.types, modifiedAfter: state.fileFilter.modifiedAfter, sourceKind: state.fileFilter.sourceKind });
   }, [session]);
   useEffect(() => {
     if (!store.visible) { session.cancel(); return; }
@@ -263,7 +263,7 @@ export function LauncherPanel() {
     const workspace = search.projectId ? workspaces.find(workspace => workspace.id === search.projectId) : null;
     state.setScope(workspace ? { id: workspace.id, name: workspace.displayName || workspace.name } : null);
     state.setCategory(search.kind); state.setInput(search.query); state.setOverlay(null); state.setView("results");
-    state.setFileFilter({ types: search.fileTypes ?? null, modifiedAfter: search.modifiedAfter ?? null });
+    state.setFileFilter({ types: search.fileTypes ?? null, modifiedAfter: search.modifiedAfter ?? null, sourceKind: search.sourceKind ?? null });
     void client.recordSavedSearchUse(search.id).catch(() => undefined);
     inputRef.current?.focus();
   };
@@ -272,9 +272,9 @@ export function LauncherPanel() {
   const saveCurrentSearch = async () => {
     if (!canSaveSearch) { store.notify({ tone: "info", text: t("launcher.saved.nothing") }); return; }
     const labels = fileFilterLabels(store.fileFilter);
-    const name = [labels.type ?? (searchCategory ? t(KIND_HINT[searchCategory]) : null), searchText.trim() || null, store.scope?.name ?? null, labels.modified].filter(Boolean).join(" · ");
+    const name = [labels.type ?? (searchCategory ? t(KIND_HINT[searchCategory]) : null), searchText.trim() || null, store.scope?.name ?? null, labels.source, labels.modified].filter(Boolean).join(" · ");
     try {
-      const { search } = await client.createSavedSearch({ name, query: searchText.trim(), kind: searchCategory, projectId: store.scope?.id ?? null, fileTypes: store.fileFilter.types, modifiedAfter: store.fileFilter.modifiedAfter });
+      const { search } = await client.createSavedSearch({ name, query: searchText.trim(), kind: searchCategory, projectId: store.scope?.id ?? null, fileTypes: store.fileFilter.types, modifiedAfter: store.fileFilter.modifiedAfter, sourceKind: store.fileFilter.sourceKind });
       await refreshSavedSearches();
       store.notify({ tone: "info", text: t("launcher.saved.saved", { name: search.name }) });
     } catch (error) { store.notify({ tone: "error", text: error instanceof Error ? error.message : String(error) }); }
@@ -349,7 +349,7 @@ export function LauncherPanel() {
       if (!reuse && !fromSearch) await saveDraft(target.conversationId, owner, { text: trimmed, context: live.context, target: live.target, searchScope: live.scope?.id ?? null });
       if (fromSearch) { store.setInput(existingDraft.text); store.replaceContext(persistentContext(existingDraft.context)); }
       else { store.setInput(live.input); store.replaceContext(live.context); }
-      store.setCategory(null); store.setFileFilter({ types: null, modifiedAfter: null });
+      store.setCategory(null); store.setFileFilter({ types: null, modifiedAfter: null, sourceKind: null });
       store.setView("conversation");
       let result: AssistantSubmission;
       try {
@@ -602,7 +602,7 @@ export function LauncherPanel() {
             await saveDraft(target.conversationId, owner, { context, text, target: executionTarget, searchScope: scope?.id ?? null });
             if (current.conversation?.conversationId !== target.conversationId) return;
             current.replaceContext(context); current.setInput(text); current.setTarget(executionTarget); current.setScope(scope);
-            current.clearMultiSelect(); current.setCategory(null); current.setFileFilter({ types: null, modifiedAfter: null }); current.setView("conversation"); inputRef.current?.focus();
+            current.clearMultiSelect(); current.setCategory(null); current.setFileFilter({ types: null, modifiedAfter: null, sourceKind: null }); current.setView("conversation"); inputRef.current?.focus();
           });
         } catch (error) { notify({ tone: "error", text: error instanceof Error ? error.message : String(error) }); }
         finally { uploadingRef.current = false; uploadConversation.current = null; setUploading(false); holdPanel(false); }
@@ -786,7 +786,7 @@ export function LauncherPanel() {
     const context = useLauncherStore.getState().workspaceContext;
     if (!context) return;
     await switchTarget(context.workspaceId);
-    useLauncherStore.setState({ input: "", category: null, scope: null, fileFilter: { types: null, modifiedAfter: null }, view: "conversation" });
+    useLauncherStore.setState({ input: "", category: null, scope: null, fileFilter: { types: null, modifiedAfter: null, sourceKind: null }, view: "conversation" });
     inputRef.current?.focus();
   };
   const summarizeDocument = () => {
@@ -809,17 +809,25 @@ export function LauncherPanel() {
   }));
   const assistantRow: NavigationRow = { id: "search:assistant", title: assistant?.profile.name ?? t("assistant.title"), Icon: MessageSquare, avatar: <AssistantAvatar icon={assistant?.profile.icon} className="size-5" />, run: resumeConversation, openInApp: () => { void client.assistantConversationCurrent().then(({ conversation }) => openInApp(conversation ? workspaceSessionRoute(conversation.workspaceId, conversation.sessionId) : "/home")).catch(error => notify({ tone: "error", text: String(error) })); } };
   const assistantSuggestion = store.input.trim() && ["assistant", "ask", "fragen", assistant?.profile.name].some(word => word?.toLocaleLowerCase().startsWith(store.input.trim().toLocaleLowerCase()));
-  const filterSuggestions = typedFilterSuggestions(store.input, workspaces, new Date(), {
+  const sourceFilters = searchCategory === "files" && store.view !== "detail" ? fileSourceSuggestions(store.input) : [];
+  const filterSuggestions = [...sourceFilters, ...typedFilterSuggestions(store.input, workspaces, new Date(), {
     currentProjectId: store.workspaceContext?.workspaceId,
     recentProjectIds: [...new Set([...recents].sort((a, b) => b.openedAt - a.openedAt).flatMap(item => item.result.workspaceId ? [item.result.workspaceId] : []))],
-  });
+  })];
   const creationName = searchCategory && !filterSuggestions.length ? searchText.trim() : "";
   const createDocumentRow: NavigationRow = { id: "create:document", title: creationName ? t("launcher.flow.create_named", { name: creationName }) : t("launcher.flow.create_document"), Icon: FilePlus2, run: () => openCreate("document", creationName) };
   const createTaskRow: NavigationRow = { id: "create:task", title: creationName ? t("launcher.suggest.create_task_named", { name: creationName }) : t("launcher.flow.create_task"), Icon: ListChecks, run: () => openCreate("task", creationName) };
   const recordMeetingRow: NavigationRow = { id: "action:record-meeting", title: t("launcher.suggest.record_meeting"), Icon: Mic, run: () => launcherVoice("record") };
   const typedFilters: NavigationRow[] = filterSuggestions.map(filter => ({
-    id: filter.id, title: filter.title, Icon: filter.project ? Folder : filter.files?.types?.length ? fileTypeIcon(filter.files.types[0]) : CalendarDays, run: () => {
-      if (filter.project) store.setScope(filter.project);
+    id: filter.id, title: filter.title, Icon: filter.files?.sourceKind === "wiki" ? BookOpen : filter.project || filter.files?.sourceKind ? Folder : filter.files?.types?.length ? fileTypeIcon(filter.files.types[0]) : CalendarDays, run: () => {
+      if (filter.project) {
+        store.setScope(filter.project);
+        if (store.fileFilter.sourceKind && store.fileFilter.sourceKind !== "project") store.setFileFilter({ sourceKind: null });
+      }
+      if (filter.files?.sourceKind) {
+        store.setCategory("files"); store.setFileFilter({ sourceKind: filter.files.sourceKind });
+        if (filter.files.sourceKind !== "project") store.setScope(null);
+      }
       if (filter.files?.types) { store.setCategory("files"); store.setFileFilter({ types: filter.files.types }); }
       if (filter.files?.modifiedAfter) store.setFileFilter({ modifiedAfter: filter.files.modifiedAfter });
       if (store.view === "detail" && store.detail && !filter.project) {
@@ -832,16 +840,16 @@ export function LauncherPanel() {
   const suggestionRows: NavigationRow[] = mode === "search" && !calculation ? [
     ...browserRows,
     ...typedFilters,
-    ...(store.category && !store.input.trim() ? [] : categoryRows.filter(row => browsing || row.id !== `category:${store.category}`)),
+    ...(store.category && !store.input.trim() ? [] : categoryRows.filter(row => (browsing || row.id !== `category:${store.category}`) && !(row.id === "category:projects" && sourceFilters.some(filter => filter.files?.sourceKind === "project")))),
     ...(assistantSuggestion && !searchCategory ? [assistantRow] : []),
-    ...(!browsing && !namedFileType && !store.fileFilter.types?.length && (searchCategory === "files" || !searchCategory && suggestedCategories.includes("files")) ? [createDocumentRow] : []),
+    ...(!browsing && !sourceFilters.length && (!store.fileFilter.sourceKind || store.fileFilter.sourceKind === "project") && !namedFileType && !store.fileFilter.types?.length && (searchCategory === "files" || !searchCategory && suggestedCategories.includes("files")) ? [createDocumentRow] : []),
     ...(!browsing && (searchCategory === "tasks" || !searchCategory && suggestedCategories.includes("tasks")) ? [createTaskRow] : []),
     ...(!browsing && desktop && !voice?.meeting && (searchCategory === "recordings" || !searchCategory && suggestedCategories.includes("recordings")) ? [recordMeetingRow] : []),
-  ].sort((a, b) => Number(b.id === "action:browser") - Number(a.id === "action:browser") || Number(b.id === `category:${shortcutCategory}`) - Number(a.id === `category:${shortcutCategory}`)) : [];
+  ].sort((a, b) => Number(b.id.startsWith("filter:source:")) - Number(a.id.startsWith("filter:source:")) || Number(b.id === "action:browser") - Number(a.id === "action:browser") || Number(b.id === `category:${shortcutCategory}`) - Number(a.id === `category:${shortcutCategory}`)) : [];
   const chooseCommandContext = async (workspaceId?: string) => {
     const state = useLauncherStore.getState();
     state.setTarget(workspaceId ? { kind: "project", workspaceId } : { kind: "assistant" });
-    state.setCategory(null); state.setScope(null); state.setFileFilter({ types: null, modifiedAfter: null }); state.setView("conversation"); inputRef.current?.focus();
+    state.setCategory(null); state.setScope(null); state.setFileFilter({ types: null, modifiedAfter: null, sourceKind: null }); state.setView("conversation"); inputRef.current?.focus();
   };
   const commandContextRows: NavigationRow[] = [
     { id: "command-context:assistant", title: assistant?.profile.name ?? t("assistant.title"), Icon: MessageSquare, run: () => chooseCommandContext() },
@@ -854,7 +862,7 @@ export function LauncherPanel() {
       try { await saveDraft(state.conversation.conversationId, owner, { text: state.input, context: state.context, target: state.target, searchScope: state.scope?.id ?? null }); }
       catch (error) { notify({ tone: "error", text: String(error) }); return; }
     }
-    state.setInput(""); state.setCategory(null); state.setScope(null); state.setFileFilter({ types: null, modifiedAfter: null }); state.setOverlay(null); state.setView("history");
+    state.setInput(""); state.setCategory(null); state.setScope(null); state.setFileFilter({ types: null, modifiedAfter: null, sourceKind: null }); state.setOverlay(null); state.setView("history");
     if (bodyRef.current) bodyRef.current.scrollTop = 0;
     inputRef.current?.focus();
   };
@@ -935,7 +943,7 @@ export function LauncherPanel() {
       }
       savingNavigation.current = false;
     } else if (layer === "query") { state.setInput(""); state.select({ id: null, source: "auto" }); }
-    else if (layer === "filter") { state.setCategory(null); state.setScope(null); state.setFileFilter({ types: null, modifiedAfter: null }); }
+    else if (layer === "filter") { state.setCategory(null); state.setScope(null); state.setFileFilter({ types: null, modifiedAfter: null, sourceKind: null }); }
     else dismiss();
     inputRef.current?.focus();
   };
@@ -998,6 +1006,7 @@ export function LauncherPanel() {
     }
     if (key === "Backspace" && input.selectionStart === 0 && input.selectionEnd === 0 && mode === "search") {
       if (store.fileFilter.modifiedAfter) { event.preventDefault(); store.setFileFilter({ modifiedAfter: null }); }
+      else if (store.fileFilter.sourceKind) { event.preventDefault(); store.setFileFilter({ sourceKind: null }); }
       else if (store.fileFilter.types?.length) { event.preventDefault(); store.setFileFilter({ types: null }); }
       else if (store.scope) { event.preventDefault(); store.setScope(null); }
       else if (store.category) { event.preventDefault(); store.setCategory(null); }
@@ -1069,6 +1078,7 @@ export function LauncherPanel() {
 
         {(() => { const labels = fileFilterLabels(store.fileFilter); return <>
           {labels.type && <span className="launcher-chip" data-kind="filter" title={labels.type}><span>{labels.type}</span><button type="button" aria-label={t("launcher.filter.types_any")} onClick={() => { store.setFileFilter({ types: null }); inputRef.current?.focus(); }}><X className="size-3" /></button></span>}
+          {labels.source && <span className="launcher-chip" data-kind="source" title={labels.source}><span>{labels.source}</span><button type="button" aria-label={t("launcher.filter.sources_any")} onClick={() => { store.setFileFilter({ sourceKind: null }); inputRef.current?.focus(); }}><X className="size-3" /></button></span>}
           {labels.modified && <span className="launcher-chip" data-kind="filter" title={labels.modified}><span>{labels.modified}</span><button type="button" aria-label={t("launcher.filter.modified_any")} onClick={() => { store.setFileFilter({ modifiedAfter: null }); inputRef.current?.focus(); }}><X className="size-3" /></button></span>}
         </>; })()}
         </div>}

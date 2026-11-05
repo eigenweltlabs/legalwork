@@ -10,7 +10,7 @@ import type { ContentSearchResponse } from "./search-schema.js";
 export async function searchFolderFiles(folders: LauncherFolders, index: LauncherFileIndex, input: LauncherSearchInput,
   content: (folder: { id: string; path: string }, signal: AbortSignal) => Promise<ContentSearchResponse>, signal: AbortSignal): Promise<LauncherSearchResponse> {
   const response: LauncherSearchResponse = { items: [], sources: [], unavailable: [] };
-  if (!input.kinds.includes("files") || input.projectId) return response;
+  if (!input.kinds.includes("files") || input.projectId || input.sourceKind && input.sourceKind !== "folder") return response;
   const actions: LauncherSearchResult["actions"] = ["open", "attach", "ask", "compare", "summarize", "copy-path", "pin"];
   // Bound parallel folder reads and document preparation.
   const pending = [...folders.list()];

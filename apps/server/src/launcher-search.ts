@@ -4,10 +4,10 @@ import { basename, extname } from "node:path";
 import { matchesSearch, searchExcerpt, type ContentSearchResponse, type ContentSearchResult } from "./search-schema.js";
 import { projectMatch } from "./assistant-project-search.js";
 import type { LauncherFileIndex } from "./launcher-file-index.js";
-import type { LauncherSearchKind, LauncherSearchResponse, LauncherSearchResult, LauncherSourceState } from "@legalwork/types/launcher";
+import type { LauncherFileSourceKind, LauncherSearchKind, LauncherSearchResponse, LauncherSearchResult, LauncherSourceState } from "@legalwork/types/launcher";
 import type { WorkspaceInfo } from "./types.js";
 
-export type LauncherSearchInput = { query: string; kinds: LauncherSearchKind[]; projectId?: string; content: boolean; limit: number; fileTypes?: string[]; modifiedAfter?: number };
+export type LauncherSearchInput = { query: string; kinds: LauncherSearchKind[]; projectId?: string; content: boolean; limit: number; fileTypes?: string[]; modifiedAfter?: number; sourceKind?: LauncherFileSourceKind };
 export type LauncherRecording = { id: string; title: string; createdAt: number; durationMs: number; projectIds?: string[]; status?: string };
 export type LauncherSearchDeps = {
   workspaces: () => Promise<{ workspaces: WorkspaceInfo[]; unavailable: string[] }>;
@@ -101,7 +101,8 @@ export async function searchLauncher(deps: LauncherSearchDeps, input: LauncherSe
     } catch (error) { source({ id: "recordings", kind: "recordings", workspaceId: null, label: "Recordings", coverage: timedOut(error) ? "partial" : "unavailable", count: 0, limited: timedOut(error), error: timedOut(error) ? TOO_SLOW : error instanceof Error ? error.message : String(error) }); }
   }
   if (kinds.has("files")) {
-    await eachLimited(scoped, 4, async workspace => {
+    const fileWorkspaces = scoped.filter(workspace => !input.sourceKind || input.sourceKind === (workspace.preset === "wiki" ? "wiki" : "project"));
+    await eachLimited(fileWorkspaces, 4, async workspace => {
       const label = deps.projectName(workspace);
       try {
         const fileItems: LauncherSearchResult[] = [];

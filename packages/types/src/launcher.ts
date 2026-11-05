@@ -8,6 +8,8 @@ export const LauncherSearchKindSchema = z.enum(LAUNCHER_SEARCH_KINDS);
 export type LauncherSearchKind = z.infer<typeof LauncherSearchKindSchema>;
 export const LauncherSearchFolderSchema = z.object({ id: z.string(), name: z.string(), path: z.string(), createdAt: z.number() });
 export type LauncherSearchFolder = z.infer<typeof LauncherSearchFolderSchema>;
+export const LauncherFileSourceKindSchema = z.enum(["project", "wiki", "folder"]);
+export type LauncherFileSourceKind = z.infer<typeof LauncherFileSourceKindSchema>;
 export const DEFAULT_LAUNCHER_ALIASES: Record<LauncherSearchKind, string> = { files: "f", projects: "p", chats: "c", tasks: "t", recordings: "r" };
 
 export const LauncherCoverageSchema = z.enum(["complete", "partial", "filename-only", "indexing", "searching", "unavailable", "offline"]);
@@ -18,7 +20,7 @@ export const LauncherMatchSchema = z.enum(["exact", "prefix", "word", "substring
 export const LauncherSearchResultSchema = z.object({
   id: z.string(), kind: LauncherSearchKindSchema, workspaceId: z.string().nullable(), sourceId: z.string(), title: z.string(),
   subtitle: z.string().optional(), path: z.string().optional(), folderId: z.string().optional(), excerpt: z.string().optional(), updatedAt: z.number(), revision: z.string().optional(),
-  sourceKind: z.enum(["project", "wiki", "folder"]).optional(),
+  sourceKind: LauncherFileSourceKindSchema.optional(),
   fileType: z.string().optional(), size: z.number().optional(), completed: z.boolean().optional(), status: z.string().optional(), dueDate: z.string().nullable().optional(),
   sessionId: z.string().optional(), messageId: z.string().optional(), durationMs: z.number().optional(), incomplete: z.boolean().optional(),
   match: LauncherMatchSchema, score: z.number(), actions: z.array(LauncherResultActionSchema),
@@ -122,7 +124,7 @@ export const QuickActionSchema = QuickActionInputSchema.extend({ id: z.string(),
 export type QuickAction = z.infer<typeof QuickActionSchema>;
 /** A saved search keeps its scope visible: the category, the project and the words. */
 export const SavedSearchInputSchema = z.object({ name: z.string().trim().min(1).max(80), query: z.string().trim().max(300), kind: LauncherSearchKindSchema.nullable(), projectId: z.string().max(200).nullable(),
-  fileTypes: z.array(z.string().regex(/^[a-z0-9]{1,8}$/)).max(20).nullable().optional(), modifiedAfter: z.number().nullable().optional() });
+  fileTypes: z.array(z.string().regex(/^[a-z0-9]{1,8}$/)).max(20).nullable().optional(), modifiedAfter: z.number().nullable().optional(), sourceKind: LauncherFileSourceKindSchema.nullable().optional() });
 export type SavedSearchInput = z.infer<typeof SavedSearchInputSchema>;
 export const SavedSearchSchema = SavedSearchInputSchema.extend({ id: z.string(), createdAt: z.number(), updatedAt: z.number(), usedAt: z.number().nullable(), uses: z.number() });
 export type SavedSearch = z.infer<typeof SavedSearchSchema>;
@@ -132,8 +134,8 @@ export const LauncherCatalogEntrySchema = z.object({
   outputs: z.array(LauncherActionOutputSchema), workspaceId: z.string().nullable(), shortcut: z.string().nullable(), favorite: z.boolean(), usedAt: z.number().nullable(),
   command: z.object({ name: z.string(), template: z.string().nullable(), agent: z.string().nullable() }).nullable(), quickAction: QuickActionSchema.nullable(), savedSearch: SavedSearchSchema.optional(),
 });
-/** File finder filters: extensions and a modification floor. They narrow files only and stay visible as chips. */
-export const LauncherFileFilterSchema = z.object({ types: z.array(z.string().regex(/^[a-z0-9]{1,8}$/)).max(20).nullable(), modifiedAfter: z.number().nullable() });
+/** File finder filters: extensions, a modification floor and source kind, shown as removable chips. */
+export const LauncherFileFilterSchema = z.object({ types: z.array(z.string().regex(/^[a-z0-9]{1,8}$/)).max(20).nullable(), modifiedAfter: z.number().nullable(), sourceKind: LauncherFileSourceKindSchema.nullable().optional() });
 export type LauncherFileFilter = z.infer<typeof LauncherFileFilterSchema>;
 /** Copy or move one file into another project. Explicit, approved and audited like the file routes; never a side effect of opening. */
 export const LauncherFileTransferInputSchema = z.object({ sourceWorkspaceId: z.string().min(1), targetWorkspaceId: z.string().min(1), path: z.string().min(1).max(4096), mode: z.enum(["copy", "move"]), folder: z.string().max(1024).optional() });

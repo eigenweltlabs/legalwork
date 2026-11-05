@@ -1,6 +1,6 @@
-import type { LauncherSearchKind, LauncherSearchResponse, LauncherSearchResult, LauncherSourceState } from "@legalwork/types/launcher";
+import type { LauncherFileSourceKind, LauncherSearchKind, LauncherSearchResponse, LauncherSearchResult, LauncherSourceState } from "@legalwork/types/launcher";
 
-export type SearchInput = { query: string; kinds: LauncherSearchKind[]; projectId: string | null; fileTypes?: string[] | null; modifiedAfter?: number | null };
+export type SearchInput = { query: string; kinds: LauncherSearchKind[]; projectId: string | null; fileTypes?: string[] | null; modifiedAfter?: number | null; sourceKind?: LauncherFileSourceKind | null };
 export type SearchRun = (input: SearchInput & { content: boolean }, signal: AbortSignal) => Promise<LauncherSearchResponse>;
 export type SearchSnapshot = { items: LauncherSearchResult[]; sources: LauncherSourceState[]; pending: boolean; query: string; error: string | null };
 export const resultKey = (item: Pick<LauncherSearchResult, "kind" | "sourceId" | "id">) => `${item.kind}\u0000${item.sourceId}\u0000${item.id}`;
@@ -28,7 +28,7 @@ export class LauncherSearchSession {
     if (this.timer) clearTimeout(this.timer);
     const generation = ++this.generation;
     const query = input.query.trim();
-    const filtered = Boolean(input.fileTypes?.length || input.modifiedAfter);
+    const filtered = Boolean(input.fileTypes?.length || input.modifiedAfter || input.sourceKind);
     if (!query && input.kinds.length !== 1 && !input.kinds.includes("tasks") && !input.projectId && !filtered) { this.controller = null; this.publish({ items: [], sources: [], pending: false, query, error: null }); return; }
     const controller = new AbortController();
     this.controller = controller;

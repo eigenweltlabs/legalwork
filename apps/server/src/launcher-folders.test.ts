@@ -50,6 +50,12 @@ test("folder files join search with provenance and filters, but never become a p
     expect(browse.items.map(item => item.title).sort()).toEqual(["Contract.pdf", "Contract.png"]);
     const scoped = await searchFolderFiles(folders, index, { ...input, kinds: [...input.kinds], projectId: "project" }, async () => ({ items: [] }), AbortSignal.timeout(1000));
     expect(scoped.items).toHaveLength(0);
+    const folderOnly = await searchFolderFiles(folders, index, { ...input, kinds: [...input.kinds], sourceKind: "folder" }, async () => ({ items: [] }), AbortSignal.timeout(1000));
+    expect(folderOnly.items.map(item => item.title)).toEqual(["Contract.pdf"]);
+    for (const sourceKind of ["project", "wiki"] satisfies ("project" | "wiki")[]) {
+      const excluded = await searchFolderFiles(folders, index, { ...input, kinds: [...input.kinds], sourceKind, content: true }, async () => { throw new Error("excluded folders must not be read"); }, AbortSignal.timeout(1000));
+      expect(excluded).toEqual({ items: [], sources: [], unavailable: [] });
+    }
     await rm(path, { recursive: true });
     const missing = await searchFolderFiles(folders, index, { ...input, kinds: [...input.kinds] }, async () => ({ items: [] }), AbortSignal.timeout(1000));
     expect(missing.sources[0].coverage).toBe("unavailable");

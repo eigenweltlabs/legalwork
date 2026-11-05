@@ -123,6 +123,17 @@ matches. Wikis are kept separate from projects.
 File subtitles identify their source with an icon and **Wiki**, **Project**, or
 **Folder**, followed by its name. The file's own icon still shows its format.
 
+With **Files** selected, type **projects**, **wiki**, or **folders** and press
+**Enter** on **Projects only**, **Wikis only**, or **Added folders only** to
+choose where to search. German words such as **Projekte**, **Wiki**, and
+**Suchordner** work too. The source appears as a removable chip and combines
+with file types, dates and search words. Choosing Wikis or added folders clears
+any project scope; choosing a specific project instead clears an incompatible
+source filter. **Added folders only** searches the extra folders configured in
+**Settings > Assistant launcher**. Remove the chip to search all sources again;
+with an empty input, **Backspace** removes the last filter. Saved searches keep
+the selected source. Switching to another category clears the file source filter.
+
 Use **Up/Down** to select a result and **Enter** to open it. Chats, tasks,
 projects and folders open inside the mini-bar where supported; files open in
 their document workspace. Press **Right** for actions such as **Open in app**,

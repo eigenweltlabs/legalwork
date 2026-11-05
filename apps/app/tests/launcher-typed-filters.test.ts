@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { dateFilterLabel, matchingFilterProjects, matchesLauncherFileFilter, namedFileTypeFilter, typedFilterSuggestions } from "../src/react-app/launcher/launcher-typed-filters";
+import { dateFilterLabel, fileSourceSuggestions, matchingFilterProjects, matchesLauncherFileFilter, namedFileTypeFilter, typedFilterSuggestions } from "../src/react-app/launcher/launcher-typed-filters";
 import { LANGUAGES, t } from "../src/i18n";
 
 test("project filters require at least two characters at word boundaries", () => {
@@ -76,4 +76,27 @@ test("explicit date counts still work and invalid date phrases do not become fil
   for (const query of ["last 0 weeks", "last -1 month", "last 1.5 weeks", "last 10001 days", "last invoice", "last week contract"]) {
     expect(typedFilterSuggestions(query, [], now)).toEqual([]);
   }
+});
+
+test("file source qualifiers autocomplete English and German names without consuming filenames", () => {
+  for (const [kind, queries] of [
+    ["project", ["p", "proj", "projects", "projects only", "Projekt", "nur Projekte"]],
+    ["wiki", ["w", "wiki", "wikis only", "nur Wikis"]],
+    ["folder", ["fol", "folders", "added folders only", "Suchordner", "nur zusätzliche Ordner"]],
+  ] satisfies [string, string[]][]) {
+    for (const query of queries) expect(fileSourceSuggestions(query).map(item => item.files?.sourceKind)).toEqual([kind]);
+    for (const lng of LANGUAGES) expect(fileSourceSuggestions(t(`launcher.typed.source_${kind}`, lng))[0]?.files?.sourceKind).toBe(kind);
+  }
+  for (const query of ["", "Project agreement.pdf", "Wiki.md", "work"]) expect(fileSourceSuggestions(query)).toEqual([]);
+});
+
+test("source filtering combines with file type and date and also excludes folders from other sources", () => {
+  const filter = { types: ["pdf"], modifiedAfter: 10, sourceKind: "wiki" } satisfies Parameters<typeof matchesLauncherFileFilter>[1];
+  const file = { title: "Contract.pdf", fileType: "pdf", updatedAt: 20, sourceKind: "wiki" } satisfies Parameters<typeof matchesLauncherFileFilter>[0];
+  expect(matchesLauncherFileFilter(file, filter)).toBe(true);
+  expect(matchesLauncherFileFilter({ ...file, sourceKind: "project" }, filter)).toBe(false);
+  expect(matchesLauncherFileFilter({ ...file, updatedAt: 5 }, filter)).toBe(false);
+  expect(matchesLauncherFileFilter({ ...file, fileType: "md" }, filter)).toBe(false);
+  expect(matchesLauncherFileFilter({ ...file, fileType: "folder", sourceKind: "project" }, { ...filter, types: null })).toBe(false);
+  expect(matchesLauncherFileFilter({ ...file, fileType: "folder" }, { ...filter, types: null })).toBe(true);
 });

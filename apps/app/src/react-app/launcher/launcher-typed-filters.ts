@@ -1,7 +1,7 @@
-import type { LauncherFileFilter, LauncherSearchResult } from "@legalwork/types/launcher";
+import type { LauncherFileFilter, LauncherFileSourceKind, LauncherSearchResult } from "@legalwork/types/launcher";
 import { t } from "@/i18n";
 
-type FilterSuggestion = { id: string; title: string; files?: LauncherFileFilter; project?: { id: string; name: string } };
+type FilterSuggestion = { id: string; title: string; files?: Partial<LauncherFileFilter>; project?: { id: string; name: string } };
 type FilterProject = { id: string; name: string; displayName?: string | null; preset?: string };
 type ProjectOrder = { currentProjectId?: string; recentProjectIds?: string[] };
 const words = (value: string) => value.normalize("NFKD").replace(/\p{M}/gu, "").toLocaleLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
@@ -35,7 +35,19 @@ export function namedFileTypeFilter(raw: string) {
   const query = raw.trim().toLocaleLowerCase();
   return types.find(type => type.words.includes(query)) ?? null;
 }
-export function matchesLauncherFileFilter(item: Pick<LauncherSearchResult, "fileType" | "updatedAt" | "path" | "title">, filter: LauncherFileFilter) {
+const fileSources: { kind: LauncherFileSourceKind; words: string[] }[] = [
+  { kind: "project", words: ["projects", "project", "projects only", "project only", "only projects", "projekte", "projekt", "nur projekte"] },
+  { kind: "wiki", words: ["wiki", "wikis", "wiki only", "wikis only", "only wikis", "nur wikis", "nur wiki"] },
+  { kind: "folder", words: ["folders", "folder", "added folders", "search folders", "folders only", "added folders only", "only folders", "ordner", "suchordner", "zusätzliche ordner", "nur ordner", "nur zusätzliche ordner"] },
+];
+export function fileSourceSuggestions(raw: string): FilterSuggestion[] {
+  const query = raw.trim().toLocaleLowerCase();
+  return query ? fileSources.filter(source => source.words.some(word => word.startsWith(query))).map(source => ({
+    id: `filter:source:${source.kind}`, title: t(`launcher.typed.source_${source.kind}`), files: { sourceKind: source.kind },
+  })) : [];
+}
+export function matchesLauncherFileFilter(item: Pick<LauncherSearchResult, "fileType" | "updatedAt" | "path" | "title" | "sourceKind">, filter: LauncherFileFilter) {
+  if (filter.sourceKind && item.sourceKind !== filter.sourceKind) return false;
   if (item.fileType === "folder") return !filter.types?.length;
   const extension = (item.fileType ?? (item.path ?? item.title).split(".").at(-1) ?? "").toLowerCase().replace(/^\./, "");
   return (!filter.types?.length || filter.types.includes(extension)) && (!filter.modifiedAfter || item.updatedAt >= filter.modifiedAfter);

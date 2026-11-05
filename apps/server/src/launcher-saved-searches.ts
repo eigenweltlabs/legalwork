@@ -26,6 +26,7 @@ export class SavedSearchStore {
     if (!parsed.query && !parsed.kind && !parsed.projectId) throw new ApiError(400, "saved_search_empty", "A saved search needs words, a category or a project.");
     // The same scope and words saved twice is one search.
     const existing = this.list().find(search => search.query === parsed.query && search.kind === parsed.kind && search.projectId === parsed.projectId
+      && (search.sourceKind ?? null) === (parsed.sourceKind ?? null)
       && (search.modifiedAfter ?? null) === (parsed.modifiedAfter ?? null) && [...(search.fileTypes ?? [])].sort().join() === [...(parsed.fileTypes ?? [])].sort().join());
     if (existing) return existing;
     const id = `ss_${randomBytes(6).toString("hex")}`;

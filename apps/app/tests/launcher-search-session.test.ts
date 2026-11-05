@@ -82,3 +82,21 @@ test("new search folders refresh while indexing, then stop when complete or hidd
   await wait(2); session.cancel(); const stoppedAt = calls;
   await wait(20); expect(calls).toBe(stoppedAt);
 });
+
+test("changing the file source clears old rows and passes the qualifier to both search phases", async () => {
+  const calls: string[] = [];
+  const session = new LauncherSearchSession(async input => {
+    calls.push(`${input.sourceKind}:${input.content}`);
+    return { items: [item(`${input.sourceKind}.pdf`, 1)], sources: [], unavailable: [] };
+  }, { debounceMs: 0 });
+  try {
+    session.search({ query: "contract", kinds: ["files"], projectId: null, sourceKind: "project" });
+    await wait(20);
+    expect(session.current().items[0]?.id).toBe("project.pdf");
+    session.search({ query: "contract", kinds: ["files"], projectId: null, sourceKind: "wiki" });
+    expect(session.current().items).toEqual([]);
+    await wait(20);
+    expect(session.current().items.map(item => item.id)).toEqual(["wiki.pdf"]);
+    expect(calls).toEqual(["project:false", "project:true", "wiki:false", "wiki:true"]);
+  } finally { session.cancel(); }
+});
