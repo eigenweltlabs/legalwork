@@ -1147,6 +1147,7 @@ function SkillCreatorButton(props: {
   const slug = name.trim().toLowerCase();
   const nameValid = /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug) && slug.length <= 200;
   const nameTaken = nameValid && props.existingNames.has(slug);
+  const nameInvalid = slug.length > 0 && (!nameValid || nameTaken);
   const canSubmit = nameValid && !nameTaken && description.trim().length > 0 && body.trim().length > 0 && !saving;
 
   const reset = () => {
@@ -1226,10 +1227,11 @@ function SkillCreatorButton(props: {
                 value={name}
                 onChange={(event) => setName(event.currentTarget.value)}
                 placeholder="contract-summary"
+                aria-invalid={nameInvalid}
                 spellCheck={false}
                 className={inputClass}
               />
-              <span className="text-[11px] text-dls-secondary">
+              <span className={`text-[11px] ${nameInvalid ? "text-destructive" : "text-dls-secondary"}`}>
                 {slug.length === 0
                   ? t("skills.slug_hint")
                   : nameTaken

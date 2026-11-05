@@ -26,6 +26,8 @@ Attach the firm's templates, playbooks and examples as workflow resources. Resou
 
 You can also ask the assistant to create or save a skill/workflow. The `legalwork_skill_create` tool adds it to the shared library and can attach resource files. `legalwork_skill_list` checks existing entries. Writing a loose `SKILL.md` into an arbitrary folder does not by itself add it to the library shown in the app. Accept the app's reload prompt when required for the engine to see updated skills or tools.
 
+When creating a skill, an invalid or already-used name shows a red hint below **Name**. Correct the name before selecting **Create skill**.
+
 ## Run a workflow
 
 Select a workflow and the documents/folder to use, or start it from a task's **Start workflow** action. Explain the intended result and any matter-specific constraints. Templates and instructions are inputs, so the assistant still needs the actual matter information. A skill that tells an agent how to do something does not itself grant credentials or access to folders.
