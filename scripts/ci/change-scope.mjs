@@ -50,7 +50,7 @@ export function changeScope(paths) {
       enable('tooling');
       if (/^scripts\/ci\/cache-sandbox-runtime/.test(file)) enable('server', 'desktop', 'sandbox', 'alpha');
       if (/^scripts\/ci\/(dependency-store|portable-assets|run-tests|run-engine-tests|run-sandbox-tests|sandbox-test-files|timing)/.test(file)) enable('app', 'server', 'desktop', 'alpha');
-      if (/^scripts\/ci\/(build-opencode|reuse-opencode|cache-opencode|recover-opencode|mac-engine)/.test(file)) enable('engine');
+      if (/^scripts\/ci\/(build-opencode|reuse-opencode|cache-opencode|recover-opencode|production-opencode|mac-engine)/.test(file)) enable('engine');
       continue;
     }
     if (/^scripts\/sandbox\//.test(file)) { enable('server', 'desktop', 'sandbox', 'alpha'); continue; }

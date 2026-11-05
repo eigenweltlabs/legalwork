@@ -59,7 +59,7 @@ test('artifact bytes cannot nominate a different manifest or receipt after produ
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
-test('production always compiles fresh while recovered development bytes still pass the full verifier', () => {
+test('development cache/recovery cannot satisfy production reuse and recovered development bytes still pass the full verifier', () => {
   const { parse } = createRequire(new URL('../../apps/desktop/package.json', import.meta.url))('yaml');
   const workflow = parse(readFileSync(new URL('../../.github/workflows/ci-opencode-derivative.yml', import.meta.url), 'utf8'));
   const steps = workflow.jobs.build.steps;
@@ -74,9 +74,11 @@ test('production always compiles fresh while recovered development bytes still p
   assert.match(steps[verified].run, /cache-opencode-derivative.mjs verify/);
   const compile = steps.find(step => step.id === 'engine').if;
   const js = compile.replace(/inputs\.([\w-]+)/g, 'inputs["$1"]').replace(/steps\.([\w-]+)/g, 'steps["$1"]').replace(/outputs\.([\w-]+)/g, 'outputs["$1"]');
-  const selected = (mode, hit, recovered) => Function('inputs', 'steps', `return ${js};`)({ 'build-mode': mode },
-    { mode: { outputs: { reuse: 'false' } }, cache: { outputs: { 'cache-hit': hit } }, 'artifact-source': { outputs: { 'run-id': recovered } } });
+  const selected = (mode, hit, recovered, productionHit = '') => Function('inputs', 'steps', `return ${js};`)({ 'build-mode': mode },
+    { mode: { outputs: { reuse: 'false' } }, cache: { outputs: { 'cache-hit': hit } }, 'artifact-source': { outputs: { 'run-id': recovered } },
+      'production-source': { outputs: { 'cache-hit': productionHit } } });
   assert.equal(selected('production', 'true', '42'), true);
+  assert.equal(selected('production', 'true', '42', 'true'), false);
   assert.equal(selected('development', 'true', ''), false);
   assert.equal(selected('development', 'false', '42'), false);
   assert.equal(selected('development', 'false', ''), true);

@@ -28,6 +28,14 @@ on:
         description: Compare Linux archive compression on identical packaged bytes without publishing
         type: boolean
         default: false
+      warm_engine_cache:
+        description: Prepare only the verified production engine cache without publishing
+        type: boolean
+        default: false
+      require_engine_cache:
+        description: Require a verified production cache hit for a full nonpublishing benchmark
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -55,9 +63,15 @@ jobs:
           PROFILE: ${{ inputs.benchmark_profile }}
           VERSION: ${{ inputs.benchmark_version }}
           LINUX_BENCHMARK: ${{ inputs.linux_benchmark }}
+          WARM_ENGINE_CACHE: ${{ inputs.warm_engine_cache }}
+          REQUIRE_ENGINE_CACHE: ${{ inputs.require_engine_cache }}
         run: |
-          if { [ "$PROFILE" = serial-full-ui ] || [ -n "$VERSION" ] || [ "$LINUX_BENCHMARK" = true ]; } && [ "$SIGNING_TEST" != true ]; then
+          if { [ "$PROFILE" = serial-full-ui ] || [ -n "$VERSION" ] || [ "$LINUX_BENCHMARK" = true ] || [ "$WARM_ENGINE_CACHE" = true ] || [ "$REQUIRE_ENGINE_CACHE" = true ]; } && [ "$SIGNING_TEST" != true ]; then
             echo 'Benchmark profiles and versions require signing_test; publishing must be disabled.' >&2
+            exit 1
+          fi
+          if [ "$REQUIRE_ENGINE_CACHE" = true ] && { [ "$PROFILE" = serial-full-ui ] || [ "$WARM_ENGINE_CACHE" = true ]; }; then
+            echo 'A full cache-hit benchmark cannot select a cold profile or engine-only warm-up.' >&2
             exit 1
           fi
   opencode-engine:
@@ -71,12 +85,14 @@ jobs:
       build-mode: production
       ref: ${{ github.sha }}
       build-workers: ${{ inputs.benchmark_profile == 'serial-full-ui' && 1 || 2 }}
+      force-production-rebuild: ${{ inputs.benchmark_profile == 'serial-full-ui' }}
+      require-production-cache-hit: ${{ github.event_name == 'workflow_dispatch' && inputs.require_engine_cache || false }}
     secrets:
       APPLE_CODESIGN_CERT_P12_BASE64: ${{ secrets.APPLE_CODESIGN_CERT_P12_BASE64 }}
       APPLE_CODESIGN_CERT_PASSWORD: ${{ secrets.APPLE_CODESIGN_CERT_PASSWORD }}
   sandbox-runtime:
     needs: changes
-    if: needs.changes.outputs.alpha == 'true'
+    if: needs.changes.outputs.alpha == 'true' && !(github.event_name == 'workflow_dispatch' && inputs.warm_engine_cache)
     uses: ./.github/workflows/sandbox-runtime.yml
     with:
       targets: ${{ inputs.linux_benchmark && 'darwin-arm64,win32-x64,win32-arm64,linux-x64,linux-arm64' || 'darwin-arm64,win32-x64,win32-arm64' }}
@@ -577,7 +593,7 @@ jobs:
           retention-days: 7
   portable-version:
     needs: changes
-    if: needs.changes.outputs.alpha == 'true'
+    if: needs.changes.outputs.alpha == 'true' && !(github.event_name == 'workflow_dispatch' && inputs.warm_engine_cache)
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}

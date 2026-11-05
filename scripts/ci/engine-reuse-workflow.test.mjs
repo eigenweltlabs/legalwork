@@ -42,7 +42,7 @@ test('normal PR reuse still verifies cache bytes and production still rejects de
   assert.match(build.steps[restore].if, /inputs.build-mode == 'development'/);
   assert.equal(build.steps[restore].with['restore-keys'], undefined);
   assert.match(build.steps[verify].run, /cache-opencode-derivative.mjs verify/);
-  assert.match(build.steps.find(step => step.name === 'Validate explicit producer reuse inputs').run, /Production must compile and sign/);
+  assert.match(build.steps.find(step => step.name === 'Validate explicit producer reuse inputs').run, /Production cannot use manually supplied development candidate reuse/);
 });
 
 test('engine discovery includes nested and newly added fixtures, excluding ordinary code and symlinks', () => {

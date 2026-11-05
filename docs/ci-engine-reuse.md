@@ -1,4 +1,4 @@
-# Development engine reuse in CI
+# Engine reuse in CI
 
 OpenCode is an input to LegalWork's integration tests. A change to an OAuth
 connector or a desktop screen requires testing with the engine, but does not
@@ -83,9 +83,55 @@ only their macOS, Linux or Windows archive family, together with that complete
 manifest. An explicit family selection is accepted only with an independently
 pinned manifest digest; every delivered archive still passes its hash,
 provenance and signature checks. The handoff receipt records its coverage, so
-warming a family cannot masquerade as a complete distribution. Production
-always compiles all reviewed targets afresh using two independent staging
-workers and requires its existing signing identity.
+warming a family cannot masquerade as a complete distribution.
+
+## Production engine reuse
+
+Alpha and release producers look for an immutable production artifact named by
+the current engine fingerprint. The identity covers the pinned upstream source,
+patch/dependency/test-evidence recipe, compiler, build helpers, complete target
+matrix, production certificate and entitlements. LegalWork's app version, UI
+changes and unrelated server edits are not inputs. Changing engine inputs or
+losing the retained artifact causes a fresh signed twelve-target build.
+
+A production cache hit requires a completed same-repository production producer,
+its successful full verification step, and the exact key plus unambiguous manifest
+pin in its independently fetched GitHub job log. Normal publication accepts
+trusted `dev` or release-event producers, not PR or arbitrary branch artifacts. An
+explicit manual benchmark may reuse its own branch's prior manual producer.
+Development caches and explicitly supplied development reuse inputs remain
+separate and cannot satisfy production reuse.
+
+Downloaded bytes must match that independent manifest and receipt. The existing
+production verifier checks every archive and current source/provenance policy,
+including actual native Apple signature and exact certificate checks for all
+Mac targets. Corrupt selected artifacts fail the run. Cache hits do not import
+private signing keys; misses retain the existing signing process and cleanup.
+Only freshly built and verified full production distributions are retained in
+the named cache for 90 days; normal same-run platform handoffs retain their
+existing seven-day lifetime. This is retained-artifact reuse, separate from the
+temporary development Actions cache.
+
+To seed an engine without packaging or publishing:
+
+```sh
+gh workflow run alpha-macos-aarch64.yml --ref dev \
+  -f signing_test=true -f warm_engine_cache=true
+```
+
+After that workflow completes, a fresh full nonpublishing alpha benchmark can
+require a hit rather than silently recompiling:
+
+```sh
+gh workflow run alpha-macos-aarch64.yml --ref dev \
+  -f signing_test=true -f require_engine_cache=true
+```
+
+The warm-up and full benchmark are separate runs. Report the full run's creation
+time through each platform job's completion, including all producers, dispatch
+and runner queues. Do not substitute native consumer duration or add overlapping
+stage durations. Release creation, release asset upload and publication stay
+disabled in these benchmark modes; signing and packaged startup still run.
 
 See [CI and execution efficiency](ci-efficiency.md) for scheduling, runtime
 caches, portable builds and the reproducible benchmark command.
