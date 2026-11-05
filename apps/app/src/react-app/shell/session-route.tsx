@@ -2779,8 +2779,8 @@ export function SessionRoute() {
         connectedProviderIds: providerConnectedIds,
         authMethods: sessionProviderAuthSnapshot.providerAuthMethods,
         onSelect: sessionProviderAuthStore.startProviderAuth,
-        onSubmitApiKey: async (providerId, apiKey) => {
-          const result = await sessionProviderAuthStore.submitProviderApiKey(providerId, apiKey);
+        onSubmitApiKey: async (providerId, apiKey, answer) => {
+          const result = await sessionProviderAuthStore.submitProviderApiKey(providerId, apiKey, answer);
           modelPicker.setRecentProviderIds(new Set([providerId]));
           modelPicker.setQuery("");
           modelPicker.setOpen(true);
