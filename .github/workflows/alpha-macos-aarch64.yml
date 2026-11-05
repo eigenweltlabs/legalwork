@@ -150,6 +150,11 @@ jobs:
 
       - name: Install dependencies
         uses: ./.github/actions/install-dependencies
+        with:
+          filter: |
+            ${{ inputs.benchmark_profile == 'serial-full-ui' && '*' || '@legalwork/desktop...' }}
+            ${{ inputs.benchmark_profile == 'serial-full-ui' && '' || 'legalwork-orchestrator...' }}
+            ${{ inputs.benchmark_profile == 'serial-full-ui' && '' || '@legalwork/actaport-mcp...' }}
 
       - name: Resolve alpha version
         id: alpha-version
@@ -217,6 +222,7 @@ jobs:
       - name: Package Electron alpha (macOS, signed + notarized)
         if: env.MACOS_NOTARIZE == 'true'
         env:
+          ELECTRON_BUILDER_COMPRESSION_LEVEL: '6'
           CSC_LINK: ${{ secrets.APPLE_CODESIGN_CERT_P12_BASE64 }}
           CSC_KEY_PASSWORD: ${{ secrets.APPLE_CODESIGN_CERT_PASSWORD }}
           MACOS_NOTARIZE: true
@@ -234,6 +240,7 @@ jobs:
       - name: Package Electron alpha (macOS, ad-hoc signed)
         if: env.MACOS_NOTARIZE != 'true'
         env:
+          ELECTRON_BUILDER_COMPRESSION_LEVEL: '6'
           # No Apple cert/notary secrets -> ad-hoc sign (mac.identity=-) so
           # Gatekeeper shows "developer cannot be verified -> Open Anyway"
           # instead of "damaged". disable-library-validation is already set in
@@ -407,7 +414,13 @@ jobs:
       - name: Install dependencies
         uses: ./.github/actions/install-dependencies
         with:
-          cache: ${{ matrix.arch != 'arm64' || inputs.benchmark_profile == 'serial-full-ui' }}
+          filter: |
+            ${{ inputs.benchmark_profile == 'serial-full-ui' && '*' || '@legalwork/desktop...' }}
+            ${{ inputs.benchmark_profile == 'serial-full-ui' && '' || 'legalwork-orchestrator...' }}
+            ${{ inputs.benchmark_profile == 'serial-full-ui' && '' || '@legalwork/actaport-mcp...' }}
+
+      - uses: ./.github/actions/prepare-windows-arm64-speech
+        if: runner.arch == 'ARM64'
 
       - name: Resolve alpha version
         id: alpha-version

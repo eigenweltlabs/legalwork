@@ -73,7 +73,9 @@ async function afterSign(context) {
   const issuer = requireEnv("APPLE_API_ISSUER");
 
   try {
-    run("ditto", ["-c", "-k", "--keepParent", appPath, notaryZipPath]);
+    // This temporary upload is discarded after acceptance; favor compression
+    // speed while preserving ditto's bundle metadata and resource forks.
+    run("ditto", ["-c", "-k", "--keepParent", "--zlibCompressionLevel", "1", appPath, notaryZipPath]);
     run("xcrun", [
       "notarytool",
       "submit",

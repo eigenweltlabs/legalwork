@@ -337,6 +337,11 @@ jobs:
 
       - name: Install dependencies
         uses: ./.github/actions/install-dependencies
+        with:
+          filter: |
+            @legalwork/desktop...
+            legalwork-orchestrator...
+            @legalwork/actaport-mcp...
 
       # After the frozen-lockfile install; electron-builder, the updater feed,
       # and app.getVersion() all pick the stamped version up from package.json.
@@ -582,6 +587,14 @@ jobs:
 
       - name: Install dependencies
         uses: ./.github/actions/install-dependencies
+        with:
+          filter: |
+            @legalwork/desktop...
+            legalwork-orchestrator...
+            @legalwork/actaport-mcp...
+
+      - uses: ./.github/actions/prepare-windows-arm64-speech
+        if: runner.arch == 'ARM64'
 
       # After the frozen-lockfile install; electron-builder, the updater feed,
       # and app.getVersion() all pick the stamped version up from package.json.

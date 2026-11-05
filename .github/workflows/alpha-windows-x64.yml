@@ -126,7 +126,13 @@ jobs:
       - name: Install dependencies
         uses: ./.github/actions/install-dependencies
         with:
-          cache: ${{ matrix.arch != 'arm64' }}
+          filter: |
+            @legalwork/desktop...
+            legalwork-orchestrator...
+            @legalwork/actaport-mcp...
+
+      - uses: ./.github/actions/prepare-windows-arm64-speech
+        if: runner.arch == 'ARM64'
 
       - name: Resolve alpha version
         id: alpha-version

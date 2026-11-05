@@ -9,7 +9,7 @@ inputs:
     description: Restore and save the selected store; false permits a fresh-install comparison
   filter:
     default: ''
-    description: Optional pnpm workspace dependency filter
+    description: Optional pnpm workspace dependency filters, one per line
 runs:
   using: composite
   steps:
@@ -36,7 +36,12 @@ runs:
         WORKSPACE_FILTER: ${{ inputs.filter }}
       run: |
         args=()
-        if [ -n "$WORKSPACE_FILTER" ]; then args+=(--store-dir "$PNPM_STORE_DIR" --filter "$WORKSPACE_FILTER"); fi
+        if [ -n "$WORKSPACE_FILTER" ]; then
+          args+=(--store-dir "$PNPM_STORE_DIR")
+          while IFS= read -r selector; do
+            if [ -n "$selector" ]; then args+=(--filter "$selector"); fi
+          done <<< "$WORKSPACE_FILTER"
+        fi
         args+=(install --frozen-lockfile --prefer-offline)
         if [ "$IGNORE_SCRIPTS" = true ]; then args+=(--ignore-scripts); fi
         pnpm "${args[@]}"
