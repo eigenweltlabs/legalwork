@@ -11,6 +11,8 @@ import { buildOrgPolicyEngineLayerFor, mandatoryRuntimeConfigFilePath, managedEn
 import { readManagedEngineSettings } from "./managed-engine-settings.js";
 import { Config } from "@opencode/schema/config";
 import { Schema } from "effect";
+import { z } from "zod";
+import { managedSettingsRpc } from "./managed-engine-settings.js";
 import { appliedOrgPolicy, onOrgPolicyChange, releaseOrgPolicyKey, requireOrgPolicyUnmanaged, resetOrgPolicyRuntimeForTests, scheduleOrgPolicySync } from "./org-policy.js";
 import { orgPolicyEngineDir, orgPolicyEngineLayerIntact } from "./org-policy-engine.js";
 import { LegalWorkOrgPolicyGuard } from "./opencode-plugins/legalwork-org-policy-guard.js";
@@ -368,7 +370,7 @@ describe("the firm's own providers", () => {
     "ai.ocr.defaultEngine": { mode: "enforced", value: "org-ocr-1" },
   };
 
-  test("a finite firm catalog-model list is retained and blocks unsupported configuration publication", async () => {
+  test("a finite firm catalog-model list starts without broadening its selected models", async () => {
     const restricted = {
       ...entries,
       "ai.chat.providers": {
@@ -378,9 +380,82 @@ describe("the firm's own providers", () => {
       },
     };
     const { config } = await setup(restricted, { "chat:org-anthropic-1": "sk-firm" });
-    await expect(writeLegalworkRuntimeConfigFile(config, "ws_1")).rejects.toThrow("model allowlist requires native model-policy support");
+    await writeLegalworkRuntimeConfigFile(config, "ws_1");
+    const settings = await readManagedEngineSettings(managedEngineSettingsFilePath(config), config.workspaces[0]!.path);
+    expect(settings.providerModelSelection).toEqual({ anthropic: ["claude-sonnet-4-5"], "org-azure-1": ["gpt-5"] });
+    expect((await readJson(join(orgPolicyEngineDir(config), "opencode.json"))).providers?.anthropic?.settings?.apiKey).toBe("sk-firm");
     expect(JSON.stringify((await appliedOrgPolicy(config, "ai.chat.providers"))?.value)).toBe(JSON.stringify(restricted["ai.chat.providers"].value));
   });
+
+  test("firm model limits intersect member selections, including empty intersections and duplicate catalog IDs", async () => {
+    const { config } = await setup({ "ai.chat.providers": { mode: "enforced", value: [
+      { id: "org-openai-1", name: "Firm OpenAI", source: { type: "catalog", provider: "openai" }, models: ["allowed", "other"], key: { by: "oauth" } },
+      { id: "org-openai-2", name: "Firm OpenAI key", source: { type: "catalog", provider: "openai" }, models: ["allowed"], key: { by: "member" } },
+      { id: "org-custom", name: "Firm custom", source: { type: "custom", baseURL: "https://firm.example.com/v1", apiType: "chat" }, models: ["allowed"], key: { by: "member" } },
+    ] } });
+    await writeRuntimeOpencodeConfig(config, "ws_1", current => ({ ...current, providerModelSelection: { openai: ["allowed", "blocked"], "org-custom": ["blocked"], personal: ["mine"] } }));
+    await writeLegalworkRuntimeConfigFile(config, "ws_1");
+    expect((await readManagedEngineSettings(managedEngineSettingsFilePath(config), config.workspaces[0]!.path)).providerModelSelection)
+      .toEqual({ openai: ["allowed"], "org-custom": [], personal: ["mine"] });
+  });
+
+  test.skipIf(!nativeMcpBinary)("restricted firm DigitalOcean models generate while excluded models stay blocked across restart and refresh", async () => {
+    const calls: string[] = [];
+    const provider = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
+      const { model } = z.object({ model: z.string() }).parse(await request.json());
+      calls.push(model);
+      const chunk = (delta: unknown, finish_reason: string | null) => `data: ${JSON.stringify({ id: "fixture", object: "chat.completion.chunk", created: 1, model, choices: [{ index: 0, delta, finish_reason }] })}\n\n`;
+      return new Response(chunk({ role: "assistant", content: "firm selection enforced" }, null) + chunk({}, "stop") + "data: [DONE]\n\n", { headers: { "content-type": "text/event-stream" } });
+    } });
+    cleanups.push(() => provider.stop(true));
+    const { config } = await setup({ "ai.chat.providers": { mode: "enforced", value: [
+      { id: "org-do", name: "Firm DigitalOcean", source: { type: "catalog", provider: "digitalocean" }, models: ["allowed"], key: { by: "firm", secretRef: "chat:org-do" } },
+    ] } }, { "chat:org-do": "synthetic-firm-key" });
+    const definition = { package: "@opencode/ai/providers/openai-compatible", settings: { baseURL: `${provider.url.origin}/v1`, apiKey: "synthetic" }, models: { allowed: {}, blocked: {} } };
+    await writeRuntimeOpencodeConfig(config, "ws_1", current => ({ ...current, providers: { digitalocean: definition, fallback: definition } }));
+    await writeLegalworkRuntimeConfigFile(config, "ws_1");
+    const published = await readManagedEngineSettings(managedEngineSettingsFilePath(config), config.workspaces[0]!.path);
+    expect(published.providerModelSelection).toEqual({ digitalocean: ["allowed"] });
+    let settingsPath = "";
+    const writeSettings = (directory: string, selections = published.providerModelSelection) => writeFile(settingsPath, JSON.stringify({ version: 2, sharedConfiguration: {}, workspaces: {
+      fixture: { ...published, directory, providerModelSelection: selections },
+    } }));
+    globalThis.fetch = realFetch;
+    const engine = await nativeMcpEngine(async root => {
+      settingsPath = join(root, "settings.json"); await writeSettings(join(root, "project"));
+      await writeFile(join(root, "project", "opencode.json"), JSON.stringify({ providers: { digitalocean: definition, fallback: definition } }));
+      const plugin = join(root, "plugin");
+      const built = await Bun.build({ entrypoints: [fileURLToPath(new URL("./opencode-plugins/legalwork-managed-config.ts", import.meta.url))], outdir: plugin,
+        naming: "index.js", target: "node", format: "esm", external: ["@opencode/plugin", "@opencode/plugin/*", "effect", "effect/*"] });
+      if (!built.success) throw new AggregateError(built.logs, "Firm selection plugin build failed");
+      return { plugins: [
+        { package: plugin, options: { settingsPath } },
+      ] };
+    });
+    cleanups.push(() => engine.close());
+    for (const cycle of ["initial", "restart"]) {
+      if (cycle === "restart") await engine.restart();
+      const client = engine.client(), location = engine.location;
+      const generate = async (providerID: string, id: string) => {
+        const session = await client.session.create({ location, model: { providerID, id } });
+        return client.session.generate({ sessionID: session.id, prompt: "Fixture" }, { signal: AbortSignal.timeout(10_000) });
+      };
+      const inventory = await client.model.list({ location });
+      expect(await client.rpc(managedSettingsRpc).permissionScope({}, { location })).toMatchObject({ directory: engine.directory });
+      expect(inventory.data.filter(model => model.providerID === "digitalocean").map(model => model.id)).toEqual(["allowed"]);
+      expect((await generate("digitalocean", "allowed")).text).toBe("firm selection enforced");
+      await expect(generate("digitalocean", "blocked")).rejects.toThrow();
+      await expect(generate("digitalocean", "unknown")).rejects.toThrow();
+      await expect(client.generate.text({ model: { providerID: "digitalocean", id: "blocked" }, prompt: "Fixture" })).rejects.toThrow();
+      expect((await generate("fallback", "blocked")).text).toBe("firm selection enforced");
+    }
+    expect(calls).toEqual(["allowed", "blocked", "allowed", "blocked"]);
+    await writeSettings(engine.directory, { digitalocean: [] });
+    await engine.client().rpc(managedSettingsRpc).refresh({}, { location: engine.location });
+    expect((await engine.client().model.list({ location: engine.location })).data.some(model => model.providerID === "digitalocean")).toBe(false);
+    await expect(engine.client().generate.text({ model: { providerID: "digitalocean", id: "allowed" }, prompt: "Fixture" })).rejects.toThrow();
+    expect(calls).toHaveLength(4);
+  }, 60_000);
 
   test.skipIf(!nativeMcpBinary)("released engine keeps firm-allowed OpenAI disconnected until a native credential exists", async () => {
     const { config } = await setup({

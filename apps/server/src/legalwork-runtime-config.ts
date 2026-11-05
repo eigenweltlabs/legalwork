@@ -84,7 +84,7 @@ import {
 import { buildPersonalizedAgentPrompt, withFirmInstructions } from "./personalization.js";
 import { buildOrgPolicyEngineLayer, orgPolicyEngineDir, orgPolicyPermissions, writeOrgPolicyEngineLayer } from "./org-policy-engine.js";
 import { appliedOrgPolicy } from "./org-policy.js";
-import { orgChatEngineIds, orgChatProviderTemplates } from "./org-policy-ai.js";
+import { orgChatEngineIds, orgChatModelSelection, orgChatProviderTemplates } from "./org-policy-ai.js";
 import { allowedMemberConnectors } from "./org-policy-items.js";
 // The engine's built-in anonymous provider — always disabled: the free tier
 // is retired, so no unauthenticated fallback models exist.
@@ -378,7 +378,9 @@ export async function buildLegalworkRuntimeSettings(
   const configuration = Schema.decodeUnknownSync(Config.Info)({ ...result,
     policies: [...result.policies, ...Object.entries(providerActivation).map(([resource, effect]) => ({ action: "provider.use", resource, effect }))],
   }, { onExcessProperty: "error" });
-  return { configuration, providerActivation, providerModelSelection: runtimeConfig.providerModelSelection ?? {}, projectPermissionApprovals: runtimeConfig.projectPermissionApprovals ?? [] };
+  const ownModelSelection = runtimeConfig.providerModelSelection ?? {};
+  const providerModelSelection = config ? await orgChatModelSelection(config, ownModelSelection) : ownModelSelection;
+  return { configuration, providerActivation, providerModelSelection, projectPermissionApprovals: runtimeConfig.projectPermissionApprovals ?? [] };
 }
 
 export async function buildLegalworkRuntimeConfigObject(config?: ServerConfig, workspaceId?: string): Promise<Record<string, unknown>> {

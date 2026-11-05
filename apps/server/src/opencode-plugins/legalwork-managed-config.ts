@@ -25,7 +25,9 @@ export const LegalWorkManagedConfig = Plugin.define({
     });
     const models = await ctx.model.transform(editor => {
       for (const [id, allowed] of Object.entries(selections)) {
-        for (const model of editor.list(id)) if (!allowed.includes(model.id)) editor.remove(id, model.id);
+        // Removing an override leaves an explicitly configured model available.
+        // Disable it so both catalog and authored definitions stay restricted.
+        for (const model of editor.list(id)) if (!allowed.includes(model.id)) editor.update(id, model.id, value => { value.enabled = false; });
       }
     });
     const refresh = await ctx.rpc.register(managedSettingsRpc, { async permissionScope() {
