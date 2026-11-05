@@ -68,6 +68,10 @@ Connect cloud storage and other services through **Settings > Integrations**. Th
 
 ## Keyboard shortcuts
 
+To switch workspace tabs, press **Cmd+1** through **Cmd+8** on macOS (**Ctrl+1** through **Ctrl+8** on Windows/Linux) to select the first through eighth tab from left to right. **Cmd/Ctrl+9** selects the last tab, even when more than nine tabs are open. If that numbered tab does not exist, the current tab stays selected. After you reorder tabs, the shortcuts follow their new order.
+
+In a split workspace, click a tab or its content first; the shortcut switches tabs in that pane. These shortcuts also work while typing in a chat or document, or using the built-in browser. In the desktop app, you can also choose **View > Select Tab > Tab 1–8** or **Last Tab**. **Ctrl+Tab** and **Ctrl+Shift+Tab** cycle forward and backward through the current pane's tabs.
+
 Use Command on macOS and Control elsewhere. In the chat shell: `Cmd/Ctrl+K` opens the command palette, `Cmd/Ctrl+Shift+F` searches sessions, `Cmd/Ctrl+J` toggles the terminal, and `Cmd/Ctrl+T` / `Cmd/Ctrl+Shift+T` moves between session tabs. `Cmd/Ctrl+N` creates a new chat when focus is not inside an editable field. These shortcuts are context-dependent; they are not Office shortcuts.
 
 Related: [Tasks](tasks-intake.md), [Files](files-documents.md), [Troubleshooting](troubleshooting.md).
