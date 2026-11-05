@@ -5,6 +5,42 @@ import { fileURLToPath } from "node:url";
 import { nativeMcpBinary, nativeMcpEngine } from "./native-mcp-engine.test-support.js";
 import { waitForNativeFixture } from "./native-mcp.test-support.js";
 
+test.skipIf(!nativeMcpBinary)("released Azure compatibility definitions preserve regular models alongside deprecated models", async () => {
+  const previousCatalog = process.env.OPENCODE_MODELS_PATH;
+  let engine: Awaited<ReturnType<typeof nativeMcpEngine>> | undefined;
+  try {
+    const model = { tool_call: true, modalities: { input: ["text"], output: ["text"] }, limit: { context: 128000, output: 16384 } };
+    const catalog = { azure: { id: "azure", name: "Azure", env: ["AZURE_API_KEY"], npm: "@ai-sdk/azure", models: {
+      regular: { ...model, id: "regular", name: "Regular Azure model" },
+      older: { ...model, id: "older", name: "Older Azure model", status: "deprecated" },
+    } } };
+    engine = await nativeMcpEngine(async root => {
+      process.env.OPENCODE_MODELS_PATH = join(root, "catalog.json");
+      await writeFile(process.env.OPENCODE_MODELS_PATH, JSON.stringify(catalog));
+      const compatibility = join(root, "compatibility.json");
+      await writeFile(compatibility, "{}");
+      const plugin = join(root, "plugin");
+      const build = await Bun.build({ entrypoints: [fileURLToPath(new URL("./opencode-plugins/legalwork-model-catalog.ts", import.meta.url))],
+        outdir: plugin, naming: "index.js", target: "node", format: "esm", external: ["@opencode/plugin", "@opencode/plugin/*", "effect", "effect/*"] });
+      if (!build.success) throw new AggregateError(build.logs, "Azure catalog plugin must build");
+      return { plugins: [{ package: plugin, options: { azureCatalogPath: compatibility } }] };
+    });
+    const { location } = engine;
+    await engine.client().credential.create({ integrationID: "azure", value: { type: "key", key: "synthetic-azure-key" }, activate: true });
+    const baseline = (await engine.client().model.list({ location })).data.filter(model => model.providerID === "azure");
+    expect(baseline.map(model => model.id)).toEqual(["regular"]);
+    await writeFile(join(engine.root, "compatibility.json"), JSON.stringify(catalog));
+    await engine.client().location.reload();
+    const combined = await waitForNativeFixture(async () => (await engine!.client().model.list({ location })).data.filter(model => model.providerID === "azure"), models => models.length === 2, "regular and restored Azure models");
+    expect(combined.find(model => model.id === "regular")).toEqual(baseline[0]);
+    expect(combined.find(model => model.id === "older")?.status).toBe("deprecated");
+  } finally {
+    await engine?.close();
+    if (previousCatalog === undefined) delete process.env.OPENCODE_MODELS_PATH;
+    else process.env.OPENCODE_MODELS_PATH = previousCatalog;
+  }
+}, 60_000);
+
 test.skipIf(!nativeMcpBinary)("released Azure provider gets deprecated metadata through LegalWork's supported definitions and retains native ownership", async () => {
   const previousCatalog = process.env.OPENCODE_MODELS_PATH;
   let engine: Awaited<ReturnType<typeof nativeMcpEngine>> | undefined;
