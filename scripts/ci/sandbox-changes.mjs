@@ -7,7 +7,7 @@ import { pathToFileURL } from 'node:url';
 // dependency changes are covered by pnpm-lock.yaml. CI filter edits need only
 // the filter tests, not a rebuild of the runtime they select.
 export function needsSandboxRuntime(paths) {
-  return paths.some(path => /^scripts\/ci\/(?:dependency-store|sandbox-test-files|run-sandbox-tests|run-tests)\.mjs$/.test(path)
+  return paths.some(path => /^scripts\/ci\/(?:(?:dependency-store|sandbox-test-files|run-sandbox-tests|run-tests|cache-sandbox-runtime|recover-sandbox-runtime)\.mjs|extract-runtime-artifact\.py)$/.test(path)
     || /^(?:scripts\/sandbox\/|apps\/server\/(?:resources\/agent-sandbox\/|src\/(?:agent-sandbox|calculations)\/)|\.github\/actions\/(?:setup-opencode|prepare-sandbox-runtime|build-sandbox-runtime|test-sandbox-runtime)\/)/.test(path)
     || /^\.github\/workflows\/(?:ci-tests|ci-engine-tests|ci-sandbox-validation|sandbox-runtime|ci-desktop-packaging)\.yml$/.test(path)
     || /^(?:package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|constants\.json)$/.test(path)

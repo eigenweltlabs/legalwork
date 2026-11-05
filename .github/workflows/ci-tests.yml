@@ -47,6 +47,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: legalwork-tests-${{ github.event.pull_request.number || github.ref }}${{ github.event_name == 'workflow_dispatch' && inputs.mac_signing_acceptance && '-mac-signing' || '' }}${{ github.event_name == 'workflow_dispatch' && inputs.package_desktop && !inputs.mac_signing_acceptance && '-package' || '' }}${{ github.event_name == 'workflow_dispatch' && inputs.unit_acceptance && !inputs.package_desktop && !inputs.mac_signing_acceptance && '-unit' || '' }}${{ github.event_name == 'workflow_dispatch' && inputs.windows_archive_acceptance && !inputs.package_desktop && !inputs.unit_acceptance && !inputs.mac_signing_acceptance && '-windows-archive' || '' }}${{ github.event_name == 'workflow_dispatch' && inputs.native_source_acceptance && '-native-source' || '' }}${{ github.event_name == 'workflow_dispatch' && inputs.transport_diagnostic && '-transport' || '' }}

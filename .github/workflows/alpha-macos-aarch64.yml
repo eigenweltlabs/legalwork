@@ -151,6 +151,7 @@ jobs:
       - name: Install dependencies
         uses: ./.github/actions/install-dependencies
         with:
+          cache: ${{ runner.os != 'Windows' || runner.arch != 'ARM64' || inputs.benchmark_profile == 'serial-full-ui' }}
           filter: |
             ${{ inputs.benchmark_profile == 'serial-full-ui' && '*' || '@legalwork/desktop...' }}
             ${{ inputs.benchmark_profile == 'serial-full-ui' && '' || 'legalwork-orchestrator...' }}
@@ -414,6 +415,7 @@ jobs:
       - name: Install dependencies
         uses: ./.github/actions/install-dependencies
         with:
+          cache: ${{ runner.os != 'Windows' || runner.arch != 'ARM64' || inputs.benchmark_profile == 'serial-full-ui' }}
           filter: |
             ${{ inputs.benchmark_profile == 'serial-full-ui' && '*' || '@legalwork/desktop...' }}
             ${{ inputs.benchmark_profile == 'serial-full-ui' && '' || 'legalwork-orchestrator...' }}

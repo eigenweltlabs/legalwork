@@ -48,7 +48,7 @@ export function changeScope(paths) {
     if (/^scripts\/i18n/.test(file)) { enable('i18n', 'tooling'); continue; }
     if (/^scripts\/(ci|release)\//.test(file)) {
       enable('tooling');
-      if (/^scripts\/ci\/cache-sandbox-runtime/.test(file)) enable('server', 'desktop', 'sandbox', 'alpha');
+      if (/^scripts\/ci\/(cache-sandbox-runtime|recover-sandbox-runtime|extract-runtime-artifact)/.test(file)) enable('server', 'desktop', 'sandbox', 'alpha');
       if (/^scripts\/ci\/(dependency-store|portable-assets|run-tests|run-engine-tests|run-sandbox-tests|sandbox-test-files|timing)/.test(file)) enable('app', 'server', 'desktop', 'alpha');
       if (/^scripts\/ci\/(build-opencode|reuse-opencode|cache-opencode|recover-opencode|production-opencode|mac-engine)/.test(file)) enable('engine');
       continue;

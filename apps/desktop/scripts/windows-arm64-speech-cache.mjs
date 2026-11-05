@@ -23,11 +23,21 @@ export function speechCacheKey(inputs) {
 }
 
 export function speechDependencyKey(lockfile) {
-  // Release stamping changes workspace importers, not registry package bytes.
+  // Identify the registry bytes selected by the frozen installation.
   return digest(JSON.stringify({ packages: lockfile.packages, patches: lockfile.patchedDependencies }));
 }
 
-export function currentSpeechCacheKey() {
+export function frozenSpeechDependencyKey(lockfile, installedKey) {
+  // --lockfile-only release stamping can refresh unrelated registry metadata.
+  // The installed packages still come from the earlier frozen installation.
+  if (installedKey !== undefined) {
+    assert.match(installedKey, /^[a-f0-9]{64}$/);
+    return installedKey;
+  }
+  return speechDependencyKey(lockfile);
+}
+
+export function currentSpeechCacheKey(installedKey = process.env.LEGALWORK_SPEECH_DEPENDENCY_KEY) {
   const files = {};
   for (const name of ['build/windows-arm64-speech.json', 'scripts/prepare-windows-arm64-speech.mjs', 'scripts/windows-arm64-speech-cache.mjs']) {
     files[name] = digest(readFileSync(path.join(desktop, name)));
@@ -38,7 +48,7 @@ export function currentSpeechCacheKey() {
   return speechCacheKey({ platform: process.platform, arch: process.arch, node: process.version,
     imageOS: process.env.ImageOS || 'local', imageVersion: process.env.ImageVersion || 'local',
     cmake: execFileSync('cmake', ['--version'], { encoding: 'utf8' }).split('\n')[0].trim(), packages, files,
-    dependencyKey: speechDependencyKey(lockfile) });
+    dependencyKey: frozenSpeechDependencyKey(lockfile, installedKey) });
 }
 
 function cacheFiles(directory, prefix = '') {
@@ -92,9 +102,11 @@ export function sealSpeechCache(directory, source, key) {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   assert.equal(process.argv[2], 'key');
-  const key = currentSpeechCacheKey();
+  const lockfile = require('yaml').parse(readFileSync(path.join(desktop, '../../pnpm-lock.yaml'), 'utf8'));
+  const dependencyKey = speechDependencyKey(lockfile);
+  const key = currentSpeechCacheKey(dependencyKey);
   const directory = path.join(process.env.RUNNER_TEMP, 'windows-arm64-speech');
   appendFileSync(process.env.GITHUB_OUTPUT, `key=${key}\ndirectory=${directory}\n`);
-  appendFileSync(process.env.GITHUB_ENV, `LEGALWORK_SPEECH_CACHE_DIRECTORY=${directory}\nLEGALWORK_SPEECH_CACHE_KEY=${key}\n`);
+  appendFileSync(process.env.GITHUB_ENV, `LEGALWORK_SPEECH_CACHE_DIRECTORY=${directory}\nLEGALWORK_SPEECH_CACHE_KEY=${key}\nLEGALWORK_SPEECH_DEPENDENCY_KEY=${dependencyKey}\n`);
   console.log('Native speech cache key: ' + key);
 }

@@ -27,6 +27,7 @@ jobs:
           version: 11.4.0
       - uses: ./.github/actions/install-dependencies
         with:
+          cache: ${{ runner.os != 'Windows' || runner.arch != 'ARM64' }}
           filter: |
             @legalwork/desktop...
             legalwork-orchestrator...

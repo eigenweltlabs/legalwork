@@ -19,6 +19,7 @@ on:
         default: false
 permissions:
   contents: read
+  actions: read
 jobs:
   tests:
     runs-on: ${{ inputs.os }}

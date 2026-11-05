@@ -10,6 +10,7 @@ on:
         required: true
 permissions:
   contents: read
+  actions: read
 jobs:
   prepare:
     runs-on: ${{ inputs.os }}
