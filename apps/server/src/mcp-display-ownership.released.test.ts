@@ -1,3 +1,5 @@
+import { Config } from "@opencode/schema/config";
+import { Schema } from "effect";
 import { expect, test } from "bun:test";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -17,12 +19,12 @@ test.skipIf(!nativeMcpBinary)("an authored connector override stays read-only ev
       approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: [], workspaces: [{ id: "matter", name: "Matter", path: project, preset: "starter", workspaceType: "local" }],
       authorizedRoots: [project], readOnly: false, startedAt: Date.now(), tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false };
     const servers = { collision: { type: "remote", url: "https://saved-private-token.example/mcp", disabled: true }, selected: { type: "remote", url: "https://selected.example/mcp", disabled: true } };
-    await writeRuntimeOpencodeConfig(config, GLOBAL_MCP_ID, () => ({ mcp: servers }));
+    await writeRuntimeOpencodeConfig(config, GLOBAL_MCP_ID, () => Schema.decodeUnknownSync(Config.Info)({ mcp: { servers } }));
     await writeNativeProjectProjection(config, config.workspaces[0]!, { mcp: { servers: {
       collision: { type: "remote", url: "https://saved-private-token.example/mcp", disabled: true },
       selected: { type: "remote", url: "https://selected.example/mcp", disabled: true },
     } } });
-    await mkdir(join(project, ".opencode"));
+    await mkdir(join(project, ".opencode"), { recursive: true });
     await writeFile(join(project, ".opencode", "opencode.jsonc"), JSON.stringify({ mcp: { servers: { collision: { type: "remote", url: "https://authored-private-token.example/mcp", disabled: true } } } }));
     return {};
   });

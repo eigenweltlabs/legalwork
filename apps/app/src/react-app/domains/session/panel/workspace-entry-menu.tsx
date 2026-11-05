@@ -1,3 +1,5 @@
+import type { ViewSummary } from "@legalwork/types/views";
+import { ViewRenameDialog } from "../../views/view-rename-dialog";
 import { useId, useRef, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { FolderOpen, FolderPlus, Loader2, Pencil, RefreshCw, Trash2, Upload } from "lucide-react";
@@ -14,13 +16,14 @@ import { toast } from "@/components/ui/sonner";
 import { useProjectFileImport } from "../../workspace/use-project-file-import";
 import { useProjectFiles } from "../../workspace/project-file-context";
 
-export function WorkspaceEntryMenu({ client, workspaceId, workspaceRoot, isRemoteWorkspace, folderPath, entry, children, className, onOpen, onRefresh, toolbar, contextOnly }: {
+export function WorkspaceEntryMenu({ client, workspaceId, workspaceRoot, isRemoteWorkspace, folderPath, entry, view, children, className, onOpen, onRefresh, toolbar, contextOnly }: {
   client: LegalworkServerClient | null;
   workspaceId: string | null;
   workspaceRoot: string;
   isRemoteWorkspace: boolean;
   folderPath: string;
   entry?: LegalworkWorkspaceDirectoryEntry;
+  view?: ViewSummary;
   children?: ReactNode;
   className?: string;
   onOpen?: () => void;
@@ -52,7 +55,7 @@ export function WorkspaceEntryMenu({ client, workspaceId, workspaceRoot, isRemot
   };
 
   return <>
-    <FileEntryActions name={entry?.name ?? t("workspace_files.files")} className={className} toolbar={toolbar} contextOnly={contextOnly}
+    <FileEntryActions name={view?.title ?? entry?.name ?? t("workspace_files.files")} className={className} toolbar={toolbar} contextOnly={contextOnly}
       source={source ?? undefined} onOpen={entry?.kind === "file" ? onOpen : undefined}
       file={entry?.kind === "file" && client && workspaceId ? { client, workspaceId, path: entry.path, isRemoteWorkspace } : undefined}
       pin={entry?.kind === "file" && workspaceId ? { workspaceId, source: "local", path: entry.path, name: entry.name } : undefined}
@@ -75,7 +78,8 @@ export function WorkspaceEntryMenu({ client, workspaceId, workspaceRoot, isRemot
       event.target.value = "";
       void copyFiles(files, targetFolder);
     }} />}
-    <Dialog open={action !== null} onOpenChange={(open) => { if (!busy && !open) setAction(null); }}>
+    {action === "rename" && view && client && <ViewRenameDialog client={client} view={view} onClose={() => { setAction(null); onRefresh(); }} />}
+    <Dialog open={action !== null && !(action === "rename" && view)} onOpenChange={(open) => { if (!busy && !open) setAction(null); }}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{label}</DialogTitle>

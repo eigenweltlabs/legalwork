@@ -70,7 +70,7 @@ beforeEach(async () => {
     if (url.pathname === `/wikis/${unavailableWiki}/search`) return response({ code: "offline", message: "Offline" }, 503);
     if (url.pathname === "/workspace/project-1/wiki-suggestions" && method === "POST") {
       const input = z.object({ title: z.string(), content: z.string(), destination: z.object({ wikiId: z.string(), path: z.string(), baseRevision: z.string().nullable() }) }).parse(body);
-      return response({ ...input, id: "7f042ba9-a47f-4edf-9b75-dcb4c573ee7b", workspaceId: "project-1", sessionId: null, status: "pending", createdAt: 1, updatedAt: 1, revision: "draft-1", filePath: ".legalwork/tmp/wiki-suggestions/7f042ba9-a47f-4edf-9b75-dcb4c573ee7b/draft.md" }, 201);
+      return response({ ...input, id: "7f042ba9-a47f-4edf-9b75-dcb4c573ee7b", workspaceId: "project-1", sessionId: null, status: wikis.find(wiki => wiki.id === input.destination.wikiId)?.requireAgentApproval === false ? "saved" : "pending", createdAt: 1, updatedAt: 1, revision: "draft-1", filePath: ".legalwork/tmp/wiki-suggestions/7f042ba9-a47f-4edf-9b75-dcb4c573ee7b/draft.md" }, 201);
     }
     if (/^\/wikis\/[^/]+$/.test(url.pathname)) return response({ folders: ["Topics", "Topics/Privacy", "Playbooks"], pages: [...documents.values()].map(file => ({ path: file.path, title: file.path, type: "page", properties: {}, links: [], excerpt: file.content.slice(0, 80), revision: file.revision, updatedAt: file.updatedAt })) });
     if (url.pathname.endsWith("/search")) return response({ items: [{ path: "Notes.md", title: "Useful note", type: "research",
@@ -450,4 +450,19 @@ test("unmanaged wiki skill creation cannot upload project resources but retains 
   expect(await execute()).toMatchObject({ ok: true });
   expect(await execute(["template.txt", "../shared.txt"])).toMatchObject({ ok: true, attachedResources: ["template.txt", "shared.txt"] });
   expect(uploads).toEqual([{ name: "template.txt", content: "Wiki template" }, { name: "shared.txt", content: "Wiki parent resource" }]);
+});
+
+
+test("project tools expose the approval setting and accurately report background publication", async () => {
+  wikis[0].requireAgentApproval = false;
+  const plugin = await LegalWorkWikiTools({ directory: projectRoot });
+  try {
+    const listed = JSON.parse(await plugin.tool.wiki_list.execute({}));
+    expect(listed.wikis[0].requireAgentApproval).toBe(false);
+    expect(JSON.parse(await plugin.tool.wiki_guidance.execute({ wiki_id: "wiki-1" }))).toMatchObject({ requireAgentApproval: false, access_mode: "background" });
+    const result = JSON.parse(await plugin.tool.wiki_suggest.execute({ title: "Finding", content: "# Finding", destination: { wikiId: "wiki-1", path: "Finding.md", baseRevision: null } }));
+    expect(result).toMatchObject({ published: true, staged: false, suggestion: { status: "saved" } });
+    expect(result.url).toContain("Finding.md");
+    expect(result.file).toBeUndefined();
+  } finally { await plugin.close(); }
 });

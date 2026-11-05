@@ -15,6 +15,7 @@ import { NewProvidersListener } from "./new-providers-listener";
 import { OrgPolicyRoot } from "../domains/connections/org-policy-ui";
 import { useDesktopFontZoomBehavior } from "./font-zoom";
 import { LoadingOverlay } from "./loading-overlay";
+import { useEngineStartup } from "./engine-startup";
 import { DevProfiler, DevProfilerOverlay } from "./dev-profiler";
 import { ReactRenderWatchdogOverlay } from "./react-render-watchdog-overlay";
 import { AppMenuProvider } from "./app-menu";
@@ -45,6 +46,7 @@ export function AppRoot() {
     window.addEventListener("focus", refresh);
     return () => { window.removeEventListener("storage", storage); window.removeEventListener("languagechange", refresh); window.removeEventListener("focus", refresh); };
   }, []);
+  const startup = useEngineStartup();
 
   // Module-level dedupe keeps StrictMode double-mounts from double-counting.
   useEffect(() => {
@@ -67,6 +69,7 @@ export function AppRoot() {
   return (
     <AppErrorBoundary>
     <>
+      {startup.status === "ready" ? <>
       <DocumentDiscardDialog />
       <DevProfiler id="AppRoot">
         <ShellConfigProvider>
@@ -184,7 +187,6 @@ export function AppRoot() {
         </LegalworkControlProvider>
         </AppMenuProvider>
         </ShellConfigProvider>
-        <LoadingOverlay />
       </DevProfiler>
       {/*
         DevProfilerOverlay sits OUTSIDE the AppRoot <Profiler> zone on
@@ -203,6 +205,8 @@ export function AppRoot() {
       <StealthMode />
       <DevProfilerOverlay />
       <ReactRenderWatchdogOverlay />
+      </> : null}
+      <LoadingOverlay startup={startup} />
     </>
     </AppErrorBoundary>
   );

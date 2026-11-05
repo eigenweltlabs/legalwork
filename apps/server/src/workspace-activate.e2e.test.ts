@@ -254,6 +254,49 @@ describe("workspace activation", () => {
     expect(response.status).toBe(200);
   });
 
+  test.each([400, 500])("explicit reload initializes a fresh location when native managed settings RPC is unavailable (HTTP %s)", async status => {
+    const workspaceRoot = await createWorkspaceRoot();
+    const requests: string[] = [];
+    let ready = false;
+    const engine = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(request) {
+      const url = new URL(request.url);
+      requests.push(url.pathname);
+      expect(url.searchParams.get("location[directory]")).toBe(workspaceRoot);
+      if (url.pathname === "/api/model") {
+        ready = true;
+        return Response.json({ location: { directory: workspaceRoot }, data: [] });
+      }
+      if (url.pathname === "/api/rpc/legalwork.managed-settings/refresh") {
+        return ready ? Response.json({ refreshed: true })
+          : Response.json({ _tag: "RpcError", type: "rpc.unavailable", message: "RPC is unavailable: legalwork.managed-settings" }, { status });
+      }
+      return new Response(null, { status: 404 });
+    } });
+    stops.push(() => engine.stop(true));
+    const legalwork = await startLegalworkServer({ workspaceRoot, opencodeBaseUrl: engine.url.origin });
+    const response = await fetch(`http://127.0.0.1:${legalwork.server.port}/workspace/ws_1/engine/reload`, {
+      method: "POST", headers: hostAuth(legalwork.hostToken),
+    });
+    expect(response.status).toBe(200);
+    expect(requests).toEqual(["/api/rpc/legalwork.managed-settings/refresh", "/api/model", "/api/rpc/legalwork.managed-settings/refresh"]);
+  });
+
+  test("does not retry an admitted settings handler that reports a different engine error", async () => {
+    const workspaceRoot = await createWorkspaceRoot();
+    const requests: string[] = [];
+    const engine = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(request) {
+      requests.push(new URL(request.url).pathname);
+      return Response.json({ _tag: "RpcError", type: "settings.invalid", message: "Invalid saved settings" }, { status: 400 });
+    } });
+    stops.push(() => engine.stop(true));
+    const legalwork = await startLegalworkServer({ workspaceRoot, opencodeBaseUrl: engine.url.origin });
+    const response = await fetch(`http://127.0.0.1:${legalwork.server.port}/workspace/ws_1/engine/reload`, {
+      method: "POST", headers: hostAuth(legalwork.hostToken),
+    });
+    expect(response.status).toBe(400);
+    expect(requests).toEqual(["/api/rpc/legalwork.managed-settings/refresh"]);
+  });
+
   test("navigation remains available when its engine is unreachable", async () => {
     const workspaceRoot = await createWorkspaceRoot();
     const probe = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("ok") });

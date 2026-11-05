@@ -180,7 +180,7 @@ describe("bundled LegalWork help", () => {
     const plugin = nativePluginTestRuntime();
     try {
       await plugin.start(LegalWorkCapabilitiesKnowledge);
-      const output: { system: Array<{ text: string }> } = { system: [] };
+      const output: { sessionID: string; agent: string; system: Array<{ type: "text"; text: string }> } = { sessionID: "help", agent: "build", system: [] };
       await plugin.hook("session", "context", output);
       await withWorkspace(async (root) => {
         await ensureWorkspaceFiles(root, "starter");

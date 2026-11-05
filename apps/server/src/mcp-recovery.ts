@@ -72,7 +72,7 @@ export class McpRecovery {
       const operation = this.enqueue(name, async () => {
         if (this.paused(name)) return;
         const connector = (await input.connectors()).find(item => item.name === name);
-        if (!connector || connector.config.type !== "remote" || connector.config.enabled === false || connector.disabledByTools) return;
+        if (!connector || connector.config.type !== "remote" || connector.config.disabled === true || connector.disabledByTools) return;
         // A manual disconnect or sign-in may have happened while queued.
         if ((await input.readStatuses())[name]?.status !== "failed" || this.paused(name)) return;
         await input.connect(name);

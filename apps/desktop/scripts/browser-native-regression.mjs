@@ -24,7 +24,7 @@ const fixture = createServer((request, response) => {
 const rpcID = "legalwork.browser.fixture";
 let output = "";
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
-async function until(predicate, message) { const end = Date.now() + 10000; while (!await predicate()) { if (Date.now() > end) throw new Error(message); await sleep(30); } }
+async function until(predicate, message) { const end = Date.now() + 10000; while (!await predicate()) { if (Date.now() > end) throw new Error(typeof message === "function" ? message() : message); await sleep(30); } }
 app.whenReady().then(async () => {
   let status = 0;
   try {
@@ -50,7 +50,7 @@ app.whenReady().then(async () => {
     let serverOutput = "";
     serverChild = spawn(bun, ["scripts/browser-native-server-fixture.ts", configFile], { cwd: path.resolve(import.meta.dirname, "../../server"), env: { PATH: process.env.PATH, HOME: path.join(root, "home"), USERPROFILE: path.join(root, "home"), XDG_CONFIG_HOME: path.join(root, "config"), XDG_DATA_HOME: path.join(root, "data"), XDG_CACHE_HOME: path.join(root, "cache"), XDG_STATE_HOME: path.join(root, "state") }, stdio: ["ignore", "pipe", "pipe"] });
     serverChild.stdout.on("data", value => serverOutput += value); serverChild.stderr.on("data", value => serverOutput += value);
-    await until(() => /BROWSER_FIXTURE_SERVER=(http[^\s]+)/.test(serverOutput), "Real LegalWork server did not listen: " + serverOutput);
+    await until(() => /BROWSER_FIXTURE_SERVER=(http[^\s]+)/.test(serverOutput), () => "Real LegalWork server did not listen: " + serverOutput);
     const manualURL = /BROWSER_FIXTURE_SERVER=(http[^\s]+)/.exec(serverOutput)[1];
     main = new BrowserWindow({ show: true, width: 1300, height: 900 }); detached = new BrowserWindow({ show: false });
     await main.loadURL("about:blank"); await detached.loadURL("about:blank");
@@ -129,10 +129,10 @@ app.whenReady().then(async () => {
     const contextC = { workspaceId: "a", sessionId: c.id, connectionId: registration.connectionId };
     const manualHeaders = { authorization: "Bearer manual-browser-client", "content-type": "application/json" };
     const gate = `${manualURL}/workspace/a/browser/${c.id}/api/session/${c.id}`;
-    assert.equal((await fetch(gate, { headers: manualHeaders })).status, 409, "Native project automation must be approved before browser activation.");
-    const approved = await fetch(`${manualURL}/workspace/a/engine-project/approve`, { method: "POST", headers: manualHeaders, body: JSON.stringify({ directory: path.join(root, "a"), pluginTargets: [] }) }); assert.equal(approved.status, 200, await approved.text());
-    const actors = JSON.parse(readFileSync(path.join(root, "browser-test-actors.json"), "utf8"));
-    assert.equal((await fetch(gate, { headers: { authorization: `Bearer ${actors.viewer}` } })).status, 403);
+    const projectA = await fetch(`${manualURL}/workspace/a/engine-project`, { headers: manualHeaders });
+    assert.equal(projectA.status, 200); assert.equal((await projectA.json()).state, "ready");
+    const actors = { viewer: "owt_retired_browser_viewer", other: "owt_retired_browser_collaborator" };
+    assert.equal((await fetch(gate, { headers: { authorization: `Bearer ${actors.viewer}` } })).status, 401, "Retired viewer tokens must not authorize browser access.");
     await invoke(main, "attachSession", contextC);
     const remoteRun = async (name, input = {}) => { const result = (await client.rpc.call({ rpcID, method: "run", input: { sessionID: c.id, name: `browser.${name}`, input }, location: { directory: path.join(root, "a") } }, { signal: AbortSignal.timeout(15000) })).output; if (result?.fixtureError) throw new Error(result.fixtureError); return result; };
     const remoteTab = await remoteRun("tabs.open", { url: origin, focus: false });
@@ -151,7 +151,8 @@ app.whenReady().then(async () => {
     const remoteBytes = await fetch(`${remoteConnection.browser_url}/download`, { method: "POST", headers: remoteHeaders, body: JSON.stringify({ id: remoteDownload.id }) }); assert.equal(remoteBytes.status, 200); assert.deepEqual(Buffer.from((await remoteBytes.json()).data, "base64"), large);
     assert.equal((await fetch(`${remoteConnection.browser_url}/download`, { method: "POST", headers: { ...remoteHeaders, "x-legalwork-browser-session": a.id }, body: JSON.stringify({ id: remoteDownload.id }) })).status, 403);
     assert.equal((await fetch(`${manualURL}/workspace/b/browser/${c.id}/api/session/${c.id}`, { headers: remoteHeaders })).status, 404, "A forged chat must not activate another project.");
-    const approvedB = await fetch(`${manualURL}/workspace/b/engine-project/approve`, { method: "POST", headers: manualHeaders, body: JSON.stringify({ directory: path.join(root, "b"), pluginTargets: [] }) }); assert.equal(approvedB.status, 200, await approvedB.text());
+    const projectB = await fetch(`${manualURL}/workspace/b/engine-project`, { headers: manualHeaders });
+    assert.equal(projectB.status, 200); assert.equal((await projectB.json()).state, "ready");
     assert.equal((await fetch(`${manualURL}/workspace/b/browser/${c.id}/api/session/${c.id}`, { headers: remoteHeaders })).status, 404);
     assert.equal((await fetch(`${manualURL}/workspace/a/browser/${c.id}/api/rpc/admin/anything`, { method: "POST", headers: remoteHeaders, body: "{}" })).status, 404);
     const cancelled = new AbortController();
@@ -164,7 +165,7 @@ app.whenReady().then(async () => {
     const securityAbort = new AbortController();
     const attachment = fetch(`${securityBase}/rpc/experimental.browser/attach`, { method: "POST", headers: manualHeaders, body: JSON.stringify({ input: { sessionID: security.id, connectionID, version: 4 } }), signal: securityAbort.signal }).catch(error => error);
     await sleep(100);
-    const other = await fetch(`${securityBase}/rpc/experimental.browser/state`, { method: "POST", headers: { ...manualHeaders, authorization: `Bearer ${actors.other}` }, body: JSON.stringify({ input: { sessionID: security.id, connectionID, state: { tabs: [], focusedTabID: null } } }) }); assert.equal(other.status, 403, "A second authorized client must not hijack another desktop attachment.");
+    const other = await fetch(`${securityBase}/rpc/experimental.browser/state`, { method: "POST", headers: { ...manualHeaders, authorization: `Bearer ${actors.other}` }, body: JSON.stringify({ input: { sessionID: security.id, connectionID, state: { tabs: [], focusedTabID: null } } }) }); assert.equal(other.status, 401, "Retired shared collaborator tokens must not hijack a desktop attachment.");
     securityAbort.abort(); await attachment;
     const worker = await client.session.create({ agent: "document-extractor", metadata: { legalworkReviewWorker: true }, location: { directory: path.join(root, "a") } });
     assert.equal((await fetch(`${manualURL}/workspace/a/browser/${worker.id}/api/session/${worker.id}`, { headers: manualHeaders })).status, 403);

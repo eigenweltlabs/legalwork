@@ -11,6 +11,8 @@ test("the live scheduler runs research beside a busy daily chat and returns the 
     import { mkdir } from "node:fs/promises";
     import { join } from "node:path";
     const { startServer } = await import(${JSON.stringify(new URL("./server.ts", import.meta.url).href)});
+    const { writeEigenweltConnection } = await import(${JSON.stringify(new URL("./eigenwelt-connection-store.ts", import.meta.url).href)});
+    const { parseEigenweltEntitlements } = await import(${JSON.stringify(new URL("./eigenwelt-auth.ts", import.meta.url).href)});
     const { nativeAssistantFixture } = await import(${JSON.stringify(new URL("./assistant-engine.test-support.ts", import.meta.url).href)});
     const { ScheduledTaskStore } = await import(${JSON.stringify(new URL("./scheduled-tasks/store.ts", import.meta.url).href)});
     const root = process.env.XDG_CONFIG_HOME, folder = join(root, "assistant"); await mkdir(folder);
@@ -36,6 +38,7 @@ test("the live scheduler runs research beside a busy daily chat and returns the 
     const config = { host: "127.0.0.1", port: 0, token: "fixture", hostToken: "host", configPath: join(root, "server.json"), opencodeBaseUrl: engine.url.origin,
       projectsDirectory: root, workspaces: [{ id: "assistant", name: "Assistant", path: folder, preset: "main-assistant", workspaceType: "local" }], authorizedRoots: [root],
       approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: [], readOnly: false, startedAt: 0, tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false };
+    await writeEigenweltConnection(config, { entitlements: parseEigenweltEntitlements({ plan: "plus", subscriptionStatus: "active" }) });
     const store = await ScheduledTaskStore.open(process.env.LEGALWORK_RUNTIME_DB);
     const task = store.create("assistant", { title: "Briefing", prompt: "RESEARCH_TASK_ONLY: read source records", projectAccess: "all", sessionId: null, reuseChat: false, pinSession: false,
       model: { providerID: "fixture", modelID: "model" }, schedule: { kind: "once", startAt: new Date(Date.now()-1000).toISOString(), timeZone: "UTC" } }, Date.now()-2000);

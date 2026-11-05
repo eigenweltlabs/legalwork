@@ -35,13 +35,13 @@ describe("app sync events", () => {
     const config = configAt("/tmp/app-sync-events-a.json");
     const stream = listen(config);
     await settle(10);
-    expect(stream.events).toEqual([{ resync: true }]);
+    expect(stream.events).toEqual([{ resync: true, metadata: true }]);
 
     announceSyncChange(config, "projects");
     announceSyncChange(config, "tasks");
     announceSyncChange(config, "projects");
     await settle(400);
-    expect(stream.events).toEqual([{ resync: true }, { projects: true, tasks: true }]);
+    expect(stream.events).toEqual([{ resync: true, metadata: true }, { projects: true, tasks: true }]);
 
     announceSyncChange(config, "tasks");
     await settle(400);
@@ -61,9 +61,9 @@ describe("app sync events", () => {
 
     announceSyncChange(mine, "tasks");
     await settle(400);
-    expect(open.events).toEqual([{ resync: true }, { tasks: true }]);
-    expect(closed.events).toEqual([{ resync: true }]);
-    expect(other.events).toEqual([{ resync: true }]);
+    expect(open.events).toEqual([{ resync: true, metadata: true }, { tasks: true }]);
+    expect(closed.events).toEqual([{ resync: true, metadata: true }]);
+    expect(other.events).toEqual([{ resync: true, metadata: true }]);
     open.close();
     other.close();
     await Promise.all([open.ended, other.ended]);

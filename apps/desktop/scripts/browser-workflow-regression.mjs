@@ -117,7 +117,7 @@ app.whenReady().then(async () => {
     main.setContentSize(900, 700);
     invoke("show", { x: 0, y: 0, width: 900, height: 700 });
     main.show();
-    const first = await invoke("openUrl", origin, "builtin", { directory: projectA, sessionId: "task-a" });
+    const first = await invoke("openUrl", origin, "builtin", { directory: projectA, workspaceId: "a", sessionId: "task-a" });
     assert.equal(main.contentView.children.length, 0);
     assert.equal(invoke("state").activeTabId, null);
     assert.equal(first.download_directory, path.join(projectA, "Downloads"));
@@ -266,8 +266,13 @@ app.whenReady().then(async () => {
     console.log("PASS: remote and unknown projects cannot redirect local downloads; web origins are rejected");
     invoke("closeTab", first.tab_id);
     invoke("releaseSession", "task-a");
+    assert.equal(invoke("state").tabs.some(tab => tab.id === first.tab_id), true);
+    const continued = await invoke("connection", first.tab_id, { workspaceId: "a", sessionId: "task-a" });
+    assert.equal(continued.browser_url, first.browser_url);
+    invoke("dismissTab", first.tab_id);
+    invoke("releaseSession", "task-a");
     assert.equal(invoke("state").tabs.some(tab => tab.id === first.tab_id), false);
-    console.log("PASS: completing the owning task closes its temporary native browser");
+    console.log("PASS: task tabs survive follow-up turns and explicit dismissal closes them at turn end");
   } catch (error) {
     console.error(error);
     exitCode = 1;

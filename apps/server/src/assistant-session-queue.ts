@@ -4,6 +4,7 @@ import { openSqlite, type SqliteHandle } from "./runtime-db.js";
 import { ApiError } from "./errors.js";
 import { SessionAuthoritySchema, type SessionAuthority } from "./wiki/agent-access.js";
 import { QueuePreparationError } from "./session-message-queue.js";
+import { isNativeDeliveryRejected } from "./native-delivery.js";
 
 const targetSchema = z.object({ workspaceId: z.string(), sessionId: z.string() });
 export type AssistantSessionTarget = z.infer<typeof targetSchema>;
@@ -12,6 +13,8 @@ const entrySchema = targetSchema.extend({
   state: z.enum(["queued", "sending", "sent", "paused", "cancelled"]),
   allowInterrupted: z.boolean(), createdAt: z.number(), error: z.string().nullable(),
   requestId: z.string().optional(),
+  attempted: z.boolean().default(false),
+  failures: z.number().int().nonnegative().default(0), nextAttemptAt: z.number().optional(),
   authority: SessionAuthoritySchema.optional(), // Legacy entries require an authenticated resume.
 });
 export type AssistantQueuedMessage = z.infer<typeof entrySchema>;
@@ -19,7 +22,7 @@ export type AssistantQueueExecutor = {
   available?: () => boolean;
   inspect: (target: AssistantSessionTarget) => Promise<{ busy: boolean; pending: boolean; interrupted: boolean }>;
   hasMessage: (target: AssistantSessionTarget, id: string) => Promise<boolean>;
-  send: (entry: AssistantQueuedMessage) => Promise<void>;
+  send: (entry: AssistantQueuedMessage) => Promise<void | { accepted: true }>;
   abort: (target: AssistantSessionTarget) => Promise<string[] | void>;
 };
 
@@ -81,7 +84,7 @@ export class AssistantSessionQueue {
       if (entry.state === "sending") throw new ApiError(409, "queued_message_sending", "Delivery is being confirmed. Stop the session to cancel it safely.");
       const updated = entrySchema.parse({ ...entry, authority, ...(action === "edit" ? { prompt } : {}),
         state: action === "cancel" ? "cancelled" : action === "resume" ? "queued" : entry.state,
-        ...(action === "resume" ? { allowInterrupted: true, error: null } : {}) });
+        ...(action === "resume" ? { allowInterrupted: true, error: null, failures: 0, nextAttemptAt: undefined } : {}) });
       this.save(updated);
       return updated;
     });
@@ -108,12 +111,15 @@ export class AssistantSessionQueue {
     if (this.executor.available && !this.executor.available()) return;
     const entry = this.list(target)[0];
     if (!entry || entry.state === "paused" || this.stopped || this.stopping) return;
+    let confirming = entry.attempted;
     try {
       // Check the stable message identity before retrying an ambiguous send.
-      if (entry.state === "sending" && await this.executor.hasMessage(target, entry.id)) {
+      if (entry.attempted && await this.executor.hasMessage(target, entry.id)) {
         this.save({ ...entry, state: "sent", error: null });
         return;
       }
+      confirming = false;
+      if (entry.nextAttemptAt && entry.nextAttemptAt > Date.now()) return;
       const status = await this.executor.inspect(target);
       if (status.busy || status.pending) return;
       if (!entry.authority) {
@@ -124,14 +130,20 @@ export class AssistantSessionQueue {
         this.save({ ...entry, state: "paused", error: "The session stopped or failed. Resume explicitly or cancel this queued message." });
         return;
       }
-      this.save({ ...entry, state: "sending", error: null });
-      await this.executor.send(entry);
+      this.save({ ...entry, attempted: true, state: "sending", error: null });
+      const admission = await this.executor.send(entry);
       // Keep the receipt identity until the engine confirms the stored message.
-      if (await this.executor.hasMessage(target, entry.id)) this.save({ ...entry, state: "sent", error: null });
+      confirming = true;
+      if (admission?.accepted || await this.executor.hasMessage(target, entry.id)) this.save({ ...entry, state: "sent", error: null });
+      else throw new Error("Delivery could not be confirmed. Check this chat before resuming.");
     } catch (error) {
       const row = this.db.get("SELECT data FROM assistant_session_queue WHERE id = ?", [entry.id]);
       const current = entrySchema.parse(JSON.parse(String(row?.data)));
-      this.save({ ...current, ...(error instanceof QueuePreparationError && entry.state !== "sending" ? { state: "paused" } : {}), error: error instanceof Error ? error.message : "Delivery could not be confirmed." });
+      const failures = current.failures + 1;
+      const rejected = !confirming && (isNativeDeliveryRejected(error) || error instanceof QueuePreparationError);
+      this.save({ ...current, failures, ...(rejected || failures >= 3 ? { state: "paused" } : {}),
+        nextAttemptAt: rejected || failures >= 3 ? undefined : Date.now() + (failures === 1 ? 2000 : 5000),
+        error: error instanceof Error ? error.message : "Delivery could not be confirmed." });
     }
   }
   tick() {

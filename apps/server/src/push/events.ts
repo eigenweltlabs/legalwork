@@ -32,7 +32,7 @@ export async function readPushEvents(config: ServerConfig, assistant: MainAssist
       title: assistant.profile().name ?? "Assistant", body: body.slice(0, 240) || "Shared a file with you.", tab: 0, kind: "reply" });
   }
   // Match the Assistant's presented approval inbox, not arbitrary project work.
-  const cards = delegations.cards().filter(card => card.visible && Date.now() - card.presentedAt < 86400_000);
+  const cards = delegations.cards().filter(card => card.visible && delegations.isWatching(card.sessionId) && Date.now() - card.presentedAt < 86400_000);
   const groups = new Map(cards.map(card => [`${card.workspaceId}:${card.sessionId}`, card]));
   const results = await Promise.allSettled([...groups.values()].map(async card => {
     const project = config.workspaces.find(item => item.id === card.workspaceId);

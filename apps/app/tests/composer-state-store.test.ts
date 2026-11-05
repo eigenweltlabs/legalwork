@@ -1,10 +1,14 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import type { ComposerDraft, ComposerAttachment } from "../src/app/types";
+import { createProjectAttachmentMention } from "../src/react-app/domains/session/surface/composer/workspace-attachment";
+import { encodeComposerMentionValue } from "../src/react-app/domains/session/surface/composer/mention-encoding";
 import {
   carryAssistantDraft,
   getComposerQueuedDrafts,
   isComposerQueuePaused,
+  QueuedEditRecoveredError,
+  submitComposerDraft,
   useComposerStateStore,
 } from "../src/react-app/domains/session/surface/composer-state-store";
 
@@ -22,6 +26,92 @@ function draft(text: string): ComposerDraft {
     command: undefined,
   };
 }
+
+function editorFixture() {
+  const store = useComposerStateStore.getState();
+  const file = new File(["original document bytes"], "Agreement.pdf", { type: "application/pdf" });
+  const reference = createProjectAttachmentMention({ projectId: "project", workspaceId: "project", connectionId: "drive", path: "~lw~c291cmNl~Cloud.pdf", name: "Cloud.pdf" }, "Project");
+  store.setDraft("a", `Review @${encodeComposerMentionValue(reference)} [pasted text Notes]`);
+  store.setAttachments("a", [{ id: "document", name: file.name, kind: "file", mimeType: file.type, size: file.size, file }]);
+  store.setMentions("a", { [reference]: "upload" });
+  store.setPasteParts("a", [{ id: "notes", label: "Notes", text: "Original pasted notes", lines: 1 }]);
+  return useComposerStateStore.getState().sessions.a;
+}
+
+test("sending clears the composer before preparation and leaves new typing intact on success", async () => {
+  reset();
+  const editor = editorFixture();
+  const preparing = Promise.withResolvers<void>();
+  let notifications = 0;
+  const send = submitComposerDraft("a", editor, async () => {
+    expect(useComposerStateStore.getState().sessions.a).toBeUndefined();
+    await preparing.promise;
+    expect(await editor.attachments[0].file.text()).toBe("original document bytes");
+  }, () => { notifications++; });
+  expect(useComposerStateStore.getState().sessions.a).toBeUndefined();
+  useComposerStateStore.getState().setDraft("a", "My next question");
+  const next = useComposerStateStore.getState().sessions.a;
+  preparing.resolve();
+  await send;
+  expect(useComposerStateStore.getState().sessions.a).toBe(next);
+  expect(notifications).toBe(1);
+});
+
+test("failed document preparation restores the entire editor and original file bytes", async () => {
+  reset();
+  const editor = editorFixture();
+  await expect(submitComposerDraft("a", editor, async () => {
+    expect(useComposerStateStore.getState().sessions.a).toBeUndefined();
+    throw new Error("Cloud download failed");
+  }, () => {})).rejects.toThrow("Cloud download failed");
+  expect(useComposerStateStore.getState().sessions.a).toEqual(editor);
+  expect(await useComposerStateStore.getState().sessions.a.attachments[0].file.text()).toBe("original document bytes");
+  expect(useComposerStateStore.getState().stashedDrafts.a).toEqual([]);
+});
+
+test("a failed submission restores the sent message, preserves new input separately, and can be retried", async () => {
+  reset();
+  const editor = editorFixture();
+  const admitted = Promise.withResolvers<void>();
+  const send = submitComposerDraft("a", editor, () => admitted.promise, () => {});
+  useComposerStateStore.getState().setDraft("a", "New input while sending");
+  useComposerStateStore.getState().setPasteParts("a", [{ id: "new", label: "New", text: "New notes", lines: 1 }]);
+  const next = useComposerStateStore.getState().sessions.a;
+  admitted.reject(new Error("Submission failed"));
+  await expect(send).rejects.toThrow("Submission failed");
+  expect(useComposerStateStore.getState().sessions.a).toEqual(editor);
+  expect(useComposerStateStore.getState().stashedDrafts.a).toEqual([next]);
+  // Repeated failures must not duplicate or lose the next draft.
+  await expect(submitComposerDraft("a", editor, async () => { throw new Error("Still offline"); }, () => {})).rejects.toThrow("Still offline");
+  expect(useComposerStateStore.getState().stashedDrafts.a).toEqual([next]);
+  await submitComposerDraft("a", editor, async () => {}, () => {});
+  expect(useComposerStateStore.getState().sessions.a).toBe(next);
+  expect(useComposerStateStore.getState().stashedDrafts.a).toEqual([]);
+});
+
+test("a late send failure restores only its original session", async () => {
+  reset();
+  const editor = editorFixture();
+  const admitted = Promise.withResolvers<void>();
+  const send = submitComposerDraft("a", editor, () => admitted.promise, () => {});
+  useComposerStateStore.getState().setDraft("b", "Another chat's input");
+  admitted.reject(new Error("Failed after navigating away"));
+  await expect(send).rejects.toThrow("Failed after navigating away");
+  expect(useComposerStateStore.getState().sessions.a).toEqual(editor);
+  expect(useComposerStateStore.getState().sessions.b.draft).toBe("Another chat's input");
+});
+
+test("failed queued edits retain their lease unless admission reports that it expired", async () => {
+  for (const recovered of [false, true]) {
+    reset();
+    const editor = { ...editorFixture(), queuedDraftId: "reserved-slot" };
+    useComposerStateStore.setState(state => ({ sessions: { ...state.sessions, a: editor } }));
+    const error = recovered ? new QueuedEditRecoveredError("Lease expired") : new Error("Offline");
+    await expect(submitComposerDraft("a", editor, async () => { throw error; }, () => {})).rejects.toThrow(error.message);
+    expect(useComposerStateStore.getState().sessions.a.queuedDraftId).toBe(recovered ? undefined : "reserved-slot");
+    expect(useComposerStateStore.getState().sessions.a.attachments).toEqual(editor.attachments);
+  }
+});
 
 test("reopening a queued edit retains text, attachments and the stashed composer as an independent draft", () => {
   reset();

@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Surface } from "@/react-app/design-system/surface";
+import { InlineCard, InlineCardFooter, InlineCardHeader } from "./inline-card";
 import { useMessageList } from "./message-list-provider";
 import { emailComposeLink, type EmailApp } from "./email-draft-links";
 import { ConnectorDraftActions, connectorDraftTool, draftToolPayload } from "./connector-draft-actions";
@@ -157,15 +158,13 @@ function EmailDraftCard({ initial }: { initial: EmailDraft }) {
     { key: "cc", label: "Cc" }, { key: "bcc", label: "Bcc" },
     { key: "from", label: "From" }, { key: "replyTo", label: "Reply-To" },
   ];
-  return <Surface className="my-3 w-full max-w-2xl overflow-hidden rounded-2xl shadow-[0_2px_12px_-5px_rgb(0_0_0/0.12)]">
-    <div className="flex items-center gap-2 border-b border-border/60 bg-muted/25 px-5 py-3">
-      <Mail className="size-3.5 text-muted-foreground" />
-      <h3 className="flex-1 text-xs font-medium text-muted-foreground">{current.connectorTarget?.connectorId === "gmail" ? "Gmail draft" : current.connectorTarget ? "Outlook Email draft" : "Email draft"}</h3>
-      <span role="status" className="flex items-center gap-1.5 text-[11px] text-muted-foreground/80">
+  return <InlineCard>
+    <InlineCardHeader icon={<Mail className="size-3.5 text-muted-foreground" />}
+      title={current.connectorTarget?.connectorId === "gmail" ? "Gmail draft" : current.connectorTarget ? "Outlook Email draft" : "Email draft"}
+      status={<>
         {busy ? <><Loader2 className="size-3 animate-spin" />Working…</> : dirty ? <><span className="size-1.5 rounded-full bg-amber-500" />Edited</> : <><Check className="size-3" />{current.delivery?.state === "sent" ? "Sent" : current.delivery?.state === "saved" ? "Saved in mailbox" : current.delivery ? "Check mailbox" : "Saved locally"}</>}
-      </span>
-      <Button variant="ghost" size="icon-xs" className="-mr-1 ml-1" aria-label="Email options" title="Cc, Bcc, sender and formatting" aria-expanded={optionsOpen} aria-controls={`${fieldId}-options`} onClick={() => setOptionsOpen(!optionsOpen)}><SlidersHorizontal /></Button>
-    </div>
+      </>}
+      actions={<Button variant="ghost" size="icon-xs" className="-mr-1 ml-1" aria-label="Email options" title="Cc, Bcc, sender and formatting" aria-expanded={optionsOpen} aria-controls={`${fieldId}-options`} onClick={() => setOptionsOpen(!optionsOpen)}><SlidersHorizontal /></Button>} />
     <fieldset disabled={!editable} className={`min-w-0 ${current.delivery ? "[&_input:disabled]:opacity-100 [&_textarea:disabled]:opacity-100" : ""}`}>
       <div className="flex items-center gap-3 border-b border-border/50 px-5 py-2.5">
         <label htmlFor={`${fieldId}-to`} className="text-xs text-muted-foreground">To</label>
@@ -188,7 +187,7 @@ function EmailDraftCard({ initial }: { initial: EmailDraft }) {
     {!current.connectorTarget && nativeMail && (current.html || current.replyTo) && <p className="px-5 pb-3 text-xs text-muted-foreground">Apple Mail and Outlook use the message text. HTML and custom Reply-To are included in the .eml download.</p>}
     {!current.connectorTarget && !nativeMail && current.attachments.length > 0 && <p className="px-5 pb-3 text-xs text-muted-foreground">Attach files in your mail app, or download .eml to keep attachments.</p>}
     {error && <div role="alert" className="mx-5 mb-4 rounded-lg bg-destructive/5 px-3 py-2 text-xs text-destructive">{error}<Button size="xs" variant="ghost" className="mt-1 text-destructive" disabled={busy} onClick={() => void reload()}>Discard edits and reload</Button></div>}
-    <div className="flex items-center gap-2 border-t border-border/60 px-4 py-3">
+    <InlineCardFooter>
       <Button size="icon-sm" variant="ghost" disabled={!editable} aria-label="Attach files" title="Attach files" onClick={() => fileInput.current?.click()}><Paperclip className="size-4" /></Button>
       {current.connectorTarget && <Button variant="ghost" size="icon-sm" disabled={!actionable} aria-label="Download .eml" title="Download .eml" onClick={() => void run("download")}><Download className="size-4" /></Button>}
       {dirty && <Button size="sm" variant="ghost" disabled={!editable} onClick={() => void run("save")}>Save draft</Button>}
@@ -202,6 +201,6 @@ function EmailDraftCard({ initial }: { initial: EmailDraft }) {
           <DropdownMenuItem onClick={() => void run("download")}><Download />Download .eml</DropdownMenuItem>
         </DropdownMenuContent></DropdownMenu>
       </div>}
-    </div>
-  </Surface>;
+    </InlineCardFooter>
+  </InlineCard>;
 }

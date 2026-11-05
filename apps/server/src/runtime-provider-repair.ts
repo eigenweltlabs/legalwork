@@ -1,17 +1,9 @@
-/**
- * Self-heal for provider blocks stored in the runtime DB.
- *
- * The engine validates the WHOLE runtime config file: one provider block it
- * cannot parse (e.g. a model `limit` without `output`) fails every engine call
- * with ConfigInvalidError, and because the file is regenerated from the DB on
- * each start the user cannot fix it by hand. A provider LegalWork used to
- * inject and has since retired (the free tier) can also linger in the DB as a
- * stale copy.
- *
- * Both are dropped here: persistently at startup (with a notice the app
- * toasts) and defensively every time the engine config file is built.
+/** Validate native provider definitions without discarding a user's connection.
+ * The retired LegalWork-owned free tier remains the only removable provider.
+ * Legacy records are handled by the versioned upgrade, before normal runtime.
  */
-import { z } from "zod";
+import { ConfigProvider } from "@opencode/schema/config/provider";
+import { Schema } from "effect";
 import { readRuntimeOpencodeConfig, writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
 import type { ServerConfig } from "./types.js";
 
@@ -25,28 +17,6 @@ export type ProviderRepairNotice = {
   reason: "retired" | "invalid";
 };
 
-// The keys the engine REQUIRES when present (opencode
-// packages/core/src/v1/config/provider.ts). Unknown keys pass through.
-const modality = z.enum(["text", "audio", "image", "video", "pdf"]);
-const modelSchema = z.looseObject({
-  name: z.string().optional(),
-  tool_call: z.boolean().optional(),
-  reasoning: z.boolean().optional(),
-  attachment: z.boolean().optional(),
-  limit: z.looseObject({ context: z.number(), input: z.number().optional(), output: z.number() }).optional(),
-  modalities: z.looseObject({ input: z.array(modality), output: z.array(modality) }).optional(),
-  cost: z.looseObject({ input: z.number(), output: z.number() }).optional(),
-  options: z.record(z.string(), z.unknown()).optional(),
-});
-const providerSchema = z.looseObject({
-  npm: z.string().optional(),
-  name: z.string().optional(),
-  api: z.string().optional(),
-  env: z.array(z.string()).optional(),
-  options: z.record(z.string(), z.unknown()).optional(),
-  models: z.record(z.string(), modelSchema).optional(),
-});
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -56,19 +26,18 @@ function providerDisplayName(id: string, block: unknown): string {
   return name || id;
 }
 
-/** Pure: split a stored provider map into what the engine may see and what must go. */
+/** Validate native definitions and remove only the retired app-owned provider. */
 export function repairRuntimeProviders(
   providers: Record<string, unknown>,
-): { providers: Record<string, unknown>; removed: ProviderRepairNotice[] } {
-  const kept: Record<string, unknown> = {};
+): { providers: Record<string, typeof ConfigProvider.Info.Type>; removed: ProviderRepairNotice[] } {
+  const kept: Record<string, typeof ConfigProvider.Info.Type> = {};
   const removed: ProviderRepairNotice[] = [];
   for (const [id, block] of Object.entries(providers)) {
     if (RETIRED_PROVIDER_IDS.has(id)) {
       removed.push({ providerId: id, name: providerDisplayName(id, block), reason: "retired" });
-    } else if (!providerSchema.safeParse(block).success) {
-      removed.push({ providerId: id, name: providerDisplayName(id, block), reason: "invalid" });
     } else {
-      kept[id] = block;
+      try { kept[id] = Schema.decodeUnknownSync(ConfigProvider.Info)(block, { onExcessProperty: "error" }); }
+      catch { throw new Error(`Saved provider "${id}" has invalid native settings. Correct or restore it; LegalWork has not removed the connection.`); }
     }
   }
   return { providers: kept, removed };
@@ -86,7 +55,7 @@ export function resetProviderRepairNoticesForTests(): void {
 }
 
 /**
- * Drop retired / unparsable provider blocks from one workspace's runtime-DB
+ * Drop the retired provider from one workspace's native runtime-DB
  * row. Writes only when something was removed and records a notice for the
  * app. Safe to run before the engine config file is first built.
  */
@@ -95,11 +64,11 @@ export async function repairWorkspaceRuntimeProviders(
   workspaceId: string,
 ): Promise<ProviderRepairNotice[]> {
   const current = await readRuntimeOpencodeConfig(config, workspaceId);
-  const { removed } = repairRuntimeProviders(current.provider ?? {});
+  const { removed } = repairRuntimeProviders(current.providers ?? {});
   if (!removed.length) return [];
   await writeRuntimeOpencodeConfig(config, workspaceId, (latest) => ({
     ...latest,
-    provider: repairRuntimeProviders(latest.provider ?? {}).providers,
+    providers: repairRuntimeProviders(latest.providers ?? {}).providers,
   }));
   noticesByWorkspace.set(workspaceId, [...providerRepairNotices(workspaceId), ...removed]);
   return removed;

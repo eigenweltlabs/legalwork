@@ -29,6 +29,23 @@ export function isAppCapabilitiesToolPart(part: AnyToolPart): boolean {
     && "actionId" in part.input && part.input.actionId === "help.capabilities";
 }
 
+/** Only native execution traces identify inner tools; code and output are untrusted. */
+export function getCodeModeToolNames(part: AnyToolPart, completedOnly = false): string[] {
+  if (part.type !== "dynamic-tool" || part.toolName !== "execute") return [];
+  const metadata = part.callProviderMetadata?.opencode;
+  const names = completedOnly ? metadata?.executedTools : metadata?.toolNames;
+  return Array.isArray(names) ? names.filter((name): name is string => typeof name === "string" && name.length > 0) : [];
+}
+
+export function codeModeToolLabel(part: AnyToolPart): string | undefined {
+  const names = getCodeModeToolNames(part);
+  if (!names.length) return;
+  return [...new Set(names)].map(name => {
+    const label = name.replace(/^(?:inapp_|legalwork_)/, "").replace(/[_.-]+/g, " ");
+    return label.charAt(0).toUpperCase() + label.slice(1);
+  }).join(" · ");
+}
+
 const productActivityLabels: Record<string, string> = {
   legalwork_assistant_attention: "assistant.attention_checking",
   legalwork_assistant_attention_present: "assistant.attention_presenting",
@@ -94,6 +111,8 @@ function hostnameOf(url: string | undefined): string | undefined {
  */
 export function getToolActivityLabel(part: AnyToolPart): string {
   if (isAppCapabilitiesToolPart(part)) return t("tool_activity.checking_app_capabilities");
+  const innerTools = codeModeToolLabel(part);
+  if (innerTools) return t("tool_activity.running_tool", { tool: innerTools });
   const name = part.type === "dynamic-tool" ? part.toolName : part.type.replace(/^tool-/, "");
   const productLabel = productActivityLabels[name];
   if (productLabel) return t(productLabel);

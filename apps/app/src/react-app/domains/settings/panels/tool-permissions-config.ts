@@ -1,15 +1,7 @@
 /**
- * Pure config <-> UI-model logic for the Tool permissions panel.
- *
- * opencode's `permission` config maps tool names to either a plain action
- * ("allow" | "ask" | "deny") or an object of glob-pattern -> action rules
- * (with "*" acting as the fallback). This module parses both forms into a
- * UI model and serializes the model back into a minimal permission patch.
- *
- * The panel only manages the tools listed in MANAGED_PERMISSION_TOOLS.
- * `permission.external_directory` is owned by the Authorized Folders feature
- * and any unknown permission keys are never included in the patch, so the
- * server-side merge leaves them untouched.
+ * Native ordered permissions are presented as a small editable form model.
+ * Form patches update local UI state only; the server receives native rules
+ * for the edited actions and preserves other actions and project folder rules.
  */
 
 export type PermissionAction = "allow" | "ask" | "deny";
@@ -69,7 +61,24 @@ export function readPermissionRecord(opencode: Record<string, unknown>): Record<
     }
     return result;
   }
-  return isRecord(opencode.permission) ? opencode.permission : {};
+  return {};
+}
+
+export type NativeToolPermissionRule = { action: string; resource: string; effect: PermissionAction };
+
+/** Send native rules for the edited actions; the server preserves other actions atomically. */
+export function nativeToolPermissionUpdates(model: ToolPermissionsModel, loadedPermission: Record<string, unknown>): Record<string, NativeToolPermissionRule[] | null> {
+  const result: Record<string, NativeToolPermissionRule[] | null> = {};
+  for (const tool of MANAGED_PERMISSION_TOOLS) {
+    const action = tool === "bash" ? "shell" : tool;
+    const setting = model[tool];
+    const rules: NativeToolPermissionRule[] = [];
+    if (setting.action) rules.push({ action, resource: "*", effect: setting.action });
+    for (const rule of setting.rules) if (rule.pattern && rule.pattern !== "*") rules.push({ action, resource: rule.pattern, effect: rule.action });
+    if (rules.length) result[action] = rules;
+    else if (Object.hasOwn(loadedPermission, tool)) result[action] = null;
+  }
+  return result;
 }
 
 function parseToolSetting(value: unknown): ToolPermissionSetting {
@@ -87,7 +96,7 @@ function parseToolSetting(value: unknown): ToolPermissionSetting {
   return { action: null, rules: [] };
 }
 
-/** Parse a raw permission record into the UI model, handling both string and object forms. */
+/** Parse the form's indexed presentation into its editable model. */
 export function parseToolPermissions(permission: Record<string, unknown>): ToolPermissionsModel {
   const model = emptyToolPermissionsModel();
   for (const tool of MANAGED_PERMISSION_TOOLS) {
@@ -109,7 +118,7 @@ function serializeToolSetting(setting: ToolPermissionSetting): PermissionAction 
 }
 
 /**
- * Build the `permission` patch for the managed tools only. A tool serializes
+ * Build a local form-state patch for the managed tools only. A tool serializes
  * to the minimal form: plain action string when it has no pattern rules, the
  * object form (with a "*" fallback for its default action) when it does, and
  * `null` (= remove) when it is unset but was present in the loaded config.
@@ -129,7 +138,7 @@ export function serializeToolPermissionsPatch(
 }
 
 /**
- * Mirror of the server-side patch merge: keys in the patch override the
+ * Merge local form-state patches: keys in the patch override the
  * loaded permission record and `null` removes a key, everything else
  * (external_directory, unknown keys) is preserved verbatim.
  */

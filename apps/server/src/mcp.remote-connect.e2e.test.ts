@@ -40,7 +40,7 @@ describe("mcp remote connect flow", () => {
       const added = await addMcp(config, WORKSPACE_ID, "simple-remote", {
         type: "remote",
         url: "https://example.com/mcp",
-        enabled: true,
+        disabled: false,
       });
       expect(added.action).toBe("added");
 
@@ -50,7 +50,7 @@ describe("mcp remote connect flow", () => {
       expect(item?.config).toEqual({
         type: "remote",
         url: "https://example.com/mcp",
-        enabled: true,
+        disabled: false,
       });
       expect(item?.source).toBe("config.remote");
 

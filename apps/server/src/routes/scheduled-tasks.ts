@@ -18,6 +18,7 @@ export function registerScheduledTaskRoutes(options: {
   ensureWritable: (config: ServerConfig) => void;
   requireClientScope: (ctx: RequestContext, scope: TokenScope) => void;
   resolveWorkspace: (config: ServerConfig, id: string) => Promise<WorkspaceInfo>;
+  resolveWorkspaceMetadata?: (config: ServerConfig, id: string) => WorkspaceInfo;
   listSessions: (workspace: WorkspaceInfo, search?: string) => Promise<{ id: string; title: string; directory: string; time: { archived?: number } }[]>;
   getStatuses: (workspace: WorkspaceInfo) => Promise<Record<string, { type: "idle" | "busy" | "retry" }>>;
   getSession: (workspace: WorkspaceInfo, id: string) => Promise<{ directory: string; time: { archived?: number } } | null>;
@@ -77,10 +78,12 @@ export function registerScheduledTaskRoutes(options: {
   addRoute(options.routes, "GET", "/session-inbox", "client", async ctx => {
     options.requireClientScope(ctx, "viewer");
     const workspaces = [];
+    ctx.request.signal.throwIfAborted();
     for (const item of config.workspaces) {
-      try { workspaces.push(await options.resolveWorkspace(config, item.id)); } catch { /* Not accessible. */ }
+      ctx.request.signal.throwIfAborted();
+      try { workspaces.push(await (options.resolveWorkspaceMetadata ?? options.resolveWorkspace)(config, item.id)); } catch { /* Not accessible. */ }
     }
-    const entries = await readSessionInbox(config, workspaces, store.sessionActivity());
+    const entries = await readSessionInbox(config, workspaces, store.sessionActivity(), ctx.request.signal);
     const snapshots = new Map(await Promise.all(workspaces.filter(workspace => entries.some(entry => entry.workspaceId === workspace.id)).map(async workspace => {
       const statuses = await options.getStatuses(workspace).catch(() => null);
       return [workspace.id, statuses] satisfies [string, Record<string, { type: "idle" | "busy" | "retry" }> | null];

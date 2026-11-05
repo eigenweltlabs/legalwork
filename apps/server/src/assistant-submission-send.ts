@@ -1,4 +1,6 @@
-import type { OpencodeClient } from "@opencode-ai/sdk/v2/client";
+import type { AssistantEngineClient } from "./assistant-engine.js";
+import { runIdentifiedCommand } from "./native-command-control.js";
+import { z } from "zod";
 import type { AssistantSubmission } from "@legalwork/types/launcher";
 import type { SubmissionPayload } from "./assistant-submissions.js";
 import type { SessionMessageQueue } from "./session-message-queue.js";
@@ -13,22 +15,30 @@ function commandArguments(payload: SubmissionPayload) {
  * same frozen request, project constraint and engine message ID as the panel. */
 export async function enqueueAssistantSubmission(queue: Pick<SessionMessageQueue, "act">, entry: AssistantSubmission, payload: SubmissionPayload) {
   if (!payload.queue || !payload.model) throw new ApiError(400, "submission_queue", "Choose a model before queuing this message.");
-  const preferences = { agent: payload.agent ?? "legalwork", variant: payload.variant };
+  const visibleText = payload.parts.flatMap(part => part.type === "text" && !part.synthetic && !part.ignored ? [part.text] : []).join("\n");
+  const reminders = payload.parts.flatMap(part => part.type === "text" && part.synthetic ? [part.text] : []);
+  const metadata = Object.assign({}, ...payload.parts.flatMap(part => part.type === "text" && part.metadata ? [z.record(z.string(), z.json()).parse(part.metadata)] : []));
+  const preferences = { agent: payload.agent ?? "legalwork", model: { providerID: payload.model.providerID, id: payload.model.modelID, ...(payload.variant ? { variant: payload.variant } : {}) },
+    files: payload.parts.flatMap(part => part.type === "file" ? [{ uri: part.url, name: part.filename }] : []),
+    agents: payload.parts.flatMap(part => part.type === "agent" ? [{ name: part.name }] : []),
+    skills: payload.parts.flatMap(part => part.type === "skill" ? [{ id: part.id }] : []),
+  };
   return queue.act(entry.workspaceId, entry.sessionId, { type: "enqueue", ...payload.queue, messageId: entry.messageId,
-    execution: payload.command ? { kind: "command", command: payload.command.name, arguments: commandArguments(payload), model: `${payload.model.providerID}/${payload.model.modelID}`, ...preferences, parts: payload.parts.filter(part => part.type === "file") }
-      : { kind: "prompt", parts: payload.parts, model: payload.model, ...preferences },
+    execution: payload.command ? { kind: "command", command: payload.command.name, args: commandArguments(payload), ...preferences }
+      : { kind: "prompt", id: entry.messageId, text: [visibleText, ...reminders].filter(Boolean).join("\n\n"), metadata: { ...metadata, legalworkPrompt: { visibleText, reminders } }, ...preferences },
   });
 }
 
 /** Preserve the engine's command semantics and the common operation identity. */
-export async function sendAssistantSubmission(client: OpencodeClient, entry: AssistantSubmission, payload: SubmissionPayload) {
+export async function sendAssistantSubmission(client: AssistantEngineClient, entry: AssistantSubmission, payload: SubmissionPayload) {
   if (payload.command) {
-    const result = await client.session.command({ sessionID: entry.sessionId, messageID: entry.messageId, command: payload.command.name,
-      arguments: commandArguments(payload), agent: payload.agent,
-      model: payload.model ? `${payload.model.providerID}/${payload.model.modelID}` : undefined, variant: payload.variant,
-      parts: payload.parts.filter(part => part.type === "file"),
-    }, { signal: AbortSignal.timeout(30000) });
-    if (!result.response.ok) throw new Error("Command delivery could not be confirmed.");
+    if (payload.agent) await client.native.session.switchAgent({ sessionID: entry.sessionId, agent: payload.agent });
+    if (payload.model) await client.native.session.switchModel({ sessionID: entry.sessionId, model: { providerID: payload.model.providerID, id: payload.model.modelID, ...(payload.variant ? { variant: payload.variant } : {}) } });
+    await runIdentifiedCommand(client.native, { sessionID: entry.sessionId, name: payload.command.name, text: commandArguments(payload),
+      files: payload.parts.flatMap(part => part.type === "file" ? [{ uri: part.url, name: part.filename }] : []),
+      agents: payload.parts.flatMap(part => part.type === "agent" ? [{ name: part.name }] : []),
+      skills: payload.parts.flatMap(part => part.type === "skill" ? [{ id: part.id }] : []), delivery: "queue",
+    }, entry.messageId);
     return;
   }
   const result = await client.session.promptAsync({ sessionID: entry.sessionId, messageID: entry.messageId, agent: payload.agent ?? "legalwork",

@@ -88,7 +88,7 @@ function DraftPreview() {
 }
 
 function Preview() {
-  const [provider, setProvider] = useState("gmail");
+  const [provider, setProvider] = useState(() => connectorDefinitions.find(({ id }) => id === new URLSearchParams(window.location.search).get("provider"))?.id ?? "gmail");
   const [open, setOpen] = useState(true);
   const [connected, setConnected] = useState(false);
   const [authUrl, setAuthUrl] = useState<string | null>(null);
@@ -99,7 +99,7 @@ function Preview() {
   return <PlatformProvider value={platform}><TooltipProvider>
     <main className="mx-auto min-h-dvh max-w-3xl space-y-6 px-6 py-10">
       <div><h1 className="text-xl font-semibold">Email connections</h1><p className="mt-1 text-sm text-muted-foreground">Local verification fixture · Simulated accounts · No mailbox data</p></div>
-      <div className="flex gap-2">{["gmail", "outlook", "outlook-calendar", "google-drive"].map((id) => <Button key={id} variant={id === provider ? "secondary" : "outline"} onClick={() => { setProvider(id); setAuthUrl(null); setOpen(true); setConnected(false); }}>{id === "gmail" ? "Gmail" : id === "outlook" ? "Outlook Email" : id === "outlook-calendar" ? "Outlook Calendar" : "Google Drive"}</Button>)}</div>
+      <div className="flex flex-wrap gap-2">{connectorDefinitions.map(({ id, name }) => <Button key={id} variant={id === provider ? "secondary" : "outline"} onClick={() => { setProvider(id); setAuthUrl(null); setOpen(true); setConnected(false); }}>{name}</Button>)}</div>
       {dialog && definition ? <>
         <Button onClick={() => setOpen(true)}>Open connector settings</Button>
         <ExtensionDetailModal open={open} onClose={() => setOpen(false)} name={definition.name} description={t(definition.descriptionKey)} iconSlug={definition.icon} kind="extension" connected={connected} presentation="connector" configSlot={panel} />

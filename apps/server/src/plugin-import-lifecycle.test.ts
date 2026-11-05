@@ -58,9 +58,9 @@ for (const provider of ["claude", "chatgpt"] satisfies Array<"claude" | "chatgpt
     const ordinaryReview = await preparePluginImport(ordinary, emptyTarget, probe);
     expect(() => reviewedPluginImport(converted, emptyTarget, ordinaryReview.preview.validationId)).toThrow("review");
     await installPluginImport(config, "test", root, ordinaryReview, true);
-    await writeRuntimeOpencodeConfig(config, GLOBAL_MCP_ID, current => ({ ...current, mcp: { [connectorName]: { type: "remote", url: "https://docs.example/mcp", enabled: false, headers: { Authorization: "Bearer saved-fixture-key" } } } }));
+    await writeRuntimeOpencodeConfig(config, GLOBAL_MCP_ID, current => ({ ...current, mcp: { servers: { [connectorName]: { type: "remote", url: "https://docs.example/mcp", disabled: true, headers: { Authorization: "Bearer saved-fixture-key" } } } } }));
     const original = (await readInstalledCloudPlugins(config, GLOBAL_MCP_ID)).plugins[ordinary.preview.id];
-    const target = { ...emptyTarget, installed: original, current: (await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID)).mcp ?? {} };
+    const target = { ...emptyTarget, installed: original, current: (await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID)).mcp?.servers ?? {} };
     const prepared = await preparePluginImport(converted, target, probe);
     const reviewed = reviewedPluginImport(converted, target, prepared.preview.validationId);
     const workflows = reviewed.preview.components.filter(item => item.type === "skill");
@@ -74,7 +74,7 @@ for (const provider of ["claude", "chatgpt"] satisfies Array<"claude" | "chatgpt
     expect(installed?.provenance?.asWorkflow).toBe(true);
     expect(installed?.provenance?.convertPluginSkills).toBe(true);
     expect(installed?.files.filter(file => file.objectType === "mcp")).toHaveLength(1);
-    expect((await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID)).mcp?.[connectorName]).toMatchObject({ headers: { Authorization: "Bearer saved-fixture-key" } });
+    expect((await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID)).mcp?.servers?.[connectorName]).toMatchObject({ headers: { Authorization: "Bearer saved-fixture-key" } });
     const checklist = reviewed.resourceFiles.find(file => file.path.endsWith("/references/checklist.md") && file.path.includes("/skills/"));
     if (!checklist) throw new Error("Missing workflow supporting file");
     expect(await readFile(resolveWorkspaceInstallPath(root, checklist.path, true), "utf8")).toBe("Check the document's main provisions.");
@@ -83,7 +83,7 @@ for (const provider of ["claude", "chatgpt"] satisfies Array<"claude" | "chatgpt
     if (!updated) throw new Error("Missing update plan");
     expect(updated.preview.id).toBe(reviewed.preview.id);
     expect(updated.preview.components.filter(item => item.type === "skill").map(item => item.installedName)).toEqual(workflows.map(item => item.installedName));
-    const refreshed = await preparePluginImport(updated, { ...target, installed, current: (await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID)).mcp ?? {} }, probe);
+    const refreshed = await preparePluginImport(updated, { ...target, installed, current: (await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID)).mcp?.servers ?? {} }, probe);
     await installPluginImport(config, "test", root, refreshed, true);
     expect(Object.values((await readInstalledCloudPlugins(config, GLOBAL_MCP_ID)).plugins)).toHaveLength(1);
   }));

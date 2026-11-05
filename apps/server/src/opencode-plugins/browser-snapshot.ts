@@ -1,3 +1,22 @@
+import { z } from "zod";
+
+export const browserConnectionOutput = z.object({
+  tabID: z.string(),
+  browser_url: z.string(),
+  url: z.string(),
+  snapshot: z.object({
+    content: z.string(), truncated: z.boolean(),
+    tab: z.object({ id: z.string(), url: z.string(), generation: z.number() }).passthrough(),
+  }).passthrough(),
+}).passthrough();
+
+/** The UI bridge envelope is transport detail, not the browser tool contract. */
+export function browserConnectionResult(value: unknown) {
+  const envelope = z.object({ ok: z.literal(true), result: z.object({ tab_id: z.string() }).passthrough() }).parse(value);
+  const { tab_id, ...result } = envelope.result;
+  return browserConnectionOutput.parse({ ...result, tabID: tab_id });
+}
+
 /** Keep tool results valid JSON and below the engine's generic truncation limit.
  * Detail remains available through the next snapshotOffset/controlsOffset. */
 function splitNames(items: unknown[]) {

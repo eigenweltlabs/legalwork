@@ -15,7 +15,7 @@ const require = createRequire(import.meta.url);
 const builderRequire = createRequire(require.resolve("electron-builder"));
 const libRequire = createRequire(builderRequire.resolve("app-builder-lib"));
 const { getCurrentFuseWire, FuseV1Options } = libRequire("@electron/fuses");
-const { extractFile } = libRequire("@electron/asar");
+const { extractFile, listPackage } = libRequire("@electron/asar");
 const target = process.argv[2];
 if (!target) throw new Error("Usage: pnpm check:packaged-security <packaged .app or executable>");
 const appPath = path.resolve(target);
@@ -28,6 +28,8 @@ for (const [name, enabled] of Object.entries({
   console.log(`PASS: ${name}=${enabled}`);
 }
 const resources = process.platform === "darwin" ? path.join(appPath, "Contents/Resources") : path.join(path.dirname(appPath), "resources");
+assert.ok(!listPackage(path.join(resources, "app.asar")).some(file => file.replaceAll("\\", "/").includes("/node_modules/@legalwork/opencode-release/generated/archive-cache")), "Packaged app must not include the engine build download cache");
+console.log("PASS: engine build download cache is absent from the packaged app");
 const nodeDirectory = path.join(resources, "node");
 const metadata = JSON.parse(await readFile(path.join(nodeDirectory, "runtime.json"), "utf8"));
 const expectedArch = metadata.source.target.split("-").at(-1);

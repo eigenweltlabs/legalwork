@@ -657,7 +657,7 @@ export function createExtensionsStore(options: {
       throw new Error(t("extensions.server_unavailable_github_plugins"));
     }
     await target.legalworkClient.removeCloudPlugin(target.legalworkWorkspaceId, pluginId);
-    await refreshSkills({ force: true });
+    await Promise.all([options.refreshConnectors?.([]), refreshSkills({ force: true })]);
   }
 
   async function installHubSkill(name: string): Promise<{ ok: boolean; message: string }> {

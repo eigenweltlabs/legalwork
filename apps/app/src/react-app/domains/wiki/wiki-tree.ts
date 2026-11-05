@@ -34,7 +34,7 @@ export function wikiTree(files: string[], folders: string[]): WikiTreeNode[] {
 }
 
 export function wikiCopyPath(path: string, existing: string[]): string {
-  const dot = path.lastIndexOf(".");
+  const dot = /\.view\.json$/i.test(path) ? path.length - ".view.json".length : path.lastIndexOf(".");
   const extension = dot > path.lastIndexOf("/") ? path.slice(dot) : "";
   const stem = extension ? path.slice(0, dot) : path;
   let count = 1;

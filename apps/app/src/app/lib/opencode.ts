@@ -191,8 +191,16 @@ const createDesktopFetch = (auth?: OpencodeAuth) => {
 /** Native client calls return their value directly and throw typed errors. */
 export function unwrap<T>(value:T):T { return value; }
 const clientContexts=new WeakMap<OpenCodeClient,{baseUrl:string;directory?:string;auth?:OpencodeAuth}>();
+// Native event sharing belongs to the client. Reuse it across chat tabs so
+// their catalog subscriptions cannot fill Office's six HTTP/1 connections.
+// Weak references avoid keeping unused clients alive after unmount.
+const clients = new Map<string, WeakRef<OpenCodeClient>>();
 export function getClientContext(client:OpenCodeClient) {return clientContexts.get(client);}
 export function createClient(baseUrl:string, directory?:string, auth?:OpencodeAuth) {
+  for (const [key, reference] of clients) if (!reference.deref()) clients.delete(key);
+  const key = JSON.stringify([baseUrl, directory, auth?.mode, auth?.username, auth?.password, auth?.token, auth?.hostToken]);
+  const existing = clients.get(key)?.deref();
+  if (existing) return existing;
   const headers:Record<string,string>={};
   const authHeader=resolveAuthHeader(auth);
   if(authHeader) headers.Authorization=authHeader;
@@ -200,6 +208,7 @@ export function createClient(baseUrl:string, directory?:string, auth?:OpencodeAu
   const fetch=isDesktopRuntime() ? createDesktopFetch(auth) : (input:RequestInfo|URL,init?:RequestInit)=>fetchWithTimeout(globalThis.fetch,input,init,DEFAULT_OPENCODE_REQUEST_TIMEOUT_MS);
   const client=OpenCode.make({baseUrl,headers,fetch});
   clientContexts.set(client,{baseUrl,directory,auth});
+  clients.set(key, new WeakRef(client));
   return client;
 }
 export async function waitForHealthy(client:ReturnType<typeof createClient>,options?:{timeoutMs?:number;pollMs?:number}) {

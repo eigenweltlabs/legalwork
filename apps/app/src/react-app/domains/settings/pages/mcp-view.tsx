@@ -1,3 +1,4 @@
+import { toast } from "sonner";
 /** @jsxImportSource react */
 import { packageParts } from "./plugin-package-contents";
 import { IntegrationAddMenu, IntegrationMoreMenu, IntegrationLibraryRow, IntegrationLibraryHeader, IntegrationSearch, IntegrationGroupHeading, IntegrationEmptyState, useIntegrationAddRequest, useIntegrationLibraryLayout } from "./integration-library";
@@ -114,7 +115,7 @@ export type McpViewProps = {
   cancelPendingMcpAuth?: () => void;
   authorizeMcp: (entry: McpServerEntry) => void;
   logoutMcpAuth: (name: string) => Promise<void> | void;
-  removeMcp: (name: string) => void;
+  removeMcp: (name: string) => void | Promise<void | false>;
   setMcpEnabled?: (name: string, enabled: boolean) => Promise<void> | void;
   /** Return extension-specific config UI for the detail modal. */
   configSlotForEntry?: (entry: McpDirectoryInfo) => React.ReactNode | null;
@@ -264,6 +265,7 @@ export function McpView(props: McpViewProps) {
   const [logoutOpen, setLogoutOpen] = useState(false);
   const [logoutTarget, setLogoutTarget] = useState<string | null>(null);
   const [logoutBusy, setLogoutBusy] = useState(false);
+  const [removing, setRemoving] = useState(false);
   const [removeOpen, setRemoveOpen] = useState(false);
   const [removeTarget, setRemoveTarget] = useState<string | null>(null);
   const [addMcpModalOpen, setAddMcpModalOpen] = useState(false);
@@ -410,6 +412,7 @@ export function McpView(props: McpViewProps) {
   const logoutConfirmation = (
     <ConfirmModal
       open={logoutOpen}
+      pending={logoutBusy}
       title={t("mcp.logout_modal_title")}
       message={t("mcp.logout_modal_message").replace("{server}", displayName(logoutTarget ?? ""))}
       confirmLabel={logoutBusy ? t("mcp.logout_working") : t("mcp.logout_action")}
@@ -621,19 +624,22 @@ export function McpView(props: McpViewProps) {
 
       <ConfirmModal
         open={removeOpen}
+        pending={removing}
         title={t("mcp.remove_modal_title")}
         message={t("mcp.remove_modal_message").replace("{server}", displayName(removeTarget ?? ""))}
-        confirmLabel={t("mcp.remove_app")}
+        confirmLabel={t(removing ? "catalog.removing" : "mcp.remove_app")}
         cancelLabel={t("common.cancel")}
         variant="danger"
         onCancel={() => {
           setRemoveOpen(false);
           setRemoveTarget(null);
         }}
-        onConfirm={() => {
-          if (removeTarget) props.removeMcp(removeTarget);
-          setRemoveOpen(false);
-          setRemoveTarget(null);
+        onConfirm={async () => {
+          if (!removeTarget || removing) return;
+          setRemoving(true);
+          try { if (await props.removeMcp(removeTarget) === false) throw new Error(t("mcp.remove_failed")); setRemoveOpen(false); setRemoveTarget(null); }
+          catch (error) { toast.error(error instanceof Error ? error.message : t("common.something_went_wrong")); }
+          finally { setRemoving(false); }
         }}
       />
 
@@ -1026,7 +1032,7 @@ function McpConfiguredServersSection(props: {
   onConfigure: McpViewProps["connectMcp"];
   onCancelSetup?: () => void;
   onRequestLogout: (name: string) => void;
-  onRemove: (name: string) => void;
+  onRemove: McpViewProps["removeMcp"];
   onToggleEnabled?: (name: string, enabled: boolean) => Promise<void> | void;
   onToggleBusy: (value: SetStateAction<string | null>) => void;
   canShareWithFirm?: boolean;
@@ -1131,7 +1137,7 @@ function McpConfiguredServerRow(props: {
   onConfigure: McpViewProps["connectMcp"];
   onCancelSetup?: () => void;
   onRequestLogout: (name: string) => void;
-  onRemove: (name: string) => void;
+  onRemove: McpViewProps["removeMcp"];
   onToggleEnabled?: (name: string, enabled: boolean) => Promise<void> | void;
   onToggleBusy: (value: SetStateAction<string | null>) => void;
   canShareWithFirm?: boolean;
@@ -1177,6 +1183,7 @@ function McpConnectorToggle(props: Parameters<typeof McpConfiguredServerRow>[0] 
 }
 
 function McpConfiguredServerDetails(props: Parameters<typeof McpConfiguredServerRow>[0]) {
+  const [removing, setRemoving] = useState(false);
   const [signingIn, setSigningIn] = useState(false);
   const [editing, setEditing] = useState(false);
   useEffect(() => { if (!props.selected) setEditing(false); }, [props.selected]);
@@ -1186,7 +1193,7 @@ function McpConfiguredServerDetails(props: Parameters<typeof McpConfiguredServer
     try { await props.onAuthorize(props.entry); }
     finally { setSigningIn(false); }
   };
-  return <Dialog open={props.selected} onOpenChange={open => { if (!open) props.onSelect(null); }}>
+  return <Dialog open={props.selected} onOpenChange={open => { if (!open && !removing) props.onSelect(null); }}>
     <DialogContent className="max-h-[calc(100dvh-3rem)] overflow-y-auto bg-background">
       <DialogHeader className="pe-6">
         {editing || props.pluginName ? <Button variant="ghost" size="sm" className="-ml-2 mb-2 w-fit max-w-full" onClick={() => editing ? setEditing(false) : props.onSelect(null)}><ArrowLeft className="size-4 shrink-0" /><span className="truncate">{editing ? t("common.back") : t("plugin_details.back", { name: props.pluginName ?? "" })}</span></Button> : null}
@@ -1212,7 +1219,13 @@ function McpConfiguredServerDetails(props: Parameters<typeof McpConfiguredServer
       </div>
       {props.errorInfo && !needsSetup ? <p role="alert" className="rounded-lg bg-destructive/5 p-3 text-xs leading-5 text-destructive">{props.errorInfo}</p> : null}
       {props.entry.source !== "config.global" && props.entry.editable !== false && !props.pluginName ? <DialogFooter className="justify-start sm:justify-start">
-        <Button variant="ghost" size="sm" className="text-destructive hover:bg-destructive/5 hover:text-destructive" disabled={props.busy} onClick={() => props.onRemove(props.entry.name)}>{t("mcp.remove_app")}</Button>
+        <Button variant="ghost" size="sm" className="text-destructive hover:bg-destructive/5 hover:text-destructive" disabled={props.busy || removing} onClick={async () => {
+          if (removing) return;
+          setRemoving(true);
+          try { if (await props.onRemove(props.entry.name) === false) throw new Error(t("mcp.remove_failed")); props.onSelect(null); }
+          catch (error) { toast.error(error instanceof Error ? error.message : t("common.something_went_wrong")); }
+          finally { setRemoving(false); }
+        }}>{removing ? <Loader2 className="size-4 animate-spin" /> : null}<span role={removing ? "status" : undefined}>{t(removing ? "catalog.removing" : "mcp.remove_app")}</span></Button>
       </DialogFooter> : null}
       </>}
     </DialogContent>

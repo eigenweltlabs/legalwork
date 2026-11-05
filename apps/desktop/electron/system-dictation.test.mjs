@@ -901,6 +901,43 @@ test("refreshAfterResume re-registers the Electron chord the OS lost", async () 
 });
 
 
+test("mini bar visibility persists independently of shortcuts, including old settings and failed saves", async (t) => {
+  const userDataDir = await tempDir();
+  t.after(() => rm(userDataDir, { recursive: true, force: true }));
+  const updates = [];
+  const shortcuts = new FakeShortcuts();
+  const options = {
+    userDataDir, platform: "win32", globalShortcut: shortcuts, clipboard: new FakeClipboard(),
+    shell: { openExternal: async () => {} }, runPasteCommand: async () => true,
+    onToggle: () => {}, onCancel: () => {}, onStatus: status => updates.push(status.miniBarEnabled),
+  };
+  const service = new SystemDictationService(options);
+  t.after(() => service.dispose());
+  assert.equal((await service.initialize()).miniBarEnabled, true);
+  await service.setEnabled(true);
+  const shortcutCount = shortcuts.registerCount;
+  for (const enabled of [false, true, false]) {
+    const status = await service.setMiniBarEnabled(enabled);
+    assert.equal(status.miniBarEnabled, enabled);
+    assert.equal(status.enabled, true);
+    assert.equal(status.registered, true);
+    assert.equal(shortcuts.registerCount, shortcutCount, "visibility never re-registers shortcuts");
+    const restored = new SystemDictationService({ ...options, globalShortcut: new FakeShortcuts() });
+    assert.equal((await restored.initialize()).miniBarEnabled, enabled);
+    restored.dispose();
+  }
+  assert.deepEqual(updates, [false, true, false]);
+  await assert.rejects(service.setMiniBarEnabled("false"), /Invalid mini bar visibility/);
+  service.settingsPath = path.join(userDataDir, "missing", "settings.json");
+  await assert.rejects(service.setMiniBarEnabled(true));
+  assert.equal(service.status().miniBarEnabled, false, "failed writes preserve the last saved choice");
+  assert.deepEqual(updates, [false, true, false], "failed writes never broadcast a change");
+  await writeFile(path.join(userDataDir, "system-dictation.json"), JSON.stringify({ enabled: false }));
+  const migrated = new SystemDictationService(options);
+  assert.equal((await migrated.initialize()).miniBarEnabled, true, "existing settings keep the bar enabled");
+  migrated.dispose();
+});
+
 test("overlay appearance defaults to app mode, persists each choice, and rejects invalid values", async () => {
   const userDataDir = await tempDir();
   const updates = [];

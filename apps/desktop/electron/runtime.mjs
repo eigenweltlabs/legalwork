@@ -592,7 +592,7 @@ function loadUserEnvFile() {
   }
 }
 
-export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths, recorder, onSidecarExit, getApprovalWindow, presentApproval, modelDownloadFetch, opencodeCandidateBuild = undefined }) {
+export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths, recorder, onSidecarExit, getApprovalWindow, presentApproval = undefined, modelDownloadFetch, opencodeCandidateBuild = undefined }) {
   const requestHostApproval = createHostApprovalHandler({
     getWindow: getApprovalWindow,
     presentInPanel: presentApproval,
@@ -957,6 +957,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       env.USERPROFILE = devPaths.homeDir;
       env.XDG_CONFIG_HOME = devPaths.xdgConfigHome;
       env.XDG_DATA_HOME = devPaths.xdgDataHome;
+      env.LEGALWORK_DEV_OPENCODE_DATA_DIR = path.join(devPaths.xdgDataHome, "opencode");
       env.XDG_CACHE_HOME = devPaths.xdgCacheHome;
       env.XDG_STATE_HOME = devPaths.xdgStateHome;
       env.OPENCODE_CONFIG_DIR = devPaths.opencodeConfigDir;
@@ -1207,6 +1208,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
   // A WeakSet rather than a property on the child, so the entries die with the
   // process objects and the Electron-main typecheck accepts it.
   const intentionallyStoppedChildren = new WeakSet();
+  const stoppingChildren = new Set();
 
   function spawnManagedChild(state, program, args, options = {}) {
     const child = spawn(program, args, {
@@ -1294,8 +1296,10 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     // Mark this as a deliberate shutdown so the managed-child exit/error handler
     // doesn't misreport the stop (or a subsequent restart) as a sidecar crash.
     if (child) intentionallyStoppedChildren.add(child);
-    if (!child || child.exitCode != null || child.killed) return;
+    if (!child || child.exitCode != null || child.signalCode != null) return;
 
+    stoppingChildren.add(child);
+    child.once("exit", () => stoppingChildren.delete(child));
     if (options.requestShutdown) {
       try {
         const shutdownRequested = await options.requestShutdown();
@@ -1307,10 +1311,10 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       }
     }
 
-    if (child.exitCode == null && !child.killed) {
+    if (child.exitCode == null && child.signalCode == null) {
       child.kill("SIGTERM");
       await new Promise((resolve) => setTimeout(resolve, 500));
-      if (child.exitCode == null && !child.killed) {
+      if (child.exitCode == null && child.signalCode == null) {
         child.kill("SIGKILL");
       }
     }
@@ -1342,7 +1346,9 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     Object.assign(process.env, env);
     const directory = path.dirname(locateEmbeddedServerPath());
     const { OAuthVault, oauthVaultPath, vaultLock } = await import(pathToFileURL(path.join(directory, "file-storage/oauth/vault.js")).href);
-    return { vault: new OAuthVault(oauthVaultPath({ configPath: resolveLegalworkServerConfigPath(env) })), lock: vaultLock };
+    const { BrowserPasswordStore } = await import(pathToFileURL(path.join(directory, "browser-passwords.js")).href);
+    const vault = new OAuthVault(oauthVaultPath({ configPath: resolveLegalworkServerConfigPath(env) }));
+    return { vault, lock: vaultLock, browserPasswords: new BrowserPasswordStore(vault) };
   }
 
   async function startLegalworkServer(options) {
@@ -1400,7 +1406,22 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       if (!executable) throw new Error("Node.js is required for managed HTTP transport and image crops in desktop development.");
       return executable;
     };
+    const publishServerConnection = ({ port, url }) => {
+      legalworkServerState.inProcess = true;
+      legalworkServerState.remoteAccessEnabled = false;
+      legalworkServerState.host = host;
+      legalworkServerState.port = port;
+      legalworkServerState.baseUrl = url;
+      legalworkServerState.clientToken = tokens.clientToken;
+      legalworkServerState.hostToken = tokens.hostToken;
+
+      legalworkServerState.connectUrl = null;
+      legalworkServerState.mdnsUrl = null;
+      legalworkServerState.lanUrl = null;
+      legalworkServerState.ownerToken = null;
+    };
     const handle = await startEmbeddedServer({
+      onListening: publishServerConnection,
       modelDownloadFetch,
       // Electron's Node TLS uses BoringSSL, whose legacy verifier cannot handle
       // valid IP-name-constrained CAs. Keep verification in our existing Node/OpenSSL runtime.
@@ -1459,28 +1480,17 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       // Word/Excel/PowerPoint add-in listener — enabled via the Office Add-ins
       // settings tab; null when not installed so the listener stays off.
       ...(officeAddinManager.serverConfig() ?? {}),
+    }).catch((error) => {
+      legalworkServerState.inProcess = false;
+      throw error;
     });
+    publishServerConnection(handle);
     inProcessServer = handle;
     embeddedWorkspacePath = activeWorkspace || null;
     legalworkServerState.managedOpencodeExecution = handle.managedOpencodeExecution ?? null;
 
     const boundPort = handle.port;
-    const baseUrl = handle.url;
-
-    legalworkServerState.inProcess = true;
-    legalworkServerState.remoteAccessEnabled = false;
-    legalworkServerState.host = host;
-    legalworkServerState.port = boundPort;
-    legalworkServerState.baseUrl = baseUrl;
-    legalworkServerState.clientToken = tokens.clientToken;
-    legalworkServerState.hostToken = tokens.hostToken;
-
-    legalworkServerState.connectUrl = null;
-    legalworkServerState.mdnsUrl = null;
-    legalworkServerState.lanUrl = null;
-    legalworkServerState.ownerToken = null;
-
-    // startEmbeddedServer resolves after binding. Its config is private to
+    // startEmbeddedServer resolves after engine readiness. Its config is private to
     // this process; public workspace metadata deliberately contains no auth.
     engineState.runtime = DIRECT_RUNTIME;
     engineState.projectDir = activeWorkspace || null;
@@ -2264,6 +2274,17 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     prepareFreshRuntime: () => withRuntimeLifecycle(() => prepareFreshRuntime()),
     prepareOpencodeConfig: async () => prepareOpencodeConfig({ ...loadUserEnvFile(), ...process.env }),
     dispose: () => withRuntimeLifecycle(() => stopAllRuntimeChildren()),
+    forceStopOwnedChildren: () => {
+      const managed = inProcessServer?.managedOpencodeStatus?.();
+      if (managed?.running) killProcessId(managed.pid, "SIGKILL");
+      const children = new Set([...stoppingChildren, ...[engineState, legalworkServerState, orchestratorState].map(state => state.child)]);
+      for (const child of children) {
+        if (child && child.exitCode == null && child.signalCode == null) {
+          intentionallyStoppedChildren.add(child);
+          child.kill("SIGKILL");
+        }
+      }
+    },
     runtimeStatus,
     collectRuntimeDiagnostics,
     engineInfo,

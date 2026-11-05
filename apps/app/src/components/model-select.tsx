@@ -142,7 +142,18 @@ interface ModelSelectProps {
   locked?: boolean;
 }
 
-export function ModelSelect({
+export function ModelSelect(props: ModelSelectProps & { modelOptions?: ModelOption[] }) {
+  return props.modelOptions !== undefined
+    ? <ModelSelectWithOptions {...props} modelOptions={props.modelOptions} />
+    : <WorkspaceModelSelect {...props} />;
+}
+
+function WorkspaceModelSelect(props: ModelSelectProps) {
+  const modelOptions = useModelOptions(props.open);
+  return <ModelSelectWithOptions {...props} modelOptions={modelOptions} />;
+}
+
+function ModelSelectWithOptions({
   open,
   value,
   onOpenChange,
@@ -150,10 +161,10 @@ export function ModelSelect({
   disabled = false,
   showManageModels = true,
   locked = false,
-}: ModelSelectProps) {
+  modelOptions,
+}: ModelSelectProps & { modelOptions: ModelOption[] }) {
   const [search, setSearch] = React.useState("");
   const searchInputRef = React.useRef<HTMLInputElement>(null);
-  const modelOptions = useModelOptions(open);
 
   const focusSearchInput = React.useCallback(() => {
     window.requestAnimationFrame(() => {

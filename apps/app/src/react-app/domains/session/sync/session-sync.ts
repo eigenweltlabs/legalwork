@@ -76,6 +76,7 @@ import {
 } from "./usechat-adapter";
 import {
   parseDynamicToolUIPart,
+  parseDynamicToolUIParts,
   parseStructuredOutputUIPart,
   STRUCTURED_OUTPUT_TOOL,
 } from "./parse-tool-parts";
@@ -117,6 +118,7 @@ type SyncOptions = {
   workspaceId: string;
   baseUrl: string;
   legalworkToken: string;
+  legalworkHostToken?: string;
   onSessionUpdated?: (update: {
     sessionId: string;
     info: Record<string, unknown>;
@@ -149,6 +151,7 @@ type SyncEntry = {
   sessionUpdatedListeners: Set<NonNullable<SyncOptions["onSessionUpdated"]>>;
   sessionStatusListeners: Set<NonNullable<SyncOptions["onSessionStatus"]>>;
   toolParts: Map<string, ToolPart>;
+  executionProviders: Map<string, string | undefined>;
   pendingDeltas: Map<
     string,
     { messageId: string; reasoning: boolean; text: string }
@@ -179,7 +182,7 @@ export const todoKey = (workspaceId: string, sessionId: string) =>
   ["react-session-todos", workspaceId, sessionId] as const;
 
 function syncKey(input: SyncOptions) {
-  return `${input.workspaceId}:${input.baseUrl}:${input.legalworkToken}`;
+  return `${input.workspaceId}:${input.baseUrl}:${input.legalworkToken}:${input.legalworkHostToken ?? ""}`;
 }
 
 function getErrorStatus(error: unknown) {
@@ -416,6 +419,7 @@ function clearTrackedSession(
   sessionId: string,
 ) {
   entry.trackedSessionRefs.delete(sessionId);
+  entry.executionProviders.delete(sessionId);
   const retainedTimer = entry.retainedSessionTimers.get(sessionId);
   if (retainedTimer) clearTimeout(retainedTimer);
   entry.retainedSessionTimers.delete(sessionId);
@@ -662,17 +666,13 @@ function toUIPart(part: Part): UIMessage["parts"][number] | null {
 
 function toUIParts(part: Part): UIMessage["parts"] {
   if (part.type === "file") return toFileUIParts(part);
+  if (part.type === "tool" && part.tool !== STRUCTURED_OUTPUT_TOOL) {
+    const mapped = parseDynamicToolUIParts(part);
+    return part.state.status === "completed" && part.state.attachments
+      ? [...mapped, ...part.state.attachments.flatMap(toFileUIParts)] : mapped;
+  }
   const mapped = toUIPart(part);
   if (!mapped) return [];
-  if (part.type === "tool" && part.tool === STRUCTURED_OUTPUT_TOOL)
-    return [mapped];
-  if (
-    part.type === "tool" &&
-    part.state.status === "completed" &&
-    part.state.attachments
-  ) {
-    return [mapped, ...part.state.attachments.flatMap(toFileUIParts)];
-  }
   return [mapped];
 }
 
@@ -871,6 +871,7 @@ async function stopUsageLimitRetry(
   );
   const client = createClient(entry.input.baseUrl, undefined, {
     token: entry.input.legalworkToken,
+    hostToken: entry.input.legalworkHostToken,
     mode: "legalwork",
   });
   let ownsStop = false;
@@ -923,6 +924,7 @@ async function stopUsageLimitRetry(
       const server = createLegalworkServerClient({
         baseUrl: mount.baseUrl,
         token: entry.input.legalworkToken,
+        hostToken: entry.input.legalworkHostToken,
       });
       await server.recordSessionUsageLimit(
         mount.workspaceId,
@@ -1176,6 +1178,7 @@ function applyEvent(
         );
       return;
     case "session.execution.started":
+      entry.executionProviders.set(sessionId, undefined);
       usageLimitStops.delete(`${workspaceId}:${sessionId}`);
       setStatus({ type: "busy" });
       return;
@@ -1189,6 +1192,7 @@ function applyEvent(
       void stopUsageLimitRetry(entry, workspaceId, sessionId, event.data.error);
       return;
     case "session.step.started": {
+      entry.executionProviders.set(sessionId, event.data.model.providerID);
       if (!isTrackedSession(entry, sessionId)) return;
       const message = {
         id: event.data.assistantMessageID,
@@ -1448,7 +1452,7 @@ function applyEvent(
       const snapshot = cache.getQueryData<LegalworkSessionSnapshot>(
         snapshotKey(workspaceId, sessionId),
       );
-      const provider = snapshot?.messages.findLast(
+      const provider = entry.executionProviders.has(sessionId) ? entry.executionProviders.get(sessionId) : snapshot?.messages.findLast(
         (message) => message.info.role === "assistant",
       )?.info.providerID;
       const usageLimitStop = consumeProviderUsageLimitStop(sessionId);
@@ -1493,6 +1497,7 @@ function applyEvent(
   }
   flushDeltas(entry, workspaceId);
   setStatus(idleStatus);
+  entry.executionProviders.delete(sessionId);
   refreshSnapshot(sessionId);
   for (const key of entry.toolParts.keys())
     if (key.startsWith(`${sessionId}:`)) entry.toolParts.delete(key);
@@ -1626,6 +1631,7 @@ function flushDeltas(entry: SyncEntry, workspaceId: string) {
 function startSync(input: SyncOptions) {
   const client = createClient(input.baseUrl, undefined, {
     token: input.legalworkToken,
+    hostToken: input.legalworkHostToken,
     mode: "legalwork",
   });
   const controller = new AbortController();
@@ -1785,6 +1791,7 @@ export function ensureWorkspaceSessionSync(input: SyncOptions) {
       input.onSessionStatus ? [input.onSessionStatus] : [],
     ),
     toolParts: new Map(),
+    executionProviders: new Map(),
     pendingDeltas: new Map(),
     deltaFlushBuffer: [],
     deltaFlushScheduled: false,
@@ -2017,6 +2024,7 @@ export function __createWorkspaceSessionSyncForTest(input: SyncOptions,client?:C
     sessionUpdatedListeners: new Set(),
     sessionStatusListeners: new Set(),
     toolParts: new Map(),
+    executionProviders: new Map(),
     pendingDeltas: new Map(),
     deltaFlushBuffer: [],
     deltaFlushScheduled: false,

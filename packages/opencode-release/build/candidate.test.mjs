@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import { sha256, validateRecipe, verifyInputs, verifyCompiler, assertBuildReady, localizeDependencyLinks, withBuildStagingLock, applyReviewedPatch, cloneReviewedSource } from "./candidate.mjs";
+import { sha256, validateRecipe, verifyInputs, verifyUpstreamSource, verifyCompiler, assertBuildReady, localizeDependencyLinks, withBuildStagingLock, applyReviewedPatch, cloneReviewedSource } from "./candidate.mjs";
 
 const directory = path.dirname(fileURLToPath(import.meta.url)), repository = path.resolve(directory, "../../..");
 const recipe = JSON.parse(await readFile(path.join(directory, "recipe.json"), "utf8"));
@@ -18,23 +18,52 @@ test("patched identity is distinct and retains the entire official target matrix
   assert.throws(() => validateRecipe({ ...recipe, upstream: { ...recipe.upstream, commit: "latest" } }), /exact upstream source identity/);
 });
 
-test("every source patch and frozen dependency input is digest-verified before compilation", async () => {
+test("local patch and receipt are digest-verified without downloading upstream source", async () => {
   const inputs = await verifyInputs(recipe);
-  for (const [name, pin] of Object.entries(recipe.inputs)) assert.equal(sha256(inputs[name]), pin.sha256);
+  assert.deepEqual(Object.keys(inputs).sort(), ["patch", "testReceipt"]);
+  for (const [name, bytes] of Object.entries(inputs)) assert.equal(sha256(bytes), recipe.inputs[name].sha256);
   const root = await mkdtemp(path.join(tmpdir(), "legalwork-candidate-inputs-"));
   try {
-    for (const [name, pin] of Object.entries(recipe.inputs)) {
+    for (const name of Object.keys(inputs)) {
+      const pin = recipe.inputs[name];
       const target = path.join(root, pin.path);
       await mkdir(path.dirname(target), { recursive: true }); await writeFile(target, inputs[name]);
     }
     await verifyInputs(recipe, root);
-    for (const name of Object.keys(recipe.inputs)) {
+    for (const name of Object.keys(inputs)) {
       const pin = recipe.inputs[name]; await writeFile(path.join(root, pin.path), Buffer.concat([inputs[name], Buffer.from("tampered")]));
       await assert.rejects(verifyInputs(recipe, root), new RegExp(`Pinned build input changed: ${name}`));
       await writeFile(path.join(root, pin.path), inputs[name]);
     }
     const escaped = { ...recipe, inputs: { ...recipe.inputs, patch: { ...recipe.inputs.patch, path: "../outside.patch" } } };
     await assert.rejects(verifyInputs(escaped, root), /escapes the reviewed repository/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("upstream commit and both frozen dependency files must match before use", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "legalwork-upstream-inputs-"));
+  const git = (...args) => promisify(execFile)("git", args, { cwd: root });
+  const files = { lockfile: Buffer.from("frozen dependency fixture\n"), rootPackage: Buffer.from('{"name":"upstream-fixture"}\n') };
+  try {
+    await git("init");
+    for (const [name, bytes] of Object.entries(files)) await writeFile(path.join(root, recipe.inputs[name].upstreamPath), bytes);
+    await git("add", ".");
+    await git("-c", "user.name=LegalWork fixture", "-c", "user.email=fixture@invalid", "-c", "commit.gpgsign=false", "commit", "-m", "fixture");
+    const pinned = { ...recipe, upstream: { ...recipe.upstream, commit: (await git("rev-parse", "HEAD")).stdout.trim() },
+      inputs: { ...recipe.inputs, ...Object.fromEntries(Object.entries(files).map(([name, bytes]) => [name, { ...recipe.inputs[name], sha256: sha256(bytes) }])) } };
+    await verifyUpstreamSource(pinned, root);
+    await assert.rejects(verifyUpstreamSource({ ...pinned, upstream: { ...pinned.upstream, commit: "0".repeat(40) } }, root), /reviewed upstream commit/);
+    for (const [name, bytes] of Object.entries(files)) {
+      const filename = path.join(root, pinned.inputs[name].upstreamPath);
+      await writeFile(filename, Buffer.concat([bytes, Buffer.from("tampered")]));
+      await assert.rejects(verifyUpstreamSource(pinned, root), /Frozen upstream dependency input changed/);
+      await rm(filename);
+      await assert.rejects(verifyUpstreamSource(pinned, root), { code: "ENOENT" });
+      await writeFile(filename, bytes);
+      const escaped = { ...pinned, inputs: { ...pinned.inputs, [name]: { ...pinned.inputs[name], upstreamPath: "../outside" } } };
+      assert.throws(() => validateRecipe(escaped), /invalid pinned build input/);
+    }
+    await verifyUpstreamSource(pinned, root);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 

@@ -24,6 +24,7 @@ import { bundledLanguages, codeToHtml } from "shiki";
 
 import { cn } from "@/lib/utils";
 import { sanitizeMarkdownHtml } from "@/lib/sanitize-markdown";
+import { markedMath } from "@/lib/markdown-math";
 import { useOpenTargets } from "@/lib/target-provider";
 import { resolveHrefOpenTarget, type OpenTarget } from "@/react-app/domains/session/artifacts/open-target";
 import { parseWikiPageUrl } from "@legalwork/types/wiki";
@@ -288,6 +289,7 @@ const baseMarkedOptions = {
 } satisfies ConstructorParameters<typeof Marked<string, string>>[0];
 
 const markdownParser = new Marked(baseMarkedOptions).use(
+  markedMath(),
   markedEmoji({
     emojis: emojiAliases,
     renderer: (token) => escapeHtml(token.emoji),
@@ -298,6 +300,7 @@ const highlightedMarkdownParser = new Marked({
   ...baseMarkedOptions,
   async: true,
 }).use(
+  markedMath(),
   markedEmoji({
     emojis: emojiAliases,
     renderer: (token) => escapeHtml(token.emoji),

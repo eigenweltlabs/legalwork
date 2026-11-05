@@ -1,4 +1,5 @@
-import { WikiSuggestionSchema, type WikiSuggestion } from "@legalwork/types/wiki-suggestions";
+import { classifyOpenTarget } from "../session/artifacts/open-target";
+import { WikiSuggestionSchema, type WikiSuggestion, type WikiSuggestionAttachment } from "@legalwork/types/wiki-suggestions";
 import type { ArtifactPanelTab } from "../session/panel/panel-tab-store";
 
 export const suggestionTools = ["wiki_suggest", "wiki_suggestion_update", "wiki_write"];
@@ -21,4 +22,11 @@ export function suggestionPagePath(folder: string, name: string): string | null 
   const filename = name.trim().replace(/\.md$/i, "");
   if (!filename || filename === "." || filename === ".." || /[/\\\x00-\x1f]/.test(filename)) return null;
   return `${folder ? `${folder}/` : ""}${filename}.md`;
+}
+
+/** The source opens independently of the review, always as an immutable snapshot. */
+export function suggestionSourceTab(draft: WikiSuggestion, file: WikiSuggestionAttachment): ArtifactPanelTab {
+  return { id: `wiki-source:${draft.workspaceId}:${draft.id}:${file.sha256}:${draft.revision}`, type: "artifact",
+    label: file.name, value: file.filePath, preview: classifyOpenTarget(file.name, "file"),
+    wikiSource: { workspaceId: draft.workspaceId, suggestionId: draft.id, sha256: file.sha256, revision: draft.revision } };
 }

@@ -1,20 +1,28 @@
 name: DOCX interoperability
 on:
   pull_request:
-    branches: [dev, codex/projects-akte-workspace]
-    paths:
-      - 'apps/app/src/react-app/domains/session/artifacts/**'
-      - 'apps/app/tests/docx-*.test.ts'
-      - 'apps/app/scripts/docx-*'
-      - 'apps/app/scripts/fixtures/**'
-      - 'patches/@eigenpal*'
-      - 'pnpm-lock.yaml'
-      - '.github/workflows/ci-docx.yml'
+    branches: [dev, codex/projects-akte-workspace, codex/opencode-v2-migration]
   workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      docx: ${{ steps.scope.outputs.docx }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/ci-scope
+        id: scope
   docx:
+    needs: changes
+    if: needs.changes.outputs.docx == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -29,7 +37,7 @@ jobs:
       # does not.
       - uses: oven-sh/setup-bun@v2
       - run: pnpm install --frozen-lockfile --ignore-scripts
-      - run: pnpm --filter @legalwork/app exec bun test tests/docx-document-state.test.ts tests/docx-roundtrip.test.ts
+      - run: pnpm --filter @legalwork/app exec bun test tests/docx-document-state.test.ts tests/docx-roundtrip.test.ts tests/docx-table-grid.test.ts
       - run: sudo apt-get update && sudo apt-get install -y libreoffice-writer poppler-utils fonts-liberation
       - run: pnpm --filter @legalwork/app exec node scripts/docx-interop.mjs
       - uses: actions/upload-artifact@v4

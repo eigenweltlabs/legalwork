@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { ensureLegacyHistoryBackup, readLegacyHistoryBackup } from "./history-v1-backup.js";
 import { openSqliteReadonly } from "./managed-opencode-db.js";
 import type { ServerConfig } from "./types.js";
+import { updateCurrentHistoryReceipt } from "./current-history-state.js";
 import { assertSessionHistoryRecoveryReady } from "./session-history-undo.js";
 const cleanups:Array<()=>Promise<void>>=[];
 afterEach(async()=>{for(const cleanup of cleanups.splice(0).reverse())await cleanup();});
@@ -54,15 +55,10 @@ test("native service recovery checks original Undo and durable receipts before a
   await expect(assertSessionHistoryRecoveryReady(config,[])).resolves.toBeUndefined();
   await expect(assertSessionHistoryRecoveryReady(config,["plain","new-native-chat"])).resolves.toBeUndefined();
   await expect(assertSessionHistoryRecoveryReady(config,["older","older"])).rejects.toMatchObject({status:409,code:"history_undo_recovery_resolution_required",details:{sessions:[{sessionID:"older",reason:"original_undo_not_restored"}]}});
-  const receiptDirectory=join(root,"history-v1","undo-receipts");await mkdir(receiptDirectory,{mode:0o700});
-  const receiptPath=join(receiptDirectory,createHash("sha256").update("older").digest("hex")+".json");
-  const receipt={version:1,sourceSha256:backup.sha256,sessionID:"older",restoredAt:1};
-  await writeFile(receiptPath,JSON.stringify({...receipt,sourceSha256:"different-original"}),{mode:0o600});
-  await expect(assertSessionHistoryRecoveryReady(config,["older"])).rejects.toMatchObject({details:{sessions:[{sessionID:"older",reason:"receipt_source_mismatch"}]}});
-  await writeFile(receiptPath,JSON.stringify(receipt));await rm(source);
+  await updateCurrentHistoryReceipt(config,"undo","older",{version:1,sourceSha256:backup.sha256,sessionID:"older",restoredAt:1});
+  await rm(source);
   await expect(assertSessionHistoryRecoveryReady(config,["older"])).resolves.toBeUndefined();
-  await writeFile(receiptPath,"invalid receipt");
-  await expect(assertSessionHistoryRecoveryReady(config,["older"])).rejects.toMatchObject({details:{sessions:[{sessionID:"older",reason:"receipt_unavailable"}]}});
+  // The retired archive no longer supplies normal recovery state.
   await chmod(backup.path,0o600);await writeFile(backup.path,"tampered original");
-  await expect(assertSessionHistoryRecoveryReady(config,["plain"])).rejects.toMatchObject({details:{reason:"original_backup_unavailable"}});
+  await expect(assertSessionHistoryRecoveryReady(config,["older"])).resolves.toBeUndefined();
 });

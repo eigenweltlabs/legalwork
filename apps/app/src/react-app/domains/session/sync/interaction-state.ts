@@ -100,6 +100,7 @@ function v2PermissionWithReceivedAt(permission: PermissionRequest, receivedAt: n
     patterns: permission.resources,
     metadata,
     always: permission.save ?? [],
+    ...(permission.message ? { message: permission.message } : {}),
     ...(permission.source ? { tool: { messageID: permission.source.messageID, callID: permission.source.id } } : {}),
     receivedAt,
     protocol: "v2",
@@ -255,6 +256,11 @@ export async function replyToPermission(client: Client, permission: PendingPermi
   } else {
     await client.permission.reply({sessionID:permission.sessionID,requestID:permission.id,decision:reply});
   }
+}
+
+export async function cancelQuestion(client: Client, question: PendingQuestion) {
+ if (!question.form) throw new Error("Question form is unavailable.");
+ await client.session.form.cancel({ sessionID: question.sessionID, formID: question.id, message: "The user skipped this question." });
 }
 
 export async function replyToQuestion(client:Client,question:PendingQuestion,answers:string[][],_directory:string) {

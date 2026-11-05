@@ -110,3 +110,21 @@ test("comparison copies use the originating project API and create-only writes",
   assert.equal(result.saved, true); assert.equal(result.data && Reflect.get(result.data, "bufferBase64"), undefined);
   await assert.rejects(executeWordCopy({ executeAgentTool: async () => { throw new Error("Must not run"); } }, { downloadWorkspaceFile: async () => { throw new Error("Must not read"); }, writeWorkspaceBinaryFile: async () => { throw new Error("Must not write"); } }, "origin-project", "create_comparison_copy", { ...identity, fileName: "comparison.docx", versions: [{ path: "../foreign.docx", author: "Partner" }] }));
 });
+
+test("cancellation between batch edits saves and reports the applied prefix",async()=>{
+  const controller=new AbortController(),calls:string[]=[];
+  const result=await executeWordBatch({...identity,operations:[
+    {operation:"create_bookmark",paraId:"p",bookmark:"First"},
+    {operation:"create_bookmark",paraId:"p",bookmark:"Cancelled"},
+    {operation:"create_bookmark",paraId:"p",bookmark:"Never"},
+  ]},async name=>{
+    calls.push(name);
+    if(name==="save_document")return {success:true,saved:true};
+    controller.signal.throwIfAborted();controller.abort();
+    return {success:true,data:{result:{applied:true},draftRevision:3}};
+  });
+  assert.deepEqual(calls,["create_bookmark","create_bookmark","save_document"]);
+  assert.equal(result.success,false);assert.equal(result.saved,true);
+  assert.deepEqual(result.data&&Reflect.get(result.data,"appliedOperations"),[0]);
+  assert.equal(result.data&&Reflect.get(result.data,"failedIndex"),1);
+});

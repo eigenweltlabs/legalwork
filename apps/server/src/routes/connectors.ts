@@ -17,7 +17,7 @@ import { connectorCloudAccess, saveConnectorCloudAccess } from "../connectors/sy
 import { deliverConnectorEmailDraft, deliverConnectorCalendarDraft, refreshConnectorCalendarDraft, reloadConnectorEmailDraft } from "../connectors/drafts.js";
 import { recordAudit } from "../audit.js";
 
-const connectionInput = z.object({ connectionId: z.string().min(1).max(500).optional(), method: z.enum(["nango", "custom"]).default("nango") }).strict();
+const connectionInput = z.object({ connectionId: z.string().min(1).max(500).optional(), method: z.enum(["nango", "custom"]).optional() }).strict();
 
 export function registerConnectorRoutes(options: {
   routes: Route[]; config: ServerConfig;

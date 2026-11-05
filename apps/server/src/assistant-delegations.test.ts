@@ -100,7 +100,9 @@ test("delegations persist, wait for a real reply and an idle Assistant, and retu
     expect(sent[0].text).toContain("same user request is still outstanding, retain this contribution silently");
     expect(sent[0].text).toContain("one combined result message");
     expect(sent[0].text).toContain("Do not wait on or combine unrelated requests");
-    expect(sent[0].text).toContain("actionable blockers must still be surfaced immediately");
+    expect(sent[0].text).toContain("prevents all useful authorized progress");
+    expect(sent[0].text).toContain("continue that work in the SAME project chat");
+    expect(sent[0].text).toContain("Do not answer a pending question or approval on the user's behalf");
     expect(sent[0].text).toContain("Do not react, acknowledge again");
     expect(sent[0].text).toContain("legalwork_assistant_share_file with projectId");
     await (await AssistantDelegations.open(path, executor)).tick();
@@ -144,7 +146,7 @@ test("lost delivery responses reuse a persisted message identity; interrupted wo
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
-test("input requests and later replies return once each, including after restart and day rollover", async () => {
+test("input requests keep watching, final replies close the watch, and only a new explicit request reopens it", async () => {
   const root = await mkdtemp(join(tmpdir(), "assistant-return-input-"));
   const path = join(root, "runtime.sqlite");
   let result: Awaited<ReturnType<DelegationExecutor["result"]>> = { messageId: "question-1", outcome: "input-required", text: "Which agreement should I review?" };
@@ -170,10 +172,20 @@ test("input requests and later replies return once each, including after restart
     result = { messageId: "reply-2", outcome: "reply", text: "Both reviews are complete. Report: reviews/final.md" };
     const reopened = await AssistantDelegations.open(path, executor);
     await reopened.tick(); await reopened.tick(); await reopened.tick();
+    expect(sent).toHaveLength(2);
+    expect(reopened.hasPendingWork("assistant")).toBe(false);
+    reopened.track(delegation); // Merely refreshing routing/permissions is not new work.
+    await reopened.tick(); expect(sent).toHaveLength(2);
+    reopened.watchRequest(delegation.sessionId, "follow-up-request");
+    await reopened.tick();
     expect(sent).toHaveLength(3);
     expect(sent[2].sessionId).toBe("tomorrow");
     expect(sent[2].text).toContain("reviews/final.md");
     expect(new Set(sent.map(item => item.messageId)).size).toBe(3);
+    reopened.watchRequest(delegation.sessionId, "follow-up-request"); // Delivery replay must not reopen it.
+    result = { messageId: "unrelated-login-update", outcome: "reply", text: "CourtListener is connected." };
+    await reopened.tick(); expect(sent).toHaveLength(3);
+    expect(reopened.isWatching(delegation.sessionId)).toBe(false);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
@@ -203,7 +215,7 @@ test("an undelivered result follows the next day without replaying a persisted o
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
-test("upgrading delivered notices preserves their receipt and still watches subsequent replies", async () => {
+test("upgrading delivered notices preserves their receipt and closes the old session-wide watch", async () => {
   const root = await mkdtemp(join(tmpdir(), "assistant-return-upgrade-"));
   const path = join(root, "runtime.sqlite");
   let replyId = "old-reply";
@@ -223,7 +235,8 @@ test("upgrading delivered notices preserves their receipt and still watches subs
     const tracker = await AssistantDelegations.open(path, executor);
     await tracker.tick(); expect(sent).toHaveLength(0);
     replyId = "new-reply";
-    await tracker.tick(); expect(sent).toHaveLength(1);
+    await tracker.tick(); expect(sent).toHaveLength(0);
+    expect(tracker.isWatching(delegation.sessionId)).toBe(false);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
@@ -291,5 +304,101 @@ test("revoked project access suspends background reads and returns, including a 
     allowed = true;
     await reopened.tick(); expect(sent).toHaveLength(1);
     expect(sent[0]).toContain("Private project result.");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("a rejected initial delivery never appears as running work, including after restart", async () => {
+  const root = await mkdtemp(join(tmpdir(), "assistant-rejected-initial-")), path = join(root, "runtime.sqlite");
+  let reads = 0;
+  const executor: DelegationExecutor = { result: async () => { reads++; return null; }, destination: async () => ({ workspaceId: "assistant", sessionId: "today" }), idle: async () => true, hasMessage: async () => false, send: async () => {} };
+  try {
+    const tracker = await AssistantDelegations.open(path, executor);
+    tracker.track({ ...delegation, initialMessageId: "msg_initial" });
+    tracker.rejectInitial(delegation.sessionId, "msg_initial");
+    expect(tracker.hasPendingWork("assistant")).toBe(false);
+    const restarted = await AssistantDelegations.open(path, executor);
+    expect(restarted.hasPendingWork("assistant")).toBe(false);
+    await restarted.tick(); expect(reads).toBe(0);
+    expect(restarted.list("assistant")).toHaveLength(1); // Keep scope and routing for an explicit follow-up.
+    restarted.track({ ...delegation, authority: { scope: "owner" } });
+    expect(restarted.hasPendingWork("assistant")).toBe(true);
+    await restarted.tick(); expect(reads).toBe(1);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("delivered final results stop all background reads, including child attention and after restart", async () => {
+  const root = await mkdtemp(join(tmpdir(), "assistant-closed-watch-")), path = join(root, "runtime.sqlite");
+  let reads = 0;
+  const sent: string[] = [], persisted = new Set<string>();
+  const executor: DelegationExecutor = {
+    result: async () => { reads++; return { messageId: "review-final", outcome: "reply", text: "Review complete." }; },
+    destination: async () => ({ workspaceId: "assistant", sessionId: "today" }), idle: async () => true,
+    hasMessage: async (_, id) => persisted.has(id), send: async (_, notice) => { sent.push(notice.text); persisted.add(notice.messageId); },
+  };
+  try {
+    const tracker = await AssistantDelegations.open(path, executor);
+    tracker.track(delegation);
+    tracker.track({ ...delegation, sessionId: "child", inputOnly: true, authoritySessionId: delegation.sessionId });
+    await tracker.tick();
+    expect(reads).toBe(1); expect(sent).toHaveLength(1);
+    expect(tracker.isWatching("child")).toBe(false);
+    const reopened = await AssistantDelegations.open(path, executor);
+    executor.result = async () => { reads++; return { messageId: "login-update", outcome: "reply", text: "CourtListener connected." }; };
+    reopened.track({ ...delegation, sessionId: "child", inputOnly: true, authoritySessionId: delegation.sessionId });
+    await reopened.tick(); await tracker.tick();
+    expect(reads).toBe(1); expect(sent).toHaveLength(1);
+    expect(reopened.hasPendingWork("assistant")).toBe(false);
+    expect(reopened.list("assistant")).toHaveLength(2); // Routing remains available for a requested follow-up.
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("migration closes receipt-only subscriptions but preserves pending questions and undelivered final results", async () => {
+  const root = await mkdtemp(join(tmpdir(), "assistant-watch-migration-")), path = join(root, "runtime.sqlite");
+  const reads: string[] = [];
+  const executor: DelegationExecutor = { result: async item => { reads.push(item.sessionId); return null; },
+    destination: async () => ({ workspaceId: "assistant", sessionId: "today" }), idle: async () => false,
+    hasMessage: async () => false, send: async () => { throw new Error("Assistant is busy"); } };
+  try {
+    const db = await openSqlite(path);
+    db.exec("CREATE TABLE assistant_delegations (session_id TEXT PRIMARY KEY, data TEXT NOT NULL, notice TEXT, delivered INTEGER NOT NULL DEFAULT 0)");
+    db.exec("CREATE TABLE assistant_delegation_receipts (session_id TEXT NOT NULL, result_id TEXT NOT NULL, PRIMARY KEY(session_id, result_id))");
+    for (const sessionId of ["finished", "waiting", "pending-return"]) db.run("INSERT INTO assistant_delegations (session_id, data) VALUES (?, ?)", [sessionId, JSON.stringify({ ...delegation, sessionId })]);
+    db.run("INSERT INTO assistant_delegation_receipts VALUES ('finished', 'reply:result')");
+    db.run("INSERT INTO assistant_delegation_receipts VALUES ('waiting', 'input-required:question')");
+    const notice = { workspaceId: "assistant", sessionId: "today", messageId: "return", resultId: "reply:pending-final", text: "Result awaiting delivery." };
+    db.run("UPDATE assistant_delegations SET notice = ? WHERE session_id = 'pending-return'", [JSON.stringify(notice)]);
+    db.run("UPDATE assistant_delegations SET notice = ? WHERE session_id = 'finished'", [JSON.stringify({ ...notice, text: "Unrelated CourtListener login update." })]);
+    db.close();
+    const tracker = await AssistantDelegations.open(path, executor);
+    expect(tracker.isWatching("finished")).toBe(false);
+    expect(tracker.isWatching("waiting")).toBe(true);
+    expect(tracker.isWatching("pending-return")).toBe(true);
+    await tracker.tick(); expect(reads).toEqual(["waiting"]);
+    tracker.watchRequest("finished", "explicit-follow-up");
+    await tracker.tick(); expect(reads).toEqual(["waiting", "finished", "waiting"]);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("confirming an older result does not close a new follow-up admitted during delivery", async () => {
+  const root = await mkdtemp(join(tmpdir(), "assistant-watch-race-")), path = join(root, "runtime.sqlite");
+  const sent: string[] = [], persisted = new Set<string>();
+  const tracker = await AssistantDelegations.open(path, {
+    result: async (_, requestMessageId) => ({ messageId: `reply-${requestMessageId}`, outcome: "reply", text: "Done." }),
+    destination: async () => ({ workspaceId: "assistant", sessionId: "today" }), idle: async () => true,
+    hasMessage: async (_, id) => persisted.has(id), send: async (_, notice) => {
+      sent.push(notice.resultId); persisted.add(notice.messageId);
+      if (sent.length === 1) tracker.watchRequest(delegation.sessionId, "follow-up");
+    },
+  });
+  try {
+    tracker.track({ ...delegation, initialMessageId: "first-request" });
+    await tracker.tick(); expect(tracker.isWatching(delegation.sessionId)).toBe(true);
+    const reopened = await AssistantDelegations.open(path, {
+      result: async (_, id) => { expect(id).toBe("follow-up"); return { messageId: "follow-up-result", outcome: "reply", text: "Updated." }; },
+      destination: async () => ({ workspaceId: "assistant", sessionId: "today" }), idle: async () => true,
+      hasMessage: async (_, id) => persisted.has(id), send: async (_, notice) => { sent.push(notice.resultId); persisted.add(notice.messageId); },
+    });
+    await reopened.tick(); expect(sent).toEqual(["reply:reply-first-request", "reply:follow-up-result"]);
+    expect(reopened.isWatching(delegation.sessionId)).toBe(false);
   } finally { await rm(root, { recursive: true, force: true }); }
 });

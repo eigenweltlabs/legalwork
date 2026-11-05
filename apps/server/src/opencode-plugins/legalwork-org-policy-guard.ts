@@ -1,11 +1,10 @@
 import { Plugin } from "@opencode/plugin";
 import { z } from "zod";
-import { nativeAction } from "../native-opencode-config.js";
 import { serverToken, serverUrl } from "./office-plugin-shared.js";
 
 const action = z.enum(["allow", "ask", "deny"]);
 const guardSchema = z.object({ orgName: z.string().nullable(),
-  permission: z.record(z.string(), z.union([action, z.record(z.string(), action)])),
+  permission: z.array(z.object({ action: z.string(), resource: z.string(), effect: action })),
   blockedMcpServers: z.array(z.string()), allowedProviders: z.array(z.string()).nullable(),
 });
 type Guard = z.infer<typeof guardSchema>;
@@ -19,11 +18,11 @@ function matches(input: string, pattern: string): boolean {
 }
 function required(guard: Guard, name: string, resources: readonly string[]) {
   let effect: z.infer<typeof action> = "allow";
-  for (const [key, rule] of Object.entries(guard.permission)) {
-    if (!matches(name, nativeAction(key))) continue;
+  for (const rule of guard.permission) {
+    if (!matches(name, rule.action)) continue;
     for (const resource of resources) {
-      let next: z.infer<typeof action> = typeof rule === "string" ? rule : "ask";
-      if (typeof rule !== "string") for (const [pattern, value] of Object.entries(rule)) if (matches(resource, pattern)) next = value;
+      if (!matches(resource, rule.resource)) continue;
+      const next = rule.effect;
       if (STRICTNESS[next] > STRICTNESS[effect]) effect = next;
     }
   }

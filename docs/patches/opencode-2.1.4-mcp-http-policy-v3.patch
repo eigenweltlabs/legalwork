@@ -288,6 +288,19 @@ index fb7dc4e..75540df 100644
  export const display = (args: ReadonlyArray<unknown>) => {
    const [input, init] = args
    const method = isRecord(init) && typeof init.method === "string" ? init.method.toUpperCase() : "GET"
+diff --git a/packages/core/src/database/v1-migration.bun.ts b/packages/core/src/database/v1-migration.bun.ts
+index 7313e68..90c8174 100644
+--- a/packages/core/src/database/v1-migration.bun.ts
++++ b/packages/core/src/database/v1-migration.bun.ts
+@@ -437,7 +437,7 @@ export function transformSession(input: TransformInput): TransformResult {
+           ...(assistant.error ? { error: migrateError(assistant.error) } : {}),
+           time: {
+             created: item.row.time_created,
+-            ...(assistant.time.completed === undefined ? {} : { completed: item.row.time_updated }),
++            ...(assistant.time.completed === undefined ? {} : { completed: assistant.time.completed }),
+           },
+         }),
+       ]
 diff --git a/packages/core/src/tool.ts b/packages/core/src/tool.ts
 index e637b8a..81b9541 100644
 --- a/packages/core/src/tool.ts
@@ -1433,3 +1446,61 @@ index 54abd80..b155ab9 100644
        Location.node.replace(Location.boundNode({ directory: AbsolutePath.make("/project") })),
      ],
    ),
+diff --git a/packages/core/test/v1-migration.test.ts b/packages/core/test/v1-migration.test.ts
+index 2bd411e..cb0e3ef 100644
+--- a/packages/core/test/v1-migration.test.ts
++++ b/packages/core/test/v1-migration.test.ts
+@@ -350,7 +350,7 @@ describe("V1Migration.transformSession", () => {
+       finish: "stop",
+       cost: 2.5,
+       tokens: { input: 2, output: 3, reasoning: 4, cache: { read: 5, write: 6 } },
+-      time: { created: 20, completed: 21 },
++      time: { created: 20, completed: 25 },
+     })
+     expect(result.messages[1]).toMatchObject({ time_created: 20, time_updated: 21 })
+   })
+@@ -767,7 +767,34 @@ describe("V1Migration.transformSession", () => {
+     expect(result.watermark).toBe(1)
+   })
+ 
+-  test("orders equal-time rows by ID and keeps SQL and payload timestamps consistent", () => {
++  test("preserves assistant completion times independently of later database writes", () => {
++    const completed = 1_791_000_000_000
++    const parent = user("msg_000000000001aaaaaaaaaaaaaa")
++    for (const delay of [1, 2, 1000]) {
++      const message = {
++        ...assistant("msg_000000000002aaaaaaaaaaaaaa", parent.id, {
++          time: { created: 20, completed },
++          finish: "stop",
++        }),
++        time_updated: completed + delay,
++      }
++      const result = transform([parent, message], [])
++      expect(result.messages[1]).toMatchObject({
++        id: message.id,
++        time_updated: completed + delay,
++        data: { time: { created: 20, completed } },
++      })
++    }
++  })
++
++  test("does not complete unfinished assistants from their database update time", () => {
++    const parent = user("msg_000000000001aaaaaaaaaaaaaa")
++    const message = assistant("msg_000000000002aaaaaaaaaaaaaa", parent.id, { time: { created: 20 } })
++    const result = transform([parent, message], [])
++    expect(result.messages[1].data.time).toEqual({ created: 20 })
++  })
++
++  test("orders equal-time rows by ID and preserves SQL timestamps and original completion times", () => {
+     const first = user("msg_000000000041aaaaaaaaaaaaaa", { time: { created: 999 } }, 10)
+     const second = assistant("msg_000000000042aaaaaaaaaaaaaa", first.id, { time: { created: 998, completed: 997 } }, 10)
+     const result = transform(
+@@ -780,7 +807,7 @@ describe("V1Migration.transformSession", () => {
+     expect(result.messages.map((row) => row.id)).toEqual([first.id, second.id])
+     expect(result.messages.map((row) => [row.time_created, row.time_updated, row.data.time])).toEqual([
+       [10, 11, { created: 10 }],
+-      [10, 11, { created: 10, completed: 11 }],
++      [10, 11, { created: 10, completed: 997 }],
+     ])
+   })
+ 

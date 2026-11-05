@@ -256,7 +256,7 @@ test("agent browsers load and navigate without adopting the foreground pane", as
   assert.deepEqual(f.first.contentView.children, [f.views[0]]);
 });
 
-test("agent mini tabs are session-owned, survive promotion and close, and clean up independently", async t => {
+test("agent mini tabs retain their chat ownership between turns and close only when dismissed", async t => {
   const f = fixture(); t.after(() => f.controller.destroy());
   const a = await f.call("openUrl", f.first, "https://example.com", "builtin", { workspaceId: "project", sessionId: "a" });
   const b = await f.call("openUrl", f.first, "https://example.org", "builtin", { workspaceId: "project", sessionId: "b" });
@@ -280,14 +280,30 @@ test("agent mini tabs are session-owned, survive promotion and close, and clean 
   assert.equal(f.views[1].webContents.isDestroyed(), false);
   assert.equal(f.call("state", f.first).tabs.every(tab => tab.background), true);
   f.call("releaseSession", f.first, "b");
+  assert.equal(f.views[1].webContents.isDestroyed(), false);
+  assert.deepEqual(f.call("state", f.first).tabs.map(tab => tab.id), [a.tab_id, b.tab_id]);
+  assert.equal(f.call("state", f.first).tabs[1].taskSessionId, "b");
+  await assert.rejects(f.call("connection", f.first, b.tab_id, { workspaceId: "project", sessionId: "a" }), /does not belong/);
+  const continued = await f.call("connection", f.first, b.tab_id, { workspaceId: "project", sessionId: "b" });
+  assert.equal(continued.browser_url, b.browser_url);
+  f.call("releaseSession", f.first, "b");
+  f.call("dismissTab", f.first, b.tab_id);
   assert.equal(f.views[1].webContents.isDestroyed(), true);
-  assert.deepEqual(f.call("state", f.first).tabs.map(tab => tab.id), [a.tab_id]);
   f.call("selectTab", f.first, a.tab_id);
   f.call("show", f.first, f.right, a.tab_id);
   f.call("releaseSession", f.first, "a");
   assert.equal(f.views[0].webContents.isDestroyed(), false);
-  assert.equal(f.call("state", f.first).tabs[0].taskSessionId, undefined);
+  assert.equal(f.call("state", f.first).tabs[0].taskSessionId, "a");
   f.call("closeTab", f.first, a.tab_id);
+  assert.equal(f.views[0].webContents.isDestroyed(), true);
+});
+
+test("dismissing an active background tab closes it when the turn finishes", async t => {
+  const f = fixture(); t.after(() => f.controller.destroy());
+  const tab = await f.call("openUrl", f.first, "https://example.org", "builtin", { workspaceId: "project", sessionId: "dismissed-chat" });
+  f.call("dismissTab", f.first, tab.tab_id);
+  assert.equal(f.views[0].webContents.isDestroyed(), false);
+  f.call("releaseSession", f.first, "dismissed-chat");
   assert.equal(f.views[0].webContents.isDestroyed(), true);
 });
 

@@ -1,6 +1,5 @@
-import { useRef, useState, type ChangeEvent } from "react";
-import { DEFAULT_ASSISTANT_PROFILE, type AssistantProfile } from "@legalwork/types/main-assistant";
-import { AssistantAppearanceEditor } from "./assistant-appearance";
+import { useRef, useState, type ChangeEvent, type ReactNode } from "react";
+import { AssistantFlowerIcon } from "./assistant-appearance";
 import { BookOpen, CalendarDays, Check, Clock, Files, FlaskConical, FolderOpen, GripVertical, House, Inbox, LayoutGrid, ListTodo, Loader2, MessageSquare, Mic, PenLine, Pin, SquarePen, Table2, TableProperties, Upload, Users, Workflow, X } from "lucide-react";
 import { LazyMotion, Reorder, domMax, useDragControls } from "motion/react";
 import { toast } from "@/components/ui/sonner";
@@ -37,26 +36,12 @@ export const SIDEBAR_ITEMS = {
   navEvaluations: { label: "sidebar.evals", icon: FlaskConical },
 };
 
-export function SidebarCustomization({ onDone, assistantProfile = DEFAULT_ASSISTANT_PROFILE, assistantDisabled, onSaveAssistantProfile }: {
-  onDone: () => void; assistantProfile?: AssistantProfile; assistantDisabled?: boolean; onSaveAssistantProfile?: (profile: AssistantProfile) => Promise<void>;
-}) {
+export function SidebarCustomization({ onDone }: { onDone: () => void }) {
   const { config, update } = useShellConfig();
-  const [assistantDraft, setAssistantDraft] = useState<AssistantProfile | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const finish = async () => {
-    if (saving) return;
-    setSaving(true); setError(null);
-    try {
-      const profile = assistantDraft ? { ...assistantDraft, name: assistantDraft.name?.trim() || null } : assistantProfile;
-      if (onSaveAssistantProfile && (profile.name !== assistantProfile.name || profile.icon !== assistantProfile.icon)) await onSaveAssistantProfile(profile);
-      onDone();
-    } catch (failure) { setError(failure instanceof Error ? failure.message : t("assistant.save_failed")); }
-    finally { setSaving(false); }
-  };
-  const options = <K extends ShellNavKey | ChatSectionKey | ProjectNavKey>(keys: K[], change: (keys: K[]) => void, label: string) => (
+  const options = <K extends ShellNavKey | ChatSectionKey | ProjectNavKey>(keys: K[], change: (keys: K[]) => void, label: string, extra?: ReactNode) => (
     <div className="mt-3">
       <h3 className="px-2 pb-1 text-xs text-muted-foreground">{label}</h3>
+      {extra}
       <Reorder.Group axis="y" values={keys} onReorder={change} aria-label={label}>
         {keys.map(key => <NavigationOption key={key} navKey={key} checked={key === "projectSessions" ? config.collapseProjectSessions : config[key]} onCheckedChange={checked => update(key === "projectSessions" ? { collapseProjectSessions: checked } : { [key]: checked })} onMove={direction => {
           const next = [...keys], index = next.indexOf(key), target = index + direction;
@@ -72,23 +57,27 @@ export function SidebarCustomization({ onDone, assistantProfile = DEFAULT_ASSIST
       if (event.key === "Escape") {
         event.preventDefault();
         event.stopPropagation();
-        void finish();
+        onDone();
       }
     }}>
       <div className="lw-sidebar-brand flex shrink-0 items-center gap-2.5 px-3 pb-3 pt-2">
-        <SidebarBrandEditor onDone={() => void finish()} />
+        <SidebarBrandEditor onDone={onDone} />
       </div>
       <div className="flex min-h-0 flex-1 flex-col rounded-xl border border-border bg-background p-2 shadow-sm">
         <div className="flex shrink-0 items-center justify-between px-2 pb-1">
           <h2 className="text-sm font-normal text-muted-foreground">{t("projects.customize")}</h2>
-          <Button autoFocus variant="ghost" size="sm" disabled={saving} className="h-8 px-2 font-normal text-blue-11 hover:text-blue-12" onClick={() => void finish()}>{t(saving ? "common.saving" : "projects.customize_done")}</Button>
+          <Button autoFocus variant="ghost" size="sm" className="h-8 px-2 font-normal text-blue-11 hover:text-blue-12" onClick={onDone}>{t("projects.customize_done")}</Button>
         </div>
-        {error && <p role="alert" className="px-2 text-xs text-destructive">{error}</p>}
         <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto">
-        {onSaveAssistantProfile && <form onSubmit={event => { event.preventDefault(); void finish(); }}><AssistantAppearanceEditor profile={assistantDraft ?? assistantProfile} disabled={assistantDisabled || saving} onChange={setAssistantDraft} /></form>}
         <LazyMotion features={domMax}>
           {options(config.navOrder, navOrder => update({ navOrder }), t("sidebar.main_actions"))}
-          {options(config.chatSectionOrder, chatSectionOrder => update({ chatSectionOrder }), t("sidebar.chat_sections"))}
+          {options(config.chatSectionOrder.filter(key => key !== "navNewChat"), chatSectionOrder => update({ chatSectionOrder: ["navNewChat", ...chatSectionOrder] }), t("sidebar.chat_sections"), <>
+            <VisibilityToggle checked={config.navNewChat} onCheckedChange={navNewChat => update({ navNewChat })}>
+              <SquarePen className="size-[18px] shrink-0" strokeWidth={1.5} /><span className="truncate">{t("projects.new_chat")}</span>
+            </VisibilityToggle>
+            <VisibilityToggle checked={config.navAssistant !== false} onCheckedChange={navAssistant => update({ navAssistant })}>
+              <AssistantFlowerIcon size={18} /><span className="truncate">{t("assistant.title")}</span>
+            </VisibilityToggle></>)}
           {options(config.projectNavOrder, projectNavOrder => update({ projectNavOrder }), t("sidebar.project_items"))}
         </LazyMotion>
         </div>
@@ -155,13 +144,10 @@ function NavigationOption(props: {
 
   return (
     <Reorder.Item value={props.navKey} dragListener={false} dragControls={dragControls} dragElastic={0} className="relative flex h-10 items-center gap-1 rounded-lg bg-background pr-1" whileDrag={{ boxShadow: "0 3px 12px rgb(0 0 0 / 0.12)" }}>
-      <Button variant="ghost" role="checkbox" aria-checked={props.checked} onClick={() => props.onCheckedChange(!props.checked)} className="h-10 min-w-0 flex-1 justify-start gap-2.5 px-2 font-normal text-foreground">
-        <span aria-hidden="true" className={cn("flex size-4 shrink-0 items-center justify-center rounded-full border", props.checked ? "border-blue-9 bg-blue-9 text-white" : "border-muted-foreground/60 bg-transparent")}>
-          {props.checked ? <Check className="size-3" strokeWidth={3} /> : null}
-        </span>
+      <VisibilityToggle checked={props.checked} onCheckedChange={props.onCheckedChange}>
         <Icon className="size-[18px] shrink-0" strokeWidth={1.5} />
         <span className="truncate">{label}</span>
-      </Button>
+      </VisibilityToggle>
       {props.onMove ? <Button variant="ghost" size="icon-xs" className="touch-none cursor-grab text-muted-foreground/50 hover:text-muted-foreground active:cursor-grabbing" aria-label={t("projects.reorder_nav", { name: label })} title={t("projects.reorder_nav_hint")}
         onPointerDown={(event) => dragControls.start(event)}
         onKeyDown={(event) => {
@@ -172,4 +158,13 @@ function NavigationOption(props: {
       ><GripVertical className="size-3.5" /></Button> : null}
     </Reorder.Item>
   );
+}
+
+function VisibilityToggle({ checked, onCheckedChange, children }: { checked: boolean; onCheckedChange: (checked: boolean) => void; children: ReactNode }) {
+  return <Button variant="ghost" role="checkbox" aria-checked={checked} onClick={() => onCheckedChange(!checked)} className="h-10 w-full min-w-0 flex-1 justify-start gap-2.5 px-2 font-normal text-foreground">
+    <span aria-hidden="true" className={cn("flex size-4 shrink-0 items-center justify-center rounded-full border", checked ? "border-blue-9 bg-blue-9 text-white" : "border-muted-foreground/60 bg-transparent")}>
+      {checked ? <Check className="size-3" strokeWidth={3} /> : null}
+    </span>
+    {children}
+  </Button>;
 }

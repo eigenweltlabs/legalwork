@@ -16,6 +16,24 @@ reminders, assistant tool calls/IDs and tool results. Only the history tail grow
 Diagnostics identify the agent/request and first changed field, without printing
 the prompt. There are no timestamp scrubs, sorted tools or golden prompt snapshots.
 
+The trajectory also fails a direct tool, corrects its arguments, catches a nested
+Code Mode failure and then succeeds with typed output. Recovery guidance must be
+saved with its error or owning outer result before the first request containing
+it. Progress, later failures, idle, user turns and restart cannot remove or
+recalculate an earlier hint. Unit tests separately check duplicate notifications,
+outer-call ownership and that the retry limit starts only after a saved warning
+is present in a model-facing context. Native errors can expose an underlying
+cause instead of the outer message; the engine trajectory checks the actual
+saved/serialized result rather than only a hook's mutable object.
+
+A test-only engine process clock crosses midnight in Europe/Berlin between tool
+steps in one user turn and stays on the new day across follow-ups and restart.
+The initial date snapshot must stay unchanged; the
+new date arrives as a chronological instruction update. This protects the native
+engine's existing fix for the old 1.18.29 live system-date behavior. The fixture
+also disconnects and reconnects its Code Mode MCP server without rebasing the
+prefix, covering availability changes independently of a settings edit.
+
 Explicit compaction and model selection changes start named cache epochs, each
 with a follow-up checked against its new baseline. Ordinary turns, state updates
 and restarts never reset the baseline. A permission/tool-set change likewise

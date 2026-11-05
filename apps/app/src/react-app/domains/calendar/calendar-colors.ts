@@ -1,3 +1,6 @@
+import type { CSSProperties } from "react";
+import { connectorCalendarColorSchema } from "@legalwork/types/connectors";
+
 const PROJECT_COLORS = [
   { card: "border-blue-6/70 bg-blue-3/60 hover:bg-blue-4/80", accent: "text-blue-11" },
   { card: "border-violet-6/70 bg-violet-3/60 hover:bg-violet-4/80", accent: "text-violet-11" },
@@ -17,4 +20,21 @@ export function calendarProjectColor(projectId: string | null) {
   let hash = 2166136261;
   for (const character of projectId) hash = Math.imul(hash ^ character.charCodeAt(0), 16777619);
   return PROJECT_COLORS[(hash >>> 0) % PROJECT_COLORS.length];
+}
+
+
+/** Preserve the provider's marker color; keep text neutral for contrast in either theme. */
+export function calendarDisplayColor(identity: string | null, providerColor?: string | null) {
+  const color = connectorCalendarColorSchema.parse(providerColor);
+  if (!color) {
+    const fallback = calendarProjectColor(identity);
+    return { ...fallback, marker: fallback.accent, style: undefined };
+  }
+  const style: CSSProperties & { "--calendar-color": string } = { "--calendar-color": color };
+  return {
+    card: "border-[color:color-mix(in_srgb,var(--calendar-color)_30%,var(--border))] bg-[color:color-mix(in_srgb,var(--calendar-color)_10%,var(--background))] hover:bg-[color:color-mix(in_srgb,var(--calendar-color)_18%,var(--background))]",
+    accent: "text-muted-foreground",
+    marker: "text-[color:var(--calendar-color)]",
+    style,
+  };
 }

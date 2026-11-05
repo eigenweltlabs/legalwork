@@ -1,23 +1,31 @@
 # Code signing policy
 
-Free code signing provided by [SignPath.io](https://signpath.io), certificate by
-[SignPath Foundation](https://signpath.org).
-
-Production certificate issuance is pending SignPath's integration review.
-Test-signed builds are validation artifacts and are not published to users.
+LegalWork's Windows builds use Microsoft Azure Artifact Signing with the
+public-trust certificate profile owned by Eigenwelt Labs UG
+(haftungsbeschränkt).
 
 Authors and reviewers are repository maintainers
 [Johann Machemer](https://github.com/johannmachemer) and
-[Christian-Hauke Poensgen](https://github.com/christianhpoe). The release-signing
-approver is Johann Frederik Machemer. Contributions from others require
-maintainer review. Signing access follows SignPath's MFA requirements.
+[Christian-Hauke Poensgen](https://github.com/christianhpoe).
+Contributions from others require maintainer review.
 
-Signing requests originate from this repository's GitHub-hosted build jobs.
-The production policy requires verified repository origin and one manual
-approval. Artifact rules constrain the installer filename, LegalWork product
-name, architecture, and build version. Bundled upstream binaries are not
-re-signed under this project. The workflow verifies the returned signature,
-timestamp, and updater metadata before publication.
+Signing runs automatically on GitHub-hosted Windows runners for the protected
+`windows-signing` environment. Its deployment rules allow the `dev` branch
+and `v*` tags. GitHub OpenID Connect grants a short-lived Azure identity with
+signing access to the `legalwork` certificate profile only. No certificate
+private key or long-lived Azure client secret is stored in GitHub.
+
+Electron Builder signs the packaged application, selected bundled executable
+files, NSIS uninstaller and installer during packaging. The workflow requires
+trusted, timestamped signatures from Eigenwelt Labs on the application and
+installer, and checks that a modified installer is rejected. Updater metadata
+and checksums are generated from the final signed files. A signing or
+verification failure stops the affected build before its assets are uploaded.
+
+Signing requires no per-build manual approval. Stable releases are built as
+GitHub drafts and published manually; alpha releases retain their existing
+automatic publication flow. The explicit signing smoke-test mode only uploads
+workflow artifacts and does not publish a release.
 
 See the [LegalWork privacy notice](https://eigenweltlabs.com/legalwork/privacy)
 and [TERMS.md](TERMS.md) for local processing, model-provider and connector

@@ -1,11 +1,13 @@
 import { AssistantProfileSchema, AssistantSharedFilesSchema } from "@legalwork/types/main-assistant";
 import type { TextPart } from "@/app/lib/opencode-view";
 import type { UIMessage } from "ai";
+import { integrationMessageMetadata } from "../surface/composer/integration-message";
 
 export function textPartProviderMetadata(part: TextPart) {
   const sender = AssistantProfileSchema.safeParse(part.metadata?.legalworkAssistantSender);
   const files = AssistantSharedFilesSchema.safeParse(part.metadata?.legalworkSharedFiles);
-  return { opencode: { partId: part.id, ...(part.time ? { textComplete: Boolean(part.time.end) } : {}), ...(sender.success ? { legalworkAssistantSender: sender.data } : {}), ...(files.success ? { legalworkSharedFiles: files.data } : {}) } };
+  const references = integrationMessageMetadata(part.metadata?.legalworkPrompt);
+  return { opencode: { partId: part.id, ...(references.integrations.length ? references : {}), ...(part.time ? { textComplete: Boolean(part.time.end) } : {}), ...(sender.success ? { legalworkAssistantSender: sender.data } : {}), ...(files.success ? { legalworkSharedFiles: files.data } : {}) } };
 }
 
 export function assistantMessageSender(message: UIMessage) {

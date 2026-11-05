@@ -52,6 +52,7 @@
     "./calculation": "./src/calculation.ts",
     "./session-queue": "./src/session-queue.ts",
     "./main-assistant": "./src/main-assistant.ts",
+    "./browser-password-request": "./src/browser-password-request.ts",
     "./session-history": "./src/session-history.ts",
     "./legalmemory": "./src/legalmemory.ts",
     "./session-visibility": "./src/session-visibility.ts",
@@ -66,9 +67,12 @@
     "./wiki": "./src/wiki.ts",
     "./wiki-suggestions": "./src/wiki-suggestions.ts",
     "./views": "./src/views.ts",
+    "./chat-tool-results": "./src/chat-tool-results.ts",
     "./line-diff": "./src/line-diff.ts",
     "./cloud-assistant": "./src/cloud-assistant.ts",
-    "./opencode-view": "./src/opencode-view.ts"
+    "./opencode-view": "./src/opencode-view.ts",
+    "./legal-research": "./src/legal-research.ts",
+    "./legal-research-wiki": "./src/legal-research-wiki.ts"
   },
   "files": [
     "src",

@@ -13,6 +13,7 @@ import { registerLocalProject } from "./workspaces.js";
 import { addRoute, matchRoute, type RequestContext, type Route } from "./registry.js";
 import { AssistantAvatarIconSchema, AssistantProfileSchema, AssistantSettingsSchema } from "../assistant-schema.js";
 import { assistantSettingsCatalog, createAssistantSettingsContext } from "../assistant-settings.js";
+import { assistantProactivityStore } from "../assistant-proactivity-store.js";
 import { assertAssistantToolAccess } from "../assistant-tool-access.js";
 import { projectMatch } from "../assistant-project-search.js";
 import { searchFingerprint } from "../assistant-session-search.js";
@@ -37,6 +38,8 @@ import type { SavedSearchStore } from "../launcher-saved-searches.js";
 import type { LauncherContextStore } from "../launcher-context.js";
 import type { LauncherFileIndex } from "../launcher-file-index.js";
 import type { DocumentPreparation } from "../document-preparation/service.js";
+import { nativeDeliveryRejection } from "../native-delivery.js";
+import { randomBytes } from "node:crypto";
 
 const delegationSchema = z.object({
   workspaceId: z.string().min(1), sourceWorkspaceId: z.string().min(1), sourceSessionId: z.string().min(1),
@@ -111,7 +114,7 @@ export function registerMainAssistantRoutes(options: {
   });
   addRoute(routes, "GET", "/assistant/settings/context", "client", async ctx => {
     options.requireClientScope(ctx, "viewer");
-    return jsonResponse({ context: settingsContext() });
+    return jsonResponse({ context: `${await settingsContext()}\n\n${(await assistantProactivityStore(config)).context()}` });
   });
   addRoute(routes, "GET", "/assistant/access", "client", async ctx => {
     options.requireClientScope(ctx, "viewer");
@@ -143,7 +146,7 @@ export function registerMainAssistantRoutes(options: {
   addRoute(routes, "GET", "/assistant", "client", async ctx => {
     options.requireClientScope(ctx, "viewer");
     const workspace = config.workspaces.find(isMainAssistant);
-    return jsonResponse({ workspace: workspace ? summary(workspace) : null, profile: assistant.profile(), onboarding: await assistant.onboarding() });
+    return jsonResponse({ workspace: workspace ? summary(workspace) : null, day: assistant.savedDay(), profile: assistant.profile(), onboarding: await assistant.onboarding() });
   });
   addRoute(routes, "GET", "/assistant/activity", "client", async ctx => {
     options.requireClientScope(ctx, "viewer");
@@ -323,21 +326,29 @@ export function registerMainAssistantRoutes(options: {
     if (resolve(session.directory) !== resolve(workspace.path)) throw new ApiError(502, "delegation_scope", "The engine created the chat outside the requested project.");
     const delegation = { workspaceId: workspace.id, projectName: workspace.displayName || workspace.name, sessionId: session.id, title: input.title, scope: input.scope, sourceSessionId: input.sourceSessionId, conversationLanguage: input.conversationLanguage };
     await options.sessionAccess.authorize(session.id, session.directory, authority);
-    options.delegations.track({ ...delegation, sourceWorkspaceId: source.id, model: model ?? null, authority });
+    const messageTime = BigInt.asUintN(48, BigInt(Date.now()) * 4096n).toString(16).padStart(12, "0");
+    const initialMessageId = `msg_${messageTime}${randomBytes(7).toString("hex")}`;
+    options.delegations.track({ ...delegation, sourceWorkspaceId: source.id, model: model ?? null, authority, initialMessageId });
     try {
       const sent = await withSessionExecution(config, session.id, async () => {
         assertAssistantDispatchAuthority(await options.sessionAccess.prepare(session.id, session.directory, authority), workspace.id);
         await options.preparePrompt(workspace, session.directory);
-        return client.session.promptAsync({ sessionID: session.id, agent: "legalwork", model,
-        parts: assistantHandoffParts({ ...input, files, setupContext, ...(isMainAssistant(source) ? { sender: assistant.profile() } : {}) }) }, { signal: AbortSignal.timeout(30000) });
+        return client.session.promptAsync({ sessionID: session.id, messageID: initialMessageId, agent: "legalwork", model,
+        parts: assistantHandoffParts({ ...input, files, setupContext, ...(isMainAssistant(source) ? { sender: assistant.profile() } : {}) }) }, { signal: AbortSignal.timeout(30000), throwOnError: true });
       });
       if (!sent.response.ok) throw new Error("Delivery was not confirmed.");
       options.changed();
       return jsonResponse({ ok: true, delegation: { ...delegation, status: "started" }, files,
         resultDelivery: "automatic", nextAction: ASSISTANT_DELEGATION_WAIT_INSTRUCTIONS });
-    } catch {
+    } catch (error) {
+      const rejected = nativeDeliveryRejection(error);
+      if (rejected) {
+        options.delegations.rejectInitial(session.id, initialMessageId);
+        options.changed();
+        return jsonResponse({ ok: false, delegation: { ...delegation, status: "rejected", messageId: initialMessageId }, error: rejected.message, code: rejected.code }, rejected.status);
+      }
       // Return the created chat even on an ambiguous delivery, so it can be inspected without duplicating work.
-      return jsonResponse({ ok: false, delegation: { ...delegation, status: "delivery-unconfirmed" }, error: "Inspect this chat before retrying. Delivery could not be confirmed." });
+      return jsonResponse({ ok: false, delegation: { ...delegation, status: "delivery-unconfirmed", messageId: initialMessageId }, error: "Inspect this chat before retrying. Delivery could not be confirmed." });
     }
   });
 }

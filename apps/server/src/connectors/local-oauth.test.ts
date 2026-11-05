@@ -1,12 +1,14 @@
+import { bootstrapRuntimeOpencodeConfig } from "../runtime-opencode-config-store.js";
+import { prepareConnectorStorage } from "./store.js";
 import { z } from "zod";
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm, writeFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { connectorDefinitions, connectorOAuthClientInputSchema } from "@legalwork/types/connectors";
+import { connectorConnectSchema, connectorDefinitions, connectorOAuthClientInputSchema } from "@legalwork/types/connectors";
 import type { ServerConfig } from "../types.js";
 import { connectorStatus, createConnectorFlows, connectorAccessToken, disconnectConnector, setConnectorActivation } from "./broker.js";
-import { localOAuthClient, saveLocalOAuthClient, removeLocalOAuthClient, localOAuthConnections, requireLocalOAuthSendAccess } from "./local-oauth.js";
+import { localOAuthClient, saveLocalOAuthClient, removeLocalOAuthClient, localOAuthConnections, requireLocalOAuthSendAccess, requireLocalOAuthOrganizeAccess } from "./local-oauth.js";
 import { connectorOAuthProvider } from "./oauth-providers.js";
 import { connectorSettings, connectorSettingsPath, saveConnectorWriteSetting } from "./settings.js";
 import { callConnectorExtensionAction, CONNECTOR_EXTENSION_ACTIONS } from "./index.js";
@@ -36,6 +38,8 @@ beforeEach(async () => {
   config = { host: "127.0.0.1", port: 0, token: "client", hostToken: "host", configPath: join(root, "server.json"),
     approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: [], workspaces: [], authorizedRoots: [], readOnly: false,
     startedAt: Date.now(), tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false };
+  await bootstrapRuntimeOpencodeConfig(config);
+  await prepareConnectorStorage(config);
   requests = [];
   respond = (url) => url.pathname.endsWith("/token")
     ? Response.json({ access_token: access, refresh_token: refresh, expires_in: 3600 })
@@ -162,7 +166,8 @@ test("every Google and Microsoft connector offers a fixed provider and matching 
   expect(connectorDefinitions.some((item) => item.id === "dropbox-files")).toBe(false);
   for (const definition of connectorDefinitions) {
     const details = await localOAuthClient(config, definition.id);
-    expect(details.configured).toBe(false);
+    expect(details.configured).toBe(details.family === "microsoft");
+    expect(details.builtIn).toBe(details.family === "microsoft");
     expect(details.scopes.length).toBeGreaterThan(0);
     expect(details.family).toBe(definition.id.startsWith("google-") || definition.id === "gmail" ? "google" : "microsoft");
   }
@@ -172,6 +177,136 @@ test("every Google and Microsoft connector offers a fixed provider and matching 
   expect(connectorOAuthProvider("outlook", { clientId: "client" }, []).application.scopes(true)).not.toContain("https://graph.microsoft.com/Mail.ReadWrite");
   expect(connectorOAuthClientInputSchema.safeParse({ clientId: "id", tenantId: "../attacker.test" }).success).toBe(false);
   await expect(saveLocalOAuthClient(config, "outlook", { clientId: "id", clientSecret: secret })).rejects.toMatchObject({ code: "connector_oauth_public_client" });
+  expect(requests).toHaveLength(0);
+});
+
+test("one mail write switch requests all mail capabilities without granting calendar writes", async () => {
+  await saveConnectorWriteSetting(config, "gmail", { writeAccess: true });
+  expect((await localOAuthClient(config, "gmail")).scopes).toEqual(["https://www.googleapis.com/auth/gmail.modify"]);
+  await saveConnectorWriteSetting(config, "outlook", { writeAccess: true });
+  const scopes = (await localOAuthClient(config, "outlook-calendar")).scopes;
+  expect(scopes).toContain("https://graph.microsoft.com/Mail.ReadWrite");
+  expect(scopes).toContain("https://graph.microsoft.com/MailboxSettings.ReadWrite");
+  expect(scopes).toContain("https://graph.microsoft.com/Calendars.Read");
+  expect(scopes).toContain("https://graph.microsoft.com/Mail.Send");
+  expect(scopes).not.toContain("https://graph.microsoft.com/Calendars.ReadWrite");
+  await saveConnectorWriteSetting(config, "outlook", { writeAccess: false });
+  const readScopes = (await localOAuthClient(config, "outlook")).scopes;
+  expect(readScopes).toContain("https://graph.microsoft.com/MailboxSettings.Read");
+  expect(readScopes).not.toContain("https://graph.microsoft.com/MailboxSettings.ReadWrite");
+});
+
+test("older own-app mail grants require renewed organization consent without losing reads", async () => {
+  await saveLocalOAuthClient(config, "gmail", { clientId: "client" });
+  await saveConnectorWriteSetting(config, "gmail", { writeAccess: true });
+  const original = await connected();
+  const oldState = await privateState("gmail");
+  await new OAuthVault(oauthVaultPath(config)).setEntry(privateStateKey("gmail"), z.unknown(), { ...oldState, connections: oldState.connections.map((item) => ({ ...item, source: "custom" })) });
+  await expect(requireLocalOAuthOrganizeAccess(config, "gmail", original.connection.id)).rejects.toMatchObject({ code: "connector_write_reconnect_required" });
+  const request = await createConnectorRequest(config, "gmail");
+  await request("/gmail/v1/users/me/profile");
+  await expect(request("/gmail/v1/users/me/labels", { method: "POST", organize: true, body: { name: "Matter" } })).rejects.toMatchObject({ code: "connector_write_reconnect_required" });
+  const reconnect = await start("gmail", original.connection.id);
+  expect(reconnect.authorization.searchParams.get("scope")).toBe("https://www.googleapis.com/auth/gmail.modify");
+  expect((await callback(reconnect.authorization)).status).toBe(200);
+  expect((await reconnect.flows.status(reconnect.flow.flowId)).status).toBe("connected");
+  await requireLocalOAuthOrganizeAccess(config, "gmail", original.connection.id);
+  await requireLocalOAuthSendAccess(config, "gmail", original.connection.id);
+});
+
+test("all Microsoft connectors sign in with the LegalWork app, refresh and read Graph without app setup or a broker", async () => {
+  for (const id of ["outlook", "outlook-calendar", "onedrive", "onedrive-personal", "sharepoint-files"]) {
+    const details = await localOAuthClient(config, id);
+    expect(details.clientId).toBe("d3a9a5d6-889f-4ee2-a0f0-781ddf14d0b7");
+    expect(details.builtIn).toBe(true);
+    expect(details.hasClientSecret).toBe(false);
+    expect(details.scopes.join(" ")).not.toMatch(/ReadWrite|Mail.Send/);
+    const flows = createConnectorFlows(config);
+    const flow = await flows.start(id);
+    cancellations.push(async () => flows.cancel(flow.flowId));
+    const authorization = new URL(flow.connectUrl);
+    const tenant = id === "onedrive-personal" ? "consumers" : id.startsWith("outlook") ? "common" : "organizations";
+    expect(authorization.origin).toBe("https://login.microsoftonline.com");
+    expect(authorization.pathname).toBe(`/${tenant}/oauth2/v2.0/authorize`);
+    expect(authorization.searchParams.get("client_id")).toBe(details.clientId);
+    expect(authorization.searchParams.get("redirect_uri")).toBe("http://localhost:53683/callback");
+    expect(authorization.searchParams.get("code_challenge_method")).toBe("S256");
+    expect((await callback(authorization, "wrong-state")).status).toBe(400);
+    expect((await callback(authorization)).status).toBe(200);
+    const tokenRequest = requests.at(-1);
+    expect(tokenRequest?.fields?.get("client_id")).toBe(details.clientId);
+    expect(tokenRequest?.fields?.get("code_verifier")?.length).toBeGreaterThan(42);
+    expect(tokenRequest?.fields?.has("client_secret")).toBe(false);
+    const status = await flows.status(flow.flowId);
+    if (!status.connection) throw new Error("Expected a connected Microsoft fixture account");
+    expect(await callConnectorExtensionAction(config, id, "test_connection", { connectionId: status.connection.id }, {})).toMatchObject({ ok: true });
+    expect(requests.at(-1)?.url.origin).toBe("https://graph.microsoft.com");
+    expect(await connectorAccessToken({ ...config }, id, status.connection.id, true)).toBe(access);
+    expect(requests.at(-1)?.fields?.get("grant_type")).toBe("refresh_token");
+    expect(requests.at(-1)?.fields?.get("client_id")).toBe(details.clientId);
+    expect(requests.at(-1)?.fields?.has("client_secret")).toBe(false);
+    const disconnected = await disconnectConnector(config, id, status.connection.id);
+    expect(disconnected.connectors.find(item => item.id === id)?.connections).toEqual([]);
+    expect((await localOAuthClient(config, id)).builtIn).toBe(true);
+    for (const value of [access, refresh]) {
+      expect(JSON.stringify(status)).not.toContain(value);
+      expect((await readFile(oauthVaultPath(config))).includes(Buffer.from(value))).toBe(false);
+    }
+  }
+  expect(requests.every(item => ["login.microsoftonline.com", "graph.microsoft.com"].includes(item.url.hostname))).toBe(true);
+  expect(requests.filter(item => item.url.hostname === "graph.microsoft.com").every(item => item.method === "GET")).toBe(true);
+});
+
+test("the default HTTP Microsoft flow works with an Eigenwelt login even when the broker is unavailable", async () => {
+  await writeEigenweltConnection(config, { platformToken: "platform-token", platformURL: "https://broker.test",
+    account: { userId: "alice", userName: "Alice", userEmail: null, orgId: "firm", orgName: "Firm" } });
+  const server = await startServer(config);
+  cancellations.push(async () => server.stop());
+  const base = `http://127.0.0.1:${server.port}/connectors`;
+  const path = `${base}/outlook/connect`;
+  const headers = { "X-LegalWork-Host-Token": "host", "Content-Type": "application/json" };
+  // Server startup may request firm policy/hub sync; connector auth must stay local.
+  const brokerCalls = () => requests.filter(item => item.url.pathname.startsWith("/api/connectors") || item.url.hostname.includes("nango"));
+  expect((await nativeFetch(path, { method: "POST", body: "{}" })).status).toBe(401);
+  expect((await connectorStatus(config, "outlook")).connectors[0].customConfigured).toBe(true);
+  expect(brokerCalls()).toHaveLength(0);
+  const response = await nativeFetch(path, { method: "POST", headers, body: "{}" });
+  expect(response.status).toBe(201);
+  const flow = connectorConnectSchema.parse(await response.json());
+  cancellations.push(async () => { await nativeFetch(`${base}/flows/${flow.flowId}`, { method: "DELETE", headers }); });
+  expect(new URL(flow.connectUrl).searchParams.get("client_id")).toBe("d3a9a5d6-889f-4ee2-a0f0-781ddf14d0b7");
+  expect(brokerCalls()).toHaveLength(0);
+  await nativeFetch(`${base}/flows/${flow.flowId}`, { method: "DELETE", headers });
+  config.readOnly = true;
+  expect((await nativeFetch(path, { method: "POST", headers, body: "{}" })).status).toBe(403);
+});
+
+test("saved Microsoft app overrides are retained until explicitly reset to the LegalWork app", async () => {
+  const initial = await saveLocalOAuthClient(config, "outlook-calendar", { clientId: "existing-company-client", tenantId: "existing-company.example" });
+  expect(initial.builtIn).toBe(false);
+  const account = await connected("outlook");
+  expect(account.authorization.searchParams.get("client_id")).toBe("existing-company-client");
+  expect(account.authorization.pathname).toBe("/existing-company.example/oauth2/v2.0/authorize");
+  expect((await localOAuthClient({ ...config }, "outlook")).clientId).toBe("existing-company-client");
+  await removeLocalOAuthClient(config, "outlook-calendar");
+  const reset = await localOAuthClient(config, "outlook");
+  expect(reset.builtIn).toBe(true);
+  expect(reset.clientId).toBe("d3a9a5d6-889f-4ee2-a0f0-781ddf14d0b7");
+  expect(await localOAuthConnections(config, "outlook")).toEqual([]);
+  expect((await connectorSettings(config)).activeAccounts).toEqual({});
+});
+
+test("denied Microsoft consent leaves no account and does not ask users to configure an app", async () => {
+  const flows = createConnectorFlows(config);
+  const flow = await flows.start("outlook");
+  cancellations.push(async () => flows.cancel(flow.flowId));
+  const authorization = new URL(flow.connectUrl);
+  const redirect = new URL(authorization.searchParams.get("redirect_uri")!);
+  redirect.search = new URLSearchParams({ state: authorization.searchParams.get("state")!, error: "access_denied", error_description: "private-provider-message" }).toString();
+  expect((await nativeFetch(redirect)).status).toBe(400);
+  await expect(flows.status(flow.flowId)).rejects.toMatchObject({ code: "connector_oauth_failed", message: "Microsoft sign-in did not complete. Try again, or ask your Microsoft administrator whether approval is required." });
+  expect(await localOAuthConnections(config, "outlook")).toEqual([]);
+  expect((await connectorSettings(config)).activeAccounts).toEqual({});
   expect(requests).toHaveLength(0);
 });
 
@@ -406,9 +541,11 @@ test("every connector defaults to blocked writes before credentials; preferences
   expect((await connectorSettings(config)).writeAccess["outlook-calendar"]).toBe(false);
   expect((await stat(connectorSettingsPath(config))).mode & 0o777).toBe(0o600);
   await writeFile(connectorSettingsPath(config), JSON.stringify({ writeAccess: true }));
-  expect(Object.values((await connectorSettings(config)).writeAccess).every((value) => !value)).toBe(true);
+  await expect(connectorSettings(config)).rejects.toMatchObject({ code: "connector_settings_unreadable" });
+  await expect(prepareConnectorStorage(config)).rejects.toMatchObject({ code: "connector_settings_unreadable" });
+  await writeFile(connectorSettingsPath(config), JSON.stringify({ writeAccess: { outlook: true, "google-drive": true } }));
   await saveConnectorWriteSetting(config, "gmail", { writeAccess: true });
-  expect((await connectorSettings(config)).writeAccess["google-drive"]).toBe(false);
+  expect((await connectorSettings(config)).writeAccess["google-drive"]).toBe(true);
   await expect(saveConnectorWriteSetting(config, "unknown", { writeAccess: true })).rejects.toMatchObject({ code: "connector_not_found" });
   await expect(saveConnectorWriteSetting(config, "gmail", { writeAccess: "true" })).rejects.toMatchObject({ code: "invalid_payload" });
   await writeFile(connectorSettingsPath(config), "broken");
@@ -430,7 +567,7 @@ test("enabling one Outlook connector requests the union of independently selecte
   for (const id of ["gmail", "google-calendar", "google-drive", "onedrive", "onedrive-personal", "sharepoint-files"]) {
     await saveConnectorWriteSetting(config, id, { writeAccess: true });
     const permissions = (await localOAuthClient(config, id)).scopes;
-    expect(permissions.some((scope) => scope.endsWith("gmail.compose") || scope.endsWith("calendar.events") || scope.endsWith("/drive") || scope.endsWith("Files.ReadWrite.All"))).toBe(true);
+    expect(permissions.some((scope) => scope.endsWith("gmail.modify") || scope.endsWith("calendar.events") || scope.endsWith("/drive") || scope.endsWith("Files.ReadWrite.All"))).toBe(true);
   }
   config.readOnly = true;
   expect((await localOAuthClient(config, "outlook")).scopes).not.toContain("https://graph.microsoft.com/Calendars.ReadWrite");

@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { workingCopy } from "../file-storage/working-copy.js";
 import { ApiError } from "../errors.js";
+import { storageTransferSchema } from "@legalwork/types/file-storage";
 import pluginDefinition from "./legalwork-storage-tools.js";
 import { nativePluginTools } from "./native-plugin-test-support.js";
 const LegalWorkStorageTools = (context = {}) => nativePluginTools(pluginDefinition, context);
@@ -17,6 +18,7 @@ async function fixture(
     calls: Call[];
   }) => Promise<void>,
   linked = false,
+  checkoutName = "Contract.docx",
 ) {
   const directory = await mkdtemp(join(tmpdir(), "storage-agent-"));
   const outside = await mkdtemp(join(tmpdir(), "storage-outside-"));
@@ -101,7 +103,7 @@ async function fixture(
         });
       if (url.pathname.endsWith("/checkout")) {
         try {
-          const copy = await workingCopy(directory, "Contract.docx");
+          const copy = await workingCopy(directory, checkoutName);
           await writeFile(copy.path, Buffer.from([0, 255, 1, 2]));
           return Response.json({
             localPath: copy.relativePath,
@@ -117,6 +119,15 @@ async function fixture(
         }
       }
       if (url.pathname.endsWith("/from-workspace")) return Response.json({ ok: true, version: "v2" });
+      if (url.pathname.endsWith("/transfer")) {
+        if (url.pathname.includes("/two/"))
+          return Response.json({ code: "storage_read_only", message: "This connection is read-only." }, { status: 403 });
+        if (url.pathname.includes("/incomplete/"))
+          return Response.json({ code: "storage_transfer_incomplete", message: "Originals were kept; inspect both folders." }, { status: 409 });
+        const input = storageTransferSchema.parse(body);
+        const name = input.path.split("/").at(-1);
+        return Response.json({ ok: true, path: input.destinationPath ? `${input.destinationPath}/${name}` : name, kind: input.kind });
+      }
       return Response.json({ code: "not_found", message: "Not found." }, { status: 404 });
     },
   });
@@ -137,17 +148,17 @@ async function fixture(
 
 test("discovers stable connection IDs in the closest workspace without exposing configuration", async () => {
   await fixture(async ({ plugin, directory, outside, calls }) => {
-    const result = JSON.parse(
+    const result = parseToolJson(
       await plugin.tool.storage_list_connections.execute({}, { directory: join(directory, "nested") }),
     );
     expect(result.connections.map((item: { connection_id: string }) => item.connection_id)).toEqual(["one", "two"]);
     expect(result.team_sync_error).toBe("Team connections could not sync.");
     expect(calls.at(-1)?.url.pathname).toBe("/workspace/inner/storage/roots");
     expect(calls).toHaveLength(2);
-    const missing = JSON.parse(await plugin.tool.storage_list_connections.execute({}, { directory: outside }));
+    const missing = parseToolJson(await plugin.tool.storage_list_connections.execute({}, { directory: outside }));
     expect(missing.code).toBe("storage_workspace_unknown");
     expect(calls).toHaveLength(3);
-    expect(JSON.parse(await plugin.tool.storage_list_connections.execute({}, {})).code).toBe(
+    expect(parseToolJson(await plugin.tool.storage_list_connections.execute({}, {})).code).toBe(
       "storage_workspace_unknown",
     );
   });
@@ -155,7 +166,7 @@ test("discovers stable connection IDs in the closest workspace without exposing 
 
 test("searches multiple sources with distinct identity, errors and continuation cursors", async () => {
   await fixture(async ({ plugin, directory, calls }) => {
-    const result = JSON.parse(
+    const result = parseToolJson(
       await plugin.tool.storage_search.execute(
         {
           connection_ids: ["one", "two", "one", "unsupported", "offline"],
@@ -183,7 +194,7 @@ test("searches multiple sources with distinct identity, errors and continuation 
           call.url.searchParams.get("query") === "Contract & #1" && call.url.searchParams.get("path") === "Matters",
       ),
     ).toBe(true);
-    const next = JSON.parse(
+    const next = parseToolJson(
       await plugin.tool.storage_search.execute(
         {
           connection_ids: ["one", "two"],
@@ -203,7 +214,7 @@ test("searches multiple sources with distinct identity, errors and continuation 
 test("defaults matter discovery to recursive paths across providers without native capability checks", async () => {
   await fixture(async ({ plugin, directory, calls }) => {
     const args = { connection_ids: ["one", "two", "one", "offline"], query: "MAT-00005" };
-    const first = JSON.parse(await plugin.tool.storage_search.execute(args, { directory }));
+    const first = parseToolJson(await plugin.tool.storage_search.execute(args, { directory }));
     expect(first).toMatchObject({ query: "MAT-00005", mode: "path", path: "", content_searched: false });
     expect(first.results).toHaveLength(3);
     expect(first.results[0]).toMatchObject({
@@ -218,7 +229,7 @@ test("defaults matter discovery to recursive paths across providers without nati
     expect(
       calls.some((call) => call.url.pathname.endsWith("/capabilities") || call.url.pathname.endsWith("/search")),
     ).toBe(false);
-    const next = JSON.parse(
+    const next = parseToolJson(
       await plugin.tool.storage_search.execute(
         { ...args, connection_ids: ["one", "two"], cursors: { one: "next-one", two: "next-two" } },
         { directory },
@@ -245,12 +256,12 @@ test("defaults matter discovery to recursive paths across providers without nati
 test("downloads binary documents to editable workspace copies and requires explicit versioned save-back", async () => {
   await fixture(async ({ plugin, directory, calls }) => {
     const source = { connection_id: "one", path: "Matters/Contract.docx" };
-    const read = JSON.parse(await plugin.tool.storage_read_file.execute(source, { directory }));
+    const read = parseToolJson(await plugin.tool.storage_read_file.execute(source, { directory }));
     expect(read.local_path).toStartWith(".legalwork/storage-downloads/");
     expect(await readFile(join(directory, read.local_path))).toEqual(Buffer.from([0, 255, 1, 2]));
     expect(calls.every((call) => call.method === "GET" || call.url.pathname.endsWith("/checkout"))).toBe(true);
     await writeFile(join(directory, read.local_path), "edited document bytes");
-    const saved = JSON.parse(
+    const saved = parseToolJson(
       await plugin.tool.storage_write_file.execute(
         { ...source, mode: "replace", local_path: read.local_path, version: read.version },
         { directory },
@@ -263,12 +274,12 @@ test("downloads binary documents to editable workspace copies and requires expli
       mode: "replace",
     });
     expect(
-      JSON.parse(
+      parseToolJson(
         await plugin.tool.storage_write_file.execute({ ...source, mode: "replace", content: "new" }, { directory }),
       ).code,
     ).toBe("storage_version_required");
     expect(
-      JSON.parse(
+      parseToolJson(
         await plugin.tool.storage_write_file.execute(
           { ...source, mode: "create", content: "new", local_path: read.local_path },
           { directory },
@@ -283,7 +294,7 @@ test("confines uploads and downloads to the task workspace, including symlink ta
     await symlink(join(outside, "private.txt"), join(directory, "linked.txt"));
     const source = { connection_id: "one", path: "Contract.docx" };
     expect(
-      JSON.parse(
+      parseToolJson(
         await plugin.tool.storage_write_file.execute(
           { ...source, mode: "create", local_path: "linked.txt" },
           { directory },
@@ -292,18 +303,31 @@ test("confines uploads and downloads to the task workspace, including symlink ta
     ).toBe("storage_local_path_outside_workspace");
     expect(calls.every((call) => call.method === "GET")).toBe(true);
     await symlink(outside, join(directory, ".legalwork"));
-    expect(JSON.parse(await plugin.tool.storage_read_file.execute(source, { directory })).code).toBe(
+    expect(parseToolJson(await plugin.tool.storage_read_file.execute(source, { directory })).code).toBe(
       "storage_local_path_outside_workspace",
     );
     expect(
-      JSON.parse(await plugin.tool.storage_read_file.execute({ ...source, path: "../outside" }, { directory })).code,
+      parseToolJson(await plugin.tool.storage_read_file.execute({ ...source, path: "../outside" }, { directory })).code,
     ).toBe("invalid_storage_path");
   });
 });
 
+test("PDF reader cards use the checked-out filename and retain the remote file identity", async () => {
+  await fixture(async ({ plugin, directory, calls }) => {
+    plugin.runtime.models([{ providerID: "fixture", id: "pdf", capabilities: { input: ["text", "pdf"] } }]);
+    await plugin.runtime.hook("session", "model.request", { sessionID: "read-cloud-pdf", agent: "build", kind: "primary", model: { providerID: "fixture", id: "pdf" } });
+    const path = "~lw~Zm9sZGVy~Matters/~lw~cHJvdmlkZXItZmlsZQ~Rechnung (Signatur).pdf";
+    const result = await plugin.tool.storage_read_file.executeResult({ connection_id: "one", path }, { directory, sessionID: "read-cloud-pdf" });
+    const attachment = typeof result.content === "string" ? undefined : result.content?.find(part => part.type === "file");
+    expect(attachment?.name).toBe("Rechnung (Signatur).pdf");
+    expect(result.output).toMatchObject({ path, local_path: expect.stringContaining("/Rechnung (Signatur).pdf"), extraction: "pdf" });
+    expect(calls.at(-1)?.body).toEqual({ path });
+  }, false, "Rechnung (Signatur).pdf");
+});
+
 test("omitted search connections default exclusively to project folder aliases", async () => {
   await fixture(async ({ plugin, directory, calls }) => {
-    const result = JSON.parse(await plugin.tool.storage_search.execute({ query: "agreement" }, { directory }));
+    const result = parseToolJson(await plugin.tool.storage_search.execute({ query: "agreement" }, { directory }));
     expect(result.results.map((entry: { connection_id: string }) => entry.connection_id)).toEqual(["project:linked-folder"]);
     const searches = calls.filter((call) => call.url.pathname.endsWith("/filename-search"));
     expect(searches).toHaveLength(1);
@@ -311,3 +335,42 @@ test("omitted search connections default exclusively to project folder aliases",
     expect(searches[0]?.body).toMatchObject({ path: "", query: "agreement" });
   }, true);
 });
+
+test("transfers files and folders within and between connections using the task's workspace", async () => {
+  await fixture(async ({ plugin, directory, calls }) => {
+    for (const [kind, mode, destination, folder] of [
+      ["file", "move", "target:drive", "Archive"],
+      ["folder", "copy", "one", ""],
+    ]) {
+      const result = parseToolJson(await plugin.tool.storage_transfer.execute({
+        connection_id: "one", path: "Matters/Contract", kind, mode,
+        destination_connection_id: destination, destination_path: folder,
+      }, { directory: join(directory, "nested") }));
+      expect(result).toEqual({
+        connection_id: "one", destination_connection_id: destination,
+        result: { ok: true, path: folder ? `${folder}/Contract` : "Contract", kind },
+      });
+      expect(calls.at(-1)?.url.pathname).toBe("/workspace/inner/storage/one/transfer");
+      expect(calls.at(-1)?.method).toBe("POST");
+      expect(calls.at(-1)?.body).toEqual({ path: "Matters/Contract", kind, mode, destinationId: destination, destinationPath: folder });
+    }
+  });
+});
+
+test("rejects invalid transfer paths and preserves backend failures without retrying", async () => {
+  await fixture(async ({ plugin, directory, calls }) => {
+    const input = { connection_id: "one", path: "Matters/Contract.docx", kind: "file", mode: "move", destination_connection_id: "target", destination_path: "Archive" };
+    for (const overrides of [{ path: "../private" }, { path: "" }, { destination_path: "../private" }]) {
+      expect(parseToolJson(await plugin.tool.storage_transfer.execute({ ...input, ...overrides }, { directory })).code).toBe("invalid_storage_path");
+    }
+    expect(calls).toHaveLength(0);
+    for (const [connection_id, code] of [["two", "storage_read_only"], ["incomplete", "storage_transfer_incomplete"]]) {
+      expect(parseToolJson(await plugin.tool.storage_transfer.execute({ ...input, connection_id }, { directory }))).toMatchObject({ ok: false, code });
+    }
+    expect(calls.filter((call) => call.method === "POST")).toHaveLength(2);
+  });
+});
+
+function parseToolJson(value: string | { output: string }) {
+  return JSON.parse(typeof value === "string" ? value : value.output);
+}

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import { readMcpStatuses } from "./native-mcp";
 import type { Client } from "../../../app/types";
+import { startRequestPolling } from "@/app/lib/request-poller";
 
 const REFRESH_INTERVAL_MS = 60_000;
 
@@ -20,22 +21,22 @@ export function useMcpConnectedCount(client: Client | null, directory: string): 
     }
 
     let cancelled = false;
-    const refresh = async () => {
+    const refresh = async (signal: AbortSignal) => {
       try {
-        const status = await readMcpStatuses(client, directory);
+        const status = await readMcpStatuses(client, directory, signal);
         if (cancelled) return;
         const values = Object.values(status);
         setCount(values.filter((entry) => entry.status === "connected").length);
-      } catch {
+      } catch (error) {
         if (!cancelled) setCount(0);
+        throw error;
       }
     };
 
-    void refresh();
-    const interval = window.setInterval(() => void refresh(), REFRESH_INTERVAL_MS);
+    const poller = startRequestPolling(refresh, { intervalMs: REFRESH_INTERVAL_MS });
     return () => {
       cancelled = true;
-      window.clearInterval(interval);
+      poller.stop();
     };
   }, [client, directory]);
 

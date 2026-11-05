@@ -212,12 +212,13 @@ function describePermissionRequest(permission: PendingPermission): PermissionPre
     scopeLabel: t("session.scope_label"),
     scopeValue: patterns.join(", ") || t("session.permission_scope_empty"),
     isDoomLoop: false,
-    note: null,
+    note: permission.message ?? null,
   };
 }
 
 export function PermissionApprovalModal(props: PermissionApprovalModalProps) {
   const projectInstructions = props.permission.permission === "legalwork_project_set_instructions";
+  const projectFolder = props.permission.permission === "external_directory" && props.permission.protocol === "v2";
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const previousActiveElementRef = useRef<HTMLElement | null>(null);
   const presentation = useMemo(() => describePermissionRequest(props.permission), [props.permission]);
@@ -360,7 +361,7 @@ export function PermissionApprovalModal(props: PermissionApprovalModalProps) {
 
         <AlertDialogFooter className="flex-col gap-4">
           {!projectInstructions ? <p className="mb-4 text-[12px] leading-5 text-dls-secondary">
-            {t("session.permission_decision_hint")}
+            {t(projectFolder ? "session.permission_folder_decision_hint" : "session.permission_decision_hint")}
           </p> : null}
           <div className={`grid grid-cols-1 gap-2.5 ${projectInstructions ? "sm:grid-cols-[1fr_auto]" : "sm:grid-cols-[1fr_auto_auto]"}`}>
             <AlertDialogAction
@@ -396,6 +397,7 @@ export function PermissionApprovalModal(props: PermissionApprovalModalProps) {
 
 export function PermissionApprovalPanel(props: PermissionApprovalModalProps) {
   const projectInstructions = props.permission.permission === "legalwork_project_set_instructions";
+  const projectFolder = props.permission.permission === "external_directory" && props.permission.protocol === "v2";
   const presentation = useMemo(() => describePermissionRequest(props.permission), [props.permission]);
   const host = props.permission.host;
   const network = host?.network ? networkApprovalContent(host.network) : null;
@@ -461,6 +463,7 @@ export function PermissionApprovalPanel(props: PermissionApprovalModalProps) {
         </div>
 
         <div className="border-t border-dls-border px-4 py-3">
+          {projectFolder ? <p className="mb-3 text-[12px] leading-5 text-dls-secondary">{t("session.permission_folder_decision_hint")}</p> : null}
           {input ? <div className="mb-3 text-[12px] leading-5">
             <div className="mb-1.5 font-medium text-dls-secondary">{t("session.permission_review_label")}</div>
             {input.status === "ready" ? <dl className="max-h-48 overflow-auto rounded-lg border border-dls-border divide-y divide-dls-border">
@@ -519,7 +522,7 @@ export function PermissionApprovalPanel(props: PermissionApprovalModalProps) {
               <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-dls-secondary">
                 {presentation.scopeLabel}
               </div>
-              <div className="mt-1 truncate rounded-lg border border-dls-border bg-dls-hover/55 px-2.5 py-1.5 font-mono text-[12px] leading-5 text-dls-text">
+              <div className="mt-1 break-all rounded-lg border border-dls-border bg-dls-hover/55 px-2.5 py-1.5 font-mono text-[12px] leading-5 text-dls-text">
                 {presentation.scopeValue}
               </div>
             </div>

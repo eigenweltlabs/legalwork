@@ -77,9 +77,10 @@ export const AssistantSubmissionSchema = z.object({
 });
 export type AssistantSubmission = z.infer<typeof AssistantSubmissionSchema>;
 export const AssistantSubmissionPartSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("text"), text: z.string(), synthetic: z.boolean().optional(), metadata: z.record(z.string(), z.unknown()).optional() }),
+  z.object({ type: z.literal("text"), text: z.string(), synthetic: z.boolean().optional(), ignored: z.boolean().optional(), metadata: z.record(z.string(), z.unknown()).optional() }),
   z.object({ type: z.literal("file"), mime: z.string(), filename: z.string().optional(), url: z.string() }),
   z.object({ type: z.literal("agent"), name: z.string() }),
+  z.object({ type: z.literal("skill"), id: z.string() }),
 ]);
 export const AssistantSubmitInputSchema = z.object({
   requestId: z.string().min(8).max(100), messageId: z.string().regex(/^msg_[A-Za-z0-9]{10,60}$/), text: z.string().max(60_000),
@@ -201,7 +202,7 @@ export const LauncherDraftSchema = z.object({
   conversationId: z.string(), revision: z.number(), text: z.string(), context: z.array(AssistantContextItemSchema), target: AssistantExecutionTargetSchema,
   searchScope: z.string().nullable(), pendingTranscription: z.string().nullable(), model: z.object({ providerID: z.string(), modelID: z.string() }).nullable(), variant: z.string().nullable(),
   submission: z.object({ requestId: z.string(), messageId: z.string(), state: z.string(), input: AssistantSubmitInputSchema.optional(), draftSnapshot: z.object({ text: z.string(), context: z.array(AssistantContextItemSchema) }).optional() }).nullable(), updatedAt: z.number(),
-  composer: z.object({ mentions: z.record(z.string(), z.enum(["agent", "file", "memory", "upload", "storage", "app", "task", "review", "calendar", "plugin"])), pasteParts: z.array(z.object({ id: z.string(), label: z.string(), text: z.string(), lines: z.number() })) }).optional(),
+  composer: z.object({ mentions: z.record(z.string(), z.enum(["agent", "file", "memory", "upload", "storage", "app", "task", "review", "calendar", "plugin", "integration"])), pasteParts: z.array(z.object({ id: z.string(), label: z.string(), text: z.string(), lines: z.number() })) }).optional(),
 });
 export type LauncherDraft = z.infer<typeof LauncherDraftSchema>;
 export const DraftLeaseSchema = z.object({ conversationId: z.string(), owner: z.string(), revision: z.number(), since: z.number(), pending: z.boolean().optional() });

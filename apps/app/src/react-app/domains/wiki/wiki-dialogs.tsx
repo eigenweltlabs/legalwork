@@ -14,6 +14,8 @@ import { Switch } from "@/components/ui/switch";
 import { toast } from "@/components/ui/sonner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { t } from "@/i18n";
+import { useLocale } from "@/i18n/use-locale";
+import { useLocal } from "@/react-app/kernel/local-provider";
 import { wikiNewPagePath } from "./wiki-model";
 import { joinedTeamWikiIds, wikiSharingError, wikiSharingInput, wikiSharingValid } from "./wiki-sharing";
 
@@ -64,11 +66,13 @@ function LocalFolderField(props: { value: string; onChange: (value: string) => v
 }
 
 export function CreateWikiDialog(props: { client: LegalworkServerClient; serverUrl: string; wikis: WikiVault[]; onClose: () => void; onCreate: (input: WikiCreateInput) => Promise<void>; onJoin: (input: { wikiId: string; root?: string }) => Promise<void> }) {
+  const language = useLocale() === "de" ? "de" : "en";
+  const { prefs } = useLocal();
   const [tab, setTab] = useState<"create" | "join">("create");
   const [shared, setShared] = useState(false);
   const [name, setName] = useState("");
   const [root, setRoot] = useState("");
-  const [template, setTemplate] = useState<"firm" | "blank">("firm");
+  const [template, setTemplate] = useState<NonNullable<WikiCreateInput["template"]>>("firm");
   const [sharing, setSharing] = useState<WikiSharingInput>(wikiSharingInput());
   const [joinId, setJoinId] = useState("");
   const [busy, setBusy] = useState(false);
@@ -81,7 +85,7 @@ export function CreateWikiDialog(props: { client: LegalworkServerClient; serverU
     setBusy(true); setError(null);
     try {
       if (tab === "join") await props.onJoin({ wikiId: joinId, ...(root.trim() ? { root: root.trim() } : {}) });
-      else await props.onCreate({ name: name.trim(), ...(root.trim() ? { root: root.trim() } : {}), template, ...(shared ? { sharing } : {}) });
+      else await props.onCreate({ name: name.trim(), ...(root.trim() ? { root: root.trim() } : {}), template, ...(template === "legal-research" ? { language, ...(prefs.researchCountry ? { country: prefs.researchCountry } : {}) } : {}), ...(shared ? { sharing } : {}) });
     } catch (err) { setError(shared || tab === "join" ? wikiSharingError(err) : wikiError(err)); }
     finally { setBusy(false); }
   };
@@ -106,7 +110,8 @@ export function CreateWikiDialog(props: { client: LegalworkServerClient; serverU
                 </div>
               </fieldset>
               {shared ? <div className="space-y-4"><TeamNotice loading={team.isLoading} error={team.error} team={team.data} retry={() => void team.refetch()} />{team.data ? <AudienceFields team={team.data} value={sharing} onChange={setSharing} disabled={busy} /> : null}</div> : null}
-              <label className="grid gap-2 text-sm font-medium">{t("wiki.starter")}<select className={wikiSelectClass} value={template} disabled={busy} onChange={(event) => setTemplate(event.target.value === "blank" ? "blank" : "firm")}><option value="firm">{t("wiki.firm_starter")}</option><option value="blank">{t("wiki.blank_starter")}</option></select></label>
+              <label className="grid gap-2 text-sm font-medium">{t("wiki.starter")}<select className={wikiSelectClass} value={template} disabled={busy} onChange={(event) => { const value = event.target.value; if (value === "firm" || value === "blank" || value === "legal-research") setTemplate(value); }}><option value="firm">{t("wiki.firm_starter")}</option><option value="legal-research">{t("wiki.research_starter")}</option><option value="blank">{t("wiki.blank_starter")}</option></select></label>
+              {template === "legal-research" ? <p className="text-xs leading-relaxed text-muted-foreground">{t("wiki.research_starter_hint")}</p> : null}
             </TabsContent>
             <TabsContent value="join" keepMounted className="space-y-4">
               <TeamNotice loading={team.isLoading} error={team.error} team={team.data} retry={() => void team.refetch()} />
@@ -149,6 +154,7 @@ function WikiSharingPanel(props: { client: LegalworkServerClient; serverUrl: str
 export function WikiSettingsDialog(props: { client: LegalworkServerClient; serverUrl: string; wiki: WikiVault; projectWorkspaces: WikiWorkspaceOption[]; initialTab?: "general" | "sharing" | "agents"; onClose: () => void; onUpdate: (input: WikiUpdateInput) => Promise<void>; onShare: (input: WikiSharingInput, update: boolean) => Promise<void>; onStopSharing: () => Promise<void>; onForget: () => Promise<void> }) {
   const [tab, setTab] = useState(props.initialTab ?? "general");
   const [name, setName] = useState(props.wiki.name);
+  const [requireAgentApproval, setRequireAgentApproval] = useState(props.wiki.requireAgentApproval !== false);
   const [allowInProjects, setAllowInProjects] = useState(props.wiki.allowInProjects);
   const [projectWorkspaceIds, setProjectWorkspaceIds] = useState<string[] | null>(props.wiki.projectWorkspaceIds ?? null);
   const [busy, setBusy] = useState(false);
@@ -159,7 +165,7 @@ export function WikiSettingsDialog(props: { client: LegalworkServerClient; serve
   const run = async (operation: () => Promise<void>) => { setBusy(true); setError(null); try { await operation(); } catch (err) { setError(wikiError(err)); } finally { setBusy(false); } };
   return <Dialog open onOpenChange={(open) => { if (!open && !working) props.onClose(); }}>
     <DialogContent className="wiki-dialog flex max-h-[90vh] flex-col gap-0 p-0 sm:max-w-lg">
-      <form className="flex min-h-0 flex-col overflow-hidden" onSubmit={(event) => { event.preventDefault(); if (tab !== "sharing" && !working && name.trim()) void run(() => props.onUpdate({ name: name.trim(), allowInProjects, projectWorkspaceIds })); }}>
+      <form className="flex min-h-0 flex-col overflow-hidden" onSubmit={(event) => { event.preventDefault(); if (tab !== "sharing" && !working && name.trim()) void run(() => props.onUpdate({ name: name.trim(), allowInProjects, projectWorkspaceIds, requireAgentApproval })); }}>
         <DialogHeader className="wiki-dialog-header shrink-0 px-6 pb-4 pt-6 pr-12"><DialogTitle>{t("wiki.settings")}</DialogTitle><DialogDescription>{t("wiki.settings_hint")}</DialogDescription></DialogHeader>
         <Tabs value={tab} onValueChange={(value) => { if (value === "general" || value === "sharing" || value === "agents") setTab(value); }} className="min-h-0 gap-0">
           <TabsList className="wiki-dialog-tabs shrink-0 mx-6 mb-1 w-auto"><TabsTrigger value="general" disabled={working}>{t("wiki.settings_general")}</TabsTrigger><TabsTrigger value="sharing" disabled={working}>{t("wiki.sharing")}</TabsTrigger><TabsTrigger value="agents" disabled={working}>{t("wiki.settings_agents")}</TabsTrigger></TabsList>
@@ -182,6 +188,7 @@ export function WikiSettingsDialog(props: { client: LegalworkServerClient; serve
             </TabsContent>
             <TabsContent value="sharing" keepMounted><WikiSharingPanel client={props.client} serverUrl={props.serverUrl} wiki={props.wiki} busy={busy} onShare={props.onShare} onStop={props.onStopSharing} onError={setError} onBusyChange={setSharingBusy} /></TabsContent>
             <TabsContent value="agents" keepMounted className="space-y-5">
+              <div className="flex items-start justify-between gap-4"><Label htmlFor="wiki-agent-approval" className="block text-sm leading-normal"><span className="font-medium">{t("wiki.agent_approval")}</span><span className="mt-2 block font-normal text-xs leading-relaxed text-muted-foreground">{t("wiki.agent_approval_hint")}</span></Label><Switch id="wiki-agent-approval" className="mt-0.5" checked={requireAgentApproval} disabled={working} onCheckedChange={setRequireAgentApproval} /></div>
               <div className="flex items-start justify-between gap-4"><Label htmlFor="wiki-project-access" className="block text-sm leading-normal"><span className="font-medium">{t("wiki.project_access")}</span><span className="mt-2 block font-normal text-xs leading-relaxed text-muted-foreground">{t("wiki.project_access_hint")}</span></Label><Switch id="wiki-project-access" className="mt-0.5" checked={allowInProjects} disabled={working} onCheckedChange={setAllowInProjects} /></div>
               {allowInProjects ? <div className="overflow-hidden rounded-xl border"><label className="flex cursor-pointer items-center gap-3 bg-muted/20 px-4 py-3 text-sm"><input type="checkbox" className="size-4 accent-primary" disabled={working} checked={projectWorkspaceIds === null} onChange={(event) => setProjectWorkspaceIds(event.target.checked ? null : [])} />{t("wiki.all_projects")}</label>{projectWorkspaceIds !== null ? <div className="max-h-48 overflow-y-auto border-t p-1">{props.projectWorkspaces.length ? props.projectWorkspaces.map((workspace) => <label key={workspace.id} className="flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 text-sm hover:bg-muted/30"><input type="checkbox" className="size-4 accent-primary" disabled={working} checked={projectWorkspaceIds.includes(workspace.id)} onChange={(event) => setProjectWorkspaceIds((current) => event.target.checked ? [...current ?? [], workspace.id] : (current ?? []).filter((id) => id !== workspace.id))} /><span className="truncate">{workspace.displayNameResolved}</span></label>) : <p className="px-3 py-4 text-xs text-muted-foreground">{t("wiki.no_projects")}</p>}</div> : null}</div> : null}
             </TabsContent>

@@ -42,6 +42,9 @@ test("native sandbox removes host tools, guards shell creation and preserves man
     await expect(runtime.hook("tool", "execute.before", { tool: "shell", input: {}, ...nativeTestInvocation() })).rejects.toThrow("Use legalwork_shell");
     const tool = runtime.tools.get("legalwork_shell");
     if (!tool) throw new Error("No native shell tool");
+    expect(tool.description).toContain("Wiki chats require protected execution");
+    await expect(tool.execute({ command: "echo proof" }, nativeTestInvocation("ses_sandbox"))).rejects.toThrow("description");
+    expect(requests).toHaveLength(0);
     const result = await tool.execute({ command: "echo proof", description: "Run proof", timeout: 5000, skills: ["research"] }, nativeTestInvocation("ses_sandbox"));
     expect(result.content).toBe(output);
     expect(result.output).toMatchObject({ output, exitCode: 0, truncated: false, future: "preserved" });
@@ -71,6 +74,8 @@ test("native sandbox removes host tools, guards shell creation and preserves man
     expect(first.system).toEqual(second.system);
     expect(runtime.prompts[0]?.text).toContain("Sandboxing is on");
     expect(runtime.prompts[1]?.text).toContain("Sandboxing is off");
+    expect(runtime.prompts[1]?.text).toContain("Wiki chats cannot run commands while sandboxing is off");
+    expect(JSON.stringify(first.system)).toContain("Wiki chats require protected execution");
     expect(JSON.stringify(first.system)).not.toContain("Sandboxing is on");
     blockExecution = true;
     const controller = new AbortController();

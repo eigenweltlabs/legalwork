@@ -25,6 +25,7 @@ export type OpenTarget = {
   value: string;
   name: string;
   preview: OpenTargetPreview;
+  documentType?: "report" | "dashboard";
   confidence: number;
   reason: string;
   exists?: boolean;

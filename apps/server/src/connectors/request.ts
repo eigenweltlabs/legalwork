@@ -4,18 +4,23 @@ import { synchronizeConnectorBindings } from "./sync.js";
 import { connectorAccessToken, connectorDefinition, listConnectorConnections, savedConnectorConnections } from "./broker.js";
 import { boundedDownload } from "./native.js";
 import { ensureConnectorWritesAllowed, requireConnectorActivated } from "./settings.js";
-import { localOAuthConnections, requireLocalOAuthWriteAccess, requireLocalOAuthSendAccess } from "./local-oauth.js";
+import { localOAuthConnections, requireLocalOAuthWriteAccess, requireLocalOAuthSendAccess, requireLocalOAuthOrganizeAccess } from "./local-oauth.js";
 import { requireSingleConnectorAccount } from "./single-connection.js";
+import { readEigenweltConnection } from "../eigenwelt-connection-store.js";
+import { connectorCredentials, connectorCredentialScope } from "./credential-cache.js";
 
 export type ConnectorRequestOptions = {
   method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE"; body?: unknown; rawBody?: Blob; content?: boolean; bytes?: boolean;
   headers?: Record<string, string>; onResponseHeaders?: (headers: Headers) => void;
-  send?: boolean; empty?: boolean; incomplete?: boolean;
+  send?: boolean; organize?: boolean; empty?: boolean; incomplete?: boolean;
+  signal?: AbortSignal;
 };
 export type ConnectorRequest = ((path: string, options?: ConnectorRequestOptions) => Promise<unknown>) & { apiOrigin?: string };
 export type StreamingConnectorRequest = ConnectorRequest & {
   response: (path: string, options?: ConnectorRequestOptions) => Promise<Response>;
   assertWrite: () => Promise<void>;
+  /** Recheck access when a virtual listing needs no provider HTTP request. */
+  assertRead?: () => Promise<void>;
 };
 
 /** Only provider adapters call this. Agents cannot supply arbitrary URLs or headers. */
@@ -34,14 +39,40 @@ export async function createConnectorRequest(config: ServerConfig, id: string, r
   }
   if (connection.needsReconnect) throw new ApiError(409, "connector_reconnect_required", `Reconnect ${definition.name} in Extensions to restore access.`);
   const apiOrigin = connection.source === "custom" && id === "onedrive-personal" ? "https://graph.microsoft.com" : definition.apiOrigin;
-  const assertCurrent = async (writing: boolean) => {
+  const managed = connection.source !== "custom";
+  const scope = connectorCredentialScope(config);
+  const generation = connectorCredentials.generation(scope);
+  const owner = managed ? (await readEigenweltConnection(config)).account : null;
+  let writeAuthorizedUntil = 0;
+  const assertGeneration = () => {
+    if (managed && connectorCredentials.generation(scope) !== generation) throw new ApiError(409, "connector_account_changed", "This connection or its permissions changed. Start the operation again.");
+  };
+  const assertCurrent = async (writing: boolean, organize = false) => {
     if (config.cloudSync?.role === "executor") await synchronizeConnectorBindings(config, { force: true });
     const current = await savedConnectorConnections(config, id);
     requireSingleConnectorAccount(current);
     if (!current.some((item) => item.id === connection.id && !item.needsReconnect)) throw new ApiError(409, "connector_account_changed", "This account changed. Refresh the connection before continuing.");
     await requireConnectorActivated(config, id, connection.id);
     if (writing) {
-      if (connection.source === "custom") await requireLocalOAuthWriteAccess(config, id, connection.id);
+      await ensureConnectorWritesAllowed(config, id);
+      if (connection.source === "custom") {
+        await requireLocalOAuthWriteAccess(config, id, connection.id);
+        if (organize) await requireLocalOAuthOrganizeAccess(config, id, connection.id);
+      }
+    }
+    assertGeneration();
+    if (managed) {
+      const account = (await readEigenweltConnection(config)).account;
+      if (!account || !owner || account.orgId !== owner.orgId || account.userId !== owner.userId) throw new ApiError(409, "connector_account_changed", "This account changed. Start the operation again.");
+      // Status leases check cloud membership/ownership independently of the
+      // cached provider token. Each operation's first write forces a fresh check;
+      // long uploads and cleanup renew it at least every thirty seconds.
+      const fresh = writing && Date.now() >= writeAuthorizedUntil;
+      const latest = await listConnectorConnections(config, id, fresh);
+      requireSingleConnectorAccount(latest);
+      if (!latest.some(item => item.id === connection.id && !item.needsReconnect)) throw new ApiError(409, "connector_reconnect_required", "This account is no longer authorized. Reconnect it in Integrations.");
+      assertGeneration();
+      if (fresh) writeAuthorizedUntil = Date.now() + 30_000;
     }
   };
   return createAuthorizedConnectorRequest(config, id, {
@@ -54,14 +85,14 @@ export async function createConnectorRequest(config: ServerConfig, id: string, r
  * Callbacks are server-owned; no caller can supply a token or provider URL. */
 export async function createAuthorizedConnectorRequest(config: ServerConfig, id: string, authorization: {
   token: (forceRefresh: boolean) => Promise<string>;
-  assertCurrent: (writing: boolean) => Promise<void>;
+  assertCurrent: (writing: boolean, organize?: boolean) => Promise<void>;
   assertSend?: () => Promise<void>;
   apiOrigin?: string;
 }): Promise<StreamingConnectorRequest> {
   const definition = connectorDefinition(id);
   const apiOrigin = authorization.apiOrigin ?? definition.apiOrigin;
-  const assertCurrent = async (writing: boolean) => {
-    await authorization.assertCurrent(writing);
+  const assertCurrent = async (writing: boolean, organize = false) => {
+    await authorization.assertCurrent(writing, organize);
     if (writing) await ensureConnectorWritesAllowed(config, id);
   };
   await assertCurrent(false);
@@ -75,7 +106,7 @@ export async function createAuthorizedConnectorRequest(config: ServerConfig, id:
     const url = new URL(path, origin);
     if (url.origin !== origin || url.username || url.password || url.hash) throw new ApiError(400, "connector_invalid_endpoint", "Invalid connector endpoint.");
     const request = async () => {
-      await assertCurrent(Boolean(options.method && options.method !== "GET"));
+      await assertCurrent(Boolean(options.method && options.method !== "GET"), options.organize);
       if (options.method && options.method !== "GET") {
         if (options.send) {
           if (!authorization.assertSend) throw new ApiError(403, "forbidden", "This connection only authorizes storage.");
@@ -83,7 +114,8 @@ export async function createAuthorizedConnectorRequest(config: ServerConfig, id:
         }
       }
       try {
-        return await fetch(url, { method: options.method ?? "GET", redirect: "error", signal: AbortSignal.timeout(options.bytes || options.rawBody ? 30 * 60_000 : 30_000),
+        const timeout = AbortSignal.timeout(options.bytes || options.rawBody ? 30 * 60_000 : 30_000);
+        return await fetch(url, { method: options.method ?? "GET", redirect: "error", signal: options.signal ? AbortSignal.any([options.signal, timeout]) : timeout,
           headers: { ...options.headers, Authorization: `Bearer ${accessToken}`, Accept: options.bytes ? "*/*" : "application/json", ...(options.rawBody || options.body === undefined ? {} : { "Content-Type": "application/json" }) },
           ...(options.rawBody ? { body: options.rawBody } : options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
         });
@@ -92,7 +124,8 @@ export async function createAuthorizedConnectorRequest(config: ServerConfig, id:
     let response = await request();
     // A rejected token has not executed the request. Retry exactly once with a refreshed token.
     if (response.status === 401) {
-      refresh ??= authorization.token(true);
+      await assertCurrent(Boolean(options.method && options.method !== "GET"), options.organize);
+      refresh ??= authorization.token(true).finally(() => { refresh = undefined; });
       accessToken = await refresh;
       response = await request();
     }
@@ -102,7 +135,7 @@ export async function createAuthorizedConnectorRequest(config: ServerConfig, id:
       if (response.status === 403) throw new ApiError(403, "connector_permission_required", `This ${definition.name} account has not granted the permissions required for this action. Reconnect using an OAuth app with the required permissions. Shared Nango apps have fixed permissions; use your own OAuth app if necessary.`);
       if (response.status === 404) throw new ApiError(404, "connector_item_not_found", "The requested item was not found.");
       if (response.status === 409) throw new ApiError(409, "connector_item_conflict", "An item with that name already exists. Choose another name.");
-      if (response.status === 412) throw new ApiError(409, definition.kind === "calendar" ? "connector_calendar_changed" : "connector_file_changed", definition.kind === "calendar" ? "This event changed in Google Calendar. Prepare a new update card to review the latest version." : "This file changed since you read it. Read its details again before replacing it.");
+      if (response.status === 412) throw new ApiError(409, definition.kind === "mail" ? "connector_message_changed" : definition.kind === "calendar" ? "connector_calendar_changed" : "connector_file_changed", definition.kind === "mail" ? "This message changed. Preview its organization again before applying changes." : definition.kind === "calendar" ? "This event changed in Google Calendar. Prepare a new update card to review the latest version." : "This file changed since you read it. Read its details again before replacing it.");
       if (response.status === 429) throw new ApiError(429, "connector_api_rate_limited", `${definition.name} is receiving too many requests. Try again shortly.`);
       throw new ApiError(502, "connector_api_failed", `${definition.name} could not complete this request.`);
     }
@@ -115,7 +148,7 @@ export async function createAuthorizedConnectorRequest(config: ServerConfig, id:
     if (options.bytes) return boundedDownload(response);
     try { return await response.json(); }
     catch { throw new ApiError(502, "connector_api_invalid", `${definition.name} returned an invalid response.`); }
-  }, { response: responseRequest, assertWrite: () => assertCurrent(true) });
+  }, { response: responseRequest, assertWrite: () => assertCurrent(true), assertRead: () => assertCurrent(false) });
   connectorRequest.apiOrigin = apiOrigin;
   return connectorRequest;
 }

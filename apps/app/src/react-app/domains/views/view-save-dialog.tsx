@@ -1,89 +1,88 @@
-import { FolderIcon } from "@/react-app/design-system/folder-icon";
-import { Checkbox } from "@/components/ui/checkbox";
-import { useViewSaveDestinations, viewSaveDestinationGroups } from "./view-save-destinations";
-import { useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
-import { BookOpen, Check, Loader2, Search, X } from "lucide-react";
+import { useId, useState } from "react";
+import { useMutation } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
+import { BookOpen, Check, Loader2, Search } from "lucide-react";
 import type { ViewOwner, ViewSaveSource, ViewPreview, ViewRecord } from "@legalwork/types/views";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
+import { FolderIcon } from "@/react-app/design-system/folder-icon";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { toast } from "@/components/ui/sonner";
+import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { t } from "@/i18n";
-import { isViewSaveConflict, preferredSavedView, sameViewOwner, viewInputForDestination, viewOwnerKey } from "./view-save";
+import { useWorkspace } from "@/react-app/shell/workspace-provider";
+import { usePanelTabStore } from "../session/panel/panel-tab-store";
+import { openSavedView } from "./view-navigation";
+import { sameViewOwner, viewOwnerKey } from "./view-save";
+import { useViewSaveDestinations, viewSaveDestinationGroups } from "./view-save-destinations";
+import { useViewSave } from "./use-view-save";
+import { useViewSaveLocations } from "./use-view-save-locations";
+import type { ViewSaveScope } from "./view-save-locations";
 
-export function ViewSaveDialog({ client, preview, savedFrom, fromChat = false, onClose, onSaved }: { savedFrom?: ViewSaveSource; fromChat?: boolean; client: LegalworkServerClient; preview: ViewPreview; onClose: () => void; onSaved: (view: ViewRecord) => void }) {
-  const cache = useQueryClient();
-  const [selected, setSelected] = useState<string[]>([viewOwnerKey(preview.owner)]);
-  const [saved, setSaved] = useState<ViewRecord[]>([]);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const [conflict, setConflict] = useState(false);
+export function ViewSaveDialog({ client, preview, savedFrom, scope, onClose, onSaved }: { savedFrom?: ViewSaveSource; scope: ViewSaveScope; client: LegalworkServerClient; preview: ViewPreview; onClose: () => void; onSaved: (view: ViewRecord) => void }) {
+  const id = useId();
+  const navigate = useNavigate();
+  const { workspaces, baseUrl, token } = useWorkspace();
+  const open = useMutation({
+    mutationFn: async (view: Pick<ViewRecord, "owner" | "id" | "title">) => {
+      const route = await openSavedView({ client, view, workspaces, localServer: { baseUrl, token }, panels: usePanelTabStore.getState() });
+      if (!route) throw new Error(t("views.open_location_failed"));
+      return route;
+    },
+    onSuccess: route => { onClose(); void navigate(route); },
+  });
+  const [title, setTitle] = useState(preview.input.title);
+  const [selected, setSelected] = useState<string | null>(null);
   const [search, setSearch] = useState("");
-  const [kind, setKind] = useState<ViewOwner["kind"] | undefined>();
+  const [category, setCategory] = useState<ViewOwner["kind"]>();
   const destinations = useViewSaveDestinations(client);
-  const groups = viewSaveDestinationGroups(destinations.data, preview.owner, search, kind);
-  const categories = viewSaveDestinationGroups(destinations.data, preview.owner);
-  const targets = destinations.data?.filter(item => selected.includes(viewOwnerKey(item.owner))) ?? [];
-  const unsavedTargets = targets.filter(item => !saved.some(view => sameViewOwner(view.owner, item.owner)));
-  const finish = () => { const view = preferredSavedView(saved, preview.owner); if (view) onSaved(view); else onClose(); };
-  const save = async (saveCopy = false) => {
-    setBusy(true); setError("");
-    const completed = [...saved];
-    try {
-      for (const { owner } of targets) {
-        if (completed.some(view => sameViewOwner(view.owner, owner))) continue;
-        const input = viewInputForDestination(preview.input, preview.owner, owner);
-        const result = preview.target && sameViewOwner(preview.owner, owner) && !saveCopy
-          ? await client.updateView(owner, preview.target.viewId, { baseRevision: preview.target.baseRevision, input }, savedFrom)
-          : await client.createView(owner, !fromChat || saveCopy ? { ...input, title: t("views.copy_title", { title: input.title }).slice(0, 200) } : input, savedFrom);
-        completed.push(result); setSaved([...completed]);
-        void cache.invalidateQueries({ queryKey: ["ui-views", client.baseUrl, owner.kind, owner.id] });
-        void cache.invalidateQueries({ queryKey: ["ui-view", client.baseUrl, owner.kind, owner.id] });
-        if (owner.kind === "wiki") void cache.invalidateQueries({ queryKey: ["wiki-snapshot", client.baseUrl, owner.id] });
-      }
-      const view = preferredSavedView(completed, preview.owner);
-      if (view) {
-        toast.success(t("views.saved_notice", { title: view.title, destinations: completed.map(view => destinations.data?.find(item => sameViewOwner(item.owner, view.owner))?.name ?? view.title).join(", ") }));
-        onSaved(view);
-      }
-    } catch (error) {
-      const revisionConflict = isViewSaveConflict(error);
-      setConflict(value => value || revisionConflict);
-      setError(revisionConflict ? t("views.save_conflict") : error instanceof Error ? error.message : String(error));
-    }
-    finally { setBusy(false); }
-  };
-  return <Dialog open onOpenChange={open => { if (!open && !busy) finish(); }}><DialogContent showCloseButton={!busy}>
-    <DialogHeader><DialogTitle className="break-words">{t(fromChat ? "views.save_named" : "views.save_copy_named", { title: preview.input.title })}</DialogTitle><DialogDescription>{t(fromChat ? "views.preview_save_hint" : "views.save_hint")}</DialogDescription></DialogHeader>
-    <div className="space-y-2">
-      <div className="relative"><Search className="pointer-events-none absolute left-3 top-2.5 size-4 text-muted-foreground" /><Input className="pl-9" aria-label={t("views.search_destinations")} placeholder={t("views.search_destinations")} value={search} onChange={event => setSearch(event.target.value)} /></div>
-      <div className="flex gap-1" role="group" aria-label={t("views.destination_type")}>
-        <Button size="sm" variant={!kind ? "secondary" : "ghost"} aria-pressed={!kind} onClick={() => setKind(undefined)}>{t("views.all_destinations")}</Button>
-        {categories.map(group => <Button key={group.kind} size="sm" variant={kind === group.kind ? "secondary" : "ghost"} aria-pressed={kind === group.kind} onClick={() => setKind(group.kind)}>{group.label}<span className="text-muted-foreground">{group.items.length}</span></Button>)}
+  const locations = useViewSaveLocations(client, scope);
+  const saved = locations.error ? [] : locations.data ?? [];
+  const available = destinations.data?.filter(item => !saved.some(view => sameViewOwner(view.owner, item.owner)));
+  const kind = category ?? (available?.some(item => item.owner.kind === preview.owner.kind) ? preview.owner.kind : available?.[0]?.owner.kind ?? preview.owner.kind);
+  const groups = viewSaveDestinationGroups(available, preview.owner, search, kind);
+  const destination = available?.find(item => item.owner.kind === kind && viewOwnerKey(item.owner) === (selected ?? viewOwnerKey(preview.owner)));
+  const save = useViewSave(client, preview, savedFrom, onSaved, scope);
+  const busy = save.isPending || open.isPending;
+  const loading = destinations.isPending || locations.isPending;
+  const error = destinations.error || locations.error;
+  const canSave = !busy && !loading && !error && Boolean(title.trim()) && Boolean(destination);
+  const savedOwners = [...new Map(saved.map(view => [viewOwnerKey(view.owner), view])).values()];
+  return <Dialog open onOpenChange={isOpen => { if (!isOpen && !busy) onClose(); }}><DialogContent showCloseButton={!busy} className="max-h-[calc(100dvh-2rem)] grid-cols-1 overflow-y-auto">
+    <DialogHeader><DialogTitle>{t("views.save_copy")}</DialogTitle><DialogDescription>{t("views.independent_copy_hint")}</DialogDescription></DialogHeader>
+    <form className="min-w-0 space-y-4" onSubmit={event => { event.preventDefault(); if (canSave && destination) save.mutate({ owner: destination.owner, title, copy: true }); }}>
+      {savedOwners.length > 0 && <section className="space-y-1" aria-labelledby={`${id}-saved`}>
+        <p id={`${id}-saved`} className="text-xs font-medium text-muted-foreground">{t("views.already_saved_in")}</p>
+        {savedOwners.map(view => <div key={viewOwnerKey(view.owner)} className="flex items-center gap-2 rounded-md bg-muted/40 px-3 py-2">
+          <Check className="size-4 shrink-0 text-success" /><div className="min-w-0 flex-1"><p className="truncate text-sm">{destinations.data?.find(item => sameViewOwner(item.owner, view.owner))?.name ?? view.title}</p><p className="text-xs text-muted-foreground">{t(view.owner.kind === "wiki" ? "wiki.title" : "views.project_location")}</p></div>
+          <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={() => open.mutate(view)}>{open.isPending && open.variables === view && <Loader2 className="size-3 animate-spin" />}{t("session.open")}</Button>
+        </div>)}
+      </section>}
+      {open.error && <p role="alert" className="text-sm text-destructive">{open.error.message}</p>}
+      <div className="space-y-2"><Label htmlFor={`${id}-name`}>{t("views.name")}</Label><Input id={`${id}-name`} autoFocus maxLength={200} required value={title} disabled={busy} onChange={event => setTitle(event.target.value)} /></div>
+      <div className="space-y-2">
+        <Label id={`${id}-location`}>{t("views.location")}</Label>
+        <div className="flex gap-1" role="group" aria-label={t("views.destination_type")}>
+          <Button type="button" size="sm" disabled={busy} variant={kind === "workspace" ? "secondary" : "ghost"} aria-pressed={kind === "workspace"} onClick={() => { setCategory("workspace"); setSelected(null); setSearch(""); }}>{t("projects.plural")}</Button>
+          <Button type="button" size="sm" disabled={busy} variant={kind === "wiki" ? "secondary" : "ghost"} aria-pressed={kind === "wiki"} onClick={() => { setCategory("wiki"); setSelected(null); setSearch(""); }}>{t("views.wikis")}</Button>
+        </div>
+        {(available?.filter(item => item.owner.kind === kind).length ?? 0) > 5 && <div className="relative"><Search className="pointer-events-none absolute left-3 top-2.5 size-4 text-muted-foreground" /><Input disabled={busy} className="pl-9" aria-label={t("views.search_destinations")} placeholder={t("views.search_destinations")} value={search} onChange={event => setSearch(event.target.value)} /></div>}
+        {/* Base UI measures radio offsets against this scroll container on mount and keyboard navigation. */}
+        {!loading && !error && <RadioGroup aria-labelledby={`${id}-location`} className="relative max-h-44 min-w-0 grid-cols-1 gap-1 overflow-y-auto" value={destination ? viewOwnerKey(destination.owner) : ""} onValueChange={value => { if (typeof value === "string") setSelected(value); }} disabled={busy}>
+          {groups.flatMap(group => group.items.map(item => <label key={viewOwnerKey(item.owner)} className="flex min-w-0 cursor-pointer items-center gap-3 rounded-md border px-3 py-2.5 hover:bg-muted/50 has-data-checked:border-primary/40 has-data-checked:bg-muted/50">
+            <RadioGroupItem value={viewOwnerKey(item.owner)} />{item.owner.kind === "wiki" ? <BookOpen className="size-4 shrink-0 text-muted-foreground" /> : <FolderIcon className="size-4 shrink-0" />}<span className="min-w-0 flex-1 truncate" title={item.name}>{item.name}</span>
+          </label>))}
+        </RadioGroup>}
+        {!loading && !error && groups.length === 0 && <p className="py-2 text-sm text-muted-foreground">{t(search ? "views.no_matching_destinations" : "views.no_further_destinations")}</p>}
+        {loading && <p role="status" className="flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="size-3 animate-spin" />{t("common.loading")}</p>}
+        {error && <p role="alert" className="text-sm text-destructive">{t("views.locations_check_failed")}<Button type="button" size="sm" variant="ghost" onClick={() => { void destinations.refetch(); void locations.refetch(); }}>{t("wiki.retry")}</Button></p>}
+        {destination && <p className="text-xs text-muted-foreground">{t("views.copy_folder_hint", { folder: t(preview.input.mode === "dashboard" ? "views.dashboards" : "views.reports") })}</p>}
       </div>
-      {targets.length > 0 && <div className="flex max-h-20 flex-wrap gap-1 overflow-y-auto" aria-label={t("views.selected_destinations")}>
-        {targets.map(item => { const done = saved.some(view => sameViewOwner(view.owner, item.owner)); return <Button key={viewOwnerKey(item.owner)} size="sm" variant="outline" className="h-7 max-w-full gap-1 px-2 text-xs" disabled={busy || done} title={item.name} aria-label={t("views.remove_destination", { name: item.name })} onClick={() => setSelected(values => values.filter(value => value !== viewOwnerKey(item.owner)))}><span className="truncate">{item.name}</span>{done ? <Check className="size-3 shrink-0" /> : <X className="size-3 shrink-0" />}</Button>; })}
-      </div>}
-    </div>
-    <div className="max-h-[35vh] min-h-24 space-y-3 overflow-y-auto">
-      {destinations.isPending && <p role="status" className="flex items-center gap-2 py-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />{t("common.loading")}</p>}
-      {destinations.data?.length === 0 && <p className="py-2 text-sm text-muted-foreground">{t("views.no_save_destinations")}</p>}
-      {destinations.error && <p role="alert" className="text-sm text-destructive">{destinations.error.message}<Button size="sm" variant="ghost" onClick={() => void destinations.refetch()}>{t("wiki.retry")}</Button></p>}
-      {Boolean(destinations.data?.length) && groups.length === 0 && <p role="status" className="py-3 text-sm text-muted-foreground">{t("views.no_matching_destinations")}</p>}
-      {groups.map(group => <fieldset key={group.kind} className="min-w-0">
-        <legend className="mb-1 px-2 text-xs font-medium text-muted-foreground">{group.label}</legend>
-        {group.items.map(({ owner, name }) => { const key = viewOwnerKey(owner), done = saved.some(view => sameViewOwner(view.owner, owner)); return <label key={key} className="flex cursor-pointer items-center gap-2.5 rounded-md px-2 py-2 hover:bg-accent has-[:checked]:bg-accent/60 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-inset has-[:focus-visible]:ring-ring">
-        <Checkbox checked={done || selected.includes(key)} disabled={busy || done} onCheckedChange={checked => setSelected(values => checked ? [...values, key] : values.filter(value => value !== key))} />
-        {owner.kind === "wiki" ? <BookOpen className="size-4 shrink-0" /> : <FolderIcon className="size-4 shrink-0" />}
-        <span className="min-w-0 flex-1"><span className="block truncate text-sm" title={name}>{name}</span>{preview.target && sameViewOwner(owner, preview.owner) && <span className="text-xs text-muted-foreground">{t(conflict ? "views.save_copy_instead" : "views.update_saved")}</span>}</span>{sameViewOwner(owner, preview.owner) && <span className="shrink-0 text-xs text-muted-foreground">{t("views.current_destination")}</span>}{done && <Check className="size-4 text-success" />}
-      </label>; })}</fieldset>)}
-    </div>
-    {targets.some(item => !sameViewOwner(item.owner, preview.owner)) && Object.keys(preview.input.queries).length > 0 && <p className="text-xs text-muted-foreground">{t("views.copy_snapshot_hint")}</p>}
-    {targets.some(item => item.owner.kind === "wiki") && <p className="text-xs text-muted-foreground">{t("views.wiki_save_hint")}</p>}
-    {saved.length > 0 && <p role="status" className="text-xs text-muted-foreground">{t("views.saved_destinations", { destinations: saved.map(view => destinations.data?.find(item => sameViewOwner(item.owner, view.owner))?.name ?? view.title).join(", ") })}</p>}
-    {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
-    <DialogFooter><Button variant="ghost" disabled={busy} onClick={finish}>{t(saved.length ? "common.close" : "common.cancel")}</Button><Button disabled={busy || !unsavedTargets.length || destinations.isFetching || Boolean(destinations.error)} onClick={() => void save(conflict)}>{busy && <Loader2 className="size-4 animate-spin" />}{t(!fromChat || conflict ? "views.save_copy" : "common.save")}</Button></DialogFooter>
+      {destination && !sameViewOwner(destination.owner, preview.owner) && Object.keys(preview.input.queries).length > 0 && <p className="text-xs text-muted-foreground">{t("views.copy_snapshot_hint")}</p>}
+      {destination?.owner.kind === "wiki" && <p className="text-xs text-muted-foreground">{t("views.wiki_save_hint")}</p>}
+      {save.error && <p role="alert" className="text-sm text-destructive">{save.error.message}</p>}
+      <DialogFooter><Button type="button" variant="ghost" disabled={busy} onClick={onClose}>{t("common.cancel")}</Button><Button type="submit" disabled={!canSave}>{save.isPending && <Loader2 className="size-4 animate-spin" />}{t("views.save_copy")}</Button></DialogFooter>
+    </form>
   </DialogContent></Dialog>;
 }

@@ -269,14 +269,22 @@ private func meetingApplication(_ object: AudioObjectID, _ bundleId: String, _ a
 // Read window metadata and the top-level document URL only. Stop at web areas
 // instead of traversing page contents or collecting conversation text.
 private func meetingDocuments(_ app: NSRunningApplication) -> [MeetingDocument] {
-    guard AXIsProcessTrusted() else { return [] }
+    // Window titles remain useful when Accessibility is unavailable. Reading
+    // them uses the existing Screen Recording permission, never a new prompt.
+    let windowInfo = CGWindowListCopyWindowInfo([.optionAll, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+    let titles = windowInfo.compactMap { info -> MeetingDocument? in
+        guard let pid = info[kCGWindowOwnerPID as String] as? Int32, pid == app.processIdentifier,
+              let title = info[kCGWindowName as String] as? String, !title.isEmpty else { return nil }
+        return MeetingDocument(title: title, url: "")
+    }
+    guard AXIsProcessTrusted() else { return titles }
     let element = AXUIElementCreateApplication(app.processIdentifier)
     AXUIElementSetMessagingTimeout(element, 0.1)
     var value: CFTypeRef?
     guard AXUIElementCopyAttributeValue(element, kAXWindowsAttribute as CFString, &value) == .success,
-          let windows = value as? [AXUIElement] else { return [] }
+          let windows = value as? [AXUIElement] else { return titles }
     let deadline = Date().addingTimeInterval(0.8)
-    return windows.prefix(8).map { window in
+    return titles + windows.prefix(8).map { window in
         if Date() >= deadline { return MeetingDocument(title: "", url: "") }
         let title = axString(window, kAXTitleAttribute)
         var url = axString(window, kAXDocumentAttribute)
@@ -315,7 +323,7 @@ private func runMeetingActivityMode() -> Never {
             if status == noErr {
                 let apps = NSWorkspace.shared.runningApplications
                 let nativeIds = ["us.zoom.xos", "com.microsoft.teams2", "com.microsoft.teams", "com.tinyspeck.slackmacgap", "com.cisco.webexmeetingsapp", "com.cisco.webex"]
-                let browserIds = ["com.google.Chrome", "com.microsoft.edgemac", "company.thebrowser.Browser", "company.thebrowser.dia", "com.apple.Safari", "org.mozilla.firefox"]
+                let browserIds = ["com.google.Chrome", "com.microsoft.edgemac", "company.thebrowser.Browser", "company.thebrowser.dia", "com.apple.Safari", "org.mozilla.firefox", "com.brave.Browser", "com.vivaldi.Vivaldi", "com.operasoftware.Opera", "org.chromium.Chromium"]
                 var seen = Set<String>()
                 for object in objects where audioUInt32(object, kAudioProcessPropertyIsRunningInput) == 1 {
                     guard let bundleId = audioString(object, kAudioProcessPropertyBundleID), !bundleId.isEmpty else { continue }
@@ -325,6 +333,13 @@ private func runMeetingActivityMode() -> Never {
                     guard nativeIds.contains(id) || browserIds.contains(id) else { continue }
                     seen.insert(id)
                     processes.append(MeetingProcess(bundleId: id, inputActive: true, documents: browserIds.contains(id) ? meetingDocuments(app) : []))
+                }
+                // Joining with the microphone muted must not make the browser
+                // invisible to detection. Inspect metadata even without input.
+                for app in apps {
+                    guard let id = app.bundleIdentifier, browserIds.contains(id), !seen.contains(id) else { continue }
+                    seen.insert(id)
+                    processes.append(MeetingProcess(bundleId: id, inputActive: false, documents: meetingDocuments(app)))
                 }
             }
         }

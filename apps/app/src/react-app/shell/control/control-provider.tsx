@@ -1,5 +1,6 @@
 /** @jsxImportSource react */
 import { useDocumentControlSessions } from "./document-control-sessions";
+import { createControlOperations, type ControlOperation } from "./control-operations";
 import {
   createContext,
   useCallback,
@@ -68,6 +69,8 @@ export type LegalworkControlResult =
 
 export type LegalworkControlHelpers = {
   callerSessionId?: string;
+  signal?: AbortSignal;
+  deadline?: number;
   setNarration: (text: string) => void;
 };
 
@@ -126,7 +129,8 @@ type LegalworkControlAPI = {
   version: number;
   snapshot: () => LegalworkControlSnapshot;
   listActions: () => LegalworkControlActionMetadata[];
-  execute: (actionId: string, args?: unknown, callerSessionId?: string) => Promise<LegalworkControlResult>;
+  execute: (actionId: string, args?: unknown, callerSessionId?: string, operation?: ControlOperation) => Promise<LegalworkControlResult>;
+  cancel: (requestId: string) => void;
   setEnabled: (enabled: boolean) => void;
   subscribe: (listener: (snapshot: LegalworkControlSnapshot) => void) => () => void;
 };
@@ -321,14 +325,15 @@ export function LegalworkControlProvider({ children }: { children: ReactNode }) 
     await wait(SPOTLIGHT_TIMING_MS.release);
   }, []);
 
-  const executeAction = useCallback(async (actionId: string, args?: unknown, callerSessionId?: string): Promise<LegalworkControlResult> => {
+  const [operations] = useState(createControlOperations);
+  const executeAction = useCallback(async (actionId: string, args?: unknown, callerSessionId?: string, operation?: ControlOperation): Promise<LegalworkControlResult> => operations.run(operation, async execution => {
     const registered = actionsRef.current.get(actionId);
     const action = registered?.ref.current;
     if (!registered || !action) return { ok: false, actionId, error: `Unknown action: ${actionId}` };
     if (action.disabled) return { ok: false, actionId, error: t("control.action_disabled", { label: action.label }) };
     if (action.background) {
       try {
-        const result = await action.execute(args, { setNarration: () => {}, callerSessionId });
+        const result = await action.execute(args, { setNarration: () => {}, callerSessionId, ...execution });
         const error = returnedActionError(result);
         return error ? { ok: false, actionId, error } : { ok: true, actionId, result };
       } catch (error) { return { ok: false, actionId, error: describeError(error) }; }
@@ -351,7 +356,8 @@ export function LegalworkControlProvider({ children }: { children: ReactNode }) 
       await playTargetChoreography(action, runId);
       setNarration(t("control.narration_running", { label: action.label }));
       const effectiveArgs = args === undefined ? action.previewArgs : args;
-      const result = await action.execute(effectiveArgs, { setNarration, callerSessionId });
+      execution.signal?.throwIfAborted();
+      const result = await action.execute(effectiveArgs, { setNarration, callerSessionId, ...execution });
       const resultError = returnedActionError(result);
       if (resultError) {
         setNarration(t("control.narration_could_not", { label: action.label, error: resultError }));
@@ -377,7 +383,7 @@ export function LegalworkControlProvider({ children }: { children: ReactNode }) 
       if (busyActionIdRef.current === action.id) busyActionIdRef.current = null;
       setBusyActionId(null);
     }
-  }, [playTargetChoreography, setEnabled]);
+  }), [operations, playTargetChoreography, setEnabled]);
 
   const value = useMemo<LegalworkControlContextValue>(() => ({
     enabled,
@@ -409,6 +415,7 @@ export function LegalworkControlProvider({ children }: { children: ReactNode }) 
       snapshot,
       listActions: () => snapshot().actions,
       execute: executeAction,
+      cancel: operations.cancel,
       setEnabled,
       subscribe(listener) {
         listenersRef.current.add(listener);
@@ -425,7 +432,7 @@ export function LegalworkControlProvider({ children }: { children: ReactNode }) 
         delete window.__legalworkControl;
       }
     };
-  }, [executeAction, setEnabled, snapshot]);
+  }, [executeAction, operations, setEnabled, snapshot]);
 
   useEffect(() => {
     busyActionIdRef.current = busyActionId;

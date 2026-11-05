@@ -15,7 +15,11 @@ export function transcriptTurns(segments: AudioTranscriptSegment[], partials: Au
     if (!segment.text.trim()) continue;
     const speaker = segment.speaker ?? null;
     const previous = turns.at(-1);
-    if (previous && speaker !== null && previous.speaker === speaker && previous.segments.at(-1)?.final === segment.final && previous.segments.at(-1)?.source === segment.source) previous.segments.push(segment);
+    const last = previous?.segments.at(-1);
+    if (previous && last && speaker !== null && previous.speaker === speaker
+      && last.final === segment.final && last.source === segment.source
+      && segment.startMs - last.endMs <= 3000 && segment.endMs - previous.startMs <= 30000
+      && previous.segments.reduce((length, part) => length + part.text.length, 0) + segment.text.length <= 600) previous.segments.push(segment);
     else turns.push({ id: segment.id, startMs: segment.startMs, speaker, segments: [segment] });
   }
   return turns;

@@ -42,7 +42,7 @@ export function validateMcpName(name: string): void {
 
 export function validateMcpConfig(config: Record<string, unknown>): void {
   const variables = connectorConfigVariables(config);
-  if (config.enabled !== false && variables.length) throw new ApiError(400, "connector_setup_required", "Complete this connector's setup before enabling it.");
+  if (config.disabled !== true && variables.length) throw new ApiError(400, "connector_setup_required", "Complete this connector's setup before enabling it.");
   const type = config.type;
   if (type !== "local" && type !== "remote") {
     throw new ApiError(400, "invalid_mcp_config", "MCP config type must be local or remote");
@@ -67,7 +67,7 @@ export function validateMcpConfig(config: Record<string, unknown>): void {
     if (url !== normalizedUrl) {
       throw new ApiError(400, "invalid_mcp_config", "Remote MCP url must not include surrounding whitespace");
     }
-    if (config.enabled === false && connectorConfigVariables(normalizedUrl).length) return;
+    if (config.disabled === true && connectorConfigVariables(normalizedUrl).length) return;
     if (!/^https?:\/\//i.test(normalizedUrl)) {
       throw new ApiError(400, "invalid_mcp_config", "Remote MCP url must start with http(s)://");
     }

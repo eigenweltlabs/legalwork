@@ -77,3 +77,17 @@ test("on-demand scheduling clock stays fresh through the daylight-saving fallbac
   const options=new Intl.DateTimeFormat().resolvedOptions(),zone=spyOn(Intl.DateTimeFormat.prototype,"resolvedOptions").mockReturnValue({...options,timeZone:"Europe/Berlin"});setSystemTime(new Date("2026-10-25T00:59:59.123Z"));const plugin=await nativePluginTools(pluginDefinition);
   try{expect(JSON.parse(await plugin.tool.legalwork_schedule_clock.execute())).toEqual({currentTime:"2026-10-25T00:59:59.123Z",localTime:"2026-10-25T02:59:59",timeZone:"Europe/Berlin"});setSystemTime(new Date("2026-10-25T01:00:01.456Z"));expect(JSON.parse(await plugin.tool.legalwork_schedule_clock.execute())).toEqual({currentTime:"2026-10-25T01:00:01.456Z",localTime:"2026-10-25T02:00:01",timeZone:"Europe/Berlin"});}finally{await plugin.close();setSystemTime();zone.mockRestore();}
 });
+
+
+test("Assistant connected-event monitoring is explicitly routed away from scheduling", async () => {
+  const plugin = await nativePluginTools(pluginDefinition);
+  try {
+    const context: { system: Array<{ type: "text"; text: string }> } = { system: [] };
+    await plugin.runtime.hook("session", "context", context);
+    const guidance = context.system.map(item => item.text).join("\n");
+    expect(guidance).toContain("uses legalwork_assistant_scratchpad and the existing event channel");
+    expect(guidance).toContain("Do not create a recurring polling task or invent an interval");
+    expect(guidance).toContain("an explicitly requested periodic check");
+    expect(guidance).not.toContain("When the user asks to schedule, repeat, remind, monitor or follow up later, use legalwork_schedule_create");
+  } finally { await plugin.close(); }
+});

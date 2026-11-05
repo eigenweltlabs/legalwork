@@ -11,29 +11,29 @@ function reply(id: string, completed?: number, text = "Your [briefing](briefings
 
 test("only new completed prose triggers an alert, once, including a reply already running at startup", () => {
   const notifications = new AssistantMessageNotifications(100);
-  expect(notifications.receive([reply("old", 99), reply("running"), reply("tools", 110, "")], true, false)).toBeNull();
-  expect(notifications.receive([reply("running", 120)], true, false)).toEqual({ messageId: "running", completedAt: 120, body: "Your briefing is ready." });
-  expect(notifications.receive([reply("running", 120)], true, false)).toBeNull();
+  expect(notifications.receive({}, [reply("old", 99), reply("running"), reply("tools", 110, "")], true, false)).toBeNull();
+  expect(notifications.receive({}, [reply("running", 120)], true, false)).toEqual({ messageId: "running", completedAt: 120, body: "Your briefing is ready." });
+  expect(notifications.receive({}, [reply("running", 120)], true, false)).toBeNull();
   const summary = reply("summary", 130);
   if (summary.info.role === "assistant") summary.info.summary = true;
   const hidden = reply("hidden", 140);
   hidden.parts = [{ id: "internal", sessionID: "today", messageID: "hidden", type: "text", text: "Internal reminder", synthetic: true }];
-  expect(notifications.receive([summary, hidden], true, false)).toBeNull();
+  expect(notifications.receive({}, [summary, hidden], true, false)).toBeNull();
 });
 
 test("foreground and muted replies are consumed without replaying when backgrounded or re-enabled", () => {
   const notifications = new AssistantMessageNotifications(100);
-  expect(notifications.receive([reply("visible", 110)], true, true)).toBeNull();
-  expect(notifications.receive([reply("visible", 110)], true, false)).toBeNull();
-  expect(notifications.receive([reply("muted", 120)], false, false)).toBeNull();
-  expect(notifications.receive([reply("muted", 120)], true, false)).toBeNull();
-  expect(notifications.receive([reply("next", 130)], true, false)?.messageId).toBe("next");
+  expect(notifications.receive({}, [reply("visible", 110)], true, true)).toBeNull();
+  expect(notifications.receive({}, [reply("visible", 110)], true, false)).toBeNull();
+  expect(notifications.receive({}, [reply("muted", 120)], false, false)).toBeNull();
+  expect(notifications.receive({}, [reply("muted", 120)], true, false)).toBeNull();
+  expect(notifications.receive({}, [reply("next", 130)], true, false)?.messageId).toBe("next");
 });
 
 test("reconnect batches show the latest reply once and notification clicks retain their chat target", () => {
   const notifications = new AssistantMessageNotifications(100);
-  expect(notifications.receive([reply("final", 140), reply("update", 120)], true, false)?.messageId).toBe("final");
-  expect(notifications.receive([reply("update", 120)], true, false)).toBeNull();
+  expect(notifications.receive({}, [reply("final", 140), reply("update", 120)], true, false)?.messageId).toBe("final");
+  expect(notifications.receive({}, [reply("update", 120)], true, false)).toBeNull();
   expect(assistantNotificationTarget(assistantNotificationId("workspace/a", "chat:b", "reply"))).toEqual({ workspaceId: "workspace/a", sessionId: "chat:b" });
   expect(assistantNotificationTarget("tasks:new")).toBeNull();
   expect(assistantNotificationTarget("assistant-message:%broken:chat:reply")).toBeNull();
@@ -44,8 +44,19 @@ test("completed tool steps with acknowledgements do not notify before the final 
   const notifications = new AssistantMessageNotifications(100);
   const step = reply("working", 120, "Taking care of that.");
   if (step.info.role === "assistant") step.info.finish = "tool-calls";
-  expect(notifications.receive([step], true, false)).toBeNull();
+  expect(notifications.receive({}, [step], true, false)).toBeNull();
   const final = reply("done", 140, "Your review is ready.");
   if (final.info.role === "assistant") final.info.finish = "stop";
-  expect(notifications.receive([step, final], true, false)?.messageId).toBe("done");
+  expect(notifications.receive({}, [step, final], true, false)?.messageId).toBe("done");
+});
+
+
+test("Assistant workers never notify, including nested workers and reconnects", () => {
+  const notifications = new AssistantMessageNotifications(100);
+  const workerReplies = [reply("worker-done", 130, "Internal browser result")];
+  for (const parentID of ["assistant-day", "another-worker"]) {
+    expect(notifications.receive({ parentID }, workerReplies, true, false)).toBeNull();
+    expect(notifications.receive({ parentID }, workerReplies, true, false)).toBeNull();
+  }
+  expect(notifications.receive({}, [reply("coordinator-result", 140)], true, false)?.messageId).toBe("coordinator-result");
 });

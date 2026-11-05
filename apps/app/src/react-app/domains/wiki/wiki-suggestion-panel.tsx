@@ -1,10 +1,13 @@
+import { ResearchClassification } from "./wiki-research-index";
+import { useMetadataPolling } from "@/react-app/infra/metadata-polling";
 import { WikiContentPreview } from "./wiki-content-preview";
 import { WikiDiff, WikiContentStats } from "./wiki-diff";
 import { t } from "@/i18n";
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, Loader2 } from "lucide-react";
-import type { WikiSuggestion, WikiSuggestionInput } from "@legalwork/types/wiki-suggestions";
+import { Check, ChevronDown, Loader2 } from "lucide-react";
+import { wikiSuggestionContent, type WikiSuggestion } from "@legalwork/types/wiki-suggestions";
+import { WikiSuggestionAttachments } from "./wiki-suggestion-attachments";
 import { LegalworkServerError, type LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { parseWikiPageUrl } from "@legalwork/types/wiki";
 import { openDesktopUrl } from "@/app/lib/desktop";
@@ -12,7 +15,7 @@ import { wikiPageHeading } from "./wiki-page-heading";
 import { Button } from "@/components/ui/button";
 import { WikiMarkdownEditor } from "./wiki-markdown-editor";
 import { useRequestPanelTab } from "../session/panel/panel-tab-destination";
-import { suggestionLocation, suggestionPagePath, suggestionTab } from "./wiki-suggestion-model";
+import { suggestionLocation, suggestionPagePath, suggestionTab, suggestionSourceTab } from "./wiki-suggestion-model";
 import { wikiPanelTab } from "./wiki-tabs";
 import { usePanelTabStore } from "../session/panel/panel-tab-store";
 import { WikiSuggestionDestinationPicker } from "./wiki-suggestion-destination";
@@ -22,15 +25,16 @@ import "./wiki.css";
 import { registerUnsavedDocument } from "../session/artifacts/docx-document-state";
 
 const errorMessage = (error: unknown) => error instanceof Error ? error.message : "The suggestion could not be updated.";
-const input = (draft: WikiSuggestion): WikiSuggestionInput => ({ title: draft.title, content: draft.content, destination: draft.destination });
+const input = (draft: WikiSuggestion) => ({ title: draft.title, content: draft.content, destination: draft.destination, attachments: draft.attachments });
 const fingerprint = (draft: WikiSuggestion) => JSON.stringify(input(draft));
 
 export function WikiSuggestionPanel({ client, workspaceId, id, tabId }: { client: LegalworkServerClient; workspaceId: string; id: string; tabId: string }) {
+  const metadataInterval = useMetadataPolling(client.baseUrl, 3000);
   const cache = useQueryClient(), open = useRequestPanelTab();
   const key = ["wiki-suggestion", client.baseUrl, workspaceId, id];
-  const query = useQuery({ queryKey: key, queryFn: () => client.wikiSuggestion(workspaceId, id), refetchInterval: 3000 });
+  const query = useQuery({ queryKey: key, queryFn: () => client.wikiSuggestion(workspaceId, id), refetchInterval: metadataInterval });
   const wikis = useQuery({ queryKey: ["wikis", client.baseUrl], queryFn: () => client.listWikis() });
-  const siblings = useQuery({ queryKey: ["wiki-suggestions", client.baseUrl, workspaceId], queryFn: () => client.wikiSuggestions(workspaceId), refetchInterval: 5000 });
+  const siblings = useQuery({ queryKey: ["wiki-suggestions", client.baseUrl, workspaceId], queryFn: () => client.wikiSuggestions(workspaceId), refetchInterval: metadataInterval });
   const [draft, setDraft] = useState<WikiSuggestion | null>(null);
   const [toolbarTarget, setToolbarTarget] = useState<HTMLDivElement | null>(null);
   const [viewModeRequest, setViewModeRequest] = useState<{ mode: "source" | "rich-text" }>({ mode: "rich-text" });
@@ -42,6 +46,7 @@ export function WikiSuggestionPanel({ client, workspaceId, id, tabId }: { client
   const current = useRef<WikiSuggestion | null>(null), saved = useRef<string>(""), saving = useRef<Promise<WikiSuggestion> | null>(null);
   const [busy, setBusy] = useState(false), [savingDraft, setSavingDraft] = useState(false), [error, setError] = useState("");
   const [mode, setMode] = useState<"preview" | "diff" | "edit">("preview");
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const destinationPage = useQuery({ queryKey: ["wiki-contribution-current", client.baseUrl, draft?.destination.wikiId, draft?.destination.path, snapshot.data?.pages.find(page => page.path === draft?.destination.path)?.revision], enabled: Boolean(draft), queryFn: async () => {
     if (!draft) throw new Error("The draft is still loading.");
     try { return await client.readWikiPage(draft.destination.wikiId, draft.destination.path); }
@@ -56,9 +61,10 @@ export function WikiSuggestionPanel({ client, workspaceId, id, tabId }: { client
     if (!query.data || dirty() || saving.current) return;
     current.current = query.data; saved.current = fingerprint(query.data); setDraft(query.data);
   }, [query.data]);
-  const change = (update: Partial<WikiSuggestionInput>) => {
+  const change = (update: Partial<ReturnType<typeof input>>) => {
     if (!current.current) return;
     const next = { ...current.current, ...update };
+    if (update.attachments || update.destination) next.content = wikiSuggestionContent(next.content, next.destination.path, next.attachments, current.current.attachments);
     current.current = next; setDraft(next); setError("");
   };
   const handleError = async (error: unknown) => {
@@ -122,17 +128,26 @@ export function WikiSuggestionPanel({ client, workspaceId, id, tabId }: { client
   const pending = draft.status === "pending";
   const pages = snapshot.data?.pages ?? [];
   const location = suggestionLocation(draft.destination.path);
-  const validDestination = Boolean(snapshot.data && (!location.folder || snapshot.data.folders?.includes(location.folder)) && suggestionPagePath(location.folder, location.name) === draft.destination.path);
+  const validDestination = Boolean(snapshot.data && (!location.folder || snapshot.data.folders?.includes(location.folder) || draft.destination.createFolders && snapshot.data.wiki.purpose === "legal-research") && suggestionPagePath(location.folder, location.name) === draft.destination.path);
+  const createsFolders = Boolean(snapshot.data && location.folder && !snapshot.data.folders?.includes(location.folder) && draft.destination.createFolders);
   const targetPage = pages.find(page => page.path === draft.destination.path);
   const needsReview = Boolean(targetPage && targetPage.revision !== draft.destination.baseRevision);
   const openPage = (path: string) => open(wikiPanelTab(client.baseUrl, draft.destination.wikiId, { kind: "page", path }, pages.find(page => page.path === path)?.title ?? path), { besideChat: true });
+  const openAttachment = (path: string) => {
+    void persist().then(ready => {
+      const file = ready.attachments.find(file => file.path === path);
+      if (file) open(suggestionSourceTab(ready, file));
+    }).catch(handleError);
+  };
   const openLink = (href: string) => {
     if (/^https?:|^mailto:|^tel:/i.test(href)) { void openDesktopUrl(href); return; }
     const reference = parseWikiPageUrl(href);
     if (reference) { open(wikiPanelTab(client.baseUrl, reference.wikiId, { kind: "page", path: reference.path }, reference.path), { besideChat: true }); return; }
     let target: string;
     try { target = decodeURIComponent(href.replace(/^#?wiki:/, "").replace(/^\[\[|\]\]$/g, "").split("|")[0]); } catch { return; }
-    const destination = resolveWikiLink(pages, snapshot.data?.assets.map(asset => asset.path) ?? [], target, draft.destination.path, /^#?wiki:/.test(href) || href.startsWith("[["));
+    const destination = resolveWikiLink(pages, [...(snapshot.data?.assets.map(asset => asset.path) ?? []), ...draft.attachments.map(file => file.path)], target, draft.destination.path, /^#?wiki:/.test(href) || href.startsWith("[["));
+    const attachment = draft.attachments.find(file => file.path === destination?.path);
+    if (attachment) { openAttachment(attachment.path); return; }
     if (destination) open(wikiPanelTab(client.baseUrl, draft.destination.wikiId, destination, pages.find(page => page.path === destination.path)?.title ?? destination.path), { besideChat: true });
   };
   const available = wikis.data?.items.filter(wiki => wiki.writable && wiki.allowInProjects && (wiki.projectWorkspaceIds == null || wiki.projectWorkspaceIds.includes(workspaceId))) ?? [];
@@ -144,8 +159,22 @@ export function WikiSuggestionPanel({ client, workspaceId, id, tabId }: { client
     </div>
     <div className="min-h-0 flex-1 overflow-auto">
       <div className="mx-auto w-full max-w-[880px] px-[clamp(32px,4vw,56px)] pt-6">
-        <div className="flex min-w-0 items-center gap-1"><span className="shrink-0 text-xs text-muted-foreground">Save in</span><WikiSuggestionDestinationPicker client={client} wikis={available} value={draft.destination} disabled={!pending || busy} onChange={destination => { setExisting(null); change({ destination }); }} /></div>
-        {pending && <p className="mt-2 text-xs text-muted-foreground" role="status">{snapshot.isLoading ? "Checking destination…" : snapshot.error ? "Could not check this wiki. Choose the location again." : !validDestination ? "Choose an existing folder in this wiki." : needsReview ? <>A page with this name already exists. <button className="underline underline-offset-2" onClick={() => void inspectDestination()}>Review before replacing</button>, or choose a different name.</> : targetPage ? "Updates the existing page when you save." : "Creates a new page when you save."}</p>}
+        <details className="group" open={detailsOpen} onToggle={event => setDetailsOpen(event.currentTarget.open)}>
+          <summary className="flex cursor-pointer list-none items-center gap-2 text-xs text-muted-foreground [&::-webkit-details-marker]:hidden">
+            <ChevronDown className="size-3.5 -rotate-90 transition-transform group-open:rotate-0" />
+            <span className="font-medium text-foreground">{t("wiki.filing_details")}</span>
+            <span className="truncate">{snapshot.data?.wiki.name}</span>
+            {draft.attachments.length > 0 && <span className="ml-auto shrink-0">{t("wiki.source_file_count", { count: draft.attachments.length })}</span>}
+          </summary>
+          <div className="mt-4">
+            <div className="flex min-w-0 items-center gap-1"><span className="shrink-0 text-xs text-muted-foreground">Save in</span><WikiSuggestionDestinationPicker client={client} wikis={available} value={draft.destination} disabled={!pending || busy} onChange={destination => { setExisting(null); change({ destination }); }} /></div>
+            {pending && <p className="mt-2 text-xs text-muted-foreground" role="status">{snapshot.isLoading ? "Checking destination…" : snapshot.error ? "Could not check this wiki. Choose the location again." : !validDestination ? "Choose an existing folder in this wiki." : needsReview ? <>A page with this name already exists. <button className="underline underline-offset-2" onClick={() => void inspectDestination()}>Review before replacing</button>, or choose a different name.</> : targetPage ? "Updates the existing page when you save." : "Creates a new page when you save."}</p>}
+            {pending && createsFolders && <p className="mt-2 rounded-md border p-3 text-xs" role="status">{t("research.new_folders_on_save", { path: location.folder.split("/").join(" / ") })}</p>}
+            <ResearchClassification content={draft.content} />
+            <WikiSuggestionAttachments draft={draft} disabled={busy || Boolean(conflict)} onOpen={openAttachment} onRemove={name => { change({ attachments: draft.attachments.filter(file => file.name !== name) }); }} />
+          </div>
+        </details>
+        {pending && !detailsOpen && (needsReview || snapshot.error || snapshot.data && !validDestination) && <button className="mt-2 text-xs text-destructive underline" onClick={() => setDetailsOpen(true)}>{t("wiki.review_filing_destination")}</button>}
         {error && <div role="alert" className="mt-3 text-sm text-destructive">{error} {!conflict && <button className="underline" onClick={() => { if (!dirty()) void query.refetch(); else void persist().catch(handleError); }}>Retry</button>}</div>}
         {conflict && <div className="mt-4 rounded-lg border p-4"><p className="text-sm font-medium">The draft changed while you were editing</p><p className="mt-1 text-xs text-muted-foreground">Your edits are still below. Review the latest version before continuing.</p><pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap text-xs">{conflict.content}</pre><div className="mt-3 flex gap-2"><Button size="sm" variant="outline" onClick={() => resolveConflict(false)}>Use latest draft</Button>{conflict.status === "pending" && <Button size="sm" variant="outline" onClick={() => resolveConflict(true)}>Keep my edited draft</Button>}</div></div>}
         {existing && <div className="mt-4 rounded-lg border p-4"><p className="text-sm font-medium">Current wiki page</p><WikiDiff before={existing.content} after={draft.content} beforeLabel={t("wiki.current_version")} afterLabel={t("wiki.proposed_contribution")} /><Button className="mt-3" size="sm" variant="outline" onClick={() => { change({ destination: { ...draft.destination, baseRevision: existing.revision } }); setExisting(null); }}>Use this page as the destination</Button></div>}
@@ -157,12 +186,12 @@ export function WikiSuggestionPanel({ client, workspaceId, id, tabId }: { client
         {destinationPage.data && <WikiContentStats before={baseline} after={draft.content} />}
       </div>
       {destinationPage.error && <p role="alert" className="p-4 text-sm text-destructive">{destinationPage.error.message}<Button size="sm" variant="ghost" onClick={() => void destinationPage.refetch()}>{t("wiki.retry")}</Button></p>}
-      {mode === "diff" ? destinationPage.data ? <WikiDiff before={baseline} after={draft.content} beforeLabel={t("wiki.current_version")} afterLabel={t("wiki.proposed_contribution")} /> : <p className="p-4">{t("wiki.loading")}</p> : mode === "preview" ? <WikiContentPreview client={client} wikiId={draft.destination.wikiId} path={draft.destination.path} content={draft.content} /> : <div className="wiki-editor-content">
+      {mode === "diff" ? destinationPage.data ? <WikiDiff before={baseline} after={draft.content} beforeLabel={t("wiki.current_version")} afterLabel={t("wiki.proposed_contribution")} /> : <p className="p-4">{t("wiki.loading")}</p> : mode === "preview" ? <WikiContentPreview client={client} wikiId={draft.destination.wikiId} path={draft.destination.path} content={draft.content} stagedFiles={{ paths: draft.attachments.map(file => file.path), open: openAttachment }} /> : <div className="wiki-editor-content">
         <WikiPageHeader toolbarRef={setToolbarTarget} content={draft.content} fallbackTitle={draft.title} pages={pages} path={draft.destination.path}
           readOnly={!pending || busy} onChange={content => change({ content })} onSource={() => setViewModeRequest({ mode: "source" })} onOpen={openPage} />
         <WikiMarkdownEditor toolbarTarget={toolbarTarget} externalFrontmatter value={draft.content} baseline={baseline} onChange={content => change({ content })} readOnly={!pending || busy}
           viewModeRequest={viewModeRequest} linkTargets={pages.map(page => ({ path: page.path, title: page.title }))} onOpenLink={openLink}
-          imageUpload={async () => { throw new Error("Wiki suggestions contain Markdown. Add reusable attachments in the wiki workspace."); }} imagePreview={async source => source} />
+          imageUpload={async () => { throw new Error(t("wiki.attach_source_in_chat")); }} imagePreview={async source => source} />
       </div>}
       {remaining.length > 0 && <div className="mx-auto max-w-3xl border-t px-6 py-5"><p className="mb-2 text-xs text-muted-foreground">Other suggestions to review</p>{remaining.map(item => <Button key={item.id} size="sm" variant="ghost" className="mr-2" onClick={() => open(suggestionTab(item), { besideChat: true })}>{item.title}</Button>)}</div>}
     </div>

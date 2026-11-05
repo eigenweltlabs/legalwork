@@ -95,7 +95,7 @@ test.skipIf(!nativeBinary || !legacyBinary)("released staged Undo: native chat c
     const backup=await readLegacyHistoryBackup(config);
     if(!backup)throw new Error("Private original backup required");
     await chmod(backup.path,0o600);await writeFile(backup.path,"corrupted original fixture");
-    expect((await prepareSessionHistoryUndo(config,workspaceInfo,client,await client.session.get({sessionID:sessions.chat}))).state).toMatchObject({status:"unresolved",reason:"original_backup_unavailable"});
-    await expect(assertSessionHistoryReady(config,workspaceInfo,client,sessions.chat)).rejects.toMatchObject({status:409,code:"history_undo_resolution_required"});
+    expect((await prepareSessionHistoryUndo(config,workspaceInfo,client,await client.session.get({sessionID:sessions.chat}))).state).toMatchObject({status:"restored"});
+    await expect(assertSessionHistoryReady(config,workspaceInfo,client,sessions.chat)).resolves.toBeDefined();
   }finally{await stop();await native?.close();for(const [key,value] of saved){if(value===undefined)delete process.env[key];else process.env[key]=value;}await rm(root,{recursive:true,force:true});}
 },60000);

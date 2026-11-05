@@ -1,0 +1,38 @@
+name: Warm verified development engine cache
+
+on:
+  push:
+    branches: [dev]
+    paths:
+      - packages/opencode-release/selection.json
+      - packages/opencode-release/release.json
+      - packages/opencode-release/build/**
+      - packages/opencode-release/build-policy.mjs
+      - packages/opencode-release/candidate.mjs
+      - packages/opencode-release/derivative.mjs
+      - packages/opencode-release/index.mjs
+      - docs/patches/opencode-*.patch
+      - docs/patches/opencode-*.receipt.json
+      - scripts/ci/cache-opencode-derivative.mjs
+      - scripts/ci/build-opencode-derivative.mjs
+      - .github/workflows/ci-opencode-derivative.yml
+      - .github/workflows/ci-opencode-cache.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+# PR concurrency never owns this producer. Finish and save the current build
+# even if another engine-input change lands while it is compiling.
+concurrency:
+  group: opencode-development-cache
+  cancel-in-progress: false
+
+jobs:
+  warm-cache:
+    if: github.ref == 'refs/heads/dev'
+    uses: ./.github/workflows/ci-opencode-derivative.yml
+    with:
+      build-mode: development
+      ref: ${{ github.sha }}

@@ -47,6 +47,16 @@ describe("native subscription OAuth", () => {
     expect(calls.find(call => call.path.endsWith("/complete"))?.body).toEqual({ code: "code" });
     expect(calls.some(call => call.path === "/api/location/reload")).toBe(false);
   });
+  test("an existing OpenAI connection does not complete or cancel a new ChatGPT sign-in", async () => {
+    const { store, calls, states, connected } = providerStore();
+    connected.add("openai");
+    await store.startProviderAuth("openai", 2);
+    await store.refreshProviders();
+    expect(await store.completeProviderAuthOAuth("openai", 2)).toMatchObject({ connected: false, pending: true });
+    expect(calls.some(call => call.method === "DELETE")).toBe(false);
+    states.set("attempt-1", "complete");
+    expect(await store.completeProviderAuthOAuth("openai", 2)).toMatchObject({ connected: true, pending: false });
+  });
   test("supports native command and external integration methods with typed answers", async () => {
     const { store, calls, states } = providerStore();
     await store.startProviderAuth("command", 0);

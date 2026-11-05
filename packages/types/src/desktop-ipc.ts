@@ -37,6 +37,7 @@ import type {
   AudioPermissionKind,
   AudioRecorderBootstrap,
   AudioMeetingStatus,
+  AudioMeetingNotesSettings,
   AudioTapApp,
   AudioRecordingDetail,
   AudioTranscriptEdit,
@@ -142,7 +143,7 @@ export type WorkspaceCopyFilesResult = {
     name: string;
     path?: string;
     status: "copied" | "already_here" | "failed";
-    error?: "file_only" | "recursive" | "changed" | "unavailable" | "failed";
+    error?: "file_only" | "recursive" | "changed" | "unavailable" | "dashboard" | "failed";
   }>;
 };
 
@@ -303,6 +304,7 @@ export type CacheResetResult = {
 };
 
 export type DesktopFetchInit = {
+  requestId?: string;
   method?: string;
   headers?: Record<string, string>;
   body?: string;
@@ -464,6 +466,8 @@ export type DesktopCommandMap = {
   runtimeStatus: { args: []; result: unknown };
   /** Write a token-free support-log bundle and reveal it in the file manager. */
   supportBundleCollect: { args: []; result: { path: string | null } };
+  /** Export diagnostic traces with chat message bodies removed. Defaults to 7 days of chat activity. */
+  technicalSupportBundleCollect: { args: [options?: { days?: number }]; result: { path: string | null } };
   engineStop: { args: []; result: EngineInfo };
   engineRestart: { args: [options?: Record<string, unknown>]; result: EngineInfo };
   engineInfo: { args: []; result: EngineInfo };
@@ -682,6 +686,7 @@ export type DesktopCommandMap = {
   audioRecordingsList: { args: []; result: AudioRecordingMeta[] };
   audioRecordingGet: { args: [recordingId: string]; result: AudioRecordingDetail | null };
   audioRecordingEditTranscript: { args: [recordingId: string, edit: AudioTranscriptEdit]; result: AudioRecordingDetail };
+  audioRecordingSummarize: { args: [recordingId: string, settings: Pick<AudioMeetingNotesSettings, "model" | "instructions">]; result: AudioRecordingDetail };
   audioRecordingDelete: { args: [recordingId: string]; result: AudioRecordingMeta[] };
   /** Rename a recording (active or on disk); returns the refreshed list. */
   audioRecordingRename: { args: [recordingId: string, title: string]; result: AudioRecordingMeta[] };
@@ -723,6 +728,10 @@ export type DesktopCommandMap = {
   audioOverlaySetVisible: { args: [visible: boolean]; result: { visible: boolean } };
   audioOverlayGetVisible: { args: []; result: { visible: boolean } };
   audioSystemDictationGet: { args: []; result: AudioSystemDictationStatus };
+  audioMiniBarSetEnabled: {
+    args: [enabled: boolean];
+    result: AudioSystemDictationStatus;
+  };
   audioSystemDictationSetAppearance: {
     args: [appearance: AudioDictationAppearance];
     result: AudioSystemDictationStatus;
@@ -854,6 +863,7 @@ export type DesktopCommandMap = {
   __getApplicationsForFile: { args: [target: string]; result: { name: string; appPath: string; icon: string | null }[] };
   __openWithApp: { args: [target: string, appPath: string]; result: unknown };
   __fetch: { args: [url: string, init?: DesktopFetchInit]; result: DesktopFetchResult };
+  __fetchCancel: { args: [id: string]; result: void };
   __streamOpen: { args: [id: string, url: string, headers: Record<string, string>]; result: Omit<DesktopFetchResult, "body"> };
   __streamRead: { args: [id: string]; result: Uint8Array | null };
   __streamCancel: { args: [id: string]; result: void };

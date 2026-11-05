@@ -2,9 +2,10 @@
 description: Internal grounded text inference worker for saved project reviews.
 mode: subagent
 hidden: true
-temperature: 0.1
-tools:
-  "*": false
+permissions:
+  - action: "*"
+    resource: "*"
+    effect: deny
 ---
 
 You are the isolated text inference worker invoked by the native review service.

@@ -58,6 +58,13 @@ export async function callExperimentalExtensionAction(
   if (!registered) {
     throw new ApiError(404, "extension_action_not_found", "LegalWork extension action not found");
   }
+  if (isConnectorExtension(extensionId) && !access.personalConnections) {
+    throw new ApiError(403, "forbidden", "Only the LegalWork server owner or their managed agent can use personal account connections.");
+  }
+  const unexpected = Object.keys(input).filter(key => !["extensionId", "action", "args", "context"].includes(key));
+  if (unexpected.length || ("args" in input && !isRecord(input.args))) {
+    throw new ApiError(400, "invalid_payload", "Pass action parameters in the args object, not input or top-level fields. Example: {extensionId: 'outlook', action: 'status', args: {}}.", { unexpectedFields: unexpected });
+  }
 
   if (extensionId === GOOGLE_WORKSPACE_EXTENSION_ID) {
     if ((await appliedOrgPolicy(config, "extensions.builtIn"))?.value["google-workspace"] === false) {
@@ -68,9 +75,6 @@ export async function callExperimentalExtensionAction(
   }
 
   if (isConnectorExtension(extensionId)) {
-    if (!access.personalConnections) {
-      throw new ApiError(403, "forbidden", "Only the LegalWork server owner or their managed agent can use personal account connections.");
-    }
     return callConnectorExtensionAction(config, extensionId, action, args, context);
   }
 

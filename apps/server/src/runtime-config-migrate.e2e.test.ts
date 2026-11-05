@@ -111,7 +111,7 @@ describe("runtime-config migrate route", () => {
     // Connectors are shared by every workspace: the migrated MCP lands in the
     // shared row, not in this workspace's own.
     expect((await readGlobalMcpMap(config))["nova-mail"]?.url).toBe("https://example.com/mcp/mail");
-    expect((await readRuntimeOpencodeConfig(config, "ws_1")).mcp?.["nova-mail"]).toBeUndefined();
+    expect((await readRuntimeOpencodeConfig(config, "ws_1")).mcp?.servers?.["nova-mail"]).toBeUndefined();
 
     const parsed = asRecord(JSON.parse(await readFile(join(workspaceRoot, "opencode.jsonc"), "utf8")));
     expect(parsed.mcp).toBeUndefined();

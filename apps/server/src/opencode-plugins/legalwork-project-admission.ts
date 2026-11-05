@@ -3,7 +3,7 @@ import { nativeEngineLocationApproved, nativeEngineLocationApprovedSync } from "
 import { resolve } from "node:path";
 import { homedir } from "node:os";
 
-const diagnostic = "This project has not been approved for OpenCode automation. Open its LegalWork project review and approve its configuration before running the agent.";
+const diagnostic = "Open this project in LegalWork before running its agent.";
 
 /** This guard also covers internally created native Locations and recovered
  * Jobs, which never cross the LegalWork HTTP proxy. It must be restored by
@@ -28,7 +28,7 @@ export const LegalWorkProjectAdmission = Plugin.define({
       if (!event.input || typeof event.input !== "object" || !("directory" in event.input) || typeof event.input.directory !== "string") throw new Error("A destination directory is required before moving this chat.");
       const directory = event.input.directory;
       const target = directory.startsWith("~/") ? resolve(homedir(), directory.slice(2)) : resolve(ctx.location.directory, directory);
-      if (!await nativeEngineLocationApproved(registryPath, target).catch(() => false)) throw new Error("Open and approve the destination project in LegalWork before moving this chat there. " + diagnostic);
+      if (!await nativeEngineLocationApproved(registryPath, target).catch(() => false)) throw new Error("Open the destination project in LegalWork before moving this chat there. " + diagnostic);
     });
     await ctx.shell.hook("create.before", () => {
       if (ctx.options.protectedHostExecution === true) throw new Error("Use legalwork_shell for command execution.");

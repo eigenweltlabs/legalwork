@@ -1,4 +1,5 @@
 import { orgChatEngineId } from "@legalwork/types/org-policy";
+import { startRequestPolling } from "@/app/lib/request-poller";
 import type { SystemOneConfiguration } from "@legalwork/types/systemone";
 import { useSyncExternalStore } from "react";
 import { EIGENWELT_SIGN_IN_TIMEOUT_MS, type EigenweltCheckoutSelection } from "@legalwork/types/eigenwelt-checkout";
@@ -208,7 +209,9 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
   let disposed = false;
   let started = false;
   let lastWorkspaceKey = "";
-  let modelRefreshTimer: ReturnType<typeof setInterval> | undefined;
+  let modelRefreshPoller: ReturnType<typeof startRequestPolling> | undefined;
+  let modelRefreshIntervalMs = 60_000;
+  const modelRefreshes = new Map<string, ReturnType<typeof performModelRefresh>>();
 
   let state: MutableState = {
     providerAuthModalOpen: false,
@@ -776,18 +779,31 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     return result.models;
   }
 
-  async function refreshCustomProviderModels(input: { providerId?: string; force?: boolean; reloadRequired?: boolean; catalog?: boolean } = {}) {
+  async function performModelRefresh(input: { providerId?: string; force?: boolean; reloadRequired?: boolean; catalog?: boolean } = {}) {
     if (!options.client()) return null;
     const workspaceKey = currentWorkspaceKey();
     const target = await resolveLegalworkConfigTarget("read");
-    if (!target.legalworkClient || !target.legalworkWorkspaceId) return null;
+    if (!target.legalworkClient || !target.legalworkWorkspaceId || workspaceKey !== currentWorkspaceKey()) return null;
     const result = await target.legalworkClient.refreshCustomProviderModels(target.legalworkWorkspaceId, input);
     if (disposed || workspaceKey !== currentWorkspaceKey()) return result;
+    modelRefreshIntervalMs = Object.values(result.providers).some(status => status.pendingReload) ? 15_000 : 60_000;
     if (result.reloaded) {
       await refreshProviderListQueries(getReactQueryClient());
       await refreshProviders();
     }
     return result;
+  }
+
+  function refreshCustomProviderModels(input: { providerId?: string; force?: boolean; reloadRequired?: boolean; catalog?: boolean } = {}): ReturnType<typeof performModelRefresh> {
+    const key = currentWorkspaceKey();
+    const existing = modelRefreshes.get(key);
+    if (existing) {
+      if (input.force || input.reloadRequired) return existing.catch(() => null).then(() => key === currentWorkspaceKey() ? refreshCustomProviderModels(input) : null);
+      return existing;
+    }
+    const promise = performModelRefresh(input).finally(() => { if (modelRefreshes.get(key) === promise) modelRefreshes.delete(key); });
+    modelRefreshes.set(key, promise);
+    return promise;
   }
 
   async function refreshCustomProvider(providerId: string) {
@@ -1120,7 +1136,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
   };
 
   const currentWorkspaceKey = () =>
-    `${options.selectedWorkspaceRoot().trim()}::${options.runtimeWorkspaceId() ?? ""}`;
+    `${options.baseUrl()}::${options.selectedWorkspaceRoot().trim()}::${options.runtimeWorkspaceId() ?? ""}`;
 
   const syncFromOptions = () => {
     const workspaceKey = currentWorkspaceKey();
@@ -1129,12 +1145,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     refreshSnapshot();
     emitChange();
     if (changed) void cancelProviderAuth();
-    if (started && changed) pollCustomProviderModels();
-  };
-
-  const pollCustomProviderModels = () => {
-    if (disposed || document.visibilityState === "hidden") return;
-    void refreshCustomProviderModels().catch(() => undefined);
+    if (started && changed) modelRefreshPoller?.wake();
   };
 
   const start = () => {
@@ -1145,9 +1156,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     lastWorkspaceKey = currentWorkspaceKey();
     refreshSnapshot();
     emitChange();
-    modelRefreshTimer = setInterval(pollCustomProviderModels, 15_000);
-    document.addEventListener("visibilitychange", pollCustomProviderModels);
-    pollCustomProviderModels();
+    modelRefreshPoller = startRequestPolling(() => refreshCustomProviderModels(), { intervalMs: () => modelRefreshIntervalMs });
   };
 
   const dispose = () => {
@@ -1155,8 +1164,8 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     disposed = true;
     void cancelProviderAuth();
     started = false;
-    clearInterval(modelRefreshTimer);
-    document.removeEventListener("visibilitychange", pollCustomProviderModels);
+    modelRefreshPoller?.stop();
+    modelRefreshPoller = undefined;
     listeners.clear();
   };
 

@@ -15,7 +15,7 @@ test("project Ask submits directly into the registered project session and rejec
     const assistant = { id: "assistant", path: "/projects/Assistant", name: "Assistant", preset: "main-assistant" };
     const routes: Route[] = [], sent: Array<{ workspaceId: string; sessionId: string; payload: { parts: Array<{ text?: string }> } }> = [];
     let created = 0, writable = true;
-    const engine = { session: {
+    const engine = { native: { session: { update: async () => {} } }, session: {
       create: async ({ title }: { title: string }) => { created++; return { data: { id: "project-chat", title, directory: project.path, time: {} } }; },
       list: async () => ({ data: [] }), update: async () => ({}),
       get: async ({ sessionID }: { sessionID: string }) => ({ data: { id: sessionID, directory: project.path, time: {} } }),

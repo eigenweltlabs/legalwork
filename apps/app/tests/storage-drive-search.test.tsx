@@ -18,13 +18,13 @@ function seed(cache: QueryClient, id: string, page: StorageFilenameSearchPage, b
     pageParams: [undefined],
   });
 }
-function renderSearch(cache: QueryClient) {
+function renderSearch(cache: QueryClient, searchRoots = roots) {
   return renderToStaticMarkup(
     <QueryClientProvider client={cache}>
       <StorageDriveSearch
         client={client}
         workspaceId="workspace"
-        roots={roots}
+        roots={searchRoots}
         query="contract"
         refreshKey={0}
         onOpenFile={() => {}}
@@ -35,6 +35,18 @@ function renderSearch(cache: QueryClient) {
 }
 
 describe("Memory Drive filename search", () => {
+  test("cloud search presents readable locations while keeping native identities in its source data", () => {
+    const cache = new QueryClient();
+    const root: StorageRoot = { id: "google", name: "Google Drive", kind: "oauth", provider: "google-drive", writable: true };
+    const path = "~lw~Y29tcGFueQ~Company Management/~lw~ZmlsZQ~contract.docx";
+    seed(cache, root.id, { scanned: 1, complete: true, entries: [{ path, name: "contract.docx", kind: "file", size: 20, modifiedAt: null }] });
+    const html = renderSearch(cache, [root]);
+    expect(html).toContain('title="Google Drive / Company Management/contract.docx"');
+    expect(html).toContain(">Company Management/contract.docx</span>");
+    expect(html).not.toContain("~lw~");
+    expect(cache.getQueryData(["storage-filename-search", "workspace", root.id, "contract", 0, client.baseUrl])).toMatchObject({ pages: [{ entries: [{ path }] }] });
+    cache.clear();
+  });
   test("offers connector setup for sign-in errors and retains retry for other failures", async () => {
     for (const code of ["storage_signin_required", "storage_disconnected", "connector_reconnect_required", "storage_settings_conflict"]) {
       const cache = new QueryClient({ defaultOptions: { queries: { retry: false, retryOnMount: false } } });

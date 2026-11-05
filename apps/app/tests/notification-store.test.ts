@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, test } from "bun:test";
+import { countUnreadTasks, createNotificationStore } from "../src/react-app/kernel/notification-store";
 
 // Minimal localStorage stub so the persisted zustand store works under bun.
 const storage = new Map<string, string>();
@@ -16,12 +17,8 @@ const localStorageStub = {
     return storage.size;
   },
 };
-Object.defineProperty(globalThis, "localStorage", {
-  value: localStorageStub,
-  configurable: true,
-});
-
-const { countUnreadTasks, useNotificationStore } = await import("../src/react-app/kernel/notification-store");
+// Do not depend on when another suite first imported the app's singleton.
+const useNotificationStore = createNotificationStore(() => localStorageStub);
 
 function reset() {
   useNotificationStore.setState({ notifications: [] });

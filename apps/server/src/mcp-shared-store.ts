@@ -28,11 +28,13 @@ import {
   GLOBAL_MCP_ID,
   readGlobalMcpMap,
   readRuntimeOpencodeConfig,
-  runtimeMcpMap,
   writeRuntimeOpencodeConfig,
 } from "./runtime-opencode-config-store.js";
 import type { ServerConfig } from "./types.js";
 import { validateMcpConfig, validateMcpName } from "./validators.js";
+import { nativeMcpDefinition, type NativeMcpDefinition } from "./native-mcp-config.js";
+import { upgradeRuntimeConfigRecord } from "./runtime-config-upgrade.js";
+import { backupRuntimeConfigSource } from "./runtime-config-source-backup.js";
 
 export type ConnectorImportSources = {
   /** The engine config file earlier desktop builds merged connectors into directly. */
@@ -41,19 +43,29 @@ export type ConnectorImportSources = {
   globalOpencodeConfigFile: string;
 };
 
-type McpMap = Record<string, Record<string, unknown>>;
+type McpMap = Record<string, NativeMcpDefinition>;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function mcpMapOf(value: unknown): McpMap {
-  if (!isRecord(value) || !isRecord(value.mcp)) return {};
+/** Source-file import boundary only; runtime rows already contain native settings. */
+function mcpMapOf(value: unknown): { map: McpMap; native: boolean } {
+  if (!isRecord(value) || !isRecord(value.mcp)) return { map: {}, native: false };
+  const native = isRecord(value.mcp.servers) && !["local", "remote"].includes(String(value.mcp.servers.type));
+  // Native authored documents and our generated projection are already owned
+  // by their native loader. Only old LegalWork connector maps are imported.
+  if (native) return { map: {}, native };
+  const source = value.mcp;
   const map: McpMap = {};
-  for (const [name, entry] of Object.entries(value.mcp)) {
-    if (isRecord(entry)) map[name] = entry;
+  for (const [name, entry] of Object.entries(source)) {
+    if (!isRecord(entry)) continue;
+    try {
+      const definition = upgradeRuntimeConfigRecord({ mcp: { [name]: entry } }).configuration.mcp?.servers?.[name];
+      if (definition) map[name] = definition;
+    } catch { /* The unimported source remains available for repair. */ }
   }
-  return map;
+  return { map, native };
 }
 
 /** An entry the engine would refuse must not poison the shared row. */
@@ -83,12 +95,13 @@ export async function importConnectorsIntoSharedRow(
   sources: ConnectorImportSources,
 ): Promise<{ imported: string[] }> {
   if (config.readOnly) return { imported: [] };
-  const shared: McpMap = { ...(await readGlobalMcpMap(config)) };
+  const shared: McpMap = Object.fromEntries(Object.entries(await readGlobalMcpMap(config)).map(([name, entry]) => [name, nativeMcpDefinition(entry)]));
   const retiredShared = shared["computer-use"] && retiredComputerUse("computer-use", shared["computer-use"]);
   if (retiredShared) delete shared["computer-use"];
   const imported: string[] = [];
-  const sourceEntries: Array<{ path: string; name: string }> = [];
-  const take = (name: string, entry: Record<string, unknown>) => {
+  const sourceEntries: Array<{ path: string; name: string; native: boolean }> = [];
+  const workspaceMoves: Array<{ id: string; entries: McpMap }> = [];
+  const take = (name: string, entry: NativeMcpDefinition) => {
     if (retiredComputerUse(name, entry) || Object.prototype.hasOwnProperty.call(shared, name) || !usable(name, entry)) return;
     shared[name] = entry;
     imported.push(name);
@@ -96,19 +109,13 @@ export async function importConnectorsIntoSharedRow(
 
   // Workspace rows first: they hold what the last connect wrote.
   for (const workspace of config.workspaces) {
-    const row = runtimeMcpMap(await readRuntimeOpencodeConfig(config, workspace.id));
+    const row = (await readRuntimeOpencodeConfig(config, workspace.id)).mcp?.servers ?? {};
     if (Object.keys(row).length === 0) continue;
     const pluginOwned = await installedCloudPluginMcpNames(config, workspace.id);
     const moving = Object.entries(row).filter(([name, entry]) => !pluginOwned.has(name) || retiredComputerUse(name, entry));
     if (moving.length === 0) continue;
     for (const [name, entry] of moving) take(name, entry);
-    await writeRuntimeOpencodeConfig(config, workspace.id, (current) => {
-      const next = { ...current };
-      const kept = Object.fromEntries(Object.entries(runtimeMcpMap(current)).filter(([name, entry]) => pluginOwned.has(name) && !retiredComputerUse(name, entry)));
-      if (Object.keys(kept).length) next.mcp = kept;
-      else delete next.mcp;
-      return next;
-    });
+    workspaceMoves.push({ id: workspace.id, entries: Object.fromEntries(moving.map(([name, entry]) => [name, nativeMcpDefinition(entry)])) });
   }
 
   const globalDirectory = dirname(sources.globalOpencodeConfigFile);
@@ -122,18 +129,25 @@ export async function importConnectorsIntoSharedRow(
   ]);
   for (const path of files) {
     const { data } = await readJsoncFile<Record<string, unknown>>(path, {}, { allowInvalid: true });
-    for (const [name, entry] of Object.entries(mcpMapOf(data))) {
+    const source = mcpMapOf(data);
+    for (const [name, entry] of Object.entries(source.map)) {
       if (!usable(name, entry)) continue;
       take(name, entry);
-      if (path !== sources.runtimeConfigFile) sourceEntries.push({ path, name });
+      if (path !== sources.runtimeConfigFile) sourceEntries.push({ path, name, native: source.native });
     }
   }
 
   if (imported.length > 0 || retiredShared) {
-    await writeRuntimeOpencodeConfig(config, GLOBAL_MCP_ID, (current) => ({ ...current, mcp: shared }));
+    await writeRuntimeOpencodeConfig(config, GLOBAL_MCP_ID, current => ({ ...current, mcp: { ...current.mcp, servers: { ...shared, ...Object.fromEntries(Object.entries(current.mcp?.servers ?? {}).filter(([name, entry]) => !retiredComputerUse(name, entry))) } } }));
   }
-  for (const { path, name } of sourceEntries) {
-    await updateJsoncPath(path, ["mcp", name], undefined);
+  // Publish the destination before retiring a source. A crash can leave a
+  // duplicate for the next import, but cannot remove the only saved definition.
+  for (const moving of workspaceMoves) await writeRuntimeOpencodeConfig(config, moving.id, current => ({ ...current,
+    mcp: { ...current.mcp, servers: Object.fromEntries(Object.entries(current.mcp?.servers ?? {}).filter(([name, entry]) => !Object.hasOwn(moving.entries, name) || JSON.stringify(entry) !== JSON.stringify(moving.entries[name]))) },
+  }));
+  for (const { path, name, native } of sourceEntries) {
+    await backupRuntimeConfigSource(config, GLOBAL_MCP_ID, path);
+    await updateJsoncPath(path, native ? ["mcp", "servers", name] : ["mcp", name], undefined);
   }
   return { imported };
 }

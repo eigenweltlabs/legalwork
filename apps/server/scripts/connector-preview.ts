@@ -124,7 +124,11 @@ globalThis.fetch = Object.assign(async (input: Parameters<typeof fetch>[0], init
     return Response.json({ access_token: "fixture-direct-token", refresh_token: "fixture-direct-refresh", expires_in: 3600 });
   }
   if (url.hostname === "gmail.googleapis.com") return Response.json({ emailAddress: "fixture@example.com" });
-  if (url.hostname === "graph.microsoft.com") return Response.json({ value: [] });
+  if (url.hostname === "graph.microsoft.com") {
+    if (url.pathname === "/v1.0/me/drive") return Response.json({ id: "fixture-drive", name: "Documents" });
+    if (url.pathname === "/v1.0/sites/root") return Response.json({ id: "fixture-site" });
+    return Response.json({ value: [] });
+  }
   if (showStorage && url.hostname === "connector-fixture.test" && url.pathname.startsWith("/api/storage-connections")) {
     if (url.pathname.endsWith("/sync")) return Response.json({ schemaVersion: 1, orgId: "fixture-firm", canManage: true, connections: [...sharedStorage.values()] });
     if (url.pathname.endsWith("/token")) return Response.json({ accessToken: "fixture-team-storage-token", expiresAt: null });
@@ -185,7 +189,7 @@ const authorization = Bun.serve({ hostname: "127.0.0.1", port: 44642, async fetc
   const headers = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type" };
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers });
   if (new URL(request.url).pathname === "/fixture/drafts" && request.method === "GET") return Response.json(fixtureDrafts, { headers });
-  const body = z.object({ provider: z.enum(["gmail", "outlook", "google-drive"]), authUrl: z.string().optional() }).parse(await request.json());
+  const body = z.object({ provider: z.enum(["gmail", "outlook", "google-calendar", "google-drive", "onedrive", "onedrive-personal", "sharepoint-files"]), authUrl: z.string().optional() }).parse(await request.json());
   if (body.authUrl) {
     const auth = new URL(body.authUrl);
     if (auth.hostname === "accounts.google.com" || auth.hostname === "login.microsoftonline.com") {

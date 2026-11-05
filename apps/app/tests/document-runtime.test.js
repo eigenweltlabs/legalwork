@@ -371,3 +371,28 @@ test("unknown write destinations save all editable formats and defer newly opene
     expect(entries.every(({entry}) => !entry.fileEditing)).toBe(true);
   } finally { stop(); }
 });
+
+test("Stop cancels queued tools without applying them after an active save",async()=>{
+  const {runtime,document}=fixture();const gate=Promise.withResolvers(),started=Promise.withResolvers();const tools=[];
+  document("a","one.docx",async args=>{tools.push(args.toolName);if(args.toolName==="active"){started.resolve();await gate.promise;}return {ok:true};});
+  await runtime.select({sessionId:"left",path:"one.docx"});
+  const active=runtime.execute("document.agent_tool",{sessionId:"left",toolName:"active"});await started.promise;
+  const controller=new AbortController();
+  const queued=runtime.execute("document.agent_tool",{sessionId:"left",toolName:"late"},{signal:controller.signal});
+  controller.abort();await expect(queued).rejects.toThrow();gate.resolve();await active;
+  await runtime.execute("document.agent_tool",{sessionId:"left",toolName:"read"});expect(tools).toEqual(["active","read"]);
+});
+test("cancelled shell preparation never releases the live draft after its save finishes",async()=>{
+  const {runtime,document}=fixture(),gate=Promise.withResolvers(),started=Promise.withResolvers();
+  const entry=document("a","one.docx",async()=>{started.resolve();await gate.promise;return {ok:true,saved:true};});
+  const registration=entry.registration,controller=new AbortController();
+  const preparing=runtime.beginFileEdit({sessionId:"left",operationId:"cancelled"},{signal:controller.signal});
+  await started.promise;controller.abort();gate.resolve();await expect(preparing).rejects.toThrow();
+  expect(entry.fileEditing).toBe(false);expect(entry.registration).toBe(registration);
+  expect(await runtime.endFileEdit({sessionId:"left",operationId:"cancelled"})).toEqual({ok:true});
+});
+test("a shell handoff with no open editor needs no document import",async()=>{
+  const {runtime}=fixture();
+  expect(await runtime.beginFileEdit({sessionId:"left",operationId:"headless"})).toEqual({ok:true,operationId:"headless"});
+  expect(await runtime.endFileEdit({sessionId:"left",operationId:"headless"})).toEqual({ok:true,reloaded:true});
+});

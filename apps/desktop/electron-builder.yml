@@ -14,6 +14,8 @@ files:
   - server/**/*
   - "!server/dist/opencode-plugins/**"
   - package.json
+  # Build downloads are not runtime files; the installed engine ships below.
+  - "!node_modules/@legalwork/opencode-release/generated/archive-cache{,/**/*}"
 extraResources:
   # Cloud dictation detects silence locally before opening a paid session.
   - from: node_modules/@ricky0123/vad-web/dist/silero_vad_legacy.onnx
@@ -178,8 +180,8 @@ win:
         - legalwork-orchestrator-aarch64-pc-windows-msvc.exe
         - legalwork-orchestrator-x86_64-pc-windows-msvc.exe
         - versions.json
-        - versions.json-aarch64-pc-windows-msvc.exe
-        - versions.json-x86_64-pc-windows-msvc.exe
+        - versions.json-aarch64-pc-windows-msvc
+        - versions.json-x86_64-pc-windows-msvc
   target:
     - nsis
 # Uninstall cleanup for the Office add-in (registry sideload entries and the

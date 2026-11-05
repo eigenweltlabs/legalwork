@@ -11,6 +11,7 @@ export async function readSessionInbox(
   config: ServerConfig,
   workspaces: WorkspaceInfo[],
   automated: SessionInboxEntry[],
+  signal?: AbortSignal,
 ): Promise<SessionInboxEntry[]> {
   const allowed = new Set(workspaces.map((workspace) => workspace.id));
   const automation = new Map(
@@ -24,9 +25,11 @@ export async function readSessionInbox(
   try {
     const sessions: SessionInboxEntry[] = [];
     for (const workspace of workspaces) {
+      signal?.throwIfAborted();
       const root =
         workspace.opencode?.directory || workspace.directory || workspace.path;
       const canonical = await realpath(root).catch(() => resolve(root));
+      signal?.throwIfAborted();
       const stored = (path: string) =>
         process.platform === "win32" ? path.replaceAll("\\", "/") : path;
       const rows = db.all(

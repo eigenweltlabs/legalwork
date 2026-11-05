@@ -7,6 +7,7 @@ import { readAssistantAttention, replyToAssistantAttention } from "../assistant-
 import { AssistantAttentionReplySchema } from "../assistant-schema.js";
 import type { SubmissionPart } from "../assistant-submissions.js";
 import { readAssistantOutput } from "../assistant-output.js";
+import { assertRunnableCommand } from "../native-command-control.js";
 import { addRoute } from "./registry.js";
 import type { registerMainAssistantRoutes } from "./main-assistant.js";
 
@@ -51,7 +52,7 @@ export function registerAssistantConversationRoutes(options: Parameters<typeof r
       get: async id => (await client.session.get({ sessionID: id })).data ?? null,
       list: async () => (await client.session.list()).data ?? [],
     }, input);
-    if (!input.sessionId) await client.session.update({ sessionID: conversation.sessionId, title: conversation.title }).catch(() => undefined);
+    if (!input.sessionId) await client.native.session.update({ sessionID: conversation.sessionId, title: conversation.title }).catch(() => undefined);
     options.changed();
     return jsonResponse({ conversation });
   });
@@ -138,8 +139,7 @@ export function registerAssistantConversationRoutes(options: Parameters<typeof r
     if (input.command) {
       const project = input.context?.target.kind === "project" ? await options.resolveWorkspace(config, input.context.target.workspaceId) : found;
       const engine = options.client(project);
-      const commands = await engine.command.list({}, { signal: AbortSignal.timeout(10000) });
-      if (!commands.data?.some(command => command.name === input.command?.name)) throw new ApiError(404, "command_missing", "This command is not available in the selected project.");
+      await assertRunnableCommand(engine.native, { directory: project.path }, input.command.name);
       if (project.id !== found.id) {
         const created = await engine.session.create({ title: `/${input.command.name}` }, { signal: AbortSignal.timeout(10000) });
         if (!created.data || resolve(created.data.directory) !== resolve(project.path)) throw new ApiError(502, "command_session", "Could not create the command's project conversation.");

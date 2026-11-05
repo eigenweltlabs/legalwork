@@ -13,7 +13,6 @@ import { ApprovalService } from "../approvals.js";
 import { closeRuntimeOpencodeConfig, GLOBAL_TOOL_PERMISSIONS_ID, writeRuntimeOpencodeConfig } from "../runtime-opencode-config-store.js";
 import type { ServerConfig, WorkspaceInfo } from "../types.js";
 import { createManagedOpencodeServer } from "../managed-opencode.js";
-import { nativeOpencodeConfig } from "../native-opencode-config.js";
 import { buildNativePluginFixture } from "../opencode-plugins/native-plugin-build.test-support.js";
 
 const binary = process.env.LEGALWORK_TEST_OPENCODE_BIN;
@@ -31,7 +30,7 @@ test.skipIf(!binary || process.env.LEGALWORK_SANDBOX_INTEGRATION !== "1")("the s
     approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: [], workspaces: [workspace], authorizedRoots: [folder],
     readOnly: false, startedAt: Date.now(), tokenSource: "generated", hostTokenSource: "generated", logFormat: "pretty", logRequests: false,
   };
-  await writeRuntimeOpencodeConfig(serverConfig, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permission: { bash: "ask", read: "allow", edit: "ask", webfetch: "allow" } }));
+  await writeRuntimeOpencodeConfig(serverConfig, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permissions: [{ action: "shell", resource: "*", effect: "ask" }, { action: "read", resource: "*", effect: "allow" }, { action: "edit", resource: "*", effect: "ask" }, { action: "webfetch", resource: "*", effect: "allow" }] }));
   await writeSandboxDefault(serverConfig, { enabled: true, networkMode: "approve" });
   const approvals: string[] = [];
   const chatApprovals = new ApprovalService(serverConfig.approval, async () => {
@@ -85,7 +84,7 @@ test.skipIf(!binary || process.env.LEGALWORK_SANDBOX_INTEGRATION !== "1")("the s
     // Preserve the fixture's direct-tool catalog checks; Code Mode batching has
     // separate released-host coverage.
     await writeFile(join(root, "probe", "index.js"), `import{Plugin}from'@opencode/plugin';export default Plugin.define({id:'fixture.sandbox-direct-tools',async setup(ctx){await ctx.tool.transform(editor=>{for(const item of editor.list())editor.update(item.id,tool=>{tool.options={...tool.options,codemode:false}})})}});`);
-    const policy = nativeOpencodeConfig({ permission: sandboxEnginePermissions({ "*": "allow" }), agent: sandboxEngineAgents({}) }).config;
+    const policy = { permissions: sandboxEnginePermissions([{ action: "*", resource: "*", effect: "allow" }]), agents: sandboxEngineAgents({}) };
     engine = await createManagedOpencodeServer({ bin: binary, cwd: folder, timeoutMs: 200 * 100, env: {
       HOME: join(root, "home"), USERPROFILE: join(root, "home"), XDG_CONFIG_HOME: join(root, "config"), XDG_DATA_HOME: join(root, "data"), XDG_CACHE_HOME: join(root, "cache"), XDG_STATE_HOME: join(root, "state"),
       OPENCODE_CONFIG_DIR: join(root, "config"), OPENCODE_DB: join(root, "engine.db"), OPENCODE_CONFIG_PROJECT_DISABLE: "1", OPENCODE_DISABLE_CLAUDE_CODE: "1", OPENCODE_DISABLE_MODELS_FETCH: "1",

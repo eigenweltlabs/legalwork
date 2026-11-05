@@ -50,6 +50,7 @@ export function ImportedPackages(props: {
   const [packages, setPackages] = useState<readonly ImportedPlugin[]>(cached ?? []);
   const [loading, setLoading] = useState(cached === undefined);
   const [error, setError] = useState("");
+  const [retry, setRetry] = useState(0);
   const [searchQuery, setSearchQuery] = useState("");
   const [selected, setSelected] = useState<ImportedPlugin | null>(null);
   const [removing, setRemoving] = useState<ImportedPlugin | null>(null);
@@ -68,7 +69,7 @@ export function ImportedPackages(props: {
     return () => {
       stopped = true;
     };
-  }, [extensions, props.revision, cached]);
+  }, [extensions, props.revision, cached, retry]);
 
   async function remove(plugin: ImportedPlugin) {
     try {
@@ -88,7 +89,7 @@ export function ImportedPackages(props: {
   return (
     <div className="space-y-4">
       {props.library && props.searchQuery === undefined ? <IntegrationSearch toolbar value={searchQuery} onChange={setSearchQuery} label={t("integrations.search_plugins")} /> : null}
-      {team ? <IntegrationEmptyState icon={Package} title={t("integrations.team_plugins_unavailable")} /> : loading ? <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />{t("common.loading")}</p> : error ? <p role="alert" className="text-sm text-destructive">{error}</p> : <>
+      {team ? <IntegrationEmptyState icon={Package} title={t("integrations.team_plugins_unavailable")} /> : loading ? <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />{t("common.loading")}</p> : error ? <div role="alert" className="flex items-center gap-3"><p className="text-sm text-destructive">{error}</p><Button variant="outline" size="sm" onClick={() => setRetry(value => value + 1)}>{t("common.refresh")}</Button></div> : <>
       <IntegrationGroupHeading hideInLibrary title={t("skills.packages_title")} count={visiblePackages.length} />
       {visiblePackages.length === 0 ? <IntegrationEmptyState icon={Package} title={t(props.library ? query ? "integrations.no_plugin_matches" : "integrations.no_plugins" : "integrations.no_packages")} description={t(query ? "integrations.search_hint" : props.library ? "integrations.plugins_import_hint" : "integrations.import_description")} /> : null}
       <div className="space-y-1">

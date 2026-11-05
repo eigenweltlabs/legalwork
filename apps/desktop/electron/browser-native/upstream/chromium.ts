@@ -26,9 +26,10 @@ type Element = { backendID: number; frameID: string; sessionID?: string }
 /** State every page of the pane shares: the element ref allocator and the app-wide trace recording. */
 export type Shared = { ref: () => string; recording?: Recording }
 
-// Captures and downloads belong to the tab, not whichever document it now shows; navigate replaces it anyway.
+// These operations have no document refs. A condition wait must follow the navigation it is waiting for.
 const retainedOperations: readonly Browser.Method[] = [
   "navigate",
+  "wait",
   "files.list",
   "files.get",
   "trace.stop",
@@ -909,6 +910,7 @@ export function createBrowserPage(
         await waitFor(
           async () => {
             if (action.condition === "load") return !contents.isLoading()
+            if (contents.isLoading()) return false
             const context = action.frameID ? contexts.get(action.frameID) : undefined
 
             if (action.frameID && !context)
@@ -916,6 +918,7 @@ export function createBrowserPage(
                 "Frame context is unavailable. Call browser.frames({tabID}) and use a frameID from this tab.",
               )
 
+            const observedGeneration = generation
             const value = await cdp.send(
               "Runtime.evaluate",
               {
@@ -924,9 +927,14 @@ export function createBrowserPage(
                 contextId: context?.id,
               },
               context?.sessionID,
-            )
+            ).catch((error) => {
+              // A main-document condition follows redirects. An explicit frame
+              // remains exact and must be observed again if it disappears.
+              if (!action.frameID && (observedGeneration !== generation || contents.isLoading())) return undefined
+              throw error
+            })
 
-            return Boolean(value.result.value) === (action.condition === "text")
+            return value !== undefined && Boolean(value.result.value) === (action.condition === "text")
           },
           signal,
           action.timeoutMs,
@@ -1475,8 +1483,10 @@ export function createBrowserPage(
         "Frame is unavailable. Call browser.frames({tabID}) and use a current frameID from this tab; omit frameID for the main frame.",
       )
     const sessionID = sessionFor(frameID, tree)
-    const depth = action.type === "snapshot" ? (action.depth ?? 8) : 8
-    const ax = await cdp.send("Accessibility.getFullAXTree", { frameId: frameID, depth }, sessionID)
+    // DOM/AX nesting is layout detail: deeply nested application editors still belong
+    // in the initial observation. Bound the rendered result, not Chromium's tree.
+    const depth = action.type === "snapshot" ? (action.depth ?? Infinity) : Infinity
+    const ax = await cdp.send("Accessibility.getFullAXTree", { frameId: frameID }, sessionID)
     const nodes = new Map(ax.nodes.map((node) => [node.nodeId, node]))
     const root = selected ? ax.nodes.find((node) => node.backendDOMNodeId === selected.backendID) : ax.nodes[0]
 
@@ -1501,51 +1511,49 @@ export function createBrowserPage(
         .slice(0, 40)
 
       const properties = new Map(node.properties?.map((property) => [property.name, property.value.value]) ?? [])
+      const actionable = role !== "RootWebArea" &&
+        (properties.get("focusable") || /^(button|link|textbox|searchbox|combobox|checkbox|radio|option)$/.test(role))
+      const name = String(node.name?.value ?? "").replace(/\s+/g, " ").slice(0, 300)
+      const known = node.backendDOMNodeId ? pinned.get(`${frameID}:${node.backendDOMNodeId}`) : undefined
+      const structural = !known && !actionable && !name && ["generic", "none", "presentation", "group", "node"].includes(role)
+      const visible = !node.ignored && (role !== "InlineTextBox" || Boolean(known)) && !structural
 
-      if (!node.ignored) {
-        const actionable =
-          role !== "RootWebArea" &&
-          (properties.get("focusable") || /^(button|link|textbox|combobox|checkbox|radio|option)$/.test(role))
-
+      if (visible) {
         // A picked element keeps the ref its comment names, even when it is not otherwise actionable.
-        const known = node.backendDOMNodeId ? pinned.get(`${frameID}:${node.backendDOMNodeId}`) : undefined
         const ref = known ?? (actionable && node.backendDOMNodeId ? options.shared.ref() : "")
         const element = node.backendDOMNodeId ? { backendID: node.backendDOMNodeId, frameID, sessionID } : undefined
 
         if (ref && element && !known) refs.set(ref, element)
 
-        const flags = (["checked", "disabled", "expanded", "selected"] as const).flatMap((name) =>
+        const flags = (["checked", "disabled", "expanded", "selected", "readonly"] as const).flatMap((name) =>
           properties.has(name) ? [`${name}=${properties.get(name)}`] : [],
         )
+        const value = !properties.get("protected") && node.value?.value !== undefined
+          ? ` value=${JSON.stringify(String(node.value.value).replace(/\s+/g, " ").slice(0, 600))}` : ""
+        const matches = action.type !== "find" || `${role} ${name}${value} ${flags.join(" ")}`.toLowerCase().includes(action.text.toLowerCase())
 
         const box =
           action.type === "snapshot" && action.boxes && ref && element
             ? await rect(element).catch(() => undefined)
             : undefined
 
-        lines.push(
-          `${"  ".repeat(level)}${ref ? `@${ref} ` : ""}[${role}] ${JSON.stringify(
-            String(node.name?.value ?? "")
-              .replace(/\s+/g, " ")
-              .slice(0, 300),
-          )} ${flags.join(" ")}${box ? ` box=${JSON.stringify(box)}` : ""}`,
+        if (matches) lines.push(
+          `${"  ".repeat(Math.min(level, 12))}${ref ? `@${ref} ` : ""}[${role}] ${JSON.stringify(name)}${value} ${flags.join(" ")}${box ? ` box=${JSON.stringify(box)}` : ""}`,
         )
       }
 
-      if (["textbox", "searchbox"].includes(role) || properties.get("editable")) return
+      if (node.value?.value !== undefined && (["textbox", "searchbox"].includes(role) || properties.get("editable"))) return
 
       for (const childID of node.childIds ?? []) {
         const child = nodes.get(childID)
 
-        if (child) await walk(child, level + 1)
+        if (child) await walk(child, level + (visible ? 1 : 0))
       }
     }
 
     await walk(root, 0)
 
-    const content = (
-      action.type === "find" ? lines.filter((line) => line.toLowerCase().includes(action.text.toLowerCase())) : lines
-    ).join("\n")
+    const content = lines.join("\n")
 
     return { content: content.slice(0, Browser.MAX_TEXT), truncated: truncated || content.length > Browser.MAX_TEXT }
   }

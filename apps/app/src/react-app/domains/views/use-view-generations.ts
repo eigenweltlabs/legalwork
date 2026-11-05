@@ -8,7 +8,7 @@ import { parseDynamicToolUIPart } from "../session/sync/parse-tool-parts";
 import type { ThreadStatus } from "@/lib/messages";
 
 export function useViewGenerations(messages: UIMessage[], status: ThreadStatus) {
-  const { legalworkClient, workspaceId, sessionId } = useMessageList();
+  const { legalworkClient, workspaceId, sessionId, assistantChat } = useMessageList();
   const open = useRequestPanelTab();
   const latest = useRef(messages);
   latest.current = messages;
@@ -17,6 +17,8 @@ export function useViewGenerations(messages: UIMessage[], status: ThreadStatus) 
   const chunks = useRef(new Map<string, ViewGenerationChunk>());
   const openRef = useRef(open);
   openRef.current = open;
+  const assistantRef = useRef(assistantChat);
+  assistantRef.current = assistantChat;
   const openBesideChat = (tab: Parameters<typeof open>[0]) => openRef.current(tab, { besideChat: true });
   const seen = useRef(new WeakSet<DynamicToolUIPart>());
   const pendingIds = messages.flatMap(message => message.parts.flatMap(part => part.type === "dynamic-tool" && (part.toolName === "view_create" || part.toolName === "view_update") && (part.state === "input-streaming" || part.state === "input-available") ? [part.toolCallId] : [])).join("|");
@@ -48,7 +50,7 @@ export function useViewGenerations(messages: UIMessage[], status: ThreadStatus) 
       if (statusRef.current === "ready") return;
       for (const message of latest.current) for (const part of message.parts) {
         if (part.type !== "dynamic-tool" || part.toolCallId !== chunk.callId || (part.state !== "input-streaming" && part.state !== "input-available")) continue;
-        void syncViewGeneration({ serverUrl: legalworkClient.baseUrl, workspaceId, sessionId }, {
+        void syncViewGeneration({ serverUrl: legalworkClient.baseUrl, workspaceId, sessionId, autoOpen: !assistantRef.current }, {
           ...part, callProviderMetadata: { opencode: { rawInput: chunk.raw } },
         }, openBesideChat);
       }
@@ -63,7 +65,7 @@ export function useViewGenerations(messages: UIMessage[], status: ThreadStatus) 
       if (status === "ready" && (part.state === "input-streaming" || part.state === "input-available")) continue;
       seen.current.add(part);
       const chunk = chunks.current.get(part.toolCallId);
-      void syncViewGeneration({ serverUrl: legalworkClient.baseUrl, workspaceId, sessionId },
+      void syncViewGeneration({ serverUrl: legalworkClient.baseUrl, workspaceId, sessionId, autoOpen: !assistantRef.current },
         chunk && part.state === "input-streaming" ? { ...part, callProviderMetadata: { opencode: { rawInput: chunk.raw } } } : part, openBesideChat);
     }
   }, [messages, legalworkClient, workspaceId, sessionId, open, status]);

@@ -7,6 +7,8 @@ import { fileURLToPath } from "node:url";
 import { createBrowserAutomationBroker } from "./browser-automation-broker.mjs";
 import { createNativeBrowserHost } from "./browser-native-host.mjs";
 import { createBrowserCaptureQueue } from "./browser-capture-queue.mjs";
+import { createBrowserPasswordActions } from "./browser-passwords.mjs";
+import { prepareBrowserAutofill } from "./browser-autofill.mjs";
 import { installBrowserDownloads } from "./browser-downloads.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -19,6 +21,7 @@ const MENU_OVERLAY_HTML = "overlay.html";
 const MENU_OVERLAY_WIDTH = 196;
 const MENU_OVERLAY_HEIGHT = 176;
 const MENU_OVERLAY_READY_TIMEOUT_MS = 2000;
+export const BROWSER_PRELOAD_CHANNELS = ["legalwork:menu-overlay:dismiss", "legalwork:autofill:suggest", "legalwork:autofill:dismiss"];
 
 // Cookies and proxy settings belong to the app; tabs, bounds and selection
 // belong to one app window. A detached window must never adopt another's tabs.
@@ -30,9 +33,9 @@ export function createBrowserPanel(options) {
   const automationBroker = createBrowserAutomationBroker({ authorize: authorizeBrowserAutomation, capture });
   const proxyState = { current: null };
   const panels = new Map();
+  let autofillPreload;
   const nativeHost = options.resolveEngine ? createNativeBrowserHost({ ...options, capture, partition: BROWSER_SESSION_PARTITION,
     adoptPage: (owner, page, context, directory) => panelFor(owner).panel.adoptNativePage(page, context, directory),
-    focusPage: (owner, tabID) => panelFor(owner).panel.focusNativePage(tabID),
     sessionError: (owner, context, error) => owner.webContents.send("legalwork:browser:error", { sessionId: context.sessionId, error }),
   }) : null;
   app.once("will-quit", () => { destroy(); void automationBroker.close(); void nativeHost?.dispose(); });
@@ -44,6 +47,11 @@ export function createBrowserPanel(options) {
 
   function panelFor(owner) {
     if (!owner || owner.isDestroyed()) throw new Error("Browser window is unavailable.");
+    if (options.loadBrowserPasswords && !autofillPreload) {
+      autofillPreload = options.session.fromPartition(BROWSER_SESSION_PARTITION).registerPreloadScript({
+        type: "frame", filePath: path.join(__dirname, "browser-autofill-preload.cjs"),
+      });
+    }
     let entry = panels.get(owner);
     if (entry) return entry;
     const handlers = new Map(), listeners = new Map();
@@ -91,7 +99,7 @@ export function createBrowserPanel(options) {
   };
 }
 
-function createWindowBrowserPanel({ app, BaseWindow, WebContentsView, clipboard, session, getWindow, isAllowedAppNavigation, safeOpen, resolveDownloadDirectory, authorizeBrowserAutomation, automationBroker, proxyState, nativeHost, capture }) {
+function createWindowBrowserPanel({ app, BaseWindow, WebContentsView, clipboard, session, getWindow, isAllowedAppNavigation, safeOpen, resolveDownloadDirectory, authorizeBrowserAutomation, automationBroker, proxyState, nativeHost, capture, loadBrowserPasswords }) {
   const browserTabs = new Map();
   let browserTabOrder = [];
   let activeBrowserTabId = null;
@@ -248,17 +256,25 @@ function createWindowBrowserPanel({ app, BaseWindow, WebContentsView, clipboard,
     };
   }
 
+  function passwordActions(tab) {
+    return tab.nativePage && !tab.nativeContext.remote && loadBrowserPasswords
+      ? createBrowserPasswordActions(tab.nativePage, loadBrowserPasswords) : undefined;
+  }
+
   async function browserConnection(tab, context) {
     if (!tab || (tab.nativeSessionId || tab.taskSessionId) !== context.sessionId || tab.workspaceId !== context.workspaceId || tab.nativeContext?.connectionId !== context.connectionId)
       throw new Error("This browser tab does not belong to the calling project and chat.");
     await authorizeBrowserAutomation(context);
     tab.connection ??= await automationBroker.grant(tab.view.webContents, () => tab.downloads, context, () => {
       tab.taskActive = true; tab.dismissed = false; sendBrowserState();
-    }, () => prepareBrowserCapture(tab));
+    }, () => prepareBrowserCapture(tab), passwordActions(tab));
     const browser_url = tab.nativePage ? await nativeHost.extensionConnection(window(), tab.nativeContext, tab.tabId, tab.connection.browser_url) : tab.connection.browser_url;
+    const snapshot = tab.nativePage
+      ? (await tab.nativePage.execute({ action: { type: "snapshot", tabID: tab.tabId }, files: [] }, new AbortController().signal)).value
+      : await automationBroker.snapshot(tab.view.webContents);
     return { provider: "builtin", ...tab.connection, browser_url, tab_id: tab.tabId, url: tab.view.webContents.getURL(),
       download_directory: tab.nativeContext?.remote ? null : tab.downloadDirectory ? path.join(tab.downloadDirectory, "Downloads") : null,
-      downloads: tab.nativeContext?.remote ? tab.downloads.map(file => ({ ...file, path: null, relativePath: null, transferRequired: file.state === "completed" })) : tab.downloads, snapshot: await automationBroker.snapshot(tab.view.webContents) };
+      downloads: tab.nativeContext?.remote ? tab.downloads.map(file => ({ ...file, path: null, relativePath: null, transferRequired: file.state === "completed" })) : tab.downloads, snapshot };
   }
 
   function adoptNativePage(page, context, downloadDirectory) {
@@ -270,11 +286,6 @@ function createWindowBrowserPanel({ app, BaseWindow, WebContentsView, clipboard,
       path: file.path, relativePath: path.relative(downloadDirectory, file.path).split(path.sep).join("/"),
       error: file.state === "failed" ? "Download failed; inspect the page before retrying." : null })) });
     return tab;
-  }
-
-  function focusNativePage(tabID) {
-    const tab = selectBrowserTab(tabID);
-    sendToRenderer("legalwork:browser:state", { ...browserStatePayload(), focusedTabId: tab.tabId });
   }
 
   function prepareBrowserCapture(tab) {
@@ -328,7 +339,7 @@ function createWindowBrowserPanel({ app, BaseWindow, WebContentsView, clipboard,
     return {
       id: tabId,
       background: tab.background,
-      taskSessionId: tab.taskActive ? tab.taskSessionId : undefined,
+      taskSessionId: tab.taskSessionId || undefined,
       workspaceId: tab.workspaceId,
       dismissed: tab.dismissed,
       type: "browser",
@@ -394,6 +405,34 @@ function createWindowBrowserPanel({ app, BaseWindow, WebContentsView, clipboard,
     };
   }
 
+  async function showBrowserAutofill(event, details) {
+    const tab = [...browserTabs.values()].find(value => value.view.webContents === event.sender);
+    if (!tab) return;
+    hideMenuOverlay();
+    const serial = menuOverlayShowSerial;
+    const visible = () => Boolean(window()?.isFocused() && browserViewVisible && window()?.contentView.children.includes(tab.view));
+    try {
+      const suggestion = await prepareBrowserAutofill(tab, event, details, loadBrowserPasswords, visible);
+      if (!suggestion || serial !== menuOverlayShowSerial) return;
+      const pane = tab.view.getBounds(), zoom = tab.view.webContents.getZoomFactor();
+      const rect = suggestion.rect;
+      if (rect.x < 0 || rect.y < 0 || rect.x * zoom >= pane.width || (rect.y + rect.height) * zoom > pane.height) return;
+      const width = Math.min(320, pane.width), height = Math.min(360, 44 + suggestion.items.length * 60, pane.height);
+      const bottom = (rect.y + rect.height) * zoom;
+      const bounds = { x: pane.x + Math.min(rect.x * zoom, pane.width - width),
+        y: pane.y + Math.max(0, bottom + height <= pane.height ? bottom : rect.y * zoom - height), width, height };
+      const view = await ensureMenuOverlayView();
+      if (serial !== menuOverlayShowSerial || !suggestion.current()) return;
+      const request = { id: `autofill:${tab.tabId}:${serial}`, source: "autofill", tabId: tab.tabId, items: suggestion.items, fill: suggestion.fill };
+      menuOverlayRequest = request;
+      view.setBounds(Object.fromEntries(Object.entries(bounds).map(([key, value]) => [key, Math.round(value)])));
+      view.setVisible?.(true);
+      bringMenuOverlayToTop(view);
+      if (!await waitForMenuOverlayReady(view) || menuOverlayRequest !== request || !suggestion.current()) { if (menuOverlayRequest === request) hideMenuOverlay(); return; }
+      view.webContents.send("legalwork:menu-overlay:show", { id: request.id, source: request.source, items: request.items });
+    } catch { if (serial === menuOverlayShowSerial) hideMenuOverlay(); }
+  }
+
   function menuOverlayUrl() {
     const currentUrl = window()?.webContents?.getURL?.();
     if (currentUrl && /^https?:\/\//i.test(currentUrl)) {
@@ -432,6 +471,7 @@ function createWindowBrowserPanel({ app, BaseWindow, WebContentsView, clipboard,
     view.setBackgroundColor?.("#00000000");
     view.setVisible?.(false);
     view.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+    view.webContents.on("will-navigate", event => event.preventDefault());
     view.webContents.on("did-start-navigation", (_event, _url, isInPlace, isMainFrame) => {
       if (isMainFrame && !isInPlace) resetMenuOverlayReady();
     });
@@ -528,6 +568,11 @@ function createWindowBrowserPanel({ app, BaseWindow, WebContentsView, clipboard,
     const tab = getBrowserTab(request.tabId);
     hideMenuOverlay();
 
+    if (request.source === "autofill") {
+      void request.fill(payload.itemId).then(filled => { if (filled && !tab.view.webContents.isDestroyed()) tab.view.webContents.focus(); }).catch(() => {});
+      return;
+    }
+
     switch (payload.itemId) {
       case "copy-url":
         if (request.url) clipboard.writeText(request.url);
@@ -614,9 +659,21 @@ function createWindowBrowserPanel({ app, BaseWindow, WebContentsView, clipboard,
     // Cookies live on the session object, not the document — they survive this.
     const initialLoad = nativePage?.ready ?? view.webContents.loadURL("about:blank");
     view.setBounds({ x: 0, y: 0, width: 1200, height: 800 });
-    const tab = { tabId, view, background: !select, taskSessionId, workspaceId, taskActive: Boolean(taskSessionId), dismissed: false, favicon: null, downloadDirectory, downloads: [], initialLoad, nativePage };
+    const tab = { tabId, view, background: !select, taskSessionId, workspaceId, taskActive: Boolean(taskSessionId), dismissed: false, favicon: null, downloadDirectory, downloads: [], initialLoad, nativePage, autofillGeneration: 0 };
     browserTabs.set(tabId, tab);
     browserTabOrder.push(tabId);
+    view.webContents.on("did-start-navigation", () => {
+      tab.autofillGeneration++;
+      if (menuOverlayRequest?.tabId === tabId) hideMenuOverlay();
+    });
+    view.webContents.on("before-input-event", (event, input) => {
+      if (menuOverlayRequest?.source !== "autofill" || menuOverlayRequest.tabId !== tabId || input.type !== "keyDown") return;
+      if (input.key === "ArrowDown") {
+        event.preventDefault();
+        menuOverlayView.webContents.focus();
+        menuOverlayView.webContents.send("legalwork:menu-overlay:focus");
+      } else if (["Escape", "Tab"].includes(input.key)) hideMenuOverlay();
+    });
     // A web page asking for a new window. It cannot open one here, and the
     // safe opener decides whether the OS ever sees the link.
     if (!nativePage) view.webContents.setWindowOpenHandler(({ url: targetUrl }) => {
@@ -640,6 +697,7 @@ function createWindowBrowserPanel({ app, BaseWindow, WebContentsView, clipboard,
     view.webContents.on("did-start-loading", () => sendBrowserState());
     view.webContents.on("did-stop-loading", () => sendBrowserState());
     view.webContents.once("destroyed", () => {
+      if (menuOverlayRequest?.tabId === tabId) hideMenuOverlay();
       if (previewWindow?.contentView.children.includes(view)) previewWindow.contentView.removeChildView(view);
       browserTabs.delete(tabId);
       paneBounds.delete(tabId);
@@ -662,6 +720,7 @@ function createWindowBrowserPanel({ app, BaseWindow, WebContentsView, clipboard,
   function detachBrowserView(view) {
     const mainWindow = window();
     if (!mainWindow || !view) return;
+    if (menuOverlayRequest?.tabId === [...browserTabs.values()].find(tab => tab.view === view)?.tabId) hideMenuOverlay();
     try {
       if (mainWindow.contentView.children.includes(view)) {
         mainWindow.contentView.removeChildView(view);
@@ -868,13 +927,21 @@ function createWindowBrowserPanel({ app, BaseWindow, WebContentsView, clipboard,
   }
 
   function registerIpc(ipcMain) {
+    ipcMain.on("legalwork:autofill:suggest", (event, details) => { void showBrowserAutofill(event, details); });
+    ipcMain.on("legalwork:autofill:dismiss", event => {
+      if (event.senderFrame === event.sender.mainFrame && [...browserTabs.values()].some(tab => tab.view.webContents === event.sender) && (!menuOverlayRequest || menuOverlayRequest.source === "autofill")) hideMenuOverlay();
+    });
     ipcMain.handle("legalwork:browser:registerConnection", (event, value) => {
       if (!nativeHost || event.sender !== window()?.webContents || event.senderFrame && event.senderFrame !== event.sender.mainFrame || !isAllowedAppNavigation(event.sender.getURL())) throw new Error("Only the trusted LegalWork app can register its selected server.");
       return nativeHost.registerConnection(window(), value);
     });
     ipcMain.handle("legalwork:browser:attachSession", async (_event, context) => {
       if (!nativeHost) throw new Error("Native browser integration is unavailable.");
-      await nativeHost.attach(window(), context); return { attached: true };
+      await nativeHost.attach(window(), context);
+      for (const tab of browserTabs.values()) {
+        if (tab.taskSessionId === context.sessionId && tab.workspaceId === context.workspaceId && tab.nativeContext?.connectionId === context.connectionId) tab.taskActive = true;
+      }
+      return { attached: true };
     });
     ipcMain.handle("legalwork:browser:connection", (_event, tabID, context) => browserConnection(getBrowserTab(tabID), context));
     ipcMain.handle("legalwork:browser:show", (event, bounds, tabId) => {
@@ -951,7 +1018,9 @@ function createWindowBrowserPanel({ app, BaseWindow, WebContentsView, clipboard,
       for (const tab of [...browserTabs.values()]) {
         if (tab.taskSessionId !== sessionId) continue;
         tab.taskActive = false;
-        if (tab.background) closeBrowserTab(tab.tabId);
+        // Keep undismissed tabs and their chat ownership for follow-up turns.
+        // An explicit dismissal during active work still closes at turn end.
+        if (tab.background && tab.dismissed) closeBrowserTab(tab.tabId);
       }
       sendBrowserState();
     });
@@ -961,7 +1030,7 @@ function createWindowBrowserPanel({ app, BaseWindow, WebContentsView, clipboard,
       await tab.initialLoad;
       if (getBrowserTab(tabId) !== tab || tab.view.webContents.isDestroyed()) return null;
       if (tab.nativePage && !tab.connection) tab.connection = await automationBroker.grant(tab.view.webContents, () => tab.downloads,
-        tab.nativeContext, () => { tab.taskActive = true; tab.dismissed = false; sendBrowserState(); }, () => prepareBrowserCapture(tab));
+        tab.nativeContext, () => { tab.taskActive = true; tab.dismissed = false; sendBrowserState(); }, () => prepareBrowserCapture(tab), passwordActions(tab));
       return automationBroker.preview(tab.view.webContents, () => {
         // Preserve the existing hidden preview host, but prepare only after this
         // page's preceding native screenshot has physically finished.
@@ -1001,16 +1070,22 @@ function createWindowBrowserPanel({ app, BaseWindow, WebContentsView, clipboard,
       markMenuOverlayReady(menuOverlayView);
     });
     ipcMain.on("legalwork:menu-overlay:choose", (event, payload) => {
-      if (event.sender !== menuOverlayView?.webContents) return;
+      if (event.sender !== menuOverlayView?.webContents || event.senderFrame !== event.sender.mainFrame) return;
       handleMenuOverlayChoice(payload);
     });
     ipcMain.on("legalwork:menu-overlay:close", (event, payload) => {
       if (event.sender !== menuOverlayView?.webContents) return;
       if (payload?.requestId && payload.requestId !== menuOverlayRequest?.id) return;
+      const tab = menuOverlayRequest?.source === "autofill" ? browserTabs.get(menuOverlayRequest.tabId) : null;
       hideMenuOverlay();
+      if (tab && !tab.view.webContents.isDestroyed()) {
+        tab.view.webContents.send("legalwork:autofill:cancel");
+        tab.view.webContents.focus();
+      }
     });
     ipcMain.on("legalwork:menu-overlay:dismiss", (event) => {
       if (event.sender === menuOverlayView?.webContents) return;
+      if ([...browserTabs.values()].some(tab => tab.view.webContents === event.sender) && (!menuOverlayRequest || menuOverlayRequest.source === "autofill")) return;
       hideMenuOverlay();
     });
   }
@@ -1018,7 +1093,6 @@ function createWindowBrowserPanel({ app, BaseWindow, WebContentsView, clipboard,
   return {
     destroy: destroyBrowserView,
     adoptNativePage,
-    focusNativePage,
     isMainWindowAllowedNavigation,
     registerIpc,
     routeBlockedMainWindowNavigation,

@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
+import { nativeProviderDefinition, nativeProviderModels } from "./opencode-model-config.js";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -10,7 +11,7 @@ import type { ServerConfig, WorkspaceInfo } from "./types.js";
 const cleanup: Array<() => void | Promise<void>> = [];
 afterEach(async () => { while (cleanup.length) await cleanup.pop()?.(); });
 
-async function fixture(enabled = true) {
+async function fixture(enabled = true, catalogRestart = true) {
   const root = await mkdtemp(join(tmpdir(), "legalwork-custom-refresh-"));
   cleanup.push(() => rm(root, { recursive: true, force: true }));
   let inventory = ["old", "new"];
@@ -20,7 +21,7 @@ async function fixture(enabled = true) {
   let reloads = 0;
   let now = 1_000_000;
   let respond: (() => Promise<void>) | undefined;
-  let catalogModels: Record<string, unknown> = {};
+  let catalogInventory: string[] = [];
   const endpoint = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
     calls += 1;
     expect(request.headers.get("authorization")).toBe("Bearer refresh-test-key");
@@ -34,17 +35,18 @@ async function fixture(enabled = true) {
     workspaces: [workspace], authorizedRoots: [root], approval: { mode: "auto", timeoutMs: 1000 },
     corsOrigins: [], readOnly: false, startedAt: now, tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false,
   };
-  const oldModel = { name: "My edited model", tool_call: false, reasoning: true, limit: { context: 64000, output: 8000 }, variants: { careful: { reasoningEffort: "high" } } };
-  const provider = { npm: "@ai-sdk/openai-compatible", name: "Custom gateway", options: { baseURL: `http://127.0.0.1:${endpoint.port}/v1`, apiKey: "refresh-test-key" }, models: { old: oldModel, manual: { name: "Manual model" } }, whitelist: ["old", "manual"] };
-  await writeRuntimeOpencodeConfig(config, workspace.id, () => ({ provider: { custom: provider }, default_agent: "plan" }));
+  const oldModel = nativeProviderModels({ old: { name: "My edited model", capabilities: { tools: false, reasoning: { supported: true } }, limit: { context: 64000, output: 8000 }, variants: [{ id: "careful", settings: { reasoningEffort: "high" } }] } }).old!;
+  const provider = nativeProviderDefinition({ package: "@opencode/ai/providers/openai-compatible", name: "Custom gateway", settings: { baseURL: `http://127.0.0.1:${endpoint.port}/v1`, apiKey: "refresh-test-key" }, models: { old: oldModel, manual: { name: "Manual model" } } });
+  await writeRuntimeOpencodeConfig(config, workspace.id, () => ({ providers: { custom: provider }, default_agent: "plan" }));
   await writeLegalworkWorkspaceConfig(config, workspace.id, () => ({ customProviderModelRefresh: { custom: { enabled } } }));
   const refresh = createCustomProviderModelRefresh({
     config,
     now: () => now,
-    readProviders: async () => (await readRuntimeOpencodeConfig(config, workspace.id)).provider ?? {},
-    readCatalogModels: async () => catalogModels,
+    readProviders: async () => (await readRuntimeOpencodeConfig(config, workspace.id)).providers ?? {},
+    readCatalogInventory: async () => catalogInventory,
     isBusy: async () => busy,
     reload: async () => { reloads += 1; },
+    ...(catalogRestart ? { reloadCatalog: async () => { reloads += 1; return true; } } : {}),
   });
   return {
     config, workspace, provider, oldModel, refresh,
@@ -53,17 +55,16 @@ async function fixture(enabled = true) {
     get calls() { return calls; }, get reloads() { return reloads; },
     set inventory(value: string[]) { inventory = value; }, set httpStatus(value: number) { httpStatus = value; },
     set busy(value: boolean) { busy = value; }, set respond(value: () => Promise<void>) { respond = value; },
-    set catalogModels(value: Record<string, unknown>) { catalogModels = value; },
+    set catalogInventory(value: string[]) { catalogInventory = value; },
     advance: (milliseconds = CUSTOM_PROVIDER_REFRESH_MS) => { now += milliseconds; },
   };
 }
 
-test("built-in refresh adds catalog metadata, preserves settings and waits for idle", async () => {
+test("built-in refresh retains native ownership, preserves explicit settings and waits for a safe global reload", async () => {
   const f = await fixture(false);
-  const details = { name: "New built-in model", reasoning: true, tool_call: true, attachment: true, limit: { context: 200000, output: 64000 } };
-  f.catalogModels = { old: { name: "Catalog name" }, new: details };
-  await writeRuntimeOpencodeConfig(f.config, f.workspace.id, current => ({ ...current, provider: {
-    ...current.provider, anthropic: { options: { apiKey: "builtin-test-key" }, models: { old: f.oldModel }, whitelist: ["old"] },
+  f.catalogInventory = ["old", "new"];
+  await writeRuntimeOpencodeConfig(f.config, f.workspace.id, current => ({ ...current, providers: {
+    ...current.providers, anthropic: { settings: { apiKey: "builtin-test-key" }, models: { old: f.oldModel } },
   } }));
   f.busy = true;
   const result = await f.refresh(f.workspace, { providerId: "anthropic", force: true, catalog: true });
@@ -71,7 +72,7 @@ test("built-in refresh adds catalog metadata, preserves settings and waits for i
   expect(result.providers.anthropic.enabled).toBe(false);
   expect(f.calls).toBe(0);
   expect(f.reloads).toBe(0);
-  expect((await f.runtime()).provider?.anthropic).toEqual({ options: { apiKey: "builtin-test-key" }, models: { old: f.oldModel, new: details }, whitelist: ["old"] });
+  expect((await f.runtime()).providers?.anthropic).toEqual({ settings: { apiKey: "builtin-test-key" }, models: { old: f.oldModel } });
   f.busy = false;
   expect((await f.refresh(f.workspace)).reloaded).toBe(true);
   expect((await f.runtime()).default_agent).toBe("plan");
@@ -79,12 +80,25 @@ test("built-in refresh adds catalog metadata, preserves settings and waits for i
 
 test("an authenticated built-in provider can refresh without an existing provider config block", async () => {
   const f = await fixture(false);
-  const models = { "new-model": { name: "New model", limit: { context: 100000, output: 8000 } } };
-  f.catalogModels = models;
+  f.catalogInventory = ["new-model"];
   const result = await f.refresh(f.workspace, { providerId: "anthropic", force: true, catalog: true });
   expect(result.reloaded).toBe(true);
-  expect((await f.runtime()).providers?.anthropic).toMatchObject({ models });
+  expect((await f.runtime()).providers?.anthropic).toBeUndefined();
+  expect(result.providers.anthropic.availableModels).toEqual(["new-model"]);
   expect(f.calls).toBe(0);
+});
+
+test("explicit catalog refresh stays pending when a safe global catalog reload is unavailable", async () => {
+  const f = await fixture(false, false);
+  f.catalogInventory = ["native-loaded-model"];
+  const before = await f.runtime();
+  const result = await f.refresh(f.workspace, { providerId: "anthropic", force: true, catalog: true });
+  expect(result.reloaded).toBe(false);
+  expect(result.providers.anthropic).toMatchObject({ availableModels: ["native-loaded-model"], pendingReload: true, pendingCatalogReload: true });
+  expect(await f.runtime()).toEqual(before);
+  expect(f.reloads).toBe(0);
+  expect((await f.refresh(f.workspace)).reloaded).toBe(false);
+  expect((await f.settings()).anthropic.pendingCatalogReload).toBe(true);
 });
 
 test("refreshes the available inventory without selecting new models; throttles endpoint requests", async () => {
@@ -92,7 +106,7 @@ test("refreshes the available inventory without selecting new models; throttles 
   const first = await f.refresh(f.workspace);
   expect(first.reloaded).toBe(false);
   expect(first.providers.custom.availableModels).toEqual(["new", "old"]);
-  expect((await f.runtime()).provider?.custom).toEqual(f.provider);
+  expect((await f.runtime()).providers?.custom).toEqual(f.provider);
   expect((await f.runtime()).default_agent).toBe("plan");
   f.advance(60 * 60 * 1000 - 1);
   await f.refresh(f.workspace);
@@ -103,7 +117,7 @@ test("refreshes the available inventory without selecting new models; throttles 
   expect(f.calls).toBe(2);
   expect(f.reloads).toBe(0);
   expect((await f.settings()).custom.availableModels).toEqual([]);
-  expect((await f.runtime()).provider?.custom).toHaveProperty("models.old", f.oldModel);
+  expect((await f.runtime()).providers?.custom).toHaveProperty("models.old", f.oldModel);
 });
 
 test("keeps the available inventory after failure and applies selected model changes only when idle", async () => {
@@ -146,21 +160,21 @@ test("manual providers require opt-in, but explicit refresh bypasses age and aut
 test("refresh does not reselect a model the user removed, including after restart", async () => {
   const f = await fixture();
   await f.refresh(f.workspace);
-  await writeRuntimeOpencodeConfig(f.config, f.workspace.id, current => ({ ...current, provider: {
-    custom: { ...f.provider, models: { old: f.oldModel }, whitelist: ["old"] },
+  await writeRuntimeOpencodeConfig(f.config, f.workspace.id, current => ({ ...current, providers: {
+    custom: { ...f.provider, models: { old: f.oldModel } },
   } }));
   await f.refresh(f.workspace, { providerId: "custom", force: true });
   f.inventory = ["old", "new", "newer"];
   f.advance();
   const restartedRefresh = createCustomProviderModelRefresh({
     config: f.config,
-    readProviders: async () => (await f.runtime()).provider ?? {},
+    readProviders: async () => (await f.runtime()).providers ?? {},
     isBusy: async () => false,
     reload: async () => { throw new Error("Discovery must not reload the engine"); },
   });
   const result = await restartedRefresh(f.workspace);
   expect(result.providers.custom.availableModels).toEqual(["new", "newer", "old"]);
-  expect((await f.runtime()).provider?.custom).toEqual({ ...f.provider, models: { old: f.oldModel }, whitelist: ["old"] });
+  expect((await f.runtime()).providers?.custom).toEqual({ ...f.provider, models: { old: f.oldModel } });
   expect(result.reloaded).toBe(false);
 });
 
@@ -175,10 +189,10 @@ test("coalesces background refreshes and does not restore a disconnected provide
   const second = f.refresh(f.workspace);
   expect(first).toBe(second);
   await requestStarted;
-  await writeRuntimeOpencodeConfig(f.config, f.workspace.id, (current) => ({ ...current, provider: {} }));
+  await writeRuntimeOpencodeConfig(f.config, f.workspace.id, (current) => ({ ...current, providers: {} }));
   release();
   await first;
-  expect((await f.runtime()).provider).toEqual({});
+  expect((await f.runtime()).providers).toEqual({});
   expect(f.reloads).toBe(0);
 });
 
@@ -209,8 +223,8 @@ test("uses the worker's saved API key without exposing it in refresh status", as
 
 test("native custom provider discovery preserves explicit selections and independently optional limits", async () => {
   const f = await fixture();
-  const native = { package: "@opencode/ai/providers/openai-compatible", settings: { baseURL: f.provider.options.baseURL, apiKey: "refresh-test-key" },
-    models: { manual: { name: "Manual", limit: { output: 96_000 }, variants: [{ id: "careful", settings: { reasoningEffort: "high" } }] } } };
+  const native = nativeProviderDefinition({ package: "@opencode/ai/providers/openai-compatible", settings: { baseURL: f.provider.settings?.baseURL, apiKey: "refresh-test-key" },
+    models: { manual: { name: "Manual", limit: { output: 96_000 }, variants: [{ id: "careful", settings: { reasoningEffort: "high" } }] } } });
   await writeRuntimeOpencodeConfig(f.config, f.workspace.id, () => ({ providers: { custom: native } }));
   const refresh = createCustomProviderModelRefresh({ config: f.config,
     readProviders: async () => (await f.runtime()).providers ?? {}, isBusy: async () => false, reload: async () => {} });
@@ -229,8 +243,8 @@ test("a disconnected provider is not restored from the engine's stale config sna
     reload: async () => { throw new Error("Must not reload a disconnected provider"); },
   });
   await writeLegalworkWorkspaceConfig(f.config, f.workspace.id, () => ({ customProviderModelRefresh: { custom: { enabled: false, disconnected: true } } }));
-  await writeRuntimeOpencodeConfig(f.config, f.workspace.id, () => ({ provider: {} }));
+  await writeRuntimeOpencodeConfig(f.config, f.workspace.id, () => ({ providers: {} }));
   await refresh(f.workspace, { providerId: "custom", force: true });
   expect(f.calls).toBe(0);
-  expect((await f.runtime()).provider).toEqual({});
+  expect((await f.runtime()).providers).toEqual({});
 });

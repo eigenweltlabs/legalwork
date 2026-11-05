@@ -1,5 +1,7 @@
+import { AssistantSaveReportSchema, StoredViewSchema } from "../views/schema.js";
+import { saveAssistantReport } from "../assistant-reports.js";
 import { relative, resolve } from "node:path";
-import { realpath, stat } from "node:fs/promises";
+import { readFile, realpath, stat } from "node:fs/promises";
 import { z } from "zod";
 import { AssistantReactionEmojiSchema, AssistantShareFileSchema } from "../assistant-schema.js";
 import { assistantReactionTarget } from "../assistant-chat.js";
@@ -21,6 +23,18 @@ export function registerAssistantChatRoutes(options: Parameters<typeof registerM
       throw new ApiError(404, "assistant_session", "This Assistant chat is no longer available.");
     return { workspace, client };
   };
+  addRoute(routes, "POST", "/assistant/save-report", "client", async ctx => {
+    options.ensureWritable(config);
+    options.requireClientScope(ctx, "collaborator");
+    const parsed = context.extend({ ...AssistantSaveReportSchema.shape, sourceSessionId: z.string().min(1) })
+      .refine(value => value.sourceSessionId === value.sessionId).safeParse(await options.readJsonBodyLimited(ctx.request, 2 * 1024 * 1024));
+    if (!parsed.success) throw new ApiError(400, "assistant_report", "Provide a report key, valid view input and the current Assistant chat.");
+    const { workspace } = await source(parsed.data);
+    await options.requireApproval(ctx, { workspaceId: workspace.id, action: "view.write", summary: "Save an Assistant report", paths: [parsed.data.input.mode === "report" ? "Reports" : "Dashboards"] });
+    const result = await saveAssistantReport(workspace, { key: parsed.data.key, input: parsed.data.input, baseRevision: parsed.data.baseRevision });
+    options.changed();
+    return jsonResponse(result);
+  });
   addRoute(routes, "POST", "/assistant/share-file", "client", async ctx => {
     options.requireClientScope(ctx, "collaborator");
     const parsed = context.extend(AssistantShareFileSchema.shape).safeParse(await options.readJsonBodyLimited(ctx.request, 8000));
@@ -32,7 +46,9 @@ export function registerAssistantChatRoutes(options: Parameters<typeof registerM
     const path = await resolveWithinRoot(root, parsed.data.path);
     const info = await stat(path).catch(() => null);
     if (!info?.isFile()) throw new ApiError(404, "assistant_file", "This file does not exist. Save it before sharing it.");
-    return jsonResponse({ ok: true, file: { path: relative(root, path).split("\\").join("/"), title: parsed.data.title, description: parsed.data.description, size: info.size,
+    const view = /\.view\.json$/i.test(path) && info.size <= 2 * 1024 * 1024
+      ? StoredViewSchema.safeParse(await readFile(path, "utf8").then(JSON.parse).catch(() => null)) : null;
+    return jsonResponse({ ok: true, file: { ...(view?.success ? { documentType: view.data.mode } : {}), path: relative(root, path).split("\\").join("/"), title: parsed.data.title, description: parsed.data.description, size: info.size,
       ...(project.id !== workspace.id ? { source: { workspaceId: project.id, workspaceRoot: root, projectName: project.displayName || project.name } } : {}),
     } });
   });

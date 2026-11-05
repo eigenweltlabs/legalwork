@@ -8,6 +8,7 @@ import { ApiError } from "../errors.js";
 import { inheritWorkspaceOpencodeConnection } from "../opencode-connection.js";
 import type { ProjectField } from "@legalwork/types/workspace";
 import type { ServerConfig, TokenScope, WorkspaceInfo } from "../types.js";
+import { commitRegisteredEngineProjects } from "../project-engine-registration.js";
 import { ensureDir, exists, shortId } from "../utils.js";
 import { ensureWorkspaceFiles } from "../workspace-init.js";
 import { workspaceIdForPath } from "../workspaces.js";
@@ -150,7 +151,8 @@ export async function registerLocalProject(
   if (!config.authorizedRoots.some((root) => resolve(root) === workspacePath)) {
     config.authorizedRoots = [...config.authorizedRoots, workspacePath];
   }
-  return { workspace, persisted: await persistServerWorkspaceState(config) };
+  const persisted = await commitRegisteredEngineProjects(config, () => persistServerWorkspaceState(config));
+  return { workspace, persisted };
 }
 
 /** Change a workspace's display name and persist the registry; false when there is no such workspace. */
@@ -159,7 +161,7 @@ export async function renameRegisteredWorkspace(config: ServerConfig, id: string
   config.workspaces = config.workspaces.map((entry) =>
     entry.id === id ? { ...entry, displayName, name: displayName ?? entry.name } : entry,
   );
-  await persistServerWorkspaceState(config);
+  await commitRegisteredEngineProjects(config, () => persistServerWorkspaceState(config));
   return true;
 }
 
@@ -173,7 +175,8 @@ export async function unregisterWorkspace(config: ServerConfig, workspace: Works
     // Only remove exact matches; authorizedRoots can contain broader entries.
     config.authorizedRoots = config.authorizedRoots.filter((root) => resolve(root) !== resolve(workspace.path));
   }
-  return { deleted, persisted: await persistServerWorkspaceState(config) };
+  const persisted = await commitRegisteredEngineProjects(config, () => persistServerWorkspaceState(config));
+  return { deleted, persisted };
 }
 
 export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions): void {

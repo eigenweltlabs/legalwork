@@ -1,15 +1,15 @@
 import { expect, test } from "bun:test";
-import { lstat, mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { OpenCode } from "@opencode/client";
-import { approveEngineProject } from "./engine-project.js";
+import { writeNativeProjectProjection } from "./engine-project.js";
 import { createEngineClient } from "./engine-client.js";
 import { createConfiguredManagedEngine, startManagedEngineLifecycle } from "./managed-engine-lifecycle.js";
 import type { ServerConfig, WorkspaceInfo } from "./types.js";
 
 const binary = process.env.LEGALWORK_TEST_OPENCODE_BIN;
-test.skipIf(!binary)("one released engine holds unapproved recovery, keeps healthy chats usable, and promotes only after current work finishes", async () => {
+test.skipIf(!binary)("one released engine holds recovery during a configuration conflict, keeps healthy chats usable, and promotes only after current work finishes", async () => {
   const evidence = process.env.LEGALWORK_TEST_ENGINE_LIFECYCLE_EVIDENCE_DIR;
   if (evidence) await mkdir(evidence, { mode: 0o700 });
   const root = await realpath(evidence ?? await mkdtemp(join(tmpdir(), "legalwork-recovery-coordinator-")));
@@ -81,7 +81,11 @@ test.skipIf(!binary)("one released engine holds unapproved recovery, keeps healt
     process.kill(original.pid, "SIGKILL"); await until(async () => !original.running()); await initial.close(); initial = undefined;
     expect(config.managedImageAffinity).toBeUndefined();
     snapshot("initial-owner-closed", { pid: original.pid, running: original.running(), affinityRemoved: config.managedImageAffinity === undefined });
-    await approveEngineProject(config, healthy, second, []);
+    // Recovery must wait for an actual edited managed-file conflict, without
+    // requiring a project-automation approval for either registered project.
+    const projection = await writeNativeProjectProjection(config, workspace, {});
+    const originalProjection = await readFile(projection, "utf8");
+    await writeFile(projection, "// Changed outside LegalWork\n{}\n");
     lifecycle = await startManagedEngineLifecycle({ config, database, service, create });
     const recoveryAffinity = config.managedImageAffinity?.(healthy);
     expect(recoveryAffinity).toBeDefined();
@@ -102,7 +106,7 @@ test.skipIf(!binary)("one released engine holds unapproved recovery, keeps healt
     await healthyClient.session.prompt({ sessionID: current.id, id: "msg_coordinator_healthy", text: "Healthy hold" });
     await until(async () => Boolean(finishHealthy));
     const plainPID = lifecycle.engine.pid;
-    await approveEngineProject(config, workspace, first, []);
+    await writeFile(projection, originalProjection);
     await lifecycle.refresh();
     expect(config.managedEngineRecoveryState?.().mode).toBe("recovery");
     expect(lifecycle.engine.pid).toBe(plainPID);

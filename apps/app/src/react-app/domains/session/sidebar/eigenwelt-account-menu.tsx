@@ -1,7 +1,10 @@
-import { Gauge, LogIn, Settings, UserRound } from "lucide-react";
+import { useState } from "react";
+import { Gauge, LogIn, PanelBottomClose, PanelBottomOpen, Settings, UserRound } from "lucide-react";
+import { toast } from "sonner";
 import { useLocation, useNavigate } from "react-router-dom";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { isEigenweltEntitledStatus } from "@/app/lib/eigenwelt-trial";
+import { isElectronRuntime } from "@/app/lib/runtime-env";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -9,6 +12,7 @@ import { currentLocale, t } from "@/i18n";
 import { cn } from "@/lib/utils";
 import { useEigenweltEntitlements } from "../../connections/eigenwelt-entitlements";
 import { workspaceSettingsRoute } from "../../../shell/workspace-routes";
+import { useRecorderStore } from "../../recorder/recorder-store";
 
 export function EigenweltAccountMenu({ client, workspaceId }: {
   client: LegalworkServerClient | null;
@@ -16,6 +20,20 @@ export function EigenweltAccountMenu({ client, workspaceId }: {
 }) {
   const navigate = useNavigate();
   const location = useLocation();
+  const dictation = useRecorderStore(state => state.systemDictation);
+  const [changingMiniBar, setChangingMiniBar] = useState(false);
+  const desktop = isElectronRuntime();
+  const toggleMiniBar = async () => {
+    if (!dictation || changingMiniBar) return;
+    setChangingMiniBar(true);
+    try {
+      await useRecorderStore.getState().setMiniBarEnabled(!dictation.miniBarEnabled);
+    } catch {
+      toast.error(t("account.mini_bar_error"));
+    } finally {
+      setChangingMiniBar(false);
+    }
+  };
   const query = useEigenweltEntitlements({ client, workspaceId });
   const { account, entitlements, connected, reconnecting } = query.data ?? {};
   const name = connected ? account?.userName?.trim() || account?.userEmail || t("account.connected_title") : t("account.connected_title");
@@ -40,7 +58,11 @@ export function EigenweltAccountMenu({ client, workspaceId }: {
   );
 
   return (
-    <DropdownMenu onOpenChange={open => { if (open && client && workspaceId) void query.refetch(); }}>
+    <DropdownMenu onOpenChange={open => {
+      if (!open) return;
+      if (client && workspaceId) void query.refetch();
+      if (desktop) void useRecorderStore.getState().refreshSystemDictation();
+    }}>
       <Tooltip>
         <DropdownMenuTrigger render={<TooltipTrigger render={
           <Button variant="ghost" size="icon" className="relative size-10 rounded-xl hover:bg-foreground/10 data-[popup-open]:bg-foreground/10" aria-label={`${name} · ${status}`}>
@@ -73,6 +95,10 @@ export function EigenweltAccountMenu({ client, workspaceId }: {
           </DropdownMenuItem>
         ) : <DropdownMenuItem onClick={() => openSettings("account")}><LogIn />{t("account.sign_in")}</DropdownMenuItem>}
         <DropdownMenuItem onClick={() => openSettings("general")}><Settings />{t("settings.tab_settings")}</DropdownMenuItem>
+        {desktop && <DropdownMenuItem disabled={!dictation || changingMiniBar} onClick={() => void toggleMiniBar()}>
+          {dictation?.miniBarEnabled ? <PanelBottomClose /> : <PanelBottomOpen />}
+          {t(dictation?.miniBarEnabled ? "account.mini_bar_hide" : "account.mini_bar_show")}
+        </DropdownMenuItem>}
       </DropdownMenuContent>
     </DropdownMenu>
   );

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { nativeOpencodeConfig } from "./native-opencode-config.js";
+import { runtimeEngineConfiguration } from "./runtime-config-upgrade.js";
 
 import {
   containsSecretKey,
@@ -42,6 +42,14 @@ describe("isSecretKey", () => {
 });
 
 describe("sanitizeIntegrationMcp", () => {
+  test("native sharing keeps a paused connector and its explicit sign-in scope without sharing credentials", () => {
+    const result = sanitizeIntegrationMcp({ type: "remote", url: "https://fixture.invalid/mcp", disabled: true, timeout: { execution: 75000 }, protocol: "auto", codemode: true,
+      oauth: { client_id: "private-registration", client_secret: "synthetic-secret", scope: "documents:read" } });
+    expect(result).toEqual({ type: "remote", url: "https://fixture.invalid/mcp", disabled: true, timeout: { execution: 75000 }, protocol: "auto", codemode: true, oauth: { scope: "documents:read" } });
+    expect(() => runtimeEngineConfiguration({ mcp: { servers: { fixture: result } } })).not.toThrow();
+    expect(JSON.stringify(result)).not.toContain("private-registration");
+    expect(JSON.stringify(result)).not.toContain("synthetic-secret");
+  });
   test("drops top-level and nested secret keys", () => {
     const clean = sanitizeIntegrationMcp({
       type: "remote",
@@ -115,7 +123,7 @@ describe("sanitizePresetFragment", () => {
     expect(JSON.stringify(clean)).not.toContain("example.invalid");
     expect(clean).not.toHaveProperty("$legalworkReadOnlyProjection");
     expect(clean).not.toHaveProperty("default_agent");
-    expect(() => nativeOpencodeConfig({ providers: clean.providers, model: clean.model })).not.toThrow();
+    expect(() => runtimeEngineConfiguration({ providers: clean.providers, model: clean.model })).not.toThrow();
   });
   test("keeps only provider/model/small_model and strips provider secrets", () => {
     const clean = sanitizePresetFragment({

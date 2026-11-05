@@ -22,6 +22,7 @@ async function streamLevel(hud, level, duration = 100) {
   } while (Date.now() < until);
 }
 const status = {
+  miniBarEnabled: true,
   appearance: "app", enabled: true, registered: true, shortcutCaptureActive: false, accelerator: "Control",
   defaultAccelerator: "Control", customAccelerator: false, mode: "hold", supportsHold: true,
   platform: "darwin", accessibility: "granted", error: null,
@@ -37,10 +38,46 @@ app.whenReady().then(async () => {
   try {
     if (output) await mkdir(output, { recursive: true });
     await writeFile(hud.positionPath, JSON.stringify({ dock: "top" }));
+    await hud.setStatus({ ...status, miniBarEnabled: false });
+    assert.equal(hud.window, null, "a saved disabled preference never creates a visible bar at startup");
+    const showing = hud.setStatus(status);
+    await hud.setStatus({ ...status, miniBarEnabled: false });
+    await showing;
+    assert.equal(hud.window?.isVisible() ?? false, false, "disabling during window creation wins over the pending show");
     await hud.setStatus(status);
     assert.equal(hud.dock, "bottom", "previously saved top positions move to bottom");
     const window = hud.window;
     assert.ok(window);
+    const idleMeeting = { detectionEnabled: true, detectionSupported: true, detected: null, state: "idle", recordingId: null, startedAt: null, error: null };
+    await hud.setStatus({ ...status, miniBarEnabled: false });
+    for (const phase of ["idle", "starting", "listening", "transcribing", "success", "error"]) {
+      await hud.setState(phase);
+      assert.equal(window.isVisible(), false, `${phase} cannot reshow a disabled mini bar`);
+    }
+    await hud.setMeeting({ ...idleMeeting, detected: { app: "Test meeting" } });
+    assert.equal(window.isVisible(), false, "meeting detection cannot reshow a disabled mini bar");
+    await hud.setMeeting({ ...idleMeeting, state: "recording", recordingId: "active", startedAt: Date.now() });
+    await hud.setStatus(status);
+    assert.equal(window.isVisible(), true, "re-enabling restores the active recording controls");
+    await hud.setStatus({ ...status, miniBarEnabled: false });
+    assert.equal(window.isVisible(), false, "the bar can be hidden during recording");
+    assert.equal(hud.meeting.state, "recording");
+    assert.deepEqual(actions, [], "visibility changes never start, stop, or cancel capture");
+    await hud.setMeeting(idleMeeting);
+    await hud.setState("idle");
+    await hud.setStatus({ ...status, enabled: false, registered: false });
+    await hud.setMeeting({ ...idleMeeting, detectionEnabled: false });
+    assert.equal(window.isVisible(), true, "manual recording stays available without dictation or meeting detection");
+    await hud.setStatus(status);
+    ipcMain.emit("legalwork:dictation-hud:drag", { sender: window.webContents }, "start");
+    assert.ok(hud.drag);
+    await hud.setStatus({ ...status, miniBarEnabled: false });
+    assert.equal(hud.drag, null, "disabling cancels an in-progress drag");
+    assert.equal(hud.dockPreview, null);
+    assert.equal(window.isVisible(), false);
+    await hud.setStatus(status);
+    console.log("PASS: mini bar startup, show/hide race, dictation and meeting updates, recording independence, reactivation and drag cleanup");
+    if (process.argv.includes("--mini-bar")) return;
     const input = event => {
       const bounds = window.getBounds();
       cursor = { x: bounds.x + event.x, y: bounds.y + event.y };
@@ -450,7 +487,7 @@ app.whenReady().then(async () => {
     await delay(1_300);
     assert.equal((await state()).state, "idle");
     await hud.setStatus({ ...status, enabled: false });
-    assert.equal(window.isVisible(), false);
+    assert.equal(window.isVisible(), true, "turning dictation off leaves the enabled mini bar available for meetings");
     const meeting = { detectionEnabled: true, detectionSupported: true, detected: null, state: "idle", recordingId: null, startedAt: null, error: null };
     await hud.setMeeting(meeting);
     assert.equal(window.isVisible(), true, "meeting controls are available independently of dictation");
@@ -516,7 +553,7 @@ app.whenReady().then(async () => {
     await hud.setMeeting(meeting);
     assert.equal((await state()).state, "idle", "completion clears the recording controls");
     await hud.setMeeting({ ...meeting, detectionEnabled: false });
-    assert.equal(window.isVisible(), false);
+    assert.equal(window.isVisible(), true, "turning detection off leaves manual recording available");
     await hud.setStatus(status);
     cursor = { x: 0, y: 0 };
     for (const dock of ["left", "right"]) {

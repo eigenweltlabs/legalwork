@@ -12,6 +12,7 @@ import { mergeText, mergeableText, MERGEABLE_TEXT_MAX_BYTES } from "./text-merge
 import type { WikiStore } from "./store.js";
 
 const hash = (data: Buffer | string) => createHash("sha256").update(data).digest("hex");
+const DOWNLOAD_CONCURRENCY = 6;
 const entrySchema = z.object({ path: z.string(), hash: z.string().regex(/^[a-f0-9]{64}$/), size: z.number().int().min(0).max(100 * 1024 * 1024) });
 type SyncedFile = z.infer<typeof entrySchema>;
 const baseSchema = z.object({ binding: z.string(), files: z.array(entrySchema.extend({ text: z.string().optional() })).max(50_000) });
@@ -319,18 +320,30 @@ export class WikiSync {
       const stale = new Set<string>();
       // Place downloads only after successful file updates. Each local write
       // names its base, so a save made during the transfer survives for retry.
-      for (const placement of placements) {
-        try {
-          const data = placement.file ? placement.data ?? await fetchRemote(placement.file) : null;
-          await this.unchanged(id, binding);
-          if (data) await this.store.writeAsset(id, placement.path, data, placement.expected);
-          else if (placement.expected) await this.store.remove(id, placement.path, placement.expected);
-        } catch (error) {
-          if (!(error instanceof ApiError && error.status === 409) || error.code === "wiki_binding_changed") throw error;
-          stale.add(placement.path);
+      const queue = placements.values();
+      let failed = false;
+      const placeDownloads = async () => {
+        for (const placement of queue) {
+          if (failed) return;
+          try {
+            const data = placement.file ? placement.data ?? await fetchRemote(placement.file) : null;
+            await this.unchanged(id, binding);
+            if (data) await this.store.writeAsset(id, placement.path, data, placement.expected);
+            else if (placement.expected) await this.store.remove(id, placement.path, placement.expected);
+          } catch (error) {
+            if (!(error instanceof ApiError && error.status === 409) || error.code === "wiki_binding_changed") {
+              failed = true;
+              throw error;
+            }
+            stale.add(placement.path);
+          }
+          if (placement.file && !mergeableText(placement.path)) fetched.delete(placement.path);
         }
-        if (placement.file && !mergeableText(placement.path)) fetched.delete(placement.path);
-      }
+      };
+      // Drain in-flight work before reporting failure so a retry cannot race
+      // downloads from the previous round. Stop starting new work on failure.
+      const results = await Promise.allSettled(Array.from({ length: Math.min(DOWNLOAD_CONCURRENCY, placements.length) }, placeDownloads));
+      for (const result of results) if (result.status === "rejected") throw result.reason;
       const saved: SyncBase = { binding, files: [] };
       for (const file of next.values()) {
         if (stale.has(file.path)) {

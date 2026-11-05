@@ -45,8 +45,9 @@ class LegalworkPcmBatcher extends AudioWorkletProcessor {
   }
   process(inputs) {
     if (this.flushed) return false;
-    const channel = inputs[0]?.[0];
-    if (!channel) return true;
+    // Missing/muted input still advances the shared capture clock. Skipping
+    // those quanta shifts this source ahead of the other person's audio.
+    const channel = inputs[0]?.[0] ?? new Float32Array(128);
     let read = 0;
     while (read < channel.length) {
       const take = Math.min(channel.length - read, this.buffer.length - this.offset);
@@ -281,7 +282,8 @@ export async function startCapture(
     signal?.removeEventListener("abort", abortCapture);
     if (meterTimer !== null) window.clearInterval(meterTimer);
     for (const recorder of recorders) {
-      if (recorder.state !== "inactive") recorder.stop();
+      try { if (recorder.state !== "inactive") recorder.stop(); }
+      catch { /* An encoder failure must not prevent releasing our inputs. */ }
     }
     for (const node of worklets) {
       node.port.close();
@@ -492,30 +494,40 @@ export async function startCapture(
       },
       stop: () => {
         stopPromise ??= (async () => {
+          let timeout: number | undefined;
           try {
-            // Flush the encoder before the graph goes away so the final
-            // webm chunk (containing the cues) reaches disk.
-            await Promise.all(recorders.map(async recorder => {
-              if (recorder.state === "inactive") return;
-              if (options.dictation) {
-                recorder.stop();
-                return;
-              }
-              await new Promise<void>(resolve => {
-                recorder.addEventListener("stop", () => resolve(), { once: true });
-                recorder.stop();
-              });
-            }));
-            // The acknowledgement trails the final partial PCM batch on
-            // the same port. Finalize transcription only after it is sent.
-            await flushPcm();
-            // Blob conversions are asynchronous: wait for the final WebM
-            // chunk before the caller finalizes the file.
-            while (pendingChunkWrites.size > 0) {
-              await Promise.all(Array.from(pendingChunkWrites));
-            }
-            if (chunkWriteError) throw chunkWriteError;
+            await Promise.race([
+              new Promise<never>((_resolve, reject) => {
+                timeout = window.setTimeout(() => reject(new Error(t("recorder.capture_finish_failed"))), 5000);
+              }),
+              (async () => {
+                // Flush the encoder before the graph goes away so the final
+                // webm chunk (containing the cues) reaches disk.
+                await Promise.all(recorders.map(async recorder => {
+                  if (recorder.state === "inactive") return;
+                  if (options.dictation) {
+                    recorder.stop();
+                    return;
+                  }
+                  await new Promise<void>(resolve => {
+                    recorder.addEventListener("stop", () => resolve(), { once: true });
+                    recorder.stop();
+                  });
+                }));
+                if (stopped) return;
+                // The acknowledgement trails the final partial PCM batch on
+                // the same port. Finalize transcription only after it is sent.
+                await flushPcm();
+                // Blob conversions are asynchronous: wait for the final WebM
+                // chunk before the caller finalizes the file.
+                while (pendingChunkWrites.size > 0) {
+                  await Promise.all(Array.from(pendingChunkWrites));
+                }
+                if (chunkWriteError) throw chunkWriteError;
+              })(),
+            ]);
           } finally {
+            if (timeout !== undefined) window.clearTimeout(timeout);
             await cleanup();
           }
         })();

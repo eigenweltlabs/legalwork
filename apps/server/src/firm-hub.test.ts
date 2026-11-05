@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -18,7 +18,9 @@ import {
   setFirmHubAdded,
   setFirmHubMemberKey,
 } from "./firm-hub.js";
-import { orgPolicyEngineDir } from "./org-policy-engine.js";
+import { Config } from "@opencode/schema/config";
+import { Schema } from "effect";
+import { buildOrgPolicyEngineLayer, orgPolicyEngineDir } from "./org-policy-engine.js";
 import type { ServerConfig } from "./types.js";
 
 const realFetch = globalThis.fetch;
@@ -152,8 +154,8 @@ describe("the firm's Knowledge Hub", () => {
 
     expect(changes).toEqual(["app+engine"]);
     expect(await firmHubConnectorBlocks(config)).toEqual({
-      research: { type: "remote", url: "https://research.example.com/mcp", oauth: false, headers: { "X-Api-Key": "firm-key" }, enabled: true },
-      box: { type: "remote", url: "https://box.example.com/mcp", enabled: true, oauth: { clientId: "client-1", scope: "root_readonly" } },
+      research: { type: "remote", url: "https://research.example.com/mcp", oauth: false, headers: { "X-Api-Key": "firm-key" }, disabled: false },
+      box: { type: "remote", url: "https://box.example.com/mcp", disabled: false, oauth: { client_id: "client-1", scope: "root_readonly" } },
     });
     expect([...(await firmHubConnectorNames(config))].sort()).toEqual(["box", "docs", "research"]);
     expect((await readFirmHubView(config)).items.find((item) => item.id === "mcp-own")?.connector).toEqual({
@@ -163,13 +165,53 @@ describe("the firm's Knowledge Hub", () => {
     // The member's own key, kept on this computer.
     await setFirmHubMemberKey(config, "mcp-own", "Bearer own-key");
     expect((await firmHubConnectorBlocks(config)).docs).toEqual({
-      type: "remote", url: "https://docs.example.com/mcp", enabled: true, oauth: false, headers: { Authorization: "Bearer own-key" },
+      type: "remote", url: "https://docs.example.com/mcp", disabled: false, oauth: false, headers: { Authorization: "Bearer own-key" },
     });
     await expect(setFirmHubMemberKey(config, "mcp-firm", "nope")).rejects.toMatchObject({ code: "firm_hub_item_not_found" });
+
+    // Exercise the strict startup boundary that previously stopped the backend.
+    const layer = await buildOrgPolicyEngineLayer(config, { permissions: [] });
+    expect(() => Schema.decodeUnknownSync(Config.Info)(layer, { onExcessProperty: "error" })).not.toThrow();
 
     // The same hub again changes nothing.
     await sync();
     expect(changes).toEqual(["app+engine", "app+engine"]);
+  });
+
+  test("normalizes shared credentials and skips malformed connectors at the startup boundary", async () => {
+    const { config, hub, signIn, sync } = await setup();
+    hub.items = [
+      { id: "legacy-app", kind: "mcp", name: "legacy", version: 1, installation: "automatic",
+        payload: remote("legacy", { by: "firm" }),
+        secret: JSON.stringify({ type: "remote", url: "https://legacy.example.com/mcp", enabled: true, timeout: 5000,
+          oauth: { clientId: "client-1", clientSecret: "synthetic-private-secret", callbackPort: 19876 } }) },
+      { id: "native-app", kind: "mcp", name: "native", version: 1, installation: "automatic",
+        payload: remote("native", { by: "firm" }),
+        secret: JSON.stringify({ type: "remote", url: "https://native.example.com/mcp",
+          oauth: { client_id: "native-client", client_secret: "synthetic-native-secret" } }) },
+      { id: "public", kind: "mcp", name: "public", version: 1, installation: "automatic", payload: remote("public", { by: "none" }) },
+      { id: "local", kind: "mcp", name: "local", version: 1, installation: "automatic",
+        payload: { key: "local", mcp: { type: "local", command: ["synthetic-mcp"], enabled: true }, access: { by: "member", name: "API_KEY" } } },
+      { id: "malformed", kind: "mcp", name: "broken", version: 1, installation: "automatic",
+        payload: remote("broken", { by: "firm" }),
+        secret: JSON.stringify({ type: "remote", url: "https://broken.example.com/mcp", unsupported: "synthetic-secret-never-log" }) },
+    ];
+    await signIn();
+    await sync();
+    await setFirmHubMemberKey(config, "local", "synthetic-local-key");
+    const warning = spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const layer = await buildOrgPolicyEngineLayer(config, { permissions: [] });
+      const native = Schema.decodeUnknownSync(Config.Info)(layer, { onExcessProperty: "error" });
+      expect(Object.keys(native.mcp?.servers ?? {}).sort()).toEqual(["legacy", "local", "native", "public"]);
+      expect(native.mcp?.servers?.legacy).toEqual({ type: "remote", url: "https://legacy.example.com/mcp", disabled: false,
+        timeout: { startup: 5000, catalog: 5000, execution: 5000 },
+        oauth: { client_id: "client-1", client_secret: "synthetic-private-secret", callback_port: 19876 } });
+      expect(native.mcp?.servers?.native).toMatchObject({ oauth: { client_id: "native-client", client_secret: "synthetic-native-secret" } });
+      expect(native.mcp?.servers?.local).toEqual({ type: "local", command: ["synthetic-mcp"], disabled: false, environment: { API_KEY: "synthetic-local-key" } });
+      expect(warning).toHaveBeenCalledWith("[firm-hub] Connector malformed has invalid settings and was not loaded.");
+      expect(JSON.stringify(warning.mock.calls)).not.toContain("synthetic-secret-never-log");
+    } finally { warning.mockRestore(); }
   });
 
   test("a firm without the hub in its plan has none on this computer", async () => {

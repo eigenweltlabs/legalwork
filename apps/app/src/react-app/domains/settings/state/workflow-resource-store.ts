@@ -1,7 +1,8 @@
+import { openUnsavedWorkflow } from "../../session/artifacts/document-shutdown-navigation";
 import { create } from "zustand";
 import type { SkillResourceCard } from "@/app/types";
 import { t } from "@/i18n";
-import { registerUnsavedDocument } from "../../session/artifacts/docx-document-state";
+import { documentIsInFront, registerDocumentShutdown, registerUnsavedDocument } from "../../session/artifacts/docx-document-state";
 import { requestPanelTab } from "../../session/panel/panel-tab-request";
 import { refreshWorkflowResources, useWorkflowEditorStore } from "./workflow-editor-store";
 import { isDocumentWorkflowResource, isEditableWorkflowResource, isTextWorkflowResource } from "./workflow-resource-type";
@@ -96,14 +97,22 @@ export async function openWorkflowResource(workflowId: string, resource: SkillRe
   };
   useWorkflowResourceStore.setState((state) => ({ drafts: { ...state.drafts, [id]: draft } }));
   registrations.get(id)?.();
-  registrations.set(id, registerUnsavedDocument(id, resource.name, () => {
+  const unregister = registerUnsavedDocument(id, resource.name, () => {
     const current = useWorkflowResourceStore.getState().drafts[id];
     return Boolean(current && (current.saving || resourceDirty(current)));
   }, () => {
     if (!isDocumentWorkflowResource(resource.name)) { discardWorkflowResource(id); return; }
     const current = useWorkflowResourceStore.getState().drafts[id];
     if (current) editWorkflowResource(id, { content: current.baseline, documentDirty: false, revision: current.revision + 1 });
-  }, !isDocumentWorkflowResource(resource.name)));
+  }, !isDocumentWorkflowResource(resource.name));
+  const unregisterShutdown = registerDocumentShutdown(id, {
+    save: () => saveWorkflowResource(id),
+    discard: () => discardWorkflowResource(id),
+    isBusy: () => Boolean(useWorkflowResourceStore.getState().drafts[id]?.saving),
+    open: navigate => openUnsavedWorkflow(workflow.workspaceId, { id, type: "workflow-resource", label: resource.name }, navigate),
+    isVisible: () => documentIsInFront(document.getElementById(id)),
+  });
+  registrations.set(id, () => { unregister(); unregisterShutdown(); });
   requestPanelTab({ id, type: "workflow-resource", label: resource.name }, { kind: "workflows", workspaceId: workflow.workspaceId });
   await reloadWorkflowResource(id);
   return id;

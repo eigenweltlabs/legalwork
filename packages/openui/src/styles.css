@@ -1,6 +1,7 @@
+@layer theme, base, openui, components, utilities;
 @import "@openuidev/react-ui/layered/styles/index.css";
-/* Stock OpenUI owns component appearance. These rules only arrange the local
-   data adapters and keep them usable inside tabs and embedded page blocks. */
+/* Keep stock OpenUI above the app reset, then arrange the data adapters and
+   strengthen metric hierarchy for tabs and embedded page blocks. */
 .lw-openui { min-width: 0; container-type: inline-size; color: var(--openui-text-neutral-primary); font: var(--openui-text-body-default); }
 .lw-view-stack { display: grid; gap: var(--openui-space-xl); }
 .lw-view-stack-item, .lw-view-card-body > *, .lw-view-chart { min-width: 0; }
@@ -8,6 +9,9 @@
 .lw-view-title { font: var(--openui-text-heading-xl); letter-spacing: var(--openui-text-heading-xl-letter-spacing); margin: 0; }
 .lw-view-heading { font: var(--openui-text-heading-md); margin: 0; }
 .lw-view-prose { white-space: pre-wrap; margin: 0; }
+.lw-view-metric .openui-overview-card { min-width: 0; padding: 16px; }
+.lw-view-metric .openui-overview-card__slot--top { font: var(--openui-text-body-sm); color: var(--openui-text-neutral-secondary); }
+.lw-view-metric .openui-metric-indicator__main-value { font-size: 28px; font-weight: 600; line-height: 1.15; font-variant-numeric: tabular-nums; }
 .lw-view-source { cursor: pointer; text-align: left; color: inherit; }
 .lw-view-source:hover { text-decoration: underline; text-underline-offset: 3px; }
 .lw-view-source:focus-visible { outline: 2px solid var(--openui-border-interactive-selected); outline-offset: 3px; border-radius: 3px; }
@@ -36,3 +40,10 @@
 .lw-view-chart summary { cursor: pointer; margin-bottom: var(--openui-space-s); }
 @container (max-width: 520px) { .lw-view-stack { grid-template-columns: 1fr !important; } }
 @media (prefers-reduced-motion: reduce) { .lw-openui *, .lw-openui *::before, .lw-openui *::after { animation: none !important; transition: none !important; } }
+
+.lw-view-actions { list-style: none; padding: 0; margin: 0; display: grid; gap: 0; }
+.lw-view-actions li { min-width: 0; padding: 16px 0; border-bottom: 1px solid var(--openui-border-default); display: grid; gap: 6px; overflow-wrap: anywhere; }
+.lw-view-actions li:first-child { padding-top: 0; }
+.lw-view-actions li:last-child { border-bottom: 0; padding-bottom: 0; }
+.lw-view-action-heading { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 8px; font-weight: 600; }
+.lw-view-actions p { margin: 0; }

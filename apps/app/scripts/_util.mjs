@@ -11,7 +11,6 @@ import { randomUUID } from "node:crypto";
 
 import { OpenCode } from "@opencode/client";
 import { opencodeReleaseTarget } from "../../../packages/opencode-release/index.mjs";
-import { opencodeEngineSelection } from "../../../packages/opencode-release/selection.mjs";
 
 const serverCredentials = new Map();
 
@@ -79,15 +78,20 @@ export async function findFreePort() {
 export async function resolveOpencodeBinary({
   env = process.env,
   resourcesDirectory = fileURLToPath(new URL("../../desktop/resources/", import.meta.url)),
-  selection = opencodeEngineSelection,
+  selection,
   platform = process.platform,
   arch = process.arch,
 } = {}) {
   const filename = platform === "win32" ? "opencode.exe" : "opencode";
-  const candidate = env.LEGALWORK_TEST_OPENCODE_BIN ?? env.OPENCODE_BIN
-    ?? (selection.kind === "derivative"
+  let candidate = env.LEGALWORK_TEST_OPENCODE_BIN ?? env.OPENCODE_BIN;
+  if (candidate === undefined) {
+    // Import prepared build metadata only when resolving the actual engine.
+    // UI unit tests supply fixture selections and need no compiled binary.
+    selection ??= (await import("../../../packages/opencode-release/selection.mjs")).opencodeEngineSelection;
+    candidate = selection.kind === "derivative"
       ? join(resourcesDirectory, "opencode-engine", selection.artifactId, opencodeReleaseTarget(platform, arch), filename)
-      : join(resourcesDirectory, "sidecars", filename));
+      : join(resourcesDirectory, "sidecars", filename);
+  }
   if (!candidate.trim()) throw new Error("OpenCode test executable must be a nonempty path");
   try {
     const executable = await realpath(candidate);

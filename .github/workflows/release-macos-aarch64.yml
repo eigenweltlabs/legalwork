@@ -70,6 +70,7 @@ jobs:
       APPLE_CODESIGN_CERT_P12_BASE64: ${{ secrets.APPLE_CODESIGN_CERT_P12_BASE64 }}
       APPLE_CODESIGN_CERT_PASSWORD: ${{ secrets.APPLE_CODESIGN_CERT_PASSWORD }}
   sandbox-runtime:
+    if: needs.resolve-release.outputs.build_electron == 'true'
     uses: ./.github/workflows/sandbox-runtime.yml
     needs: resolve-release
     with:
@@ -77,8 +78,6 @@ jobs:
       run_tests: false
   resolve-release:
     name: Resolve Release Metadata
-    # SignPath trusted builds require every job leading to the Windows signing
-    # request to use GitHub-hosted runners.
     runs-on: ubuntu-latest
     outputs:
       release_tag: ${{ steps.resolve.outputs.release_tag }}
@@ -230,8 +229,6 @@ jobs:
   verify-release:
     name: Verify Release Tag
     needs: resolve-release
-    # SignPath trusted builds require every job leading to the Windows signing
-    # request to use GitHub-hosted runners.
     runs-on: ubuntu-latest
     env:
       RELEASE_TAG: ${{ needs.resolve-release.outputs.release_tag }}
@@ -273,16 +270,12 @@ jobs:
     env:
       RELEASE_TAG: ${{ needs.resolve-release.outputs.release_tag }}
       MACOS_NOTARIZE: ${{ needs.resolve-release.outputs.notarize }}
-      SIGNPATH_ORGANIZATION_ID: ${{ secrets.SIGNPATH_ORGANIZATION_ID || vars.SIGNPATH_ORGANIZATION_ID }}
-      SIGNPATH_PROJECT_SLUG: ${{ secrets.SIGNPATH_PROJECT_SLUG || vars.SIGNPATH_PROJECT_SLUG }}
-      SIGNPATH_SIGNING_POLICY_SLUG: ${{ secrets.SIGNPATH_SIGNING_POLICY_SLUG || vars.SIGNPATH_SIGNING_POLICY_SLUG }}
-      SIGNPATH_ARTIFACT_CONFIGURATION_SLUG: ${{ secrets.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG || vars.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG }}
 
     strategy:
       fail-fast: false
       matrix:
         include:
-          - platform: macos-14
+          - platform: macos-15
             os_type: macos
             artifact: electron-macos-arm64
             electron_args: "--mac --arm64"
@@ -306,18 +299,6 @@ jobs:
             electron_args: "--linux --arm64"
             target_triple: aarch64-unknown-linux-gnu
             executable: linux-arm64-unpacked/legalwork
-          - platform: windows-2022
-            os_type: windows
-            artifact: electron-windows-x64
-            electron_args: "--win --x64"
-            target_triple: x86_64-pc-windows-msvc
-            executable: win-unpacked/LegalWork.exe
-          - platform: windows-11-arm
-            os_type: windows
-            artifact: electron-windows-arm64
-            electron_args: "--win --arm64"
-            target_triple: aarch64-pc-windows-msvc
-            executable: win-arm64-unpacked/LegalWork.exe
 
     steps:
       - name: Checkout
@@ -325,18 +306,6 @@ jobs:
         with:
           ref: ${{ env.RELEASE_TAG }}
           fetch-depth: 0
-
-      - name: Enable git long paths (Windows)
-        if: matrix.os_type == 'windows'
-        shell: pwsh
-        run: git config --global core.longpaths true
-
-      - name: Validate SignPath configuration (Windows)
-        if: matrix.os_type == 'windows' && (env.SIGNPATH_PROJECT_SLUG != '' || env.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG != '')
-        shell: bash
-        env:
-          SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
-        run: node scripts/release/validate-signpath-config.mjs
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -429,14 +398,13 @@ jobs:
 
       - uses: actions/download-artifact@v4
         with:
-          name: sandbox-runtime-${{ matrix.os_type == 'macos' && 'darwin' || matrix.os_type == 'windows' && 'win32' || 'linux' }}-${{ startsWith(matrix.target_triple, 'aarch64') && 'arm64' || 'x64' }}
+          name: sandbox-runtime-${{ matrix.os_type == 'macos' && 'darwin' || 'linux' }}-${{ startsWith(matrix.target_triple, 'aarch64') && 'arm64' || 'x64' }}
           path: ${{ runner.temp }}/sandbox-runtime
       - name: Unpack protected runtime
         shell: bash
         run: |
           mkdir -p apps/server/resources/agent-sandbox/runtime
           archive="$RUNNER_TEMP/sandbox-runtime/sandbox-runtime.tgz"
-          if [ "$RUNNER_OS" = Windows ]; then archive="$(cygpath -u "$archive")"; fi
           tar -xzf "$archive" -C apps/server/resources/agent-sandbox/runtime
 
       - name: Build Electron app
@@ -493,78 +461,182 @@ jobs:
             ${{ matrix.electron_args }} \
             --publish never
 
+      - name: Verify packaged startup
+        timeout-minutes: 3
+        shell: bash
+        env:
+          PACKAGED_EXECUTABLE: apps/desktop/dist-electron/${{ matrix.executable }}
+        run: |
+          set -euo pipefail
+          if [ "$RUNNER_OS" = Linux ]; then
+            xvfb-run -a node apps/desktop/scripts/packaged-startup-regression.mjs "$PACKAGED_EXECUTABLE"
+          else
+            node apps/desktop/scripts/packaged-startup-regression.mjs "$PACKAGED_EXECUTABLE"
+          fi
+
+      - name: Upload Electron release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          assets=(apps/desktop/dist-electron/legalwork-*)
+          if [ ${#assets[@]} -eq 0 ]; then
+            echo "No Electron release assets found in apps/desktop/dist-electron" >&2
+            exit 1
+          fi
+          gh release upload "$RELEASE_TAG" "${assets[@]}" --repo "$GITHUB_REPOSITORY" --clobber
+
+      - name: Checksum final Electron release assets
+        shell: bash
+        run: node scripts/release/checksums.mjs apps/desktop/dist-electron
+
+      - name: Upload Electron updater manifest artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            apps/desktop/dist-electron/latest*.yml
+            apps/desktop/dist-electron/SHA256SUMS
+          if-no-files-found: error
+
+  publish-electron-windows:
+    name: Build + Sign Windows (${{ matrix.target_triple }})
+    needs: [resolve-release, verify-release, sandbox-runtime, opencode-engine]
+    if: needs.resolve-release.outputs.build_electron == 'true'
+    environment: windows-signing
+    permissions:
+      actions: read
+      contents: write
+      id-token: write
+    runs-on: ${{ matrix.platform }}
+    timeout-minutes: 180
+    env:
+      RELEASE_TAG: ${{ needs.resolve-release.outputs.release_tag }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-2022
+            artifact: electron-windows-x64
+            electron_args: "--win --x64"
+            target_triple: x86_64-pc-windows-msvc
+            executable: win-unpacked/LegalWork.exe
+          - platform: windows-11-arm
+            artifact: electron-windows-arm64
+            electron_args: "--win --arm64"
+            target_triple: aarch64-pc-windows-msvc
+            executable: win-arm64-unpacked/LegalWork.exe
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          fetch-depth: 0
+
+      - name: Enable git long paths (Windows)
+        shell: pwsh
+        run: git config --global core.longpaths true
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.4.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.22.1
+
+      - name: Download the same-run source-built engine
+        uses: actions/download-artifact@v4
+        with:
+          name: opencode-derivative-ci
+          path: ${{ runner.temp }}/opencode-derivative
+      - name: Verify and prepare the production engine
+        uses: ./.github/actions/setup-opencode
+        with:
+          build-mode: production
+          archive-directory: ${{ runner.temp }}/opencode-derivative/archives
+          manifest-sha256: ${{ needs.opencode-engine.outputs.manifest-sha256 }}
+
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+
+      - name: Get pnpm store path
+        id: pnpm-store
+        shell: bash
+        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pnpm store
+        uses: actions/cache@v5
+        continue-on-error: true
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: ${{ runner.os }}-${{ runner.arch }}-electron-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-electron-pnpm-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # After the frozen-lockfile install; electron-builder, the updater feed,
+      # and app.getVersion() all pick the stamped version up from package.json.
+      # The lockfile-only resync keeps pnpm-lock.yaml consistent with the
+      # stamped orchestrator dependency pins (workspace links, no re-resolution)
+      # so later pnpm invocations in this job don't reject the workspace.
+      - name: Stamp release version from tag
+        shell: bash
+        run: |
+          node scripts/release/apply-version.mjs --tag "$RELEASE_TAG"
+          pnpm install --lockfile-only --no-frozen-lockfile
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: sandbox-runtime-win32-${{ startsWith(matrix.target_triple, 'aarch64') && 'arm64' || 'x64' }}
+          path: ${{ runner.temp }}/sandbox-runtime
+      - name: Unpack protected runtime
+        shell: bash
+        run: |
+          mkdir -p apps/server/resources/agent-sandbox/runtime
+          archive="$RUNNER_TEMP/sandbox-runtime/sandbox-runtime.tgz"
+          archive="$(cygpath -u "$archive")"
+          tar -xzf "$archive" -C apps/server/resources/agent-sandbox/runtime
+
+      - name: Build Electron app
+        shell: bash
+        env:
+          # The renderer bundle (vite build) peaks above Node's default heap.
+          NODE_OPTIONS: --max-old-space-size=6144
+          # TARGET tells prepare-sidecar.mjs which architecture's sidecars
+          # to download (critical for cross-arch builds like x64 on arm64 mac).
+          TARGET: ${{ matrix.target_triple }}
+        run: pnpm --filter @legalwork/desktop build:electron:production
+
+      # Authenticate after the long build so the Azure CLI token is fresh.
+      - name: Sign in to Azure signing
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          allow-no-subscriptions: true
+
       - name: Package Electron (Windows)
-        if: matrix.os_type == 'windows'
         shell: bash
         run: |
           set -euo pipefail
           pnpm --dir apps/desktop exec electron-builder \
-            --config electron-builder.yml \
+            --config electron-builder.azure.yml \
             ${{ matrix.electron_args }} \
             --publish never
 
-      - name: Stage unsigned Windows installer for SignPath
-        id: stage-unsigned-windows-installer
-        if: matrix.os_type == 'windows'
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          mkdir -p "$RUNNER_TEMP/signpath-unsigned"
-          shopt -s nullglob
-          installers=(apps/desktop/dist-electron/legalwork-win-*.exe)
-          if [ "${#installers[@]}" -ne 1 ]; then
-            printf 'Expected exactly one unsigned Windows installer, found %s.\n' "${#installers[@]}" >&2
-            printf '%s\n' "${installers[@]}" >&2
-            exit 1
-          fi
-          version="$(node -p "require('./apps/desktop/package.json').version")"
-          filename="$(basename "${installers[0]}")"
-          case "$filename" in
-            "legalwork-win-x64-${version}.exe") arch=x64 ;;
-            "legalwork-win-arm64-${version}.exe") arch=arm64 ;;
-            *) echo "Installer filename does not match stamped version: $filename" >&2; exit 1 ;;
-          esac
-          printf 'version=%s\narch=%s\n' "$version" "$arch" >> "$GITHUB_OUTPUT"
-          cp "${installers[0]}" "$RUNNER_TEMP/signpath-unsigned/"
-
-      - name: Upload unsigned Windows installer for SignPath
-        if: matrix.os_type == 'windows'
-        id: upload-unsigned-windows-installer
-        uses: actions/upload-artifact@v4
-        with:
-          name: unsigned-legalwork-${{ matrix.artifact }}-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/signpath-unsigned/*.exe
-          if-no-files-found: error
-          retention-days: 1
-
-      - name: Submit Windows signing request to SignPath
-        if: matrix.os_type == 'windows' && env.SIGNPATH_PROJECT_SLUG != '' && env.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG != ''
-        uses: signpath/github-action-submit-signing-request@v3
-        with:
-          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
-          organization-id: ${{ env.SIGNPATH_ORGANIZATION_ID }}
-          project-slug: ${{ env.SIGNPATH_PROJECT_SLUG }}
-          signing-policy-slug: ${{ env.SIGNPATH_SIGNING_POLICY_SLUG }}
-          artifact-configuration-slug: ${{ env.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG }}
-          parameters: |
-            version: "${{ steps.stage-unsigned-windows-installer.outputs.version }}"
-            arch: "${{ steps.stage-unsigned-windows-installer.outputs.arch }}"
-          github-artifact-id: ${{ steps.upload-unsigned-windows-installer.outputs.artifact-id }}
-          wait-for-completion: true
-          # Allow time for the required manual production approval.
-          wait-for-completion-timeout-in-seconds: 3600
-          output-artifact-directory: ${{ runner.temp }}/signpath-signed
-
-      - name: Verify signed Windows installer
-        if: matrix.os_type == 'windows' && env.SIGNPATH_PROJECT_SLUG != ''
+      - name: Verify signed Windows artifacts
         shell: pwsh
-        run: ./scripts/release/verify-windows-signature.ps1 -ArtifactDirectory "$env:RUNNER_TEMP/signpath-signed"
-
-      - name: Apply signed Windows installer
-        if: matrix.os_type == 'windows' && env.SIGNPATH_PROJECT_SLUG != ''
-        shell: bash
-        run: node scripts/release/apply-signpath-windows-artifact.mjs "$RUNNER_TEMP/signpath-signed" apps/desktop/dist-electron
+        run: ./scripts/release/verify-windows-signature.ps1 -ArtifactDirectory "apps/desktop/dist-electron" -AppExecutable "apps/desktop/dist-electron/${{ matrix.executable }}"
 
       - name: Separate Windows ARM64 updater feed
         if: matrix.artifact == 'electron-windows-arm64'
@@ -613,14 +685,15 @@ jobs:
 
   publish-electron-assets:
     name: Publish Electron Assets
-    needs: [resolve-release, verify-release, publish-electron, opencode-engine]
+    needs: [resolve-release, verify-release, publish-electron, publish-electron-windows, opencode-engine]
     if: |
       always() &&
       needs.resolve-release.outputs.build_electron == 'true' &&
       needs.resolve-release.result == 'success' &&
       needs.verify-release.result == 'success' &&
       needs.opencode-engine.result == 'success' &&
-      needs.publish-electron.result == 'success'
+      needs.publish-electron.result == 'success' &&
+      needs.publish-electron-windows.result == 'success'
     runs-on: ubuntu-latest
     env:
       RELEASE_TAG: ${{ needs.resolve-release.outputs.release_tag }}
@@ -814,6 +887,7 @@ jobs:
       - resolve-release
       - verify-release
       - publish-electron
+      - publish-electron-windows
       - publish-electron-assets
       - publish-npm
     if: |
@@ -822,6 +896,7 @@ jobs:
       needs.verify-release.result == 'success' &&
       needs.opencode-engine.result == 'success' &&
       (needs.publish-electron.result == 'success' || needs.publish-electron.result == 'skipped') &&
+      (needs.publish-electron-windows.result == 'success' || needs.publish-electron-windows.result == 'skipped') &&
       (needs.publish-electron-assets.result == 'success' || needs.publish-electron-assets.result == 'skipped') &&
       (needs.publish-npm.result == 'success' || needs.publish-npm.result == 'skipped')
     runs-on: ubuntu-latest

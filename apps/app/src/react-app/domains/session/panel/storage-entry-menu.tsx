@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { FolderOpen, FolderPlus, Loader2, Pencil, RefreshCw, Trash2, Upload } from "lucide-react";
 import type { StorageEntry, StorageRoot } from "@legalwork/types/file-storage";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
+import { storageDisplayPath } from "@/app/lib/storage-display-path";
 import { FileEntryActions } from "./file-entry-actions";
 import { changePinnedPaths } from "./file-pins";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -41,7 +42,7 @@ export function StorageEntryMenu({ client, workspaceId, root, file, children, on
     />
     <Dialog open={renaming} onOpenChange={(open) => { if (!busy) setRenaming(open); }}>
       <DialogContent>
-        <DialogHeader><DialogTitle>{t("storage.rename")}</DialogTitle><DialogDescription>{root.name} / {file.path}</DialogDescription></DialogHeader>
+        <DialogHeader><DialogTitle>{t("storage.rename")}</DialogTitle><DialogDescription>{root.name} / {storageDisplayPath(root, file.path)}</DialogDescription></DialogHeader>
         <form id={`rename-${workspaceId}-${root.id}-${file.path}`} onSubmit={async (event) => {
           event.preventDefault();
           if (!name.trim() || /[/\\\x00-\x1f\x7f]/.test(name) || name === "." || name === "..") { setError(t("storage.invalid_name")); return; }

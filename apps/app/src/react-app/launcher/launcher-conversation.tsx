@@ -114,7 +114,11 @@ export function LauncherConversation({ conversation, submission, pendingOutput, 
   };
   useEffect(() => {
     if (!pendingOutput || status !== "ready") return;
-    const answer = [...(snapshot.data?.item.messages ?? [])].reverse().find(message => message.info.role === "assistant" && message.info.parentID === pendingOutput.messageId);
+    const messages = snapshot.data?.item.messages ?? [];
+    const start = messages.findIndex(message => message.info.id === pendingOutput.messageId);
+    if (start < 0) return;
+    const nextUser = messages.findIndex((message, index) => index > start && message.info.role === "user");
+    const answer = messages.slice(start + 1, nextUser < 0 ? undefined : nextUser).findLast(message => message.info.role === "assistant" && !message.info.summary);
     if (answer?.info.role !== "assistant" || !answer.info.time.completed || answer.info.error || answer.info.finish !== "stop") return;
     const text = answer.parts.flatMap(part => part.type === "text" && !part.synthetic && !part.ignored ? [part.text] : []).join("\n").trim();
     if (!text) return;

@@ -66,7 +66,7 @@ test.skipIf(!binary)("real Code Mode preserves approved chat moves and rejects u
       const saved = await client.session.get({ sessionID: session.id });
       const context = JSON.stringify((await client.message.list({ sessionID: session.id })).data);
       expect(saved.location.directory, context).toBe(name === "allowed" ? target : source);
-      expect(context).toContain(name === "allowed" ? "moved" : "approve the destination");
+      expect(context).toContain(name === "allowed" ? "moved" : "Open the destination project in LegalWork");
       expect(existsSync(marker)).toBe(false);
     }
     expect(moveRequests).toBe(3);

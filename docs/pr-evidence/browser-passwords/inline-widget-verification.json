@@ -1,0 +1,424 @@
+{
+  "date": "2026-10-27",
+  "scope": "Full development Electron app, normal agent dispatch, native v2 forms, existing host-token vault API and synthetic localhost sign-in page. Acceptance evidence, not a matched performance benchmark.",
+  "normal": {
+    "passed": true,
+    "session": "ses_e81ef9c6dffeQwPh4i0kn4zlVZ",
+    "model": {
+      "id": "Eigenwelt Europe Claude Sonnet",
+      "providerID": "eigenwelt",
+      "variant": "default"
+    },
+    "elapsedMs": 36664,
+    "toolRounds": 8,
+    "toolCalls": [
+      {
+        "tool": "legalwork_browser_open_url",
+        "status": "completed"
+      },
+      {
+        "tool": "legalwork_browser_passwords",
+        "status": "completed"
+      },
+      {
+        "tool": "legalwork_browser_request_password",
+        "status": "completed"
+      },
+      {
+        "tool": "browser.snapshot",
+        "status": "completed"
+      },
+      {
+        "tool": "search",
+        "status": "completed"
+      },
+      {
+        "tool": "search",
+        "status": "completed"
+      },
+      {
+        "tool": "search",
+        "status": "completed"
+      },
+      {
+        "tool": "browser.fill",
+        "status": "completed"
+      },
+      {
+        "tool": "legalwork_browser_fill_password",
+        "status": "error"
+      },
+      {
+        "tool": "legalwork_browser_fill_password",
+        "status": "completed"
+      },
+      {
+        "tool": "browser.click",
+        "status": "completed"
+      },
+      {
+        "tool": "browser.wait",
+        "status": "error"
+      },
+      {
+        "tool": "browser.snapshot",
+        "status": "completed"
+      }
+    ],
+    "tokens": [
+      {
+        "input": 4,
+        "output": 87,
+        "reasoning": 0,
+        "cache": {
+          "read": 47085,
+          "write": 977
+        }
+      },
+      {
+        "input": 2,
+        "output": 124,
+        "reasoning": 0,
+        "cache": {
+          "read": 48062,
+          "write": 741
+        }
+      },
+      {
+        "input": 2,
+        "output": 125,
+        "reasoning": 52,
+        "cache": {
+          "read": 48803,
+          "write": 159
+        }
+      },
+      {
+        "input": 2,
+        "output": 100,
+        "reasoning": 27,
+        "cache": {
+          "read": 48962,
+          "write": 231
+        }
+      },
+      {
+        "input": 2,
+        "output": 214,
+        "reasoning": 0,
+        "cache": {
+          "read": 49193,
+          "write": 506
+        }
+      },
+      {
+        "input": 2,
+        "output": 299,
+        "reasoning": 0,
+        "cache": {
+          "read": 49699,
+          "write": 3935
+        }
+      },
+      {
+        "input": 2,
+        "output": 269,
+        "reasoning": 24,
+        "cache": {
+          "read": 53634,
+          "write": 487
+        }
+      },
+      {
+        "input": 2,
+        "output": 93,
+        "reasoning": 0,
+        "cache": {
+          "read": 54121,
+          "write": 359
+        }
+      },
+      {
+        "input": 2,
+        "output": 129,
+        "reasoning": 0,
+        "cache": {
+          "read": 54480,
+          "write": 385
+        }
+      }
+    ],
+    "engineReportedCost": 0,
+    "providerBill": null,
+    "cardObserved": true,
+    "reloaded": false,
+    "savedViaUI": true,
+    "nativeAnswerReferenceOnly": true,
+    "noPasswordInMessages": true,
+    "websiteVerified": true,
+    "realCredentialsUsed": false,
+    "siteEvents": [
+      "login-success"
+    ],
+    "cancelViaUI": true,
+    "syntheticEntryRemoved": true
+  },
+  "rendererReloadWhilePending": {
+    "passed": true,
+    "session": "ses_e81eec3c8ffeWAmXM8RGhSI3KB",
+    "model": {
+      "id": "Eigenwelt Europe Claude Sonnet",
+      "providerID": "eigenwelt",
+      "variant": "default"
+    },
+    "elapsedMs": 38450,
+    "toolRounds": 9,
+    "toolCalls": [
+      {
+        "tool": "legalwork_browser_open_url",
+        "status": "completed"
+      },
+      {
+        "tool": "legalwork_browser_passwords",
+        "status": "error"
+      },
+      {
+        "tool": "legalwork_browser_open_url",
+        "status": "completed"
+      },
+      {
+        "tool": "legalwork_browser_passwords",
+        "status": "completed"
+      },
+      {
+        "tool": "legalwork_browser_request_password",
+        "status": "completed"
+      },
+      {
+        "tool": "legalwork_browser_open_url",
+        "status": "completed"
+      },
+      {
+        "tool": "legalwork_browser_passwords",
+        "status": "completed"
+      },
+      {
+        "tool": "search",
+        "status": "completed"
+      },
+      {
+        "tool": "search",
+        "status": "completed"
+      },
+      {
+        "tool": "search",
+        "status": "completed"
+      },
+      {
+        "tool": "browser.tabs.list",
+        "status": "completed"
+      },
+      {
+        "tool": "browser.fill",
+        "status": "completed"
+      },
+      {
+        "tool": "legalwork_browser_fill_password",
+        "status": "completed"
+      },
+      {
+        "tool": "browser.click",
+        "status": "completed"
+      },
+      {
+        "tool": "browser.wait",
+        "status": "error"
+      },
+      {
+        "tool": "browser.snapshot",
+        "status": "completed"
+      }
+    ],
+    "tokens": [
+      {
+        "input": 4,
+        "output": 122,
+        "reasoning": 0,
+        "cache": {
+          "read": 47085,
+          "write": 977
+        }
+      },
+      {
+        "input": 2,
+        "output": 87,
+        "reasoning": 0,
+        "cache": {
+          "read": 48062,
+          "write": 198
+        }
+      },
+      {
+        "input": 2,
+        "output": 122,
+        "reasoning": 0,
+        "cache": {
+          "read": 48260,
+          "write": 731
+        }
+      },
+      {
+        "input": 2,
+        "output": 157,
+        "reasoning": 0,
+        "cache": {
+          "read": 48991,
+          "write": 157
+        }
+      },
+      {
+        "input": 2,
+        "output": 144,
+        "reasoning": 0,
+        "cache": {
+          "read": 49148,
+          "write": 313
+        }
+      },
+      {
+        "input": 2,
+        "output": 127,
+        "reasoning": 24,
+        "cache": {
+          "read": 49461,
+          "write": 643
+        }
+      },
+      {
+        "input": 2,
+        "output": 61,
+        "reasoning": 89,
+        "cache": {
+          "read": 50104,
+          "write": 3838
+        }
+      },
+      {
+        "input": 2,
+        "output": 312,
+        "reasoning": 33,
+        "cache": {
+          "read": 53942,
+          "write": 417
+        }
+      },
+      {
+        "input": 2,
+        "output": 98,
+        "reasoning": 0,
+        "cache": {
+          "read": 54359,
+          "write": 402
+        }
+      },
+      {
+        "input": 2,
+        "output": 162,
+        "reasoning": 0,
+        "cache": {
+          "read": 54761,
+          "write": 389
+        }
+      }
+    ],
+    "engineReportedCost": 0,
+    "providerBill": null,
+    "cardObserved": true,
+    "reloaded": true,
+    "savedViaUI": true,
+    "nativeAnswerReferenceOnly": true,
+    "noPasswordInMessages": true,
+    "websiteVerified": true,
+    "realCredentialsUsed": false,
+    "siteEvents": [
+      "login-success"
+    ],
+    "cancelViaUI": true,
+    "syntheticEntryRemoved": true
+  },
+  "checks": {
+    "serverTests": 62,
+    "appSessionTests": 27,
+    "desktopBrowserTests": 34,
+    "serverBuild": true,
+    "pluginBuild": true,
+    "serverTypecheck": true,
+    "appTypecheck": true,
+    "docsCheck": true
+  },
+  "privacy": "Synthetic sign-in values were entered into the masked inline UI. Native answers contain only saved-entry UUID and cancellation. Serialized native messages contain no synthetic password. No real account was used for sign-in testing. Synthetic entries were removed by their exact created IDs.",
+  "cost": "Native token counts are recorded per assistant response. Native engine reported zero cost; actual provider billing is unavailable and is not assumed zero. Preliminary diagnostic runs are not included in these final-run token counts.",
+  "limitations": "Full login still includes native browser recovery errors; this change does not establish optimal browser tool counts or fix all existing browser interaction behavior. Packaged-app acceptance remains separate.",
+  "testCleanupIncident": "A preliminary test controller ran against the old in-process backend, which ignored the new origin filter. Its cleanup mistakenly deleted an existing DeepL entry from the development vault. Recovery was unsuccessful and the user was informed. The controller was corrected to delete only its exact created ID before final validation. Production data was untouched.",
+  "presentationRevision": {
+    "date": "2026-10-27",
+    "layout": "The credential request shares the email card surface, header and footer, and renders outside the composer. Username and password use visibly bordered, labelled inputs with explicit placeholders; the website remains read-only. The extra explanation row is removed.",
+    "electronCheck": {
+      "inConversation": true,
+      "outsideComposer": true,
+      "cardCount": 1,
+      "width": 672,
+      "height": 299,
+      "masked": true,
+      "headerCompact": "12px",
+      "buttonsInsideForm": true,
+      "visibleInputBorders": true,
+      "explicitPlaceholders": true,
+      "passed": true,
+      "reloadRestored": true,
+      "cancelViaUI": true,
+      "passwordNeverSaved": true,
+      "noSecretInNativeAnswer": true,
+      "modelCalls": 0
+    },
+    "appTests": 30,
+    "typecheck": true,
+    "note": "A separate native-form fixture verified the actual development renderer, reload and Cancel. Synthetic text was typed into the masked input and never saved. No model calls, mailbox operations or vault mutations were needed for this presentation check."
+  },
+  "settingsPresentation": {
+    "date": "2026-10-27",
+    "layout": "Browser passwords and environment variables share compact section headers, one outline add action per section, and matching 80 px empty states. Optional storage/access text is collapsed below both lists. Browser entry edit/delete actions use the same icon style as environment entries.",
+    "electronCheck": {
+      "passed": true,
+      "empty": {
+        "addButtons": [
+          "Add password",
+          "Add secret"
+        ],
+        "emptyHeights": [
+          80,
+          80
+        ],
+        "detailsCollapsed": true,
+        "paragraphs": [
+          2,
+          2
+        ]
+      },
+      "saved": {
+        "browserEntry": true,
+        "environmentEntry": true,
+        "addButtons": 2
+      },
+      "modalsOpenedAndCancelled": [
+        "Add password",
+        "Add secret"
+      ],
+      "detailsExpandable": true,
+      "realCredentialsRead": false,
+      "writesDisabled": true,
+      "modelCalls": 0
+    },
+    "fixture": "Actual components were rendered in the running Electron renderer with synthetic empty/populated lists; write methods and value reads were disabled. Both Add dialogs were opened then cancelled. The temporary fixture module was removed after verification."
+  }
+}

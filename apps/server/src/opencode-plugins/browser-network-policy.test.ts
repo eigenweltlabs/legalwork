@@ -25,7 +25,7 @@ test("browser tools use fresh effective chat policy, including native tools and 
     await runtime.start(LegalWorkSandbox);
     const before = (tool: string, args: Record<string, unknown> = {}, sessionID = "calling-chat") => nativeToolBefore(runtime, tool, args, sessionID);
     const tools = ["browser.tabs.open", "browser.evaluate", "browser.files.upload", "browser.network.get", "browser_navigate", "browser_eval", "browser_snapshot", "browser_click", "browser_fill", "browser_screenshot",
-      "legalwork_browser_open_url", "legalwork_browser_batch", "legalwork_browser_downloads", "legalwork_browser_set_proxy", "legalwork_browser_clear_proxy", "mcp_browser_navigate"];
+      "legalwork_browser_open_url", "legalwork_browser_batch", "legalwork_browser_downloads", "legalwork_browser_set_proxy", "legalwork_browser_clear_proxy", "legalwork_browser_passwords", "legalwork_browser_fill_password", "mcp_browser_navigate"];
     const browserUi = ["browser.open_url", "browser.set_proxy"];
     for (const enabled of [true, false]) {
       for (const networkMode of ["allow", "approve", "block"]) {
@@ -35,6 +35,14 @@ test("browser tools use fresh effective chat policy, including native tools and 
           if (enabled && networkMode !== "allow") await expect(call).rejects.toThrow("Browser tools are disabled");
           else await call;
         }
+        const requestPassword = before("legalwork_browser_request_password", { browser_url: "http://127.0.0.1:1234/current-tab" });
+        if (enabled && networkMode !== "allow") await expect(requestPassword).rejects.toThrow("Browser tools are disabled");
+        else await requestPassword;
+        const count = paths.length;
+        await before("legalwork_browser_connections");
+        await before("legalwork_browser_add_website", { password_id: "saved-id", url: "https://example.org" });
+        await before("legalwork_browser_request_password", { website_url: "https://example.org" });
+        expect(paths).toHaveLength(count);
       }
     }
     expect(new Set(paths)).toEqual(new Set(["/workspaces", "/workspace/project/sandbox/session/calling-chat"]));

@@ -12,6 +12,7 @@ import {
 } from "./eigenwelt-auth.js";
 import type { ServerConfig } from "./types.js";
 import { ensureDir } from "./utils.js";
+import { invalidateConnectorCredentials } from "./connectors/credential-cache.js";
 
 /**
  * The connected Eigenwelt firm account. Like the paid manifest it unlocks, it
@@ -428,8 +429,11 @@ async function persistConnection(
     platformTokenExpiresAt: nextExpiresAt,
     updatedAt: Date.now(),
   };
-  if (expected) return db.updateIfCurrent(value, expected);
-  db.upsert(value);
+  if (expected) {
+    if (!db.updateIfCurrent(value, expected)) return false;
+  } else db.upsert(value);
+  if (nextAccountJson !== current?.accountJson || nextPlatformUrl !== current?.platformUrl ||
+      (!expected && (input.platformToken !== undefined || input.refreshToken !== undefined))) invalidateConnectorCredentials(config);
   return true;
 }
 

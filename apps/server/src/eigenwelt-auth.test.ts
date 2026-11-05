@@ -425,13 +425,12 @@ describe("buildEigenweltModelsMap", () => {
     ]) as Record<string, Record<string, unknown>>;
 
     expect(models.gemini).toMatchObject({
-      attachment: true,
-      modalities: { input: ["text", "image", "pdf"], output: ["text"] },
+      capabilities: { input: ["text", "image", "pdf"], output: ["text"] },
     });
-    expect(models.glm).toMatchObject({ attachment: true, modalities: { input: ["text", "image"], output: ["text"] } });
-    expect(models.deepseek).toMatchObject({ attachment: false, modalities: { input: ["text"], output: ["text"] } });
+    expect(models.glm).toMatchObject({ capabilities: { input: ["text", "image"], output: ["text"] } });
+    expect(models.deepseek).toMatchObject({ capabilities: { input: ["text"], output: ["text"] } });
     // No list from the platform: the engine's own default (text only) stays.
-    expect(models["older-platform"]).not.toHaveProperty("modalities");
+    expect(models["older-platform"]).not.toHaveProperty("capabilities.input");
     expect(models["older-platform"]).not.toHaveProperty("attachment");
   });
 
@@ -439,20 +438,19 @@ describe("buildEigenweltModelsMap", () => {
     const models = buildEigenweltModelsMap([
       { id: "odd", inputModalities: ["video", "image"] as never },
     ]) as Record<string, Record<string, unknown>>;
-    expect(models.odd.modalities).toEqual({ input: ["text", "image"], output: ["text"] });
+    expect(models.odd.capabilities && Reflect.get(models.odd.capabilities, "input")).toEqual(["text", "image"]);
   });
 });
 
 describe("refreshEigenweltProviderModels", () => {
   const staleProvider = {
-    npm: "@ai-sdk/openai-compatible",
+    package: "@opencode/ai/providers/openai-compatible",
     name: "Eigenwelt Subscription",
-    options: { baseURL: "https://gateway.test/v1" },
+    settings: { baseURL: "https://gateway.test/v1" },
     models: {
       "stale-model": {
         name: "Stale Model",
-        tool_call: true,
-        reasoning: false,
+        capabilities: { tools: true, reasoning: { supported: false } },
         limit: { context: 128000, output: 16384 },
       },
     },
@@ -464,17 +462,17 @@ describe("refreshEigenweltProviderModels", () => {
 
     await writeRuntimeOpencodeConfig(config, "ws_refresh_1", (current) => ({
       ...current,
-      provider: { eigenwelt: staleProvider },
+      providers: { eigenwelt: staleProvider },
     }));
 
     const refreshed = await refreshEigenweltProviderModels(config, "ws_refresh_1");
     expect(refreshed).toBe(true);
 
     const runtime = await readRuntimeOpencodeConfig(config, "ws_refresh_1");
-    const eigenwelt = (runtime.provider as Record<string, Record<string, unknown>>).eigenwelt;
-    // baseURL/name/npm preserved as stored; models replaced from the manifest.
-    expect(eigenwelt.npm).toBe("@ai-sdk/openai-compatible");
-    expect((eigenwelt.options as Record<string, unknown>).baseURL).toBe("https://gateway.test/v1");
+    const eigenwelt = (runtime.providers as Record<string, Record<string, unknown>>).eigenwelt;
+    // Native provider transport/name preserved as stored; models replaced from the manifest.
+    expect(eigenwelt.package).toBe("@opencode/ai/providers/openai-compatible");
+    expect((eigenwelt.settings as Record<string, unknown>).baseURL).toBe("https://gateway.test/v1");
     const models = eigenwelt.models as Record<string, { limit?: { context?: number; output?: number } }>;
     expect(Object.keys(models).sort()).toEqual(["deepseek-v4-flash", "ewl-small"]);
     expect(models["stale-model"]).toBeUndefined();
@@ -498,14 +496,14 @@ describe("refreshEigenweltProviderModels", () => {
 
     await writeRuntimeOpencodeConfig(config, "ws_refresh_2", (current) => ({
       ...current,
-      provider: { eigenwelt: staleProvider },
+      providers: { eigenwelt: staleProvider },
     }));
 
     const refreshed = await refreshEigenweltProviderModels(config, "ws_refresh_2");
     expect(refreshed).toBe(false);
 
     const runtime = await readRuntimeOpencodeConfig(config, "ws_refresh_2");
-    const eigenwelt = (runtime.provider as Record<string, Record<string, unknown>>).eigenwelt;
+    const eigenwelt = (runtime.providers as Record<string, Record<string, unknown>>).eigenwelt;
     expect(Object.keys(eigenwelt.models as Record<string, unknown>)).toEqual(["stale-model"]);
   });
 

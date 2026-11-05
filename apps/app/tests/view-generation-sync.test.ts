@@ -178,3 +178,12 @@ test("deleting a chat removes its transient dashboard tabs but retains saved vie
   expect(usePanelTabStore.getState().sessions[scope].tabs.map(tab => tab.type)).toEqual(["view"]);
   expect(useViewGenerationStore.getState().entries[id]).toBeUndefined();
 });
+
+
+test("Assistant generation records the preview without selecting or opening a tab", async () => {
+  await syncViewGeneration({ ...context, autoOpen: false }, pending, open);
+  await syncViewGeneration({ ...context, autoOpen: false }, done, open);
+  expect(opened).toEqual([]);
+  expect(useViewGenerationStore.getState().entries[id].status).toBe("saved");
+  expect(usePanelTabStore.getState().sessions).toEqual({});
+});

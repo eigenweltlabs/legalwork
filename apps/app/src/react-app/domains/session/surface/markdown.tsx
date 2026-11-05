@@ -16,6 +16,7 @@ import {
 import { bundledLanguages, codeToHtml } from "shiki";
 
 import { sanitizeMarkdownHtml } from "@/lib/sanitize-markdown";
+import { markedMath } from "@/lib/markdown-math";
 import { applyTextHighlights } from "./text-highlights";
 
 function escapeHtml(value: string) {
@@ -159,6 +160,7 @@ const baseMarkedOptions = {
 } satisfies ConstructorParameters<typeof Marked<string, string>>[0];
 
 const markdownParser = new Marked<string, string>(baseMarkedOptions).use(
+  markedMath(),
   markedEmoji({
     emojis: emojiAliases,
     renderer: (token) => escapeHtml(token.emoji),
@@ -169,6 +171,7 @@ const highlightedMarkdownParser = new Marked<string, string>({
   ...baseMarkedOptions,
   async: true,
 }).use(
+  markedMath(),
   markedEmoji({
     emojis: emojiAliases,
     renderer: (token) => escapeHtml(token.emoji),

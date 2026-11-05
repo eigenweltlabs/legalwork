@@ -36,7 +36,7 @@ import {
   writeRuntimeOpencodeConfig,
 } from "./runtime-opencode-config-store.js";
 import { resolveModelLimit } from "./model-limits.js";
-import type { OpenCodeModelConfig } from "./opencode-model-config.js";
+import { nativeGatewayModelControls, nativeProviderModels, type OpenCodeModelConfig, type NativeProviderModels } from "./opencode-model-config.js";
 import type { ServerConfig } from "./types.js";
 
 /** Pre-registered as exact redirect URIs on the Clerk OAuth application —
@@ -108,7 +108,7 @@ export type EigenweltManifestModel = OpenCodeModelConfig & {
   inputModalities?: EigenweltInputModality[];
 };
 
-/** What a model can read, in the engine's `modalities.input` spelling. Only
+/** What a model can read, in the gateway manifest's modality spelling. Only
  *  these values reach the engine config: an unknown one fails its schema. */
 export const EIGENWELT_INPUT_MODALITIES = ["text", "image", "pdf"] as const;
 export type EigenweltInputModality = (typeof EIGENWELT_INPUT_MODALITIES)[number];
@@ -681,39 +681,26 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * Map manifest models to the engine's provider `models` block.
- *
- * Limits come from the gateway via the manifest; resolveModelLimit supplies a
- * default only for what the manifest leaves out, and always writes both
- * `context` and `output` — one missing key invalidates the whole runtime
- * config in the engine's schema. The same goes for `modalities` (input AND
- * output). Without `modalities` the engine takes a model as text only and
- * swaps every image or PDF for an error note before the request.
+ * Build native V2 models from the gateway's explicit business manifest.
+ * Preserve gateway token limits and document capabilities; missing modality
+ * metadata retains the native text-only default.
  */
-export function buildEigenweltModelsMap(models: EigenweltManifestModel[]): Record<string, unknown> {
-  return Object.fromEntries(
+export function buildEigenweltModelsMap(models: EigenweltManifestModel[]): NativeProviderModels {
+  return nativeProviderModels(Object.fromEntries(
     models.map((model) => {
       const input = eigenweltInputModalities(model.inputModalities);
       return [
         model.id,
         {
           name: model.name ?? model.id,
-          tool_call: model.toolCall ?? true,
-          reasoning: model.reasoning ?? false,
-          ...(model.options ? { options: model.options } : {}),
-          ...(model.variants ? { variants: model.variants } : {}),
-          ...(model.interleaved !== undefined ? { interleaved: model.interleaved } : {}),
+          ...nativeGatewayModelControls(model),
+          capabilities: { tools: model.toolCall ?? true, reasoning: { supported: model.reasoning ?? false },
+            ...(input ? { input, output: ["text"] } : {}) },
           limit: resolveModelLimit({ context: model.contextLength, output: model.maxOutputTokens }).limit,
-          ...(input
-            ? {
-                attachment: input.some((modality) => modality !== "text"),
-                modalities: { input, output: ["text"] },
-              }
-            : {}),
         },
       ];
     }),
-  );
+  ));
 }
 
 const MODEL_REFRESH_THROTTLE_MS = 10 * 60 * 1000;
@@ -727,7 +714,7 @@ const modelRefreshLastRun = new Map<string, number>();
  * Fire-and-forget safe: throttled to one attempt per workspace per 10
  * minutes, never throws, and only writes the runtime config when the models
  * map actually changed (an unconditional write would rewrite the runtime
- * config file on every start). Preserves the stored npm/name/options.
+ * config file on every start). Preserves native provider transport settings.
  */
 export async function refreshEigenweltProviderModels(
   config: ServerConfig,
@@ -735,7 +722,7 @@ export async function refreshEigenweltProviderModels(
 ): Promise<boolean> {
   try {
     const runtime = await readRuntimeOpencodeConfig(config, workspaceId);
-    const providers = isRecord(runtime.provider) ? runtime.provider : {};
+    const providers = runtime.providers ?? {};
     const eigenwelt = isRecord(providers.eigenwelt) ? providers.eigenwelt : null;
     if (!eigenwelt) return false;
 
@@ -760,13 +747,13 @@ export async function refreshEigenweltProviderModels(
     if (JSON.stringify(currentModels) === JSON.stringify(nextModels)) return false;
 
     await writeRuntimeOpencodeConfig(config, workspaceId, (current) => {
-      const currentProviders = isRecord(current.provider) ? current.provider : {};
+      const currentProviders = current.providers ?? {};
       const currentEigenwelt = isRecord(currentProviders.eigenwelt) ? currentProviders.eigenwelt : null;
       // Disconnected while we were fetching — leave the config alone.
       if (!currentEigenwelt) return current;
       return {
         ...current,
-        provider: {
+        providers: {
           ...currentProviders,
           eigenwelt: { ...currentEigenwelt, models: nextModels },
         },

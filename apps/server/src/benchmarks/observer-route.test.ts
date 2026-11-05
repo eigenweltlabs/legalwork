@@ -1,7 +1,8 @@
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { writeNativeProjectProjection } from "../engine-project.js";
 import { startServer } from "../server.js";
 import { benchmarkModelTransportFingerprint } from "./model-transport.js";
 import type { ServerConfig } from "../types.js";
@@ -34,10 +35,13 @@ test("observer relay requires host authority and fixes native plugin, method and
     const viewer = "owt_retired_viewer";
     expect((await fetch(base + path, { headers: { authorization: `Bearer ${viewer}` } })).status).toBe(401);
     expect(calls).toEqual([]);
+    const generated = await writeNativeProjectProjection(config, config.workspaces[0]!, {});
+    const original = await readFile(generated, "utf8");
+    await writeFile(generated, "// Edited outside LegalWork\n{}\n");
     config.engineProjectTrustRequired = true;
     expect((await fetch(base + path, { headers: { "x-legalwork-host-token": "observer-host" } })).status).toBe(409);
     expect(calls).toEqual([]);
-    config.engineProjectTrustRequired = false;
+    await writeFile(generated, original);
     const allowed = await fetch(base + path + "?plugin=other&method=execute&location[directory]=/unrelated", { headers: { "x-legalwork-host-token": "observer-host" } });
     expect(allowed.status).toBe(200); expect(await allowed.json()).toEqual(output);
     expect(calls).toEqual([{ path: "/api/model", location: directory }, { path: "/api/rpc/legalwork-benchmark-observer/catalog", location: directory, body: { input: {} } }]);
@@ -49,10 +53,10 @@ test("observer relay requires host authority and fixes native plugin, method and
     expect((await fetch(base + transportPath + selection, { headers: { authorization: "Bearer observer-client" } })).status).toBe(401);
     expect((await fetch(base + transportPath + selection, { headers: { authorization: `Bearer ${viewer}` } })).status).toBe(401);
     expect(calls).toHaveLength(2);
-    config.engineProjectTrustRequired = true;
+    await writeFile(generated, "// Edited outside LegalWork\n{}\n");
     expect((await fetch(base + transportPath + selection, { headers: { "x-legalwork-host-token": "observer-host" } })).status).toBe(409);
     expect(calls).toHaveLength(2);
-    config.engineProjectTrustRequired = false;
+    await writeFile(generated, original);
     expect((await fetch(base + transportPath, { headers: { "x-legalwork-host-token": "observer-host" } })).status).toBe(400);
     expect((await fetch(base + transportPath + "?modelID=other-only&providerID=other", { headers: { "x-legalwork-host-token": "observer-host" } })).status).toBe(404);
     const attested = await fetch(base + transportPath + selection + "&providerID=other&baseURL=https://attacker.invalid&location[directory]=/unrelated", { headers: { "x-legalwork-host-token": "observer-host" } });

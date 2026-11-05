@@ -244,7 +244,11 @@ export function onOrgPolicyChange(config: ServerConfig, handler: (scopes: Set<Or
 function notify(config: ServerConfig, scopes: Set<OrgPolicyScope>): void {
   if (scopes.size === 0) return;
   announceSyncChange(config, "policy");
-  for (const handler of runtimeFor(config).handlers) handler(scopes);
+  const errors: unknown[] = [];
+  for (const handler of [...runtimeFor(config).handlers]) {
+    try { handler(scopes); } catch (error) { errors.push(error); }
+  }
+  if (errors.length) throw errors[0];
 }
 
 /** The scopes whose applied settings differ between two policies. */

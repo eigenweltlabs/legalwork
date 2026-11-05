@@ -29,3 +29,16 @@ test("cancellation and failed commands still reload; failed saves never run a wr
     expect(events).toEqual(saveFails ? ["documents.begin_file_edit", "documents.end_file_edit"] : ["documents.begin_file_edit", "write", "documents.end_file_edit"]);
   }
 });
+
+test("Stop aborts a pending handoff, releases ownership and never starts the shell",async()=>{
+  const controller=new AbortController();let ran=false;const actions:string[]=[];
+  const started=Promise.withResolvers<void>();
+  const pending=withFileEditorHandoff({write:true,sessionID:"chat",signal:controller.signal},async()=>{ran=true;},async(_path,options)=>{
+    const action=String(options?.body&&typeof options.body==="object"&&Reflect.get(options.body,"actionId"));actions.push(action);
+    if(action==="documents.begin_file_edit") {started.resolve();await new Promise((_,reject)=>options?.signal?.addEventListener("abort",()=>reject(options.signal?.reason),{once:true}));}
+    else {expect(options?.signal).toBeUndefined();expect(options?.timeoutMs).toBe(5000);}
+    return {ok:true};
+  });
+  await started.promise;controller.abort();await expect(pending).rejects.toThrow();expect(ran).toBe(false);
+  expect(actions).toEqual(["documents.begin_file_edit","documents.end_file_edit"]);
+});

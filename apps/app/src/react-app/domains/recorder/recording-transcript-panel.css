@@ -1,4 +1,11 @@
 .lw-recording-transcript { flex: 1; height: 100%; min-height: 0; overflow-y: auto; overscroll-behavior: contain; background: var(--lw-canvas); container-type: inline-size; }
+.lw-recording-transcript-content { width: 100%; max-width: 840px; margin-inline: auto; }
+.lw-recording-transcript-summary { margin: 0 var(--lw-space-6) var(--lw-space-6); padding: var(--lw-space-4); border: 1px solid var(--lw-border-subtle); border-radius: var(--lw-radius-lg); background: var(--lw-sunken); }
+.lw-recording-transcript-summary > h2 { margin-bottom: var(--lw-space-2); color: var(--lw-text-secondary); font-size: 12px; font-weight: 600; }
+.lw-recording-transcript-summary .markdown-content { color: var(--lw-text-primary); font-size: 13px; line-height: 1.65; overflow-wrap: anywhere; }
+.lw-recording-transcript-summary .markdown-content :is(h2, h3) { margin: 18px 0 8px; font-size: 14px; font-weight: 600; }
+.lw-recording-transcript-summary .markdown-content > :first-child { margin-top: 0; }
+.lw-recording-transcript-summary .markdown-content > :last-child { margin-bottom: 0; }
 .lw-transcript-people-popover { width: min(320px, calc(100vw - 32px)); max-height: min(480px, var(--available-height)); overflow-y: auto; overscroll-behavior: contain; padding: 12px; }
 .lw-transcript-people-card > header { display: flex; align-items: center; justify-content: space-between; padding: 2px 2px 10px; }
 .lw-transcript-people-card h2 { color: var(--lw-text-primary); font-size: 12px; font-weight: 600; }
@@ -27,10 +34,10 @@
 .lw-transcript-segment > span { flex: 1; min-width: 0; }
 .lw-transcript-segment-menu { display: flex; align-items: center; justify-content: center; flex-shrink: 0; width: 20px; height: 24px; opacity: .35; border-radius: 4px; cursor: pointer; }
 .lw-transcript-segment:hover .lw-transcript-segment-menu, .lw-transcript-segment-menu:focus-visible { opacity: 1; background: var(--lw-canvas); }
-.lw-recording-transcript-header { display: flex; flex-shrink: 0; align-items: flex-start; justify-content: space-between; gap: var(--lw-space-3); padding: var(--lw-space-6); }
+.lw-recording-transcript-header { display: flex; flex-wrap: wrap; flex-shrink: 0; align-items: flex-start; justify-content: space-between; gap: var(--lw-space-3); padding: var(--lw-space-6); }
 .lw-recording-transcript-header h1 { color: var(--lw-text-primary); font-size: 22px; font-weight: 500; letter-spacing: -.035em; line-height: 1.25; overflow-wrap: anywhere; }
 .lw-recording-transcript-details { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin-top: var(--lw-space-2); color: var(--lw-text-secondary); font-size: 12px; }
-.lw-recording-transcript-actions { display: flex; flex-shrink: 0; align-items: center; gap: 2px; }
+.lw-recording-transcript-actions { display: flex; flex-shrink: 0; align-items: center; gap: 2px; margin-left: auto; }
 .lw-recording-transcript-status { display: inline-flex; align-items: center; gap: var(--lw-space-2); }
 .lw-recording-transcript-dot { width: 6px; height: 6px; border-radius: var(--lw-radius-full); background: var(--lw-danger); animation: lw-transcript-recording 1.6s ease-in-out infinite; }
 @keyframes lw-transcript-recording { 0%, 100% { opacity: 1; } 50% { opacity: .4; } }
@@ -43,6 +50,7 @@
 .lw-recording-transcript-empty { display: flex; min-height: 220px; flex-direction: column; align-items: center; justify-content: center; gap: var(--lw-space-3); color: var(--lw-text-secondary); text-align: center; font-size: 13px; line-height: 1.6; }
 @container (max-width: 640px) {
   .lw-recording-transcript-header { padding: 16px; }
+  .lw-recording-transcript-summary { margin: 0 16px 16px; }
   .lw-recording-transcript-body { padding: 0 16px 16px; }
 }
 @media (prefers-reduced-motion: reduce) { .lw-recording-transcript-dot { animation: none; } }

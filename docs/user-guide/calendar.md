@@ -2,13 +2,17 @@
 
 Open in LegalWork: [Calendar](legalwork://app/calendar).
 
-Use Calendar to see when work is due and keep deadline records with their supporting context. It is separate from a Google Calendar connector and from [Scheduled tasks](scheduled-tasks.md), which start assistant runs.
+Use Calendar to see when work is due and keep deadline records with their supporting context. Connected Google and Outlook calendars can appear alongside project work. [Scheduled tasks](scheduled-tasks.md) start assistant runs separately.
 
 ## Find and read the calendar
 
-Open **Calendar** in the main navigation for the combined view, or a project's **Calendar** for that project's entries. The combined view includes accessible local/shared projects and dated Inbox tasks. It does not automatically import every appointment from your Google or Outlook account.
+Open **Calendar** in the main navigation for the combined view, or a project's **Calendar** for that project's entries. The combined view includes accessible local/shared projects and dated Inbox tasks. Use **Connected calendars** to show or hide calendars from your connected Google and Outlook accounts. To connect an account, open **Add > Plugins**, select **Google Calendar** or **Outlook Calendar**, and complete the connection.
 
-Choose **Week**, **Month** or **Agenda**. Week is the initial view. Move between dates or return to today, and use the filters to narrow the displayed work. Opening a task opens its normal task detail without turning it into a separate deadline. A task without a date will not appear as a dated entry. Project Home also shows upcoming active deadlines and a **View all** action.
+Choose **Day**, **Week**, **Month** or **Agenda**. Week is the initial view. Scroll horizontally in Week to move continuously into earlier or later weeks. The arrow buttons and **Today** remain available. Move between dates or return to today, and use the filters to narrow the displayed work. Opening a task opens its normal task detail without turning it into a separate deadline. A task without a date will not appear as a dated entry. Project Home also shows upcoming active deadlines and a **View all** action.
+
+Loaded date ranges stay cached in memory for the app session without a time limit, so reopening Calendar or revisiting a loaded week displays events immediately. A successful refresh or sync replaces the cached data. Events refresh in the background every minute while Calendar is open. **Refresh** checks for changes immediately. A refresh failure leaves previously loaded events visible and shows an alert. Closing the app, signing out or changing the connected account clears its cache.
+
+Open a connected event to read its full description, dates and times, time zone, location, organizer, attendees and responses, recurrence and reminders when provided. Meeting links, description links and supplied attachment links are clickable. Outlook attachments that are only identified as present can be viewed with **Open in Outlook Calendar**. The preview groups the schedule, location, organizer, reminders and files alongside the description. **Repeats** shows the interval, selected weekdays and end condition when the source supplies the rule. For rules not supplied with an occurrence, use the source calendar to inspect the full schedule. Choose **Show all** to expand a long attendee list. The preview scrolls to keep every detail accessible. Personal calendar events remain associated with their connected account and calendar.
 
 ## Add a deadline
 

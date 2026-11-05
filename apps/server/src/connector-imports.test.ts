@@ -186,16 +186,16 @@ test("imports only a selected connector, replaces it, prunes its old entry and r
     await installPluginImport(config, "test", root, before!, true);
     expect(await readFile(sourcePath, "utf8")).toBe(originalText);
     const installedName = before!.preview.components[0]!.installedName;
-    expect((await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID)).mcp?.[installedName]).toMatchObject({ url: "https://docket.example/mcp", enabled: false, headers: { "X-Key": "selected-key" } });
+    expect((await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID)).mcp?.servers?.[installedName]).toMatchObject({ url: "https://docket.example/mcp", disabled: true, headers: { "X-Key": "selected-key" } });
     await write(sourcePath, { mcpServers: { docket: { command: "node", args: ["new.js"], env: { FIXED: "value" } } } });
     const [after] = await resolvePluginImports(req, root);
     expect(after!.preview.id).toBe(before!.preview.id);
     expect(after!.preview.digest).not.toBe(before!.preview.digest);
     expect(after!.preview.components[0]!.installedName).toBe(installedName);
     await installPluginImport(config, "test", root, after!, true);
-    expect((await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID)).mcp?.[installedName]).toMatchObject({ type: "local", command: ["node", "new.js"], enabled: false });
+    expect((await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID)).mcp?.servers?.[installedName]).toMatchObject({ type: "local", command: ["node", "new.js"], disabled: true });
     await removeCloudPlugin({ serverConfig: config, workspaceId: "test", workspaceRoot: root, pluginId: after!.preview.id, scope: "global" });
-    expect((await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID)).mcp?.[installedName]).toBeUndefined();
+    expect((await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID)).mcp?.servers?.[installedName]).toBeUndefined();
   } finally {
     for (const [key, value] of previous) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
   }

@@ -111,7 +111,7 @@ export class MainAssistant {
   }
 
   async onboarding(): Promise<AssistantOnboardingState> {
-    const complete: AssistantOnboardingState = { needed: false, greetingUnread: false, step: "complete", sessionId: null, ...DEFAULT_ASSISTANT_PROFILE };
+    const complete: AssistantOnboardingState = { needed: false, greetingUnread: false, step: "complete", sessionId: null, ...this.profile() };
     if (this.config.readOnly) return complete;
     const workspace = this.config.workspaces.find(isMainAssistant);
     const row = workspace && this.db.get("SELECT session_id, name, icon, agent_named FROM assistant_onboarding WHERE workspace_id = ?", [workspace.id]);
@@ -205,6 +205,14 @@ export class MainAssistant {
     return this.db.all("SELECT date, session_id FROM assistant_days WHERE workspace_id = ? ORDER BY date DESC", [workspaceId]).map(row => ({ date: String(row.date), sessionId: String(row.session_id) }));
   }
 
+  /** Reading saved history must not wait for subscription refresh or engine startup. */
+  savedDay(): AssistantDay | null {
+    const workspace = this.config.workspaces.find(isMainAssistant);
+    if (!workspace) return null;
+    const row = this.db.get("SELECT date, session_id FROM assistant_days WHERE workspace_id = ? AND date <= ? ORDER BY date DESC LIMIT 1", [workspace.id, assistantDate(this.now())]);
+    return row ? { date: String(row.date), sessionId: String(row.session_id) } : null;
+  }
+
   private async ensureDay() {
     if (this.config.readOnly) throw new ApiError(403, "read_only", "The main assistant requires a writable server.");
     const workspace = await this.workspace();
@@ -230,13 +238,13 @@ export class MainAssistant {
     return { days, nextBefore: rows.length > limit ? days[days.length - 1].date : null };
   }
 
-  start(afterDay?: () => Promise<unknown>) {
+  start(afterDay?: () => Promise<unknown>, enabled = async () => true) {
     let stopped = false;
     // Check at midnight, and at least every minute to catch wake and clock changes.
     let timer: ReturnType<typeof setTimeout>;
     const tick = async () => {
       try {
-        if (!this.config.cloudSync || this.config.cloudSync.canExecute()) {
+        if ((!this.config.cloudSync || this.config.cloudSync.canExecute()) && await enabled()) {
           if (this.config.workspaces.some(isMainAssistant)) await this.current();
           if (!stopped) await afterDay?.();
         }

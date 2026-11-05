@@ -4,8 +4,8 @@ LegalWork uses the released OpenCode 2.1.4 browser plugin with the matching full
 RPC controller vendored from the upstream desktop GUI. Native browser tools
 provide navigation, stable element refs, snapshots, evaluation, diagnostics,
 profiling and analysis. The controller source and MIT license live in
-`browser-native/upstream`; generated JavaScript is checked by
-`scripts/build-browser-controller.mjs --check`.
+`browser-native/upstream`; development, packaging and test commands generate the
+ignored JavaScript through `scripts/build-browser-controller.mjs`.
 
 `legalwork_browser_open_url` creates an owned native tab and returns its initial
 snapshot and an opaque `browser_url` extension capability.

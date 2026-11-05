@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
-import { ViewRecordSchema, WikiDataResultSchema, type ViewInput } from "@legalwork/types/views";
+import { StoredViewSchema, ViewRecordSchema, WikiDataResultSchema, type ViewInput } from "@legalwork/types/views";
 import { Database } from "bun:sqlite";
 import { startServer } from "./server.js";
 import { WikiSuggestionSchema } from "@legalwork/types/wiki-suggestions";
@@ -43,6 +43,29 @@ const wikiSchema = z.object({ wiki: z.object({ id: z.string(), root: z.string(),
 const documentSchema = z.object({ path: z.string(), content: z.string(), revision: z.string(), updatedAt: z.number() });
 
 describe("Wiki HTTP API", () => {
+
+  test("imported dashboard snapshots get new IDs while edits keep identity and revision protection", async () => {
+    const { request } = await fixture();
+    const { wiki } = wikiSchema.parse(await (await request("/wikis", "owner", "POST", { name: "Imports", template: "blank" })).json());
+    const endpoint = `/wikis/${wiki.id}/asset`;
+    const original = StoredViewSchema.parse({ version: 1, id: crypto.randomUUID(), updatedAt: 100, title: "Shared", mode: "dashboard", catalog: "legalwork-1", program: 'root = Text("Shared")', queries: { rows: { fields: ["title"] } }, datasets: { rows: { rows: [{ title: "Source data" }], total: 1, revision: "r1", asOf: 100, truncated: false, sourceOwner: { kind: "wiki", id: "original-wiki" }, sourceServerUrl: "https://original.example" } } });
+    const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString("base64");
+    const path = "Dashboards/Shared.view.json";
+    const imported = await request(endpoint, "owner", "POST", { path, dataBase64: encode(original) });
+    expect(imported.status).toBe(200);
+    await imported.arrayBuffer();
+    const read = async () => StoredViewSchema.parse(await (await request(`${endpoint}?path=${encodeURIComponent(path)}`)).json());
+    const copy = await read();
+    const { revision } = ViewRecordSchema.parse(await (await request(`/wikis/${wiki.id}/ui-views/${copy.id}`)).json());
+    expect(copy.id).not.toBe(original.id); expect(copy.queries).toEqual({}); expect(copy.datasets).toEqual(original.datasets);
+    expect((await request(endpoint, "owner", "POST", { path, dataBase64: encode(original) })).status).toBe(409);
+    const edited = { ...copy, title: "Renamed" };
+    expect((await request(endpoint, "owner", "POST", { path, baseRevision: revision, dataBase64: encode(edited) })).status).toBe(200);
+    expect(await read()).toEqual(edited);
+    expect((await request(endpoint, "owner", "POST", { path, baseRevision: revision, dataBase64: encode(copy) })).status).toBe(409);
+    expect((await request(endpoint, "owner", "POST", { path: "Missing.view.json", dataBase64: encode({ ...original, datasets: {} }) })).status).toBe(400);
+    expect((await request(endpoint, "collaborator", "POST", { path: "Denied.view.json", dataBase64: encode(original) })).status).toBe(404);
+  });
 
   test("pending contributions aggregate projects without publishing drafts or exposing them to wiki agents", async () => {
     const { request, config, root, base } = await fixture();
@@ -216,11 +239,15 @@ describe("Wiki HTTP API", () => {
       expect(tasks.parse(await (await request("/scheduled-tasks", "owner")).json()).tasks.map(item => item.id)).toContain(privateTask.id);
       expect(projects.parse(await (await request("/scheduled-tasks/projects", "owner")).json()).projects.map(item => item.id)).toContain(wiki.workspaceId);
       expect(inbox.parse(await (await request("/session-inbox", "owner")).json()).sessions.map(item => item.sessionId)).toContain("private-chat");
+      const groupBatch = `/session-groups/events?${new URLSearchParams({ cursors: JSON.stringify({ [wiki.workspaceId]: null, [project.id]: null }) })}`;
+      const groups = z.object({ items: z.array(z.object({ workspaceId: z.string() })) });
+      expect(groups.parse(await (await request(groupBatch, "owner")).json()).items.map(item => item.workspaceId)).toContain(wiki.workspaceId);
       const actors: Array<"collaborator"> = ["collaborator"];
       for (const actor of actors) {
         expect(tasks.parse(await (await request("/scheduled-tasks", actor)).json()).tasks.map(item => item.id)).toEqual([projectTask.id]);
         expect(projects.parse(await (await request("/scheduled-tasks/projects", actor)).json()).projects.map(item => item.id)).toEqual([project.id]);
         expect(inbox.parse(await (await request("/session-inbox", actor)).json()).sessions.map(item => item.sessionId)).toEqual(["project-chat"]);
+        expect(groups.parse(await (await request(groupBatch, actor)).json()).items.map(item => item.workspaceId)).toEqual([project.id]);
         expect((await request(`/workspace/${wiki.workspaceId}/scheduled-tasks/${privateTask.id}`, actor)).status).toBe(404);
       }
       expect((await request(`/workspace/${wiki.workspaceId}/scheduled-tasks`, "collaborator", "POST", input)).status).toBe(404);

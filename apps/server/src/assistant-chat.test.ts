@@ -14,3 +14,13 @@ test("reactions target the current human message only as the first action", () =
   expect(() => assistantReactionTarget([{ ...user, parts: [{ type: "text", text: "Delegation finished", synthetic: true }] }, reply], "reply")).toThrow("automated");
   expect(() => assistantReactionTarget([{ ...user, parts: [{ type: "text", text: "[Scheduled task: Morning briefing]\nCheck projects" }] }, reply], "reply")).toThrow("automated");
 });
+
+test("Code Mode reactions require the first running outer call, with nested order checked by the plugin", () => {
+  const nested = { ...reply, parts: [{ type: "tool", tool: "execute", state: { status: "running" } }] };
+  expect(assistantReactionTarget([user, nested], "reply")).toBe("user");
+  for (const status of ["pending", "completed", "error"]) {
+    expect(() => assistantReactionTarget([user, { ...nested, parts: [{ type: "tool", tool: "execute", state: { status } }] }], "reply")).toThrow("first action");
+  }
+  expect(() => assistantReactionTarget([user, { ...nested, parts: [{ type: "tool", tool: "execute", text: 'return tools.legalwork_assistant_react({emoji:"❤️"})' }] }], "reply")).toThrow("first action");
+  expect(() => assistantReactionTarget([user, { ...reply, info: { ...reply.info, id: "earlier" } }, nested], "reply")).toThrow("first action");
+});

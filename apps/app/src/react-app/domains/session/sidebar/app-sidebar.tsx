@@ -561,7 +561,6 @@ export type AppSidebarProps = {
   onOpenAssistant?: () => void;
   assistantProfile?: AssistantProfile;
   assistantWorkspaceId?: string;
-  onSaveAssistantProfile?: (profile: AssistantProfile) => Promise<void>;
   assistantActive?: boolean;
   assistantGreetingUnread?: boolean;
   assistantDisabled?: boolean;
@@ -861,7 +860,7 @@ function AppSidebarContent(props: AppSidebarProps) {
           <EigenweltAccountMenu client={props.accountClient} workspaceId={props.selectedWorkspaceId} />
         </MainActionRail>}
         <div className="lw-chat-sidebar flex min-h-0 min-w-0 flex-1 flex-col group-data-[collapsible=icon]:hidden">
-        {customizingNavigation ? <SidebarCustomization onDone={finishCustomizingNavigation} assistantProfile={props.assistantProfile} assistantDisabled={props.assistantDisabled} onSaveAssistantProfile={props.onOpenAssistant ? props.onSaveAssistantProfile : undefined} /> : <>
+        {customizingNavigation ? <SidebarCustomization onDone={finishCustomizingNavigation} /> : <>
         <div className="flex shrink-0 flex-col pb-1 mac:titlebar-no-drag">
         <div className="shrink-0 px-2 pb-1 mac:titlebar-no-drag">
           <div className={cn("lw-sidebar-brand flex gap-2.5 px-3", showSidebarBrandName ? "items-center py-2" : "items-center py-0") }>
@@ -893,7 +892,7 @@ function AppSidebarContent(props: AppSidebarProps) {
         <SidebarWorkflowGenerationBadge onOpenSession={(workspaceId, sessionId) => navigate(workspaceSessionRoute(workspaceId, sessionId))} />
         <SidebarMenu className="px-2 pb-3 pt-1">
           {newChatSection}
-          {props.onOpenAssistant && <AssistantNavigation profile={props.assistantProfile} active={props.assistantActive} disabled={props.assistantDisabled} unread={props.assistantGreetingUnread || unreadWorkspace(inbox, props.assistantWorkspaceId)} onOpen={props.onOpenAssistant} />}
+          {shellConfig.navAssistant !== false && props.onOpenAssistant && <AssistantNavigation profile={props.assistantProfile} active={props.assistantActive} disabled={props.assistantDisabled} unread={props.assistantGreetingUnread || unreadWorkspace(inbox, props.assistantWorkspaceId)} onOpen={props.onOpenAssistant} />}
         </SidebarMenu>
         </div>
         <LazyMotion features={domMax}><m.div layoutScroll data-slot="sidebar-content" data-sidebar="content" className="no-scrollbar min-h-0 flex-1 overflow-y-auto pt-1 mac:titlebar-no-drag">

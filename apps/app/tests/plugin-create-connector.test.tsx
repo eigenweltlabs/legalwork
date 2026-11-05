@@ -1,6 +1,30 @@
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { emptyPluginConnectorForm, pluginConnectorConfig, PluginConnectorFields } from "../src/react-app/domains/settings/pages/plugin-connector-fields";
+import { createdPluginSignInConnector } from "../src/react-app/domains/settings/pages/plugin-import-presentation";
+import type { ImportedPlugin } from "../src/app/lib/extension-imports";
+
+test("only a newly created OAuth connector starts sign-in, using its installed identity", () => {
+  const plugin: ImportedPlugin = {
+    pluginId: "created:test", name: "test", marketplaceId: null, description: null, updatedAt: null, importedAt: 1,
+    files: [
+      { configObjectId: "skill", versionId: null, objectType: "skill", title: "Review", path: ".opencode/skills/review/SKILL.md", updatedAt: null },
+      { configObjectId: "mcp", versionId: null, objectType: "mcp", title: "Test", path: "opencode.jsonc#mcp.test-unique-installed-name", updatedAt: null },
+    ],
+  };
+  const remote = { ...emptyPluginConnectorForm, url: "example.com/mcp" };
+  expect(createdPluginSignInConnector(plugin, pluginConnectorConfig(remote))).toBe("test-unique-installed-name");
+  for (const form of [
+    { ...remote, auth: "key", apiKey: "token" },
+    { ...remote, auth: "none" },
+    { ...remote, mode: "local", command: "test-mcp" },
+    { ...remote, mode: "existing" },
+  ] satisfies Array<typeof emptyPluginConnectorForm>) {
+    expect(createdPluginSignInConnector(plugin, pluginConnectorConfig(form))).toBeUndefined();
+  }
+  expect(createdPluginSignInConnector(plugin, undefined)).toBeUndefined();
+  expect(createdPluginSignInConnector({ ...plugin, files: [] }, pluginConnectorConfig(remote))).toBeUndefined();
+});
 
 test("remote plugins support OAuth, bearer keys, custom headers and no authentication", () => {
   const form = { ...emptyPluginConnectorForm, url: "example.com/mcp" };

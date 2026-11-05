@@ -56,3 +56,28 @@ test("reads pending questions and approvals while busy, then the final reply; ne
     await expect(readDelegationResult(client, "child")).rejects.toThrow("Could not read delegated chat progress");
   } finally { engine.stop(true); }
 });
+
+test("a reopened watch only accepts the explicit follow-up turn, never the previous or unrelated turn", async () => {
+  let requestId = "previous-request", busy = false;
+  const engine = Bun.serve({ port: 0, fetch(request) {
+    const path = new URL(request.url).pathname;
+    if (path === "/session/status") return Response.json(busy ? { child: { type: "busy" } } : {});
+    if (path === "/session/child/message") return Response.json([
+      { info: { id: requestId, sessionID: "child", role: "user", time: { created: 1 } }, parts: [{ type: "text", text: "Request" }] },
+      { info: { id: "reply", sessionID: "child", role: "assistant", time: { created: 2, completed: 3 }, finish: "stop" }, parts: [{ type: "text", text: "Result" }] },
+    ]);
+    if (path === "/api/session/child/question") return Response.json({ data: [{ id: "question", sessionID: "child", questions: [{ question: "Confirm perspective?" }] }] });
+    if (path === "/api/session/child/permission") return Response.json({ data: [] });
+    return new Response(null, { status: 404 });
+  } });
+  try {
+    const client = createAssistantTestClient({ baseUrl: engine.url.origin });
+    expect(await readDelegationResult(client, "child", "follow-up")).toBeNull();
+    requestId = "follow-up";
+    expect((await readDelegationResult(client, "child", "follow-up"))?.text).toBe("Result");
+    busy = true;
+    expect((await readDelegationResult(client, "child", "follow-up"))?.outcome).toBe("input-required");
+    requestId = "unrelated-direct-message";
+    expect(await readDelegationResult(client, "child", "follow-up")).toBeNull();
+  } finally { engine.stop(true); }
+});

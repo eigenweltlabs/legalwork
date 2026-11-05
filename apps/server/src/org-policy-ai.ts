@@ -5,6 +5,7 @@ import { memberKeyRef } from "./ocr/manager.js";
 import { appliedOrgPolicy, orgPolicySecret } from "./org-policy.js";
 import { orgChatEngineId, type OrgChatProvider, type OrgFirmKey } from "./org-policy-schema.js";
 import { discoverProviderModels } from "./provider-model-discovery.js";
+import { nativeProviderDefinition, type NativeProviderDefinition } from "./opencode-model-config.js";
 import type { ServerConfig } from "./types.js";
 
 /**
@@ -35,38 +36,37 @@ async function customModels(provider: OrgChatProvider & { source: { type: "custo
   }
 }
 
-/**
- * Engine provider blocks for the firm's chat providers that can be used now:
- * with the firm's key while signed in, or once the member added their own key
- * or signed in. The engine offers every provider in its config, key or not.
- */
-export async function orgChatProviderBlocks(config: ServerConfig): Promise<Record<string, unknown>> {
+/** Keep firm-key configuration separate from definitions needing a native
+ * connection: the engine force-enables every provider in its configuration. */
+async function orgChatProviderDefinitions(config: ServerConfig, withFirmKey: boolean): Promise<Record<string, NativeProviderDefinition>> {
   const providers = (await appliedOrgPolicy(config, "ai.chat.providers"))?.value ?? [];
-  const blocks: Record<string, unknown> = {};
+  const blocks: Record<string, NativeProviderDefinition> = {};
   for (const provider of providers) {
     const key = await firmKey(config, provider.key);
     const { source } = provider;
+    if (Boolean(key) !== withFirmKey) continue;
     if (source.type === "catalog") {
-      // A member's own key or sign-in stays with the engine; the firm's key and resource go in the options.
-      const options = { ...(source.resourceName ? { resourceName: source.resourceName } : {}), ...(key ? { apiKey: key } : {}) };
-      blocks[source.provider] = {
+      if (provider.models !== "all") throw new Error("The firm's model allowlist requires native model-policy support. Its restrictions have been retained; the provider cannot be broadened.");
+      // A member's own key or sign-in stays with the engine; firm-owned values
+      // use native provider settings.
+      const settings = { ...(source.resourceName ? { resourceName: source.resourceName } : {}), ...(key ? { apiKey: key } : {}) };
+      blocks[source.provider] = nativeProviderDefinition({
         name: provider.name,
-        ...(Object.keys(options).length > 0 ? { options } : {}),
-        ...(provider.models === "all" ? {} : { whitelist: provider.models }),
-      };
+        ...(Object.keys(settings).length > 0 ? { settings } : {}),
+      });
       continue;
     }
     const custom = { ...provider, source };
     const memberKey = key ?? await readStoredProviderApiKey(config, provider.id, null).catch(() => "");
     const models = await customModels(custom, memberKey);
-    if (models.length === 0) continue;
-    blocks[provider.id] = {
-      npm: source.apiType === "responses" ? "@ai-sdk/openai" : "@ai-sdk/openai-compatible",
+    if (models.length === 0 && withFirmKey) continue;
+    blocks[provider.id] = nativeProviderDefinition({
+      package: source.apiType === "responses" ? "@opencode/ai/providers/openai/responses" : "@opencode/ai/providers/openai-compatible",
       name: provider.name,
-      // The engine passes `options` verbatim to the provider and ignores a bare `apiKey` there.
-      options: { baseURL: source.baseURL, ...(key ? { headers: { Authorization: `Bearer ${key}` } } : {}) },
-      models: Object.fromEntries(models.map((id) => [id, { name: id, tool_call: true }])),
-    };
+      settings: { baseURL: source.baseURL },
+      ...(key ? { headers: { Authorization: `Bearer ${key}` } } : {}),
+      models: Object.fromEntries(models.map((id) => [id, { name: id, capabilities: { tools: true } }])),
+    });
   }
   return blocks;
 }
@@ -74,6 +74,17 @@ export async function orgChatProviderBlocks(config: ServerConfig): Promise<Recor
 /** The engine ids of the firm's chat providers: they stay on whatever the member disconnected. */
 export async function orgChatEngineIds(config: ServerConfig): Promise<string[]> {
   return ((await appliedOrgPolicy(config, "ai.chat.providers"))?.value ?? []).map(orgChatEngineId);
+}
+
+/** Only firm-supplied keys may force-enable a configured provider. */
+export function orgChatProviderBlocks(config: ServerConfig) {
+  return orgChatProviderDefinitions(config, true);
+}
+
+/** Templates preserve endpoints and model inventories while native connections
+ * decide readiness. Putting these in config.providers would force-enable them. */
+export function orgChatProviderTemplates(config: ServerConfig) {
+  return orgChatProviderDefinitions(config, false);
 }
 
 /** While the firm allows no providers of the member's own: the providers the engine may use. */

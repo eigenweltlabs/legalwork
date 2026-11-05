@@ -22,6 +22,28 @@ test("resolves bare filenames in nested folders and preserves their real path an
   expect(result[0]).toMatchObject({ value: `${folder}/Engagement.docx`, name: "Engagement.docx", exists: true, preview: "word" });
 });
 
+test("keeps saved views in their viewer and reads their document type, including moved files", async () => {
+  const root = await mkdtemp(join(tmpdir(), "artifact-views-"));
+  roots.push(root);
+  await mkdir(join(root, "Moved"));
+  const view = { version: 1, id: "11111111-1111-4111-8111-111111111111", title: "Your day", catalog: "legalwork-1", program: 'root = Text("Today")', queries: {}, updatedAt: 1 };
+  await writeFile(join(root, "Moved/day.view.json"), JSON.stringify({ ...view, mode: "dashboard" }));
+  await writeFile(join(root, "briefing.view.json"), JSON.stringify({ ...view, mode: "report" }));
+  await writeFile(join(root, "settings.json"), JSON.stringify({ mode: "dashboard" }));
+  await writeFile(join(root, "invalid.view.json"), "invalid");
+  const result = await resolveWorkspaceArtifactTargets(root, [
+    { value: "Moved/day.view.json", preview: "view" }, { value: "briefing.view.json" },
+    { value: "settings.json" }, { value: "invalid.view.json" },
+  ]);
+  expect(result[0]).toMatchObject({ exists: true, preview: "view", documentType: "dashboard" });
+  expect(result[1]).toMatchObject({ exists: true, preview: "view", documentType: "report" });
+  expect(result[2]).toMatchObject({ exists: true, preview: "text" });
+  expect(result[2]).not.toHaveProperty("documentType");
+  // Invalid views reach the view error UI instead of being silently opened as code.
+  expect(result[3]).toMatchObject({ exists: true, preview: "view" });
+  expect(result[3]).not.toHaveProperty("documentType");
+});
+
 test("does not guess between duplicates, rewrite explicit missing paths, or follow folder symlinks", async () => {
   const root = await mkdtemp(join(tmpdir(), "artifact-resolution-"));
   const outside = await mkdtemp(join(tmpdir(), "artifact-outside-"));

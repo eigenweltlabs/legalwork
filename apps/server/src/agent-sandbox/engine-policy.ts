@@ -1,4 +1,5 @@
-import { permissionAction } from "./permissions.js";
+import { permissionAction, type NativePermissionRule } from "./permissions.js";
+import type { NativeRuntimeConfiguration } from "../runtime-config-upgrade.js";
 
 export const managedTools: Record<string, string> = { bash: "legalwork_shell", webfetch: "legalwork_webfetch", websearch: "legalwork_websearch" };
 export const nativeHostExecutionActions = ["shell", "bash", "webfetch", "websearch", "codesearch"];
@@ -21,40 +22,29 @@ export function managedPermissionRules<T extends { permission: string; pattern: 
  * read, and classifies every host command as external-directory access.
  * Keep explicit user, agent and firm rules. Native file tools retain their
  * own per-path checks; the managed shell uses its configured permission. */
-export function explicitFileApprovals<T extends { permission: string; pattern: string; action: string }>(agent: T[], configured: unknown[]) {
+export function explicitFileApprovals<T extends { permission: string; pattern: string; action: string }>(agent: T[], configured: readonly NativePermissionRule[]) {
   return agent.filter(rule => {
     const implicit = rule.action === "ask" && (
       rule.permission === "external_directory" && rule.pattern === "*" ||
       rule.permission === "read" && ["*.env", "*.env.*"].includes(rule.pattern)
     );
     if (!implicit) return true;
-    return configured.some(value => {
-      const permissions = typeof value === "string" ? { "*": value }
-        : value && typeof value === "object" && !Array.isArray(value) ? Object.fromEntries(Object.entries(value)) : {};
-      return permissionAction(permissions, rule.permission, rule.pattern) !== "allow";
-    });
+    return permissionAction(configured, rule.permission, rule.pattern) !== "allow";
   });
 }
 
 /** Keep built-in host execution disabled even when a sandbox plugin cannot load. */
-export function sandboxEnginePermissions(input: Record<string, unknown> = {}): Record<string, unknown> {
-  const result = { ...input };
-  for (const [builtin, managed] of Object.entries(managedTools)) {
-    delete result[builtin];
-    if (input[builtin] !== undefined) result[managed] = input[builtin];
-    result[builtin] = "deny";
-  }
-  return result;
+export function sandboxEnginePermissions(input: readonly NativePermissionRule[] = []): NativePermissionRule[] {
+  const managed: Record<string, string> = { shell: "legalwork_shell", webfetch: "legalwork_webfetch", websearch: "legalwork_websearch" };
+  return [...input.map(rule => ({ ...rule, action: managed[rule.action] ?? rule.action })),
+    ...Object.keys(managed).map((action): NativePermissionRule => ({ action, resource: "*", effect: "deny" }))];
 }
 
-export function sandboxEngineAgents(agents: Record<string, Record<string, unknown>>) {
-  const result: Record<string, Record<string, unknown>> = {};
+export function sandboxEngineAgents(agents: NonNullable<NativeRuntimeConfiguration["agents"]>) {
+  const result: Record<string, NonNullable<NativeRuntimeConfiguration["agents"]>[string]> = {};
   for (const name of new Set(["build", "plan", "general", "explore", "compaction", "title", "summary", ...Object.keys(agents)])) {
     const agent = agents[name] ?? {};
-    const permissions = agent.permission;
-    result[name] = { ...agent, permission: sandboxEnginePermissions(
-      permissions && typeof permissions === "object" && !Array.isArray(permissions) ? Object.fromEntries(Object.entries(permissions)) : {},
-    ) };
+    result[name] = { ...agent, permissions: sandboxEnginePermissions(agent.permissions ?? []) };
   }
   return result;
 }

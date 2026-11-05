@@ -1,0 +1,486 @@
+category,path,line,reference
+authored_configuration_paths,apps/desktop/electron/main.mjs,1411,// agree with opencodeConfigPath in apps/server/src/workspace-files.ts.
+desktop_registry,apps/desktop/electron/main.mjs,3276,await workspaceStore.migrateLegacyElectronWorkspaceStateIfNeeded();
+desktop_registry,apps/desktop/electron/updater-preferences.mjs,17,"const freshProfile = ![""Local Storage"", ""Preferences"", ""legalwork-workspaces.json"", ""workspace-state.json""]"
+desktop_registry,apps/desktop/electron/workspace-store.mjs,130,function workspaceStatePath() {
+desktop_registry,apps/desktop/electron/workspace-store.mjs,131,"return path.join(app.getPath(""userData""), ""legalwork-workspaces.json"");"
+desktop_registry,apps/desktop/electron/workspace-store.mjs,138,function legalworkServerConfigPath() {
+desktop_registry,apps/desktop/electron/workspace-store.mjs,144,// Earlier Electron alpha builds copied Tauri's legalwork-workspaces.json into
+desktop_registry,apps/desktop/electron/workspace-store.mjs,145,// an Electron-only workspace-state.json. Keep importing that file when the
+desktop_registry,apps/desktop/electron/workspace-store.mjs,146,"// shared canonical file is missing, but write legalwork-workspaces.json going"
+desktop_registry,apps/desktop/electron/workspace-store.mjs,148,function legacyElectronWorkspaceStatePath() {
+desktop_registry,apps/desktop/electron/workspace-store.mjs,149,"return path.join(app.getPath(""userData""), ""workspace-state.json"");"
+desktop_registry,apps/desktop/electron/workspace-store.mjs,152,async function migrateLegacyElectronWorkspaceStateIfNeeded() {
+desktop_registry,apps/desktop/electron/workspace-store.mjs,153,const current = workspaceStatePath();
+desktop_registry,apps/desktop/electron/workspace-store.mjs,154,const legacy = legacyElectronWorkspaceStatePath();
+desktop_registry,apps/desktop/electron/workspace-store.mjs,161,"console.info(""[migration] copied workspace-state.json to legalwork-workspaces.json"");"
+desktop_registry,apps/desktop/electron/workspace-store.mjs,319,"const config = await readJsonFile(legalworkServerConfigPath(), null);"
+desktop_registry,apps/desktop/electron/workspace-store.mjs,349,async function recoverWorkspacesFromKnownState() {
+desktop_registry,apps/desktop/electron/workspace-store.mjs,398,const outputPath = workspaceStatePath();
+desktop_registry,apps/desktop/electron/workspace-store.mjs,441,"const state = await readJsonFile(workspaceStatePath(), EMPTY_WORKSPACE_LIST);"
+desktop_registry,apps/desktop/electron/workspace-store.mjs,460,const recoveredWorkspaces = await recoverWorkspacesFromKnownState();
+desktop_registry,apps/desktop/electron/workspace-store.mjs,476,const warnings = retired.length ? [`${retired.length} saved remote agent workspace(s) are no longer supported. Their connection settings remain preserved in ${workspaceStatePath()}.`] : [];
+desktop_registry,apps/desktop/electron/workspace-store.mjs,661,"await rm(workspaceStatePath(), { force: true });"
+desktop_registry,apps/desktop/electron/workspace-store.mjs,676,"migrateLegacyElectronWorkspaceStateIfNeeded,"
+runtime_configuration_store,apps/server/src/agent-sandbox/service.ts,17,"GLOBAL_TOOL_PERMISSIONS_ID, onRuntimeOpencodeConfigWrite, readGlobalToolPermissions,"
+runtime_configuration_store,apps/server/src/agent-sandbox/service.ts,18,"readRuntimeOpencodeConfig, runtimeExternalDirectory, runtimeStorageDir,"
+runtime_configuration_store,apps/server/src/agent-sandbox/service.ts,95,"onRuntimeOpencodeConfigWrite((config, id) => { if (config === this.config) approvals.forgetRemembered(id === GLOBAL_TOOL_PERMISSIONS_ID ? undefined : id); }),"
+runtime_configuration_store,apps/server/src/agent-sandbox/service.ts,122,"const runtime = await readRuntimeOpencodeConfig(this.config, workspace.id);"
+runtime_configuration_store,apps/server/src/agent-sandbox/service.ts,299,"const unsubscribe = onRuntimeOpencodeConfigWrite((config, id) => {"
+runtime_configuration_store,apps/server/src/agent-sandbox/service.ts,316,"const { permission: permissions } = await orgPolicyPermissions(this.config, await readGlobalToolPermissions(this.config));"
+runtime_configuration_store,apps/server/src/agent-sandbox/settings.ts,8,"import { GLOBAL_TOOL_PERMISSIONS_ID, readRuntimeOpencodeConfig, writeRuntimeOpencodeConfig } from ""../runtime-opencode-config-store.js"";"
+runtime_configuration_store,apps/server/src/agent-sandbox/settings.ts,28,"const row = await readRuntimeOpencodeConfig(config, SANDBOX_DEFAULT_ID, { failOnInvalid: true });"
+runtime_configuration_store,apps/server/src/agent-sandbox/settings.ts,33,"const row = await readRuntimeOpencodeConfig(config, SANDBOX_DEFAULT_ID, { failOnInvalid: true });"
+runtime_configuration_store,apps/server/src/agent-sandbox/settings.ts,34,"return row.sandbox?.networkMode ?? (await readRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, { failOnInvalid: true })).sandboxNetworkMode ?? DEFAULT_SANDBOX_SETTINGS.networkMode;"
+runtime_configuration_store,apps/server/src/agent-sandbox/settings.ts,45,"await writeRuntimeOpencodeConfig(config, SANDBOX_DEFAULT_ID, row => ({ ...row, sandbox: settings, sandboxEdit: randomUUID(),"
+runtime_configuration_store,apps/server/src/agent-sandbox/settings.ts,57,"await writeRuntimeOpencodeConfig(config, id, () => ({ ...(settings ? { sandbox: settings } : {}), sandboxEdit: randomUUID() }));"
+runtime_configuration_store,apps/server/src/agent-sandbox/settings.ts,70,"const row = await readRuntimeOpencodeConfig(config, id, { failOnInvalid: true, settingsScope: ""session"" });"
+runtime_configuration_store,apps/server/src/agent-sandbox/sync.ts,4,"import { readRuntimeOpencodeConfig, writeRuntimeOpencodeConfig } from ""../runtime-opencode-config-store.js"";"
+runtime_configuration_store,apps/server/src/agent-sandbox/sync.ts,33,"const row = await readRuntimeOpencodeConfig(config, SANDBOX_DEFAULT_ID, { failOnInvalid: true });"
+runtime_configuration_store,apps/server/src/agent-sandbox/sync.ts,54,"const current = await readRuntimeOpencodeConfig(config, SANDBOX_DEFAULT_ID, { failOnInvalid: true });"
+runtime_configuration_store,apps/server/src/agent-sandbox/sync.ts,60,"await writeRuntimeOpencodeConfig(config, SANDBOX_DEFAULT_ID, value => ({ ...value,"
+runtime_configuration_store,apps/server/src/agent-sandbox/sync.ts,65,"await writeRuntimeOpencodeConfig(config, SANDBOX_DEFAULT_ID, value => ({ ...value, sandbox: snapshot.sandbox,"
+configuration_translation,apps/server/src/assistant-engine.ts,23,"export function assistantEngineClient(native: OpenCodeClient, directory: string) {"
+configuration_translation,apps/server/src/assistant-engine.ts,150,export type AssistantEngineClient = ReturnType<typeof assistantEngineClient>;
+configuration_translation,apps/server/src/assistant-engine.ts,151,"export const createAssistantEngineClient = (config: ServerConfig, workspace: WorkspaceInfo) =>"
+configuration_translation,apps/server/src/assistant-engine.ts,152,"assistantEngineClient(createEngineClient(config, workspace), workspaceEngineLocation(workspace).directory);"
+configuration_translation,apps/server/src/assistant-project-overview.ts,2,"import type { createAssistantEngineClient } from ""./assistant-engine.js"";"
+configuration_translation,apps/server/src/assistant-project-overview.ts,18,"export async function assistantProjectOverview(config: ServerConfig, workspace: WorkspaceInfo, client: ReturnType<typeof createAssistantEngineClient>, input: {"
+shared_app_database,apps/server/src/assistant-runtime.ts,4,"import { runtimeDbPath } from ""./runtime-db.js"";"
+configuration_translation,apps/server/src/assistant-runtime.ts,5,"import { createAssistantEngineClient } from ""./assistant-engine.js"";"
+configuration_translation,apps/server/src/assistant-runtime.ts,37,const createWorkspaceOpencodeClient = createAssistantEngineClient;
+shared_app_database,apps/server/src/assistant-runtime.ts,42,"const assistantSessionAccess = await AssistantSessionAccess.open(runtimeDbPath(config), config);"
+shared_app_database,apps/server/src/assistant-runtime.ts,43,"const mainAssistant = await MainAssistant.open(config, runtimeDbPath(config), workspace => {"
+shared_app_database,apps/server/src/assistant-runtime.ts,61,"const delegations = await AssistantDelegations.open(runtimeDbPath(config), {"
+shared_app_database,apps/server/src/assistant-runtime.ts,106,"const sessionQueue = await createAssistantSessionQueue(runtimeDbPath(config), { workspace: id => resolveWorkspace(config, id),"
+shared_app_database,apps/server/src/assistant-runtime.ts,110,"const push = await AssistantPush.open(runtimeDbPath(config),"
+shared_app_database,apps/server/src/calendar/store.ts,12,"import { openSqlite, runtimeDbPath, type SqliteHandle } from ""../runtime-db.js"";"
+shared_app_database,apps/server/src/calendar/store.ts,319,const path = runtimeDbPath(config); let store = stores.get(path);
+generated_settings_and_admission,apps/server/src/cli.ts,19,"writeLegalworkRuntimeConfigFile,"
+authored_configuration_paths,apps/server/src/cli.ts,23,"import { importConnectorsIntoSharedRow } from ""./mcp-shared-store.js"";"
+legacy_history,apps/server/src/cli.ts,26,"import { prepareManagedOpencodeEngineDb } from ""./managed-opencode-db.js"";"
+authored_configuration_paths,apps/server/src/cli.ts,68,"await importConnectorsIntoSharedRow(config, {"
+generated_settings_and_admission,apps/server/src/cli.ts,83,"const runtimeConfigPath = await writeLegalworkRuntimeConfigFile(config, workspace.id);"
+legacy_history,apps/server/src/cli.ts,93,const managedDb = await prepareManagedOpencodeEngineDb(config);
+runtime_configuration_store,apps/server/src/cloud-plugins.ts,13,"import { GLOBAL_MCP_ID, readRuntimeOpencodeConfig, writeRuntimeOpencodeConfig } from ""./runtime-opencode-config-store.js"";"
+shared_app_database,apps/server/src/cloud-plugins.ts,538,function runtimeDbPath(config: ServerConfig): string {
+shared_app_database,apps/server/src/cloud-plugins.ts,543,"return resolve(configDir, ""runtime.sqlite"");"
+shared_app_database,apps/server/src/cloud-plugins.ts,592,const path = runtimeDbPath(config);
+runtime_configuration_store,apps/server/src/cloud-plugins.ts,684,"await writeRuntimeOpencodeConfig(config, registryId, current => ({ ...current,"
+runtime_configuration_store,apps/server/src/cloud-plugins.ts,726,"const previousMcp = input.preserveConnectorSetup ? (await readRuntimeOpencodeConfig(input.serverConfig, input.workspaceId)).mcp ?? {} : {};"
+shared_app_database,apps/server/src/connectors/store.ts,5,"import { openSqlite, runtimeDbPath } from ""../runtime-db.js"";"
+shared_app_database,apps/server/src/connectors/store.ts,24,const path = runtimeDbPath(config);
+configuration_translation,apps/server/src/custom-provider-model-refresh.ts,3,"import { nativeProvider } from ""./native-opencode-config.js"";"
+workspace_configuration_store,apps/server/src/custom-provider-model-refresh.ts,4,"import { readLegalworkWorkspaceConfig, writeLegalworkWorkspaceConfig } from ""./legalwork-workspace-config-store.js"";"
+runtime_configuration_store,apps/server/src/custom-provider-model-refresh.ts,5,"import { readRuntimeOpencodeConfig, writeRuntimeOpencodeConfig } from ""./runtime-opencode-config-store.js"";"
+workspace_configuration_store,apps/server/src/custom-provider-model-refresh.ts,74,"const settings = readModelRefreshSettings((await readLegalworkWorkspaceConfig(config, workspace.id)).customProviderModelRefresh);"
+runtime_configuration_store,apps/server/src/custom-provider-model-refresh.ts,77,"const originalRuntime = await readRuntimeOpencodeConfig(config, workspace.id);"
+workspace_configuration_store,apps/server/src/custom-provider-model-refresh.ts,98,"const latestSettings = readModelRefreshSettings((await readLegalworkWorkspaceConfig(config, workspace.id)).customProviderModelRefresh);"
+runtime_configuration_store,apps/server/src/custom-provider-model-refresh.ts,103,"if (fromCatalog) await writeRuntimeOpencodeConfig(config, workspace.id, (current) => {"
+configuration_translation,apps/server/src/custom-provider-model-refresh.ts,111,const normalized = native ? nativeProvider({ models: modelDefinitions }).models : modelDefinitions;
+workspace_configuration_store,apps/server/src/custom-provider-model-refresh.ts,128,"await writeLegalworkWorkspaceConfig(config, workspace.id, (current) => {"
+workspace_configuration_store,apps/server/src/custom-provider-model-refresh.ts,145,"await writeLegalworkWorkspaceConfig(config, workspace.id, (current) => {"
+runtime_configuration_store,apps/server/src/eigenwelt-auth.ts,35,"readRuntimeOpencodeConfig,"
+runtime_configuration_store,apps/server/src/eigenwelt-auth.ts,36,"writeRuntimeOpencodeConfig,"
+runtime_configuration_store,apps/server/src/eigenwelt-auth.ts,737,"const runtime = await readRuntimeOpencodeConfig(config, workspaceId);"
+runtime_configuration_store,apps/server/src/eigenwelt-auth.ts,762,"await writeRuntimeOpencodeConfig(config, workspaceId, (current) => {"
+shared_app_database,apps/server/src/eigenwelt-connection-store.ts,130,export function runtimeDbPath(config: ServerConfig): string {
+shared_app_database,apps/server/src/eigenwelt-connection-store.ts,135,"return join(configDir, ""runtime.sqlite"");"
+shared_app_database,apps/server/src/eigenwelt-connection-store.ts,271,const path = runtimeDbPath(config);
+shared_app_database,apps/server/src/eigenwelt-connection-store.ts,279,const path = runtimeDbPath(config);
+shared_app_database,apps/server/src/eigenwelt-connection-store.ts,458,const path = runtimeDbPath(config);
+shared_app_database,apps/server/src/eigenwelt-hub-installs-store.ts,16,"* store.ts: a dedicated table in the same runtime.sqlite, one row per workspace"
+shared_app_database,apps/server/src/eigenwelt-hub-installs-store.ts,47,function runtimeDbPath(config: ServerConfig): string {
+shared_app_database,apps/server/src/eigenwelt-hub-installs-store.ts,52,"return join(configDir, ""runtime.sqlite"");"
+shared_app_database,apps/server/src/eigenwelt-hub-installs-store.ts,106,const path = runtimeDbPath(config);
+shared_app_database,apps/server/src/eigenwelt-refresh.ts,9,"runtimeDbPath, withEigenweltConnectionLock, writeEigenweltConnection,"
+shared_app_database,apps/server/src/eigenwelt-refresh.ts,32,const path = runtimeDbPath(config);
+generated_settings_and_admission,apps/server/src/embedded.ts,22,"writeLegalworkRuntimeConfigFile,"
+authored_configuration_paths,apps/server/src/embedded.ts,26,"import { importConnectorsIntoSharedRow } from ""./mcp-shared-store.js"";"
+legacy_history,apps/server/src/embedded.ts,29,"import { prepareManagedOpencodeEngineDb } from ""./managed-opencode-db.js"";"
+authored_configuration_paths,apps/server/src/embedded.ts,127,"const connectorImport = await importConnectorsIntoSharedRow(config, {"
+generated_settings_and_admission,apps/server/src/embedded.ts,148,"const runtimeConfigPath = await writeLegalworkRuntimeConfigFile(config, workspace.id);"
+generated_settings_and_admission,apps/server/src/embedded.ts,157,".then((r) => (r.changed && !stopped ? writeLegalworkRuntimeConfigFile(config, workspace.id) : undefined))"
+legacy_history,apps/server/src/embedded.ts,170,const managedDb = await prepareManagedOpencodeEngineDb(config);
+workspace_configuration_store,apps/server/src/engine-project.ts,10,"import { readLegalworkWorkspaceConfig, writeLegalworkWorkspaceConfig } from ""./legalwork-workspace-config-store.js"";"
+workspace_configuration_store,apps/server/src/engine-project.ts,29,"const parsed = recordSchema.safeParse((await readLegalworkWorkspaceConfig(config, workspace.id))[key]);"
+workspace_configuration_store,apps/server/src/engine-project.ts,43,"await writeLegalworkWorkspaceConfig(config, workspace.id, current => ({ ...current, [key]: record }));"
+generated_settings_and_admission,apps/server/src/engine-project.ts,145,export function nativeEngineProjectRegistryPath(config: ServerConfig) {
+generated_settings_and_admission,apps/server/src/engine-project.ts,146,"return join(engineStorageDir(config), ""native-project-approvals.json"");"
+generated_settings_and_admission,apps/server/src/engine-project.ts,149,export async function writeNativeEngineProjectRegistry(config: ServerConfig): Promise<void> {
+generated_settings_and_admission,apps/server/src/engine-project.ts,154,"const path = nativeEngineProjectRegistryPath(config), temporary = `${path}.${randomUUID()}.tmp`;"
+legacy_history,apps/server/src/history-v1-backup.ts,11,"export const legacyHistoryBackupDirectory = (config: ServerConfig) => join(engineStorageDir(config), ""history-v1"");"
+legacy_history,apps/server/src/history-v1-backup.ts,20,export async function readLegacyHistoryBackup(config: ServerConfig): Promise<LegacyHistoryBackup | null> {
+legacy_history,apps/server/src/history-v1-backup.ts,21,const directory = legacyHistoryBackupDirectory(config);
+legacy_history,apps/server/src/history-v1-backup.ts,40,"export async function ensureLegacyHistoryBackup(config: ServerConfig, source: string, snapshot: (destination: string) => Promise<void>): Promise<LegacyHistoryBackup> {"
+legacy_history,apps/server/src/history-v1-backup.ts,41,const existing = await readLegacyHistoryBackup(config);
+legacy_history,apps/server/src/history-v1-backup.ts,43,"const directory = legacyHistoryBackupDirectory(config), staging = `${directory}.staging-${randomUUID()}`;"
+legacy_history,apps/server/src/history-v1-backup.ts,58,const backup = await readLegacyHistoryBackup(config);
+configuration_translation,apps/server/src/hub-sanitize.ts,2,"import { nativeOpencodeConfig } from ""./native-opencode-config.js"";"
+configuration_translation,apps/server/src/hub-sanitize.ts,142,const providers: unknown = JSON.parse(JSON.stringify(publicNativeConfig(nativeOpencodeConfig({ providers: value }).config).providers ?? {}));
+configuration_translation,apps/server/src/legalwork-runtime-config.ts,4,"import { nativeOpencodeConfig } from ""./native-opencode-config.js"";"
+shared_app_database,apps/server/src/legalwork-runtime-config.ts,6,"import { runtimeDbPath } from ""./runtime-db.js"";"
+generated_settings_and_admission,apps/server/src/legalwork-runtime-config.ts,11,"import { archiveNativeProjectProjection, nativeEngineProjectRegistryPath, writeNativeEngineProjectRegistry, writeNativeProjectProjection } from ""./engine-project.js"";"
+configuration_translation,apps/server/src/legalwork-runtime-config.ts,32,"import { commonManagedConfiguration } from ""./managed-config-sources.js"";"
+runtime_configuration_store,apps/server/src/legalwork-runtime-config.ts,66,"onRuntimeOpencodeConfigWrite,"
+runtime_configuration_store,apps/server/src/legalwork-runtime-config.ts,67,"readGlobalMcpMap,"
+runtime_configuration_store,apps/server/src/legalwork-runtime-config.ts,68,"readGlobalToolPermissions,"
+runtime_configuration_store,apps/server/src/legalwork-runtime-config.ts,69,"readGlobalPersonalizationSettings,"
+runtime_configuration_store,apps/server/src/legalwork-runtime-config.ts,70,"readRuntimeOpencodeConfig,"
+runtime_configuration_store,apps/server/src/legalwork-runtime-config.ts,219,"await readRuntimeOpencodeConfig(config, workspaceId),"
+runtime_configuration_store,apps/server/src/legalwork-runtime-config.ts,220,"await readGlobalToolPermissions(config),"
+runtime_configuration_store,apps/server/src/legalwork-runtime-config.ts,231,? await readGlobalPersonalizationSettings(config)
+runtime_configuration_store,apps/server/src/legalwork-runtime-config.ts,235,const sharedMcp = config ? await readGlobalMcpMap(config) : {};
+configuration_translation,apps/server/src/legalwork-runtime-config.ts,366,"const { config: normalized, ...native } = nativeOpencodeConfig(result);"
+configuration_translation,apps/server/src/legalwork-runtime-config.ts,370,"const firmFilters = config ? nativeOpencodeConfig(await buildOrgPolicyEngineLayer(config, { permission: { ...runtimeConfig.permission } })).modelFilters : {};"
+configuration_translation,apps/server/src/legalwork-runtime-config.ts,403,"const layer = nativeOpencodeConfig(await buildOrgPolicyEngineLayer(config, { permission: { ...own.permission } })).config;"
+generated_settings_and_admission,apps/server/src/legalwork-runtime-config.ts,447,"return join(engineStorageDir(config), ""runtime-opencode-settings.json"");"
+configuration_translation,apps/server/src/legalwork-runtime-config.ts,459,"const configuration = nativeOpencodeConfig(entry.configuration && typeof entry.configuration === ""object"" && !Array.isArray(entry.configuration) ? Object.fromEntries(Object.entries(entry.configuration)) : {}).config;"
+generated_settings_and_admission,apps/server/src/legalwork-runtime-config.ts,477,"export async function writeLegalworkRuntimeConfigFile(config: ServerConfig, workspaceId: string): Promise<string> {"
+configuration_translation,apps/server/src/legalwork-runtime-config.ts,500,"const configurations = Object.values(workspaces).map(entry => nativeOpencodeConfig(entry.configuration && typeof entry.configuration === ""object"" && !Array.isArray(entry.configuration) ? Object.fromEntries(Object.entries(entry.configuration)) : {}).config);"
+configuration_translation,apps/server/src/legalwork-runtime-config.ts,501,const sharedConfiguration = managed ? commonManagedConfiguration(configurations) : {};
+generated_settings_and_admission,apps/server/src/legalwork-runtime-config.ts,504,"{ package: await bundledPluginSpec(legalworkPluginPath(""legalwork-project-admission""), config), options: { registryPath: nativeEngineProjectRegistryPath(config), protectedHostExecution: config.agentSandboxEnabled === true } },"
+configuration_translation,apps/server/src/legalwork-runtime-config.ts,527,"const configuration = nativeOpencodeConfig(settings.configuration && typeof settings.configuration === ""object"" && !Array.isArray(settings.configuration) ? Object.fromEntries(Object.entries(settings.configuration)) : {}).config;"
+generated_settings_and_admission,apps/server/src/legalwork-runtime-config.ts,536,await writeNativeEngineProjectRegistry(config);
+shared_app_database,apps/server/src/legalwork-runtime-config.ts,560,const database = runtimeDbPath(config);
+runtime_configuration_store,apps/server/src/legalwork-runtime-config.ts,562,"const unsubscribe = onRuntimeOpencodeConfigWrite((writeConfig, writtenWorkspaceId) => {"
+shared_app_database,apps/server/src/legalwork-runtime-config.ts,563,if (runtimeDbPath(writeConfig) !== database || runtimeDbPath(config) !== database) return;
+generated_settings_and_admission,apps/server/src/legalwork-runtime-config.ts,570,"pending = writeLegalworkRuntimeConfigFile(config, workspaceId).then(() => undefined, () => undefined);"
+workspace_configuration_store,apps/server/src/legalwork-workspace-config-store.ts,8,"const legalworkWorkspaceConfigs = sqliteTable(""legalwork_workspace_configs"", {"
+shared_app_database,apps/server/src/legalwork-workspace-config-store.ts,27,function runtimeDbPath(config: ServerConfig): string {
+shared_app_database,apps/server/src/legalwork-workspace-config-store.ts,32,"return join(configDir, ""runtime.sqlite"");"
+workspace_configuration_store,apps/server/src/legalwork-workspace-config-store.ts,41,"sqlite.run(""CREATE TABLE IF NOT EXISTS legalwork_workspace_configs (workspace_id TEXT PRIMARY KEY NOT NULL, config_json TEXT NOT NULL, updated_at INTEGER NOT NULL)"");"
+workspace_configuration_store,apps/server/src/legalwork-workspace-config-store.ts,63,"sqlite.exec(""CREATE TABLE IF NOT EXISTS legalwork_workspace_configs (workspace_id TEXT PRIMARY KEY NOT NULL, config_json TEXT NOT NULL, updated_at INTEGER NOT NULL)"");"
+workspace_configuration_store,apps/server/src/legalwork-workspace-config-store.ts,64,"const get = sqlite.prepare(""SELECT config_json AS configJson FROM legalwork_workspace_configs WHERE workspace_id = ?"");"
+workspace_configuration_store,apps/server/src/legalwork-workspace-config-store.ts,65,"const upsert = sqlite.prepare(""INSERT INTO legalwork_workspace_configs (workspace_id, config_json, updated_at) VALUES (?, ?, ?) ON CONFLICT(workspace_id) DO UPDATE SET config_json = excluded.config_json, updated_at = excluded.updated_at"");"
+shared_app_database,apps/server/src/legalwork-workspace-config-store.ts,81,const path = runtimeDbPath(config);
+workspace_configuration_store,apps/server/src/legalwork-workspace-config-store.ts,89,"export async function readLegalworkWorkspaceConfig(config: ServerConfig, workspaceId: string): Promise<Record<string, unknown>> {"
+workspace_configuration_store,apps/server/src/legalwork-workspace-config-store.ts,100,export async function writeLegalworkWorkspaceConfig(
+workspace_configuration_store,apps/server/src/legalwork-workspace-config-store.ts,106,"const next = normalizeLegalworkWorkspaceConfig(updater(await readLegalworkWorkspaceConfig(config, workspaceId)));"
+project_registration,apps/server/src/main-assistant.ts,5,"import { registerLocalProject } from ""./routes/workspaces.js"";"
+project_registration,apps/server/src/main-assistant.ts,182,"const { workspace } = await registerLocalProject(this.config, { folderPath, name: ""Assistant"", preset: MAIN_ASSISTANT_PRESET, position: ""last"" });"
+configuration_translation,apps/server/src/managed-config-sources.ts,21,export function commonManagedConfiguration(configurations: NativeConfig[]): NativeConfig {
+configuration_translation,apps/server/src/managed-config-sources.ts,52,"export function managedConfigurationDiff(configuration: NativeConfig, shared: NativeConfig): NativeConfig {"
+configuration_translation,apps/server/src/managed-core-library.ts,6,"import { nativeOpencodeConfig } from ""./native-opencode-config.js"";"
+configuration_translation,apps/server/src/managed-core-library.ts,32,"return nativeOpencodeConfig({ agent, commands: command });"
+generated_settings_and_admission,apps/server/src/managed-engine-settings.ts,23,"export async function readManagedEngineSettings(path: string, directory: string) {"
+generated_settings_and_admission,apps/server/src/managed-engine-settings.ts,38,export type ManagedEngineSettings = Awaited<ReturnType<typeof readManagedEngineSettings>>;
+legacy_history,apps/server/src/managed-opencode-db.ts,30,"import { findExistingOpencodeDbIn, findExistingOpencodeDbPath } from ""./opencode-db.js"";"
+legacy_history,apps/server/src/managed-opencode-db.ts,32,"import { ensureLegacyHistoryBackup, readLegacyHistoryBackup } from ""./history-v1-backup.js"";"
+legacy_history,apps/server/src/managed-opencode-db.ts,35,"export const LEGACY_MANAGED_ENGINE_DB_FILENAME = ""opencode-engine.db"";"
+legacy_history,apps/server/src/managed-opencode-db.ts,260,export async function prepareManagedOpencodeEngineDb(config: ServerConfig): Promise<ManagedEngineDb | null> {
+legacy_history,apps/server/src/managed-opencode-db.ts,269,if (!(await readLegacyHistoryBackup(config))) {
+legacy_history,apps/server/src/managed-opencode-db.ts,274,"await ensureLegacyHistoryBackup(config, privatePath, async destination => { db.run(""VACUUM INTO ?"", [destination]); });"
+legacy_history,apps/server/src/managed-opencode-db.ts,284,"const legacyPath = join(storageDir, LEGACY_MANAGED_ENGINE_DB_FILENAME);"
+legacy_history,apps/server/src/managed-opencode-db.ts,288,: development ? (devDataDirectory ? findExistingOpencodeDbIn(devDataDirectory) : null)
+legacy_history,apps/server/src/managed-opencode-db.ts,289,: findExistingOpencodeDbPath();
+legacy_history,apps/server/src/managed-opencode-db.ts,296,"const backup = compatibility === ""compatible"" ? await ensureLegacyHistoryBackup(config, sharedPath, async destination => {"
+authored_configuration_paths,apps/server/src/mcp-shared-store.ts,26,"import { opencodeConfigPaths } from ""./workspace-files.js"";"
+runtime_configuration_store,apps/server/src/mcp-shared-store.ts,29,"readGlobalMcpMap,"
+runtime_configuration_store,apps/server/src/mcp-shared-store.ts,30,"readRuntimeOpencodeConfig,"
+runtime_configuration_store,apps/server/src/mcp-shared-store.ts,32,"writeRuntimeOpencodeConfig,"
+authored_configuration_paths,apps/server/src/mcp-shared-store.ts,81,export async function importConnectorsIntoSharedRow(
+runtime_configuration_store,apps/server/src/mcp-shared-store.ts,86,const shared: McpMap = { ...(await readGlobalMcpMap(config)) };
+runtime_configuration_store,apps/server/src/mcp-shared-store.ts,99,"const row = runtimeMcpMap(await readRuntimeOpencodeConfig(config, workspace.id));"
+runtime_configuration_store,apps/server/src/mcp-shared-store.ts,105,"await writeRuntimeOpencodeConfig(config, workspace.id, (current) => {"
+authored_configuration_paths,apps/server/src/mcp-shared-store.ts,121,".flatMap((workspace) => opencodeConfigPaths(workspace.path)),"
+runtime_configuration_store,apps/server/src/mcp-shared-store.ts,133,"await writeRuntimeOpencodeConfig(config, GLOBAL_MCP_ID, (current) => ({ ...current, mcp: shared }));"
+authored_configuration_paths,apps/server/src/mcp.ts,13,"import { globalOpencodeConfigDir, opencodeConfigPaths } from ""./workspace-files.js"";"
+runtime_configuration_store,apps/server/src/mcp.ts,17,"readRuntimeOpencodeConfig,"
+runtime_configuration_store,apps/server/src/mcp.ts,19,"writeRuntimeOpencodeConfig,"
+runtime_configuration_store,apps/server/src/mcp.ts,51,"readRuntimeOpencodeConfig(serverConfig, GLOBAL_MCP_ID),"
+runtime_configuration_store,apps/server/src/mcp.ts,52,"readRuntimeOpencodeConfig(serverConfig, workspaceId),"
+authored_configuration_paths,apps/server/src/mcp.ts,184,"read([...opencodeConfigPaths(workspaceRoot)].reverse()),"
+runtime_configuration_store,apps/server/src/mcp.ts,287,"await writeRuntimeOpencodeConfig(serverConfig, rowId, row => {"
+runtime_configuration_store,apps/server/src/mcp.ts,305,"await writeRuntimeOpencodeConfig(serverConfig, workspaceId, withoutMcp(name));"
+runtime_configuration_store,apps/server/src/mcp.ts,321,"await writeRuntimeOpencodeConfig(serverConfig, workspaceId, withoutMcp(name));"
+runtime_configuration_store,apps/server/src/mcp.ts,325,"await writeRuntimeOpencodeConfig(serverConfig, GLOBAL_MCP_ID, withoutMcp(name));"
+runtime_configuration_store,apps/server/src/mcp.ts,347,"await writeRuntimeOpencodeConfig(serverConfig, rowId, currentConfig => {"
+configuration_translation,apps/server/src/native-client-projection.ts,11,"import { nativeOpencodeConfig } from ""./native-opencode-config.js"";"
+configuration_translation,apps/server/src/native-client-projection.ts,93,"return { ...publicNativeConfig(nativeOpencodeConfig(input).config), $legalworkReadOnlyProjection: true };"
+generated_settings_and_admission,apps/server/src/native-engine-project-registry.ts,13,"export function nativeEngineLocationApprovedSync(path: string, directory: string): boolean {"
+generated_settings_and_admission,apps/server/src/native-engine-project-registry.ts,27,"export async function nativeEngineLocationApproved(path: string, directory: string): Promise<boolean> {"
+legacy_history,apps/server/src/native-engine-recovery.ts,7,"import { assertSessionHistoryRecoveryReady } from ""./session-history-undo.js"";"
+legacy_history,apps/server/src/native-engine-recovery.ts,62,"await assertSessionHistoryRecoveryReady(config, recovered.sessions.map(session => session.id));"
+runtime_configuration_store,apps/server/src/native-folder-approval.ts,7,"import { runtimeExternalDirectory, writeRuntimeOpencodeConfig } from ""./runtime-opencode-config-store.js"";"
+generated_settings_and_admission,apps/server/src/native-folder-approval.ts,8,"import { writeLegalworkRuntimeConfigFile } from ""./legalwork-runtime-config.js"";"
+runtime_configuration_store,apps/server/src/native-folder-approval.ts,28,"await writeRuntimeOpencodeConfig(config, workspace.id, current => {"
+generated_settings_and_admission,apps/server/src/native-folder-approval.ts,41,"await writeLegalworkRuntimeConfigFile(config, workspace.id);"
+configuration_translation,apps/server/src/native-opencode-config.ts,93,export function nativeProvider(value: unknown): RecordValue {
+configuration_translation,apps/server/src/native-opencode-config.ts,103,export function nativeAgent(value: unknown): RecordValue {
+configuration_translation,apps/server/src/native-opencode-config.ts,129,"export function nativeOpencodeConfig(input: RecordValue): { config: NativeConfig; modelFilters: Record<string, ModelFilter>; agentRequests: Record<string, RecordValue> } {"
+configuration_translation,apps/server/src/native-opencode-config.ts,137,providers[id] = nativeProvider(value);
+configuration_translation,apps/server/src/native-opencode-config.ts,146,agents[id] = nativeAgent(item);
+workspace_configuration_store,apps/server/src/native-project-plugins.ts,9,"import { readLegalworkWorkspaceConfig, writeLegalworkWorkspaceConfig } from ""./legalwork-workspace-config-store.js"";"
+workspace_configuration_store,apps/server/src/native-project-plugins.ts,26,"const parsed = catalogSchema.safeParse(await readLegalworkWorkspaceConfig(config, catalogID));"
+workspace_configuration_store,apps/server/src/native-project-plugins.ts,34,"await writeLegalworkWorkspaceConfig(config, catalogID, () => ({ identities: [...identities].sort() }));"
+configuration_translation,apps/server/src/native-provider-edit.ts,1,"import { nativeProvider } from ""./native-opencode-config.js"";"
+configuration_translation,apps/server/src/native-provider-edit.ts,36,"const old = nativeProvider(result[id]), patch = record(update), provider = mergeFields(old, patch);"
+configuration_translation,apps/server/src/native-workspace-config.ts,8,"import { nativeOpencodeConfig, type NativeConfig } from ""./native-opencode-config.js"";"
+configuration_translation,apps/server/src/native-workspace-config.ts,40,const saved = nativeOpencodeConfig(owned).config;
+legacy_history,apps/server/src/opencode-db.ts,100,export function findExistingOpencodeDbPath(): string | null {
+legacy_history,apps/server/src/opencode-db.ts,105,export function findExistingOpencodeDbIn(dataDirectory: string): string | null {
+generated_settings_and_admission,apps/server/src/opencode-plugins/legalwork-legalmemory.ts,14,"import { readManagedEngineSettings } from ""../managed-engine-settings.js"";"
+generated_settings_and_admission,apps/server/src/opencode-plugins/legalwork-legalmemory.ts,150,"await readManagedEngineSettings(settingsPath, ctx.location.directory);"
+generated_settings_and_admission,apps/server/src/opencode-plugins/legalwork-legalmemory.ts,168,"}, cleanup: async () => { await readManagedEngineSettings(settingsPath, ctx.location.directory); return { removed: await (cleanupPromise ??= cleanupOrphans()) }; }, servers: async () => {"
+generated_settings_and_admission,apps/server/src/opencode-plugins/legalwork-legalmemory.ts,169,"await readManagedEngineSettings(settingsPath, ctx.location.directory);"
+generated_settings_and_admission,apps/server/src/opencode-plugins/legalwork-legalmemory.ts,179,"await readManagedEngineSettings(settingsPath, ctx.location.directory);"
+generated_settings_and_admission,apps/server/src/opencode-plugins/legalwork-managed-config.ts,2,"import { ManagedSettingsWorkspaceMissingError, managedSettingsRpc, readManagedEngineSettings } from ""../managed-engine-settings.js"";"
+configuration_translation,apps/server/src/opencode-plugins/legalwork-managed-config.ts,4,"import { managedConfigurationDiff } from ""../managed-config-sources.js"";"
+configuration_translation,apps/server/src/opencode-plugins/legalwork-managed-config.ts,5,"import { managedAgents, managedModelDifferences, managedProviderAllowed, managedProviderDifferences } from ""./managed-config-transforms.js"";"
+generated_settings_and_admission,apps/server/src/opencode-plugins/legalwork-managed-config.ts,17,"try { return await readManagedEngineSettings(settingsPath, ctx.location.directory); }"
+configuration_translation,apps/server/src/opencode-plugins/legalwork-managed-config.ts,22,"let difference: NativeConfig = settings ? managedConfigurationDiff(settings.configuration, settings.sharedConfiguration) : {};"
+configuration_translation,apps/server/src/opencode-plugins/legalwork-managed-config.ts,50,"registrations.push(await ctx.provider.transform(editor => managedProviderDifferences(editor, difference)));"
+configuration_translation,apps/server/src/opencode-plugins/legalwork-managed-config.ts,51,"registrations.push(await ctx.agent.transform(editor => { if (settings) managedAgents(editor, settings.configuration); }));"
+configuration_translation,apps/server/src/opencode-plugins/legalwork-managed-config.ts,61,"managedModelDifferences(editor, difference);"
+configuration_translation,apps/server/src/opencode-plugins/legalwork-managed-config.ts,85,"difference = settings ? managedConfigurationDiff(settings.configuration, settings.sharedConfiguration) : {};"
+generated_settings_and_admission,apps/server/src/opencode-plugins/legalwork-project-admission.ts,2,"import { nativeEngineLocationApproved, nativeEngineLocationApprovedSync } from ""../native-engine-project-registry.js"";"
+generated_settings_and_admission,apps/server/src/opencode-plugins/legalwork-project-admission.ts,16,"const allowed = () => nativeEngineLocationApproved(registryPath, ctx.location.directory).catch(() => false);"
+generated_settings_and_admission,apps/server/src/opencode-plugins/legalwork-project-admission.ts,19,"if (!nativeEngineLocationApprovedSync(registryPath, ctx.location.directory)) for (const [name] of editor.list()) editor.remove(name);"
+generated_settings_and_admission,apps/server/src/opencode-plugins/legalwork-project-admission.ts,31,"if (!await nativeEngineLocationApproved(registryPath, target).catch(() => false)) throw new Error(""Open and approve the destination project in LegalWork before moving this chat there. "" + diagnostic);"
+configuration_translation,apps/server/src/opencode-plugins/managed-config-transforms.ts,28,"export function managedProviderDifferences(editor: ProviderEditor, configuration: NativeConfig) {"
+configuration_translation,apps/server/src/opencode-plugins/managed-config-transforms.ts,55,"export function managedModelDifferences(editor: ModelEditor, configuration: NativeConfig) {"
+configuration_translation,apps/server/src/opencode-plugins/managed-config-transforms.ts,92,"export function managedAgents(editor: AgentEditor, configuration: NativeConfig) {"
+shared_app_database,apps/server/src/org-policy.ts,21,"import { openSqlite, runtimeDbPath, type SqliteHandle } from ""./runtime-db.js"";"
+shared_app_database,apps/server/src/org-policy.ts,28,* heard is kept in runtime.sqlite and outlives a sign-out:
+shared_app_database,apps/server/src/org-policy.ts,73,const path = runtimeDbPath(config);
+shared_app_database,apps/server/src/org-policy.ts,388,const path = runtimeDbPath(config);
+runtime_configuration_store,apps/server/src/plugin-create.ts,9,"import { GLOBAL_MCP_ID, readRuntimeOpencodeConfig } from ""./runtime-opencode-config-store.js"";"
+runtime_configuration_store,apps/server/src/plugin-create.ts,54,"const all = (await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID)).mcp ?? {};"
+runtime_configuration_store,apps/server/src/plugin-import-checks.ts,7,"import { GLOBAL_MCP_ID, readRuntimeOpencodeConfig } from ""./runtime-opencode-config-store.js"";"
+runtime_configuration_store,apps/server/src/plugin-import-checks.ts,19,"return { workspace, scope, current: (await readRuntimeOpencodeConfig(config, registry)).mcp || {}, installed: local.plugins[pluginId], available: Object.values({ ...global.plugins, ...local.plugins }) };"
+runtime_configuration_store,apps/server/src/plugin-import-install.ts,7,"import { GLOBAL_MCP_ID, readRuntimeOpencodeConfig, writeRuntimeOpencodeConfig } from ""./runtime-opencode-config-store.js"";"
+runtime_configuration_store,apps/server/src/plugin-import-install.ts,47,"const previousMcp = (await readRuntimeOpencodeConfig(config, registry)).mcp ?? {};"
+runtime_configuration_store,apps/server/src/plugin-import-install.ts,81,"await writeRuntimeOpencodeConfig(config, registry, current => ({ ...current, mcp: {"
+runtime_configuration_store,apps/server/src/plugin-import-install.ts,116,"const currentMcp = (await readRuntimeOpencodeConfig(config, registry)).mcp || {};"
+runtime_configuration_store,apps/server/src/plugin-import-install.ts,130,"await writeRuntimeOpencodeConfig(config, registry, current => ({ ...current, mcp: { ...Object.fromEntries(Object.entries(current.mcp || {}).filter(([name]) => !name.startsWith(`${namespace}-`))), ...value.mcp } }));"
+runtime_configuration_store,apps/server/src/plugin-import-install.ts,141,"await writeRuntimeOpencodeConfig(config, registry, current => ({ ...current, mcp: { ...Object.fromEntries(Object.entries(current.mcp || {}).filter(([name]) => !name.startsWith(`${namespace}-`))), ...Object.fromEntries(Object.entries(currentMcp).filter(([name]) => name.startsWith(`${namespace}-`))) } }));"
+authored_configuration_paths,apps/server/src/plugins.ts,6,"import { globalOpencodeConfigDir, opencodeConfigPath, projectPluginsDir } from ""./workspace-files.js"";"
+runtime_configuration_store,apps/server/src/plugins.ts,9,"import { readRuntimeOpencodeConfig, runtimePluginList, writeRuntimeOpencodeConfig } from ""./runtime-opencode-config-store.js"";"
+authored_configuration_paths,apps/server/src/plugins.ts,57,"const { data: config } = await readJsoncFile(opencodeConfigPath(workspaceRoot), {} as Record<string, unknown>, { allowInvalid: true });"
+runtime_configuration_store,apps/server/src/plugins.ts,59,"const runtimeSpecs = runtimePluginList(await readRuntimeOpencodeConfig(serverConfig, workspaceId));"
+runtime_configuration_store,apps/server/src/plugins.ts,94,"const runtimeConfig = await readRuntimeOpencodeConfig(serverConfig, workspaceId);"
+runtime_configuration_store,apps/server/src/plugins.ts,100,"await writeRuntimeOpencodeConfig(serverConfig, workspaceId, (current) => ({ ...current, plugin: pluginSpecs }));"
+runtime_configuration_store,apps/server/src/plugins.ts,105,"const runtimeConfig = await readRuntimeOpencodeConfig(serverConfig, workspaceId);"
+runtime_configuration_store,apps/server/src/plugins.ts,110,"await writeRuntimeOpencodeConfig(serverConfig, workspaceId, (current) => ({ ...current, plugin: filtered }));"
+shared_app_database,apps/server/src/project-sync-store.ts,10,"import { openSqlite, runtimeDbPath, type Row, type SqliteHandle } from ""./runtime-db.js"";"
+shared_app_database,apps/server/src/project-sync-store.ts,16,"* What this machine knows about its synced projects, in runtime.sqlite beside"
+shared_app_database,apps/server/src/project-sync-store.ts,684,const path = runtimeDbPath(config);
+project_registration,apps/server/src/project-sync.ts,53,"import { registerLocalProject, renameRegisteredWorkspace, unregisterWorkspace } from ""./routes/workspaces.js"";"
+project_registration,apps/server/src/project-sync.ts,452,"workspace = (await registerLocalProject(config, { folderPath, name: remote.name, preset: ""starter"", position: ""last"" })).workspace;"
+project_registration,apps/server/src/project-sync.ts,509,"await renameRegisteredWorkspace(config, workspace.id, remote.name);"
+project_registration,apps/server/src/project-sync.ts,581,"await unregisterWorkspace(config, workspace);"
+runtime_configuration_store,apps/server/src/recording-access.ts,10,"import { readGlobalToolPermissions, readRuntimeOpencodeConfig, runtimeExternalDirectory } from ""./runtime-opencode-config-store.js"";"
+runtime_configuration_store,apps/server/src/recording-access.ts,44,"const runtime = await readRuntimeOpencodeConfig(config, own.id);"
+runtime_configuration_store,apps/server/src/recording-access.ts,45,"const { permission } = await orgPolicyPermissions(config, await readGlobalToolPermissions(config));"
+configuration_translation,apps/server/src/routes/main-assistant.ts,6,"import type { createAssistantEngineClient } from ""../assistant-engine.js"";"
+project_registration,apps/server/src/routes/main-assistant.ts,11,"import { registerLocalProject } from ""./workspaces.js"";"
+configuration_translation,apps/server/src/routes/main-assistant.ts,52,client: (workspace: WorkspaceInfo) => ReturnType<typeof createAssistantEngineClient>;
+project_registration,apps/server/src/routes/main-assistant.ts,252,"const { workspace } = await registerLocalProject(config, { folderPath, name: parsed.data.name, preset: ""starter"", position: ""last"", projectFields: assistant.projectDefaults() });"
+project_registration,apps/server/src/routes/project-folders.ts,11,"import { renameRegisteredWorkspace } from ""./workspaces.js"";"
+project_registration,apps/server/src/routes/project-folders.ts,168,"await renameRegisteredWorkspace(config, workspace.id, body.name);"
+legacy_history,apps/server/src/routes/sessions.ts,26,"import { readSessionHistoryProvenance, readScopedSessionHistoryProvenance } from ""../session-history-provenance.js"";"
+legacy_history,apps/server/src/routes/sessions.ts,27,"import { assertSessionHistoryReady, prepareSessionHistoryUndo } from ""../session-history-undo.js"";"
+legacy_history,apps/server/src/routes/sessions.ts,94,"if(allowUnresolved)await prepareSessionHistoryUndo(config,workspace,client,await getWorkspaceEngineSession(client,workspace,sessionID));"
+legacy_history,apps/server/src/routes/sessions.ts,95,"else await assertSessionHistoryReady(config,workspace,client,sessionID);"
+legacy_history,apps/server/src/routes/sessions.ts,182,"return buildSession((await prepareSessionHistoryUndo(config,workspace,client,await getWorkspaceEngineSession(client,workspace,sessionID))).session);"
+legacy_history,apps/server/src/routes/sessions.ts,210,"const historyUndo=await prepareSessionHistoryUndo(config,workspace,client,session);"
+legacy_history,apps/server/src/routes/sessions.ts,211,"const historyProvenance = {...await readSessionHistoryProvenance(config, workspace, session, messages),...(historyUndo.state ? {undo:historyUndo.state}:{})};"
+legacy_history,apps/server/src/routes/sessions.ts,379,"return jsonResponse(await readScopedSessionHistoryProvenance(config,workspace,createEngineClient(config,workspace),caller,ctx.params.sessionId));"
+legacy_history,apps/server/src/routes/sessions.ts,391,"return jsonResponse({ items, historyProvenance: await readSessionHistoryProvenance(config, workspace, session, items) });"
+project_registration,apps/server/src/routes/workspaces.ts,86,async function persistServerWorkspaceState(config: ServerConfig): Promise<boolean> {
+project_registration,apps/server/src/routes/workspaces.ts,122,export async function registerLocalProject(
+project_registration,apps/server/src/routes/workspaces.ts,153,"return { workspace, persisted: await persistServerWorkspaceState(config) };"
+project_registration,apps/server/src/routes/workspaces.ts,157,"export async function renameRegisteredWorkspace(config: ServerConfig, id: string, displayName: string | undefined): Promise<boolean> {"
+project_registration,apps/server/src/routes/workspaces.ts,162,await persistServerWorkspaceState(config);
+project_registration,apps/server/src/routes/workspaces.ts,167,"export async function unregisterWorkspace(config: ServerConfig, workspace: WorkspaceInfo): Promise<{ deleted: boolean; persisted: boolean }> {"
+project_registration,apps/server/src/routes/workspaces.ts,176,"return { deleted, persisted: await persistServerWorkspaceState(config) };"
+project_registration,apps/server/src/routes/workspaces.ts,310,"const { workspace, persisted } = await registerLocalProject(config, { folderPath, name, preset, projectFields });"
+project_registration,apps/server/src/routes/workspaces.ts,348,"const persisted = await renameRegisteredWorkspace(config, workspace.id, nextDisplayName);"
+project_registration,apps/server/src/routes/workspaces.ts,382,const persisted = persist ? await persistServerWorkspaceState(config) : false;
+project_registration,apps/server/src/routes/workspaces.ts,407,"const { deleted, persisted } = await unregisterWorkspace(config, workspace);"
+shared_app_database,apps/server/src/runtime-db.ts,7,"* runtime.sqlite, the machine's own store beside the server config: the"
+shared_app_database,apps/server/src/runtime-db.ts,54,export function runtimeDbPath(config: ServerConfig): string {
+shared_app_database,apps/server/src/runtime-db.ts,59,"return join(configDir, ""runtime.sqlite"");"
+shared_app_database,apps/server/src/runtime-opencode-config-store.ts,131,function runtimeDbPath(config: ServerConfig): string {
+shared_app_database,apps/server/src/runtime-opencode-config-store.ts,136,"return join(configDir, ""runtime.sqlite"");"
+shared_app_database,apps/server/src/runtime-opencode-config-store.ts,141,return dirname(runtimeDbPath(config));
+runtime_configuration_store,apps/server/src/runtime-opencode-config-store.ts,153,export function onRuntimeOpencodeConfigWrite(listener: RuntimeOpencodeConfigWriteListener): () => void {
+runtime_configuration_store,apps/server/src/runtime-opencode-config-store.ts,163,"sqlite.run(""CREATE TABLE IF NOT EXISTS runtime_opencode_configs (workspace_id TEXT PRIMARY KEY NOT NULL, config_json TEXT NOT NULL, updated_at INTEGER NOT NULL)"");"
+runtime_configuration_store,apps/server/src/runtime-opencode-config-store.ts,164,"const get = sqlite.query<{ configJson: string }, [string]>(""SELECT config_json AS configJson FROM runtime_opencode_configs WHERE workspace_id = ?"");"
+runtime_configuration_store,apps/server/src/runtime-opencode-config-store.ts,165,"const upsert = sqlite.query(""INSERT INTO runtime_opencode_configs (workspace_id, config_json, updated_at) VALUES (?, ?, ?) ON CONFLICT(workspace_id) DO UPDATE SET config_json = excluded.config_json, updated_at = excluded.updated_at"");"
+runtime_configuration_store,apps/server/src/runtime-opencode-config-store.ts,175,"sqlite.exec(""CREATE TABLE IF NOT EXISTS runtime_opencode_configs (workspace_id TEXT PRIMARY KEY NOT NULL, config_json TEXT NOT NULL, updated_at INTEGER NOT NULL)"");"
+runtime_configuration_store,apps/server/src/runtime-opencode-config-store.ts,176,"const get = sqlite.prepare(""SELECT config_json AS configJson FROM runtime_opencode_configs WHERE workspace_id = ?"");"
+runtime_configuration_store,apps/server/src/runtime-opencode-config-store.ts,177,"const upsert = sqlite.prepare(""INSERT INTO runtime_opencode_configs (workspace_id, config_json, updated_at) VALUES (?, ?, ?) ON CONFLICT(workspace_id) DO UPDATE SET config_json = excluded.config_json, updated_at = excluded.updated_at"");"
+shared_app_database,apps/server/src/runtime-opencode-config-store.ts,195,const path = runtimeDbPath(config);
+shared_app_database,apps/server/src/runtime-opencode-config-store.ts,203,const path = runtimeDbPath(config);
+runtime_configuration_store,apps/server/src/runtime-opencode-config-store.ts,234,"export async function readGlobalMcpMap(config: ServerConfig): Promise<Record<string, Record<string, unknown>>> {"
+runtime_configuration_store,apps/server/src/runtime-opencode-config-store.ts,235,"return runtimeMcpMap(await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID));"
+runtime_configuration_store,apps/server/src/runtime-opencode-config-store.ts,238,export async function readGlobalPersonalizationSettings(
+runtime_configuration_store,apps/server/src/runtime-opencode-config-store.ts,241,"const globalConfig = await readRuntimeOpencodeConfig(config, GLOBAL_PERSONALIZATION_ID);"
+runtime_configuration_store,apps/server/src/runtime-opencode-config-store.ts,246,"export async function readGlobalToolPermissions(config: ServerConfig): Promise<Record<string, unknown>> {"
+runtime_configuration_store,apps/server/src/runtime-opencode-config-store.ts,247,"const globalConfig = await readRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID);"
+runtime_configuration_store,apps/server/src/runtime-opencode-config-store.ts,300,"export async function readRuntimeOpencodeConfig(config: ServerConfig, workspaceId: string, options: { failOnInvalid?: boolean; settingsScope?: ""application"" | ""session"" } = {}): Promise<RuntimeOpencodeConfig> {"
+runtime_configuration_store,apps/server/src/runtime-opencode-config-store.ts,314,export async function writeRuntimeOpencodeConfig(
+runtime_configuration_store,apps/server/src/runtime-provider-repair.ts,15,"import { readRuntimeOpencodeConfig, writeRuntimeOpencodeConfig } from ""./runtime-opencode-config-store.js"";"
+runtime_configuration_store,apps/server/src/runtime-provider-repair.ts,97,"const current = await readRuntimeOpencodeConfig(config, workspaceId);"
+runtime_configuration_store,apps/server/src/runtime-provider-repair.ts,100,"await writeRuntimeOpencodeConfig(config, workspaceId, (latest) => ({"
+shared_app_database,apps/server/src/server.ts,16,"import { runtimeDbPath } from ""./runtime-db.js"";"
+authored_configuration_paths,apps/server/src/server.ts,94,"import { globalOpencodeConfigDir, globalSkillsDir, opencodeConfigPath, legalworkConfigPath, projectCommandsDir, projectPluginsDir, projectSkillsDir } from ""./workspace-files.js"";"
+authored_configuration_paths,apps/server/src/server.ts,96,"import { ensureWorkspaceFiles, readRawOpencodeConfig } from ""./workspace-init.js"";"
+legacy_history,apps/server/src/server.ts,171,"import { assertSessionHistoryReady } from ""./session-history-undo.js"";"
+runtime_configuration_store,apps/server/src/server.ts,183,"readGlobalPersonalizationSettings,"
+runtime_configuration_store,apps/server/src/server.ts,184,"readGlobalToolPermissions,"
+runtime_configuration_store,apps/server/src/server.ts,185,"readRuntimeOpencodeConfig,"
+runtime_configuration_store,apps/server/src/server.ts,189,"writeRuntimeOpencodeConfig,"
+workspace_configuration_store,apps/server/src/server.ts,195,"readLegalworkWorkspaceConfig,"
+workspace_configuration_store,apps/server/src/server.ts,196,"writeLegalworkWorkspaceConfig,"
+generated_settings_and_admission,apps/server/src/server.ts,203,"writeLegalworkRuntimeConfigFile,"
+generated_settings_and_admission,apps/server/src/server.ts,205,"import { readManagedEngineSettings } from ""./managed-engine-settings.js"";"
+configuration_translation,apps/server/src/server.ts,209,"import { nativeProvider } from ""./native-opencode-config.js"";"
+configuration_translation,apps/server/src/server.ts,404,"function legacyRuntimeConfigFromLegalworkConfig(legalwork: Record<string, unknown>): {"
+authored_configuration_paths,apps/server/src/server.ts,489,"await updateJsoncTopLevel(opencodeConfigPath(workspaceRoot), updates);"
+configuration_translation,apps/server/src/server.ts,520,function mergeLegacyRuntimeConfig(
+shared_app_database,apps/server/src/server.ts,925,"const scheduledTasks = await ScheduledTaskStore.open(runtimeDbPath(config), () => announceSyncChange(config, ""sessions""));"
+runtime_configuration_store,apps/server/src/server.ts,1016,"const runtime = await readRuntimeOpencodeConfig(config, workspace.id);"
+runtime_configuration_store,apps/server/src/server.ts,1017,"const persisted = [runtime.permission, (await readGlobalToolPermissions(config)), runtime.agent?.[agentName]?.permission];"
+legacy_history,apps/server/src/server.ts,1421,"await assertSessionHistoryReady(input.config, workspace, client, sessionID);"
+runtime_configuration_store,apps/server/src/server.ts,1461,"const configured = mergeOpencodeConfigs(await readOpencodeConfig(input.config, workspace), await readRuntimeOpencodeConfig(input.config, workspace.id));"
+generated_settings_and_admission,apps/server/src/server.ts,1536,"? await readManagedEngineSettings(managedEngineSettingsFilePath(input.config), directory) : undefined;"
+generated_settings_and_admission,apps/server/src/server.ts,1905,"await writeLegalworkRuntimeConfigFile(config, primary.id);"
+runtime_configuration_store,apps/server/src/server.ts,1952,"const persisted = mergeOpencodeConfigs(await readOpencodeConfig(config, workspace), await readRuntimeOpencodeConfig(config, workspace.id));"
+configuration_translation,apps/server/src/server.ts,1956,".map(([id, provider]) => [id, nativeProvider(provider)]));"
+generated_settings_and_admission,apps/server/src/server.ts,1970,"await writeLegalworkRuntimeConfigFile(config, workspace.id);"
+generated_settings_and_admission,apps/server/src/server.ts,1975,"if (primary && primary.id !== workspace.id) await writeLegalworkRuntimeConfigFile(config, primary.id);"
+generated_settings_and_admission,apps/server/src/server.ts,2054,"onApproved: async workspace => { if (config.engineProjectTrustRequired) await writeLegalworkRuntimeConfigFile(config, workspace.id); } });"
+runtime_configuration_store,apps/server/src/server.ts,2138,return jsonResponse({ settings: await readGlobalPersonalizationSettings(config) });
+runtime_configuration_store,apps/server/src/server.ts,2161,"await writeRuntimeOpencodeConfig(config, GLOBAL_PERSONALIZATION_ID, (current) => ({"
+runtime_configuration_store,apps/server/src/server.ts,2185,"const runtime = await readRuntimeOpencodeConfig(config, workspace.id);"
+authored_configuration_paths,apps/server/src/server.ts,2218,"await readLegalworkConfig(workspace.path),"
+workspace_configuration_store,apps/server/src/server.ts,2219,"await readLegalworkWorkspaceConfig(config, workspace.id),"
+runtime_configuration_store,apps/server/src/server.ts,2223,"const owned = await readRuntimeOpencodeConfig(config, workspace.id);"
+runtime_configuration_store,apps/server/src/server.ts,2227,"await readGlobalToolPermissions(config),"
+runtime_configuration_store,apps/server/src/server.ts,2335,"const checked = await preparePluginImport(plan, { workspace: workspace.path, scope, current: (await readRuntimeOpencodeConfig(config, registry)).mcp || {}, installed: plugin, available: Object.values({ ...global.plugins, ...local.plugins }) });"
+authored_configuration_paths,apps/server/src/server.ts,2395,"paths: [legalworkConfigPath(workspace.path), join(workspace.path, "".opencode"")],"
+authored_configuration_paths,apps/server/src/server.ts,2418,"target: legalworkConfigPath(workspace.path),"
+runtime_configuration_store,apps/server/src/server.ts,2451,"const target = { workspace: workspace.path, scope: request.scope, current: (await readRuntimeOpencodeConfig(config, workspace.id)).mcp || {}, installed: installed.plugins[plans[0].preview.id], available: Object.values({ ...(await readInstalledCloudPlugins(config, GLOBAL_MCP_ID)).plugins, ...installed.plugins }) };"
+authored_configuration_paths,apps/server/src/server.ts,2469,"paths: [legalworkConfigPath(workspace.path), join(workspace.path, "".opencode"")],"
+authored_configuration_paths,apps/server/src/server.ts,2483,"target: legalworkConfigPath(workspace.path),"
+authored_configuration_paths,apps/server/src/server.ts,2516,"paths: globalRemoval ? [globalOpencodeConfigDir(), globalSkillsDir()] : [legalworkConfigPath(workspace.path), join(workspace.path, "".opencode"")],"
+authored_configuration_paths,apps/server/src/server.ts,2532,"target: legalworkConfigPath(workspace.path),"
+runtime_configuration_store,apps/server/src/server.ts,2556,"await readRuntimeOpencodeConfig(config, workspace.id),"
+authored_configuration_paths,apps/server/src/server.ts,2569,const configPath = legalworkConfigPath(workspace.path);
+runtime_configuration_store,apps/server/src/server.ts,2579,"const runtimeOpencode = await readRuntimeOpencodeConfig(config, workspace.id);"
+runtime_configuration_store,apps/server/src/server.ts,2587,"await writeRuntimeOpencodeConfig(config, workspace.id, (current) => ({"
+authored_configuration_paths,apps/server/src/server.ts,2624,const configPath = legalworkConfigPath(workspace.path);
+configuration_translation,apps/server/src/server.ts,2634,const legacy = legacyRuntimeConfigFromLegalworkConfig(legalwork.data);
+runtime_configuration_store,apps/server/src/server.ts,2644,"await writeRuntimeOpencodeConfig(config, workspace.id, (current) => ("
+configuration_translation,apps/server/src/server.ts,2645,"mergeLegacyRuntimeConfig(mergeLegacyRuntimeConfig(current, legacyRest), userRest)"
+runtime_configuration_store,apps/server/src/server.ts,2649,"await writeRuntimeOpencodeConfig(config, GLOBAL_MCP_ID, (current) => ({"
+authored_configuration_paths,apps/server/src/server.ts,2655,"await writeLegalworkConfig(workspace.path, removeLegacyRuntimeConfig(legalwork.data), false);"
+runtime_configuration_store,apps/server/src/server.ts,2685,"const runtime = await readRuntimeOpencodeConfig(config, workspace.id);"
+configuration_translation,apps/server/src/server.ts,2688,const legacy = legacyRuntimeConfigFromLegalworkConfig(legalworkConfig);
+authored_configuration_paths,apps/server/src/server.ts,2689,const rawOpencode = await readRawOpencodeConfig(opencodeConfigPath(workspace.path));
+authored_configuration_paths,apps/server/src/server.ts,2692,const rawGlobalOpencode = await readRawOpencodeConfig(globalOpencodePath);
+authored_configuration_paths,apps/server/src/server.ts,2695,"const projection = await readNativeWorkspaceConfig(config, workspace, runtime, [opencodeConfigPath(workspace.path), globalOpencodePath]);"
+authored_configuration_paths,apps/server/src/server.ts,2704,"path: opencodeConfigPath(workspace.path),"
+authored_configuration_paths,apps/server/src/server.ts,2707,"config: projection.sourceConfigs[opencodeConfigPath(workspace.path)]?.config,"
+authored_configuration_paths,apps/server/src/server.ts,2708,"status: projection.sourceConfigs[opencodeConfigPath(workspace.path)]?.status,"
+authored_configuration_paths,apps/server/src/server.ts,2727,"path: legalworkConfigPath(workspace.path),"
+authored_configuration_paths,apps/server/src/server.ts,2732,"path: opencodeConfigPath(workspace.path),"
+authored_configuration_paths,apps/server/src/server.ts,2744,const result = await readRawOpencodeConfig(configPath);
+authored_configuration_paths,apps/server/src/server.ts,2772,const current = await readRawOpencodeConfig(configPath);
+generated_settings_and_admission,apps/server/src/server.ts,2895,"await writeLegalworkRuntimeConfigFile(config, primary).catch(() => undefined);"
+runtime_configuration_store,apps/server/src/server.ts,3078,"const { enforced } = await orgPolicyPermissions(config, await readGlobalToolPermissions(config));"
+runtime_configuration_store,apps/server/src/server.ts,4232,"await writeRuntimeOpencodeConfig(config, workspace.id, (current) => ({"
+authored_configuration_paths,apps/server/src/server.ts,4241,"emitReloadEvent(ctx.reloadEvents, workspace, ""config"", buildConfigTrigger(legalworkConfigPath(workspace.path)));"
+authored_configuration_paths,apps/server/src/server.ts,4265,"paths: [opencode || legalwork ? legalworkConfigPath(workspace.path) : null].filter(Boolean) as string[],"
+authored_configuration_paths,apps/server/src/server.ts,4269,const configPath = legalworkConfigPath(workspace.path);
+workspace_configuration_store,apps/server/src/server.ts,4282,"await writeLegalworkWorkspaceConfig(config, workspace.id, (current) => {"
+runtime_configuration_store,apps/server/src/server.ts,4290,"const currentRuntime = await readRuntimeOpencodeConfig(config, workspace.id);"
+runtime_configuration_store,apps/server/src/server.ts,4304,"const currentRuntime = await readRuntimeOpencodeConfig(config, workspace.id);"
+runtime_configuration_store,apps/server/src/server.ts,4321,"const globalRuntime = await readRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID);"
+runtime_configuration_store,apps/server/src/server.ts,4326,"await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, (current) => ({"
+runtime_configuration_store,apps/server/src/server.ts,4337,"const existingRuntime = await readRuntimeOpencodeConfig(config, workspace.id);"
+runtime_configuration_store,apps/server/src/server.ts,4347,"await writeRuntimeOpencodeConfig(config, workspace.id, (current) => ({"
+workspace_configuration_store,apps/server/src/server.ts,4354,"await writeLegalworkWorkspaceConfig(config, workspace.id, (current) => {"
+authored_configuration_paths,apps/server/src/server.ts,4372,"target: legalworkConfigPath(workspace.path),"
+authored_configuration_paths,apps/server/src/server.ts,4378,"emitReloadEvent(ctx.reloadEvents, workspace, ""config"", buildConfigTrigger(legalworkConfigPath(workspace.path)));"
+generated_settings_and_admission,apps/server/src/server.ts,4393,"await writeLegalworkRuntimeConfigFile(target, target.workspaces?.[0]?.id ?? workspace.id).catch(() => undefined);"
+authored_configuration_paths,apps/server/src/server.ts,4442,"paths: [legalworkConfigPath(workspace.path)],"
+authored_configuration_paths,apps/server/src/server.ts,4450,"target: legalworkConfigPath(workspace.path),"
+authored_configuration_paths,apps/server/src/server.ts,4475,"paths: [legalworkConfigPath(workspace.path)],"
+authored_configuration_paths,apps/server/src/server.ts,4483,"target: legalworkConfigPath(workspace.path),"
+authored_configuration_paths,apps/server/src/server.ts,4870,"paths: [legalworkConfigPath(workspace.path)],"
+authored_configuration_paths,apps/server/src/server.ts,4886,"target: legalworkConfigPath(workspace.path),"
+authored_configuration_paths,apps/server/src/server.ts,4911,"paths: [legalworkConfigPath(workspace.path)],"
+generated_settings_and_admission,apps/server/src/server.ts,4916,"if (primary) await writeLegalworkRuntimeConfigFile(config, primary.id);"
+authored_configuration_paths,apps/server/src/server.ts,4922,"target: legalworkConfigPath(workspace.path),"
+authored_configuration_paths,apps/server/src/server.ts,4961,"paths: [legalworkConfigPath(workspace.path)],"
+authored_configuration_paths,apps/server/src/server.ts,4981,"target: legalworkConfigPath(workspace.path),"
+authored_configuration_paths,apps/server/src/server.ts,5217,"emitReloadEvent(ctx.reloadEvents, workspace, ""config"", buildConfigTrigger(opencodeConfigPath(workspace.path)));"
+authored_configuration_paths,apps/server/src/server.ts,5445,return opencodeConfigPath(workspaceRoot);
+authored_configuration_paths,apps/server/src/server.ts,5477,const path = opencodeConfigPath(workspace.path);
+authored_configuration_paths,apps/server/src/server.ts,5486,"async function readLegalworkConfig(workspaceRoot: string): Promise<Record<string, unknown>> {"
+authored_configuration_paths,apps/server/src/server.ts,5487,const path = legalworkConfigPath(workspaceRoot);
+authored_configuration_paths,apps/server/src/server.ts,5502,"return { data: await readLegalworkConfig(workspaceRoot), error: null };"
+generated_settings_and_admission,apps/server/src/server.ts,5532,"await writeLegalworkRuntimeConfigFile(config, workspace.id);"
+generated_settings_and_admission,apps/server/src/server.ts,5603,"if (primary) await writeLegalworkRuntimeConfigFile(config, primary).catch(() => undefined);"
+authored_configuration_paths,apps/server/src/server.ts,5753,"async function writeLegalworkConfig(workspaceRoot: string, payload: Record<string, unknown>, merge: boolean): Promise<void> {"
+authored_configuration_paths,apps/server/src/server.ts,5754,const path = legalworkConfigPath(workspaceRoot);
+authored_configuration_paths,apps/server/src/server.ts,5755,"const next = merge ? { ...(await readLegalworkConfig(workspaceRoot)), ...payload } : payload;"
+authored_configuration_paths,apps/server/src/server.ts,5782,const legalwork = sanitizeLegalworkTemplateConfig(await readLegalworkConfig(workspace.path));
+authored_configuration_paths,apps/server/src/server.ts,5863,"changedPath(""opencode"", workspaceImportRelativePath(workspace, opencodeConfigPath(workspace.path)))"
+authored_configuration_paths,apps/server/src/server.ts,5866,"await writeJsoncFile(opencodeConfigPath(workspace.path), input.opencode);"
+authored_configuration_paths,apps/server/src/server.ts,5868,"await updateJsoncTopLevel(opencodeConfigPath(workspace.path), input.opencode);"
+authored_configuration_paths,apps/server/src/server.ts,5874,"changedPath(""legalwork"", workspaceImportRelativePath(workspace, legalworkConfigPath(workspace.path)))"
+authored_configuration_paths,apps/server/src/server.ts,5877,"await writeLegalworkConfig(workspace.path, input.legalwork, false);"
+authored_configuration_paths,apps/server/src/server.ts,5879,"await writeLegalworkConfig(workspace.path, input.legalwork, true);"
+authored_configuration_paths,apps/server/src/server.ts,5936,const legalwork = await readLegalworkConfig(workspace.path);
+authored_configuration_paths,apps/server/src/server.ts,5968,"await writeLegalworkConfig(workspace.path, nextLegalwork, false);"
+shared_app_database,apps/server/src/session-groups.ts,99,function runtimeDbPath(config: ServerConfig): string {
+shared_app_database,apps/server/src/session-groups.ts,104,"return join(configDir, ""runtime.sqlite"");"
+shared_app_database,apps/server/src/session-groups.ts,155,const path = runtimeDbPath(config);
+shared_app_database,apps/server/src/session-groups.ts,194,const key = `${runtimeDbPath(config)}:${workspaceId}`;
+legacy_history,apps/server/src/session-history-provenance.ts,11,"import { readLegacyHistoryBackup } from ""./history-v1-backup.js"";"
+legacy_history,apps/server/src/session-history-provenance.ts,22,"export async function readScopedSessionHistoryProvenance(config:ServerConfig,workspace:WorkspaceInfo,client:OpenCodeClient,callerSessionID:string,targetSessionID:string) {"
+legacy_history,apps/server/src/session-history-provenance.ts,29,"if(id===targetSessionID)return {sessionID:session.id,provenance:await readSessionHistoryProvenance(config,workspace,session,await listEngineMessages(client,session.id))};"
+legacy_history,apps/server/src/session-history-provenance.ts,37,"export async function readSessionHistoryProvenance(config: ServerConfig, workspace: WorkspaceInfo, session: SessionInfo, nativeMessages: readonly SessionMessageInfo[]): Promise<SessionHistoryProvenance> {"
+legacy_history,apps/server/src/session-history-provenance.ts,41,const backup = await readLegacyHistoryBackup(config);
+legacy_history,apps/server/src/session-history-undo.ts,10,"import { legacyHistoryBackupDirectory,readLegacyHistoryBackup } from ""./history-v1-backup.js"";"
+legacy_history,apps/server/src/session-history-undo.ts,20,"const receiptPathFor=(config:ServerConfig,sessionID:string)=>join(legacyHistoryBackupDirectory(config),""undo-receipts"",createHash(""sha256"").update(sessionID).digest(""hex"")+"".json"");"
+legacy_history,apps/server/src/session-history-undo.ts,24,"export async function assertSessionHistoryRecoveryReady(config:ServerConfig,sessionIDs:readonly string[]):Promise<void>{"
+legacy_history,apps/server/src/session-history-undo.ts,28,"const backup=await readLegacyHistoryBackup(config).catch(()=>hold(""original_backup_unavailable""));"
+legacy_history,apps/server/src/session-history-undo.ts,49,"export async function prepareSessionHistoryUndo(config:ServerConfig,workspace:WorkspaceInfo,client:OpenCodeClient,session:SessionInfo):Promise<Result>{"
+legacy_history,apps/server/src/session-history-undo.ts,50,let backup:Awaited<ReturnType<typeof readLegacyHistoryBackup>>;
+legacy_history,apps/server/src/session-history-undo.ts,51,"try{backup=await readLegacyHistoryBackup(config);}catch{return {session,state:{status:""unresolved"",reason:""original_backup_unavailable""}};}"
+legacy_history,apps/server/src/session-history-undo.ts,103,"export async function assertSessionHistoryReady(config:ServerConfig,workspace:WorkspaceInfo,client:OpenCodeClient,sessionID:string){"
+legacy_history,apps/server/src/session-history-undo.ts,104,"const prepared=await prepareSessionHistoryUndo(config,workspace,client,await getWorkspaceEngineSession(client,workspace,sessionID));"
+shared_app_database,apps/server/src/session-usage-limits.ts,3,"import { openSqlite, runtimeDbPath, type SqliteHandle } from ""./runtime-db.js"";"
+shared_app_database,apps/server/src/session-usage-limits.ts,12,const path = runtimeDbPath(config);
+shared_app_database,apps/server/src/task-store.ts,9,"import { openSqlite, runtimeDbPath, type Row, type SqliteHandle, type SqlValue } from ""./runtime-db.js"";"
+shared_app_database,apps/server/src/task-store.ts,16,"* Tasks live in runtime.sqlite next to the other LegalWork stores, and their"
+shared_app_database,apps/server/src/task-store.ts,464,"return join(dirname(runtimeDbPath(config)), ""task-attachments"");"
+shared_app_database,apps/server/src/task-store.ts,637,"// Several store modules hold their own connection to runtime.sqlite, so a"
+shared_app_database,apps/server/src/task-store.ts,1903,return storeByPath.has(runtimeDbPath(config)) || existsSync(runtimeDbPath(config));
+shared_app_database,apps/server/src/task-store.ts,1908,const path = runtimeDbPath(config);
+shared_app_database,apps/server/src/views/save-source.ts,6,"import { openSqlite, runtimeDbPath } from ""../runtime-db.js"";"
+shared_app_database,apps/server/src/views/save-source.ts,20,const path = runtimeDbPath(config);
+project_registration,apps/server/src/wiki/store.ts,235,this.unregisterWorkspace(wiki);
+project_registration,apps/server/src/wiki/store.ts,239,private unregisterWorkspace(wiki: WikiRegistration) {
+project_registration,apps/server/src/wiki/store.ts,257,this.unregisterWorkspace(wiki);
+authored_configuration_paths,apps/server/src/workspace-files.ts,23,export function opencodeConfigPath(workspaceRoot: string): string {
+authored_configuration_paths,apps/server/src/workspace-files.ts,39,export function opencodeConfigPaths(workspaceRoot: string): string[] {
+authored_configuration_paths,apps/server/src/workspace-files.ts,48,export function legalworkConfigPath(workspaceRoot: string): string {
+authored_configuration_paths,apps/server/src/workspace-import-preview.ts,17,"opencodeConfigPath,"
+authored_configuration_paths,apps/server/src/workspace-import-preview.ts,18,"legalworkConfigPath,"
+authored_configuration_paths,apps/server/src/workspace-import-preview.ts,290,"async function readLegalworkConfig(path: string): Promise<Record<string, unknown>> {"
+authored_configuration_paths,apps/server/src/workspace-import-preview.ts,332,const path = opencodeConfigPath(workspaceRoot);
+authored_configuration_paths,apps/server/src/workspace-import-preview.ts,347,const path = legalworkConfigPath(workspaceRoot);
+authored_configuration_paths,apps/server/src/workspace-import-preview.ts,349,const before = await readLegalworkConfig(path);
+authored_configuration_paths,apps/server/src/workspace-init.ts,9,"import { legalworkConfigPath, opencodeConfigPath } from ""./workspace-files.js"";"
+authored_configuration_paths,apps/server/src/workspace-init.ts,46,const path = legalworkConfigPath(workspaceRoot);
+authored_configuration_paths,apps/server/src/workspace-init.ts,98,const path = opencodeConfigPath(workspaceRoot);
+authored_configuration_paths,apps/server/src/workspace-init.ts,135,export async function readRawOpencodeConfig(path: string): Promise<{ exists: boolean; content: string | null }> {
+generated_settings_and_admission,apps/server/src/workspace-mcp-recovery.ts,10,"import { readManagedEngineSettings } from ""./managed-engine-settings.js"";"
+generated_settings_and_admission,apps/server/src/workspace-mcp-recovery.ts,55,"? readManagedEngineSettings(managedEngineSettingsFilePath(config), directory).then(settings => settings.configuration.mcp?.servers ?? {})"

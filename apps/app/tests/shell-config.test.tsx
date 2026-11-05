@@ -27,6 +27,13 @@ test("new sidebars enable pinned projects beside pinned chats", () => {
   expect(config?.chatSectionOrder).toEqual(["navNewChat", "sectionPinned", "sectionPinnedProjects", "sectionSharedProjects", "sectionProjects", "sectionRecent"]);
 });
 
+test("Assistant is visible for existing profiles and its visibility choice survives reload", () => {
+  expect(readConfig(null)?.navAssistant).toBe(true);
+  expect(readConfig({ navNewChat: false })?.navAssistant).toBe(true);
+  expect(readConfig({ navAssistant: false })?.navAssistant).toBe(false);
+  expect(readConfig({ navAssistant: true })?.navAssistant).toBe(true);
+});
+
 test("older sidebar preferences gain pinned projects without reordering saved sections", () => {
   const savedOrder = ["sectionRecent", "sectionProjects", "navNewChat", "sectionPinned"];
   const config = readConfig({ chatSectionOrder: savedOrder, sectionProjects: false });

@@ -12,10 +12,11 @@ test("assistant HTTP provisioning, scheduling, source scope, delegation and perm
     import { join } from "node:path";
     const { startServer } = await import(${JSON.stringify(new URL("./server.ts", import.meta.url).href)});
     const { nativeAssistantFixture } = await import(${JSON.stringify(new URL("./assistant-engine.test-support.ts", import.meta.url).href)});
+    const { writeEigenweltConnection } = await import(${JSON.stringify(new URL("./eigenwelt-connection-store.ts", import.meta.url).href)});
     const root = process.env.XDG_CONFIG_HOME, folder = join(root, "matter");
     await mkdir(folder);
     const sessions = new Map(); const deliveries = []; const finished = new Set(); const notices = new Map();
-    let failSend = false, failReads = false; const running = new Set(); const disposals = [];
+    let failSend = false, rejectSend = false, failReads = false; const running = new Set(); const disposals = [];
     let pendingApprovals = [], pendingQuestions = []; const attentionReplies = [];
     const engine = Bun.serve({ port: 0, fetch: nativeAssistantFixture(async request => {
       const url = new URL(request.url), path = url.pathname;
@@ -38,9 +39,9 @@ test("assistant HTTP provisioning, scheduling, source scope, delegation and perm
         const session = { id, title: (await request.json()).title, directory, time: { created: Date.now(), updated: Date.now() }, version: "1", slug: id, projectID: "project" };
         sessions.set(id, session); return Response.json(session);
       }
-      if (path.endsWith("/prompt_async")) { const sessionId = path.split("/")[2]; const input = await request.json(); deliveries.push({ sessionId, directory, ...input }); if (!failSend) { running.add(sessionId); if (input.messageID) notices.set(input.messageID, { info: { id: input.messageID, sessionID: sessionId, role: "user" }, parts: input.parts }); } return new Response(null, { status: failSend ? 503 : 204 }); }
+      if (path.endsWith("/prompt_async")) { const sessionId = path.split("/")[2]; const input = await request.json(); deliveries.push({ sessionId, directory, ...input }); if (!failSend) { running.add(sessionId); if (input.messageID) notices.set(input.messageID, { info: { id: input.messageID, sessionID: sessionId, role: "user" }, parts: input.parts }); } return rejectSend ? Response.json({ error: { message: "Register this project first" } }, { status: 409 }) : new Response(null, { status: failSend ? 503 : 204 }); }
       if (path.endsWith("/todo")) return failReads ? new Response(null, { status: 503 }) : Response.json([{ content: "Review draft", status: "pending", priority: "medium" }]);
-      if (path.endsWith("/message")) return failReads ? new Response(null, { status: 503 }) : Response.json([{ info: { id: "last-reply", sessionID: path.split("/")[2], role: "assistant", time: { created: Date.now(), ...(finished.has(path.split("/")[2]) ? { completed: Date.now() } : {}) }, finish: finished.has(path.split("/")[2]) ? "stop" : undefined, providerID: "fixture-provider", modelID: "chosen-model" }, parts: [{ type: "text", text: "Draft ready; awaiting partner review." }, { type: "text", synthetic: true, text: "hidden reminder" }, { type: "tool", tool: "todowrite", state: { status: "completed", input: {}, metadata: { todos: [{ content: "Review draft", status: "pending", priority: "medium" }] }, output: "[]" } }] }]);
+      if (path.endsWith("/message")) return failReads ? new Response(null, { status: 503 }) : Response.json([...Array.from(notices.values()).filter(message => message.info.sessionID === path.split("/")[2]), { info: { id: "last-reply", sessionID: path.split("/")[2], role: "assistant", time: { created: Date.now(), ...(finished.has(path.split("/")[2]) ? { completed: Date.now() } : {}) }, finish: finished.has(path.split("/")[2]) ? "stop" : undefined, providerID: "fixture-provider", modelID: "chosen-model" }, parts: [{ type: "text", text: "Draft ready; awaiting partner review." }, { type: "text", synthetic: true, text: "hidden reminder" }, { type: "tool", tool: "todowrite", state: { status: "completed", input: {}, metadata: { todos: [{ content: "Review draft", status: "pending", priority: "medium" }] }, output: "[]" } }] }]);
       if (path.includes("/message/")) return notices.has(path.split("/").at(-1)) ? Response.json(notices.get(path.split("/").at(-1))) : new Response(null, { status: 404 });
       if (path.startsWith("/session/")) { const item = sessions.get(path.split("/")[2]); return item ? Response.json(item) : new Response(null, { status: 404 }); }
       return Response.json({});
@@ -65,7 +66,22 @@ test("assistant HTTP provisioning, scheduling, source scope, delegation and perm
     };
     const server = await startServer(config), base = "http://127.0.0.1:" + server.port;
     const call = (path, method="GET", body, token="fixture") => fetch(base + path, { method, headers: { authorization: "Bearer " + token, "content-type": "application/json" }, ...(body ? { body: JSON.stringify(body) } : {}) });
+    const entitlement = { plan: "plus", subscriptionStatus: "active", trialEndsAt: null, features: [], seats: 1,
+      usage: { window: "month", allowanceCents: 1000, remainingCents: 1000, usedPercent: 0, resetsAt: null,
+        dailyAllowanceCents: 1000, dailyRemainingCents: 1000, dailyUsedPercent: 0, extraUsageEnabled: false, prepaidBalanceCents: 0 } };
+    const subscribe = (plan = "plus", subscriptionStatus = "active") => writeEigenweltConnection(config, {
+      platformToken: "fixture-subscription", platformTokenExpiresAt: Date.now() + 3600000,
+      entitlements: { ...entitlement, plan, subscriptionStatus },
+    });
     try {
+      const unpaid = await call("/assistant/current", "POST", {});
+      assert.equal(unpaid.status, 403); assert.equal((await unpaid.json()).code, "assistant_subscription_required");
+      assert.equal(sessions.size, 0, "Unpaid visits must not create an Assistant chat");
+      await subscribe("sync");
+      assert.equal((await call("/assistant/current", "POST", {})).status, 403);
+      await subscribe("plus", "canceled");
+      assert.equal((await call("/assistant/current", "POST", {})).status, 403);
+      await subscribe();
       assert.equal((await call("/assistant/current", "POST", {}, "wrong")).status, 401);
       for (const path of ["/assistant/cloud", "/assistant/channel-history", "/assistant/channel-days", "/assistant/channel-context?sessionId=unconfigured"])
         assert.equal((await call(path, "GET", undefined, "wrong")).status, 401);
@@ -80,6 +96,13 @@ test("assistant HTTP provisioning, scheduling, source scope, delegation and perm
       assert.equal(assistant.workspace.preset, "main-assistant");
       assert.equal(assistant.workspace.path, join(root, "projects", "Assistant"));
       assert.equal(sessions.size, 1);
+      await subscribe("sync");
+      assert.equal((await call("/workspace/" + assistant.workspace.id + "/opencode/session/" + assistant.day.sessionId + "/prompt", "POST", { text: "Must not run" })).status, 403);
+      assert.equal((await call("/assistant/delegate", "POST", {})).status, 403);
+      assert.equal((await call("/workspace/" + assistant.workspace.id + "/sessions/" + assistant.day.sessionId + "/dispatch", "POST", { kind: "synthetic", text: "Must not run" })).status, 403);
+      assert.equal((await call("/assistant/history")).status, 200);
+      await subscribe("pro", "trialing");
+      assert.equal((await call("/assistant/current", "POST", {})).status, 200, "Pro trials include the Assistant without a feature flag");
       assert.deepEqual(assistant.profile, { name: null, icon: "flower" });
       assert.equal((await (await call("/assistant/onboarding")).json()).needed, true);
       assert.equal((await (await call("/assistant/onboarding")).json()).greetingUnread, true);
@@ -123,6 +146,7 @@ test("assistant HTTP provisioning, scheduling, source scope, delegation and perm
       assert.equal((await call("/assistant/projects?query=other&cursor=" + firstMatch.nextCursor)).status, 400);
       config.workspaces = originalProjects;
       assert.equal((await (await call("/assistant/history")).json()).days[0].sessionId, assistant.day.sessionId);
+      assert.deepEqual((await (await call("/assistant")).json()).day, assistant.day);
       assert.equal((await call("/assistant/history?before=bad")).status, 400);
       const schedule = await (await call("/workspace/" + assistant.workspace.id + "/scheduled-tasks", "POST", {
         title: "Morning brief", prompt: "Review open projects", sessionId: assistant.day.sessionId, reuseChat: true, pinSession: true, projectAccess: "project",
@@ -196,6 +220,21 @@ test("assistant HTTP provisioning, scheduling, source scope, delegation and perm
       assert.equal((await call("/assistant/share-file", "POST", { ...share, path: "../outside.md" })).status, 400);
       assert.equal((await call("/assistant/share-file", "POST", { ...share, path: "." })).status, 404);
       assert.equal((await call("/assistant/share-file", "POST", { ...share, workspaceId: project.project.id })).status, 403);
+      const reportInput = { version: 1, catalog: "legalwork-1", mode: "report", title: "Morning briefing", queries: {}, program: 'root = Text("Priorities")' };
+      const reportArgs = { workspaceId: assistant.workspace.id, sessionId: assistant.day.sessionId, sourceSessionId: assistant.day.sessionId, key: "morning-briefing-2026-10-28", input: reportInput };
+      const reportResponse = await call("/assistant/save-report", "POST", reportArgs);
+      assert.equal(reportResponse.status, 200);
+      const report = await reportResponse.json();
+      assert.equal(report.view.owner.id, assistant.workspace.id);
+      assert.ok(report.markdown.includes(report.reference));
+      assert.equal(JSON.parse(await readFile(join(assistant.workspace.path, report.path), "utf8")).id, report.view.id);
+      const reportRetry = await call("/assistant/save-report", "POST", reportArgs);
+      assert.deepEqual(await reportRetry.json(), report);
+      const reportCard = await call("/assistant/share-file", "POST", { ...share, path: report.path, title: report.view.title });
+      assert.equal((await reportCard.json()).file.documentType, "report");
+      assert.equal((await call("/assistant/save-report", "POST", { ...reportArgs, workspaceId: project.project.id })).status, 403);
+      assert.equal((await call("/assistant/save-report", "POST", { ...reportArgs, sourceSessionId: "other" })).status, 400);
+      assert.equal((await call("/assistant/save-report", "POST", { ...reportArgs, input: { ...reportInput, title: "Changed" } })).status, 409);
       await writeFile(join(project.project.path, "review.md"), "Provider-side review");
       const projectShare = { ...share, projectId: project.project.id, path: "review.md", title: "Provider-side review" };
       const projectCard = await call("/assistant/share-file", "POST", projectShare);
@@ -224,10 +263,10 @@ test("assistant HTTP provisioning, scheduling, source scope, delegation and perm
       assert.equal(result.ok, true); assert.equal(result.delegation.workspaceId, project.project.id);
       assert.equal(result.delegation.scope, input.scope); assert.equal(result.delegation.status, "started");
       assert.equal(result.resultDelivery, "automatic");
-      assert.ok(result.nextAction.includes("Finish this turn without another message"));
-      assert.ok(result.nextAction.includes("any text acknowledgement, even if it did not promise follow-up"), "An earlier 'I will check the records' acknowledgement must not trigger a second acknowledgement after dispatch");
-      assert.ok(result.nextAction.includes("Only if you have sent no text acknowledgement"));
-      assert.ok(result.nextAction.includes("promising to bring the result back"));
+      assert.ok(result.nextAction.includes("finish this turn silently"));
+      assert.ok(result.nextAction.includes("do not fill the gap with a late acknowledgement"), "Dispatch must not trigger a second acknowledgement");
+      assert.ok(result.nextAction.includes("A first-action bubble reaction is a complete acknowledgement"));
+      assert.ok(result.nextAction.includes("no useful authorized work can proceed without the answer or approval"));
       assert.equal(deliveries.length, 1); assert.equal(deliveries[0].directory, project.project.path);
       assert.equal(deliveries[0].agent, "legalwork"); assert.deepEqual(deliveries[0].model, { providerID: "fixture-provider", modelID: "chosen-model" });
       assert.equal(deliveries[0].parts[0].text, input.title + "\\n\\n" + input.scope);
@@ -295,8 +334,8 @@ test("assistant HTTP provisioning, scheduling, source scope, delegation and perm
       assert.equal(overview.sessions.items.length, 1, "Never include chats from the assistant or another project");
       assert.equal(overview.sessions.items[0].status.type, "busy");
       assert.equal(overview.sessions.items[0].todos.items[0].content, "Review draft");
-      assert.equal(overview.sessions.items[0].messages.items[0].text, "Draft ready; awaiting partner review.");
-      assert.equal(overview.sessions.items[0].messages.items[0].messageId, "last-reply");
+      assert.equal(overview.sessions.items[0].messages.items.at(-1).text, "Draft ready; awaiting partner review.");
+      assert.equal(overview.sessions.items[0].messages.items.at(-1).messageId, "last-reply");
       assert.equal((await call(overviewUrl + "?sessionLimit=50")).status, 400);
       const unfinished = await (await call("/assistant/tasks?projectId=" + project.project.id + "&status=unfinished&sort=due")).json();
       assert.equal(unfinished.items[0].id, overview.tasks.items[0].id);
@@ -311,6 +350,12 @@ test("assistant HTTP provisioning, scheduling, source scope, delegation and perm
       const continuation = new URLSearchParams(bounded.tasks.next.arguments);
       const continued = await (await call("/assistant/tasks?" + continuation)).json();
       assert.deepEqual(continued.items.map(task => task.title), ["Review escrow"]);
+      rejectSend = true;
+      const rejectionResponse = await call("/assistant/delegate", "POST", input);
+      assert.equal(rejectionResponse.status, 409);
+      const rejection = await rejectionResponse.json();
+      assert.equal(rejection.delegation.status, "rejected"); assert.equal(rejection.error, "Register this project first"); assert.match(rejection.delegation.messageId, /^msg_[a-f0-9]{26}$/);
+      rejectSend = false;
       failSend = true;
       const unconfirmed = await (await call("/assistant/delegate", "POST", input)).json();
       assert.equal(unconfirmed.ok, false); assert.equal(unconfirmed.delegation.status, "delivery-unconfirmed"); assert.ok(unconfirmed.delegation.sessionId);
@@ -319,8 +364,8 @@ test("assistant HTTP provisioning, scheduling, source scope, delegation and perm
       failSend = false;
       running.delete(result.delegation.sessionId); finished.add(result.delegation.sessionId);
       const deadline = Date.now() + 18000;
-      while (!deliveries.some(item => item.messageID) && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 100));
-      const returned = deliveries.find(item => item.messageID);
+      while (!deliveries.some(item => item.messageID && item.parts?.[0]?.synthetic) && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 100));
+      const returned = deliveries.find(item => item.messageID && item.parts?.[0]?.synthetic);
       assert.ok(returned, "The background return queue must wake the source Assistant");
       assert.equal(returned.sessionId, assistant.day.sessionId);
       assert.equal(returned.agent, "legalwork"); assert.deepEqual(returned.model, { providerID: "fixture-provider", modelID: "chosen-model" });
@@ -370,6 +415,23 @@ test("assistant HTTP provisioning, scheduling, source scope, delegation and perm
       assert.ok(context.includes(custom.systemPromptAddition)); assert.ok(context.includes("selected-resource"));
       assert.ok(context.includes("Search the evidence with care.")); assert.ok(!context.includes("PRIVATE_FULL_SKILL_BODY"));
       assert.ok(!context.includes("workflow-example"));
+      assert.ok(context.includes('"signedIn":true'));
+      const account = { userId: "account-a", userName: "Ada Lovelace", userEmail: "ada@example.test", orgId: "firm-a", orgName: "Analytical LLP" };
+      await writeEigenweltConnection(config, { account, platformToken: "identity-private-access-token", refreshToken: "identity-private-refresh-token", platformTokenExpiresAt: Date.now() + 3600000 });
+      const signedInContext = (await (await call("/assistant/settings/context")).json()).context;
+      for (const value of [account.userName, account.userEmail, account.orgName]) assert.ok(signedInContext.includes(value));
+      assert.ok(!signedInContext.includes("identity-private-"));
+      await writeEigenweltConnection(config, { account: { ...account, userId: "account-b", userName: "Grace Hopper", userEmail: "grace@example.test", orgId: "firm-b", orgName: "Compiler LLP" } });
+      const switchedContext = (await (await call("/assistant/settings/context")).json()).context;
+      assert.ok(switchedContext.includes("Grace Hopper")); assert.ok(switchedContext.includes("grace@example.test")); assert.ok(switchedContext.includes("Compiler LLP"));
+      assert.ok(!switchedContext.includes("Ada Lovelace")); assert.ok(!switchedContext.includes("ada@example.test")); assert.ok(!switchedContext.includes("Analytical LLP"));
+      await writeEigenweltConnection(config, { account: null, platformToken: null, refreshToken: null, entitlements: null });
+      const signedOutContext = (await (await call("/assistant/settings/context")).json()).context;
+      assert.ok(signedOutContext.includes('"signedIn":false')); assert.ok(!signedOutContext.includes("Grace Hopper"));
+      assert.equal((await call("/assistant/current", "POST", {})).status, 403);
+      assert.equal((await call("/assistant/history")).status, 200);
+      assert.deepEqual((await (await call("/assistant")).json()).day, assistant.day, "Saved history stays available without provisioning or subscription refresh");
+      await subscribe();
       assert.equal(sessions.size, sessionCount, "Saving preferences must keep chat history intact");
       assert.equal((await call("/assistant/projects/matter/details")).status, 200);
       assert.equal((await call("/assistant/projects/matter/contents?kind=files")).status, 200);

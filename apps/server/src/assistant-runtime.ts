@@ -8,8 +8,10 @@ import { SavedSearchStore } from "./launcher-saved-searches.js";
 import { LauncherContextStore } from "./launcher-context.js";
 import { LauncherFileIndex } from "./launcher-file-index.js";
 import type { DocumentPreparation } from "./document-preparation/service.js";
+import { assistantSubscriptionAvailable, requireAssistantSubscription } from "./assistant-subscription.js";
 import { resolve } from "node:path";
-import { ApiError } from "./errors.js";
+import { ApiError, findApiError } from "./errors.js";
+import { isCompactionCommand } from "./native-command-control.js";
 import type { ServerConfig, WorkspaceInfo } from "./types.js";
 import { runtimeDbPath } from "./runtime-db.js";
 import { createAssistantEngineClient } from "./assistant-engine.js";
@@ -29,8 +31,11 @@ import { addRoute, type Route } from "./routes/registry.js";
 import { AssistantPush } from "./push/service.js";
 import { readPushEvents } from "./push/events.js";
 import { registerPushRoutes } from "./push/routes.js";
-import { ensureMorningBriefing, hasBriefingSessionThreshold } from "./assistant-briefing.js";
 import { prepareCloudExecution } from "./cloud-sync/lifecycle.js";
+import { migrateMorningBriefing } from "./assistant-briefing.js";
+import { registerAssistantProactivityRoutes } from "./routes/assistant-proactivity.js";
+import { startAssistantProactivity } from "./assistant-proactivity.js";
+import { assistantLanguageContext } from "./assistant-language-context.js";
 import { createAssistantScheduledSession, prepareAssistantScheduledWork } from "./assistant-scheduled-work.js";
 import type { ScheduledTaskStore } from "./scheduled-tasks/store.js";
 import type { ScheduledTask } from "./scheduled-tasks/schema.js";
@@ -53,6 +58,7 @@ export async function createAssistantRuntime(config: ServerConfig, options: {
   const createWorkspaceOpencodeClient = createAssistantEngineClient;
   const restartReloadWatchers = options.changed;
   const prepareWorkspacePrompt = async (_config: ServerConfig, workspace: WorkspaceInfo, _directory: string) => {
+    await requireAssistantSubscription(config);
     await createWorkspaceOpencodeClient(config, workspace).native.model.list({ location: { directory: workspace.path } });
   };
   const assistantSessionAccess = await AssistantSessionAccess.open(runtimeDbPath(config), config);
@@ -89,13 +95,13 @@ export async function createAssistantRuntime(config: ServerConfig, options: {
   const conversations = await AssistantConversations.open(runtimeDbPath(config), workspaceId => mainAssistant.days(workspaceId));
   const delegations = await AssistantDelegations.open(runtimeDbPath(config), {
     allowed: delegation => !config.workspaces.some(workspace => workspace.id === delegation.sourceWorkspaceId && isMainAssistant(workspace)) || mainAssistant.canAccessProject(delegation.workspaceId),
-    result: async delegation => {
+    result: async (delegation, requestMessageId) => {
       const { client, session } = await delegationSession(delegation.workspaceId, delegation.sessionId);
       if (session.time.archived) return null;
       const children = await client.session.children({ sessionID: session.id }, { signal: AbortSignal.timeout(10000) });
       for (const child of children.data ?? []) if (child.parentID === session.id && resolve(child.directory) === resolve(session.directory) && !child.time.archived)
-        delegations.track({ ...delegation, sessionId: child.id, title: child.title, inputOnly: true, authoritySessionId: delegation.authoritySessionId ?? delegation.sessionId });
-      const result = await readDelegationResult(client, session.id);
+        delegations.track({ ...delegation, sessionId: child.id, title: child.title, inputOnly: true, initialMessageId: undefined, authoritySessionId: delegation.authoritySessionId ?? delegation.sessionId });
+      const result = await readDelegationResult(client, session.id, requestMessageId);
       return delegation.inputOnly && result?.outcome !== "input-required" ? null : result;
     },
     destination: async delegation => {
@@ -113,7 +119,7 @@ export async function createAssistantRuntime(config: ServerConfig, options: {
       return { workspaceId: source.id, sessionId: delegation.sourceSessionId };
     },
     idle: async destination => {
-      if (config.readOnly) return false;
+      if (config.readOnly || !await assistantSubscriptionAvailable(config)) return false;
       if (config.cloudSync && !config.cloudSync.canExecute()) return false;
       const { client, session } = await delegationSession(destination.workspaceId, destination.sessionId);
       if (session.time.archived) return false;
@@ -133,8 +139,10 @@ export async function createAssistantRuntime(config: ServerConfig, options: {
       const { workspace, client, session } = await delegationSession(notice.workspaceId, notice.sessionId);
       await assistantSessionAccess.prepareReturn(session.id, session.directory, authority);
       await prepareWorkspacePrompt(config, workspace, session.directory);
+      const languageContext = isMainAssistant(workspace) ? await assistantLanguageContext(client.native.message,
+        [notice.sessionId, ...mainAssistant.history(workspace.id).days.map(day => day.sessionId)]) : "";
       const result = await client.session.promptAsync({ sessionID: notice.sessionId, messageID: notice.messageId, agent: "legalwork", ...(delegation.model ? { model: delegation.model } : {}),
-        parts: [{ type: "text", text: notice.text, synthetic: true }] }, { signal: AbortSignal.timeout(30000) });
+        parts: [{ type: "text", text: notice.text + languageContext, synthetic: true }] }, { signal: AbortSignal.timeout(30000) });
       if (!result.response.ok) throw new Error("Could not confirm delivery of the delegated result.");
       announceSyncChange(config, "sessions");
     }, true),
@@ -142,7 +150,8 @@ export async function createAssistantRuntime(config: ServerConfig, options: {
   const sessionQueue = await createAssistantSessionQueue(runtimeDbPath(config), { workspace: id => resolveWorkspace(config, id),
     available: () => !config.cloudSync || config.cloudSync.canExecute(),
     client: workspace => createWorkspaceOpencodeClient(config, workspace), assistant: mainAssistant, changed: () => announceSyncChange(config, "sessions"),
-    config, access: assistantSessionAccess, preparePrompt: (workspace, directory) => prepareWorkspacePrompt(config, workspace, directory) });
+    config, access: assistantSessionAccess, watchRequest: (sessionId, messageId) => delegations.watchRequest(sessionId, messageId),
+    preparePrompt: (workspace, directory) => prepareWorkspacePrompt(config, workspace, directory) });
 
   const submissions = await AssistantSubmissions.open(runtimeDbPath(config), {
     waiting: async (entry, payload) => {
@@ -156,9 +165,15 @@ export async function createAssistantRuntime(config: ServerConfig, options: {
         if (queue.entries.some(item => item.id === payload.queue?.id && item.messageId === messageId) || queue.completedIds.includes(payload.queue.id)) return true;
       }
       const { client } = await delegationSession(target.workspaceId, target.sessionId);
-      const result = await client.session.message({ sessionID: target.sessionId, messageID: messageId }, { signal: AbortSignal.timeout(10000) });
-      if (result.response.status === 404) return false;
-      return unwrapOpencodeResult(result, "/session/message").info.id === messageId;
+      const pending = await client.native.session.inbox.list({ sessionID: target.sessionId }, { signal: AbortSignal.timeout(10000) });
+      if (pending.some(item => item.id === messageId)) return true;
+      try {
+        const result = await client.native.session.message.get({ sessionID: target.sessionId, messageID: messageId }, { signal: AbortSignal.timeout(10000) });
+        return result.id === messageId;
+      } catch (error) {
+        if (findApiError(error)?.status === 404) return false;
+        throw error;
+      }
     },
     send: async (entry, payload) => {
       if (payload.queue) {
@@ -181,6 +196,11 @@ export async function createAssistantRuntime(config: ServerConfig, options: {
           const message = await client.session.message({ sessionID: target.sessionId, messageID: messageId }, { signal: AbortSignal.timeout(10000) });
           if (message.response.status === 404) return "failed"; // Removed before delivery.
         }
+      }
+      if (payload.command && isCompactionCommand(payload.command.name)) {
+        if ((await client.native.session.inbox.list({ sessionID: target.sessionId })).some(item => item.id === messageId)) return "accepted";
+        const message = await client.native.session.message.get({ sessionID: target.sessionId, messageID: messageId });
+        return message.type === "compaction" ? message.status === "completed" ? "completed" : message.status === "failed" ? "failed" : "running" : "accepted";
       }
       const [statuses, messages] = await Promise.all([
         client.session.status({}, { signal: AbortSignal.timeout(10000) }),
@@ -236,9 +256,11 @@ export async function createAssistantRuntime(config: ServerConfig, options: {
     return jsonResponse({ ready: true });
   });
 
-    registerMainAssistantRoutes({ ...helpers, ...launcher, preparation: options.preparation, routes, config, assistant: mainAssistant, delegations, sessionQueue, sessionAccess: assistantSessionAccess,
+    const assistantRoutes: Parameters<typeof registerMainAssistantRoutes>[0] = { ...helpers, ...launcher, preparation: options.preparation, routes, config, assistant: mainAssistant, delegations, sessionQueue, sessionAccess: assistantSessionAccess,
       preparePrompt: (workspace, directory) => prepareWorkspacePrompt(config, workspace, directory), resolveWorkspace,
-      client: workspace => createWorkspaceOpencodeClient(config, workspace), changed: () => { options.changed(); announceSyncChange(config, "projects"); } });
+      client: workspace => createWorkspaceOpencodeClient(config, workspace), changed: () => { options.changed(); announceSyncChange(config, "projects"); } };
+    registerMainAssistantRoutes(assistantRoutes);
+    registerAssistantProactivityRoutes(assistantRoutes, scheduledTasks);
     registerAssistantChannelHistoryRoutes({ routes, history: assistantChannelHistory, requireClientScope: helpers.requireClientScope, json: jsonResponse });
     addRoute(routes, "GET", "/assistant/cloud", "client", async ctx => { helpers.requireClientScope(ctx, "viewer"); return jsonResponse(await cloudAssistantSetup.status()); });
     addRoute(routes, "POST", "/assistant/cloud", "client", async ctx => { helpers.requireClientScope(ctx, "collaborator"); return jsonResponse(await cloudAssistantSetup.enable(), 202); });
@@ -249,17 +271,20 @@ export async function createAssistantRuntime(config: ServerConfig, options: {
   }
   const stopHistory = assistantChannelHistory.start();
   const stopPush = push.start();
-  const stopMain = config.readOnly ? () => {} : mainAssistant.start(() => {
-    if (config.cloudSync && !config.cloudSync.canExecute()) return Promise.resolve();
-    return ensureMorningBriefing(config, scheduledTasks, mainAssistant, () => hasBriefingSessionThreshold(config, options.resolveWorkspace));
-  });
+  migrateMorningBriefing(config, scheduledTasks);
+  const stopMain = config.readOnly ? () => {} : mainAssistant.start(undefined, () => (!config.cloudSync || config.cloudSync.canExecute()) ? assistantSubscriptionAvailable(config) : Promise.resolve(false));
   const stopDelegations = config.readOnly ? async () => {} : delegations.start();
   const stopQueue = config.readOnly ? async () => {} : sessionQueue.start();
+  const stopProactivity = await startAssistantProactivity(config, mainAssistant, options.resolveWorkspace, assistantSessionAccess);
   return {
     register,
-    scheduledSession: async (task: ScheduledTask, workspace: WorkspaceInfo) => isMainAssistant(workspace)
-      ? createAssistantScheduledSession(task, mainAssistant, createWorkspaceOpencodeClient(config, workspace)) : null,
+    scheduledSession: async (task: ScheduledTask, workspace: WorkspaceInfo) => {
+      if (!isMainAssistant(workspace)) return null;
+      await requireAssistantSubscription(config);
+      return createAssistantScheduledSession(task, mainAssistant, createWorkspaceOpencodeClient(config, workspace));
+    },
     scheduledWork: async (task: ScheduledTask, workspace: WorkspaceInfo, sessionId: string) => {
+      if (isMainAssistant(workspace)) await requireAssistantSubscription(config);
       const client = createWorkspaceOpencodeClient(config, workspace);
       const session = unwrapOpencodeResult(await client.session.get({ sessionID: sessionId }, { throwOnError: true }), "/session");
       await assistantSessionAccess.authorize(sessionId, session.directory, { scope: task.wikiScope, scheduledProjects: task.projectAccess === "all" ? "all" : [workspace.id] });
@@ -267,7 +292,7 @@ export async function createAssistantRuntime(config: ServerConfig, options: {
     },
     async close() {
       launcher.fileIndex.dispose();
-      stopMain(); await stopDelegations(); await stopQueue(); await stopHistory(); await stopPush();
+      stopMain(); await stopProactivity(); await stopDelegations(); await stopQueue(); await stopHistory(); await stopPush();
       await cloudAssistantSetup.close(); channelRuntime?.close();
     },
   };

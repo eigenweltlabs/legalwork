@@ -1,6 +1,6 @@
 /** @jsxImportSource react */
 import type { ReactNode } from "react";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, Loader2 } from "lucide-react";
 
 import {
   AlertDialog,
@@ -25,6 +25,7 @@ export type ConfirmModalProps = {
   variant?: "danger" | "warning";
   confirmButtonVariant?: "secondary" | "ghost" | "outline" | "destructive";
   cancelButtonVariant?: "secondary" | "ghost" | "outline" | "destructive";
+  pending?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
 };
@@ -41,10 +42,10 @@ export function ConfirmModal(props: ConfirmModalProps) {
     <AlertDialog
       open={props.open}
       onOpenChange={(open) => {
-        if (!open) props.onCancel();
+        if (!open && !props.pending) props.onCancel();
       }}
     >
-      <AlertDialogContent>
+      <AlertDialogContent aria-busy={props.pending || undefined}>
         <AlertDialogHeader>
           <AlertDialogMedia className={iconTileClass}>
             <AlertTriangle />
@@ -53,14 +54,16 @@ export function ConfirmModal(props: ConfirmModalProps) {
           <AlertDialogDescription>{props.message}</AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel variant={cancelVariant}>
+          <AlertDialogCancel variant={cancelVariant} disabled={props.pending}>
             {props.cancelLabel}
           </AlertDialogCancel>
           <AlertDialogAction
             variant={confirmVariant}
+            disabled={props.pending}
             onClick={props.onConfirm}
           >
-            {props.confirmLabel}
+            {props.pending ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : null}
+            <span role={props.pending ? "status" : undefined}>{props.confirmLabel}</span>
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

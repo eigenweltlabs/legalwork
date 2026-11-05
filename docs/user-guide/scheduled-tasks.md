@@ -6,6 +6,8 @@ A scheduled task sends instructions to the assistant at a chosen time or on a re
 
 ## Create a schedule
 
+You can also ask the Assistant to check something later or set up a recurring task. It acknowledges once, then shows a task card when the schedule is saved. Use **Open** on that card to inspect or change the schedule. The result arrives when the task runs; a failed save or a needed clarification is reported immediately.
+
 1. Open **Scheduled** and choose **New scheduled task**, or select a starter and edit it.
 2. Choose the local project that owns the task. Set **Project access** to **This project only** or **All projects** according to the work. Global recordings without a project are also available within the supported scheduled-run scope.
 3. Enter a name and clear instructions, including the expected output and which sources to use. For example: "Each weekday, summarize open tasks and upcoming deadlines for this project, with links to the source records."

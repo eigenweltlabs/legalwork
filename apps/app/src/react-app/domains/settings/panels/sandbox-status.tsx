@@ -1,7 +1,9 @@
+import { useMetadataPolling } from "@/react-app/infra/metadata-polling";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Lock, RefreshCw, Shield, ShieldOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import { LegalworkServerError, type LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { t } from "@/i18n";
 import { changeOrgPolicySetting } from "../../connections/org-policy";
@@ -9,8 +11,9 @@ import { HubTabs } from "../segmented-tabs";
 import { SandboxNetworkControl, networkDescription, type NetworkMode } from "./sandbox-network-control";
 
 export function SandboxStatus({ client, canWrite = false, variant = "full" }: { client: LegalworkServerClient; canWrite?: boolean; variant?: "full" | "quick" }) {
+  const metadataInterval = useMetadataPolling(client.baseUrl, 5000);
   const cache = useQueryClient();
-  const query = useQuery({ queryKey: ["sandbox-default", client.baseUrl], queryFn: () => client.sandboxStatus(), refetchInterval: 5000 });
+  const query = useQuery({ queryKey: ["sandbox-default", client.baseUrl], queryFn: () => client.sandboxStatus(), refetchInterval: metadataInterval });
   const status = query.data;
   const syncLabels = {
     local: t("sandbox.sync_local"), syncing: t("sandbox.sync_syncing"),
@@ -30,7 +33,12 @@ export function SandboxStatus({ client, canWrite = false, variant = "full" }: { 
     finally { setBusy(false); }
   };
   const Icon = status?.enabled ? Shield : ShieldOff;
-  const toggle = <fieldset disabled={disabled} className="shrink-0 disabled:opacity-50">
+  const toggle = variant === "quick" ? <Switch
+    aria-label={t("sandbox.title")}
+    checked={status?.enabled === true}
+    disabled={disabled}
+    onCheckedChange={enabled => { if (status) void save({ enabled, networkMode: status.networkMode }); }}
+  /> : <fieldset disabled={disabled} className="shrink-0 disabled:opacity-50">
     <HubTabs label={t("sandbox.title")} items={[{ id: "off", label: t("sandbox.choice_off") }, { id: "on", label: t("sandbox.choice_on") }]} value={status?.enabled ? "on" : "off"} onChange={value => { if (status) void save({ enabled: value === "on", networkMode: status.networkMode }); }} />
   </fieldset>;
   const policyNote = status?.policy ? <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -49,18 +57,17 @@ export function SandboxStatus({ client, canWrite = false, variant = "full" }: { 
         </div>
         {toggle}
       </div>
-      <div className="space-y-2.5 px-4 py-3.5">
+      {status?.enabled ? <div className="space-y-2.5 px-4 py-3.5">
         <div className="space-y-0.5">
           <h4 className="text-base font-medium text-ink">{t("sandbox.network_title")}</h4>
-          <p className="text-sm text-subtext">{status?.enabled ? t("onboarding_permissions.network_description") : t("onboarding_permissions.network_disabled")}</p>
+          <p className="text-sm text-subtext">{t("onboarding_permissions.network_description")}</p>
         </div>
-        <SandboxNetworkControl value={status?.networkMode ?? "approve"} disabled={disabled || !status?.enabled} onChange={networkMode => { if (status?.enabled) void save({ enabled: true, networkMode }); }} />
-      </div>
+        <SandboxNetworkControl value={status.networkMode} disabled={disabled} onChange={networkMode => { void save({ enabled: true, networkMode }); }} />
+      </div> : null}
     </div>
-    <p className="text-xs leading-relaxed text-muted-foreground">{status?.policy?.locked ? t("sandbox.managed_scope") : t("sandbox.application_scope")}</p>
+    <p className="text-xs leading-relaxed text-muted-foreground">{status?.policy?.locked ? t("sandbox.managed_scope") : t("onboarding_permissions.sandbox_scope")}</p>
     {policyNote}
-    {status?.enabled ? <p className="text-xs leading-relaxed text-muted-foreground">{t("onboarding_permissions.network_scope")}</p> : null}
-    {status?.enabled && !status.available ? <p className="text-sm text-muted-foreground">{t("sandbox.setup")}</p> : null}
+    {status?.enabled && status.available === false ? <p role="status" className="text-sm text-muted-foreground">{t("sandbox.setup")}</p> : null}
     {errorNotice}
   </section>;
   return <section className="space-y-6 py-2" aria-label={t("sandbox.title")}>
@@ -93,9 +100,9 @@ export function SandboxStatus({ client, canWrite = false, variant = "full" }: { 
       </div>
       <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
         <span>{t("sandbox.commands")}</span>
-        <span className="inline-flex items-center gap-2 rounded-full bg-muted px-3 py-2"><Icon className="size-4" aria-hidden />{!status ? t("sandbox.preparing") : status.enabled ? status.available ? t("sandbox.protected") : t("sandbox.unavailable") : t("sandbox.host")}</span>
+        <span className="inline-flex items-center gap-2 rounded-full bg-muted px-3 py-2"><Icon className="size-4" aria-hidden />{!status || status.enabled && status.available === null ? t("sandbox.preparing") : status.enabled ? status.available ? t("sandbox.protected") : t("sandbox.unavailable") : t("sandbox.host")}</span>
       </div>
-      {status?.enabled && !status.available ? <div className="space-y-2">
+      {status?.enabled && status.available === false ? <div className="space-y-2">
         <p className="text-sm text-muted-foreground">{t("sandbox.setup")}</p>
         <Button variant="outline" size="sm" disabled={busy || !canWrite || !client.canApprove} onClick={() => {
           setBusy(true); setError(null);

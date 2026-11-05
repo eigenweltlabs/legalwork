@@ -15,6 +15,7 @@ export function deriveSessionRenderModel(input: {
   hasSnapshot: boolean;
   isFetching: boolean;
   isError: boolean;
+  errorStatus?: number;
 }): SessionRenderModel {
   if (input.isError && input.renderedSessionId && input.renderedSessionId !== input.intendedSessionId) {
     return {
@@ -25,7 +26,8 @@ export function deriveSessionRenderModel(input: {
     };
   }
 
-  if (input.isError) {
+  const accessBlocked = input.errorStatus !== undefined && [401, 403, 404, 409].includes(input.errorStatus);
+  if (input.isError && (!input.hasSnapshot || accessBlocked)) {
     return {
       intendedSessionId: input.intendedSessionId,
       renderedSessionId: input.renderedSessionId,
@@ -55,7 +57,7 @@ export function deriveSessionRenderModel(input: {
   return {
     intendedSessionId: input.intendedSessionId,
     renderedSessionId: input.renderedSessionId,
-    transitionState: input.isFetching ? "switching" : "idle",
-    renderSource: "live",
+    transitionState: "idle",
+    renderSource: input.isError ? "cache" : "live",
   };
 }

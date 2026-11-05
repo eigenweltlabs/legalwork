@@ -16,7 +16,7 @@ export async function currentPluginImportTarget(config: ServerConfig, workspaceI
   const global = await readInstalledCloudPlugins(config, GLOBAL_MCP_ID);
   const local = scope === "project" ? await readInstalledCloudPlugins(config, workspaceId) : global;
   const registry = scope === "global" ? GLOBAL_MCP_ID : workspaceId;
-  return { workspace, scope, current: (await readRuntimeOpencodeConfig(config, registry)).mcp || {}, installed: local.plugins[pluginId], available: Object.values({ ...global.plugins, ...local.plugins }) };
+  return { workspace, scope, current: (await readRuntimeOpencodeConfig(config, registry)).mcp?.servers ?? {}, installed: local.plugins[pluginId], available: Object.values({ ...global.plugins, ...local.plugins }) };
 }
 type Prepared = { key: string; expires: number; plan: PluginImportPlan; bytes: number };
 const preparations = new Map<string, Prepared>();
@@ -60,24 +60,24 @@ async function checkRemote(check: ConnectorImportCheck, config: Record<string, u
   if (probe.transport === "sse") return blocked("legacy_sse_oauth", "This connector requires OAuth on a legacy SSE-only endpoint. LegalWork's sign-in flow requires a Streamable HTTP endpoint. Ask the provider for its current HTTP configuration.");
   // Native v2 sends an explicit configured scope unchanged. Advertising broader
   // permissions does not justify replacing or rejecting the source restriction.
-  if (typeof oauth.clientId === "string" && oauth.clientId) {
-    if (oauth.clientId === (options.clientMetadataUrl || process.env.LEGALWORK_MCP_CLIENT_METADATA_URL)) {
-      try { await legalworkMcpClientIdentity(probe, typeof oauth.redirectUri === "string" ? oauth.redirectUri : "http://127.0.0.1:19876/mcp/oauth/callback", options); }
+  if (typeof oauth.client_id === "string" && oauth.client_id) {
+    if (oauth.client_id === (options.clientMetadataUrl || process.env.LEGALWORK_MCP_CLIENT_METADATA_URL)) {
+      try { await legalworkMcpClientIdentity(probe, typeof oauth.redirect_uri === "string" ? oauth.redirect_uri : "http://127.0.0.1:19876/mcp/oauth/callback", options); }
       catch (error) { return blocked("client_metadata", error instanceof Error ? error.message : "LegalWork's client metadata is unavailable.", true); }
     }
     const methods = probe.oauth?.tokenEndpointAuthMethods;
     if (methods?.length && !methods.includes("none") && !methods.includes("client_secret_post")) return blocked("client_authentication", "This provider requires a client authentication method LegalWork cannot use.");
-    if (methods?.length && !methods.includes("none") && methods.includes("client_secret_post") && !oauth.clientSecret) {
-      config.oauth = { ...oauth, clientSecret: "${OAUTH_CLIENT_SECRET}" };
+    if (methods?.length && !methods.includes("none") && methods.includes("client_secret_post") && !oauth.client_secret) {
+      config.oauth = { ...oauth, client_secret: "${OAUTH_CLIENT_SECRET}" };
       return { ...check, status: "setup", code: "inputs", inputs: ["OAUTH_CLIENT_SECRET"], message: "This provider requires the registered application's client secret. Enter it in connector setup after importing; secrets saved in the original app are not transferred." };
     }
     return { ...check, status: "setup", code: "sign_in", message: "Sign in after importing. The provider must allow this registered application's callback, your account and connections from the LegalWork server." };
   }
-  const redirectUri = typeof oauth.redirectUri === "string" ? oauth.redirectUri : `http://127.0.0.1:${typeof oauth.callbackPort === "number" ? oauth.callbackPort : 19876}/mcp/oauth/callback`;
+  const redirectUri = typeof oauth.redirect_uri === "string" ? oauth.redirect_uri : `http://127.0.0.1:${typeof oauth.callback_port === "number" ? oauth.callback_port : 19876}/mcp/oauth/callback`;
   try {
     const identity = await legalworkMcpClientIdentity(probe, redirectUri, options);
     if (identity) {
-      config.oauth = { ...oauth, clientId: identity, redirectUri };
+      config.oauth = { ...oauth, client_id: identity, redirect_uri: redirectUri };
       return { ...check, status: "setup", code: "sign_in", message: "LegalWork's own OAuth client identity is configured. Sign in after importing; the provider will check approval and account access." };
     }
   } catch (error) { return blocked("client_metadata", error instanceof Error ? error.message : "LegalWork's OAuth client metadata is unavailable.", true); }
@@ -95,7 +95,7 @@ async function checkRemote(check: ConnectorImportCheck, config: Record<string, u
   }
   // Retain the registered identity only in the server-owned prepared plan. It is
   // installed with exactly the callback/scopes checked here, without a second DCR.
-  config.oauth = { ...oauth, ...registration.client, redirectUri };
+  config.oauth = { ...oauth, client_id: registration.client.clientId, ...(registration.client.clientSecret ? { client_secret: registration.client.clientSecret } : {}), redirect_uri: redirectUri };
   return { ...check, status: "setup", code: "sign_in", message: "LegalWork's sign-in application is registered. Sign in after importing; the provider will then check your account's access." };
 }
 
@@ -135,7 +135,7 @@ async function prepare(plan: PluginImportPlan, target: ImportTarget, options: Mc
       const registered = cached?.plan.connectorConfigs?.[check.installedName];
       if (registered) config = normalizePluginMcpConfig(registered);
     }
-    if (config && check.status === "blocked" && ["provider_approval", "missing_registration"].includes(check.code) && importRecord(config.oauth) && typeof config.oauth.clientId === "string" && config.oauth.clientId && !connectorConfigVariables(config.oauth.clientId).length) check = { ...check, status: "unchecked", documentationUrl: undefined };
+    if (config && check.status === "blocked" && ["provider_approval", "missing_registration"].includes(check.code) && importRecord(config.oauth) && typeof config.oauth.client_id === "string" && config.oauth.client_id && !connectorConfigVariables(config.oauth.client_id).length) check = { ...check, status: "unchecked", documentationUrl: undefined };
     if (!config || check.status === "blocked") continue;
     checks[index] = config.type === "local" ? await checkLocal(check, config, prepared, target) : await checkRemote(check, config, boundedOptions);
     if (prepared.connectorConfigs) prepared.connectorConfigs[check.installedName] = config;

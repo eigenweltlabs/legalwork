@@ -26,6 +26,10 @@ describe("app links in help answers", () => {
       .toBe("/workspace/matter-1/settings/extensions/mcp");
     expect(appLinkDestination("legalwork://app/settings/recorder", "/home")).toBe("/settings/recorder");
     expect(appLinkDestination("legalwork://app/calendar", "/workspace/matter-1/session/chat-2")).toBe("/calendar");
+    expect(parseAppLink("legalwork://app/settings/workflows")).toBe("/settings/workflows");
+    expect(appLinkDestination("legalwork://app/settings/workflows/skills", "/workspace/matter-1/session/chat-2"))
+      .toBe("/workspace/matter-1/settings/workflows/skills");
+    expect(appLinkDestination("legalwork://app/settings/workflows/prompts", "/home")).toBe("/settings/workflows/prompts");
   });
 
   test("only routes to supported app pages, with no actions or external targets", () => {
@@ -34,6 +38,7 @@ describe("app links in help answers", () => {
       "legalwork://user@app/settings", "legalwork://app/settings/../account", "legalwork://app/settings/%2e%2e/account",
       "legalwork://app/settings?connect=outlook", "legalwork://app/settings#script", "legalwork://app/settings/reset",
       "legalwork://app/settings/ai/delete", "legalwork://app/calendar/delete", "javascript:alert(1)",
+      "legalwork://app/settings/workflows/delete", "legalwork://app/settings/workflows/skills/delete",
     ]) expect(parseAppLink(href)).toBeNull();
   });
 });

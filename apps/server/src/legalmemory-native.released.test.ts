@@ -9,6 +9,7 @@ import { OpenCode, type JsonValue } from "@opencode/client";
 import { createManagedOpencodeServer } from "./managed-opencode.js";
 import { legalMemoryRpc, legalMemoryResponseSchema } from "./legalmemory-rpc.js";
 import { fetchLegalMemoryDocument, fetchLegalMemoryGraph, fetchLegalMemoryTreeRoots, type LegalMemoryClient } from "./legalmemory-fetch.js";
+import { migrateLegacyMcpCredentials } from "./legacy-mcp-credentials.js";
 
 const binary = process.env.LEGALWORK_TEST_OPENCODE_BIN;
 // These watchdogs fail a broken test infrastructure; they are not application,
@@ -19,7 +20,7 @@ async function eventually<T>(read: () => Promise<T>, accept: (value: T) => boole
   throw new Error("Released LegalMemory fixture did not become ready within its 15s test watchdog.");
 }
 
-test.skipIf(!binary)("released native LegalMemory preserves full original bytes, native OAuth rotation, permissions, isolation and cancellation without inference", async () => {
+test.skipIf(!binary).each(["native", "v1 import"])("released LegalMemory preserves full bytes, OAuth rotation, permissions, isolation and cancellation with %s credentials", async mode => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "legalwork-native-legalmemory-")));
   for (const name of ["home", "config", "data", "cache", "state", "project", "other", "plugin", "probe"]) await mkdir(join(root, name));
   let validUntil = Infinity;
@@ -90,7 +91,7 @@ test.skipIf(!binary)("released native LegalMemory preserves full original bytes,
   } });
   const settingsPath = join(root, "settings.json"), directory = join(root, "project"), other = join(root, "other");
   const serverUrl = `${provider.url.origin}/mcp`;
-  await writeFile(settingsPath, JSON.stringify({ version: 1, workspaces: { project: { directory, configuration: {}, providerActivation: {}, modelFilters: {}, agentRequests: {}, skills: [] } } }), { mode: 0o600 });
+  await writeFile(settingsPath, JSON.stringify({ version: 2, sharedConfiguration: {}, workspaces: { project: { directory, configuration: {}, providerActivation: {}, projectPermissionApprovals: [] } } }), { mode: 0o600 });
   const build = await Bun.build({ entrypoints: [fileURLToPath(new URL("./opencode-plugins/legalwork-legalmemory.ts", import.meta.url))], outdir: join(root, "plugin"), naming: "index.js", target: "node", format: "esm", external: ["@opencode/plugin", "@opencode/plugin/*", "effect", "effect/*"] });
   if (!build.success) throw new AggregateError(build.logs, "LegalMemory fixture must build");
   // Separate fixture RPC invokes the real native registered MCP tool path with
@@ -112,9 +113,16 @@ test.skipIf(!binary)("released native LegalMemory preserves full original bytes,
     const integration = await client.integration.get({ integrationID, location });
     const method = integration.data.methods.find(method => method.type === "oauth");
     if (!method || method.type !== "oauth") throw new Error("Native OAuth method unavailable");
-    const authorization = await client.integration.oauth.connect({ integrationID, methodID: method.id, location });
-    await fetch(authorization.data.url);
-    await eventually(async () => (await client.integration.oauth.status({ integrationID, attemptID: authorization.data.attemptID, location })).data, status => status.status === "complete");
+    if (mode === "v1 import") {
+      validUntil = Date.now() + 5000;
+      const source = join(root, "mcp-auth.json");
+      await writeFile(source, JSON.stringify({ legalmemory: { serverUrl, tokens: { accessToken: acceptedAccess, refreshToken: acceptedRefresh, expiresAt: validUntil / 1000 }, clientInfo: { clientId: "fixture-client" } } }));
+      expect(await migrateLegacyMcpCredentials(client, source, join(root, "receipts", "mcp.json"))).toEqual({ imported: 1, retained: 0 });
+    } else {
+      const authorization = await client.integration.oauth.connect({ integrationID, methodID: method.id, location });
+      await fetch(authorization.data.url);
+      await eventually(async () => (await client.integration.oauth.status({ integrationID, attemptID: authorization.data.attemptID, location })).data, status => status.status === "complete");
+    }
     await eventually(async () => (await client.mcp.list({ location })).data.find(server => server.name === "legalmemory")?.status.status, status => status === "connected");
     await eventually(async () => (await client.rpc.call({ rpcID: "legalwork.legalmemory-fixture", method: "catalog", location, input: {} })).output, value => Array.isArray(value) && value.includes("legalmemory_find_related_documents"));
     const request = async (operation: JsonValue, signal?: AbortSignal, target = location) => legalMemoryResponseSchema.parse((await client.rpc.call({ rpcID: legalMemoryRpc.id, method: "request", location: target, input: { serverName: "legalmemory", operation } }, { signal })).output);

@@ -1,3 +1,4 @@
+import { t } from "@/i18n";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { BookOpen, ChevronLeft, ChevronRight, Folder, Pencil } from "lucide-react";
@@ -20,7 +21,8 @@ export function WikiSuggestionDestinationPicker({ client, wikis, value, disabled
   const [name, setName] = useState(suggestionLocation(value.path).name);
   const snapshot = useQuery({ queryKey: ["wiki-suggestion-destination", client.baseUrl, wikiId], queryFn: () => client.wikiSnapshot(wikiId), enabled: open, staleTime: 0 });
   const folders = snapshot.data?.folders ?? [];
-  const validFolder = Boolean(snapshot.data && (!folder || folders.includes(folder)));
+  const proposedFolder = Boolean(value.createFolders && wikiId === value.wikiId && snapshot.data?.wiki.purpose === "legal-research" && folder && (folder === suggestionLocation(value.path).folder || suggestionLocation(value.path).folder.startsWith(`${folder}/`)));
+  const validFolder = Boolean(snapshot.data && (!folder || folders.includes(folder) || proposedFolder));
   const path = suggestionPagePath(folder, name);
   const selectedWiki = wikis.find(wiki => wiki.id === wikiId);
   const children = folders.filter(path => suggestionLocation(path).folder === folder).sort((a, b) => a.localeCompare(b));
@@ -48,11 +50,12 @@ export function WikiSuggestionDestinationPicker({ client, wikis, value, disabled
           {snapshot.isFetching ? <p className="px-2 py-3 text-xs text-muted-foreground">Loading folders…</p> : snapshot.error ? <p role="alert" className="px-2 py-3 text-xs text-destructive">Could not load folders. <button className="underline" onClick={() => void snapshot.refetch()}>Retry</button></p> : !validFolder ? <p role="alert" className="px-2 py-3 text-xs">This folder is no longer available. <button className="underline" onClick={() => setFolder("")}>Choose another folder</button></p> : children.length ? children.map(path => <button key={path} className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-sm hover:bg-muted" onClick={() => setFolder(path)}><Folder className="size-4 text-muted-foreground" /><span className="truncate">{path.split("/").at(-1)}</span><ChevronRight className="ml-auto size-3 text-muted-foreground" /></button>) : <p className="px-2 py-3 text-xs text-muted-foreground">No subfolders</p>}
         </div>
       </div>
+      {proposedFolder && !folders.includes(folder) && <p className="text-xs text-muted-foreground">{t("research.new_folders_on_save", { path: folder.split("/").join(" / ") })}</p>}
       <label className="space-y-1.5 text-xs text-muted-foreground">File name<Input aria-label="Page file name" className="mt-1.5" value={name} onChange={event => setName(event.target.value)} /></label>
       {!path && <p className="text-xs text-destructive">Enter a name without slashes.</p>}
       <Button size="sm" disabled={!selectedWiki || !validFolder || snapshot.isFetching || !path} onClick={() => {
         if (!path) return;
-        onChange({ wikiId, path, baseRevision: wikiId === value.wikiId && path === value.path ? value.baseRevision : null });
+        onChange({ wikiId, path, ...(proposedFolder && !folders.includes(folder) ? { createFolders: true } : {}), baseRevision: wikiId === value.wikiId && path === value.path ? value.baseRevision : null });
         setOpen(false);
       }}>Use this location</Button>
     </PopoverContent>

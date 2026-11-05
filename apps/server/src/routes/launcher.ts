@@ -57,7 +57,6 @@ export function registerLauncherRoutes(options: Parameters<typeof registerMainAs
     if (Boolean(input.workspaceId) === Boolean(input.folderId)) throw new ApiError(400, "launcher_browse", "Choose one project or search folder.");
     const folder = input.folderId ? await options.searchFolders.root(input.folderId) : null;
     const workspace = input.workspaceId ? await options.resolveWorkspace(config, input.workspaceId) : null;
-    if (workspace?.workspaceType === "remote") throw new ApiError(400, "launcher_browse", "Open this remote project in the app.");
     const root = folder?.path ?? workspace?.path;
     if (!root) throw new ApiError(404, "launcher_browse", "Folder unavailable.");
     return jsonResponse(await browseLauncherDirectory({ root, path: input.path, workspaceId: workspace?.id ?? null, folderId: folder?.id, name: folder?.name ?? (workspace ? projectName(workspace) : "") }));
@@ -92,7 +91,7 @@ export function registerLauncherRoutes(options: Parameters<typeof registerMainAs
       revision: `${file.info.mtimeMs}:${file.info.size}`, sourceLabel: `${file.folder.name} · ${input.path}` } }, 201);
   });
   const accessible = async () => {
-    const candidates = config.workspaces.filter(workspace => workspace.workspaceType !== "remote" && !isMainAssistant(workspace));
+    const candidates = config.workspaces.filter(workspace => !isMainAssistant(workspace));
     const results = await Promise.allSettled(candidates.map(workspace => options.resolveWorkspace(config, workspace.id)));
     const workspaces: WorkspaceInfo[] = [], unavailable: string[] = [];
     results.forEach((result, index) => { if (result.status === "fulfilled") workspaces.push(result.value); else unavailable.push(candidates[index].id); });
@@ -118,9 +117,6 @@ export function registerLauncherRoutes(options: Parameters<typeof registerMainAs
       sessionSearch: (workspace, query, signal) => searchSessionContents(config, workspace, query, signal),
       fileContentSearch: (workspace, query, signal) => searchFileContents(workspace, query, signal, options.preparation),
     }, { query: input.q, kinds, projectId: input.projectId, content: input.content === "1", limit: input.limit, fileTypes: fileTypes?.length ? fileTypes : undefined, modifiedAfter: input.since }, ctx.request.signal)]);
-    // Remote projects are not searched from here yet: say so per project instead of answering "nothing found".
-    for (const workspace of config.workspaces.filter(workspace => workspace.workspaceType === "remote" && workspace.preset !== "wiki" && (!input.projectId || workspace.id === input.projectId)))
-      response.sources.push({ id: `remote:${workspace.id}`, kind: "projects", workspaceId: workspace.id, label: projectName(workspace), coverage: "unavailable", count: 0, error: "Remote projects are not searched from the Assistant yet." });
     // The Assistant's own conversations are chats too: resume them in place.
     const assistant = config.workspaces.find(isMainAssistant);
     if (assistant && kinds.includes("chats") && (input.q.length >= 2 || !input.q.trim() && kinds.length === 1) && (!input.projectId || input.projectId === assistant.id)) {
@@ -147,8 +143,7 @@ export function registerLauncherRoutes(options: Parameters<typeof registerMainAs
     for (const source of sources) {
       try {
         const workspace = await options.resolveWorkspace(config, source.id);
-        if (workspace.workspaceType === "remote") continue;
-        const result = await options.client(workspace).command.list({}, { signal: AbortSignal.timeout(10000) });
+        const result = await options.client(workspace).native.command.list({ location: { directory: workspace.path } }, { signal: AbortSignal.timeout(10000) });
         groups.push({ workspaceId: isMainAssistant(workspace) ? null : workspace.id, items: result.data ?? [] });
       } catch { unavailable.push(source.id); }
     }
@@ -170,7 +165,6 @@ export function registerLauncherRoutes(options: Parameters<typeof registerMainAs
     const input = parse(LauncherFileTransferInputSchema, await options.readJsonBodyLimited(ctx.request, 16_000), "launcher_transfer", "Name the file, the destination project and copy or move.");
     if (input.sourceWorkspaceId === input.targetWorkspaceId) throw new ApiError(400, "launcher_transfer", "Choose a different project as the destination.");
     const [source, target] = await Promise.all([options.resolveWorkspace(config, input.sourceWorkspaceId), options.resolveWorkspace(config, input.targetWorkspaceId)]);
-    if (source.workspaceType === "remote" || target.workspaceType === "remote") throw new ApiError(400, "launcher_transfer", "Files move between local projects only.");
     const relativePath = normalizeWorkspaceRelativePath(input.path, { allowSubdirs: true });
     const sourceRoot = await realpath(source.path), sourceFile = await realpath(resolve(sourceRoot, relativePath)).catch(() => null);
     if (!sourceFile || (sourceFile !== sourceRoot && !sourceFile.startsWith(sourceRoot + sep))) throw new ApiError(400, "invalid_path", "The file is outside this project.");

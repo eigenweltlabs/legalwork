@@ -6,7 +6,7 @@ function input(directory = "/project") {
   const connects: string[] = [];
   return {
     engine: "http://127.0.0.1:4000", directory, statuses, connects,
-    connectors: async () => [{ name: "notes", config: { type: "remote", enabled: true } }],
+    connectors: async () => [{ name: "notes", config: { type: "remote", disabled: false } }],
     readStatuses: async () => statuses,
     connect: async (name: string) => { connects.push(name); },
   };
@@ -21,7 +21,7 @@ test("only failed, enabled remote transports are reconnected", async () => {
   };
   await new McpRecovery().recover({ ...current, statuses, readStatuses: async () => statuses,
     connectors: async () => Object.keys(statuses).filter(name => name !== "removed").map(name => ({
-      name, config: { type: name === "local" ? "local" : "remote", enabled: name !== "paused" }, disabledByTools: name === "denied",
+      name, config: { type: name === "local" ? "local" : "remote", disabled: name === "paused" }, disabledByTools: name === "denied",
     })),
   });
   expect(current.connects).toEqual(["notes"]);
@@ -97,7 +97,7 @@ test("disabling a connector while queued prevents reconnect", async () => {
   const first = recovery.recover({ ...a, connect: async () => { started.resolve(); await release.promise; } });
   await started.promise;
   let enabled = true;
-  const second = recovery.recover({ ...b, connectors: async () => [{ name: "notes", config: { type: "remote", enabled } }] });
+  const second = recovery.recover({ ...b, connectors: async () => [{ name: "notes", config: { type: "remote", disabled: !enabled } }] });
   enabled = false;
   release.resolve();
   await Promise.all([first, second]);
@@ -155,7 +155,7 @@ test("native OAuth pauses recovery for the engine's full attempt lifetime", asyn
   const recovery = new McpRecovery(() => now, 0);
   recovery.beginAuth("notes", 20 * 60_000);
   let connects = 0;
-  const input = { engine: "native", directory: "/project", statuses: { notes: { status: "failed" } }, connectors: async () => [{ name: "notes", config: { type: "remote", enabled: true } }], readStatuses: async () => ({ notes: { status: "failed" } }), connect: async () => { connects += 1; } };
+  const input = { engine: "native", directory: "/project", statuses: { notes: { status: "failed" } }, connectors: async () => [{ name: "notes", config: { type: "remote", disabled: false } }], readStatuses: async () => ({ notes: { status: "failed" } }), connect: async () => { connects += 1; } };
   now = 6 * 60_000; await recovery.recover(input); expect(connects).toBe(0);
   now = 21 * 60_000; await recovery.recover(input); expect(connects).toBe(1);
 });

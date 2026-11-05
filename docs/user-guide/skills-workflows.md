@@ -1,14 +1,14 @@
 # Skills and workflows
 
-Open in LegalWork: [Workflows](legalwork://app/workflows), [Skills](legalwork://app/settings/extensions/skills).
+Open in LegalWork: [Workflows](legalwork://app/workflows), [Skills](legalwork://app/settings/workflows/skills).
 
 ## Choose the right reusable resource
 
 A **workflow** is a saved set of instructions and supporting files for work you repeat. For example, an NDA-review workflow can describe the firm's preferred positions, require clause citations and use an attached playbook. Each run applies those instructions to the documents and facts you provide. The workflow is the reusable procedure; the chat and its output are one execution of it.
 
-A **skill** supplies instructions or a specialized capability the assistant can load when relevant. A **plugin** adds runtime capabilities and can include tools. An MCP connector connects a service. A **task** tracks a particular piece of work, while a **scheduled task** decides when the assistant should run. Creating a workflow does not automatically schedule it or connect it to client documents.
+A **skill** supplies instructions or a specialized capability the assistant can load when relevant. A **connection** gives the assistant access to a service. A **task** tracks a particular piece of work, while a **scheduled task** decides when the assistant should run. Creating a workflow does not automatically schedule it or connect it to client documents.
 
-Open **Workflows** in the main sidebar for the workflow library. Open **Settings > Integrations > Skills** for ordinary skills, and **Integrations > Plugins** for plugins. Older instructions mentioning separate top-level Settings > Workflows or Settings > Extensions can be misleading in this build.
+Open **Workflows** in the main sidebar. Use its **Workflows**, **Review prompts** and **Skills** tabs. Skills retain their search, import, creation, editing and team-sharing controls. Connections are managed under **Settings > Integrations**. Older links to Integrations > Skills open the Skills tab in Workflows.
 
 ## Create and edit
 
@@ -18,7 +18,9 @@ Open **Workflows** in the main sidebar for the workflow library. Open **Settings
 4. In **Files**, attach reusable templates, playbooks and examples. Keep matter-specific agreements in the project or run's inputs unless deliberately making them reusable.
 5. Select **Create** or **Save**. Resolve validation errors and the unsaved-changes prompt before leaving. Test the workflow on a representative document and inspect the result.
 
-Older libraries offer **Assistant workflow** and **Tabular workflow** types. Newer libraries create ordinary workflows and provide **Tabular Review Prompts** separately for reusable question sets. Existing tabular workflows can remain editable, but the native review implementation uses saved reviews rather than generating a standalone HTML grid. Follow the controls actually present in your library.
+Opening a saved workflow, moving the cursor, or switching between **Rich text**, **Source mode** and **Diff mode** keeps its **Saved** status. Editing the instructions or details marks it as **Unsaved changes**. Select **Save** to store those edits.
+
+Older libraries offer **Assistant workflow** and **Tabular workflow** types. Newer libraries create ordinary workflows and provide **Review prompts** separately for reusable question sets. Existing tabular workflows can remain editable, but the native review implementation uses saved reviews rather than generating a standalone HTML grid. Follow the controls actually present in your library.
 
 Attach the firm's templates, playbooks and examples as workflow resources. Resource files can be opened and edited in their supported editor; saving an edited resource updates the library copy. Generating a workflow from templates is available through the template generation action. Inspect the generated instructions before treating them as a firm standard.
 
