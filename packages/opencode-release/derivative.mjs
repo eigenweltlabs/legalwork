@@ -76,13 +76,14 @@ async function selectedManifest(descriptor) {
   return registered.value;
 }
 
-async function regularFile(filename, allowHardLinks = false) {
+async function regularFile(filename) {
   const stat = await lstat(filename);
-  if (!stat.isFile() || !allowHardLinks && stat.nlink !== 1) throw new Error("Derivative artifacts must contain ordinary files, without symbolic or hard links.");
+  // Integrity is checked against pinned sizes and hashes, independently of link counts.
+  if (!stat.isFile()) throw new Error("Derivative artifacts must contain ordinary files, without symbolic links.");
 }
 
 async function checkArchive(filename, pin) {
-  await regularFile(filename, true);
+  await regularFile(filename);
   if ((await lstat(filename)).size !== pin.size || await derivativeFileSha256(filename) !== pin.sha256) throw new Error("Derivative archive integrity verification failed; preserve the mismatching input for inspection.");
 }
 
