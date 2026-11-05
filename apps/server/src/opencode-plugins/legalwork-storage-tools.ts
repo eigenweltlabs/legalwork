@@ -37,6 +37,22 @@ const sourceArgs = z.object({
   connection_id: connectionId,
   path: z.string().max(4096).describe("Path relative to this connection's root; use / between folders."),
 });
+const createFolderArgs = z.object({
+  connection_id: connectionId,
+  parent_path: z.string().max(4096).optional().describe("Existing parent folder's exact listed path, relative to this connection's root. Use an empty string for the root. Pair with name."),
+  name: z.string().min(1).max(255).optional().describe("New folder name only, without slashes or an existing folder identity. Pair with parent_path."),
+  path: z.string().max(4096).optional().describe("Legacy full destination path including the new folder name. Use only for compatibility; never combine with parent_path or name."),
+}).strict().refine(input => input.path !== undefined
+  ? input.parent_path === undefined && input.name === undefined
+  : input.parent_path !== undefined && input.name !== undefined,
+{ message: "Use parent_path and name together, or legacy path alone. Do not mix them." });
+
+function newFolderPath(parent: string, name: string) {
+  if (name === "." || name === ".." || /[/\\\x00-\x1f\x7f]/.test(name))
+    throw new ApiError(400, "invalid_storage_name", "Provide a new folder name without a path, traversal, backslashes, or control characters.");
+  storagePath(parent);
+  return storagePath(parent ? `${parent}/${name}` : name, false);
+}
 const workspaceSchema = z.object({ items: z.array(z.object({ id: z.string(), path: z.string() })) });
 const rootsSchema = z.object({
   teamError: z.string().optional(),
@@ -399,15 +415,18 @@ export default Plugin.define({
         const current = await workspace(context);
         return { connection_id: args.connection_id, result: await request(`${source(current.id, args.connection_id)}/rename`, "POST", { path: args.path, name: args.name, kind: args.kind }) };
       }));
-      editor.add(defineTool(ctx, "storage_create_folder", "Create a folder in any writable connection. The path is relative to its root.",
-        sourceArgs,
+      editor.add(defineTool(ctx, "storage_create_folder", "Create a folder in a writable connection. Give parent_path as the existing parent's exact listed path and name as the new folder name; parent_path='' creates at the root. Example: parent_path='Matters', name='New Matter'. Preserve encoded identities in parent_path, never use one as name. Legacy path accepts the complete new destination path only; never combine it with parent_path or name. Unsupported fields are rejected.",
+        createFolderArgs,
         async (args, context) => {
-        storagePath(args.path, false);
+        let path: string;
+        if (args.path !== undefined) path = storagePath(args.path, false);
+        else if (args.parent_path !== undefined && args.name !== undefined) path = newFolderPath(args.parent_path, args.name);
+        else throw new ApiError(400, "invalid_storage_path", "Provide parent_path and name, or a legacy full destination path.");
         const current = await workspace(context);
         return {
           connection_id: args.connection_id,
-          path: args.path,
-          result: await request(`${source(current.id, args.connection_id)}/folders`, "POST", { path: args.path }),
+          path,
+          result: await request(`${source(current.id, args.connection_id)}/folders`, "POST", { path }),
         };
       }));
       editor.add(defineTool(ctx, "storage_transfer", "Move or copy a file or folder within or between connected storage sources. Use exact listed paths and connection IDs. destination_path is the existing destination folder (empty for its root); the source name is preserved. Specify mode explicitly. Requires a writable destination; moves also require source write and rename/delete support. Refuses existing destinations. Cross-connection moves verify copies before removing originals. If incomplete, inspect both locations before any retry.",

@@ -624,8 +624,9 @@ export function registerStorageRoutes({
   addRoute(routes, "POST", `${base}/:storageId/folders`, "client", async (ctx) => {
     const connection = await selected(ctx, true);
     const body = await readJsonBodyLimited(ctx.request, 8 * 1024);
-    if (typeof body.path !== "string") throw new ApiError(400, "invalid_storage_path", "A folder path is required.");
-    const path = storagePath(body.path, false);
+    const parsed = z.object({ path: z.string() }).strict().safeParse(body);
+    if (!parsed.success) throw new ApiError(400, "invalid_storage_path", "Provide only path, including the new folder name.");
+    const path = storagePath(parsed.data.path, false);
     await serializeWrite(connection.id, () => withStorage(connection, (adapter) => adapter.mkdir(path)));
     return jsonResponse({ ok: true }, 201);
   });

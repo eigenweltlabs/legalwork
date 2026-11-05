@@ -28,6 +28,8 @@ Files in a whole-account Google Drive connection can still open after their fold
 
 In a writable folder, upload or drop files and create folders using the available controls. Existing-name and read-only errors should be resolved rather than ignored. Pausing a connection hides/disables access without deleting its source. Disconnecting removes the connection configuration, not the remote files. Deleting a file through a file action is a separate operation.
 
+To create a folder in chat, name the connection, the existing parent folder, and the new folder separately. For example: “In Google Drive, create a folder called Versandbestätigung inside Tax/Fragebogen Steuerliche Erfassung.” LegalWork uses the exact selected parent and the new name. Invalid names and conflicting folder arguments are rejected before creating anything; an existing folder's internal identity cannot become a new Google Drive, OneDrive or SharePoint folder name.
+
 Google Drive files and folders can be renamed in My Drive and shared drives when your account has permission. A rename keeps the same file or folder and its contents; it does not create a copy. LegalWork checks for intervening changes and refuses an existing destination. If a conflict is reported, refresh the parent folder and review its current contents before trying again.
 
 To delete an item, open its menu in Memory Drive, choose **Delete file** or **Delete folder**, and confirm. Deleting a Google Drive item moves it to Google Drive's trash; a folder deletion includes its contents. Local working copies are kept. If the item changes while deletion is being checked, LegalWork stops and reports a conflict. Refresh and review the item before trying again.
