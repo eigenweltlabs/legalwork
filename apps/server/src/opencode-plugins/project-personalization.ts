@@ -1,9 +1,5 @@
 import { listWorkspaces, serverToken, serverUrl } from "./office-plugin-shared.js";
-
-function normalizeDirectory(directory: string): string {
-  const normalized = directory.replace(/\\/g, "/").replace(/\/+$/, "");
-  return /^[a-z]:/i.test(normalized) ? normalized.toLowerCase() : normalized;
-}
+import { findProjectForDirectory } from "../workspace-path-match.js";
 
 /**
  * Read on every turn so edits apply to existing chats without disposing the
@@ -15,16 +11,7 @@ export async function projectPersonalizationPrompt(directory?: string): Promise<
   if (!url || !token || !directory) return "";
 
   try {
-    const currentDirectory = normalizeDirectory(directory);
-    const workspaces = await listWorkspaces();
-    // Prefer the closest project root, including nested projects. Never use
-    // another project's prompt when the session directory is unrecognised.
-    const workspace = workspaces
-      .filter((item) => {
-        const root = normalizeDirectory(item.path);
-        return currentDirectory === root || currentDirectory.startsWith(`${root}/`);
-      })
-      .sort((left, right) => right.path.length - left.path.length)[0];
+    const workspace = await findProjectForDirectory(await listWorkspaces(), directory);
     if (!workspace) return "";
 
     const response = await fetch(`${url}/workspace/${encodeURIComponent(workspace.id)}/personalization`, {

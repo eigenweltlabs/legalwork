@@ -2,11 +2,11 @@ import { registerPrimaryContext } from "./native-review-worker.js";
 import { projectContentsSchema } from "@legalwork/types/workspace";
 import { Plugin } from "@opencode/plugin";
 import { nativeTool, nativeToolSignal, nativeObjectOutput } from "./native-tool.js";
-import { resolve, relative, isAbsolute, sep } from "node:path";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { projectFieldsSchema } from "../project-schema.js";
 import { listWorkspaces, serverToken, serverUrl, type OpenCodeContext } from "./office-plugin-shared.js";
+import { findProjectForDirectory } from "../workspace-path-match.js";
 import { registerAppStateReminders } from "./native-app-state-reminders.js";
 import { recordingTools, RECORDING_GUIDANCE } from "./recording-tools.js";
 
@@ -56,12 +56,7 @@ async function request(context: OpenCodeContext, route: string, args: Record<str
     const token = serverToken();
     if (!url || !token) throw new Error("LegalWork server connection is not configured.");
     if (!context.directory?.trim()) throw new Error("Cannot determine the project for this session.");
-    const directory = resolve(context.directory);
-    const workspaces = (await listWorkspaces()).sort((a, b) => b.path.length - a.path.length);
-    const workspace = workspaces.find((item) => {
-      const path = relative(resolve(item.path), directory);
-      return path === "" || (!isAbsolute(path) && path !== ".." && !path.startsWith(`..${sep}`));
-    });
+    const workspace = await findProjectForDirectory(await listWorkspaces(), context.directory);
     if (!workspace) throw new Error("This session is not inside a registered project.");
     const workspaceId = workspace.id;
     const query = new URLSearchParams();

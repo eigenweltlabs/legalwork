@@ -5,7 +5,7 @@ import { Plugin } from "@opencode/plugin";
 import { nativeTool, nativeToolSignal, nativeObjectOutput } from "./native-tool.js";
 import { nativeEvents } from "./native-events.js";
 import { CorpusQuerySchema, CorpusRowSchema } from "../corpus/schema.js";
-import { isAbsolute, relative, resolve, sep } from "node:path";
+import { resolve } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { projectContentsSchema } from "@legalwork/types/workspace";
@@ -16,6 +16,7 @@ import { ReportEvidenceIndexSchema, ReportEvidenceSchema, ReportTemplateFieldsSc
 import { ReviewLibraryEntrySchema, reviewLibraryKind } from "@legalwork/types/reviews";
 import { CreateReviewSchema, EditReviewSchema, QueryReviewResultsSchema, RunReviewSchema, SaveReviewLibrarySchema, SavedReviewSchema, WaitReviewsSchema } from "../reviews/schema.js";
 import { listWorkspaces, resolveWorkspaceId, serverToken, serverUrl, workspaceToolHeaders, type OpenCodeContext } from "./office-plugin-shared.js";
+import { findProjectForDirectory } from "../workspace-path-match.js";
 
 const id = z.string().uuid();
 const settingsArgs = z.strictObject({ reviewId: id.optional() });
@@ -78,11 +79,7 @@ function creationId(context: OpenCodeContext, input: z.infer<typeof createArgs>)
 
 async function call(context: OpenCodeContext, path: string, method = "GET", body?: unknown, resource: "reviews" | "project" | "files" = "reviews", timeoutMs = 60_000) {
   if (!serverUrl() || !serverToken() || !context.directory) throw new Error("A connected project is required.");
-  const directory = resolve(context.directory);
-  const workspace = (await listWorkspaces()).sort((a, b) => b.path.length - a.path.length).find(item => {
-    const part = relative(resolve(item.path), directory);
-    return part === "" || (!isAbsolute(part) && part !== ".." && !part.startsWith(`..${sep}`));
-  });
+  const workspace = await findProjectForDirectory(await listWorkspaces(), context.directory);
   if (!workspace) throw new Error("This session is not in a registered project.");
   const response = await fetch(`${serverUrl()}/workspace/${encodeURIComponent(workspace.id)}/${resource}${path}`, {
     method, headers: { Authorization: `Bearer ${serverToken()}`, "Content-Type": "application/json" },

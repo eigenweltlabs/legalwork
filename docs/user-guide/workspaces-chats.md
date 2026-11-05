@@ -6,6 +6,8 @@ Open in LegalWork: [Home](legalwork://app/home), [Projects](legalwork://app/proj
 
 A workspace ties conversations and agent execution to a working directory or remote worker. Select the working context through **Projects** or the project sidebar. Create a project using a local folder, or use the connection flow for a remote worker. Selecting another workspace changes the files and runtime context used for new work.
 
+On Windows, you can select a project folder through a mapped drive, such as `P:`, or its network location. LegalWork recognizes both locations as the same folder. When project folders are nested, project actions and instructions use the nearest containing project.
+
 Workspace settings include authorized folders. Global settings include model providers and the shared skill library. A remote worker may have different files, credentials, models and permissions from your local computer. Check the selected workspace before diagnosing missing files or tools.
 
 **Projects** and **Project Home** provide matter details, linked folders and separate pages for files, chats, tasks, calendar, reviews and dashboards. See [Projects and sharing](projects-sharing.md). Sharing a project through the firm is different from the remote-worker connection described below.

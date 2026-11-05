@@ -6,6 +6,8 @@ Start with the exact error, current workspace, platform and action that failed. 
 
 After an engine upgrade, LegalWork copies your saved chat history into the new engine database before making chats available. It keeps the original database and a separate history backup. Development builds migrate their own saved development profile; they do not import the installed app's history. If an upgrade reports a history migration error or existing chats cannot be found, keep the profile intact and export diagnostics. Resetting your profile is not required to recover the saved chats.
 
+LegalWork also upgrades older saved connector settings during startup and retries settings that an earlier upgrade could not import. It preserves the original settings, credentials and permission rules. If startup still reports invalid settings, keep your profile intact and export diagnostics instead of deleting the saved connectors.
+
 | Symptom | What to check |
 | --- | --- |
 | No model available | Connect a provider in AI Providers; check disabled-provider filters, the account's available models, key source and any provider error. |
@@ -43,6 +45,8 @@ Configuration changes can require an engine reload. Use the reload prompt when o
 ## Updates
 
 Open **Settings > Updates** to see the current version, release channel and last check. Use the available check, download and install/restart controls. Background checking and automatic-download preferences are separate. A check reporting an error or unsupported runtime does not mean the app is up to date. Active work can block or warn before restart. Browser/development/package-manager environments may not support the same updater as an installed desktop build.
+
+On Windows, verifying a downloaded update can take a minute or two. Keep LegalWork open while it prepares the installer. If an older version repeatedly reports a signature-check command error, quit LegalWork and run the matching official installer from the LegalWork download page. This retains your existing app profile; you do not need to uninstall the app or delete its settings.
 
 ## Diagnostics and recovery
 

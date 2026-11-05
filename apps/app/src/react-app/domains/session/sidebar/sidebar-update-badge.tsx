@@ -4,7 +4,7 @@ import { RefreshCcw, X } from "lucide-react";
 
 import { isElectronRuntime } from "../../../../app/utils";
 import { t } from "../../../../i18n";
-import { checkForUpdatesInBackground } from "../../settings/state/electron-updater-state";
+import { BACKGROUND_UPDATE_CHECK_INTERVAL_MS, checkForUpdatesInBackground } from "../../settings/state/electron-updater-state";
 import { useUpdateStatusStore } from "../../settings/state/update-status-store";
 
 type SidebarUpdateBadgeProps = {
@@ -24,7 +24,21 @@ export function SidebarUpdateBadge(props: SidebarUpdateBadgeProps) {
   const dismissVersion = useUpdateStatusStore((state) => state.dismissVersion);
 
   React.useEffect(() => {
+    if (!isElectronRuntime()) return;
     void checkForUpdatesInBackground();
+    // Check again during long-running sessions and after returning from sleep.
+    // Hidden/minimized windows do not generate periodic activity.
+    const checkWhileVisible = () => {
+      if (document.visibilityState === "visible") void checkForUpdatesInBackground();
+    };
+    const timer = window.setInterval(checkWhileVisible, BACKGROUND_UPDATE_CHECK_INTERVAL_MS);
+    window.addEventListener("focus", checkWhileVisible);
+    document.addEventListener("visibilitychange", checkWhileVisible);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", checkWhileVisible);
+      document.removeEventListener("visibilitychange", checkWhileVisible);
+    };
   }, []);
 
   if (!isElectronRuntime()) return null;
