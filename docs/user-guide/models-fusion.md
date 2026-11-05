@@ -10,6 +10,10 @@ For ChatGPT, choose **Add provider > Continue with ChatGPT**, complete sign-in i
 
 Select a connected model using the chat's model picker. Search by model or provider. Disabling a provider in the picker hides its models from selection; disconnecting its credentials is a separate settings action. A model listed by a provider may still be unavailable to your account, region or quota. Use the actual provider error to diagnose this.
 
+For Azure, open **Settings > AI Providers > Add provider**, choose **Azure**, and enter your resource name and API key. LegalWork discovers the resource's deployments automatically; choose the deployment name in the chat's model picker. You do not need to enter model definitions yourself. A model marked deprecated in the public catalog can still appear when Azure reports a matching deployment. Deprecation does not extend Azure's retirement date or guarantee continued access.
+
+After adding a deployment, reconnect Azure to reload its deployment list. If discovery fails, the provider can show its general catalog instead of your resource's deployments. Check the resource name, key, network access and Azure firewall rules before retrying. Switching accounts loads the new account's deployments.
+
 Choosing a model in a regular chat also sets the default for new regular chats.
 Existing chats keep their own selections. The personal Assistant has its own
 model and thinking effort under **Customize assistant > Advanced**; regular chat
