@@ -30,25 +30,33 @@ export async function findRuntimeRecovery(context, read = readGitHubApi) {
   assert.match(context.expectedKey, /^sandbox-runtime-v2-(darwin|linux|win32)-(x64|arm64)-[a-f0-9]{64}$/);
   if (context.event === 'pull_request' && context.headRepository !== context.repository) return;
   const api = `repos/${context.repository}/actions/`;
-  for (let page = 1; ; page++) {
-    const query = new URLSearchParams({ name: context.artifactName, per_page: '100', page: String(page) });
-    const artifacts = JSON.parse(read(api + 'artifacts?' + query)).artifacts;
-    for (const artifact of artifacts) {
-      if (artifact.expired !== false || artifact.name !== context.artifactName || !Number.isSafeInteger(artifact.id) || artifact.id <= 0
-        || !/^sha256:[a-f0-9]{64}$/.test(artifact.digest ?? '') || !Number.isSafeInteger(artifact.workflow_run?.id)
-        || artifact.workflow_run.id === Number(context.currentRun)) continue;
-      const run = JSON.parse(read(api + `runs/${artifact.workflow_run.id}`));
-      const samePR = context.event === 'pull_request' && eligibleRecoveryRun(run, context);
-      if (!samePR && !eligibleProductionRun(run, context)) continue;
-      const jobs = JSON.parse(read(api + `runs/${run.id}/jobs?per_page=100`));
-      if (jobs.total_count !== jobs.jobs.length) continue;
-      for (const job of jobs.jobs.filter(job => job.conclusion === 'success' && job.status === 'completed'
-        && job.steps?.some(step => step.name === 'Run ./.github/actions/prepare-sandbox-runtime' && step.conclusion === 'success'))) {
-        const pin = runtimeProducerProof(read(api + `jobs/${job.id}/logs`), context.expectedKey, artifact);
-        if (pin) return { runID: run.id, jobID: job.id, artifactID: artifact.id, digest: pin };
+  // New uploads are indexed by the entire build key. Legacy delivery names
+  // get only a bounded migration lookup, never an unbounded cold-build delay.
+  for (const name of [context.expectedKey, context.artifactName]) {
+    let legacyProducers = 0;
+    const legacy = name === context.artifactName;
+    const pageSize = legacy ? 10 : 100;
+    for (let page = 1; ; page++) {
+      const query = new URLSearchParams({ name, per_page: String(pageSize), page: String(page) });
+      const artifacts = JSON.parse(read(api + 'artifacts?' + query)).artifacts;
+      for (const artifact of artifacts) {
+        if (artifact.expired !== false || artifact.name !== name || !Number.isSafeInteger(artifact.id) || artifact.id <= 0
+          || !/^sha256:[a-f0-9]{64}$/.test(artifact.digest ?? '') || !Number.isSafeInteger(artifact.workflow_run?.id)
+          || artifact.workflow_run.id === Number(context.currentRun)) continue;
+        const run = JSON.parse(read(api + `runs/${artifact.workflow_run.id}`));
+        const samePR = context.event === 'pull_request' && eligibleRecoveryRun(run, context);
+        if (!samePR && !eligibleProductionRun(run, context)) continue;
+        const jobs = JSON.parse(read(api + `runs/${run.id}/jobs?per_page=100`));
+        if (jobs.total_count !== jobs.jobs.length) continue;
+        for (const job of jobs.jobs.filter(job => job.conclusion === 'success' && job.status === 'completed'
+          && job.steps?.some(step => step.name === 'Run ./.github/actions/prepare-sandbox-runtime' && step.conclusion === 'success'))) {
+          const pin = runtimeProducerProof(read(api + `jobs/${job.id}/logs`), context.expectedKey, artifact);
+          if (pin) return { runID: run.id, jobID: job.id, artifactID: artifact.id, digest: pin };
+        }
+        if (legacy && ++legacyProducers === 3) break;
       }
+      if (artifacts.length < pageSize || legacy) break;
     }
-    if (artifacts.length < 100) return;
   }
 }
 

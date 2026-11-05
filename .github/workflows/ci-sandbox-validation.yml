@@ -51,7 +51,8 @@ jobs:
       - uses: actions/download-artifact@v4
         if: inputs.runtime-artifact
         with:
-          name: sandbox-runtime-${{ inputs.platform }}-${{ inputs.arch }}
+          pattern: sandbox-runtime-v2-${{ inputs.platform }}-${{ inputs.arch }}-*
+          merge-multiple: true
           path: ${{ runner.temp }}/sandbox-runtime
       - name: Unpack exact same-run runtime
         if: inputs.runtime-artifact

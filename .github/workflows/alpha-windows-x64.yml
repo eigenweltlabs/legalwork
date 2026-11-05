@@ -161,7 +161,8 @@ jobs:
 
       - uses: actions/download-artifact@v4
         with:
-          name: sandbox-runtime-win32-${{ matrix.arch }}
+          pattern: sandbox-runtime-v2-win32-${{ matrix.arch }}-*
+          merge-multiple: true
           path: ${{ runner.temp }}/sandbox-runtime
       - name: Unpack protected runtime
         shell: bash

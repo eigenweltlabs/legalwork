@@ -54,7 +54,8 @@ jobs:
           manifest-sha256: ${{ inputs.manifest-sha256 }}
       - uses: actions/download-artifact@v4
         with:
-          name: sandbox-runtime-linux-${{ matrix.arch }}
+          pattern: sandbox-runtime-v2-linux-${{ matrix.arch }}-*
+          merge-multiple: true
           path: ${{ runner.temp }}/sandbox-runtime
       - name: Unpack protected runtime
         run: |

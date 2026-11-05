@@ -120,13 +120,23 @@ test('runtime cache hits retain verification and isolation tests while skipping 
   const prepare = parse(readFileSync(new URL('../../.github/actions/prepare-sandbox-runtime/action.yml', import.meta.url), 'utf8')).runs.steps;
   const artifact = prepare.find(step => step.uses === 'actions/upload-artifact@v4');
   assert.equal(artifact.if, "inputs.publish-runtime == 'true'");
-  assert.match(artifact.with.name, /inputs.arch/);
+  assert.equal(artifact.with.name, '${{ steps.runtime-key.outputs.key }}');
   assert.ok(prepare.some(step => step.run?.includes('cache-sandbox-runtime.mjs verify runtime')));
   const restore = prepare.find(step => step.uses === 'actions/cache/restore@v4');
   assert.equal(restore.with['restore-keys'], undefined);
   assert.ok(prepare.findIndex(step => step.name === 'Verify complete sandbox cache receipt') < prepare.indexOf(artifact));
   assert.equal(jobs.runtime.if, '${{ !inputs.guest_only }}');
   assert.equal(jobs.runtime.steps.find(step => step.uses === './.github/actions/prepare-sandbox-runtime').with['publish-runtime'], '${{ inputs.publish_runtime }}');
+  for (const name of ['alpha-macos-aarch64', 'alpha-windows-x64', 'release-macos-aarch64', 'ci-desktop-packaging', 'ci-engine-tests', 'ci-sandbox-validation', 'ci-linux-packaging-benchmark']) {
+    for (const job of Object.values(workflow(name).jobs)) {
+      for (const step of job.steps ?? []) {
+        if (step.uses !== 'actions/download-artifact@v4' || !JSON.stringify(step.with).includes('sandbox-runtime-')) continue;
+        assert.match(step.with.pattern, /^sandbox-runtime-v2-.*-\*$/);
+        assert.equal(step.with['merge-multiple'], true, 'The single native tar must retain its original consumer path');
+        assert.equal(step.with.name, undefined);
+      }
+    }
+  }
 });
 
 test('every native package consumer uses one portable producer and an OS-family engine handoff', () => {

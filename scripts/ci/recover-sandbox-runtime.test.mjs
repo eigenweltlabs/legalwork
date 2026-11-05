@@ -11,7 +11,7 @@ import { verifyRuntimeCache } from './cache-sandbox-runtime.mjs';
 const key = 'sandbox-runtime-v2-darwin-arm64-' + 'a'.repeat(64), pin = 'b'.repeat(64);
 const context = { repository: 'eigenweltlabs/legalwork', currentRun: '99', event: 'workflow_dispatch', branch: 'fixture',
   expectedKey: key, artifactName: 'sandbox-runtime-darwin-arm64' };
-const artifact = { id: 8, name: context.artifactName, expired: false, digest: 'sha256:' + pin, workflow_run: { id: 42 } };
+const artifact = { id: 8, name: key, expired: false, digest: 'sha256:' + pin, workflow_run: { id: 42 } };
 const run = { id: 42, status: 'completed', event: 'workflow_dispatch', path: '.github/workflows/alpha-macos-aarch64.yml',
   head_branch: 'fixture', head_repository: { full_name: context.repository } };
 const job = { id: 7, status: 'completed', conclusion: 'success',
@@ -29,7 +29,7 @@ test('native artifact recovery binds the exact key, artifact ID and independent 
 
 test('recovery requires a successful producer in an eligible completed run, and paginates retained artifacts', async () => {
   const reader = (runData = run, jobData = job, archive = artifact) => endpoint => {
-    if (endpoint.includes('artifacts?')) return JSON.stringify({ artifacts: [archive] });
+    if (endpoint.includes('artifacts?')) return JSON.stringify({ artifacts: new URL('https://fixture/'+endpoint).searchParams.get('name') === archive.name ? [archive] : [] });
     if (endpoint.endsWith('/logs')) return log;
     return JSON.stringify(endpoint.includes('/jobs?') ? { total_count: 1, jobs: [jobData] } : runData);
   };
@@ -57,6 +57,18 @@ test('recovery requires a successful producer in an eligible completed run, and 
     return reader()(endpoint);
   }), proof);
   assert.equal(pages, 2);
+  const legacy = { ...artifact, name: context.artifactName };
+  assert.deepEqual(await findRuntimeRecovery(context, endpoint => endpoint.endsWith('/logs')
+    ? log.replace(`Artifact ${artifact.name}`, `Artifact ${legacy.name}`) : reader(run, job, legacy)(endpoint)), proof);
+  let reads = 0;
+  const wrongKey = key.replace(/a{64}/, 'c'.repeat(64));
+  assert.equal(await findRuntimeRecovery({ ...context, expectedKey: wrongKey }, endpoint => {
+    if (endpoint.includes('artifacts?')) return JSON.stringify({ artifacts: new URL('https://fixture/'+endpoint).searchParams.get('name') === context.artifactName
+      ? Array.from({ length: 100 }, () => ({ ...artifact, name: context.artifactName })) : [] });
+    if (endpoint.endsWith('/logs')) { reads++; return log; }
+    return reader()(endpoint);
+  }), undefined);
+  assert.equal(reads, 3, 'Legacy migration must not scan every historical producer on a cold miss');
 });
 
 test('a pinned runtime is safely extracted and verified before replacing any destination', async () => {
