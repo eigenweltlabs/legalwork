@@ -323,21 +323,18 @@ describe("workspace session read APIs", () => {
       opencodeBaseUrl: `http://127.0.0.1:${mock.server.port}`, readOnly: false,
     });
 
-    const response = await Promise.race([
-      fetch(`http://127.0.0.1:${legalwork.server.port}/workspace/ws_1/sessions/ses_1/dispatch`, {
+    try {
+      // The engine remains blocked until after acknowledgement. This checks
+      // ordering directly without making host scheduling part of the contract.
+      const response = await fetch(`http://127.0.0.1:${legalwork.server.port}/workspace/ws_1/sessions/ses_1/dispatch`, {
         method: "POST",
         headers: { ...auth(legalwork.token), "Content-Type": "application/json" },
         body: JSON.stringify({ kind: "command", command: "review", args: "" }),
-      }),
-      new Promise<"timeout">((resolve) => setTimeout(() => resolve("timeout"), 100)),
-    ]);
-
-    expect(response).not.toBe("timeout");
-    expect(response instanceof Response ? response.status : 0).toBe(200);
-    await expect(response instanceof Response ? response.json() : null).resolves.toMatchObject({ accepted: true });
-    const sawCommand = await waitUntil(() => mock.requests.some((request) => request.pathname === "/api/session/ses_1/command"));
-    command.resolve();
-    expect(sawCommand).toBe(true);
+      });
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({ accepted: true });
+      expect(await waitUntil(() => mock.requests.some((request) => request.pathname === "/api/session/ses_1/command"))).toBe(true);
+    } finally { command.resolve(); }
   });
 
   test("keeps legacy /w workspace opencode proxy alias", async () => {
