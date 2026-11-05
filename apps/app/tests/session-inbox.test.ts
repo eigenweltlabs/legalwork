@@ -1,13 +1,14 @@
 import { beforeEach, expect, test } from "bun:test";
 import type { SessionInboxEntry } from "@legalwork/types/scheduled-tasks";
+import { createSessionInboxStore, unreadSession, unreadWorkspace } from "../src/react-app/domains/session/sidebar/session-inbox-store";
 
 const storage = new Map<string, string>();
-Object.defineProperty(globalThis, "localStorage", { configurable: true, value: {
+// Other UI suites can import the app singleton before browser storage exists.
+const inbox = createSessionInboxStore(() => ({
   getItem: (key: string) => storage.get(key) ?? null,
   setItem: (key: string, value: string) => storage.set(key, value),
   removeItem: (key: string) => storage.delete(key),
-} });
-const { useSessionInboxStore: inbox, unreadSession, unreadWorkspace } = await import("../src/react-app/domains/session/sidebar/session-inbox-store");
+}));
 const { useSessionManagementStore: pins } = await import("../src/react-app/domains/session/sidebar/session-management-store");
 const { inboxNeedsRefresh, reconcileInboxActivity } = await import("../src/react-app/shell/use-session-inbox");
 const entry = (assistantAt = 10): SessionInboxEntry => ({ workspaceId: "project", sessionId: "chat", updatedAt: assistantAt, assistantAt });
