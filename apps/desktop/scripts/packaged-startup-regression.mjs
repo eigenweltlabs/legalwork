@@ -9,6 +9,7 @@ import { setTimeout } from "node:timers/promises";
 import { assertPackagedServerImports } from "./check-packaged-server-imports.mjs";
 import { assertPackagedOpencodeSdk } from "./packaged-opencode-sdk.cjs";
 import { createWorkspaceStore } from "../electron/workspace-store.mjs";
+import { createUpdaterPreferences } from "../electron/updater-preferences.mjs";
 import { opencodeEngineSelection } from "@legalwork/opencode-release/selection";
 import { Service } from "@opencode/client/service";
 import { collectStartupFailure, snapshotStartupLogs } from "./packaged-startup-diagnostics.mjs";
@@ -22,6 +23,8 @@ const root = await mkdtemp(path.join(tmpdir(), "legalwork-packaged-startup-"));
 const userData = path.join(root, "userdata");
 const runtime = path.join(root, "runtime");
 await mkdir(userData);
+// Startup verification must not contact release feeds automatically.
+await createUpdaterPreferences({ getPath: () => userData }).write({ autoCheck: false, autoDownload: false });
 await mkdir(runtime);
 const workspace = path.join(root, "workspace");
 await mkdir(workspace);
@@ -130,8 +133,10 @@ try {
   await setTimeout(3000);
   assert.equal(child.exitCode, null, "Packaged app must remain running");
   assert.equal(child.signalCode, null);
+  assert.deepEqual(await createUpdaterPreferences({ getPath: () => userData }).read(),
+    { autoCheck: false, autoDownload: false }, "Packaged test profiles must keep automatic updates disabled");
   if (process.platform !== "win32") assert.equal((await stat(discoveryPath)).mode & 0o777, 0o600);
-  console.log(`PASS: packaged app, renderer and actual ${opencodeEngineSelection.version} engine start; workspace metadata contains no engine credentials`);
+  console.log(`PASS: packaged app, renderer and actual ${opencodeEngineSelection.version} engine start; automatic updates stay disabled; workspace metadata contains no engine credentials`);
   passed = true;
 } catch (error) {
   try {
