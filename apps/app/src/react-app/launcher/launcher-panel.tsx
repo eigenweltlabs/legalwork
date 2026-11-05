@@ -1,3 +1,4 @@
+import { LauncherFileOrigin } from "./launcher-file-origin";
 import { useLauncherFileVisibility } from "./launcher-file-visibility";
 import { LauncherTransferForm, type LauncherTransfer } from "./launcher-transfer-form";
 import { LauncherCreateForm, excerptText, type LauncherCreate } from "./launcher-create-form";
@@ -100,7 +101,11 @@ export function LauncherPanel() {
   const searchRoots: LauncherSearchResult[] = (folders.data?.folders ?? []).map(folder => ({ id: folder.id, kind: "files", fileType: "folder", folderId: folder.id, workspaceId: null, sourceId: `folder:${folder.id}`, path: "", title: folder.name, updatedAt: folder.createdAt, score: 0, match: "recent", actions: ["open"] }));
   const existingFiles = useLauncherFileVisibility([...store.results, ...(store.view === "idle" ? [...recents.map(item => item.result), ...searchRoots] : [])], store.visible);
   const visibleResult = (item: LauncherSearchResult) => !hiddenIds.has(resultKey(item)) && (item.kind !== "files" || !isLauncherInternalPath(item.path ?? item.id) && !existingFiles.isError && existingFiles.data?.has(resultKey(item)) === true);
-  const visibleResults = store.results.filter(visibleResult);
+  const withFileOrigin = (item: LauncherSearchResult): LauncherSearchResult => {
+    const known = existingFiles.data?.get(resultKey(item));
+    return known ? { ...item, sourceKind: known.sourceKind, subtitle: known.subtitle } : item;
+  };
+  const visibleResults = store.results.filter(visibleResult).map(withFileOrigin);
   const [translationLanguage, setTranslationLanguage] = useState(() => { try { return window.localStorage.getItem(TRANSLATION_LANGUAGE_KEY) ?? "system"; } catch { return "system"; } });
   const [submission, setSubmission] = useState<{ requestId: string; messageId: string; state: string; error?: string | null } | null>(null);
   const [pendingOutput, setPendingOutput] = useState<PendingOutput | null>(null);
@@ -861,8 +866,8 @@ export function LauncherPanel() {
     ...(store.workspaceContext ? [{ id: "home:project-chat", title: t("launcher.suggest.project_chat", { project: store.workspaceContext.workspaceName }), Icon: MessageSquare, run: startProjectConversation }] : []),
     ...parkedDrafts.map((draft, index) => ({ id: `home:parked-draft:${index}`, title: t("launcher.flow.continue_draft"), subtitle: draft.workspaceContext?.workspaceName ?? t("assistant.title"), Icon: MessageSquare, run: async () => { useLauncherStore.setState({ ...draft, view: "conversation" }); if (draft.conversation) await adoptDraft(draft.conversation.conversationId, true); setParkedDrafts(previous => previous.filter(item => item !== draft)); } })),
     ...(store.workspaceContext?.document ? [{ id: "home:summarize-view", title: t("launcher.suggest.summarize_document"), subtitle: store.workspaceContext.document.name, Icon: FilePlus2, run: summarizeDocument }] : []),
-    ...suggestedRecents(recents.filter(item => visibleResult(item.result) && (!item.result.workspaceId || workspaces.some(workspace => workspace.id === item.result.workspaceId) || item.result.sourceId === "assistant") && !(store.workspaceContext?.document && item.result.workspaceId === store.workspaceContext.document.workspaceId && item.result.path === store.workspaceContext.document.path)), store.workspaceContext?.workspaceId).map(item => ({
-      id: `home:recent:${resultKey(item.result)}`, result: item.result, title: item.result.title, subtitle: [t("launcher.suggest.recent"), item.result.subtitle].filter(Boolean).join(" · "), Icon: resultIcon(item.result), run: () => runResultAction(item.result, "open"),
+    ...suggestedRecents(recents.map(item => ({ ...item, result: withFileOrigin(item.result) })).filter(item => visibleResult(item.result) && (!item.result.workspaceId || workspaces.some(workspace => workspace.id === item.result.workspaceId) || item.result.sourceId === "assistant") && !(store.workspaceContext?.document && item.result.workspaceId === store.workspaceContext.document.workspaceId && item.result.path === store.workspaceContext.document.path)), store.workspaceContext?.workspaceId).map(item => ({
+      id: `home:recent:${resultKey(item.result)}`, result: item.result, title: item.result.title, subtitle: [t("launcher.suggest.recent"), item.result.subtitle].filter(Boolean).join(" · "), meta: item.result.kind === "files" ? <><LauncherFileOrigin item={item.result} /> · {t("launcher.suggest.recent")}</> : undefined, Icon: resultIcon(item.result), run: () => runResultAction(item.result, "open"),
     })),
     ...searchRoots.filter(visibleResult).map(result => ({ id: `home:folder:${result.id}`, title: result.title, Icon: Folder, result, run: () => showDetail(result) })),
     ...categoryRows.map(row => ({ ...row, subtitle: row.id !== "category:projects" ? store.workspaceContext?.workspaceName : undefined, run: () => { const context = store.workspaceContext; store.setScope(context && row.id !== "category:projects" ? { id: context.workspaceId, name: context.workspaceName } : null); return row.run(); } })),
@@ -877,7 +882,7 @@ export function LauncherPanel() {
       const category = LAUNCHER_SEARCH_KINDS.find(item => item === kind);
       return category && (t(KIND_HINT[category]).toLocaleLowerCase().includes(store.input.toLocaleLowerCase()) || categorySuggestions(store.input, aliases).includes(category) || namedCategoryQuery(store.input)?.category === category) ? [{ id: `detail:${category}`, title: t("launcher.suggest.browse", { category: t(KIND_HINT[category]) }), Icon: CATEGORY_ICONS[category], run: () => { if (store.detail) showDetail(store.detail.result, category); }, openInApp: () => { if (store.detail) void openDetailInApp({ result: store.detail.result, category }).catch(error => notify({ tone: "error", text: String(error) })); } }] : [];
     })
-    : (detailItems.isError ? [] : detailItems.data?.items ?? []).filter(item => !hiddenIds.has(resultKey(item)) && !isLauncherInternalPath(item.path ?? item.id)).map(result => ({ id: resultKey(result), title: result.title, subtitle: result.fileType === "folder" ? t("launcher.detail.folder") : result.subtitle, Icon: resultIcon(result), result, run: () => runResultAction(result, "open") }));
+    : (detailItems.isError ? [] : detailItems.data?.items ?? []).filter(item => !hiddenIds.has(resultKey(item)) && !isLauncherInternalPath(item.path ?? item.id)).map(result => ({ id: resultKey(result), title: result.title, subtitle: result.fileType === "folder" ? t("launcher.detail.folder") : result.subtitle, meta: result.kind === "files" ? <LauncherFileOrigin item={result} /> : undefined, Icon: resultIcon(result), result, run: () => runResultAction(result, "open") }));
   const hiddenRows: NavigationRow[] = hidden.filter(item => item.title.toLocaleLowerCase().includes(store.input.toLocaleLowerCase())).map(item => ({ id: `restore:${item.id}`, title: item.title, subtitle: t("launcher.result_action.unhide"), Icon: Eye, restorable: true, run: () => restoreItem(item.id) }));
   const navigationRows = (store.view === "history" ? historyRows : store.view === "hidden" ? hiddenRows : store.view === "detail" ? [...(store.detail && (store.detail.result.kind === "projects" || store.detail.result.fileType === "folder") ? typedFilters : []), ...detailRows] : showCommands && store.view !== "conversation" ? commandContextRows : store.view === "idle" ? homeRows : store.view === "results" ? suggestionRows : []).filter(row => !hiddenIds.has(row.hideId ?? (row.result ? resultKey(row.result) : row.id)));
 

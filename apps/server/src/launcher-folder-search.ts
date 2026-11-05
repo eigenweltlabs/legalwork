@@ -22,7 +22,7 @@ export async function searchFolderFiles(folders: LauncherFolders, index: Launche
         await folders.root(folder.id);
         await index.ensure(sourceId, folder.path);
         const found: LauncherSearchResult[] = index.search(sourceId, input.query, input.limit, { types: input.fileTypes, modifiedAfter: input.modifiedAfter, browse: input.kinds.length === 1 }).map(({ entry, match, score }) => ({
-          id: entry.path, kind: "files", workspaceId: null, folderId: folder.id, sourceId, title: entry.name, subtitle: folder.name, path: entry.path,
+          id: entry.path, kind: "files", workspaceId: null, folderId: folder.id, sourceId, title: entry.name, subtitle: folder.name, sourceKind: "folder", path: entry.path,
           updatedAt: entry.mtimeMs, revision: `${entry.mtimeMs}:${entry.size}`, fileType: entry.directory ? "folder" : entry.ext.slice(1), size: entry.size, match, score, actions: entry.directory ? ["open"] : actions,
         }));
         let coverage: LauncherSearchResponse["sources"][number]["coverage"] = index.state(sourceId) === "indexing" ? "indexing" : "filename-only";
@@ -35,7 +35,7 @@ export async function searchFolderFiles(folders: LauncherFolders, index: Launche
               if (isLauncherInternalPath(item.id) || !item.sources?.length || found.some(existing => existing.id === item.id)) continue;
               if (input.fileTypes?.length && !input.fileTypes.includes(extname(item.id).slice(1).toLowerCase())) continue;
               if (input.modifiedAfter && item.updatedAt < input.modifiedAfter) continue;
-              found.push({ id: item.id, kind: "files", workspaceId: null, folderId: folder.id, sourceId, title: basename(item.id), subtitle: folder.name, path: item.id,
+              found.push({ id: item.id, kind: "files", workspaceId: null, folderId: folder.id, sourceId, title: basename(item.id), subtitle: folder.name, sourceKind: "folder", path: item.id,
                 updatedAt: item.updatedAt, excerpt: item.sources[0].quote, match: "content", score: 300, actions, sources: item.sources, incomplete: item.incomplete });
             }
             coverage = result.preparing || coverage === "indexing" ? "indexing" : limited || result.skipped ? "partial" : "complete";

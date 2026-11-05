@@ -21,3 +21,13 @@ test("previously pinned files render as ordinary launcher results", () => {
   expect(html).toContain("Contract");
   expect(html).not.toContain("lucide-pin");
 });
+
+test("file subtitles distinguish wiki, project and additional-folder origins without replacing the document icon", () => {
+  for (const [sourceKind, label, icon] of [["wiki", "Wiki", "lucide-book-open"], ["project", "Project", "lw-folder-icon"], ["folder", "Folder", "lw-folder-icon"]] as const) {
+    const html = renderToStaticMarkup(<LauncherResultList items={[{ ...file, sourceKind, subtitle: "Legal Research" }]} sources={[]} query="" selectedKey={null} multiSelect={new Set()} pins={new Set()} pending={false} onSelect={noop} onRun={noop} onToggleMulti={noop} onOpenActions={noop} />);
+    expect(html).toContain(`${label} · Legal Research`);
+    expect(html).toContain(icon);
+    expect(html).toContain("lucide-file-text");
+    expect(html).toContain(`data-source-kind="${sourceKind}"`);
+  }
+});

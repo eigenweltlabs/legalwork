@@ -5,9 +5,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { t } from "@/i18n";
+import { isMacPlatform } from "@/app/utils";
+import { LauncherSubmitHint } from "./launcher-form";
 import { useLauncherShell } from "./launcher-shell";
 import { handleLauncherFocusKey } from "./launcher-focus";
-import { isComposingKeyEvent } from "./launcher-keyboard";
+import { isComposingKeyEvent, isLauncherConfirmKey } from "./launcher-keyboard";
 
 export function launcherFolderLabel(path: string) { return path ? path.split("/").join(" › ") : t("launcher.folder.root"); }
 
@@ -28,6 +30,7 @@ export function LauncherFolderPicker({ workspaceId, value, onChange, disabled, a
   });
   const navigate = (next: string) => { setPath(next); setQuery(""); input.current?.focus(); };
   const up = () => navigate(path.split("/").slice(0, -1).join("/"));
+  const confirm = () => { if (list.isSuccess && !disabled) { onChange(path); setOpen(false); } };
   const folders = (list.isError ? [] : list.data?.entries ?? []).filter(item => item.kind === "dir" && !item.name.startsWith(".") && item.name.toLocaleLowerCase().includes(query.toLocaleLowerCase()));
   return <label htmlFor={id} className="min-w-0">{t("launcher.flow.folder")}
     <Popover open={open} onOpenChange={next => { setOpen(next); if (next) { setPath(value); setQuery(""); } }}>
@@ -40,12 +43,12 @@ export function LauncherFolderPicker({ workspaceId, value, onChange, disabled, a
         onKeyDown={event => {
           event.stopPropagation();
           if (isComposingKeyEvent(event)) return;
+          if (isLauncherConfirmKey(event, isMacPlatform())) { event.preventDefault(); if (!event.repeat) confirm(); return; }
           if (event.key === "Escape") { event.preventDefault(); setOpen(false); return; }
           if ((event.key === "ArrowLeft" || event.key === "Backspace") && path && (event.target !== input.current || !query)) { event.preventDefault(); up(); return; }
           if (event.key === "Enter" && event.target === input.current) {
             event.preventDefault();
             if (folders[0]) navigate(folders[0].path);
-            else if (!query && list.isSuccess && !list.isFetching) { onChange(path); setOpen(false); }
             return;
           }
           if (event.key === "ArrowDown" && event.target === input.current) { event.preventDefault(); popup.current?.querySelector<HTMLButtonElement>("[data-folder-option]")?.focus(); return; }
@@ -64,7 +67,7 @@ export function LauncherFolderPicker({ workspaceId, value, onChange, disabled, a
             {!folders.length && <p className="p-2 text-xs text-muted-foreground">{t(query ? "content_search.no_results" : "launcher.folder.no_subfolders")}</p>}
           </>}
         </div>
-        <Button type="button" size="sm" disabled={!list.isSuccess || list.isFetching} onClick={() => { onChange(path); setOpen(false); }}>{t("launcher.folder.use")}</Button>
+        <Button type="button" size="sm" disabled={!list.isSuccess || disabled} onClick={confirm}>{t("launcher.folder.use")}<LauncherSubmitHint /></Button>
       </PopoverContent>
     </Popover>
   </label>;

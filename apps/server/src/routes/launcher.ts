@@ -66,8 +66,11 @@ export function registerLauncherRoutes(options: Parameters<typeof registerMainAs
     const visible = await Promise.all([...groups.values()].map(async group => {
       const first = group[0];
       try {
-        const root = first.folderId ? (await options.searchFolders.root(first.folderId)).path : first.workspaceId ? (await options.resolveWorkspace(config, first.workspaceId)).path : null;
-        return root ? await existingLauncherFiles(root, group) : [];
+        const folder = first.folderId ? await options.searchFolders.root(first.folderId) : null;
+        const workspace = !folder && first.workspaceId ? await options.resolveWorkspace(config, first.workspaceId) : null;
+        const root = folder?.path ?? workspace?.path;
+        const sourceKind = folder ? "folder" : workspace?.preset === "wiki" ? "wiki" : "project";
+        return root ? (await existingLauncherFiles(root, group)).map(item => ({ ...item, sourceKind, subtitle: folder?.name ?? (workspace ? projectName(workspace) : item.subtitle) })) : [];
       } catch { return []; }
     }));
     return jsonResponse({ items: visible.flat() });
@@ -80,7 +83,7 @@ export function registerLauncherRoutes(options: Parameters<typeof registerMainAs
     const workspace = input.workspaceId ? await options.resolveWorkspace(config, input.workspaceId) : null;
     const root = folder?.path ?? workspace?.path;
     if (!root) throw new ApiError(404, "launcher_browse", "Folder unavailable.");
-    return jsonResponse(await browseLauncherDirectory({ root, path: input.path, workspaceId: workspace?.id ?? null, folderId: folder?.id, name: folder?.name ?? (workspace ? projectName(workspace) : "") }));
+    return jsonResponse(await browseLauncherDirectory({ root, path: input.path, workspaceId: workspace?.id ?? null, folderId: folder?.id, sourceKind: folder ? "folder" : workspace?.preset === "wiki" ? "wiki" : "project", name: folder?.name ?? (workspace ? projectName(workspace) : "") }));
   });
   addRoute(routes, "POST", "/launcher/folders", "client", async ctx => {
     options.ensureWritable(config); options.requireClientScope(ctx, "owner");

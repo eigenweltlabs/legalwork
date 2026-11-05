@@ -1,8 +1,18 @@
 import { expect, test } from "bun:test";
-import { enterTarget, escapeAction, footerVerb, isAskShortcut, isComposingKeyEvent, moveSelection, optionId, orderLauncherResults, reconcileSelection } from "../src/react-app/launcher/launcher-keyboard";
+import { enterTarget, escapeAction, footerVerb, isAskShortcut, isComposingKeyEvent, isLauncherConfirmKey, moveSelection, optionId, orderLauncherResults, reconcileSelection } from "../src/react-app/launcher/launcher-keyboard";
 import type { LauncherSearchResult } from "@legalwork/types/launcher";
 
 const items = [{ id: "a", primaryAction: "open" as const }, { id: "b", primaryAction: "attach" as const }, { id: "c", primaryAction: "run" as const }];
+test("forms and folder pickers share the platform confirmation key without intercepting Enter navigation or IME", () => {
+  const enter = { key: "Enter", metaKey: false, ctrlKey: false, altKey: false };
+  expect(isLauncherConfirmKey(enter, true)).toBe(false);
+  expect(isLauncherConfirmKey({ ...enter, metaKey: true }, true)).toBe(true);
+  expect(isLauncherConfirmKey({ ...enter, ctrlKey: true }, true)).toBe(false);
+  expect(isLauncherConfirmKey({ ...enter, ctrlKey: true }, false)).toBe(true);
+  expect(isLauncherConfirmKey({ ...enter, metaKey: true }, false)).toBe(false);
+  expect(isLauncherConfirmKey({ ...enter, metaKey: true, isComposing: true }, true)).toBe(false);
+  expect(isLauncherConfirmKey({ ...enter, metaKey: true, altKey: true }, true)).toBe(false);
+});
 test("search can be sent directly while explicit Ask and chat drafts keep Shift+Enter for newlines", () => {
   expect(isAskShortcut({ key: "Enter", modifier: false, shift: true, mode: "search", command: false })).toBe(true);
   for (const mode of ["ask", "conversation"] as const) {

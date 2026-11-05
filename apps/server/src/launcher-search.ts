@@ -111,7 +111,7 @@ export async function searchLauncher(deps: LauncherSearchDeps, input: LauncherSe
         const passes = (path: string, updatedAt: number) => (!filter.types?.length || filter.types.includes(extname(path).replace(/^\./, "").toLowerCase())) && (filter.modifiedAfter === null || updatedAt >= filter.modifiedAfter);
         if (query || filter.browse || filter.types?.length || filter.modifiedAfter !== null) for (const found of deps.fileIndex.search(workspace.id, query, 40, filter)) {
           seen.add(found.entry.path);
-          fileItems.push({ id: found.entry.path, kind: "files", workspaceId: workspace.id, sourceId: `local:${workspace.id}`, title: found.entry.name, subtitle: label, path: found.entry.path, updatedAt: found.entry.mtimeMs,
+          fileItems.push({ id: found.entry.path, kind: "files", workspaceId: workspace.id, sourceId: `local:${workspace.id}`, title: found.entry.name, subtitle: label, sourceKind: workspace.preset === "wiki" ? "wiki" : "project", path: found.entry.path, updatedAt: found.entry.mtimeMs,
             revision: `${found.entry.mtimeMs}:${found.entry.size}`, fileType: found.entry.directory ? "folder" : found.entry.ext.replace(/^\./, ""), size: found.entry.size, match: found.match, score: found.score, actions: found.entry.directory ? ["open"] : FILE_ACTIONS });
         }
         const state = deps.fileIndex.state(workspace.id);
@@ -123,7 +123,7 @@ export async function searchLauncher(deps: LauncherSearchDeps, input: LauncherSe
             preparing = response.preparing ?? 0; limited ||= Boolean(response.limited);
             for (const result of response.items) {
               if (isLauncherInternalPath(result.id) || seen.has(result.id) || !result.sources?.length || !passes(result.id, result.updatedAt)) continue;
-              fileItems.push({ id: result.id, kind: "files", workspaceId: workspace.id, sourceId: `local:${workspace.id}`, title: basename(result.id), subtitle: label, path: result.id, excerpt: result.sources[0]?.quote, updatedAt: result.updatedAt,
+              fileItems.push({ id: result.id, kind: "files", workspaceId: workspace.id, sourceId: `local:${workspace.id}`, title: basename(result.id), subtitle: label, sourceKind: workspace.preset === "wiki" ? "wiki" : "project", path: result.id, excerpt: result.sources[0]?.quote, updatedAt: result.updatedAt,
                 fileType: extname(result.id).replace(/^\./, "").toLowerCase(), match: "content", score: 300, incomplete: result.incomplete, actions: FILE_ACTIONS, sources: result.sources });
             }
             coverage = preparing ? "indexing" : coverage === "indexing" ? "indexing" : limited ? "partial" : "complete";

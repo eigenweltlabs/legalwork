@@ -18,6 +18,7 @@ export const LauncherMatchSchema = z.enum(["exact", "prefix", "word", "substring
 export const LauncherSearchResultSchema = z.object({
   id: z.string(), kind: LauncherSearchKindSchema, workspaceId: z.string().nullable(), sourceId: z.string(), title: z.string(),
   subtitle: z.string().optional(), path: z.string().optional(), folderId: z.string().optional(), excerpt: z.string().optional(), updatedAt: z.number(), revision: z.string().optional(),
+  sourceKind: z.enum(["project", "wiki", "folder"]).optional(),
   fileType: z.string().optional(), size: z.number().optional(), completed: z.boolean().optional(), status: z.string().optional(), dueDate: z.string().nullable().optional(),
   sessionId: z.string().optional(), messageId: z.string().optional(), durationMs: z.number().optional(), incomplete: z.boolean().optional(),
   match: LauncherMatchSchema, score: z.number(), actions: z.array(LauncherResultActionSchema),

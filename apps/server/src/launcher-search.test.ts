@@ -3,6 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { LauncherFileIndex } from "./launcher-file-index.js";
+import { browseLauncherDirectory } from "./launcher-browse.js";
 import { searchLauncher, type LauncherSearchDeps } from "./launcher-search.js";
 import type { WorkspaceInfo } from "./types.js";
 
@@ -58,5 +59,12 @@ test("one query fans out to every source, keeps per-source coverage, and never r
     expect(wikiResults.items.filter(item => item.kind === "projects").map(item => item.id)).toEqual([mueller.id]);
     expect(wikiResults.sources.find(source => source.id === "projects")?.count).toBe(1);
     expect(wikiResults.items.some(item => item.kind === "files" && item.workspaceId === wiki.id)).toBe(true);
+    expect(wikiResults.items.filter(item => item.kind === "files" && item.workspaceId === wiki.id).every(item => item.sourceKind === "wiki")).toBe(true);
+    expect(wikiResults.items.filter(item => item.kind === "files" && item.workspaceId === mueller.id).every(item => item.sourceKind === "project")).toBe(true);
+    const wikiContent = await searchLauncher(withWiki, { query: "mietvertrag", kinds: ["files"], content: true, limit: 50 }, new AbortController().signal);
+    expect(wikiContent.items.find(item => item.workspaceId === wiki.id && item.match === "content")?.sourceKind).toBe("wiki");
+    const wikiBrowse = await browseLauncherDirectory({ root, path: "", workspaceId: wiki.id, sourceKind: "wiki", name: wiki.name });
+    expect(wikiBrowse.items.length).toBeGreaterThan(0);
+    expect(wikiBrowse.items.every(item => item.sourceKind === "wiki" && item.subtitle === wiki.name)).toBe(true);
   } finally { fileIndex.dispose(); await rm(root, { recursive: true, force: true }); }
 });

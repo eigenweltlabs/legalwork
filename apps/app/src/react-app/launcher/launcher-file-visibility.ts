@@ -10,11 +10,11 @@ export function useLauncherFileVisibility(items: LauncherSearchResult[], visible
   return useQuery({ queryKey: ["launcher-existing-files", client.baseUrl, candidates.map(item => [resultKey(item), item.path, item.fileType])],
     enabled: visible && candidates.length > 0, staleTime: 0, refetchInterval: visible ? 2000 : false, refetchOnWindowFocus: "always",
     queryFn: async ({ signal }) => {
-      const keys = new Set<string>();
+      const keys = new Map<string, LauncherSearchResult>();
       for (let offset = 0; offset < candidates.length; offset += 100) {
         const batch = candidates.slice(offset, offset + 100).map(({ excerpt: _excerpt, sources: _sources, ...item }) => item);
         const result = await client.visibleLauncherFiles(batch, signal);
-        result.items.forEach(item => keys.add(resultKey(item)));
+        result.items.forEach(item => keys.set(resultKey(item), item));
       }
       return keys;
     },

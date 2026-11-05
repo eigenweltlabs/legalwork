@@ -44,6 +44,11 @@ export function isComposingKeyEvent(event: { isComposing?: boolean; keyCode?: nu
   return Boolean(event.isComposing || event.nativeEvent?.isComposing || event.keyCode === 229);
 }
 
+/** The primary confirmation key across launcher forms and their nested pickers. */
+export function isLauncherConfirmKey(event: { key: string; metaKey: boolean; ctrlKey: boolean; altKey: boolean; isComposing?: boolean; nativeEvent?: { isComposing?: boolean } }, mac: boolean) {
+  return !isComposingKeyEvent(event) && !event.altKey && event.key === "Enter" && (mac ? event.metaKey : event.ctrlKey);
+}
+
 export type FooterVerb = "open" | "run" | "attach" | "ask" | "resume" | "answer" | "none";
 export function footerVerb(target: SelectableItem | null, mode: "search" | "command" | "ask" | "conversation"): FooterVerb {
   if (mode === "ask" || mode === "conversation") return "ask";

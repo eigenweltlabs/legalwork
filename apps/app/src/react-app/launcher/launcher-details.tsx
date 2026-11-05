@@ -9,7 +9,7 @@ import { t } from "@/i18n";
 import { useLauncherShell } from "./launcher-shell";
 import { LauncherForm, LauncherSubmitHint } from "./launcher-form";
 import { handleLauncherFocusKey } from "./launcher-focus";
-import { isComposingKeyEvent } from "./launcher-keyboard";
+import { isComposingKeyEvent, isLauncherConfirmKey } from "./launcher-keyboard";
 import { matchesLauncherFileFilter, namedFileTypeFilter } from "./launcher-typed-filters";
 
 export type LauncherDetail = { result: LauncherSearchResult; category?: LauncherSearchKind };
@@ -77,7 +77,7 @@ export function LauncherTaskDetail({ result, onOpenChat, onOpenApp }: { result: 
     onFocusCapture={event => { if (event.target !== section.current) event.target.scrollIntoView({ block: "nearest" }); }}
     onKeyDown={event => {
       if (event.defaultPrevented || isComposingKeyEvent(event)) return;
-      if ((isMacPlatform() ? event.metaKey : event.ctrlKey) && event.key === "Enter") { event.preventDefault(); event.stopPropagation(); if (!event.repeat) changeStatus(); }
+      if (isLauncherConfirmKey(event, isMacPlatform())) { event.preventDefault(); event.stopPropagation(); if (!event.repeat) changeStatus(); }
       else if (event.key === "Enter" && event.target === section.current) { event.preventDefault(); if (!event.repeat) editButton.current?.click(); }
       else handleLauncherFocusKey(event, section.current, true);
     }}>

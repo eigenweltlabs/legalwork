@@ -114,9 +114,14 @@ its shortcut available after you close the main window.
 Type to search. **Browse files**, **Browse tasks**, **Browse chats** and the
 other categories appear as you type their names. The default file alias is
 **f**: type it and press **Space** or **Tab** to search files. Type a project
-name or a period such as **last 7 days** to narrow results; chosen filters stay
-visible in the input. The current project receives preference when its name
+name or a period such as **last week**, **last month**, or **last 7 days** to narrow
+results. **Last week** and **last month** appear as you type **last** and cover
+the trailing week or month up to now. German phrases such as **letzte Woche**
+and **letzter Monat** also work. Chosen filters stay visible in the input.
+The current project receives preference when its name
 matches. Wikis are kept separate from projects.
+File subtitles identify their source with an icon and **Wiki**, **Project**, or
+**Folder**, followed by its name. The file's own icon still shows its format.
 
 Use **Up/Down** to select a result and **Enter** to open it. Chats, tasks,
 projects and folders open inside the mini-bar where supported; files open in
@@ -131,7 +136,8 @@ When saving a document, use **Tab** to reach **Project**, then **Enter**,
 **Enter**. The **Folder** picker starts at **Project root** or your current
 folder. Type to narrow the folders shown, press **Down** to select one, and
 **Enter** or **Right** to browse inside it. **Left** goes up; **Use this folder**
-confirms the destination. **Esc** closes the picker before leaving the form.
+or **Command+Enter** (**Ctrl+Enter** on Windows) confirms the current folder,
+using the same confirmation shortcut as Save. **Esc** closes the picker before leaving the form.
 The same folder picker is available when copying or moving files.
 
 File search, templates and recent items are checked against the files that

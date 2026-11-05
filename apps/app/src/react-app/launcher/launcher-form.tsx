@@ -2,7 +2,7 @@ import { useLayoutEffect, useRef, type ReactNode } from "react";
 import { isMacPlatform } from "@/app/utils";
 import { t } from "@/i18n";
 import { handleLauncherFocusKey, launcherControls } from "./launcher-focus";
-import { isComposingKeyEvent } from "./launcher-keyboard";
+import { isComposingKeyEvent, isLauncherConfirmKey } from "./launcher-keyboard";
 
 /** A temporary editor owns its keyboard focus until Save or Back returns to the list. */
 export function LauncherForm({ title, busy, onClose, onSubmit, children }: {
@@ -26,7 +26,7 @@ export function LauncherForm({ title, busy, onClose, onSubmit, children }: {
       if (event.target instanceof Node && !event.currentTarget.contains(event.target)) return;
       if (busy) { if (["Tab", "Enter", "Escape"].includes(event.key)) event.preventDefault(); return; }
       if (event.key === "Escape") { event.preventDefault(); onClose(); }
-      else if ((isMacPlatform() ? event.metaKey : event.ctrlKey) && event.key === "Enter") {
+      else if (isLauncherConfirmKey(event, isMacPlatform())) {
         event.preventDefault(); if (!event.repeat) event.currentTarget.requestSubmit();
       } else if (event.key === "Enter" && event.repeat) event.preventDefault();
       else handleLauncherFocusKey(event, form.current);

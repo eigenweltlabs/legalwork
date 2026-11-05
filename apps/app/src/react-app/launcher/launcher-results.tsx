@@ -1,3 +1,4 @@
+import { LauncherFileOrigin } from "./launcher-file-origin";
 import { useEffect, useRef, useState } from "react";
 import { CheckSquare, ChevronRight, File, FileText, Folder, Image, ListTodo, Mail, MessageSquare, Mic, Presentation, Sheet, Square } from "lucide-react";
 import type { LauncherResultAction, LauncherSearchResult, LauncherSourceState } from "@legalwork/types/launcher";
@@ -54,12 +55,13 @@ export function LauncherResultList(props: {
         const Icon = resultIcon(item);
         const primary = primaryResultAction(item);
         const multi = props.multiSelect.has(key);
+        const details = [item.path && item.path !== item.title ? item.path : null, item.completed ? t("tasks.status_done") : item.status, item.updatedAt ? formatRelativeTime(item.updatedAt) : null].filter(Boolean).join(" · ");
         return <div key={key} id={optionId(key)} data-launcher-item role="option" aria-selected={props.selectedKey === key} data-key={key} data-selected={props.selectedKey === key} data-multi={multi} className="launcher-row"
           onMouseMove={() => props.onSelect(key)} onClick={event => { if (event.metaKey || event.ctrlKey) props.onToggleMulti(key); else props.onRun(item, primary); }} onContextMenu={event => { event.preventDefault(); props.onSelect(key); props.onOpenActions(key); }}>
           <span className="launcher-row-icon" onClick={event => { event.stopPropagation(); props.onToggleMulti(key); }} aria-hidden="true">{item.kind === "files" ? multi ? <CheckSquare className="size-4" /> : props.multiSelect.size ? <Square className="size-4" /> : <Icon className="size-4" /> : <Icon className="size-4" />}</span>
           <div className="launcher-row-main">
             <div className="launcher-row-title"><Highlight text={item.title} query={props.query} /></div>
-            <div className="launcher-row-meta">{[item.subtitle, item.path && item.path !== item.title ? item.path : null, item.completed ? t("tasks.status_done") : item.status, item.updatedAt ? formatRelativeTime(item.updatedAt) : null].filter(Boolean).join(" · ")}{item.incomplete ? ` · ${t("content_search.partial")}` : ""}</div>
+            <div className="launcher-row-meta">{item.subtitle && <LauncherFileOrigin item={item} />}{item.subtitle && details ? " · " : ""}{details}{item.incomplete ? ` · ${t("content_search.partial")}` : ""}</div>
             {item.excerpt && item.excerpt !== item.path && <div className="launcher-row-excerpt"><Highlight text={item.excerpt} query={props.query} /></div>}
           </div>
           <span className="launcher-row-hint">{props.selectedKey === key ? <button type="button" aria-label={t("launcher.footer.actions")} onClick={event => { event.stopPropagation(); props.onOpenActions(key); }}><ChevronRight className="size-4" /></button> : item.kind === "projects" ? <Folder className="size-3.5" /> : null}</span>
