@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { developmentCacheKey, verifyCachedEngine } from './cache-opencode-derivative.mjs';
+import { developmentCacheKey, reusableBaseProducer, verifyCachedEngine } from './cache-opencode-derivative.mjs';
 import { writeFixtureDerivativeDistribution } from '../../packages/opencode-release/test-fixture.mjs';
 import { sourceBuildIdentity } from '../../packages/opencode-release/build/prepare.mjs';
 import { assembleDerivativeDistribution } from '../../packages/opencode-release/build/distribution.mjs';
@@ -12,13 +12,34 @@ import { sha256 } from '../../packages/opencode-release/build/candidate.mjs';
 import recipe from '../../packages/opencode-release/build/recipe.json' with { type: 'json' };
 
 test('build cache keys are exact and exclude production engines', () => {
-  const identity = { mode: 'development', sourceKey: 'a'.repeat(64), targets: ['darwin-arm64'] };
+  const identity = { mode: 'development', sourceKey: 'a'.repeat(64), targets: ['darwin-arm64'],
+    files: { 'build/candidate.mjs': 'compiler-wrapper', 'derivative.mjs': 'old verifier' } };
   const key = developmentCacheKey(identity, { producer: '1' });
   assert.equal(key, developmentCacheKey(identity, { producer: '1' }));
-  assert.notEqual(key, developmentCacheKey({ ...identity, sourceKey: 'b'.repeat(64) }, { producer: '1' }));
+  assert.equal(key, developmentCacheKey({ ...identity, sourceKey: 'b'.repeat(64),
+    files: { ...identity.files, 'derivative.mjs': 'new error message' } }, { producer: '1' }));
+  assert.notEqual(key, developmentCacheKey({ ...identity,
+    files: { ...identity.files, 'build/candidate.mjs': 'changed compiler wrapper' } }, { producer: '1' }));
   assert.notEqual(key, developmentCacheKey({ ...identity, targets: ['linux-arm64'] }, { producer: '1' }));
   assert.notEqual(key, developmentCacheKey(identity, { producer: '2' }));
   assert.throws(() => developmentCacheKey({ ...identity, mode: 'production' }, {}), /Production/);
+});
+
+test('a cache miss reuses only an exact base producer with unchanged engine inputs', async () => {
+  const bytes = { 'packages/opencode-release/build/recipe.json': 'reviewed recipe',
+    'scripts/ci/build-opencode-derivative.mjs': 'reviewed producer' };
+  const artifact = { name: 'opencode-derivative-ci', expired: false,
+    workflow_run: { id: 123, head_sha: 'base-commit', head_branch: 'dev', repository_id: 1, head_repository_id: 1 } };
+  const options = { identity: { mode: 'development', files: { 'build/recipe.json': sha256(bytes['packages/opencode-release/build/recipe.json']),
+    'derivative.mjs': sha256('changed verifier') } }, helpers: { 'build-opencode-derivative.mjs': sha256(bytes['scripts/ci/build-opencode-derivative.mjs']) },
+    baseSha: 'base-commit', baseRef: 'dev', readBaseFile: name => bytes[name], artifacts: [artifact] };
+  assert.equal(await reusableBaseProducer(options), 123);
+  assert.equal(await reusableBaseProducer({ ...options, readBaseFile: () => 'changed source or producer' }), undefined);
+  for (const changed of [{ head_sha: 'other-commit' }, { head_branch: 'other-branch' }, { head_repository_id: 2 }]) {
+    assert.equal(await reusableBaseProducer({ ...options, artifacts: [{ ...artifact, workflow_run: { ...artifact.workflow_run, ...changed } }] }), undefined);
+  }
+  assert.equal(await reusableBaseProducer({ ...options, artifacts: [{ ...artifact, expired: true }] }), undefined);
+  await assert.rejects(reusableBaseProducer({ ...options, identity: { ...options.identity, mode: 'production' } }), /Production/);
 });
 
 test('complete cached archives are verified without recompiling; tampering and missing receipts fail', async () => {
