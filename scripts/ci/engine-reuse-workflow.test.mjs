@@ -27,7 +27,7 @@ test('shared cache producer covers current fingerprint inputs but ignores ordina
   const identity = await sourceBuildIdentity({ mode: 'development', targets: recipe.targets });
   const inputs = [...Object.keys(identity.files).map(name => `packages/opencode-release/${name}`),
     recipe.inputs.patch.path, recipe.inputs.testReceipt.path,
-    'scripts/ci/cache-opencode-derivative.mjs', 'scripts/ci/build-opencode-derivative.mjs'];
+    'scripts/ci/build-opencode-derivative.mjs'];
   for (const name of inputs) assert.equal(matches(name), true, `Missing cache warm-up trigger: ${name}`);
   for (const name of ['apps/server/src/connectors/mail.ts', 'apps/app/src/components/ui/button.tsx', 'docs/user-guide/email.md']) assert.equal(matches(name), false, name);
 });
@@ -42,6 +42,13 @@ test('normal PR reuse still verifies cache bytes and production still rejects de
   assert.match(build.steps[restore].if, /inputs.build-mode == 'development'/);
   assert.equal(build.steps[restore].with['restore-keys'], undefined);
   assert.match(build.steps[verify].run, /cache-opencode-derivative.mjs verify/);
+  const base = build.steps.findIndex(step => step.id === 'base-producer');
+  const download = build.steps.findIndex(step => step.name === "Download the exact base commit's engine without recompiling");
+  assert.ok(restore < base && base < download && download < verify);
+  assert.match(build.steps[base].if, /inputs.build-mode == 'development'/);
+  assert.equal(build.steps[base].env.BASE_SHA, '${{ github.event.pull_request.base.sha }}');
+  assert.equal(build.steps[download].with['run-id'], '${{ steps.base-producer.outputs.run-id }}');
+  assert.match(build.steps.find(step => step.id === 'engine').if, /steps.base-producer.outputs.run-id == ''/);
   assert.match(build.steps.find(step => step.name === 'Validate explicit producer reuse inputs').run, /Production must compile and sign/);
 });
 

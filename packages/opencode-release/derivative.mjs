@@ -79,7 +79,10 @@ async function selectedManifest(descriptor) {
 async function regularFile(filename) {
   const stat = await lstat(filename);
   // Integrity is checked against pinned sizes and hashes, independently of link counts.
-  if (!stat.isFile()) throw new Error("Derivative artifacts must contain ordinary files, without symbolic links.");
+  if (!stat.isFile()) {
+    const type = stat.isSymbolicLink() ? "symbolic link" : stat.isDirectory() ? "directory" : "non-regular file";
+    throw new Error(`Derivative artifacts must contain ordinary files, without symbolic links. Path: ${filename}; type: ${type}; links: ${stat.nlink}; mode: ${stat.mode.toString(8)}.`);
+  }
 }
 
 async function checkArchive(filename, pin) {

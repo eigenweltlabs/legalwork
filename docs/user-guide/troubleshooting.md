@@ -10,7 +10,7 @@ LegalWork also upgrades older saved connector settings during startup and retrie
 
 | Symptom | What to check |
 | --- | --- |
-| Startup reports "Derivative artifacts must contain ordinary files" | Install the current official desktop build while retaining your existing app profile. If the error remains, send support the saved startup log and app version; do not reset your profile. |
+| Startup reports "Derivative artifacts must contain ordinary files" | Install the current official desktop build while retaining your existing app profile. If the error remains, send support the saved startup log and app version; the log identifies the rejected file path, file type, link count and permissions. Do not reset your profile. |
 | No model available | Connect a provider in AI Providers; check disabled-provider filters, the account's available models, key source and any provider error. |
 | New project or wiki cannot start a task | Read the project setup error. Retry setup after resolving it; the project must publish its engine configuration before accepting a task. |
 | Project says its settings cannot be accessed or updated | Reconnect its drive or cloud folder and make sure LegalWork can write to that project's hidden `.opencode` folder. Then click **Refresh** in the project notice. Other projects remain available; there is no need to reset the app or approve project automation. |

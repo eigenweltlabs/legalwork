@@ -110,6 +110,26 @@ test("hard-linked installed engine files retain pinned integrity checks", async 
   });
 });
 
+test("installed file errors identify the rejected path and file metadata", async t => {
+  for (const type of ["directory", "symbolic link"]) await t.test(type, async () => {
+    await fixture(async ({ root, archives, cache, distribution }) => {
+      const directory = path.join(root, "installed");
+      await installLocalDerivativeEngine({ distribution, archiveDirectory: archives, cacheDirectory: cache, destinationDirectory: directory, target });
+      const file = path.join(directory, "LICENSE");
+      await rm(file);
+      if (type === "directory") await mkdir(file);
+      else await symlink(path.join(root, "missing-link-target"), file);
+      await assert.rejects(verifyInstalledDerivativeEngine({ distribution, directory, target }), error => {
+        // Startup logs retain the message, so all useful evidence must survive there.
+        assert.match(error.message, /ordinary files/);
+        assert.ok(error.message.includes(`Path: ${file}; type: ${type};`));
+        assert.match(error.message, /links: \d+; mode: [0-7]+\./);
+        return true;
+      });
+    });
+  });
+});
+
 test("a streamed download must match the compiled archive pin before offline installation", async () => {
   await fixture(async ({ root, archives, cache, distribution, manifest }) => {
     const artifact = manifest.artifacts[target];
