@@ -67,6 +67,92 @@ test("native application metadata is separated from the native engine document",
   expect(result.configuration.providers?.fixture.settings?.apiKey).toBe("synthetic-private-key");
 });
 
+test.each([
+  ["azure-cognitive-services", "azure"],
+  ["google-vertex-anthropic", "google-vertex"],
+])("retired provider %s migrates every saved selection and access control to %s", (oldID, id) => {
+  const source = { provider: { [oldID]: { whitelist: ["selected"], models: { selected: {}, excluded: {} } } },
+    agent: { legalwork: { model: `${oldID}/selected`, variant: "high" } }, model: `${oldID}/selected#low`,
+    enabled_providers: [oldID], disabled_providers: [oldID],
+    providerActivation: { [oldID]: "deny" }, providerModelSelection: { [oldID]: ["selected"] } };
+  const original = JSON.stringify(source);
+  const imported = upgradeRuntimeConfigRecord(source);
+  expect(Object.keys(imported.configuration.providers ?? {})).toEqual([id]);
+  expect(Object.keys(imported.configuration.providers?.[id].models ?? {})).toEqual(["selected"]);
+  expect(imported.configuration.agents?.legalwork.model).toMatchObject({ providerID: id, model: "selected", variant: "high" });
+  expect(imported.configuration.model).toMatchObject({ providerID: id, model: "selected", variant: "low" });
+  expect(imported.configuration.policies).toEqual([
+    { action: "provider.use", resource: "*", effect: "deny" },
+    { action: "provider.use", resource: id, effect: "allow" },
+    { action: "provider.use", resource: id, effect: "deny" },
+  ]);
+  expect(imported.application).toEqual({ providerActivation: { [id]: "deny" }, providerModelSelection: { [id]: ["selected"] } });
+  expect(JSON.stringify(source)).toBe(original);
+  expect(upgradeRuntimeConfigRecord(nativeRuntimeConfigRecord(imported)).migrated).toBe(false);
+});
+
+test("Azure migration restores its implicit endpoint without treating the resource name as an API key", () => {
+  const imported = upgradeRuntimeConfigRecord({ provider: { "azure-cognitive-services": {
+    npm: "@ai-sdk/openai-compatible", env: ["AZURE_COGNITIVE_SERVICES_RESOURCE_NAME", "AZURE_COGNITIVE_SERVICES_API_KEY"],
+    options: { apiKey: "synthetic-key", headers: { "X-Firm": "fixture" }, body: { retained: true } },
+  } } });
+  expect(imported.configuration.providers?.azure).toMatchObject({
+    env: ["AZURE_COGNITIVE_SERVICES_API_KEY"], package: "@opencode/ai/providers/openai-compatible",
+    settings: { apiKey: "synthetic-key", baseURL: "https://${AZURE_COGNITIVE_SERVICES_RESOURCE_NAME}.cognitiveservices.azure.com/openai" },
+    headers: { "X-Firm": "fixture" }, body: { retained: true },
+  });
+});
+
+test.each(["api", "options"])("Azure migration preserves an explicit %s endpoint", field => {
+  const endpoint = "https://custom.example.invalid/openai";
+  const imported = upgradeRuntimeConfigRecord({ provider: { "azure-cognitive-services": {
+    npm: "@ai-sdk/openai-compatible", ...(field === "api" ? { api: endpoint } : { options: { baseURL: endpoint } }),
+  } } });
+  expect(imported.configuration.providers?.azure.settings?.baseURL).toBe(endpoint);
+});
+
+test.each([undefined, "@ai-sdk/google-vertex/anthropic"])("Vertex moves the Claude package to individual models (package=%s)", npm => {
+  const imported = upgradeRuntimeConfigRecord({ provider: { "google-vertex-anthropic": { npm,
+    options: { project: "synthetic-project", location: "europe-west3" },
+    models: { inherited: {}, explicit: { provider: { npm: "@ai-sdk/openai-compatible" } } },
+  } } });
+  const provider = imported.configuration.providers?.["google-vertex"];
+  expect(provider?.package).toBeUndefined();
+  expect(provider?.settings).toEqual({ project: "synthetic-project", location: "europe-west3" });
+  expect(provider?.models?.inherited.package).toBe("aisdk:@ai-sdk/google-vertex/anthropic");
+  expect(provider?.models?.explicit.package).toBe("@opencode/ai/providers/openai-compatible");
+});
+
+test.each([false, true])("canonical provider settings win collisions regardless of entry order (reverse=%s)", reverse => {
+  const entries: Array<[string, unknown]> = [["azure", { name: "Current", whitelist: ["current"] }], ["azure-cognitive-services", { name: "Old", whitelist: ["old"] }]];
+  if (reverse) entries.reverse();
+  const imported = upgradeRuntimeConfigRecord({ provider: Object.fromEntries(entries),
+    providerActivation: { azure: "allow", "azure-cognitive-services": "deny" } });
+  expect(imported.configuration.providers?.azure.name).toBe("Current");
+  expect(imported.application).toEqual({ providerActivation: { azure: "allow" }, providerModelSelection: { azure: ["current"] } });
+  const native = upgradeRuntimeConfigRecord({ provider: { "azure-cognitive-services": { whitelist: ["old"] } },
+    providers: { azure: { name: "Native" } }, providerModelSelection: { azure: ["native"] } });
+  expect(native.configuration.providers).toEqual({ azure: { name: "Native" } });
+  expect(native.application.providerModelSelection).toEqual({ azure: ["native"] });
+});
+
+test("startup repairs already migrated provider references while ordinary native decoding stays unchanged", () => {
+  const source = { configurationVersion: 2, providers: { "google-vertex-anthropic": {
+    package: "aisdk:@ai-sdk/google-vertex/anthropic", models: { selected: { disabled: true } },
+  } }, agents: { legalwork: { model: { providerID: "google-vertex-anthropic", model: "selected" } } },
+    policies: [{ action: "provider.use", resource: "google-vertex-anthropic", effect: "deny" },
+      { action: "tool.use", resource: "google-vertex-anthropic", effect: "deny" }],
+    providerModelSelection: { "google-vertex-anthropic": [] } };
+  expect(decodeNativeRuntimeConfigRecord(source).configuration.providers).toHaveProperty("google-vertex-anthropic");
+  const imported = upgradeRuntimeConfigRecord(source);
+  expect(imported.migrated).toBe(true);
+  expect(imported.configuration.providers?.["google-vertex"].models?.selected).toMatchObject({ disabled: true, package: "aisdk:@ai-sdk/google-vertex/anthropic" });
+  expect(String(imported.configuration.agents?.legalwork.model?.providerID)).toBe("google-vertex");
+  expect(imported.configuration.policies).toEqual([{ action: "provider.use", resource: "google-vertex", effect: "deny" },
+    { action: "tool.use", resource: "google-vertex-anthropic", effect: "deny" }]);
+  expect(imported.application.providerModelSelection).toEqual({ "google-vertex": [] });
+});
+
 test("normal native writes reject legacy keys, unknown fields and future record versions", () => {
   for (const value of [{ configurationVersion: 2, agent: {} }, { configurationVersion: 2, providers: {}, permission: "deny" }, { configurationVersion: 2, unexpected: true }, { configurationVersion: 3 }]) {
     expect(() => decodeNativeRuntimeConfigRecord(value)).toThrow();

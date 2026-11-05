@@ -36,6 +36,8 @@ export class ModelCatalog {
     this.loaded = this.load();
   }
 
+  get engineFilePath() { return join(this.directory, "model-catalog-engine.json"); }
+
   private async load() {
     try {
       const settings = modelCatalogSettingsSchema.parse(JSON.parse(await readFile(join(this.directory, "model-catalog-settings.json"), "utf8")));
@@ -84,7 +86,7 @@ export class ModelCatalog {
     try {
       const catalog = await this.get();
       await this.saveEngineCatalog(catalog);
-      return join(this.directory, "model-catalog-engine.json");
+      return this.engineFilePath;
     } catch {
       // Offline with no saved catalog: let OpenCode use its bundled snapshot.
       return undefined;
@@ -92,7 +94,7 @@ export class ModelCatalog {
   }
 
   private saveEngineCatalog(catalog: CatalogCache["catalog"]) {
-    return writeJson(join(this.directory, "model-catalog-engine.json"), catalog);
+    return writeJson(this.engineFilePath, catalog);
   }
 
   async get(refresh = false): Promise<CatalogCache["catalog"]> {

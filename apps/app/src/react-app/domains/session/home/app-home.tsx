@@ -122,9 +122,9 @@ export function AppHome(props: AppHomeProps) {
   const controls = <>{dictation.active ? <ComposerDictationBar dictation={dictation} sendDisabled={props.disabled || sending} /> : <div className="lw-home-composer-controls">
     <Button type="button" variant="ghost" size="icon" disabled={busy} aria-label={t("home.add_files")} onClick={() => fileInput.current?.click()}><Plus size={23} /></Button>
     <div className="lw-home-model-controls">
-      {props.selectedModel ? <>
+      {props.selectedModel || props.providerConnectedCount > 0 ? <>
         <ModelSelect open={modelOpen} value={props.selectedModel} onOpenChange={setModelOpen} onChange={props.onModelChange} locked={props.modelLocked} disabled={busy} />
-        <ModelBehaviorSelect value={props.modelVariant} label={props.modelVariantLabel} options={props.modelBehaviorOptions} onChange={props.onModelVariantChange} disabled={busy} />
+        {props.selectedModel ? <ModelBehaviorSelect value={props.modelVariant} label={props.modelVariantLabel} options={props.modelBehaviorOptions} onChange={props.onModelVariantChange} disabled={busy} /> : null}
       </> : <Button type="button" variant="ghost" disabled={busy} onClick={props.onConnect}>{t("task_suggestions.connect_provider")}</Button>}
       <ComposerDictationButton dictation={dictation} disabled={busy} />
       <Button type="button" size="icon" className="lw-home-send" disabled={!canSend} onClick={() => void send()} aria-label={t("home.send")}><ArrowUp size={20} /></Button>

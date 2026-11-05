@@ -58,3 +58,46 @@ test.skipIf(!nativeMcpBinary)("v1 custom provider selections survive native cata
     expect((await engine.client().model.list({ location: engine.location })).data.filter(model => model.providerID === "fixture").map(model => model.id)).toEqual([]);
   } finally { await engine?.close(); provider.stop(true); }
 }, 60_000);
+
+test.skipIf(!nativeMcpBinary)("retired Azure and Vertex providers start and generate with migrated selections after restart", async () => {
+  const calls: Array<{ model: string; authorization: string | null }> = [];
+  const provider = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
+    const body = await request.json(); calls.push({ model: body.model, authorization: request.headers.get("authorization") });
+    const chunk = (delta: unknown, finish_reason: string | null) => `data: ${JSON.stringify({ id: "fixture", object: "chat.completion.chunk", created: 1, model: body.model, choices: [{ index: 0, delta, finish_reason }] })}\n\n`;
+    return new Response(chunk({ role: "assistant", content: "provider migrated" }, null) + chunk({}, "stop") + "data: [DONE]\n\n", { headers: { "content-type": "text/event-stream" } });
+  } });
+  let engine: Awaited<ReturnType<typeof nativeMcpEngine>> | undefined;
+  try {
+    const imported = upgradeRuntimeConfigRecord({ provider: Object.fromEntries(["azure-cognitive-services", "google-vertex-anthropic"].map(id => [id, {
+      npm: "@ai-sdk/openai-compatible", options: { apiKey: "synthetic-provider-key", baseURL: `${provider.url.origin}/v1` },
+      models: { fixture: { tool_call: true } },
+    }])) });
+    engine = await nativeMcpEngine(imported.configuration);
+    for (const cycle of ["initial", "restart"]) {
+      if (cycle === "restart") await engine.restart();
+      const client = engine.client();
+      const catalog = (await client.model.list({ location: engine.location })).data;
+      for (const providerID of ["azure", "google-vertex"]) {
+        expect(catalog.some(model => model.providerID === providerID && model.id === "fixture")).toBe(true);
+        const session = await client.session.create({ location: engine.location, model: { providerID, id: "fixture" } });
+        const response = await client.session.generate({ sessionID: session.id, prompt: "Fixture" }, { signal: AbortSignal.timeout(10_000) });
+        expect(response.text).toBe("provider migrated");
+      }
+    }
+    expect(calls).toEqual(Array.from({ length: 4 }, () => ({ model: "fixture", authorization: "Bearer synthetic-provider-key" })));
+  } finally { await engine?.close(); provider.stop(true); }
+}, 60_000);
+
+test.skipIf(!nativeMcpBinary)("migrated Vertex Claude models keep their SDK without replacing Gemini's native SDK", async () => {
+  const imported = upgradeRuntimeConfigRecord({ provider: { "google-vertex-anthropic": {
+    npm: "@ai-sdk/google-vertex/anthropic", options: { project: "synthetic-project", location: "global" }, models: { fixture: {} },
+  } } });
+  const engine = await nativeMcpEngine(imported.configuration);
+  try {
+    const catalog = (await engine.client().model.list({ location: engine.location })).data;
+    expect(catalog.find(model => model.providerID === "google-vertex" && model.id === "fixture")?.package).toBe("@opencode/ai/providers/google-vertex/messages");
+    const gemini = catalog.filter(model => model.providerID === "google-vertex" && model.id.startsWith("gemini-"));
+    expect(gemini.length).toBeGreaterThan(0);
+    expect(gemini.every(model => model.package !== "@opencode/ai/providers/google-vertex/messages")).toBe(true);
+  } finally { await engine.close(); }
+}, 30_000);
