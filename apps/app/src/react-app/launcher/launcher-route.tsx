@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useBootState } from "@/react-app/shell/boot-state";
+import { launcherBootstrapQueries } from "./launcher-bootstrap";
 import { useNavigate } from "react-router-dom";
 import { Loader2 } from "lucide-react";
-import type { AssistantProfile } from "@legalwork/types/main-assistant";
 import { LauncherDesktopEventSchema, LauncherDraftFileSchema, type LauncherDesktopEvent } from "@legalwork/types/launcher";
-import { createLegalworkServerClient, type LegalworkServerClient, type LegalworkWorkspaceInfo } from "@/app/lib/legalwork-server";
+import { createLegalworkServerClient, type LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { launcherDraftsRead, launcherDraftsWrite, launcherInvocationsDrain, launcherOriginGet, launcherWindowControl } from "@/app/lib/desktop";
 import { isDesktopRuntime } from "@/app/lib/runtime-env";
 import { parseAssistantDeepLink } from "@/app/lib/assistant-links";
@@ -55,21 +57,30 @@ export function windowOwnerId(prefix: string) {
 export function useLauncherConnection() {
   const [client, setClient] = useState<LegalworkServerClient | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const connectionKey = useRef("");
   useEffect(() => {
+    let generation = 0;
     let cancelled = false, timer: ReturnType<typeof setTimeout> | undefined;
     const resolve = async () => {
+      const currentGeneration = ++generation;
+      clearTimeout(timer);
       try {
         const connection = await resolveLegalworkConnection();
-        if (cancelled) return;
-        if (!connection.normalizedBaseUrl || (!connection.resolvedToken && !connection.resolvedHostToken)) { setError(t("launcher.connecting")); timer = setTimeout(resolve, 1500); return; }
-        setClient(current => current?.baseUrl === connection.normalizedBaseUrl && current.token === connection.resolvedToken ? current : createLegalworkServerClient({ baseUrl: connection.normalizedBaseUrl, token: connection.resolvedToken || undefined, hostToken: connection.resolvedHostToken || undefined }));
+        if (cancelled || generation !== currentGeneration) return;
+        if (!connection.normalizedBaseUrl || (!connection.resolvedToken && !connection.resolvedHostToken)) { connectionKey.current = ""; setClient(null); setError(t("launcher.connecting")); timer = setTimeout(resolve, 1500); return; }
+        const key = JSON.stringify([connection.normalizedBaseUrl, connection.resolvedToken, connection.resolvedHostToken]);
+        if (connectionKey.current !== key) {
+          connectionKey.current = key;
+          setClient(createLegalworkServerClient({ baseUrl: connection.normalizedBaseUrl, token: connection.resolvedToken || undefined, hostToken: connection.resolvedHostToken || undefined }));
+        }
         setError(null);
-      } catch (failure) { if (!cancelled) { setError(failure instanceof Error ? failure.message : String(failure)); timer = setTimeout(resolve, 3000); } }
+      } catch (failure) { if (!cancelled && generation === currentGeneration) { setError(failure instanceof Error ? failure.message : String(failure)); timer = setTimeout(resolve, 3000); } }
     };
     void resolve();
     const onChange = () => void resolve();
     window.addEventListener("legalwork-server-settings-changed", onChange);
-    return () => { cancelled = true; clearTimeout(timer); window.removeEventListener("legalwork-server-settings-changed", onChange); };
+    window.addEventListener("focus", onChange);
+    return () => { cancelled = true; clearTimeout(timer); window.removeEventListener("legalwork-server-settings-changed", onChange); window.removeEventListener("focus", onChange); };
   }, []);
   return { client, error };
 }
@@ -77,39 +88,45 @@ export function useLauncherConnection() {
 /** The dedicated panel route: the app's connection, theme and i18n, without workspace UI. */
 export function LauncherRoute() {
   const { client, error } = useLauncherConnection();
+  const { markRouteReady } = useBootState();
+  // This independent window has no SessionRoute to release the global boot overlay.
+  useEffect(() => { markRouteReady(); }, [markRouteReady]);
   const navigate = useNavigate();
   const desktop = isDesktopRuntime();
   useLayoutEffect(() => {
     document.documentElement.classList.add("launcher-window");
     return () => document.documentElement.classList.remove("launcher-window");
   }, []);
-  const [assistant, setAssistant] = useState<{ workspaceId: string; profile: AssistantProfile } | null>(null);
-  const [workspaces, setWorkspaces] = useState<LegalworkWorkspaceInfo[]>([]);
+  const queries = launcherBootstrapQueries(client);
+  const assistantQuery = useQuery(queries.assistant);
+  const workspaceQuery = useQuery(queries.workspaces);
+  const assistant = useMemo(() => assistantQuery.data?.workspace
+    ? { workspaceId: assistantQuery.data.workspace.id, profile: assistantQuery.data.profile } : null, [assistantQuery.data]);
+  const workspaces = useMemo(() => workspaceQuery.data ?? [], [workspaceQuery.data]);
+  const bootstrapError = workspaceQuery.error?.message ?? assistantQuery.error?.message ?? null;
   const drafts = useMemo(() => sharedDraftCoordinator(), []);
   const owner = useMemo(() => windowOwnerId("panel"), []);
   const seen = useRef(new Set<string>());
+  const deliveryRevision = useRef(0);
   useSyncEvents(client);
-  const refresh = useCallback(async () => {
-    if (!client) return;
-    const [current, list] = await Promise.all([client.assistantConversationCurrent(), client.listWorkspaces()]);
-    setAssistant(current.workspace ? { workspaceId: current.workspace.id, profile: current.profile } : null);
-    setWorkspaces((list.items ?? list.workspaces ?? []).filter(workspace => workspace.preset !== "main-assistant" && workspace.preset !== "wiki"));
-  }, [client]);
-  useEffect(() => { void refresh().catch(() => undefined); }, [refresh]);
-  useEffect(() => { void drafts.ready(); }, [drafts]);
+  const refresh = useCallback(async () => { await Promise.all([assistantQuery.refetch(), workspaceQuery.refetch()]); }, [assistantQuery.refetch, workspaceQuery.refetch]);
+  useEffect(() => { void drafts.ready().catch(failure => useLauncherStore.getState().notify({ tone: "error", text: failure instanceof Error ? failure.message : String(failure) })); }, [drafts]);
   // Desktop events: invocations, visibility, origin and attention. Invocation IDs deduplicate repeated delivery.
   useEffect(() => {
     if (!desktop) return;
+    let cancelled = false, stateRevision = 0, originRevision = 0;
     const apply = (event: LauncherDesktopEvent) => {
       const store = useLauncherStore.getState();
       if (event.type === "invocation") {
         if (seen.current.has(event.invocation.id)) return;
         seen.current.add(event.invocation.id);
-        if (client) void client.registerLauncherInvocation(event.invocation).then(result => { if (!result.duplicate) store.setInvocation(event.invocation); }).catch(() => store.setInvocation(event.invocation));
-        else store.setInvocation(event.invocation);
-      } else if (event.type === "visibility") { store.setVisible(event.visible); store.setPinned(event.pinned); if (!event.visible) store.reset(); }
-      else if (event.type === "position") store.setPositionMoved(event.moved);
-      else if (event.type === "origin") store.setOrigin(event.origin);
+        const revision = ++deliveryRevision.current;
+        const deliver = () => { if (!cancelled && deliveryRevision.current === revision) store.setInvocation(event.invocation); };
+        if (client) void client.registerLauncherInvocation(event.invocation).then(result => { if (!result.duplicate) deliver(); }).catch(deliver);
+        else deliver();
+      } else if (event.type === "visibility") { stateRevision++; store.setVisible(event.visible); store.setPinned(event.pinned); if (!event.visible) { deliveryRevision.current++; store.setInvocation(null); store.reset(); } }
+      else if (event.type === "position") { stateRevision++; store.setPositionMoved(event.moved); }
+      else if (event.type === "origin") { originRevision++; store.setOrigin(event.origin); }
       else if (event.type === "attention") store.setAttentionCount(event.count);
       else if (event.type === "approval") store.setApproval(event.request);
       else if (event.type === "approval-closed") { if (store.approval?.id === event.id) store.setApproval(null); }
@@ -117,10 +134,15 @@ export function LauncherRoute() {
     };
     const listener = (event: Event) => { if (!(event instanceof CustomEvent)) return; const parsed = LauncherDesktopEventSchema.safeParse(event.detail); if (parsed.success) apply(parsed.data); };
     window.addEventListener(LAUNCHER_EVENT, listener);
-    void launcherInvocationsDrain().then(invocations => invocations.forEach(invocation => apply({ type: "invocation", invocation }))).catch(() => undefined);
-    void launcherOriginGet().then(origin => useLauncherStore.getState().setOrigin(origin)).catch(() => undefined);
-    void launcherWindowControl("state").then(state => useLauncherStore.getState().setPositionMoved(state.moved)).catch(() => undefined);
-    return () => window.removeEventListener(LAUNCHER_EVENT, listener);
+    void launcherInvocationsDrain().then(invocations => { if (!cancelled) invocations.forEach(invocation => apply({ type: "invocation", invocation })); }).catch(() => undefined);
+    void launcherOriginGet().then(origin => { if (!cancelled && originRevision === 0) useLauncherStore.getState().setOrigin(origin); }).catch(() => undefined);
+    void launcherWindowControl("state").then(state => {
+      if (cancelled || stateRevision !== 0) return;
+      // Warmed windows may mount while hidden; newer native events always win.
+      const store = useLauncherStore.getState();
+      store.setVisible(state.visible); store.setPinned(state.pinned); store.setPositionMoved(state.moved);
+    }).catch(() => undefined);
+    return () => { cancelled = true; window.removeEventListener(LAUNCHER_EVENT, listener); };
   }, [desktop, client]);
   // Deep links reaching this window directly (web): the same invocation contract.
   useEffect(() => {
@@ -134,8 +156,8 @@ export function LauncherRoute() {
     client, assistant, workspaces, drafts, owner, surface: "panel", conversationId: null, desktop,
     openInApp: route => { if (desktop) void launcherWindowControl("expand", { route }); else navigate(route); },
     dismiss: () => { if (desktop) void launcherWindowControl("hide"); else navigate("/home"); },
-    refresh,
-  } : null, [client, assistant, workspaces, drafts, owner, desktop, navigate, refresh]);
+    refresh, bootstrapError,
+  } : null, [client, assistant, workspaces, drafts, owner, desktop, navigate, refresh, bootstrapError]);
   if (!shell) return <div className="launcher-root" data-surface="panel"><div className="launcher-panel"><div className="launcher-empty"><Loader2 className="mx-auto mb-2 size-5 animate-spin motion-reduce:animate-none" />{error ?? t("launcher.connecting")}</div></div></div>;
   return <LauncherShellContext.Provider value={shell}><LauncherPanel /></LauncherShellContext.Provider>;
 }

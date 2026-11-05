@@ -1,5 +1,6 @@
 import { enqueueAssistantSubmission, sendAssistantSubmission } from "./assistant-submission-send.js";
 import { LauncherFolders } from "./launcher-folders.js";
+import type { QueueEntry } from "./session-queue-schema.js";
 import { getMessageQueue } from "./session-message-queue.js";
 import { AssistantConversations } from "./assistant-conversations.js";
 import { AssistantSubmissions } from "./assistant-submissions.js";
@@ -8,7 +9,7 @@ import { SavedSearchStore } from "./launcher-saved-searches.js";
 import { LauncherContextStore } from "./launcher-context.js";
 import { LauncherFileIndex } from "./launcher-file-index.js";
 import type { DocumentPreparation } from "./document-preparation/service.js";
-import { assistantSubscriptionAvailable, requireAssistantSubscription } from "./assistant-subscription.js";
+import { assistantSubscriptionAvailable, requireAssistantSubscription, requireAssistantWorkspaceSubscription } from "./assistant-subscription.js";
 import { resolve } from "node:path";
 import { ApiError, findApiError } from "./errors.js";
 import { isCompactionCommand } from "./native-command-control.js";
@@ -25,7 +26,7 @@ import { AssistantChannelHistory } from "./assistant-channel-history.js";
 import { registerAssistantChannelHistoryRoutes } from "./routes/assistant-channel-history.js";
 import { registerChannelRuntimeRoutes } from "./channel-runtime-routes.js";
 import { registerMainAssistantRoutes } from "./routes/main-assistant.js";
-import { withSessionExecution } from "./session-execution-gate.js";
+import { withSessionDispatch, withSessionExecution } from "./session-execution-gate.js";
 import { announceSyncChange } from "./app-sync-events.js";
 import { addRoute, type Route } from "./routes/registry.js";
 import { AssistantPush } from "./push/service.js";
@@ -176,14 +177,17 @@ export async function createAssistantRuntime(config: ServerConfig, options: {
       }
     },
     send: async (entry, payload) => {
+      await requireAssistantWorkspaceSubscription(config, entry.workspaceId);
       if (payload.queue) {
         await enqueueAssistantSubmission(getMessageQueue(config), entry, payload);
         announceSyncChange(config, "sessions");
         return;
       }
-      const { client } = await delegationSession(entry.workspaceId, entry.sessionId);
-      await sendAssistantSubmission(client, entry, payload);
-      announceSyncChange(config, "sessions");
+      await withSessionDispatch(config, entry.sessionId, async () => {
+        const { client } = await delegationSession(entry.workspaceId, entry.sessionId);
+        await sendAssistantSubmission(client, entry, payload);
+        announceSyncChange(config, "sessions");
+      });
     },
     outcome: async (target, messageId, payload) => {
       const { client } = await delegationSession(target.workspaceId, target.sessionId);
@@ -204,7 +208,7 @@ export async function createAssistantRuntime(config: ServerConfig, options: {
       }
       const [statuses, messages] = await Promise.all([
         client.session.status({}, { signal: AbortSignal.timeout(10000) }),
-        client.session.messages({ sessionID: target.sessionId, limit: 40 }, { signal: AbortSignal.timeout(10000) }),
+        client.session.messages({ sessionID: target.sessionId, untilMessageID: messageId }, { signal: AbortSignal.timeout(10000) }),
       ]);
       const list = messages.data ?? [];
       const reply = [...list].reverse().find(message => message.info.role === "assistant" && message.info.parentID === messageId);
@@ -278,6 +282,11 @@ export async function createAssistantRuntime(config: ServerConfig, options: {
   const stopProactivity = await startAssistantProactivity(config, mainAssistant, options.resolveWorkspace, assistantSessionAccess);
   return {
     register,
+    prepareQueuedSubmission: (workspaceId: string, sessionId: string, entry: QueueEntry) => submissions.prepareQueued({ workspaceId, sessionId }, entry, async ceiling => {
+      const { workspace, session } = await delegationSession(workspaceId, sessionId);
+      const authority = await assistantSessionAccess.prepare(sessionId, session.directory, ceiling);
+      assertAssistantDispatchAuthority(authority, workspace.id);
+    }),
     scheduledSession: async (task: ScheduledTask, workspace: WorkspaceInfo) => {
       if (!isMainAssistant(workspace)) return null;
       await requireAssistantSubscription(config);

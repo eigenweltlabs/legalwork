@@ -154,6 +154,7 @@ export const LauncherInvocationSchema = z.object({
   id: z.string().min(1).max(100), action: LauncherInvocationActionSchema, query: z.string().max(2000).optional(), conversationId: z.string().max(100).optional(),
   projectId: z.string().max(200).optional(), actionId: z.string().max(200).optional(), contextId: z.string().max(100).optional(), source: LauncherInvocationSourceSchema,
   workspaceContext: LauncherWorkspaceContextSchema.optional(),
+  captureSelection: z.literal(true).optional(),
 });
 export type LauncherInvocation = z.infer<typeof LauncherInvocationSchema>;
 export const LauncherStagedContextSchema = z.object({ id: z.string(), items: z.array(AssistantContextItemSchema).max(20), source: LauncherInvocationSourceSchema, createdAt: z.number(), expiresAt: z.number() });

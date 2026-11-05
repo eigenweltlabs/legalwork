@@ -147,7 +147,9 @@ export async function searchLauncher(deps: LauncherSearchDeps, input: LauncherSe
   }
   for (const id of unavailable) source({ id: `unavailable:${id}`, kind: "projects", workspaceId: id, label: id, coverage: "unavailable", count: 0 });
   items.sort((a, b) => b.score - a.score || b.updatedAt - a.updatedAt || a.title.localeCompare(b.title, "en") || a.id.localeCompare(b.id, "en"));
-  return { items: items.filter(item => !input.modifiedAfter || item.updatedAt >= input.modifiedAfter).slice(0, input.limit), sources, unavailable };
+  // Projects are navigation targets without an activity timestamp. Keep their
+  // name matches while applying the date constraint to dated content sources.
+  return { items: items.filter(item => item.kind === "projects" || !input.modifiedAfter || item.updatedAt >= input.modifiedAfter).slice(0, input.limit), sources, unavailable };
 }
 
 /** Recording titles match like other titles; the library itself stays the authority on access. */

@@ -33,6 +33,10 @@ test("one query fans out to every source, keeps per-source coverage, and never r
     expect(all.unavailable).toEqual(["offline-project"]);
     const projects = await searchLauncher(deps, { query: "müler", kinds: ["projects"], content: false, limit: 10 }, new AbortController().signal);
     expect(projects.items.map(item => [item.id, item.match])).toEqual([["mueller", "fuzzy"]]);
+    const dated = await searchLauncher({ ...deps, workspaces: async () => ({ workspaces: [mueller], unavailable: [] }),
+      tasks: async () => [{ kind: "tasks", id: "old-task", workspaceId: "mueller", title: "Müller old task", excerpt: "", updatedAt: 3 }, { kind: "tasks", id: "recent-task", workspaceId: "mueller", title: "Müller recent task", excerpt: "", updatedAt: 8 }],
+    }, { query: "Müller", kinds: ["projects", "tasks", "chats", "recordings"], modifiedAfter: 6, content: false, limit: 20 }, new AbortController().signal);
+    expect(dated.items.map(item => item.id).sort()).toEqual(["mueller", "rec-1", "recent-task", "ses-1"].sort());
     const scoped = await searchLauncher(deps, { query: "", kinds: ["files", "recordings"], projectId: "other", content: false, limit: 10 }, new AbortController().signal);
     expect(scoped.items).toEqual([]);
     expect(scoped.sources.map(source => source.id)).toEqual(["recordings", "files:other", "unavailable:offline-project"]);

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { CheckSquare, ChevronRight, File, FileText, Folder, Image, ListTodo, Mail, MessageSquare, Mic, Pin, Presentation, Sheet, Square } from "lucide-react";
+import { CheckSquare, ChevronRight, File, FileText, Folder, Image, ListTodo, Mail, MessageSquare, Mic, Presentation, Sheet, Square } from "lucide-react";
 import type { LauncherResultAction, LauncherSearchResult, LauncherSourceState } from "@legalwork/types/launcher";
 import { formatRelativeTime } from "@/app/utils";
 import { searchTerms } from "@legalwork/types/search";
@@ -58,7 +58,7 @@ export function LauncherResultList(props: {
           onMouseMove={() => props.onSelect(key)} onClick={event => { if (event.metaKey || event.ctrlKey) props.onToggleMulti(key); else props.onRun(item, primary); }} onContextMenu={event => { event.preventDefault(); props.onSelect(key); props.onOpenActions(key); }}>
           <span className="launcher-row-icon" onClick={event => { event.stopPropagation(); props.onToggleMulti(key); }} aria-hidden="true">{item.kind === "files" ? multi ? <CheckSquare className="size-4" /> : props.multiSelect.size ? <Square className="size-4" /> : <Icon className="size-4" /> : <Icon className="size-4" />}</span>
           <div className="launcher-row-main">
-            <div className="launcher-row-title"><Highlight text={item.title} query={props.query} />{props.pins.has(key) && <Pin className="ml-1 inline size-3 text-muted-foreground" aria-label={t("launcher.result_action.pin")} />}</div>
+            <div className="launcher-row-title"><Highlight text={item.title} query={props.query} /></div>
             <div className="launcher-row-meta">{[item.subtitle, item.path && item.path !== item.title ? item.path : null, item.completed ? t("tasks.status_done") : item.status, item.updatedAt ? formatRelativeTime(item.updatedAt) : null].filter(Boolean).join(" · ")}{item.incomplete ? ` · ${t("content_search.partial")}` : ""}</div>
             {item.excerpt && item.excerpt !== item.path && <div className="launcher-row-excerpt"><Highlight text={item.excerpt} query={props.query} /></div>}
           </div>
@@ -101,7 +101,7 @@ export function LauncherActionMenu(props: { result: LauncherSearchResult; multiS
   return <div ref={menuRef} className="launcher-actions-menu" role="menu" aria-label={props.result.title}>
     {props.extra.filter(action => action !== "hide").map(action => <button key={action} type="button" role="menuitem" onMouseMove={event => event.currentTarget.focus()} onClick={() => props.onExtra(action)}>{actionLabel(action)}</button>)}
     {actions.length > 0 && <div role="separator" className="launcher-menu-separator" />}
-    {actions.map(action => <button key={action} type="button" role="menuitem" onMouseMove={event => event.currentTarget.focus()} onClick={() => { if (action === "copy-to-project" || action === "move-to-project") setPick(action); else props.onRun(action); }}>{action === "pin" && props.pinned ? t("launcher.result_action.unpin") : actionLabel(action)}{action === "compare" && props.multiSelected >= 2 ? ` (${props.multiSelected})` : ""}</button>)}
+    {actions.map(action => <button key={action} type="button" role="menuitem" onMouseMove={event => event.currentTarget.focus()} onClick={() => { if (action === "copy-to-project" || action === "move-to-project") setPick(action); else props.onRun(action); }}>{actionLabel(action)}{action === "compare" && props.multiSelected >= 2 ? ` (${props.multiSelected})` : ""}</button>)}
     <div role="separator" className="launcher-menu-separator" />
     {props.extra.filter(action => action === "hide").map(action => <button key={action} type="button" role="menuitem" onMouseMove={event => event.currentTarget.focus()} onClick={() => props.onExtra(action)}>{actionLabel(action)}</button>)}
   </div>;

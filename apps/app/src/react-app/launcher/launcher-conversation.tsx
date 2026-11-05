@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Archive, ArrowUpRight, ClipboardPaste, Copy, Loader2, Pin, PinOff, RefreshCw, ShieldCheck } from "lucide-react";
+import { AlertTriangle, Archive, ArrowUpRight, ClipboardPaste, Copy, Loader2, RefreshCw, ShieldCheck } from "lucide-react";
 import type { AssistantAttentionItem, AssistantAttentionReply } from "@legalwork/types/main-assistant";
 import type { AssistantSubmission } from "@legalwork/types/launcher";
 import { Button } from "@/components/ui/button";
@@ -105,12 +105,17 @@ export function LauncherConversation({ conversation, submission, pendingOutput, 
     const text = last.parts.flatMap(part => part.type === "text" ? [part.text] : []).join("\n").trim();
     return text ? { id: last.id, text } : null;
   }, [messages]);
-  const copyReply = async (text: string) => { await navigator.clipboard.writeText(text); notify({ tone: "info", text: t("launcher.notice.copied") }); };
+  const copyReply = async (text: string) => {
+    try { await navigator.clipboard.writeText(text); notify({ tone: "info", text: t("launcher.notice.copied") }); }
+    catch { notify({ tone: "error", text: t("launcher.notice.copy_failed") }); }
+  };
   const insertReply = async (text: string, originId: string | null = origin?.id ?? null) => {
-    if (!desktop || !originId) { await copyReply(text); return; }
-    const result = await launcherOriginInsert(originId, text);
-    if (result.ok) notify({ tone: "info", text: result.method === "paste" ? t("launcher.reply.inserted", { app: result.origin.app ?? "" }) : t("launcher.reply.copied_instead") });
-    else notify({ tone: "error", text: result.copied ? t("launcher.reply.copied_instead") : result.message });
+    try {
+      if (!desktop || !originId) { await copyReply(text); return; }
+      const result = await launcherOriginInsert(originId, text);
+      if (result.ok) notify({ tone: "info", text: result.method === "paste" ? t("launcher.reply.inserted", { app: result.origin.app ?? "" }) : t("launcher.reply.copied_instead") });
+      else notify({ tone: "error", text: result.copied ? t("launcher.reply.copied_instead") : result.message });
+    } catch { notify({ tone: "error", text: t("launcher.notice.copy_failed") }); }
   };
   useEffect(() => {
     if (!pendingOutput || status !== "ready") return;
@@ -122,14 +127,12 @@ export function LauncherConversation({ conversation, submission, pendingOutput, 
     if (answer?.info.role !== "assistant" || !answer.info.time.completed || answer.info.error || answer.info.finish !== "stop") return;
     const text = answer.parts.flatMap(part => part.type === "text" && !part.synthetic && !part.ignored ? [part.text] : []).join("\n").trim();
     if (!text) return;
+    // Consume this automatic attempt once. A failed delivery offers manual Copy
+    // or Insert again, without replaying a paste as snapshots keep arriving.
     onOutputApplied();
     void (pendingOutput.output === "copy" ? copyReply(text) : insertReply(text, pendingOutput.originId));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingOutput, snapshot.data, status]);
-  const togglePin = async () => {
-    try { const { conversation: updated } = await client.patchAssistantConversation(conversation.conversationId, { pinned: !conversation.pinned }); useLauncherStore.getState().bindConversation(updated); void cache.invalidateQueries({ queryKey: ["launcher-conversations"] }); }
-    catch (error) { notify({ tone: "error", text: error instanceof Error ? error.message : String(error) }); }
-  };
   const archive = async () => {
     try { await client.patchAssistantConversation(conversation.conversationId, { archived: true }); void cache.invalidateQueries({ queryKey: ["launcher-conversations"] }); notify({ tone: "info", text: t("launcher.conversation.archived") }); onArchived(); }
     catch (error) { notify({ tone: "error", text: error instanceof Error ? error.message : String(error) }); }
@@ -148,7 +151,6 @@ export function LauncherConversation({ conversation, submission, pendingOutput, 
   return <div ref={rootRef} className="launcher-conversation lw-session-typography">
     <div className="launcher-conversation-head"><span className="truncate">{conversation.title}</span>
       <Button size="sm" variant="ghost" onClick={onOpenApp}>{t("launcher.result_action.open-in-app")}</Button>
-      <Button size="icon-sm" variant="ghost" aria-label={t(conversation.pinned ? "launcher.conversation.unpin" : "launcher.conversation.pin")} title={t(conversation.pinned ? "launcher.conversation.unpin" : "launcher.conversation.pin")} onClick={() => void togglePin()}>{conversation.pinned ? <PinOff className="size-3.5" /> : <Pin className="size-3.5" />}</Button>
       <Button size="icon-sm" variant="ghost" aria-label={t("launcher.conversation.archive")} title={t("launcher.conversation.archive")} onClick={() => void archive()}><Archive className="size-3.5" /></Button>
     </div>
     <AttentionCards items={attention} busy={busy} onReply={reply} onOpen={item => openInApp(workspaceSessionRoute(item.workspaceId, item.sessionId))} />

@@ -1,8 +1,17 @@
 import { expect, test } from "bun:test";
-import { enterTarget, escapeAction, footerVerb, isComposingKeyEvent, moveSelection, optionId, orderLauncherResults, reconcileSelection } from "../src/react-app/launcher/launcher-keyboard";
+import { enterTarget, escapeAction, footerVerb, isAskShortcut, isComposingKeyEvent, moveSelection, optionId, orderLauncherResults, reconcileSelection } from "../src/react-app/launcher/launcher-keyboard";
 import type { LauncherSearchResult } from "@legalwork/types/launcher";
 
 const items = [{ id: "a", primaryAction: "open" as const }, { id: "b", primaryAction: "attach" as const }, { id: "c", primaryAction: "run" as const }];
+test("search can be sent directly while explicit Ask and chat drafts keep Shift+Enter for newlines", () => {
+  expect(isAskShortcut({ key: "Enter", modifier: false, shift: true, mode: "search", command: false })).toBe(true);
+  for (const mode of ["ask", "conversation"] as const) {
+    expect(isAskShortcut({ key: "Enter", modifier: false, shift: true, mode, command: false })).toBe(false);
+    expect(isAskShortcut({ key: "Enter", modifier: true, shift: false, mode, command: false })).toBe(true);
+  }
+  expect(isAskShortcut({ key: "Enter", modifier: false, shift: false, mode: "search", command: false })).toBe(false);
+  expect(isAskShortcut({ key: "Enter", modifier: true, shift: false, mode: "command", command: true })).toBe(false);
+});
 test("streaming results cannot move a user selection or change the action under Enter", () => {
   expect(reconcileSelection({ id: null, source: "auto" }, items)).toEqual({ id: "a", source: "auto" });
   const user = moveSelection({ id: "a", source: "auto" }, items, 1);

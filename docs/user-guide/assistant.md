@@ -132,6 +132,17 @@ retyping it. The general Assistant is the default. When you are working in a
 project, the suggestions include creating a new chat in that project; its
 conversation then continues inside the mini-bar. **Open in app** continues
 the same chat in the main window. Switching windows preserves the draft.
+Inside a chat, or after starting a question with **?**, **Shift+Enter** adds a
+new line; **Command+Enter** (**Ctrl+Enter** on Windows) sends it. Messages wait
+for the current answer to finish and keep the model and agent selected when
+you sent them, including after a restart.
+
+Search and project navigation load independently of the general Assistant.
+Your saved conversations remain readable if your Assistant subscription ends;
+starting new work with the general Assistant still requires an eligible plan.
+Project chats use the same access rules as in the main window. If part of the
+mini-bar cannot load, its error includes **Retry** while available results stay
+usable.
 
 Selected text from another app can be attached for actions such as explanation
 or translation. Capture controls can also attach a screenshot. These captures
@@ -139,6 +150,9 @@ are context for the chosen request; a later invocation does not silently reuse
 an old selection. You can drop files into the mini-bar, or configure additional
 search folders under **Settings > Assistant launcher**. Adding a search folder
 does not turn it into a project.
+The **Add selection** shortcut captures the text selected in the source app;
+capturing again replaces the previous selection while keeping files and tasks
+you deliberately attached.
 
 Drag the window to reposition it. A small reset-position icon appears after it
 has been moved. Shortcut, remembered position, additional folders, category
@@ -146,6 +160,11 @@ aliases and saved quick actions are configured in **Settings > Assistant
 launcher**. Quick actions can copy or insert their answer; pending outputs are
 recovered after a restart, with uncertain pastes retained for review instead
 of being repeated automatically.
+If copying or inserting fails, a notice explains the failure. Use **Copy** or
+**Insert** to retry deliberately; the app never repeats an uncertain paste on
+its own. Turning off remembered position opens the mini-bar at its default
+location. Pressing the opening shortcut again also cancels an opening window
+that is still loading.
 
 ## Browser work
 

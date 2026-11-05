@@ -57,3 +57,8 @@ export function footerVerb(target: SelectableItem | null, mode: "search" | "comm
     default: return "open";
   }
 }
+
+/** Search can become a question directly; explicit chat/Ask keeps Shift+Enter for newlines. */
+export function isAskShortcut(input: { key: string; modifier: boolean; shift: boolean; mode: "search" | "command" | "ask" | "conversation"; command: boolean }) {
+  return input.key === "Enter" && !input.command && (input.modifier || input.shift && input.mode === "search");
+}

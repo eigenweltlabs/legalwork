@@ -59,6 +59,7 @@ interface RegisterSessionRoutesOptions {
   ensureWritable: (config: ServerConfig) => void;
   requireClientScope: (ctx: RequestContext, required: TokenScope) => void;
   resolveWorkspace: (config: ServerConfig, id: string) => Promise<WorkspaceInfo>;
+  prepareQueuedSubmission?: (workspaceId: string, sessionId: string, entry: QueueEntry) => Promise<void>;
   resolveWorkspaceMetadata?: (config: ServerConfig, id: string) => WorkspaceInfo;
 }
 
@@ -106,10 +107,11 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
   }
   const messageQueue = registerMessageQueue(config, nativeQueueTransport(config, {
     client: async (workspaceId, sessionID) => queueClient(await resolveWorkspace(config, workspaceId), sessionID),
-    prepare: async (workspaceId, _sessionID, client, entry) => {
+    prepare: async (workspaceId, sessionID, client, entry) => {
       ensureWritable(config);
       const workspace = await resolveWorkspace(config, workspaceId);
       await validateQueuedExecution(client, workspace, entry.execution);
+      await options.prepareQueuedSubmission?.(workspaceId, sessionID, entry);
     },
   }));
   addRoute(routes, "POST", "/workspace/:id/sessions/:sessionId/dispatch", "client", async ctx => {

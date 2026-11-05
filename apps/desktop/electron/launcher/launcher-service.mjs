@@ -38,6 +38,9 @@ export class LauncherService {
     this.approvals = new Map();
     /** The renderer that drained the cold-start queue: only it receives pushed invocations. */
     this.readyContents = null;
+    /** @type {object | null} Opening can be cancelled before native context and the renderer finish loading. */
+    this.opening = null;
+    this.preparing = Promise.resolve();
   }
   async initialize() {
     await this.settings.load();
@@ -47,15 +50,15 @@ export class LauncherService {
     this.options.window.rememberPosition = this.settings.get().rememberPosition;
     this.options.window.setPinned(false);
     // Background presence keeps the renderer warm, so the first shortcut after boot does not cold-load it.
-    if (this.settings.get().backgroundPresence) void this.options.window.ensure().catch(() => {});
+    if (this.settings.get().backgroundPresence) void this.options.window.ensure().catch(error => console.warn("[launcher] Could not prepare the launcher", error));
   }
   bindings() {
     const settings = this.settings.get();
-    const bindings = [{ id: "launcher.open", accelerator: settings.shortcut, handler: () => { void this.toggle("shortcut"); } }];
+    const bindings = [{ id: "launcher.open", accelerator: settings.shortcut, handler: () => { void this.toggle("shortcut").catch(error => console.warn("[launcher] Could not open the launcher", error)); } }];
     for (const [id, accelerator] of Object.entries(settings.actionShortcuts)) {
       const action = ACTION_INVOCATIONS[id] ?? (id.startsWith("quick-action:") ? "quick-action" : null);
       if (!action) continue;
-      bindings.push({ id, accelerator, handler: () => { void this.invoke({ id: `shortcut_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`, action: /** @type {import("@legalwork/types/launcher").LauncherInvocationAction} */ (action), actionId: id.startsWith("quick-action:") ? id : undefined, source: "shortcut", selection: id === "app.add-selection" }); } });
+      bindings.push({ id, accelerator, handler: () => { void this.invoke({ id: `shortcut_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`, action: /** @type {import("@legalwork/types/launcher").LauncherInvocationAction} */ (action), actionId: id.startsWith("quick-action:") ? id : undefined, source: "shortcut", captureSelection: id === "app.add-selection" ? true : undefined }).catch(error => console.warn("[launcher] Could not open the launcher action", error)); } });
     }
     return bindings;
   }
@@ -149,14 +152,25 @@ export class LauncherService {
     // The two other voice destinations never open the panel: dictation goes to the front app, recording to the recorder.
     if (invocation.action === "dictate" || invocation.action === "record") { this.voiceAction(invocation.action); return this.options.window.state(); }
     const { selection, ...payload } = invocation;
+    if (selection) payload.captureSelection = true;
     payload.workspaceContext ??= this.options.workspaceContext?.() ?? undefined;
-    // Capture the external origin before the panel takes focus; an ordinary invocation records identity only.
-    if (!this.options.window.isFocused()) await this.options.origin.capture();
-    if (selection || !payload.workspaceContext && invocation.action === "open") await this.options.origin.prefetchSelection();
-    await this.options.window.show();
-    this.options.window.send({ type: "origin", origin: this.options.origin.current() });
-    this.deliver(payload);
-    return this.options.window.state();
+    const opening = this.opening = {};
+    // Serialize native context reads so an older capture cannot overwrite a newer invocation's origin.
+    this.preparing = this.preparing.catch(() => {}).then(async () => {
+      if (this.opening !== opening) return;
+      if (!this.options.window.isFocused()) await this.options.origin.capture();
+      if (this.opening !== opening) return;
+      if (payload.captureSelection || !payload.workspaceContext && invocation.action === "open") await this.options.origin.prefetchSelection();
+    });
+    try {
+      await this.preparing;
+      if (this.opening !== opening) return this.options.window.state();
+      await this.options.window.show(() => this.opening === opening);
+      if (this.opening !== opening) return this.options.window.state();
+      this.options.window.send({ type: "origin", origin: this.options.origin.current() });
+      this.deliver(payload);
+      return this.options.window.state();
+    } finally { if (this.opening === opening) this.opening = null; }
   }
   deliver(invocation) {
     const contents = this.options.window.webContents();
@@ -167,15 +181,16 @@ export class LauncherService {
   drain() { this.readyContents = this.options.window.webContents(); return this.pending.splice(0, this.pending.length); }
   /** @param {string} action */
   voiceAction(action) {
-    if (action === "dictate") { this.options.window.hide(); this.options.dictate(); return true; }
+    if (action === "dictate") { this.hide(); this.options.dictate(); return true; }
     if (action === "record") { this.options.record(); return true; }
     return false;
   }
   /** @param {import("@legalwork/types/launcher").LauncherInvocation["source"]} source */
   async toggle(source) {
-    if (this.options.window.isVisible()) return this.options.window.hide();
+    if (this.options.window.isVisible() || this.opening) return this.hide();
     return this.invoke({ id: `toggle_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`, action: "open", source });
   }
+  hide() { this.opening = null; return this.options.window.hide(); }
   /**
    * Assistant links go to the panel, not indiscriminately to the main window. Returns the links that are not ours.
    * @param {string[]} urls
@@ -194,7 +209,7 @@ export class LauncherService {
       case "show": return window.show();
       case "invoke": return this.invoke(payload?.invocation ?? { id: `home_${Date.now()}`, action: "open", source: "home", workspaceContext: payload?.context ?? undefined });
       case "reset-position": return window.resetPosition();
-      case "hide": return window.hide();
+      case "hide": return this.hide();
       case "pin": // Older renderers may still send this; the launcher always dismisses on blur.
       case "unpin": await this.settings.update({ pinned: false }); return window.setPinned(false);
       case "resize": return window.resize(payload?.height);
@@ -204,5 +219,5 @@ export class LauncherService {
       default: return window.state();
     }
   }
-  dispose() { this.registry.dispose(); this.options.window.destroy(); this.options.capture.destroy(); }
+  dispose() { this.opening = null; this.registry.dispose(); this.options.window.destroy(); this.options.capture.destroy(); }
 }

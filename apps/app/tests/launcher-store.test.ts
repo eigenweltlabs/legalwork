@@ -41,6 +41,8 @@ test("attached tasks survive a fresh screen selection and dismissal, and remain 
   store.replaceContext([]);
   store.addContext([{ id: "task_one", type: "task", taskId: "one", workspaceId: "project", title: "Review agreement" }]);
   store.addContext([{ id: "sel_new", type: "selection", text: "New selection", sourceApp: "Safari", sourceWindow: null, capturedAt: 1 }]);
+  store.addContext([{ id: "sel_latest", type: "selection", text: "Latest selection", sourceApp: "Safari", sourceWindow: null, capturedAt: 2 }]);
+  expect(useLauncherStore.getState().context.map(item => item.id)).toEqual(["task_one", "sel_latest"]);
   store.reset();
   expect(useLauncherStore.getState().context).toEqual([{ id: "task_one", type: "task", taskId: "one", workspaceId: "project", title: "Review agreement" }]);
   store.removeContext("task_one");

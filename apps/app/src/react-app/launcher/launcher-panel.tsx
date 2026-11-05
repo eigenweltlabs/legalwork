@@ -23,7 +23,7 @@ import { LauncherApprovalCard } from "./launcher-approval";
 import { LauncherContextBar } from "./launcher-context-bar";
 import { isCapturedSelection, persistentContext } from "./launcher-context-lifecycle";
 import { AttentionCards, LauncherConversation, SubmissionStatusRow, useSubmissionStatus, type PendingOutput } from "./launcher-conversation";
-import { enterTarget, escapeAction, footerVerb, isComposingKeyEvent, moveSelection, optionId, reconcileSelection, type SelectableItem } from "./launcher-keyboard";
+import { enterTarget, escapeAction, footerVerb, isAskShortcut, isComposingKeyEvent, moveSelection, optionId, reconcileSelection, type SelectableItem } from "./launcher-keyboard";
 import { activateCategoryAlias, categorySuggestions, isBrowseActionQuery, matchesOpenBrowser, namedCategoryQuery, normalizeLauncherAliases, parseLauncherEntry } from "./launcher-query";
 import { isPinned, readPins, togglePin as togglePinnedResult } from "./launcher-pins";
 import { LauncherPreviewPane } from "./launcher-preview";
@@ -480,7 +480,13 @@ export function LauncherPanel() {
   // Context capture: explicit actions with visible provenance; failures leave the draft intact.
   const addItems = (items: AssistantContextItem[], previews: { id: string; dataUrl: string }[] = []) => { store.addContext(items, previews); if (store.view === "idle" || store.view === "results") store.setView("conversation"); };
   const captureActions = {
-    selection: async () => { const outcome = await captureSelection(store.origin); if (outcome.ok) addItems([outcome.item]); else notify({ tone: "error", text: outcome.message }); },
+    selection: async () => {
+      const originId = store.origin?.id;
+      const outcome = await captureSelection(store.origin);
+      const live = useLauncherStore.getState();
+      if (!live.visible || live.origin?.id !== originId) return;
+      if (outcome.ok) addItems([outcome.item]); else notify({ tone: "error", text: outcome.message });
+    },
     clipboard: async () => { const outcome = await captureClipboard(); if (outcome.ok) addItems([outcome.item]); else notify({ tone: "error", text: outcome.message }); },
     window: async () => { if (!assistant) return; const outcome = await captureScreen("window", client, store.target.kind === "project" ? store.target.workspaceId : assistant.workspaceId); if (outcome.ok) addItems([outcome.item], outcome.preview ? [{ id: outcome.item.id, dataUrl: outcome.preview }] : []); else if (!outcome.cancelled) notify({ tone: "error", text: outcome.message }); },
     region: async () => { if (!assistant) return; const outcome = await captureScreen("region", client, store.target.kind === "project" ? store.target.workspaceId : assistant.workspaceId); if (outcome.ok) addItems([outcome.item], outcome.preview ? [{ id: outcome.item.id, dataUrl: outcome.preview }] : []); else if (!outcome.cancelled) notify({ tone: "error", text: outcome.message }); },
@@ -645,7 +651,7 @@ export function LauncherPanel() {
   };
   const applyInvocation = useCallback(async (invocation: LauncherInvocation) => {
     const live = useLauncherStore.getState();
-    if (invocation.action === "open") live.replaceContext(persistentContext(live.context));
+    if (invocation.action === "open" || invocation.captureSelection) live.replaceContext(persistentContext(live.context));
     const incoming = invocation.workspaceContext ?? null;
     setInvocationContext(incoming);
     const changed = incoming?.workspaceId !== live.workspaceContext?.workspaceId || incoming?.sessionId !== live.workspaceContext?.sessionId || JSON.stringify(incoming?.document) !== JSON.stringify(live.workspaceContext?.document);
@@ -655,18 +661,21 @@ export function LauncherPanel() {
       if (live.input.trim() || hasAttachedDraft || creation || transfer || openChoice || sendingRef.current || uploadingRef.current) { setPendingContext({ context: incoming }); if (invocation.action === "open") return; }
       else await useContext(incoming);
     }
+    const needsConversation = Boolean(invocation.conversationId || ["ask", "resume", "new-conversation"].includes(invocation.action));
     const bound = invocation.action === "new-conversation" ? (await client.createAssistantConversation({ origin: surface })).conversation
-      : invocation.conversationId ? (await client.assistantConversation(invocation.conversationId)).conversation : useLauncherStore.getState().target.kind === "project" ? null : await bindCurrent();
+      : invocation.conversationId ? (await client.assistantConversation(invocation.conversationId)).conversation : !needsConversation || useLauncherStore.getState().target.kind === "project" ? null : await bindCurrent();
     if (bound) {
       useLauncherStore.getState().bindConversation(bound);
       if (invocation.conversationId || ["ask", "resume", "new-conversation"].includes(invocation.action) || useLauncherStore.getState().view === "conversation") await adoptDraft(bound.id, true);
     }
     const selectionState = useLauncherStore.getState();
-    if (incoming?.selection && invocation.action === "open" && selectionState.visible) {
+    if (incoming?.selection && (invocation.action === "open" || invocation.captureSelection) && selectionState.visible) {
       selectionState.addContext([{ id: `selection_${crypto.randomUUID()}`, type: "selection", text: incoming.selection, sourceApp: "LegalWork", sourceWindow: incoming.document?.name ?? incoming.workspaceName, capturedAt: incoming.capturedAt }]);
-    } else if (!incoming && selectionState.origin?.supportsSelection && invocation.action === "open") {
+    } else if (!incoming && selectionState.origin?.supportsSelection && (invocation.action === "open" || invocation.captureSelection)) {
       const selected = await captureSelection(selectionState.origin);
-      if (selected.ok && useLauncherStore.getState().visible) useLauncherStore.getState().addContext([selected.item]);
+      const current = useLauncherStore.getState();
+      if (!current.visible || current.origin?.id !== selectionState.origin.id || current.invocation && current.invocation.id !== invocation.id) return;
+      if (selected.ok) current.addContext([selected.item]);
     }
     const aliasKinds: Partial<Record<LauncherInvocation["action"], LauncherSearchKind>> = { files: "files", projects: "projects", chats: "chats", tasks: "tasks", recordings: "recordings" };
     const kind = aliasKinds[invocation.action];
@@ -957,7 +966,7 @@ export function LauncherPanel() {
       const controls = bodyRef.current?.querySelector<HTMLElement>("[data-launcher-controls]");
       if (controls) { event.preventDefault(); (launcherControls(controls)[0] ?? controls).focus(); return; }
     }
-    if ((modifier || event.shiftKey && store.view !== "conversation") && key === "Enter" && !showCommands) { event.preventDefault(); void submitAsk(mode === "ask" ? entry.text : store.input); return; }
+    if (isAskShortcut({ key, modifier, shift: event.shiftKey, mode, command: showCommands })) { event.preventDefault(); void submitAsk(mode === "ask" ? entry.text : store.input); return; }
     if ((modifier && key.toLowerCase() === "k") || (key === "ArrowRight" && !event.shiftKey && !event.altKey && !modifier && input.selectionStart === input.selectionEnd && input.selectionEnd === input.value.length)) {
       if (selected && !calculation) { event.preventDefault(); event.stopPropagation(); openActions(); }
       return;
@@ -1090,6 +1099,9 @@ export function LauncherPanel() {
       </div>
       {desktop && <LauncherOutputHistory visible={store.visible} />}
       <input ref={fileInputRef} type="file" multiple className="hidden" onChange={event => { holdPanel(false); const files = Array.from(event.target.files ?? []); event.target.value = ""; void uploadFiles(files); }} />
+      {shell.bootstrapError && <div className="launcher-notice flex items-center justify-between gap-2" data-tone="error" role="alert">
+        <span>{shell.bootstrapError}</span><Button size="sm" variant="ghost" onClick={() => void shell.refresh()}>{t("scheduled.retry")}</Button>
+      </div>}
       {store.notice && <div className="launcher-notice" data-tone={store.notice.tone} role={store.notice.tone === "error" ? "alert" : "status"}>{store.notice.text}<button type="button" className="float-right" aria-label={t("common.close")} onClick={() => notify(null)}><X className="size-3.5" /></button></div>}
       {store.approval && surface === "panel" && <LauncherApprovalCard request={store.approval} onReply={async (id, decision) => { try { await launcherApprovalReply(id, decision); } finally { useLauncherStore.getState().setApproval(null); } }} />}
       {dictation.active && <div className="px-3 pt-2"><ComposerDictationBar dictation={dictation} sendDisabled={sending} /></div>}

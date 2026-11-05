@@ -66,7 +66,7 @@ export function primaryResultAction(result: LauncherSearchResult): LauncherSearc
 }
 /** Only advertised actions the provider can execute are offered; the order is stable per kind. */
 export function resultActionMenu(result: LauncherSearchResult, selectedCount: number): LauncherSearchResult["actions"] {
-  const order: LauncherSearchResult["actions"] = ["complete", "attach", "ask", "compare", "summarize", "hand-to-assistant", "reveal", "open-external", "copy-to-project", "move-to-project", "copy-path", "copy-reference", "pin"];
+  const order: LauncherSearchResult["actions"] = ["complete", "attach", "ask", "compare", "summarize", "hand-to-assistant", "reveal", "open-external", "copy-to-project", "move-to-project", "copy-path", "copy-reference"];
   return order.filter(action => action !== primaryResultAction(result) && result.actions.includes(action) && (action !== "compare" || selectedCount >= 2));
 }
 

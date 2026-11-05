@@ -14,7 +14,7 @@ function fakeWindow() {
   return { sent, get visibleNow() { return visible; }, get dialogs() { return dialogs; }, get ensured() { return ensured; }, setLoading: value => { loading = value; }, window: {}, rememberPosition: true,
     ensure: async () => { ensured++; return {}; }, beginDialog: () => { dialogs++; }, endDialog: () => { dialogs = Math.max(0, dialogs - 1); },
     isVisible: () => visible, isFocused: () => focused, state: () => ({ visible, pinned, focused, displayId: null }), webContents: () => contents,
-    show: async () => { visible = true; focused = true; return { visible, pinned, focused, displayId: null }; }, hide: () => { visible = false; focused = false; return { visible, pinned, focused, displayId: null }; },
+    show: async (shouldShow = () => true) => { if (shouldShow()) { visible = true; focused = true; } return { visible, pinned, focused, displayId: null }; }, hide: () => { visible = false; focused = false; return { visible, pinned, focused, displayId: null }; },
     send: event => sent.push(event), setPinned: value => { pinned = value; return { visible, pinned, focused, displayId: null }; }, resize: () => ({ visible, pinned, focused, displayId: null }), expand: () => { visible = false; }, destroy: () => {} };
 }
 function fakeOrigin() {
@@ -86,9 +86,11 @@ test("direct action shortcuts jump into the panel and the selection shortcut pre
     await new Promise(resolve => setTimeout(resolve, 10));
     assert.equal(origin.prefetches, 1);
     assert.equal(window.sent.filter(event => event.type === "invocation").at(-1)?.invocation.action, "ask");
+    assert.equal(window.sent.filter(event => event.type === "invocation").at(-1)?.invocation.captureSelection, true);
     globalShortcut.bound.get("Alt+Q")();
     await new Promise(resolve => setTimeout(resolve, 10));
     assert.deepEqual(window.sent.filter(event => event.type === "invocation").at(-1)?.invocation.actionId, "quick-action:qa_1");
+    assert.equal(window.sent.filter(event => event.type === "invocation").at(-1)?.invocation.captureSelection, undefined);
     service.setAttention({ count: 2, recording: true });
     assert.deepEqual(companionStates.at(-1), { enabled: true, badge: true, attention: 2, recording: true });
     assert.equal(window.sent.at(-1)?.type, "attention");
@@ -96,6 +98,66 @@ test("direct action shortcuts jump into the panel and the selection shortcut pre
     assert.deepEqual(status.conflicts, []);
     assert.equal(service.backgroundPresence(), false);
   } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test("a second toggle cancels opening during native context capture and a later shortcut can reopen", async t => {
+  const dir = await mkdtemp(path.join(tmpdir(), "launcher-toggle-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const { service, window, origin } = await makeService(dir);
+  const capture = origin.capture;
+  let finishCapture = () => {};
+  const capturing = new Promise(resolve => { finishCapture = () => resolve(undefined); });
+  origin.capture = async () => { await capturing; return capture(); };
+  const first = service.toggle("shortcut");
+  await Promise.resolve();
+  await service.toggle("shortcut");
+  finishCapture();
+  await first;
+  assert.equal(window.visibleNow, false);
+  assert.equal(origin.prefetches, 0);
+  assert.deepEqual(service.drain(), []);
+  await service.toggle("shortcut");
+  assert.equal(window.visibleNow, true);
+  assert.equal(service.drain().length, 1);
+});
+
+test("hiding while the renderer loads prevents a late show and invocation delivery", async t => {
+  const dir = await mkdtemp(path.join(tmpdir(), "launcher-late-show-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const { service, window } = await makeService(dir);
+  const show = window.show;
+  let finishLoading = () => {};
+  const loading = new Promise(resolve => { finishLoading = () => resolve(undefined); });
+  let showStarted = () => {};
+  const showing = new Promise(resolve => { showStarted = () => resolve(undefined); });
+  window.show = async shouldShow => { showStarted(); await loading; return show(shouldShow); };
+  const first = service.toggle("shortcut");
+  await showing;
+  await service.windowControl("hide");
+  finishLoading();
+  await first;
+  assert.equal(window.visibleNow, false);
+  assert.deepEqual(service.drain(), []);
+});
+
+test("a newer action waits for an older native read and receives its own origin", async t => {
+  const dir = await mkdtemp(path.join(tmpdir(), "launcher-context-order-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const { service, window, origin } = await makeService(dir);
+  const capture = origin.capture;
+  let finishCapture = () => {}, startedCapture = () => {};
+  const capturing = new Promise(resolve => { finishCapture = () => resolve(undefined); });
+  const started = new Promise(resolve => { startedCapture = () => resolve(undefined); });
+  origin.capture = async () => { startedCapture(); await capturing; return capture(); };
+  const first = service.invoke({ id: "old", action: "open", source: "shortcut" });
+  await started;
+  const newer = service.invoke({ id: "new", action: "files", source: "shortcut" });
+  finishCapture();
+  await Promise.all([first, newer]);
+  assert.equal(origin.captures, 2);
+  assert.equal(origin.prefetches, 0);
+  assert.deepEqual(service.drain().map(invocation => invocation.id), ["new"]);
+  assert.equal(window.sent.find(event => event.type === "origin").origin.id, "origin_2");
 });
 
 test("assistant links carry identifiers only and reject unknown actions", () => {

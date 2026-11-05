@@ -23,6 +23,8 @@ export class LauncherWindow {
     this.options = options;
     /** @type {BrowserWindow | null} */
     this.window = null;
+    this.disposed = false;
+    /** @type {Promise<BrowserWindow> | null} */
     this.loading = null;
     this.pinned = false;
     this.height = DEFAULT_HEIGHT;
@@ -78,8 +80,15 @@ export class LauncherWindow {
   }
   /** Keep the renderer warm only when asked (background presence); otherwise it is created on first use. */
   async ensure() {
-    if (this.window && !this.window.isDestroyed()) { if (this.loading) await this.loading; return this.window; }
+    if (this.disposed) throw new Error("The launcher has been closed.");
+    if (this.loading) return this.loading;
+    if (this.window && !this.window.isDestroyed()) return this.window;
+    this.loading = this.createWindow().finally(() => { this.loading = null; });
+    return this.loading;
+  }
+  async createWindow() {
     if (!this.positionLoaded) await this.loadPosition();
+    if (this.disposed) throw new Error("The launcher has been closed.");
     const window = new BrowserWindow({
       ...placePanel(this.display().workArea, { width: PANEL_WIDTH, height: this.height }, this.remembered),
       ...(process.platform === "darwin" ? { type: "panel" } : {}),
@@ -105,15 +114,22 @@ export class LauncherWindow {
     window.on("moved", () => { this.savePosition(); this.send({ type: "position", moved: this.positionMoved() }); });
     window.on("closed", () => { if (this.window === window) this.window = null; });
     const route = "/launcher";
-    this.loading = (this.options.startUrl ? window.loadURL(`${this.options.startUrl}#${route}`) : window.loadFile(path.join(this.options.appRoot, "index.html"), { hash: route })).finally(() => { this.loading = null; });
-    await this.loading;
+    try {
+      await (this.options.startUrl ? window.loadURL(`${this.options.startUrl}#${route}`) : window.loadFile(path.join(this.options.appRoot, "index.html"), { hash: route }));
+      if (window.isDestroyed()) throw new Error("The launcher closed while loading.");
+    } catch (error) {
+      if (!window.isDestroyed()) window.destroy();
+      throw error;
+    }
     return window;
   }
-  async show() {
+  /** @param {() => boolean} [shouldShow] */
+  async show(shouldShow = () => true) {
     const window = await this.ensure();
+    if (!shouldShow()) return this.state();
     const display = this.display();
     this.displayId = display.id;
-    this.remembered = this.positions[String(display.id)] ?? null;
+    this.remembered = this.rememberPosition ? this.positions[String(display.id)] ?? null : null;
     const bounds = placePanel(display.workArea, { width: PANEL_WIDTH, height: this.height }, this.remembered?.displayId === display.id || !this.remembered?.displayId ? this.remembered : null);
     window.setBounds(bounds);
     window.show();
@@ -174,6 +190,7 @@ export class LauncherWindow {
   endDialog() { this.childDialogs = Math.max(0, this.childDialogs - 1); if (this.isVisible() && !this.pinned && !this.isFocused()) this.window?.focus(); }
   expand(route) { this.hide(); this.options.onExpand(route); }
   destroy() {
+    this.disposed = true;
     if (this.blurTimer) clearTimeout(this.blurTimer);
     if (this.window && !this.window.isDestroyed()) this.window.destroy();
     this.window = null;

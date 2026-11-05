@@ -17,6 +17,7 @@ export type LauncherShellValue = {
   openInApp: (route: string) => void;
   dismiss: () => void;
   refresh: () => Promise<void>;
+  bootstrapError?: string | null;
 };
 export const LauncherShellContext = createContext<LauncherShellValue | null>(null);
 export function useLauncherShell() {

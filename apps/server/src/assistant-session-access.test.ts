@@ -9,6 +9,12 @@ import { createAssistantSessionQueue } from "./assistant-session-executor.js";
 import { MainAssistant } from "./main-assistant.js";
 import { createAssistantTestClient } from "./assistant-engine.test-support.js";
 import { z } from "zod";
+import { OpenCode } from "@opencode/client";
+import { AssistantSubmissions, type SubmissionExecutor } from "./assistant-submissions.js";
+import { enqueueAssistantSubmission, stageAssistantSubmission } from "./assistant-submission-send.js";
+import { nativeQueueTransport } from "./native-queue-transport.js";
+import { SessionMessageQueue } from "./session-message-queue.js";
+
 import { AssistantProactivityStore } from "./assistant-proactivity-store.js";
 import { prepareAssistantEventSession, processAssistantEvents } from "./assistant-proactivity.js";
 import { writeEigenweltConnection } from "./eigenwelt-connection-store.js";
@@ -252,4 +258,97 @@ test("real queued executor initializes restored project tools before dispatch an
     busy = false; await restarted.tick();
     expect(restarted.list(target)[0].state).toBe("paused"); expect(delivered).toHaveLength(2);
   } finally { restoreInbox(); await engine.stop(true); }
+});
+
+
+test("launcher staging restores only its receipt's authority at native dispatch after restart and preserves revocation", async () => {
+  const { config, access, path, project, request } = await fixture();
+  let activeConfig = config, activeAccess = access, busy = true, delivered = 0;
+  const scopes: unknown[] = [];
+  const client = OpenCode.make({ baseUrl: "http://launcher-access.invalid", fetch: Object.assign(async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url);
+    if (url.pathname === "/api/session/active") return Response.json({ data: busy ? { launcher: {} } : {} });
+    if (url.pathname.endsWith("/inbox")) return Response.json({ data: [] });
+    if (url.pathname.endsWith("/prompt")) {
+      const { id } = z.object({ id: z.string() }).parse(JSON.parse(String(init?.body)));
+      scopes.push((await authenticateWikiAgentRequest(activeConfig, await request("launcher", project, "/workspace/matter/skills", undefined, activeConfig)))?.actor.scope);
+      delivered++; busy = true; return Response.json({ data: { id, type: "user", delivery: "queue" } });
+    }
+    if (url.pathname === "/api/session/launcher" && init?.method !== "PATCH") return Response.json({ data: { outcome: "completed" } });
+    return new Response(null, { status: 204 });
+  }, { preconnect: fetch.preconnect }) });
+  const queuePath = join(project, "queue");
+  const makeQueue = () => new SessionMessageQueue(queuePath, nativeQueueTransport(activeConfig, {
+    client: async () => client,
+    prepare: async (workspaceId, sessionId, _client, entry) => receipts.prepareQueued({ workspaceId, sessionId }, entry, async authority => {
+      assertAssistantDispatchAuthority(await activeAccess.prepare(sessionId, project, authority), workspaceId);
+    }),
+  }));
+  let queue = makeQueue();
+  const executor: SubmissionExecutor = { hasMessage: async () => false, outcome: async () => "accepted", send: async (entry, payload) => { await enqueueAssistantSubmission(queue, entry, payload); } };
+  let receipts = await AssistantSubmissions.open(path, executor);
+  const authority = { scope: "owner" } satisfies Parameters<typeof access.authorize>[2];
+  const identity = { requestId: "request_launcher_restore", messageId: "msg_launcherrestore123", workspaceId: "matter", sessionId: "launcher", conversationId: "conversation", preview: "Read the files", target: { kind: "project", workspaceId: "matter" } } satisfies Omit<Parameters<typeof receipts.submit>[0], "payload">;
+  const until = async (check: () => Promise<boolean>) => {
+    for (let i = 0; i < 100; i++) { if (await check()) return; await new Promise(resolve => setTimeout(resolve, 5)); }
+    expect(await check()).toBe(true);
+  };
+  try {
+    await access.authorize("launcher", project, authority);
+    await receipts.submit({ ...identity, payload: stageAssistantSubmission(identity.messageId, { authority, parts: [{ type: "text", text: "Read the files" }] }) });
+    await grantWikiAgentSession(config, { sessionId: "launcher", directory: project, scope: "collaborator" });
+    queue.stop(); activeConfig = { ...config }; activeAccess = await AssistantSessionAccess.open(path, activeConfig);
+    receipts = await AssistantSubmissions.open(path, executor); queue = makeQueue();
+    expect(currentWikiAgentSession(activeConfig, "launcher")).toBeUndefined();
+    await expect(authenticateWikiAgentRequest(activeConfig, await request("launcher", project, "/workspace/matter/skills", undefined, activeConfig))).rejects.toMatchObject({ code: "wiki_agent_session_unknown" });
+    const staged = (await queue.read("matter", "launcher")).entries[0];
+    await expect(receipts.prepareQueued({ workspaceId: "other", sessionId: "launcher" }, staged, async () => {})).rejects.toMatchObject({ code: "submission_scope" });
+    let restored = false;
+    await receipts.prepareQueued({ workspaceId: "matter", sessionId: "launcher" }, { ...staged, id: crypto.randomUUID() }, async () => { restored = true; });
+    expect(restored).toBe(false);
+    busy = false; await until(async () => { await queue.tick(); return delivered === 1; });
+    expect(scopes).toEqual(["collaborator"]);
+    const followUp = { ...identity, requestId: "request_launcher_followup", messageId: "msg_launcherfollowup123" };
+    await receipts.submit({ ...followUp, payload: stageAssistantSubmission(followUp.messageId, { authority, parts: [{ type: "text", text: "Follow up" }] }) });
+    revokeWikiAgentSession(activeConfig, "launcher"); busy = false;
+    await until(async () => { await queue.tick(); return (await queue.read("matter", "launcher")).entries.some(entry => entry.status === "failed"); });
+    const failed = (await queue.read("matter", "launcher")).entries[0];
+    expect(failed).toMatchObject({ draft: { text: "Follow up" }, status: "failed", error: expect.stringContaining("authenticated chat") });
+    expect(delivered).toBe(1);
+  } finally { queue.stop(); }
+});
+
+
+test("reconciling an admitted launcher inbox item restores tool access before waking it without changing model or agent", async () => {
+  const { config, access, path, project, request } = await fixture();
+  const identity = { requestId: "request_launcher_inbox", messageId: "msg_launcherinbox12345", workspaceId: "matter", sessionId: "launcher", conversationId: "conversation", preview: "Read", target: { kind: "project", workspaceId: "matter" } } satisfies Omit<Parameters<AssistantSubmissions["submit"]>[0], "payload">;
+  const authority = { scope: "collaborator" } satisfies Parameters<typeof access.authorize>[2];
+  let activeConfig = config, activeAccess = access, wakes = 0, delivery = "queue";
+  const queue = new SessionMessageQueue(join(project, "queue"), { idle: async () => false, send: async () => {} });
+  const receipts = await AssistantSubmissions.open(path, { hasMessage: async () => false, outcome: async () => "accepted", send: async (entry, payload) => { await enqueueAssistantSubmission(queue, entry, payload); } });
+  try {
+    await access.authorize("launcher", project, authority);
+    await receipts.submit({ ...identity, payload: stageAssistantSubmission(identity.messageId, { authority, parts: [{ type: "text", text: "Read" }], model: { providerID: "saved", modelID: "saved" }, agent: "saved" }) });
+    const entry = (await queue.read("matter", "launcher")).entries[0];
+    const client = OpenCode.make({ baseUrl: "http://launcher-inbox.invalid", fetch: Object.assign(async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+      const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url);
+      if (url.pathname.endsWith("/inbox")) return Response.json({ data: [{ id: identity.messageId, type: "user", delivery }] });
+      if (url.pathname === "/api/session/active") return Response.json({ data: {} });
+      if (url.pathname.includes("/inbox/")) { delivery = "steer"; return new Response(null, { status: 204 }); }
+      if (url.pathname.endsWith("/prompt")) {
+        expect((await authenticateWikiAgentRequest(activeConfig, await request("launcher", project, "/workspace/matter/skills", undefined, activeConfig)))?.actor.scope).toBe("collaborator");
+        const body = z.object({ id: z.string() }).parse(JSON.parse(String(init?.body)));
+        expect(body.id).toBe(identity.messageId); wakes++;
+        return Response.json({ data: { id: body.id, type: "user", delivery } });
+      }
+      throw new Error(`Reconciliation must not change native selection: ${url.pathname}`);
+    }, { preconnect: fetch.preconnect }) });
+    for (const steered of [false, true]) {
+      activeConfig = { ...config }; activeAccess = await AssistantSessionAccess.open(path, activeConfig);
+      expect(currentWikiAgentSession(activeConfig, "launcher")).toBeUndefined();
+      const transport = nativeQueueTransport(activeConfig, { client: async () => client, prepare: async (workspaceId, sessionId, _client, queued) => receipts.prepareQueued({ workspaceId, sessionId }, queued, async ceiling => { await activeAccess.prepare(sessionId, project, ceiling); }) });
+      expect(await transport.confirmed?.("matter", "launcher", { ...entry, ...(steered ? { delivery: "steer" } : {}) })).toBe(true);
+    }
+    expect(wakes).toBe(2);
+  } finally { queue.stop(); }
 });

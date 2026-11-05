@@ -1,16 +1,19 @@
 import { z } from "zod";
+import { SessionAuthoritySchema, type SessionAuthority } from "./wiki/agent-access.js";
+import type { QueueEntry } from "./session-queue-schema.js";
 import { ApiError } from "./errors.js";
 import { openSqlite, type Row, type SqliteHandle } from "./runtime-db.js";
 import { AssistantExecutionTargetSchema, AssistantSubmissionStateSchema, AssistantSubmissionPartSchema, AssistantSubmitInputSchema, type AssistantExecutionTarget, type AssistantSubmission, type AssistantSubmitInput } from "@legalwork/types/launcher";
 
 export type SubmissionTarget = { workspaceId: string; sessionId: string };
 export type SubmissionPart = z.infer<typeof AssistantSubmissionPartSchema>;
-export type SubmissionPayload = { parts: SubmissionPart[]; model?: { providerID: string; modelID: string }; agent?: string; variant?: string; command?: { name: string; arguments: string }; queue?: AssistantSubmitInput["queue"] };
+export type SubmissionPayload = { parts: SubmissionPart[]; model?: { providerID: string; modelID: string }; agent?: string; variant?: string; command?: { name: string; arguments: string }; queue?: AssistantSubmitInput["queue"]; authority?: SessionAuthority };
 const SubmissionPayloadSchema = z.object({
   parts: z.array(AssistantSubmissionPartSchema),
   model: z.object({ providerID: z.string(), modelID: z.string() }).optional(), agent: z.string().optional(), variant: z.string().optional(),
   command: z.object({ name: z.string(), arguments: z.string() }).optional(),
   queue: AssistantSubmitInputSchema.shape.queue,
+  authority: SessionAuthoritySchema.optional(),
 });
 export type SubmissionExecutor = {
   hasMessage: (target: SubmissionTarget, messageId: string, payload: SubmissionPayload) => Promise<boolean>;
@@ -56,6 +59,19 @@ export class AssistantSubmissions {
   get(requestId: string): AssistantSubmission | null {
     const row = this.db.get("SELECT * FROM assistant_submissions WHERE request_id = ?", [requestId]);
     return row ? this.item(row) : null;
+  }
+  /** Queue metadata is editable. Restore only the ceiling held in the trusted
+   * submission receipt, bound to this exact staged message and destination. */
+  async prepareQueued(target: SubmissionTarget, queued: QueueEntry, restore: (authority: SessionAuthority | undefined) => Promise<void>) {
+    const messageId = queued.messageId ?? (queued.execution.kind === "prompt" ? queued.execution.id : undefined);
+    if (!messageId) return;
+    const row = this.db.get("SELECT * FROM assistant_submissions WHERE message_id = ?", [messageId]);
+    if (!row) return;
+    const entry = this.item(row), payload = this.payload(entry.requestId);
+    if (payload.queue?.id !== queued.id) return;
+    if (entry.workspaceId !== target.workspaceId || entry.sessionId !== target.sessionId)
+      throw new ApiError(403, "submission_scope", "This queued request belongs to another chat.");
+    await restore(payload.authority);
   }
   latest(sessionId: string): AssistantSubmission | null {
     const row = this.db.get("SELECT * FROM assistant_submissions WHERE session_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1", [sessionId]);
