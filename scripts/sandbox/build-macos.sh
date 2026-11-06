@@ -63,5 +63,8 @@ cd "$work/qemu-11.1.2"
 set -- --prefix="$work/qemu" --target-list="$arch-softmmu" --without-default-features --enable-tcg --enable-hvf --enable-slirp
 if [ "$arch" = aarch64 ]; then set -- "$@" --without-default-devices --with-devices-aarch64=legalwork; fi
 ./configure "$@"
-make -j3
-make install
+# The default target also compiles upstream test programs that this packaging
+# job neither runs nor ships. Build the shipped emulator, then install its
+# normal executable/firmware/metadata without rebuilding the unrelated targets.
+make -j3 "qemu-system-$arch"
+meson install -C build --no-rebuild
