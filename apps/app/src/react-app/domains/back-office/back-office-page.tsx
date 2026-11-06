@@ -10,7 +10,6 @@ import {
   ChevronDown,
   Cloud,
   Database,
-  Laptop,
   MoreHorizontal,
   Plus,
   RefreshCw,
@@ -44,11 +43,14 @@ import {
   DirectorySelect,
   directoryTheme,
 } from "./twenty-controls";
+import { t } from "@/i18n";
+import { useLocale } from "@/i18n/use-locale";
+import { displayBackOfficeObject } from "./labels";
 import "./back-office.css";
 
 const primary = [
   { id: "matters", name: "Matters", icon: BriefcaseBusiness },
-  { id: "clients", name: "Clients · Mandanten", icon: UsersRound },
+  { id: "clients", name: "Clients", icon: UsersRound },
   { id: "people", name: "People", icon: UserRound },
   { id: "companies", name: "Companies", icon: Building2 },
 ];
@@ -69,16 +71,14 @@ const importSchema = z.object({
 });
 
 export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
+  useLocale();
   const location = useLocation(),
     navigate = useNavigate(),
     cache = useQueryClient();
   const selected = location.pathname.split("/")[2] ?? "matters";
-  const [team, setTeam] = useState(
-      new URLSearchParams(location.search).get("directory") === "team",
-    ),
-    [dark, setDark] = useState(
-      document.documentElement.classList.contains("dark"),
-    );
+  const [dark, setDark] = useState(
+    document.documentElement.classList.contains("dark"),
+  );
   const [detailId, setDetailId] = useState<string | null>(
       new URLSearchParams(location.search).get("record"),
     ),
@@ -86,11 +86,6 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
   const [draft, setDraft] = useState<BackOfficeRecord | null>(null);
   const [focusNameId, setFocusNameId] = useState<string | null>(null);
   const [detailWidth, setDetailWidth] = useState(400);
-  const [publishPlan, setPublishPlan] = useState<{
-    planId: string;
-    count: number;
-    records: { id: string; name: unknown; duplicate: boolean }[];
-  } | null>(null);
   const [pendingChanges, setPendingChanges] = useState<
     | {
         id: string;
@@ -115,13 +110,15 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
     [importPlan, setImportPlan] = useState<z.infer<typeof importSchema> | null>(
       null,
     );
-  const key = ["back-office", client.baseUrl, team];
+  const key = ["back-office", client.baseUrl, "auto"];
   const query = useQuery({
     queryKey: key,
     queryFn: async () =>
-      BackOfficeStateSchema.parse(await client.backOffice("", { team })),
+      BackOfficeStateSchema.parse(await client.backOffice("")),
     refetchInterval: 30_000,
   });
+  const data = query.isError ? undefined : query.data;
+  const team = Boolean(data && data.scope !== "local");
   const projects = useQuery({
     queryKey: ["back-office-projects", client.baseUrl],
     queryFn: async () =>
@@ -152,13 +149,13 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
     setArchived(false);
     setError("");
   }, [selected, team, location.search]);
-  const data = team && query.isError ? undefined : query.data,
-    object = data?.model.objects.find(
-      (object) =>
-        object.id === selected &&
-        !object.archived &&
-        !isInternalBackOfficeObject(object.id),
-    );
+  const rawObject = data?.model.objects.find(
+    (object) =>
+      object.id === selected &&
+      !object.archived &&
+      !isInternalBackOfficeObject(object.id),
+  );
+  const object = rawObject && displayBackOfficeObject(rawObject);
   const archivedRecords = useQuery({
     queryKey: [...key, "archive", selected],
     enabled: archived && Boolean(object),
@@ -224,7 +221,7 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
       });
     await refresh();
   };
-  const beginCreate = async () => {
+  const beginCreate = async (values: Record<string, BackOfficeValue> = {}) => {
     if (!object || !data) return;
     if (object.id === "projectLinks") {
       setError("Link projects from a matter’s record panel.");
@@ -235,7 +232,7 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
     const draft = BackOfficeRecordSchema.parse({
       id: crypto.randomUUID(),
       objectId: object.id,
-      values: { name: "Untitled" },
+      values: { name: "Untitled", ...values },
       revision: 0,
       schemaRevision: data.model.revision,
       ownerId: data.permissions.userId,
@@ -313,35 +310,15 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
     URL.revokeObjectURL(url);
     setMore(false);
   };
-  const previewPublish = async () => {
-    try {
-      const plan = z
-        .object({
-          planId: z.string(),
-          count: z.number(),
-          records: z.array(
-            z.object({
-              id: z.string(),
-              name: z.unknown(),
-              duplicate: z.boolean(),
-            }),
-          ),
-        })
-        .parse(await request("/sync/preview", {}));
-      setPublishPlan(plan);
-      setMore(false);
-      setError("");
-    } catch (error) {
-      setError(
-        error instanceof Error
-          ? error.message
-          : "Could not prepare team publishing.",
-      );
-    }
-  };
   const show = (id: string) => {
     navigate("/back-office/" + id);
     setMenu(false);
+  };
+  const tabName = (id: string) => {
+    const object = data?.model.objects.find((object) => object.id === id);
+    return object
+      ? displayBackOfficeObject(object).plural
+      : t(`back_office.${id}.plural`);
   };
   const directoryStyle: CSSProperties & { "--bo-detail-width": string } = {
     "--bo-detail-width": `${detailWidth}px`,
@@ -358,7 +335,7 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
         data-theme={dark ? "dark" : "light"}
       >
         <nav className="bo-tabs" aria-label="Back Office">
-          {primary.map(({ id, name, icon: Icon }) => (
+          {primary.map(({ id, icon: Icon }) => (
             <Button
               key={id}
               size="sm"
@@ -367,7 +344,7 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
               startIcon={<Icon size={16} />}
               aria-current={selected === id ? "page" : undefined}
             >
-              {name}
+              {tabName(id)}
             </Button>
           ))}
           <DirectoryMenu
@@ -385,8 +362,8 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
               >
                 {!primary.some((tab) => tab.id === selected) &&
                 selected !== "data-model"
-                  ? (object?.plural ?? "More")
-                  : "More"}
+                  ? (object?.plural ?? t("back_office.more"))
+                  : t("back_office.more")}
               </Button>
             }
           >
@@ -403,7 +380,7 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
                   onClick={() => show(object.id)}
                   startIcon={<Database size={14} />}
                 >
-                  {object.plural}
+                  {displayBackOfficeObject(object).plural}
                 </Dropdown.ActionItem>
               ))}
           </DirectoryMenu>
@@ -413,19 +390,8 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
             onClick={() => show("data-model")}
             startIcon={<Database size={16} />}
           >
-            Data model
+            {t("back_office.data_model")}
           </Button>
-          <div className="bo-scope">
-            <DirectorySelect
-              label="Directory location"
-              value={team ? "team" : "local"}
-              onChange={(value) => setTeam(value === "team")}
-              options={[
-                { value: "local", label: "This computer" },
-                { value: "team", label: "Team" },
-              ]}
-            />
-          </div>
         </nav>
         {!data && (
           <div className="bo-loading">
@@ -507,14 +473,6 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
                   >
                     Import CSV
                   </Dropdown.ActionItem>
-                  {!team && (
-                    <Dropdown.ActionItem
-                      onClick={() => void previewPublish()}
-                      startIcon={<Cloud size={14} />}
-                    >
-                      Publish to team
-                    </Dropdown.ActionItem>
-                  )}
                   <Dropdown.ActionItem
                     onClick={exportCsv}
                     startIcon={<ArrowDownToLine size={14} />}
@@ -553,7 +511,7 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
               userId={data.permissions.userId}
               onSave={save}
               onOpen={(record) => setDetailId(record.id)}
-              onCreate={() => void beginCreate()}
+              onCreate={(values) => void beginCreate(values)}
               onSaveView={saveView}
               archived={archived}
               onArchivedChange={setArchived}
@@ -567,7 +525,7 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
             focusName={focusNameId === detail.id}
             width={detailWidth}
             onWidthChange={setDetailWidth}
-            object={detailObject}
+            object={displayBackOfficeObject(detailObject)}
             records={records}
             editable={data.permissions.edit}
             finance={data.permissions.finance}
@@ -711,62 +669,6 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
             </div>
           </DirectoryDialog>
         )}
-        {publishPlan && (
-          <DirectoryDialog
-            title="Publish to your team"
-            onClose={() => setPublishPlan(null)}
-          >
-            <div className="bo-form">
-              <p>
-                {publishPlan.count} records will be added to the firm directory
-                with their existing IDs and relationships.
-              </p>
-              <div className="bo-import-preview">
-                {publishPlan.records.map((record) => (
-                  <div key={record.id}>
-                    <span>{String(record.name)}</span>
-                    {record.duplicate && (
-                      <span className="bo-muted">
-                        A record with this name already exists. These records
-                        will stay separate.
-                      </span>
-                    )}
-                  </div>
-                ))}
-              </div>
-              {error && (
-                <p className="bo-error" role="alert">
-                  {error}
-                </p>
-              )}
-              <div className="bo-modal-footer">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setPublishPlan(null)}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  size="sm"
-                  onClick={() =>
-                    void request("/sync/publish", {
-                      planId: publishPlan.planId,
-                    })
-                      .then(() => {
-                        setPublishPlan(null);
-                        setTeam(true);
-                        return refresh();
-                      })
-                      .catch((error) => setError(error.message))
-                  }
-                >
-                  Publish {publishPlan.count} records
-                </Button>
-              </div>
-            </div>
-          </DirectoryDialog>
-        )}
         {pendingChanges && (
           <DirectoryDialog
             title="Pending team changes"
@@ -861,7 +763,7 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
             </div>
           </DirectoryDialog>
         )}
-        {error && !importing && !publishPlan && (
+        {error && !importing && (
           <div className="bo-error" role="alert">
             {error}
             <button aria-label="Dismiss error" onClick={() => setError("")}>
@@ -869,10 +771,9 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
             </button>
           </div>
         )}
-        {data && (
+        {data && team && (data.sync.pending > 0 || data.sync.error) && (
           <footer className="bo-footer">
-            {team ? <Cloud size={13} /> : <Laptop size={13} />}
-            <span>{team ? "Team directory" : "Stored on this computer"}</span>
+            {team && <Cloud size={13} />}
             {data.sync.pending > 0 && team && (
               <button
                 onClick={() =>
@@ -910,9 +811,6 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
             {data.sync.error && (
               <span className="bo-error">{data.sync.error}</span>
             )}
-            <span className="bo-footer-end">
-              Model revision {data.model.revision}
-            </span>
           </footer>
         )}
       </div>

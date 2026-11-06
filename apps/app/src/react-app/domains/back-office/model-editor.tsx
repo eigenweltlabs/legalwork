@@ -1,3 +1,4 @@
+import { displayBackOfficeObject } from "./labels";
 import { useState } from "react";
 import {
   ArrowUpRight,
@@ -27,7 +28,7 @@ import {
   type BackOfficeField,
 } from "@legalwork/types/back-office";
 import type { ModelPreview } from "./api";
-import { FieldIcon } from "./record-grid";
+import { FieldIcon } from "./record-values";
 import { DirectoryDialog, DirectorySelect } from "./twenty-controls";
 
 const fieldTypeOrder: BackOfficeField["type"][] = [
@@ -182,7 +183,9 @@ export function ModelEditor({
                 setQuery("");
               },
             },
-            ...(object ? [{ children: object.plural }] : []),
+            ...(object
+              ? [{ children: displayBackOfficeObject(object).plural }]
+              : []),
           ]}
         />
         <h2>
@@ -219,7 +222,11 @@ export function ModelEditor({
             if (typeof value === "string") {
               setTab(value);
               setLabel(object.label);
-              setPlural(object.plural);
+              setPlural(
+                object.plural === "Clients · Mandanten"
+                  ? displayBackOfficeObject(object).plural
+                  : object.plural,
+              );
             }
           }}
         >
@@ -438,8 +445,8 @@ export function ModelEditor({
                   (object) =>
                     !isInternalBackOfficeObject(object.id) &&
                     object.archived === showArchived &&
-                    object.plural
-                      .toLocaleLowerCase()
+                    displayBackOfficeObject(object)
+                      .plural.toLocaleLowerCase()
                       .includes(query.toLocaleLowerCase()),
                 )
                 .map((object) => (
@@ -459,7 +466,7 @@ export function ModelEditor({
                       </>
                     }
                   >
-                    {object.plural}
+                    {displayBackOfficeObject(object).plural}
                   </ListItem>
                 ))}
             </div>
@@ -506,7 +513,7 @@ export function ModelEditor({
                 ...(object
                   ? [
                       {
-                        children: object.plural,
+                        children: displayBackOfficeObject(object).plural,
                         onClick: () => setAdding(null),
                       },
                     ]
@@ -781,7 +788,7 @@ export function ModelEditor({
                               )
                               .map((object) => ({
                                 value: object.id,
-                                label: object.plural,
+                                label: displayBackOfficeObject(object).plural,
                               })),
                           ]}
                         />

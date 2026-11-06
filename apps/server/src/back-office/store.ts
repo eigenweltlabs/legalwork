@@ -14,6 +14,7 @@ import {
   defaultBackOfficeModel,
   readableBackOfficeRecord,
   validateBackOfficeValues,
+  validateBackOfficeView,
   visibleBackOfficeRecord,
   upgradeBackOfficeModel,
   type BackOfficeActor,
@@ -492,19 +493,20 @@ export class BackOfficeStore {
   saveView(scope: string, actor: BackOfficeActor, input: unknown) {
     if (!actor.edit)
       throw new ApiError(403, "back_office_view", "You cannot save views.");
-    const view = BackOfficeViewSchema.parse(input),
-      object = this.model(scope).objects.find(
-        (object) => object.id === view.objectId,
-      );
-    if (
-      !object ||
-      view.columns.some((id) => !object.fields.some((field) => field.id === id))
-    )
+    const patch = z.record(z.string(), z.unknown()).parse(input);
+    const view = BackOfficeViewSchema.parse({
+      ...this.views(scope).find((view) => view.id === patch.id),
+      ...patch,
+    });
+    try {
+      validateBackOfficeView(this.model(scope), view);
+    } catch (error) {
       throw new ApiError(
         400,
         "back_office_view",
-        "Choose fields from the selected object.",
+        error instanceof Error ? error.message : "Check the view settings.",
       );
+    }
     this.transaction(() => {
       this.db.run(
         "INSERT INTO bo_views VALUES(?,?,?) ON CONFLICT(scope,id) DO UPDATE SET data=excluded.data",

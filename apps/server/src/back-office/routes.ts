@@ -63,7 +63,11 @@ export function registerBackOfficeRoutes(options: {
         if (method !== "GET") options.ensureWritable(options.config);
         const access = await backOfficeAccess(
           options.config,
-          ctx.url.searchParams.get("scope") === "team",
+          ctx.url.searchParams.get("scope") === "team"
+            ? true
+            : ctx.url.searchParams.get("scope") === "local"
+              ? false
+              : undefined,
         );
         if (ctx.request.headers.get("x-legalwork-agent"))
           access.actor = { ...access.actor, agentId: "back-office" };
@@ -111,6 +115,7 @@ export function registerBackOfficeRoutes(options: {
       await syncBackOffice(options.config);
     }
     return {
+      scope,
       model: store.model(scope),
       permissions: actor,
       views: store.views(scope),
@@ -414,7 +419,11 @@ export function registerBackOfficeRoutes(options: {
       await options.resolveWorkspace(options.config, ctx.params.id);
       const { scope, actor } = await backOfficeAccess(
           options.config,
-          ctx.url.searchParams.get("scope") === "team",
+          ctx.url.searchParams.get("scope") === "team"
+            ? true
+            : ctx.url.searchParams.get("scope") === "local"
+              ? false
+              : undefined,
         ),
         store = await backOfficeStore(options.config);
       return options.jsonResponse(

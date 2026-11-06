@@ -8,6 +8,7 @@ import {
   type BackOfficeActor,
   type BackOfficeRecord,
   type BackOfficeSnapshot,
+  BackOfficeViewSchema,
 } from "./schema.js";
 import { applyImport, parseCsv, previewImport } from "./import.js";
 import { mergePublishModel } from "./publish-model.js";
@@ -59,6 +60,59 @@ test("publishing rejects conflicting field types or visibility without changing 
   expect(team.objects[0].fields[0].visibility).toBe("normal");
 });
 const opened: BackOfficeStore[] = [];
+
+test("saved views retain all four layouts and validate their grouping and date fields", async () => {
+  const store = await database();
+  const base = {
+    objectId: "matters",
+    name: "View",
+    columns: ["name", "status"],
+  };
+  for (const type of ["table", "kanban", "calendar", "list"]) {
+    const view = store.saveView("local", owner, {
+      ...base,
+      id: crypto.randomUUID(),
+      type,
+      groupField: "status",
+      dateField: "openedOn",
+    });
+    expect(String(view.type)).toBe(type);
+  }
+  expect(store.views("local")).toHaveLength(4);
+  const calendar = store.views("local").find(view => view.type === "calendar")!;
+  expect(store.saveView("local", owner, {id:calendar.id, name:"Older client rename"})).toMatchObject({type:"calendar",dateField:"openedOn"});
+  expect(() =>
+    store.saveView("local", owner, {
+      ...base,
+      id: crypto.randomUUID(),
+      type: "kanban",
+      groupField: "clients",
+    }),
+  ).toThrow("single-relation");
+  expect(() =>
+    store.saveView("local", owner, {
+      ...base,
+      id: crypto.randomUUID(),
+      type: "calendar",
+      dateField: "status",
+    }),
+  ).toThrow("date field");
+  expect(() =>
+    store.saveView(
+      "local",
+      { ...member, edit: false },
+      { ...base, id: crypto.randomUUID() },
+    ),
+  ).toThrow("cannot save");
+  expect(
+    BackOfficeViewSchema.parse({ ...base, id: crypto.randomUUID() }).type,
+  ).toBe("table");
+  const view = store.views("local")[1];
+  store.saveView("local", owner, { ...view, name: "Renamed", archived: true });
+  expect(
+    store.views("local").find((item) => item.id === view.id),
+  ).toMatchObject({ name: "Renamed", archived: true });
+});
 afterEach(() => {
   for (const store of opened.splice(0)) store.close();
 });

@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { backOfficeProjectContext } from "@legalwork/types/back-office";
 import { Input } from "@/components/ui/input";
+import { t } from "@/i18n";
+import { useLocale } from "@/i18n/use-locale";
 import { BackOfficeStateSchema } from "./api";
 
 export function ProjectMatters({
@@ -17,17 +19,17 @@ export function ProjectMatters({
   projectId: string;
   name: string;
 }) {
+  useLocale();
   const navigate = useNavigate(),
     cache = useQueryClient();
-  const [team, setTeam] = useState(false),
-    [choosing, setChoosing] = useState(false),
+  const [choosing, setChoosing] = useState(false),
     [matterId, setMatterId] = useState(""),
     [error, setError] = useState("");
-  const key = ["back-office", client.baseUrl, team];
+  const key = ["back-office", client.baseUrl, "auto"];
   const state = useQuery({
     queryKey: key,
     queryFn: async () =>
-      BackOfficeStateSchema.parse(await client.backOffice("", { team })),
+      BackOfficeStateSchema.parse(await client.backOffice("")),
   });
   const records = state.data?.records ?? [];
   const { links, matters, clients } = backOfficeProjectContext(
@@ -39,7 +41,7 @@ export function ProjectMatters({
   const [newClient, setNewClient] = useState("");
   const mutate = async (body: unknown, path = "/records") => {
     try {
-      await client.backOffice(path, { team, method: "POST", body });
+      await client.backOffice(path, { method: "POST", body });
       await cache.invalidateQueries({
         queryKey: ["back-office", client.baseUrl],
       });
@@ -61,15 +63,6 @@ export function ProjectMatters({
           Matters
         </h3>
         <div className="flex items-center gap-2">
-          <select
-            className="bg-transparent text-xs text-muted-foreground"
-            aria-label="Matter directory"
-            value={team ? "team" : "local"}
-            onChange={(event) => setTeam(event.target.value === "team")}
-          >
-            <option value="local">This computer</option>
-            <option value="team">Team</option>
-          </select>
           <Button
             size="sm"
             variant="ghost"
@@ -90,9 +83,7 @@ export function ProjectMatters({
             >
               <button
                 onClick={() =>
-                  navigate(
-                    `/back-office/matters?record=${matter.id}${team ? "&directory=team" : ""}`,
-                  )
+                  navigate(`/back-office/matters?record=${matter.id}`)
                 }
               >
                 {String(matter.values.name)}
@@ -129,7 +120,7 @@ export function ProjectMatters({
       )}
       {clients.length > 0 && (
         <p className="mt-2 text-xs text-muted-foreground">
-          Clients ·{" "}
+          {t("back_office.clients.plural")} ·{" "}
           {clients.map((client) => String(client.values.name)).join(", ")}
         </p>
       )}
