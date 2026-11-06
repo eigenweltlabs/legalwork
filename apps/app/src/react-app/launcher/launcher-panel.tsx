@@ -49,7 +49,7 @@ import { readHiddenItems, writeHiddenItems, type HiddenLauncherItem } from "./la
 import { LauncherRowMenu } from "./launcher-row-menu";
 import { LauncherTaskDetail, useLauncherDetailItems, type LauncherDetail } from "./launcher-details";
 import { readLauncherRecents, updateLauncherRecent, rememberLauncherOpen, suggestedRecents } from "./launcher-recents";
-import { canCopyLauncherResult, launcherClipboardText, launcherLocalPaths } from "./launcher-clipboard";
+import { canCopyLauncherResult, copyLauncherText, launcherClipboardText, launcherLocalPaths } from "./launcher-clipboard";
 import "./launcher.css";
 
 const KIND_HINT: Record<LauncherSearchKind, string> = { files: "launcher.kind.files", projects: "launcher.kind.projects", chats: "launcher.kind.chats", tasks: "launcher.kind.tasks", recordings: "launcher.kind.recordings" };
@@ -279,7 +279,7 @@ export function LauncherPanel() {
         const selection = launcherActionSelection(result, state.results, state.multiSelect);
         const paths = await launcherLocalPaths(selection, client);
         await launcherClipboardCopyFiles(client.baseUrl, paths);
-      } else await navigator.clipboard.writeText(await launcherClipboardText(result, client));
+      } else await copyLauncherText(await launcherClipboardText(result, client));
       notify({ tone: "info", text: t("launcher.notice.copied") });
     } catch { notify({ tone: "error", text: t("launcher.notice.copy_failed") }); }
     finally { copyingRef.current = false; }
@@ -550,7 +550,7 @@ export function LauncherPanel() {
     switch (action) {
       case "open": case "resume": case "play": rememberLauncherOpen(client.baseUrl, result); openInApp(route); if (surface === "panel") dismiss(); return;
       case "reveal": case "open-external": { try { await openExternalResult(result, action === "reveal"); } catch (error) { notify({ tone: "error", text: String(error) }); } return; }
-      case "copy-reference": await navigator.clipboard.writeText(`${result.subtitle ? `${result.subtitle}: ` : ""}${result.path ?? result.title}`); notify({ tone: "info", text: t("launcher.notice.copied") }); return;
+      case "copy-reference": await copyLauncherText(`${result.subtitle ? `${result.subtitle}: ` : ""}${result.path ?? result.title}`); notify({ tone: "info", text: t("launcher.notice.copied") }); return;
       case "pin": setPins(togglePinnedResult(result)); return;
       case "copy-to-project": case "move-to-project": store.setOverlay({ kind: "actions", resultKey: resultKey(result) }); return;
       case "complete": case "reopen": {
@@ -913,7 +913,7 @@ export function LauncherPanel() {
   const renderNavigationRows = (rows: NavigationRow[]) => <LauncherNavigationRows onOpenActions={id => openActions(id)} rows={rows.filter(row => navigationRows.some(visible => visible.id === row.id)).map(row => ({ ...row, run: () => { if (!sendingRef.current && !uploadingRef.current) return row.run(); } }))} selected={selected?.id ?? null} onSelect={id => store.select({ id, source: "user" })} onError={error => notify({ tone: "error", text: String(error) })} />;
   const copyCalculation = async () => {
     if (calculation?.value === null || !calculation) return;
-    try { await navigator.clipboard.writeText(calculation.value); notify({ tone: "info", text: t("launcher.notice.copied") }); }
+    try { await copyLauncherText(calculation.value); notify({ tone: "info", text: t("launcher.notice.copied") }); }
     catch { notify({ tone: "error", text: t("launcher.calculator.copy_failed") }); }
   };
   const goBack = async () => {

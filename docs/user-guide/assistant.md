@@ -257,7 +257,12 @@ aliases and saved quick actions are configured in **Settings > Assistant
 launcher**. Quick actions can copy or insert their answer; pending outputs are
 recovered after a restart, with uncertain pastes retained for review instead
 of being repeated automatically.
-If copying or inserting fails, a notice explains the failure. Use **Copy** or
+The latest finished answer has one **Copy reply** button. **Save as document…**
+opens the document form so you can choose its project, folder and name. Older
+answers retain their individual copy buttons. **Project-bound chat session**
+means the conversation belongs to the selected project.
+
+If copying or inserting fails, a notice explains the failure. Use **Copy reply** or
 **Insert** to retry deliberately; the app never repeats an uncertain paste on
 its own. Turning off remembered position opens the mini-bar at its default
 location. Pressing the opening shortcut again also cancels an opening window

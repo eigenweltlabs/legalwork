@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import type { LauncherSearchResult } from "@legalwork/types/launcher";
 import type { LegalworkServerClient } from "../src/app/lib/legalwork-server";
-import { canCopyLauncherResult, launcherClipboardText, launcherLocalPaths } from "../src/react-app/launcher/launcher-clipboard";
+import { canCopyLauncherResult, copyLauncherText, launcherClipboardText, launcherLocalPaths } from "../src/react-app/launcher/launcher-clipboard";
 
 const item = (kind: LauncherSearchResult["kind"]): LauncherSearchResult => ({ id: "one", kind, workspaceId: "w", sourceId: "w", title: "Title", updatedAt: 0, match: "recent", score: 1, actions: ["open"] });
 const unused = async () => { throw new Error("Unexpected call"); };
@@ -53,4 +53,34 @@ test("added-folder paths are resolved from current configuration and stale selec
     launcherFolders: async () => ({ folders: [{ id: "library", name: "Library", path: "/real/library", createdAt: 0 }] }),
   })).toEqual(["/real/library/Notes.md", "/real/library/nested"]);
   await expect(launcherLocalPaths([file, folder], { visibleLauncherFiles: async () => ({ items: [file] }), listWorkspaces: unused, launcherFolders: unused, launcherFolderFile: unused })).rejects.toThrow();
+});
+
+
+test("panel text copying uses the desktop bridge even when browser clipboard permission is denied", async () => {
+  const previousWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+  const previousNavigator = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  const writes: string[] = [];
+  let browserCalls = 0;
+  Object.defineProperty(globalThis, "window", { configurable: true, value: { __LEGALWORK_ELECTRON__: {
+    invokeDesktop: async (command: string, text: string) => { expect(command).toBe("launcherClipboardWrite"); writes.push(text); },
+  } } });
+  Object.defineProperty(globalThis, "navigator", { configurable: true, value: { clipboard: {
+    writeText: async () => { browserCalls++; throw new Error("Document is not focused"); },
+  } } });
+  try {
+    await copyLauncherText("Complete reply\nWith another paragraph");
+    expect(writes).toEqual(["Complete reply\nWith another paragraph"]);
+    expect(browserCalls).toBe(0);
+    Reflect.deleteProperty(globalThis, "window");
+    await expect(copyLauncherText("Web reply")).rejects.toThrow("Document is not focused");
+    expect(browserCalls).toBe(1);
+    Object.defineProperty(globalThis, "navigator", { configurable: true, value: { clipboard: { writeText: async (text: string) => { writes.push(text); } } } });
+    await copyLauncherText("Web reply");
+    expect(writes.at(-1)).toBe("Web reply");
+  } finally {
+    if (previousWindow) Object.defineProperty(globalThis, "window", previousWindow);
+    else Reflect.deleteProperty(globalThis, "window");
+    if (previousNavigator) Object.defineProperty(globalThis, "navigator", previousNavigator);
+    else Reflect.deleteProperty(globalThis, "navigator");
+  }
 });

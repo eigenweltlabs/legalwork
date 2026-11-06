@@ -17,6 +17,7 @@ import { workspaceSessionRoute } from "@/react-app/shell/workspace-routes";
 import { useLauncherShell } from "./launcher-shell";
 import { useLauncherStore, type LauncherConversationBinding } from "./launcher-store";
 import { nextSubmissionPollMs } from "./submission-identity";
+import { copyLauncherText } from "./launcher-clipboard";
 
 /** Keep polling one identified request until the engine answered; retries never create a second message. */
 export function useSubmissionStatus(requestId: string | null, onChange: (submission: AssistantSubmission) => void) {
@@ -106,7 +107,7 @@ export function LauncherConversation({ conversation, submission, pendingOutput, 
     return text ? { id: last.id, text } : null;
   }, [messages]);
   const copyReply = async (text: string) => {
-    try { await navigator.clipboard.writeText(text); notify({ tone: "info", text: t("launcher.notice.copied") }); }
+    try { await copyLauncherText(text); notify({ tone: "info", text: t("launcher.notice.copied") }); }
     catch { notify({ tone: "error", text: t("launcher.notice.copy_failed") }); }
   };
   const insertReply = async (text: string, originId: string | null = origin?.id ?? null) => {
@@ -156,7 +157,7 @@ export function LauncherConversation({ conversation, submission, pendingOutput, 
     <AttentionCards items={attention} busy={busy} onReply={reply} onOpen={item => openInApp(workspaceSessionRoute(item.workspaceId, item.sessionId))} />
     {snapshot.isError && <p role="alert" className="launcher-status"><AlertTriangle className="size-3.5" />{t("launcher.conversation.unavailable")} <button className="underline" onClick={() => void snapshot.refetch()}>{t("assistant.attention_retry")}</button></p>}
     <OpenTargetProvider openTargets={[]} onOpenTarget={() => openInApp(workspaceSessionRoute(conversation.workspaceId, conversation.sessionId))}>
-      <MessageListProvider legalworkClient={client} workspaceId={conversation.workspaceId} sessionId={conversation.sessionId} readOnly assistantChat showThinking={false} developerMode={false} displaySuggestions={false} providerConnectedCount={1}
+      <MessageListProvider onCopyMessage={copyLauncherText} replyActionsMessageId={status === "ready" ? lastReply?.id : undefined} legalworkClient={client} workspaceId={conversation.workspaceId} sessionId={conversation.sessionId} readOnly assistantChat showThinking={false} developerMode={false} displaySuggestions={false} providerConnectedCount={1}
         dispatchAction={() => openInApp("/settings/ai")} setPrompt={prompt => useLauncherStore.getState().setInput(prompt)} onRevertToUserMessage={() => undefined} onForkAtMessage={() => undefined} onEditUserMessage={() => undefined}>
         {snapshot.isPending ? <div className="launcher-status"><Loader2 className="size-3.5 animate-spin motion-reduce:animate-none" />{t("launcher.conversation.loading")}</div>
           : messages.length ? <MessageList showWelcome={false} messages={messages} status={status} /> : <p className="launcher-empty">{t("launcher.conversation.empty")}</p>}

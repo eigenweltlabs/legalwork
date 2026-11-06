@@ -3,6 +3,7 @@ import { launcherOutputCancel, launcherOutputList } from "@/app/lib/desktop";
 import { Button } from "@/components/ui/button";
 import { t } from "@/i18n";
 import { useLauncherStore } from "./launcher-store";
+import { copyLauncherText } from "./launcher-clipboard";
 
 export function LauncherOutputHistory({ visible }: { visible: boolean }) {
   const notify = useLauncherStore(state => state.notify);
@@ -22,7 +23,7 @@ export function LauncherOutputHistory({ visible }: { visible: boolean }) {
     <ul>{[...tasks.filter(task => task.state === "waiting" || task.state === "delivering"), ...tasks.filter(task => task.state !== "waiting" && task.state !== "delivering").slice(0, 50)].map(task => <li key={task.requestId}>
       <div><strong>{t(`launcher.output.${task.state === "done" ? task.result ?? "copied" : task.state}`)}</strong><time dateTime={new Date(task.createdAt).toISOString()}>{new Date(task.createdAt).toLocaleString()}</time>
         {task.error && <p role="status">{task.error}</p>}{task.text && <p className="launcher-output-preview">{task.text}</p>}</div>
-      {task.text && <Button size="sm" variant="ghost" onClick={() => void act(async () => { await navigator.clipboard.writeText(task.text ?? ""); notify({ tone: "info", text: t("launcher.notice.copied") }); })}>{t("launcher.output.copy")}</Button>}
+      {task.text && <Button size="sm" variant="ghost" onClick={() => void act(async () => { await copyLauncherText(task.text ?? ""); notify({ tone: "info", text: t("launcher.notice.copied") }); })}>{t("launcher.output.copy")}</Button>}
       {task.state === "waiting" && <Button size="sm" variant="ghost" onClick={() => void act(() => launcherOutputCancel(task.requestId))}>{t("launcher.output.cancel")}</Button>}
     </li>)}</ul>
   </details>;

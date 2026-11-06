@@ -2850,6 +2850,10 @@ const desktopCommandHandlers = {
   "launcherClipboardRead": async (event, ...args) => {
       return { text: clipboard.readText(), capturedAt: Date.now() };
   },
+  "launcherClipboardWrite": async (event, text) => {
+      if (typeof text !== "string") throw new TypeError("Clipboard text must be a string.");
+      clipboard.writeText(text);
+  },
   "launcherClipboardCopyFiles": async (event, serverUrl, paths) => {
       const info = assertLegalworkServerReady(await runtimeManager.legalworkServerInfo());
       if (new URL(serverUrl).href.replace(/\/$/, "") !== new URL(info.baseUrl).href.replace(/\/$/, "")) throw new Error("Only files on this desktop can be copied to the clipboard.");

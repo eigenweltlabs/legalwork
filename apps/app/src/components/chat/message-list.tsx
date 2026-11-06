@@ -357,15 +357,16 @@ interface CopyMessageButtonProps {
 }
 
 function useCopyMessage() {
-  const { workspaceId, legalworkClient } = useMessageList();
+  const { workspaceId, legalworkClient, onCopyMessage } = useMessageList();
   const files = useProjectFiles();
-  return React.useCallback((text: string) => copyMessageWithAttachments(text, file => {
+  return React.useCallback((text: string) => onCopyMessage ? onCopyMessage(text) : copyMessageWithAttachments(text, file => {
     const source = legalworkClient && files?.identify(legalworkClient, workspaceId, file);
     return source && files ? { source, projectName: files.sourceProject(source).name } : null;
-  }), [workspaceId, legalworkClient, files]);
+  }), [workspaceId, legalworkClient, files, onCopyMessage]);
 }
 
 function CopyMessageButton({ messages }: CopyMessageButtonProps) {
+  const { replyActionsMessageId } = useMessageList();
   const copyMessage = useCopyMessage();
   const [copied, setCopied] = React.useState(false)
   const text = React.useMemo(() => getMessagesText(messages), [messages])
@@ -384,7 +385,7 @@ function CopyMessageButton({ messages }: CopyMessageButtonProps) {
     }
   }, [text, copyMessage])
 
-  if (!text) {
+  if (!text || messages.at(-1)?.id === replyActionsMessageId) {
     return null
   }
 

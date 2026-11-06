@@ -2,6 +2,14 @@ import type { LauncherSearchResult } from "@legalwork/types/launcher";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { resultKey } from "./launcher-search-session";
 import { t } from "@/i18n";
+import { launcherClipboardWrite } from "@/app/lib/desktop";
+import { isDesktopRuntime } from "@/app/utils";
+
+/** The desktop panel uses native clipboard access, independent of browser focus/permissions. */
+export async function copyLauncherText(text: string) {
+  if (isDesktopRuntime()) await launcherClipboardWrite(text);
+  else await navigator.clipboard.writeText(text);
+}
 
 export function canCopyLauncherResult(result: LauncherSearchResult, localFiles: boolean) {
   return result.kind === "files" ? localFiles && Boolean(result.workspaceId || result.folderId) : result.kind === "recordings";
