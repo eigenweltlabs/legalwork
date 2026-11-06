@@ -54,3 +54,9 @@ The graph uses a compact projection, a worker layout for smaller graphs and GPU 
 ## Verification
 
 Run app and server type checks and test suites, plus `bun test packages/openui/src`. The synthetic fixture and reproducible example prompts are described in [wiki-demo-flows.md](wiki-demo-flows.md). Real shared-wiki tests require the companion firm API and their configured test environment.
+
+## Project contributions and approval
+
+`WikiRegistration.requireAgentApproval` defaults to true except for the automatically generated research wiki, which defaults to false. Existing default research wikis adopt false only when the field is absent; explicit choices survive upgrades. The owner changes it under Settings > Agent access. External project agents always use the contribution routes; direct page writes/deletes remain blocked. With approval disabled, authenticated agent POST/PUT contributions publish through `WikiStore.writeContribution`, with fresh access checks, immutable staged bytes and exact page revisions. The store serializes the setting change with publication. Human draft edits remain pending and the Save/Dismiss routes remain human-only. Background results return `status: saved` and do not open review tabs.
+
+Published source attachments use `Sources/<filename>` directly, reuse identical bytes and choose numbered filenames for collisions. Portable links are regenerated against the final paths. The normal viewer opens immutable draft sources in separate read-only tabs via the revision-checked attachment API. Source sections use ordinary Markdown. Rich editing suppresses only the legacy internal source markers, preserving their links.

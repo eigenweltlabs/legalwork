@@ -13,6 +13,7 @@ import { isSubagentTool } from "./subagent-tool";
 import { isReasoningUIPart, isToolUIPart, type DynamicToolUIPart, type FileUIPart, type ReasoningUIPart, type ToolUIPart, type UIMessage } from "ai"
 import type { ThreadStatus } from "@/lib/messages"
 import { t } from "@/i18n";
+import { attachmentFilename } from "@/app/lib/attachment-filename";
 
 interface MessageGroup {
   messages: UIMessageWithIndex[]
@@ -44,14 +45,14 @@ export function getLastTextPart(message: UIMessage): UIMessage | null {
 
 export function getFileTitle(part: FileUIPart) {
   if (part.filename) {
-    return part.filename
+    return attachmentFilename(part.filename.replaceAll("\\", "/"))
   }
 
   if (part.url.startsWith("data:")) {
     return t("tool.attached_file")
   }
 
-  return part.url || "File"
+  return attachmentFilename(part.url.replaceAll("\\", "/")) || "File"
 }
 
 export function getMediaBadge(part: FileUIPart) {
@@ -217,6 +218,12 @@ export function groupAssistantToolRuns(items: UIMessageWithIndex[], showThinking
     }
   }
   return result
+}
+
+/** Only a trailing tool row can carry the live status in place. Rich cards cannot. */
+export function hasToolRunTail(items: UIMessageWithIndex[], showThinking: boolean): boolean {
+  const tail = groupAssistantToolRuns(items, showThinking).at(-1);
+  return Boolean(tail && getAssistantRenderGroups(tail.message.parts, showThinking).at(-1)?.kind === "tools");
 }
 
 export function getAssistantRenderGroups(

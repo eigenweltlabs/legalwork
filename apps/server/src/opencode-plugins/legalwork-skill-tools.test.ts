@@ -256,3 +256,17 @@ test("editing an existing tabular workflow keeps its original callable name", as
   expect(result).toMatchObject({ ok: true, name: "workflow-tabular-lease-terms", workflowType: "assistant" });
   expect(requests.find(request => request.method === "POST")?.body).toMatchObject({ name: "workflow-tabular-lease-terms" });
 });
+
+
+test("configured skill resources are used without speculative template reconfirmation", async () => {
+  const plugin = await LegalWorkSkillTools();
+  try {
+    const context: { system: Array<{ type: "text"; text: string }> } = { system: [] };
+    await plugin.runtime.hook("session", "context", context);
+    const guidance = context.system.map(item => item.text).join("\n");
+    expect(guidance).toContain("load and use its configured resources, templates and defaults");
+    expect(guidance).toContain("Do not ask the user to reconfirm the firm name");
+    expect(guidance).toContain("an approval the skill or tool explicitly requires");
+    expect(guidance).toContain("missing facts about a future case do not block recording its condition");
+  } finally { await plugin.close(); }
+});

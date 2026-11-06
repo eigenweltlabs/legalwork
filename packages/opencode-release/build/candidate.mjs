@@ -11,6 +11,7 @@ import { macSigningBuildInputs, signMacEngine, validateMacSigningConfiguration }
 const directory = path.dirname(fileURLToPath(import.meta.url));
 const repository = path.resolve(directory, "../../..");
 export const sha256 = bytes => createHash("sha256").update(bytes).digest("hex");
+const upstreamInputs = { lockfile: "bun.lock", rootPackage: "package.json" };
 
 export function validateRecipe(recipe) {
   if (recipe.schemaVersion !== 1 || recipe.kind !== "legalwork-patched-source-build"
@@ -19,7 +20,11 @@ export function validateRecipe(recipe) {
   if (!/^[a-f0-9]{40}$/.test(recipe.upstream?.commit) || recipe.upstream.repository !== "https://github.com/anomalyco/opencode.git") throw new Error("The exact upstream source identity is required.");
   if (JSON.stringify([...recipe.targets].sort()) !== JSON.stringify(Object.keys(opencodeRelease.packages).sort())) throw new Error("The patched recipe must retain the complete official target matrix.");
   for (const name of ["patch", "lockfile", "rootPackage", "testReceipt"]) {
-    if (!recipe.inputs?.[name]?.path || !/^[a-f0-9]{64}$/.test(recipe.inputs[name].sha256)) throw new Error(`Missing pinned build input: ${name}`);
+    const pin = recipe.inputs?.[name];
+    if (!pin || !/^[a-f0-9]{64}$/.test(pin.sha256)
+      || (Object.hasOwn(upstreamInputs, name)
+        ? pin.upstreamPath !== upstreamInputs[name] || pin.path !== undefined
+        : !pin.path || pin.upstreamPath !== undefined)) throw new Error(`Missing or invalid pinned build input: ${name}`);
   }
 }
 
@@ -47,6 +52,7 @@ export async function verifyInputs(recipe, root = repository) {
   validateRecipe(recipe);
   const inputs = {};
   for (const [name, pin] of Object.entries(recipe.inputs)) {
+    if (Object.hasOwn(upstreamInputs, name)) continue;
     const source = path.resolve(root, pin.path), relative = path.relative(root, source);
     if (relative.startsWith("..") || path.isAbsolute(relative)) throw new Error("Build input escapes the reviewed repository.");
     const bytes = await readFile(source);
@@ -54,6 +60,17 @@ export async function verifyInputs(recipe, root = repository) {
     inputs[name] = bytes;
   }
   return inputs;
+}
+
+/** Check downloaded source before installing dependencies or compiling it.
+ * Warm artifact verification uses the pinned recipe and needs no source download. */
+export async function verifyUpstreamSource(recipe, source) {
+  validateRecipe(recipe);
+  if (await run("git", ["rev-parse", "HEAD"], { cwd: source, capture: true }) !== recipe.upstream.commit) throw new Error("The source checkout is not the reviewed upstream commit.");
+  for (const [name, filename] of Object.entries(upstreamInputs)) {
+    const input = path.join(source, filename);
+    if (!(await lstat(input)).isFile() || sha256(await readFile(input)) !== recipe.inputs[name].sha256) throw new Error(`Frozen upstream dependency input changed: ${filename}`);
+  }
 }
 
 export function verifyCompiler(recipe, bytes, host = `${process.platform}-${process.arch}`) {
@@ -126,10 +143,7 @@ export async function buildCandidate({ output, bun, target = opencodeReleaseTarg
   const bunVersion = await run(runtime, ["--version"], { capture: true });
   if (bunVersion !== recipe.toolchain.bun) throw new Error(`Pinned build requires Bun ${recipe.toolchain.bun}; received ${bunVersion}.`);
   const prepared = path.resolve(preparedSource);
-  if (await run("git", ["rev-parse", "HEAD"], { cwd: prepared, capture: true }) !== recipe.upstream.commit) throw new Error("The prepared source checkout is not the reviewed upstream commit.");
-  for (const [name, filename] of [["rootPackage", "package.json"], ["lockfile", "bun.lock"]]) {
-    if (sha256(await readFile(path.join(prepared, filename))) !== recipe.inputs[name].sha256) throw new Error(`The tested official build input changed: ${filename}`);
-  }
+  await verifyUpstreamSource(recipe, prepared);
   if (Boolean(reuseArtifact) !== Boolean(reuseProvenanceSha256)) throw new Error("Staging reuse requires its independently reviewed candidate artifact and provenance SHA256 together.");
   const previous = reuseArtifact ? await verifyOpencodeCandidate({ directory: reuseArtifact, provenanceSha256: reuseProvenanceSha256 }) : undefined;
   const reused = previous ? await realpath(path.resolve(previous.directory, "..", "source")) : undefined;
@@ -155,14 +169,11 @@ export async function buildCandidate({ output, bun, target = opencodeReleaseTarg
   await applyReviewedPatch(reference, patch);
   const changed = (await run("git", ["diff", "--name-only", "HEAD"], { cwd: reference, capture: true })).split("\n").filter(Boolean).sort();
   for (const input of reused ? [prepared, reused] : [prepared]) {
-    if (await run("git", ["rev-parse", "HEAD"], { cwd: input, capture: true }) !== commit) throw new Error("The prepared staging source commit changed.");
+    await verifyUpstreamSource(recipe, input);
     const inputChanged = (await run("git", ["diff", "--name-only", "HEAD"], { cwd: input, capture: true })).split("\n").filter(Boolean).sort();
     if (JSON.stringify(changed) !== JSON.stringify(inputChanged)) throw new Error("The prepared checkout contains unreviewed source changes.");
     for (const filename of changed) {
       if (sha256(await readFile(path.join(input, filename))) !== sha256(await readFile(path.join(reference, filename)))) throw new Error(`The tested patch does not match the reviewed source: ${filename}`);
-    }
-    for (const [name, filename] of [["rootPackage", "package.json"], ["lockfile", "bun.lock"]]) {
-      if (sha256(await readFile(path.join(input, filename))) !== recipe.inputs[name].sha256) throw new Error(`The prepared staging input changed: ${filename}`);
     }
   }
   const source = reused ?? reference;

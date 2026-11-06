@@ -5,7 +5,7 @@ export { sandboxSettingsSchema, type SandboxSettings } from "./settings-schema.j
 import { DEFAULT_SANDBOX_SETTINGS, type SandboxSettings } from "./settings-schema.js";
 import type { ServerConfig } from "../types.js";
 import { appliedOrgPolicy, readOrgPolicyView, requireOrgPolicyUnmanaged } from "../org-policy.js";
-import { GLOBAL_TOOL_PERMISSIONS_ID, readRuntimeOpencodeConfig, writeRuntimeOpencodeConfig } from "../runtime-opencode-config-store.js";
+import { GLOBAL_TOOL_PERMISSIONS_ID, readRuntimeOpencodeConfig, writeSandboxRuntimeConfig } from "../runtime-opencode-config-store.js";
 
 const locks = new WeakMap<ServerConfig, Promise<unknown>>();
 export function withSandboxSettingsLock<T>(config: ServerConfig, work: () => Promise<T>): Promise<T> {
@@ -15,6 +15,11 @@ export function withSandboxSettingsLock<T>(config: ServerConfig, work: () => Pro
 }
 export const SANDBOX_DEFAULT_ID = "__sandbox_default__";
 export const sandboxSessionId = (workspace: string, session: string) => `__sandbox_session__${JSON.stringify([workspace, session])}`;
+export function sandboxSettingsWorkspace(id: string): string | undefined {
+  if (!id.startsWith("__sandbox_session__")) return undefined;
+  const value: unknown = JSON.parse(id.slice("__sandbox_session__".length));
+  return Array.isArray(value) && value.length === 2 && typeof value[0] === "string" && typeof value[1] === "string" ? value[0] : undefined;
+}
 type Listener = (config: ServerConfig, id: string) => Promise<void>;
 const listeners = new Set<Listener>();
 export function onSandboxSettingsChange(listener: Listener): () => void {
@@ -42,7 +47,7 @@ export async function applicationSandbox(config: ServerConfig) {
 export async function writeSandboxDefault(config: ServerConfig, settings: SandboxSettings, account?: string | null): Promise<void> {
   await withSandboxSettingsLock(config, async () => {
     await requireOrgPolicyUnmanaged(config, "sandbox");
-    await writeRuntimeOpencodeConfig(config, SANDBOX_DEFAULT_ID, row => ({ ...row, sandbox: settings, sandboxEdit: randomUUID(),
+    await writeSandboxRuntimeConfig(config, { kind: "default" }, row => ({ ...row, sandbox: settings, sandboxEdit: randomUUID(),
       sandboxSync: account === undefined ? (row.sandboxSync ? { ...row.sandboxSync, dirty: true } : undefined)
         : account ? { account, revision: row.sandboxSync?.account === account ? row.sandboxSync.revision : 0, dirty: true } : undefined }));
     await notifySandboxSettingsChange(config, SANDBOX_DEFAULT_ID);
@@ -54,7 +59,7 @@ export async function writeSandboxNetworkMode(config: ServerConfig, mode: Networ
 export async function writeSessionSandbox(config: ServerConfig, workspace: string, session: string, settings: SandboxSettings | null): Promise<void> {
   if ((await appliedOrgPolicy(config, "sandbox"))?.mode === "enforced") await requireOrgPolicyUnmanaged(config, "sandbox");
   const id = sandboxSessionId(workspace, session);
-  await writeRuntimeOpencodeConfig(config, id, () => ({ ...(settings ? { sandbox: settings } : {}), sandboxEdit: randomUUID() }));
+  await writeSandboxRuntimeConfig(config, { kind: "session", workspaceId: workspace, sessionId: session }, () => ({ sandbox: settings ?? undefined, sandboxEdit: randomUUID() }));
   await notifySandboxSettingsChange(config, id);
 }
 /** Lineage is resolved from the engine by the server, never supplied by the agent. */

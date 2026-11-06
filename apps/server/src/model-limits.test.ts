@@ -33,7 +33,7 @@ describe("resolveModelLimit", () => {
     expect(resolveModelLimit({ context: 0 }).limit.context).toBe(DEFAULT_CONTEXT_LIMIT);
   });
 
-  test("always returns both keys — the engine rejects a limit block missing either", () => {
+  test("resolves complete manifest limits when the source has no counts", () => {
     const { limit } = resolveModelLimit({});
     expect(Object.keys(limit).sort()).toEqual(["context", "output"]);
     expect(limit).toEqual({ context: DEFAULT_CONTEXT_LIMIT, output: 32_000 });
@@ -77,25 +77,20 @@ describe("buildEigenweltModelsMap", () => {
     ).toEqual({
       "Eigenwelt Europe Gemini": {
         name: "Eigenwelt Europe Gemini",
-        tool_call: true,
-        reasoning: false,
+        settings: {}, body: {}, capabilities: { tools: true, reasoning: { supported: false } },
         limit: { context: 1_048_576, output: 65_536 },
       },
       "Eigenwelt Europe GLM": {
         name: "Eigenwelt Europe GLM",
-        tool_call: true,
-        reasoning: false,
+        settings: {}, body: {}, capabilities: { tools: true, reasoning: { supported: false } },
         limit: { context: 1_048_576, output: 32_000 },
       },
-      Bare: { name: "Bare", tool_call: true, reasoning: false, limit: { context: 128_000, output: 32_000 } },
+      Bare: { name: "Bare", settings: {}, body: {}, capabilities: { tools: true, reasoning: { supported: false } }, limit: { context: 128_000, output: 32_000 } },
     });
   });
 
   test("no model is left on the old hardcoded 16,384", () => {
-    const built = buildEigenweltModelsMap([{ id: "a", contextLength: 1_048_576 }]) as Record<
-      string,
-      { limit: { output: number } }
-    >;
-    expect(built.a!.limit.output).not.toBe(16_384);
+    const built = buildEigenweltModelsMap([{ id: "a", contextLength: 1_048_576 }]);
+    expect(built.a?.limit?.output).not.toBe(16_384);
   });
 });

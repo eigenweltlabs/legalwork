@@ -82,7 +82,7 @@ export function FirmConnectorAccessSettings(props: {
 }
 
 /** Team-owned config stays managed by the hub; only optional membership and the member's account can change here. */
-export function FirmConnectorRow(props: { item: FirmHubItem; client: LegalworkServerClient; statuses: McpStatusMap; busy: boolean; onSignIn: (name: string, url: string) => void; onChanged?: () => void }) {
+export function FirmConnectorRow(props: { inline?: boolean; item: FirmHubItem; client: LegalworkServerClient; statuses: McpStatusMap; busy: boolean; onSignIn: (name: string, url: string) => void; onChanged?: () => void }) {
   const queryClient = useQueryClient();
   const [busy, setBusy] = useState(false);
   const [keyOpen, setKeyOpen] = useState(false);
@@ -118,7 +118,10 @@ export function FirmConnectorRow(props: { item: FirmHubItem; client: LegalworkSe
     props.onChanged?.();
   }
 
+  const settings = <FirmConnectorAccessSettings item={item} status={connector ? props.statuses[connector.serverName] : undefined} busy={props.busy || busy}
+          onAddedChange={added => { if (added) setConfirmAdd(true); else void setAdded(false); }} onSignIn={signIn} onManageKey={() => setKeyOpen(true)} />;
   return <>
+    {props.inline ? settings : <>
     <IntegrationLibraryRow name={name} description={item.description} icon={<span className="grid size-9 shrink-0 place-items-center rounded-xl border border-border"><Plug className="size-4 text-muted-foreground" /></span>} source={t("firm_hub.scope_team")} status={<ConnectorStatus state={state} />} busy={props.busy || busy} onOpen={() => setDetailsOpen(true)}
       actions={canSignIn ? <DropdownMenuItem disabled={props.busy || busy} onClick={signIn}><LogIn />{t("firm_hub.sign_in")}</DropdownMenuItem> : undefined} />
     <Dialog open={detailsOpen} onOpenChange={setDetailsOpen}>
@@ -130,10 +133,10 @@ export function FirmConnectorRow(props: { item: FirmHubItem; client: LegalworkSe
             <span className="block text-xs">{t(item.installation === "automatic" ? "integrations.team_managed" : "integrations.team_optional")}</span>
           </DialogDescription>
         </DialogHeader>
-        <FirmConnectorAccessSettings item={item} status={connector ? props.statuses[connector.serverName] : undefined} busy={props.busy || busy}
-          onAddedChange={added => { if (added) setConfirmAdd(true); else void setAdded(false); }} onSignIn={signIn} onManageKey={() => setKeyOpen(true)} />
+        {settings}
       </DialogContent>
     </Dialog>
+    </>}
     {keyOpen ? <MemberKeyDialog name={name} onSave={saveKey} onClose={() => setKeyOpen(false)} /> : null}
     <ConfirmModal open={confirmAdd} title={t("firm_hub.add_review_title", { name })} message={t("integrations.team_add_review")} confirmLabel={t("firm_hub.add")} cancelLabel={t("common.cancel")} variant="warning" onCancel={() => setConfirmAdd(false)} onConfirm={() => { setConfirmAdd(false); void setAdded(true); }} />
   </>;

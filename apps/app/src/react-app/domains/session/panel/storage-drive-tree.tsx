@@ -9,6 +9,7 @@ import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronRight, FolderPlus, Loader2, LockKeyhole, RefreshCw, Upload } from "lucide-react";
 import { type StorageEntry, type StorageRoot, type StorageTransferProgress } from "@legalwork/types/file-storage";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
+import { storageDisplayPath } from "@/app/lib/storage-display-path";
 import { readStorageDrop, storageUploadFiles, uploadStorageBatch, type StorageUploadBatch } from "@/app/lib/storage-upload";
 import { canDropStorageEntry, hasStorageEntryDrag, readStorageEntryDrag, writeStorageEntryDrag, type StorageEntryDragItem } from "@/app/lib/storage-entry-drag";
 import { hasTaskAttachmentDrag, readTaskAttachmentDrag, type TaskAttachmentDragItem } from "@/app/lib/task-attachment-drag";
@@ -374,7 +375,7 @@ function StorageFolder(props: FolderProps) {
           aria-expanded={open}
           aria-busy={isPending || undefined}
           disabled={isPending}
-          title={path || name}
+          title={storageDisplayPath(root, path) || name}
           draggable={Boolean(path) && !busy}
           onDragStart={(event) => {
             event.stopPropagation();
@@ -499,7 +500,7 @@ function StorageFolder(props: FolderProps) {
                 onDragStart={(event) => { props.onDragItem(writeStorageEntryDrag(event.dataTransfer, workspaceId, root, entry)); projectFiles?.drag(event.dataTransfer, client, workspaceId, { path: entry.path, name: entry.name, connectionId: root.id }); }}
                 onDragEnd={() => props.onDragItem(null)}
                 onClick={() => onFile(entry)}
-                title={entry.path}
+                title={storageDisplayPath(root, entry.path)}
                 style={{ paddingLeft: 40 + depth * 15 }}
                 className="flex min-h-9 min-w-0 flex-1 items-center gap-2 rounded-lg pr-2 text-left text-[13px] hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
               >

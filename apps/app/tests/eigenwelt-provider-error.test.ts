@@ -41,7 +41,7 @@ describe("isEigenweltModelDisabledError", () => {
     expect(text).toBe(t("session_route.model_unavailable"));
     expect(text).not.toContain(eigenweltSignInExpiredMessage());
     expect(text).not.toContain("team_model_access_denied");
-    expect(describeOpencodeSessionError(new Error(LITELLM_MODEL_OFF_BODY))).toBe(
+    expect(describeOpencodeSessionError(new Error(LITELLM_MODEL_OFF_BODY), "Session failed", "eigenwelt")).toBe(
       t("session_route.model_unavailable"),
     );
   });
@@ -51,14 +51,14 @@ const LITELLM_DEAD_KEY_BODY =
   '{"error":{"message":"Authentication Error, Invalid proxy server token passed. Received API Key = sk-...qrtQ, Key Hash (Token) =bfc5. Unable to find token in cache or `LiteLLM_VerificationTokenTable`","type":"token_not_found_in_db","param":"key","code":"401"}}';
 
 describe("isEigenweltSignInExpiredError", () => {
-  test("recognizes LiteLLM's dead-key body wherever it appears", () => {
+  test("recognizes LiteLLM's dead-key body for an identified Eigenwelt request", () => {
     expect(
-      isEigenweltSignInExpiredError({ status: null, provider: null, texts: [LITELLM_DEAD_KEY_BODY] }),
+      isEigenweltSignInExpiredError({ status: null, provider: "eigenwelt", texts: [LITELLM_DEAD_KEY_BODY] }),
     ).toBe(true);
     expect(
       isEigenweltSignInExpiredError({
         status: null,
-        provider: null,
+        provider: "eigenwelt",
         texts: [null, "Invalid proxy server token passed"],
       }),
     ).toBe(true);
@@ -80,7 +80,8 @@ describe("describeOpencodeSessionError", () => {
   test("renders request-size errors without the gateway HTML body", () => {
     const error = { name: "APIError", data: { message: "Request Entity Too Large", statusCode: 413, responseBody: "<html><body>413 Request Entity Too Large nginx/1.27.5</body></html>" } };
     const text = describeOpencodeSessionError(error);
-    expect(text).toContain("Compact the conversation");
+    expect(text).toContain("fewer attachments");
+    expect(text).not.toContain("Compact");
     expect(text).not.toContain("<html>");
     expect(text).not.toContain("nginx");
     expect(describeOpencodeSessionError(new Error("413 Request Entity Too Large"))).toBe(text);
@@ -102,7 +103,7 @@ describe("describeOpencodeSessionError", () => {
   });
 
   test("handles the body arriving as a plain Error message", () => {
-    const text = describeOpencodeSessionError(new Error(`Request failed - Response: ${LITELLM_DEAD_KEY_BODY}`));
+    const text = describeOpencodeSessionError(new Error(`Request failed - Response: ${LITELLM_DEAD_KEY_BODY}`), "Session failed", "eigenwelt");
     expect(text).toBe(eigenweltSignInExpiredMessage());
   });
 
@@ -143,7 +144,7 @@ describe("subscription expiry recovery", () => {
 
   test("the same expiry is explained when OpenCode only sends a string", () => {
     expiredAccount();
-    expect(describeOpencodeSessionError(new Error(LITELLM_MODEL_OFF_BODY))).toContain(t("ai_plans.title_ended"));
+    expect(describeOpencodeSessionError(new Error(LITELLM_MODEL_OFF_BODY), "Session failed", "eigenwelt")).toContain(t("ai_plans.title_ended"));
   });
 
   test("an unclassified Eigenwelt 403 does not tell the user to sign in again", () => {
@@ -222,4 +223,17 @@ describe("subscription expiry recovery", () => {
       server.stop(true);
     }
   });
+});
+
+// These are generic LiteLLM errors, also returned by custom providers.
+test("unknown and custom providers never receive Eigenwelt account recovery advice", () => {
+  for (const provider of [undefined, "tensorx-custom"]) {
+    expect(isEigenweltSignInExpiredError({ status: 401, provider: provider ?? null, texts: [LITELLM_DEAD_KEY_BODY] })).toBe(false);
+    for (const message of [LITELLM_DEAD_KEY_BODY, LITELLM_MODEL_OFF_BODY]) {
+      const text = describeOpencodeSessionError({ type: "provider.auth", status: 401, message }, "Session failed", provider);
+      expect(text).toContain(message);
+      expect(text).not.toContain(eigenweltSignInExpiredMessage());
+      expect(text).not.toContain(t("session_route.model_unavailable"));
+    }
+  }
 });

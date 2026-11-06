@@ -18,5 +18,5 @@ export async function approveWikiWrite(ctx: RequestContext, config: ServerConfig
 ) {
   const agent = await authenticateWikiAgentRequest(config, ctx.request);
   if (!agent || within(await realpath(wiki.root), agent.directory)) return standard(ctx, input);
-  throw new ApiError(403, "wiki_suggestion_required", "Project agents cannot write directly to a wiki. When the user requests a contribution, use wiki_suggest to stage an editable project draft. Only the user can click Save to wiki. Edit or delete other wiki resources in that wiki workspace.");
+  throw new ApiError(403, "wiki_suggestion_required", "Project agents cannot write directly to a wiki. Use wiki_suggest to contribute a page and sources. The wiki approval setting controls whether it waits for human review or is saved in the background. Edit or delete other wiki resources in that wiki workspace.");
 }

@@ -64,7 +64,12 @@ export type SettingsShellProps = SettingsPageFrameProps & {
 export function SettingsShell(props: SettingsShellProps) {
   const title = getSettingsTabLabel(props.activeTab);
   const navigate = useNavigate();
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [settingsNavigationOpen, setSettingsNavigationOpen] = useState(true);
+  const [integrationNavigationOpen, setIntegrationNavigationOpen] = useState(false);
+  // The connector library owns its installed sidebar. Keep settings reachable
+  // through the titlebar without taking a second column by default.
+  const sidebarOpen = props.activeTab === "extensions" ? integrationNavigationOpen : settingsNavigationOpen;
+  const setSidebarOpen = props.activeTab === "extensions" ? setIntegrationNavigationOpen : setSettingsNavigationOpen;
   const mobile = useIsMobile();
   const unreadTasks = useUnreadTaskCount();
   const { leftSidebarWidth, leftSidebarResizing, startLeftSidebarResize } = useWorkspaceShellLayout({ expandedRightWidth: 520 });

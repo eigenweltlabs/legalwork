@@ -134,7 +134,9 @@ export function nativeAssistantFixture(receive: (request: Request) => Promise<Re
     }
     const single = path.match(/^\/api\/session\/([^/]+)\/message\/([^/]+)$/);
     if (single) {
-      const response = await invoke(`/session/${single[1]}/message/${single[2]}`); if (!response.ok) return response;
+      const response = await invoke(`/session/${single[1]}/message/${single[2]}`);
+      if (response.status === 404) return Response.json({ _tag: "MessageNotFoundError", sessionID: single[1], messageID: single[2], message: "Message not found" }, { status: 404 });
+      if (!response.ok) return response;
       return Response.json({ data: message(await response.json()) });
     }
     const get = path.match(/^\/api\/session\/([^/]+)$/);

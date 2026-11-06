@@ -64,12 +64,8 @@ try {
     assert.ok(selected);
     const projectUrl = `${server.baseUrl}/workspace/${selected.id}/engine-project`;
     const status = await (await fetch(projectUrl, { headers })).json();
-    if (cycle === 0) {
-      assert.equal(status.state, "approval_required");
-      const approved = await fetch(`${projectUrl}/approve`, { method: "POST", headers: { ...headers, "content-type": "application/json" },
-        body: JSON.stringify({ directory: workspace, pluginTargets: status.plugins.map(plugin => plugin.target) }) });
-      assert.equal(approved.status, 200, await approved.text());
-    } else assert.equal(status.state, "ready");
+    assert.equal(status.state, "ready");
+    assert.equal(status.required, false);
     const location = { directory: workspace };
     await client.model.list({ location });
     const plugins = (await client.plugin.list({ location })).data;
@@ -99,7 +95,7 @@ try {
     assert.throws(() => process.kill(info.pid, 0), /ESRCH/);
     assert.equal((await runtime.engineInfo()).running, false);
   }
-  console.log("PASS: real Electron host capability reaches compiled embedded server through the same module; exact native identity, project trust, native plugin ABI, stop/restart and child reaping verified (zero model calls).");
+  console.log("PASS: real Electron host capability reaches compiled embedded server through the same module; exact native identity, automatic project readiness, native plugin ABI, stop/restart and child reaping verified (zero model calls).");
 } catch (error) {
   failed = true; console.error(error);
 } finally {

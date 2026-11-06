@@ -174,3 +174,56 @@ test("agent commands execute in a minimized window without stealing focus", asyn
     await rm(root, { recursive: true, force: true });
   }
 });
+
+async function blockedBridge(t) {
+  const root = await mkdtemp(path.join(tmpdir(), "legalwork-ui-cancel-"));
+  let enter, cancel;
+  const entered = new Promise(resolve => { enter = resolve; }), cancelled = new Promise(resolve => { cancel = resolve; });
+  const executions = [];
+  const bridge = createUiControlServer({appName:"test",appIdentifier:"test",getUserDataDir:()=>root,getWindow:async()=>({
+    webContents:{executeJavaScript:async expression=>{
+      if (expression.includes("?.cancel(")) { cancel(expression); return; }
+      executions.push(expression); enter(); return new Promise(()=>{});
+    }},
+  })});
+  await bridge.start();
+  const discovery = JSON.parse(await readFile(path.join(root,"legalwork-ui-control.json"),"utf8"));
+  const request = (path, body, signal) => fetch(discovery.baseUrl+path,{method:"POST",headers:{authorization:`Bearer ${discovery.token}`},body:JSON.stringify(body),signal});
+  t.after(async()=>{await bridge.stop();await rm(root,{recursive:true,force:true});});
+  return {bridge,entered,cancelled,executions,request};
+}
+
+test("deadline rejects a stuck renderer and sends cancellation with the same identity", async t=>{
+  const fixture=await blockedBridge(t);
+  const response=await fixture.request("/execute",{actionId:"document.agent_tool",requestId:"deadline-test",deadline:Date.now()+150});
+  assert.equal(response.status,408);
+  assert.equal((await response.json()).code,"operation_timeout");
+  assert.match(await fixture.cancelled,/deadline-test/);
+  assert.match(fixture.executions[0],/"deadline":\d+/);
+});
+test("Stop cancels the session's pending renderer request",async t=>{
+  const fixture=await blockedBridge(t);
+  const pending=fixture.request("/execute",{actionId:"document.agent_tool",requestId:"session-test",callerSessionId:"child"});
+  await fixture.entered;
+  assert.equal((await fixture.request("/cancel",{sessionId:"another-chat"})).status,200);
+  assert.equal((await fixture.request("/cancel",{sessionId:"child"})).status,200);
+  const response=await pending;
+  assert.equal(response.status,409);
+  assert.equal((await response.json()).code,"operation_cancelled");
+  assert.match(await fixture.cancelled,/session-test/);
+});
+test("disconnect cancels work instead of leaving an orphaned renderer request",async t=>{
+  const fixture=await blockedBridge(t),controller=new AbortController();
+  const pending=fixture.request("/execute",{actionId:"document.agent_tool",requestId:"disconnect-test"},controller.signal);
+  await fixture.entered;controller.abort();
+  await assert.rejects(pending,{name:"AbortError"});
+  assert.match(await fixture.cancelled,/disconnect-test/);
+});
+test("bridge shutdown finishes while the renderer is unresponsive",async t=>{
+  const fixture=await blockedBridge(t);
+  const pending=fixture.request("/execute",{actionId:"document.agent_tool",requestId:"quit-test"}).catch(()=>{});
+  await fixture.entered;
+  const start=performance.now();await fixture.bridge.stop();
+  assert.ok(performance.now()-start<500,"Quit must not wait on renderer execution");
+  await pending;
+});

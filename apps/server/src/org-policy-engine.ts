@@ -8,6 +8,9 @@ import { appliedOrgPolicy } from "./org-policy.js";
 import { orgChatProviderBlocks, orgEnabledProviders } from "./org-policy-ai.js";
 import { engineStorageDir } from "./engine-storage.js";
 import type { ServerConfig } from "./types.js";
+import type { Config } from "@opencode/schema/config";
+import { permissionAction } from "./agent-sandbox/permissions.js";
+type NativePermission = NonNullable<(typeof Config.Info.Type)["permissions"]>[number];
 
 /**
  * What the firm's policy changes in the engine. Two layers:
@@ -47,15 +50,22 @@ function enforcedRule(firm: PermissionRule, own: unknown): PermissionRule {
  */
 export async function orgPolicyPermissions(
   config: ServerConfig,
-  own: Record<string, unknown>,
-): Promise<{ permission: Record<string, unknown>; enforced: Record<string, PermissionRule> }> {
+  own: readonly NativePermission[],
+): Promise<{ permission: NativePermission[]; enforced: NativePermission[] }> {
   const entry = await appliedOrgPolicy(config, "tools.permissions");
-  const permission = { ...own };
-  const enforced: Record<string, PermissionRule> = {};
+  const permission = [...own];
+  const enforced: NativePermission[] = [];
   for (const [tool, rule] of Object.entries(entry?.value ?? {})) {
     if (rule === undefined) continue;
-    enforced[tool] = enforcedRule(rule, own[tool]);
-    permission[tool] = enforced[tool];
+    const action = tool === "bash" ? "shell" : tool;
+    const effective = enforcedRule(rule, permissionAction(own, action, "*"));
+    const rules = typeof effective === "string" ? [["*", effective]] : Object.entries(effective);
+    for (const [resource, effect] of rules) {
+      if (effect !== "allow" && effect !== "ask" && effect !== "deny") throw new Error("Invalid organization tool permission.");
+      const value: NativePermission = { action, resource: String(resource), effect };
+      enforced.push(value);
+      permission.push(value);
+    }
   }
   return { permission, enforced };
 }
@@ -66,23 +76,23 @@ export async function orgPolicyPermissions(
  */
 export async function buildOrgPolicyEngineLayer(
   config: ServerConfig,
-  own: { permission: Record<string, unknown> },
+  own: { permissions: readonly NativePermission[] },
 ): Promise<Record<string, unknown>> {
-  const { enforced } = await orgPolicyPermissions(config, own.permission);
+  const { enforced } = await orgPolicyPermissions(config, own.permissions);
   const layer: Record<string, unknown> = {};
-  if (Object.keys(enforced).length > 0) {
-    layer.permission = enforced;
+  if (enforced.length > 0) {
+    layer.permissions = enforced;
     // A project's own definition of the default agent could carry looser rules.
-    const agents = { legalwork: { permission: enforced } };
-    layer.agent = agents;
+    const agents = { legalwork: { permissions: enforced } };
+    layer.agents = agents;
   }
   const providers = await orgChatProviderBlocks(config);
-  if (Object.keys(providers).length > 0) layer.provider = providers;
+  if (Object.keys(providers).length > 0) layer.providers = providers;
   const connectors = await firmHubConnectorBlocks(config);
-  if (Object.keys(connectors).length > 0) layer.mcp = connectors;
+  if (Object.keys(connectors).length > 0) layer.mcp = { servers: connectors };
   // While the firm allows no chat providers of the member's own, only Eigenwelt's and the firm's.
   const enabledProviders = await orgEnabledProviders(config);
-  if (enabledProviders) layer.enabled_providers = enabledProviders;
+  if (enabledProviders) layer.policies = [{ action: "provider.use", resource: "*", effect: "deny" }, ...enabledProviders.map(resource => ({ action: "provider.use", resource, effect: "allow" }))];
   return layer;
 }
 

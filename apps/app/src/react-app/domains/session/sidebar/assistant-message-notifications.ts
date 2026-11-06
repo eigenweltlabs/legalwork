@@ -1,4 +1,4 @@
-import type { LegalworkSessionMessage } from "@/app/lib/legalwork-server";
+import type { LegalworkSessionMessage, LegalworkSessionSnapshot } from "@/app/lib/legalwork-server";
 
 const PREFIX = "assistant-message:";
 
@@ -19,7 +19,10 @@ export class AssistantMessageNotifications {
   private seen = new Set<string>();
   constructor(readonly startedAt = Date.now()) {}
 
-  receive(messages: LegalworkSessionMessage[], enabled: boolean, foreground: boolean) {
+  receive(session: Pick<LegalworkSessionSnapshot["session"], "parentID">, messages: LegalworkSessionMessage[], enabled: boolean, foreground: boolean) {
+    // Workspace membership includes internal workers. Only the coordinator
+    // speaks to the user; workers report back through their parent chat.
+    if (session.parentID) return null;
     const fresh = messages.flatMap(({ info, parts }) => {
       if (info.role !== "assistant" || info.summary || info.error || !info.time.completed || info.time.completed <= this.startedAt || this.seen.has(info.id)) return [];
       if (info.finish && !["stop", "length", "content-filter"].includes(info.finish)) return [];

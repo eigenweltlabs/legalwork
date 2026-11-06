@@ -17,6 +17,8 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const sourceRoot = "apps/server/resources/core-opencode";
 
 const FILES = [
+  { source: "skills/legal-research/SKILL.md", path: ".opencode/skills/legal-research/SKILL.md" },
+  { source: "skills/libra-research/SKILL.md", path: ".opencode/skills/libra-research/SKILL.md" },
   { source: "skills/legalwork-help/SKILL.md", path: ".opencode/skills/legalwork-help/SKILL.md" },
   { source: "skills/legalwork-help/scripts/lookup-label.mjs", path: ".opencode/skills/legalwork-help/scripts/lookup-label.mjs" },
   { source: "skills/author-review-prompts/SKILL.md", path: ".opencode/skills/author-review-prompts/SKILL.md" },

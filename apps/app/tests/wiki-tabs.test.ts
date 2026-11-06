@@ -64,7 +64,7 @@ describe("Wiki navigation in the standard viewer", () => {
     store.openTab("chat", unknown, "main");
     store.openTab("chat", view, "main", "right");
     const before = usePanelTabStore.getState().sessions.chat;
-    store.reconnectWikiTabs(current, ["firm"]);
+    store.reconnectLocalTabs(current, ["firm"]);
     const after = usePanelTabStore.getState().sessions.chat;
     const nextPage = wikiPanelTab(current, "firm", page.location, page.label);
     const nextView = viewPanelTab(current, view, view.label);
@@ -73,7 +73,7 @@ describe("Wiki navigation in the standard viewer", () => {
     expect(after.focusedPaneId).toBe(before.focusedPaneId);
     expect(after.panes.find(pane => pane.id === after.focusedPaneId)?.activeTabId).toBe(nextView.id);
     expect(after.panes.some(pane => pane.tabIds.includes(page.id) || pane.tabIds.includes(view.id))).toBe(false);
-    store.reconnectWikiTabs(current, ["firm"]);
+    store.reconnectLocalTabs(current, ["firm"]);
     expect(usePanelTabStore.getState().sessions.chat).toBe(after);
   });
   test("restoring a workspace drops retired YAML view tabs without losing pages, graphs or saved dashboards", () => {

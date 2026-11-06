@@ -208,7 +208,7 @@ function documentEntry(
 }
 
 export async function searchFileContents(
-  workspace: WorkspaceInfo,
+  workspace: Pick<WorkspaceInfo, "id" | "path">,
   query: string,
   signal: AbortSignal,
   preparation: DocumentPreparation,

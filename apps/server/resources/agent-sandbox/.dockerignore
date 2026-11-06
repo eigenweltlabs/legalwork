@@ -7,5 +7,6 @@
 !protocol.py
 !filesystem.py
 !test_relay.py
+!test_pypdf.py
 !init
 !requirements.txt

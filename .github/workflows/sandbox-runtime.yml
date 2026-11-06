@@ -16,6 +16,10 @@ on:
         default: true
   workflow_dispatch:
     inputs:
+      targets:
+        description: Comma-separated platform-architecture targets, or all
+        type: string
+        default: all
       run_tests:
         description: Run sandbox validation after preparing the runtime
         type: boolean
@@ -99,15 +103,10 @@ jobs:
           msystem: ${{ matrix.msystem }}
           path-type: inherit
           update: true
-      - name: Download QEMU packages with retries (Windows)
+      - name: Install checksum-pinned QEMU packages (Windows)
         if: runner.os == 'Windows'
         shell: msys2 {0}
-        run: |
-          for attempt in 1 2 3; do
-            pacman -S --noconfirm --needed ${{ matrix.package }}-qemu ${{ matrix.package }}-cc && exit 0
-            sleep 5
-          done
-          exit 1
+        run: bash scripts/sandbox/install-windows-qemu.sh ${{ matrix.prefix }}
       - name: Bundle QEMU (Windows)
         if: runner.os == 'Windows'
         shell: msys2 {0}

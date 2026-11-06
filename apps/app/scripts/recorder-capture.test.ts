@@ -37,7 +37,7 @@ class Context {
   state = "running";
   inputs: { source: Stream; node: GraphNode }[] = [];
   audioWorklet = { addModule: async () => {} };
-  constructor() { contexts.push(this); }
+  constructor(public options: AudioContextOptions & { sinkId?: { type: "none" } }) { contexts.push(this); }
   async suspend() { this.state = "suspended"; }
   async resume() { this.state = "running"; }
   async close() { this.state = "closed"; }
@@ -120,6 +120,42 @@ test("single microphone retains the dictation protocol and one recording file", 
   expect(recorders).toHaveLength(1);
   await capture.stop();
   expect(sources).toEqual([undefined]);
+});
+
+test("stopping LegalWork closes only its own inputs, with no playback device or microphone reopening", async () => {
+  const callMicrophone = new Stream("call microphone");
+  const ownMicrophone = new Stream("recorder microphone");
+  let requests = 0;
+  Object.assign(navigator.mediaDevices, { getUserMedia: async () => { requests++; return ownMicrophone; } });
+  const capture = await startCapture(["microphone", "system"], {
+    onPcm: () => {}, onMediaChunk: () => {}, onSourceEnded: () => {},
+  });
+  expect(contexts[0].options.sinkId).toEqual({ type: "none" });
+  await capture.stop();
+  expect(requests).toBe(1);
+  expect(ownMicrophone.track.readyState).toBe("ended");
+  expect(callMicrophone.track.readyState).toBe("live");
+});
+
+test("a stalled meeting encoder cannot keep our microphone open indefinitely", async () => {
+  const capture = await startCapture(["microphone", "system"], {
+    onPcm: () => {}, onMediaChunk: () => {}, onSourceEnded: () => {},
+  });
+  recorders[0].stop = () => { recorders[0].state = "inactive"; };
+  Object.assign(window, { setTimeout: (callback: () => void, ms: number) => setTimeout(callback, Math.min(ms, 10)) });
+  await expect(capture.stop()).rejects.toThrow("recorder.capture_finish_failed");
+  expect(contexts[0].state).toBe("closed");
+  expect(contexts[0].inputs.every(input => input.source.track.readyState === "ended")).toBe(true);
+});
+
+test("an encoder throwing during shutdown still releases the capture inputs", async () => {
+  const capture = await startCapture(["microphone"], {
+    onPcm: () => {}, onMediaChunk: () => {}, onSourceEnded: () => {},
+  });
+  recorders[0].stop = () => { throw new Error("Encoder failed"); };
+  await expect(capture.stop()).rejects.toThrow("Encoder failed");
+  expect(contexts[0].inputs[0].source.track.readyState).toBe("ended");
+  expect(contexts[0].state).toBe("closed");
 });
 
 test("canceling a pending microphone request releases startup and stops a late stream", async () => {

@@ -8,9 +8,9 @@ import { queueActionSchema, queuedPromptPayload } from "./session-queue-schema.j
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => { await Promise.all(cleanups.splice(0).map(fn => fn())); });
 const message = (text = "hello"): Extract<QueueAction, { type: "enqueue" }> => ({ type: "enqueue", id: crypto.randomUUID(), draft: { mode: "prompt", text, parts: [{ type: "text", text }], attachments: [], editor: { mentions: {}, pasteParts: [] } }, execution: { kind: "prompt", model: { providerID: "test", id: "test" }, text } });
-async function setup(transport: QueueTransport) {
+async function setup(transport: QueueTransport, onChange?: () => void) {
   const dir = await mkdtemp(join(tmpdir(), "legalwork-queue-test-"));
-  const queue = new SessionMessageQueue(dir, transport);
+  const queue = new SessionMessageQueue(dir, transport, onChange);
   cleanups.push(async () => { queue.stop(); await rm(dir, { recursive: true, force: true }); });
   return { queue, dir };
 }
@@ -407,4 +407,23 @@ test("an uncertain dispatch reconciles to native acceptance without sending twic
   await queue.tick();
   expect((await queue.read("w", "s")).entries[0].status).toBe("accepted");
   expect(sent).toEqual([first.id]);
+});
+
+test("native completion wakes request waiters and publishes metadata changes", async () => {
+  let completed = false, notifications = 0;
+  const { queue } = await setup({
+    idle: async () => true,
+    send: async () => ({ accepted: true }),
+    settled: async () => completed ? { pause: false } : undefined,
+  }, () => { notifications++; });
+  const first = message();
+  await queue.act("w", "s", first);
+  await until(async () => (await queue.read("w", "s")).entries[0]?.status === "accepted");
+  const before = notifications;
+  const waiting = queue.waitForEntry("w", "s", first.id, AbortSignal.timeout(2000));
+  completed = true;
+  await queue.tick();
+  await waiting;
+  expect((await queue.read("w", "s")).entries).toEqual([]);
+  expect(notifications).toBeGreaterThan(before);
 });

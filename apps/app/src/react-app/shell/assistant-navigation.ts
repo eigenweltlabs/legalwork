@@ -1,6 +1,14 @@
 import type { QueryClient } from "@tanstack/react-query";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 
+/** The server's saved identity is enough to browse history while online checks run. */
+export function seedSavedAssistant(cache: QueryClient, baseUrl: string, saved: Awaited<ReturnType<LegalworkServerClient["mainAssistantProfile"]>>) {
+  if (!saved.workspace || !saved.day) return;
+  const current = { workspace: saved.workspace, day: saved.day, profile: saved.profile };
+  cache.setQueryData<Awaited<ReturnType<LegalworkServerClient["mainAssistantCurrent"]>>>(["main-assistant", baseUrl], previous => previous ?? current);
+  if (saved.onboarding) cache.setQueryData(["assistant-onboarding", baseUrl], saved.onboarding);
+}
+
 /** Navigation can reuse today's identity; tomorrow still resolves a fresh chat. */
 export async function resolveAssistantChat(
   client: Pick<LegalworkServerClient, "baseUrl" | "mainAssistantCurrent">,

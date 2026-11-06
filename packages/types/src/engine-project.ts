@@ -16,4 +16,3 @@ export const EngineProjectStatusSchema = z.object({
   }).optional(),
 });
 export type EngineProjectStatus = z.infer<typeof EngineProjectStatusSchema>;
-export const ApproveEngineProjectSchema = z.object({ directory: z.string().min(1), pluginTargets: z.array(z.string()) });

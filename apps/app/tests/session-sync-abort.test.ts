@@ -29,7 +29,7 @@ test("a late abort event clears the red status, keeps the transcript and pauses 
       expect(useComposerStateStore.getState().pausedQueues[sessionId]).toBe(true);
     }
     const transcript = query.getQueryData<UIMessage[]>(transcriptKey(input.workspaceId, sessionId));
-    expect(transcript?.at(-1)?.parts).toContainEqual(expect.objectContaining({ type: "text", text: "Stopped by you" }));
+    expect(transcript?.at(-1)?.parts).toContainEqual(expect.objectContaining({ type: "text", text: "Stopped" }));
     expect(transcript?.at(-1)?.metadata).toMatchObject({ opencode: { stopped: true } });
     __applySessionSyncEventForTest(input, { type: "session.status", id:"event",created:1,data: { sessionID: sessionId, status: { type: "idle" } } });
     expect(activity.getStatus(input.workspaceId, sessionId)).toBe("idle");

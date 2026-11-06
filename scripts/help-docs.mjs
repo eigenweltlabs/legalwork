@@ -20,6 +20,7 @@ function parse(path, root = repoRoot) {
 }
 
 const routeGuides = {
+  "/launcher": "assistant.md",
   "/welcome": "getting-started.md",
   "/home": "workspaces-chats.md",
   "/tasks": "tasks-intake.md",
@@ -52,7 +53,7 @@ const routeGuides = {
 
 const settingGuides = {
   general: "settings-privacy.md", permissions: "settings-privacy.md",
-  assistant: "assistant.md",
+  assistant: "assistant.md", launcher: "assistant.md",
   account: "settings-privacy.md", ai: "models-fusion.md",
   "tabular-review": "reviews.md", extensions: "integrations.md",
   personalisation: "settings-privacy.md", notifications: "tasks-intake.md",
@@ -104,6 +105,7 @@ export function generateHelpScreens(root = repoRoot) {
     schemaVersion: 1,
     generatedBy: "scripts/gen-core-skills.mjs",
     note: "Source-defined routes and visible settings for the build that bundles this file. Runtime, platform, account and permissions can restrict them.",
+    dialogs: [{ id: "assistant-upgrade", guide: "assistant.md", source: "apps/app/src/react-app/shell/assistant-upgrade.tsx" }, { id: "unsaved-shutdown", guide: "settings-privacy.md", source: "apps/app/src/react-app/domains/session/artifacts/document-discard-dialog.tsx" }, { id: "browser-autofill", guide: "settings-privacy.md", source: "apps/app/src/overlay/index.tsx" }, { id: "manage-saved-login", guide: "integrations.md", source: "apps/app/src/react-app/domains/settings/pages/research-connection-dialog.tsx" }],
     routes: [...routes].sort().map((path) => ({ path, guide: guide(routeGuides, path), source: routerSource })),
     settings: [...settings].sort(([a], [b]) => a.localeCompare(b, "en")).map(([id, scope]) => ({
       id, scope, guide: guide(settingGuides, id), source: settingsSource,

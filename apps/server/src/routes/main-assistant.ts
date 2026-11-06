@@ -1,4 +1,5 @@
 import { registerAssistantChatRoutes } from "./assistant-chat.js";
+import type { LauncherFolders } from "../launcher-folders.js";
 import { registerAssistantSessionRoutes } from "./assistant-sessions.js";
 import type { AssistantSessionQueue } from "../assistant-session-queue.js";
 import { join, resolve } from "node:path";
@@ -12,6 +13,7 @@ import { registerLocalProject } from "./workspaces.js";
 import { addRoute, matchRoute, type RequestContext, type Route } from "./registry.js";
 import { AssistantAvatarIconSchema, AssistantProfileSchema, AssistantSettingsSchema } from "../assistant-schema.js";
 import { assistantSettingsCatalog, createAssistantSettingsContext } from "../assistant-settings.js";
+import { assistantProactivityStore } from "../assistant-proactivity-store.js";
 import { assertAssistantToolAccess } from "../assistant-tool-access.js";
 import { projectMatch } from "../assistant-project-search.js";
 import { searchFingerprint } from "../assistant-session-search.js";
@@ -27,6 +29,16 @@ import { assistantHandoffParts } from "../assistant-handoff-message.js";
 import { registerAssistantAttentionRoutes } from "./assistant-attention.js";
 import { assistantRequestAuthority, assertAssistantDispatchAuthority, type AssistantSessionAccess } from "../assistant-session-access.js";
 import { withSessionExecution } from "../session-execution-gate.js";
+import { registerAssistantConversationRoutes } from "./assistant-conversations.js";
+import { registerLauncherRoutes } from "./launcher.js";
+import type { AssistantConversations } from "../assistant-conversations.js";
+import type { AssistantSubmissions } from "../assistant-submissions.js";
+import type { QuickActionStore } from "../launcher-actions.js";
+import type { LauncherContextStore } from "../launcher-context.js";
+import type { LauncherFileIndex } from "../launcher-file-index.js";
+import type { DocumentPreparation } from "../document-preparation/service.js";
+import { nativeDeliveryRejection } from "../native-delivery.js";
+import { randomBytes } from "node:crypto";
 
 const delegationSchema = z.object({
   workspaceId: z.string().min(1), sourceWorkspaceId: z.string().min(1), sourceSessionId: z.string().min(1),
@@ -44,6 +56,13 @@ export function registerMainAssistantRoutes(options: {
   sessionQueue: AssistantSessionQueue;
   sessionAccess: AssistantSessionAccess;
   preparePrompt: (workspace: WorkspaceInfo, directory: string) => Promise<void>;
+  conversations: AssistantConversations;
+  submissions: AssistantSubmissions;
+  quickActions: QuickActionStore;
+  stagedContext: LauncherContextStore;
+  fileIndex: LauncherFileIndex;
+  searchFolders: LauncherFolders;
+  preparation: DocumentPreparation;
   jsonResponse: (value: unknown, status?: number) => Response;
   readJsonBodyLimited: (request: Request, maxBytes: number) => Promise<Record<string, unknown>>;
   ensureWritable: (config: ServerConfig) => void;
@@ -61,6 +80,8 @@ export function registerMainAssistantRoutes(options: {
   registerAssistantAttentionRoutes(options);
   registerAssistantChatRoutes(options);
   registerAssistantSessionRoutes(options);
+  registerAssistantConversationRoutes(options);
+  registerLauncherRoutes(options);
   const accessible = (id: string) => options.resolveWorkspace(config, id);
   const write = (ctx: RequestContext) => { options.ensureWritable(config); options.requireClientScope(ctx, "collaborator"); };
   const summary = (workspace: WorkspaceInfo) => ({ id: workspace.id, name: (isMainAssistant(workspace) ? assistant.profile().name : null) ?? (workspace.displayName || workspace.name), path: workspace.path, preset: workspace.preset, workspaceType: workspace.workspaceType });
@@ -91,7 +112,7 @@ export function registerMainAssistantRoutes(options: {
   });
   addRoute(routes, "GET", "/assistant/settings/context", "client", async ctx => {
     options.requireClientScope(ctx, "viewer");
-    return jsonResponse({ context: settingsContext() });
+    return jsonResponse({ context: `${await settingsContext()}\n\n${(await assistantProactivityStore(config)).context()}` });
   });
   addRoute(routes, "GET", "/assistant/access", "client", async ctx => {
     options.requireClientScope(ctx, "viewer");
@@ -123,13 +144,23 @@ export function registerMainAssistantRoutes(options: {
   addRoute(routes, "GET", "/assistant", "client", async ctx => {
     options.requireClientScope(ctx, "viewer");
     const workspace = config.workspaces.find(isMainAssistant);
-    return jsonResponse({ workspace: workspace ? summary(workspace) : null, profile: assistant.profile(), onboarding: await assistant.onboarding() });
+    return jsonResponse({ workspace: workspace ? summary(workspace) : null, day: assistant.savedDay(), profile: assistant.profile(), onboarding: await assistant.onboarding() });
   });
   addRoute(routes, "GET", "/assistant/activity", "client", async ctx => {
     options.requireClientScope(ctx, "viewer");
     const workspace = config.workspaces.find(isMainAssistant);
     if (workspace) await accessible(workspace.id);
     return jsonResponse({ pending: workspace ? options.delegations.hasPendingWork(workspace.id) : false });
+  });
+  // Setup only: the Assistant project exists after this, but no conversation or daily session is created.
+  addRoute(routes, "POST", "/assistant/workspace", "client", async ctx => {
+    write(ctx);
+    if (ctx.request.body) {
+      const body = await options.readJsonBodyLimited(ctx.request, 256 * 1024);
+      if (body.projectFields !== undefined) assistant.updateProjectDefaults(body.projectFields);
+    }
+    const workspace = await assistant.workspace();
+    return jsonResponse({ workspace: summary(workspace), profile: assistant.profile() });
   });
   addRoute(routes, "POST", "/assistant/current", "client", async ctx => {
     write(ctx);
@@ -246,8 +277,11 @@ export function registerMainAssistantRoutes(options: {
     write(ctx);
     const access = assistant.settings().projectAccess;
     if (access.mode === "none" || access.mode === "include") throw new ApiError(403, "assistant_project_access_denied", "Allow access to new projects in Settings → Assistant before creating a project.");
-    const parsed = z.object({ name: z.string().trim().min(1).max(120) }).safeParse(await options.readJsonBodyLimited(ctx.request, 2000));
+    const parsed = z.object({ name: z.string().trim().min(1).max(120), sourceSessionId: z.string().min(1).max(200).optional() }).safeParse(await options.readJsonBodyLimited(ctx.request, 2000));
     if (!parsed.success) throw new ApiError(400, "project_name", "A project name is required.");
+    // A request bound to an existing project cannot create another one, whatever captured material suggests.
+    const bound = parsed.data.sourceSessionId ? await options.submissions.activeConstraint(parsed.data.sourceSessionId) : null;
+    if (bound?.kind === "project") throw new ApiError(409, "delegation_target_constraint", "The user bound this request to an existing project. Work there instead of creating a new project.");
     const folderPath = await createDefaultProjectFolder(parsed.data.name, defaultProjectRoot(config.projectsDirectory));
     const { workspace } = await registerLocalProject(config, { folderPath, name: parsed.data.name, preset: "starter", position: "last", projectFields: assistant.projectDefaults() });
     options.changed();
@@ -264,6 +298,9 @@ export function registerMainAssistantRoutes(options: {
     assertAssistantDispatchAuthority(authority, workspace.id);
     await options.sessionAccess.checkDirectory(workspace.path, authority);
     if (isMainAssistant(workspace)) throw new ApiError(400, "delegation_project", "Delegate project work to a project, not back to the assistant.");
+    // An explicitly chosen project is an execution constraint enforced here, not a prompt suggestion.
+    const bound = await options.submissions.activeConstraint(input.sourceSessionId);
+    if (bound?.kind === "project" && bound.workspaceId !== workspace.id) throw new ApiError(409, "delegation_target_constraint", `The user bound this request to project ${bound.workspaceId}. Delegate there or ask the user to change the target.`);
     const sourceResult = await options.client(source).session.get({ sessionID: input.sourceSessionId }, { signal: AbortSignal.timeout(10000) });
     if (!sourceResult.data || resolve(sourceResult.data.directory) !== resolve(source.path)) throw new ApiError(400, "delegation_source", "The source chat is not in this project.");
     authority = await options.sessionAccess.captureSource(input.sourceSessionId, sourceResult.data.directory, authority);
@@ -287,21 +324,29 @@ export function registerMainAssistantRoutes(options: {
     if (resolve(session.directory) !== resolve(workspace.path)) throw new ApiError(502, "delegation_scope", "The engine created the chat outside the requested project.");
     const delegation = { workspaceId: workspace.id, projectName: workspace.displayName || workspace.name, sessionId: session.id, title: input.title, scope: input.scope, sourceSessionId: input.sourceSessionId, conversationLanguage: input.conversationLanguage };
     await options.sessionAccess.authorize(session.id, session.directory, authority);
-    options.delegations.track({ ...delegation, sourceWorkspaceId: source.id, model: model ?? null, authority });
+    const messageTime = BigInt.asUintN(48, BigInt(Date.now()) * 4096n).toString(16).padStart(12, "0");
+    const initialMessageId = `msg_${messageTime}${randomBytes(7).toString("hex")}`;
+    options.delegations.track({ ...delegation, sourceWorkspaceId: source.id, model: model ?? null, authority, initialMessageId });
     try {
       const sent = await withSessionExecution(config, session.id, async () => {
         assertAssistantDispatchAuthority(await options.sessionAccess.prepare(session.id, session.directory, authority), workspace.id);
         await options.preparePrompt(workspace, session.directory);
-        return client.session.promptAsync({ sessionID: session.id, agent: "legalwork", model,
-        parts: assistantHandoffParts({ ...input, files, setupContext, ...(isMainAssistant(source) ? { sender: assistant.profile() } : {}) }) }, { signal: AbortSignal.timeout(30000) });
+        return client.session.promptAsync({ sessionID: session.id, messageID: initialMessageId, agent: "legalwork", model,
+        parts: assistantHandoffParts({ ...input, files, setupContext, ...(isMainAssistant(source) ? { sender: assistant.profile() } : {}) }) }, { signal: AbortSignal.timeout(30000), throwOnError: true });
       });
       if (!sent.response.ok) throw new Error("Delivery was not confirmed.");
       options.changed();
       return jsonResponse({ ok: true, delegation: { ...delegation, status: "started" }, files,
         resultDelivery: "automatic", nextAction: ASSISTANT_DELEGATION_WAIT_INSTRUCTIONS });
-    } catch {
+    } catch (error) {
+      const rejected = nativeDeliveryRejection(error);
+      if (rejected) {
+        options.delegations.rejectInitial(session.id, initialMessageId);
+        options.changed();
+        return jsonResponse({ ok: false, delegation: { ...delegation, status: "rejected", messageId: initialMessageId }, error: rejected.message, code: rejected.code }, rejected.status);
+      }
       // Return the created chat even on an ambiguous delivery, so it can be inspected without duplicating work.
-      return jsonResponse({ ok: false, delegation: { ...delegation, status: "delivery-unconfirmed" }, error: "Inspect this chat before retrying. Delivery could not be confirmed." });
+      return jsonResponse({ ok: false, delegation: { ...delegation, status: "delivery-unconfirmed", messageId: initialMessageId }, error: "Inspect this chat before retrying. Delivery could not be confirmed." });
     }
   });
 }

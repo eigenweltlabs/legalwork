@@ -50,7 +50,7 @@ export function PermissionsStep(props: PermissionsStepProps) {
     >
       <div className="flex w-full max-w-md flex-col gap-7">
         <div>
-          <StepDots step={props.totalSteps ?? 6} total={props.totalSteps ?? 6} />
+          <StepDots step={(props.totalSteps ?? 7) - 1} total={props.totalSteps ?? 7} />
           <h1 className="text-[32px] font-medium leading-[1.15] tracking-[-0.04em] text-foreground">
             {t("onboarding_permissions.title")}
           </h1>

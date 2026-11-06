@@ -20,7 +20,20 @@ LegalWork's additional operations use a small authenticated reverse channel betw
 
 ## Capability-preserving extensions
 
-Native operations are preferred. `legalwork_browser_connect` adds the existing paged snapshot/batch tools to an already-owned native tab. `legalwork_browser_open_url` remains available and also creates a native tab. Extension snapshots retain continuation offsets instead of discarding their remaining content.
+Native operations are preferred. `legalwork_browser_open_url` creates a native tab; `legalwork_browser_connect({tabID})` connects an already-owned native tab (the earlier `tab_id` argument remains accepted). Both advertise a typed, direct `{tabID, browser_url, url, snapshot:{tab, content, truncated}}` result, without the UI transport's `result` envelope. Opening, listing matching password metadata and subsequent native operations can therefore compose without reopening a tab to inspect its return shape. Reconnecting refreshes refs just as `browser.snapshot` does. The optional CSS batch tool still returns its legacy paged snapshot with continuation offsets; its `node_id` and CSS selectors are not native refs.
+
+Default native observations traverse the full accessibility tree, omit unnamed layout containers, and bound rendered output to the existing 500 lines / 100,000 characters. Explicit depth bounds the displayed tree. Nested application editors, including shadow-DOM textboxes, expose usable refs; normal field/read-only editor values appear in bounded observations, while protected password values remain omitted. Focused `browser.find` filters while traversing, so it can reach a target after the default observation's output budget. Condition waits may follow document generations across navigation; mutations retain their stale-generation checks. Code Mode has no timer global: use `browser.wait` with an observed condition.
+
+The main-process attachment retains its existing browser pages when its owning renderer reloads a trusted LegalWork URL. This preserves unsaved inputs, page history and native refs rather than recreating tabs from saved URLs. Window destruction, navigation outside the trusted app, ownership replacement and network-policy revocation still close the attachment.
+
+Fixed browser instructions teach focused Code Mode discovery with complete signatures, reuse of retrieved definitions, and sequential awaited native operations in one execute for already-observed, authorized steps. A normal sign-in can open/list metadata together, then fill username/password and submit together, followed by a condition wait and verification. Navigation, new fields, MFA/CAPTCHA and partial failure require observation before further mutations. This uses the released Code Mode and browser tools; it adds no execution limits or detached agent and changes no permission decisions.
+
+The fixed browser instructions include directly callable Code Mode examples for
+opening and observing a tab, reusing its ID, finding controls and interacting with
+fresh refs. These common operations do not require a catalogue search. Additional
+operations remain discoverable through targeted searches. This avoids requiring
+the model to page through all 45 browser tools before starting ordinary research;
+the instructions contain no live tab state or website-specific selectors.
 
 `legalwork_browser_upload` copies complete file bytes under normal native read permission for each exact server/project path. Desktop receives bytes and filenames, not arbitrary server paths it is expected to open. Private temporary upload files are removed when their tab capability closes.
 
@@ -65,7 +78,7 @@ checks or the intended extension contract above.
 | Contract | Native 2.1.4 behavior | LegalWork preservation |
 |---|---|---|
 | Native transferred file | 5 MiB | Complete upload/download/capture extensions; native limit remains truthful |
-| Native snapshot | 100,000 characters; 500 accessibility lines; depth at most 20 | Existing paged snapshot extension remains available |
+| Native snapshot/find | 100,000 characters; 500 accessibility lines; default structural depth 8; explicit depth 1–20 | Compact observations with semantic depth; full-tree find before limiting matches; unchanged output limits and existing paged snapshot extension |
 | Native JSON operation output | 512,000 characters | Native error is reported; extension paging/full file storage covers the supported extended operations |
 | Native screenshot | Visible-tab readiness guard of 3 seconds; at most 16 megapixels; default maxWidth 2,000, optional maxWidth at most 4,000 | Background full-image capture operation, with unresolved rendering failures above |
 | Native retained console/network data | Bounded native diagnostic buffers (500 records); network text-body capture at most 20,000 characters | Upstream behavior retained, truncation/availability metadata preserved |
@@ -77,4 +90,12 @@ checks or the intended extension contract above.
 
 Focused service tests additionally cover exact native file permissions, cancellation without post-abort writes, foreign symlink rejection, complete provenance output, undelivered mutation removal and disconnect invalidation. These are engine/transport tests, not evidence of real-model browsing quality. Real websites, authenticated services, live Office behavior, packaged platform matrix and paid-model quality are separate acceptance runs.
 
+`pnpm --filter @legalwork/desktop test:browser-observation` runs the shipping
+controller against actual Electron/CDP in a hidden, unfocused window. It covers
+forty layout wrappers, explicit semantic depth, fresh/stale refs, targets after
+600 controls, bounded matching output and same-/cross-origin frames. It uses no
+model calls and does not establish a paid-model speed improvement.
+
 Sources: [native browser plugin/RPC](https://github.com/anomalyco/opencode/tree/v2.1.4/packages/plugin-browser), [upstream Electron driver](https://github.com/anomalyco/opencode/tree/v2.1.4/packages/gui-extensions/src/browser).
+
+Saved website passwords use the existing vault and native agent tab through LegalWork's additional tools. See [browser password architecture and its first-version limits](browser-login-architecture.md).

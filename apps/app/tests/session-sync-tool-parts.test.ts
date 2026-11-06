@@ -191,7 +191,7 @@ describe("tool part mapper", () => {
     try {
       const event = (type: string, data: object) => __applySessionSyncEventForTest(input, { type, id: "event", created: 1,
         durable: { aggregateID: part.sessionID, seq: "1", version: 1 }, data: { sessionID: part.sessionID, assistantMessageID: part.messageID, ...data } });
-      event("session.step.started", {});
+      event("session.step.started", { model: { providerID: "fixture", id: "fixture" } });
       event("session.tool.input.started", { id: part.callID, name: part.tool });
       event("session.tool.called", { id: part.callID, input: part.state.input });
       event("session.tool.success", { id: part.callID, content: [{ type: "text", text: output }], metadata: {} });

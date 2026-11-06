@@ -1,3 +1,4 @@
+import { useMetadataPolling } from "@/react-app/infra/metadata-polling";
 import { useProjectItemDrag } from "../session/panel/panel-tab-destination";
 import { useRequestPanelTab } from "../session/panel/panel-tab-destination";
 import { reviewActionLabel, reviewModeLabel, reviewStatusLabel } from "./review-labels";
@@ -52,6 +53,7 @@ export function ProjectReviews({ client, workspaceId, projectName, onOpenSession
   // New deep links still select their requested review when this view is retained.
   useEffect(() => { if (localNavigation && linkedReviewId) setLocalReviewId(linkedReviewId); }, [localNavigation, linkedReviewId]);
   const reviewId = tabReviewId ?? (overview ? null : localNavigation ? localReviewId : searchParams.get("review"));
+  const metadataInterval = useMetadataPolling(client.baseUrl, 5000);
   const queryClient = useQueryClient();
   const [filters, setFilters] = useState(emptyReviewFilters);
   const deferredFilters = useDeferredValue(filters);
@@ -61,7 +63,7 @@ export function ProjectReviews({ client, workspaceId, projectName, onOpenSession
   const [selectedDocuments, setSelectedDocuments] = useState<string[]>([]);
   const [selected, setSelected] = useState<Pick<ReviewCell, "documentId" | "columnKey"> | null>(null);
   const listing = useQuery({ queryKey: reviewKey(workspaceId), queryFn: () => client.listReviews(workspaceId), refetchInterval: query => query.state.data?.reviews.some(review => review.status === "running") ? 3000 : false });
-  const detail = useQuery({ queryKey: reviewKey(workspaceId, reviewId ?? "none"), queryFn: () => client.getReview(workspaceId, reviewId!, queryClient.getQueryData<SavedReview>(reviewKey(workspaceId, reviewId!))), enabled: !!reviewId, refetchInterval: query => query.state.data?.status === "running" ? 1000 : 5000 });
+  const detail = useQuery({ queryKey: reviewKey(workspaceId, reviewId ?? "none"), queryFn: () => client.getReview(workspaceId, reviewId!, queryClient.getQueryData<SavedReview>(reviewKey(workspaceId, reviewId!))), enabled: !!reviewId, refetchInterval: query => query.state.data?.status === "running" ? 1000 : metadataInterval });
   const review = detail.data;
   useEffect(() => { if (review) onTitleChange?.(review.name); }, [review?.name, onTitleChange]);
   const filterQuery = review ? reviewFilterQuery(review, deferredFilters) : { input: undefined, error: undefined };

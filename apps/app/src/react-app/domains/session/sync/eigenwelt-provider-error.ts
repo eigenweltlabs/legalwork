@@ -23,6 +23,7 @@ type EigenweltProviderError = {
 const SIGN_IN_EXPIRED_MARKERS = ["token_not_found_in_db", "Invalid proxy server token"];
 
 export function isEigenweltSignInExpiredError(input: EigenweltProviderError): boolean {
+  if (input.provider !== EIGENWELT_PROVIDER_ID) return false;
   const mentionsDeadKey = input.texts.some(
     (text) => Boolean(text) && SIGN_IN_EXPIRED_MARKERS.some((marker) => text!.includes(marker)),
   );
@@ -60,7 +61,7 @@ export function eigenweltModelDisabledMessage(): string {
  * lapsed subscription. Use the account state and refresh it, rather than
  * blaming an administrator or asking a subscribed user to sign in again. */
 export function eigenweltProviderRecoveryMessage(input: EigenweltProviderError): string | null {
-  if (input.provider && input.provider !== EIGENWELT_PROVIDER_ID) return null;
+  if (input.provider !== EIGENWELT_PROVIDER_ID) return null;
   if (isEigenweltSignInExpiredError(input)) return eigenweltSignInExpiredMessage();
 
   const subscriptionRequired = input.texts.some((text) =>

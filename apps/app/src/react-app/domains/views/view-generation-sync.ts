@@ -3,7 +3,7 @@ import { usePanelTabStore } from "../session/panel/panel-tab-store";
 import { record, viewDraftTab, viewGenerationId, viewProgramInput, viewToolOutcome, useViewGenerationStore, type ViewDraftTab, type ViewGeneration } from "./view-generation";
 import { viewPanelTab } from "./view-reference";
 
-type Context = { serverUrl: string; workspaceId: string; sessionId: string };
+type Context = { serverUrl: string; workspaceId: string; sessionId: string; autoOpen?: boolean };
 
 /** Observe the transcript independently of collapsed tool cards or visible tabs. */
 export async function syncViewGeneration(context: Context, part: DynamicToolUIPart, open: (tab: ViewDraftTab) => void) {
@@ -17,7 +17,7 @@ export async function syncViewGeneration(context: Context, part: DynamicToolUIPa
     const next: ViewGeneration = { ...context, toolCallId: part.toolCallId, title: input.title === "Creating view…" ? previous?.title ?? input.title : input.title,
       program: input.program || previous?.program || "", status: "streaming" };
     store.update(id, next);
-    if (!previous) open(viewDraftTab(id, next));
+    if (!previous && context.autoOpen !== false) open(viewDraftTab(id, next));
     const metadata = part.callProviderMetadata?.opencode;
     if (record(metadata) && typeof metadata.rawInput === "string" && metadata.rawInput) {
       const parsed = await parsePartialJson(metadata.rawInput);

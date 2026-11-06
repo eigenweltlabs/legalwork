@@ -120,6 +120,19 @@ export function isModelAvailableInConnectedProviders(
   );
 }
 
+/** Choose a usable default without replacing a valid saved selection. */
+export function getAvailableDefaultModel(value: ProviderListView, current: ModelRef | null): ModelRef | null {
+  if (current && isModelAvailableInConnectedProviders(value, current)) return null;
+  const providers = getConnectedProviderItems(value).filter(provider => Object.keys(provider.models).length > 0);
+  const provider = (current ? providers.find(provider => provider.id === current.providerID) : undefined)
+    ?? providers.find(provider => provider.id === "eigenwelt")
+    ?? (current ? undefined : providers.find(provider => provider.models[value.default[provider.id]]) ?? providers[0]);
+  if (!provider) return null;
+  const preferred = value.default[provider.id];
+  const modelID = preferred && provider.models[preferred] ? preferred : Object.keys(provider.models)[0];
+  return modelID ? { providerID: provider.id, modelID } : null;
+}
+
 /**
  * How many providers can serve a model right now, counted from the SAME list
  * `isModelAvailableInConnectedProviders` reads.

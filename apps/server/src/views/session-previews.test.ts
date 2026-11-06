@@ -6,6 +6,22 @@ const saved: ViewRecord = { ...preview.input, owner: preview.owner, id: "0615856
 const part = (state: unknown, callID = "call1") => ({ type: "tool", name: "view_create", id: callID, state });
 
 describe("session dashboard deletion review", () => {
+  test("Code Mode previews retain the same identities as chat cards, including mixed batches", () => {
+    const native = (output: unknown, calls: unknown[]) => ({ type: "tool", name: "execute", id: "execute-call", state: { status: "completed", content: [{ type: "text", text: JSON.stringify(output) }], metadata: { toolCalls: calls } } });
+    const call = { tool: "view_create", status: "completed" };
+    const single = sessionViewPreviews([{ type: "assistant", content: [native(preview, [call])] }]);
+    expect(single).toEqual([{ callId: "execute-call", title: "Report", preview }]);
+    const reminder = native(preview, [call]);
+    const withReminder = { ...reminder, state: { ...reminder.state, content: [{ type: "text", text: '<system-reminder topic="sidebar">\nCurrent app state\n</system-reminder>' }, ...reminder.state.content], metadata: { ...reminder.state.metadata, legalworkSystemReminders: { sidebar: "Current app state" } } } };
+    expect(sessionViewPreviews([{ type: "assistant", content: [withReminder] }])).toEqual(single);
+    const batch = sessionViewPreviews([{ type: "assistant", content: [native([preview, preview], [call, call])] }]);
+    expect(batch.map(item => item.callId)).toEqual(["execute-call", "execute-call:widget:1"]);
+    const mixed = sessionViewPreviews([{ type: "assistant", content: [native(preview, [{ tool: "storage_read_file", status: "completed" }, call])] }]);
+    expect(mixed[0].callId).toBe("execute-call:widget:0");
+    for (const calls of [[], [{ tool: "view_create", status: "error" }], [{ tool: "other", status: "completed" }]]) {
+      expect(sessionViewPreviews([{ type: "assistant", content: [native(preview, calls)] }])).toEqual([]);
+    }
+  });
   test("reads full metadata and native text including migrated output, ignores failed and incomplete tools", () => {
     const items = sessionViewPreviews([{ type: "assistant", content: [part({ status: "completed", content: [{type:"text",text:"truncated"}], metadata: { legalworkViewPreview: preview } }), part({ status: "completed", content: [{type:"text",text:JSON.stringify(preview)}] }, "call2"), part({ status: "error", content: [{type:"text",text:JSON.stringify(preview)}] }), part({ status: "running", content: [] })] }]);
     expect(items.map(item => item.callId)).toEqual(["call1", "call2"]);

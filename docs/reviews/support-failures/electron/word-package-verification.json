@@ -1,0 +1,20 @@
+[
+  {
+    "file": "Synthetic contract.docx",
+    "unchangedImages": 9,
+    "originalRevisionsPreserved": 4,
+    "comments": 2,
+    "qaProposals": 6,
+    "interruptedProposals": 3,
+    "shellMarker": false
+  },
+  {
+    "file": "Baseline contract.docx",
+    "unchangedImages": 9,
+    "originalRevisionsPreserved": 4,
+    "comments": 2,
+    "qaProposals": 6,
+    "interruptedProposals": 0,
+    "shellMarker": true
+  }
+]

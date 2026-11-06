@@ -52,7 +52,7 @@ describe("cloud plugin installs", () => {
       memberships: [{ configObjectId: "connector", configObject: { id: "connector", objectType: "mcp", title: "Connector", description: null, currentRelativePath: null, status: "active", updatedAt: null, latestVersion: { id: "1", rawSourceText: null, normalizedPayloadJson: { mcpServers: { service: { url: "https://service.invalid/mcp", headers: { Authorization: "Bearer ${TOKEN}" } } } } } } }],
     } });
     expect(plugin.files.some(file => file.objectType === "mcp")).toBe(true);
-    expect((await readRuntimeOpencodeConfig(config, WORKSPACE_ID)).mcp?.service).toMatchObject({ enabled: false, headers: { Authorization: "Bearer ${TOKEN}" } });
+    expect((await readRuntimeOpencodeConfig(config, WORKSPACE_ID)).mcp?.servers?.service).toMatchObject({ disabled: true, headers: { Authorization: "Bearer ${TOKEN}" } });
   }));
   test("stores installed plugin state in the server DB and projects runtime resources", async () => {
     await withWorkspace(async ({ root, config }) => {
@@ -119,14 +119,14 @@ describe("cloud plugin installs", () => {
 
       const skillPath = join(root, ".opencode", "skills", "creative-brief-plugin", "brief-builder", "SKILL.md");
       expect(await readFile(skillPath, "utf8")).toContain("OWP_BRIEF_TEST_TOKEN");
-      expect((await readRuntimeOpencodeConfig(config, WORKSPACE_ID)).mcp?.brief).toMatchObject({
+      expect((await readRuntimeOpencodeConfig(config, WORKSPACE_ID)).mcp?.servers?.brief).toMatchObject({
         type: "remote",
         url: "https://example.com/mcp",
       });
 
       await removeCloudPlugin({ serverConfig: config, workspaceId: WORKSPACE_ID, workspaceRoot: root, pluginId: "plugin_1" });
       expect((await readInstalledCloudPlugins(config, WORKSPACE_ID)).plugins.plugin_1).toBeUndefined();
-      expect((await readRuntimeOpencodeConfig(config, WORKSPACE_ID)).mcp?.brief).toBeUndefined();
+      expect((await readRuntimeOpencodeConfig(config, WORKSPACE_ID)).mcp?.servers?.brief).toBeUndefined();
       await expectMissing(skillPath);
     });
   });

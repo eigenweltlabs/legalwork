@@ -1,20 +1,23 @@
 import type { UIMessage } from "ai";
 import type { LegalworkSessionSnapshot } from "@/app/lib/legalwork-server";
-import { isCompactionMessage } from "@/components/chat/utils";
 
-/** Inspect the unbuffered tail, never earlier prose or the session's busy state. */
-export function assistantTextIsStreaming(messages: UIMessage[], snapshot?: Pick<LegalworkSessionSnapshot, "messages"> | null): boolean {
+/** Typing describes the current user-facing text part, not the run's busy state.
+ * Read the unbuffered transcript: unfinished text is deliberately absent from
+ * assistantBubbleMessages until the complete bubble can be displayed. */
+export function assistantIsWriting(messages: UIMessage[], snapshot: Pick<LegalworkSessionSnapshot, "messages"> | null | undefined, running: boolean): boolean {
+  if (!running) return false;
   const message = messages.at(-1);
-  if (!message || message.role !== "assistant" || messageCompleted(message) || isCompactionMessage(message)) return false;
+  if (!message || message.role !== "assistant" || messageCompleted(message)) return false;
   const source = snapshot?.messages.find(item => item.info.id === message.id);
   if (source?.info.role === "assistant" && (source.info.time.completed || source.info.error)) return false;
   const part = message.parts.at(-1);
-  if (part?.type !== "text" || !part.text.trim()) return false;
+  // A subsequent tool call, reasoning part or step ends the typing phase even
+  // if the engine has not yet published completion of the preceding text.
+  if (part?.type !== "text") return false;
   const metadata = part.providerMetadata?.opencode;
-  if (metadata?.textComplete === true) return false;
-  const sourcePart = source?.parts.find(item => item.id === metadata?.partId);
-  if (sourcePart?.type === "text" && (sourcePart.synthetic || sourcePart.ignored || sourcePart.time?.end)) return false;
-  return part.state === "streaming" || metadata?.textComplete === false;
+  const original = source?.parts.find(item => item.id === metadata?.partId);
+  if (metadata?.textComplete === true || (original?.type === "text" && (original.time?.end || original.synthetic || original.ignored))) return false;
+  return part.state === "streaming" || metadata?.textComplete === false || (original?.type === "text" && Boolean(original.time?.start));
 }
 
 /** Show complete text bubbles as soon as text ends, even while its tools continue. */

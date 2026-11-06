@@ -37,10 +37,14 @@ const placeholders = (value: string): string[] =>
  * Everything else matching English is an untranslated string.
  */
 const GERMAN_KEEPS_ENGLISH = new Set<string>([
+  "catalog.category_eigenwelt", "catalog.status", "catalog.method_skill", "catalog.method_mcp", "catalog.website_url", // Shared technical terms and loanwords.
+  // The shared browser-login card uses the same German words and loanword.
+  "browser_password_request.optional", "settings.browser_passwords.label", "settings.browser_passwords.website",
   "plugin_create.kind", "plugin_create.name",
   "composer.plugin_pill", // Plugin is the same product term in both languages.
   "workspace.overview", // Home is the shared navigation label in both languages.
   "assistant.name", "assistant.icon_panda", "assistant.icon_otter", // Identical German and English nouns.
+  "launcher.source.skill", "launcher.settings.quick_action_name", "launcher.settings.quick_action_alias", "launcher.settings.raycast", "launcher.kind.chats", // Skill, Name, Alias, Chats and the product name are identical.
   "scheduled.name", // Identical German and English noun.
   "projects.schema.priority_normal", "projects.schema.budget", // Identical German and English terms.
   "review.status", // Identical German and English noun.
@@ -140,6 +144,7 @@ const GERMAN_KEEPS_ENGLISH = new Set<string>([
 
 /** Text that speaks TO the agent, where "du" is the intended register. */
 const AGENT_FACING = new Set<string>([
+  "catalog.example_website_read", "catalog.example_website_search",
   "connectors.prompt",
   "connectors.calendar_prompt", "connectors.files_prompt",
   "blueprint.starter_blueprint_prompt", "blueprint.starter_chrome_prompt",

@@ -38,6 +38,27 @@ export const connectorStatusSchema = z.object({
   })),
 });
 export type ConnectorStatus = z.infer<typeof connectorStatusSchema>;
+export const connectorCalendarColorSchema = z.string().regex(/^#[0-9a-f]{6}$/i).transform(value => value.toLowerCase()).nullable().catch(null);
+export const connectorCalendarListSchema = z.object({
+  calendars: z.array(z.object({ id: z.string(), name: z.string(), color: connectorCalendarColorSchema.optional() })), nextPageToken: z.string().nullish(),
+});
+export const connectorCalendarEventSchema = z.object({
+  id: z.string(), title: z.string(), start: z.string().nullable(), end: z.string().nullable(), allDay: z.boolean(),
+  description: z.string().default(""), location: z.string().default(""), status: z.string(), webUrl: z.string().nullable(),
+  recurringEventId: z.string().nullish(), recurring: z.boolean().optional(),
+  timeZone: z.string().nullish(), descriptionType: z.string().optional(),
+  recurrence: z.array(z.string()).default([]),
+  organizer: z.object({ email: z.string().optional(), displayName: z.string().optional() }).nullish(),
+  attendees: z.array(z.object({ email: z.string().optional(), displayName: z.string().optional(), responseStatus: z.string().optional(), optional: z.boolean().optional() })).default([]),
+  reminders: z.object({ useDefault: z.boolean().optional(), overrides: z.array(z.object({ method: z.string(), minutes: z.number() })).optional() }).nullish(),
+  conference: z.object({ url: z.string().nullish() }).nullish(),
+  attachments: z.array(z.object({ title: z.string().optional(), fileUrl: z.string().optional() })).default([]),
+  hasAttachments: z.boolean().optional(), source: z.object({ title: z.string().optional(), url: z.string().optional() }).nullish(),
+});
+export const connectorCalendarEventsSchema = z.object({
+  events: z.array(connectorCalendarEventSchema), nextPageToken: z.string().nullish(),
+});
+export type ConnectorCalendarEvent = z.infer<typeof connectorCalendarEventSchema>;
 export function connectorIsConnected(connector: ConnectorStatus["connectors"][number]) {
   const active = connector.active ?? (connector.id !== "outlook" && connector.id !== "outlook-calendar");
   return active && connector.connections.length === 1 && !connector.connections[0].needsReconnect;
@@ -65,6 +86,7 @@ export type ConnectorOAuthClientInput = z.input<typeof connectorOAuthClientInput
 
 export const connectorOAuthClientSchema = z.object({
   configured: z.boolean(),
+  builtIn: z.boolean().default(false),
   clientId: z.string(),
   tenantId: z.string(),
   hasClientSecret: z.boolean(),

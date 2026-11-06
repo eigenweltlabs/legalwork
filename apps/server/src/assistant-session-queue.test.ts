@@ -140,3 +140,31 @@ test("known preparation failures pause safely, while ambiguous sends keep their 
     await queue.tick(); expect(queue.list(target)).toEqual([]); expect(sent).toEqual([entry.id]);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+test("native rejection pauses once and retry limits survive restart", async () => {
+  const root = await mkdtemp(join(tmpdir(), "assistant-rejection-")), path = join(root, "runtime.sqlite");
+  const { nativeDeliveryRejection, nativeResponseError } = await import("./native-delivery.js");
+  let attempts = 0, reject = true, received = false;
+  const executor: AssistantQueueExecutor = {
+    inspect: async () => ({ busy: false, pending: false, interrupted: false }), hasMessage: async () => received,
+    send: async () => { attempts++; throw reject ? nativeDeliveryRejection(nativeResponseError(409, { message: "Project registration is missing" })) : new Error("Connection lost"); }, abort: async () => {},
+  };
+  try {
+    const queue = await AssistantSessionQueue.open(path, executor);
+    const entry = await queue.submit(target, "Review", authority);
+    expect(entry).toMatchObject({ state: "paused", error: "Project registration is missing", failures: 1 });
+    await queue.tick(); await queue.tick(); expect(attempts).toBe(1);
+    reject = false; await queue.update(target, entry.id, "resume", authority); await queue.tick();
+    expect(queue.list(target)[0]).toMatchObject({ state: "sending", failures: 1 });
+    await queue.tick(); expect(attempts).toBe(2); // persisted backoff
+    for (let index = 0; index < 2; index++) {
+      const db = await openSqlite(path); db.run("UPDATE assistant_session_queue SET data = json_remove(data, '$.nextAttemptAt') WHERE id = ?", [entry.id]); db.close();
+      await (await AssistantSessionQueue.open(path, executor)).tick();
+    }
+    expect(queue.list(target)[0]).toMatchObject({ state: "paused", failures: 3 });
+    await (await AssistantSessionQueue.open(path, executor)).tick(); expect(attempts).toBe(4);
+    received = true;
+    await queue.update(target, entry.id, "resume", authority); await queue.tick();
+    expect(queue.list(target)).toEqual([]); expect(attempts).toBe(4);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});

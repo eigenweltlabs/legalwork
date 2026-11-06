@@ -11,7 +11,7 @@ permissions:
 jobs:
   producer:
     if: github.event_name == 'workflow_dispatch' && github.repository == 'eigenweltlabs/legalwork'
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 90
     outputs:
       manifest-sha256: ${{ steps.build.outputs.manifest-sha256 }}
@@ -90,7 +90,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-14
+          - os: macos-15
             targets: darwin-arm64
           - os: macos-15-intel
             targets: darwin-x64,darwin-x64-baseline

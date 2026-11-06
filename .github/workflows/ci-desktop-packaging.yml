@@ -26,7 +26,7 @@ jobs:
     timeout-minutes: 60
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(inputs.windows-only && '{"include":[{"os":"windows-2022","target":"x86_64-pc-windows-msvc","platform":"win","arch":"x64","executable":"win-unpacked/LegalWork.exe"},{"os":"windows-11-arm","target":"aarch64-pc-windows-msvc","platform":"win","arch":"arm64","executable":"win-arm64-unpacked/LegalWork.exe"}]}' || '{"include":[{"os":"macos-14","target":"aarch64-apple-darwin","platform":"mac","arch":"arm64","executable":"mac-arm64/LegalWork.app/Contents/MacOS/LegalWork","securityTarget":"mac-arm64/LegalWork.app"},{"os":"macos-15-intel","target":"x86_64-apple-darwin","platform":"mac","arch":"x64","executable":"mac/LegalWork.app/Contents/MacOS/LegalWork","securityTarget":"mac/LegalWork.app"},{"os":"ubuntu-24.04","target":"x86_64-unknown-linux-gnu","platform":"linux","arch":"x64","executable":"linux-unpacked/legalwork"},{"os":"ubuntu-24.04-arm","target":"aarch64-unknown-linux-gnu","platform":"linux","arch":"arm64","executable":"linux-arm64-unpacked/legalwork"},{"os":"windows-2022","target":"x86_64-pc-windows-msvc","platform":"win","arch":"x64","executable":"win-unpacked/LegalWork.exe"},{"os":"windows-11-arm","target":"aarch64-pc-windows-msvc","platform":"win","arch":"arm64","executable":"win-arm64-unpacked/LegalWork.exe"}]}') }}
+      matrix: ${{ fromJSON(inputs.windows-only && '{"include":[{"os":"windows-2022","target":"x86_64-pc-windows-msvc","platform":"win","arch":"x64","executable":"win-unpacked/LegalWork.exe"},{"os":"windows-11-arm","target":"aarch64-pc-windows-msvc","platform":"win","arch":"arm64","executable":"win-arm64-unpacked/LegalWork.exe"}]}' || '{"include":[{"os":"macos-15","target":"aarch64-apple-darwin","platform":"mac","arch":"arm64","executable":"mac-arm64/LegalWork.app/Contents/MacOS/LegalWork","securityTarget":"mac-arm64/LegalWork.app"},{"os":"macos-15-intel","target":"x86_64-apple-darwin","platform":"mac","arch":"x64","executable":"mac/LegalWork.app/Contents/MacOS/LegalWork","securityTarget":"mac/LegalWork.app"},{"os":"ubuntu-24.04","target":"x86_64-unknown-linux-gnu","platform":"linux","arch":"x64","executable":"linux-unpacked/legalwork"},{"os":"ubuntu-24.04-arm","target":"aarch64-unknown-linux-gnu","platform":"linux","arch":"arm64","executable":"linux-arm64-unpacked/legalwork"},{"os":"windows-2022","target":"x86_64-pc-windows-msvc","platform":"win","arch":"x64","executable":"win-unpacked/LegalWork.exe"},{"os":"windows-11-arm","target":"aarch64-pc-windows-msvc","platform":"win","arch":"arm64","executable":"win-arm64-unpacked/LegalWork.exe"}]}') }}
     defaults:
       run:
         shell: bash
@@ -79,13 +79,21 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           LEGALWORK_OPENCODE_ARCHIVES: ${{ inputs.derivative-manifest-sha256 != '' && format('{0}/opencode-derivative/archives', runner.temp) || '' }}
         run: pnpm --filter @legalwork/desktop ${{ inputs.engine-build-mode == 'production' && 'build:electron:production' || 'build:electron' }}
-      - name: Execute real engine, history, MCP and first-party tools
+      - name: Execute real engine, storage transitions, history, MCP and first-party tools
         id: engine-tests
         timeout-minutes: 10
         run: >-
           bun test --preload ./apps/server/test-preload.ts
           apps/server/src/managed-opencode.released.test.ts
           apps/server/src/engine-client.released.test.ts
+          apps/server/src/managed-config.released.test.ts
+          apps/server/src/managed-engine-lifecycle.released.test.ts
+          apps/server/src/native-workspace-config.released.test.ts
+          apps/server/src/native-config-state.test.ts
+          apps/server/src/connectors/storage-transition.test.ts
+          apps/server/src/agent-sandbox/project-approvals.test.ts
+          apps/server/src/native-saved-approval-migration.test.ts
+          apps/server/src/native-saved-approval-migration.released.test.ts
           apps/server/src/mcp-native-complete.released.test.ts
           apps/server/src/opencode-plugins/native-office-host.integration.test.ts
           apps/server/src/opencode-plugins/legalwork-raw-http.released.test.ts

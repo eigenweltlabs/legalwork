@@ -3,13 +3,12 @@ import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { OpenCode } from "@opencode/client";
-import { approveEngineProject } from "./engine-project.js";
 import { createManagedOpencodeServer } from "./managed-opencode.js";
 import { startServer } from "./server.js";
 import type { ServerConfig } from "./types.js";
 
 const binary = process.env.LEGALWORK_TEST_OPENCODE_BIN;
-test.skipIf(!binary)("passive global events keep an unapproved default inactive and stream only authorized public sessions", async () => {
+test.skipIf(!binary)("passive global events keep the default project inactive and stream only authorized public sessions", async () => {
   const root = await mkdtemp(join(import.meta.dir, "../../../.legalwork/scratch/passive-native-events-"));
   const previous = { ...process.env };
   let engine: Awaited<ReturnType<typeof createManagedOpencodeServer>> | undefined;
@@ -31,7 +30,6 @@ test.skipIf(!binary)("passive global events keep an unapproved default inactive 
   const config: ServerConfig = { configPath: join(root, "private", "server.json"), host: "127.0.0.1", port: 0, token: "fixture-collaborator", hostToken: "fixture-host", approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: [],
     workspaces: [{ id: "a", name: "Unapproved", path: a, preset: "starter", workspaceType: "local" }, { id: "b", name: "Approved", path: b, preset: "starter", workspaceType: "local" }], authorizedRoots: [a, b], readOnly: true, engineProjectTrustRequired: true,
     startedAt: Date.now(), tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false, opencodeBaseUrl: engine.url, opencodeUsername: engine.username, opencodePassword: engine.password };
-  await approveEngineProject(config, config.workspaces[1]!, b, []);
   server = await startServer(config);
   const privateClient = OpenCode.make({ baseUrl: engine.url, headers: { authorization: `Basic ${Buffer.from(`${engine.username}:${engine.password}`).toString("base64")}` } });
     const response = await fetch(`http://127.0.0.1:${server.port}/w/a/opencode/api/event`, { headers: { authorization: `Bearer ${config.token}` }, signal: controller.signal });
@@ -54,11 +52,11 @@ test.skipIf(!binary)("passive global events keep an unapproved default inactive 
     expect(frames).toContain(visible.id); expect(frames).not.toContain(hidden.id); expect(frames).not.toContain(internal.id);
     expect(frames).not.toContain("private internal payload"); expect(frames).not.toContain("synthetic-never-public");
     expect(existsSync(pluginMarker)).toBe(false); expect(existsSync(mcpMarker)).toBe(false);
-    const denied = await fetch(`http://127.0.0.1:${server.port}/w/a/opencode/api/model`, { headers: { authorization: `Bearer ${config.token}` } });
-    expect(denied.status).toBe(409);
+    const activated = await fetch(`http://127.0.0.1:${server.port}/w/a/opencode/api/model`, { headers: { authorization: `Bearer ${config.token}` } });
+    expect(activated.status).toBe(200);
     await reader.cancel(); reader.releaseLock(); reader = undefined; controller.abort();
-    // Positive control: raw trusted native activation runs these same valid
-    // definitions, so passive subscription did not merely ignore a bad fixture.
+    // An active model request loads the valid native definitions immediately;
+    // the preceding passive subscription did not activate them.
     await privateClient.model.list({ location: { directory: a } });
     const deadline = Date.now() + 5000; while (!existsSync(mcpMarker) && Date.now() < deadline) await Bun.sleep(10);
     expect(existsSync(pluginMarker)).toBe(true); expect(existsSync(mcpMarker)).toBe(true);

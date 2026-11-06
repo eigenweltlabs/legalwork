@@ -51,7 +51,10 @@ async function withBridge(snapshot: unknown, execute?: (body: unknown, signal?: 
       if (url.endsWith("/assistant")) return Response.json({ workspace: null });
       if (url.endsWith("/snapshot")) return Response.json(snapshot);
       if (url.endsWith("/execute")) {
-        const body = typeof init?.body === "string" ? JSON.parse(init.body) : null;
+        const raw: unknown = typeof init?.body === "string" ? JSON.parse(init.body) : null;
+        const { requestId, deadline, ...body } = z.object({ requestId: z.uuid(), deadline: z.number() }).passthrough().parse(raw);
+        expect(deadline).toBeGreaterThan(Date.now());
+        expect(requestId).toBeTruthy();
         if (body?.actionId === "documents.list") return Response.json({ ok: true, result: snapshot });
         if (execute) return Response.json(await execute(body, init?.signal));
       }
@@ -68,6 +71,46 @@ async function modelContext(plugin: Awaited<ReturnType<typeof LegalWorkExtension
   await plugin.runtime.hook("session", "prompt", event);
   return { system, reminder: event.prompt.text.trim() };
 }
+
+describe("extension action arguments", () => {
+  test("rejects misplaced or unknown arguments before contacting the server", async () => {
+    const plugin = await LegalWorkExtensionsPreview();
+    const tool = plugin.tool.legalwork_extension_call;
+    const email = { to: ["recipient@example.com"], subject: "Review", body: "Please review." };
+    const call = { extensionId: "outlook", action: "create_draft" };
+    for (const invalid of [{ ...call, input: email }, { ...call, args: email, input: email }, { ...call, args: email, subject: "misplaced" }]) {
+      expect(inputSchema(tool.input).safeParse(invalid).success).toBe(false);
+      await expect(tool.execute(invalid)).rejects.toThrow();
+    }
+    expect(inputSchema(tool.input).safeParse({ ...call, args: email }).success).toBe(true);
+    expect(inputSchema(tool.input).safeParse({ extensionId: "outlook", action: "status", args: {} }).success).toBe(true);
+  });
+
+  test("forwards exact draft fields and search filters under args", async () => {
+    const saved = new Map(["LEGALWORK_SERVER_URL", "LEGALWORK_SERVER_TOKEN"].map(key => [key, process.env[key]]));
+    process.env.LEGALWORK_SERVER_URL = "http://extensions.test";
+    process.env.LEGALWORK_SERVER_TOKEN = "test";
+    const requests: unknown[] = [];
+    originalFetch = globalThis.fetch;
+    globalThis.fetch = Object.assign(async (_input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+      requests.push(JSON.parse(String(init?.body)));
+      return Response.json({ ok: true });
+    }, { preconnect: originalFetch.preconnect });
+    try {
+      const plugin = await LegalWorkExtensionsPreview();
+      const context = { sessionID: "ses_draft", directory: "/Users/lawyer/Matter" };
+      const email = { connectionId: "outlook-account", to: ["recipient@example.com"], subject: "Review", body: "Please review." };
+      await plugin.tool.legalwork_extension_call.execute({ extensionId: "outlook", action: "create_draft", args: email }, context);
+      await plugin.tool.legalwork_extension_call.execute({ extensionId: "outlook", action: "list_messages", args: { query: "Chris", maxResults: 10 } }, context);
+      expect(requests).toMatchObject([
+        { extensionId: "outlook", action: "create_draft", args: email, context: { sessionId: "ses_draft", directory: context.directory } },
+        { extensionId: "outlook", action: "list_messages", args: { query: "Chris", maxResults: 10 } },
+      ]);
+    } finally {
+      for (const [key, value] of saved) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
+    }
+  });
+});
 
 describe("legalwork_ui_snapshot session identity", () => {
   test("scheduled agents cannot read or navigate the active UI even with saved tool approval", async () => {

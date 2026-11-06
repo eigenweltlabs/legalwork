@@ -1,7 +1,7 @@
 import type { DynamicToolUIPart, ToolUIPart } from "ai";
 import { Blocks, BookOpen, Bot, FilePenLine, FilePlus2, FolderSearch, Globe, Headphones, KeyRound, ListChecks, MessageCircleQuestionMark, Search, SquareTerminal, Table2, Wrench } from "lucide-react";
 import { isBashToolPart, isEditToolPart, isGlobToolPart, isGrepToolPart, isReadToolPart, isWriteToolPart } from "@/lib/build-in-tools";
-import { getToolActivityLabel, isAppCapabilitiesToolPart, isToolPartInFlight, isToolPermissionDenied } from "@/lib/tool-activity";
+import { codeModeToolLabel, getCodeModeToolNames, getToolActivityLabel, isAppCapabilitiesToolPart, isToolPartInFlight, isToolPermissionDenied } from "@/lib/tool-activity";
 import { t } from "@/i18n";
 import { parseFilename, truncateText } from "./path";
 
@@ -13,11 +13,11 @@ function nameOf(part: ToolPart) {
 
 function categoryOf(part: ToolPart) {
   if (isAppCapabilitiesToolPart(part)) return "read";
-  const name = nameOf(part);
+  const name = getCodeModeToolNames(part).at(-1) ?? nameOf(part);
   if (name === "legalwork_recordings_list") return "recordings";
   if (name === "legalwork_recording_read") return "transcript";
-  if (name === "bash" || name === "exec_command") return "command";
-  if (name === "task" || name === "task_status") return "agent";
+  if (name === "bash" || name === "exec_command" || name === "legalwork_shell") return "command";
+  if (name === "task" || name === "subagent" || name === "task_status") return "agent";
   if (name === "question") return "question";
   if (name === "request_env_var" || name === "env_var_request") return "credentials";
   if (name === "skill") return "skill";
@@ -26,13 +26,13 @@ function categoryOf(part: ToolPart) {
   if (name === "legalwork_review_settings" || name === "legalwork_review_library") return "read";
   if (name === "legalwork_review_list" || name === "legalwork_review_files") return "browse";
   if (name === "legalwork_jev_corpus_question") return "search";
-  if (/(?:^|[_-])(?:search|grep|glob|find)(?:$|[_-])/.test(name)) return "search";
+  if (/(?:^|[_.-])(?:search|grep|glob|find)(?:$|[_.-])/.test(name)) return "search";
   if ((name === "websearch" || name === "legalwork_websearch")) return "search";
-  if (/(?:^|[_-])(?:read|get|results|inspect)(?:$|[_-])/.test(name) || name === "lsp") return "read";
-  if (/(?:^|[_-])(?:edit|patch|update|rename|suggest_change|fill_template|propose_change|replace_text|insert_text|add_comment|reply_comment|accept_changes|reject_changes)(?:$|[_-])/.test(name)) return "edit";
-  if (/(?:^|[_-])(?:write|create|save)(?:$|[_-])/.test(name)) return "write";
+  if (/(?:^|[_.-])(?:read|get|open|results|inspect)(?:$|[_.-])/.test(name) || name === "lsp") return "read";
+  if (/(?:^|[_.-])(?:edit|patch|update|rename|suggest_change|fill_template|propose_change|replace_text|insert_text|add_comment|reply_comment|accept_changes|reject_changes)(?:$|[_.-])/.test(name)) return "edit";
+  if (/(?:^|[_.-])(?:write|create|save)(?:$|[_.-])/.test(name)) return "write";
   if (name.startsWith("legalwork_review_")) return "review";
-  if (/(?:^|[_-])(?:list|files|browse)(?:$|[_-])/.test(name)) return "browse";
+  if (/(?:^|[_.-])(?:list|files|browse)(?:$|[_.-])/.test(name)) return "browse";
   return "tool";
 }
 
@@ -69,9 +69,19 @@ export function getToolIcon(part: ToolPart) {
   return icons[categoryOf(part)];
 }
 
+/** Keep batches readable in the status row; individual names remain in its history. */
+export function getToolRunActivityLabel(part: ToolPart): string {
+  const names = getCodeModeToolNames(part);
+  const activities = names.length ? names : [nameOf(part)];
+  if (activities.every(name => /^(?:legalwork_)?browser[_.]/.test(name))) return t("tool_run.using_browser");
+  return names.length ? t("tool.working") : getToolActivityLabel(part);
+}
+
 /** Compact history labels retain the useful target without exposing command bodies. */
 export function getToolHistoryLabel(part: ToolPart): string {
   if (isToolPartInFlight(part)) return getToolActivityLabel(part);
+  const innerTools = codeModeToolLabel(part);
+  if (innerTools) return innerTools;
   if (isToolPermissionDenied(part)) return t("tool_run.permission_denied");
   if (part.state === "output-error") return t("tool_run.action_failed");
   if (isAppCapabilitiesToolPart(part)) return t("tool_run.checked_app_capabilities");
@@ -109,5 +119,5 @@ export function getToolHistoryLabel(part: ToolPart): string {
 
 export function getToolRunSummary(parts: ToolPart[]): string {
   if (parts.length === 1) return getToolHistoryLabel(parts[0]);
-  return [...new Set(parts.map(categoryOf))].map(categoryLabel).join(" · ");
+  return [...new Set(parts.map(part => codeModeToolLabel(part) ?? categoryLabel(categoryOf(part))))].join(" · ");
 }

@@ -3,28 +3,37 @@ name: legalwork-ui-mcp
 on:
   push:
     branches: [dev]
-    paths:
-      - "packages/legalwork-ui-mcp/**"
-      - ".github/workflows/ci-legalwork-ui-mcp.yml"
     tags:
       - "legalwork-ui-mcp-v*"
   pull_request:
-    branches: [dev]
-    paths:
-      - "packages/legalwork-ui-mcp/**"
-      - ".github/workflows/ci-legalwork-ui-mcp.yml"
+    branches: [dev, codex/projects-akte-workspace, codex/opencode-v2-migration]
 
 permissions:
   contents: read
 
-defaults:
-  run:
-    working-directory: packages/legalwork-ui-mcp
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      ui_mcp: ${{ steps.scope.outputs.ui_mcp }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/ci-scope
+        id: scope
   check:
+    needs: changes
+    if: needs.changes.outputs.ui_mcp == 'true'
     name: Syntax & dry-run publish
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/legalwork-ui-mcp
 
     steps:
       - name: Checkout
@@ -55,6 +64,9 @@ jobs:
     needs: check
     if: startsWith(github.ref, 'refs/tags/legalwork-ui-mcp-v')
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/legalwork-ui-mcp
 
     permissions:
       contents: read

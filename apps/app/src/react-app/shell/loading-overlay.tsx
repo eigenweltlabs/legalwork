@@ -7,6 +7,7 @@ import { useUpdateCheckRequestStore } from "../domains/settings/state/update-che
 import { supportBundleCollect } from "../../app/lib/desktop";
 import { isDesktopRuntime } from "../../app/utils";
 import { useBootState, useBootOverlayVisible } from "./boot-state";
+import type { EngineStartupState } from "./engine-startup";
 import { OwDotTicker } from "./dot-ticker";
 import { SettingsSurface } from "./settings-route";
 import { t } from "@/i18n";
@@ -72,9 +73,11 @@ function CollectLogsButton() {
  * A minimal typographic beat plus a small dot ticker. Fades once both the
  * boot hook and the first route load are ready.
  */
-export function LoadingOverlay() {
+export function LoadingOverlay({ startup = { status: "ready" } }: { startup?: EngineStartupState }) {
   const visible = useBootOverlayVisible();
-  const { phase, message, error } = useBootState();
+  const { phase, message, error: bootError, routeReady } = useBootState();
+  const error = startup.status === "error" ? startup.message : bootError;
+  const updating = startup.status === "updating" && !error;
   const [updatesOpen, setUpdatesOpen] = useState(false);
 
   const openUpdates = () => {
@@ -82,24 +85,26 @@ export function LoadingOverlay() {
     setUpdatesOpen(true);
   };
 
-  if (!visible) return null;
+  if (!visible && startup.status === "ready") return null;
 
-  const fading = phase === "ready";
+  const fading = startup.status === "ready" && routeReady && (phase === "ready" || phase === "idle");
 
   return (
     <div
+      data-testid="startup-screen"
       className={`fixed inset-0 z-[1000] flex items-center justify-center bg-dls-surface transition-opacity duration-[160ms] ${
         fading ? "pointer-events-none opacity-0" : "pointer-events-auto opacity-100"
       }`}
       aria-live="polite"
-      aria-busy={!fading}
+      aria-busy={!fading && !error}
       role="status"
     >
       <div className="flex w-full max-w-[320px] flex-col items-center gap-4 px-6 text-center">
         <OwDotTicker size="md" />
         <div className="text-[12px] leading-5 text-dls-secondary">
-          {message || t("boot.preparing_workspace")}
+          {error ? t("boot.error") : updating ? t("boot.updating") : startup.status === "starting" ? t("boot.preparing_workspace") : message || t("boot.preparing_workspace")}
         </div>
+        {updating ? <div className="text-[12px] leading-5 text-dls-secondary">{t("boot.updating_detail")}</div> : null}
         {error ? (
           <div className="flex flex-col items-center gap-3 text-[12px] leading-5 text-red-11">
             <div>{error}</div>

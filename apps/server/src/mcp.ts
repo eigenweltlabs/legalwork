@@ -1,4 +1,3 @@
-import { minimatch } from "minimatch";
 import { existsSync } from "node:fs";
 import { isAbsolute, join, relative } from "node:path";
 import type { McpItem, ServerConfig, WorkspaceInfo } from "./types.js";
@@ -8,10 +7,12 @@ import { z } from "zod";
 import { ApiError, findApiError } from "./errors.js";
 import { createEngineClient, workspaceEngineLocation } from "./engine-client.js";
 import { engineProjectStatus } from "./engine-project.js";
+import { legalworkRuntimeConfigFilePath } from "./engine-storage.js";
 import { resolveWorkspaceOpencodeConnection } from "./opencode-connection.js";
 import { readJsoncFile } from "./jsonc.js";
 import { globalOpencodeConfigDir, opencodeConfigPaths } from "./workspace-files.js";
 import { validateMcpConfig, validateMcpName } from "./validators.js";
+import { nativeMcpDefinition } from "./native-mcp-config.js";
 import {
   GLOBAL_MCP_ID,
   readRuntimeOpencodeConfig,
@@ -75,12 +76,11 @@ export async function existingMcpScope(config: ServerConfig, workspaceId: string
 
 const record = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
 
-/** Native v2 nests definitions under servers. A legacy connector named
- * "servers" is still an ordinary definition when it has its own type. */
+/** Native configuration has one unambiguous servers namespace. */
 export function getMcpConfig(config: Record<string, unknown>): Record<string, Record<string, unknown>> {
   const mcp = config.mcp;
   if (!record(mcp)) return {};
-  const servers = record(mcp.servers) && mcp.servers.type !== "local" && mcp.servers.type !== "remote" ? mcp.servers : mcp;
+  const servers = record(mcp.servers) ? mcp.servers : {};
   return Object.fromEntries(Object.entries(servers).filter((entry): entry is [string, Record<string, unknown>] =>
     record(entry[1]) && (entry[1].type === "local" || entry[1].type === "remote")));
 }
@@ -92,12 +92,11 @@ export function mcpDisplayItem(item: McpItem): ConnectorDisplayItem {
   const headers = record(value.headers) ? value.headers : {};
   const oauth = value.type === "remote" && value.oauth !== false
     && (record(value.oauth) || !Object.keys(headers).some(isCredentialHeader));
-  const timeout = typeof value.timeout === "number" ? value.timeout
-    : record(value.timeout) && typeof value.timeout.execution === "number" ? value.timeout.execution : undefined;
+  const timeout = record(value.timeout) && typeof value.timeout.execution === "number" ? value.timeout.execution : undefined;
   return {
     name: item.name, source: item.source, editable: item.source === "config.remote",
     ...(item.disabledByTools ? { disabledByTools: true } : {}),
-    config: { type: value.type === "local" ? "local" : "remote", enabled: value.enabled !== false && value.disabled !== true,
+    config: { type: value.type === "local" ? "local" : "remote", enabled: value.disabled !== true,
       ...(timeout === undefined ? {} : { timeout }), ...(value.type === "remote" ? { oauth: oauth ? {} : false } : {}) },
     configured: {
       url: typeof value.url === "string", command: Array.isArray(value.command), cwd: typeof value.cwd === "string",
@@ -155,21 +154,6 @@ export function mergeMcpEdit(current: Record<string, unknown>, update: Record<st
   return next;
 }
 
-function getDeniedToolPatterns(config: Record<string, unknown>): string[] {
-  const tools = config.tools;
-  if (!tools || typeof tools !== "object") return [];
-  const deny = (tools as { deny?: unknown }).deny;
-  if (!Array.isArray(deny)) return [];
-  return deny.filter((item) => typeof item === "string") as string[];
-}
-
-function isMcpDisabledByTools(config: Record<string, unknown>, name: string): boolean {
-  const patterns = getDeniedToolPatterns(config);
-  if (patterns.length === 0) return false;
-  const candidates = [`mcp.${name}`, `mcp.${name}.*`, `mcp:${name}`, `mcp:${name}:*`, "mcp.*", "mcp:*"];
-  return patterns.some((pattern) => candidates.some((candidate) => minimatch(candidate, pattern)));
-}
-
 export async function listMcp(serverConfig: ServerConfig, workspaceId: string, workspaceRoot: string): Promise<McpItem[]> {
   const read = async (paths: string[]) => {
     let config: Record<string, unknown> = {}, servers: Record<string, Record<string, unknown>> = {};
@@ -202,8 +186,6 @@ export async function listMcp(serverConfig: ServerConfig, workspaceId: string, w
       name,
       config: entry,
       source: "config.global",
-      disabledByTools:
-        (isMcpDisabledByTools(globalConfig, name) || isMcpDisabledByTools(config, name)) || undefined,
     });
   }
 
@@ -214,7 +196,6 @@ export async function listMcp(serverConfig: ServerConfig, workspaceId: string, w
       name,
       config: entry,
       source: "config.project",
-      disabledByTools: isMcpDisabledByTools(config, name) || undefined,
     });
   }
 
@@ -224,7 +205,6 @@ export async function listMcp(serverConfig: ServerConfig, workspaceId: string, w
       name,
       config: entry,
       source: "config.remote",
-      disabledByTools: isMcpDisabledByTools(config, name) || undefined,
     });
   }
 
@@ -251,11 +231,15 @@ export async function listMcpDisplay(config: ServerConfig, workspace: WorkspaceI
   for (const entry of entries) if (entry.type === "document" && entry.info.mcp?.timeout) timeout = { ...timeout, ...entry.info.mcp.timeout };
   for (const entry of entries) {
     if (entry.type !== "document") continue;
+    const managed = entry.path !== undefined && (entry.path === legalworkRuntimeConfigFilePath(config) || entry.path === project.projection.path);
     const globalRelative = entry.path ? relative(globalOpencodeConfigDir(), entry.path) : undefined;
     const global = globalRelative !== undefined && !isAbsolute(globalRelative) && globalRelative !== ".." && !globalRelative.startsWith("../") && !globalRelative.startsWith("..\\");
     for (const [name, server] of Object.entries(entry.info.mcp?.servers ?? {})) {
+      // Native watchers may still expose the previous generated document. A
+      // removed managed definition must not reappear as an authored connector.
+      if (managed && !owned.has(name)) continue;
       effective.set(name, { name, config: { ...server, timeout: { ...timeout, ...server.timeout } },
-        source: entry.path === project.projection.path && owned.has(name) ? "config.remote" : global ? "config.global" : "config.project" });
+        source: managed ? "config.remote" : global ? "config.global" : "config.project" });
     }
   }
   // A managed definition may still be propagating through the native watcher.
@@ -266,9 +250,9 @@ export async function listMcpDisplay(config: ServerConfig, workspace: WorkspaceI
 
 function withoutMcp(name: string) {
   return (current: RuntimeOpencodeConfig): RuntimeOpencodeConfig => {
-    const mcp = { ...runtimeMcpMap(current) };
-    delete mcp[name];
-    return { ...current, mcp };
+    const servers = { ...current.mcp?.servers };
+    delete servers[name];
+    return { ...current, mcp: { ...current.mcp, servers } };
   };
 }
 
@@ -297,7 +281,7 @@ export async function addMcp(
     const definition = edit?.variables ? resolveSavedVariables(merged, edit.variables) : merged;
     if (!record(definition)) throw new ApiError(400, "invalid_mcp_config", "Connector configuration must be an object.");
     validateMcpConfig(definition);
-    return { ...row, mcp: { ...map, [name]: definition } };
+    return { ...row, mcp: { ...row.mcp, servers: { ...row.mcp?.servers, [name]: nativeMcpDefinition(definition) } } };
   });
   // A workspace copy of the same name would shadow the shared entry in this
   // workspace's engine config.
@@ -328,7 +312,7 @@ export async function removeMcp(serverConfig: ServerConfig, workspaceId: string,
   return removed;
 }
 
-// Flips `enabled` on a runtime MCP entry, in whichever row holds it (the
+// Flips the native disabled control in whichever row holds it (the
 // workspace's own row shadows the shared one, so it is checked first).
 // Returns false for "toggle does not apply": missing, non-object, or malformed
 // enough that OpenCode would fail to load it. The HTTP layer maps false to
@@ -345,13 +329,13 @@ export async function setMcpEnabled(
   if (!rowId) return false;
   let updated = false;
   await writeRuntimeOpencodeConfig(serverConfig, rowId, currentConfig => {
-    const connectors = runtimeMcpMap(currentConfig);
+    const connectors = currentConfig.mcp?.servers ?? {};
     const current = connectors[name];
     if (!current || typeof current !== "object" || Array.isArray(current)) return currentConfig;
-    try { validateMcpConfig({ ...current, enabled }); }
+    try { validateMcpConfig({ ...current, disabled: !enabled }); }
     catch { return currentConfig; }
     updated = true;
-    return { ...currentConfig, mcp: { ...connectors, [name]: { ...current, enabled } } };
+    return { ...currentConfig, mcp: { ...currentConfig.mcp, servers: { ...connectors, [name]: { ...current, disabled: !enabled } } } };
   });
   return updated;
 }

@@ -604,6 +604,12 @@ export function RecorderPane(props: {
 
         <PermissionsPanel />
 
+        {store.recording && !store.finalizing && store.transcriptionReconnecting ? (
+          <div role="status" className="mt-4 rounded-xl border border-warning/40 bg-warning-soft px-3 py-2 text-sm text-warning">
+            {t("recorder.transcription_reconnecting")}
+          </div>
+        ) : null}
+
         {store.error ? (
           <div role={cloudAvailabilityError ? "status" : "alert"} className={cn(
             "mt-4 flex items-start justify-between gap-3 rounded-xl border px-3 py-2 text-sm",

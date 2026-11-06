@@ -1,22 +1,28 @@
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type MouseEvent, type PointerEvent, type ReactNode } from "react";
 import { ArrowUpRight, ChevronDown, Globe, X } from "lucide-react";
 import { animate, motion, useMotionValue, useReducedMotion } from "motion/react";
+import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { t } from "@/i18n";
 import { usePanelTabStore, workspacePanelKey } from "../panel/panel-tab-store";
 import { DocumentMiniPreview, useDocumentRuntime } from "../artifacts/document-runtime";
-import { useTaskBrowserTabs } from "./task-browser-tabs";
+import { assistantBrowserWorkerIds, useTaskBrowserTabs, visibleTaskBrowserTabs } from "./task-browser-tabs";
 import { openBackgroundTab } from "./open-background-tab";
 import { magneticTabDock, tabThrowVelocity, type TabDock } from "./magnetic-tab-dock";
+import { useQueryCacheState } from "@/react-app/infra/query-cache-state";
+import { emptyInteractionSessions, interactionSessionsKey, type InteractionSessions } from "../sync/interaction-state";
+import { useSessionActivityStore, type SessionActivityStatus } from "../status/session-activity-store";
+import type { Client } from "@/app/types";
 
 const subscribeEmpty = () => () => {};
+const emptyStatuses: Record<string, SessionActivityStatus> = {};
 const zero = () => 0;
 const cardWidth = 220;
 const cardHeight = 143;
 const cardGap = 12;
 const chatDocks = new Map<string, TabDock>();
 
-type MiniTab = { id: string; label: string; preview: ReactNode; open: () => void; close: () => void };
+type MiniTab = { id: string; label: string; preview: ReactNode; open: () => void; openOnClick?: boolean; close: () => void };
 
 function BrowserMiniPreview({ id }: { id: string }) {
   const [image, setImage] = useState<string | null>(null);
@@ -65,7 +71,7 @@ function MiniCard({ tab, toggle, onSurfaceClick, onPointerDown, expanded, count,
     {tab.preview}
     <button type="button" className="absolute inset-0 touch-none cursor-grab rounded-lg active:cursor-grabbing focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-blue-8"
       onPointerDown={onPointerDown} onClick={onSurfaceClick}
-      title={tab.label} aria-label={t("background_tabs.toggle")} aria-expanded={expanded} />
+      title={tab.label} aria-label={tab.openOnClick ? t("background_tabs.open", { name: tab.label }) : t("background_tabs.toggle")} aria-expanded={tab.openOnClick ? undefined : expanded} />
     <div className="absolute left-1.5 top-1.5 flex gap-0.5 rounded-full bg-white/90 p-0.5 shadow-sm">
       <Button variant="ghost" size="icon" className="size-5 rounded-full text-black/60 hover:bg-black/10 hover:text-black" aria-label={t("background_tabs.close", { name: tab.label })} title={t("background_tabs.close", { name: tab.label })} onClick={tab.close}><X className="size-3.5" /></Button>
       <Button variant="ghost" size="icon" className="size-5 rounded-full text-black/60 hover:bg-black/10 hover:text-black" aria-label={t("background_tabs.open", { name: tab.label })} title={t("background_tabs.open", { name: tab.label })} onClick={tab.open}><ArrowUpRight className="size-3.5" /></Button>
@@ -190,7 +196,9 @@ function FloatingTabStack({ tabs, sessionId }: { tabs: MiniTab[]; sessionId: str
     };
   };
   const toggle = () => setExpanded(value => !value);
-  const onSurfaceClick = (event: MouseEvent<HTMLButtonElement>) => { if (!dragged.current || event.detail === 0) toggle(); };
+  const onSurfaceClick = (event: MouseEvent<HTMLButtonElement>, tab: MiniTab) => {
+    if (!dragged.current || event.detail === 0) { if (tab.openOnClick) tab.open(); else toggle(); }
+  };
   return <section ref={setContainer} className="pointer-events-none absolute inset-0 z-20" aria-label={t("background_tabs.label")}>
     <motion.div ref={setGroup} className="absolute will-change-transform" style={{ x, y, width, height, [dock.horizontal]: 4, [dock.vertical]: 4 }}
       data-background-tab-group={`${dock.vertical}-${dock.horizontal}`}
@@ -198,7 +206,7 @@ function FloatingTabStack({ tabs, sessionId }: { tabs: MiniTab[]; sessionId: str
     >
       <div ref={scroll} className={contentHeight > height ? "h-full overflow-y-auto overscroll-contain" : "h-full"}>
         <div className="relative" style={{ height: contentHeight }}>
-          {tabs.map((tab, index) => <MiniCard key={tab.id} tab={tab} toggle={toggle} onSurfaceClick={onSurfaceClick} onPointerDown={startDrag}
+          {tabs.map((tab, index) => <MiniCard key={tab.id} tab={tab} toggle={toggle} onSurfaceClick={event => onSurfaceClick(event, tab)} onPointerDown={startDrag}
             expanded={expanded} count={tabs.length} depth={tabs.length - 1 - index} columns={columns} dock={dock} />)}
         </div>
       </div>
@@ -206,11 +214,22 @@ function FloatingTabStack({ tabs, sessionId }: { tabs: MiniTab[]; sessionId: str
   </section>;
 }
 
-export function BackgroundTabStack({ sessionId, workspaceId }: { sessionId: string; workspaceId: string }) {
+export function BackgroundTabStack({ sessionId, workspaceId, client, assistantChat = false }: { sessionId: string; workspaceId: string; client: Client; assistantChat?: boolean }) {
   const runtime = useDocumentRuntime();
   useSyncExternalStore(runtime?.subscribe ?? subscribeEmpty, runtime?.version ?? zero);
   const panels = usePanelTabStore(state => state.sessions);
   const browsers = useTaskBrowserTabs(state => state.tabs);
+  const statuses = useSessionActivityStore(state => state.statusesByWorkspaceId[workspaceId] ?? emptyStatuses);
+  const sessions = useQueryCacheState<InteractionSessions>(interactionSessionsKey(workspaceId), emptyInteractionSessions);
+  const owners = [...new Set(browsers.flatMap(tab => tab.background && !tab.dismissed && tab.taskSessionId ? [tab.taskSessionId] : []))].sort();
+  // Browser state updates repeatedly during navigation. Cache by owner IDs so
+  // those updates cannot cancel discovery before the parent tile appears.
+  const workers = useQuery({
+    queryKey: ["assistant-browser-workers", workspaceId, sessionId, owners],
+    enabled: assistantChat && owners.length > 0,
+    queryFn: () => assistantBrowserWorkerIds(id => client.session.get({ sessionID: id }), sessionId, owners),
+    staleTime: 30_000,
+  });
   const tabs: MiniTab[] = [];
   for (const entry of runtime?.entries.values() ?? []) {
     if (!entry.tasks.has(sessionId) || entry.dismissed.has(sessionId)) continue;
@@ -218,9 +237,8 @@ export function BackgroundTabStack({ sessionId, workspaceId }: { sessionId: stri
     tabs.push({ id: entry.key, label: entry.props.tab.label,
       preview: <DocumentMiniPreview entry={entry} />, open: () => openBackgroundTab(entry.props.sessionId, sessionId, entry.props.tab), close: () => runtime?.dismiss(entry, sessionId) });
   }
-  for (const tab of browsers) {
-    if (tab.taskSessionId !== sessionId || !tab.background || tab.dismissed) continue;
-    tabs.push({ id: tab.id, label: tab.label, preview: <BrowserMiniPreview id={tab.id} />,
+  for (const tab of visibleTaskBrowserTabs(browsers, sessionId, assistantChat, sessions, workers.data, statuses)) {
+    tabs.push({ id: tab.id, label: tab.label, openOnClick: true, preview: <BrowserMiniPreview id={tab.id} />,
       open: () => openBackgroundTab(workspacePanelKey(workspaceId), sessionId, { ...tab, background: false }),
       close: () => { void window.__LEGALWORK_ELECTRON__?.browser?.dismissTab?.(tab.id); } });
   }

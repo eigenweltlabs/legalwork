@@ -2,8 +2,8 @@
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { DynamicToolUIPart, UIMessage } from "ai";
-import { getAssistantRenderGroups, groupAssistantToolRuns } from "../src/components/chat/utils";
-import { getToolHistoryLabel, getToolRunSummary } from "../src/components/tools/tool-presentation";
+import { getAssistantRenderGroups, groupAssistantToolRuns, hasToolRunTail } from "../src/components/chat/utils";
+import { getToolHistoryLabel, getToolRunActivityLabel, getToolRunSummary } from "../src/components/tools/tool-presentation";
 import { ToolRun } from "../src/components/chat/tool-run";
 
 const bash: DynamicToolUIPart = { type: "dynamic-tool", toolName: "bash", toolCallId: "shell-1", state: "output-available", input: { command: "python3 -c 'private code'", description: "A long generated description" }, output: "private output" };
@@ -53,7 +53,8 @@ test("reasoning enables details within the same collapsible group", () => {
 
 test("completed groups remain collapsible and closed by default", () => {
   const html = renderToStaticMarkup(<ToolRun parts={[bash]} showDetails={false} renderTool={() => <pre>hidden</pre>} />);
-  expect(html).toContain("A long generated description");
+  expect(html).toContain("Completed");
+  expect(html).toContain("1 action");
   expect(html).toContain('aria-expanded="false"');
   expect(html).not.toContain("lw-tool-shimmer");
   expect(html).not.toContain("<pre>");
@@ -64,9 +65,42 @@ test("a live command run stays active between calls and keeps its key when strea
   expect(after[0].message.id).toBe(before[0].message.id);
   expect(after[0].message.parts).toHaveLength(2);
   const between = renderToStaticMarkup(<ToolRun active parts={[bash]} showDetails={false} renderTool={() => null} />);
-  expect(between).toContain("A long generated description");
+  expect(between).toContain("Reviewing results…");
   expect(between).toContain("lw-tool-shimmer");
   expect(between).toContain('aria-expanded="false"');
+});
+
+test("tool activity carries the pending status through reasoning, empty messages and the next call", () => {
+  for (const thinking of [false, true]) {
+    for (const tail of [[], [reasoning], [{ type: "step-start" }, { type: "text", text: " " }], [appTool]] satisfies UIMessage["parts"][]) {
+      expect(hasToolRunTail(messages([[bash], tail]), thinking)).toBe(true);
+    }
+    expect(hasToolRunTail(messages([[bash], [{ type: "text", text: "Next step." }]]), thinking)).toBe(false);
+    expect(hasToolRunTail(messages([[bash], [{ type: "file", mediaType: "image/png", url: "screenshot.png" }]]), thinking)).toBe(false);
+    expect(hasToolRunTail(messages([[bash], [{ ...bash, toolName: "legalwork_review_create" }]]), thinking)).toBe(false);
+  }
+  expect(hasToolRunTail([], false)).toBe(false);
+  expect(hasToolRunTail(messages([[reasoning]]), false)).toBe(false);
+});
+
+test("browser batches have a short status but retain individual actions in expanded history", () => {
+  const browser: DynamicToolUIPart = { ...appTool, toolName: "execute", callProviderMetadata: { opencode: { toolNames: ["browser.click", "browser.snapshot"] } } };
+  expect(getToolRunActivityLabel(browser)).toBe("Using browser");
+  expect(getToolRunActivityLabel({ ...appTool, toolName: "legalwork_browser_open_url" })).toBe("Using browser");
+  expect(getToolRunActivityLabel({ ...browser, callProviderMetadata: { opencode: { toolNames: ["browser.snapshot", "legalwork_project_read"] } } })).toBe("Working");
+  const html = renderToStaticMarkup(<ToolRun defaultOpen active parts={[browser]} showDetails={false} renderTool={() => null} />);
+  expect(html).toContain("Using browser");
+  expect(html).toContain("Browser click · Browser snapshot");
+});
+
+test("failed and denied runs never claim successful completion", () => {
+  const failed: DynamicToolUIPart = { ...appTool, state: "output-error", errorText: "Browser unavailable" };
+  for (const part of [failed, { ...failed, errorText: "The user rejected permission to use this specific tool call" }]) {
+    const html = renderToStaticMarkup(<ToolRun parts={[part]} showDetails={false} renderTool={() => null} />);
+    expect(html).not.toContain("Completed");
+    expect(html).not.toContain("lw-tool-shimmer");
+    expect(html).toContain(part === failed ? "Action failed" : "Permission denied");
+  }
 });
 
 test("project widgets remain visible outside collapsed tool activity, also after reloading history", () => {

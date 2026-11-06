@@ -30,6 +30,7 @@ import {
   QUICK_TOGGLE_TOOLS,
   quickToggleChecked,
   readPermissionRecord,
+  nativeToolPermissionUpdates,
   serializeToolPermissionsPatch,
   withFirmPermissions,
   type ManagedPermissionTool,
@@ -283,7 +284,7 @@ export function ToolPermissionsPanel(props: ToolPermissionsPanelProps) {
     dispatch({ type: "saveStart", status: t("tool_permissions.saving") });
     try {
       await legalworkClient.patchConfig(legalworkWorkspaceId, {
-        opencode: { permission: patch },
+        legalwork: { toolPermissionRules: nativeToolPermissionUpdates(nextModel, state.loadedPermission) },
       });
       dispatch({
         type: "saveSuccess",
@@ -365,10 +366,13 @@ export function ToolPermissionsPanel(props: ToolPermissionsPanelProps) {
 
   const busy = state.loading || state.saving;
   const quick = props.variant === "quick";
+  const sandbox = props.legalworkServerClient && legalworkServerReady
+    ? <SandboxStatus client={props.legalworkServerClient} canWrite={canWriteConfig} variant={props.variant} />
+    : null;
 
   return (
     <LayoutSectionItem className={cn("gap-6", props.className)}>
-      {props.legalworkServerClient && legalworkServerReady ? <SandboxStatus client={props.legalworkServerClient} canWrite={canWriteConfig} variant={props.variant} /> : null}
+      {quick ? null : sandbox}
       {quick ? null : (
         <LayoutSectionItemHeader>
           <LayoutSectionItemTitle>
@@ -525,6 +529,7 @@ export function ToolPermissionsPanel(props: ToolPermissionsPanelProps) {
           ) : null}
         </>
       )}
+      {quick ? sandbox : null}
     </LayoutSectionItem>
   );
 }

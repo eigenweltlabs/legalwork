@@ -651,7 +651,7 @@ export function SkillsView(props: SkillsViewProps) {
               </>
             ) : (
               <>
-                {!libraryLayout ? <ImportSkillsButton
+                <ImportSkillsButton
                   pluginImports={props.pluginImports}
                   asWorkflow={false}
                   busy={props.busy}
@@ -659,7 +659,7 @@ export function SkillsView(props: SkillsViewProps) {
                   existingNames={installedNames}
                   extensions={extensions}
                   onPackageImported={() => setPackagesRevision((revision) => revision + 1)}
-                /> : null}
+                />
                 {!libraryLayout ? <button
                   type="button"
                   onClick={() => runDesktopAction(extensions.revealSkillsFolder)}

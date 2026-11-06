@@ -1,3 +1,4 @@
+import { withoutWikiSourceMarkers } from "@legalwork/types/wiki-suggestions";
 import type { ComponentProps, MouseEvent } from "react";
 import { addMdastExtension$, addSyntaxExtension$, addToMarkdownExtension$, realmPlugin } from "@mdxeditor/editor";
 import { ArtifactMarkdownEditor } from "../session/artifacts/artifact-markdown-editor";
@@ -29,5 +30,5 @@ export function WikiMarkdownEditor({ linkTargets = [], titleInEditor = false, ..
     event.preventDefault();
     event.stopPropagation();
     props.onOpenLink?.(wikiEditorLinkTarget(href));
-  }}><ArtifactMarkdownEditor {...props} LinkDialog={WikiLinkDialog} serializeRichText={titleInEditor ? undefined : preserveWikiPageHeading} onOpenLink={props.onOpenLink ? url => props.onOpenLink?.(wikiEditorLinkTarget(url)) : undefined} extensions={titleInEditor ? inlineTitleExtensions : extensions} suppressHtmlProcessing allowDiff={false} /></div></WikiLinkTargetsContext.Provider>;
+  }}><ArtifactMarkdownEditor {...props} value={withoutWikiSourceMarkers(props.value)} baseline={withoutWikiSourceMarkers(props.baseline)} LinkDialog={WikiLinkDialog} serializeRichText={titleInEditor ? undefined : preserveWikiPageHeading} onOpenLink={props.onOpenLink ? url => props.onOpenLink?.(wikiEditorLinkTarget(url)) : undefined} extensions={titleInEditor ? inlineTitleExtensions : extensions} suppressHtmlProcessing allowDiff={false} /></div></WikiLinkTargetsContext.Provider>;
 }

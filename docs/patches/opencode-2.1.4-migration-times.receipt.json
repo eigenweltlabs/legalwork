@@ -1,0 +1,64 @@
+{
+  "schemaVersion": 1,
+  "status": "migration-source-validated",
+  "sourceValidationPassed": true,
+  "candidateBuildReady": true,
+  "buildReadyScope": "Migration source regression tests and core typecheck. Existing HTTP patch sections are byte-for-byte unchanged; its historical full-suite evidence is in priorReceipt. This receipt does not claim a new full-suite or platform acceptance run.",
+  "proposedCandidateVersion": "2.1.4-legalwork.http-policy.4",
+  "verifiedAt": "2026-10-29T15:54:48.796486+00:00",
+  "upstream": {
+    "repository": "https://github.com/anomalyco/opencode.git",
+    "tag": "v2.1.4",
+    "commit": "68bc26b7da1990ce10ffecfbc1e09eb13aa5d824"
+  },
+  "patch": {
+    "path": "docs/patches/opencode-2.1.4-mcp-http-policy-v3.patch",
+    "sha256": "422bbc772dffc711254b7f518b5f4ce4498af2cb0f6220e9bd4a11bc3414c92c"
+  },
+  "priorPatch": {
+    "path": "docs/patches/opencode-2.1.4-mcp-http-policy-v3.patch",
+    "sha256": "9b822bb48049bfd49551380c9fb5cfe8acf4743bda6c4ebdb51f115f8ef033e0",
+    "unchangedExtractedDiff": true,
+    "revision": "6e2ed855c328b2f515351c8a5bd52656df9c86ca"
+  },
+  "priorReceipt": {
+    "path": "docs/patches/opencode-2.1.4-mcp-http-policy-v3.receipt.json",
+    "sha256": "3921f70ac38eb3d5dbcece983da631f3f3d4cdda8dc9a7e4953f7cd264ed0aae"
+  },
+  "changedFilesSincePriorPatch": [
+    "packages/core/src/database/v1-migration.bun.ts",
+    "packages/core/test/v1-migration.test.ts"
+  ],
+  "runtime": {
+    "bun": "1.4.4",
+    "sha256": "0a2237cdcfa0d16ef501d9acca9f0026309ef348bea7393a64e8d1e3609565cc"
+  },
+  "dependencies": {
+    "lockfileSha256": "47359ba0731b02d14b9a93a6b71b2db104cf9b9716ab0b6371fe96f02c6d71b2",
+    "rootPackageSha256": "1767628e91b25f3b730c39edf67069a4575ff2d5509b0e494fa95ec6b693e246",
+    "unchanged": true
+  },
+  "tests": [
+    {
+      "cwd": "packages/core",
+      "command": "bun run script/test.ts test/v1-migration.test.ts",
+      "beforeFix": {
+        "passed": 35,
+        "failed": 3
+      },
+      "afterFix": {
+        "passed": 38,
+        "failed": 0,
+        "assertions": 163
+      }
+    },
+    {
+      "cwd": "packages/core",
+      "command": "bun run typecheck",
+      "exitCode": 0,
+      "files": 1637,
+      "projects": 2
+    }
+  ],
+  "contract": "Preserve the original assistant time.completed exactly, independently of SQL time_updated. Leave unfinished replies unfinished and retain SQL row timestamps."
+}

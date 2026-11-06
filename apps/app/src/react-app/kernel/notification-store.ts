@@ -5,7 +5,7 @@
 // notifyEvent/notifyAlert entry points and shell/notification-center.tsx for
 // the bell UI.
 import { create } from "zustand";
-import { createJSONStorage, persist } from "zustand/middleware";
+import { createJSONStorage, persist, type StateStorage } from "zustand/middleware";
 
 export const PERSISTED_NOTIFICATION_STORE_KEY = "legalwork:notifications:v1";
 
@@ -156,7 +156,7 @@ function sanitizeNotifications(value: unknown): AppNotification[] {
   return notifications;
 }
 
-export const useNotificationStore = create<NotificationStore>()(
+export const createNotificationStore = (storage: () => StateStorage = () => localStorage) => create<NotificationStore>()(
   persist(
     (set) => ({
       notifications: [],
@@ -237,7 +237,7 @@ export const useNotificationStore = create<NotificationStore>()(
     }),
     {
       name: PERSISTED_NOTIFICATION_STORE_KEY,
-      storage: createJSONStorage(() => localStorage),
+      storage: createJSONStorage(storage),
       partialize: (state) => ({ notifications: state.notifications }),
       merge: (persistedState, currentState) => ({
         ...currentState,
@@ -252,6 +252,8 @@ export const useNotificationStore = create<NotificationStore>()(
     },
   ),
 );
+
+export const useNotificationStore = createNotificationStore();
 
 /**
  * How many tasks the unread task announcements name, each task once — the

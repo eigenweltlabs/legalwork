@@ -110,6 +110,10 @@ test("remembered sandbox approval is exact, chat-scoped and revocable", async ()
     service.respond(pending.id, "always");
     expect((await first).allowed).toBe(true);
     expect(await service.requestApproval(request, undefined, true, "matter/chat/read")).toMatchObject({ id: "remembered", allowed: true });
+    const sibling = service.requestApproval({ ...request, sessionID: "different-chat" }, undefined, true, "matter/chat/read");
+    expect(service.list()).toHaveLength(1);
+    service.respond(service.list()[0].id, "deny");
+    expect((await sibling).allowed).toBe(false);
     for (const key of ["matter/other-chat/read", "matter/chat/edit"]) {
       const other = service.requestApproval(request, undefined, true, key);
       expect(service.list()).toHaveLength(1);

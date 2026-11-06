@@ -6,14 +6,13 @@ import { discoverProviderModels } from "./provider-model-discovery.js";
 import { startServer } from "./server.js";
 import type { ServerConfig } from "./types.js";
 import { readRuntimeOpencodeConfig, writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
-import { nativeProvider } from "./native-opencode-config.js";
 
 const cleanup: Array<() => void | Promise<void>> = [];
 afterEach(async () => {
   while (cleanup.length) await cleanup.pop()?.();
 });
 
-test("built-in worker refresh uses the catalog and only persists new models", async () => {
+test("built-in worker refresh downloads public metadata and retains native configuration ownership", async () => {
   const root = await mkdtemp(join(tmpdir(), "legalwork-catalog-route-"));
   cleanup.push(() => rm(root, { recursive: true, force: true }));
   const details = { name: "New built-in model", reasoning: true, tool_call: true, limit: { context: 200000, output: 64000 } };
@@ -27,7 +26,8 @@ test("built-in worker refresh uses the catalog and only persists new models", as
   cleanup.push(() => { if (originalURL === undefined) delete process.env.OPENCODE_MODELS_URL; else process.env.OPENCODE_MODELS_URL = originalURL; });
   const engine = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(request) {
     const path = new URL(request.url).pathname;
-    if (path === "/api/model") return Response.json({ location: { directory: root }, data: [{ id: "old", providerID: "anthropic", ...details }] });
+    if (path === "/api/config") return Response.json([]);
+    if (path === "/api/rpc/legalwork.model-catalog/inventory") return Response.json({ output: { models: ["native-loaded-model"] } });
     if (path === "/api/session/active") return Response.json({ data: { running: { type: "running" } } });
     if (path === "/api/session/running") return Response.json({ data: { id: "running", location: { directory: root } } });
     return Response.json({});
@@ -51,7 +51,9 @@ test("built-in worker refresh uses the catalog and only persists new models", as
   expect(result.reloaded).toBe(false);
   expect(result.providers.anthropic.pendingReload).toBe(true);
   const saved = (await readRuntimeOpencodeConfig(config, "ws_catalog")).providers?.anthropic;
-  expect(saved).toEqual({ models: nativeProvider({ models: { new: details } }).models });
+  expect(saved).toBeUndefined();
+  expect(result.providers.anthropic.availableModels).toEqual(["native-loaded-model"]);
+  expect(result.providers.anthropic.pendingCatalogReload).toBe(true);
 });
 
 function modelServer(handler: (request: Request) => Response) {
@@ -129,8 +131,8 @@ test("worker route requires authorization and returns the endpoint's inventory",
     permissions: [{ action: "read", resource: "*", effect: "{file:never-expand-this-effect.txt}" }],
     providers: { authored: { settings: { baseURL, apiKey: "authored-key-must-not-be-reused" } } },
   }));
-  await writeRuntimeOpencodeConfig(config, "ws_1", () => ({ provider: { custom: {
-    npm: "@ai-sdk/openai-compatible", options: { baseURL, apiKey: "saved-test-key" }, models: { old: { name: "Old model" } },
+  await writeRuntimeOpencodeConfig(config, "ws_1", () => ({ providers: { custom: {
+    package: "@opencode/ai/providers/openai-compatible", settings: { baseURL, apiKey: "saved-test-key" }, models: { old: { name: "Old model" } },
   } } }));
   const savedKeyDiscovery = await fetch(endpoint, {
     method: "POST", headers: { "content-type": "application/json", Authorization: `Bearer ${config.token}` },
@@ -165,7 +167,7 @@ test("worker route requires authorization and returns the endpoint's inventory",
   expect(result.reloaded).toBe(false);
   expect(result.providers.custom.pendingReload).toBe(false);
   expect(result.providers.custom.availableModels).toEqual(["customer/model-7"]);
-  expect((await readRuntimeOpencodeConfig(config, "ws_1")).provider?.custom).toMatchObject({ models: { old: { name: "Old model" } } });
-  expect((await readRuntimeOpencodeConfig(config, "ws_1")).provider?.custom).not.toHaveProperty("models.customer/model-7");
+  expect((await readRuntimeOpencodeConfig(config, "ws_1")).providers?.custom).toMatchObject({ models: { old: { name: "Old model" } } });
+  expect((await readRuntimeOpencodeConfig(config, "ws_1")).providers?.custom).not.toHaveProperty("models.customer/model-7");
   expect(JSON.stringify(result)).not.toContain("saved-test-key");
 });

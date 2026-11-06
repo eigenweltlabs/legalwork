@@ -20,6 +20,7 @@ function overlapError(): ApiError {
   return new ApiError(409, "wiki_workspace_overlap", "Choose separate wiki and project folders so project file access cannot bypass wiki permissions.");
 }
 export async function assertWikiFoldersIndependent(wikis: WikiRegistration[], workspaces: WorkspaceInfo[]): Promise<void> {
+  if (wikis.length === 0) return;
   const wikiWorkspaceIds = new Set(wikis.map((wiki) => wiki.workspaceId));
   const projectRoots: string[] = [];
   for (const workspace of workspaces) {

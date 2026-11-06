@@ -152,6 +152,22 @@ listing only. Absolute paths, traversal, empty segments, backslashes and control
 characters are rejected. Upload/edit operations are audited using the existing
 workspace audit system.
 
+## Google Drive metadata and reads
+
+Whole-account Google Drive file reads and downloads use the final provider identity directly. Stale display ancestors do not define a folder boundary for that connection. Ordinary ID reads make two metadata requests, before and after content transfer, and compare file versions and shortcut target identities. Shortcuts additionally refresh their target metadata. Plain-name reads retain path resolution. Folder views and linked project scopes always resolve the complete ancestry, including after a download; mutations still validate their source and destination paths.
+
+My Drive metadata is loaded only when needed for account browsing, personal-root path resolution or folder-reference namespaces. Existing folder namespaces remain compatible. Account-wide ancestry lookups, where required for browsing and mutations, use batches of at most eight concurrent requests and validate every parent edge in order. Failed lookups are inspected in path order, so later provider errors do not bypass earlier scope failures. Explicit folder views retain sequential resolution. There is no shared metadata cache or extended authorization lease.
+
+## Provider-side sidebar copies
+
+Memory Drive dragging retains `mode: "copy"`. The shared transfer endpoint selects `StorageAdapter.copyFile` for files in a same-connection copy when the adapter implements it. This branch does not create staging files, download source or destination content, or upload bytes. Folder copies enumerate a complete metadata snapshot, create the destination folder structure (including empty folders), and copy each file through the provider. File-count progress advances only after a copy is confirmed. Truncated listings are rejected before creating destinations.
+
+Google Drive uses `files.copy` with `supportsAllDrives`. Native Google documents retain their provider format and title; the viewer's Office-export extension is not added to the native title. Returned metadata is checked against the expected destination and filename, plus binary size and MD5 checksum when supplied. OneDrive and SharePoint use the asynchronous `driveItem/copy` operation with conflict behavior set to fail where supported. The server waits for completion, then verifies the new file's metadata. Monitor URLs are restricted to HTTPS Microsoft endpoints; requests carry no OAuth token and redirects are never followed automatically.
+
+Cross-connection copies and adapters without native copy support retain the verified streaming path. Native failures never trigger a streaming retry: copies may already exist or remain queued in the provider. The original is preserved, and the caller receives `storage_transfer_incomplete` with instructions to refresh both folders. Native copy does not alter the existing version-checked move or delete paths.
+
+Provider references: [Google Drive files.copy](https://developers.google.com/workspace/drive/api/reference/rest/v3/files/copy), [Microsoft driveItem copy](https://learn.microsoft.com/en-us/graph/api/driveitem-copy), [Microsoft copy monitoring](https://learn.microsoft.com/en-us/graph/long-running-actions-overview).
+
 ## Agent access
 
 The bundled agent uses one tool set across all providers and multiple connections:
@@ -165,7 +181,9 @@ The bundled agent uses one tool set across all providers and multiple connection
 | `storage_search_filenames` | Find filename text across descendants on any provider, using metadata listings; separate continuation cursor per connection |
 | `storage_read_file` | Read bounded UTF-8 text or download a document into the workspace for existing document tools |
 | `storage_write_file` | Create from text/a workspace file, or replace using the version returned by a read |
+| `storage_rename` | Rename a file or folder within its current folder |
 | `storage_create_folder` | Create a folder within a writable connection |
+| `storage_transfer` | Move or copy a file or folder within or between connections; requires explicit mode, destination connection ID and existing destination folder path (empty for its root) |
 
 Every file result retains its connection ID and root-relative path. Identical
 filenames in different connections remain distinct. Binary files are downloaded

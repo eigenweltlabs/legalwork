@@ -269,14 +269,22 @@ private func meetingApplication(_ object: AudioObjectID, _ bundleId: String, _ a
 // Read window metadata and the top-level document URL only. Stop at web areas
 // instead of traversing page contents or collecting conversation text.
 private func meetingDocuments(_ app: NSRunningApplication) -> [MeetingDocument] {
-    guard AXIsProcessTrusted() else { return [] }
+    // Window titles remain useful when Accessibility is unavailable. Reading
+    // them uses the existing Screen Recording permission, never a new prompt.
+    let windowInfo = CGWindowListCopyWindowInfo([.optionAll, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+    let titles = windowInfo.compactMap { info -> MeetingDocument? in
+        guard let pid = info[kCGWindowOwnerPID as String] as? Int32, pid == app.processIdentifier,
+              let title = info[kCGWindowName as String] as? String, !title.isEmpty else { return nil }
+        return MeetingDocument(title: title, url: "")
+    }
+    guard AXIsProcessTrusted() else { return titles }
     let element = AXUIElementCreateApplication(app.processIdentifier)
     AXUIElementSetMessagingTimeout(element, 0.1)
     var value: CFTypeRef?
     guard AXUIElementCopyAttributeValue(element, kAXWindowsAttribute as CFString, &value) == .success,
-          let windows = value as? [AXUIElement] else { return [] }
+          let windows = value as? [AXUIElement] else { return titles }
     let deadline = Date().addingTimeInterval(0.8)
-    return windows.prefix(8).map { window in
+    return titles + windows.prefix(8).map { window in
         if Date() >= deadline { return MeetingDocument(title: "", url: "") }
         let title = axString(window, kAXTitleAttribute)
         var url = axString(window, kAXDocumentAttribute)
@@ -315,7 +323,7 @@ private func runMeetingActivityMode() -> Never {
             if status == noErr {
                 let apps = NSWorkspace.shared.runningApplications
                 let nativeIds = ["us.zoom.xos", "com.microsoft.teams2", "com.microsoft.teams", "com.tinyspeck.slackmacgap", "com.cisco.webexmeetingsapp", "com.cisco.webex"]
-                let browserIds = ["com.google.Chrome", "com.microsoft.edgemac", "company.thebrowser.Browser", "company.thebrowser.dia", "com.apple.Safari", "org.mozilla.firefox"]
+                let browserIds = ["com.google.Chrome", "com.microsoft.edgemac", "company.thebrowser.Browser", "company.thebrowser.dia", "com.apple.Safari", "org.mozilla.firefox", "com.brave.Browser", "com.vivaldi.Vivaldi", "com.operasoftware.Opera", "org.chromium.Chromium"]
                 var seen = Set<String>()
                 for object in objects where audioUInt32(object, kAudioProcessPropertyIsRunningInput) == 1 {
                     guard let bundleId = audioString(object, kAudioProcessPropertyBundleID), !bundleId.isEmpty else { continue }
@@ -325,6 +333,13 @@ private func runMeetingActivityMode() -> Never {
                     guard nativeIds.contains(id) || browserIds.contains(id) else { continue }
                     seen.insert(id)
                     processes.append(MeetingProcess(bundleId: id, inputActive: true, documents: browserIds.contains(id) ? meetingDocuments(app) : []))
+                }
+                // Joining with the microphone muted must not make the browser
+                // invisible to detection. Inspect metadata even without input.
+                for app in apps {
+                    guard let id = app.bundleIdentifier, browserIds.contains(id), !seen.contains(id) else { continue }
+                    seen.insert(id)
+                    processes.append(MeetingProcess(bundleId: id, inputActive: false, documents: meetingDocuments(app)))
                 }
             }
         }
@@ -358,9 +373,93 @@ private func runFocusedDisplayMode() -> Never {
     exit(0)
 }
 
+// MARK: - Launcher origin modes
+//
+// The quick panel records the app the user was working in before it takes
+// focus, reads that app's selection on request, and returns focus to it before
+// inserting a result. Only identifiers and the selected text leave this
+// helper; no window contents are watched continuously.
+//
+//   --frontmost            JSON: the frontmost application and its focused
+//                          window title (Accessibility, no prompt).
+//   --selected-text <pid>  JSON: the focused element's selected text in that
+//                          process, or a reason it is unavailable.
+//   --activate <pid>       Bring that process to the front; exit 0 on success.
+
+private func jsonString(_ value: String) -> String {
+    let data = (try? JSONSerialization.data(withJSONObject: [value])) ?? Data("[\"\"]".utf8)
+    let text = String(decoding: data, as: UTF8.self)
+    return String(text.dropFirst().dropLast())
+}
+
+private func focusedWindowTitle(_ pid: pid_t) -> String? {
+    let element = AXUIElementCreateApplication(pid)
+    var window: AnyObject?
+    guard AXUIElementCopyAttributeValue(element, kAXFocusedWindowAttribute as CFString, &window) == .success, let windowElement = window else { return nil }
+    var title: AnyObject?
+    guard AXUIElementCopyAttributeValue(windowElement as! AXUIElement, kAXTitleAttribute as CFString, &title) == .success else { return nil }
+    return title as? String
+}
+
+private func runFrontmostMode() -> Never {
+    guard let app = NSWorkspace.shared.frontmostApplication else {
+        emitJSON([("ok", "false"), ("reason", jsonString("none"))])
+        exit(0)
+    }
+    let trusted = AXIsProcessTrusted()
+    let title = trusted ? focusedWindowTitle(app.processIdentifier) : nil
+    emitJSON([
+        ("ok", "true"), ("pid", String(app.processIdentifier)),
+        ("app", jsonString(app.localizedName ?? "")), ("bundleId", jsonString(app.bundleIdentifier ?? "")),
+        ("window", title.map(jsonString) ?? "null"), ("accessibility", trusted ? "true" : "false"),
+    ])
+    exit(0)
+}
+
+private func runSelectedTextMode(_ pidText: String?) -> Never {
+    guard let pidText, let pid = Int32(pidText) else { emitJSON([("ok", "false"), ("reason", jsonString("no-origin"))]); exit(0) }
+    guard AXIsProcessTrusted() else { emitJSON([("ok", "false"), ("reason", jsonString("denied"))]); exit(0) }
+    // Accessibility reads a background app's focused element, so the panel may keep focus while the selection is read.
+    guard NSRunningApplication(processIdentifier: pid) != nil else {
+        emitJSON([("ok", "false"), ("reason", jsonString("changed"))]); exit(0)
+    }
+    let application = AXUIElementCreateApplication(pid)
+    var focused: AnyObject?
+    guard AXUIElementCopyAttributeValue(application, kAXFocusedUIElementAttribute as CFString, &focused) == .success, let element = focused else {
+        emitJSON([("ok", "false"), ("reason", jsonString("unsupported"))]); exit(0)
+    }
+    var selected: AnyObject?
+    let status = AXUIElementCopyAttributeValue(element as! AXUIElement, kAXSelectedTextAttribute as CFString, &selected)
+    if status == .success, let text = selected as? String {
+        emitJSON([("ok", text.isEmpty ? "false" : "true"), ("reason", jsonString(text.isEmpty ? "empty" : "")), ("text", jsonString(text))])
+    } else {
+        emitJSON([("ok", "false"), ("reason", jsonString(status == .attributeUnsupported ? "unsupported" : "failed"))])
+    }
+    exit(0)
+}
+
+private func runActivateMode(_ pidText: String?) -> Never {
+    guard let pidText, let pid = Int32(pidText), let app = NSRunningApplication(processIdentifier: pid) else {
+        emitJSON([("ok", "false"), ("reason", jsonString("no-origin"))]); exit(0)
+    }
+    let activated = app.activate(options: [.activateIgnoringOtherApps])
+    // Activation is asynchronous; confirm the frontmost app before reporting success.
+    var attempts = 0
+    while attempts < 20 && NSWorkspace.shared.frontmostApplication?.processIdentifier != pid {
+        CFRunLoopRunInMode(.defaultMode, 0.05, false)
+        attempts += 1
+    }
+    let front = NSWorkspace.shared.frontmostApplication?.processIdentifier == pid
+    emitJSON([("ok", (activated && front) ? "true" : "false"), ("reason", jsonString(front ? "" : "changed"))])
+    exit(0)
+}
+
 private let modeArguments = CommandLine.arguments.dropFirst()
 if let mode = modeArguments.first {
     switch mode {
+    case "--frontmost": runFrontmostMode()
+    case "--selected-text": runSelectedTextMode(modeArguments.dropFirst().first)
+    case "--activate": runActivateMode(modeArguments.dropFirst().first)
     case "--check": runInputMonitoringCheck()
     case "--request": runInputMonitoringRequest()
     case "--check-automation": runAutomationMode(askUser: false)

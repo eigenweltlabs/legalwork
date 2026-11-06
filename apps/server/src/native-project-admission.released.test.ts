@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -66,6 +67,24 @@ test.skipIf(!process.env.LEGALWORK_TEST_OPENCODE_BIN)("released native admission
     const allowed = await client.session.create({ location: { directory: trusted }, permissions: [{ action: "*", resource: "*", effect: "allow" }] });
     await invoke(allowed.id, "write", { path: join(trusted, "file.txt"), content: "approved" }, trusted);
     expect(existsSync(join(trusted, "file.txt"))).toBe(true);
+    // Automatic admission covers the exact application-owned native file,
+    // without making the surrounding folder's future automation trusted.
+    const generated = join(root, "generated"), generatedDirectory = join(generated, ".opencode");
+    await mkdir(generatedDirectory, { recursive: true });
+    const generatedPath = join(generatedDirectory, "opencode.json"), ownedMarker = join(root, "owned-mcp-executed"), editedMarker = join(root, "edited-mcp-executed");
+    const owned = JSON.stringify({ mcp: { servers: { owned: { type: "local", command: [process.execPath, "-e", `require('node:fs').writeFileSync(${JSON.stringify(ownedMarker)},'approved')`] } } } });
+    await writeFile(generatedPath, owned);
+    await writeFile(registryPath, JSON.stringify({ version: 1, projects: [{ directory: untrusted, approved: false }, { directory: trusted, approved: true },
+      { directory: generated, approved: true, generated: { scopes: [generated, root], documents: [{ path: generatedPath, digest: createHash("sha256").update(owned).digest("hex") }] } }] }));
+    await client.model.list({ location: { directory: generated } });
+    for (let attempt = 0; attempt < 200 && !existsSync(ownedMarker); attempt++) await Bun.sleep(10);
+    expect(existsSync(ownedMarker)).toBe(true);
+    await writeFile(generatedPath, JSON.stringify({ mcp: { servers: { edited: { type: "local", command: [process.execPath, "-e", `require('node:fs').writeFileSync(${JSON.stringify(editedMarker)},'unsafe')`] } } } }));
+    await client.location.reload();
+    await client.model.list({ location: { directory: generated } });
+    await Bun.sleep(150);
+    expect(existsSync(editedMarker)).toBe(false);
+    expect((await client.mcp.list({ location: { directory: generated } })).data).toEqual([]);
     // Positive control: the identical authored MCP configuration executes
     // only after approval. A fixture command that exits still proves startup.
     await writeFile(registryPath, JSON.stringify({ version: 1, projects: [{ directory: untrusted, approved: true }, { directory: trusted, approved: true }] }));

@@ -29,8 +29,8 @@ async function fixture() {
     } });
     if (path === "/api/mcp") return Response.json({ location: { directory: state.directory }, data: [{ name: "notes", status: { status: state.status } }] });
     if (path === "/api/config") return Response.json([
-      { type: "document", info: { mcp: { servers: { notes: { type: "remote", url: "https://connector.invalid/mcp", enabled: true } } } } },
-      { type: "document", info: { mcp: { servers: state.removed ? {} : { notes: { type: "remote", url: "https://connector.invalid/mcp", enabled: state.enabled } } } } },
+      { type: "document", info: { mcp: { servers: { notes: { type: "remote", url: "https://connector.invalid/mcp", disabled: false } } } } },
+      { type: "document", info: { mcp: { servers: state.removed ? {} : { notes: { type: "remote", url: "https://connector.invalid/mcp", disabled: !state.enabled } } } } },
     ].filter((_entry, index) => !state.removed || index === 1));
     if (path === "/api/experimental/mcp/notes/connect") {
       state.connects++; await state.hold; state.status = "connected";

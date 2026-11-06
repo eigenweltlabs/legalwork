@@ -1,7 +1,7 @@
 /** @jsxImportSource react */
 import { useEffect, useId, useState, type SetStateAction } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Plus, RefreshCw } from "lucide-react";
+import { ChevronRight, RefreshCw } from "lucide-react";
 import { toast } from "@/components/ui/sonner";
 
 import {
@@ -48,12 +48,11 @@ import {
 } from "./environment-variable-table";
 import {
   LayoutSection,
-  LayoutSectionDescription,
-  LayoutSectionHeader,
-  LayoutSectionTitle,
   LayoutStack,
 } from "@/react-app/domains/settings/settings-layout";
 import { ConfirmModal } from "@/react-app/design-system/modals/confirm-modal";
+import { BrowserPasswords } from "./browser-passwords";
+import { SecretsSectionHeader } from "./secrets-section";
 
 type EnvItem = EnvironmentVariableItem;
 type EnvironmentEditorState = EnvironmentEditorDraft | null;
@@ -97,6 +96,7 @@ function EnvironmentViewContent(props: EnvironmentViewProps) {
 
   return (
     <LayoutStack>
+      {client && !isRemoteWorkspace ? <BrowserPasswords key={`${client.baseUrl}:${props.runtimeKey}`} client={client} /> : null}
       <EnvironmentSettingsPanel
         client={client}
         isRemoteWorkspace={isRemoteWorkspace}
@@ -108,6 +108,13 @@ function EnvironmentViewContent(props: EnvironmentViewProps) {
         editor={editor}
         onEditorChange={setEditor}
       />
+      {client && !isRemoteWorkspace ? <details className="group text-xs text-muted-foreground">
+        <summary className="flex w-fit cursor-pointer list-none items-center gap-1.5 py-1 [&::-webkit-details-marker]:hidden"><ChevronRight className="size-3.5 transition-transform group-open:rotate-90" />{t("settings.secrets.details")}</summary>
+        <div className="mt-2 max-w-prose space-y-2 leading-relaxed">
+          <p><span className="font-medium text-foreground">{t("settings.browser_passwords.title")}. </span>{t("settings.browser_passwords.privacy")}</p>
+          <p><span className="font-medium text-foreground">{t("settings.environment.title")}. </span>{t("settings.secrets.environment_access")}</p>
+        </div>
+      </details> : null}
     </LayoutStack>
   );
 }
@@ -193,22 +200,8 @@ function EnvironmentSettingsPanel(props: EnvironmentSettingsPanelProps) {
 
   return (
     <LayoutSection>
-      <LayoutSectionHeader>
-        <div className="flex items-start justify-between gap-4">
-          <div className="min-w-0">
-            <LayoutSectionTitle>{t("settings.environment.title")}</LayoutSectionTitle>
-            <LayoutSectionDescription className="max-w-[52ch]">
-              {t("settings.environment.description")}
-            </LayoutSectionDescription>
-          </div>
-          {props.canEdit ? (
-            <Button className="shrink-0" onClick={openAdd}>
-              <Plus className="size-4" />
-              {t("settings.environment.add_button")}
-            </Button>
-          ) : null}
-        </div>
-      </LayoutSectionHeader>
+      <SecretsSectionHeader title={t("settings.environment.title")} description={t("settings.environment.description")}
+        addLabel={t("settings.environment.add_button")} onAdd={props.canEdit ? openAdd : undefined} />
 
       {props.isRemoteWorkspace ? (
         <SettingsNotice>{t("settings.environment.remote_workspace_hint")}</SettingsNotice>
@@ -229,7 +222,6 @@ function EnvironmentSettingsPanel(props: EnvironmentSettingsPanelProps) {
           loading={isLoading}
           items={data?.items ?? []}
           canEdit={props.canEdit}
-          onAdd={openAdd}
           onEdit={openEdit}
           onRevealValue={readEnvironmentValue}
         />
@@ -305,7 +297,6 @@ type EnvironmentItemsTableProps = {
   loading: boolean;
   items: EnvItem[];
   canEdit: boolean;
-  onAdd: () => void;
   onEdit: (item: EnvItem) => void;
   onRevealValue: (item: EnvItem) => Promise<string>;
 };
@@ -338,7 +329,7 @@ function EnvironmentItemsTable(props: EnvironmentItemsTableProps) {
     return <EnvironmentVariableTableLoading />;
   }
   if (props.items.length === 0) {
-    return <EnvironmentVariableTableEmpty canAdd={props.canEdit} onAdd={props.onAdd} />;
+    return <EnvironmentVariableTableEmpty />;
   }
   return (
     <>

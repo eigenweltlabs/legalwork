@@ -13,6 +13,7 @@
  * tighten them instead of widening call sites.
  */
 import type { WorkspaceWire } from "./workspace.js";
+import type { LauncherWorkspaceContext, LauncherOutputIntent, LauncherOutputTask, LauncherCaptureResult, LauncherDesktopStatus, LauncherDraftFile, LauncherInsertResult, LauncherInvocation, LauncherOrigin, LauncherSelectionResult, LauncherSettings, LauncherWindowState } from "./launcher.js";
 
 export type ActaportToolset = "records" | "finance" | "administration" | "uploads";
 export type ActaportConnectionStatus = {
@@ -36,6 +37,7 @@ import type {
   AudioPermissionKind,
   AudioRecorderBootstrap,
   AudioMeetingStatus,
+  AudioMeetingNotesSettings,
   AudioTapApp,
   AudioRecordingDetail,
   AudioTranscriptEdit,
@@ -141,7 +143,7 @@ export type WorkspaceCopyFilesResult = {
     name: string;
     path?: string;
     status: "copied" | "already_here" | "failed";
-    error?: "file_only" | "recursive" | "changed" | "unavailable" | "failed";
+    error?: "file_only" | "recursive" | "changed" | "unavailable" | "dashboard" | "failed";
   }>;
 };
 
@@ -302,6 +304,7 @@ export type CacheResetResult = {
 };
 
 export type DesktopFetchInit = {
+  requestId?: string;
   method?: string;
   headers?: Record<string, string>;
   body?: string;
@@ -463,6 +466,8 @@ export type DesktopCommandMap = {
   runtimeStatus: { args: []; result: unknown };
   /** Write a token-free support-log bundle and reveal it in the file manager. */
   supportBundleCollect: { args: []; result: { path: string | null } };
+  /** Export diagnostic traces with chat message bodies removed. Defaults to 7 days of chat activity. */
+  technicalSupportBundleCollect: { args: [options?: { days?: number }]; result: { path: string | null } };
   engineStop: { args: []; result: EngineInfo };
   engineRestart: { args: [options?: Record<string, unknown>]; result: EngineInfo };
   engineInfo: { args: []; result: EngineInfo };
@@ -681,6 +686,7 @@ export type DesktopCommandMap = {
   audioRecordingsList: { args: []; result: AudioRecordingMeta[] };
   audioRecordingGet: { args: [recordingId: string]; result: AudioRecordingDetail | null };
   audioRecordingEditTranscript: { args: [recordingId: string, edit: AudioTranscriptEdit]; result: AudioRecordingDetail };
+  audioRecordingSummarize: { args: [recordingId: string, settings: Pick<AudioMeetingNotesSettings, "model" | "instructions">]; result: AudioRecordingDetail };
   audioRecordingDelete: { args: [recordingId: string]; result: AudioRecordingMeta[] };
   /** Rename a recording (active or on disk); returns the refreshed list. */
   audioRecordingRename: { args: [recordingId: string, title: string]; result: AudioRecordingMeta[] };
@@ -722,6 +728,10 @@ export type DesktopCommandMap = {
   audioOverlaySetVisible: { args: [visible: boolean]; result: { visible: boolean } };
   audioOverlayGetVisible: { args: []; result: { visible: boolean } };
   audioSystemDictationGet: { args: []; result: AudioSystemDictationStatus };
+  audioMiniBarSetEnabled: {
+    args: [enabled: boolean];
+    result: AudioSystemDictationStatus;
+  };
   audioSystemDictationSetAppearance: {
     args: [appearance: AudioDictationAppearance];
     result: AudioSystemDictationStatus;
@@ -818,6 +828,34 @@ export type DesktopCommandMap = {
     result: boolean;
   };
 
+  /**
+   * Global Assistant launcher: its own background presence, shortcut registry,
+   * panel window, external origin/selection/insertion, screen capture and the
+   * shared draft file. Native window and process identifiers never leave the
+   * main process; the renderer only sees opaque origin IDs.
+   */
+  launcherStatus: { args: []; result: LauncherDesktopStatus };
+  launcherSettingsSet: { args: [patch: Partial<LauncherSettings>]; result: LauncherDesktopStatus };
+  launcherWindowControl: { args: [command: "show" | "hide" | "pin" | "unpin" | "expand" | "resize" | "state" | "dialog-begin" | "dialog-end" | "context" | "invoke" | "reset-position", payload?: { height?: number; route?: string; conversationId?: string; context?: LauncherWorkspaceContext | null; invocation?: LauncherInvocation }]; result: LauncherWindowState };
+  launcherOriginGet: { args: []; result: LauncherOrigin | null };
+  launcherOriginSelection: { args: [originId: string]; result: LauncherSelectionResult };
+  launcherOriginInsert: { args: [originId: string, text: string]; result: LauncherInsertResult };
+  launcherClipboardRead: { args: []; result: { text: string; capturedAt: number } };
+  launcherClipboardCopyFiles: { args: [serverUrl: string, paths: string[]]; result: void };
+  launcherCaptureWindow: { args: []; result: LauncherCaptureResult };
+  launcherCaptureRegion: { args: []; result: LauncherCaptureResult };
+  launcherOutputRemember: { args: [serverUrl: string, intent: LauncherOutputIntent]; result: void };
+  launcherOutputList: { args: []; result: LauncherOutputTask[] };
+  launcherOutputCancel: { args: [requestId: string]; result: void };
+  launcherDraftsRead: { args: []; result: LauncherDraftFile };
+  launcherDraftsWrite: { args: [file: LauncherDraftFile, expectedVersion: number]; result: boolean };
+  launcherInvocationsDrain: { args: []; result: LauncherInvocation[] };
+  launcherAttentionSet: { args: [input: { count: number; recording: boolean }]; result: void };
+  launcherRaycastPairing: { args: [action: "status" | "enable" | "disable"]; result: { enabled: boolean; path: string | null } };
+  launcherApprovalReply: { args: [id: string, decision: "allow" | "deny"]; result: boolean };
+  /** Dictate into the captured origin app, or open the meeting recorder: the two other voice destinations. */
+  launcherVoice: { args: [action: "dictate" | "record"]; result: boolean };
+
   // Window / OS utilities (dunder commands)
   __openPath: { args: [target: string]; result: unknown };
   __revealItemInDir: { args: [target: string]; result: unknown };
@@ -825,6 +863,7 @@ export type DesktopCommandMap = {
   __getApplicationsForFile: { args: [target: string]; result: { name: string; appPath: string; icon: string | null }[] };
   __openWithApp: { args: [target: string, appPath: string]; result: unknown };
   __fetch: { args: [url: string, init?: DesktopFetchInit]; result: DesktopFetchResult };
+  __fetchCancel: { args: [id: string]; result: void };
   __streamOpen: { args: [id: string, url: string, headers: Record<string, string>]; result: Omit<DesktopFetchResult, "body"> };
   __streamRead: { args: [id: string]; result: Uint8Array | null };
   __streamCancel: { args: [id: string]; result: void };

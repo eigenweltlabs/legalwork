@@ -32,10 +32,10 @@ permissions:
   actions: read
 jobs:
   build:
-    runs-on: ${{ inputs.reuse-run-id != '' && 'ubuntu-latest' || 'macos-14' }}
+    runs-on: ${{ inputs.reuse-run-id != '' && 'ubuntu-latest' || 'macos-15' }}
     timeout-minutes: 90
     outputs:
-      manifest-sha256: ${{ steps.engine.outputs.manifest-sha256 || steps.reuse.outputs.manifest-sha256 }}
+      manifest-sha256: ${{ steps.verified.outputs.manifest-sha256 || steps.engine.outputs.manifest-sha256 || steps.reuse.outputs.manifest-sha256 }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -112,8 +112,36 @@ jobs:
           MANIFEST_SHA256: ${{ inputs.reuse-manifest-sha256 }}
           REUSE_RUN_ID: ${{ inputs.reuse-run-id }}
         run: node scripts/ci/reuse-opencode-derivative.mjs verify "$RUNNER_TEMP/opencode-derivative/distribution" "$MANIFEST_SHA256"
+      - name: Identify the exact development build inputs
+        if: inputs.build-mode == 'development' && steps.mode.outputs.reuse != 'true'
+        id: cache-key
+        run: node scripts/ci/cache-opencode-derivative.mjs key
+      - name: Restore the exact development engine build
+        if: inputs.build-mode == 'development' && steps.mode.outputs.reuse != 'true'
+        id: cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/opencode-derivative/distribution
+          key: ${{ steps.cache-key.outputs.key }}
+      - name: Find an existing engine from the unchanged PR base
+        if: inputs.build-mode == 'development' && steps.mode.outputs.reuse != 'true' && steps.cache.outputs.cache-hit != 'true'
+        id: base-producer
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/ci/cache-opencode-derivative.mjs base-producer
+      - name: Download the exact base commit's engine without recompiling
+        if: steps.base-producer.outputs.run-id != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: opencode-derivative-ci
+          repository: ${{ github.repository }}
+          run-id: ${{ steps.base-producer.outputs.run-id }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/opencode-derivative/distribution
       - name: Compile exact reviewed source and complete twelve-target distribution
-        if: steps.mode.outputs.reuse != 'true'
+        if: steps.mode.outputs.reuse != 'true' && steps.cache.outputs.cache-hit != 'true' && steps.base-producer.outputs.run-id == ''
         id: engine
         env:
           BUILD_MODE: ${{ inputs.build-mode }}
@@ -122,6 +150,16 @@ jobs:
           arguments=("$RUNNER_TEMP/opencode-derivative" --mode "$BUILD_MODE")
           if [ "$BUILD_MODE" = production ]; then arguments+=(--mac-signing-config "$SIGNING_POLICY"); fi
           node scripts/ci/build-opencode-derivative.mjs "${arguments[@]}"
+      - name: Verify all development archives against current source policy
+        if: inputs.build-mode == 'development' && steps.mode.outputs.reuse != 'true'
+        id: verified
+        run: node scripts/ci/cache-opencode-derivative.mjs verify "$RUNNER_TEMP/opencode-derivative/distribution"
+      - name: Save the verified development build
+        if: inputs.build-mode == 'development' && steps.mode.outputs.reuse != 'true' && steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/opencode-derivative/distribution
+          key: ${{ steps.cache-key.outputs.key }}
       - name: Remove owned production signing material
         if: always() && inputs.build-mode == 'production'
         shell: bash

@@ -2,9 +2,12 @@
 
 The Electron migration harness remains separate from the application's unattended benchmark feature. Neither local protocol tests nor engine startup tests establish real legal-task parity.
 
-## Latest execution checkpoint — 2026-10-26
+For current migration acceptance, see [capability status](opencode-v2-capability-status.md).
+The dated observations below remain historical; the [standalone harness](https://github.com/eigenweltlabs/legalwork/tree/codex/v2-benchmark-tooling/scripts/benchmarks) is reviewed separately.
 
-The current [regression checkpoint](opencode-v2-regression-readiness.md) records
+## Historical execution checkpoint — 2026-10-26
+
+The archived [regression checkpoint](https://github.com/eigenweltlabs/legalwork/blob/23db1a2f142972297e023c6e598f62915f14ed76/docs/opencode-v2-regression-readiness.md) records
 normal final2 builds and the remaining Windows HTTP transport failure. The
 fresh v2 implicit skill/resource task passes all three frozen functional
 assertions; root independently verified the complete source tail, all 13 actual
@@ -35,7 +38,7 @@ costs remain in force. No task deadline or model/tool-output cap was introduced.
 
 ## Earlier execution checkpoint — 2026-10-25, 23:55 UTC
 
-The [acceptance register](opencode-v2-acceptance-plan.md) is the current coverage
+The [acceptance register](https://github.com/eigenweltlabs/legalwork/blob/23db1a2f142972297e023c6e598f62915f14ed76/docs/opencode-v2-acceptance-plan.md) is the current coverage
 ledger. Current dev is `ab624cb265ee6bc6c825ae7ea0b02a131b4fbe9b`; frozen matched
 comparison packages retain common `fdb89d9` source. The ordinary final1 packages
 add reviewed fixes and still require their final actual acceptance checks.
@@ -233,7 +236,7 @@ Run-scoped offline context analysis includes the exact referenced provider reque
 
 The Word setup corrections operate only before inference in the isolated test driver. Document opening correctly focuses its pane, and the frozen typing control dispatches a global focus event that can focus another cached chat. The driver captures each idempotent click on the exact visible chat-tab button while waiting for the existing real composer actions. It never overrides a disabled Send action or sends a prompt through a backend shortcut. Task creation waits for a distinct route and mounted composer. All setup failures are retained and recorded zero provider requests. These UI observation/focus attempts reuse the existing explicit 30-second readiness watchdog and 100ms polling; they do not retry model work or constrain an agent. The same hook must be used in the candidate.
 
-These observed-profile results are not controlled performance comparisons: host skills and accumulated document/chat UI state are recorded, not hermetically normalized. The complete remaining real-model acceptance register is in [opencode-v2-acceptance-plan.md](opencode-v2-acceptance-plan.md). Patched-v2 quality runs remain held until the approved engine patch, reproducible build and real direct/Code Mode network tests pass.
+These observed-profile results are not controlled performance comparisons: host skills and accumulated document/chat UI state are recorded, not hermetically normalized. The complete remaining real-model acceptance register is in [opencode-v2-acceptance-plan.md](https://github.com/eigenweltlabs/legalwork/blob/23db1a2f142972297e023c6e598f62915f14ed76/docs/opencode-v2-acceptance-plan.md). Patched-v2 quality runs remain held until the approved engine patch, reproducible build and real direct/Code Mode network tests pass.
 
 The first selected Harvey task, NDA/playbook review, completed in 612.205 seconds with 35 tool calls and a saved report. Its full tool-input audit found no direct prior-answer/rubric-path matches, but this is not proof of hermeticity and its substantive legal quality remains ungraded. Its first host-shell Python-environment search outside the project errored; later document-processing calls recovered without injected hints. Actual metadata says `sandbox:host`, not VM. No package-install command or manual approval was observed.
 

@@ -3,7 +3,7 @@
 // surface via executeJavaScript. Consumed over HTTP by legalwork-ui-mcp.
 // Extracted from main.mjs; state and lifecycle live in this factory
 // (createRuntimeManager pattern).
-import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { createServer } from "node:http";
 import { rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -13,8 +13,18 @@ export function createUiControlServer({ appName, appIdentifier, getWindow, getUs
   let uiControlServer = null;
   let uiControlDiscoveryPath = null;
   const uiControlToken = randomBytes(32).toString("hex");
+  const operations = new Map();
+
+  function cancelOperation(requestId, reason = new DOMException("Document operation cancelled.", "AbortError")) {
+    const operation = operations.get(requestId);
+    if (!operation || operation.controller.signal.aborted) return;
+    operation.controller.abort(reason);
+    // Cancellation acknowledgement must not wait on an unresponsive renderer.
+    void evaluateLegalworkControl(`window.__legalworkControl?.cancel(${JSON.stringify(requestId)})`).catch(() => {});
+  }
 
   function sendJsonResponse(response, statusCode, payload) {
+    if (response.destroyed) return;
     response.writeHead(statusCode, {
       "Content-Type": "application/json; charset=utf-8",
       "Cache-Control": "no-store",
@@ -90,16 +100,27 @@ export function createUiControlServer({ appName, appIdentifier, getWindow, getUs
       })()`);
     }
     if (command === "execute") {
+      const requestId = typeof args.requestId === "string" ? args.requestId : randomUUID();
+      if (operations.has(requestId)) throw new Error("This document operation is already running.");
+      const deadline = Math.min(Date.now() + 900_000, Number.isFinite(args.deadline) ? args.deadline : Date.now() + 120_000);
+      if (deadline <= Date.now()) throw new DOMException("Document request expired.", "TimeoutError");
+      const controller = new AbortController();
+      operations.set(requestId, { controller, sessionId: args.args?.sessionId ?? args.callerSessionId });
+      const timer = setTimeout(() => cancelOperation(requestId, new DOMException("Document request timed out.", "TimeoutError")), deadline - Date.now());
+      let abort;
+      const cancelled = new Promise((_, reject) => { abort = () => reject(controller.signal.reason); controller.signal.addEventListener("abort", abort, { once: true }); });
+      const execution = JSON.stringify({ requestId, deadline });
       // Agent edits run in the background. Raising the app requires an explicit request.
-      return evaluateLegalworkControl(`(async () => {
+      try { return await Promise.race([cancelled, evaluateLegalworkControl(`(async () => {
         const control = window.__legalworkControl;
         const input = JSON.parse(${argsJsonLiteral});
         if (!control) return { ok: false, error: "LegalWork control surface is not available yet." };
         if (!input || typeof input.actionId !== "string" || !input.actionId.trim()) {
           return { ok: false, error: "Missing LegalWork actionId." };
         }
-        return control.execute(input.actionId, input.args ?? {}, typeof input.callerSessionId === "string" ? input.callerSessionId : undefined);
-      })()`, { focus: args.focus === true });
+        return control.execute(input.actionId, input.args ?? {}, typeof input.callerSessionId === "string" ? input.callerSessionId : undefined, ${execution});
+      })()`, { focus: args.focus === true })]); }
+      finally { clearTimeout(timer); controller.signal.removeEventListener("abort", abort); operations.delete(requestId); }
     }
     return { ok: false, error: `Unknown LegalWork control command: ${command}` };
   }
@@ -117,6 +138,12 @@ export function createUiControlServer({ appName, appIdentifier, getWindow, getUs
           sendJsonResponse(response, 401, { ok: false, error: "Unauthorized" });
           return;
         }
+        if (request.method === "POST" && url.pathname === "/cancel") {
+          const body = await readJsonRequestBody(request);
+          for (const [id, operation] of operations) if (id === body.requestId || typeof body.sessionId === "string" && operation.sessionId === body.sessionId) cancelOperation(id);
+          sendJsonResponse(response, 200, { ok: true });
+          return;
+        }
         if (request.method === "GET" && url.pathname === "/snapshot") {
           sendJsonResponse(response, 200, await runLegalworkControlCommand("snapshot"));
           return;
@@ -126,12 +153,16 @@ export function createUiControlServer({ appName, appIdentifier, getWindow, getUs
           return;
         }
         if (request.method === "POST" && url.pathname === "/execute") {
-          sendJsonResponse(response, 200, await runLegalworkControlCommand("execute", await readJsonRequestBody(request)));
+          const body = await readJsonRequestBody(request);
+          body.requestId ??= randomUUID();
+          response.once("close", () => { if (!response.writableFinished) cancelOperation(body.requestId); });
+          sendJsonResponse(response, 200, await runLegalworkControlCommand("execute", body));
           return;
         }
         sendJsonResponse(response, 404, { ok: false, error: "Not found" });
       } catch (error) {
-        sendJsonResponse(response, 500, { ok: false, error: error instanceof Error ? error.message : String(error) });
+        const code = error?.name === "TimeoutError" ? "operation_timeout" : error?.name === "AbortError" ? "operation_cancelled" : undefined;
+        sendJsonResponse(response, code === "operation_timeout" ? 408 : code === "operation_cancelled" ? 409 : 500, { ok: false, ...(code ? { code } : {}), error: error instanceof Error ? error.message : String(error) });
       }
     });
     await new Promise((resolve, reject) => {
@@ -180,8 +211,13 @@ export function createUiControlServer({ appName, appIdentifier, getWindow, getUs
       uiControlDiscoveryPath = null;
     }
     if (!uiControlServer) return;
-    await new Promise((resolve) => uiControlServer.close(() => resolve(undefined)));
+    const server = uiControlServer;
     uiControlServer = null;
+    for (const id of operations.keys()) cancelOperation(id);
+    const closing = new Promise((resolve) => server.close(() => resolve(undefined)));
+    // Stop owns these loopback connections. They must not keep app quit alive.
+    server.closeAllConnections();
+    await closing;
   }
 
   return { start, stop };

@@ -344,7 +344,7 @@ describe("env routes", () => {
     });
   });
 
-  test("voice realtime capability reads the standard OpenCode OpenAI API credential", async () => {
+  test("voice realtime ignores retired v1 OpenAI credentials", async () => {
     delete process.env.OPENAI_API_KEY;
     const authDir = join(process.env.XDG_DATA_HOME!, "opencode");
     mkdirSync(authDir, { recursive: true });
@@ -355,13 +355,13 @@ describe("env routes", () => {
     const { base } = await boot();
     const response = await fetch(`${base}/voice/realtime/capability`, { headers: hostAuth() });
     expect(await response.json()).toMatchObject({
-      supported: true,
-      providerId: "openai",
-      model: "gpt-realtime-2.1",
+      supported: false,
+      providerId: null,
+      model: null,
     });
   });
 
-  test("voice realtime prefers a locally saved OpenAI key over the inherited environment key", async () => {
+  test("voice realtime uses the current environment key instead of a retired v1 key", async () => {
     process.env.OPENAI_API_KEY = "sk-env-test";
     const authDir = join(process.env.XDG_DATA_HOME!, "opencode");
     mkdirSync(authDir, { recursive: true });
@@ -372,7 +372,7 @@ describe("env routes", () => {
     globalThis.fetch = (async (input, init) => {
       const request = new Request(input, init);
       if (request.url === "https://api.openai.com/v1/realtime/calls") {
-        expect(request.headers.get("authorization")).toBe("Bearer sk-saved-test");
+        expect(request.headers.get("authorization")).toBe("Bearer sk-env-test");
         return Promise.resolve(new Response("v=0\r\no=answer", {
           status: 200,
           headers: { "content-type": "application/sdp" },

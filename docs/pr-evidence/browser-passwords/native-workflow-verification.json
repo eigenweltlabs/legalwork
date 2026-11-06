@@ -1,0 +1,275 @@
+{
+  "date": "2026-10-27",
+  "kind": "real-agent-full-development-app-synthetic-websites",
+  "runtime": {
+    "releasedOpenCode": "2.1.4",
+    "configuredModel": {
+      "id": "Eigenwelt Europe Claude Sonnet",
+      "providerID": "eigenwelt",
+      "variant": "default"
+    },
+    "loadedExtensionsSha256": "c67a4b0282bcb162a50800382932770011e4e0add3cab938b2ac08dfbb05b111"
+  },
+  "runs": [
+    {
+      "name": "one",
+      "configuredModel": "Eigenwelt Europe Claude Sonnet",
+      "assistantTurns": 16,
+      "toolRounds": 15,
+      "underlyingCalls": 29,
+      "toolErrors": [
+        "browser.click",
+        "browser.click"
+      ],
+      "argumentSchemaErrors": 0,
+      "recordedToolMs": 61076,
+      "firstPasswordFill": {
+        "round": 3,
+        "elapsedMs": 13926,
+        "snapshotCallsBeforeFill": 0,
+        "underlyingCalls": [
+          {
+            "tool": "legalwork_browser_open_url",
+            "status": "completed"
+          },
+          {
+            "tool": "legalwork_browser_passwords",
+            "status": "completed"
+          },
+          {
+            "tool": "browser.fill",
+            "status": "completed"
+          },
+          {
+            "tool": "legalwork_browser_fill_password",
+            "status": "completed"
+          }
+        ]
+      },
+      "openingObservations": [
+        {
+          "chars": 544,
+          "refs": 3,
+          "truncated": false
+        }
+      ],
+      "discovery": [
+        {
+          "namespace": "browser",
+          "query": "click"
+        },
+        {
+          "namespace": "browser",
+          "query": "press"
+        },
+        {
+          "namespace": "browser",
+          "query": "find"
+        },
+        {
+          "query": "legalwork_browser_batch"
+        }
+      ],
+      "nativeHistoryTokens": {
+        "input": 34,
+        "cacheRead": 799381,
+        "cacheWrite": 59326,
+        "totalInputIncludingCache": 858741,
+        "output": 3118,
+        "reasoning": 600
+      },
+      "engineReportedCostUSD": 0,
+      "elapsedMs": 132432,
+      "passed": true,
+      "siteEvents": [
+        "login-success"
+      ]
+    },
+    {
+      "name": "two",
+      "configuredModel": "Eigenwelt Europe Claude Sonnet",
+      "assistantTurns": 16,
+      "toolRounds": 15,
+      "underlyingCalls": 23,
+      "toolErrors": [
+        "browser.click",
+        "browser.click"
+      ],
+      "argumentSchemaErrors": 0,
+      "recordedToolMs": 60948,
+      "firstPasswordFill": {
+        "round": 14,
+        "elapsedMs": 125578,
+        "snapshotCallsBeforeFill": 5,
+        "underlyingCalls": [
+          {
+            "tool": "legalwork_browser_open_url",
+            "status": "completed"
+          },
+          {
+            "tool": "legalwork_browser_passwords",
+            "status": "completed"
+          },
+          {
+            "tool": "search",
+            "status": "completed"
+          },
+          {
+            "tool": "search",
+            "status": "completed"
+          },
+          {
+            "tool": "browser.fill",
+            "status": "completed"
+          },
+          {
+            "tool": "browser.click",
+            "status": "error"
+          },
+          {
+            "tool": "browser.snapshot",
+            "status": "completed"
+          },
+          {
+            "tool": "browser.fill",
+            "status": "completed"
+          },
+          {
+            "tool": "browser.snapshot",
+            "status": "completed"
+          },
+          {
+            "tool": "browser.click",
+            "status": "error"
+          },
+          {
+            "tool": "browser.tabs.list",
+            "status": "completed"
+          },
+          {
+            "tool": "browser.snapshot",
+            "status": "completed"
+          },
+          {
+            "tool": "search",
+            "status": "completed"
+          },
+          {
+            "tool": "browser.fill",
+            "status": "completed"
+          },
+          {
+            "tool": "browser.press",
+            "status": "completed"
+          },
+          {
+            "tool": "browser.snapshot",
+            "status": "completed"
+          },
+          {
+            "tool": "browser.evaluate",
+            "status": "completed"
+          },
+          {
+            "tool": "browser.evaluate",
+            "status": "completed"
+          },
+          {
+            "tool": "browser.evaluate",
+            "status": "completed"
+          },
+          {
+            "tool": "browser.snapshot",
+            "status": "completed"
+          },
+          {
+            "tool": "legalwork_browser_fill_password",
+            "status": "completed"
+          }
+        ]
+      },
+      "openingObservations": [
+        {
+          "chars": 408,
+          "refs": 2,
+          "truncated": false
+        }
+      ],
+      "discovery": [
+        {
+          "namespace": "browser",
+          "query": "fill"
+        },
+        {
+          "namespace": "browser",
+          "query": "click"
+        },
+        {
+          "namespace": "browser",
+          "query": "press key"
+        }
+      ],
+      "nativeHistoryTokens": {
+        "input": 34,
+        "cacheRead": 830193,
+        "cacheWrite": 9191,
+        "totalInputIncludingCache": 839418,
+        "output": 2575,
+        "reasoning": 484
+      },
+      "engineReportedCostUSD": 0,
+      "elapsedMs": 133218,
+      "passed": true,
+      "siteEvents": [
+        "username-step",
+        "login-success"
+      ]
+    },
+    {
+      "name": "search",
+      "configuredModel": "Eigenwelt Europe Claude Sonnet",
+      "assistantTurns": 7,
+      "toolRounds": 6,
+      "underlyingCalls": 10,
+      "toolErrors": [
+        "browser.click"
+      ],
+      "argumentSchemaErrors": 0,
+      "recordedToolMs": 308,
+      "firstPasswordFill": null,
+      "openingObservations": [
+        {
+          "chars": 414,
+          "refs": 2,
+          "truncated": false
+        }
+      ],
+      "discovery": [],
+      "nativeHistoryTokens": {
+        "input": 16,
+        "cacheRead": 340996,
+        "cacheWrite": 3589,
+        "totalInputIncludingCache": 344601,
+        "output": 1062,
+        "reasoning": 55
+      },
+      "engineReportedCostUSD": 0,
+      "elapsedMs": 25992,
+      "passed": true,
+      "siteEvents": [
+        "search-success"
+      ]
+    }
+  ],
+  "realCredentials": false,
+  "syntheticPasswordDeleted": true,
+  "gatewayBill": null,
+  "limitations": [
+    "These are three acceptance runs against local synthetic websites, not a controlled before/after DeepL benchmark.",
+    "The application used the configured Eigenwelt Europe Claude Sonnet alias; the underlying gateway model identity and provider wire requests were not independently captured.",
+    "Token counts are native normalized history values. Cache read/write are separate from uncached input; zero native cost is not proof of free inference. Actual gateway billing is unavailable.",
+    "Initial native refs work and username/password filling batches successfully. Background native clicks hit the existing Chromium compositor problem and native keyboard replacement appended text during recovery; successful submissions required DOM-based recovery.",
+    "The three/four-round target has not been demonstrated for complete login. One/two-step login each required 15 tool rounds; the search required 6.",
+    "No foreground chat navigation or OS/browser focus switching was used by the test controller; the development application was restarted once before these tests."
+  ]
+}

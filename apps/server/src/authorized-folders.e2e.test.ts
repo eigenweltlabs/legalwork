@@ -5,7 +5,7 @@ import { join, resolve } from "node:path";
 
 import { startServer } from "./server.js";
 import type { ServerConfig } from "./types.js";
-import { readRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
+import { readRuntimeOpencodeConfig, writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
 
 type Served = {
   port: number;
@@ -49,7 +49,7 @@ async function createWorkspaceRoot() {
   return createTempRoot("legalwork-authorized-folders-");
 }
 
-async function startLegalworkServer(workspaceRoot: string, options?: { readOnly?: boolean }) {
+async function startLegalworkServer(workspaceRoot: string, options?: { readOnly?: boolean; permissions?: NonNullable<Awaited<ReturnType<typeof readRuntimeOpencodeConfig>>["permissions"]> }) {
   const config: ServerConfig = {
     host: "127.0.0.1",
     port: 0,
@@ -67,6 +67,7 @@ async function startLegalworkServer(workspaceRoot: string, options?: { readOnly?
     logFormat: "pretty",
     logRequests: false,
   };
+  if (options?.permissions) await writeRuntimeOpencodeConfig(config, "ws_1", () => ({ permissions: options.permissions }));
   const server = await startServer(config) as Served;
   stops.push(() => server.stop(true));
   return { base: `http://127.0.0.1:${server.port}`, config };
@@ -116,7 +117,10 @@ describe("authorized folders routes", () => {
         },
       },
     }, null, 2) + "\n", "utf8");
-    const { base, config } = await startLegalworkServer(root);
+    const { base, config } = await startLegalworkServer(root, { permissions: [
+      { action: "external_directory", resource: `${root}/*`, effect: "allow" }, { action: "external_directory", resource: "/shared/*", effect: "allow" },
+      { action: "external_directory", resource: "/hidden", effect: "allow" }, { action: "external_directory", resource: "/denied/*", effect: "deny" },
+    ] });
 
     const response = await fetch(`${base}/workspace/ws_1/authorized-folders`, { headers: clientAuth() });
     expect(response.status).toBe(200);
@@ -142,7 +146,10 @@ describe("authorized folders routes", () => {
         },
       },
     }, null, 2) + "\n", "utf8");
-    const { base, config } = await startLegalworkServer(root);
+    const { base, config } = await startLegalworkServer(root, { permissions: [
+      { action: "external_directory", resource: `${root}/*`, effect: "allow" }, { action: "external_directory", resource: "/existing/*", effect: "allow" },
+      { action: "external_directory", resource: "/hidden", effect: "allow" }, { action: "external_directory", resource: "/denied/*", effect: "deny" },
+    ] });
 
     const response = await fetch(`${base}/workspace/ws_1/authorized-folders`, {
       method: "PUT",
@@ -157,18 +164,13 @@ describe("authorized folders routes", () => {
 
     expect(readExternalDirectory(await readFile(configPath, "utf8"))["/shared/*"]).toBeUndefined();
     const runtimeConfig = await readRuntimeOpencodeConfig(config, "ws_1");
-    const externalDirectory = runtimeConfig.permission?.external_directory ?? {};
+    const externalDirectory = Object.fromEntries((runtimeConfig.permissions ?? []).filter(rule => rule.action === "external_directory").map(rule => [rule.resource, rule.effect]));
     expect(externalDirectory["/hidden"]).toBe("allow");
     expect(externalDirectory["/denied/*"]).toBe("deny");
     expect(externalDirectory["/shared/*"]).toBe("allow");
     expect(externalDirectory["/existing/*"]).toBe("allow");
-    expect(externalDirectory[`${root}/*`]).toBeUndefined();
-    expect(Object.keys(externalDirectory).sort()).toEqual([
-      "/denied/*",
-      "/existing/*",
-      "/hidden",
-      "/shared/*",
-    ]);
+    expect(externalDirectory[`${root}/*`]).toBe("allow");
+    expect(Object.keys(externalDirectory).sort()).toEqual(["/denied/*", "/existing/*", "/hidden", "/shared/*", `${root}/*`].sort());
   });
 
   test("requires client auth, collaborator scope, and writable server", async () => {

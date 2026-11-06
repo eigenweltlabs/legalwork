@@ -27,10 +27,7 @@ export function registerNativeCommandDefinitionRoutes(options: {
       client.config.get({ location }),
       buildLegalworkRuntimeSettings(options.config, workspace.id),
     ]);
-    const result = encodeCommandDefinitions({
-      ...await resolveNativeCommandDefinitions(entries, managed.configuration.commands),
-      agentRequests: managed.agentRequests,
-    });
+    const result = encodeCommandDefinitions(await resolveNativeCommandDefinitions(entries, managed.configuration.commands));
     const response = options.jsonResponse(result);
     response.headers.set("Cache-Control", "no-store");
     return response;

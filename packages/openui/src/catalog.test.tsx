@@ -59,3 +59,12 @@ test("query-bound tables, charts and boards wait for rows instead of throwing du
   expect(html).toContain('role="status"');
   expect(html).not.toContain("No matching records");
 });
+
+test("imported rows with unavailable sources render their values without misleading links", () => {
+  for (const component of ['Table(rows,[{field:"title",label:"Matter"}])', 'Board(rows,"stage","title")']) {
+    const render = (available: boolean) => renderToStaticMarkup(<OpenUIView program={`rows = [{title:"Shared matter",path:"Matter.md",stage:"Active",__viewSourceAvailable:${available}}]\nroot = ${component}`} openSource={() => {}} />);
+    expect(render(false)).toContain("Shared matter");
+    expect(render(false)).not.toContain('class="lw-view-source"');
+    expect(render(true)).toContain('class="lw-view-source"');
+  }
+});

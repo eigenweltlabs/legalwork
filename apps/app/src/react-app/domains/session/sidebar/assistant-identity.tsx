@@ -1,4 +1,3 @@
-import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { CloudAssistantSettings } from "./cloud-assistant-settings";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -15,16 +14,18 @@ import { ModelBehaviorSelect } from "@/components/model-behavior-select";
 import type { SessionSurfaceProps } from "../surface/session-surface";
 import { useSessionActivityStore } from "../status/session-activity-store";
 import { useAssistantNotificationPreferences } from "./assistant-notification-preferences";
+import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
+import { AssistantBrowserModelPreference } from "../../settings/pages/assistant-browser-model";
 
 type ModelSettings = Pick<SessionSurfaceProps, "selectedModel" | "modelSelectorLocked" | "modelPickerOpen" | "onModelPickerOpenChange" | "onModelChange" | "modelVariant" | "modelVariantLabel" | "modelBehaviorOptions" | "onModelVariantChange">;
 
 export function AssistantIdentity({ profile = DEFAULT_ASSISTANT_PROFILE, onSave, workspaceId, sessionId, modelSettings, client }: {
+  client?: LegalworkServerClient | null;
   profile?: AssistantProfile;
   onSave?: (profile: AssistantProfile) => Promise<void>;
   workspaceId: string;
   sessionId: string;
   modelSettings?: ModelSettings;
-  client?: LegalworkServerClient;
 }) {
   const [editing, setEditing] = useState(false);
   useEffect(() => { if (modelSettings?.modelPickerOpen) setEditing(true); }, [modelSettings?.modelPickerOpen]);
@@ -40,17 +41,17 @@ export function AssistantIdentity({ profile = DEFAULT_ASSISTANT_PROFILE, onSave,
         <span className="relative max-w-64 truncate rounded-full border border-border/60 bg-background/70 px-2.5 py-0.5 text-xs font-medium leading-4 shadow-sm backdrop-blur-md transition-colors group-hover:bg-background/90">{name}</span>
       </button>
     </div>
-    {(editing || modelSettings?.modelPickerOpen) && onSave && <AssistantIdentityEditor profile={profile} onSave={onSave} onClose={close} modelSettings={modelSettings} busy={busy} client={client} />}
+    {(editing || modelSettings?.modelPickerOpen) && onSave && <AssistantIdentityEditor client={client} profile={profile} onSave={onSave} onClose={close} modelSettings={modelSettings} busy={busy} />}
   </>;
 }
 
 function AssistantIdentityEditor({ profile, onSave, onClose, modelSettings, busy, client }: {
+  client?: LegalworkServerClient | null;
   profile: AssistantProfile;
   onSave: (profile: AssistantProfile) => Promise<void>;
   onClose: () => void;
   modelSettings?: ModelSettings;
   busy: boolean;
-  client?: LegalworkServerClient;
 }) {
   const navigate = useNavigate();
   const [draft, setDraft] = useState({ ...profile, name: profile.name ?? t("assistant.title") });
@@ -100,6 +101,7 @@ function AssistantIdentityEditor({ profile, onSave, onClose, modelSettings, busy
                     <ModelBehaviorSelect value={modelSettings.modelVariant} label={modelSettings.modelVariantLabel} options={modelSettings.modelBehaviorOptions} onChange={modelSettings.onModelVariantChange} disabled={saving} />
                   </div>}
                 </div>}
+                {client && <AssistantBrowserModelPreference client={client} />}
                 <p className="text-xs text-muted-foreground">{t("assistant.advanced_autosave")}</p>
                 {busy && modelSettings && <p role="status" className="text-xs text-muted-foreground">{t("assistant.model_next_message")}</p>}
               </div>

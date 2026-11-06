@@ -24,8 +24,8 @@ const legacyBinary = process.env.LEGALWORK_TEST_OPENCODE_V1_BIN;
 const digest = (value: Uint8Array) =>
   createHash("sha256").update(value).digest("hex");
 
-test.skipIf(!nativeBinary || !legacyBinary)(
-  "actual released v1 history migrates through an immutable managed copy to native v2 without inference",
+for (const development of [false, true]) test.skipIf(!nativeBinary || !legacyBinary)(
+  `actual released ${development ? "development profile" : "managed"} v1 history migrates through an immutable copy to native v2 without inference`,
   async () => {
     if (!nativeBinary || !legacyBinary)
       throw new Error("Both released binaries are required");
@@ -43,7 +43,7 @@ test.skipIf(!nativeBinary || !legacyBinary)(
     ])
       await mkdir(join(root, name));
     const workspacePath = join(root, "workspace");
-    const source = join(root, "state", LEGACY_MANAGED_ENGINE_DB_FILENAME);
+    const source = development ? join(root, "data", "opencode.db") : join(root, "state", LEGACY_MANAGED_ENGINE_DB_FILENAME);
     const password = randomBytes(32).toString("hex");
     const headers = {
       authorization: `Basic ${Buffer.from(`opencode:${password}`).toString("base64")}`,
@@ -90,6 +90,7 @@ test.skipIf(!nativeBinary || !legacyBinary)(
         "OPENCODE_DB",
         "LEGALWORK_RUNTIME_DB",
         "LEGALWORK_DEV_MODE",
+        "LEGALWORK_DEV_OPENCODE_DATA_DIR",
         "XDG_DATA_HOME",
       ].map((key) => [key, process.env[key]]),
     );
@@ -153,7 +154,7 @@ test.skipIf(!nativeBinary || !legacyBinary)(
           "msg_migration_assistant",
           sessionID,
           200,
-          300,
+          302, // The database write happens after the reply completed.
           JSON.stringify({
             role: "assistant",
             time: { created: 200, completed: 300 },
@@ -291,6 +292,11 @@ test.skipIf(!nativeBinary || !legacyBinary)(
       const original = digest(await readFile(source));
       delete process.env.OPENCODE_DB;
       delete process.env.LEGALWORK_DEV_MODE;
+      delete process.env.LEGALWORK_DEV_OPENCODE_DATA_DIR;
+      if (development) {
+        process.env.LEGALWORK_DEV_MODE = "1";
+        process.env.LEGALWORK_DEV_OPENCODE_DATA_DIR = join(root, "data");
+      }
       process.env.LEGALWORK_RUNTIME_DB = join(root, "state", "runtime.sqlite");
       process.env.XDG_DATA_HOME = join(root, "data");
       const config = {
@@ -382,6 +388,7 @@ test.skipIf(!nativeBinary || !legacyBinary)(
         cache: { read: 70, write: 8 },
       });
       expect(assistant.cost).toBe(1.25);
+      expect(assistant.time.completed).toBe(300);
       const tool = assistant.content.find(
         (content) =>
           content.type === "tool" && content.name === "legalwork_word_read",

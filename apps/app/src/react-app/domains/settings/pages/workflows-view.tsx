@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ArrowUpRight, BookOpen, Download, FolderOpen, Loader2, Pencil, Plus, Share2, Trash2, Wand2, Workflow } from "lucide-react";
+import { ArrowUpRight, Blocks, BookOpen, Download, FolderOpen, Loader2, Pencil, Plus, Share2, Trash2, Wand2, Workflow } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { ReviewPromptLibrary } from "../../reviews/review-prompt-library";
@@ -17,9 +17,10 @@ import { useUiStateStore } from "@/react-app/shell/ui-state-store";
 import { dismissTemplateWorkflowRun, retryTemplateWorkflowImport, useTemplateWorkflowRun } from "../state/template-workflow-generation";
 import { bindWorkflowServices, discardWorkflow, openWorkflow, showWorkflow, useWorkflowEditorStore, workflowDirty, type WorkflowDraft } from "../state/workflow-editor-store";
 import { isWorkflowCard, workflowDisplayName, type WorkflowType } from "../state/workflow-document";
-import { ImportSkillsButton, TemplateGenerationRow, type SkillsViewProps } from "./skills-view";
+import { ImportSkillsButton, SkillsView, TemplateGenerationRow, type SkillsViewProps } from "./skills-view";
 import { LegalQuantsImportButton } from "./legalquants-import";
 import { HubTabs } from "../segmented-tabs";
+import { HubScopeContext } from "./hub-scope-context";
 import { NewWorkflowDialog } from "./new-workflow-dialog";
 import { WORKFLOWS_PER_PAGE, WorkflowPagination } from "./workflow-pagination";
 import { FirmSkillDialog } from "./firm-skill-dialog";
@@ -41,12 +42,16 @@ export type WorkflowsViewProps = SkillsViewProps & {
   onShareReviewSet?: (id: string) => void;
   onOpenReviewSetShare?: () => void;
   onManagePlugins?: () => void;
+  initialSection?: "workflows" | "prompts" | "skills";
+  onSectionChange?: (section: "workflows" | "prompts" | "skills") => void;
+  firmSkillsView?: ReactNode;
   extensions: SkillsViewProps["extensions"] & { workspaceContextKey: () => string };
 };
 
 export function WorkflowsView(props: WorkflowsViewProps) {
   const { extensions, workspaceId } = props;
-  const [section, setSection] = useState<"workflows" | "prompts">("workflows");
+  const [section, setSection] = useState<"workflows" | "prompts" | "skills">(props.initialSection ?? "workflows");
+  useEffect(() => setSection(props.initialSection ?? "workflows"), [props.initialSection]);
   const [source, setSource] = useState<IntegrationLibrarySource>("all");
   const [actionsTarget, setActionsTarget] = useState<HTMLElement | null>(null);
   const [searchTarget, setSearchTarget] = useState<HTMLElement | null>(null);
@@ -214,32 +219,33 @@ export function WorkflowsView(props: WorkflowsViewProps) {
     }} />
   </section>;
 
-  return <IntegrationLibraryLayoutContext.Provider value={{ actions: actionsTarget, search: searchTarget, source, revision }}>
+  return <IntegrationLibraryLayoutContext.Provider value={{ actions: actionsTarget, search: searchTarget, source, revision, ownsMoreMenu: true, onRefresh: refresh }}>
     <WorkflowsWorkspace active={props.active} workspaceId={workspaceId} client={props.reviewClient}><IntegrationLibraryPage>
     <div className="@container/workflow-library flex min-h-0 w-full flex-1 flex-col gap-5 overflow-hidden">
     <header className="flex shrink-0 flex-wrap items-center justify-between gap-4">
       <SectionHeading size="page" title={t("skills.workflows_title")} />
       <div className="flex max-w-full flex-wrap items-center gap-2">
-        {props.onManagePlugins ? <Button variant="outline" onClick={props.onManagePlugins}>{t("integrations.manage_plugins")}<ArrowUpRight /></Button> : null}
+        {props.onManagePlugins ? <Button variant="outline" onClick={props.onManagePlugins}>{t("catalog.manage_integrations")}<ArrowUpRight /></Button> : null}
         <div ref={setActionsTarget} className="flex flex-wrap items-center gap-2 empty:hidden" />
-        <IntegrationMoreMenu busy={props.busy || refreshing} onRefresh={refresh}>
-          {section === "workflows" ?
+        <IntegrationMoreMenu pageToolbar busy={props.busy || refreshing} onRefresh={refresh}>
+          {section !== "prompts" ?
             <DropdownMenuItem disabled={props.busy || !props.canUseDesktopTools} onClick={() => void extensions.revealSkillsFolder()}><FolderOpen />{t("skills.reveal_folder")}</DropdownMenuItem>
           : null}
         </IntegrationMoreMenu>
       </div>
     </header>
     <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-border/70 pb-4">
-      <HubTabs label={t("skills.workflows_title")} value={section} onChange={setSection} items={[
+      <HubTabs label={t("skills.workflows_title")} value={section} onChange={value => { setSection(value); props.onSectionChange?.(value); }} items={[
         { id: "workflows", label: t("skills.workflows_title"), icon: Workflow },
-        { id: "prompts", label: t("review.prompts_title"), icon: BookOpen },
+        { id: "prompts", label: t("catalog.review_prompts"), icon: BookOpen },
+        { id: "skills", label: t("skills.title"), icon: Blocks },
       ]} />
       <div className="flex w-full min-w-0 items-center gap-2 @min-[720px]/workflow-library:w-auto">
         <div ref={setSearchTarget} className="h-9 min-w-0 flex-1 @min-[720px]/workflow-library:w-64 @min-[720px]/workflow-library:flex-none" />
         <IntegrationSourceFilter value={source} onChange={value => { setSource(value); setPage(0); }} />
       </div>
     </div>
-    {section === "workflows" ? library : props.reviewClient && props.reviewWorkspaceId ? <ReviewPromptLibrary key={props.reviewWorkspaceId} client={props.reviewClient} workspaceId={props.reviewWorkspaceId} teamLibrary={props.firmReviewSetsView} onStartCreate={() => setSource("all")} onShareSet={props.canShareWithFirm && props.onShareReviewSet ? entry => props.onShareReviewSet?.(entry.id) : undefined} /> : <p className="text-sm text-muted-foreground">{t("projects.connecting")}</p>}
+    {section === "workflows" ? library : section === "skills" ? <div className="min-h-0 flex-1 overflow-y-auto"><HubScopeContext.Provider value="local"><SkillsView {...props} kind="skills" showHeader={false} firmDownloadView={props.firmSkillsView} /></HubScopeContext.Provider></div> : props.reviewClient && props.reviewWorkspaceId ? <ReviewPromptLibrary key={props.reviewWorkspaceId} client={props.reviewClient} workspaceId={props.reviewWorkspaceId} teamLibrary={props.firmReviewSetsView} onStartCreate={() => setSource("all")} onShareSet={props.canShareWithFirm && props.onShareReviewSet ? entry => props.onShareReviewSet?.(entry.id) : undefined} /> : <p className="text-sm text-muted-foreground">{t("projects.connecting")}</p>}
     </div>
   </IntegrationLibraryPage></WorkflowsWorkspace></IntegrationLibraryLayoutContext.Provider>;
 }

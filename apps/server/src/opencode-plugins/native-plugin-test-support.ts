@@ -6,11 +6,14 @@ type Hook = (event: unknown) => Promise<void> | void;
 
 /** A strict fixture for exercising real Plugin.define setup and native hooks without a model. */
 export function nativePluginTestRuntime(directory = "/Users/lawyer/Matter") {
+  const setupDirectory = directory;
   const hooks = new Map<string, Hook[]>();
   const tools = new Map<string, Info>();
   const histories = new Map<string, unknown[]>();
-  const sessions = new Map<string, { agent?: string; metadata?: Record<string, unknown> }>();
+  const sessions = new Map<string, { agent?: string; parentID?: string; model?: { providerID: string; id: string }; metadata?: Record<string, unknown> }>();
   const permissions: unknown[] = [];
+  const interrupts: string[] = [];
+  let models: Array<{ id: string; providerID: string; capabilities: { input: string[] } }> = [];
   const synthetics: Array<{ sessionID: string; text: string; metadata?: unknown }> = [];
   const prompts: Array<{ sessionID: string; text: string; metadata?: unknown }> = [];
   const streams = new Set<ReadableStreamDefaultController<unknown>>();
@@ -30,6 +33,7 @@ export function nativePluginTestRuntime(directory = "/Users/lawyer/Matter") {
       if (property === "add") return (tool: Info) => { tools.set(tool.name, tool); };
       if (property === "get") return (name: string) => tools.get(name);
       if (property === "list") return () => [...tools].map(([id, tool]) => ({ ...tool, id }));
+      if (property === "update") return (name: string, update: (tool: Info) => void) => { const tool = tools.get(name); if (tool) update(tool); };
       if (property === "remove") return (name: string) => { tools.delete(name); };
       if (property === "namespace") return () => {};
       throw new Error(`Unexpected native editor operation ${String(property)}`);
@@ -37,9 +41,11 @@ export function nativePluginTestRuntime(directory = "/Users/lawyer/Matter") {
   });
   const ctx = new Proxy({} as Plugin.Context, {
     get(_target, property) {
-      if (property === "location") return { directory: "/plugin/setup/location" };
+      if (property === "location") return { directory: setupDirectory };
       if (property === "session") return {
         get: async ({ sessionID }: { sessionID: string }) => ({ ...sessions.get(sessionID), location: { directory } }),
+        update: async ({ sessionID, metadata }: { sessionID: string; metadata?: Record<string, unknown> }) => { sessions.set(sessionID, { ...sessions.get(sessionID), metadata }); },
+        interrupt: async ({ sessionID }: { sessionID: string }) => { interrupts.push(sessionID); },
         context: async ({ sessionID }: { sessionID: string }) => histories.get(sessionID) ?? [],
         hook: (name: string, callback: Hook) => register(`session.${name}`, callback),
         synthetic: async (input: { sessionID: string; text: string; metadata?: unknown }) => {
@@ -57,12 +63,14 @@ export function nativePluginTestRuntime(directory = "/Users/lawyer/Matter") {
         // is independently asserted by native-tool tests and recorded above.
         if (!(input.resources.length === 1 && input.resources[0] === "*")) await permissionHandler?.({ permission: input.action, patterns: [...input.resources], always: input.save ? [...input.save] : [], metadata: input.metadata ?? {} });
       } };
+      if (property === "model") return { list: async () => ({ data: models }) };
       if (property === "mcp") return { list: async (input: unknown) => {
         mcpRequests.push(input);
         if (mcpFailure) throw mcpFailure;
         return { location: { directory }, data: Object.entries(mcpStatuses).map(([name, status]) => ({ name, status })) };
       } };
       if (property === "tool") return {
+        list: async () => [...tools].map(([id, tool]) => ({ ...tool, id })),
         hook: (name: string, callback: Hook) => register(`tool.${name}`, callback),
         transform: async (callback: (value: ToolEditor) => void) => { callback(editor); return { dispose: async () => {} }; },
       };
@@ -80,7 +88,8 @@ export function nativePluginTestRuntime(directory = "/Users/lawyer/Matter") {
   });
 
   return {
-    ctx, tools, histories, sessions, permissions, synthetics, prompts, mcpRequests,
+    ctx, tools, histories, sessions, permissions, interrupts, synthetics, prompts, mcpRequests,
+    models: (next: typeof models) => { models = next; },
     failSynthetic: (error: unknown) => { syntheticFailure = error; },
     mcp: (statuses: Record<string, { status: string }>) => { mcpStatuses = statuses; },
     failMcp: (error: unknown) => { mcpFailure = error; },
@@ -141,7 +150,9 @@ export async function nativeProviderTestFetch(plugin:Plugin.Plugin,receive:(requ
   const runtime=nativePluginTestRuntime();await runtime.start(plugin);
   const send=Object.assign(async(input:Parameters<typeof fetch>[0],init?:RequestInit)=>{
     const request=new Request(input,init),event={sessionID:"provider-session",agent:"legalwork",model:{providerID:"fixture",id:"fixture"},kind:"primary",request};
-    await runtime.hook("session","http.request",event);return receive(event.request);
+    await runtime.hook("session","http.request",event);
+    const received={...event,response:await receive(event.request)};
+    await runtime.hook("session","http.response",received);return received.response;
   },globalThis.fetch);
   return{runtime,send};
 }

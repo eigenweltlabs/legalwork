@@ -59,7 +59,6 @@ for (const stopDuringStartup of [false, true]) test.skipIf(!serverBinary || !eng
     expect(info.version).toBe(expectedEngineVersion); expect(info.pid).not.toBe(child.pid);
     const health = await (await fetch(`${baseURL}/health`)).json();
     expect(health.engine.status).toBe("ready");
-    expect(existsSync(marker)).toBe(false);
     if (stopDuringStartup) return;
     while (!output.includes('"authentication": "legalwork-bearer"')) {
       if (child.exitCode !== null || Date.now() > deadline) throw new Error("Orchestrator did not publish complete native engine readiness: " + output);
@@ -72,16 +71,15 @@ for (const stopDuringStartup of [false, true]) test.skipIf(!serverBinary || !eng
     if (!workspace || typeof workspace !== "object" || !("id" in workspace) || typeof workspace.id !== "string") throw new Error("Missing managed matter");
     const projectURL = `${baseURL}/workspace/${workspace.id}/engine-project`;
     const status = await (await fetch(projectURL, { headers })).json();
-    expect(status.state).toBe("approval_required");
+    expect(status.state).toBe("ready");
+    expect(status.required).toBe(false);
     for (const proxy of [`${baseURL}/opencode`, `${baseURL}/w/${workspace.id}/opencode`]) {
       const statusChild = Bun.spawn([orchestratorRuntime, orchestratorEntry, "status", "--json", "--opencode-url", proxy, "--legalwork-token", token], { stdout: "pipe", stderr: "pipe" });
       const [text, errors, code] = await Promise.all([new Response(statusChild.stdout).text(), new Response(statusChild.stderr).text(), statusChild.exited]);
       expect(code, errors).toBe(0);
       expect(JSON.parse(text)).toMatchObject({ opencode: { ok: true, url: proxy, health: { healthy: true, version: expectedEngineVersion, pid: info.pid, status: "ready" } } });
       expect(text).not.toContain(token); expect(text).not.toContain(hostToken);
-      expect(existsSync(marker)).toBe(false);
     }
-    expect((await fetch(`${projectURL}/approve`, { method: "POST", headers: { ...headers, "content-type": "application/json" }, body: JSON.stringify({ directory, pluginTargets: status.plugins.map((plugin: { target: string }) => plugin.target) }) })).status).toBe(200);
     const location = { directory }; await client.model.list({ location });
     const plugins = (await client.plugin.list({ location })).data;
     expect(existsSync(marker)).toBe(true);

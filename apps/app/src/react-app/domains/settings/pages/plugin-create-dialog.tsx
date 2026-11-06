@@ -16,7 +16,7 @@ export type PluginCreateStore = {
   createWorkflowPlugin: (input: PluginCreateRequest) => Promise<ImportedPlugin>;
 };
 
-export function PluginCreateDialog(props: { store: PluginCreateStore; allowSkills: boolean; allowConnectors: boolean; onClose: () => void; onCreated: (plugin: ImportedPlugin) => void; returnFocus?: RefObject<HTMLButtonElement | null> }) {
+export function PluginCreateDialog(props: { store: PluginCreateStore; allowSkills: boolean; allowConnectors: boolean; onClose: () => void; onCreated: (plugin: ImportedPlugin, newConnector: PluginCreateRequest["newConnector"]) => void; returnFocus?: RefObject<HTMLButtonElement | null> }) {
   const [connection, setConnection] = useState<PluginConnectorForm>({ ...emptyPluginConnectorForm, mode: props.allowConnectors ? "remote" : "existing" });
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -53,10 +53,11 @@ export function PluginCreateDialog(props: { store: PluginCreateStore; allowSkill
     setSaving(true);
     setError("");
     try {
-      const plugin = await props.store.createWorkflowPlugin({ name: name.trim(), description: description.trim(), skills: props.allowSkills ? skills : [], connectors: props.allowConnectors && connection.mode === "existing" ? connectors : [], newConnector: props.allowConnectors ? pluginConnectorConfig(connection) : undefined });
+      const newConnector = props.allowConnectors ? pluginConnectorConfig(connection) : undefined;
+      const plugin = await props.store.createWorkflowPlugin({ name: name.trim(), description: description.trim(), skills: props.allowSkills ? skills : [], connectors: props.allowConnectors && connection.mode === "existing" ? connectors : [], newConnector });
       if (!active.current) return;
-      props.onCreated(plugin);
       props.onClose();
+      props.onCreated(plugin, newConnector);
     } catch (cause) {
       if (!active.current) return;
       setError(cause instanceof Error ? cause.message : t("plugin_create.failed"));

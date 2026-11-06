@@ -7,7 +7,7 @@ import { expectedOpencodeVersion } from "@legalwork/opencode-release/candidate";
 
 const serverBinary = process.env.LEGALWORK_TEST_SERVER_BIN;
 const engineBinary = process.env.LEGALWORK_TEST_OPENCODE_BIN;
-test.skipIf(!serverBinary || !engineBinary)("a standalone compiled server carries all native plugins and manages one approved engine without its checkout", async () => {
+test.skipIf(!serverBinary || !engineBinary)("a standalone compiled server carries all native plugins and manages one registered engine without its checkout", async () => {
   if (!serverBinary || !engineBinary) throw new Error("Explicit compiled server and released engine binaries are required");
   const expectedEngineVersion = await expectedOpencodeVersion(resolve(engineBinary));
   const root = await realpath(await mkdtemp(join(import.meta.dir, "../../../.legalwork/scratch/compiled-managed-server-")));
@@ -51,10 +51,11 @@ test.skipIf(!serverBinary || !engineBinary)("a standalone compiled server carrie
     if (!selected || typeof selected !== "object" || !("id" in selected) || typeof selected.id !== "string") throw new Error("Missing compiled workspace");
     const projectUrl = `${baseUrl}/workspace/${selected.id}/engine-project`;
     const status = EngineProjectStatusSchema.parse(await (await fetch(projectUrl, { headers })).json());
-    expect(status.state).toBe("approval_required");
-    expect(status.plugins.some(plugin => plugin.target === join(root, "fixture-plugin"))).toBe(true);
+    expect(status.state).toBe("ready");
+    expect(status.required).toBe(false);
+    expect(status.plugins).toEqual([]);
     const approved = await fetch(`${projectUrl}/approve`, { method: "POST", headers: { ...headers, "content-type": "application/json" }, body: JSON.stringify({ directory: workspace, pluginTargets: status.plugins.map(plugin => plugin.target) }) });
-    expect(approved.status, await approved.clone().text()).toBe(200);
+    expect(approved.status, await approved.clone().text()).toBe(404);
     const client = OpenCode.make({ baseUrl: `${baseUrl}/opencode`, headers });
     const location = { directory: workspace };
     const models = (await client.model.list({ location })).data.filter(model => model.providerID === "fixture");

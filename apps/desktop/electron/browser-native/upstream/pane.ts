@@ -51,6 +51,8 @@ export function createBrowserPane(input: {
   readonly downloadDirectory?: (binding: string) => string | undefined
   readonly page?: (binding: string, page: BrowserPage) => void
   readonly capture?: BrowserCapture
+  /** Keep pages across reloads of a trusted host app, never navigation to another origin. */
+  readonly retainOnNavigation?: (url: string) => boolean
   readonly windows: Windows
   readonly serverEndpoints: ServerEndpoints
   readonly storage: Storage
@@ -133,8 +135,8 @@ export function createBrowserPane(input: {
       let attached = false
       const stop = () => close(entry, reason)
 
-      const navigate = (event: Electron.Event<{ isMainFrame: boolean; isSameDocument: boolean }>) => {
-        if (event.isMainFrame && !event.isSameDocument) stop()
+      const navigate = (event: Electron.Event<{ isMainFrame: boolean; isSameDocument: boolean; url: string }>) => {
+        if (event.isMainFrame && !event.isSameDocument && !input.retainOnNavigation?.(event.url)) stop()
       }
 
       win.webContents.once("destroyed", stop)

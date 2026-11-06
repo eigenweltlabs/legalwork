@@ -16,18 +16,24 @@ test("native calls need microphone activity; playback and LegalWork never trigge
   assert.equal(meetingCandidate([{ bundleId: "com.eigenweltlabs.legalwork", inputActive: true }, null]), null);
 });
 
-test("browser calls require a provider meeting URL or call title as well as microphone activity", () => {
-  for (const url of ["https://meet.google.com/abc-defg-hij?authuser=1", "https://teams.microsoft.com/l/meetup-join/123", "https://teams.live.com/meet/123", "https://us02web.zoom.us/wc/123/join"]) {
+test("browser meeting pages offer recording even when joining muted", () => {
+  for (const url of ["https://meet.google.com/abc-defg-hij?authuser=1", "https://meet.google.com/meet/abc-defg-hij", "https://teams.microsoft.com/l/meetup-join/123", "https://teams.live.com/meet/123", "https://us02web.zoom.us/wc/123/join"]) {
     const match = meetingCandidate([browser(url)]);
     assert.ok(match, url);
     assert.ok(!match.id.includes("authuser"), "account and URL query parameters are not retained");
-    assert.equal(meetingCandidate([browser(url, "", false)]), null);
+    assert.ok(meetingCandidate([browser(url, "", false)]));
   }
-  assert.equal(meetingCandidate([browser("https://youtube.com", "Google Meet tutorial")]), null);
-  assert.equal(meetingCandidate([browser("https://meet.google.com/")]), null);
-  assert.equal(meetingCandidate([browser("https://meet.google.com.evil.test/abc-defg-hij")]), null);
+  assert.equal(meetingCandidate([browser("https://youtube.com", "Google Meet tutorial", false)]), null);
+  assert.equal(meetingCandidate([browser("https://meet.google.com/", "", false)]), null);
+  assert.equal(meetingCandidate([browser("https://meet.google.com.evil.test/abc-defg-hij", "", false)]), null);
   assert.equal(meetingCandidate([browser("", "Meet – abc-defg-hij")])?.app, "Google Meet");
-  assert.equal(meetingCandidate([browser("https://example.com", "Ordinary browser recording")]), null);
+  assert.equal(meetingCandidate([browser("https://example.com", "Ordinary browser recording", false)]), null);
+});
+
+test("browser microphone activity still offers recording when window metadata is unavailable", () => {
+  assert.equal(meetingCandidate([{ bundleId: "com.google.Chrome", inputActive: true, documents: [] }])?.app, "Browser call");
+  assert.equal(meetingCandidate([{ bundleId: "com.google.Chrome", inputActive: false, documents: [] }]), null);
+  assert.equal(meetingCandidate([browser("", "Meet - abc-defg-hij", false)])?.app, "Google Meet");
 });
 
 async function fixture(t) {

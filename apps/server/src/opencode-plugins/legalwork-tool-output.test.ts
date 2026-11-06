@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -70,7 +71,10 @@ async function read(input: Record<string, unknown> = {}, deny?: string) {
   const tools = (await plugin()).tool;
   return JSON.parse(await tools.legalwork_tool_output_read.execute({ outputPath, ...input }, {
     directory, sessionID: current,
-    ask: async ({ permission }) => { approvals.push(permission); if (permission === deny) throw new Error("Permission denied"); },
+    ask: async ({ permission, metadata }) => {
+      if (permission === "read") expect(metadata.legalworkVerifiedToolOutput).toBe(true);
+      approvals.push(permission); if (permission === deny) throw new Error("Permission denied");
+    },
   }));
 }
 
@@ -160,7 +164,7 @@ test("page sizes and offsets are bounded and newline-heavy output stays one JSON
   const result = await read({ limit: 4096 });
   expect(result.text).toBe("\u0000\n".repeat(2048));
   expect(Buffer.byteLength(JSON.stringify(result))).toBeLessThan(50 * 1024);
-  await expect(read({ limit: 100000 })).rejects.toThrow();
+  expect((await read({ limit: 100000 })).requestedLimit).toBe(100000);
   await expect(read({ offset: -1 })).rejects.toThrow();
   await expect(read({ offset: 100000 })).rejects.toThrow("beyond");
 });
@@ -173,4 +177,28 @@ test("full native pagination and more than 32 same-project parents retain saved 
   messages.set("ancestor-39",messages.get("parent")??[]);
   expect((await read()).text).toBe("Complete retained result");
   repeatCursor=true;await expect(read()).rejects.toThrow("repeated");
+});
+
+test("legacy empty search fields read a bounded page and report a capped limit", async () => {
+  await writeFile(outputPath, "x".repeat(10000));
+  const result = await read({ query: "", limit: 24000 });
+  expect(result.text).toHaveLength(4096);
+  expect(result.nextOffset).toBe(4096);
+  expect(result.limit).toBe(4096);
+  expect(result.requestedLimit).toBe(24000);
+});
+
+
+test("the new search tool exposes only search inputs and checks search plus read permissions",async()=>{
+  await writeFile(outputPath,"prefix verification_marker suffix");
+  const tools=(await plugin()).tool;
+  expect(Object.keys(z.object({properties:z.record(z.string(),z.unknown())}).parse(tools.legalwork_tool_output_read.input).properties)).toEqual(["outputPath","offset"]);
+  expect(Object.keys(z.object({properties:z.record(z.string(),z.unknown())}).parse(tools.legalwork_tool_output_search.input).properties)).toEqual(["outputPath","offset","query"]);
+  const invoke=(query:string,deny?:string)=>tools.legalwork_tool_output_search.execute({outputPath,query},{directory,sessionID:current,ask:async({permission})=>{
+    approvals.push(permission);if(permission===deny)throw new Error("Permission denied");
+  }});
+  expect(JSON.parse(await invoke("verification_marker")).found).toBe(true);
+  expect(approvals).toEqual(["legalwork_tool_output_search","legalwork_tool_output_read","read"]);
+  await expect(invoke("verification_marker","legalwork_tool_output_search")).rejects.toThrow("Permission denied");
+  await expect(invoke("")).rejects.toThrow();
 });

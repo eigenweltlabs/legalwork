@@ -18,7 +18,7 @@ export type BoardActions = {
   canMove: (row: Row, field: string) => boolean;
   move: (row: Row, field: string, value: string) => Promise<void>;
 };
-const Host = createContext<{ openSource?: (path: string, owner?: SourceOwner, binding?: string) => void; boardActions?: BoardActions; streaming: boolean }>({ streaming: false });
+const Host = createContext<{ openLink?: (href: string) => void; openSource?: (path: string, owner?: SourceOwner, binding?: string) => void; boardActions?: BoardActions; streaming: boolean }>({ streaming: false });
 const numberFormat = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
 function fieldLabel(field: string) { return field.replace(/^properties\./, "").replace(/_/g, " ").replace(/\b\w/g, letter => letter.toUpperCase()); }
 function stageTone(value: unknown): "neutral" | "info" | "success" | "warning" | "danger" {
@@ -31,13 +31,34 @@ function display(value: unknown): string {
   if (typeof value === "object") return JSON.stringify(value);
   return String(value);
 }
-function SourceButton({ path, sourceOwner, binding, children }: { path: unknown; sourceOwner?: unknown; binding?: string; children: ReactNode }) {
+function SourceButton({ path, sourceOwner, binding, available, children }: { path: unknown; sourceOwner?: unknown; binding?: string; available?: unknown; children: ReactNode }) {
   const host = useContext(Host);
   const owner = SourceOwnerSchema.safeParse(sourceOwner);
-  return typeof path === "string" && host.openSource && !host.streaming
+  return available !== false && typeof path === "string" && host.openSource && !host.streaming
     ? <button type="button" className="lw-view-source" onClick={() => host.openSource?.(path, owner.success ? owner.data : undefined, binding)}>{children}</button>
     : <span>{children}</span>;
 }
+function ActionList({ rows, emptyText = "No items" }: { rows: Row[]; emptyText?: string }) {
+  const host = useContext(Host);
+  if (!rows.length) return <p className="lw-view-muted">{emptyText}</p>;
+  return <ul className="lw-view-actions">{rows.slice(0, 1000).map((row, index) => {
+    const title = display(row.title);
+    const href = row.__viewSourceAvailable !== false && typeof row.href === "string" && safeActionHref(row.href) ? row.href : null;
+    return <li key={index}>
+      <div className="lw-view-action-heading">{href && !host.streaming ? <a href={href} className="lw-view-source" target="_blank" rel="noopener noreferrer" onClick={event => {
+        if (host.openLink) { event.preventDefault(); host.openLink(href); }
+        else if (!href.startsWith("https://")) event.preventDefault();
+      }}>{title}</a> : <strong>{title}</strong>}{row.priority ? <Tag text={display(row.priority)} variant={stageTone(row.priority)} size="sm" /> : null}</div>
+      {row.detail ? <p className="lw-view-prose">{display(row.detail)}</p> : null}
+      {row.meta ? <p className="lw-view-muted">{display(row.meta)}</p> : null}
+    </li>;
+  })}</ul>;
+}
+export function safeActionHref(href: string) {
+  if (/^legalworktask:\/\/[\w-]+\/?$/.test(href)) return true;
+  try { const url = new URL(href); return url.protocol === "https:" && !url.username && !url.password; } catch { return false; }
+}
+
 function DataTable({ rows, columns, searchable = true }: { rows: Row[]; columns: Column[]; searchable?: boolean }) {
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<{ field: string; desc: boolean } | null>(null);
@@ -46,7 +67,7 @@ function DataTable({ rows, columns, searchable = true }: { rows: Row[]; columns:
     return sort ? next.sort((a, b) => (typeof a[sort.field] === "number" && typeof b[sort.field] === "number" ? Number(a[sort.field]) - Number(b[sort.field]) : display(a[sort.field]).localeCompare(display(b[sort.field]), undefined, { numeric: true })) * (sort.desc ? -1 : 1)) : next;
   }, [rows, columns, search, sort]);
   return <div className="lw-view-table">{searchable && rows.length > 5 && <Input aria-label="Filter displayed rows" placeholder="Filter displayed rows…" value={search} onChange={event => setSearch(event.target.value)} />}
-    <Table><TableHeader><TableRow>{columns.map(col => <TableHead key={col.field}><button type="button" onClick={() => setSort(current => ({ field: col.field, desc: current?.field === col.field && !current.desc }))}>{col.label}{sort?.field === col.field ? sort.desc ? " ↓" : " ↑" : ""}</button></TableHead>)}</TableRow></TableHeader><TableBody>{visible.map((row, i) => <TableRow key={typeof row.path === "string" ? row.path : i}>{columns.map((col, j) => <TableCell key={col.field} className={typeof row[col.field] === "number" ? "lw-view-number" : undefined}>{j === 0 ? <SourceButton path={row.path} sourceOwner={row.__viewSourceOwner}>{display(row[col.field])}</SourceButton> : /(?:stage|status|priority)$/.test(col.field) && typeof row[col.field] === "string" ? <Tag text={display(row[col.field])} variant={stageTone(row[col.field])} size="sm" /> : display(row[col.field])}</TableCell>)}</TableRow>)}</TableBody></Table>
+    <Table><TableHeader><TableRow>{columns.map(col => <TableHead key={col.field}><button type="button" onClick={() => setSort(current => ({ field: col.field, desc: current?.field === col.field && !current.desc }))}>{col.label}{sort?.field === col.field ? sort.desc ? " ↓" : " ↑" : ""}</button></TableHead>)}</TableRow></TableHeader><TableBody>{visible.map((row, i) => <TableRow key={typeof row.path === "string" ? row.path : i}>{columns.map((col, j) => <TableCell key={col.field} className={typeof row[col.field] === "number" ? "lw-view-number" : undefined}>{j === 0 ? <SourceButton path={row.path} sourceOwner={row.__viewSourceOwner} binding={typeof row.__viewBinding === "string" ? row.__viewBinding : undefined} available={row.__viewSourceAvailable}>{display(row[col.field])}</SourceButton> : /(?:stage|status|priority)$/.test(col.field) && typeof row[col.field] === "string" ? <Tag text={display(row[col.field])} variant={stageTone(row[col.field])} size="sm" /> : display(row[col.field])}</TableCell>)}</TableRow>)}</TableBody></Table>
     {!visible.length && <p className="lw-view-muted">No matching records</p>}
   </div>;
 }
@@ -81,7 +102,7 @@ function Board({ rows, groupBy, titleField, fields = [], groupOrder = [] }: { ro
       const editable = Boolean(actions?.canMove(row, groupBy));
       const title = display(row[titleField]) || "Untitled";
       return <article key={typeof row.path === "string" ? row.path : i} draggable={editable && !pending} onDragStart={event => { if (!editable || pending) { event.preventDefault(); return; } event.stopPropagation(); dragging.current = row; event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/plain", title); }} onDragEnd={() => { dragging.current = null; setDropTarget(null); }}>
-        <Card width="full" variant="sunk" className="lw-view-board-card"><SourceButton path={row.path} sourceOwner={row.__viewSourceOwner}><strong>{title}</strong></SourceButton>{fields.map(field => <div className="lw-view-board-field" key={field.field}><span>{field.label}</span><span>{display(row[field.field])}</span></div>)}
+        <Card width="full" variant="sunk" className="lw-view-board-card"><SourceButton path={row.path} sourceOwner={row.__viewSourceOwner} binding={typeof row.__viewBinding === "string" ? row.__viewBinding : undefined} available={row.__viewSourceAvailable}><strong>{title}</strong></SourceButton>{fields.map(field => <div className="lw-view-board-field" key={field.field}><span>{field.label}</span><span>{display(row[field.field])}</span></div>)}
           {editable && <select className="lw-view-board-stage" aria-label={`Move ${title} to stage`} disabled={pending} value={name} onChange={event => void move(row, event.target.value)}>{stages.map(stage => <option key={stage} value={stage}>{stage || "Unassigned"}</option>)}</select>}
         </Card>
       </article>;
@@ -117,7 +138,8 @@ export const openUILibrary = createLibrary({ id: "legalwork-1", components: [
   defineComponent({ name: "Card", props: schemas.Card, description: "Titled card", component: ({ props, renderNode }) => <Card width="full" className="lw-view-card"><CardHeader title={props.title} subtitle={props.subtitle} /><div className="lw-view-card-body">{props.children.map((child, i) => <div key={i}>{renderNode(child)}</div>)}</div></Card> }),
   defineComponent({ name: "Heading", props: schemas.Heading, description: "Section heading", component: ({ props }) => props.level === 1 ? <h1 className="lw-view-title">{props.text}</h1> : <h2 className="lw-view-heading">{props.text}</h2> }),
   defineComponent({ name: "Text", props: schemas.Text, description: "Plain prose", component: ({ props }) => <TextContent variant="clear"><p className="lw-view-prose">{props.text}</p></TextContent> }),
-  defineComponent({ name: "Metric", props: schemas.Metric, description: "Metric with context", component: ({ props }) => <OverviewCardBlock items={[{ top: props.label, bottom: { value: display(props.value), subtext: props.detail } }]} /> }),
+  defineComponent({ name: "Metric", props: schemas.Metric, description: "Metric with context", component: ({ props }) => <OverviewCardBlock className="lw-view-metric" items={[{ top: props.label, bottom: { value: display(props.value), subtext: props.detail } }]} /> }),
+  defineComponent({ name: "ActionList", props: schemas.ActionList, description: "Source-linked actions", component: ({ props }) => <RowsReady rows={props.rows}><ActionList {...props} /></RowsReady> }),
   defineComponent({ name: "Table", props: schemas.Table, description: "Data table", component: ({ props }) => <RowsReady rows={props.rows}><DataTable {...props} /></RowsReady> }),
   defineComponent({ name: "Board", props: schemas.Board, description: "Grouped stage board", component: ({ props }) => <RowsReady rows={props.rows}><Board {...props} /></RowsReady> }),
   defineComponent({ name: "BarChart", props: schemas.BarChart, description: "Bar chart", component: ({ props }) => <RowsReady rows={props.rows}><Chart {...props} kind="bar" /></RowsReady> }),
@@ -127,12 +149,12 @@ export const openUILibrary = createLibrary({ id: "legalwork-1", components: [
   defineComponent({ name: "Callout", props: schemas.Callout, description: "Notice", component: ({ props }) => <Callout title={props.title} description={props.description} variant={props.tone ?? "info"} /> }),
   defineComponent({ name: "Source", props: schemas.Source, description: "Local source", component: ({ props }) => <SourceButton path={props.path} binding={props.binding}>{props.label ?? props.path}</SourceButton> }),
 ] });
-export function OpenUIView({ program, query, openSource, boardActions, streaming = false, dark = false, onError }: { program: string; query?: (name: string) => Promise<unknown>; openSource?: (path: string, owner?: SourceOwner, binding?: string) => void; boardActions?: BoardActions; streaming?: boolean; dark?: boolean; onError?: (message: string) => void }) {
+export function OpenUIView({ program, query, openSource, openLink, boardActions, streaming = false, dark = false, onError }: { program: string; query?: (name: string) => Promise<unknown>; openLink?: (href: string) => void; openSource?: (path: string, owner?: SourceOwner, binding?: string) => void; boardActions?: BoardActions; streaming?: boolean; dark?: boolean; onError?: (message: string) => void }) {
   const themeId = `lw-openui-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
   const toolProvider = useMemo(() => { const resolve = async (args: Record<string, unknown>) => {
     if (streaming || typeof args.name !== "string" || !query) throw new Error("Data is unavailable for this preview");
     return query(args.name);
   }; return { data: resolve, wiki_query: resolve }; }, [query, streaming]);
   if (!isLocalOpenUIProgram(program)) return <div role="alert">This view contains an unsupported program format.</div>;
-  return <div className="lw-openui" id={themeId}><ThemeProvider mode={dark ? "dark" : "light"} cssSelector={`#${themeId}`}><Host.Provider value={{ openSource, boardActions, streaming }}><Renderer response={program} library={openUILibrary} isStreaming={streaming} toolProvider={toolProvider} publishObservability={false} queryLoader={<span className="lw-view-query-status" role="status">Updating…</span>} onError={errors => { if (!streaming) onError?.(errors.map(error => error.message).join("\n")); }} /></Host.Provider></ThemeProvider></div>;
+  return <div className="lw-openui" id={themeId}><ThemeProvider mode={dark ? "dark" : "light"} cssSelector={`#${themeId}`}><Host.Provider value={{ openSource, openLink, boardActions, streaming }}><Renderer response={program} library={openUILibrary} isStreaming={streaming} toolProvider={toolProvider} publishObservability={false} queryLoader={<span className="lw-view-query-status" role="status">Updating…</span>} onError={errors => { if (!streaming) onError?.(errors.map(error => error.message).join("\n")); }} /></Host.Provider></ThemeProvider></div>;
 }

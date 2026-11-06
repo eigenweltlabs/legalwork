@@ -19,6 +19,7 @@ const cloudBootstrap: AudioRecorderBootstrap = { ...bootstrap, cloud: { models: 
 ] } };
 let bootstrapResult = () => Promise.resolve(bootstrap);
 const status = {
+  miniBarEnabled: true,
   appearance: "app", enabled: true, registered: true, accelerator: "Control+D", defaultAccelerator: "Control+D", customAccelerator: false,
   mode: "hold", supportsHold: true, shortcutCaptureActive: false, platform: "darwin", accessibility: "granted", error: null,
 } satisfies NonNullable<ReturnType<typeof store.getState>["systemDictation"]>;
@@ -43,6 +44,7 @@ let captureStops = 0;
 let captureStarts = 0;
 let pasteError: string | null = null;
 let pasteCopiedOnly = false;
+let miniBarError = false;
 let transcript = "A dictated sentence.";
 const capture: CaptureHandle = { readLevels: () => ({ microphone: 0.5 }), stop: async () => { captureStops += 1; } };
 let captureResult = Promise.resolve(capture);
@@ -70,6 +72,10 @@ mock.module("../src/app/lib/opencode", () => ({ unwrap: (value: unknown) => valu
 mock.module("../src/app/lib/opencode-read", () => ({ createSessionView: noop, readMessages: noop }));
 mock.module("../src/app/lib/system-reminder", () => ({ sendSessionPrompt: noop }));
 mock.module("../src/app/lib/desktop", () => ({
+  audioMiniBarSetEnabled: async (enabled: boolean) => {
+    if (miniBarError) throw new Error("Could not save preference");
+    return { ...status, miniBarEnabled: enabled };
+  },
   audioRecordingSetProject: async () => retainedRecordings,
   audioSystemDictationSetState: async (state: string, message: string) => { feedback.push(message ? state + ":" + message : state); return status; },
   audioSystemDictationPaste: async (text: string) => { pasted.push(text); return { pasted: !pasteError && !pasteCopiedOnly, copied: true, error: pasteError }; },
@@ -114,6 +120,7 @@ beforeEach(async () => {
   transcript = "A dictated sentence.";
   captureResult = Promise.resolve(capture); stopResult = Promise.resolve(meta);
   bootstrapResult = () => Promise.resolve(bootstrap);
+  miniBarError = false;
   store.setState({ transcriptionSource: "local", cloudModelId: "gemini-transcribe-live-eu", liveTranscriptWorkspacePath: null, liveTranscriptSessionId: null, liveTranscriptNotifiedSessions: [], liveTranscriptDismissedPaths: [], initialized: true, bootstrap, systemDictation: status, modelId: "test-model", recording: null,
     recordingStartedAt: null, dictationRecordingId: null, dictationState: "idle", composerDictation: null, composerDictationLevel: 0, finalizing: false,
     permissions: { platform: "darwin", packaged: false, microphone: "granted", systemAudio: "granted" }, error: null, recordings: [], sources: ["microphone"],
@@ -121,6 +128,26 @@ beforeEach(async () => {
   await store.getState().init();
 });
 afterEach(async () => { if (store.getState().recording) await store.getState().cancelRecording(); });
+
+test("mini bar can be hidden and restored without stopping an active recording", async () => {
+  await store.getState().startSystemDictation();
+  const recording = store.getState().recording;
+  expect(recording).not.toBeNull();
+  for (const enabled of [false, true]) {
+    await store.getState().setMiniBarEnabled(enabled);
+    expect(store.getState().systemDictation?.miniBarEnabled).toBe(enabled);
+    expect(store.getState().recording).toBe(recording);
+    expect(store.getState().systemDictation?.enabled).toBe(true);
+    expect(captureStops).toBe(0);
+    expect(cancelled).toBe(0);
+  }
+});
+
+test("failed mini bar changes preserve the current state and report failure to the menu", async () => {
+  miniBarError = true;
+  await expect(store.getState().setMiniBarEnabled(false)).rejects.toThrow("Could not save preference");
+  expect(store.getState().systemDictation?.miniBarEnabled).toBe(true);
+});
 
 test("a navigation availability check can fail without adding a sticky recording error", async () => {
   store.setState({ transcriptionSource: "cloud", bootstrap: cloudBootstrap });
@@ -197,6 +224,30 @@ test("healthy cloud settings and captions do not hide capture or speaker failure
     expect(store.getState().error).toBe(error);
     expect(isCloudAvailabilityError(store.getState())).toBe(false);
   }
+});
+
+test("meeting caption recovery never stops or reopens capture and clears only its own notice", async () => {
+  store.setState({ transcriptionSource: "cloud", bootstrap: cloudBootstrap });
+  await store.getState().startRecording("Call", { sources: ["microphone", "system"] });
+  const recording = store.getState().recording;
+  store.setState({ error: "An unrelated error" });
+  handleEvent({ type: "recording-transcription-status", recordingId: meta.id, reconnecting: true });
+  await delay(10);
+  expect(store.getState().transcriptionReconnecting).toBe(true);
+  expect(store.getState().recording).toBe(recording);
+  expect(store.getState().finalizing).toBe(false);
+  expect(captureStops).toBe(0);
+  expect(captureStarts).toBe(1);
+  handleEvent({ type: "recording-transcription-status", recordingId: "older-recording", reconnecting: false });
+  expect(store.getState().transcriptionReconnecting).toBe(true);
+  handleEvent({ type: "recording-transcription-status", recordingId: meta.id, reconnecting: false });
+  expect(store.getState().transcriptionReconnecting).toBe(false);
+  expect(store.getState().error).toBe("An unrelated error");
+  expect(captureStops).toBe(0);
+  expect(captureStarts).toBe(1);
+  stopResult = Promise.resolve({ ...meta, ephemeral: false, status: "complete" });
+  await store.getState().stopRecording();
+  expect(captureStops).toBe(1);
 });
 
 test("a settings refresh cannot clear an error while cloud capture is starting or stopping", async () => {

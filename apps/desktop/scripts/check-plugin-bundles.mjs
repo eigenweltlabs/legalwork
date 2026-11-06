@@ -39,7 +39,8 @@ export function findUnresolvableImports(dir = pluginDir) {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const offenders = findUnresolvableImports();
+  // PR CI passes apps/server/dist/opencode-plugins: electron-build stages its copy only when packaging.
+  const offenders = findUnresolvableImports(process.argv[2]);
   if (offenders.length > 0) {
     console.error("Packaged OpenCode plugins carry imports that cannot resolve at runtime:");
     for (const { file, imports } of offenders) console.error(`- ${file}: ${imports.join(", ")}`);

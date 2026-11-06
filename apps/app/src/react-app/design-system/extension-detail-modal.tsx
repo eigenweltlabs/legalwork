@@ -249,7 +249,7 @@ export function ExtensionDetailModal({
     >
       <DialogContent
         className={cn(
-          "flex max-h-[90vh] min-h-0 w-full flex-col overflow-hidden",
+          "flex max-h-[90vh] min-h-0 min-w-0 w-[calc(100%-2rem)] flex-col overflow-hidden",
           size === "wide" ? "max-w-3xl sm:max-w-3xl" : "max-w-xl sm:max-w-xl",
         )}
       >
@@ -294,9 +294,9 @@ export function ExtensionDetailModal({
         </DialogHeader>
 
         {/* Body */}
-        <ScrollArea className="flex min-h-0 flex-1 flex-col">
-          <ScrollAreaViewport className="min-h-0 flex-1 h-auto!">
-            <div className="space-y-5 px-px">
+        <ScrollArea className="flex min-h-0 min-w-0 flex-1 flex-col">
+          <ScrollAreaViewport className="min-h-0 min-w-0 flex-1 h-auto! overflow-x-hidden!">
+            <div className="min-w-0 space-y-5 px-px [overflow-wrap:anywhere]">
             {/* Description */}
             <div className={cn("text-sm leading-relaxed", presentation === "connector" ? "text-muted-foreground" : "text-card-foreground")}>
               {description}

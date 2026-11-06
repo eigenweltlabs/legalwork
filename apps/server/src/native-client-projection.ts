@@ -8,7 +8,7 @@ import type { NativeModelDisplay } from "@legalwork/types/native-model-display";
 import type { JsonValue } from "@opencode/client";
 import { Schema } from "effect";
 import { ApiError } from "./errors.js";
-import { nativeOpencodeConfig } from "./native-opencode-config.js";
+import { runtimeEngineConfiguration } from "./runtime-config-upgrade.js";
 
 function record(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? Object.fromEntries(Object.entries(value)) : {};
@@ -90,7 +90,7 @@ export function publicNativeConfig(config: typeof Config.Info.Type): typeof Conf
 }
 
 export function publicNativeConfigSnapshot(input: Record<string, unknown>) {
-  return { ...publicNativeConfig(nativeOpencodeConfig(input).config), $legalworkReadOnlyProjection: true };
+  return { ...publicNativeConfig(runtimeEngineConfiguration(input)), $legalworkReadOnlyProjection: true };
 }
 
 /** Only the browser-facing LW proxy calls this. Native server/main/plugin

@@ -1,6 +1,13 @@
-import type { PluginImportCandidate, PluginImportPreview } from "@legalwork/types/plugin-import";
+import type { PluginCreateConnector, PluginImportCandidate, PluginImportPreview } from "@legalwork/types/plugin-import";
 import { t } from "@/i18n";
 import type { ImportedPlugin } from "@/app/lib/extension-imports";
+
+/** Creation adds one new connector; copied connectors keep their existing sign-in flow. */
+export function createdPluginSignInConnector(plugin: ImportedPlugin, connector: PluginCreateConnector | undefined): string | undefined {
+  if (connector?.type !== "remote" || connector.oauth === false) return;
+  const prefix = "opencode.jsonc#mcp.";
+  return plugin.files.find(file => file.objectType === "mcp" && file.path.startsWith(prefix))?.path.slice(prefix.length);
+}
 
 /** A whole plugin remains a plugin even when its only component is a connector. */
 export function pluginImportDestination(preview: PluginImportPreview): { tab: "connectors" | "skills" | "plugins"; connectorName: string | null } {

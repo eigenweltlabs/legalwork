@@ -46,7 +46,7 @@ test("network settings API authenticates, validates, persists and respects read-
     // or tool permission into consent to enable sandboxing.
     for (const networkMode of networkModeSchema.options) {
       await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({
-        permission: { bash: "allow", edit: "ask" }, sandboxNetworkMode: networkMode,
+        permissions: [{ action: "shell", resource: "*", effect: "allow" }, { action: "edit", resource: "*", effect: "ask" }], sandboxNetworkMode: networkMode,
       }));
       expect(await (await fetch(base + "/sandbox/status", { headers: hostHeaders })).json()).toMatchObject({
         enabled: false, available: null, networkMode,
@@ -104,7 +104,7 @@ test("network settings API authenticates, validates, persists and respects read-
       await fetch(base + "/org-policy/release", { method: "POST", headers: hostHeaders, body: JSON.stringify({ key: "sandbox" }) });
       globalThis.fetch = realFetch;
     }
-    await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permission: { bash: "ask", read: "allow" } }));
+    await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permissions: [{ action: "shell", resource: "*", effect: "ask" }, { action: "read", resource: "*", effect: "allow" }] }));
     const commands = Array.from({ length: 10 }, (_, index) => fetch(base + "/workspace/matter/sandbox/execute", {
       method: "POST", headers: { authorization: "Bearer client", "content-type": "application/json" },
       body: JSON.stringify({ command: "echo test", agent: "build", sessionID: `chat-${index}`, description: "Read a public source" }),

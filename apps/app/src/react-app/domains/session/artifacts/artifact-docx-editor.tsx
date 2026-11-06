@@ -32,6 +32,8 @@ import "./docx-editor-theme.css";
 import { useControlActions } from "../../../shell/control/control-provider";
 import { t } from "@/i18n";
 import { createDocumentAutosave } from "./document-autosave";
+import { createDocumentExport } from "./document-export";
+import { checkDocumentTask, type DocumentTaskOptions } from "./document-task-queue";
 import { createWordProtectionPlugin } from "./docx-protection";
 import { decorateWordFields, navigateWordNote, updateWordFields } from "./docx-fields";
 import { wordBookmarks } from "./docx-bookmarks";
@@ -61,7 +63,7 @@ export type DocxEditorApi = {
   drain: () => Promise<void>;
   /** Serialize the live draft without writing to the workspace or clearing its dirty state. */
   getBuffer: () => Promise<ArrayBuffer | null>;
-  executeAgentTool: (toolName: string, args: Record<string, unknown>) => Promise<DocxEditorToolResult>;
+  executeAgentTool: (toolName: string, args: Record<string, unknown>, options?: DocumentTaskOptions) => Promise<DocxEditorToolResult>;
   discardRecovery: () => Promise<void>;
   revision: () => number;
   isDirty: () => boolean;
@@ -267,7 +269,6 @@ function LiveDocxEditor({ name, content, author, readOnly = false, interactionLo
   const revision = useRef(0);
   const ready = useRef(false);
   const pendingSave = useRef<Promise<boolean> | null>(null);
-  const serialization = useRef<Promise<ArrayBuffer | null> | null>(null);
   const historyStarted = useRef(false);
   const lastDocument = useRef<ReturnType<DocxEditorRef["getDocument"]>>(null);
   const lastPaintedLayout = useRef<ReturnType<NonNullable<ReturnType<DocxEditorRef["getEditorRef"]>>["getLayout"]>>(null);
@@ -347,16 +348,13 @@ function LiveDocxEditor({ name, content, author, readOnly = false, interactionLo
     return () => window.clearInterval(timer);
   }, [checkDocument]);
 
-  const getBuffer = useCallback(async () => {
-    const serialize = async () => {
+  const [exporter] = useState(() => createDocumentExport(() => revision.current, async () => {
       const editor = editorRef.current; const doc = editor?.getEditorRef()?.getView()?.state.doc; const document = editor?.getDocument();
+      const metadata = structuredClone(metadataRef.current);
       const buffer = await editorRef.current?.save({ selective: false });
-      return buffer ? await finalizeWordPackage(doc && document ? await preserveWordFormatting(buffer, doc, document) : buffer, metadataRef.current) : null;
-    };
-    const operation = serialization.current ? serialization.current.catch(() => null).then(serialize) : serialize();
-    serialization.current = operation;
-    try { return await operation; } finally { if (serialization.current === operation) serialization.current = null; }
-  }, []);
+      return buffer ? await finalizeWordPackage(doc && document ? await preserveWordFormatting(buffer, doc, document) : buffer, metadata) : null;
+  }, value => value !== null));
+  const getBuffer = useCallback(() => exporter.read(), [exporter]);
 
   const syncTracking = (active: boolean) => {
     const paged = editorRef.current?.getEditorRef();
@@ -489,14 +487,15 @@ function LiveDocxEditor({ name, content, author, readOnly = false, interactionLo
 
   useEffect(() => {
     if (!apiRef) return;
-    const executeAgentTool = async (toolName: string, args: Record<string, unknown>, persist: boolean): Promise<DocxEditorToolResult> => {
+    const executeAgentTool = async (toolName: string, args: Record<string, unknown>, persist: boolean, options: DocumentTaskOptions = {}): Promise<DocxEditorToolResult> => {
+      checkDocumentTask(options);
       if ((readOnly || interactionLocked) && !isDocumentReadTool("docx", toolName)) return { success: false, error: t("docx.read_only") };
       if (!ready.current) return { success: false, error: t("docx.editor_not_ready") };
       checkDocument();
       if (toolName === "edit") {
         if (args.documentId !== documentId || args.draftRevision !== revision.current) return { success: false, error: t("docx.read_draft_again") };
         automaticSave.setSuspended(true);
-        try { return await executeWordBatch(args, executeAgentTool); }
+        try { return await executeWordBatch(args, (name, input, save) => executeAgentTool(name, input, save, name === "save_document" ? {} : options)); }
         catch (cause) { return { success: false, error: cause instanceof Error ? cause.message : String(cause) }; }
         finally { automaticSave.setSuspended(readOnly || interactionLocked); }
       }
@@ -688,7 +687,7 @@ function LiveDocxEditor({ name, content, author, readOnly = false, interactionLo
         try { await pendingSave.current; } finally { await checkpointWork.current; await drainDocxRecovery(); }
       },
       isReady: () => ready.current,
-      executeAgentTool: (toolName, args) => executeAgentTool(toolName, args, true),
+      executeAgentTool: (toolName, args, options) => executeAgentTool(toolName, args, true, options),
     discardRecovery: async () => {
       await checkpointWork.current;
       if (recoveryKey) await removeDocxRecovery(recoveryKey);

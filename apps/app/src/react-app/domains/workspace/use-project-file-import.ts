@@ -34,9 +34,10 @@ export function useProjectFileImport({ projectId, workspaceId, isRemoteWorkspace
     try {
       await Promise.all(files.map(file => startFileCopy(file.name, open, async () => {
         const result = await copy(projectId, [file], destinationPath);
-        const entry = result.files[0];
-        if (!entry || entry.status === "failed" || !entry.path) throw new Error(t(entry?.error === "file_only" ? "projects.files_only" : entry?.error === "recursive" ? "projects.folder_recursive" : entry?.error === "changed" ? "projects.file_changed" : entry?.error === "unavailable" ? "projects.file_unavailable" : "projects.files_copy_error"));
+        const entry = result.files.find(entry => entry.status === "failed") ?? result.files[0];
+        if (!entry || entry.status === "failed" || !entry.path) throw new Error(t(entry?.error === "dashboard" ? "views.import_failed" : entry?.error === "file_only" ? "projects.files_only" : entry?.error === "recursive" ? "projects.folder_recursive" : entry?.error === "changed" ? "projects.file_changed" : entry?.error === "unavailable" ? "projects.file_unavailable" : "projects.files_copy_error"));
         for (const key of ["workspace-files", "project-files", "project-notes"]) void queryClient.invalidateQueries({ queryKey: [key, workspaceId] });
+        for (const key of ["workspace-view-files", "ui-views", "view-file"]) void queryClient.invalidateQueries({ queryKey: [key] });
         return { path: entry.path };
       })));
 

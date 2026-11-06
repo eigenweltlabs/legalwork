@@ -66,6 +66,7 @@ export function assistantChatMessages(messages: UIMessage[]): UIMessage[] {
         sharedPaths.add(key);
         return true;
       }
+      if (getToolName(part) === "legalwork_assistant_briefing") return Boolean(part.input && typeof part.input === "object" && "action" in part.input && part.input.action === "create");
       return ["legalwork_assistant_delegate", "legalwork_assistant_set_name", "legalwork_schedule_create", "legalwork_schedule_update", "legalwork_calculation_present"].includes(getToolName(part));
     });
     return parts.length ? [{ ...message, parts }] : [];
@@ -84,4 +85,11 @@ export function assistantReactions(messages: UIMessage[]) {
     }
   }
   return reactions;
+}
+
+/** Match chat presentation so hidden tool activity never creates an empty day. */
+export function assistantHasVisibleContent(messages: UIMessage[]): boolean {
+  return assistantChatMessages(messages).some(message => message.parts.some(part =>
+    part.type === "text" ? Boolean(part.text.trim()) : part.type === "file" || isToolUIPart(part),
+  ));
 }

@@ -17,7 +17,7 @@ async function fixture(run: (config: ServerConfig, directory: string, root: stri
     token: "fixture", hostToken: "fixture-host", approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: [],
     workspaces: [{ id: "matter", path: directory, name: "Matter", preset: "starter", workspaceType: "local" }],
     authorizedRoots: [directory], readOnly: false, startedAt: 0, tokenSource: "cli", hostTokenSource: "cli",
-    logFormat: "pretty", logRequests: false, engineProjectTrustRequired: true, engineConfigurationMode: "managed" };
+    logFormat: "pretty", logRequests: false, engineProjectTrustRequired: true, engineConfigurationMode: "native-project" };
   try { await run(config, directory, root); }
   finally { await rm(root, { recursive: true, force: true }); }
 }
@@ -36,7 +36,7 @@ test("retiring an unchanged generated project file preserves complete bytes and 
   expect(await engineProjectStatus(config, workspace)).toMatchObject({ state: "ready", required: false, projection: {}, plugins: [] });
 }));
 
-test("managed admission preserves edited and authored configuration without loading or approving it", () => fixture(async (config, directory, root) => {
+test("native admission preserves edited and authored configuration while reporting a configuration conflict", () => fixture(async (config, directory, root) => {
   const workspace = config.workspaces[0]!;
   const file = await writeNativeProjectProjection(config, workspace, Schema.decodeUnknownSync(Config.Info)({}));
   const authored = "// My edits must remain\n{not valid native JSON\n";
@@ -44,9 +44,10 @@ test("managed admission preserves edited and authored configuration without load
   await writeFile(join(root, "opencode.json"), "not valid parent JSON either");
   await archiveNativeProjectProjection(config, workspace);
   expect(await readFile(file, "utf8")).toBe(authored);
-  expect(await engineProjectStatus(config, workspace)).toMatchObject({ state: "ready", required: false, projection: {}, plugins: [] });
+  expect(await engineProjectStatus(config, workspace)).toMatchObject({ state: "configuration_conflict", required: false });
   await writeNativeEngineProjectRegistry(config);
-  expect(JSON.parse(await readFile(nativeEngineProjectRegistryPath(config), "utf8"))).toEqual({ version: 1, projects: [{ directory, approved: true }] });
+  expect(JSON.parse(await readFile(nativeEngineProjectRegistryPath(config), "utf8"))).toMatchObject({ version: 1, projects: [{ directory, approved: false }] });
+  expect(await readFile(file, "utf8")).toBe(authored);
 }));
 
 test("archive corruption stops retirement before the original generated file is removed", () => fixture(async (config) => {

@@ -2,7 +2,8 @@ import type { Node } from "prosemirror-model";
 import type { Document } from "@eigenpal/docx-editor-core/types/document";
 import type { BlockContent, ParagraphContent, Run } from "@eigenpal/docx-editor-core/types/content";
 import { fromProseDoc } from "@eigenpal/docx-editor-core/prosemirror/conversion";
-import { parseDocx, repackDocx } from "@eigenpal/docx-editor-core/docx";
+import JSZip from "jszip";
+import { children, elements, parseXml, val, wordElement, xmlText, type XmlElement } from "./docx-word-package";
 import { commit, paragraph, uniqueTextRange, type WordToolContext } from "./docx-agent-structure";
 import { wordParagraphs } from "./docx-fields";
 
@@ -105,7 +106,6 @@ export async function preserveWordFormatting(buffer: ArrayBuffer, doc: Node, doc
   for (const { node } of wordParagraphs(doc)) if (typeof node.attrs.paraId === "string" && record(node.attrs.defaultTextFormatting)) defaults.set(node.attrs.paraId, node.attrs.defaultTextFormatting);
   let changed = false;
   const inheritedByParagraph: (Record<string, unknown> | undefined)[] = [];
-  let paragraphIndex = 0;
   const normalizeRuns = (content: ParagraphContent[], inherited: NonNullable<Run["formatting"]>) => {
     for (const item of content) {
       if (item.type === "run") {
@@ -124,23 +124,67 @@ export async function preserveWordFormatting(buffer: ArrayBuffer, doc: Node, doc
       // Fields and pending revisions keep their original formatting.
     }
   };
-  const walk = (blocks: BlockContent[], saved = false) => {
+  const walk = (blocks: BlockContent[]) => {
     for (const block of blocks) {
       if (block.type === "paragraph") {
-        const inherited = saved ? inheritedByParagraph[paragraphIndex++] : block.paraId ? defaults.get(block.paraId) : undefined;
-        if (!saved) inheritedByParagraph.push(inherited);
+        const inherited = block.paraId ? defaults.get(block.paraId) : undefined;
+        inheritedByParagraph.push(inherited);
         if (inherited) normalizeRuns(block.content, inherited);
       }
-      else if (block.type === "table") for (const row of block.rows) for (const cell of row.cells) walk(cell.content, saved);
-      else if (block.type === "blockSdt") walk(block.content, saved);
+      else if (block.type === "table") for (const row of block.rows) for (const cell of row.cells) walk(cell.content);
+      else if (block.type === "blockSdt") walk(block.content);
     }
   };
   walk(converted.package.document.content);
   if (!changed) return buffer;
-  const saved = await parseDocx(buffer);
-  // Keep the SDK's injected reply/revision anchors and all other saved content.
-  // Serialization retains paragraph order even when it remints paragraph ids.
-  walk(saved.package.document.content, true);
-  if (paragraphIndex !== inheritedByParagraph.length) throw new Error("Saved paragraph structure changed while preserving formatting. Retry the save.");
-  return repackDocx(saved);
+  // Patch the serialized run properties, preserving the SDK's revision/reply
+  // anchors. Re-importing here inflated every media asset and rebuilt base64
+  // previews on each save/checkpoint, even though only document.xml changes.
+  const zip = await JSZip.loadAsync(buffer);
+  const xml = parseXml(await zip.file("word/document.xml")!.async("string"));
+  const paragraphs = elements(xml, "p").filter(paragraph => {
+    for (let parent = paragraph.parentNode; parent; parent = parent.parentNode) if (parent.localName === "txbxContent") return false;
+    return true;
+  });
+  if (paragraphs.length !== inheritedByParagraph.length) throw new Error("Saved paragraph structure changed while preserving formatting. Retry the save.");
+  let fieldDepth = 0;
+  const patch = (nodes: XmlElement[], inherited: Record<string, unknown>) => {
+    for (const node of nodes) {
+      if (node.localName === "hyperlink" || node.localName === "sdt" || node.localName === "sdtContent") { patch(children(node), inherited); continue; }
+      if (node.localName !== "r") continue; // Preserve fields and pending revisions.
+      for (const marker of elements(node, "fldChar")) {
+        const type = val(marker, "fldCharType");
+        if (type === "begin") fieldDepth++;
+        else if (type === "end") fieldDepth = Math.max(0, fieldDepth - 1);
+      }
+      if (fieldDepth || !children(node).some(child => child.localName === "t")) continue;
+      let properties = children(node).find(child => child.localName === "rPr");
+      let base = { ...inherited };
+      const styleId = properties && children(properties).find(child => child.localName === "rStyle");
+      let id = styleId ? val(styleId) : null;
+      const visited = new Set<string>(), styles: NonNullable<Run["formatting"]>[] = [];
+      while (id && !visited.has(id)) {
+        visited.add(id);
+        const style = document.package.styles?.styles.find(style => style.styleId === id);
+        if (!style) break;
+        if (style.rPr) styles.unshift(style.rPr);
+        id = style.basedOn ?? null;
+      }
+      for (const style of styles) base = { ...base, ...style };
+      const add = (name: string, value: string) => {
+        if (properties && children(properties).some(child => child.localName === name)) return;
+        if (!properties) { properties = wordElement(xml, "rPr"); node.insertBefore(properties, node.firstChild); }
+        properties.appendChild(wordElement(xml, name, { val: value }));
+      };
+      for (const [key, name] of Object.entries({ bold: "b", boldCs: "bCs", italic: "i", italicCs: "iCs", strike: "strike", doubleStrike: "dstrike", allCaps: "caps", smallCaps: "smallCaps", hidden: "vanish" })) if (base[key] === true) add(name, "0");
+      if (record(base.underline) && base.underline.style !== "none") add("u", "none");
+      if (base.vertAlign && base.vertAlign !== "baseline") add("vertAlign", "baseline");
+    }
+  };
+  paragraphs.forEach((paragraph, index) => {
+    // Even paragraphs without overrides can contain a begin/end field marker.
+    patch(children(paragraph), inheritedByParagraph[index] ?? {});
+  });
+  zip.file("word/document.xml", xmlText(xml));
+  return zip.generateAsync({ type: "arraybuffer", compression: "DEFLATE" });
 }

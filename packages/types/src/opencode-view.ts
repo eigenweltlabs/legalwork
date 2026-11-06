@@ -6,6 +6,8 @@ import type {
   TokenUsageInfo,
 } from "@opencode/client";
 import type { HistoricalAttachment, HistoricalMessage, SessionHistoryProvenance } from "./session-history.js";
+import { toolDisplayText } from "./chat-tool-results.js";
+export { toolDisplayText } from "./chat-tool-results.js";
 
 /** Presentation-only models. Native engine records are retained alongside each view. */
 export type SessionView = SessionInfo & { title: string; directory: string };
@@ -166,33 +168,6 @@ const zeroTokens = (): TokenUsageInfo => ({
   reasoning: 0,
   cache: { read: 0, write: 0 },
 });
-/** Hide only metadata-attested model reminders in presentation, preserving native content. */
-export function toolDisplayText(
-  content: ReadonlyArray<{ type: string; text?: string }>,
-  metadata?: Record<string, unknown>,
-): string {
-  const states = metadata?.legalworkSystemReminders;
-  const reminders = new Set(
-    states && typeof states === "object" && !Array.isArray(states)
-      ? Object.entries(states).flatMap(([topic, state]) =>
-          typeof state === "string"
-            ? [
-                `<system-reminder topic="${topic}">\n${state}\n</system-reminder>`,
-              ]
-            : [],
-        )
-      : [],
-  );
-  return content
-    .flatMap((item) =>
-      item.type === "text" &&
-      item.text !== undefined &&
-      !reminders.has(item.text)
-        ? [item.text]
-        : [],
-    )
-    .join("\n");
-}
 export function projectTool(
   sessionID: string,
   messageID: string,
@@ -276,15 +251,21 @@ export function projectMessage(
   message: SessionMessageInfo,
   historical?: HistoricalMessage,
 ): MessageView[] {
-  // Native synthetic input is model-visible context, including migrated v1
-  // reminders whose original metadata flags are not retained upstream.
-  if (message.type === "synthetic") return [];
+  // System instructions and synthetic input are model context, never assistant
+  // replies. This also covers migrated reminders without metadata flags.
+  if (message.type === "synthetic") {
+    const stop = message.metadata?.legalworkStop;
+    if (!stop || typeof stop !== "object" || Array.isArray(stop) || stop.reason !== "repeated-invalid-tool-calls" || typeof stop.messageID !== "string") return [];
+    return [{ info: { id: message.id, sessionID, role: "user", time: message.time, model: { providerID: "", modelID: "" }, modelID: "", providerID: "", agent: "", cost: 0, tokens: zeroTokens() }, parts: [{
+      id: `${message.id}:text`, messageID: message.id, sessionID, type: "text", text: message.text,
+      synthetic: true, metadata: message.metadata,
+    }] }];
+  }
+  if (message.type === "system") return [];
   if (
     ![
       "user",
       "assistant",
-      "synthetic",
-      "system",
       "shell",
       "compaction",
       "skill",
@@ -378,10 +359,6 @@ export function projectMessage(
         });},
       ),
       ...(historical?.attachments ?? []).flatMap((history):FilePart[]=>history.bytes==="reference-only" && (history.sourcePath || history.reference) ? [{...base,id:`${message.id}:history:${history.partID}`,type:"file",filename:history.name,mime:history.mime,url:history.reference ?? "",history,source:history.sourcePath ? {type:"file",path:history.sourcePath}:history.reference ? {type:"resource",uri:history.reference}:undefined}]:[]),
-    ];
-  } else if (message.type === "system") {
-    parts = [
-      { ...base, id: `${message.id}:text`, type: "text", text: message.text },
     ];
   } else if (message.type === "skill") {
     parts = [

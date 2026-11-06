@@ -1,17 +1,10 @@
 /** @jsxImportSource react */
 import type { ReactNode } from "react";
-import { Eye, EyeOff, Pencil, Plus, Trash2 } from "lucide-react";
+import { Braces, Eye, EyeOff, Pencil, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Toggle } from "@/components/ui/toggle";
 import { Card, CardContent } from "@/components/ui/card";
-import {
-  Empty,
-  EmptyContent,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyTitle,
-} from "@/components/ui/empty";
 import {
   Table,
   TableBody,
@@ -24,6 +17,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { t } from "@/i18n";
 import { cn } from "@/lib/utils";
 import { Spinner } from "../settings-section";
+import { SecretsEmptyState } from "./secrets-section";
 
 export type EnvironmentVariableItem = {
   key: string;
@@ -232,30 +226,8 @@ export function EnvironmentVariableTableItem(props: EnvironmentVariableTableItem
   );
 }
 
-export type EnvironmentVariableTableEmptyProps = {
-  canAdd: boolean;
-  onAdd: () => void;
-};
-
-export function EnvironmentVariableTableEmpty(props: EnvironmentVariableTableEmptyProps) {
-  return (
-    <Empty className="py-8">
-      <EmptyHeader>
-        <EmptyTitle>{t("settings.environment.empty_title")}</EmptyTitle>
-        <EmptyDescription>
-          {t("settings.environment.empty_body")}
-        </EmptyDescription>
-      </EmptyHeader>
-      {props.canAdd ? (
-        <EmptyContent>
-          <Button onClick={props.onAdd}>
-            <Plus className="size-4" />
-            {t("settings.environment.add_button")}
-          </Button>
-        </EmptyContent>
-      ) : null}
-    </Empty>
-  );
+export function EnvironmentVariableTableEmpty() {
+  return <SecretsEmptyState icon={<Braces />}>{t("settings.environment.empty_title")}</SecretsEmptyState>;
 }
 
 export function EnvironmentVariableTableLoading() {

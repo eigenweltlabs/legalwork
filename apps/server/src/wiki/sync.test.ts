@@ -5,15 +5,16 @@ import { writeEigenweltConnection } from "../eigenwelt-connection-store.js";
 import { parseFrontmatter } from "../frontmatter.js";
 import { WikiStore } from "./store.js";
 import { WikiSync } from "./sync.js";
+import { WikiTeamClient } from "./team-client.js";
 import { wikiTeamFixture } from "./team-test-helper.js";
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => { while (cleanups.length) await cleanups.pop()?.(); });
 async function setup() {
   const fixture = await wikiTeamFixture(); cleanups.push(() => fixture.close());
   async function computer(userId = "owner") {
-    const account = await fixture.account(userId), store = new WikiStore(account.config), sync = new WikiSync(account.config, store, { intervalMs: 30 });
+    const account = await fixture.account(userId), store = new WikiStore(account.config), client = new WikiTeamClient(account.config), sync = new WikiSync(account.config, store, { client, intervalMs: 30 });
     cleanups.push(async () => { await sync.stop(); await store.close(); });
-    return { ...account, store, sync };
+    return { ...account, store, client, sync };
   }
   const a = await computer(), b = await computer("member");
   const wiki = await a.store.create({ name: "Knowledge", root: join(a.directory, "content"), attach: true });
@@ -24,7 +25,98 @@ async function setup() {
   return { fixture, computer, a, b, wiki, joined, remote, save, exchange, readA: async (path: string) => (await a.store.read(wiki.id, path)).content, readB: async (path: string) => (await b.store.read(joined.id, path)).content };
 }
 
+async function downloadBatch() {
+  const context = await setup();
+  const { fixture, a, b, wiki } = context;
+  // Drive these rounds explicitly so the join timer cannot start a transfer.
+  await a.sync.stop(); await b.sync.stop();
+  const files = Array.from({ length: 14 }, (_, index) => ({
+    path: index % 2 ? `Attachments/${index}.bin` : `Pages/${index}.md`,
+    data: Buffer.from(`# Shared file ${index}\n`),
+  }));
+  for (const file of files) await a.store.writeAsset(wiki.id, file.path, file.data, "");
+  expect((await a.sync.sync(wiki.id)).state).toBe("idle");
+  const gates = files.map(() => Promise.withResolvers<void>());
+  let started = 0, active = 0, peak = 0;
+  fixture.control.beforeDownload = async () => {
+    const gate = gates[started++];
+    active++;
+    peak = Math.max(peak, active);
+    await gate?.promise;
+    active--;
+  };
+  return { ...context, files, gates, counts: () => ({ started, active, peak }), release: () => gates.forEach(gate => gate.resolve()) };
+}
+
+async function waitFor(condition: () => boolean) {
+  for (let attempt = 0; attempt < 100 && !condition(); attempt++) await new Promise(done => setTimeout(done, 10));
+  expect(condition()).toBe(true);
+}
+
 describe("Automatic independent wiki sync across local folders", () => {
+  test("downloads six files concurrently, refills available slots, and preserves edits made during transfer", async () => {
+    const { a, b, wiki, joined, files, gates, counts, release, save, readB } = await downloadBatch();
+    const run = b.sync.sync(joined.id);
+    try {
+      await waitFor(() => counts().started >= 6);
+      expect(counts()).toEqual({ started: 6, active: 6, peak: 6 });
+      await save(b, joined.id, "Pages/0.md", "# Edited during download\n");
+      gates[0].resolve();
+      await waitFor(() => counts().started >= 7);
+      expect(counts()).toEqual({ started: 7, active: 6, peak: 6 });
+    } finally { release(); await run; }
+    expect((await run).state).toBe("idle");
+    expect(counts()).toEqual({ started: files.length, active: 0, peak: 6 });
+    expect(await readB("Pages/0.md")).toBe("# Edited during download\n");
+    for (const file of files) if (file.path !== "Pages/0.md") expect(await b.store.readAsset(joined.id, file.path)).toEqual(file.data);
+    // A later round must reconcile the edit, never mark the remote copy as saved.
+    expect((await b.sync.sync(joined.id)).state).toBe("idle");
+    expect((await a.sync.sync(wiki.id)).state).toBe("idle");
+    const copies = (await b.store.files(joined.id)).filter(file => file.path.includes(".conflict-"));
+    expect(copies).toHaveLength(1);
+    expect(await readB(copies[0].path)).toBe("# Edited during download\n");
+  });
+  test("a corrupt concurrent download drains in-flight work before retry and does not start queued files", async () => {
+    const { fixture, b, joined, files, gates, counts, release } = await downloadBatch();
+    const failed = Promise.withResolvers<void>();
+    const read = b.client.read.bind(b.client);
+    b.client.read = async (...args) => {
+      try { return await read(...args); }
+      catch (error) { failed.resolve(); throw error; }
+    };
+    fixture.control.corruptDownload = true;
+    let settled = false;
+    const run = b.sync.sync(joined.id).then(status => { settled = true; return status; });
+    let retry: ReturnType<WikiSync["sync"]> | undefined;
+    try {
+      await waitFor(() => counts().started >= 6);
+      gates[0].resolve();
+      await failed.promise;
+      await new Promise(done => setTimeout(done, 20));
+      expect(settled).toBe(false);
+      retry = b.sync.sync(joined.id, true);
+      expect(counts()).toEqual({ started: 6, active: 5, peak: 6 });
+    } finally { release(); await run; }
+    expect((await run).state).toBe("error");
+    expect(await retry).toEqual(await run);
+    expect(counts()).toEqual({ started: 6, active: 0, peak: 6 });
+    expect(await b.store.files(joined.id)).toEqual([]);
+    fixture.control.corruptDownload = false;
+    fixture.control.beforeDownload = null;
+    expect((await b.sync.sync(joined.id)).state).toBe("idle");
+    for (const file of files) expect(await b.store.readAsset(joined.id, file.path)).toEqual(file.data);
+  });
+  test("revoking access during concurrent downloads prevents every in-flight file from being saved", async () => {
+    const { fixture, b, joined, counts, release } = await downloadBatch();
+    const run = b.sync.sync(joined.id);
+    try {
+      await waitFor(() => counts().started >= 6);
+      fixture.revoked.add("member");
+    } finally { release(); await run; }
+    expect((await run).state).toBe("error");
+    expect(counts()).toEqual({ started: 6, active: 0, peak: 6 });
+    expect(await b.store.files(joined.id)).toEqual([]);
+  });
   test("a save and explicit sync during an upload wait for the follow-up round", async () => {
     const { fixture, a, wiki, remote, save, exchange } = await setup();
     await save(a, wiki.id, "First.md", "# Initial\n"); await exchange();

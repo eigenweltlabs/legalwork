@@ -82,8 +82,9 @@ export class ViewRepository {
     if (input.mode === "report" && Object.keys(input.queries).some(name => !input.datasets?.[name])) throw new ApiError(400, "report_snapshot_missing", "Frozen reports must retain their query datasets.");
     return parsed.data;
   }
-  async create(input: ViewInput): Promise<ViewRecord> {
-    const data = this.validate(input), id = randomUUID(), updatedAt = Date.now();
+  async create(input: ViewInput, id: string = randomUUID()): Promise<ViewRecord> {
+    z.string().uuid().parse(id);
+    const data = this.validate(input), updatedAt = Date.now();
     const bytes = Buffer.from(JSON.stringify({ ...data, id, updatedAt }, null, 2) + "\n");
     if (bytes.length > MAX_BYTES) throw new ApiError(413, "view_too_large", "A saved view can contain up to 2 MB.");
     const folder = data.mode === "report" ? "Reports" : await this.files.dashboardFolder?.() ?? "Views";

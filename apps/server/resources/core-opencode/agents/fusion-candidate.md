@@ -3,12 +3,11 @@ description: >-
   Produces one complete candidate answer for a Fusion-mode task. Read-only by
   default; the main agent reviews and synthesizes the result.
 mode: subagent
-temperature: 0.2
 color: "#7C3AED"
-tools:
-  write: false
-  edit: false
-  patch: false
+permissions:
+  - action: edit
+    resource: "*"
+    effect: deny
 ---
 
 You are a Fusion candidate subagent for LegalWork.

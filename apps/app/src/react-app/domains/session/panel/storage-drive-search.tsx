@@ -6,6 +6,7 @@ import { Loader2 } from "lucide-react";
 import { STORAGE_PAGE_SIZE, type StorageEntry, type StorageRoot } from "@legalwork/types/file-storage";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { writeStorageEntryDrag } from "@/app/lib/storage-entry-drag";
+import { storageDisplayPath } from "@/app/lib/storage-display-path";
 import { Button } from "@/components/ui/button";
 import { t } from "@/i18n";
 import { StorageEntryMenu } from "./storage-entry-menu";
@@ -75,7 +76,7 @@ function ConnectionSearch({
         <button
           type="button"
           draggable
-          title={`${root.name} / ${entry.path}`}
+          title={`${root.name} / ${storageDisplayPath(root, entry.path)}`}
           onDragStart={(event) => { writeStorageEntryDrag(event.dataTransfer, workspaceId, root, entry); projectFiles?.drag(event.dataTransfer, client, workspaceId, { path: entry.path, name: entry.name, connectionId: root.id }); }}
           onClick={() => onOpenFile(root, entry)}
           className="flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-lg px-2 py-1 text-left hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
@@ -83,7 +84,7 @@ function ConnectionSearch({
           <ArtifactIcon type={classifyOpenTarget(entry.name, "file")} className="size-5 shrink-0" />
           <span className="min-w-0 flex-1">
             <span className="block truncate text-[13px]">{entry.name}</span>
-            <span className="block truncate text-[10px] text-muted-foreground">{entry.path}</span>
+            <span className="block truncate text-[10px] text-muted-foreground">{storageDisplayPath(root, entry.path)}</span>
           </span>
         </button>
         </div>

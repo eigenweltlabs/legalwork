@@ -1,5 +1,5 @@
 import { publicNativeConfig } from "./native-client-projection.js";
-import { nativeOpencodeConfig } from "./native-opencode-config.js";
+import { runtimeEngineConfiguration } from "./runtime-config-upgrade.js";
 
 /**
  * Secret-stripping serializers for Firm Hub *share templates*.
@@ -72,7 +72,7 @@ export function stripSecrets(value: unknown, valueIsAuthMap = false): unknown {
  * `headers`, `env`, nested options) so only the connection shape survives.
  */
 export function sanitizeIntegrationMcp(config: Record<string, unknown>): Record<string, unknown> {
-  const enabled = typeof config.enabled === "boolean" ? config.enabled : undefined;
+  const controls = Object.fromEntries(["disabled", "timeout", "protocol", "codemode"].flatMap(key => config[key] === undefined ? [] : [[key, config[key]]]));
   if (config.type === "remote" && typeof config.url === "string") {
     const url = new URL(config.url);
     url.username = "";
@@ -83,7 +83,8 @@ export function sanitizeIntegrationMcp(config: Record<string, unknown>): Record<
     return {
       type: "remote",
       url: url.toString(),
-      ...(enabled === undefined ? {} : { enabled }),
+      ...controls,
+      ...(config.oauth === false ? { oauth: false } : isPlainObject(config.oauth) && typeof config.oauth.scope === "string" ? { oauth: { scope: config.oauth.scope } } : {}),
     };
   }
   if (config.type === "local" && Array.isArray(config.command)) {
@@ -117,7 +118,7 @@ export function sanitizeIntegrationMcp(config: Record<string, unknown>): Record<
     return {
       type: "local",
       command,
-      ...(enabled === undefined ? {} : { enabled }),
+      ...controls,
     };
   }
   return stripSecrets(config) as Record<string, unknown>;
@@ -139,7 +140,7 @@ export function sanitizePresetFragment(fragment: Record<string, unknown>): Recor
     if (key === "providers") {
       // Omit optional undefined properties exactly as the published JSON wire
       // does, so the resulting template is itself valid executable input.
-      const providers: unknown = JSON.parse(JSON.stringify(publicNativeConfig(nativeOpencodeConfig({ providers: value }).config).providers ?? {}));
+      const providers: unknown = JSON.parse(JSON.stringify(publicNativeConfig(runtimeEngineConfiguration({ providers: value })).providers ?? {}));
       out[key] = providers;
     }
     else if (key === "providerSetup") out[key] = isPlainObject(value) ? Object.fromEntries(Object.entries(value).filter(([, required]) => required === true)) : {};

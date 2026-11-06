@@ -25,7 +25,8 @@ const webResult = z.object({ title: z.string(), output: z.string(), metadata: z.
 const shellResult = z.object({ output: z.string(), exitCode: z.number(), truncated: z.boolean(), sandbox: z.enum(["host", "virtual-machine"]) }).passthrough();
 const hostTools = new Set(nativeHostExecutionActions);
 const webKinds: Array<"fetch" | "search"> = ["fetch", "search"];
-const guidance = "Execute shell commands through legalwork_shell. Read web pages through legalwork_webfetch and search through legalwork_websearch. These web tools follow the same chat network setting as commands. The latest sandbox-settings reminder describes this chat's execution mode, shell and paths. Sandboxing off runs on the host; on runs in a protected Linux environment with only shared folders. Use host paths for ordinary file tools. Stricter tool and agent permissions still apply. A protected execution error must be resolved through the user's settings; never try another execution route to bypass it.";
+const wikiCommandGuidance = "Wiki chats require protected execution for shell commands. When sandboxing is off, use wiki tools, read and glob instead; ask the user to enable Sandbox only if a command is necessary.";
+const guidance = "Execute shell commands through legalwork_shell. Read web pages through legalwork_webfetch and search through legalwork_websearch. These web tools follow the same chat network setting as commands. The latest sandbox-settings reminder describes this chat's execution mode, shell and paths. In project chats, sandboxing off runs commands on the host; on runs in a protected Linux environment with only shared folders. Use host paths for ordinary file tools. Stricter tool and agent permissions still apply. A protected execution error must be resolved through the user's settings; never try another execution route to bypass it. " + wikiCommandGuidance;
 
 export const LegalWorkSandbox = Plugin.define({
   id: "legalwork.sandbox",
@@ -43,7 +44,7 @@ export const LegalWorkSandbox = Plugin.define({
           if (!response.ok) return null;
           const state = z.object({ enabled: z.boolean(), networkMode: z.string(), shell: z.string(), platform: z.string(), cwd: z.string() }).parse(await response.json());
           return `Sandboxing is ${state.enabled ? "on" : "off"}. Shell: ${state.shell}. Platform: ${state.platform}. Project working directory: ${state.cwd}. ` +
-            (state.enabled ? `Network mode: ${state.networkMode}. Browser tools are ${state.networkMode === "allow" ? "available" : "disabled; use the managed web tools for policy-controlled requests"}. Only shared folders are accessible. Python 3 and Node.js are installed. Authorized folders: /authorized/N. Skills: /skills/N.` : "Commands run directly on this computer with its installed tools and OS permissions. Sandbox network controls do not apply.");
+            (state.enabled ? `Network mode: ${state.networkMode}. Browser tools are ${state.networkMode === "allow" ? "available" : "disabled; use the managed web tools for policy-controlled requests"}. Only shared folders are accessible. Python 3 and Node.js are installed. Authorized folders: /authorized/N. Skills: /skills/N.` : "In project chats, commands run directly on this computer with its installed tools and OS permissions. Sandbox network controls do not apply. Wiki chats cannot run commands while sandboxing is off; use wiki tools, read and glob instead.");
         } catch { return null; }
       },
     });
@@ -102,7 +103,7 @@ export const LegalWorkSandbox = Plugin.define({
       }
       editor.add(nativeTool(ctx, {
         name: "legalwork_shell",
-        description: "Execute commands using this chat's sandbox setting and the user's shell and file permissions. With sandboxing on, Linux commands have isolated files and controlled network access, with no host fallback. With sandboxing off, commands use the local shell and host paths.",
+        description: "Execute commands using this chat's sandbox setting and the user's shell and file permissions. Supply both command and description. With sandboxing on, Linux commands have isolated files and controlled network access, with no host fallback. In project chats with sandboxing off, commands use the local shell and host paths. " + wikiCommandGuidance,
         schema: args,
         outputSchema: shellResult,
         permission: "domain",

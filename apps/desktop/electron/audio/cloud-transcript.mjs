@@ -16,9 +16,13 @@ export function splitCloudTranscript(segment, words, turns, coveredEnd, previous
   const tokens = [...segment.text.matchAll(/\S+/gu)].map(match => ({ text: match[0], index: match.index, key: normalized(match[0]) }));
   const candidates = words.filter(word => word.text && word.endMs > segment.startMs - 4000 && word.startMs < segment.endMs + 1000)
     .flatMap(word => (word.text.match(/\S+/gu) ?? []).map(text => ({ ...word, key: normalized(text) })));
-  if (!candidates.length || tokens.length > 512 || candidates.length > 1024) {
+  if (!candidates.length || tokens.length > 1024 || candidates.length > 2048) {
+    if (!words.some(word => word.text) && segment.endMs <= coveredEnd) {
+      const speaker = dominantSpeaker(segment, turns);
+      if (speaker != null) return [{ ...segment, speaker }];
+    }
     if (previousParts.some(part => part.speaker != null)) return previousParts;
-    return [{ ...segment, speaker: !words.some(word => word.text) && segment.endMs <= coveredEnd ? dominantSpeaker(segment, turns) : null }];
+    return [{ ...segment, speaker: segment.speaker ?? null }];
   }
   // Order-preserving word alignment tolerates punctuation, casing and small
   // recognition differences while keeping the live model's text untouched.
@@ -40,7 +44,7 @@ export function splitCloudTranscript(segment, words, turns, coveredEnd, previous
   const matchedCharacters = [...matched.keys()].reduce((sum, index) => sum + tokens[index].key.length, 0);
   const totalCharacters = tokens.reduce((sum, token) => sum + token.key.length, 0);
   if (matched.size < Math.min(2, tokens.length) || matchedCharacters < totalCharacters * .6) {
-    return previousParts.length ? previousParts : [{ ...segment, speaker: null }];
+    return previousParts.length ? previousParts : [{ ...segment, speaker: segment.speaker ?? null }];
   }
   const inferred = new Map();
   const assigned = tokens.map((_, index) => matched.get(index)?.speaker ?? null);
@@ -70,7 +74,17 @@ export function splitCloudTranscript(segment, words, turns, coveredEnd, previous
   const parts = [];
   for (let begin = 0; begin < tokens.length;) {
     let end = begin + 1;
-    while (end < tokens.length && assigned[end] === assigned[begin]) end++;
+    let firstTimed = matched.get(begin) ?? inferred.get(begin);
+    let lastTimed = firstTimed;
+    while (end < tokens.length && assigned[end] === assigned[begin]) {
+      const word = matched.get(end) ?? inferred.get(end);
+      if (tokens[end].index + tokens[end].text.length - tokens[begin].index > 600
+        || (word && firstTimed && word.endMs - firstTimed.startMs > 30000)
+        || (word && lastTimed && word.startMs - lastTimed.endMs > 3000)) break;
+      firstTimed ??= word;
+      lastTimed = word ?? lastTimed;
+      end++;
+    }
     const timed = [...matched, ...inferred].filter(([index]) => index >= begin && index < end)
       .sort((a, b) => a[0] - b[0]).map(([, word]) => word);
     const before = [...matched].filter(([index]) => index < begin).at(-1)?.[1];
@@ -80,10 +94,11 @@ export function splitCloudTranscript(segment, words, turns, coveredEnd, previous
     parts.push({ ...segment, id: `${segment.id}:w${begin}`, text: segment.text.slice(from, to).trim(),
       startMs: timed[0]?.startMs ?? before?.endMs ?? segment.startMs,
       endMs: timed.at(-1)?.endMs ?? after?.startMs ?? segment.endMs,
-      speaker: assigned[begin] });
+      speaker: assigned[begin] ?? segment.speaker ?? null });
     begin = end;
   }
-  return previousParts.length === parts.length && parts.every((part, index) => part.text === previousParts[index].text && part.speaker === previousParts[index].speaker)
+  return previousParts.length === parts.length && parts.every((part, index) => part.text === previousParts[index].text && part.speaker === previousParts[index].speaker
+    && part.startMs === previousParts[index].startMs && part.endMs === previousParts[index].endMs)
     ? previousParts : parts;
 }
 
@@ -93,5 +108,5 @@ export function mergeSpeakerWords(previous, update) {
       if (word.speaker != null) return word;
       const known = previous.find(old => old.speaker != null && normalized(old.text ?? "") === normalized(word.text ?? "") && Math.abs(old.startMs - word.startMs) < 500);
       return known ? { ...word, speaker: known.speaker } : word;
-    })].filter(word => word.endMs >= update.endMs - 120_000).sort((a, b) => a.startMs - b.startMs);
+    })].filter(word => word.endMs >= update.endMs - 240_000).sort((a, b) => a.startMs - b.startMs);
 }

@@ -1,6 +1,6 @@
 name: Alpha Channel (macOS arm64)
 
-# Every merged dev commit builds an alpha immediately. Required PR checks
+# Each dev merge affecting the app builds an alpha. Required PR checks
 # already ran before merge; packaging does not rerun the sandbox suite.
 on:
   push:
@@ -20,7 +20,19 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      alpha: ${{ steps.scope.outputs.alpha }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/ci-scope
+        id: scope
   opencode-engine:
+    needs: changes
+    if: needs.changes.outputs.alpha == 'true'
     permissions:
       contents: read
       actions: read
@@ -32,6 +44,8 @@ jobs:
       APPLE_CODESIGN_CERT_P12_BASE64: ${{ secrets.APPLE_CODESIGN_CERT_P12_BASE64 }}
       APPLE_CODESIGN_CERT_PASSWORD: ${{ secrets.APPLE_CODESIGN_CERT_PASSWORD }}
   sandbox-runtime:
+    needs: changes
+    if: needs.changes.outputs.alpha == 'true'
     uses: ./.github/workflows/sandbox-runtime.yml
     with:
       targets: darwin-arm64
@@ -39,7 +53,7 @@ jobs:
   publish-alpha-macos-aarch64:
     needs: [sandbox-runtime, opencode-engine]
     name: Build + Publish alpha (aarch64-apple-darwin)
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 180
 
     env:

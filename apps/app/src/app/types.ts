@@ -201,6 +201,7 @@ export const SETTINGS_TAB_VALUES = [
   "recovery",
   "office-addins",
   "recorder",
+  "launcher",
   "debug",
 ] as const;
 
@@ -389,7 +390,7 @@ export type ReloadTrigger = {
 };
 
 export type PendingPermission = {
-  id:string;sessionID:string;permission:string;patterns:string[];metadata:Record<string,unknown>;always:unknown;
+  id:string;sessionID:string;permission:string;patterns:string[];metadata:Record<string,unknown>;always:unknown;message?:string;
   tool?:{messageID:string;callID:string};receivedAt:number;protocol:"v2"|"host";
   host?:import("@legalwork/types/desktop-ipc").HostApprovalRequest;
   v2?:Pick<PermissionRequest,"action"|"resources"|"save">;

@@ -1,11 +1,15 @@
 import { cloudExecutionFetch } from "./cloud-sync/lifecycle.js";
 import { OpenCode, type OpenCodeClient, type SessionInfo, type SessionListInput, type SessionMessageInfo } from "@opencode/client";
 import { canonicalFilePath } from "./file-write-lock.js";
+import { sameProjectDirectory } from "./workspace-path-match.js";
 import { ApiError, findApiError } from "./errors.js";
+import { nativeResponseError } from "./native-delivery.js";
+import { awaitRegisteredEngineProjects } from "./project-engine-registration.js";
 import { resolveWorkspaceOpencodeConnection } from "./opencode-connection.js";
 import type { ServerConfig, WorkspaceInfo } from "./types.js";
 import { assertEngineProjectReady } from "./engine-project.js";
 import { recoverSessionMcp } from "./workspace-mcp-recovery.js";
+import { ensureLegacySessionPermissions } from "./session-history-permissions.js";
 
 /** The native v2 client returns domain values directly and throws on failure.
  * Location is explicit on location-scoped operations; a session routes through
@@ -13,13 +17,16 @@ import { recoverSessionMcp } from "./workspace-mcp-recovery.js";
 export function createEngineClient(config: ServerConfig, workspace: WorkspaceInfo): OpenCodeClient {
   const { baseUrl, authHeader } = resolveWorkspaceOpencodeConnection(config, workspace);
   if (!baseUrl) throw new ApiError(503, "opencode_unavailable", "The agent engine is not available for this project.");
-  return OpenCode.make({ baseUrl, ...(authHeader ? { headers: { Authorization: authHeader } } : {}),
+  const client: OpenCodeClient = OpenCode.make({ baseUrl, ...(authHeader ? { headers: { Authorization: authHeader } } : {}),
     fetch: Object.assign(async (request: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
       const url = new URL(typeof request === "string" ? request : request instanceof URL ? request.href : request.url);
       const method = (init?.method ?? (request instanceof Request ? request.method : "GET")).toUpperCase();
       const passive = method === "GET" && (url.pathname === "/api/info" || url.pathname === "/api/event" || /^\/api\/session\/[^/]+$/.test(url.pathname))
         || method === "POST" && (/^\/api\/session\/[^/]+\/interrupt$/.test(url.pathname) || /\/legalwork\.commands\/cancel$/.test(url.pathname));
-      if (!passive) await assertEngineProjectReady(config, workspace);
+      if (!passive) {
+        await awaitRegisteredEngineProjects(config);
+        await assertEngineProjectReady(config, workspace);
+      }
       assertManagedHistoryReadable(config, method, url.pathname);
       let response: Response;
       const sessionID = method === "POST" ? url.pathname.match(/^\/api\/session\/([^/]+)\/(?:prompt|command|synthetic|shell|compact|fork|generate)$/)?.[1] : undefined;
@@ -30,6 +37,7 @@ export function createEngineClient(config: ServerConfig, workspace: WorkspaceInf
       };
       const signal = init?.signal ?? (request instanceof Request ? request.signal : undefined);
       try {
+        if (sessionID) await ensureLegacySessionPermissions(config, workspace, client, sessionID);
         if (sessionID && /\/(?:prompt|command)$/.test(url.pathname)) {
           await recoverSessionMcp(config, workspace, sessionID, signal ?? undefined);
         }
@@ -48,9 +56,10 @@ export function createEngineClient(config: ServerConfig, workspace: WorkspaceInf
       const text = await response.text();
       let detail: unknown = text;
       try { detail = JSON.parse(text); } catch { /* Keep non-JSON diagnostics. */ }
-      throw new ApiError([400, 404, 409, 413, 422].includes(status) ? status : 502, "opencode_request_failed", "The agent engine rejected the request.", { status, detail });
+      throw nativeResponseError(status, detail);
     }, { preconnect: fetch.preconnect }),
   });
+  return client;
 }
 
 export function workspaceEngineLocation(workspace: WorkspaceInfo): { directory: string } {
@@ -64,7 +73,9 @@ export async function getWorkspaceEngineSession(client: OpenCodeClient, workspac
     canonicalFilePath(workspaceEngineLocation(workspace).directory),
     canonicalFilePath(session.location.directory),
   ]);
-  if (expected !== actual) throw new ApiError(404, "session_not_found", "This chat does not belong to the project.");
+  // canonicalFilePath is realpath: a mapped drive and its UNC target can still
+  // differ in case/separators/prefix. Compare with the shared project rule.
+  if (expected !== actual && !await sameProjectDirectory(expected, actual)) throw new ApiError(404, "session_not_found", "This chat does not belong to the project.");
   return session;
 }
 

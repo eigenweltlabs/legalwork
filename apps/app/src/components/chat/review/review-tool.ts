@@ -1,7 +1,14 @@
 import { getToolName, type DynamicToolUIPart, type ToolUIPart } from "ai";
 import { ReviewToolCardSchema, type SavedReview } from "@legalwork/types/reviews";
+const REVIEW_CARD_TOOLS = ["legalwork_review_create", "legalwork_review_launch", "legalwork_review_edit", "legalwork_review_start", "legalwork_review_cancel"];
 export function isReviewCardTool(part: ToolUIPart | DynamicToolUIPart) {
-  return ["legalwork_review_create", "legalwork_review_launch", "legalwork_review_edit", "legalwork_review_start", "legalwork_review_cancel"].includes(getToolName(part));
+  const name = getToolName(part);
+  if (REVIEW_CARD_TOOLS.includes(name)) return true;
+  const executedTools = part.callProviderMetadata?.opencode?.executedTools;
+  // Native code mode retains the real tool name; trust recorded calls, never its source code.
+  return name === "execute" && part.state === "output-available"
+    && Array.isArray(executedTools) && executedTools.some(tool => typeof tool === "string" && REVIEW_CARD_TOOLS.includes(tool))
+    && parseReviewCard(part.output) !== null;
 }
 export function parseReviewCard(output: unknown) {
   try { const result = ReviewToolCardSchema.safeParse(typeof output === "string" ? JSON.parse(output) : output); return result.success ? result.data : null; }

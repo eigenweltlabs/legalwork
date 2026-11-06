@@ -11,3 +11,9 @@
 .lw-inline-view-open { position: absolute; right: 12px; top: 18px; z-index: 2; padding: 2px; color: var(--muted-foreground); cursor: pointer; }
 
 .lw-saved-view-inline .lw-saved-view-toolbar { padding-right: 20px; justify-content: flex-end; margin-bottom: 12px; min-height: 20px; }
+
+.lw-saved-view-identity { display: flex; align-items: center; gap: 12px; min-width: 0; flex: 1 1 200px; }
+.lw-saved-view-identity > div { min-width: 0; }
+.lw-saved-view-name { margin: 0 0 3px; color: var(--foreground); font-size: 14px; line-height: 1.4; font-weight: 600; overflow-wrap: anywhere; }
+.lw-saved-view:not(.lw-saved-view-inline) > .lw-saved-view-toolbar { padding-bottom: 18px; border-bottom: 1px solid var(--border); }
+@container (max-width: 420px) { .lw-saved-view { padding: 18px 14px 28px; } .lw-saved-view-inline { padding: 12px; } }

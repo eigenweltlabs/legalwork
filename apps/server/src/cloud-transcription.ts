@@ -3,6 +3,7 @@ import { ApiError } from "./errors.js";
 import { readEigenweltConnection } from "./eigenwelt-connection-store.js";
 import { ensureFreshPlatformToken } from "./eigenwelt-refresh.js";
 import { readCachedEigenweltPaidManifest } from "./eigenwelt-paid-manifest.js";
+import type { EigenweltManifestModel } from "./eigenwelt-auth.js";
 import type { ServerConfig } from "./types.js";
 
 const RemoteSchema = z.object({
@@ -10,6 +11,11 @@ const RemoteSchema = z.object({
   models: z.array(z.object({ model: z.enum(["gemini-transcribe-live-eu", "gemini-transcribe-live-us"]),
     name: z.string(), region: z.enum(["EU", "US"]), enabled: z.boolean(), available: z.boolean() })),
 });
+
+export function defaultMeetingNotesModel(models: EigenweltManifestModel[], region: string) {
+  return models.find(model => model.region?.toUpperCase() === region.toUpperCase()
+    && [model.id, model.name, model.upstreamModel].some(name => /\b(?:openai|gpt)\b.*\bluna\b/i.test(name ?? "")));
+}
 
 async function remoteConfiguration(config: ServerConfig) {
   const token = await ensureFreshPlatformToken(config);
@@ -26,7 +32,14 @@ async function remoteConfiguration(config: ServerConfig) {
 export async function cloudTranscriptionStatus(config: ServerConfig) {
   try {
     const result = await remoteConfiguration(config);
-    return { models: result?.remote.models ?? [], error: null };
+    const manifest = result ? await readCachedEigenweltPaidManifest(config) : null;
+    const summaryModels = (manifest?.models ?? []).flatMap(model => model.region && ["EU", "US"].includes(model.region.toUpperCase())
+      ? [{ model: model.id, name: model.name ?? model.id, region: model.region.toUpperCase() }] : []);
+    const defaultSummaryModels = {
+      EU: defaultMeetingNotesModel(manifest?.models ?? [], "EU")?.id,
+      US: defaultMeetingNotesModel(manifest?.models ?? [], "US")?.id,
+    };
+    return { models: result?.remote.models ?? [], summaryModels, defaultSummaryModels, error: null };
   } catch {
     return { models: [], error: "Cloud transcription is currently unavailable." };
   }

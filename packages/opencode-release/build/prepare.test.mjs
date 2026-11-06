@@ -59,15 +59,17 @@ test("explicit handoff publishes a selector only after archive/provenance verifi
   } finally { await rm(f.root, { recursive: true, force: true }); }
 });
 
-test("verified complete CI selector survives a host-subset preparation byte-identically", async () => {
+test("verified complete CI selector survives offline host-subset preparation byte-identically", async t => {
   const f = await fixture(recipe.targets);
   try {
     const first = await prepareOpencodeEngine(f), before = await readFile(first.selectionPath);
+    const network = t.mock.method(globalThis, "fetch", () => { throw new Error("No network is available for warm preparation"); });
     const subset = { ...options(f), targets: [opencodeReleaseTarget()] };
     const reused = await prepareOpencodeEngine(subset), checked = await checkPreparedOpencodeEngine(subset);
     assert.equal(reused.sourceKey, first.sourceKey); assert.equal(checked.sourceKey, first.sourceKey);
     assert.deepEqual(reused.targets, [...recipe.targets].sort());
     assert.deepEqual(await readFile(first.selectionPath), before);
+    assert.equal(network.mock.callCount(), 0);
   } finally { await rm(f.root, { recursive: true, force: true }); }
 });
 

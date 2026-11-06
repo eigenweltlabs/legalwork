@@ -1,3 +1,4 @@
+import { permissionAction } from "../agent-sandbox/permissions.js";
 import { nativePluginTools } from "../opencode-plugins/native-plugin-test-support.js";
 const LegalWorkScheduledTaskTools = (context = {}) => nativePluginTools(LegalWorkScheduledTaskToolsDefinition, context);
 import { expect, test } from "bun:test";
@@ -5,26 +6,39 @@ import { ScheduledTaskInputSchema } from "./schema.js";
 import { ALL_PROJECTS_TASK_AGENT, PROJECT_TASK_AGENT, hasProjectTaskBoundary, projectTaskPermissions, allProjectTaskPermissions } from "./access.js";
 import LegalWorkScheduledTaskToolsDefinition from "../opencode-plugins/legalwork-scheduled-task-tools.js";
 
-test("project-only agent denies unscoped tools and preserves user tool permissions", () => {
-  expect(projectTaskPermissions({ "*": "ask", "legalwork_project_*": "deny", legalwork_calendar_get: "allow" })).toMatchObject({
-    "*": "deny", legalwork_project_read: "deny", legalwork_calendar_get: "allow", legalwork_calendar_list: "ask",
-  });
+test("project-only agent denies unscoped tools and preserves ordered user tool permissions", () => {
+  const policy = projectTaskPermissions([
+    { action: "*", resource: "*", effect: "ask" },
+    { action: "legalwork_project_*", resource: "*", effect: "deny" },
+    { action: "legalwork_calendar_get", resource: "*", effect: "allow" },
+    { action: "legalwork_calendar_get", resource: "private-*", effect: "deny" },
+  ]);
+  expect(permissionAction(policy, "legalwork_project_read", "brief.md")).toBe("deny");
+  expect(permissionAction(policy, "legalwork_calendar_get", "public-event")).toBe("allow");
+  expect(permissionAction(policy, "legalwork_calendar_get", "private-event")).toBe("deny");
+  expect(permissionAction(policy, "legalwork_calendar_list", "*")).toBe("ask");
+  for (const tool of ["shell", "read", "task", "mcp_mail", "legalwork_schedule_update"]) expect(permissionAction(policy, tool, "*")).toBe("deny");
   expect(ScheduledTaskInputSchema.shape.projectAccess.parse(undefined)).toBe("project");
-  expect(projectTaskPermissions()).toMatchObject({ legalwork_schedule_clock: "allow" });
-  expect(projectTaskPermissions({ legalwork_schedule_clock: "deny" })).toMatchObject({ legalwork_schedule_clock: "deny" });
-  expect(projectTaskPermissions()).toMatchObject({ legalwork_recordings_list: "allow", legalwork_recording_read: "allow" });
-  expect(projectTaskPermissions({ "legalwork_recording*": "deny" })).toMatchObject({ legalwork_recordings_list: "deny", legalwork_recording_read: "deny" });
+  const defaults = projectTaskPermissions();
+  for (const tool of ["legalwork_schedule_clock", "legalwork_recordings_list", "legalwork_recording_read"]) expect(permissionAction(defaults, tool, "*")).toBe("allow");
+  const denied = projectTaskPermissions([{ action: "legalwork_recording*", resource: "*", effect: "deny" }]);
+  for (const tool of ["legalwork_recordings_list", "legalwork_recording_read"]) expect(permissionAction(denied, tool, "*")).toBe("deny");
   expect(hasProjectTaskBoundary(undefined)).toBe(false);
-  expect(hasProjectTaskBoundary({ id: PROJECT_TASK_AGENT, permissions: [{ action: "*", resource: "*", effect: "deny" }, { action: "legalwork_project_read", resource: "*", effect: "allow" }] })).toBe(true);
-  for (const permission of ["*", "bash", "read", "task", "mcp_*", "legalwork_schedule_update"]) {
-    expect(hasProjectTaskBoundary({ id: PROJECT_TASK_AGENT, permissions: [{ action: "*", resource: "*", effect: "deny" }, { action: permission, resource: "*", effect: "allow" }] })).toBe(false);
+  expect(hasProjectTaskBoundary({ id: PROJECT_TASK_AGENT, permissions: defaults })).toBe(true);
+  for (const action of ["*", "shell", "read", "task", "mcp_*", "legalwork_schedule_update"]) {
+    expect(hasProjectTaskBoundary({ id: PROJECT_TASK_AGENT, permissions: [{ action: "*", resource: "*", effect: "deny" }, { action, resource: "*", effect: "allow" }] })).toBe(false);
   }
 });
 
-test("all-project runs preserve normal permissions but disable app UI tools", () => {
-  expect(allProjectTaskPermissions({ bash: "ask", "legalwork_ui_*": "allow", legalwork_ui_execute_action: "allow", read: "deny" })).toMatchObject({
-    bash: "ask", read: "deny", legalwork_ui_execute_action: "deny", legalwork_ui_snapshot: "deny", legalwork_ui_list_actions: "deny",
-  });
+test("all-project runs preserve native resource rules and disable app UI tools", () => {
+  const policy = allProjectTaskPermissions([
+    { action: "shell", resource: "*", effect: "ask" },
+    { action: "legalwork_ui_*", resource: "*", effect: "allow" },
+    { action: "read", resource: "private/*", effect: "deny" },
+  ]);
+  expect(permissionAction(policy, "shell", "git status")).toBe("ask");
+  expect(permissionAction(policy, "read", "private/brief.md")).toBe("deny");
+  for (const action of ["legalwork_ui_execute_action", "legalwork_ui_snapshot", "legalwork_ui_list_actions"]) expect(permissionAction(policy, action, "*")).toBe("deny");
 });
 
 test("scheduled project tools reject cross-project reads by default and allow explicit all-project runs", async () => {

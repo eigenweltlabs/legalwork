@@ -38,15 +38,6 @@ export function AssistantNavigation({ profile = DEFAULT_ASSISTANT_PROFILE, activ
   </SidebarMenuItem>;
 }
 
-export function AssistantAppearanceEditor({ profile, disabled, onChange }: {
-  profile: AssistantProfile; disabled?: boolean; onChange: (profile: AssistantProfile) => void;
-}) {
-  return <fieldset disabled={disabled} className="space-y-3 border-b border-border px-2 pb-4 pt-3">
-    <legend className="pt-3 text-xs text-muted-foreground">{t("assistant.title")}</legend>
-    <AssistantAppearanceFields profile={profile} onChange={onChange} />
-  </fieldset>;
-}
-
 export function AssistantAppearanceFields({ profile, compact, onChange, onNameBlur }: { profile: AssistantProfile; compact?: boolean; onChange: (profile: AssistantProfile) => void; onNameBlur?: () => void }) {
   const id = useId();
   return <>
@@ -56,13 +47,24 @@ export function AssistantAppearanceFields({ profile, compact, onChange, onNameBl
 }
 
 export function AssistantAvatarPicker({ selected, disabled, large, compact, onSelect }: { selected: AssistantIcon; disabled?: boolean; large?: boolean; compact?: boolean; onSelect: (icon: AssistantAvatarIcon) => void }) {
+  const labels: Record<AssistantAvatarIcon, string> = {
+    flower: t("assistant.icon_flower"),
+    professional_owl: t("assistant.icon_professional_owl"),
+    professional_fox: t("assistant.icon_professional_fox"),
+    professional_bear: t("assistant.icon_professional_bear"),
+    cat: t("assistant.icon_cat"),
+    dog: t("assistant.icon_dog"),
+    rabbit: t("assistant.icon_rabbit"),
+    bear: t("assistant.icon_bear"),
+    fox: t("assistant.icon_fox"),
+    bird: t("assistant.icon_bird"),
+  };
   return <div className={cn("grid", compact ? "grid-cols-5 gap-2 @min-[640px]/settings:grid-cols-10" : ["grid-cols-3", large ? "gap-3" : "gap-2"])}>
     {AssistantAvatarIconSchema.options.map(icon => {
       const chosen = assistantAvatarIcon(selected) === icon;
-      return <Button key={icon} type="button" disabled={disabled} variant={chosen ? "secondary" : "ghost"} aria-label={t(`assistant.icon_${icon}`)} title={t(`assistant.icon_${icon}`)} aria-pressed={chosen} onClick={() => onSelect(icon)} className={cn("relative rounded-xl p-2", compact ? ["h-14 min-w-0 border", chosen ? "border-foreground/35 bg-muted hover:bg-muted" : "border-border/70 bg-background hover:bg-muted/50"] : ["aria-pressed:ring-2 aria-pressed:ring-ring", icon === "flower" ? "col-span-3 h-12 gap-3" : large ? "h-20" : "h-16"])}>
+      return <Button key={icon} type="button" disabled={disabled} variant={chosen ? "secondary" : "ghost"} aria-label={labels[icon]} title={labels[icon]} aria-pressed={chosen} onClick={() => onSelect(icon)} className={cn("relative rounded-xl p-2", compact ? ["h-14 min-w-0 border", chosen ? "border-foreground/35 bg-muted hover:bg-muted" : "border-border/70 bg-background hover:bg-muted/50"] : ["aria-pressed:ring-2 aria-pressed:ring-ring", icon === "flower" ? "col-span-3 h-12 gap-3" : large ? "h-20" : "h-16"])}>
         <AssistantAvatar icon={icon} className={icon === "flower" && !compact ? "size-7" : compact ? "size-9" : large ? "size-16" : "size-12"} />
         {compact && chosen && <Check aria-hidden="true" className="absolute right-1 top-1 size-3 text-foreground" />}
-        {icon === "flower" && !compact && <span className="text-sm">{t("assistant.icon_flower")}</span>}
       </Button>;
     })}
   </div>;

@@ -47,6 +47,7 @@ beforeEach(() => {
   for (const key of [
     "OPENCODE_DB",
     "LEGALWORK_DEV_MODE",
+    "LEGALWORK_DEV_OPENCODE_DATA_DIR",
     "XDG_DATA_HOME",
     "LEGALWORK_DATA_DIR",
     "LEGALWORK_RUNTIME_DB",
@@ -238,5 +239,39 @@ describe("prepareManagedOpencodeEngineDb", () => {
     if (!result) throw new Error("A private managed development DB is required");
     expect(existsSync(result.path)).toBe(false);
     expect(readFileSync(sharedDbPath())).toEqual(original);
+  });
+
+  test("development migrates its explicitly isolated profile and leaves the source unchanged", async () => {
+    process.env.LEGALWORK_DEV_MODE = "1";
+    process.env.LEGALWORK_DEV_OPENCODE_DATA_DIR = join(root, "desktop-profile", "opencode");
+    mkdirSync(process.env.LEGALWORK_DEV_OPENCODE_DATA_DIR, { recursive: true });
+    const source = join(process.env.LEGALWORK_DEV_OPENCODE_DATA_DIR, "opencode.db");
+    createEngineStyleDb(source, []);
+    // A separate standalone DB must never win source discovery.
+    ensureSharedDbDir();
+    createEngineStyleDb(sharedDbPath(), ["20990101000000_from_the_future"]);
+    const before = readFileSync(source);
+    const result = await prepareManagedOpencodeEngineDb(testConfig());
+    expect(result?.seededFrom).toBe(source);
+    expect(result?.sharedDbCompatibility).toBe("compatible");
+    expect(readFileSync(source)).toEqual(before);
+    expect(result?.migrationReport).toBeDefined();
+  });
+
+  test("development also preserves history from its old managed database", async () => {
+    process.env.LEGALWORK_DEV_MODE = "1";
+    mkdirSync(join(root, "config"), { recursive: true });
+    const source = join(root, "config", LEGACY_MANAGED_ENGINE_DB_FILENAME);
+    createEngineStyleDb(source, []);
+    expect((await prepareManagedOpencodeEngineDb(testConfig()))?.seededFrom).toBe(source);
+  });
+
+  test("development refuses incompatible profile history instead of silently starting empty", async () => {
+    process.env.LEGALWORK_DEV_MODE = "1";
+    process.env.LEGALWORK_DEV_OPENCODE_DATA_DIR = join(root, "xdg-data", "opencode");
+    ensureSharedDbDir();
+    createEngineStyleDb(sharedDbPath(), ["20990101000000_from_the_future"]);
+    await expect(prepareManagedOpencodeEngineDb(testConfig())).rejects.toThrow("cannot be migrated safely");
+    expect(existsSync(join(root, "config", MANAGED_ENGINE_DB_FILENAME))).toBe(false);
   });
 });

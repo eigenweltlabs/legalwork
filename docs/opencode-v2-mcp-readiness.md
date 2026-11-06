@@ -67,7 +67,7 @@ Waiting for a nonempty registry would reject legitimate empty connectors, miss r
 
 ## Upstream correction under validation
 
-[`patches/opencode-2.1.4-mcp-tool-readiness.patch`](patches/opencode-2.1.4-mcp-tool-readiness.patch) changes only the native MCP tool adapter:
+[`patches/opencode-2.1.4-mcp-tool-readiness.patch`](https://github.com/eigenweltlabs/legalwork/blob/23db1a2f142972297e023c6e598f62915f14ed76/docs/patches/opencode-2.1.4-mcp-tool-readiness.patch) changes only the native MCP tool adapter:
 
 - Keep the existing eager initial registration and debounced background updates.
 - Make the existing pre-snapshot `flush` also reconcile the authoritative, already cached MCP catalog under the adapter's existing lock.
@@ -139,7 +139,7 @@ credential operation. A genuinely later concurrent catalog revision is handled b
 the existing background consumer; this barrier does not promise that a remote
 service stays online or wait for a service that is still connecting.
 
-The immutable [verification receipt](patches/opencode-2.1.4-mcp-tool-readiness.receipt.json)
+The immutable [verification receipt](https://github.com/eigenweltlabs/legalwork/blob/23db1a2f142972297e023c6e598f62915f14ed76/docs/patches/opencode-2.1.4-mcp-tool-readiness.receipt.json)
 records source, patch, lock, runtime, compiler, full dependency identities,
 commands, log hashes, results and caveats. Its SHA-256 is
 `90e271ea78663e147ab9be2731e3b120f89a762e54785e84342bd63f1a275c50`.

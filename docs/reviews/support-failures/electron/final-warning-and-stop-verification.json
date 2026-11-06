@@ -1,0 +1,142 @@
+{
+  "sessionID": "ses_e7ce27f69ffeyed9XSPpG033U1",
+  "environment": "Full Electron dev app on macOS, real Sol via production gateway",
+  "fiveCallTest": {
+    "id": "msg_25d54765975945c891a0102a8e418496",
+    "calls": [
+      {
+        "tool": "inapp_docx_read_document",
+        "status": "error",
+        "input": {
+          "path": "test-file.docx",
+          "view": "invalid-test-view"
+        }
+      },
+      {
+        "tool": "inapp_docx_read_document",
+        "status": "error",
+        "input": {
+          "path": "test-file.docx",
+          "view": "invalid-test-view"
+        }
+      },
+      {
+        "tool": "inapp_docx_read_document",
+        "status": "error",
+        "input": {
+          "path": "test-file.docx",
+          "view": "invalid-test-view"
+        }
+      },
+      {
+        "tool": "inapp_docx_read_document",
+        "status": "error",
+        "input": {
+          "path": "test-file.docx",
+          "view": "invalid-test-view"
+        }
+      },
+      {
+        "tool": "inapp_docx_read_document",
+        "status": "error",
+        "input": {
+          "path": "test-file.docx",
+          "view": "invalid-test-view"
+        }
+      }
+    ],
+    "errors": [],
+    "answers": [
+      "```text\n[LegalWork tool recovery]\nFinal warning: one retry remains. If the next call uses the same tool and arguments and fails validation again, LegalWork will forcibly stop this run. Correct the arguments, choose another approach, or explain what information is missing.\nview: Invalid option: expected one of \"all\"|\"text\"|\"structure\"|\"formatting\"\nRead the Word document currently open in LegalWork's right-hand in-app editor for this session. Returns live text, native field codes/targets/status, linked notes, controls/locks, sections and run/paragraph formatting. Reads cover the whole document by default. Pagination is optional via limit/fromIndex/toIndex; when paginating, follow nextIndex. Use view or paraId for focused reads, includeStyles for inheritance. Returns documentId/draftRevision for native edits. Always try this before word_read_document or a file-based DOCX pipeline when the user refers to the open/current document.\nUse the current tool definition and real values from the task. Correct the rejected fields; do not invent missing identifiers or paths.\n```\n\nYes. It explicitly says the next identical validation failure will forcibly stop this run. Exactly five calls were made; no sixth call was made."
+    ]
+  },
+  "sixCallTest": {
+    "id": "msg_603d88a2bef24d8abefdd147d3399755",
+    "calls": [
+      {
+        "tool": "inapp_docx_read_document",
+        "status": "error",
+        "input": {
+          "path": "test-file.docx",
+          "view": "invalid-test-view"
+        }
+      },
+      {
+        "tool": "inapp_docx_read_document",
+        "status": "error",
+        "input": {
+          "path": "test-file.docx",
+          "view": "invalid-test-view"
+        }
+      },
+      {
+        "tool": "inapp_docx_read_document",
+        "status": "error",
+        "input": {
+          "path": "test-file.docx",
+          "view": "invalid-test-view"
+        }
+      },
+      {
+        "tool": "inapp_docx_read_document",
+        "status": "error",
+        "input": {
+          "path": "test-file.docx",
+          "view": "invalid-test-view"
+        }
+      },
+      {
+        "tool": "inapp_docx_read_document",
+        "status": "error",
+        "input": {
+          "path": "test-file.docx",
+          "view": "invalid-test-view"
+        }
+      },
+      {
+        "tool": "inapp_docx_read_document",
+        "status": "error",
+        "input": {
+          "path": "test-file.docx",
+          "view": "invalid-test-view"
+        }
+      }
+    ],
+    "errors": [
+      "MessageAbortedError"
+    ],
+    "answers": []
+  },
+  "manualStopTest": {
+    "id": "msg_814fee422b314821bbf3f40992648573",
+    "calls": [
+      {
+        "tool": "legalwork_shell",
+        "status": "error",
+        "input": {
+          "command": "node -e \"setTimeout(() => {}, 30000)\"",
+          "description": "Wait 30 seconds for the manual Stop QA test without accessing or changing files.",
+          "timeout": 40000,
+          "write": false
+        }
+      }
+    ],
+    "errors": [
+      "MessageAbortedError"
+    ],
+    "answers": []
+  },
+  "persistedStopReasons": [
+    {
+      "reason": "repeated-invalid-tool-calls",
+      "messageID": "msg_1831fb915001j7tSSw68RUYUQw"
+    }
+  ],
+  "nativeUI": {
+    "automaticExplanationVisibleLive": true,
+    "automaticExplanationVisibleAfterReload": true,
+    "manualStopRemainsStoppedAfterReload": true
+  },
+  "documentUnchanged": true,
+  "documentSHA256": "19ab65d32ef6750b4412259fec9600ee22169bc89b0ce62857a0d0e89512a828"
+}

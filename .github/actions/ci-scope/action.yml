@@ -1,0 +1,45 @@
+name: Select affected checks
+description: Inspect the complete PR or push diff; unknown inputs select all checks
+outputs:
+  app:
+    value: ${{ steps.scope.outputs.app }}
+  server:
+    value: ${{ steps.scope.outputs.server }}
+  desktop:
+    value: ${{ steps.scope.outputs.desktop }}
+  tooling:
+    value: ${{ steps.scope.outputs.tooling }}
+  docs:
+    value: ${{ steps.scope.outputs.docs }}
+  engine:
+    value: ${{ steps.scope.outputs.engine }}
+  sandbox:
+    value: ${{ steps.scope.outputs.sandbox }}
+  windows_meetings:
+    value: ${{ steps.scope.outputs.windows_meetings }}
+  windows_drafts:
+    value: ${{ steps.scope.outputs.windows_drafts }}
+  docx:
+    value: ${{ steps.scope.outputs.docx }}
+  i18n:
+    value: ${{ steps.scope.outputs.i18n }}
+  ui_mcp:
+    value: ${{ steps.scope.outputs.ui_mcp }}
+  alpha:
+    value: ${{ steps.scope.outputs.alpha }}
+  units:
+    value: ${{ steps.scope.outputs.units }}
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v6
+      with:
+        node-version: 24.22.1
+    - id: scope
+      shell: bash
+      env:
+        EVENT_NAME: ${{ github.event_name }}
+        GIT_REF: ${{ github.ref }}
+        BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      run: node scripts/ci/change-scope.mjs

@@ -4,7 +4,7 @@ import { EventEmitter, once } from "node:events";
 import fsp from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { WebSocketServer } from "ws";
+import WebSocket, { WebSocketServer } from "ws";
 import { CloudTranscriber, pcm16 } from "./audio/cloud-transcriber.mjs";
 import { createDictationSpeechDetector } from "./audio/dictation-speech.mjs";
 import { RecorderService } from "./audio/recorder-service.mjs";
@@ -53,6 +53,7 @@ async function fixture(t, options = {}) {
   const resolveConnection = async (model = "gemini-transcribe-live-eu") => ({ url: `ws://127.0.0.1:${address.port}/v1/transcription/live?model=${model}`, apiKey: "fixture-subscription-key" });
   const worker = new CloudTranscriber({ modelId: "gemini-transcribe-live-eu", language: "de", resolveConnection,
     createSpeechDetector: options.createSpeechDetector ?? null,
+    reconnectDelayMs: options.reconnectDelayMs ?? 1000,
     ...(options.rotateMs ? { rotateMs: options.rotateMs } : {}) });
   const events = [];
   worker.on("message", event => events.push(event));
@@ -73,6 +74,7 @@ async function backgroundFixture(t) {
   const service = new RecorderService({ userDataDir, resolveCloudConnection: transport.resolveConnection,
     powerSessions: { acquire: key => held.add(key), release: key => held.delete(key) } });
   service.broadcast = event => events.push(event);
+  service.modelManager.downloadDiarization = async () => { throw new Error("Speaker model unavailable in transport fixture"); };
   t.after(async () => { service.dispose(); await Promise.all(service.speakerJobs.values()); await fsp.rm(userDataDir, { recursive: true, force: true }); });
   const modelId = "gemini-transcribe-live-eu";
   await service.startTranscriber({ modelId, language: "de" });
@@ -91,7 +93,7 @@ test("Stop saves immediately; an older speaker job survives model changes and ca
   assert.deepEqual([...held], [`speakers:${first.id}`]);
   const job = service.speakerJobs.get(first.id);
   await until(() => requests.filter(request => request.request.url.includes("/diarize") && request.frames.length).length === 2);
-  assert.ok((await service.getRecording(first.id)).segments.every(segment => segment.speaker === null));
+  assert.deepEqual((await service.getRecording(first.id)).segments.map(segment => segment.speaker), [0, 1]);
   await service.renameRecording(first.id, "Renamed while processing");
   await service.setRecordingProject(first.id, "project-one", true);
   await assert.rejects(service.editTranscript(first.id, { type: "add-speaker", name: "Test" }), /speaker detection/);
@@ -174,6 +176,19 @@ test("shutdown cancels background work and a restart clears the interrupted proc
 test("PCM conversion keeps the sample count and gain; clips non-finite input safely", () => {
   const buffer = pcm16(new Float32Array([-1, -.5, 0, .5, 1, NaN, 2]).buffer);
   assert.deepEqual(Array.from({ length: 7 }, (_, i) => buffer.readInt16LE(i * 2)), [-32768, -16384, 0, 16384, 32767, 0, 32767]);
+});
+
+test("speaker recognition retries one failed connection lookup before sending audio", async t => {
+  const { worker, requests, resolveConnection } = await fixture(t, { begin: false });
+  let attempts = 0;
+  worker.resolveConnection = async model => {
+    if (++attempts === 1) throw new Error("Settings request timed out");
+    return resolveConnection(model);
+  };
+  const words = await worker.recognizeSpeakers(Buffer.alloc(64000), new AbortController().signal);
+  assert.equal(attempts, 2);
+  assert.equal(words.length, 1);
+  assert.equal(requests.length, 1, "retry connection setup without duplicating a paid audio request");
 });
 
 test("silent dictation finishes locally without resolving a cloud connection", async t => {
@@ -367,4 +382,135 @@ test("speaker endpoint failure warns while live text and finalization still succ
   assert.ok(events.some(event => event.type === "diarize-error"));
   assert.ok(events.some(event => event.type === "segment"));
   assert.equal(events.some(event => event.type === "stream-error"), false);
+});
+
+test("a failed live connection keeps both inputs recording and preserves speaker passes on Stop", { timeout: 5000 }, async t => {
+  const { service, requests, modelId } = await backgroundFixture(t);
+  const meta = await service.startRecording({ modelId, sources: ["microphone", "system"], separateSources: true });
+  for (const source of meta.sources) service.feedPcm(meta.id, new Float32Array(48000).fill(.1).buffer, source);
+  await until(() => requests.filter(request => request.request.url.includes("/live") && request.frames.length).length === 2);
+  for (const source of meta.sources) service.handleWorkerMessage({ type: "segment", streamId: `${meta.id}:${source}`, id: "saved", text: "Saved words.", startMs: 0, endMs: 2000 });
+  requests.find(request => request.request.url.includes("/live")).socket.send(JSON.stringify({ type: "error", error: "Connection failed" }));
+  await until(() => service.activeRecordings.get(meta.id).reconnectingInputs?.size === 1);
+  assert.equal(service.activeRecordings.get(meta.id).meta.status, "recording");
+  for (const source of meta.sources) {
+    service.feedPcm(meta.id, new Float32Array(16000).fill(.2).buffer, source);
+    service.appendMediaChunk(meta.id, Buffer.from("audio during outage"), source);
+  }
+  assert.ok(service.worker instanceof CloudTranscriber);
+  assert.equal(service.worker.streams.size, 2, "one input's outage must not discard the healthy input");
+  const saved = await service.stopRecording(meta.id);
+  assert.equal(saved.speakerProcessing, true);
+  assert.equal(saved.speakerCount, 2);
+  await until(() => requests.filter(request => request.request.url.includes("/diarize") && request.frames.length).length === 2);
+  const job = service.speakerJobs.get(meta.id);
+  for (const request of requests.filter(request => request.request.url.includes("/diarize"))) {
+    request.socket.send(JSON.stringify({ type: "speakers", words: [{ text: "Saved words.", startMs: 0, endMs: 2000, speaker: "person" }] }));
+  }
+  await job;
+  const detail = await service.getRecording(meta.id);
+  assert.equal(detail.meta.speakerProcessing, false);
+  assert.deepEqual(detail.segments.map(segment => segment.speaker), [0, 1]);
+  assert.equal(detail.meta.status, "error", "speaker success does not hide the transcription error");
+  assert.equal(await fsp.readFile(saved.sourceAudioPaths.microphone, "utf8"), "audio during outage");
+  assert.equal(await fsp.readFile(saved.sourceAudioPaths.system, "utf8"), "audio during outage");
+});
+
+test("a meeting reconnects captions with buffered audio at its original recording offset", async t => {
+  const { worker, requests, events } = await fixture(t, { meeting: true, reconnectDelayMs: 10 });
+  worker.postMessage({ type: "pcm", streamId: "r", buffer: new Float32Array(1600).fill(.1).buffer });
+  await until(() => requests[0]?.frames.length);
+  requests[0].socket.terminate();
+  await until(() => events.some(event => event.type === "stream-reconnecting"));
+  worker.postMessage({ type: "pcm", streamId: "r", buffer: new Float32Array(3200).fill(.2).buffer });
+  await until(() => requests[1]?.frames.length);
+  assert.match(requests[1].request.url, /offsetMs=100/);
+  assert.equal(requests[1].frames.reduce((sum, frame) => sum + frame.length, 0), 6400);
+  assert.ok(events.some(event => event.type === "stream-reconnected"));
+  assert.equal(events.some(event => event.type === "stream-error"), false);
+  assert.equal(worker.streams.get("r").speakerPass.ending, false, "no background processing while capture is running");
+  worker.postMessage({ type: "finalize", streamId: "r" });
+  await until(() => events.some(event => event.type === "finalized"));
+});
+
+test("a 43:20 disconnect and prolonged outage stay bounded across three hours of meeting capture", async t => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const sockets = [];
+  const events = [];
+  let offline = false;
+  class Socket extends WebSocket {
+    constructor() {
+      super(null, [], {}); // Unconnected socket; no network or capture devices.
+      Object.defineProperty(this, "bufferedAmount", { value: 0 });
+    }
+    samples = 0;
+    commands = [];
+    send(frame) {
+      if (typeof frame !== "string") { this.samples += frame.length / 2; return; }
+      this.commands.push(JSON.parse(frame).type);
+      queueMicrotask(() => this.emit("message", JSON.stringify({ type: "done" })));
+    }
+    close() {}
+    terminate() {}
+  }
+  const worker = new CloudTranscriber({ modelId: "gemini-transcribe-live-eu", language: "de",
+    resolveConnection: async () => {
+      if (offline) throw new Error("Network offline");
+      return { url: "ws://fixture/transcription/live", apiKey: "test" };
+    },
+    socketFactory: url => {
+      const socket = new Socket();
+      sockets.push({ socket, offset: Number(new URL(url).searchParams.get("offsetMs")) });
+      queueMicrotask(() => socket.emit("message", JSON.stringify({ type: "ready" })));
+      return socket;
+    },
+  });
+  t.after(() => worker.kill());
+  worker.on("message", event => events.push(event));
+  worker.postMessage({ type: "begin", streamId: "long" });
+  const audio = new Float32Array(16000).buffer;
+  let previousSamples = 0;
+  for (let second = 0; second < 3 * 60 * 60; second++) {
+    await new Promise(resolve => setImmediate(resolve));
+    if (second === 2600) {
+      offline = true;
+      sockets.at(-1).socket.emit("error", new Error("Network disconnected"));
+    }
+    if (second === 2900) offline = false;
+    worker.postMessage({ type: "pcm", streamId: "long", buffer: audio });
+    const stream = worker.streams.get("long");
+    assert.ok(stream, "capture transport survives the cloud outage");
+    assert.ok(stream.queuedBytes <= 16000 * 2 * 30, "a long outage cannot grow memory without bound");
+    assert.equal(stream.sentSamples + stream.queuedBytes / 2, (second + 1) * 16000, "discarded backlog retains its timeline position");
+    assert.ok(stream.sentSamples >= previousSamples);
+    previousSamples = stream.sentSamples;
+    t.mock.timers.tick(1000);
+  }
+  await new Promise(resolve => setImmediate(resolve));
+  assert.ok(events.some(event => event.type === "stream-reconnected"));
+  assert.equal(events.some(event => event.type === "stream-error"), false);
+  assert.ok(sockets.some(({ offset }) => offset >= 2900_000));
+  for (let index = 1; index < sockets.length; index++) {
+    assert.ok(sockets[index].offset >= sockets[index - 1].offset + sockets[index - 1].socket.samples / 16);
+  }
+  worker.postMessage({ type: "finalize", streamId: "long" });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(worker.streams.size, 0);
+  assert.ok(events.some(event => event.type === "finalized"));
+  const count = sockets.length;
+  t.mock.timers.tick(60_000);
+  assert.equal(sockets.length, count, "Stop cancels all future reconnects");
+});
+
+test("Stop or cancellation during reconnect cannot revive a completed meeting", async t => {
+  for (const action of ["finalize", "drop"]) {
+    const { worker, requests, events } = await fixture(t, { meeting: true, reconnectDelayMs: 30 });
+    await until(() => requests.length === 1);
+    requests[0].socket.terminate();
+    await until(() => events.some(event => event.type === "stream-reconnecting"));
+    worker.postMessage({ type: action, streamId: "r" });
+    await new Promise(resolve => setTimeout(resolve, 60));
+    assert.equal(worker.streams.size, 0);
+    assert.equal(requests.length, 1);
+  }
 });

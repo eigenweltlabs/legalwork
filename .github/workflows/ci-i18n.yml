@@ -5,6 +5,7 @@ on:
     branches:
       - dev
       - codex/projects-akte-workspace
+      - codex/opencode-v2-migration
   push:
     branches:
       - dev
@@ -12,8 +13,24 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      i18n: ${{ steps.scope.outputs.i18n }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/ci-scope
+        id: scope
   i18n-audit:
+    needs: changes
+    if: needs.changes.outputs.i18n == 'true'
     runs-on: ubuntu-latest
 
     steps:

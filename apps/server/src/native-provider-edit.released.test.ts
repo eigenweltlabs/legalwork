@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { approveEngineProject, writeNativeProjectProjection } from "./engine-project.js";
+import { writeNativeProjectProjection } from "./engine-project.js";
 import { nativeMcpBinary, nativeMcpEngine } from "./native-mcp-engine.test-support.js";
 import { readRuntimeOpencodeConfig, writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
 import { startServer } from "./server.js";
@@ -40,7 +40,6 @@ test.skipIf(!nativeMcpBinary)("released native ownership keeps public config/sta
     const { config, source, original, projection } = setup, connection = engine.connection();
     expect(projection).not.toBe(source);
     config.opencodeBaseUrl = connection.url; config.opencodeUsername = connection.username; config.opencodePassword = connection.password;
-    await approveEngineProject(config, config.workspaces[0]!, engine.directory, []);
     server = await startServer(config);
     const entries = await engine.client().config.get({ location: engine.location });
     expect(entries.some(entry => entry.type === "document" && entry.path === projection && entry.info.providers?.fixture?.name === "Fixture")).toBe(true);

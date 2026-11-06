@@ -466,12 +466,12 @@ body[data-state=idle][data-meeting-available=true] #bar[data-hovered=true] #meet
 #meeting-start svg { flex:none; width:16px; height:16px }
 #meeting-start svg circle:last-child { fill:currentColor; stroke:none }
 
-/* Reveal only the second icon; keep both buttons compact and the mic anchored. */
+/* Reveal the meeting and Assistant actions only on hover; keep the mic anchored. */
 body[data-dock=bottom][data-state=idle][data-meeting-available=true] #start {
   flex:none; width:28px;
 }
 body[data-dock=bottom][data-state=idle][data-meeting-available=true] #bar[data-hovered=true] {
-  width:62px; transform:translateX(16px);
+  width:94px; transform:translateX(32px);
 }
 
 /* Side docks keep the microphone anchored and reveal a vertical icon stack. */
@@ -479,7 +479,7 @@ html body:is([data-dock=left],[data-dock=right])[data-state=idle][data-meeting-a
   flex-direction:column; justify-content:flex-start; border-radius:999px;
 }
 html body:is([data-dock=left],[data-dock=right])[data-state=idle][data-meeting-available=true] #bar[data-hovered=true] {
-  height:62px; margin-top:34px; gap:4px;
+  height:94px; margin-top:66px; gap:4px;
 }
 html body:is([data-dock=left],[data-dock=right])[data-state=idle][data-meeting-available=true] #bar #start {
   flex:none; width:28px; height:26px; border:0; background:transparent; box-shadow:none;
@@ -490,14 +490,14 @@ html body:is([data-dock=left],[data-dock=right])[data-state=idle][data-meeting-a
 html body:is([data-dock=left],[data-dock=right])[data-state=idle][data-meeting-available=true] #bar[data-hovered=true] #meeting-start {
   width:28px; height:28px; margin:0; border:0;
 }
-html body[data-state=idle][data-meeting-available=true] #bar :is(#start-label,#meeting-start-label) {
+html body[data-state=idle][data-meeting-available=true] #bar :is(#start-label,#meeting-start-label,#assistant-label) {
   position:absolute; top:50%; max-width:none; margin:0; padding:7px 10px; border:1px solid var(--border); border-radius:9px;
   background:var(--surface); color:var(--ink); box-shadow:0 2px 8px rgba(16,24,40,.12); opacity:0; transform:translateY(-50%); pointer-events:none; transition:opacity 140ms;
 }
-body[data-dock=left][data-state=idle] #bar :is(#start-label,#meeting-start-label) { left:calc(100% + 8px) }
-body[data-dock=right][data-state=idle] #bar :is(#start-label,#meeting-start-label) { right:calc(100% + 8px) }
-html body[data-dock=bottom][data-state=idle] #bar :is(#start-label,#meeting-start-label) { top:auto; bottom:calc(100% + 8px); left:50%; transform:translateX(-50%) }
-html body[data-state=idle][data-meeting-available=true] #bar button[data-hovered=true] :is(#start-label,#meeting-start-label) { opacity:1 }
+body[data-dock=left][data-state=idle] #bar :is(#start-label,#meeting-start-label,#assistant-label) { left:calc(100% + 8px) }
+body[data-dock=right][data-state=idle] #bar :is(#start-label,#meeting-start-label,#assistant-label) { right:calc(100% + 8px) }
+html body[data-dock=bottom][data-state=idle] #bar :is(#start-label,#meeting-start-label,#assistant-label) { top:auto; bottom:calc(100% + 8px); left:50%; transform:translateX(-50%) }
+html body[data-state=idle][data-meeting-available=true] #bar button[data-hovered=true] :is(#start-label,#meeting-start-label,#assistant-label) { opacity:1 }
 html body:is([data-dock=left],[data-dock=right])[data-state=idle][data-meeting-available=true] #notice { display:none }
 body[data-dock=bottom][data-state=idle]:not([data-hint=true]) #notice { display:none }
 
@@ -587,3 +587,13 @@ body[data-state=copied] #copy-instructions {
   color:var(--muted); font-size:12px; line-height:1.5;
 }
 body[data-state=copied] #dismiss { display:flex; grid-column:3; grid-row:1; align-self:start }
+/* Floating companion: a handle into the Assistant with a quiet attention badge. */
+#assistant { display:none; position:relative; width:28px; height:28px; border-radius:7px; align-items:center; justify-content:center }
+#assistant svg { width:16px; height:16px }
+#assistant-badge { position:absolute; top:-4px; right:-4px; min-width:14px; height:14px; padding:0 3px; border-radius:7px; background:#2563eb; color:#fff; font-size:9px; font-weight:600; line-height:14px; text-align:center }
+body[data-state=idle] #assistant { display:inline-flex; width:0; height:26px; padding:0; opacity:0; visibility:hidden; pointer-events:none; transition:width 300ms var(--ease),margin 300ms var(--ease),opacity 140ms,visibility 140ms }
+body[data-state=idle] #bar[data-hovered=true] #assistant { width:28px; margin-left:4px; opacity:1; visibility:visible; pointer-events:auto }
+html body:is([data-dock=left],[data-dock=right])[data-state=idle] #bar #assistant { width:28px; height:0; margin:0 }
+html body:is([data-dock=left],[data-dock=right])[data-state=idle] #bar[data-hovered=true] #assistant { height:28px }
+#assistant-label { font-size:11px; font-weight:500; white-space:nowrap }
+body[data-companion=true][data-companion-recording=true] #assistant svg { color:#dc2626 }

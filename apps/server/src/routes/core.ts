@@ -26,6 +26,8 @@ import { addRoute, type Route } from "./registry.js";
 import { connectorSettings } from "../connectors/settings.js";
 import { registerConnectorRoutes } from "./connectors.js";
 import { hasConnectorRuntimeCapability } from "../connectors/capability.js";
+import { registerBrowserPasswordRoutes } from "./browser-passwords.js";
+import { collectSupportDiagnostics } from "../support-diagnostics.js";
 
 type JsonResponse = (data: unknown, status?: number) => Response;
 type ReadJsonBody = (request: Request) => Promise<Record<string, unknown>>;
@@ -81,16 +83,24 @@ export function registerCoreRoutes(options: RegisterCoreRoutesOptions): void {
   const googleWorkspaceConnectFlows = createGoogleWorkspaceConnectFlowManager(config);
   registerConnectorRoutes({ routes, config, jsonResponse, readOptionalJsonBody, resolveWorkspace });
   const envPendingChangesByRuntime = new Map<string, boolean>();
+  registerBrowserPasswordRoutes({ routes, config, jsonResponse, readJsonBody, ensureWritable });
 
   const healthResponse = () => jsonResponse({
     ok: true,
     version: serverVersion,
     opencodeVersion,
     uptimeMs: Date.now() - config.startedAt,
-    ...(config.engineProjectTrustRequired ? { engine: { status: config.managedEngineStarting === false && config.opencodeBaseUrl ? "ready" : "starting" } } : {}),
+    ...(config.engineProjectTrustRequired && (config.workspaces[0]?.path || config.managedEngineStatus)
+      ? { engine: { status: config.managedEngineStatus ?? (config.managedEngineStarting === false && config.opencodeBaseUrl ? "ready" : "starting") } } : {}),
   });
 
   addRoute(routes, "GET", "/health", "none", async () => healthResponse());
+
+  // Local support export spans chats, so ordinary workspace/client tokens cannot access it.
+  addRoute(routes, "POST", "/diagnostics/export", "host-token", async (ctx) => {
+    const body = await readJsonBody(ctx.request);
+    return jsonResponse(await collectSupportDiagnostics(config, Date.now(), body.desktop, body.days));
+  });
 
   addRoute(routes, "GET", "/w/:id/health", "none", async () => healthResponse());
 

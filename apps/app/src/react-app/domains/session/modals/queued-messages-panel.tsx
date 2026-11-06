@@ -1,7 +1,7 @@
 /** @jsxImportSource react */
 import { useRef, useState } from "react";
 import { reconcileQueuedOrder } from "../surface/queued-order";
-import { FileText, GripVertical, Pencil, Play, Trash2, Undo2 } from "lucide-react";
+import { CornerUpLeft, FileText, GripVertical, Pencil, Play, Trash2, Undo2 } from "lucide-react";
 import { LazyMotion, Reorder, domMax, useDragControls, useReducedMotion } from "motion/react";
 import { Button } from "@/components/ui/button";
 import { t } from "@/i18n";
@@ -11,6 +11,7 @@ export type QueuedMessagesPanelProps = {
   messages: QueuedComposerDraft[];
   onRemove: (id: string) => void;
   onEdit: (id: string) => void;
+  onSteer: (id: string) => Promise<void>;
   onReorder: (ids: string[]) => void | Promise<void>;
   editingId?: string;
   onCancelEdit: () => void;
@@ -47,6 +48,7 @@ export function QueuedMessagesPanel(props: QueuedMessagesPanelProps) {
         </Button>
       </div>}
       {props.messages.some(message => message.status === "uncertain") && <p role="alert" className="px-2 py-2 text-xs text-destructive">{t("composer.queue_uncertain")}</p>}
+      {props.messages.filter(message => message.steering && message.status === "uncertain" && message.error).map(message => <p key={message.id} role="alert" className="px-2 py-2 text-xs text-destructive">{message.error}</p>)}
       {props.messages.filter(message => message.status === "failed" && message.error).map(message => <p key={message.id} role="alert" className="px-2 py-2 text-xs text-destructive">{message.error}</p>)}
       {props.editingId && !props.messages.some(message => message.id === props.editingId) && <Button variant="ghost" size="xs" onClick={props.onCancelEdit}>{t("composer.cancel_queued_edit")}</Button>}
       <LazyMotion features={domMax}>
@@ -54,7 +56,8 @@ export function QueuedMessagesPanel(props: QueuedMessagesPanelProps) {
           {messages.map((message, index) => (
             <QueuedMessageRow key={message.id} message={message} index={index} editing={props.editingId === message.id}
               disabled={props.disabled}
-              reorderDisabled={props.disabled || savingOrder || Boolean(props.editingId)}
+              reorderDisabled={props.disabled || savingOrder || Boolean(props.editingId) || message.status === "sending" || message.status === "accepted"}
+              onSteer={props.onSteer}
               onDragEnd={() => { if (dragOrderRef.current) void commitOrder(reconcileQueuedOrder(dragOrderRef.current, currentIds)); }}
               editDisabled={props.disabled || Boolean(props.editingId) || message.locked === true || (message.status === "sending" || message.status === "accepted") || message.status === "uncertain"} onEdit={props.onEdit} onRemove={props.onRemove} onCancelEdit={props.onCancelEdit}
               onMove={(direction) => {
@@ -82,6 +85,7 @@ function QueuedMessageRow(props: {
   editing: boolean;
   editDisabled: boolean;
   onEdit: (id: string) => void;
+  onSteer: (id: string) => Promise<void>;
   onRemove: (id: string) => void;
   onCancelEdit: () => void;
   onMove: (direction: number) => void;
@@ -90,6 +94,7 @@ function QueuedMessageRow(props: {
   const dragControls = useDragControls();
   const reducedMotion = useReducedMotion();
   const { message } = props;
+  const [steering, setSteering] = useState(false);
   return (
     <Reorder.Item value={message.id} dragListener={false} dragControls={dragControls} dragElastic={0} dragMomentum={false} onDragEnd={props.onDragEnd}
       transition={{ duration: reducedMotion ? 0 : 0.15 }}
@@ -98,7 +103,7 @@ function QueuedMessageRow(props: {
     >
       <Button variant="ghost" size="icon-xs" className="touch-none cursor-grab text-muted-foreground/60 active:cursor-grabbing"
         aria-label={t("composer.reorder_queued", { number: props.index + 1 })} title={t("composer.reorder_queued_hint")}
-        disabled={props.reorderDisabled}
+        disabled={props.reorderDisabled || steering}
         onPointerDown={(event) => { if (!props.reorderDisabled) dragControls.start(event); }}
         onKeyDown={(event) => {
           if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
@@ -117,14 +122,18 @@ function QueuedMessageRow(props: {
       <span className={`min-w-0 flex-1 truncate text-[13px] leading-5 ${props.editing ? "text-muted-foreground" : "text-foreground"}`} title={message.text}>
         {message.text.trim() || t("composer.queued_attachments_only", { count: message.attachments.length })}
       </span>
-      {((message.status === "sending" || message.status === "accepted") || message.locked) && <span className="text-[11px] text-muted-foreground">{t(message.locked ? "composer.editing_elsewhere" : "composer.queue_sending")}</span>}
+      {((message.status === "sending" || message.status === "accepted") || message.locked) && <span className="text-[11px] text-muted-foreground">{t(message.locked ? "composer.editing_elsewhere" : message.steering ? "composer.queue_steering" : "composer.queue_sending")}</span>}
       {props.editing && <span className="text-[11px] text-muted-foreground">{t("composer.editing_queued")}</span>}
-      <Button variant="ghost" size="icon-xs" disabled={!props.editing && props.editDisabled}
+      {message.canSteer && <Button variant="ghost" size="xs" disabled={props.editDisabled || steering}
+        title={t("composer.steer_queued_hint")}
+        onClick={async () => { setSteering(true); try { await props.onSteer(message.id); } finally { setSteering(false); } }}
+      ><CornerUpLeft className="size-3" />{t("composer.steer_queued")}</Button>}
+      <Button variant="ghost" size="icon-xs" disabled={steering || !props.editing && props.editDisabled}
         onClick={() => props.editing ? props.onCancelEdit() : props.onEdit(message.id)}
         aria-label={t(props.editing ? "composer.cancel_queued_edit" : "composer.edit_queued")}
         title={t(props.editing ? "composer.cancel_queued_edit" : "composer.edit_queued")}
       >{props.editing ? <Undo2 className="size-3.5" /> : <Pencil className="size-3.5" />}</Button>
-      <Button variant="ghost" size="icon-xs" className="hover:text-destructive" disabled={props.disabled || (message.status === "sending" || message.status === "accepted") || message.locked || props.editing} onClick={() => props.onRemove(message.id)} aria-label={t("composer.remove_queued")} title={t("composer.remove_queued")}>
+      <Button variant="ghost" size="icon-xs" className="hover:text-destructive" disabled={props.disabled || steering || (message.status === "sending" || message.status === "accepted" || message.status === "uncertain") || message.locked || props.editing} onClick={() => props.onRemove(message.id)} aria-label={t("composer.remove_queued")} title={t("composer.remove_queued")}>
         <Trash2 className="size-3.5" />
       </Button>
     </Reorder.Item>

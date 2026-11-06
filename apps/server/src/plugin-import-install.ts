@@ -3,6 +3,8 @@ import { createHash, randomUUID } from "node:crypto";
 import { cp, lstat, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { z } from "zod";
+import { nativeMcpDefinition } from "./native-mcp-config.js";
+import { upgradeRuntimeConfigRecord } from "./runtime-config-upgrade.js";
 import { assertPluginDestination, installCloudPlugin, pluginNamespace, readInstalledCloudPlugins, resolveWorkspaceInstallPath, writeInstalledCloudPlugins, readStoredPlugin, type CloudImportedPlugin } from "./cloud-plugins.js";
 import { GLOBAL_MCP_ID, readRuntimeOpencodeConfig, writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
 import type { ServerConfig } from "./types.js";
@@ -44,7 +46,7 @@ export async function installPluginImport(config: ServerConfig, workspaceId: str
   const imports = await readInstalledCloudPlugins(config, registry);
   const previous = imports.plugins[plan.resolved.plugin.id];
   if (previous) await assertPluginUnmodified(workspaceRoot, previous, global);
-  const previousMcp = (await readRuntimeOpencodeConfig(config, registry)).mcp ?? {};
+  const previousMcp = (await readRuntimeOpencodeConfig(config, registry)).mcp?.servers ?? {};
   const snapshot = `.opencode/.legalwork-import-backups/${randomUUID()}`;
   await assertPluginDestination(workspaceRoot, snapshot, global);
   const backups: Array<{ path: string; backup: string | null; relative: string }> = [];
@@ -66,7 +68,7 @@ export async function installPluginImport(config: ServerConfig, workspaceId: str
     installed.snapshots = [...(previous?.snapshots || []), ...(previous ? [snapshot] : [])].slice(-3);
     if (previous) {
       await mkdir(resolveWorkspaceInstallPath(workspaceRoot, snapshot, global), { recursive: true });
-      await writeFile(resolveWorkspaceInstallPath(workspaceRoot, `${snapshot}/snapshot.json`, global), JSON.stringify({ plugin: previous, locations: backups.map((item, index) => ({ location: item.relative, backup: item.backup ? `${snapshot}/${index}` : null })), mcp: Object.fromEntries(Object.entries(previousMcp).filter(([name]) => name.startsWith(`${namespace}-`))) }), { mode: 0o600 });
+      await writeFile(resolveWorkspaceInstallPath(workspaceRoot, `${snapshot}/snapshot.json`, global), JSON.stringify({ configurationVersion: 2, plugin: previous, locations: backups.map((item, index) => ({ location: item.relative, backup: item.backup ? `${snapshot}/${index}` : null })), mcp: Object.fromEntries(Object.entries(previousMcp).filter(([name]) => name.startsWith(`${namespace}-`))) }), { mode: 0o600 });
     }
     await writeInstalledCloudPlugins(config, registry, current => ({ ...current, plugins: { ...current.plugins, [installed.pluginId]: installed } }));
     for (const old of previous?.snapshots || []) if (/^\.opencode\/\.legalwork-import-backups\/[a-f0-9-]+$/.test(old) && !installed.snapshots.includes(old)) await rm(resolveWorkspaceInstallPath(workspaceRoot, old, global), { recursive: true, force: true }).catch(() => undefined);
@@ -78,10 +80,10 @@ export async function installPluginImport(config: ServerConfig, workspaceId: str
       if (entry.backup) await cp(entry.backup, entry.path, { recursive: true });
     }
     // Restore only this package's connectors; other connector changes survive.
-    await writeRuntimeOpencodeConfig(config, registry, current => ({ ...current, mcp: {
-      ...Object.fromEntries(Object.entries(current.mcp ?? {}).filter(([name]) => !name.startsWith(`${namespace}-`))),
+    await writeRuntimeOpencodeConfig(config, registry, current => ({ ...current, mcp: { ...current.mcp, servers: {
+      ...Object.fromEntries(Object.entries(current.mcp?.servers ?? {}).filter(([name]) => !name.startsWith(`${namespace}-`))),
       ...Object.fromEntries(Object.entries(previousMcp).filter(([name]) => name.startsWith(`${namespace}-`))),
-    } }));
+    } } }));
     await writeInstalledCloudPlugins(config, registry, current => {
       const plugins = { ...current.plugins };
       if (previous) plugins[plan.resolved.plugin.id] = previous;
@@ -93,7 +95,7 @@ export async function installPluginImport(config: ServerConfig, workspaceId: str
   }
 }
 
-const snapshotSchema = z.object({ plugin: z.unknown(), locations: z.array(z.object({ location: z.string(), backup: z.string().nullable() })), mcp: z.record(z.string(), z.record(z.string(), z.unknown())) });
+const snapshotSchema = z.object({ configurationVersion: z.literal(2).optional(), plugin: z.unknown(), locations: z.array(z.object({ location: z.string(), backup: z.string().nullable() })), mcp: z.record(z.string(), z.record(z.string(), z.unknown())) });
 export async function rollbackPluginImport(config: ServerConfig, workspaceId: string, root: string, pluginId: string, global: boolean) {
   const registry = global ? GLOBAL_MCP_ID : workspaceId;
   const installed = (await readInstalledCloudPlugins(config, registry)).plugins[pluginId];
@@ -102,6 +104,7 @@ export async function rollbackPluginImport(config: ServerConfig, workspaceId: st
   await assertPluginUnmodified(root, installed, global);
   await assertPluginDestination(root, `${snapshot}/snapshot.json`, global);
   const value = snapshotSchema.parse(JSON.parse(await readFile(resolveWorkspaceInstallPath(root, `${snapshot}/snapshot.json`, global), "utf8")));
+  const snapshotMcp = value.configurationVersion === 2 ? Object.fromEntries(Object.entries(value.mcp).map(([name, definition]) => [name, nativeMcpDefinition(definition)])) : upgradeRuntimeConfigRecord({ mcp: value.mcp }).configuration.mcp?.servers ?? {};
   const previous = readStoredPlugin(value.plugin);
   if (!previous || previous.pluginId !== pluginId) throw new ApiError(400, "plugin_snapshot_invalid", "This backup does not belong to the selected plugin.");
   const allowed = new Set(pluginLocations(installed));
@@ -113,7 +116,7 @@ export async function rollbackPluginImport(config: ServerConfig, workspaceId: st
   if (value.locations.length !== allowed.size || new Set(value.locations.map(item => item.location)).size !== allowed.size) throw new ApiError(400, "plugin_snapshot_invalid", "Incomplete plugin backup.");
   // Stage every recovery copy before touching any installed directory.
   const recovery = `${snapshot}/recovery`;
-  const currentMcp = (await readRuntimeOpencodeConfig(config, registry)).mcp || {};
+  const currentMcp = (await readRuntimeOpencodeConfig(config, registry)).mcp?.servers ?? {};
   const namespace = pluginNamespace(installed.name, pluginId);
   const originals: boolean[] = [];
   for (let index = 0; index < value.locations.length; index++) {
@@ -127,7 +130,7 @@ export async function rollbackPluginImport(config: ServerConfig, workspaceId: st
       await rm(path, { recursive: true, force: true });
       if (item.backup) await cp(resolveWorkspaceInstallPath(root, item.backup, global), path, { recursive: true });
     }
-    await writeRuntimeOpencodeConfig(config, registry, current => ({ ...current, mcp: { ...Object.fromEntries(Object.entries(current.mcp || {}).filter(([name]) => !name.startsWith(`${namespace}-`))), ...value.mcp } }));
+    await writeRuntimeOpencodeConfig(config, registry, current => ({ ...current, mcp: { ...current.mcp, servers: { ...Object.fromEntries(Object.entries(current.mcp?.servers ?? {}).filter(([name]) => !name.startsWith(`${namespace}-`))), ...snapshotMcp } } }));
     previous.history = [...(installed.history || []), { at: Date.now(), action: "rolled_back", digest: previous.provenance?.digest || "", version: previous.provenance?.version || null, revision: previous.provenance?.revision } satisfies PluginImportHistory].slice(-50);
     previous.snapshots = installed.snapshots?.slice(0, -1);
     await writeInstalledCloudPlugins(config, registry, current => ({ ...current, plugins: { ...current.plugins, [pluginId]: previous } }));
@@ -138,7 +141,7 @@ export async function rollbackPluginImport(config: ServerConfig, workspaceId: st
       await rm(path, { recursive: true, force: true });
       if (originals[index]) await cp(backup, path, { recursive: true });
     }
-    await writeRuntimeOpencodeConfig(config, registry, current => ({ ...current, mcp: { ...Object.fromEntries(Object.entries(current.mcp || {}).filter(([name]) => !name.startsWith(`${namespace}-`))), ...Object.fromEntries(Object.entries(currentMcp).filter(([name]) => name.startsWith(`${namespace}-`))) } }));
+    await writeRuntimeOpencodeConfig(config, registry, current => ({ ...current, mcp: { ...current.mcp, servers: { ...Object.fromEntries(Object.entries(current.mcp?.servers ?? {}).filter(([name]) => !name.startsWith(`${namespace}-`))), ...Object.fromEntries(Object.entries(currentMcp).filter(([name]) => name.startsWith(`${namespace}-`))) } } }));
     throw error;
   }
   await rm(resolveWorkspaceInstallPath(root, snapshot, global), { recursive: true, force: true });

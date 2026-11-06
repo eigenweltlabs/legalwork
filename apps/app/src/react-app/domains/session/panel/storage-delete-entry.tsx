@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Loader2, Trash2 } from "lucide-react";
 import type { StorageEntry, StorageRoot } from "@legalwork/types/file-storage";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
+import { storageDisplayPath } from "@/app/lib/storage-display-path";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { t } from "@/i18n";
@@ -30,7 +31,7 @@ export function StorageDeleteEntry({ client, workspaceId, root, file, disabled, 
           <DialogTitle>{label}</DialogTitle>
           <DialogDescription>{t(file.kind === "folder" ? "storage.delete_folder_confirm" : "storage.delete_file_confirm", { name: file.name, connection: root.name })}</DialogDescription>
         </DialogHeader>
-        <p className="break-all text-sm text-muted-foreground">{file.path}</p>
+        <p className="break-words text-sm text-muted-foreground">{storageDisplayPath(root, file.path)}</p>
         {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
         <DialogFooter>
           <Button variant="outline" disabled={busy} onClick={() => setOpen(false)}>{t("common.cancel")}</Button>

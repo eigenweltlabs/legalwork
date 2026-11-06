@@ -8,9 +8,9 @@
  * that relay -> Office.js -> result back through the same chain.
  */
 
-import { isAbsolute, relative, resolve, sep } from "node:path";
 import { realpath } from "node:fs/promises";
 import { z } from "zod";
+import { findProjectForDirectory } from "../workspace-path-match.js";
 
 export type OpenCodeContext = {
   agent?: string;
@@ -77,11 +77,9 @@ export async function resolveWorkspaceId(context: OpenCodeContext, options: { re
   const directory = context.directory?.trim() ?? "";
   const items = await listWorkspaces(context);
   if (directory) {
-    const match = [...items].sort((a, b) => b.path.length - a.path.length).find((item) => {
-      if (!item.path) return false;
-      const path = relative(resolve(item.path), resolve(directory));
-      return path === "" || (!isAbsolute(path) && path !== ".." && !path.startsWith(`..${sep}`));
-    });
+    // Mapped drives (P:\…) and their UNC form (\\server\share\…) are the same
+    // project; a lexical relative() check treats them as unrelated folders.
+    const match = await findProjectForDirectory(items, directory);
     if (match) return match.id;
   }
   if (!options.requireDirectory && items.length === 1) return items[0]!.id;
@@ -168,12 +166,8 @@ export async function officePaneStatus(directory?: string): Promise<OfficePaneSt
     const token = serverToken();
     if (url && token) {
       const items = await listWorkspaces();
-      const candidates = normalizedDirectory
-        ? items.filter((item) => {
-            const path = relative(resolve(item.path), resolve(normalizedDirectory));
-            return path === "" || (!isAbsolute(path) && path !== ".." && !path.startsWith(`..${sep}`));
-          }).sort((a, b) => b.path.length - a.path.length).slice(0, 1)
-        : items.slice(0, 5);
+      const match = normalizedDirectory ? await findProjectForDirectory(items, normalizedDirectory) : undefined;
+      const candidates = normalizedDirectory ? (match ? [match] : []) : items.slice(0, 5);
       for (const item of candidates) {
         const response = await fetch(
           `${url}/workspace/${encodeURIComponent(item.id)}/office-tools/status`,

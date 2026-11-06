@@ -101,12 +101,12 @@ test("application default sync handles devices, offline edits, conflicts, accoun
   // A damaged local row must not be silently replaced by a remote preference.
   const db = new Database(join(runtimeStorageDir(a), "runtime.sqlite"));
   try {
-    db.run("UPDATE runtime_opencode_configs SET config_json = ? WHERE workspace_id = ?", ["{", SANDBOX_DEFAULT_ID]);
+    db.run("UPDATE native_runtime_configs SET config_json = ? WHERE workspace_id = ?", ["{", SANDBOX_DEFAULT_ID]);
     const beforeCorruption = calls;
     await syncSandboxSettings(a, request);
     expect(calls).toBe(beforeCorruption);
     expect(sandboxSyncStatus(a)).toBe("pending");
-    await expect(readSandboxDefault(a)).rejects.toThrow("Commands and web access are blocked");
+    await expect(readSandboxDefault(a)).rejects.toMatchObject({ status: 409, code: "execution_settings_invalid", details: { settingsScope: "application" } });
     await saveSandboxDefault(a, { enabled: true, networkMode: "block" });
   } finally { db.close(); }
 

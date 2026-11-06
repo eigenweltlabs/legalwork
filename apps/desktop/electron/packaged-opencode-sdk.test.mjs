@@ -3,10 +3,46 @@ import assert from "node:assert/strict";
 import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { stageOpencodeSdk } from "../scripts/prepare-opencode-sdk.mjs";
 import { parse } from "yaml";
 import { assertPackagedOpencodeSdk } from "../scripts/packaged-opencode-sdk.cjs";
+
+test("packaging omits engine download caches while preserving runtime metadata and the installed engine", async () => {
+  const require = createRequire(import.meta.url);
+  const builderRequire = createRequire(require.resolve("electron-builder"));
+  const { getNodeModuleFileMatcher, getFileMatchers, copyFiles } = builderRequire("app-builder-lib/out/fileMatcher.js");
+  const { NodeModuleCopyHelper } = builderRequire("app-builder-lib/out/util/NodeModuleCopyHelper.js");
+  const config = parse(await readFile(new URL("../electron-builder.yml", import.meta.url), "utf8"));
+  const root = await mkdtemp(join(tmpdir(), "opencode-cache-package-"));
+  try {
+    // Workspace dependencies live outside the desktop app directory. Exercise
+    // Builder's module destination mapping, not just a glob against the source.
+    const desktop = join(root, "desktop"), source = join(root, "packages", "opencode-release");
+    const resources = join(root, "packaged", "resources");
+    const runtimeFiles = ["package.json", "index.mjs", "selection.mjs", "selection.json", "generated/selection.json", "build/recipe.json"];
+    const cacheFiles = ["generated/archive-cache/manifest/opencode-darwin-arm64.tar.gz", "generated/archive-cache/manifest/opencode-windows-x64.zip"];
+    for (const name of [...runtimeFiles, ...cacheFiles]) {
+      const file = join(source, name);
+      await mkdir(dirname(file), { recursive: true });
+      await writeFile(file, "fixture");
+    }
+    for (const platform of ["mac", "linux", "win"]) {
+      const packager = { config, appInfo: { type: "module" }, debugLogger: { isEnabled: false }, getWorkspaceRoot: async () => root };
+      const matcher = getNodeModuleFileMatcher(desktop, join(resources, "app"), value => value, config[platform], packager);
+      const helper = new NodeModuleCopyHelper(matcher, packager);
+      const files = await helper.collectNodeModules({ name: "@legalwork/opencode-release", dir: source }, [], join("node_modules", "@legalwork", "opencode-release"));
+      assert.deepEqual(files.map(file => relative(source, file).replaceAll("\\", "/")).sort(), [...runtimeFiles].sort(), platform);
+    }
+    const engine = join("manifest", "darwin-arm64", "opencode");
+    await mkdir(join(desktop, "resources", "opencode-engine", dirname(engine)), { recursive: true });
+    await writeFile(join(desktop, "resources", "opencode-engine", engine), "installed engine");
+    await copyFiles(getFileMatchers({ extraResources: config.extraResources.filter(entry => entry.to === "opencode-engine") }, "extraResources", resources, {
+      defaultSrc: desktop, globalOutDir: join(root, "packaged"), customBuildOptions: {}, macroExpander: value => value,
+    }));
+    assert.equal(await readFile(join(resources, "opencode-engine", engine), "utf8"), "installed engine");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
 
 test("Electron Builder ships the v2 host-runtime declaration without a foreign SDK tree", async () => {
   const require = createRequire(import.meta.url);

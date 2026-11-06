@@ -18,6 +18,10 @@ export const EmailDraftInputSchema = z.object({
   })).max(20).default([]),
 });
 export type EmailDraftInput = z.infer<typeof EmailDraftInputSchema>;
+export const EmailDraftAccountSchema = z.enum(["auto", "local", "gmail", "outlook"]);
+export const EmailDraftCreateInputSchema = EmailDraftInputSchema.extend({
+  account: EmailDraftAccountSchema.default("auto").describe("Use auto to select the sole connected email account, or ask the user if several are connected. Use gmail or outlook when the user chooses that account. Use local only when the user explicitly requests an unconnected draft."),
+});
 export const EmailDraftSchema = EmailDraftInputSchema.extend({
   id: z.uuid(), workspaceId: z.string(), revision: z.uuid(),
   path: z.string(), updatedAt: z.number(),
