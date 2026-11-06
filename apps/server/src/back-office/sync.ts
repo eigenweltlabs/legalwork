@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { backOfficeAccess } from "./access.js";
 import { backOfficeStore } from "./store.js";
+import { mergePublishModel } from "./publish-model.js";
 import {
   BackOfficeChangeSchema,
   BackOfficeRecordSchema,
@@ -149,6 +150,8 @@ export async function previewBackOfficePublish(config: ServerConfig) {
     ids = local
       .filter((record) => !team.some((other) => other.id === record.id))
       .map((record) => record.id);
+  const teamModel = store.model(scope),
+    publishingModel = mergePublishModel(store.model("local"), teamModel);
   const planId = randomUUID();
   for (const [key, plan] of publishPlans)
     if (plan.expires < Date.now()) publishPlans.delete(key);
@@ -180,8 +183,8 @@ export async function previewBackOfficePublish(config: ServerConfig) {
         ),
       })),
     needsModelUpdate:
-      JSON.stringify(store.model("local").objects) !==
-      JSON.stringify(store.model(scope).objects),
+      JSON.stringify(publishingModel.objects) !==
+      JSON.stringify(teamModel.objects),
   };
 }
 export async function publishBackOffice(config: ServerConfig, planId: string) {
@@ -235,7 +238,7 @@ export async function publishBackOffice(config: ServerConfig, planId: string) {
       "Billing permission is required to publish your billing records.",
     );
   const model = store.model(scope),
-    source = store.model("local");
+    source = mergePublishModel(store.model("local"), model);
   if (
     JSON.stringify(model.objects) !== JSON.stringify(source.objects) &&
     !actor.model

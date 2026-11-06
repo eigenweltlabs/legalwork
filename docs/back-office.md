@@ -1,6 +1,6 @@
 # Native Back Office
 
-The implementation starts from LegalWork dev f646f475. Its platform counterpart is `codex/back-office-native` in model-api, based on main b704f9c. Deploy the platform migration and API before enabling a firm's Back Office policy. Broad integration testing belongs to the combined branch pass.
+The implementation starts from LegalWork dev f646f475. Its platform counterpart is `codex/back-office-native` in model-api, based on main b704f9c. Deploy the platform migration and API before enabling a firm's Back Office policy. The combined branches have local integration coverage against disposable Postgres and two temporary desktop SQLite stores.
 
 ## UI and licensing
 
@@ -22,6 +22,8 @@ The renderer and native agent tools consume the same validated Back Office route
 
 `backOffice.sync` is an enforced opt-in organization policy. Model administration, directory editing and billing access are independent. Project permissions remain independent of matter access. A reviewed publishing preview preserves IDs and warns about same-name records. Projects must already be shared before their local IDs can be translated into shared project IDs.
 
+Publishing preserves the existing team model and adds compatible local extensions. Shared labels and fields survive publishing from a desktop with an older local model. Conflicting field types, relation targets, cardinality or visibility block publication for review.
+
 Offline writes retain stable operation IDs. The first rejection blocks dependent operations. Comparisons show team values and proposed fields; users can reapply those fields against a checked current revision or explicitly discard the queued record chain. Unspecified fields survive updates from older clients. Authorization rejection clears the managed replica and retains proposals for resolution. Transport failure retains the offline replica. Policy pokes trigger revalidation after policy refresh.
 
 Publishing creates identities before optional relationships, with required relationships ordered by their dependencies. Cyclic required relationships need to be made optional before publishing; the operation is rejected without partial staging. The initial full-snapshot platform transport is limited to 10,000 stored records and needs pagination before that limit is increased.
@@ -30,4 +32,6 @@ The server's build bundles `back-office/schema.ts` into its runtime dist, keepin
 
 ## Validation
 
-Only new feature tests are run: `bun test apps/server/src/back-office/back-office.test.ts` in LegalWork and `vitest run src/lib/back-office/permissions.test.ts` in platform. Type checks, server and renderer builds, help generation and manual native UI comparisons supplement those tests. No broad repository test suite or platform integration suite is part of this change.
+Feature tests use `bun test apps/server/src/back-office/back-office.test.ts` in LegalWork and `vitest run src/lib/back-office/permissions.test.ts` in platform. Type checks, server and renderer builds, help generation and manual native UI comparisons supplement those tests.
+
+For cross-repository integration, run the platform's `vitest.integration.config.ts` with `TEST_DATABASE_URL` pointing to a disposable Postgres and `LEGALWORK_TEST_CHECKOUT` pointing to this checkout. Select `src/lib/__integration__/back-office.test.ts`, `src/db/__integration__/row-security.test.ts` and `src/db/__integration__/migration-upgrade.test.ts`. The native fixture runs the real sync client against the platform HTTP route handlers, including reviewed publishing, project ID translation, multi-batch synchronization, conflicts, model ordering, persistence and access revocation. Clerk identity lookups are substituted. The ordinary integration command skips the cross-repository case unless the checkout variable is supplied. No live platform deployment is involved.
