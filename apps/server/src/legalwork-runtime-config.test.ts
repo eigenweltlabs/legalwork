@@ -105,6 +105,27 @@ async function readConfigurationFile(path: string) {
   return Schema.decodeUnknownSync(Config.Info)(JSON.parse(await readFile(path, "utf8")), { onExcessProperty: "error" });
 }
 
+test("startup runtime publication repairs a synced older project config and admits the project", async () => {
+  const { root, config } = await setup();
+  config.engineProjectTrustRequired = true;
+  const workspace = config.workspaces[0]!;
+  await writeLegalworkRuntimeConfigFile(config, workspace.id);
+  const path = join(root, ".opencode", "opencode.json");
+  const stale = await readFile(path);
+  await writeRuntimeOpencodeConfig(config, workspace.id, () => ({ permissions: [{ action: "read", resource: "current-settings/*", effect: "deny" }] }));
+  await writeLegalworkRuntimeConfigFile(config, workspace.id);
+  const expected = await readFile(path);
+  expect(stale.equals(expected)).toBe(false);
+  await writeFile(path, stale);
+  expect((await engineProjectStatus(config, workspace)).state).toBe("configuration_conflict");
+  const restarted = { ...config };
+  await writeLegalworkRuntimeConfigFile(restarted, workspace.id);
+  expect(await readFile(path)).toEqual(expected);
+  expect((await engineProjectStatus(restarted, workspace)).state).toBe("ready");
+  const registry = JSON.parse(await readFile(nativeEngineProjectRegistryPath(restarted), "utf8"));
+  expect(registry.projects).toContainEqual({ directory: root, approved: true });
+});
+
 function pluginTargets(plugins: NativeConfig["plugins"]) {
   return (plugins ?? []).map(plugin => typeof plugin === "string" ? plugin : plugin.package);
 }
