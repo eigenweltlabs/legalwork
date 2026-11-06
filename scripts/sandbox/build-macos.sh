@@ -64,7 +64,7 @@ set -- --prefix="$work/qemu" --target-list="$arch-softmmu" --without-default-fea
 if [ "$arch" = aarch64 ]; then set -- "$@" --without-default-devices --with-devices-aarch64=legalwork; fi
 ./configure "$@"
 # The default target also compiles upstream test programs that this packaging
-# job neither runs nor ships. Build the shipped emulator, then install its
-# normal executable/firmware/metadata without rebuilding the unrelated targets.
-make -j3 "qemu-system-$arch"
+# job neither runs nor ships. Include all generated install prerequisites,
+# including trace metadata and firmware, without building unrelated targets.
+python3 "$root/scripts/sandbox/build-installed-qemu.py" "$PWD/build" "qemu-system-$arch"
 meson install -C build --no-rebuild
