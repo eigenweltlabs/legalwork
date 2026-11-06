@@ -23,7 +23,6 @@ const extract = (source, destination) => execFileSync(sevenZip, ['x', source, `-
 const installers = (await readdir(directory)).filter(name => name.endsWith('.exe'));
 assert.equal(installers.length, 1);
 const installer = path.join(directory, installers[0]);
-extract(installer, path.join(output, 'installer'));
 
 async function files(directory) {
   const result = [];
@@ -44,10 +43,10 @@ async function payload(directory) {
   }
   return result;
 }
-const archives = (await files(path.join(output, 'installer'))).filter(name => /\.7z$/.test(name));
-assert.equal(archives.length, 1, 'The signed NSIS installer must have one embedded native payload');
 const source = path.join(output, 'payload');
-extract(archives[0], source);
+// The installed 7za detects the embedded LZMA2 payload directly, past the
+// NSIS stub; its trailing Authenticode data does not alter extracted bytes.
+extract(installer, source);
 const expected = await payload(source);
 assert.ok(expected['LegalWork.exe'] && expected['resources/app.asar']);
 const payloadManifestSha256 = createHash('sha256').update(JSON.stringify(expected)).digest('hex');
