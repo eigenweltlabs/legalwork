@@ -5,6 +5,22 @@ import { projectTemplateStrings } from "@legalwork/types/workspace";
  */
 
 export default {
+  "back_office.files.immutable": "Attached version, read only",
+  "back_office.files.download": "Download",
+  "back_office.files.failed": "The attachment could not be saved.",
+  "back_office.files.loading": "Loading…",
+  "back_office.files.count": "Choose one file, or up to 20 for a multiple-file field.",
+  "back_office.files.size": "Choose a non-empty file up to 10 MB.",
+  "back_office.files.copy_notice": "Attaches a fixed copy. Access follows this record and field. The original stays unchanged.",
+  "back_office.files.remove": "Remove attachment",
+  "back_office.files.attach": "Attach a copy",
+  "back_office.files.uploading": "Attaching…",
+  "back_office.files.from_project": "Choose from a project",
+  "back_office.files.project": "Choose a project",
+  "back_office.files.back": "Parent folder",
+  "back_office.files.empty": "This folder is empty.",
+  "back_office.files.cancel": "Cancel",
+
   "Source ID (optional)": "Source ID (optional)",
   "CSV column name": "CSV column name",
   "shutdown.restart_title": "Save changes before restarting?",

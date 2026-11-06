@@ -80,8 +80,15 @@ test("saved views retain all four layouts and validate their grouping and date f
     expect(String(view.type)).toBe(type);
   }
   expect(store.views("local")).toHaveLength(4);
-  const calendar = store.views("local").find(view => view.type === "calendar")!;
-  expect(store.saveView("local", owner, {id:calendar.id, name:"Older client rename"})).toMatchObject({type:"calendar",dateField:"openedOn"});
+  const calendar = store
+    .views("local")
+    .find((view) => view.type === "calendar")!;
+  expect(
+    store.saveView("local", owner, {
+      id: calendar.id,
+      name: "Older client rename",
+    }),
+  ).toMatchObject({ type: "calendar", dateField: "openedOn" });
   expect(() =>
     store.saveView("local", owner, {
       ...base,
@@ -325,7 +332,10 @@ describe("Back Office imports and synchronization", () => {
   test("matching names warn but matching source IDs update", async () => {
     const store = await database(),
       record = store.saveRecord("local", owner, {
-        objectId: "companies", revision: 0, sourceId: "42", values: { name: "Company" },
+        objectId: "companies",
+        revision: 0,
+        sourceId: "42",
+        values: { name: "Company" },
       });
     const plan = previewImport(
       store,
@@ -501,7 +511,10 @@ describe("Back Office compatibility, previews and isolation", () => {
   test("CSV relations resolve explicit source IDs and reject name guesses and duplicate sources", async () => {
     const store = await database(),
       client = store.saveRecord("local", owner, {
-        objectId: "clients", revision: 0, sourceId: "42", values: { name: "Client" },
+        objectId: "clients",
+        revision: 0,
+        sourceId: "42",
+        values: { name: "Client" },
       });
     const plan = previewImport(
       store,
@@ -592,26 +605,82 @@ test("preview template migration removes provider fields while preserving import
   const record = add(store, "companies", "Legacy company");
   const legacyModel = store.model("local");
   legacyModel.templateVersion = 2;
-  const company = legacyModel.objects.find((object) => object.id === "companies")!;
-  const legacyField = { ...company.fields[0], id: "actaportId", label: "Actaport ID", required: false };
+  const company = legacyModel.objects.find(
+    (object) => object.id === "companies",
+  )!;
+  const legacyField = {
+    ...company.fields[0],
+    id: "actaportId",
+    label: "Actaport ID",
+    required: false,
+  };
   company.fields.push(legacyField);
-  company.fields.push({ ...legacyField, id: "firmReference", label: "Firm reference", protected: false });
-  store.db.run("UPDATE bo_models SET data=? WHERE scope='local'", [JSON.stringify(legacyModel)]);
+  company.fields.push({
+    ...legacyField,
+    id: "firmReference",
+    label: "Firm reference",
+    protected: false,
+  });
+  store.db.run("UPDATE bo_models SET data=? WHERE scope='local'", [
+    JSON.stringify(legacyModel),
+  ]);
   store.db.run("UPDATE bo_records SET data=? WHERE scope='local' AND id=?", [
-    JSON.stringify({ ...record, values: { ...record.values, actaportId: "legacy-42", firmReference: "F-1" } }), record.id,
+    JSON.stringify({
+      ...record,
+      values: {
+        ...record.values,
+        actaportId: "legacy-42",
+        firmReference: "F-1",
+      },
+    }),
+    record.id,
   ]);
   const upgraded = store.model("local");
-  expect(upgraded.templateVersion).toBe(3);
-  expect(upgraded.objects.flatMap((object) => object.fields).some((field) => field.id === "actaportId")).toBe(false);
-  expect(upgraded.objects.find((object) => object.id === "companies")?.fields.some((field) => field.id === "firmReference")).toBe(true);
+  expect(upgraded.templateVersion).toBe(4);
+  expect(
+    upgraded.objects
+      .flatMap((object) => object.fields)
+      .some((field) => field.id === "actaportId"),
+  ).toBe(false);
+  expect(
+    upgraded.objects
+      .find((object) => object.id === "companies")
+      ?.fields.some((field) => field.id === "firmReference"),
+  ).toBe(true);
   const migrated = store.records("local", owner)[0];
   expect(migrated.sourceId).toBe("legacy-42");
-  expect(migrated.values).toEqual({ name: "Legacy company", firmReference: "F-1" });
-  const updated = store.saveRecord("local", owner, { id: record.id, objectId: "companies", revision: record.revision, values: { name: "Updated" } });
+  expect(migrated.values).toEqual({
+    name: "Legacy company",
+    firmReference: "F-1",
+  });
+  const updated = store.saveRecord("local", owner, {
+    id: record.id,
+    objectId: "companies",
+    revision: record.revision,
+    values: { name: "Updated" },
+  });
   expect(updated.sourceId).toBe("legacy-42");
-  expect(BackOfficeRecordSchema.parse(updated).values).not.toHaveProperty("actaportId");
-  expect(store.saveRecord("local", owner, { id: record.id, objectId: "companies", revision: updated.revision, values: {}, sourceId: null }).sourceId).toBeNull();
-  const view = BackOfficeViewSchema.parse({ id: crypto.randomUUID(), objectId: "companies", name: "Legacy", columns: ["name", "actaportId"], filters: { actaportId: "42" }, widths: { actaportId: 100 }, sortField: "actaportId" });
+  expect(BackOfficeRecordSchema.parse(updated).values).not.toHaveProperty(
+    "actaportId",
+  );
+  expect(
+    store.saveRecord("local", owner, {
+      id: record.id,
+      objectId: "companies",
+      revision: updated.revision,
+      values: {},
+      sourceId: null,
+    }).sourceId,
+  ).toBeNull();
+  const view = BackOfficeViewSchema.parse({
+    id: crypto.randomUUID(),
+    objectId: "companies",
+    name: "Legacy",
+    columns: ["name", "actaportId"],
+    filters: { actaportId: "42" },
+    widths: { actaportId: 100 },
+    sortField: "actaportId",
+  });
   expect(view.columns).toEqual(["name"]);
   expect(view.filters).toEqual({});
   expect(view.widths).toEqual({});

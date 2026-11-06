@@ -2,7 +2,7 @@ import { z } from "zod";
 export { z } from "zod";
 
 export const BACK_OFFICE_PROTOCOL = 1;
-export const BACK_OFFICE_TEMPLATE = 3;
+export const BACK_OFFICE_TEMPLATE = 4;
 const identifier = z
   .string()
   .min(1)
@@ -22,6 +22,7 @@ export const BackOfficeFieldSchema = z.object({
     "select",
     "multiselect",
     "relation",
+    "file",
   ]),
   protected: z.boolean().default(false),
   required: z.boolean().default(false),
@@ -45,7 +46,39 @@ export const BackOfficeModelSchema = z.object({
   revision: z.number().int().nonnegative(),
   objects: z.array(BackOfficeObjectSchema).min(1).max(100),
 });
+export const BACK_OFFICE_FILE_LIMIT = 10 * 1024 * 1024;
+export const BackOfficeFileSchema = z.object({
+  id: z.string().uuid(),
+  recordId: z.string().uuid(),
+  fieldId: identifier,
+  name: z
+    .string()
+    .min(1)
+    .max(255)
+    .regex(/^[^/\\\u0000-\u001f]+$/),
+  size: z.number().int().min(1).max(BACK_OFFICE_FILE_LIMIT),
+  sha256: z.string().regex(/^[a-f0-9]{64}$/),
+  contentType: z.enum([
+    "application/pdf",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "image/png",
+    "image/jpeg",
+    "image/gif",
+    "image/webp",
+    "text/plain",
+    "text/markdown",
+    "text/csv",
+    "application/json",
+    "application/octet-stream",
+  ]),
+});
+export const BackOfficeFilesSchema = z.array(BackOfficeFileSchema).max(20);
+export type BackOfficeFile = z.infer<typeof BackOfficeFileSchema>;
+
 export const BackOfficeValueSchema = z.union([
+  BackOfficeFilesSchema,
   z.string().max(16000),
   z.number().finite(),
   z.boolean(),
@@ -56,70 +89,74 @@ export const BackOfficeValueSchema = z.union([
   }),
   z.null(),
 ]);
-export const BackOfficeRecordSchema = z.object({
-  id: z.string().uuid(),
-  objectId: identifier,
-  values: z.record(identifier, BackOfficeValueSchema),
-  sourceId: z.string().max(16000).nullable().optional(),
-  revision: z.number().int().nonnegative(),
-  schemaRevision: z.number().int().nonnegative(),
-  access: z.enum(["org", "members"]).default("org"),
-  members: z.array(z.string().min(1).max(200)).max(500).default([]),
-  ownerId: z.string().min(1).max(200),
-  createdAt: z.string().datetime(),
-  updatedAt: z.string().datetime(),
-  archivedAt: z.string().datetime().nullable(),
-}).transform((record) => {
-  // Retire the preview template's provider-specific field without losing import identity.
-  const { actaportId, ...values } = record.values;
-  return {
-    ...record,
-    values,
-    sourceId:
-      record.sourceId === undefined && typeof actaportId === "string"
-        ? actaportId
-        : record.sourceId,
-  };
-});
-export const BackOfficeViewSchema = z.object({
-  id: z.string().uuid(),
-  objectId: identifier,
-  name: z.string().trim().min(1).max(120),
-  type: z.enum(["table", "kanban", "calendar", "list"]).default("table"),
-  groupField: identifier.nullable().default(null),
-  dateField: identifier.nullable().default(null),
-  calendarMode: z.enum(["day", "week", "month"]).default("month"),
-  icon: z
-    .enum([
-      "table",
-      "kanban",
-      "calendar",
-      "list",
-      "briefcase",
-      "building",
-      "users",
-      "tag",
-    ])
-    .nullable()
-    .default(null),
-  archived: z.boolean().default(false),
-  columns: z.array(identifier).max(100),
-  widths: z.record(identifier, z.number().min(80).max(800)).default({}),
-  query: z.string().max(500).default(""),
-  filters: z.record(identifier, BackOfficeValueSchema).default({}),
-  sortField: identifier.default("name"),
-  sortDirection: z.enum(["asc", "desc"]).default("asc"),
-}).transform((view) => ({
-  ...view,
-  columns: view.columns.filter((id) => id !== "actaportId"),
-  widths: Object.fromEntries(
-    Object.entries(view.widths).filter(([id]) => id !== "actaportId"),
-  ),
-  filters: Object.fromEntries(
-    Object.entries(view.filters).filter(([id]) => id !== "actaportId"),
-  ),
-  sortField: view.sortField === "actaportId" ? "name" : view.sortField,
-}));
+export const BackOfficeRecordSchema = z
+  .object({
+    id: z.string().uuid(),
+    objectId: identifier,
+    values: z.record(identifier, BackOfficeValueSchema),
+    sourceId: z.string().max(16000).nullable().optional(),
+    revision: z.number().int().nonnegative(),
+    schemaRevision: z.number().int().nonnegative(),
+    access: z.enum(["org", "members"]).default("org"),
+    members: z.array(z.string().min(1).max(200)).max(500).default([]),
+    ownerId: z.string().min(1).max(200),
+    createdAt: z.string().datetime(),
+    updatedAt: z.string().datetime(),
+    archivedAt: z.string().datetime().nullable(),
+  })
+  .transform((record) => {
+    // Retire the preview template's provider-specific field without losing import identity.
+    const { actaportId, ...values } = record.values;
+    return {
+      ...record,
+      values,
+      sourceId:
+        record.sourceId === undefined && typeof actaportId === "string"
+          ? actaportId
+          : record.sourceId,
+    };
+  });
+export const BackOfficeViewSchema = z
+  .object({
+    id: z.string().uuid(),
+    objectId: identifier,
+    name: z.string().trim().min(1).max(120),
+    type: z.enum(["table", "kanban", "calendar", "list"]).default("table"),
+    groupField: identifier.nullable().default(null),
+    dateField: identifier.nullable().default(null),
+    calendarMode: z.enum(["day", "week", "month"]).default("month"),
+    icon: z
+      .enum([
+        "table",
+        "kanban",
+        "calendar",
+        "list",
+        "briefcase",
+        "building",
+        "users",
+        "tag",
+      ])
+      .nullable()
+      .default(null),
+    archived: z.boolean().default(false),
+    columns: z.array(identifier).max(100),
+    widths: z.record(identifier, z.number().min(80).max(800)).default({}),
+    query: z.string().max(500).default(""),
+    filters: z.record(identifier, BackOfficeValueSchema).default({}),
+    sortField: identifier.default("name"),
+    sortDirection: z.enum(["asc", "desc"]).default("asc"),
+  })
+  .transform((view) => ({
+    ...view,
+    columns: view.columns.filter((id) => id !== "actaportId"),
+    widths: Object.fromEntries(
+      Object.entries(view.widths).filter(([id]) => id !== "actaportId"),
+    ),
+    filters: Object.fromEntries(
+      Object.entries(view.filters).filter(([id]) => id !== "actaportId"),
+    ),
+    sortField: view.sortField === "actaportId" ? "name" : view.sortField,
+  }));
 export type BackOfficeField = z.infer<typeof BackOfficeFieldSchema>;
 export type BackOfficeObject = z.infer<typeof BackOfficeObjectSchema>;
 export type BackOfficeModel = z.infer<typeof BackOfficeModelSchema>;
@@ -281,6 +318,7 @@ export function defaultBackOfficeModel(): BackOfficeModel {
       ]),
       object("feeAgreements", "Fee agreement", "Fee agreements", "receipt", [
         ...billing(),
+        field("signedAgreement", "Signed agreement", "file"),
         selection("basis", "Fee basis", [
           "Hourly",
           "Flat fee",
@@ -331,6 +369,7 @@ export function defaultBackOfficeModel(): BackOfficeModel {
       ]),
       object("invoices", "Invoice", "Invoices", "receipt", [
         ...billing(),
+        field("invoiceFile", "Invoice PDF", "file"),
         field("invoiceNumber", "Invoice number"),
         selection("status", "Status", [
           "Draft",
@@ -417,6 +456,18 @@ export function validateBackOfficeValues(
     const field = object.fields.find((field) => field.id === id);
     if (!field) throw new Error(`Unknown field ${id}. Refresh the data model.`);
     if (value === null || value === "") continue;
+    if (field.type === "file") {
+      const files = BackOfficeFilesSchema.safeParse(value);
+      if (
+        !files.success ||
+        (!field.multiple && files.data.length > 1) ||
+        new Set(files.data.map((file) => file.id)).size !== files.data.length
+      )
+        throw new Error(
+          `Choose ${field.multiple ? "valid files" : "one file"} for ${field.label}.`,
+        );
+      continue;
+    }
     const valid =
       field.type === "currency"
         ? typeof value === "object" &&
@@ -428,10 +479,12 @@ export function validateBackOfficeValues(
             ? typeof value === "boolean"
             : field.type === "relation"
               ? field.multiple
-                ? Array.isArray(value)
+                ? Array.isArray(value) &&
+                  value.every((item) => typeof item === "string")
                 : typeof value === "string"
               : field.type === "multiselect"
-                ? Array.isArray(value)
+                ? Array.isArray(value) &&
+                  value.every((item) => typeof item === "string")
                 : typeof value === "string";
     if (!valid) throw new Error(`Check the value of ${field.label}.`);
     if (
@@ -476,17 +529,23 @@ export function validateBackOfficeValues(
       field?.type === "multiselect" &&
       field.options.length &&
       Array.isArray(value) &&
-      value.some((item) => !field.options.includes(item))
+      value.some(
+        (item) => typeof item !== "string" || !field.options.includes(item),
+      )
     )
       throw new Error(`Choose existing ${field.label} options.`);
   }
-  for (const field of object.fields.filter((field) => field.required))
+  for (const field of object.fields.filter((field) => field.required)) {
+    const value = values[field.id];
     if (
       values[field.id] === undefined ||
       values[field.id] === null ||
-      (typeof values[field.id] === "string" && !String(values[field.id]).trim())
+      (typeof values[field.id] === "string" &&
+        !String(values[field.id]).trim()) ||
+      (Array.isArray(value) && value.length === 0)
     )
       throw new Error(`${field.label} is required.`);
+  }
 }
 
 export function visibleBackOfficeRecord(
@@ -611,7 +670,9 @@ export function backOfficeProjectContext(
   );
   const clientIds = new Set(
     matters.flatMap((record) =>
-      Array.isArray(record.values.clients) ? record.values.clients : [],
+      Array.isArray(record.values.clients)
+        ? record.values.clients.filter((id) => typeof id === "string")
+        : [],
     ),
   );
   for (const party of active.filter(

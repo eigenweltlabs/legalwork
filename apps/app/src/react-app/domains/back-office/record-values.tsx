@@ -1,5 +1,7 @@
+import { FileValue } from "./record-files";
 import {
   CalendarDays,
+  Paperclip,
   Check,
   Hash,
   Link2,
@@ -16,17 +18,19 @@ import type {
 import { selectColor } from "./select-colors";
 export function FieldIcon({ field }: { field: BackOfficeField }) {
   const Icon =
-    field.type === "relation"
-      ? Link2
-      : field.type === "date" || field.type === "datetime"
-        ? CalendarDays
-        : field.type === "number" || field.type === "currency"
-          ? Hash
-          : field.type === "select" || field.type === "multiselect"
-            ? TagIcon
-            : field.visibility === "private"
-              ? LockKeyhole
-              : Type;
+    field.type === "file"
+      ? Paperclip
+      : field.type === "relation"
+        ? Link2
+        : field.type === "date" || field.type === "datetime"
+          ? CalendarDays
+          : field.type === "number" || field.type === "currency"
+            ? Hash
+            : field.type === "select" || field.type === "multiselect"
+              ? TagIcon
+              : field.visibility === "private"
+                ? LockKeyhole
+                : Type;
   return <Icon size={13} aria-hidden="true" />;
 }
 export function RecordChip({
@@ -72,6 +76,7 @@ export function ValueDisplay({
   onOpen: (record: BackOfficeRecord) => void;
 }) {
   if (value === null || value === undefined || value === "") return null;
+  if (field.type === "file") return <FileValue value={value} />;
   if (field.type === "relation")
     return (
       <div className="bo-relation-values">
@@ -116,8 +121,8 @@ export function ValueDisplay({
     return (
       <div className="bo-relation-values">
         {value.map((item) => (
-          <Tag key={item} color="gray">
-            {item}
+          <Tag key={typeof item === "string" ? item : item.id} color="gray">
+            {typeof item === "string" ? item : item.name}
           </Tag>
         ))}
       </div>

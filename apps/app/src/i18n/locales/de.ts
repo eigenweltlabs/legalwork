@@ -15,6 +15,22 @@ import { projectTemplateStrings } from "@legalwork/types/workspace";
  */
 
 const de = {
+  "back_office.files.immutable": "Angehängte Version, schreibgeschützt",
+  "back_office.files.download": "Herunterladen",
+  "back_office.files.failed": "Der Anhang konnte nicht gespeichert werden.",
+  "back_office.files.loading": "Laden…",
+  "back_office.files.count": "Wählen Sie eine Datei oder bis zu 20 für ein Feld mit mehreren Dateien.",
+  "back_office.files.size": "Wählen Sie eine nicht leere Datei bis 10 MB.",
+  "back_office.files.copy_notice": "Fügt eine feste Kopie hinzu. Der Zugriff folgt diesem Datensatz und Feld. Das Original bleibt unverändert.",
+  "back_office.files.remove": "Anhang entfernen",
+  "back_office.files.attach": "Kopie anhängen",
+  "back_office.files.uploading": "Wird angehängt…",
+  "back_office.files.from_project": "Aus einem Projekt auswählen",
+  "back_office.files.project": "Projekt auswählen",
+  "back_office.files.back": "Übergeordneter Ordner",
+  "back_office.files.empty": "Dieser Ordner ist leer.",
+  "back_office.files.cancel": "Abbrechen",
+
   "Source ID (optional)": "Quell-ID (optional)",
   "CSV column name": "CSV-Spaltenname",
   "shutdown.restart_title": "Änderungen vor dem Neustart speichern?",

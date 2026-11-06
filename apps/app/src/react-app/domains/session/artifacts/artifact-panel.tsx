@@ -516,7 +516,7 @@ export function ArtifactPanelView({ loadFile, sourcePage, localReadOnly = false,
       buffer = current;
       contentType = isOfficeEditor ? (data?.kind === "binary" ? data.contentType : null) : "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
     } else {
-      const result = await client.downloadWorkspaceFile(workspaceId, target.value);
+      const result = await (loadFile ? loadFile() : client.downloadWorkspaceFile(workspaceId, target.value));
       buffer = result.data;
       contentType = result.contentType;
     }

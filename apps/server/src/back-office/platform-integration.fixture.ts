@@ -1,3 +1,6 @@
+import { attachFile, cachedFile } from "./files.js";
+import { loadAttachedFile } from "./file-sync.js";
+import { BackOfficeFilesSchema, BackOfficeFieldSchema } from "./schema.js";
 // Run by model-api's Back Office integration test against its disposable HTTP server.
 import assert from "node:assert/strict";
 import { mkdtemp, mkdir, rm } from "node:fs/promises";
@@ -152,6 +155,37 @@ try {
       matter: localMatter.id,
     },
   });
+  // Local attachments are immutable and publish with a newly introduced file field.
+  const fileModel = a.store.model("local");
+  fileModel.objects
+    .find((object) => object.id === "matters")!
+    .fields.push(
+      BackOfficeFieldSchema.parse({
+        id: "caseFile",
+        label: "Case file",
+        type: "file",
+      }),
+    );
+  a.store.saveModel("local", localActor, fileModel, fileModel.revision);
+  const attachmentBytes = new TextEncoder().encode(
+    "%PDF-1.7 signed agreement version one",
+  );
+  const attachment = await attachFile(
+    a.config,
+    a.store,
+    "local",
+    localActor,
+    localMatter.id,
+    "caseFile",
+    "Agreement.pdf",
+    attachmentBytes,
+  );
+  a.store.saveRecord("local", localActor, {
+    id: localMatter.id,
+    objectId: "matters",
+    revision: localMatter.revision,
+    values: { caseFile: [attachment] },
+  });
   const preview = await previewBackOfficePublish(a.config);
   assert.equal(preview.count, 3);
   await publishBackOffice(a.config, preview.planId);
@@ -163,6 +197,15 @@ try {
   assert.equal(
     b.store.raw(scope, link.id)?.values.projectId,
     `ws_${settings.member}`,
+  );
+  const receivedFile = BackOfficeFilesSchema.parse(
+    b.store.raw(scope, localMatter.id)?.values.caseFile,
+  )[0];
+  assert.equal(receivedFile.id, attachment.id);
+  assert.equal(await cachedFile(b.config, receivedFile), null);
+  assert.deepEqual(
+    await loadAttachedFile(b.config, scope, receivedFile),
+    attachmentBytes,
   );
   const created = a.store.saveRecord(scope, a.actor, {
     objectId: "people",
@@ -300,7 +343,12 @@ try {
   local.templateVersion = 2;
   const clientObject = local.objects.find((object) => object.id === "clients");
   assert.ok(clientObject);
-  clientObject.fields.push({ ...clientObject.fields[0], id: "actaportId", label: "Actaport ID", required: false });
+  clientObject.fields.push({
+    ...clientObject.fields[0],
+    id: "actaportId",
+    label: "Actaport ID",
+    required: false,
+  });
   clientObject.plural = "Firm clients";
   a.store.db.run("UPDATE bo_models SET data=? WHERE scope='local'", [
     JSON.stringify(local),

@@ -36,6 +36,15 @@ export function backOfficeTools(ctx: Plugin.Context) {
       execute: (args) => call(""),
     }),
     nativeTool(ctx, {
+      name: "legalwork_back_office_attach_file",
+      permission: "domain",
+      save: [],
+      description: "Create an immutable attachment copy from a file in an accessible local project. The copy follows the target record and field permissions; it does not grant access to the original project. Use the returned file metadata in the file field array through legalwork_back_office_save. For a required-file draft, choose a record UUID and pass create=true when saving. Never put local paths or fabricated file IDs into file field values.",
+      schema: z.object({ recordId: z.string().uuid(), objectId: z.string(), fieldId: z.string(), workspaceId: z.string(), path: z.string().min(1) }),
+      outputSchema: z.json(),
+      execute: (args) => call(`/records/${args.recordId}/files/${encodeURIComponent(args.fieldId)}`, "POST", { objectId: args.objectId, source: { workspaceId: args.workspaceId, path: args.path } }),
+    }),
+    nativeTool(ctx, {
       name: "legalwork_back_office_records",
       description:
         "List accessible records of a discovered object, including the archive when requested. Relations use stable record IDs. Project links form a many-to-many relationship through the projectLinks object.",
@@ -54,9 +63,10 @@ export function backOfficeTools(ctx: Plugin.Context) {
       permission: "domain",
       save: [],
       description:
-        "Create, patch, archive or restore one Back Office record using the discovered field IDs and current revision. Use revision 0 without id to create. Existing records require their exact id and revision. Omitted values stay unchanged and null clears a field. Respect server-enforced access and protected relationships. Never guess missing facts, change a historical matter when relinking a project, or edit runtime SQLite directly.",
+        "Create, patch, archive or restore one Back Office record using the discovered field IDs and current revision. Use revision 0 without id to create, or reserve a UUID for required file attachments and pass that id with create:true. Existing records require their exact id and revision. Omitted values stay unchanged and null clears a field. Respect server-enforced access and protected relationships. Never guess missing facts, change a historical matter when relinking a project, or edit runtime SQLite directly.",
       schema: z.object({
         id: z.string().uuid().optional(),
+        create: z.boolean().optional(),
         objectId: z.string(),
         revision: z.number().int().nonnegative(),
         values: z.record(z.string(), z.unknown()),
