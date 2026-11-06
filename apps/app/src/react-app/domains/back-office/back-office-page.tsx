@@ -393,6 +393,11 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
             {t("back_office.data_model")}
           </Button>
         </nav>
+        {data && team && data.sync.error && (
+          <div className="bo-error" role="alert">
+            {data.sync.error}
+          </div>
+        )}
         {!data && (
           <div className="bo-loading">
             {query.error ? (
@@ -479,6 +484,41 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
                   >
                     Export CSV
                   </Dropdown.ActionItem>
+                  {team && data.sync.pending > 0 && (
+                    <Dropdown.ActionItem
+                      onClick={() =>
+                        void client
+                          .backOffice("/sync/pending", { team })
+                          .then((response) =>
+                            setPendingChanges(
+                              z
+                                .object({
+                                  changes: z.array(
+                                    z.object({
+                                      id: z.string(),
+                                      summary: z.string(),
+                                      error: z.string().nullable(),
+                                      currentRevision: z.number().nullable(),
+                                      comparison: z.array(
+                                        z.object({
+                                          field: z.string(),
+                                          proposed: z.string(),
+                                          current: z.string().nullable(),
+                                        }),
+                                      ),
+                                    }),
+                                  ),
+                                })
+                                .parse(response).changes,
+                            ),
+                          )
+                          .catch((error) => setError(error.message))
+                      }
+                      startIcon={<Cloud size={14} />}
+                    >
+                      {data.sync.pending} changes pending
+                    </Dropdown.ActionItem>
+                  )}
                   <Dropdown.Separator />
                   <Dropdown.ActionItem
                     onClick={() => setArchived(!archived)}
@@ -781,48 +821,6 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
               <X size={13} />
             </button>
           </div>
-        )}
-        {data && team && (data.sync.pending > 0 || data.sync.error) && (
-          <footer className="bo-footer">
-            {team && <Cloud size={13} />}
-            {data.sync.pending > 0 && team && (
-              <button
-                onClick={() =>
-                  void client
-                    .backOffice("/sync/pending", { team })
-                    .then((response) =>
-                      setPendingChanges(
-                        z
-                          .object({
-                            changes: z.array(
-                              z.object({
-                                id: z.string(),
-                                summary: z.string(),
-                                error: z.string().nullable(),
-                                currentRevision: z.number().nullable(),
-                                comparison: z.array(
-                                  z.object({
-                                    field: z.string(),
-                                    proposed: z.string(),
-                                    current: z.string().nullable(),
-                                  }),
-                                ),
-                              }),
-                            ),
-                          })
-                          .parse(response).changes,
-                      ),
-                    )
-                    .catch((error) => setError(error.message))
-                }
-              >
-                {data.sync.pending} changes pending
-              </button>
-            )}
-            {data.sync.error && (
-              <span className="bo-error">{data.sync.error}</span>
-            )}
-          </footer>
         )}
       </div>
     </ThemeProvider>
