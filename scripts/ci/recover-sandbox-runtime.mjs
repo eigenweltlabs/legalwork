@@ -17,12 +17,21 @@ const root = fileURLToPath(new URL('../../', import.meta.url));
 export function runtimeProducerProof(log, key, artifact) {
   log = stripVTControlCharacters(log);
   const keys = new Set([...log.matchAll(/^\S+ (sandbox-runtime-v2-[a-z0-9-]+-[a-f0-9]{64})\r?$/gm)].map(match => match[1]));
-  const pins = new Set([...log.matchAll(/^\S+ SHA256 digest of uploaded artifact zip is ([a-f0-9]{64})\r?$/gm)].map(match => match[1]));
   const uploaded = `Artifact ${artifact.name} has been successfully uploaded!`;
-  const line = log.split('\n').find(line => /^\S+ Artifact /.test(line) && line.includes(uploaded)
-    && line.trimEnd().endsWith(`Artifact ID is ${artifact.id}`));
-  const pin = [...pins][0];
-  return keys.size === 1 && keys.has(key) && pins.size === 1 && artifact.digest === 'sha256:' + pin && line ? pin : undefined;
+  const pins = [];
+  let pending;
+  for (const line of log.split('\n')) {
+    const digest = line.match(/^\S+ SHA256 digest of uploaded artifact zip is ([a-f0-9]{64})\r?$/);
+    if (digest) pending = digest[1];
+    if (!/^\S+ Artifact .* has been successfully uploaded!/.test(line)) continue;
+    if (line.includes(uploaded) && line.trimEnd().endsWith(`Artifact ID is ${artifact.id}`)) pins.push(pending);
+    pending = undefined;
+  }
+  // Packaging now prepares its runtime on the same native host and uploads
+  // unrelated diagnostics too. Bind this digest to this upload, not that job's
+  // other artifacts; ambiguous duplicate upload receipts still fail closed.
+  return keys.size === 1 && keys.has(key) && pins.length === 1 && pins[0]
+    && artifact.digest === 'sha256:' + pins[0] ? pins[0] : undefined;
 }
 
 export async function findRuntimeRecovery(context, read = readGitHubApi) {

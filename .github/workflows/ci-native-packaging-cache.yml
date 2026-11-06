@@ -34,3 +34,9 @@ jobs:
             @legalwork/actaport-mcp...
       - uses: ./.github/actions/prepare-windows-arm64-speech
         if: runner.os == 'Windows' && runner.arch == 'ARM64'
+      - uses: ./.github/actions/prepare-electron-native
+        if: runner.os == 'Windows'
+      - name: Prepare and load the exact Electron SQLite addon
+        if: runner.os == 'Windows'
+        shell: bash
+        run: node apps/desktop/scripts/electron-native-cache.mjs prepare

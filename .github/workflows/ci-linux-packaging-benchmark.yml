@@ -5,11 +5,15 @@ on:
       version:
         type: string
         required: true
+      artifact-run-id:
+        type: string
+        required: true
       manifest-sha256:
         type: string
         required: true
 permissions:
   contents: read
+  actions: read
 jobs:
   package:
     runs-on: ${{ matrix.os }}
@@ -45,6 +49,8 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: opencode-derivative-ci-Linux
+          run-id: ${{ inputs.artifact-run-id }}
+          github-token: ${{ github.token }}
           path: ${{ runner.temp }}/opencode-derivative
       - uses: ./.github/actions/setup-opencode
         with:

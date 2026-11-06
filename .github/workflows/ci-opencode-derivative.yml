@@ -36,6 +36,9 @@ on:
       APPLE_CODESIGN_CERT_PASSWORD:
         required: false
     outputs:
+      artifact-run-id:
+        description: Verified original or current producer containing all delivery artifacts
+        value: ${{ jobs.build.outputs.artifact-run-id }}
       manifest-sha256:
         description: Independent digest of the complete derivative distribution
         value: ${{ jobs.build.outputs.manifest-sha256 }}
@@ -50,6 +53,7 @@ jobs:
     runs-on: ${{ inputs.reuse-run-id != '' && 'ubuntu-latest' || 'macos-15' }}
     timeout-minutes: 90
     outputs:
+      artifact-run-id: ${{ steps.handoff.outputs.run-id }}
       manifest-sha256: ${{ steps.production-verified.outputs.manifest-sha256 || steps.verified.outputs.manifest-sha256 || steps.engine.outputs.manifest-sha256 || steps.reuse.outputs.manifest-sha256 }}
       production-cache-hit: ${{ steps.production-source.outputs.cache-hit }}
     steps:
@@ -214,6 +218,13 @@ jobs:
           if-no-files-found: error
           retention-days: 90
           compression-level: 0
+      - name: Select verified engine delivery without duplicate uploads
+        id: handoff
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRODUCTION_SOURCE_RUN: ${{ steps.production-source.outputs.run-id }}
+          VERIFIED_MANIFEST_SHA256: ${{ steps.production-verified.outputs.manifest-sha256 }}
+        run: node scripts/ci/production-engine-handoff.mjs
       - name: Verify all development archives against current source policy
         if: inputs.build-mode == 'development' && steps.mode.outputs.reuse != 'true'
         id: verified
@@ -250,6 +261,7 @@ jobs:
             ${{ runner.temp }}/opencode-production-cache-lookup.json
           retention-days: 7
       - uses: actions/upload-artifact@v4
+        if: steps.handoff.outputs.reuse != 'true'
         with:
           name: opencode-derivative-ci
           path: ${{ runner.temp }}/opencode-derivative/distribution/
@@ -257,6 +269,7 @@ jobs:
           retention-days: 7
           compression-level: 0
       - name: Retain verified macOS engine archives
+        if: steps.handoff.outputs.reuse != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: opencode-derivative-ci-macOS
@@ -268,6 +281,7 @@ jobs:
           if-no-files-found: error
           retention-days: 7
       - name: Retain verified Linux engine archives
+        if: steps.handoff.outputs.reuse != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: opencode-derivative-ci-Linux
@@ -279,6 +293,7 @@ jobs:
           if-no-files-found: error
           retention-days: 7
       - name: Retain verified Windows engine archives
+        if: steps.handoff.outputs.reuse != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: opencode-derivative-ci-Windows

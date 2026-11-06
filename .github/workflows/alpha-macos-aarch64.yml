@@ -95,7 +95,7 @@ jobs:
     if: needs.changes.outputs.alpha == 'true' && !(github.event_name == 'workflow_dispatch' && inputs.warm_engine_cache)
     uses: ./.github/workflows/sandbox-runtime.yml
     with:
-      targets: ${{ inputs.linux_benchmark && 'darwin-arm64,win32-x64,win32-arm64,linux-x64,linux-arm64' || 'darwin-arm64,win32-x64,win32-arm64' }}
+      targets: ${{ inputs.linux_benchmark && 'win32-x64,win32-arm64,linux-x64,linux-arm64' || 'win32-x64,win32-arm64' }}
       run_tests: ${{ github.event_name == 'workflow_dispatch' && inputs.sandbox_tests || false }}
   publish-alpha-macos-aarch64:
     needs: [ sandbox-runtime, opencode-engine, portable-assets, portable-version ]
@@ -125,10 +125,12 @@ jobs:
         with:
           node-version: 24.22.1
 
-      - name: Download the same-run source-built engine
+      - name: Download the verified source-built engine
         uses: actions/download-artifact@v4
         with:
           name: opencode-derivative-ci-${{ runner.os }}
+          run-id: ${{ needs.opencode-engine.outputs.artifact-run-id }}
+          github-token: ${{ github.token }}
           path: ${{ runner.temp }}/opencode-derivative
       - name: Verify and prepare the production engine
         uses: ./.github/actions/setup-opencode
@@ -181,16 +183,17 @@ jobs:
           node scripts/release/apply-version.mjs --version "$ALPHA_VERSION"
           pnpm install --lockfile-only --no-frozen-lockfile
 
-      - uses: actions/download-artifact@v4
+      # Prepare on the packaging host to avoid allocating a second Mac runner.
+      # Windows prerequisites contain only Windows (and optional Linux).
+      - uses: ./.github/actions/prepare-sandbox-runtime
         with:
-          pattern: sandbox-runtime-v2-darwin-arm64-*
-          merge-multiple: true
-          path: ${{ runner.temp }}/sandbox-runtime
-      - name: Unpack protected runtime
-        shell: bash
-        run: |
-          mkdir -p apps/server/resources/agent-sandbox/runtime
-          tar -xzf "$RUNNER_TEMP/sandbox-runtime/sandbox-runtime.tgz" -C apps/server/resources/agent-sandbox/runtime
+          arch: arm64
+          qemu: aarch64
+      - name: Prepare checksum-pinned Node for worker tests
+        if: github.event_name == 'workflow_dispatch' && inputs.sandbox_tests
+        run: node apps/desktop/scripts/prepare-node-runtime.mjs
+      - uses: ./.github/actions/test-sandbox-runtime
+        if: github.event_name == 'workflow_dispatch' && inputs.sandbox_tests
 
       - name: Write notary API key
         if: env.MACOS_NOTARIZE == 'true'
@@ -395,10 +398,12 @@ jobs:
         with:
           node-version: 24.22.1
 
-      - name: Download the same-run source-built engine
+      - name: Download the verified source-built engine
         uses: actions/download-artifact@v4
         with:
           name: opencode-derivative-ci-${{ runner.os }}
+          run-id: ${{ needs.opencode-engine.outputs.artifact-run-id }}
+          github-token: ${{ github.token }}
           path: ${{ runner.temp }}/opencode-derivative
       - name: Verify and prepare the production engine
         uses: ./.github/actions/setup-opencode
@@ -421,6 +426,8 @@ jobs:
             ${{ inputs.benchmark_profile == 'serial-full-ui' && '*' || '@legalwork/desktop...' }}
             ${{ inputs.benchmark_profile == 'serial-full-ui' && '' || 'legalwork-orchestrator...' }}
             ${{ inputs.benchmark_profile == 'serial-full-ui' && '' || '@legalwork/actaport-mcp...' }}
+
+      - uses: ./.github/actions/prepare-electron-native
 
       - uses: ./.github/actions/prepare-windows-arm64-speech
         if: runner.arch == 'ARM64'
@@ -649,3 +656,4 @@ jobs:
     with:
       version: ${{ needs.portable-version.outputs.version }}
       manifest-sha256: ${{ needs.opencode-engine.outputs.manifest-sha256 }}
+      artifact-run-id: ${{ needs.opencode-engine.outputs.artifact-run-id }}

@@ -317,10 +317,12 @@ jobs:
         with:
           node-version: 24.22.1
 
-      - name: Download the same-run source-built engine
+      - name: Download the verified source-built engine
         uses: actions/download-artifact@v4
         with:
           name: opencode-derivative-ci-${{ runner.os }}
+          run-id: ${{ needs.opencode-engine.outputs.artifact-run-id }}
+          github-token: ${{ github.token }}
           path: ${{ runner.temp }}/opencode-derivative
       - name: Verify and prepare the production engine
         uses: ./.github/actions/setup-opencode
@@ -569,10 +571,12 @@ jobs:
         with:
           node-version: 24.22.1
 
-      - name: Download the same-run source-built engine
+      - name: Download the verified source-built engine
         uses: actions/download-artifact@v4
         with:
           name: opencode-derivative-ci-${{ runner.os }}
+          run-id: ${{ needs.opencode-engine.outputs.artifact-run-id }}
+          github-token: ${{ github.token }}
           path: ${{ runner.temp }}/opencode-derivative
       - name: Verify and prepare the production engine
         uses: ./.github/actions/setup-opencode
@@ -595,6 +599,8 @@ jobs:
             @legalwork/desktop...
             legalwork-orchestrator...
             @legalwork/actaport-mcp...
+
+      - uses: ./.github/actions/prepare-electron-native
 
       - uses: ./.github/actions/prepare-windows-arm64-speech
         if: runner.arch == 'ARM64'
@@ -797,10 +803,12 @@ jobs:
             exit 1
           fi
 
-      - name: Download the same-run source-built engine
+      - name: Download the verified source-built engine
         uses: actions/download-artifact@v4
         with:
           name: opencode-derivative-ci
+          run-id: ${{ needs.opencode-engine.outputs.artifact-run-id }}
+          github-token: ${{ github.token }}
           path: ${{ runner.temp }}/opencode-derivative
       - name: Verify and prepare the production engine
         uses: ./.github/actions/setup-opencode

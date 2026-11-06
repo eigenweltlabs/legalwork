@@ -20,11 +20,14 @@ const log = `2026-11-05T12:00:00Z ${key}\n2026-11-05T12:01:00Z SHA256 digest of 
 
 test('native artifact recovery binds the exact key, artifact ID and independent upload digest', () => {
   assert.equal(runtimeProducerProof(log, key, artifact), pin);
+  assert.equal(runtimeProducerProof(log.replace(`2026-11-05T12:01:01Z Artifact`, `2026-11-05T12:01:00Z Artifact ${artifact.name}.zip successfully finalized. Artifact ID 8\n2026-11-05T12:01:01Z Artifact`), key, artifact), pin);
   for (const changed of [{ ...artifact, digest: 'sha256:' + 'c'.repeat(64) }, { ...artifact, id: 80 }, { ...artifact, name: 'other' }]) {
     assert.equal(runtimeProducerProof(log, key, changed), undefined);
   }
   assert.equal(runtimeProducerProof(log + `2026-11-05T12:02:00Z ${key.replace(/a{64}/, 'c'.repeat(64))}\n`, key, artifact), undefined);
-  assert.equal(runtimeProducerProof(log + `2026-11-05T12:02:00Z SHA256 digest of uploaded artifact zip is ${'c'.repeat(64)}\n`, key, artifact), undefined);
+  assert.equal(runtimeProducerProof(log + `2026-11-05T12:02:00Z SHA256 digest of uploaded artifact zip is ${'c'.repeat(64)}\n2026-11-05T12:02:01Z Artifact ci-timings has been successfully uploaded! Final size is 100 bytes. Artifact ID is 9\n`, key, artifact), pin);
+  assert.equal(runtimeProducerProof(log + log, key, artifact), undefined, 'Duplicate upload receipts are ambiguous');
+  assert.equal(runtimeProducerProof(log.replace(/.*SHA256 digest.*\n/, ''), key, artifact), undefined);
 });
 
 test('recovery requires a successful producer in an eligible completed run, and paginates retained artifacts', async () => {

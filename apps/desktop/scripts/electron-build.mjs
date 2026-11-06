@@ -6,6 +6,7 @@ import { engineBuildMode } from "../../../packages/opencode-release/prepare.mjs"
 import { verifyPortableAssets } from "../../../scripts/ci/portable-assets.mjs";
 import timing from "../../../scripts/ci/timing.cjs";
 import { performance } from "node:perf_hooks";
+import { prepareElectronNativeModules } from './electron-native-cache.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const desktopRoot = resolve(__dirname, "..");
@@ -102,7 +103,7 @@ run(nodeCmd, [resolve(__dirname, "check-plugin-bundles.mjs")], repoRoot);
 const targetTriple = process.env.CARGO_CFG_TARGET_TRIPLE ?? process.env.TARGET;
 const nativeArch = targetTriple?.startsWith("aarch64-") ? "arm64"
   : targetTriple?.startsWith("x86_64-") ? "x64" : process.arch;
-run(pnpmCmd, ["exec", "electron-builder", "install-app-deps", `--arch=${nativeArch}`], desktopRoot);
+prepareElectronNativeModules(nativeArch, () => run(pnpmCmd, ["exec", "electron-builder", "install-app-deps", `--arch=${nativeArch}`], desktopRoot));
 
 process.stdout.write(
   `${JSON.stringify(
