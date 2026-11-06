@@ -5,6 +5,8 @@ import { projectTemplateStrings } from "@legalwork/types/workspace";
  */
 
 export default {
+  "Source ID (optional)": "Source ID (optional)",
+  "CSV column name": "CSV column name",
   "shutdown.restart_title": "Save changes before restarting?",
   "shutdown.close_title": "Save changes before closing?",
   "shutdown.description": "These files have unsaved changes. Save them to keep your work, or discard the changes to continue.",

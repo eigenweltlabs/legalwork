@@ -295,14 +295,12 @@ try {
     true,
   );
 
-  // Reopening the same SQLite database retains queued work and additive template upgrades.
+  // Reopening retains queued work, removes retired fields and keeps firm labels.
   const local = a.store.model("local");
-  local.templateVersion = 1;
+  local.templateVersion = 2;
   const clientObject = local.objects.find((object) => object.id === "clients");
   assert.ok(clientObject);
-  clientObject.fields = clientObject.fields.filter(
-    (field) => field.id !== "actaportId",
-  );
+  clientObject.fields.push({ ...clientObject.fields[0], id: "actaportId", label: "Actaport ID", required: false });
   clientObject.plural = "Firm clients";
   a.store.db.run("UPDATE bo_models SET data=? WHERE scope='local'", [
     JSON.stringify(local),
@@ -321,11 +319,12 @@ try {
       ?.plural,
     "Firm clients",
   );
-  assert.ok(
+  assert.equal(
     reopened
       .model("local")
       .objects.find((object) => object.id === "clients")
       ?.fields.some((field) => field.id === "actaportId"),
+    false,
   );
   reopened.close();
 

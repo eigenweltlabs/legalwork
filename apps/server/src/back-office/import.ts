@@ -52,6 +52,7 @@ export function parseCsv(text: string): string[][] {
 type PlannedRow = {
   row: number;
   values: Record<string, BackOfficeValue>;
+  sourceId?: string;
   existingId?: string;
   revision: number;
   warning?: string;
@@ -110,6 +111,10 @@ export function previewImport(
   const rows: PlannedRow[] = records.map((cells, index) => {
     const values: Record<string, BackOfficeValue> = {};
     try {
+      const sourceColumn = mapping.$sourceId;
+      const sourceIndex = sourceColumn ? headers.indexOf(sourceColumn) : -1;
+      if (sourceColumn && sourceIndex < 0) throw new Error(`Missing column ${sourceColumn}.`);
+      const sourceId = sourceIndex < 0 ? undefined : cells[sourceIndex]?.trim() || undefined;
       for (const field of object.fields) {
         const column = mapping[field.id];
         if (!column) continue;
@@ -146,26 +151,23 @@ export function previewImport(
               record.objectId === field.target &&
               (record.id === value ||
                 (typeof value === "string" &&
-                  value.startsWith("actaport:") &&
-                  record.values.actaportId === value.slice(9))),
+                  value.startsWith("source:") &&
+                  record.sourceId === value.slice(7))),
           );
           if (!target)
             throw new Error(
-              `Use an accessible record ID or actaport:source-ID for ${field.label}.`,
+              `Use an accessible record ID or source:source-ID for ${field.label}.`,
             );
           return target.id;
         });
         values[field.id] = field.multiple ? resolved : resolved[0];
       }
-      const source = String(values.actaportId ?? "");
-      if (source && seenSources.has(source))
+      if (sourceId && seenSources.has(sourceId))
         throw new Error("This source ID occurs more than once in the CSV.");
-      if (source) seenSources.add(source);
+      if (sourceId) seenSources.add(sourceId);
       validateBackOfficeValues(object, values);
-      const matches = values.actaportId
-        ? existing.filter(
-            (record) => record.values.actaportId === values.actaportId,
-          )
+      const matches = sourceId
+        ? existing.filter((record) => record.sourceId === sourceId)
         : [];
       if (matches.length > 1)
         throw new Error(
@@ -185,10 +187,11 @@ export function previewImport(
       return {
         row: index + 2,
         values,
+        sourceId,
         existingId: matches[0]?.id,
         revision: matches[0]?.revision ?? 0,
         warning: matches.length
-          ? "Update the record with this Actaport ID."
+          ? "Update the record with this source ID."
           : duplicateName
             ? "A record has the same name. It will stay separate unless you link its source ID first."
             : undefined,
@@ -252,6 +255,7 @@ export function applyImport(
         objectId: plan.objectId,
         revision: row.revision,
         values: row.values,
+        sourceId: row.sourceId,
       }),
     ),
   );

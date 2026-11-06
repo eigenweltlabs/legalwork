@@ -15,6 +15,8 @@ import { projectTemplateStrings } from "@legalwork/types/workspace";
  */
 
 const de = {
+  "Source ID (optional)": "Quell-ID (optional)",
+  "CSV column name": "CSV-Spaltenname",
   "shutdown.restart_title": "Änderungen vor dem Neustart speichern?",
   "shutdown.close_title": "Änderungen vor dem Schließen speichern?",
   "shutdown.description": "Diese Dateien enthalten ungespeicherte Änderungen. Speichern Sie Ihre Arbeit oder verwerfen Sie die Änderungen, um fortzufahren.",

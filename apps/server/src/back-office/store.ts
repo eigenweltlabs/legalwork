@@ -9,6 +9,7 @@ import {
   BackOfficeChangeSchema,
   BackOfficeModelSchema,
   BackOfficeRecordSchema,
+  BackOfficeValueSchema,
   BackOfficeViewSchema,
   assertModelChange,
   defaultBackOfficeModel,
@@ -40,6 +41,7 @@ const inputRecord = z.object({
   objectId: z.string(),
   revision: z.number().int().nonnegative(),
   values: z.record(z.string(), z.unknown()),
+  sourceId: z.string().max(16000).nullable().optional(),
   archived: z.boolean().optional(),
   access: z.enum(["org", "members"]).optional(),
   members: z.array(z.string()).max(500).optional(),
@@ -261,7 +263,7 @@ export class BackOfficeStore {
             "back_office_field",
             `You cannot edit ${field.label}.`,
           );
-        const value = BackOfficeRecordSchema.shape.values.valueType.parse(raw);
+        const value = BackOfficeValueSchema.parse(raw);
         if (field.type === "relation" && value) {
           for (const target of Array.isArray(value) ? value : [value]) {
             const related =
@@ -311,6 +313,7 @@ export class BackOfficeStore {
         id: existing?.id ?? randomUUID(),
         objectId: object.id,
         values,
+        sourceId: parsed.sourceId === undefined ? existing?.sourceId : parsed.sourceId,
         revision: parsed.revision + 1,
         schemaRevision: model.revision,
         ownerId: existing?.ownerId ?? actor.userId,
