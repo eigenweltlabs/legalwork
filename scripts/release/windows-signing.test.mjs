@@ -99,6 +99,7 @@ for (const scenario of ["cold", "warm", "transient-install", "missing-command", 
       const fixture = path.join(directory, "exercise.ps1");
       writeFileSync(fixture, `
 $ErrorActionPreference = 'Stop'
+$env:PSModulePath = $env:SIGNING_TEST_DIRECTORY + [IO.Path]::PathSeparator + (Join-Path $PSHOME 'Modules')
 $scenario = $env:SIGNING_TEST_SCENARIO
 $global:installs = 0
 $module = Join-Path $env:SIGNING_TEST_DIRECTORY 'TrustedSigning/0.5.8'
