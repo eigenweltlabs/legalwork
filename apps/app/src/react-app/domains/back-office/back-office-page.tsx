@@ -176,7 +176,9 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
   ];
   const detail = records.find((record) => record.id === detailId),
     detailObject = data?.model.objects.find(
-      (object) => object.id === detail?.objectId,
+      (object) =>
+        object.id === detail?.objectId &&
+        !isInternalBackOfficeObject(object.id),
     );
   const request = (path: string, body: unknown, method = "POST") =>
     client.backOffice(path, { method, body, team });
