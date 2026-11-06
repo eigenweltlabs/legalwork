@@ -593,6 +593,17 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
               </label>
               {csv && (
                 <div className="bo-import-mapping">
+                  <label>
+                    {t("Source ID (optional)")}
+                    <input
+                      value={mapping.$sourceId ?? ""}
+                      placeholder={t("CSV column name")}
+                      onChange={(event) => {
+                        setMapping({ ...mapping, $sourceId: event.target.value });
+                        setImportPlan(null);
+                      }}
+                    />
+                  </label>
                   {object.fields.map((field) => (
                     <label key={field.id}>
                       {field.label}

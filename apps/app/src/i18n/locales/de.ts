@@ -33,6 +33,8 @@ const de = {
   "ris.owner_only": "Nur der Servereigentümer kann diese Integration ändern oder ihre Verbindung testen.",
   "ris.source": "Quelle: Bundeskanzleramt, Republik Österreich. RIS-Daten: CC BY 4.0. Rechercheergebnisse enthalten Links zu den Originalquellen und Angaben zur Fassung.",
 
+  "Source ID (optional)": "Quell-ID (optional)",
+  "CSV column name": "CSV-Spaltenname",
   "shutdown.restart_title": "Änderungen vor dem Neustart speichern?",
   "shutdown.close_title": "Änderungen vor dem Schließen speichern?",
   "shutdown.description": "Diese Dateien enthalten ungespeicherte Änderungen. Speichern Sie Ihre Arbeit oder verwerfen Sie die Änderungen, um fortzufahren.",

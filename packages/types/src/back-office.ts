@@ -2,7 +2,7 @@ import { z } from "zod";
 export { z } from "zod";
 
 export const BACK_OFFICE_PROTOCOL = 1;
-export const BACK_OFFICE_TEMPLATE = 2;
+export const BACK_OFFICE_TEMPLATE = 3;
 const identifier = z
   .string()
   .min(1)
@@ -60,6 +60,7 @@ export const BackOfficeRecordSchema = z.object({
   id: z.string().uuid(),
   objectId: identifier,
   values: z.record(identifier, BackOfficeValueSchema),
+  sourceId: z.string().max(16000).nullable().optional(),
   revision: z.number().int().nonnegative(),
   schemaRevision: z.number().int().nonnegative(),
   access: z.enum(["org", "members"]).default("org"),
@@ -68,6 +69,17 @@ export const BackOfficeRecordSchema = z.object({
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
   archivedAt: z.string().datetime().nullable(),
+}).transform((record) => {
+  // Retire the preview template's provider-specific field without losing import identity.
+  const { actaportId, ...values } = record.values;
+  return {
+    ...record,
+    values,
+    sourceId:
+      record.sourceId === undefined && typeof actaportId === "string"
+        ? actaportId
+        : record.sourceId,
+  };
 });
 export const BackOfficeViewSchema = z.object({
   id: z.string().uuid(),
@@ -97,7 +109,17 @@ export const BackOfficeViewSchema = z.object({
   filters: z.record(identifier, BackOfficeValueSchema).default({}),
   sortField: identifier.default("name"),
   sortDirection: z.enum(["asc", "desc"]).default("asc"),
-});
+}).transform((view) => ({
+  ...view,
+  columns: view.columns.filter((id) => id !== "actaportId"),
+  widths: Object.fromEntries(
+    Object.entries(view.widths).filter(([id]) => id !== "actaportId"),
+  ),
+  filters: Object.fromEntries(
+    Object.entries(view.filters).filter(([id]) => id !== "actaportId"),
+  ),
+  sortField: view.sortField === "actaportId" ? "name" : view.sortField,
+}));
 export type BackOfficeField = z.infer<typeof BackOfficeFieldSchema>;
 export type BackOfficeObject = z.infer<typeof BackOfficeObjectSchema>;
 export type BackOfficeModel = z.infer<typeof BackOfficeModelSchema>;
@@ -201,7 +223,6 @@ export function defaultBackOfficeModel(): BackOfficeModel {
         money("claimValue", "Value in dispute"),
         field("subject", "Subject"),
         field("tags", "Tags", "multiselect"),
-        field("actaportId", "Actaport ID"),
       ]),
       object("clients", "Client", "Clients", "clients", [
         field("clientNumber", "Client number"),
@@ -211,7 +232,6 @@ export function defaultBackOfficeModel(): BackOfficeModel {
         field("billingAddress", "Billing address"),
         field("billingEmail", "Billing email", "email"),
         field("buyerReference", "E-invoice buyer reference"),
-        field("actaportId", "Actaport ID"),
       ]),
       object("people", "Person", "People", "person", [
         field("email", "Email", "email"),
@@ -224,7 +244,6 @@ export function defaultBackOfficeModel(): BackOfficeModel {
         field("birthDate", "Birth date", "date"),
         field("nationality", "Nationality"),
         field("taxNumber", "Tax number", "text", { visibility: "finance" }),
-        field("actaportId", "Actaport ID"),
       ]),
       object("companies", "Company", "Companies", "company", [
         field("domain", "Domain name"),
@@ -237,7 +256,6 @@ export function defaultBackOfficeModel(): BackOfficeModel {
         field("city", "City"),
         field("vatId", "VAT ID", "text", { visibility: "finance" }),
         relation("contact", "Primary contact", "people"),
-        field("actaportId", "Actaport ID"),
       ]),
       object("parties", "Matter party", "Matter parties", "link", [
         relation("matter", "Matter", "matters"),
@@ -256,7 +274,6 @@ export function defaultBackOfficeModel(): BackOfficeModel {
         relation("client", "Client account", "clients"),
         field("reference", "Party reference"),
         field("subrole", "Subrole"),
-        field("actaportId", "Actaport ID"),
       ]),
       object("projectLinks", "Project link", "Project links", "folder", [
         field("projectId", "Project ID", "text", { required: true }),
@@ -296,7 +313,6 @@ export function defaultBackOfficeModel(): BackOfficeModel {
           "Written off",
         ]),
         relation("invoice", "Invoice", "invoices"),
-        field("actaportId", "Actaport ID"),
       ]),
       object("billingItems", "Billing item", "Billing items", "receipt", [
         ...billing(),
@@ -312,7 +328,6 @@ export function defaultBackOfficeModel(): BackOfficeModel {
         money("netAmount", "Net amount"),
         field("vatPercent", "VAT (%)", "number"),
         relation("invoice", "Invoice", "invoices"),
-        field("actaportId", "Actaport ID"),
       ]),
       object("invoices", "Invoice", "Invoices", "receipt", [
         ...billing(),
@@ -331,7 +346,6 @@ export function defaultBackOfficeModel(): BackOfficeModel {
         money("grossTotal", "Gross total"),
         money("outstanding", "Outstanding"),
         relation("originalInvoice", "Original invoice", "invoices"),
-        field("actaportId", "Actaport ID"),
       ]),
     ],
   };
@@ -553,7 +567,9 @@ export function upgradeBackOfficeModel(
     return {
       ...object,
       fields: [
-        ...object.fields,
+        ...object.fields.filter(
+          (field) => !(field.protected && field.id === "actaportId"),
+        ),
         ...core.fields.filter(
           (field) =>
             !object.fields.some((existing) => existing.id === field.id),
