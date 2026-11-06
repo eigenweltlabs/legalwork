@@ -63,11 +63,107 @@ test.skipIf(!nativeMcpBinary)("retired aliases preserve newer native credentials
       "google-vertex-anthropic": { type: "api", key: "synthetic-old-vertex" },
     }));
     let client = await f.start(false);
-    await client.credential.create({ integrationID: "azure", value: { type: "key", key: "synthetic-native-azure" }, activate: false });
+    await client.credential.create({ integrationID: "azure", value: { type: "key", key: "synthetic-selected-azure" }, activate: true });
+    const inactive = await client.credential.create({ integrationID: "azure", value: { type: "key", key: "synthetic-native-azure" }, activate: false });
+    expect(inactive.active).toBe(false);
     await client.credential.create({ integrationID: "google-vertex", value: { type: "key", key: "synthetic-native-vertex" }, activate: true });
     const credentials = await client.credential.list();
     client = await f.start();
     expect(await client.credential.list()).toEqual(credentials);
+  } finally { await f.close(); }
+}, 60_000);
+
+test.skipIf(!nativeMcpBinary)("completes the native v1 credential import through the unchanged engine API", async () => {
+  const f = await fixture();
+  try {
+    const client = await f.start(false);
+    // Match the native legacy importer's rows, including its unset active flag.
+    const db = new Database(f.database);
+    db.exec("CREATE TABLE session (id TEXT PRIMARY KEY)");
+    const insert = db.prepare("INSERT INTO credential (id, integration_id, label, value, time_created, time_updated) VALUES (?, ?, ?, ?, 1, 1)");
+    insert.run("cred_native_azure", "azure-cognitive-services", "API key", JSON.stringify({ type: "key", key: "synthetic-native-azure", metadata: { resourceName: "synthetic-resource" } }));
+    insert.run("cred_native_vertex", "google-vertex-anthropic", "OAuth", JSON.stringify({ type: "oauth", methodID: "oauth", access: "synthetic-access", refresh: "synthetic-refresh", expires: 1893456000000, metadata: { accountID: "synthetic-account" } }));
+    db.close();
+    // A v1 upgrade must use the credentials already imported by the engine.
+    const source = "invalid JSON that must not be reread";
+    await writeFile(f.auth, source);
+    const originals = await client.credential.list();
+    await importLegacyProviderCredentials(client, f.options);
+    const imported = await client.credential.list();
+    const azure = imported.find(item => item.integrationID === "azure"), vertex = imported.find(item => item.integrationID === "google-vertex");
+    expect(azure).toMatchObject({ label: "API key", active: true, value: originals.find(item => item.id === "cred_native_azure")?.value });
+    expect(vertex).toMatchObject({ label: "OAuth", active: true, value: originals.find(item => item.id === "cred_native_vertex")?.value });
+    expect(imported.filter(item => originals.some(original => original.id === item.id))).toEqual(originals);
+    expect((await client.integration.list({ location: { directory: f.options.cwd } })).data.find(item => item.id === "azure")?.connections).toHaveLength(1);
+    if (!azure || !vertex) throw new Error("Expected migrated connections");
+    await client.credential.remove({ credentialID: azure.id });
+    await client.credential.remove({ credentialID: vertex.id });
+    await importLegacyProviderCredentials(client, f.options);
+    expect(await client.credential.list()).toEqual(originals);
+    expect(await readFile(f.auth, "utf8")).toBe(source);
+  } finally { await f.close(); }
+}, 60_000);
+
+test.skipIf(!nativeMcpBinary)("native legacy aliases keep existing current accounts and their selection", async () => {
+  const f = await fixture();
+  try {
+    const client = await f.start(false);
+    for (const integrationID of ["azure-cognitive-services", "google-vertex-anthropic", "azure", "google-vertex"]) {
+      await client.credential.create({ integrationID, label: "Selected account", value: { type: "key", key: `synthetic-${integrationID}` }, activate: true });
+      await client.credential.create({ integrationID, label: "Other account", value: { type: "key", key: `synthetic-other-${integrationID}` }, activate: false });
+    }
+    const db = new Database(f.database); db.exec("CREATE TABLE session (id TEXT PRIMARY KEY)"); db.close();
+    const originals = await client.credential.list();
+    expect(originals.filter(item => !item.active)).toHaveLength(4);
+    await importLegacyProviderCredentials(client, f.options);
+    expect(await client.credential.list()).toEqual(originals);
+  } finally { await f.close(); }
+}, 60_000);
+
+test.skipIf(!nativeMcpBinary)("interrupted native credential handoff resumes without duplicate accounts or lost selection", async () => {
+  const f = await fixture();
+  try {
+    const client = await f.start(false);
+    for (const integrationID of ["azure-cognitive-services", "google-vertex-anthropic"]) {
+      await client.credential.create({ integrationID, label: "Selected account", value: { type: "key", key: `synthetic-selected-${integrationID}` }, activate: true });
+      await client.credential.create({ integrationID, label: "Other account", value: { type: "key", key: `synthetic-other-${integrationID}`, metadata: { region: "eu" } }, activate: false });
+    }
+    const db = new Database(f.database); db.exec("CREATE TABLE session (id TEXT PRIMARY KEY)"); db.close();
+    const originals = await client.credential.list();
+    // Lose the response after the engine commits the first copied credential.
+    const interrupted = new Proxy(client, { get(target, key) {
+      if (key !== "credential") return Reflect.get(target, key);
+      return new Proxy(target.credential, { get(credentials, action) {
+        if (action !== "create") return Reflect.get(credentials, action);
+        return async (input: Parameters<typeof client.credential.create>[0]) => {
+          await credentials.create(input);
+          throw new Error("Synthetic lost import response");
+        };
+      } });
+    } });
+    await expect(importLegacyProviderCredentials(interrupted, f.options)).rejects.toThrow("Synthetic lost import response");
+    await importLegacyProviderCredentials(client, f.options);
+    const imported = await client.credential.list();
+    expect(imported).toHaveLength(8);
+    expect(imported.filter(item => originals.some(original => original.id === item.id))).toEqual(originals);
+    for (const [retired, current] of [["azure-cognitive-services", "azure"], ["google-vertex-anthropic", "google-vertex"]]) {
+      expect(imported.filter(item => item.integrationID === current).map(item => ({ label: item.label, active: item.active, value: item.value })))
+        .toEqual(originals.filter(item => item.integrationID === retired).map(item => ({ label: item.label, active: item.active, value: item.value })));
+    }
+    await importLegacyProviderCredentials(client, f.options);
+    expect(await client.credential.list()).toEqual(imported);
+  } finally { await f.close(); }
+}, 60_000);
+
+test.skipIf(!nativeMcpBinary)("a completed LegalWork import never repairs already-migrated retired credentials", async () => {
+  const f = await fixture();
+  try {
+    const client = await f.start();
+    await client.credential.create({ integrationID: "azure-cognitive-services", value: { type: "key", key: "synthetic-completed-import" } });
+    const db = new Database(f.database); db.exec("CREATE TABLE session (id TEXT PRIMARY KEY)"); db.close();
+    const originals = await client.credential.list();
+    await importLegacyProviderCredentials(client, f.options);
+    expect(await client.credential.list()).toEqual(originals);
   } finally { await f.close(); }
 }, 60_000);
 

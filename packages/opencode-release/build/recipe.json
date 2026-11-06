@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "kind": "legalwork-patched-source-build",
   "baseVersion": "2.1.4",
-  "version": "2.1.4-legalwork.http-policy.5",
+  "version": "2.1.4-legalwork.http-policy.4",
   "channel": "legalwork",
   "upstream": {
     "repository": "https://github.com/anomalyco/opencode.git",
@@ -73,7 +73,7 @@
   "inputs": {
     "patch": {
       "path": "docs/patches/opencode-2.1.4-mcp-http-policy-v3.patch",
-      "sha256": "57f803b235859d130f9d3fc631ce7d270051902cc2efccbafacad6f515d6de3e"
+      "sha256": "422bbc772dffc711254b7f518b5f4ce4498af2cb0f6220e9bd4a11bc3414c92c"
     },
     "lockfile": {
       "upstreamPath": "bun.lock",
@@ -84,20 +84,19 @@
       "sha256": "1767628e91b25f3b730c39edf67069a4575ff2d5509b0e494fa95ec6b693e246"
     },
     "testReceipt": {
-      "path": "docs/patches/opencode-2.1.4-provider-credentials.receipt.json",
-      "sha256": "ead44712efb48ce8996d06fbb3a55df513eb8fb35094820a029eef3b7875d18f"
+      "path": "docs/patches/opencode-2.1.4-migration-times.receipt.json",
+      "sha256": "62831d34304930800094afa27c8a6a6bbdabbcaa3b84234abf706e5c727b2dfe"
     }
   },
   "buildStatus": "tested-source-lock",
   "testEvidence": {
-    "receiptSha256": "ead44712efb48ce8996d06fbb3a55df513eb8fb35094820a029eef3b7875d18f",
+    "receiptSha256": "62831d34304930800094afa27c8a6a6bbdabbcaa3b84234abf706e5c727b2dfe",
     "lockfileSha256": "47359ba0731b02d14b9a93a6b71b2db104cf9b9716ab0b6371fe96f02c6d71b2",
-    "patchSha256": "57f803b235859d130f9d3fc631ce7d270051902cc2efccbafacad6f515d6de3e",
+    "patchSha256": "422bbc772dffc711254b7f518b5f4ce4498af2cb0f6220e9bd4a11bc3414c92c",
     "bun": "1.4.4",
-    "migrationTestsPassed": 61,
+    "migrationTestsPassed": 38,
     "migrationTestsFailed": 0,
     "coreTypecheckPassed": true,
-    "priorHttpPatchUnchanged": true,
-    "priorMigrationPatchUnchanged": true
+    "priorHttpPatchUnchanged": true
   }
 }

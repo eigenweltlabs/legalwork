@@ -26,9 +26,30 @@ async function openReceipt(path: string) {
   return { run: (sql: string) => { db.exec(sql); }, has: (sql: string) => Boolean(db.prepare(sql).get()), close: () => db.close() };
 }
 
+async function importRetiredProviderCredentials(client: OpenCodeClient) {
+  const credentials = await client.credential.list();
+  for (const [retired, integrationID] of legacyIntegrationIDs) {
+    // Native v1 upgrades already copied these credentials under the old IDs.
+    // Keep those originals and use stable copy IDs to resume interrupted imports.
+    const imported = credentials.filter(item => item.integrationID === retired).map(item => ({
+      id: `${item.id}_legalwork_provider`, integrationID, label: item.label, value: item.value, activate: item.active,
+    }));
+    const copyIDs = new Set(imported.map(item => item.id));
+    const existing = credentials.filter(item => item.integrationID === integrationID);
+    // A current account saved independently of this import always wins.
+    if (existing.some(item => !copyIDs.has(item.id))) continue;
+    // The first credential is selected by the native API even with activate:false.
+    // Import the selected account last to preserve the original selection.
+    for (const item of imported.sort((a, b) => Number(a.activate) - Number(b.activate))) {
+      if (!existing.some(current => current.id === item.id)) await client.credential.create(item);
+    }
+  }
+}
+
 /** OpenCode 2.1.4 marks every migration complete on a fresh database without
- * running its auth.json importer. Repair that path once, using native credential
- * APIs; never use the legacy file as a continuing authentication fallback.
+ * running its auth.json importer. Complete both the native v1 import's provider
+ * ID mapping and the fresh-database import once, using native credential APIs.
+ * Never use the legacy file as a continuing authentication fallback.
  * The receipt lives with the database, including across backup/restore. */
 export async function importLegacyProviderCredentials(client: OpenCodeClient, options: {
   cwd: string;
@@ -46,8 +67,9 @@ export async function importLegacyProviderCredentials(client: OpenCodeClient, op
       db.run("PRAGMA busy_timeout = 5000");
       db.run("CREATE TABLE IF NOT EXISTS _legalwork_legacy_provider_import (id INTEGER PRIMARY KEY CHECK (id = 1))");
       if (db.has("SELECT id FROM _legalwork_legacy_provider_import WHERE id = 1")) return;
-      // A v1 upgrade ran the native importer. Do not revive credentials removed
-      // after that upgrade. Fresh v2 schemas contain only session_v2.
+      await importRetiredProviderCredentials(client);
+      // A v1 upgrade ran the native importer. Do not reread auth.json and revive
+      // credentials removed after that upgrade. Fresh v2 has only session_v2.
       const upgraded = db.has("SELECT name FROM sqlite_master WHERE type='table' AND name='session'");
       if (!upgraded) {
         let content: string | undefined;
