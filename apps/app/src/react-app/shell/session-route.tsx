@@ -1,4 +1,5 @@
 import { workspaceFileRoot } from "@legalwork/types/workspace";
+import { BackOfficePage } from "../domains/back-office/back-office-page";
 import { defaultProjectFields, useProjectDefaultsStore } from "@/react-app/domains/workspace/project-defaults-store";
 import {ensureNativeCatalogReady} from "@/app/lib/opencode-catalog-ready";
 import type { Client } from "@/app/types";
@@ -408,6 +409,7 @@ export function SessionRoute() {
   // Mirroring the URL in state lets urgent updates reopen the chat sidebar
   // while React Router is still committing a top-level navigation.
   const mainPage = sessionMainPage(location.pathname);
+  const backOfficePage = location.pathname === "/back-office" || location.pathname.startsWith("/back-office/");
   const showWikis = mainPage === "wikis";
   const manageWikis = showWikis && new URLSearchParams(location.search).get("manage") === "1";
   const showEvals = mainPage === "evals";
@@ -607,7 +609,7 @@ export function SessionRoute() {
       return info;
     },
   });
-  const assistantActive = selectedWorkspace?.preset === "main-assistant" && !mainPage
+  const assistantActive = selectedWorkspace?.preset === "main-assistant" && !mainPage && !backOfficePage
     && isAssistantConversation(selectedSessionId, assistant.data?.day.sessionId, selectedSessionInfo);
   // Home already knows today's Assistant. Load its transcript in the shared
   // cache so opening it does not start from an empty loading screen.
@@ -2842,7 +2844,7 @@ export function SessionRoute() {
         });
       }}
       mainView={
-        openingWiki ? <PageLoading role="status" aria-label={t("wiki.loading")}><PageLoadingSpinner /></PageLoading>
+        backOfficePage ? (client ? <BackOfficePage client={client} /> : <PageLoading><PageLoadingSpinner /></PageLoading>) : openingWiki ? <PageLoading role="status" aria-label={t("wiki.loading")}><PageLoadingSpinner /></PageLoading>
         : showWikis && (manageWikis || !activeWiki) ? <WikiManager client={client} serverUrl={baseUrl} workspaces={sidebarWorkspaces} onChanged={() => void refreshRouteState()} onOpen={openWikiWorkspace} onNewChat={handleOpenWikiSession} /> : scheduledPage ? (
           <ScheduledTasksPage client={client}
             projects={[...workspaces].sort((a, b) => Number(b.id === selectedWorkspaceId) - Number(a.id === selectedWorkspaceId)).map(workspace => ({ id: workspace.id, name: workspace.preset === "main-assistant" ? assistant.data?.profile.name ?? t("assistant.title") : workspace.displayNameResolved || workspace.name || workspace.id, assistant: workspace.preset === "main-assistant", assistantIcon: assistant.data?.profile.icon }))}
@@ -2960,7 +2962,7 @@ export function SessionRoute() {
         // Tasks live on this machine, so the surface exists for everyone — a
         // connected firm additionally syncs them with its Eigenwelt account.
         onShowTasks: showTasksPane,
-        activeNav: mainPage === "projects" ? null : mainPage,
+        activeNav: backOfficePage ? "back-office" : mainPage === "projects" ? null : mainPage,
         workspaceSessionGroups,
         selectedWorkspaceId,
         selectedSessionId,

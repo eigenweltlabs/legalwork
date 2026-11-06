@@ -1743,6 +1743,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
   };
 
   return {
+    backOffice: (path = "", options: { method?: string; body?: unknown; team?: boolean } = {}) => requestJson<unknown>(baseUrl, `/back-office${path}${path.includes("?") ? "&" : "?"}scope=${options.team ? "team" : "local"}`, { token, hostToken, method: options.method, body: options.body }),
     baseUrl,
     token,
     wikiContributions: (wikiId: string) => requestJson<{ items: WikiContribution[]; unavailableProjects: string[] }>(baseUrl, `/wikis/${encodeURIComponent(wikiId)}/suggestions`, { token, hostToken }),

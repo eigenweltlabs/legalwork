@@ -1,4 +1,6 @@
 import { workspaceContentPath, workspaceFileRoot } from "./project-storage.js";
+import { signOutBackOffice } from "./back-office/sync.js";
+import { registerBackOfficeRoutes } from "./back-office/routes.js";
 import { assistantRouteRequiresSubscription, requireAssistantSubscription, requireAssistantWorkspaceSubscription } from "./assistant-subscription.js";
 import { createAssistantRuntime } from "./assistant-runtime.js";
 import { registerBrowserConnectionRoutes } from "./routes/browser-passwords.js";
@@ -1947,6 +1949,7 @@ function createRoutes(
       unarchive: async id => { await getWorkspaceEngineSession(client, workspace, id); return client.session.update({ sessionID: id, archived: false }); },
     };
   });
+  registerBackOfficeRoutes({ routes, config, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace });
   registerReviewRoutes({ routes, config, reviews, corpus, reviewSessions, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace });
   registerCalendarEventDraftRoutes({ routes, config, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace, requireApproval });
   registerEmailDraftRoutes({ routes, config, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace, requireApproval });
@@ -3011,9 +3014,10 @@ function createRoutes(
       const force = body.force === true;
       // Every check first, then anything leaves: synced project copies go
       // only once the tasks may go too.
+      const directoryPending = await signOutBackOffice(config, { force, apply: false });
       const projects = await signOutOfFirmProjects(config, { force, apply: false });
       const tasks = await signOutOfFirmTasks(config, { force });
-      const pending = (projects.ok ? 0 : projects.pending) + (tasks.ok ? 0 : tasks.pending);
+      const pending = directoryPending + (projects.ok ? 0 : projects.pending) + (tasks.ok ? 0 : tasks.pending);
       if (pending > 0) {
         throw new ApiError(
           409,
@@ -3022,6 +3026,7 @@ function createRoutes(
           { pending },
         );
       }
+      await signOutBackOffice(config, { force: true, apply: true });
       await signOutOfFirmProjects(config, { force: true });
       await revokeEigenweltConnection(config);
       // The firm's settings stay, and enforced settings unlock; what its hub installed goes.

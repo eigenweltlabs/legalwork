@@ -1,4 +1,7 @@
-@layer theme, base, markdown-editor, openui, components, utilities;
+@layer theme, base, markdown-editor, openui, twenty-ui, components, utilities;
+@import "twenty-ui/style.css";
+@import "twenty-ui/theme-light.css";
+@import "twenty-ui/theme-dark.css";
 @import "tailwindcss";
 @config "../../tailwind.config.ts";
 
