@@ -292,6 +292,34 @@ test.skipIf(!binary).each([false, true])("real managed file tools enforce projec
     expect(await waitForOutcome(generic.id)).toBe("authorized");
     expect((await projectApi("a", "/permission/saved").then(response => response.json())).data).toEqual([]);
     expect((await client.session.get({ sessionID: generic.id })).permissions).toContainEqual({ action, resource, effect: "allow" });
+    // Approving a helper grants its visible parent chat and clears identical
+    // requests already queued by siblings, without approving another chat.
+    const familyResource = "family-record";
+    const family = await client.session.create({ location, agent: "legalwork" });
+    const child = await client.session.create({ parentID: family.id, agent: "legalwork" });
+    const sibling = await client.session.create({ parentID: family.id, agent: "helper" });
+    const restrictedSibling = await client.session.create({ parentID: family.id, agent: "legalwork" });
+    const unrelated = await client.session.create({ location, agent: "legalwork" });
+    const askFamily = (sessionID: string, agent = "legalwork") => client.permission.create({ sessionID, agent, action,
+      resources: [familyResource], save: [familyResource] });
+    const childAsk = await askFamily(child.id);
+    const siblingRequest = await askFamily(sibling.id, "helper");
+    const parentRequest = await askFamily(family.id);
+    const restrictedRequest = await askFamily(restrictedSibling.id);
+    const unrelatedRequest = await askFamily(unrelated.id);
+    expect([childAsk.effect, siblingRequest.effect, parentRequest.effect, unrelatedRequest.effect]).toEqual(["ask", "ask", "ask", "ask"]);
+    await client.session.update({ sessionID: restrictedSibling.id, permissions: [{ action, resource: familyResource, effect: "deny" }] });
+    expect((await projectApi("a", `/session/${child.id}/permission/${childAsk.id}/reply`, "POST", { decision: "always" })).status).toBe(204);
+    expect((await client.session.get({ sessionID: family.id })).permissions).toContainEqual({ action, resource: familyResource, effect: "allow" });
+    for (const sessionID of [family.id, child.id, sibling.id]) expect(await client.permission.list({ sessionID })).toEqual([]);
+    expect((await client.permission.list({ sessionID: restrictedSibling.id })).map(request => request.id)).toEqual([restrictedRequest.id]);
+    await client.permission.reply({ sessionID: restrictedSibling.id, requestID: restrictedRequest.id, decision: "reject" });
+    expect((await client.permission.list({ sessionID: unrelated.id })).map(request => request.id)).toEqual([unrelatedRequest.id]);
+    await client.permission.reply({ sessionID: unrelated.id, requestID: unrelatedRequest.id, decision: "reject" });
+    const lateChild = await client.session.create({ parentID: child.id, agent: "helper" });
+    expect((await askFamily(lateChild.id, "helper")).effect).toBe("allow");
+    const deniedChild = await client.session.create({ parentID: family.id, agent: "legalwork", permissions: [{ action, resource: familyResource, effect: "deny" }] });
+    expect((await askFamily(deniedChild.id)).effect).toBe("deny");
     const genericSaved = { id: "psv_existing_project", action, resource, projectID: "a" };
     expect((await projectApi("b", "/permission/saved").then(response => response.json())).data).toEqual([]);
     expect((await projectApi("b", `/permission/saved/${genericSaved.id}`, "DELETE")).status).toBe(404);
@@ -301,6 +329,7 @@ test.skipIf(!binary).each([false, true])("real managed file tools enforce projec
     client = connect();
     await invoke(generic.id, "start-permission", permissionInput);
     expect(await waitForOutcome(generic.id)).toBe("authorized");
+    expect((await askFamily(lateChild.id, "helper")).effect).toBe("allow");
     const genericNext = await client.session.create({ location, agent: "legalwork" });
     await invoke(genericNext.id, "start-permission", permissionInput);
     const genericNextAsk = await pending(genericNext.id);
