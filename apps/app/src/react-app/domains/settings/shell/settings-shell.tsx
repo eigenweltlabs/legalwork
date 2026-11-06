@@ -1,5 +1,6 @@
 /** @jsxImportSource react */
 import type * as React from "react";
+import type { AssistantIcon } from "@legalwork/types/main-assistant";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, ArrowRight, ChevronDown, X } from "lucide-react";
@@ -29,7 +30,7 @@ import {
   SettingsPage,
   SettingsSidebar,
   getGlobalSettingsTabs,
-  getSettingsTabIcon,
+  SettingsTabIcon,
   getSettingsTabLabel,
   getWorkspaceSettingsTabs,
 } from "./settings-page";
@@ -46,6 +47,7 @@ type SettingsPageFrameProps = Omit<React.ComponentProps<typeof SettingsPage>, "c
 
 export type SettingsShellProps = SettingsPageFrameProps & {
   accountClient: LegalworkServerClient | null;
+  assistantIcon?: AssistantIcon;
   selectedWorkspaceId: string;
   selectedWorkspaceName: string;
   selectedWorkspaceColor: string;
@@ -96,6 +98,7 @@ export function SettingsShell(props: SettingsShellProps) {
           <div className="flex min-w-0 flex-1 items-center gap-2 mac:titlebar-no-drag">
             <SettingsSectionMenu
               activeTab={props.activeTab}
+              assistantIcon={props.assistantIcon}
               developerMode={props.developerMode}
               onSelectTab={props.onSelectTab}
             />
@@ -162,6 +165,7 @@ export function SettingsShell(props: SettingsShellProps) {
             </MainActionRail>
             <SettingsSidebar
               activeTab={props.activeTab}
+              assistantIcon={props.assistantIcon}
               onSelectTab={props.onSelectTab}
               developerMode={props.developerMode}
               selectedWorkspaceId={props.selectedWorkspaceId}
@@ -185,7 +189,7 @@ export function SettingsShell(props: SettingsShellProps) {
   );
 }
 
-function SettingsSectionMenu(props: Pick<SettingsPageFrameProps, "activeTab" | "developerMode" | "onSelectTab">) {
+function SettingsSectionMenu(props: Pick<SettingsShellProps, "activeTab" | "assistantIcon" | "developerMode" | "onSelectTab">) {
   const allSections: Array<{ label: string | null; tabs: SettingsTab[] }> = [
     { label: null, tabs: ["general"] },
     { label: t("settings.group_workspace"), tabs: getWorkspaceSettingsTabs() },
@@ -193,14 +197,13 @@ function SettingsSectionMenu(props: Pick<SettingsPageFrameProps, "activeTab" | "
   ];
   // Drop any empty groups defensively before rendering.
   const sections = allSections.filter((section) => section.tabs.length > 0);
-  const ActiveIcon = getSettingsTabIcon(props.activeTab);
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
         render={(
           <Button variant="outline" size="sm" className="min-w-0 max-w-46 justify-start gap-2">
-            <ActiveIcon className="size-4 shrink-0" />
+            <SettingsTabIcon tab={props.activeTab} assistantIcon={props.assistantIcon} className="size-4 shrink-0" />
             <span className="truncate">{getSettingsTabLabel(props.activeTab)}</span>
             <ChevronDown className="ml-auto size-4 shrink-0" />
           </Button>
@@ -211,20 +214,17 @@ function SettingsSectionMenu(props: Pick<SettingsPageFrameProps, "activeTab" | "
           <DropdownMenuGroup key={section.label ?? "root"}>
             {index > 0 ? <DropdownMenuSeparator /> : null}
             {section.label ? <DropdownMenuLabel>{section.label}</DropdownMenuLabel> : null}
-            {section.tabs.map((tab) => {
-              const Icon = getSettingsTabIcon(tab);
-              return (
-                <DropdownMenuItem
-                  key={tab}
-                  onClick={() => props.onSelectTab(tab)}
-                  aria-current={props.activeTab === tab ? "page" : undefined}
-                  className={props.activeTab === tab ? "bg-muted font-medium text-foreground" : undefined}
-                >
-                  <Icon />
-                  <span>{getSettingsTabLabel(tab)}</span>
-                </DropdownMenuItem>
-              );
-            })}
+            {section.tabs.map((tab) => (
+              <DropdownMenuItem
+                key={tab}
+                onClick={() => props.onSelectTab(tab)}
+                aria-current={props.activeTab === tab ? "page" : undefined}
+                className={props.activeTab === tab ? "bg-muted font-medium text-foreground" : undefined}
+              >
+                <SettingsTabIcon tab={tab} assistantIcon={props.assistantIcon} />
+                <span>{getSettingsTabLabel(tab)}</span>
+              </DropdownMenuItem>
+            ))}
           </DropdownMenuGroup>
         ))}
       </DropdownMenuContent>

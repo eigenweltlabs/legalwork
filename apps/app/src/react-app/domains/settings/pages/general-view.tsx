@@ -1,5 +1,6 @@
 /** @jsxImportSource react */
-import type { ComponentType } from "react";
+import type { ComponentType, ReactNode } from "react";
+import type { AssistantIcon } from "@legalwork/types/main-assistant";
 import {
   ArrowRight,
   Bell,
@@ -21,15 +22,16 @@ import { t } from "../../../../i18n";
 import { isDesktopRuntime } from "../../../../app/utils";
 import type { SettingsTab } from "../../../../app/types";
 import { IconTile, Surface } from "@/react-app/design-system/surface";
-import { AssistantFlowerIcon } from "../../session/sidebar/assistant-appearance";
+import { AssistantAvatar } from "../../session/sidebar/assistant-appearance";
 
 export type GeneralSettingsViewProps = {
+  assistantIcon?: AssistantIcon;
   onNavigateTab: (tab: SettingsTab) => void;
   developerMode: boolean;
 };
 
 type SettingsIcon = ComponentType<{ size?: number; className?: string }>;
-type SettingsItem = { tab: SettingsTab; icon: SettingsIcon; title: string; desc: string };
+type SettingsItem = { tab: SettingsTab; icon?: SettingsIcon; title: string; desc: string };
 
 const workspaceItems = (): SettingsItem[] => [
   { tab: "permissions", icon: FolderLock, title: t("settings.tab_permissions"), desc: `${t("settings.tab_description_permissions")}.` },
@@ -44,7 +46,7 @@ const globalItems = (): SettingsItem[] => [
     desc: t("settings.tab_description_account"),
   },
   { tab: "ai", icon: Zap, title: t("settings.tab_ai"), desc: t("settings.tab_description_ai") },
-  { tab: "assistant", icon: AssistantFlowerIcon, title: t("assistant.title"), desc: t("assistant.settings_description") },
+  { tab: "assistant", title: t("assistant.title"), desc: t("assistant.settings_description") },
   { tab: "notifications", icon: Bell, title: t("settings.tab_notifications"), desc: t("settings.tab_description_notifications") },
   { tab: "tabular-review", icon: TableProperties, title: t("review.title"), desc: t("review.defaults_scope") },
   { tab: "extensions", icon: Puzzle, title: t("sidebar.integrations"), desc: `${t("settings.tab_description_extensions")}.` },
@@ -84,7 +86,7 @@ function resolveGlobalItems(): SettingsItem[] {
   return [...items.slice(0, 3), recorderItem, officeAddinsItem, ...items.slice(3)];
 }
 
-function SettingsRow(props: { icon: SettingsIcon; title: string; desc: string; onClick: () => void }) {
+function SettingsRow(props: { icon: ReactNode; title: string; desc: string; onClick: () => void }) {
   return (
     <button
       type="button"
@@ -92,7 +94,7 @@ function SettingsRow(props: { icon: SettingsIcon; title: string; desc: string; o
       className="group flex w-full items-center gap-3.5 px-5 py-3.5 text-left transition-colors first:rounded-t-2xl last:rounded-b-2xl hover:bg-muted/40 focus-visible:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40"
     >
       <IconTile size="sm" variant="inset">
-        <props.icon size={17} />
+        {props.icon}
       </IconTile>
       <div className="min-w-0 flex-1">
         <div className="text-[13px] font-medium text-foreground">{props.title}</div>
@@ -106,7 +108,7 @@ function SettingsRow(props: { icon: SettingsIcon; title: string; desc: string; o
   );
 }
 
-function SettingsGroup(props: { label: string; items: SettingsItem[]; onNavigateTab: (tab: SettingsTab) => void }) {
+function SettingsGroup(props: { label: string; items: SettingsItem[]; assistantIcon?: AssistantIcon; onNavigateTab: (tab: SettingsTab) => void }) {
   return (
     <section className="space-y-2.5">
       <div className="lw-section-eyebrow px-1">{props.label}</div>
@@ -114,7 +116,7 @@ function SettingsGroup(props: { label: string; items: SettingsItem[]; onNavigate
         {props.items.map((item) => (
           <SettingsRow
             key={item.tab}
-            icon={item.icon}
+            icon={item.icon ? <item.icon size={17} /> : <AssistantAvatar icon={props.assistantIcon} className="size-[17px]" />}
             title={item.title}
             desc={item.desc}
             onClick={() => props.onNavigateTab(item.tab)}
@@ -129,7 +131,7 @@ export function GeneralSettingsView(props: GeneralSettingsViewProps) {
   return (
     <div className="w-full max-w-3xl space-y-9">
       <SettingsGroup label={t("settings.group_workspace")} items={workspaceItems()} onNavigateTab={props.onNavigateTab} />
-      <SettingsGroup label={t("settings.group_global")} items={resolveGlobalItems()} onNavigateTab={props.onNavigateTab} />
+      <SettingsGroup label={t("settings.group_global")} items={resolveGlobalItems()} assistantIcon={props.assistantIcon} onNavigateTab={props.onNavigateTab} />
       <p className="px-1 text-[11px] text-muted-foreground/70">
         {t("settings.tab_description_general")}
       </p>
