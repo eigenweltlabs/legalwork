@@ -21,7 +21,7 @@ import type { AssistantAvatarIcon, AssistantProfile } from "@legalwork/types/mai
 import { carryAssistantDraft } from "@/react-app/domains/session/surface/composer-state-store";
 import { hasAssistantSubscription } from "@legalwork/types/main-assistant";
 import { AssistantUpgradeModal } from "./assistant-upgrade";
-import { resolveAssistantChat, seedSavedAssistant } from "./assistant-navigation";
+import { resolveAssistantChat, savedAssistantQuery, seedSavedAssistant } from "./assistant-navigation";
 import { useSessionInbox } from "./use-session-inbox";
 import { ScheduledTasksPage } from "../domains/scheduled-tasks/scheduled-tasks-page";
 import { CalendarView } from "../domains/calendar/calendar-view";
@@ -589,8 +589,7 @@ export function SessionRoute() {
     refetchInterval: 30_000, refetchOnWindowFocus: "always",
   });
   const savedAssistant = useQuery({
-    queryKey: ["main-assistant-profile", client?.baseUrl], enabled: Boolean(client) && !isOfficeAddinRuntime(),
-    queryFn: () => { if (!client) throw new Error("Server unavailable"); return client.mainAssistantProfile(); },
+    ...savedAssistantQuery(client), enabled: Boolean(client) && !isOfficeAddinRuntime(),
     staleTime: 30_000,
   });
   useEffect(() => {
@@ -667,17 +666,21 @@ export function SessionRoute() {
   }, [assistantIncluded, assistantUpgrade, openAssistant]);
   const saveAssistantProfile = useCallback(async (profile: AssistantProfile) => {
     if (!client) throw new Error(t("assistant.unavailable"));
-    await client.updateAssistantProfile(profile);
+    const saved = await client.updateAssistantProfile(profile);
+    const cache = getReactQueryClient();
+    cache.setQueryData(savedAssistantQuery(client).queryKey, previous => previous && { ...previous, profile: saved.profile });
     const current = await client.mainAssistantCurrent();
-    getReactQueryClient().setQueryData(["main-assistant", client.baseUrl], current);
-    getReactQueryClient().setQueryData(["assistant-onboarding", client.baseUrl], await client.mainAssistantOnboarding());
+    cache.setQueryData(["main-assistant", client.baseUrl], current);
+    cache.setQueryData(["assistant-onboarding", client.baseUrl], await client.mainAssistantOnboarding());
   }, [client]);
   const answerAssistantOnboarding = useCallback(async (answer: { name: string } | { icon: AssistantAvatarIcon }) => {
     if (!client) throw new Error(t("assistant.unavailable"));
     const state = await client.answerAssistantOnboarding(answer);
     const current = await client.mainAssistantCurrent();
-    getReactQueryClient().setQueryData(["main-assistant", client.baseUrl], current);
-    getReactQueryClient().setQueryData(["assistant-onboarding", client.baseUrl], state);
+    const cache = getReactQueryClient();
+    cache.setQueryData(["main-assistant", client.baseUrl], current);
+    cache.setQueryData(["assistant-onboarding", client.baseUrl], state);
+    cache.setQueryData(savedAssistantQuery(client).queryKey, { ...current, onboarding: state });
   }, [client]);
   // Projects synced with the firm arrive, leave and get renamed in the background.
   useProjectTemplateCatalog(client);
@@ -2949,7 +2952,7 @@ export function SessionRoute() {
         onOpenAssistant: () => { void openAssistant(); },
         assistantActive,
         assistantGreetingUnread: assistantOnboarding.data?.greetingUnread,
-        assistantProfile: assistant.data?.profile,
+        assistantProfile: assistant.data?.profile ?? savedAssistant.data?.profile,
         assistantWorkspaceId: assistant.data?.workspace.id,
         assistantDay: assistant.data?.day,
         onSaveAssistantProfile: saveAssistantProfile,

@@ -2,7 +2,8 @@
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { AssistantIdentity } from "../src/react-app/domains/session/sidebar/assistant-identity";
-import { AssistantAvatar, AssistantAvatarPicker, AssistantFlowerIcon } from "../src/react-app/domains/session/sidebar/assistant-appearance";
+import { AssistantAvatar, AssistantAvatarPicker } from "../src/react-app/domains/session/sidebar/assistant-appearance";
+import { SettingsTabIcon } from "../src/react-app/domains/settings/shell/settings-page";
 import { AssistantAvatarIconSchema, AssistantProfileSchema, DEFAULT_ASSISTANT_PROFILE } from "@legalwork/types/main-assistant";
 
 test("animated avatars provide a still-image source for reduced motion", () => {
@@ -26,7 +27,11 @@ test("sidebar animals stay static while the default and legacy dot use the iOS f
   expect(flower).not.toContain("scale-125");
   expect(renderToStaticMarkup(<AssistantAvatar />)).toBe(flower);
   expect(renderToStaticMarkup(<AssistantAvatar icon="dot" motion="thinking" />)).toBe(flower);
-  expect(renderToStaticMarkup(<AssistantFlowerIcon />)).toContain("flower.png");
+});
+
+test("the Assistant tab shows the selected avatar in Settings", () => {
+  expect(renderToStaticMarkup(<SettingsTabIcon tab="assistant" assistantIcon="bird" />)).toContain("bird.png");
+  expect(renderToStaticMarkup(<SettingsTabIcon tab="assistant" />)).toContain("flower.png");
 });
 
 test("the picker offers one flower first and preserves legacy profile names and animal choices", () => {

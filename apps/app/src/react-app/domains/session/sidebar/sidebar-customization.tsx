@@ -1,5 +1,6 @@
 import { useRef, useState, type ChangeEvent, type ReactNode } from "react";
-import { AssistantFlowerIcon } from "./assistant-appearance";
+import type { AssistantIcon } from "@legalwork/types/main-assistant";
+import { AssistantAvatar } from "./assistant-appearance";
 import { BookOpen, CalendarDays, Check, Clock, Files, FlaskConical, FolderOpen, GripVertical, House, Inbox, LayoutGrid, ListTodo, Loader2, MessageSquare, Mic, PenLine, Pin, SquarePen, Table2, TableProperties, Upload, Users, Workflow, X } from "lucide-react";
 import { LazyMotion, Reorder, domMax, useDragControls } from "motion/react";
 import { toast } from "@/components/ui/sonner";
@@ -14,6 +15,7 @@ import { changeOrgPolicySetting, useOrgPolicy } from "../../connections/org-poli
 
 export const SIDEBAR_ITEMS = {
   navHome: { label: "home.nav_label", icon: House },
+  navAssistant: { label: "assistant.title" },
   navScheduled: { label: "scheduled.title", icon: Clock },
   navCalendar: { label: "calendar.title", icon: CalendarDays },
   navProjects: { label: "projects.plural", icon: LayoutGrid },
@@ -36,14 +38,14 @@ export const SIDEBAR_ITEMS = {
   navEvaluations: { label: "sidebar.evals", icon: FlaskConical },
 };
 
-export function SidebarCustomization({ onDone }: { onDone: () => void }) {
+export function SidebarCustomization({ assistantIcon, onDone }: { assistantIcon?: AssistantIcon; onDone: () => void }) {
   const { config, update } = useShellConfig();
   const options = <K extends ShellNavKey | ChatSectionKey | ProjectNavKey>(keys: K[], change: (keys: K[]) => void, label: string, extra?: ReactNode) => (
     <div className="mt-3">
       <h3 className="px-2 pb-1 text-xs text-muted-foreground">{label}</h3>
       {extra}
       <Reorder.Group axis="y" values={keys} onReorder={change} aria-label={label}>
-        {keys.map(key => <NavigationOption key={key} navKey={key} checked={key === "projectSessions" ? config.collapseProjectSessions : config[key]} onCheckedChange={checked => update(key === "projectSessions" ? { collapseProjectSessions: checked } : { [key]: checked })} onMove={direction => {
+        {keys.map(key => <NavigationOption key={key} navKey={key} assistantIcon={assistantIcon} checked={key === "projectSessions" ? config.collapseProjectSessions : config[key]} onCheckedChange={checked => update(key === "projectSessions" ? { collapseProjectSessions: checked } : { [key]: checked })} onMove={direction => {
           const next = [...keys], index = next.indexOf(key), target = index + direction;
           if (target < 0 || target >= next.length) return;
           next.splice(index, 1); next.splice(target, 0, key); change(next);
@@ -71,13 +73,10 @@ export function SidebarCustomization({ onDone }: { onDone: () => void }) {
         <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto">
         <LazyMotion features={domMax}>
           {options(config.navOrder, navOrder => update({ navOrder }), t("sidebar.main_actions"))}
-          {options(config.chatSectionOrder.filter(key => key !== "navNewChat"), chatSectionOrder => update({ chatSectionOrder: ["navNewChat", ...chatSectionOrder] }), t("sidebar.chat_sections"), <>
+          {options(config.chatSectionOrder.filter(key => key !== "navNewChat"), chatSectionOrder => update({ chatSectionOrder: ["navNewChat", ...chatSectionOrder] }), t("sidebar.chat_sections"),
             <VisibilityToggle checked={config.navNewChat} onCheckedChange={navNewChat => update({ navNewChat })}>
               <SquarePen className="size-[18px] shrink-0" strokeWidth={1.5} /><span className="truncate">{t("projects.new_chat")}</span>
-            </VisibilityToggle>
-            <VisibilityToggle checked={config.navAssistant !== false} onCheckedChange={navAssistant => update({ navAssistant })}>
-              <AssistantFlowerIcon size={18} /><span className="truncate">{t("assistant.title")}</span>
-            </VisibilityToggle></>)}
+            </VisibilityToggle>)}
           {options(config.projectNavOrder, projectNavOrder => update({ projectNavOrder }), t("sidebar.project_items"))}
         </LazyMotion>
         </div>
@@ -134,18 +133,19 @@ function SidebarBrandEditor({ onDone }: { onDone: () => void }) {
 
 function NavigationOption(props: {
   navKey: ShellNavKey | ChatSectionKey | ProjectNavKey;
+  assistantIcon?: AssistantIcon;
   checked: boolean;
   onCheckedChange: (checked: boolean) => void;
   onMove?: (direction: number) => void;
 }) {
   const dragControls = useDragControls();
-  const { icon: Icon, label: labelKey } = SIDEBAR_ITEMS[props.navKey];
-  const label = t(labelKey);
+  const Icon = props.navKey === "navAssistant" ? null : SIDEBAR_ITEMS[props.navKey].icon;
+  const label = t(SIDEBAR_ITEMS[props.navKey].label);
 
   return (
     <Reorder.Item value={props.navKey} dragListener={false} dragControls={dragControls} dragElastic={0} className="relative flex h-10 items-center gap-1 rounded-lg bg-background pr-1" whileDrag={{ boxShadow: "0 3px 12px rgb(0 0 0 / 0.12)" }}>
       <VisibilityToggle checked={props.checked} onCheckedChange={props.onCheckedChange}>
-        <Icon className="size-[18px] shrink-0" strokeWidth={1.5} />
+        {Icon ? <Icon className="size-[18px] shrink-0" strokeWidth={1.5} /> : <AssistantAvatar icon={props.assistantIcon} className="size-[18px]" />}
         <span className="truncate">{label}</span>
       </VisibilityToggle>
       {props.onMove ? <Button variant="ghost" size="icon-xs" className="touch-none cursor-grab text-muted-foreground/50 hover:text-muted-foreground active:cursor-grabbing" aria-label={t("projects.reorder_nav", { name: label })} title={t("projects.reorder_nav_hint")}
