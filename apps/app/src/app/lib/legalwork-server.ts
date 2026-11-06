@@ -1,3 +1,4 @@
+import type { EpostDraft, EpostQuote, EpostReceipt, EpostStatus } from "@legalwork/types/epost";
 import { trackLegalMemoryInterfaceRead } from "./legalmemory-interface-activity";
 import { LegalMemoryPermissionsSchema, type LegalMemoryPermissionReply } from "@legalwork/types/legalmemory";
 import type { CalendarEventDraft } from "@legalwork/types/calendar-event-draft";
@@ -1846,6 +1847,12 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         timeoutMs: timeouts.config,
       }),
     capabilities: () => requestJson<LegalworkServerCapabilities>(baseUrl, "/capabilities", { token, hostToken, timeoutMs: timeouts.capabilities }),
+    epostSettings: () => requestJson<EpostStatus>(baseUrl, "/epost/settings", { token, hostToken, timeoutMs: 15_000 }),
+    setEpostEnabled: (enabled: boolean) => requestJson<EpostStatus>(baseUrl, "/epost/settings", { token, hostToken, method: "PUT", body: { enabled }, timeoutMs: 20_000 }),
+    epostReview: (workspaceId: string, draft: EpostDraft) => requestJson<EpostQuote>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/epost`, { token, hostToken, method: "POST", body: { action: "review", draft }, timeoutMs: 60_000 }),
+    epostSubmit: (workspaceId: string, reviewId: string) => requestJson<EpostReceipt>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/epost`, { token, hostToken, method: "POST", body: { action: "submit", reviewId }, timeoutMs: 65_000 }),
+    epostReceipt: (workspaceId: string, id: string) => requestJson<EpostReceipt>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/epost`, { token, hostToken, method: "POST", body: { action: "status", id }, timeoutMs: 60_000 }),
+    epostConvertWord: (workspaceId: string, path: string) => requestJson<{ path: string }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/epost`, { token, hostToken, method: "POST", body: { action: "convert", path }, timeoutMs: 65_000 }),
     connectorSettings: (id: string) => requestJson<ConnectorWriteSetting>(baseUrl, `/connectors/${encodeURIComponent(id)}/settings`, { token, hostToken, timeoutMs: timeouts.config }),
     connectorSavedStatus: (id?: string) => requestJson<ConnectorStatus>(baseUrl, id ? `/connectors/${encodeURIComponent(id)}/saved` : "/connectors/saved", { token, hostToken, timeoutMs: timeouts.status }),
     setConnectorSettings: (id: string, writeAccess: boolean) => requestJson<ConnectorWriteSetting>(baseUrl, `/connectors/${encodeURIComponent(id)}/settings`, { token, hostToken, method: "PUT", body: { writeAccess }, timeoutMs: timeouts.config }),

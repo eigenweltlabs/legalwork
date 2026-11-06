@@ -1,3 +1,4 @@
+import { EpostIntegration } from "@/components/chat/epost-draft-card";
 import { toast } from "sonner";
 /** @jsxImportSource react */
 import { packageParts } from "./plugin-package-contents";
@@ -465,6 +466,7 @@ export function McpView(props: McpViewProps) {
 
       {showLocal ? (
       <>
+      <EpostIntegration client={props.firmClient} />
       {props.mcpStatus ? (
         <div className="whitespace-pre-wrap wrap-break-word rounded-[20px] border border-dls-border bg-dls-hover px-5 py-4 text-[13px] text-dls-secondary">
           {props.mcpStatus}
