@@ -14,6 +14,8 @@ LegalWork can run its assistant in a sidebar inside Microsoft Word, Excel and Po
 
 One local certificate and add-in server serve the installed Office apps. Uninstalling one app's add-in does not remove another's; removing the last add-in also removes the shared local connection components. This is a locally installed add-in, not a promise that a public Office marketplace listing is required.
 
+After connecting, the sidebar shows your workspaces or the chat list for the workspace containing the open document. Choose a workspace, then an existing chat or **New session** to begin. If the workspace list cannot load, use **Open LegalWork** and **Retry** in the sidebar.
+
 ## Work on the live document
 
 In Word, ask the assistant to read the current document or selection, find text, add comments or propose tracked changes. Check the live Word document and use Word's review controls to accept/reject suggestions. In Excel, the live tools can inspect sheets/ranges and make supported workbook changes. In PowerPoint, they can inspect the deck and perform supported slide operations. Available tools depend on a live document connection and the Office host's APIs.
