@@ -1,3 +1,4 @@
+import { risStatus, saveRisSettings, testRisConnection } from "../extensions/ris.js";
 import { appendFile, mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 import { EnvStoreReadError, InvalidEnvKeyError, isValidEnvKey, type EnvService } from "../env-file.js";
@@ -294,8 +295,13 @@ export function registerCoreRoutes(options: RegisterCoreRoutesOptions): void {
     const body = await readJsonBody(ctx.request);
     return jsonResponse(await callExperimentalExtensionAction(config, env, body, {
       personalConnections: ctx.actor?.scope === "owner" || hasConnectorRuntimeCapability(config, ctx.request),
+      signal: ctx.request.signal,
     }));
   });
+
+  addRoute(routes, "GET", "/integrations/ris", "client", async () => jsonResponse(await risStatus(config)));
+  addRoute(routes, "PUT", "/integrations/ris", "host", async ctx => jsonResponse(await saveRisSettings(config, await readJsonBody(ctx.request))));
+  addRoute(routes, "POST", "/integrations/ris/test", "host", async ctx => jsonResponse(await testRisConnection(config, ctx.request.signal)));
 
   addRoute(routes, "GET", "/experimental/google-workspace/status", "client", async () => {
     return jsonResponse(await googleWorkspaceStatus(config));

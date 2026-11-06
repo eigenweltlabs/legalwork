@@ -15,6 +15,24 @@ import { projectTemplateStrings } from "@legalwork/types/workspace";
  */
 
 const de = {
+  "ris.name": "Österreichisches RIS",
+  "ris.description": "Österreichische Gesetze, Gerichtsentscheidungen und amtliche Veröffentlichungen direkt im RIS recherchieren. Basierend auf dem RIS-MCP-Server von Matteo Bürgler.",
+  "ris.prompt": "Verwenden Sie für diese Recherche die Integration Österreichisches RIS. Ermitteln Sie ihre Aktionen mit legalwork_extension_list_actions(extensionId=\"ris\"), lesen Sie ris_about für Such- und Zitierhinweise und rufen Sie die relevanten Primärtexte ab. Zitieren Sie die genaue RIS-Quelle und unterscheiden Sie historische Fassungen vom geltenden Recht.",
+  "ris.setup": "Aktivieren Sie den Zugriff auf österreichisches Bundes-, Landes- und Gemeinderecht, Gerichtsentscheidungen und amtliche Veröffentlichungen. Ein Konto, API-Schlüssel oder eine separate Installation ist nicht erforderlich.",
+  "ris.execution": "Anfragen werden vom Rechner Ihres LegalWork-Servers direkt an das RIS gesendet. LegalWork verwendet eine gemeinsame Warteschlange und speichert keine Rechercheergebnisse zwischen. Bei einem entfernten Server werden die Anfragen von diesem Server gesendet.",
+  "ris.unavailable": "Der LegalWork-Server ist nicht erreichbar.",
+  "ris.loading": "RIS-Einstellungen werden geladen…",
+  "ris.blocked": "Ihre Organisation hat das Österreichische RIS deaktiviert.",
+  "ris.enabled": "Aktiviert",
+  "ris.disabled": "Deaktiviert",
+  "ris.enable": "RIS aktivieren",
+  "ris.disable": "RIS deaktivieren",
+  "ris.test": "Verbindung testen",
+  "ris.test_success": "Das RIS ist erreichbar. Dieser Test prüft nicht die Vollständigkeit seiner Datenbanken.",
+  "ris.read_only": "Die Integrationseinstellungen können auf diesem schreibgeschützten Server nicht geändert werden.",
+  "ris.owner_only": "Nur der Servereigentümer kann diese Integration ändern oder ihre Verbindung testen.",
+  "ris.source": "Quelle: Bundeskanzleramt, Republik Österreich. RIS-Daten: CC BY 4.0. Rechercheergebnisse enthalten Links zu den Originalquellen und Angaben zur Fassung.",
+
   "shutdown.restart_title": "Änderungen vor dem Neustart speichern?",
   "shutdown.close_title": "Änderungen vor dem Schließen speichern?",
   "shutdown.description": "Diese Dateien enthalten ungespeicherte Änderungen. Speichern Sie Ihre Arbeit oder verwerfen Sie die Änderungen, um fortzufahren.",
