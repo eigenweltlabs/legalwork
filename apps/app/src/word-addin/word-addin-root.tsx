@@ -8,7 +8,6 @@ import { initErrorAnalytics } from "@/app/lib/app-error";
 import { AppErrorBoundary } from "@/react-app/shell/app-error-boundary";
 import { AppMenuProvider } from "@/react-app/shell/app-menu";
 import { LegalworkControlProvider } from "@/react-app/shell/control/control-provider";
-import { LoadingOverlay } from "@/react-app/shell/loading-overlay";
 import { SessionRoute } from "@/react-app/shell/session-route";
 import { ShellConfigProvider } from "@/react-app/shell/shell-config";
 import { t } from "@/i18n";
@@ -46,7 +45,8 @@ function WordChatScreen() {
 /**
  * Task pane navigation: workspace picker -> session list -> chat. Settings
  * and onboarding stay in the LegalWork app; unknown paths land back on the
- * workspace picker.
+ * workspace picker. Connection and data-loading states belong to the pane's
+ * own screens; its pickers do not use the desktop route-readiness signal.
  */
 export function WordAddinRoot() {
   useEffect(() => {
@@ -69,7 +69,6 @@ export function WordAddinRoot() {
           </Routes>
           <WordToolRelayHost />
           <WorkspaceAutoOpen />
-          <LoadingOverlay />
         </LegalworkControlProvider>
       </AppMenuProvider>
     </ShellConfigProvider>
