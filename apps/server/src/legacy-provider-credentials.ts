@@ -10,6 +10,11 @@ const legacyValue = z.discriminatedUnion("type", [
   z.object({ type: z.literal("oauth"), access: z.string(), refresh: z.string(), expires: z.number().int().nonnegative(), accountId: z.string().optional(), enterpriseUrl: z.string().optional() }),
 ]);
 
+const legacyIntegrationIDs = new Map([
+  ["azure-cognitive-services", "azure"],
+  ["google-vertex-anthropic", "google-vertex"],
+]);
+
 async function openReceipt(path: string) {
   if (process.versions.bun) {
     const { Database } = await import("bun:sqlite");
@@ -53,8 +58,11 @@ export async function importLegacyProviderCredentials(client: OpenCodeClient, op
           try { entries = z.record(z.string(), z.unknown()).parse(JSON.parse(content)); }
           catch { throw new Error("Saved provider connections could not be migrated: the legacy file is invalid."); }
           const existing = new Set((await client.credential.list()).map(item => item.integrationID));
-          for (const [id, raw] of Object.entries(entries)) {
-            const integrationID = id.replace(/\/+$/, ""), parsed = legacyValue.safeParse(raw);
+          // Prefer an explicitly saved current connection over its retired alias.
+          const ordered = Object.entries(entries).map(([id, raw]) => ({ id: id.replace(/\/+$/, ""), raw }))
+            .sort((a, b) => Number(legacyIntegrationIDs.has(a.id)) - Number(legacyIntegrationIDs.has(b.id)));
+          for (const { id, raw } of ordered) {
+            const integrationID = legacyIntegrationIDs.get(id) ?? id, parsed = legacyValue.safeParse(raw);
             if (!integrationID || !parsed.success || existing.has(integrationID)) continue;
             const value = parsed.data;
             const credential: Parameters<OpenCodeClient["credential"]["create"]>[0]["value"] = value.type === "api"

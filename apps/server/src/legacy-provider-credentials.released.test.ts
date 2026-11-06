@@ -15,6 +15,62 @@ const legacy = {
   "custom-provider/": { type: "api", key: "synthetic-api-key", metadata: { region: "eu" } },
 };
 
+test.skipIf(!nativeMcpBinary)("imports retired Azure and Vertex connections under their current IDs once", async () => {
+  const f = await fixture();
+  try {
+    const source = JSON.stringify({
+      "azure-cognitive-services/": { type: "api", key: "synthetic-azure-key", metadata: { resourceName: "synthetic-resource" } },
+      "google-vertex-anthropic": { type: "oauth", access: "synthetic-vertex-access", refresh: "synthetic-vertex-refresh", expires: 1893456000000, accountId: "synthetic-vertex-account" },
+    });
+    await writeFile(f.auth, source, { mode: 0o600 });
+    let client = await f.start();
+    const credentials = await client.credential.list();
+    expect(credentials.map(item => item.integrationID).sort()).toEqual(["azure", "google-vertex"]);
+    expect(credentials.find(item => item.integrationID === "azure")).toMatchObject({ active: true, value: { type: "key", key: "synthetic-azure-key", metadata: { resourceName: "synthetic-resource" } } });
+    expect(credentials.find(item => item.integrationID === "google-vertex")).toMatchObject({ active: true, value: { type: "oauth", methodID: "oauth", access: "synthetic-vertex-access", refresh: "synthetic-vertex-refresh", expires: 1893456000000, metadata: { accountID: "synthetic-vertex-account" } } });
+    const azure = (await client.integration.list({ location: { directory: f.options.cwd } })).data.find(item => item.id === "azure");
+    expect(azure?.connections).toHaveLength(1);
+    for (const credential of credentials) await client.credential.remove({ credentialID: credential.id });
+    client = await f.start();
+    expect(await client.credential.list()).toEqual([]);
+    expect(await readFile(f.auth, "utf8")).toBe(source);
+  } finally { await f.close(); }
+}, 60_000);
+
+test.skipIf(!nativeMcpBinary).each([false, true])("current provider IDs win over retired aliases regardless of source order (reverse=%s)", async reverse => {
+  const f = await fixture();
+  try {
+    const entries = [
+      ["azure-cognitive-services", { type: "api", key: "synthetic-old-azure" }],
+      ["azure/", { type: "api", key: "synthetic-current-azure" }],
+      ["google-vertex-anthropic/", { type: "api", key: "synthetic-old-vertex" }],
+      ["google-vertex", { type: "api", key: "synthetic-current-vertex" }],
+    ];
+    await writeFile(f.auth, JSON.stringify(Object.fromEntries(reverse ? entries.reverse() : entries)));
+    const client = await f.start();
+    expect((await client.credential.list()).map(item => ({ integrationID: item.integrationID, value: item.value })).sort((a, b) => a.integrationID.localeCompare(b.integrationID))).toEqual([
+      { integrationID: "azure", value: { type: "key", key: "synthetic-current-azure" } },
+      { integrationID: "google-vertex", value: { type: "key", key: "synthetic-current-vertex" } },
+    ]);
+  } finally { await f.close(); }
+}, 60_000);
+
+test.skipIf(!nativeMcpBinary)("retired aliases preserve newer native credentials, including inactive connections", async () => {
+  const f = await fixture();
+  try {
+    await writeFile(f.auth, JSON.stringify({
+      "azure-cognitive-services": { type: "api", key: "synthetic-old-azure" },
+      "google-vertex-anthropic": { type: "api", key: "synthetic-old-vertex" },
+    }));
+    let client = await f.start(false);
+    await client.credential.create({ integrationID: "azure", value: { type: "key", key: "synthetic-native-azure" }, activate: false });
+    await client.credential.create({ integrationID: "google-vertex", value: { type: "key", key: "synthetic-native-vertex" }, activate: true });
+    const credentials = await client.credential.list();
+    client = await f.start();
+    expect(await client.credential.list()).toEqual(credentials);
+  } finally { await f.close(); }
+}, 60_000);
+
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), "legalwork-provider-import-"));
   for (const name of ["home", "config", "data/opencode", "cache", "state", "project"]) await mkdir(join(root, name), { recursive: true });
