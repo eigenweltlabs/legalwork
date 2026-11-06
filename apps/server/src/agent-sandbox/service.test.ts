@@ -19,6 +19,9 @@ import { closeRuntimeOpencodeConfig, runtimeStorageDir, GLOBAL_TOOL_PERMISSIONS_
 import type { ApprovalRequest, ServerConfig, WorkspaceInfo } from "../types.js";
 import { WikiStore } from "../wiki/store.js";
 import { unregisterWorkspace } from "../routes/workspaces.js";
+import { writeEigenweltConnection } from "../eigenwelt-connection-store.js";
+import { parseEigenweltEntitlements } from "../eigenwelt-auth.js";
+import { writeCachedEigenweltPaidManifest } from "../eigenwelt-paid-manifest.js";
 
 const roots: string[] = [];
 const services: AgentSandboxService[] = [];
@@ -654,6 +657,22 @@ test("web search waits before sending the exact query to its provider", async ()
   expect(net.resolved).toEqual([]);
   f.service.approvals.respond(approval.id, "allow");
   expect((await result).output).toBe("Berlin weather");
+  expect(net.sent).toHaveLength(1);
+});
+
+test("paid AWS search retains the network approval boundary and never forwards credentials on redirects", async () => {
+  const f = await fixture([{ action: "webfetch", resource: "*", effect: "allow" }, { action: "websearch", resource: "*", effect: "allow" }]);
+  await writeEigenweltConnection(f.config, { entitlements: parseEigenweltEntitlements({ plan: "plus", subscriptionStatus: "active", features: ["premium_models"] }) });
+  await writeCachedEigenweltPaidManifest(f.config, { baseURL: "https://gateway.example/v1", apiKey: "paid-key", models: [] });
+  const net = observedWebNetwork([{ status: 302, headers: { location: "https://other.example/" }, bodyBase64: "" }]);
+  const input = webInputSchema.parse({ kind: "search", query: "§ 823 BGB", sessionID: "paid-search", agent: "build" });
+  const result = f.service.web(f.workspace, input, { type: "host" }, new AbortController().signal, [], undefined, net.send).catch(error => error);
+  const [approval] = await waitForWebApproval(f.service);
+  expect(approval.network?.url).toBe("https://gateway.example/v1/web/search");
+  expect(net.sent).toEqual([]);
+  expect(net.resolved).toEqual([]);
+  f.service.approvals.respond(approval.id, "allow");
+  expect(String(await result)).toContain("No data was forwarded");
   expect(net.sent).toHaveLength(1);
 });
 

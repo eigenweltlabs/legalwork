@@ -23,6 +23,7 @@ import { effectiveSandbox, onSandboxSettingsChange, sandboxSettingsWorkspace, wr
 import { runHostCommand } from "./host.js";
 import { brokerRequest, prepareOutboundRequest, type OutboundRequest } from "./network.js";
 import { webRequest, webResult, type WebInput } from "./web.js";
+import { searchProvider, type SearchProvider } from "./search-provider.js";
 import { WikiStore } from "../wiki/store.js";
 import { WikiSync } from "../wiki/sync.js";
 import { assertWikiWorkspaceAccess, ownsWikis, wikiAgentCanAccess, wikiForDirectory } from "../wiki/access.js";
@@ -261,7 +262,8 @@ export class AgentSandboxService {
         // Block before preparing a provider request or doing DNS/network IO.
         if (settings.enabled && settings.networkMode === "block") throw new ApiError(403, "sandbox_network_blocked", "Web access is blocked by this chat's network setting.");
         if (input.kind === "search") await ask("websearch", input.query, description, []);
-        let request = webRequest(input);
+        const provider: SearchProvider = input.kind === "search" ? await searchProvider(this.config) : { name: "exa" };
+        let request = webRequest(input, provider);
         const allowPrivate = !settings.enabled || settings.networkMode === "allow";
         for (let redirects = 0; redirects <= 5; redirects++) {
           const prepared = prepareOutboundRequest(request, { allowPrivate });
@@ -282,7 +284,7 @@ export class AgentSandboxService {
             request = { ...request, url: new URL(response.headers.location, prepared.url).href };
             continue;
           }
-          return webResult(input, prepared.url, response, signal);
+          return webResult(input, prepared.url, response, signal, provider);
         }
         throw new Error("Website request did not finish.");
       });

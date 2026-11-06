@@ -83,7 +83,7 @@ export const LegalWorkSandbox = Plugin.define({
       for (const kind of webKinds) {
         editor.add(nativeTool(ctx, {
           name: kind === "fetch" ? "legalwork_webfetch" : "legalwork_websearch",
-          description: kind === "fetch" ? "Read a web page using this chat's network setting and web permissions. Approval appears in the chat before contacting the website. Redirects require separate approval." : "Search the web using Exa, following this chat's network setting and web permissions. The query is sent only after any required approval.",
+          description: kind === "fetch" ? "Read a web page using this chat's network setting and web permissions. Approval appears in the chat before contacting the website. Redirects require separate approval." : "Search the web using US AWS search for paid LegalWork accounts or Exa for free accounts, following this chat's network setting and web permissions. The query is sent only after any required approval. Paid queries must be at most 200 characters; use the default type and livecrawl. Use legalwork_webfetch to read complete source pages.",
           schema: kind === "fetch" ? webFetchArgs : webSearchArgs,
           outputSchema: webResult,
           permission: "domain",

@@ -22,6 +22,7 @@ For an ordinary how-to question, read the matching page with `legalwork_skill_re
 | Projects, matter details, linked folders or sharing | [projects-sharing.md](references/projects-sharing.md) |
 | Chats, history, folders or remote workers | [workspaces-chats.md](references/workspaces-chats.md) |
 | Model providers, Fusion, OCR or JEV | [models-fusion.md](references/models-fusion.md) |
+| Web search, AWS versus Exa, search costs, query length or search processing location | [models-fusion.md](references/models-fusion.md) |
 | Tabular Review or review prompt sets | [reviews.md](references/reviews.md) |
 | Schedules that run the assistant | [scheduled-tasks.md](references/scheduled-tasks.md) |
 | Tasks, inbox or notifications | [tasks-intake.md](references/tasks-intake.md) |
