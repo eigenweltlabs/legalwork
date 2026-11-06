@@ -10,7 +10,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { stripVTControlCharacters } from 'node:util';
 import { eligibleRecoveryRun, readGitHubApi } from './recover-opencode-artifact.mjs';
-import { eligibleProductionRun } from './production-opencode-cache.mjs';
+import { eligibleNativeProducer } from './native-package-artifacts.mjs';
 import { sandboxCacheKey, verifyRuntimeCache, writeRuntimeReceipt } from './cache-sandbox-runtime.mjs';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
@@ -54,7 +54,7 @@ export async function findRuntimeRecovery(context, read = readGitHubApi) {
           || artifact.workflow_run.id === Number(context.currentRun)) continue;
         const run = JSON.parse(read(api + `runs/${artifact.workflow_run.id}`));
         const samePR = context.event === 'pull_request' && eligibleRecoveryRun(run, context);
-        if (!samePR && !eligibleProductionRun(run, context)) continue;
+        if (!samePR && !eligibleNativeProducer(run, context)) continue;
         const jobs = JSON.parse(read(api + `runs/${run.id}/jobs?per_page=100`));
         if (jobs.total_count !== jobs.jobs.length) continue;
         for (const job of jobs.jobs.filter(job => job.conclusion === 'success' && job.status === 'completed'

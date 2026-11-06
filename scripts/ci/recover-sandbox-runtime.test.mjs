@@ -38,6 +38,7 @@ test('recovery requires a successful producer in an eligible completed run, and 
   };
   const proof = { runID: 42, jobID: 7, artifactID: 8, digest: pin };
   assert.deepEqual(await findRuntimeRecovery(context, reader()), proof);
+  assert.deepEqual(await findRuntimeRecovery(context, reader({ ...run, path: '.github/workflows/sandbox-runtime.yml' })), proof);
   // A failed sibling does not invalidate the independently successful producer.
   assert.deepEqual(await findRuntimeRecovery(context, reader({ ...run, conclusion: 'failure' })), proof);
   for (const change of [{ id: 99 }, { status: 'in_progress' }, { head_branch: 'other' }, { path: '.github/workflows/other.yml' },

@@ -192,6 +192,9 @@ jobs:
         run: pnpm --filter @legalwork/desktop build:electron:production
 
       # Authenticate after the long build so the Azure CLI token is fresh.
+      - name: Retain verified native packaging outputs
+        uses: ./.github/actions/retain-native-packaging
+
       - name: Sign in to Azure signing
         uses: azure/login@v2
         with:

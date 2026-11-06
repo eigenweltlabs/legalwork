@@ -11,6 +11,11 @@ runs:
       with:
         path: ${{ steps.key.outputs.directory }}
         key: ${{ steps.key.outputs.key }}
+    - uses: ./.github/actions/recover-native-package
+      if: steps.cache.outputs.cache-hit != 'true'
+      with:
+        key: ${{ steps.key.outputs.key }}
+        directory: ${{ steps.key.outputs.directory }}
     - name: Verify and load the native adapter, or compile on a miss
       shell: bash
       env:
