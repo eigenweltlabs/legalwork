@@ -44,6 +44,7 @@ Opening a project or changing a filter can reveal items hidden in an aggregate l
 | Recorder: Meetings | How do meeting detection, Meeting Summarisation, mini-bar visibility and screen-share visibility work? | [Recorder settings](recorder-settings.md) |
 | Office Add-ins | How do I install and connect the Office sidebars? | [Office Add-ins](office-addins.md) |
 | Integrations: category catalogue and connector details | How do I connect an external service, sign in directly with Microsoft or manage an OAuth app override? | [Integrations](integrations.md), [Email](email.md) |
+| Integrations: Austrian RIS | How do I enable Austrian legal research, test access or disable local API tools? | [Austrian RIS](integrations.md#austrian-ris) |
 | Integrations: Files & storage | Where are cloud drives and network shares configured? | [Storage](connected-storage.md) |
 | Workflows: Skills | How do I install, inspect or share reusable instructions? | [Workflows](skills-workflows.md), [Integrations](integrations.md) |
 | Personalisation | Where do writing instructions, tone and legacy memory controls live? | [Settings](settings-privacy.md) |

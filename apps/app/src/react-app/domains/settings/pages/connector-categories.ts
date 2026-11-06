@@ -7,7 +7,7 @@ export function connectorCategory(id: string, name: string): Exclude<ConnectorCa
   if (/legalmemory|open.?computer.?use|legalwork/.test(value)) return "eigenwelt";
   if (/gmail|outlook|calendar|slack|teams|mail|whatsapp|zoom/.test(value)) return "communication";
   if (/drive|sharepoint|dropbox|\bbox\b|egnyte|storage|datasite|imanage|netdocuments|file-system/.test(value)) return "files";
-  if (/beck|juris|westlaw|lexis|legal.?data|midpage|descrybe|court|patent|vlex|vaquill/.test(value)) return "legal";
+  if (/\bris\b|beck|juris|westlaw|lexis|legal.?data|midpage|descrybe|court|patent|vlex|vaquill/.test(value)) return "legal";
   if (/actaport|system.?one|clio|lawve|counsel|practice|ra-micro|advoware/.test(value)) return "practice";
   return "productivity";
 }

@@ -28,6 +28,7 @@
     "dist",
     "resources/ocr",
     "resources/agent-sandbox",
+    "resources/licenses",
     "README.md"
   ],
   "repository": {

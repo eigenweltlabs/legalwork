@@ -14,6 +14,7 @@ For an ordinary how-to question, read the matching page with `legalwork_skill_re
 | Question | Read |
 | --- | --- |
 | Personal Assistant, proactive updates, scratchpad, morning briefings, daily chats or custom instructions | [assistant.md](references/assistant.md) |
+| Austrian RIS, Austrian laws or decisions, enabling or testing the public RIS integration | [integrations.md](references/integrations.md#austrian-ris) |
 | Gmail or Outlook email, direct Microsoft sign-in, or an OAuth app override | [email.md](references/email.md) |
 | Workflows, Review prompts, Skills tab, create/run workflows or install skills | [skills-workflows.md](references/skills-workflows.md) |
 | Calendar, deadlines, reminders or subscriptions | [calendar.md](references/calendar.md) |
