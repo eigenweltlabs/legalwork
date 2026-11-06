@@ -41,7 +41,7 @@ Other permission requests also offer **Allow for this chat**. The approval stays
 
 Existing chat-specific permissions remain limited to their original chat after an engine upgrade. Project permissions remain with their original project. If LegalWork reports that saved settings are missing or damaged, it pauses affected operations instead of resetting permissions. Restore the original LegalWork profile from a backup or contact support; deleting the saved settings is not a repair.
 
-With **Sandboxing** off, commands follow your configured tool, chat and firm permissions without an additional computer-access prompt. In **Settings > Tool Permissions**, use **Ask before running computer commands** to choose whether commands require approval. With sandboxing off, a command can read and change files anywhere your computer account can access; turn on **Sandboxing** in **Settings > Tool Permissions** or for the current chat to confine commands to shared folders. Explicit access denials still apply. For protected network requests, remembered approval applies to the exact request: changing its destination, headers or contents requires another approval. macOS or Windows can still deny access independently of LegalWork's approval.
+With **Sandboxing** off, commands follow your configured tool, chat and firm permissions without an additional computer-access prompt. In **Settings > Tool Permissions**, use **Ask before running computer commands** to choose whether commands require approval. With sandboxing off, a command can read and change files anywhere your computer account can access; turn on **Sandboxing** in **Settings > Tool Permissions** to confine commands to shared folders. Explicit access denials still apply. For protected network requests, remembered approval applies to the exact request: changing its destination, headers or contents requires another approval. macOS or Windows can still deny access independently of LegalWork's approval.
 
 Enter API keys and passwords in the relevant connection/Secrets form. Local connection credentials belong to this LegalWork installation; team-managed connections have their own access rules. Do not expose secrets in screenshots, chat examples or diagnostic reports. Changing environment/configuration can require an engine reload; wait for active work or use the app's offered controls.
 
@@ -75,9 +75,11 @@ In **Tool Permissions**, inspect the displayed rule for the operation before cha
 
 ## Sandboxing
 
-During onboarding, the **Sandboxing** switch appears below the tool approval switches and is off by default. Turn it on to run commands inside a protected environment. **Sandbox network traffic** appears only while sandboxing is on; use it to control internet access for commands, page reads and web searches. Model connections, connected apps and browser tools keep their own permissions. You can change these defaults in **Settings > Tool Permissions**, and chats can override them unless firm policy locks them.
+During onboarding, the **Sandboxing** switch appears below the tool approval switches and is off by default. Turn it on to run commands inside a protected environment. **Sandbox network traffic** appears only while sandboxing is on; use it to control internet access for commands, page reads and web searches. Model connections, connected apps and browser tools keep their own permissions. Manage sandbox settings, status and recovery in **Settings > Tool Permissions**. Firm policy can restrict these settings.
 
 If the app reports that sandboxing is unavailable, commands remain blocked while sandboxing is on. This indicates a runtime problem, not a missing network permission.
+
+Sandbox settings refresh when the connected server reports a change, including changes from another window, synced preferences and firm policy. Reconnecting refreshes the current state. Use **Check again** in **Settings > Tool Permissions** to request a manual refresh.
 
 ## Personalisation and memory
 

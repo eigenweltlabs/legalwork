@@ -5,17 +5,23 @@ import { readRuntimeOpencodeConfig, writeRuntimeOpencodeConfig } from "../runtim
 import type { ServerConfig } from "../types.js";
 import { sandboxSettingsSchema, type SandboxSettings } from "./settings-schema.js";
 import { SANDBOX_DEFAULT_ID, notifySandboxSettingsChange, onSandboxSettingsChange, withSandboxSettingsLock, writeSandboxDefault } from "./settings.js";
+import { announceSyncChange } from "../app-sync-events.js";
 
 export type SandboxSyncStatus = "local" | "syncing" | "synced" | "pending" | "conflict";
 const rounds = new WeakMap<ServerConfig, Promise<void>>();
 const statuses = new WeakMap<ServerConfig, SandboxSyncStatus>();
 export const sandboxSyncStatus = (config: ServerConfig) => statuses.get(config) ?? "local";
+function setSandboxSyncStatus(config: ServerConfig, status: SandboxSyncStatus): void {
+  if (sandboxSyncStatus(config) === status) return;
+  statuses.set(config, status);
+  announceSyncChange(config, "sandbox");
+}
 export function sandboxAccount(connection: EigenweltConnection): string | null {
   if (!connection.account || !connection.platformURL || !connection.entitlements?.features.includes("settings_presets")) return null;
   return JSON.stringify([connection.platformURL, connection.account.orgId, connection.account.userId]);
 }
 export async function saveSandboxDefault(config: ServerConfig, settings: SandboxSettings): Promise<void> {
-  statuses.set(config, "pending");
+  setSandboxSyncStatus(config, "pending");
   await writeSandboxDefault(config, settings, sandboxAccount(await readEigenweltConnection(config)));
 }
 const snapshotSchema = z.object({ revision: z.number().int().nonnegative(), sandbox: sandboxSettingsSchema });
@@ -28,8 +34,8 @@ export async function syncSandboxSettings(config: ServerConfig, request: typeof 
       await ensureFreshPlatformToken(config);
       const connection = await readEigenweltConnection(config);
       const account = sandboxAccount(connection);
-      if (!account || !connection.platformToken || !connection.platformURL) { statuses.set(config, "local"); return; }
-      statuses.set(config, "syncing");
+      if (!account || !connection.platformToken || !connection.platformURL) { setSandboxSyncStatus(config, "local"); return; }
+      setSandboxSyncStatus(config, "syncing");
       const row = await readRuntimeOpencodeConfig(config, SANDBOX_DEFAULT_ID, { failOnInvalid: true });
       const state = row.sandboxSync?.account === account ? row.sandboxSync : undefined;
       const url = `${connection.platformURL}/api/desktop/settings`;
@@ -59,16 +65,16 @@ export async function syncSandboxSettings(config: ServerConfig, request: typeof 
           if (uploaded && current.sandboxSync?.account === account && current.sandboxSync.revision === state?.revision)
             await writeRuntimeOpencodeConfig(config, SANDBOX_DEFAULT_ID, value => ({ ...value,
               sandboxSync: { account, revision: snapshot.revision, dirty: true } }));
-          statuses.set(config, "pending");
+          setSandboxSyncStatus(config, "pending");
           return;
         }
         await writeRuntimeOpencodeConfig(config, SANDBOX_DEFAULT_ID, value => ({ ...value, sandbox: snapshot.sandbox,
           sandboxSync: { account, revision: snapshot.revision, dirty: false } }));
         if (row.sandbox?.enabled !== snapshot.sandbox.enabled || row.sandbox?.networkMode !== snapshot.sandbox.networkMode)
           await notifySandboxSettingsChange(config, SANDBOX_DEFAULT_ID);
-        statuses.set(config, conflict ? "conflict" : "synced");
+        setSandboxSyncStatus(config, conflict ? "conflict" : "synced");
       });
-    } catch { statuses.set(config, "pending"); }
+    } catch { setSandboxSyncStatus(config, "pending"); }
   })().finally(() => { rounds.delete(config); });
   rounds.set(config, round);
   await round;

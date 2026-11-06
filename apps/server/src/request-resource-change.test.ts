@@ -9,6 +9,7 @@ test("resource changes notify readers without treating execution or ordinary rea
     ["PUT", "/workspace/ws/ui-views/report", "views"],
     ["PATCH", "/sandbox/settings", "sandbox"],
     ["PATCH", "/workspace/ws/sandbox/session/chat", "sandbox"],
+    ["POST", "/sandbox/prepare", "sandbox"],
   ];
   for (const [method, path, resource] of writes) expect(requestResourceChange(method, path)).toBe(resource);
   for (const [method, path] of [
