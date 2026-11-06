@@ -14,6 +14,7 @@ import { managedSettingsFileSchema, type ManagedSettingsFile } from "./managed-e
 import { legalworkPluginPath } from "./legalwork-extensions-plugin-path.js";
 import { nativeEngineProjectRegistryPath, writeNativeEngineProjectRegistry, writeNativeProjectProjection } from "./engine-project.js";
 import { nativePluginIdentity } from "./native-project-plugins.js";
+import { modelCatalogFor } from "./model-catalog.js";
 /**
  * Runtime OpenCode configuration injected via a server-managed config file
  * passed to the engine as OPENCODE_CONFIG.
@@ -83,7 +84,7 @@ import {
 import { buildPersonalizedAgentPrompt, withFirmInstructions } from "./personalization.js";
 import { buildOrgPolicyEngineLayer, orgPolicyEngineDir, orgPolicyPermissions, writeOrgPolicyEngineLayer } from "./org-policy-engine.js";
 import { appliedOrgPolicy } from "./org-policy.js";
-import { orgChatEngineIds, orgChatProviderTemplates } from "./org-policy-ai.js";
+import { orgChatEngineIds, orgChatModelSelection, orgChatProviderTemplates } from "./org-policy-ai.js";
 import { allowedMemberConnectors } from "./org-policy-items.js";
 // The engine's built-in anonymous provider — always disabled: the free tier
 // is retired, so no unauthenticated fallback models exist.
@@ -377,7 +378,9 @@ export async function buildLegalworkRuntimeSettings(
   const configuration = Schema.decodeUnknownSync(Config.Info)({ ...result,
     policies: [...result.policies, ...Object.entries(providerActivation).map(([resource, effect]) => ({ action: "provider.use", resource, effect }))],
   }, { onExcessProperty: "error" });
-  return { configuration, providerActivation, providerModelSelection: runtimeConfig.providerModelSelection ?? {}, projectPermissionApprovals: runtimeConfig.projectPermissionApprovals ?? [] };
+  const ownModelSelection = runtimeConfig.providerModelSelection ?? {};
+  const providerModelSelection = config ? await orgChatModelSelection(config, ownModelSelection) : ownModelSelection;
+  return { configuration, providerActivation, providerModelSelection, projectPermissionApprovals: runtimeConfig.projectPermissionApprovals ?? [] };
 }
 
 export async function buildLegalworkRuntimeConfigObject(config?: ServerConfig, workspaceId?: string): Promise<Record<string, unknown>> {
@@ -498,7 +501,7 @@ export async function writeLegalworkRuntimeConfigFile(config: ServerConfig, work
       await bundledPluginSpec(legalworkPluginPath("legalwork-tool-image-original-capture"), config),
       await bundledPluginSpec(legalworkPluginPath("legalwork-tool-image-originals"), config),
       { package: await bundledPluginSpec(legalworkPluginPath("legalwork-managed-config"), config), options: { settingsPath } },
-      { package: await bundledPluginSpec(legalworkPluginPath("legalwork-model-catalog"), config), options: { connectionProviders: await orgChatProviderTemplates(config) } },
+      { package: await bundledPluginSpec(legalworkPluginPath("legalwork-model-catalog"), config), options: { connectionProviders: await orgChatProviderTemplates(config), azureCatalogPath: modelCatalogFor(config).engineFilePath } },
       { package: await bundledPluginSpec(legalworkPluginPath("legalwork-commands"), config), options: { settingsPath } },
       await bundledPluginSpec(legalworkOrgPolicyGuardPluginPath(), config),
       ...(config.agentSandboxEnabled ? [await bundledPluginSpec(legalworkSandboxPluginPath(), config)] : []),

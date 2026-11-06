@@ -104,14 +104,16 @@ test('a cache hit skips compilation/private-key import but cannot skip full prod
   const build = workflow('ci-opencode-derivative').jobs.build, steps = build.steps;
   const compile = steps.find(step => step.id === 'engine').if;
   const js = compile.replace(/inputs\.([\w-]+)/g, 'inputs["$1"]').replace(/steps\.([\w-]+)/g, 'steps["$1"]').replace(/outputs\.([\w-]+)/g, 'outputs["$1"]');
-  const selected = (mode, productionHit, developmentHit = '', recovered = '') => Function('inputs', 'steps', `return ${js};`)(
+  const selected = (mode, productionHit, developmentHit = '', recovered = '', base = '') => Function('inputs', 'steps', `return ${js};`)(
     { 'build-mode': mode }, { mode: { outputs: { reuse: 'false' } }, 'production-source': { outputs: { 'cache-hit': productionHit } },
-      cache: { outputs: { 'cache-hit': developmentHit } }, 'artifact-source': { outputs: { 'run-id': recovered } } });
+      cache: { outputs: { 'cache-hit': developmentHit } }, 'artifact-source': { outputs: { 'run-id': recovered } }, 'base-producer': { outputs: { 'run-id': base } } });
   assert.equal(selected('production', 'true'), false);
   assert.equal(selected('production', 'false', 'true', '42'), true);
   assert.equal(selected('development', 'true', 'false'), true);
   assert.equal(selected('development', '', 'true'), false);
   assert.equal(selected('development', '', 'false', '42'), false);
+  assert.equal(selected('development', '', 'false', '', '42'), false);
+  assert.equal(selected('production', 'false', 'true', '42', '42'), true);
   const verify = steps.findIndex(step => step.name === productionVerificationStep);
   const retain = steps.findIndex(step => step.name === 'Retain the verified immutable production engine cache');
   const deliver = steps.findIndex(step => step.uses === 'actions/upload-artifact@v4' && step.with?.name === 'opencode-derivative-ci');

@@ -12,7 +12,10 @@ triggers a build because changes to the producer workflow are included. It
 uses the existing development-only producer and saves its verified twelve-target
 distribution in the `dev` cache scope, which PRs targeting `dev` can restore.
 
-The cache key hashes engine inputs and helper files, not LegalWork's commit ID.
+The cache key hashes engine inputs and build helper files, not LegalWork's commit ID.
+The installed-file verifier and CI cache tool are excluded: changing diagnostics
+or verification does not change compiled OpenCode bytes. Preparation retains its
+separate fingerprint of the current verifier and always checks restored archives.
 The existing current-policy, manifest, archive and provenance checks still run
 before restored bytes are handed to test jobs. There are no partial restore
 keys. A source/recipe change in a PR therefore builds that PR's engine rather
@@ -27,7 +30,13 @@ are serialized, allowing the active producer to finish saving its cache.
 Caches are temporary. If the shared cache is missing or evicted, the existing
 PR producer builds and verifies a matching engine before tests run. This can
 still be slow, and cancelling that PR before the save discards its unfinished
-build. Once the workflow is available on `dev`, maintainers can warm a missing
+build. On a PR cache miss, CI can also reuse an existing engine artifact from the
+PR's exact base commit and base branch, provided every fingerprinted engine input
+and build helper matches. Other PR artifacts are excluded. This also seeds a new
+cache-key version without recompiling unchanged OpenCode. The current verifier
+checks all twelve archives and their provenance before saving or using them;
+invalid artifacts fail the job. Production builds retain fresh compilation and
+signing. Once the workflow is available on `dev`, maintainers can warm a missing
 shared cache without publishing a release:
 
 ```sh

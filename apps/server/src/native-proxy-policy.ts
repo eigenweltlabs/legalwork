@@ -19,6 +19,9 @@ export function assertNativeProxyRoute(actor: Actor, method: string, input: stri
   const write = !["GET", "HEAD"].includes(method.toUpperCase());
   if ((actor.scope ?? "viewer") === "viewer" && write) throw new ApiError(403, "forbidden", "Viewer tokens are read-only.");
   if (/^\/credential(?:\/|$)/.test(path)) throw new ApiError(403, "credential_metadata_only", "Use LegalWork connection metadata and disconnect controls; credential values stay inside the engine.");
+  // Native stateless generation uses the global config location and bypasses
+  // session model-request guards. LegalWork runs inference in project chats.
+  if (path === "/generate/text") throw new ApiError(403, "project_generation_required", "Use a project chat so its provider and model policies apply.");
   if (/^\/(?:pty|experimental\/persistent-pty)(?:\/|$)/.test(path) || /^\/experimental\/session\/[^/]+\/terminal(?:\/|$)/.test(path)) throw new ApiError(403, "engine_terminal_disabled", "Use the LegalWork terminal or sandboxed shell.");
   if (/^\/(?:debug|rpc)(?:\/|$)/.test(path) || path === "/pair") throw new ApiError(403, "engine_admin_owned", "This engine operation is managed by LegalWork.");
   if (/^\/worktree(?:\/|$)/.test(path) || write && path === "/vcs/init") throw new ApiError(403, "coding_workflow_unavailable", "Git worktrees and repository setup are outside LegalWork's legal workflows.");

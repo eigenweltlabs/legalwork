@@ -75,7 +75,7 @@ test('development cache/recovery cannot satisfy production reuse and recovered d
   const compile = steps.find(step => step.id === 'engine').if;
   const js = compile.replace(/inputs\.([\w-]+)/g, 'inputs["$1"]').replace(/steps\.([\w-]+)/g, 'steps["$1"]').replace(/outputs\.([\w-]+)/g, 'outputs["$1"]');
   const selected = (mode, hit, recovered, productionHit = '') => Function('inputs', 'steps', `return ${js};`)({ 'build-mode': mode },
-    { mode: { outputs: { reuse: 'false' } }, cache: { outputs: { 'cache-hit': hit } }, 'artifact-source': { outputs: { 'run-id': recovered } },
+    { mode: { outputs: { reuse: 'false' } }, cache: { outputs: { 'cache-hit': hit } }, 'artifact-source': { outputs: { 'run-id': recovered } }, 'base-producer': { outputs: { 'run-id': '' } },
       'production-source': { outputs: { 'cache-hit': productionHit } } });
   assert.equal(selected('production', 'true', '42'), true);
   assert.equal(selected('production', 'true', '42', 'true'), false);
@@ -84,6 +84,13 @@ test('development cache/recovery cannot satisfy production reuse and recovered d
   assert.equal(selected('development', 'false', ''), true);
 });
 
+
+test('development v2 recovery retains exact-key and independent manifest pin checks', () => {
+  const nextKey = 'opencode-development-v2-' + 'd'.repeat(64), pin = 'e'.repeat(64);
+  const log = `2026-11-06T12:00:00Z key=${nextKey}\n2026-11-06T12:00:01Z manifest-sha256=${pin}\n`;
+  assert.equal(producerProof(log, nextKey), pin);
+  assert.equal(producerProof(log, nextKey.replace('v2-', 'v1-')), undefined);
+});
 
 test('programmatic gh logs handle the ANSI guard without displaying terminal controls or retrying unrelated errors', () => {
   const endpoint = 'repos/eigenweltlabs/legalwork/actions/jobs/7/logs';

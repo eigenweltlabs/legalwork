@@ -14,9 +14,9 @@ export function eligibleRecoveryRun(run, { repository, branch, pullRequest, curr
     && run.head_branch === branch && run.pull_requests?.some(pr => pr.number === pullRequest);
 }
 export function producerProof(log, expectedKey) {
-  assert.match(expectedKey, /^opencode-development-v1-[a-f0-9]{64}$/);
+  assert.match(expectedKey, /^opencode-development-v[12]-[a-f0-9]{64}$/);
   log = stripVTControlCharacters(log);
-  const keys = new Set([...log.matchAll(/^\S+ key=(opencode-development-v1-[a-f0-9]{64})\r?$/gm)].map(match => match[1]));
+  const keys = new Set([...log.matchAll(/^\S+ key=(opencode-development-v[12]-[a-f0-9]{64})\r?$/gm)].map(match => match[1]));
   const pins = new Set([...log.matchAll(/^\S+ manifest-sha256=([a-f0-9]{64})\r?$/gm)].map(match => match[1]));
   if (keys.size !== 1 || !keys.has(expectedKey) || pins.size !== 1) return undefined;
   return [...pins][0];

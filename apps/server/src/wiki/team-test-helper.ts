@@ -45,6 +45,10 @@ export async function wikiTeamFixture() {
     const token = request.headers.get("authorization")?.replace(/^Bearer /, "");
     const identity = token ? identities.get(token) : undefined;
     if (!identity) return json({ code: "unauthorized" }, 401);
+    // Desktop hosts discover projects independently of wiki sharing.
+    if (path === "/api/projects" && request.method === "GET") {
+      return json({ projects: [], nextCursor: null, hidden: [] });
+    }
     if (path === "/api/intake/members") {
       const members = new Map([...identities.values()].filter(item => item.orgId === identity.orgId).map(item => [item.userId, item]));
       return json({ members: [...members.values()].map(item => ({ ...item, name: item.userId, email: `${item.userId}@example.test`, role: "member" })) });
