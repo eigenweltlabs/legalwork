@@ -67,6 +67,7 @@ export function DirectoryMenu({
   trigger,
   children,
   type = "menu",
+  className,
   align = "end",
   open,
   onOpenChange,
@@ -74,6 +75,7 @@ export function DirectoryMenu({
   trigger: ReactElement;
   children: ReactNode;
   type?: "menu" | "panel" | "picker";
+  className?: string;
   align?: "start" | "end";
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
@@ -81,7 +83,7 @@ export function DirectoryMenu({
   return (
     <Dropdown.Root type={type} open={open} onOpenChange={onOpenChange}>
       <Dropdown.Trigger render={trigger} />
-      <Dropdown.Content align={align} sideOffset={4}>
+      <Dropdown.Content className={className} align={align} sideOffset={4}>
         {children}
       </Dropdown.Content>
     </Dropdown.Root>

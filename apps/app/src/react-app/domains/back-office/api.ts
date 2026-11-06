@@ -5,6 +5,7 @@ import {
   BackOfficeViewSchema,
 } from "@legalwork/types/back-office";
 export const BackOfficeStateSchema = z.object({
+  scope: z.string().default("local"),
   model: BackOfficeModelSchema,
   records: z.array(BackOfficeRecordSchema),
   views: z.array(BackOfficeViewSchema),

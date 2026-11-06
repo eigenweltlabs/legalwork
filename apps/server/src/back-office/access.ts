@@ -6,9 +6,16 @@ import type { BackOfficeActor } from "./schema.js";
 
 export async function backOfficeAccess(
   config: ServerConfig,
-  team: boolean,
+  team?: boolean,
 ): Promise<{ scope: string; actor: BackOfficeActor; sharingAllowed: boolean }> {
   const account = (await readEigenweltConnection(config))?.account;
+  if (team === undefined) {
+    const policy =
+      account && (await readOrgPolicyState(config)) === "active"
+        ? await appliedOrgPolicy(config, "backOffice.sync")
+        : null;
+    team = Boolean(policy?.locked && policy.value.enabled);
+  }
   if (!team)
     return {
       scope: "local",

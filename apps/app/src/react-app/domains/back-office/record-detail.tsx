@@ -21,7 +21,7 @@ import type {
   BackOfficeRecord,
   BackOfficeValue,
 } from "@legalwork/types/back-office";
-import { FieldIcon, ValueDisplay } from "./record-grid";
+import { FieldIcon, ValueDisplay } from "./record-values";
 import { CellEditor } from "./cell-editor";
 import { DirectoryMenu, DirectorySelect } from "./twenty-controls";
 

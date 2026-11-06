@@ -3,7 +3,12 @@ import assert from "node:assert/strict";
 import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { z, BackOfficeSnapshotSchema, type BackOfficeActor } from "./schema.js";
+import {
+  z,
+  BackOfficeSnapshotSchema,
+  BackOfficeViewSchema,
+  type BackOfficeActor,
+} from "./schema.js";
 import { BackOfficeStore, backOfficeStore } from "./store.js";
 import {
   backOfficePlatform,
@@ -21,6 +26,7 @@ import {
 } from "../org-policy.js";
 import { openSqlite, runtimeDbPath } from "../runtime-db.js";
 import { projectSyncStore } from "../project-sync-store.js";
+import { backOfficeAccess } from "./access.js";
 import type { ServerConfig } from "../types.js";
 
 let input = "";
@@ -119,6 +125,8 @@ try {
   const a = await device(settings.admin),
     b = await device(settings.member),
     scope = settings.orgId;
+  assert.equal((await backOfficeAccess(a.config)).scope, scope);
+  assert.equal((await backOfficeAccess(b.config)).scope, scope);
   const localActor: BackOfficeActor = {
     userId: "local",
     model: true,
@@ -251,6 +259,42 @@ try {
   );
   assert.equal(b.store.raw(scope, matter.id)?.values.firmReference, "Preserve");
 
+  const savedViews = ["table", "kanban", "calendar", "list"].map((type) =>
+    a.store.saveView(
+      scope,
+      a.actor,
+      BackOfficeViewSchema.parse({
+        id: crypto.randomUUID(),
+        objectId: "matters",
+        name: type,
+        type,
+        groupField: "status",
+        dateField: "openedOn",
+        columns: ["name", "status", "openedOn"],
+      }),
+    ),
+  );
+  await syncBackOffice(a.config);
+  await syncBackOffice(b.config);
+  assert.deepEqual(
+    b.store
+      .views(scope)
+      .map((view) => view.type)
+      .sort(),
+    ["calendar", "kanban", "list", "table"],
+  );
+  a.store.saveView(scope, a.actor, {
+    ...savedViews[1],
+    name: "Renamed board",
+    archived: true,
+  });
+  await syncBackOffice(a.config);
+  await syncBackOffice(b.config);
+  assert.equal(
+    b.store.views(scope).find((view) => view.id === savedViews[1].id)?.archived,
+    true,
+  );
+
   // Reopening the same SQLite database retains queued work and additive template upgrades.
   const local = a.store.model("local");
   local.templateVersion = 1;
@@ -295,6 +339,8 @@ try {
   assert.equal(a.store.records(scope, a.actor).length, 0);
   assert.equal(a.store.syncState(scope).pending, 1);
   assert.ok(a.store.pending(scope)[0].error);
+  await scheduleOrgPolicySync(a.config, { force: true });
+  assert.equal((await backOfficeAccess(a.config)).scope, "local");
   BackOfficeSnapshotSchema.parse(latest);
   console.log(
     "BACK_OFFICE_INTEGRATION_OK: two devices, conflicts, model ordering, persisted migration, revocation",

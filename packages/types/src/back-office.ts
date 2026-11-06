@@ -73,6 +73,24 @@ export const BackOfficeViewSchema = z.object({
   id: z.string().uuid(),
   objectId: identifier,
   name: z.string().trim().min(1).max(120),
+  type: z.enum(["table", "kanban", "calendar", "list"]).default("table"),
+  groupField: identifier.nullable().default(null),
+  dateField: identifier.nullable().default(null),
+  calendarMode: z.enum(["day", "week", "month"]).default("month"),
+  icon: z
+    .enum([
+      "table",
+      "kanban",
+      "calendar",
+      "list",
+      "briefcase",
+      "building",
+      "users",
+      "tag",
+    ])
+    .nullable()
+    .default(null),
+  archived: z.boolean().default(false),
   columns: z.array(identifier).max(100),
   widths: z.record(identifier, z.number().min(80).max(800)).default({}),
   query: z.string().max(500).default(""),
@@ -185,7 +203,7 @@ export function defaultBackOfficeModel(): BackOfficeModel {
         field("tags", "Tags", "multiselect"),
         field("actaportId", "Actaport ID"),
       ]),
-      object("clients", "Client", "Clients · Mandanten", "clients", [
+      object("clients", "Client", "Clients", "clients", [
         field("clientNumber", "Client number"),
         selection("clientType", "Client type", ["Company", "Individual"]),
         relation("company", "Company", "companies"),
@@ -602,4 +620,150 @@ export function backOfficeProjectContext(
 /** Storage junctions are managed through relationship controls, not record tables. */
 export function isInternalBackOfficeObject(id: string) {
   return id === "projectLinks";
+}
+
+export function validateBackOfficeView(
+  model: BackOfficeModel,
+  view: BackOfficeView,
+): void {
+  const object = model.objects.find(
+    (object) => object.id === view.objectId && !object.archived,
+  );
+  if (!object || isInternalBackOfficeObject(object.id))
+    throw new Error("Choose a visible object for the view.");
+  const fields = new Set(object.fields.map((field) => field.id));
+  if (
+    view.columns.some((id) => !fields.has(id)) ||
+    !fields.has(view.sortField) ||
+    Object.keys(view.filters).some((id) => !fields.has(id))
+  )
+    throw new Error("Choose fields from the selected object.");
+  if (
+    view.type === "kanban" &&
+    !object.fields.some(
+      (field) =>
+        field.id === view.groupField &&
+        (field.type === "select" ||
+          (field.type === "relation" && !field.multiple)),
+    )
+  )
+    throw new Error(
+      "Choose a select or single-relation field for Kanban stages.",
+    );
+  if (
+    view.type === "calendar" &&
+    view.dateField !== "createdAt" &&
+    view.dateField !== "updatedAt" &&
+    !object.fields.some(
+      (field) =>
+        field.id === view.dateField &&
+        (field.type === "date" || field.type === "datetime"),
+    )
+  )
+    throw new Error("Choose a date field for the calendar.");
+}
+
+export function groupViewRecords(
+  rows: BackOfficeRecord[],
+  field: BackOfficeField,
+  records: BackOfficeRecord[],
+) {
+  const values =
+    field.type === "select"
+      ? field.options
+      : [
+          ...new Set(
+            rows.flatMap((record) =>
+              typeof record.values[field.id] === "string" &&
+              record.values[field.id]
+                ? [String(record.values[field.id])]
+                : [],
+            ),
+          ),
+        ];
+  return [...values, null].map((value) => ({
+    value,
+    label:
+      value === null
+        ? ""
+        : field.type === "relation"
+          ? String(
+              records.find((record) => record.id === value)?.values.name ?? "",
+            )
+          : value,
+    records: rows.filter(
+      (record) => (record.values[field.id] || null) === value,
+    ),
+  }));
+}
+
+export function dayKey(date: Date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+export function recordDay(
+  record: BackOfficeRecord,
+  field: string,
+): string | null {
+  const value =
+    field === "createdAt"
+      ? record.createdAt
+      : field === "updatedAt"
+        ? record.updatedAt
+        : record.values[field];
+  if (typeof value !== "string" || !value) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : dayKey(date);
+}
+export function calendarDays(
+  anchor: Date,
+  mode: BackOfficeView["calendarMode"],
+  weekStart: number,
+): Date[] {
+  const first = new Date(
+    anchor.getFullYear(),
+    anchor.getMonth(),
+    mode === "month" ? 1 : anchor.getDate(),
+    12,
+  );
+  let count = mode === "day" ? 1 : 7;
+  if (mode !== "day") {
+    const offset = (first.getDay() - weekStart + 7) % 7;
+    if (mode === "month")
+      count =
+        Math.ceil(
+          (offset +
+            new Date(
+              anchor.getFullYear(),
+              anchor.getMonth() + 1,
+              0,
+            ).getDate()) /
+            7,
+        ) * 7;
+    first.setDate(first.getDate() - offset);
+  }
+  return Array.from(
+    { length: count },
+    (_, index) =>
+      new Date(
+        first.getFullYear(),
+        first.getMonth(),
+        first.getDate() + index,
+        12,
+      ),
+  );
+}
+export function moveCalendarDate(
+  value: unknown,
+  field: BackOfficeField,
+  day: string,
+): string {
+  if (field.type === "date") return day;
+  const [year, month, date] = day.split("-").map(Number);
+  const moved =
+    typeof value === "string" && value
+      ? new Date(value)
+      : new Date(year, month - 1, date, 9);
+  moved.setFullYear(year, month - 1, date);
+  return moved.toISOString();
 }
