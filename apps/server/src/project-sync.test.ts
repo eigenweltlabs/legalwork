@@ -26,6 +26,7 @@ import {
   resolveProjectSync,
   runProjectSync,
   saveProjectSyncSettings,
+  startProjectSyncTimer,
   stopProjectSync,
   type ProjectSyncPlatform,
 } from "./project-sync.js";
@@ -209,18 +210,21 @@ function fakeFirm() {
 /** One member's computer: its own server config, runtime DB and projects folder. */
 async function machine(userId: string, userName: string) {
   const dir = await mkdtemp(join(tmpdir(), `legalwork-${userId}-`));
-  cleanups.push(() => rm(dir, { recursive: true, force: true }));
   const config = {
     configPath: join(dir, "server.json"),
     workspaces: [],
     authorizedRoots: [],
     projectsDirectory: join(dir, "Projects"),
   } as unknown as ServerConfig;
+  // Rounds use the fake platform explicitly. Own their background lifecycle
+  // too, so pending writes and file watchers cannot escape this fixture.
+  const stopSync = startProjectSyncTimer(config, 60_000, 60_000);
+  cleanups.push(async () => { stopSync(); await rm(dir, { recursive: true, force: true }); });
   await writeEigenweltConnection(config, {
     platformToken: `tok_${userId}`,
     account: { userId, userName, userEmail: `${userId}@kanzlei.test`, orgId: ORG, orgName: "Kanzlei" },
   });
-  return { config, dir, userId };
+  return { config, dir, userId, stopSync };
 }
 
 async function localProject(config: ServerConfig, name: string): Promise<WorkspaceInfo> {
@@ -464,6 +468,27 @@ describe("project sync between computers", () => {
     expect(link?.settings.memberIds).toEqual([]);
     expect(link?.confirmed).toBe(true);
     expect(await read(project, "Contract.txt")).toBe("Keep the private copy");
+  });
+
+  test("stopping a fixture cancels queued project writes before its files are removed", async () => {
+    const { platform } = fakeFirm();
+    const owner = await machine("user_anna", "Anna");
+    const project = await localProject(owner.config, "Closing fixture");
+    await saveProjectSyncSettings(owner.config, project, settings());
+    await runProjectSync(owner.config, { platform });
+    const requests: string[] = [];
+    const fetchSpy = spyOn(globalThis, "fetch").mockImplementation(Object.assign(async (input: RequestInfo | URL) => {
+      requests.push(String(input));
+      return new Response("unavailable", { status: 503 });
+    }, { preconnect: globalThis.fetch.preconnect }));
+    try {
+      await saveProjectSyncSettings(owner.config, project, settings({ scope: { ...ALL, tasks: false } }));
+      owner.stopSync();
+      await new Promise(resolve => setTimeout(resolve, 650));
+      expect(requests).toEqual([]);
+    } finally {
+      fetchSpy.mockRestore();
+    }
   });
 
   test("instructions arrive with a shared project, edits return, and clearing reaches both computers", async () => {

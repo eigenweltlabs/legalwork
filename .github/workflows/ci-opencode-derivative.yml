@@ -123,8 +123,25 @@ jobs:
         with:
           path: ${{ runner.temp }}/opencode-derivative/distribution
           key: ${{ steps.cache-key.outputs.key }}
+      - name: Find an existing engine from the unchanged PR base
+        if: inputs.build-mode == 'development' && steps.mode.outputs.reuse != 'true' && steps.cache.outputs.cache-hit != 'true'
+        id: base-producer
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/ci/cache-opencode-derivative.mjs base-producer
+      - name: Download the exact base commit's engine without recompiling
+        if: steps.base-producer.outputs.run-id != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: opencode-derivative-ci
+          repository: ${{ github.repository }}
+          run-id: ${{ steps.base-producer.outputs.run-id }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/opencode-derivative/distribution
       - name: Compile exact reviewed source and complete twelve-target distribution
-        if: steps.mode.outputs.reuse != 'true' && steps.cache.outputs.cache-hit != 'true'
+        if: steps.mode.outputs.reuse != 'true' && steps.cache.outputs.cache-hit != 'true' && steps.base-producer.outputs.run-id == ''
         id: engine
         env:
           BUILD_MODE: ${{ inputs.build-mode }}

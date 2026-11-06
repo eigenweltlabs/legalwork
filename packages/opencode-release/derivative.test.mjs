@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { mkdir, mkdtemp, readFile, readdir, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { link, mkdir, mkdtemp, readFile, readdir, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -79,6 +79,54 @@ test("verified cache supports offline installation and concurrent immutable publ
     const offline = await installLocalDerivativeEngine({ distribution, cacheDirectory: cache, destinationDirectory: path.join(root, "offline"), target });
     assert.equal(offline.candidateBuild.sha256, results[0].candidateBuild.sha256);
     assert.equal((await installLocalDerivativeEngine({ distribution, cacheDirectory: cache, destinationDirectory: first, target })).reused, true);
+  });
+});
+
+test("hard-linked installed engine files retain pinned integrity checks", async t => {
+  for (const current of [target, "windows-x64-baseline"]) await t.test(current, async () => {
+    await fixture(async ({ root, archives, cache, distribution, manifest }) => {
+      const directory = path.join(root, "installed"), aliases = path.join(root, "aliases");
+      const installed = await installLocalDerivativeEngine({ distribution, archiveDirectory: archives, cacheDirectory: cache, destinationDirectory: directory, target: current });
+      await mkdir(aliases);
+      for (const name of Object.keys(manifest.artifacts[current].files)) {
+        const file = path.join(directory, name);
+        await link(file, path.join(aliases, name));
+        assert.equal((await stat(file)).nlink, 2);
+      }
+      const verified = await verifyInstalledDerivativeEngine({ distribution, directory, target: current });
+      assert.equal(verified.sha256, installed.candidateBuild.sha256);
+      assert.equal(await expectedOpencodeVersion(verified.path, verified), recipe.version);
+      assert.equal((await installLocalDerivativeEngine({ distribution, cacheDirectory: cache, destinationDirectory: directory, target: current })).reused, true);
+
+      for (const name of ["NOTICE", path.basename(verified.path)]) {
+        const alias = path.join(aliases, name), original = await readFile(alias), changed = Buffer.from(original);
+        changed[0] ^= 1;
+        await writeFile(alias, changed);
+        await assert.rejects(verifyInstalledDerivativeEngine({ distribution, directory, target: current }),
+          name === "NOTICE" ? /Installed derivative file changed: NOTICE/ : /Candidate binary changed/);
+        await writeFile(alias, original);
+      }
+    });
+  });
+});
+
+test("installed file errors identify the rejected path and file metadata", async t => {
+  for (const type of ["directory", "symbolic link"]) await t.test(type, async () => {
+    await fixture(async ({ root, archives, cache, distribution }) => {
+      const directory = path.join(root, "installed");
+      await installLocalDerivativeEngine({ distribution, archiveDirectory: archives, cacheDirectory: cache, destinationDirectory: directory, target });
+      const file = path.join(directory, "LICENSE");
+      await rm(file);
+      if (type === "directory") await mkdir(file);
+      else await symlink(path.join(root, "missing-link-target"), file);
+      await assert.rejects(verifyInstalledDerivativeEngine({ distribution, directory, target }), error => {
+        // Startup logs retain the message, so all useful evidence must survive there.
+        assert.match(error.message, /ordinary files/);
+        assert.ok(error.message.includes(`Path: ${file}; type: ${type};`));
+        assert.match(error.message, /links: \d+; mode: [0-7]+\./);
+        return true;
+      });
+    });
   });
 });
 
