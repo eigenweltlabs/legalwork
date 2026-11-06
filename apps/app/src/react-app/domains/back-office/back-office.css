@@ -376,20 +376,6 @@
   padding: 6px 14px;
 }
 
-.bo-footer {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 14px;
-  border-top: 1px solid var(--bo-border);
-  color: var(--bo-muted);
-  font-size: 11px;
-}
-
-.bo-footer-end {
-  margin-left: auto;
-}
-
 .bo-loading {
   display: flex;
   flex: 1;
