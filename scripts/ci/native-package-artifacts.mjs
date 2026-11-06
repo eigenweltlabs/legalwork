@@ -114,9 +114,16 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     const temporary = mkdtempSync(path.join(tmpdir(), 'native-package-download-'));
     const archive = path.join(temporary, 'artifact.zip');
     try {
-      const output = openSync(archive, 'w');
-      try { execFileSync('gh', ['api', `repos/eigenweltlabs/legalwork/actions/artifacts/${process.env.RECOVERY_ARTIFACT_ID}/zip`], { stdio: ['ignore', output, 'pipe'] }); }
-      finally { closeSync(output); }
+      const download = flags => {
+        const output = openSync(archive, 'w');
+        try { execFileSync('gh', ['api', ...flags, `repos/eigenweltlabs/legalwork/actions/artifacts/${process.env.RECOVERY_ARTIFACT_ID}/zip`], { stdio: ['ignore', output, 'pipe'] }); }
+        finally { closeSync(output); }
+      };
+      try { download([]); }
+      catch (error) {
+        if (!String(error.stderr ?? error.message).includes('pass --allow-escape-sequences')) throw error;
+        download(['--allow-escape-sequences']);
+      }
       await restoreNativePackageArchive(archive, directory, key, process.env.RECOVERY_DIGEST);
     } finally { rmSync(temporary, { recursive: true, force: true }); }
   }
