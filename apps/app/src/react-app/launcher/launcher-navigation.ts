@@ -18,7 +18,7 @@ export class LauncherNavigationHistory {
   private returning = false;
 
   observe(state: NavigationEntry) {
-    const detail = state.view === "conversation" || state.view === "work" || state.view === "detail" || state.view === "hidden" || state.view === "history";
+    const detail = state.view === "conversation" || state.view === "work" || state.view === "detail" || state.view === "hidden";
     // This input is about to route to a conversation, so it cannot be its Back destination.
     if (!detail && parseLauncherEntry(state.input).mode === "ask") return;
     if (this.previous && (this.previous.view !== state.view || state.view === "detail" && detailIdentity(this.previous.detail) !== detailIdentity(state.detail))) {

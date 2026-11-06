@@ -146,17 +146,11 @@ export const QuickActionInputSchema = z.object({
 export type QuickActionInput = z.infer<typeof QuickActionInputSchema>;
 export const QuickActionSchema = QuickActionInputSchema.extend({ id: z.string(), createdAt: z.number(), updatedAt: z.number(), usedAt: z.number().nullable(), uses: z.number() });
 export type QuickAction = z.infer<typeof QuickActionSchema>;
-/** A saved search keeps its scope visible: the category, the project and the words. */
-export const SavedSearchInputSchema = z.object({ name: z.string().trim().min(1).max(80), query: z.string().trim().max(300), kind: LauncherSearchKindSchema.nullable(), projectId: z.string().max(200).nullable(),
-  fileTypes: z.array(z.string().regex(/^[a-z0-9]{1,8}$/)).max(20).nullable().optional(), modifiedAfter: z.number().nullable().optional(), sourceKind: LauncherFileSourceKindSchema.nullable().optional(), sort: LauncherSortSchema.optional() });
-export type SavedSearchInput = z.infer<typeof SavedSearchInputSchema>;
-export const SavedSearchSchema = SavedSearchInputSchema.extend({ id: z.string(), createdAt: z.number(), updatedAt: z.number(), usedAt: z.number().nullable(), uses: z.number() });
-export type SavedSearch = z.infer<typeof SavedSearchSchema>;
 export const LauncherCatalogEntrySchema = z.object({
   id: z.string(), label: z.string(), description: z.string().nullable(), aliases: z.array(z.string()), kind: LauncherActionKindSchema,
-  source: z.enum(["app", "command", "skill", "quick-action", "saved-search"]), requires: z.array(LauncherActionInputSchema), target: LauncherActionTargetSchema,
+  source: z.enum(["app", "command", "skill", "quick-action"]), requires: z.array(LauncherActionInputSchema), target: LauncherActionTargetSchema,
   outputs: z.array(LauncherActionOutputSchema), workspaceId: z.string().nullable(), shortcut: z.string().nullable(), favorite: z.boolean(), usedAt: z.number().nullable(),
-  command: z.object({ name: z.string(), template: z.string().nullable(), agent: z.string().nullable() }).nullable(), quickAction: QuickActionSchema.nullable(), savedSearch: SavedSearchSchema.optional(),
+  command: z.object({ name: z.string(), template: z.string().nullable(), agent: z.string().nullable() }).nullable(), quickAction: QuickActionSchema.nullable(),
 });
 /** File finder filters: extensions, a modification floor and source kind, shown as removable chips. */
 export const LauncherFileFilterSchema = z.object({ types: z.array(z.string().regex(/^[a-z0-9]{1,8}$/)).max(20).nullable(), modifiedAfter: z.number().nullable(), sourceKind: LauncherFileSourceKindSchema.nullable().optional(), sort: LauncherSortSchema.optional() });

@@ -10,7 +10,7 @@ import { recordAudit } from "../audit.js";
 import { shortId } from "../utils.js";
 import { launcherDestination } from "../launcher-file-destination.js";
 import { z } from "zod";
-import { AssistantContextItemSchema, AssistantWorkStatusSchema, LAUNCHER_SEARCH_KINDS, LauncherFileTransferInputSchema, LauncherFileSourceKindSchema, LauncherSortSchema, compareLauncherResults, LauncherInvocationSchema, LauncherInvocationSourceSchema, LauncherSearchKindSchema, LauncherSearchResultSchema, QuickActionInputSchema, SavedSearchInputSchema } from "@legalwork/types/launcher";
+import { AssistantContextItemSchema, AssistantWorkStatusSchema, LAUNCHER_SEARCH_KINDS, LauncherFileTransferInputSchema, LauncherFileSourceKindSchema, LauncherSortSchema, compareLauncherResults, LauncherInvocationSchema, LauncherInvocationSourceSchema, LauncherSearchKindSchema, LauncherSearchResultSchema, QuickActionInputSchema } from "@legalwork/types/launcher";
 import { ApiError } from "../errors.js";
 import { assistantRequestAuthority, assertAssistantDispatchAuthority } from "../assistant-session-access.js";
 import { isMainAssistant } from "../main-assistant.js";
@@ -18,7 +18,6 @@ import { readAssistantAttention } from "../assistant-attention.js";
 import { readDelegationResult } from "../assistant-delegation-result.js";
 import { listAssistantWork } from "../assistant-work.js";
 import { launcherCatalog, renderQuickActionPrompt } from "../launcher-actions.js";
-import { savedSearchCatalogEntries } from "../launcher-saved-searches.js";
 import { assemblePreview, clampPreview, messagesPreview } from "../launcher-preview.js";
 import { extractCorpusText } from "../corpus/extract.js";
 import { isSupportedWorkspaceTextFilePath, normalizeWorkspaceRelativePath } from "./files.js";
@@ -38,7 +37,7 @@ function parse<T>(schema: z.ZodType<T>, value: unknown, code: string, message: s
 }
 
 export function registerLauncherRoutes(options: Parameters<typeof registerMainAssistantRoutes>[0]) {
-  const { config, routes, jsonResponse, quickActions, savedSearches, stagedContext, fileIndex, delegations, sessionQueue, conversations, submissions } = options;
+  const { config, routes, jsonResponse, quickActions, stagedContext, fileIndex, delegations, sessionQueue, conversations, submissions } = options;
   const read = (ctx: RequestContext) => options.requireClientScope(ctx, "viewer");
   const write = (ctx: RequestContext) => { options.ensureWritable(config); options.requireClientScope(ctx, "collaborator"); };
   const projectName = (workspace: WorkspaceInfo) => (isMainAssistant(workspace) ? options.assistant.profile().name : null) ?? (workspace.displayName || workspace.name);
@@ -171,18 +170,8 @@ export function registerLauncherRoutes(options: Parameters<typeof registerMainAs
         groups.push({ workspaceId: isMainAssistant(workspace) ? null : workspace.id, items: result.data ?? [] });
       } catch { unavailable.push(source.id); }
     }
-    const savedEntries = savedSearchCatalogEntries(savedSearches.list(), id => { const workspace = config.workspaces.find(workspace => workspace.id === id); return workspace ? projectName(workspace) : null; });
-    return jsonResponse({ entries: [...launcherCatalog({ commands: groups, quickActions: quickActions.list() }), ...savedEntries], unavailable });
+    return jsonResponse({ entries: launcherCatalog({ commands: groups, quickActions: quickActions.list() }), unavailable });
   });
-  addRoute(routes, "GET", "/launcher/searches", "client", async ctx => { read(ctx); return jsonResponse({ searches: savedSearches.list() }); });
-  addRoute(routes, "POST", "/launcher/searches", "client", async ctx => {
-    write(ctx);
-    const input = parse(SavedSearchInputSchema, await options.readJsonBodyLimited(ctx.request, 8_000), "saved_search_input", "Provide a name and the search to save.");
-    if (input.projectId && !config.workspaces.some(workspace => workspace.id === input.projectId)) throw new ApiError(404, "workspace_not_found", "The requested project is unknown.");
-    return jsonResponse({ search: savedSearches.create(input) }, 201);
-  });
-  addRoute(routes, "DELETE", "/launcher/searches/:id", "client", async ctx => { write(ctx); savedSearches.remove(ctx.params.id); return jsonResponse({ ok: true }); });
-  addRoute(routes, "POST", "/launcher/searches/:id/used", "client", async ctx => { write(ctx); return jsonResponse({ search: savedSearches.recordUse(ctx.params.id) }); });
   // Copy or move a file into another project: explicit, approved and audited like the file routes.
   addRoute(routes, "POST", "/launcher/files/transfer", "client", async ctx => {
     write(ctx);

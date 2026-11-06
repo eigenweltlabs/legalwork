@@ -46,16 +46,3 @@ test("chat A through Work and chat B returns to A with the correct draft identit
   history.observe(backToA);
   expect(history.back(backToA).view).toBe("idle");
 });
-
-// Opening History must replace the start list, with an independent keyboard selection.
-test("History returns to the chosen entry after opening a chat and then to the start list", () => {
-  const history = new LauncherNavigationHistory();
-  const start: NavigationEntry = { ...home, selection: { id: "home:history", source: "user" } };
-  const list: NavigationEntry = { ...home, view: "history", selection: { id: "home:chat:a", source: "user" } };
-  const chat: NavigationEntry = { ...home, view: "conversation", conversation: conversation("a") };
-  history.observe(start); history.observe(list); history.observe(chat);
-  const restored = history.back(chat);
-  expect(restored).toMatchObject({ view: "history", selection: { id: "home:chat:a" } });
-  history.observe(restored);
-  expect(history.back(restored)).toMatchObject({ view: "idle", selection: { id: "home:history" } });
-});

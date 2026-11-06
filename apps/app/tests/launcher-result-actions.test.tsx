@@ -45,6 +45,22 @@ test("tasks and recordings expose only actions that their handlers support", () 
   expect(resultActionMenu({ ...file, kind: "recordings" })).toEqual(["chat-with-assistant", "ask"]);
 });
 
+test("task menus start with Open in app and status, then separate Assistant actions", () => {
+  for (const completed of [false, true]) {
+    const task: LauncherSearchResult = { ...file, kind: "tasks", completed };
+    const extra = launcherExtraActions(task, true);
+    expect(extra).toEqual(["open-in-app", "hide"]);
+    const html = renderToStaticMarkup(<LauncherActionMenu result={task} selection={[task]} extra={extra} projects={[]} onRun={noop} onExtra={noop} onTransfer={noop} onClose={noop} />);
+    const open = html.indexOf("Open in app"), status = html.indexOf(completed ? "Reopen task" : "Mark done");
+    const separator = html.indexOf('role="separator"'), assistant = html.indexOf("Chat with Assistant");
+    expect(open).toBeGreaterThan(0);
+    expect(status).toBeGreaterThan(open);
+    expect(separator).toBeGreaterThan(status);
+    expect(assistant).toBeGreaterThan(separator);
+    expect(html).not.toContain("Copy to Clipboard");
+  }
+});
+
 test("multi-file actions use the focused selection and the intersection of supported source operations", () => {
   const added = { ...file, id: "other", folderId: "library", workspaceId: null };
   const selected = new Set([resultKey(file), resultKey(added)]);

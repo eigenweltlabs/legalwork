@@ -48,7 +48,7 @@ bun test tests/launcher-draft-coordinator.test.ts tests/launcher-submit-draft.te
 From `apps/server`:
 
 ```sh
-bun test src/assistant-conversations.test.ts src/assistant-conversation-routes.test.ts src/assistant-submissions.test.ts src/assistant-submission-send.test.ts src/assistant-work.test.ts src/assistant-attention.test.ts src/launcher-actions.test.ts src/launcher-context.test.ts src/launcher-file-index.test.ts src/launcher-preview.test.ts src/launcher-saved-searches.test.ts src/launcher-search.test.ts src/launcher-route-regressions.test.ts src/session-message-queue.test.ts
+bun test src/assistant-conversations.test.ts src/assistant-conversation-routes.test.ts src/assistant-submissions.test.ts src/assistant-submission-send.test.ts src/assistant-work.test.ts src/assistant-attention.test.ts src/launcher-actions.test.ts src/launcher-context.test.ts src/launcher-file-index.test.ts src/launcher-preview.test.ts src/launcher-search.test.ts src/launcher-route-regressions.test.ts src/session-message-queue.test.ts
 ```
 
 From `apps/desktop`:

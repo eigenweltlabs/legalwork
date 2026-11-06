@@ -9,6 +9,20 @@ import { matchRoute, type Route, type RequestContext } from "./routes/registry.j
 // under test, rather than starting unrelated server services.
 function context(request: Request): RequestContext { return { request, url: new URL(request.url), params: {}, actor: { type: "host" } } as RequestContext; }
 
+test("saved searches have no registered API or launcher catalog source", async () => {
+  const routes: Route[] = [];
+  registerLauncherRoutes({ routes, config: { workspaces: [] }, requireClientScope: () => {},
+    quickActions: { list: () => [] }, jsonResponse: (body: unknown) => Response.json(body),
+  } as unknown as Parameters<typeof registerLauncherRoutes>[0]);
+  for (const [method, path] of [["GET", "/launcher/searches"], ["POST", "/launcher/searches"], ["DELETE", "/launcher/searches/old"], ["POST", "/launcher/searches/old/used"]]) {
+    expect(matchRoute(routes, method, path)).toBeNull();
+  }
+  const route = matchRoute(routes, "GET", "/launcher/catalog");
+  if (!route) throw new Error("Missing launcher catalog");
+  const response = await route.handler(context(new Request("http://localhost/launcher/catalog")));
+  expect(await response.json()).toEqual({ entries: [], unavailable: [] });
+});
+
 test("copy/move rejects destination links, rechecks after approval and never replaces an existing file", async () => {
   const root = await mkdtemp(join(tmpdir(), "launcher-transfer-"));
   const source = join(root, "source"), target = join(root, "target"), outside = join(root, "outside");

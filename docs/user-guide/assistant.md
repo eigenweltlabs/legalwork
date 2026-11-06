@@ -134,8 +134,8 @@ with file types, dates and search words. Choosing Wikis or added folders clears
 any project scope; choosing a specific project instead clears an incompatible
 source filter. **Added folders only** searches the extra folders configured in
 **Settings > Assistant launcher**. Remove the chip to search all sources again;
-with an empty input, **Backspace** removes the last filter. Saved searches keep
-the selected source. Switching to another category clears the file source filter.
+with an empty input, **Backspace** removes the last filter. Switching to another
+category clears the file source filter.
 
 To change the result order, type **sort** or **sorted** (**sortieren** in German)
 and press **Enter** on **Sort results**. Use **Up/Down** to choose **Name A–Z**,
@@ -143,20 +143,20 @@ and press **Enter** on **Sort results**. Use **Up/Down** to choose **Name A–Z*
 then press **Enter**. **Esc** or **Left** closes the menu without changing the
 order. The sort chip reopens this menu; its remove button restores relevance.
 This works for search categories such as files and tasks and when browsing a
-project's contents or a folder. It keeps source, type and date filters and is
-remembered with a saved search. “Updated” refers to the item's last change,
+project's contents or a folder. It keeps source, type and date filters. “Updated” refers to the item's last change,
 not when you last opened it. Sources with partial coverage remain marked as such.
 
 Type **as** and continue toward **assistant** to put your personalized Assistant
-first, ahead of matching projects, files and history. Press **Enter** to open it.
+first, ahead of matching projects, files and recent items. Press **Enter** to open it.
 
 Use **Up/Down** to select a result and **Enter** to open it. Chats, tasks,
 projects and folders open inside the mini-bar where supported; files open in
 their document workspace. Press **Right** for actions such as **Open in app**,
 copying a file or reference, or **Hide**. **Esc** goes back one step. Hidden
-suggestions can be restored through **Hidden items**. The history and saved
-searches view lets you reopen previous conversations or reuse a search with
-its saved category and project.
+suggestions can be restored through **Hidden items**. Find previous chats with
+**Browse chats**; recently opened items also appear on the start screen. Search
+filters apply to the current search; searches cannot be saved. The mini-bar has
+no separate History or saved-searches screen.
 
 When saving a document, use **Tab** to reach **Project**, then **Enter**,
 **Space**, or **Down** to open its dropdown. Choose with **Up/Down** and
@@ -206,7 +206,7 @@ with Assistant** shows the avatar you selected in Assistant settings.
 | File | Chat with Assistant, Ask about this, Summarize; Compare for multiple selected files. Project files can be copied or moved to another project. Wiki files can be copied into a project. |
 | Folder or project | Browse with Enter; Open in app and Hide. Added local folders instead offer Open with default app and Reveal in folder. |
 | Chat | Continue with Enter; Open in app and Hide. There is no extra Ask about this, summary or file action. |
-| Task | Open/edit with Enter; mark done or reopen, Chat with Assistant, Ask about this, Copy to Clipboard, Open in app and Hide. |
+| Task | Open/edit with Enter. The menu starts with Open in app, then Mark done (or Reopen task), followed by a separator and the Assistant actions. Hide is last. Tasks have no Copy to Clipboard action. |
 | Recording | Open its details with Enter; Chat with Assistant, Ask about this, Copy to Clipboard for its transcript, Open in app and Hide. |
 
 Ordinary files do not repeat **Open in app** in their menu because Enter

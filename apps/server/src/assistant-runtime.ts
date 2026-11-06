@@ -5,7 +5,6 @@ import { getMessageQueue } from "./session-message-queue.js";
 import { AssistantConversations } from "./assistant-conversations.js";
 import { AssistantSubmissions } from "./assistant-submissions.js";
 import { QuickActionStore } from "./launcher-actions.js";
-import { SavedSearchStore } from "./launcher-saved-searches.js";
 import { LauncherContextStore } from "./launcher-context.js";
 import { LauncherFileIndex } from "./launcher-file-index.js";
 import type { DocumentPreparation } from "./document-preparation/service.js";
@@ -221,7 +220,7 @@ export async function createAssistantRuntime(config: ServerConfig, options: {
       return status && status.type !== "idle" ? "running" : "accepted";
     },
   });
-  const launcher = { conversations, submissions, quickActions: await QuickActionStore.open(runtimeDbPath(config)), savedSearches: await SavedSearchStore.open(runtimeDbPath(config)), searchFolders: await LauncherFolders.open(runtimeDbPath(config)), stagedContext: new LauncherContextStore(), fileIndex: new LauncherFileIndex() };
+  const launcher = { conversations, submissions, quickActions: await QuickActionStore.open(runtimeDbPath(config)), searchFolders: await LauncherFolders.open(runtimeDbPath(config)), stagedContext: new LauncherContextStore(), fileIndex: new LauncherFileIndex() };
 
   let channelRuntime: Awaited<ReturnType<typeof registerChannelRuntimeRoutes>> | undefined;
   const push = await AssistantPush.open(runtimeDbPath(config),

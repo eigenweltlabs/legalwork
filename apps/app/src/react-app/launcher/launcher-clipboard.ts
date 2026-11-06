@@ -4,15 +4,11 @@ import { resultKey } from "./launcher-search-session";
 import { t } from "@/i18n";
 
 export function canCopyLauncherResult(result: LauncherSearchResult, localFiles: boolean) {
-  return result.kind === "files" ? localFiles && Boolean(result.workspaceId || result.folderId) : result.kind === "tasks" ? Boolean(result.workspaceId) : result.kind === "recordings";
+  return result.kind === "files" ? localFiles && Boolean(result.workspaceId || result.folderId) : result.kind === "recordings";
 }
 
 /** Copy complete source text, rather than the truncated search excerpt. */
-export async function launcherClipboardText(result: LauncherSearchResult, client: Pick<LegalworkServerClient, "getTask" | "recordingTranscript">) {
-  if (result.kind === "tasks") {
-    const { task, notes } = await client.getTask(result.workspaceId ?? "", result.id);
-    return [task.title, task.description, ...notes.map(note => note.body)].filter(Boolean).join("\n\n");
-  }
+export async function launcherClipboardText(result: LauncherSearchResult, client: Pick<LegalworkServerClient, "recordingTranscript">) {
   if (result.kind === "recordings") {
     const parts: string[] = [];
     let offset = 0;

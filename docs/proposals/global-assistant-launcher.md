@@ -1,5 +1,9 @@
 # Global Assistant: one window, one search bar, all of LegalWork
 
+Product decision, 2026-11-06: the launcher has no saved searches or separate
+History screen. Previous chats remain discoverable through chat search and recent
+items. This supersedes earlier saved-search/history-screen scope below.
+
 Status: product and architecture proposal with an implemented prototype in PR #323. The [interaction-flow revision of 23 October](assistant-interaction-flow.md) and subsequent [context and actions extension](assistant-context-actions.md) supersede conflicting interaction details below; implementation and validation of that extension are recorded in [the delivery notes](assistant-context-implementation.md).
 
 LegalWork should be available wherever the user is working: a shortcut away from finding a file, running a skill, asking a quick question, capturing context, or delegating substantial work. Search, commands, compact conversations, voice, project orchestration and Home belong to one coherent experience. The user should not have to open a project chat to begin.
@@ -286,7 +290,7 @@ These workstreams organize integration and reviewable PRs. They are not a reduce
 | Conversations and work | Explicit conversation creation/resume, migration of daily history, origin-bound returns, direct attention/activity and server authorization constraints. | Demonstrate multi-conversation work, midnight continuation, replies from either surface and backend restart recovery. |
 | Shared state and actions | Full draft coordinator, ownership transfer, identified submit/retry, shared action catalog and invocation contract. | Demonstrate attachment-preserving handoff and no duplicate work after lost acknowledgments. |
 | Native companion and panel | Background setting, shortcut registry, panel route, HUD integration, focus/origin service, host approval presentation and platform behavior. | Real macOS/Windows demonstration with hidden main window, displays/fullscreen, active dictation and sleep/wake. |
-| Search and quick actions | Category aliases, provider/index work, previews, file actions, multi-select, filters, saved searches, favorites and skill dispatch. | Representative local/remote corpora; partial-source reporting; stable keyboard selection; open and agent actions use the same results. |
+| Search and quick actions | Category aliases, provider/index work, previews, file actions, multi-select, filters, favorites and skill dispatch. | Representative local/remote corpora; partial-source reporting; stable keyboard selection; open and agent actions use the same results. |
 | Context, voice and output | Selection/window/region capture, attachment provenance, three voice destinations, result insertion/retargeting and recorder coordination. | Real target apps, permission denial, changed destination and simultaneous background jobs. No wrong-window paste. |
 | Raycast adapter | File/project search, selected-context invocation, quick actions, work/resume entry and authenticated transport. | Cold/warm invocation, duplicate delivery, platform capability differences and permission parity. Can progress alongside native UI once contracts exist. |
 | Product polish | Shared Home/compact components, accessibility, localization, keyboard settings, history, pins, notifications and performance instrumentation. | A coherent uninterrupted end-to-end recording and measured performance/resource results on both platforms. |

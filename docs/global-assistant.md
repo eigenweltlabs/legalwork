@@ -31,12 +31,17 @@ Implemented in `apps/app/src/react-app/launcher/launcher-query.ts` and `launcher
 
 `GET /launcher/search` (`apps/server/src/launcher-search.ts`) fans out to projects, files, chats, tasks and recordings. Every source reports its own coverage (`complete`, `partial`, `filename-only`, `indexing`, `searching`, `unavailable`), so a slow or failed provider never reads as "nothing found". The incremental filename index (`launcher-file-index.ts`) walks a project once, keeps it current through the platform watcher, and ranks exact, prefix, word, substring and fuzzy matches; a keystroke never rewalks a folder. Content matches arrive in a second pass that appends without reordering what is on screen (`launcher-search-session.ts`).
 
-Result actions are only advertised when the provider can execute them: open, reveal, open with default app, attach, ask, compare, summarize, copy path, pin, mark done, hand to Assistant, play, resume. Multi-select with `Cmd/Ctrl`+click or the row checkbox enables compare and summarize over exactly the selected files.
+Result actions follow a shared policy by item type and source, consistently across search, browse and recents. Chats have navigation actions only. Task menus start with Open in app and Mark done/Reopen, then separate the Assistant actions; tasks cannot be copied to the clipboard. Multi-select with `Cmd/Ctrl`+click or the row checkbox enables compare and summarize over exactly the selected files.
 
-## Previews and saved searches
+## Removed launcher features
 
-- `Cmd/Ctrl+Y` or the Preview entry of the actions menu opens a pane under the results for the selected row: a text file or the prepared text of a document, the last turns of a chat, a task with its status and due date, or the transcript of a recording. The pane follows the selection, shows when only the beginning is visible, and `GET /launcher/preview` reads locally; nothing in a preview reaches a model.
-- `Cmd/Ctrl+S` or Save this search stores the current category, project and words on the server (`/launcher/searches`). Saved searches appear on the idle view and in the `/` command menu with their scope spelled out, apply exactly that scope when chosen, and can be deleted from the idle row.
+The separate file-preview action and Copy path are deferred. Saved searches and
+the separate **History & saved searches** screen were removed on 2026-11-06,
+including the Save this search action, Cmd/Ctrl+S binding, catalog entries and
+`/launcher/searches` API. Previous database rows are unused; normal chat storage,
+recent-item suggestions and Escape navigation are independent of this removal.
+Use the current [Assistant guide](user-guide/assistant.md) for supported flows;
+the screenshots and smoke-run notes below document earlier iterations.
 
 ## Conversations, drafts and submissions
 

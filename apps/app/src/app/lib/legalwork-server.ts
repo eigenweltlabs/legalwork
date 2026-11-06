@@ -1,7 +1,7 @@
 import { trackLegalMemoryInterfaceRead } from "./legalmemory-interface-activity";
 import { LegalMemoryPermissionsSchema, type LegalMemoryPermissionReply } from "@legalwork/types/legalmemory";
 import type { CalendarEventDraft } from "@legalwork/types/calendar-event-draft";
-import type { LauncherSort, LauncherFileSourceKind, LauncherSearchResult, LauncherSearchFolder, LauncherFileTransferInput, LauncherPreview, SavedSearch, SavedSearchInput, AssistantContextItem, AssistantConversation, AssistantConversationPage, AssistantExecutionTarget, AssistantSubmission, AssistantSubmitInput, AssistantWorkItem, AssistantWorkStatus, LauncherCatalogEntry, LauncherInvocation, LauncherSearchKind, LauncherSearchResponse, LauncherStagedContext, QuickAction, QuickActionInput } from "@legalwork/types/launcher";
+import type { LauncherSort, LauncherFileSourceKind, LauncherSearchResult, LauncherSearchFolder, LauncherFileTransferInput, LauncherPreview, AssistantContextItem, AssistantConversation, AssistantConversationPage, AssistantExecutionTarget, AssistantSubmission, AssistantSubmitInput, AssistantWorkItem, AssistantWorkStatus, LauncherCatalogEntry, LauncherInvocation, LauncherSearchKind, LauncherSearchResponse, LauncherStagedContext, QuickAction, QuickActionInput } from "@legalwork/types/launcher";
 import type { EmailDraft } from "@legalwork/types/email-draft";
 import type { ConnectorWriteSetting, ConnectorCloudAccess } from "@legalwork/types/connectors";
 import type { PluginCreateOptions, PluginCreateRequest, PluginImportCandidate, PluginImportPreview, PluginImportProvider, PluginImportRequest, PluginImportUpdate } from "@legalwork/types/plugin-import";
@@ -2894,10 +2894,6 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     deleteQuickAction: (id: string) => requestJson<{ ok: boolean }>(baseUrl, `/launcher/actions/${encodeURIComponent(id)}`, { token, hostToken, method: "DELETE" }),
     recordQuickActionUse: (id: string) => requestJson<{ action: QuickAction | null }>(baseUrl, `/launcher/actions/${encodeURIComponent(id)}/used`, { token, hostToken, method: "POST", body: {} }),
     renderQuickAction: (id: string, inputs: { selection?: string; clipboard?: string; files?: string[]; arguments?: string }) => requestJson<{ prompt: string; action: QuickAction }>(baseUrl, `/launcher/actions/${encodeURIComponent(id)}/render`, { token, hostToken, method: "POST", body: inputs }),
-    savedSearches: () => requestJson<{ searches: SavedSearch[] }>(baseUrl, "/launcher/searches", { token, hostToken }),
-    createSavedSearch: (input: SavedSearchInput) => requestJson<{ search: SavedSearch }>(baseUrl, "/launcher/searches", { token, hostToken, method: "POST", body: input }),
-    deleteSavedSearch: (id: string) => requestJson<{ ok: boolean }>(baseUrl, `/launcher/searches/${encodeURIComponent(id)}`, { token, hostToken, method: "DELETE" }),
-    recordSavedSearchUse: (id: string) => requestJson<{ search: SavedSearch | null }>(baseUrl, `/launcher/searches/${encodeURIComponent(id)}/used`, { token, hostToken, method: "POST", body: {} }),
     launcherFolders: () => requestJson<{ folders: LauncherSearchFolder[] }>(baseUrl, "/launcher/folders", { token, hostToken }),
     visibleLauncherFiles: (items: LauncherSearchResult[], signal?: AbortSignal) => requestJson<{ items: LauncherSearchResult[] }>(baseUrl, "/launcher/files/visible", { token, hostToken, method: "POST", body: { items }, signal }),
     launcherBrowse: (input: { workspaceId?: string; folderId?: string; path?: string }, signal?: AbortSignal) => requestJson<{ items: LauncherSearchResult[]; truncated: boolean }>(baseUrl, `/launcher/browse?${new URLSearchParams({ ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}), ...(input.folderId ? { folderId: input.folderId } : {}), path: input.path ?? "" })}`, { token, hostToken, signal }),
