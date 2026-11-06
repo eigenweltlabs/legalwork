@@ -18,7 +18,6 @@ import {
   UsersRound,
   X,
 } from "lucide-react";
-import { ThemeProvider } from "twenty-ui/theme";
 import { Dropdown } from "twenty-ui/components/navigation";
 import { Button } from "twenty-ui/primitives/input";
 import type {
@@ -41,7 +40,7 @@ import {
   DirectoryDialog,
   DirectoryMenu,
   DirectorySelect,
-  directoryTheme,
+  BackOfficeTheme,
 } from "./twenty-controls";
 import { t } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
@@ -76,9 +75,6 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
     navigate = useNavigate(),
     cache = useQueryClient();
   const selected = location.pathname.split("/")[2] ?? "matters";
-  const [dark, setDark] = useState(
-    document.documentElement.classList.contains("dark"),
-  );
   const [detailId, setDetailId] = useState<string | null>(
       new URLSearchParams(location.search).get("record"),
     ),
@@ -134,16 +130,6 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
       }),
     [cache, client.baseUrl],
   );
-  useEffect(() => {
-    const observer = new MutationObserver(() =>
-      setDark(document.documentElement.classList.contains("dark")),
-    );
-    observer.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ["class"],
-    });
-    return () => observer.disconnect();
-  }, []);
   useEffect(() => {
     setDetailId(new URLSearchParams(location.search).get("record"));
     setArchived(false);
@@ -324,15 +310,10 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
     "--bo-detail-width": `${detailWidth}px`,
   };
   return (
-    <ThemeProvider
-      colorScheme={dark ? "dark" : "light"}
-      applyToRoot={false}
-      overrides={directoryTheme}
-    >
+    <BackOfficeTheme>
       <div
         className={`bo ${detail ? "bo-has-detail" : ""}`}
         style={directoryStyle}
-        data-theme={dark ? "dark" : "light"}
       >
         <nav className="bo-tabs" aria-label="Back Office">
           {primary.map(({ id, icon: Icon }) => (
@@ -823,6 +804,6 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
           </div>
         )}
       </div>
-    </ThemeProvider>
+    </BackOfficeTheme>
   );
 }

@@ -6,12 +6,14 @@ import {
   type PointerEvent,
 } from "react";
 import { createPortal } from "react-dom";
+import { useThemeContainer } from "twenty-ui/theme";
 import type { BackOfficeRecord } from "@legalwork/types/back-office";
 
 // Keep record movement inside the renderer. Never start an OS-native HTML drag.
 export function useRecordDrag(
   onDrop: (record: BackOfficeRecord, target: string) => void,
 ) {
+  const themeContainer = useThemeContainer();
   const callback = useRef(onDrop);
   callback.current = onDrop;
   const cleanup = useRef<(() => void) | null>(null);
@@ -120,7 +122,7 @@ export function useRecordDrag(
     start,
     over,
     preventClick,
-    preview: preview
+    preview: preview && themeContainer
       ? createPortal(
           <div
             className="bo-pointer-drag-preview"
@@ -128,7 +130,7 @@ export function useRecordDrag(
           >
             {preview.name}
           </div>,
-          document.body,
+          themeContainer,
         )
       : null,
   };

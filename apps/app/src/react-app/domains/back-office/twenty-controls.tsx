@@ -1,4 +1,6 @@
-import type { ReactElement, ReactNode } from "react";
+import { useSyncExternalStore, type ReactElement, type ReactNode } from "react";
+import { ThemeProvider } from "twenty-ui/theme";
+import { getResolvedThemeMode, subscribeToTheme } from "@/app/theme";
 import { X } from "lucide-react";
 import { Dropdown } from "twenty-ui/components/navigation";
 import { Button, Select } from "twenty-ui/primitives/input";
@@ -15,6 +17,24 @@ export const directoryTheme = {
   "--t-font-size-xl": "20px",
   "--t-font-size-xxl": "24px",
 };
+
+export function BackOfficeTheme({ children }: { children: ReactNode }) {
+  const colorScheme = useSyncExternalStore(
+    subscribeToTheme,
+    getResolvedThemeMode,
+    getResolvedThemeMode,
+  );
+  return (
+    <ThemeProvider
+      colorScheme={colorScheme}
+      applyToRoot={false}
+      overrides={directoryTheme}
+      className="bo-theme"
+    >
+      {children}
+    </ThemeProvider>
+  );
+}
 
 export function DirectorySelect({
   value,
