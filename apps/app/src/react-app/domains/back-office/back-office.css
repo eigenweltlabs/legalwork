@@ -1,10 +1,22 @@
+.bo-theme {
+  --bo-bg: var(--t-background-primary);
+  --bo-surface: var(--t-background-secondary);
+  --bo-hover: var(--t-background-transparent-lighter);
+  --bo-border: var(--t-border-color-light);
+  --bo-text: var(--t-font-color-primary);
+  --bo-muted: var(--t-font-color-tertiary);
+  --bo-blue: var(--t-color-blue9);
+}
+
+.bo-theme.dark {
+  color-scheme: dark;
+}
+
+.bo-theme.light {
+  color-scheme: light;
+}
+
 .bo {
-  --bo-bg: #fff;
-  --bo-surface: #fafafa;
-  --bo-border: #ededed;
-  --bo-text: #333;
-  --bo-muted: #929292;
-  --bo-blue: #4365d8;
   position: relative;
   display: flex;
   flex: 1;
@@ -14,21 +26,8 @@
   overflow: hidden;
   background: var(--bo-bg);
   color: var(--bo-text);
-  font-family:
-    Inter,
-    -apple-system,
-    BlinkMacSystemFont,
-    "Segoe UI",
-    sans-serif;
-  font-size: 13px;
-}
-
-.bo[data-theme="dark"] {
-  --bo-bg: #191919;
-  --bo-surface: #202020;
-  --bo-border: #303030;
-  --bo-text: #e5e5e5;
-  --bo-muted: #939393;
+  font-family: var(--t-font-family);
+  font-size: var(--t-font-size-md);
 }
 
 .bo [role="gridcell"]:focus-visible {
@@ -84,7 +83,7 @@
 }
 
 .bo-object-header h1 svg {
-  color: #aa805f;
+  color: var(--t-color-brown11);
 }
 
 .bo-object-actions,
@@ -123,7 +122,7 @@
 .bo-view-actions {
   margin-left: auto;
   gap: 6px;
-  color: #777;
+  color: var(--t-font-color-secondary);
 }
 
 .bo-view-actions button {
@@ -216,7 +215,7 @@
 }
 
 .bo-column-resizer:hover {
-  background: #4365d838;
+  background: var(--t-color-transparent-blue4);
 }
 
 .bo-grid-row {
@@ -224,9 +223,13 @@
   border-bottom: 1px solid var(--bo-border);
 }
 
-.bo-grid-row:hover,
-.bo-row-selected {
-  background: var(--bo-surface);
+.bo-grid-row:hover {
+  background: var(--bo-hover);
+}
+
+.bo-row-selected,
+.bo-row-selected:hover {
+  background: var(--t-accent-tertiary);
 }
 
 .bo-grid-cell {
@@ -284,7 +287,7 @@
 
 .bo-grid-summary > div {
   padding: 10px 8px;
-  color: #777;
+  color: var(--t-font-color-secondary);
   font-size: 12px;
 }
 
@@ -315,7 +318,7 @@
   align-items: center;
   gap: 20px;
   padding: 7px 20px;
-  background: #4365d812;
+  background: var(--t-accent-tertiary);
   font-size: 12px;
 }
 
@@ -371,7 +374,7 @@
   display: flex;
   justify-content: space-between;
   gap: 8px;
-  color: #bd4747;
+  color: var(--t-font-color-danger);
   font-size: 12px;
   padding: 6px 14px;
 }
@@ -394,7 +397,7 @@
   width: min(440px, 100%);
   background: var(--bo-bg);
   border-left: 1px solid var(--bo-border);
-  box-shadow: -4px 0 15px #0001;
+  box-shadow: var(--t-box-shadow-strong);
   overflow-y: auto;
 }
 
@@ -904,7 +907,7 @@
 }
 
 .bo-detail-resize:hover {
-  background: #4365d830;
+  background: var(--t-color-transparent-blue4);
 }
 
 .bo-field-page {
@@ -993,9 +996,9 @@
 }
 
 .bo-view-editor {
-  --bo-border: var(--t-border-color-light, #e8e8e8);
-  --bo-muted: var(--t-font-color-tertiary, #999);
-  --bo-surface: var(--t-background-secondary, #fafafa);
+  --bo-border: var(--t-border-color-light);
+  --bo-muted: var(--t-font-color-tertiary);
+  --bo-surface: var(--t-background-secondary);
   width: 200px;
   padding: 0;
   font-size: var(--t-font-size-md);
@@ -1233,7 +1236,7 @@
   color: var(--bo-muted);
 }
 .bo-drop-target {
-  background: var(--t-color-bg-accent-soft, #eef1ff);
+  background: var(--t-accent-tertiary);
 }
 .bo-calendar {
   display: flex;
@@ -1307,8 +1310,8 @@
   border-radius: 2px;
 }
 .bo-calendar-today {
-  background: #3d57d6;
-  color: white;
+  background: var(--t-color-blue9);
+  color: var(--t-font-color-on-accent);
 }
 
 .bo-record-card[data-draggable="true"] {
@@ -1320,15 +1323,14 @@
   pointer-events: none;
   max-width: 220px;
   padding: 7px 10px;
-  border: 1px solid #dedede;
+  border: 1px solid var(--t-border-color-medium);
   border-radius: 4px;
-  background: #fff;
-  color: #333;
-  font:
-    13px Inter,
-    sans-serif;
+  background: var(--t-background-secondary);
+  color: var(--t-font-color-primary);
+  font-family: var(--t-font-family);
+  font-size: var(--t-font-size-md);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  box-shadow: 0 3px 12px #0002;
+  box-shadow: var(--t-box-shadow-strong);
 }
