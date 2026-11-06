@@ -195,6 +195,10 @@ jobs:
       - name: Retain verified native packaging outputs
         uses: ./.github/actions/retain-native-packaging
 
+      - name: Prepare and verify Windows signing tools
+        shell: pwsh
+        run: ./scripts/release/prepare-windows-signing.ps1
+
       - name: Sign in to Azure signing
         uses: azure/login@v2
         with:
