@@ -3056,10 +3056,15 @@ function createRoutes(
           models: parseManifestModels(body.models),
           ...(SystemOneConfigurationSchema.safeParse(body.systemOne).success ? { systemOne: SystemOneConfigurationSchema.parse(body.systemOne) } : {}),
         });
-        await rebuildEngineConfigFile(workspace);
       }
       return view;
     });
+    // Global credential commits must not hold the account lock while scanning
+    // projects or checking remote model readiness. Those reads may themselves
+    // need token refresh. Publications read the latest committed credentials.
+    if (typeof body.baseURL === "string" && body.baseURL && typeof body.apiKey === "string" && body.apiKey) {
+      await rebuildEngineConfigFile(workspace);
+    }
     if (view.connected) {
       void scheduleOrgPolicySync(config, { force: true });
       void scheduleFirmHubSync(config, { force: true });

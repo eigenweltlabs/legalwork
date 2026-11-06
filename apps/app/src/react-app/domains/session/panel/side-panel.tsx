@@ -1120,7 +1120,7 @@ function SidePanelContent({
         const visible = workspaceVisible && Boolean(pane);
         const active = visible && tab.id === focusedId;
         const focus = () => { setFocusedTabId(tab.id); if (tab.type === "chat") onFocusChat?.(tab.sessionId); };
-        const body = tab.type === "artifact" ? <ArtifactPanel sessionId={sessionId} tab={tab} client={client} workspaceId={workspaceId} workspaceRoot={workspaceRoot} isRemoteWorkspace={isRemoteWorkspace} onClose={() => closeDocumentTab(tab)} />
+        const body = tab.type === "artifact" ? <ArtifactPanel sessionId={sessionId} tab={tab} client={client} workspaceId={workspaceId} workspaceRoot={workspaceRoot} isRemoteWorkspace={isRemoteWorkspace} visible={visible} onClose={() => closeDocumentTab(tab)} />
           : tab.type === "view-draft" ? <React.Suspense fallback={<div role="status" className="p-6 text-sm text-muted-foreground">Preparing view…</div>}><ViewDraftPanel client={client} tab={tab} sessionId={sessionId} /></React.Suspense>
           : tab.type === "view" ? <React.Suspense fallback={<div role="status" className="p-6 text-sm text-muted-foreground">Loading view…</div>}><ViewPanel client={client} tab={tab} sessionId={sessionId} /></React.Suspense>
           : tab.type === "wiki" ? renderWikiTab?.(tab)

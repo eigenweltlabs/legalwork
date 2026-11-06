@@ -20,11 +20,27 @@ export type Entry = {
   tasks: Set<string>;
   dismissed: Set<string>;
   previews: Set<HTMLElement>;
-  destinations: Map<HTMLElement, boolean>;
+  destinations: Map<HTMLElement, { active: boolean; visible: boolean }>;
   registration: Registration | null;
   generation: number;
   fileEditing: boolean;
 };
+
+/** A retained tab may be detached or belong to a hidden workspace. Only a
+ * displayed pane should own the editor instead of the task's miniature. */
+export function visibleDocumentDestination(entry: Entry) {
+  let visible: HTMLElement | null = null;
+  for (const [node, state] of entry.destinations) {
+    if (!node.isConnected || !state.visible) continue;
+    if (state.active) return node;
+    visible ??= node;
+  }
+  return visible;
+}
+
+export function documentPreviewVisible(entry: Entry, sessionId: string) {
+  return entry.tasks.has(sessionId) && !entry.dismissed.has(sessionId) && !visibleDocumentDestination(entry);
+}
 
 export function documentKey(props: ArtifactPanelProps) {
   return JSON.stringify([props.client?.baseUrl, props.workspaceId, props.tab.storage ? [props.tab.storage.root.id, props.tab.storage.file.path] : props.tab.value ?? props.tab.id]);
@@ -107,7 +123,7 @@ export function createDocumentRuntime(createHost = () => document.createElement(
     const explicit = selected.get(sessionId);
     const candidates = [...entries.values()].filter(entry => belongs(entry, project));
     const entry = path ? candidates.find(entry => (entry.registration?.surface.path ?? entry.props.tab.value) === path)
-      : candidates.find(entry => entry.key === explicit) ?? candidates.find(entry => [...entry.destinations.values()].some(Boolean));
+      : candidates.find(entry => entry.key === explicit) ?? candidates.find(entry => [...entry.destinations.values()].some(state => state.active && state.visible));
     if (!entry) throw new Error("No document is selected for this task. Use inapp_documents_open with its workspace path; no visible tab is required.");
     return entry;
   };

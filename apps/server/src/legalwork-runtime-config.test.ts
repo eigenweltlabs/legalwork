@@ -1,5 +1,6 @@
 import { permissionAction } from "./agent-sandbox/permissions.js";
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
+import * as systemOne from "./systemone.js";
 import { Config } from "@opencode/schema/config";
 import { Schema } from "effect";
 import { chmod, mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
@@ -76,6 +77,29 @@ async function addWorkspace(config: ServerConfig) {
   config.workspaces.push({ id: "ws_other", name: "Other workspace", path: directory, preset: "starter", workspaceType: "local" });
   config.authorizedRoots.push(directory);
 }
+
+test("configuration bursts share the next publication and include edits made during a running build", async () => {
+  const { config } = await setup();
+  let release = () => {};
+  let started = () => {};
+  const blocked = new Promise<void>(resolve => { release = resolve; });
+  const entered = new Promise<void>(resolve => { started = resolve; });
+  let builds = 0;
+  const settings = spyOn(systemOne, "readSystemOneSettings").mockImplementation(async () => {
+    if (++builds === 1) { started(); await blocked; }
+    return { providers: [], selection: { providerId: "eigenwelt", model: "EigenJev" } };
+  });
+  try {
+    const first = writeLegalworkRuntimeConfigFile(config, "ws_1");
+    await entered;
+    await writeRuntimeOpencodeConfig(config, "ws_1", () => ({ permissions: [{ action: "shell", resource: "latest", effect: "ask" }] }));
+    const burst = Array.from({ length: 12 }, () => writeLegalworkRuntimeConfigFile(config, "ws_1"));
+    release();
+    await Promise.all([first, ...burst]);
+    expect(builds).toBe(2);
+    expect((await readSettings(config)).configuration.permissions).toContainEqual({ action: "shell", resource: "latest", effect: "ask" });
+  } finally { release(); settings.mockRestore(); }
+});
 
 async function readSettings(config: ServerConfig, workspaceID = "ws_1") {
   const workspace = config.workspaces.find(item => item.id === workspaceID);

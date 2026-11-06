@@ -32,6 +32,14 @@ For a document open in LegalWork, the assistant uses the live document tools and
 
 Bilingual Word tables retain their text columns, including rows with unused space at the end. You can review both language columns together in the in-app editor.
 
+For a letterhead or unfamiliar template, ask the assistant to inspect the writing areas first. It can distinguish the main text from table cells, positioned text boxes, headers, footers and footnotes, and read the page geometry and reserved wrapping areas without generating images. It can request a page image when a visual question needs one. These inspection images stay out of the chat and do not change your view. Ask it to add a letter to the main text or to fill a specific template field. New letters use separate Word paragraphs for the date, salutation, body and closing. Text placed inside an existing table or text box requires that area to be selected explicitly by the assistant.
+
+While the assistant writes in the background, a small live document tile appears in the chat. Longer drafts appear in sections as edits are applied. Use the tile's arrow to open the same editor beside the chat, or its close button to hide the tile. If you switch to another document tab while the task continues, the working document returns to its tile. The tile uses the live editor without generating page images or consuming image tokens. It disappears when the task finishes; use the resulting file link to open the saved document.
+
+Page-sized letterhead artwork keeps its position and transparent areas when you open or save the document. Body text appears in front of pictures that the template places behind the text and wraps around reserved header or footer objects, including transparent ones. New text inherits the template’s fonts and paragraph formatting. Addresses with manual line breaks use left alignment unless another alignment is explicitly requested.
+
+Word dims inactive headers and footers while you edit the body; LegalWork shows their print colors. This does not change the saved artwork. If Word shows nearly white body text on a white page-sized letterhead image, use **View > Switch Modes** to select a light page. Word’s dark page mode changes text colors but leaves that image white. This viewing mode does not change the document’s print colors.
+
 For a document open in Microsoft Word with the add-in connected, use the live Word tools instead. For a file with neither live surface available, the bundled `docx-edit` skill can inspect and write a separate redlined copy. File-mode output names such as `.redlined.docx` identify a new deliverable, not a change to the open Word document. See [Office Add-ins](office-addins.md).
 
 ## PDF actions

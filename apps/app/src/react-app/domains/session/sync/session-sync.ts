@@ -77,6 +77,7 @@ import {
 import {
   parseDynamicToolUIPart,
   parseDynamicToolUIParts,
+  visibleToolAttachments,
   parseStructuredOutputUIPart,
   STRUCTURED_OUTPUT_TOOL,
 } from "./parse-tool-parts";
@@ -669,7 +670,7 @@ function toUIParts(part: Part): UIMessage["parts"] {
   if (part.type === "tool" && part.tool !== STRUCTURED_OUTPUT_TOOL) {
     const mapped = parseDynamicToolUIParts(part);
     return part.state.status === "completed" && part.state.attachments
-      ? [...mapped, ...part.state.attachments.flatMap(toFileUIParts)] : mapped;
+      ? [...mapped, ...visibleToolAttachments(part).flatMap(toFileUIParts)] : mapped;
   }
   const mapped = toUIPart(part);
   if (!mapped) return [];

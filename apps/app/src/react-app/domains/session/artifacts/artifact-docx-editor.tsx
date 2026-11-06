@@ -1,4 +1,7 @@
-import { docxTemplateSchema, documentNavigationTargetSchema, type DocumentNavigationTarget } from "@legalwork/types/office-editor";
+import { docxPreviewSchema, docxSuggestSchema, docxTemplateSchema, documentNavigationTargetSchema, type DocumentNavigationTarget } from "@legalwork/types/office-editor";
+import { wordPagePreview } from "./docx-visual-feedback";
+import { wordParagraphTarget, wordWritingLocations } from "./docx-agent-locations";
+import { findTextInPmParagraph } from "@eigenpal/docx-editor-core/prosemirror/paraText";
 import { executeWordBatch } from "./docx-agent-batch";
 import { readWordDocument } from "./docx-agent-read";
 import { useDocumentVisibility } from "./document-runtime";
@@ -495,7 +498,19 @@ function LiveDocxEditor({ name, content, author, readOnly = false, interactionLo
       if (toolName === "edit") {
         if (args.documentId !== documentId || args.draftRevision !== revision.current) return { success: false, error: t("docx.read_draft_again") };
         automaticSave.setSuspended(true);
-        try { return await executeWordBatch(args, (name, input, save) => executeAgentTool(name, input, save, name === "save_document" ? {} : options)); }
+        try {
+          const result = await executeWordBatch(args, (name, input, save) => executeAgentTool(name, input, save, name === "save_document" ? {} : options));
+          if (!result.success || !result.data || typeof result.data !== "object") return result;
+          const read = await executeAgentTool("read_document", { view: "layout" }, false, options);
+          if (!read.success || !read.data || typeof read.data !== "object") return result;
+          const layout = "layout" in read.data && read.data.layout && typeof read.data.layout === "object" ? read.data.layout : undefined;
+          return { ...result, data: { ...result.data, verification: {
+            formattingWarnings: "formattingWarnings" in read.data ? read.data.formattingWarnings : [],
+            wrappingExclusions: layout && "wrappingExclusions" in layout ? layout.wrappingExclusions : [],
+            displayWarnings: layout && "warnings" in layout ? layout.warnings : [],
+            nextStep: "Resolve unintended formatting warnings before finishing. Use structured formatting/layout reads first; preview only for unresolved visual uncertainty.",
+          } } };
+        }
         catch (cause) { return { success: false, error: cause instanceof Error ? cause.message : String(cause) }; }
         finally { automaticSave.setSuspended(readOnly || interactionLocked); }
       }
@@ -505,6 +520,31 @@ function LiveDocxEditor({ name, content, author, readOnly = false, interactionLo
       if ((mutatesStructure || COPY_TOOLS.has(toolName)) && (args.documentId !== documentId || args.draftRevision !== revision.current)) return { success: false, error: t("docx.read_draft_again") };
       const editor = editorRef.current; const view = editor?.getEditorRef()?.getView(); const document = editor?.getDocument();
       if (!editor || !view || !document) return { success: false, error: t("docx.editor_not_ready") };
+      if (toolName === "preview") {
+        try {
+          const argsParsed = docxPreviewSchema.parse(args);
+          const beforeRevision = revision.current;
+          const data = await wordPagePreview(containerRef.current, view.state.doc, editor.getEditorRef()?.getLayout() ?? null, argsParsed.page, argsParsed.annotate);
+          checkDocument();
+          if (beforeRevision !== revision.current) return { success: false, error: t("docx.draft_changed_while_reading") };
+          return { success: true, data: { documentId, draftRevision: beforeRevision, ...data } };
+        } catch (cause) { return { success: false, error: cause instanceof Error ? cause.message : String(cause) }; }
+      }
+      if (toolName === "suggest_change") {
+        try {
+          const target = docxSuggestSchema.parse(args);
+          if (target.documentId !== documentId || target.draftRevision !== revision.current) return { success: false, error: t("docx.read_draft_again") };
+          wordParagraphTarget(view.state.doc, target.paraId, target.area);
+        } catch (cause) { return { success: false, error: cause instanceof Error ? cause.message : String(cause) }; }
+      }
+      if (toolName === "find_text") {
+        if (typeof args.query !== "string" || !args.query) return { success: false, error: "Provide non-empty text to find." };
+        const queryText = args.query;
+        const query = args.caseSensitive ? queryText : queryText.toLocaleLowerCase();
+        const matches = wordWritingLocations(view.state.doc, editor.getEditorRef()?.getLayout() ?? null).filter(item => (args.caseSensitive ? item.text : item.text.toLocaleLowerCase()).includes(query));
+        const limit = typeof args.limit === "number" ? args.limit : 20;
+        return { success: true, data: { documentId, draftRevision: revision.current, matches: matches.slice(0, limit).map(item => ({ paraId: item.paraId, index: item.index, text: item.text, location: item.location, editable: item.editable, uniqueEditableMatch: Boolean(findTextInPmParagraph(view.state.doc, item.pos, item.pos + item.node.nodeSize, queryText)) })), totalMatches: matches.length, truncated: matches.length > limit } };
+      }
       const structure = () => {
         const current = editor.getDocument() ?? document;
         const hfViews = editor.getEditorRef()?.getHfPmViews();
@@ -514,11 +554,9 @@ function LiveDocxEditor({ name, content, author, readOnly = false, interactionLo
       if (toolName === "read_document") {
         try {
           const read = readWordDocument(view.state.doc, document, editor.getEditorRef()?.getLayout() ?? null, metadataRef.current, args, new Map(Array.from(editor.getEditorRef()?.getHfPmViews() ?? []).map(([rid, view]) => [rid, view.state.doc])));
-          const { textArgs, ...native } = read;
-          const text = read.view === "all" || read.view === "text" ? executeToolCall("read_document", textArgs) : undefined;
-          if (text && !text.success) return text;
+          const { textArgs: _textArgs, ...native } = read;
           return { success: true, data: { documentId, draftRevision: revision.current, editorEditable: !readOnly && !interactionLocked, ...native, nextIndex: native.coverage.nextIndex,
-            text: text?.data, comments: read.view === "all" ? editor.getComments() : undefined, changes: read.view === "all" ? executeToolCall("read_changes", {}).data : undefined } };
+            comments: read.view === "all" ? editor.getComments() : undefined, changes: read.view === "all" ? executeToolCall("read_changes", {}).data : undefined } };
         } catch (cause) { return { success: false, error: cause instanceof Error ? cause.message : String(cause) }; }
       }
       if (toolName === "read_structure") return { success: true, data: structure() };
@@ -710,23 +748,25 @@ function LiveDocxEditor({ name, content, author, readOnly = false, interactionLo
     {
       id: "document.read_draft", label: "Read the open document draft", sideEffect: "none",
       description: "Read the live DOCX, including unsaved edits, rendered page count, paragraph handles, comments and redlines. pageCount is null while pagination is unavailable. Use this instead of reading the older workspace file.",
-      execute: async () => {
+      execute: () => {
+        checkDocument();
+        const editor = editorRef.current;
+        const view = editor?.getEditorRef()?.getView();
+        const document = editor?.getDocument();
+        if (!editor || !view || !document) throw new Error(t("docx.still_loading"));
         const draftRevision = revision.current;
-        const buffer = await getBuffer();
-        if (!buffer) throw new Error(t("docx.still_loading"));
-        const draft = await DocxReviewer.fromBuffer(buffer);
-        if (draftRevision !== revision.current) throw new Error(t("docx.draft_changed_while_reading"));
+        const read = readWordDocument(view.state.doc, document, editor.getEditorRef()?.getLayout() ?? null, metadataRef.current, {});
         const pages = containerRef.current?.querySelectorAll(".layout-page").length ?? 0;
         return { name, documentId, draftRevision, pageCount: ready.current && pages > 0 ? pages : null,
-          text: draft.getContentAsText(), comments: draft.getComments(), changes: draft.getChanges(),
-          structure: editorRef.current?.getDocument() && editorRef.current.getEditorRef()?.getView() ? readWordStructure(editorRef.current.getEditorRef()!.getView()!.state.doc, editorRef.current.getDocument()!, editorRef.current.getEditorRef()!.getLayout(), metadataRef.current) : null };
+          text: read.text, comments: editor.getComments(), changes: executeToolCall("read_changes", {}).data,
+          structure: read.structure };
       },
     },
     {
       id: "document.propose_change", label: "Propose a change in the open document", sideEffect: "mutation", disabled: readOnly || interactionLocked,
       description: "Apply and save a tracked proposal to the current draft. Requires name, documentId and draftRevision from document.read_draft. The lawyer reviews it with Accept/Reject. Saving does not accept the proposal.",
       requiresArgs: true,
-      args: [{ name: "name", type: "string", required: true }, { name: "documentId", type: "string", required: true }, { name: "draftRevision", type: "number", required: true }, { name: "paraId", type: "string", required: true }, { name: "search", type: "string", required: true }, { name: "replaceWith", type: "string", required: true }],
+      args: [{ name: "name", type: "string", required: true }, { name: "documentId", type: "string", required: true }, { name: "draftRevision", type: "number", required: true }, { name: "paraId", type: "string", required: true }, { name: "area", type: "string" }, { name: "search", type: "string", required: true }, { name: "replaceWith", type: "string", required: true }],
       execute: async (args) => {
         if (readOnly || interactionLocked) throw new Error(t("docx.read_only"));
         if (!args || typeof args !== "object" || !("name" in args) || args.name !== name ||
@@ -735,6 +775,9 @@ function LiveDocxEditor({ name, content, author, readOnly = false, interactionLo
           !("paraId" in args) || typeof args.paraId !== "string" ||
           !("search" in args) || typeof args.search !== "string" ||
           !("replaceWith" in args) || typeof args.replaceWith !== "string") throw new Error(t("docx.read_draft_again"));
+        const currentView = editorRef.current?.getEditorRef()?.getView();
+        if (!currentView) throw new Error(t("docx.editor_not_ready"));
+        wordParagraphTarget(currentView.state.doc, args.paraId, "area" in args ? args.area : "main");
         const proposal = { paraId: args.paraId, search: args.search, replaceWith: args.replaceWith, author: "LegalWork AI" };
         const applied = flushEditorUpdate(() => editorRef.current?.proposeChange(proposal));
         if (!applied) throw new Error(t("docx.target_ambiguous"));
