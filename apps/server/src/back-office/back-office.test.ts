@@ -10,6 +10,7 @@ import {
   type BackOfficeSnapshot,
 } from "./schema.js";
 import { applyImport, parseCsv, previewImport } from "./import.js";
+import { mergePublishModel } from "./publish-model.js";
 
 const owner: BackOfficeActor = {
   userId: "owner",
@@ -23,6 +24,40 @@ const member: BackOfficeActor = {
   edit: true,
   finance: false,
 };
+test("publishing preserves shared fields and labels while adding local extensions", () => {
+  const source = defaultBackOfficeModel(),
+    team = defaultBackOfficeModel();
+  team.objects[0].plural = "Firm matters";
+  const field = {
+    id: "sharedOnly",
+    label: "Shared only",
+    type: "text",
+    protected: false,
+    required: false,
+    multiple: false,
+    options: [],
+    visibility: "normal",
+  } satisfies (typeof team.objects)[0]["fields"][number];
+  team.objects[0].fields.push(field);
+  source.objects[0].fields.push({ ...field, id: "localOnly" });
+  const merged = mergePublishModel(source, team);
+  expect(merged.objects[0].plural).toBe("Firm matters");
+  expect(merged.objects[0].fields.map((field) => field.id)).toEqual(
+    expect.arrayContaining(["sharedOnly", "localOnly"]),
+  );
+  expect(team.objects[0].fields.some((field) => field.id === "localOnly")).toBe(
+    false,
+  );
+});
+test("publishing rejects conflicting field types or visibility without changing the model", () => {
+  const source = defaultBackOfficeModel(),
+    team = defaultBackOfficeModel();
+  source.objects[0].fields[0].visibility = "finance";
+  expect(() => mergePublishModel(source, team)).toThrow(
+    "different local definition",
+  );
+  expect(team.objects[0].fields[0].visibility).toBe("normal");
+});
 const opened: BackOfficeStore[] = [];
 afterEach(() => {
   for (const store of opened.splice(0)) store.close();
