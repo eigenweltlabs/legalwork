@@ -606,7 +606,7 @@ export type AppSidebarProps = {
    */
   onShowTasks?: () => void;
   /** Which main-pane nav tab is currently shown (shades it like hover). */
-  activeNav?: "wikis" | "scheduled" | "calendar" | "evals" | "workflows" | "extensions" | "recorder" | "tasks" | null;
+  activeNav?: "wikis" | "scheduled" | "calendar" | "evals" | "workflows" | "extensions" | "recorder" | "tasks" | "back-office" | null;
   onReorderWorkspaces?: (workspaceIds: string[]) => void;
   onStartResize?: React.PointerEventHandler<HTMLButtonElement>;
 };

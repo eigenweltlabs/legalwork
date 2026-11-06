@@ -37,6 +37,7 @@ const routeGuides = {
   "/scheduled": "scheduled-tasks.md",
   "/calendar": "calendar.md",
   "/workspace/:workspaceId/calendar": "calendar.md",
+  "/back-office/*": "back-office.md",
   "/projects": "projects-sharing.md",
   "/workflows": "skills-workflows.md",
   "/recorder": "audio.md",

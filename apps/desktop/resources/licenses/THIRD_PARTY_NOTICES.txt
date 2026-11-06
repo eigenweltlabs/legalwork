@@ -97,3 +97,9 @@ Source: https://github.com/GoogleChrome/lighthouse/tree/v13.4.1
 Copyright 2016 Google LLC
 SPDX-License-Identifier: Apache-2.0
 The complete license is included in Apache-2.0.txt.
+
+Twenty UI (twenty-ui), version 2.54.0
+Copyright (c) 2023-present Twenty.com, PBC
+License: MIT. Full license: twenty-ui-LICENSE.txt in this directory.
+Used for the native Back Office controls, theme and typography.
+The AGPL-licensed Twenty application source is not included.

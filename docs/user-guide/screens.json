@@ -36,6 +36,11 @@
       "source": "apps/app/src/react-app/shell/app-root.tsx"
     },
     {
+      "path": "/back-office/*",
+      "guide": "back-office.md",
+      "source": "apps/app/src/react-app/shell/app-root.tsx"
+    },
+    {
       "path": "/calendar",
       "guide": "calendar.md",
       "source": "apps/app/src/react-app/shell/app-root.tsx"

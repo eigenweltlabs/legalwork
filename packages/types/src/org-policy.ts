@@ -211,6 +211,10 @@ export const orgPolicyDefinitions = {
   /** Built-in extensions by id; false switches one off. */
   "extensions.builtIn": { section: "features", scope: "app", modes: enforced, schema: z.strictObject({ "open-computer-use": z.boolean().optional(), "computer-use": z.boolean().optional(), "google-workspace": z.boolean().optional() }) },
 
+  "backOffice.sync": { section: "sharing", scope: "server", modes: enforced, schema: z.strictObject({
+    enabled: z.boolean(), modelEditors: z.array(z.string().min(1)).default([]),
+    directoryEditors: z.array(z.string().min(1)).default([]), billingMembers: z.array(z.string().min(1)).default([]),
+  }) },
   "sharing.projects": { section: "sharing", scope: "server", modes: enforced, schema: z.strictObject({ allow: z.boolean() }) },
   "hub.whoCanShare": { section: "sharing", scope: "server", modes: enforced, schema: z.enum(["members", "admins"]) },
 
