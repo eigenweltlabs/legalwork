@@ -36,10 +36,25 @@ test('Linux compression control stays confined to Linux and retains native start
   assert.equal(step.if, "matrix.os_type == 'linux'");
   assert.equal(step.env.ELECTRON_BUILDER_COMPRESSION_LEVEL, '6');
   for (const job of Object.values(release.jobs)) for (const other of job.steps ?? []) {
-    if (other !== step) assert.equal(other.env?.ELECTRON_BUILDER_COMPRESSION_LEVEL, undefined);
+    if (other !== step && other.name !== 'Package Electron (Windows)') assert.equal(other.env?.ELECTRON_BUILDER_COMPRESSION_LEVEL, undefined);
   }
   const benchmark = workflow('ci-linux-packaging-benchmark').jobs.package;
   assert.deepEqual(benchmark.strategy.matrix.include.map(row => row.arch), ['x64', 'arm64']);
   assert.ok(benchmark.steps.some(step => step.run?.includes('packaged-startup-regression.mjs')));
   assert.ok(benchmark.steps.some(step => step.run?.includes('benchmark-linux-archive.mjs')));
+});
+
+
+test('Windows compression uses measured level 5 without changing the NSIS decoder or archive layout', () => {
+  for (const name of ['alpha-macos-aarch64', 'alpha-windows-x64', 'release-macos-aarch64']) {
+    const steps = Object.values(workflow(name).jobs).flatMap(job => job.steps ?? []);
+    const windows = steps.find(step => ['Package Electron (Windows)', 'Package Electron alpha (Windows)'].includes(step.name));
+    assert.equal(windows.env.ELECTRON_BUILDER_COMPRESSION_LEVEL, '5');
+    assert.match(windows.run, /--config electron-builder.azure.yml/);
+    for (const other of steps.filter(step => step !== windows)) assert.notEqual(other.env?.ELECTRON_BUILDER_COMPRESSION_LEVEL, '5');
+  }
+  const source = readFileSync(new URL('./benchmark-windows-archive.mjs', import.meta.url), 'utf8');
+  assert.match(source, /installTimeDecodable: true/);
+  assert.match(source, /configureDifferentialAwareArchiveOptions/);
+  assert.match(source, /assert.deepEqual\(await payload\(extracted\), expected/);
 });

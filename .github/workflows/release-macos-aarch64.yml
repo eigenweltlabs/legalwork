@@ -654,6 +654,9 @@ jobs:
           allow-no-subscriptions: true
 
       - name: Package Electron (Windows)
+        env:
+          # Paired native payload benchmarks preserve every file and NSIS decoding.
+          ELECTRON_BUILDER_COMPRESSION_LEVEL: '5'
         shell: bash
         run: |
           set -euo pipefail
