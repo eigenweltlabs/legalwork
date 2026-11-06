@@ -910,7 +910,7 @@
 .bo-field-page {
   position: absolute;
   z-index: 15;
-  inset: 48px 0 28px;
+  inset: 48px 0 0;
   overflow-y: auto;
   background: var(--bo-bg);
 }
