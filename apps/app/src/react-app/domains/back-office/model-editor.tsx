@@ -42,6 +42,7 @@ const fieldTypeOrder: BackOfficeField["type"][] = [
   "currency",
   "email",
   "relation",
+  "file",
 ];
 const objectIcons = {
   matters: BriefcaseBusiness,
@@ -611,6 +612,7 @@ export function ModelEditor({
                     >
                       {
                         {
+                          file: "File",
                           text: "Text",
                           number: "Number",
                           boolean: "True/False",
@@ -803,6 +805,17 @@ export function ModelEditor({
                         Allow several records
                       </label>
                     </>
+                  )}
+                  {fieldType === "file" && (
+                    <label className="bo-checkbox-label">
+                      <Checkbox
+                        size="sm"
+                        checked={multiple}
+                        disabled={editing?.protected || !editable}
+                        onCheckedChange={setMultiple}
+                      />
+                      Allow several files
+                    </label>
                   )}
                   <label>
                     Visibility

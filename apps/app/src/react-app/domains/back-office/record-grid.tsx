@@ -1,3 +1,5 @@
+import { BackOfficeFilesSchema } from "@legalwork/types/back-office";
+import { backOfficeViewLabel, backOfficeIconLabel } from "./labels";
 import { useSearchParams } from "react-router-dom";
 import { t } from "@/i18n";
 import {
@@ -238,6 +240,10 @@ export function RecordGrid({
   const display = (record: BackOfficeRecord, id: string) => {
     const value = record.values[id],
       field = object.fields.find((field) => field.id === id);
+    if (field?.type === "file") {
+      const files = BackOfficeFilesSchema.safeParse(value);
+      return files.success ? files.data.map((file) => file.name).join(" ") : "";
+    }
     if (field?.type === "relation")
       return (Array.isArray(value) ? value : [value])
         .map(
@@ -989,6 +995,7 @@ export function RecordGrid({
                           }}
                         >
                           <CellEditor
+                            record={record}
                             key={record.id + field.id + record.revision}
                             field={field}
                             value={record.values[field.id]}
@@ -1134,7 +1141,7 @@ export function RecordGrid({
                             setViewIcon(key);
                         }}
                       >
-                        {t(`back_office.icon.${key}`)}
+                        {backOfficeIconLabel(key)}
                       </Dropdown.ActionItem>
                     ))}
                   </DirectoryMenu>
@@ -1158,7 +1165,7 @@ export function RecordGrid({
                         startIcon={<CreateIcon size={15} />}
                         endIcon={<ChevronDown size={12} />}
                       >
-                        {t(`back_office.${viewType}`)}
+                        {backOfficeViewLabel(viewType)}
                       </Button>
                     }
                   >
@@ -1176,7 +1183,7 @@ export function RecordGrid({
                             setViewIcon(null);
                           }}
                         >
-                          {t(`back_office.${type}`)}
+                          {backOfficeViewLabel(type)}
                         </Dropdown.ActionItem>
                       );
                     })}

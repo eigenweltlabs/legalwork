@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { syncRecordFiles } from "./file-sync.js";
 import { backOfficeAccess } from "./access.js";
 import { backOfficeStore } from "./store.js";
 import { mergePublishModel } from "./publish-model.js";
@@ -77,21 +78,35 @@ export async function syncBackOffice(config: ServerConfig): Promise<void> {
             "Share the linked project before sending this matter link to the team.",
           );
       }
-      const snapshot = await backOfficePlatform(config, batch);
-      const localLinks = links.links().filter((link) => link.orgId === scope);
-      for (const record of snapshot.records.filter(
-        (record) => record.objectId === "projectLinks",
-      )) {
-        const local = localLinks.find(
-          (link) => link.projectId === record.values.projectId,
+      let accepted = false;
+      do {
+        // A file field must exist on the platform before its bytes are prepared.
+        // Preserve operation order while splitting model changes from record batches.
+        const modelIndex = batch.findIndex((change) => change.kind === "model");
+        const chunk = batch.splice(
+          0,
+          modelIndex === 0 ? 1 : modelIndex > 0 ? modelIndex : batch.length,
         );
-        if (local) record.values.projectId = local.workspaceId;
-      }
-      store.receive(scope, snapshot);
-      if (
-        snapshot.accepted.length &&
-        store.pending(scope).some((entry) => !entry.error)
-      )
+        await syncRecordFiles(config, chunk);
+        const snapshot = await backOfficePlatform(config, chunk);
+        const localLinks = links.links().filter((link) => link.orgId === scope);
+        for (const record of snapshot.records.filter(
+          (record) => record.objectId === "projectLinks",
+        )) {
+          const local = localLinks.find(
+            (link) => link.projectId === record.values.projectId,
+          );
+          if (local) record.values.projectId = local.workspaceId;
+        }
+        store.receive(scope, snapshot);
+        accepted ||= snapshot.accepted.length > 0;
+        if (
+          snapshot.conflicts.length ||
+          snapshot.accepted.length < chunk.length
+        )
+          break;
+      } while (batch.length);
+      if (accepted && store.pending(scope).some((entry) => !entry.error))
         scheduleBackOfficeSync(config);
       announceSyncChange(config, "backOffice");
     } catch (error) {

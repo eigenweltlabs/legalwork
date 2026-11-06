@@ -1,3 +1,4 @@
+import { RecordFilesProvider } from "./record-files";
 import { useEffect, useState, type CSSProperties } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -44,7 +45,7 @@ import {
 } from "./twenty-controls";
 import { t } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
-import { displayBackOfficeObject } from "./labels";
+import { displayBackOfficeObject, backOfficeObjectLabel } from "./labels";
 import "./back-office.css";
 
 const primary = [
@@ -189,6 +190,8 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
       }
       const result = z.object({ record: BackOfficeRecordSchema }).parse(
         await request("/records", {
+          id: record.id,
+          create: true,
           objectId: record.objectId,
           revision: 0,
           values: next.values,
@@ -277,7 +280,11 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
               const value = record.values[field.id];
               return escape(
                 Array.isArray(value)
-                  ? value.join("|")
+                  ? value
+                      .map((item) =>
+                        typeof item === "string" ? item : item.name,
+                      )
+                      .join("|")
                   : typeof value === "object" && value !== null
                     ? value.amountMinor / 100
                     : value,
@@ -304,506 +311,519 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
     const object = data?.model.objects.find((object) => object.id === id);
     return object
       ? displayBackOfficeObject(object).plural
-      : t(`back_office.${id}.plural`);
+      : backOfficeObjectLabel(id);
   };
   const directoryStyle: CSSProperties & { "--bo-detail-width": string } = {
     "--bo-detail-width": `${detailWidth}px`,
   };
   return (
     <BackOfficeTheme>
-      <div
-        className={`bo ${detail ? "bo-has-detail" : ""}`}
-        style={directoryStyle}
+      <RecordFilesProvider
+        key={data?.scope}
+        records={records}
+        client={client}
+        projects={projects.data?.projects ?? []}
       >
-        <nav className="bo-tabs" aria-label="Back Office">
-          {primary.map(({ id, icon: Icon }) => (
-            <Button
-              key={id}
-              size="sm"
-              variant={selected === id ? "soft" : "ghost"}
-              onClick={() => show(id)}
-              startIcon={<Icon size={16} />}
-              aria-current={selected === id ? "page" : undefined}
-            >
-              {tabName(id)}
-            </Button>
-          ))}
-          <DirectoryMenu
-            open={menu}
-            onOpenChange={setMenu}
-            trigger={
+        <div
+          className={`bo ${detail ? "bo-has-detail" : ""}`}
+          style={directoryStyle}
+        >
+          <nav className="bo-tabs" aria-label="Back Office">
+            {primary.map(({ id, icon: Icon }) => (
               <Button
+                key={id}
                 size="sm"
-                variant="ghost"
-                aria-pressed={
-                  !primary.some((tab) => tab.id === selected) &&
-                  selected !== "data-model"
-                }
-                endIcon={<ChevronDown size={13} />}
+                variant={selected === id ? "soft" : "ghost"}
+                onClick={() => show(id)}
+                startIcon={<Icon size={16} />}
+                aria-current={selected === id ? "page" : undefined}
               >
-                {!primary.some((tab) => tab.id === selected) &&
-                selected !== "data-model"
-                  ? (object?.plural ?? t("back_office.more"))
-                  : t("back_office.more")}
+                {tabName(id)}
               </Button>
-            }
-          >
-            {data?.model.objects
-              .filter(
-                (object) =>
-                  !object.archived &&
-                  !isInternalBackOfficeObject(object.id) &&
-                  !primary.some((tab) => tab.id === object.id),
-              )
-              .map((object) => (
-                <Dropdown.ActionItem
-                  key={object.id}
-                  onClick={() => show(object.id)}
-                  startIcon={<Database size={14} />}
-                >
-                  {displayBackOfficeObject(object).plural}
-                </Dropdown.ActionItem>
-              ))}
-          </DirectoryMenu>
-          <Button
-            size="sm"
-            variant={selected === "data-model" ? "soft" : "ghost"}
-            onClick={() => show("data-model")}
-            startIcon={<Database size={16} />}
-          >
-            {t("back_office.data_model")}
-          </Button>
-        </nav>
-        {data && team && data.sync.error && (
-          <div className="bo-error" role="alert">
-            {data.sync.error}
-          </div>
-        )}
-        {!data && (
-          <div className="bo-loading">
-            {query.error ? (
-              <>
-                <strong>{query.error.message}</strong>
-                <Button size="sm" onClick={() => void query.refetch()}>
-                  Try again
-                </Button>
-              </>
-            ) : (
-              <>
-                <RefreshCw size={18} className="animate-spin" />
-                Loading Back Office…
-              </>
-            )}
-          </div>
-        )}
-        {data && selected === "data-model" && (
-          <ModelEditor
-            model={data.model}
-            editable={data.permissions.model}
-            onPreview={async (model) =>
-              ModelPreviewSchema.parse(
-                await request("/model/preview", {
-                  model,
-                  revision: data.model.revision,
-                }),
-              )
-            }
-            onSave={async (model) => {
-              await request(
-                "/model",
-                { model, revision: data.model.revision },
-                "PUT",
-              );
-              await refresh();
-            }}
-            onRecords={show}
-          />
-        )}
-        {data && object && (
-          <>
-            <header className="bo-object-header">
-              <h1>
-                <BriefcaseBusiness size={16} />
-                {object.plural}
-              </h1>
-              <div className="bo-object-actions">
+            ))}
+            <DirectoryMenu
+              open={menu}
+              onOpenChange={setMenu}
+              trigger={
                 <Button
                   size="sm"
-                  variant="solid"
-                  color="accent"
-                  startIcon={<Plus size={14} />}
-                  onClick={() => void beginCreate()}
-                  disabled={!data.permissions.edit}
-                >
-                  Create
-                </Button>
-                <DirectoryMenu
-                  open={more}
-                  onOpenChange={setMore}
-                  trigger={
-                    <Button
-                      size="sm"
-                      aria-label="More actions"
-                      startIcon={<MoreHorizontal size={16} />}
-                    />
+                  variant="ghost"
+                  aria-pressed={
+                    !primary.some((tab) => tab.id === selected) &&
+                    selected !== "data-model"
                   }
+                  endIcon={<ChevronDown size={13} />}
                 >
+                  {!primary.some((tab) => tab.id === selected) &&
+                  selected !== "data-model"
+                    ? (object?.plural ?? t("back_office.more"))
+                    : t("back_office.more")}
+                </Button>
+              }
+            >
+              {data?.model.objects
+                .filter(
+                  (object) =>
+                    !object.archived &&
+                    !isInternalBackOfficeObject(object.id) &&
+                    !primary.some((tab) => tab.id === object.id),
+                )
+                .map((object) => (
                   <Dropdown.ActionItem
-                    onClick={() => {
-                      setImporting(true);
-                      setCsv("");
-                      setImportPlan(null);
-                    }}
-                    disabled={!data.permissions.edit}
-                    startIcon={<Upload size={14} />}
-                  >
-                    Import CSV
-                  </Dropdown.ActionItem>
-                  <Dropdown.ActionItem
-                    onClick={exportCsv}
-                    startIcon={<ArrowDownToLine size={14} />}
-                  >
-                    Export CSV
-                  </Dropdown.ActionItem>
-                  {team && data.sync.pending > 0 && (
-                    <Dropdown.ActionItem
-                      onClick={() =>
-                        void client
-                          .backOffice("/sync/pending", { team })
-                          .then((response) =>
-                            setPendingChanges(
-                              z
-                                .object({
-                                  changes: z.array(
-                                    z.object({
-                                      id: z.string(),
-                                      summary: z.string(),
-                                      error: z.string().nullable(),
-                                      currentRevision: z.number().nullable(),
-                                      comparison: z.array(
-                                        z.object({
-                                          field: z.string(),
-                                          proposed: z.string(),
-                                          current: z.string().nullable(),
-                                        }),
-                                      ),
-                                    }),
-                                  ),
-                                })
-                                .parse(response).changes,
-                            ),
-                          )
-                          .catch((error) => setError(error.message))
-                      }
-                      startIcon={<Cloud size={14} />}
-                    >
-                      {data.sync.pending} changes pending
-                    </Dropdown.ActionItem>
-                  )}
-                  <Dropdown.Separator />
-                  <Dropdown.ActionItem
-                    onClick={() => setArchived(!archived)}
-                    startIcon={<Archive size={14} />}
-                  >
-                    {archived ? "Show active" : "Show archive"}
-                  </Dropdown.ActionItem>
-                  <Dropdown.ActionItem
-                    onClick={() => show("data-model")}
+                    key={object.id}
+                    onClick={() => show(object.id)}
                     startIcon={<Database size={14} />}
                   >
-                    Edit data model
+                    {displayBackOfficeObject(object).plural}
                   </Dropdown.ActionItem>
-                  <Dropdown.ActionItem
-                    onClick={() => void refresh()}
-                    startIcon={<RefreshCw size={14} />}
+                ))}
+            </DirectoryMenu>
+            <Button
+              size="sm"
+              variant={selected === "data-model" ? "soft" : "ghost"}
+              onClick={() => show("data-model")}
+              startIcon={<Database size={16} />}
+            >
+              {t("back_office.data_model")}
+            </Button>
+          </nav>
+          {data && team && data.sync.error && (
+            <div className="bo-error" role="alert">
+              {data.sync.error}
+            </div>
+          )}
+          {!data && (
+            <div className="bo-loading">
+              {query.error ? (
+                <>
+                  <strong>{query.error.message}</strong>
+                  <Button size="sm" onClick={() => void query.refetch()}>
+                    Try again
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <RefreshCw size={18} className="animate-spin" />
+                  Loading Back Office…
+                </>
+              )}
+            </div>
+          )}
+          {data && selected === "data-model" && (
+            <ModelEditor
+              model={data.model}
+              editable={data.permissions.model}
+              onPreview={async (model) =>
+                ModelPreviewSchema.parse(
+                  await request("/model/preview", {
+                    model,
+                    revision: data.model.revision,
+                  }),
+                )
+              }
+              onSave={async (model) => {
+                await request(
+                  "/model",
+                  { model, revision: data.model.revision },
+                  "PUT",
+                );
+                await refresh();
+              }}
+              onRecords={show}
+            />
+          )}
+          {data && object && (
+            <>
+              <header className="bo-object-header">
+                <h1>
+                  <BriefcaseBusiness size={16} />
+                  {object.plural}
+                </h1>
+                <div className="bo-object-actions">
+                  <Button
+                    size="sm"
+                    variant="solid"
+                    color="accent"
+                    startIcon={<Plus size={14} />}
+                    onClick={() => void beginCreate()}
+                    disabled={!data.permissions.edit}
                   >
-                    Refresh
-                  </Dropdown.ActionItem>
-                </DirectoryMenu>
-              </div>
-            </header>
-            <RecordGrid
-              key={object.id + String(team)}
-              object={object}
+                    Create
+                  </Button>
+                  <DirectoryMenu
+                    open={more}
+                    onOpenChange={setMore}
+                    trigger={
+                      <Button
+                        size="sm"
+                        aria-label="More actions"
+                        startIcon={<MoreHorizontal size={16} />}
+                      />
+                    }
+                  >
+                    <Dropdown.ActionItem
+                      onClick={() => {
+                        setImporting(true);
+                        setCsv("");
+                        setImportPlan(null);
+                      }}
+                      disabled={!data.permissions.edit}
+                      startIcon={<Upload size={14} />}
+                    >
+                      Import CSV
+                    </Dropdown.ActionItem>
+                    <Dropdown.ActionItem
+                      onClick={exportCsv}
+                      startIcon={<ArrowDownToLine size={14} />}
+                    >
+                      Export CSV
+                    </Dropdown.ActionItem>
+                    {team && data.sync.pending > 0 && (
+                      <Dropdown.ActionItem
+                        onClick={() =>
+                          void client
+                            .backOffice("/sync/pending", { team })
+                            .then((response) =>
+                              setPendingChanges(
+                                z
+                                  .object({
+                                    changes: z.array(
+                                      z.object({
+                                        id: z.string(),
+                                        summary: z.string(),
+                                        error: z.string().nullable(),
+                                        currentRevision: z.number().nullable(),
+                                        comparison: z.array(
+                                          z.object({
+                                            field: z.string(),
+                                            proposed: z.string(),
+                                            current: z.string().nullable(),
+                                          }),
+                                        ),
+                                      }),
+                                    ),
+                                  })
+                                  .parse(response).changes,
+                              ),
+                            )
+                            .catch((error) => setError(error.message))
+                        }
+                        startIcon={<Cloud size={14} />}
+                      >
+                        {data.sync.pending} changes pending
+                      </Dropdown.ActionItem>
+                    )}
+                    <Dropdown.Separator />
+                    <Dropdown.ActionItem
+                      onClick={() => setArchived(!archived)}
+                      startIcon={<Archive size={14} />}
+                    >
+                      {archived ? "Show active" : "Show archive"}
+                    </Dropdown.ActionItem>
+                    <Dropdown.ActionItem
+                      onClick={() => show("data-model")}
+                      startIcon={<Database size={14} />}
+                    >
+                      Edit data model
+                    </Dropdown.ActionItem>
+                    <Dropdown.ActionItem
+                      onClick={() => void refresh()}
+                      startIcon={<RefreshCw size={14} />}
+                    >
+                      Refresh
+                    </Dropdown.ActionItem>
+                  </DirectoryMenu>
+                </div>
+              </header>
+              <RecordGrid
+                key={object.id + String(team)}
+                object={object}
+                records={records}
+                views={data.views}
+                editable={data.permissions.edit}
+                finance={data.permissions.finance}
+                userId={data.permissions.userId}
+                onSave={save}
+                onOpen={(record) => setDetailId(record.id)}
+                onCreate={(values) => void beginCreate(values)}
+                onSaveView={saveView}
+                archived={archived}
+                onArchivedChange={setArchived}
+              />
+            </>
+          )}
+          {data && detail && detailObject && (
+            <RecordDetail
+              key={detail.id}
+              record={detail}
+              focusName={focusNameId === detail.id}
+              width={detailWidth}
+              onWidthChange={setDetailWidth}
+              object={displayBackOfficeObject(detailObject)}
               records={records}
-              views={data.views}
               editable={data.permissions.edit}
               finance={data.permissions.finance}
               userId={data.permissions.userId}
+              projects={projects.data?.projects ?? []}
+              onClose={() => setDetailId(null)}
               onSave={save}
               onOpen={(record) => setDetailId(record.id)}
-              onCreate={(values) => void beginCreate(values)}
-              onSaveView={saveView}
-              archived={archived}
-              onArchivedChange={setArchived}
+              onLink={async (projectId, matter) => {
+                const project = projects.data?.projects.find(
+                  (project) => project.id === projectId,
+                );
+                await request("/records", {
+                  objectId: "projectLinks",
+                  revision: 0,
+                  values: {
+                    name: project?.name ?? projectId,
+                    projectId,
+                    matter: matter.id,
+                  },
+                });
+                await refresh();
+              }}
+              onUnlink={(record) => save(record, {}, true)}
             />
-          </>
-        )}
-        {data && detail && detailObject && (
-          <RecordDetail
-            key={detail.id}
-            record={detail}
-            focusName={focusNameId === detail.id}
-            width={detailWidth}
-            onWidthChange={setDetailWidth}
-            object={displayBackOfficeObject(detailObject)}
-            records={records}
-            editable={data.permissions.edit}
-            finance={data.permissions.finance}
-            userId={data.permissions.userId}
-            projects={projects.data?.projects ?? []}
-            onClose={() => setDetailId(null)}
-            onSave={save}
-            onOpen={(record) => setDetailId(record.id)}
-            onLink={async (projectId, matter) => {
-              const project = projects.data?.projects.find(
-                (project) => project.id === projectId,
-              );
-              await request("/records", {
-                objectId: "projectLinks",
-                revision: 0,
-                values: {
-                  name: project?.name ?? projectId,
-                  projectId,
-                  matter: matter.id,
-                },
-              });
-              await refresh();
-            }}
-            onUnlink={(record) => save(record, {}, true)}
-          />
-        )}
-        {importing && object && (
-          <DirectoryDialog
-            title={`Import ${object.plural}`}
-            wide
-            onClose={() => setImporting(false)}
-          >
-            <div className="bo-form">
-              <label>
-                CSV file
-                <input
-                  type="file"
-                  accept=".csv,text/csv"
-                  onChange={(event) => {
-                    const file = event.target.files?.[0];
-                    if (file)
-                      void file.text().then((text) => {
-                        setCsv(text);
-                        setImportPlan(null);
-                        const headers = text
-                          .split(/\r?\n/)[0]
-                          .split(",")
-                          .map((value) => value.replace(/^"|"$/g, "").trim());
-                        setMapping(
-                          Object.fromEntries(
-                            object.fields.flatMap((field) => {
-                              const header = headers.find((header) =>
-                                [
-                                  field.id.toLowerCase(),
-                                  field.label.toLowerCase(),
-                                ].includes(header.toLowerCase()),
-                              );
-                              return header ? [[field.id, header]] : [];
-                            }),
-                          ),
-                        );
-                      });
-                  }}
-                />
-              </label>
-              {csv && (
-                <div className="bo-import-mapping">
-                  <label>
-                    {t("Source ID (optional)")}
-                    <input
-                      value={mapping.$sourceId ?? ""}
-                      placeholder={t("CSV column name")}
-                      onChange={(event) => {
-                        setMapping({ ...mapping, $sourceId: event.target.value });
-                        setImportPlan(null);
-                      }}
-                    />
-                  </label>
-                  {object.fields.map((field) => (
-                    <label key={field.id}>
-                      {field.label}
+          )}
+          {importing && object && (
+            <DirectoryDialog
+              title={`Import ${object.plural}`}
+              wide
+              onClose={() => setImporting(false)}
+            >
+              <div className="bo-form">
+                <label>
+                  CSV file
+                  <input
+                    type="file"
+                    accept=".csv,text/csv"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      if (file)
+                        void file.text().then((text) => {
+                          setCsv(text);
+                          setImportPlan(null);
+                          const headers = text
+                            .split(/\r?\n/)[0]
+                            .split(",")
+                            .map((value) => value.replace(/^"|"$/g, "").trim());
+                          setMapping(
+                            Object.fromEntries(
+                              object.fields.filter((field) => field.type !== "file").flatMap((field) => {
+                                const header = headers.find((header) =>
+                                  [
+                                    field.id.toLowerCase(),
+                                    field.label.toLowerCase(),
+                                  ].includes(header.toLowerCase()),
+                                );
+                                return header ? [[field.id, header]] : [];
+                              }),
+                            ),
+                          );
+                        });
+                    }}
+                  />
+                </label>
+                {csv && (
+                  <div className="bo-import-mapping">
+                    <label>
+                      {t("Source ID (optional)")}
                       <input
-                        value={mapping[field.id] ?? ""}
-                        placeholder="CSV column name"
+                        value={mapping.$sourceId ?? ""}
+                        placeholder={t("CSV column name")}
                         onChange={(event) => {
-                          setMapping((current) => ({
-                            ...current,
-                            [field.id]: event.target.value,
-                          }));
+                          setMapping({
+                            ...mapping,
+                            $sourceId: event.target.value,
+                          });
                           setImportPlan(null);
                         }}
                       />
                     </label>
-                  ))}
-                </div>
-              )}
-              {importPlan && (
-                <div className="bo-import-preview">
-                  {importPlan.rows.map((row) => (
-                    <div key={row.row}>
-                      <strong>Row {row.row}</strong>{" "}
-                      {String(row.values.name ?? "")}
-                      <span className={row.error ? "bo-error" : "bo-muted"}>
-                        {row.error ?? row.warning ?? "Create record"}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {error && (
-                <p className="bo-error" role="alert">
-                  {error}
-                </p>
-              )}
-              <div className="bo-modal-footer">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={!csv}
-                  onClick={() =>
-                    void request("/import/preview", {
-                      objectId: object.id,
-                      csv,
-                      mapping,
-                    })
-                      .then((response) => {
-                        setImportPlan(importSchema.parse(response));
-                        setError("");
-                      })
-                      .catch((error) => setError(error.message))
-                  }
-                >
-                  Preview import
-                </Button>
-                <Button
-                  size="sm"
-                  disabled={!importPlan?.valid}
-                  onClick={() =>
-                    void request("/import/apply", {
-                      planId: importPlan?.planId,
-                    })
-                      .then(() => {
-                        setImporting(false);
-                        return refresh();
-                      })
-                      .catch((error) => setError(error.message))
-                  }
-                >
-                  Import {importPlan?.rows.length ?? ""} records
-                </Button>
-              </div>
-            </div>
-          </DirectoryDialog>
-        )}
-        {pendingChanges && (
-          <DirectoryDialog
-            title="Pending team changes"
-            onClose={() => setPendingChanges(null)}
-          >
-            <div className="bo-form">
-              {pendingChanges.map((change) => (
-                <div key={change.id} className="bo-pending-change">
-                  <strong>{change.summary}</strong>
-                  <p className="bo-muted">
-                    {change.error ?? "Waiting to sync"}
-                  </p>
-                  <dl className="bo-conflict-comparison">
-                    {change.comparison.map((item) => (
-                      <div key={item.field}>
-                        <dt>{item.field}</dt>
-                        <dd>
-                          <span className="bo-muted">
-                            Team: {item.current ?? "Unavailable while offline"}
-                          </span>
-                          <br />
-                          Your edit: {item.proposed}
-                        </dd>
+                    {object.fields
+                      .filter((field) => field.type !== "file")
+                      .map((field) => (
+                        <label key={field.id}>
+                          {field.label}
+                          <input
+                            value={mapping[field.id] ?? ""}
+                            placeholder="CSV column name"
+                            onChange={(event) => {
+                              setMapping((current) => ({
+                                ...current,
+                                [field.id]: event.target.value,
+                              }));
+                              setImportPlan(null);
+                            }}
+                          />
+                        </label>
+                      ))}
+                  </div>
+                )}
+                {importPlan && (
+                  <div className="bo-import-preview">
+                    {importPlan.rows.map((row) => (
+                      <div key={row.row}>
+                        <strong>Row {row.row}</strong>{" "}
+                        {String(row.values.name ?? "")}
+                        <span className={row.error ? "bo-error" : "bo-muted"}>
+                          {row.error ?? row.warning ?? "Create record"}
+                        </span>
                       </div>
                     ))}
-                  </dl>
-                  {change.error && change.currentRevision !== null && (
-                    <Button
-                      size="sm"
-                      variant="solid"
-                      color="accent"
-                      onClick={() =>
-                        void request("/sync/resolve", {
-                          id: change.id,
-                          revision: change.currentRevision,
-                        })
-                          .then(() => {
-                            setPendingChanges(null);
-                            return refresh();
-                          })
-                          .catch((error) => setError(error.message))
-                      }
-                    >
-                      Apply my changes
-                    </Button>
-                  )}
-                  {change.error && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setDiscardChange(change.id)}
-                    >
-                      Discard queued edit
-                    </Button>
-                  )}
-                </div>
-              ))}
-            </div>
-          </DirectoryDialog>
-        )}
-        {discardChange && (
-          <DirectoryDialog
-            title="Discard queued edits?"
-            onClose={() => setDiscardChange(null)}
-          >
-            <div className="bo-form">
-              <p>
-                This removes your queued edits for this record and reloads the
-                team version.
-              </p>
-              <div className="bo-modal-footer">
-                <Button size="sm" onClick={() => setDiscardChange(null)}>
-                  Cancel
-                </Button>
-                <Button
-                  size="sm"
-                  variant="solid"
-                  color="danger"
-                  onClick={() =>
-                    void request("/sync/discard", { id: discardChange })
-                      .then(() => {
-                        setDiscardChange(null);
-                        setPendingChanges(null);
-                        return refresh();
+                  </div>
+                )}
+                {error && (
+                  <p className="bo-error" role="alert">
+                    {error}
+                  </p>
+                )}
+                <div className="bo-modal-footer">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={!csv}
+                    onClick={() =>
+                      void request("/import/preview", {
+                        objectId: object.id,
+                        csv,
+                        mapping,
                       })
-                      .catch((error) => setError(error.message))
-                  }
-                >
-                  Discard edits
-                </Button>
+                        .then((response) => {
+                          setImportPlan(importSchema.parse(response));
+                          setError("");
+                        })
+                        .catch((error) => setError(error.message))
+                    }
+                  >
+                    Preview import
+                  </Button>
+                  <Button
+                    size="sm"
+                    disabled={!importPlan?.valid}
+                    onClick={() =>
+                      void request("/import/apply", {
+                        planId: importPlan?.planId,
+                      })
+                        .then(() => {
+                          setImporting(false);
+                          return refresh();
+                        })
+                        .catch((error) => setError(error.message))
+                    }
+                  >
+                    Import {importPlan?.rows.length ?? ""} records
+                  </Button>
+                </div>
               </div>
+            </DirectoryDialog>
+          )}
+          {pendingChanges && (
+            <DirectoryDialog
+              title="Pending team changes"
+              onClose={() => setPendingChanges(null)}
+            >
+              <div className="bo-form">
+                {pendingChanges.map((change) => (
+                  <div key={change.id} className="bo-pending-change">
+                    <strong>{change.summary}</strong>
+                    <p className="bo-muted">
+                      {change.error ?? "Waiting to sync"}
+                    </p>
+                    <dl className="bo-conflict-comparison">
+                      {change.comparison.map((item) => (
+                        <div key={item.field}>
+                          <dt>{item.field}</dt>
+                          <dd>
+                            <span className="bo-muted">
+                              Team:{" "}
+                              {item.current ?? "Unavailable while offline"}
+                            </span>
+                            <br />
+                            Your edit: {item.proposed}
+                          </dd>
+                        </div>
+                      ))}
+                    </dl>
+                    {change.error && change.currentRevision !== null && (
+                      <Button
+                        size="sm"
+                        variant="solid"
+                        color="accent"
+                        onClick={() =>
+                          void request("/sync/resolve", {
+                            id: change.id,
+                            revision: change.currentRevision,
+                          })
+                            .then(() => {
+                              setPendingChanges(null);
+                              return refresh();
+                            })
+                            .catch((error) => setError(error.message))
+                        }
+                      >
+                        Apply my changes
+                      </Button>
+                    )}
+                    {change.error && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setDiscardChange(change.id)}
+                      >
+                        Discard queued edit
+                      </Button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </DirectoryDialog>
+          )}
+          {discardChange && (
+            <DirectoryDialog
+              title="Discard queued edits?"
+              onClose={() => setDiscardChange(null)}
+            >
+              <div className="bo-form">
+                <p>
+                  This removes your queued edits for this record and reloads the
+                  team version.
+                </p>
+                <div className="bo-modal-footer">
+                  <Button size="sm" onClick={() => setDiscardChange(null)}>
+                    Cancel
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="solid"
+                    color="danger"
+                    onClick={() =>
+                      void request("/sync/discard", { id: discardChange })
+                        .then(() => {
+                          setDiscardChange(null);
+                          setPendingChanges(null);
+                          return refresh();
+                        })
+                        .catch((error) => setError(error.message))
+                    }
+                  >
+                    Discard edits
+                  </Button>
+                </div>
+              </div>
+            </DirectoryDialog>
+          )}
+          {error && !importing && (
+            <div className="bo-error" role="alert">
+              {error}
+              <button aria-label="Dismiss error" onClick={() => setError("")}>
+                <X size={13} />
+              </button>
             </div>
-          </DirectoryDialog>
-        )}
-        {error && !importing && (
-          <div className="bo-error" role="alert">
-            {error}
-            <button aria-label="Dismiss error" onClick={() => setError("")}>
-              <X size={13} />
-            </button>
-          </div>
-        )}
-      </div>
+          )}
+        </div>
+      </RecordFilesProvider>
     </BackOfficeTheme>
   );
 }

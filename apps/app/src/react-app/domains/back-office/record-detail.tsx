@@ -251,6 +251,7 @@ export function RecordDetail({
                         }}
                       >
                         <CellEditor
+                          record={record}
                           key={record.id + field.id + record.revision}
                           field={field}
                           value={record.values[field.id]}

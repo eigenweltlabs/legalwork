@@ -1,3 +1,9 @@
+import { projectFilePath } from "../project-file-schema.js";
+import { readFile, realpath, stat } from "node:fs/promises";
+import { basename, isAbsolute, join, relative, sep } from "node:path";
+import { attachFile, attachedFile, fileField } from "./files.js";
+import { loadAttachedFile } from "./file-sync.js";
+import { BACK_OFFICE_FILE_LIMIT } from "./schema.js";
 import {
   backOfficeProjectContext,
   readableBackOfficeRecord,
@@ -90,7 +96,9 @@ export function registerBackOfficeRoutes(options: {
             if (access.scope !== "local")
               scheduleBackOfficeSync(options.config);
           }
-          return options.jsonResponse(result);
+          return result instanceof Response
+            ? result
+            : options.jsonResponse(result);
         } catch (error) {
           if (error instanceof z.ZodError)
             throw new ApiError(
@@ -131,6 +139,116 @@ export function registerBackOfficeRoutes(options: {
       ctx.url.searchParams.get("archived") === "true",
     ),
   }));
+  route(
+    "POST",
+    "/records/:id/files/:field",
+    async (ctx, store, { scope, actor }) => {
+      const body = z
+        .union([
+          z.object({
+            objectId: z.string().optional(),
+            name: z.string(),
+            dataBase64: z
+              .string()
+              .regex(
+                /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/,
+              ),
+          }),
+          z.object({
+            objectId: z.string().optional(),
+            source: z.object({
+              workspaceId: z.string(),
+              path: projectFilePath,
+            }),
+          }),
+        ])
+        .parse(
+          await options.readJsonBodyLimited(
+            ctx.request,
+            Math.ceil((BACK_OFFICE_FILE_LIMIT * 4) / 3) + 4096,
+          ),
+        );
+      fileField(
+        store,
+        scope,
+        actor,
+        ctx.params.id,
+        ctx.params.field,
+        true,
+        body.objectId,
+      );
+      let name: string, bytes: Uint8Array;
+      if ("source" in body) {
+        const workspace = await options.resolveWorkspace(
+          options.config,
+          body.source.workspaceId,
+        );
+        const root = await realpath(workspace.path);
+        const path = await realpath(join(root, body.source.path));
+        const inside = relative(root, path);
+        if (
+          isAbsolute(body.source.path) ||
+          isAbsolute(inside) ||
+          inside === ".." ||
+          inside.startsWith(`..${sep}`)
+        )
+          throw new ApiError(
+            403,
+            "back_office_file",
+            "Choose a file inside an accessible project.",
+          );
+        const info = await stat(path);
+        if (!info.isFile() || info.size > BACK_OFFICE_FILE_LIMIT)
+          throw new ApiError(
+            413,
+            "back_office_file_size",
+            "Choose a file up to 10 MB.",
+          );
+        name = basename(path);
+        bytes = await readFile(path);
+      } else {
+        name = body.name;
+        bytes = Buffer.from(body.dataBase64, "base64");
+      }
+      return {
+        file: await attachFile(
+          options.config,
+          store,
+          scope,
+          actor,
+          ctx.params.id,
+          ctx.params.field,
+          name,
+          bytes,
+          body.objectId,
+        ),
+      };
+    },
+  );
+  route(
+    "GET",
+    "/records/:id/files/:field/:file",
+    async (ctx, store, { scope, actor }) => {
+      const file = attachedFile(
+        store,
+        scope,
+        actor,
+        ctx.params.id,
+        ctx.params.field,
+        ctx.params.file,
+      );
+      const bytes = await loadAttachedFile(options.config, scope, file);
+      return new Response(new Uint8Array(bytes), {
+        headers: {
+          "Content-Type": file.contentType,
+          "Content-Length": String(file.size),
+          "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(file.name)}`,
+          "Cache-Control": "no-store",
+          "X-Content-Type-Options": "nosniff",
+        },
+      });
+    },
+  );
   route("POST", "/records", async (ctx, store, { scope, actor }) => ({
     record: store.saveRecord(scope, actor, await input(ctx)),
   }));

@@ -1,3 +1,4 @@
+import { FileCellEditor } from "./record-files";
 import { useState } from "react";
 import { X } from "lucide-react";
 import { DatePicker } from "twenty-ui/components/input";
@@ -14,12 +15,14 @@ import { DirectorySelect } from "./twenty-controls";
 
 export function CellEditor({
   field,
+  record,
   value,
   records,
   onSave,
   onCancel,
 }: {
   field: BackOfficeField;
+  record?: BackOfficeRecord;
   value: BackOfficeValue | undefined;
   records: BackOfficeRecord[];
   onSave: (value: BackOfficeValue) => Promise<void>;
@@ -41,7 +44,7 @@ export function CellEditor({
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState(
     Array.isArray(value)
-      ? value
+      ? value.filter((item) => typeof item === "string")
       : typeof value === "string" && value
         ? [value]
         : [],
@@ -76,6 +79,16 @@ export function CellEditor({
     field.type === "relation" ||
     field.type === "select" ||
     (field.type === "multiselect" && field.options.length > 0);
+  if (field.type === "file")
+    return (
+      <FileCellEditor
+        record={record}
+        field={field}
+        value={value}
+        onSave={onSave}
+        onCancel={onCancel}
+      />
+    );
   return (
     <div
       className="bo-cell-form"

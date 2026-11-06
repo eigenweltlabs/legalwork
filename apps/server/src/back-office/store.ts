@@ -10,6 +10,7 @@ import {
   BackOfficeModelSchema,
   BackOfficeRecordSchema,
   BackOfficeValueSchema,
+  BackOfficeFilesSchema,
   BackOfficeViewSchema,
   assertModelChange,
   defaultBackOfficeModel,
@@ -38,6 +39,7 @@ CREATE TABLE IF NOT EXISTS bo_sync (scope TEXT PRIMARY KEY, cursor INTEGER NOT N
 INSERT OR IGNORE INTO bo_migrations VALUES(1,datetime('now'));`;
 const inputRecord = z.object({
   id: z.string().uuid().optional(),
+  create: z.boolean().optional(),
   objectId: z.string(),
   revision: z.number().int().nonnegative(),
   values: z.record(z.string(), z.unknown()),
@@ -216,7 +218,7 @@ export class BackOfficeStore {
           "The object is unavailable.",
         );
       const existing = parsed.id ? this.raw(scope, parsed.id) : null;
-      if (parsed.id && !existing)
+      if (parsed.id && !existing && !parsed.create)
         throw new ApiError(
           404,
           "back_office_record",
@@ -232,6 +234,8 @@ export class BackOfficeStore {
           "back_office_record",
           "The record is unavailable.",
         );
+      if (parsed.create && existing)
+        conflict("This record identity already exists.");
       if ((existing?.revision ?? 0) !== parsed.revision) conflict();
       if (
         existing &&
@@ -247,6 +251,7 @@ export class BackOfficeStore {
           "back_office_access",
           "Only the owner or a model administrator can change sharing.",
         );
+      const recordId = existing?.id ?? parsed.id ?? randomUUID();
       const values = { ...existing?.values };
       for (const [id, raw] of Object.entries(parsed.values)) {
         const field = object.fields.find((field) => field.id === id);
@@ -264,6 +269,15 @@ export class BackOfficeStore {
             `You cannot edit ${field.label}.`,
           );
         const value = BackOfficeValueSchema.parse(raw);
+        if (field.type === "file" && value !== null) {
+          for (const file of BackOfficeFilesSchema.parse(value))
+            if (file.recordId !== recordId || file.fieldId !== field.id)
+              throw new ApiError(
+                400,
+                "back_office_file",
+                "Attach a copy to this record and field before linking it.",
+              );
+        }
         if (field.type === "relation" && value) {
           for (const target of Array.isArray(value) ? value : [value]) {
             const related =
@@ -310,10 +324,11 @@ export class BackOfficeStore {
       const now = new Date().toISOString();
       const record = BackOfficeRecordSchema.parse({
         ...existing,
-        id: existing?.id ?? randomUUID(),
+        id: recordId,
         objectId: object.id,
         values,
-        sourceId: parsed.sourceId === undefined ? existing?.sourceId : parsed.sourceId,
+        sourceId:
+          parsed.sourceId === undefined ? existing?.sourceId : parsed.sourceId,
         revision: parsed.revision + 1,
         schemaRevision: model.revision,
         ownerId: existing?.ownerId ?? actor.userId,

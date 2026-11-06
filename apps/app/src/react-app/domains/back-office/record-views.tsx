@@ -94,6 +94,7 @@ function Property({
         <Popover.Positioner align="start" sideOffset={4}>
           <Popover.Popup className="bo-cell-popup">
             <CellEditor
+              record={record}
               field={field}
               value={value}
               records={props.records}

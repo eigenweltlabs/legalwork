@@ -1334,3 +1334,12 @@
   text-overflow: ellipsis;
   box-shadow: var(--t-box-shadow-strong);
 }
+
+.bo-file-editor { display: flex; flex-direction: column; gap: 8px; padding: 8px; }
+.bo-file-row { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.bo-file-row > :first-child { flex: 1; min-width: 0; overflow: hidden; }
+.bo-file-editor > p { font-size: 11px; line-height: 1.5; }
+.bo-file-project-picker { display: flex; flex-direction: column; gap: 6px; }
+.bo-file-project-list { max-height: 220px; overflow: auto; }
+.bo-file-preview { display: flex; flex-direction: column; min-height: 0; height: min(70dvh, 800px); }
+.bo-file-preview-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-bottom: 10px; }
