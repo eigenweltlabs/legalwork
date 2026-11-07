@@ -48,6 +48,10 @@ export type BackOfficeAuditStorage = {
   head: (streamId: string) => BackOfficeAuditHead | null;
   heads: () => BackOfficeAuditHead[];
   checkpoint: (head: BackOfficeAuditHead) => void;
+  fileKey: (id: string) => Buffer | null;
+  createFileKey: (id: string) => Buffer;
+  eraseFileKey: (id: string) => void;
+  fileKeyIds: () => string[];
 };
 
 function newIdentity(): BackOfficeAuditIdentity {
@@ -65,6 +69,7 @@ function newIdentity(): BackOfficeAuditIdentity {
 export function memoryBackOfficeAuditStorage(): BackOfficeAuditStorage {
   const keys = new Map<string, Buffer>();
   const heads = new Map<string, BackOfficeAuditHead>();
+  const fileKeys = new Map<string, Buffer>();
   const identity = newIdentity();
   return {
     identity,
@@ -92,6 +97,10 @@ export function memoryBackOfficeAuditStorage(): BackOfficeAuditStorage {
     checkpoint: (head) => {
       heads.set(head.streamId, { ...head });
     },
+    fileKey: id => fileKeys.get(id) ?? null,
+    createFileKey: id => { const key = fileKeys.get(id) ?? randomBytes(32); fileKeys.set(id, key); return key; },
+    eraseFileKey: id => { fileKeys.delete(id); },
+    fileKeyIds: () => [...fileKeys.keys()],
   };
 }
 
@@ -101,7 +110,7 @@ function assertUncommittedHead(head: BackOfficeAuditHead | null, id: string, pub
 }
 
 /** Persist a checkpoint before acknowledging a write, including its directory entry. */
-function durableWrite(
+export function durableWrite(
   path: string,
   directory: string,
   value: unknown,
@@ -166,10 +175,28 @@ export function fileBackOfficeAuditStorage(
   );
   const path = (id: string, suffix: string) =>
     join(directory, `${z.string().uuid().parse(id)}.${suffix}.json`);
+  const fileKeyPath = (id: string) => join(directory, `file-${z.string().uuid().parse(id)}.key.json`);
+  const readFileKey = (id: string) => existsSync(fileKeyPath(id))
+    ? Buffer.from(z.object({ key: z.string().regex(/^[a-f0-9]{64}$/) }).strict().parse(JSON.parse(readFileSync(fileKeyPath(id), "utf8"))).key, "hex") : null;
   return {
     identity,
     persistent: true,
     serialized: false,
+    fileKey: readFileKey,
+    createFileKey: id => {
+      if (!readFileKey(id)) durableWrite(fileKeyPath(id), directory, { key: randomBytes(32).toString("hex") }, true);
+      const key = readFileKey(id);
+      if (!key) throw new Error("Attachment key could not be persisted.");
+      return key;
+    },
+    fileKeyIds: () => readdirSync(directory).flatMap(name => /^file-[a-f0-9-]+\.key\.json$/.test(name) ? [z.string().uuid().parse(name.slice(5, -9))] : []),
+    eraseFileKey: id => {
+      if (existsSync(fileKeyPath(id))) unlinkSync(fileKeyPath(id));
+      if (process.platform !== "win32") {
+        const descriptor = openSync(directory, "r");
+        try { fsyncSync(descriptor); } finally { closeSync(descriptor); }
+      }
+    },
     acquire: () => {},
     release: () => {},
     retain: () => () => {},

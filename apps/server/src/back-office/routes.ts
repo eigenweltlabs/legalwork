@@ -1,7 +1,7 @@
 import { projectFilePath } from "../project-file-schema.js";
 import { readFile, realpath, stat } from "node:fs/promises";
 import { basename, isAbsolute, join, relative, sep } from "node:path";
-import { attachFile, attachedFile, fileField } from "./files.js";
+import { attachFile, attachedFile, historicalFile, fileFromHistory, fileField } from "./files.js";
 import { loadAttachedFile } from "./file-sync.js";
 import { BACK_OFFICE_FILE_LIMIT } from "./schema.js";
 import {
@@ -285,7 +285,13 @@ export function registerBackOfficeRoutes(options: {
     "GET",
     "/records/:id/files/:field/:file",
     async (ctx, store, { scope, actor }) => {
-      const file = attachedFile(
+      const eventId = z.string().uuid().nullable().parse(ctx.url.searchParams.get("eventId"));
+      let file;
+      if (eventId && scope !== "local") {
+        const exported = BackOfficeHistoryExportSchema.parse(await platformBackOfficeHistory(options.config, store, scope, { type: "record", id: ctx.params.id }, { limit: 100, cursor: null, export: true }, actor.principalKey));
+        file = fileFromHistory(exported.body.items, ctx.params.id, ctx.params.field, ctx.params.file, eventId);
+        if (!file) throw new ApiError(404, "back_office_file", "This historical attachment is unavailable with your current access.");
+      } else file = eventId ? historicalFile(store, scope, actor, ctx.params.id, ctx.params.field, ctx.params.file, eventId) : attachedFile(
         store,
         scope,
         actor,
@@ -293,7 +299,7 @@ export function registerBackOfficeRoutes(options: {
         ctx.params.field,
         ctx.params.file,
       );
-      const bytes = await loadAttachedFile(options.config, scope, file, actor.principalKey);
+      const bytes = await loadAttachedFile(options.config, scope, file, actor.principalKey, { store, actor, ...(eventId ? { eventId } : {}) });
       return new Response(new Uint8Array(bytes), {
         headers: {
           "Content-Type": file.contentType,

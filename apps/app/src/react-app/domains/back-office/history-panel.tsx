@@ -23,6 +23,7 @@ import {
   type BackOfficeField,
   type BackOfficeRecord,
   type BackOfficeValue,
+  type BackOfficeFile,
 } from "@legalwork/types/back-office";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { t } from "@/i18n";
@@ -35,12 +36,14 @@ function HistoryValue({
   records,
   onOpen,
   hidden = false,
+  onDownload,
 }: {
   value: BackOfficeValue | undefined;
   field: BackOfficeField;
   records: BackOfficeRecord[];
   onOpen: (record: BackOfficeRecord) => void;
   hidden?: boolean;
+  onDownload?: (file: BackOfficeFile) => void;
 }) {
   if (hidden)
     return (
@@ -52,8 +55,10 @@ function HistoryValue({
     );
   if (field.type === "file") {
     const files = BackOfficeFilesSchema.safeParse(value);
+    if (files.success && files.data.length === 0)
+      return <span className="bo-muted">{t("back_office.history.empty_value")}</span>;
     return files.success ? (
-      <span>{files.data.map((file) => file.name).join(", ")}</span>
+      <span>{files.data.map(file => onDownload ? <Button key={file.id} size="sm" variant="ghost" startIcon={<Download size={12} />} onClick={() => onDownload(file)}>{file.name}</Button> : <span key={file.id}>{file.name}</span>)}</span>
     ) : null;
   }
   return (
@@ -101,11 +106,13 @@ function HistoryEntry({
   records,
   userId,
   onOpen,
+  onDownload,
 }: {
   item: BackOfficeHistoryItem;
   records: BackOfficeRecord[];
   userId: string;
   onOpen: (record: BackOfficeRecord) => void;
+  onDownload?: (file: BackOfficeFile, eventId: string) => void;
 }) {
   const [details, setDetails] = useState(false);
   const old = BackOfficeStoredRecordSchema.safeParse(item.before),
@@ -190,6 +197,7 @@ function HistoryEntry({
                   aria-label={t("back_office.history.before")}
                 >
                   <HistoryValue
+                    onDownload={onDownload ? file => onDownload(file, item.eventId) : undefined}
                     field={
                       item.beforeFields.find((old) => old.id === field.id) ??
                       field
@@ -206,6 +214,7 @@ function HistoryEntry({
                 <ArrowRight size={12} />
                 <div aria-label={t("back_office.history.after")}>
                   <HistoryValue
+                    onDownload={onDownload ? file => onDownload(file, item.eventId) : undefined}
                     field={field}
                     value={after?.values[field.id]}
                     hidden={
@@ -272,11 +281,13 @@ export function HistoryEntries({
   records,
   userId,
   onOpen,
+  onDownload,
 }: {
   items: BackOfficeHistoryItem[];
   records: BackOfficeRecord[];
   userId: string;
   onOpen: (record: BackOfficeRecord) => void;
+  onDownload?: (file: BackOfficeFile, eventId: string) => void;
 }) {
   useLocale();
   return (
@@ -288,6 +299,7 @@ export function HistoryEntries({
           records={records}
           userId={userId}
           onOpen={onOpen}
+          onDownload={onDownload}
         />
       ))}
     </div>
@@ -304,7 +316,7 @@ export function HistoryPanel({
   userId,
   onOpen,
 }: {
-  client: Pick<LegalworkServerClient, "baseUrl" | "backOffice">;
+  client: Pick<LegalworkServerClient, "baseUrl" | "backOffice"> & Partial<Pick<LegalworkServerClient, "downloadBackOfficeFile">>;
   team: boolean;
   target: BackOfficeHistoryTarget;
   revision: number;
@@ -449,6 +461,15 @@ export function HistoryPanel({
             records={records}
             userId={userId}
             onOpen={onOpen}
+            onDownload={client.downloadBackOfficeFile ? async (file, eventId) => {
+              try {
+                const result = await client.downloadBackOfficeFile!(file.recordId, file.fieldId, file.id, { team, eventId });
+                const url = URL.createObjectURL(new Blob([result.data], { type: file.contentType }));
+                const link = document.createElement("a");
+                link.href = url; link.download = file.name; link.click();
+                setTimeout(() => URL.revokeObjectURL(url), 1000);
+              } catch (error) { setError(error instanceof Error ? error.message : t("back_office.files.failed")); }
+            } : undefined}
           />
           {!page.items.length && (
             <p className="bo-history-empty">{t("back_office.history.empty")}</p>

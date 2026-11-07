@@ -442,7 +442,12 @@ async function persistConnection(
     const previousPrincipal = previousAccount && current?.platformUrl && current.platformToken ? backOfficePrincipalKey(current.platformUrl, previousAccount.orgId, previousAccount.userId) : null;
     if (previousPrincipal !== expectedConnection) {
       const { reconcileBackOfficeAccounts } = await import("./back-office/accounts.js");
-      await reconcileBackOfficeAccounts(config, expectedConnection, nextAccount?.orgId ?? null, true);
+      try { await reconcileBackOfficeAccounts(config, expectedConnection, nextAccount?.orgId ?? null, true); }
+      catch {
+        // Back Office fails closed on its own routes. Its damaged history must
+        // not prevent an already-persisted account change elsewhere in the app.
+        console.warn("[back-office] Account saved; Back Office cache reconciliation failed. Back Office remains unavailable until its integrity is restored.");
+      }
     }
   }
   return true;

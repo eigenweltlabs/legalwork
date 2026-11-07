@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { syncRecordFiles } from "./file-sync.js";
 import { backOfficeAccess, refreshBackOfficeActor } from "./access.js";
-import { backOfficeStore } from "./store.js";
+import { backOfficeStore, existingBackOfficeStore } from "./store.js";
 import { mergePublishModel } from "./publish-model.js";
 import {
   BackOfficeChangeSchema,
@@ -303,7 +303,18 @@ export async function signOutBackOffice(
     scope = connection?.account?.orgId;
   const account = connection.account;
   if (!scope || !account || !connection.platformURL) return 0;
-  const store = await backOfficeStore(config), replicaId = store.replicaId(scope);
+  let store;
+  try {
+    store = await existingBackOfficeStore(config);
+    if (!store) return 0;
+    store.checkIntegrity();
+  } catch {
+    // Preserve blocked Back Office evidence; do not turn its integrity error
+    // into an app-wide sign-out lock. Connection cleanup also fails closed.
+    console.warn("[back-office] Back Office is blocked; its preserved data will not prevent account sign-out.");
+    return 0;
+  }
+  const replicaId = store.replicaId(scope);
   const principalKey = backOfficePrincipalKey(connection.platformURL, scope, account.userId);
   await syncBackOffice(config);
   if (await connectedBackOfficePrincipal(config) !== principalKey) return 0;

@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { ServerConfig } from "../types.js";
 import { openSqlite, runtimeDbPath } from "../runtime-db.js";
-import { writeEigenweltConnection, writeEigenweltConnectionIfCurrent, closeEigenweltConnectionForTests, claimEigenweltRefreshRequest } from "../eigenwelt-connection-store.js";
+import { readEigenweltConnection, writeEigenweltConnection, writeEigenweltConnectionIfCurrent, closeEigenweltConnectionForTests, claimEigenweltRefreshRequest } from "../eigenwelt-connection-store.js";
 import { scheduleOrgPolicySync, resetOrgPolicyRuntimeForTests } from "../org-policy.js";
 import { BackOfficeRecordSchema, defaultBackOfficeModel, type BackOfficeActor, type BackOfficeRecord, type BackOfficeSnapshot } from "./schema.js";
 import { BackOfficeStore, backOfficeStore, closeBackOfficeStoreForTests } from "./store.js";
@@ -150,6 +150,28 @@ test("startup applies a committed policy denial after an interrupted cleanup wit
     expect(restarted.journal.storage.key(oldHead.streamId)).toBeNull();
     expect(restarted.checkIntegrity().locallyVerified).toBe(true);
   } finally { restarted.close(); }
+});
+
+test("broken Back Office history blocks Back Office without preventing the app's account and policy updates", async () => {
+  const { store, config, backend, signIn } = await fixture();
+  const warning = spyOn(console, "warn").mockImplementation(() => {});
+  try {
+    store.db.exec("CREATE TABLE unrelated_app_data(id TEXT PRIMARY KEY,value TEXT); INSERT INTO unrelated_app_data VALUES('ordinary','before')");
+    const heads = store.journal.storage.heads();
+    store.db.run("UPDATE unrelated_app_data SET value='after'");
+    expect(store.checkIntegrity().locallyVerified).toBe(true);
+    expect(store.journal.storage.heads()).toEqual(heads);
+    store.db.exec("DROP TRIGGER bo_records_journal_guard_UPDATE");
+    expect(await signOutBackOffice(config, { force: true, apply: true })).toBe(0);
+    await signIn("bob");
+    expect((await readEigenweltConnection(config)).account?.userId).toBe("bob");
+    backend.enabled = false; backend.revision++;
+    await scheduleOrgPolicySync(config, { force: true });
+    store.db.run("UPDATE unrelated_app_data SET value='still works'");
+    expect(store.db.get("SELECT value FROM unrelated_app_data")?.value).toBe("still works");
+    expect(() => store.checkIntegrity()).toThrow("security triggers");
+    expect(warning).toHaveBeenCalled();
+  } finally { warning.mockRestore(); }
 });
 
 test("a late sync response from the previous principal cannot restore records or consume the new user's drafts", async () => {
