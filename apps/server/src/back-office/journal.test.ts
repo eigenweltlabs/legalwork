@@ -176,10 +176,31 @@ test("retiring a team cache removes readable historical payloads but preserves v
   expect(storage.head(head.streamId)!.sequence).toBeGreaterThan(head.sequence);
   expect(store.journal.verify().locallyVerified).toBe(true);
   expect(store.pending("firm")).toHaveLength(1);
+  expect(store.db.all("SELECT * FROM bo_journal_state_nonces WHERE stream_id=?", [head.streamId])).toEqual([]);
+  const replacement = storage.heads().filter(item => item.streamId !== head.streamId)
+    .flatMap(item => store.journal.entries(item.streamId))
+    .find(item => item.payload.scope === "firm" && item.payload.entityType === "proposal");
+  expect(replacement?.payload.action).toBe("baseline.proposal");
   const ciphertext = JSON.stringify(
     store.db.all("SELECT sealed FROM bo_journal_entries"),
   );
   expect(ciphertext).not.toContain("Restricted team client");
+});
+
+test("state nonce storage is encrypted, guarded and checked against signed projections", async () => {
+  const { store, storage } = await fixture();
+  const entries = storage.heads().flatMap(head => store.journal.entries(head.streamId));
+  const cached = JSON.stringify(store.db.all("SELECT * FROM bo_journal_state_nonces"));
+  for (const entry of entries) {
+    if (entry.payload.afterNonce) expect(cached).not.toContain(entry.payload.afterNonce);
+    expect(cached).not.toContain(entry.payload.payloadNonce);
+  }
+  expect(() => store.db.run("DELETE FROM bo_journal_state_nonces")).toThrow("audited transaction");
+  const guard = String(store.db.get("SELECT sql FROM sqlite_master WHERE name='bo_journal_state_nonces_guard_delete'")!.sql);
+  store.db.exec("DROP TRIGGER bo_journal_state_nonces_guard_delete");
+  store.db.run("DELETE FROM bo_journal_state_nonces");
+  store.db.exec(guard);
+  expect(() => store.journal.verify()).toThrow("state nonce is missing");
 });
 
 test("nested rollback cannot retire an otherwise valid directory", async () => {
@@ -349,7 +370,7 @@ test("removed and altered SQL guards block reads and are not silently recreated"
     "DROP TRIGGER bo_records_journal_guard_UPDATE",
     "DROP TRIGGER bo_records_journal_guard_UPDATE; CREATE TRIGGER bo_records_journal_guard_UPDATE BEFORE UPDATE ON bo_records BEGIN SELECT 1; END",
     "CREATE TRIGGER unexpected_audit_write AFTER INSERT ON bo_records BEGIN SELECT 1; END",
-    "DELETE FROM bo_migrations WHERE version=2",
+    "DELETE FROM bo_migrations WHERE version=3",
   ]) {
     const { store, storage } = await fixture();
     store.db.exec(sql);

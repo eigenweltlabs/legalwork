@@ -8,6 +8,7 @@ import { z } from "zod";
 import type { SqliteHandle } from "../runtime-db.js";
 import {
   BACK_OFFICE_AUDIT_GENESIS,
+  BACK_OFFICE_AUDIT_VERSION,
   BackOfficeAuditActorSchema,
   BackOfficeAuditPayloadSchema,
   BackOfficeAuditProofSchema,
@@ -21,7 +22,9 @@ import {
 } from "./schema.js";
 import {
   backOfficeAuditEntityKey,
+  backOfficeAuditDigest,
   backOfficeAuditStateHash,
+  newBackOfficeAuditNonce,
   signBackOfficeAudit,
   verifyBackOfficeAuditEntry,
   verifyBackOfficeAuditProofChain,
@@ -60,6 +63,11 @@ CREATE TABLE IF NOT EXISTS bo_journal_pending (seq INTEGER PRIMARY KEY AUTOINCRE
 CREATE TABLE IF NOT EXISTS bo_journal_streams (stream_id TEXT PRIMARY KEY, scope TEXT NOT NULL, public_key TEXT NOT NULL, created_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS bo_journal_active (scope TEXT PRIMARY KEY, stream_id TEXT NOT NULL REFERENCES bo_journal_streams(stream_id));
 CREATE TABLE IF NOT EXISTS bo_journal_entries (stream_id TEXT NOT NULL REFERENCES bo_journal_streams(stream_id), sequence INTEGER NOT NULL, event_id TEXT NOT NULL UNIQUE, proof TEXT NOT NULL, sealed TEXT NOT NULL, PRIMARY KEY(stream_id,sequence));
+CREATE TABLE IF NOT EXISTS bo_journal_state_nonces (stream_id TEXT NOT NULL REFERENCES bo_journal_streams(stream_id), entity_key TEXT NOT NULL, sealed TEXT NOT NULL, PRIMARY KEY(stream_id,entity_key));
+CREATE INDEX IF NOT EXISTS bo_journal_entries_entity ON bo_journal_entries(stream_id,json_extract(proof,'$.entityKey'),sequence);
+CREATE TRIGGER IF NOT EXISTS bo_journal_state_nonces_guard_insert BEFORE INSERT ON bo_journal_state_nonces BEGIN SELECT RAISE(ABORT,'Back Office nonce changes require an audited transaction') WHERE NOT EXISTS(SELECT 1 FROM bo_journal_context WHERE id=1); END;
+CREATE TRIGGER IF NOT EXISTS bo_journal_state_nonces_guard_update BEFORE UPDATE ON bo_journal_state_nonces BEGIN SELECT RAISE(ABORT,'Back Office nonce changes require an audited transaction') WHERE NOT EXISTS(SELECT 1 FROM bo_journal_context WHERE id=1); END;
+CREATE TRIGGER IF NOT EXISTS bo_journal_state_nonces_guard_delete BEFORE DELETE ON bo_journal_state_nonces BEGIN SELECT RAISE(ABORT,'Back Office nonce changes require an audited transaction') WHERE NOT EXISTS(SELECT 1 FROM bo_journal_context WHERE id=1); END;
 CREATE TRIGGER IF NOT EXISTS bo_journal_entries_no_update BEFORE UPDATE ON bo_journal_entries BEGIN SELECT RAISE(ABORT,'Back Office audit history is append-only'); END;
 CREATE TRIGGER IF NOT EXISTS bo_journal_entries_no_delete BEFORE DELETE ON bo_journal_entries BEGIN SELECT RAISE(ABORT,'Back Office audit history is append-only'); END;
 CREATE TRIGGER IF NOT EXISTS bo_journal_streams_no_update BEFORE UPDATE ON bo_journal_streams BEGIN SELECT RAISE(ABORT,'Back Office audit identity is immutable'); END;
@@ -82,7 +90,7 @@ type Json = z.infer<typeof JsonSchema>;
 function parseJson(value: string | null): Json {
   return value === null ? null : JsonSchema.parse(JSON.parse(value));
 }
-function seal(payload: BackOfficeAuditPayload, key: Buffer) {
+function seal(payload: Json, key: Buffer) {
   const nonce = randomBytes(12);
   const cipher = createCipheriv("aes-256-gcm", key, nonce);
   const bytes = Buffer.concat([
@@ -106,7 +114,7 @@ function unseal(value: string, key: Buffer) {
     Buffer.from(envelope.nonce, "base64"),
   );
   cipher.setAuthTag(Buffer.from(envelope.tag, "base64"));
-  return BackOfficeAuditPayloadSchema.parse(
+  return JsonSchema.parse(
     JSON.parse(
       Buffer.concat([
         cipher.update(Buffer.from(envelope.data, "base64")),
@@ -167,7 +175,7 @@ export class BackOfficeJournal {
     this.established = initialized;
     if (
       initialized &&
-      !db.get("SELECT version FROM bo_migrations WHERE version=2")
+      !db.get("SELECT version FROM bo_migrations WHERE version=3")
     )
       throw new Error(
         "Back Office audit migration evidence is missing. Preserve this database before recovery.",
@@ -188,7 +196,7 @@ export class BackOfficeJournal {
     const initialized = this.established;
     if (
       initialized &&
-      !this.db.get("SELECT version FROM bo_migrations WHERE version=2")
+      !this.db.get("SELECT version FROM bo_migrations WHERE version=3")
     )
       throw new Error(
         "Back Office audit migration evidence is missing. Preserve this database before recovery.",
@@ -202,6 +210,10 @@ export class BackOfficeJournal {
         this.normalizeTrigger(String(row.sql)),
       ]),
     );
+    const nonceTable = this.db.get("SELECT sql FROM sqlite_master WHERE type='table' AND name='bo_journal_state_nonces'");
+    if (initialized && this.normalizeTrigger(String(nonceTable?.sql)) !==
+      this.normalizeTrigger("CREATE TABLE bo_journal_state_nonces (stream_id TEXT NOT NULL REFERENCES bo_journal_streams(stream_id), entity_key TEXT NOT NULL, sealed TEXT NOT NULL, PRIMARY KEY(stream_id,entity_key))"))
+      throw new Error("Back Office audit nonce storage was changed or removed. Preserve this database before recovery.");
     for (const [name, sql] of this.expectedTriggers) {
       if (!initialized && name.startsWith("bo_journal_legacy_")) continue;
       if (found.get(name) !== sql)
@@ -228,7 +240,7 @@ export class BackOfficeJournal {
         const key = this.storage.key(stream.stream_id);
         return [
           stream.stream_id,
-          key ? backOfficeAuditStateHash(key.toString("hex")) : null,
+          key ? backOfficeAuditDigest(key.toString("hex")) : null,
         ];
       }),
     );
@@ -355,7 +367,7 @@ export class BackOfficeJournal {
   }
   private expected(stream: ReturnType<BackOfficeJournal["streams"]>[number]) {
     const result: Record<string, string> = {};
-    const empty = backOfficeAuditStateHash(null);
+    const empty = backOfficeAuditStateHash(null, null);
     for (const row of this.rows(stream.stream_id)) {
       const proof = BackOfficeAuditProofSchema.parse(JSON.parse(row.proof));
       if (!["record", "model", "view", "proposal"].includes(proof.entityType))
@@ -369,14 +381,24 @@ export class BackOfficeJournal {
     }
     return result;
   }
-  private currentHashes(scope: string) {
+  private stateNonce(streamId: string, entityKey: string) {
+    const row = this.db.get("SELECT sealed FROM bo_journal_state_nonces WHERE stream_id=? AND entity_key=?", [streamId, entityKey]);
+    if (!row) throw new Error("Back Office database contents differ from their recorded history: state nonce is missing.");
+    const key = this.storage.key(streamId);
+    if (!key) throw new Error("Back Office current state has no readable audit encryption key.");
+    return z.string().regex(/^[a-f0-9]{64}$/).parse(unseal(String(row.sealed), key));
+  }
+  private currentHashes(stream: ReturnType<BackOfficeJournal["streams"]>[number]) {
     const result: Record<string, string> = {};
-    for (const [key, value] of Object.entries(this.current(scope))) {
+    for (const [key, value] of Object.entries(this.current(stream.scope))) {
       const colon = key.indexOf(":");
       const kind = PendingSchema.shape.kind.parse(key.slice(0, colon));
-      result[backOfficeAuditEntityKey(scope, kind, key.slice(colon + 1))] =
-        backOfficeAuditStateHash(value);
+      const entityKey = backOfficeAuditEntityKey(stream.scope, kind, key.slice(colon + 1));
+      result[entityKey] = backOfficeAuditStateHash(value, this.stateNonce(stream.stream_id, entityKey));
     }
+    const cached = this.db.all("SELECT entity_key FROM bo_journal_state_nonces WHERE stream_id=?", [stream.stream_id]);
+    if (cached.length !== Object.keys(result).length || cached.some(row => !(String(row.entity_key) in result)))
+      throw new Error("Back Office state nonce storage differs from its current projection.");
     return result;
   }
 
@@ -433,7 +455,7 @@ export class BackOfficeJournal {
       if (
         latest.get(stream.scope) === stream.stream_id &&
         canonicalBackOfficeAudit(this.expected(stream)) !==
-          canonicalBackOfficeAudit(this.currentHashes(stream.scope))
+          canonicalBackOfficeAudit(this.currentHashes(stream))
       )
         throw new Error(
           "Back Office database contents differ from their recorded history. Further changes are blocked.",
@@ -455,6 +477,31 @@ export class BackOfficeJournal {
         proof: JSON.parse(row.proof),
       }),
     );
+  }
+
+  /** Call inside the store's coordinated read transaction after verification. */
+  evidence(scope: string) {
+    const streams = this.streams().filter((stream) => stream.scope === scope);
+    const entries = streams.flatMap((stream) => this.entries(stream.stream_id));
+    const proofs = streams.flatMap((stream) =>
+      this.rows(stream.stream_id).map((row) =>
+        BackOfficeAuditProofSchema.parse(JSON.parse(row.proof)),
+      ),
+    );
+    const heads = streams.map((stream) => {
+      const last = proofs
+        .filter((proof) => proof.streamId === stream.stream_id)
+        .at(-1);
+      return last
+        ? {
+            streamId: stream.stream_id,
+            sequence: last.sequence,
+            hash: last.hash,
+            publicKey: stream.public_key,
+          }
+        : this.root(stream);
+    });
+    return { entries, proofs, heads };
   }
   history(scope: string, id: string) {
     const entries = this.streams()
@@ -508,7 +555,7 @@ export class BackOfficeJournal {
     stream: ReturnType<BackOfficeJournal["streams"]>[number],
     input: Omit<
       BackOfficeAuditPayload,
-      "version" | "streamId" | "sequence" | "eventId" | "recordedAt"
+      "version" | "streamId" | "sequence" | "eventId" | "recordedAt" | "payloadNonce" | "beforeNonce" | "afterNonce"
     >,
   ) {
     const last = this.db.get(
@@ -522,15 +569,26 @@ export class BackOfficeJournal {
     if (
       !key ||
       this.admittedKeys.get(stream.stream_id) !==
-        backOfficeAuditStateHash(key.toString("hex"))
+        backOfficeAuditDigest(key.toString("hex"))
     )
       throw new Error(
         "Back Office history encryption key changed outside its audited lifecycle.",
       );
+    const entityKey = backOfficeAuditEntityKey(input.scope, input.entityType, input.entityId);
+    const projected = auditedTables.some(table => table.kind === input.entityType);
+    const beforeNonce = input.before === null ? null : this.stateNonce(stream.stream_id, entityKey);
+    const afterNonce = input.after === null ? null : newBackOfficeAuditNonce();
+    const priorState = this.db.get("SELECT proof FROM bo_journal_entries WHERE stream_id=? AND json_extract(proof,'$.entityKey')=? ORDER BY sequence DESC LIMIT 1", [stream.stream_id, entityKey]);
+    const beforeHash = backOfficeAuditStateHash(input.before, beforeNonce);
+    if (beforeHash !== (priorState ? BackOfficeAuditProofSchema.parse(JSON.parse(String(priorState.proof))).afterHash : backOfficeAuditStateHash(null, null)))
+      throw new Error("Back Office history contains an inconsistent state transition.");
     const entry = signBackOfficeAudit(
       {
         ...input,
-        version: 1,
+        version: BACK_OFFICE_AUDIT_VERSION,
+        payloadNonce: newBackOfficeAuditNonce(),
+        beforeNonce,
+        afterNonce,
         streamId: stream.stream_id,
         sequence: (previous?.sequence ?? 0) + 1,
         eventId: randomUUID(),
@@ -546,6 +604,10 @@ export class BackOfficeJournal {
       JSON.stringify(entry.proof),
       seal(entry.payload, key),
     ]);
+    if (projected) {
+      if (afterNonce === null) this.db.run("DELETE FROM bo_journal_state_nonces WHERE stream_id=? AND entity_key=?", [stream.stream_id, entityKey]);
+      else this.db.run("INSERT INTO bo_journal_state_nonces VALUES(?,?,?) ON CONFLICT(stream_id,entity_key) DO UPDATE SET sealed=excluded.sealed", [stream.stream_id, entityKey, seal(afterNonce, key)]);
+    }
     this.changed.add(stream.stream_id);
     this.prospectiveHeads.set(stream.stream_id, {
       streamId: stream.stream_id,
@@ -571,7 +633,7 @@ export class BackOfficeJournal {
     const key = this.storage.createKey(stream.stream_id);
     this.admittedKeys.set(
       stream.stream_id,
-      backOfficeAuditStateHash(key.toString("hex")),
+      backOfficeAuditDigest(key.toString("hex")),
     );
     this.db.run("INSERT INTO bo_journal_streams VALUES(?,?,?,?)", [
       stream.stream_id,
@@ -583,6 +645,7 @@ export class BackOfficeJournal {
       scope,
       stream.stream_id,
     ]);
+    this.db.run("DELETE FROM bo_journal_state_nonces WHERE stream_id IN (SELECT stream_id FROM bo_journal_streams WHERE scope=? AND stream_id<>?)", [scope, stream.stream_id]);
     const state = this.current(scope);
     for (const change of [...pending].reverse()) {
       if (change.scope !== scope) continue;
@@ -645,7 +708,7 @@ export class BackOfficeJournal {
         this.db.exec(legacyGuards);
       }
       this.db.run(
-        "INSERT OR IGNORE INTO bo_migrations VALUES(2,datetime('now'))",
+        "INSERT OR IGNORE INTO bo_migrations VALUES(3,datetime('now'))",
       );
       this.established = true;
       this.db.run("DELETE FROM bo_journal_context");
@@ -714,6 +777,10 @@ export class BackOfficeJournal {
     });
     this.db.run("DELETE FROM bo_journal_active WHERE scope=?", [scope]);
     this.eraseAfterCommit.add(stream.stream_id);
+    this.db.run("DELETE FROM bo_journal_state_nonces WHERE stream_id=?", [stream.stream_id]);
+    // Re-baseline any retained own drafts under a new key and new nonces. Old
+    // cache ciphertext, including freed SQLite pages, becomes unreadable.
+    if (Object.keys(this.current(scope)).length) this.stream(scope, []);
   }
   checkpoint() {
     try {

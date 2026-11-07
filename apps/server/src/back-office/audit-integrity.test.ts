@@ -8,6 +8,8 @@ import {
 } from "./schema.js";
 import {
   newBackOfficeAuditKey,
+  newBackOfficeAuditNonce,
+  backOfficeAuditStateHash,
   signBackOfficeAudit,
   verifyBackOfficeAuditChain,
   verifyBackOfficeAuditEntry,
@@ -23,8 +25,12 @@ function fixture() {
     sequence: 0,
     hash: BACK_OFFICE_AUDIT_GENESIS,
   };
+  const stateNonce = newBackOfficeAuditNonce();
   const payload = (sequence: number): BackOfficeAuditPayload => ({
-    version: 1,
+    version: 2,
+    payloadNonce: newBackOfficeAuditNonce(),
+    beforeNonce: sequence === 1 ? null : stateNonce,
+    afterNonce: sequence === 1 ? stateNonce : newBackOfficeAuditNonce(),
     streamId,
     sequence,
     eventId: randomUUID(),
@@ -42,8 +48,8 @@ function fixture() {
     entityType: "record",
     entityId: "matter-a",
     modelRevision: 2,
-    before: { name: "Confidential client", status: "Open" },
-    after: { name: "Confidential client", status: "Closed" },
+    before: sequence === 1 ? null : { name: "Confidential client", status: "Open" },
+    after: { name: "Confidential client", status: sequence === 1 ? "Open" : "Closed" },
   });
   const first = signBackOfficeAudit(payload(1), root.hash, keys);
   const second = signBackOfficeAudit(payload(2), first.proof.hash, keys);
@@ -164,4 +170,25 @@ test("a replaced private key cannot produce an accepted entry under the pinned p
       publicKey: replaced.publicKey,
     }),
   ).toThrow("pinned identity");
+});
+
+test("private nonces hide low-entropy states and payloads, including from later disclosed nonces", () => {
+  const { keys, root, payload, first, second } = fixture();
+  expect(first.payload.afterNonce).toBe(second.payload.beforeNonce);
+  expect(first.payload.afterNonce).not.toBe(second.payload.afterNonce);
+  const repeated = signBackOfficeAudit({ ...payload(1), afterNonce: newBackOfficeAuditNonce() }, root.hash, keys);
+  expect(repeated.proof.afterHash).not.toBe(first.proof.afterHash);
+  expect(repeated.proof.payloadHash).not.toBe(first.proof.payloadHash);
+  for (const status of ["Open", "Closed"])
+    expect(backOfficeAuditStateHash({ name: "Confidential client", status }, second.payload.afterNonce)).not.toBe(first.proof.afterHash);
+  expect(JSON.stringify(first.proof)).not.toContain(first.payload.afterNonce!);
+  expect(JSON.stringify(first.proof)).not.toContain(first.payload.payloadNonce);
+  expect(() => backOfficeAuditStateHash(first.payload.after, null)).toThrow("private random nonce");
+  expect(() => verifyBackOfficeAuditEntry({ ...first, payload: { ...first.payload, beforeNonce: newBackOfficeAuditNonce() } })).toThrow();
+});
+
+test("a newly signed transition cannot silently substitute a different state nonce", () => {
+  const { keys, root, first, second } = fixture();
+  const forked = signBackOfficeAudit({ ...second.payload, beforeNonce: newBackOfficeAuditNonce() }, first.proof.hash, keys);
+  expect(() => verifyBackOfficeAuditChain([first, forked], root)).toThrow("inconsistent state transition");
 });

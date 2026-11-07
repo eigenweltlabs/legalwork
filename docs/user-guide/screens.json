@@ -29,6 +29,13 @@
       "source": "apps/app/src/react-app/domains/settings/pages/research-connection-dialog.tsx"
     }
   ],
+  "panels": [
+    {
+      "id": "back-office-history",
+      "guide": "back-office.md",
+      "source": "apps/app/src/react-app/domains/back-office/history-panel.tsx"
+    }
+  ],
   "routes": [
     {
       "path": "*",

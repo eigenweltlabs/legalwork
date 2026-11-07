@@ -89,22 +89,22 @@ export const BackOfficeValueSchema = z.union([
   }),
   z.null(),
 ]);
-export const BackOfficeRecordSchema = z
-  .object({
-    id: z.string().uuid(),
-    objectId: identifier,
-    values: z.record(identifier, BackOfficeValueSchema),
-    sourceId: z.string().max(16000).nullable().optional(),
-    revision: z.number().int().nonnegative(),
-    schemaRevision: z.number().int().nonnegative(),
-    access: z.enum(["org", "members"]).default("org"),
-    members: z.array(z.string().min(1).max(200)).max(500).default([]),
-    ownerId: z.string().min(1).max(200),
-    createdAt: z.string().datetime(),
-    updatedAt: z.string().datetime(),
-    archivedAt: z.string().datetime().nullable(),
-  })
-  .transform((record) => {
+export const BackOfficeStoredRecordSchema = z.object({
+  id: z.string().uuid(),
+  objectId: identifier,
+  values: z.record(identifier, BackOfficeValueSchema),
+  sourceId: z.string().max(16000).nullable().optional(),
+  revision: z.number().int().nonnegative(),
+  schemaRevision: z.number().int().nonnegative(),
+  access: z.enum(["org", "members"]).default("org"),
+  members: z.array(z.string().min(1).max(200)).max(500).default([]),
+  ownerId: z.string().min(1).max(200),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+  archivedAt: z.string().datetime().nullable(),
+});
+export const BackOfficeRecordSchema = BackOfficeStoredRecordSchema.transform(
+  (record) => {
     // Retire the preview template's provider-specific field without losing import identity.
     const { actaportId, ...values } = record.values;
     return {
@@ -115,7 +115,8 @@ export const BackOfficeRecordSchema = z
           ? actaportId
           : record.sourceId,
     };
-  });
+  },
+);
 export const BackOfficeViewSchema = z
   .object({
     id: z.string().uuid(),
@@ -549,7 +550,7 @@ export function validateBackOfficeValues(
 }
 
 export function visibleBackOfficeRecord(
-  record: BackOfficeRecord,
+  record: Pick<BackOfficeRecord, "objectId" | "ownerId" | "access" | "members">,
   actor: BackOfficeActor,
 ): boolean {
   if (
@@ -579,7 +580,8 @@ export function readableBackOfficeRecord(
     values: Object.fromEntries(
       Object.entries(record.values).filter(([id]) => {
         const field = object.fields.find((field) => field.id === id);
-        return field?.visibility === "private"
+        if (!field) return false;
+        return field.visibility === "private"
           ? record.ownerId === actor.userId
           : field?.visibility !== "finance" || actor.finance;
       }),
@@ -845,75 +847,608 @@ export function moveCalendarDate(
   return moved.toISOString();
 }
 
-
-export const BACK_OFFICE_AUDIT_VERSION = 1;
+export const BACK_OFFICE_AUDIT_VERSION = 2;
 export const BACK_OFFICE_AUDIT_GENESIS = "0".repeat(64);
+export const BACK_OFFICE_AUDIT_EMPTY_STATE =
+  "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b";
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
-const base64 = z.string().min(1).max(2000).regex(/^[A-Za-z0-9+/]+={0,2}$/);
+const base64 = z
+  .string()
+  .min(1)
+  .max(2000)
+  .regex(/^[A-Za-z0-9+/]+={0,2}$/);
 
-export const BackOfficeAuditActorSchema = z.object({
-  id: z.string().min(1).max(200),
-  name: z.string().max(200).nullable(),
-  kind: z.enum(["user", "agent", "system"]),
-  identitySource: z.enum(["platform", "account-cache", "operating-system", "migration"]),
-  deviceId: z.string().uuid().nullable(),
-  agentId: z.string().max(200).nullable(),
-}).strict();
+export const BackOfficeAuditActorSchema = z
+  .object({
+    id: z.string().min(1).max(200),
+    name: z.string().max(200).nullable(),
+    kind: z.enum(["user", "agent", "system"]),
+    identitySource: z.enum([
+      "platform",
+      "account-cache",
+      "operating-system",
+      "migration",
+    ]),
+    deviceId: z.string().uuid().nullable(),
+    agentId: z.string().max(200).nullable(),
+  })
+  .strict();
 
-export const BackOfficeAuditPayloadSchema = z.object({
-  version: z.literal(BACK_OFFICE_AUDIT_VERSION),
-  streamId: z.string().uuid(),
-  sequence: z.number().int().positive().safe(),
-  eventId: z.string().uuid(),
-  recordedAt: z.string().datetime(),
-  scope: z.string().min(1).max(200),
-  actor: BackOfficeAuditActorSchema,
-  action: z.string().min(1).max(100),
-  entityType: z.enum(["record", "model", "view", "directory", "file", "proposal"]),
-  entityId: z.string().min(1).max(200),
-  modelRevision: z.number().int().nonnegative().safe(),
-  before: z.json().nullable(),
-  after: z.json().nullable(),
-}).strict();
+export const BackOfficeAuditPayloadSchema = z
+  .object({
+    version: z.literal(BACK_OFFICE_AUDIT_VERSION),
+    streamId: z.string().uuid(),
+    sequence: z.number().int().positive().safe(),
+    eventId: z.string().uuid(),
+    recordedAt: z.string().datetime(),
+    scope: z.string().min(1).max(200),
+    actor: BackOfficeAuditActorSchema,
+    action: z.string().min(1).max(100),
+    entityType: z.enum([
+      "record",
+      "model",
+      "view",
+      "directory",
+      "file",
+      "proposal",
+    ]),
+    entityId: z.string().min(1).max(200),
+    modelRevision: z.number().int().nonnegative().safe(),
+    payloadNonce: digest,
+    beforeNonce: digest.nullable(),
+    afterNonce: digest.nullable(),
+    before: z.json().nullable(),
+    after: z.json().nullable(),
+  })
+  .strict()
+  .refine(
+    (payload) =>
+      (payload.before === null) === (payload.beforeNonce === null) &&
+      (payload.after === null) === (payload.afterNonce === null),
+    "Only an empty state has no private commitment nonce.",
+  );
 
 // Proofs deliberately exclude record contents. They can be independently
 // witnessed without uploading clients, matters, file names or model definitions.
-export const BackOfficeAuditProofSchema = z.object({
-  version: z.literal(BACK_OFFICE_AUDIT_VERSION),
-  streamId: z.string().uuid(),
-  sequence: z.number().int().positive().safe(),
-  previousHash: digest,
-  payloadHash: digest,
-  entityType: z.enum(["record", "model", "view", "directory", "file", "proposal"]),
-  entityKey: digest,
-  beforeHash: digest,
-  afterHash: digest,
-  hash: digest,
-  publicKey: base64,
-  signature: base64,
-}).strict();
+export const BackOfficeAuditProofSchema = z
+  .object({
+    version: z.literal(BACK_OFFICE_AUDIT_VERSION),
+    streamId: z.string().uuid(),
+    sequence: z.number().int().positive().safe(),
+    previousHash: digest,
+    payloadHash: digest,
+    entityType: z.enum([
+      "record",
+      "model",
+      "view",
+      "directory",
+      "file",
+      "proposal",
+    ]),
+    entityKey: digest,
+    beforeHash: digest,
+    afterHash: digest,
+    hash: digest,
+    publicKey: base64,
+    signature: base64,
+  })
+  .strict();
 
-export const BackOfficeAuditEntrySchema = z.object({
-  payload: BackOfficeAuditPayloadSchema,
-  proof: BackOfficeAuditProofSchema,
-}).strict();
+export const BackOfficeAuditEntrySchema = z
+  .object({
+    payload: BackOfficeAuditPayloadSchema,
+    proof: BackOfficeAuditProofSchema,
+  })
+  .strict();
 
-export const BackOfficeAuditHeadSchema = z.object({
-  streamId: z.string().uuid(),
-  sequence: z.number().int().nonnegative().safe(),
-  hash: digest,
-  publicKey: base64,
-}).strict();
+export const BackOfficeAuditHeadSchema = z
+  .object({
+    streamId: z.string().uuid(),
+    sequence: z.number().int().nonnegative().safe(),
+    hash: digest,
+    publicKey: base64,
+  })
+  .strict();
 
 export type BackOfficeAuditActor = z.infer<typeof BackOfficeAuditActorSchema>;
-export type BackOfficeAuditPayload = z.infer<typeof BackOfficeAuditPayloadSchema>;
+export type BackOfficeAuditPayload = z.infer<
+  typeof BackOfficeAuditPayloadSchema
+>;
 export type BackOfficeAuditProof = z.infer<typeof BackOfficeAuditProofSchema>;
 export type BackOfficeAuditEntry = z.infer<typeof BackOfficeAuditEntrySchema>;
 export type BackOfficeAuditHead = z.infer<typeof BackOfficeAuditHeadSchema>;
 
 /** Deterministic, lossless encoding of the supported JSON value domain. */
-export function canonicalBackOfficeAudit(value: z.infer<ReturnType<typeof z.json>>): string {
+export function canonicalBackOfficeAudit(
+  value: z.infer<ReturnType<typeof z.json>>,
+): string {
   if (value === null || typeof value !== "object") return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(canonicalBackOfficeAudit).join(",")}]`;
-  return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalBackOfficeAudit(value[key])}`).join(",")}}`;
+  if (Array.isArray(value))
+    return `[${value.map(canonicalBackOfficeAudit).join(",")}]`;
+  return `{${Object.keys(value)
+    .sort()
+    .map(
+      (key) => `${JSON.stringify(key)}:${canonicalBackOfficeAudit(value[key])}`,
+    )
+    .join(",")}}`;
+}
+
+export const BackOfficeHistoryTargetSchema = z
+  .object({
+    type: z.enum(["record", "model", "view"]),
+    id: z.string().min(1).max(200),
+  })
+  .strict()
+  .refine(
+    (target) =>
+      target.type === "model"
+        ? target.id === "model"
+        : z.string().uuid().safeParse(target.id).success,
+    "Choose a valid history target.",
+  );
+export const BackOfficeHistoryItemSchema = z
+  .object({
+    eventId: z.string().uuid(),
+    entityType: z.enum(["record", "model", "view"]),
+    entityId: z.string(),
+    recordedAt: z.string().datetime(),
+    actor: BackOfficeAuditActorSchema,
+    action: z.string(),
+    modelRevision: z.number().int().nonnegative(),
+    before: z.json().nullable(),
+    after: z.json().nullable(),
+    beforeFields: z.array(BackOfficeFieldSchema),
+    afterFields: z.array(BackOfficeFieldSchema),
+    redacted: z.boolean(),
+    // A redacted display is not the payload committed by the original proof.
+    // Never attach a modified payload to a proof and claim that it verifies.
+    payload: BackOfficeAuditPayloadSchema.nullable(),
+    proof: BackOfficeAuditProofSchema,
+  })
+  .strict();
+export const BackOfficeHistoryPageSchema = z.object({
+  items: z.array(BackOfficeHistoryItemSchema),
+  nextCursor: z.string().uuid().nullable(),
+  heads: z.array(BackOfficeAuditHeadSchema),
+  source: z.enum(["local", "platform"]),
+  independentlyAcknowledged: z.boolean(),
+});
+export type BackOfficeHistoryItem = z.infer<typeof BackOfficeHistoryItemSchema>;
+export type BackOfficeHistoryTarget = z.infer<
+  typeof BackOfficeHistoryTargetSchema
+>;
+export const BackOfficeHistoryExportBodySchema = z
+  .object({
+    format: z.literal("legalwork.back-office.history.v2"),
+    exportId: z.string().uuid(),
+    exportedAt: z.string().datetime(),
+    scope: z.string().min(1),
+    target: BackOfficeHistoryTargetSchema,
+    source: z.enum(["local", "platform"]),
+    exportedBy: BackOfficeAuditActorSchema,
+    heads: z.array(BackOfficeAuditHeadSchema),
+    proofs: z.array(BackOfficeAuditProofSchema),
+    items: z.array(BackOfficeHistoryItemSchema),
+    withheldPayloads: z.number().int().nonnegative(),
+  })
+  .strict();
+export const BackOfficeHistoryExportSchema = z
+  .object({
+    body: BackOfficeHistoryExportBodySchema,
+    publicKey: base64,
+    signature: base64,
+  })
+  .strict();
+export type BackOfficeHistoryExportBody = z.infer<
+  typeof BackOfficeHistoryExportBodySchema
+>;
+export type BackOfficeHistoryExport = z.infer<
+  typeof BackOfficeHistoryExportSchema
+>;
+type HistoryRecord = z.infer<typeof BackOfficeStoredRecordSchema>;
+type AuditJson = z.infer<ReturnType<typeof z.json>>;
+const auditJson = (value: unknown): AuditJson =>
+  z.json().parse(JSON.parse(JSON.stringify(value)));
+
+function historyRecord(value: AuditJson | null): HistoryRecord | null {
+  const direct = BackOfficeStoredRecordSchema.safeParse(value);
+  if (direct.success) return direct.data;
+  if (value && !Array.isArray(value) && typeof value === "object") {
+    const wrapped = BackOfficeStoredRecordSchema.safeParse(value.data);
+    if (wrapped.success) return wrapped.data;
+  }
+  return null;
+}
+function historyModel(value: AuditJson | null): BackOfficeModel | null {
+  const direct = BackOfficeModelSchema.safeParse(value);
+  if (direct.success) return direct.data;
+  if (value && !Array.isArray(value) && typeof value === "object") {
+    const wrapped = BackOfficeModelSchema.safeParse(value.model);
+    if (wrapped.success) return wrapped.data;
+  }
+  return null;
+}
+function historyComparableRecord(value: AuditJson | null): AuditJson | null {
+  if (
+    value &&
+    !Array.isArray(value) &&
+    typeof value === "object" &&
+    "data" in value
+  ) {
+    if (
+      Object.keys(value).some(
+        (key) => !["id", "object_id", "data", "revision", "seq"].includes(key),
+      )
+    )
+      return value;
+    return value.data;
+  }
+  return value;
+}
+function fieldReadable(
+  field: BackOfficeField,
+  record: HistoryRecord | null,
+  actor: BackOfficeActor,
+) {
+  return field.visibility === "private"
+    ? Boolean(record && record.ownerId === actor.userId)
+    : field.visibility !== "finance" || actor.finance;
+}
+
+/** Shared by local/server history, agent tools and exports. Input entries must
+ * already have their signatures, ordering and projection verified by the host. */
+export function readableBackOfficeHistory(options: {
+  entries: readonly BackOfficeAuditEntry[];
+  model: BackOfficeModel;
+  records: readonly HistoryRecord[];
+  views: readonly BackOfficeView[];
+  actor: BackOfficeActor;
+  target: BackOfficeHistoryTarget;
+  projectIds: ReadonlySet<string>;
+}): BackOfficeHistoryItem[] {
+  const { actor, target } = options;
+  const currentRecords = new Map(
+    options.records.map((record) => [record.id, record]),
+  );
+  const historicalRecords = new Map<string, HistoryRecord>();
+  const models = new Map<number, BackOfficeModel>();
+  const result: BackOfficeHistoryItem[] = [];
+  const readable = (
+    record: HistoryRecord,
+    records: ReadonlyMap<string, HistoryRecord>,
+    visited = new Set<string>(),
+  ): boolean => {
+    if (visited.has(record.id) || !visibleBackOfficeRecord(record, actor))
+      return false;
+    visited.add(record.id);
+    if (
+      record.objectId === "projectLinks" &&
+      (typeof record.values.projectId !== "string" ||
+        !options.projectIds.has(record.values.projectId))
+    )
+      return false;
+    const matter = record.values.matter;
+    if (typeof matter !== "string" || matter === record.id) return true;
+    const parent = records.get(matter),
+      currentParent = currentRecords.get(matter);
+    return Boolean(
+      parent &&
+        currentParent &&
+        readable(parent, records, visited) &&
+        readable(currentParent, currentRecords, new Set()),
+    );
+  };
+  const current = currentRecords.get(target.id);
+  const currentObject =
+    current &&
+    options.model.objects.find((object) => object.id === current.objectId);
+  if (
+    target.type === "record" &&
+    (!current ||
+      !currentObject ||
+      (currentObject.archived && !actor.model) ||
+      !readable(current, currentRecords))
+  )
+    return [];
+  if (target.type === "model" && !actor.model) return [];
+  const currentView =
+    target.type === "view"
+      ? options.views.find((view) => view.id === target.id)
+      : null;
+  const viewObject =
+    currentView &&
+    options.model.objects.find((object) => object.id === currentView.objectId);
+  if (
+    target.type === "view" &&
+    (!currentView ||
+      !viewObject ||
+      viewObject.archived ||
+      (!actor.finance &&
+        ["feeAgreements", "billingItems", "invoices"].includes(viewObject.id)))
+  )
+    return [];
+
+  const recordSide = (
+    record: HistoryRecord | null,
+    state: ReadonlyMap<string, HistoryRecord>,
+  ) => {
+    if (!record) return { value: null, fields: [] };
+    const now = currentRecords.get(record.id);
+    if (!now || !readable(now, currentRecords) || !readable(record, state))
+      return { value: null, fields: [] };
+    const oldObject = models
+      .get(record.schemaRevision)
+      ?.objects.find((object) => object.id === record.objectId);
+    const newObject = options.model.objects.find(
+      (object) => object.id === record.objectId,
+    );
+    if (!oldObject || !newObject) return { value: null, fields: [] };
+    const fields: BackOfficeField[] = [];
+    const values = Object.fromEntries(
+      Object.entries(record.values).flatMap(([id, value]) => {
+        const oldField = oldObject.fields.find((field) => field.id === id),
+          newField = newObject.fields.find((field) => field.id === id);
+        if (
+          !oldField ||
+          !fieldReadable(oldField, record, actor) ||
+          (newField ? !fieldReadable(newField, now, actor) : !actor.model)
+        )
+          return [];
+        fields.push(oldField);
+        if (oldField.type !== "relation" || value === null)
+          return [[id, value]];
+        const allowed = (relatedId: string) => {
+          const then = state.get(relatedId),
+            latest = currentRecords.get(relatedId);
+          return Boolean(
+            then &&
+              latest &&
+              readable(then, state) &&
+              readable(latest, currentRecords),
+          );
+        };
+        if (typeof value === "string")
+          return allowed(value) ? [[id, value]] : [];
+        if (
+          Array.isArray(value) &&
+          value.every((item) => typeof item === "string")
+        )
+          return [[id, value.filter(allowed)]];
+        return [];
+      }),
+    );
+    return { value: auditJson({ ...record, values }), fields };
+  };
+  const viewSide = (value: AuditJson | null, revision: number) => {
+    const parsed = BackOfficeViewSchema.safeParse(value);
+    if (!parsed.success) return { value: null, fields: [] };
+    const view = parsed.data;
+    const oldObject = models
+      .get(revision)
+      ?.objects.find((object) => object.id === view.objectId);
+    const newObject = options.model.objects.find(
+      (object) => object.id === view.objectId,
+    );
+    if (!oldObject || !newObject) return { value: null, fields: [] };
+    const allowed = (id: string) => {
+      const before = oldObject.fields.find((field) => field.id === id),
+        after = newObject.fields.find((field) => field.id === id);
+      return Boolean(
+        before &&
+          after &&
+          fieldReadable(before, null, actor) &&
+          fieldReadable(after, null, actor),
+      );
+    };
+    return {
+      value: auditJson({
+        ...view,
+        query: oldObject.fields.every((field) => allowed(field.id))
+          ? view.query
+          : "",
+        columns: view.columns.filter(allowed),
+        widths: Object.fromEntries(
+          Object.entries(view.widths).filter(([id]) => allowed(id)),
+        ),
+        filters: Object.fromEntries(
+          Object.entries(view.filters).filter(([id]) => allowed(id)),
+        ),
+        sortField: allowed(view.sortField) ? view.sortField : "name",
+        groupField:
+          view.groupField && allowed(view.groupField) ? view.groupField : null,
+        dateField:
+          view.dateField && allowed(view.dateField) ? view.dateField : null,
+      }),
+      fields: [],
+    };
+  };
+  let activeModelRevision = 0;
+  let activeStream = "";
+  for (const entry of options.entries) {
+    const payload = entry.payload;
+    if (activeStream !== payload.streamId) {
+      activeStream = payload.streamId;
+      historicalRecords.clear();
+      models.clear();
+      activeModelRevision = 0;
+      // Baseline rows describe one snapshot. Their SQL enumeration order must
+      // not turn an existing parent into an apparently missing relationship.
+      for (const baseline of options.entries) {
+        if (
+          baseline.payload.streamId !== activeStream ||
+          !baseline.payload.action.startsWith("baseline.")
+        )
+          continue;
+        if (baseline.payload.entityType === "record") {
+          const record = historyRecord(baseline.payload.after);
+          if (record) historicalRecords.set(record.id, record);
+        }
+        if (baseline.payload.entityType === "model") {
+          const model = historyModel(baseline.payload.after);
+          if (model) {
+            models.set(model.revision, model);
+            activeModelRevision = model.revision;
+          }
+        }
+      }
+    }
+    const previousModelRevision = activeModelRevision;
+    if (payload.entityType === "model") {
+      for (const value of [payload.before, payload.after]) {
+        const model = historyModel(value);
+        if (model) {
+          models.set(model.revision, model);
+          activeModelRevision = model.revision;
+        }
+      }
+    }
+    const beforeRecord =
+      payload.entityType === "record" ? historyRecord(payload.before) : null;
+    const afterRecord =
+      payload.entityType === "record" ? historyRecord(payload.after) : null;
+    const selectedRecord =
+      target.type === "record" &&
+      payload.entityType === "record" &&
+      (payload.entityId === target.id ||
+        [beforeRecord, afterRecord].some(
+          (record) =>
+            record?.objectId === "projectLinks" &&
+            record.values.matter === target.id,
+        ));
+    const beforeDisplay = selectedRecord
+      ? recordSide(beforeRecord, historicalRecords)
+      : null;
+    if (payload.entityType === "record") {
+      if (afterRecord) historicalRecords.set(afterRecord.id, afterRecord);
+      else if (beforeRecord) historicalRecords.delete(beforeRecord.id);
+    }
+    let before: { value: AuditJson | null; fields: BackOfficeField[] },
+      after: typeof before;
+    if (target.type === "record") {
+      if (!beforeDisplay) continue;
+      before = beforeDisplay;
+      after = recordSide(afterRecord, historicalRecords);
+    } else if (target.type === "model") {
+      if (payload.entityType !== "model") continue;
+      before = {
+        value: historyModel(payload.before)
+          ? auditJson(historyModel(payload.before))
+          : null,
+        fields: [],
+      };
+      after = {
+        value: historyModel(payload.after)
+          ? auditJson(historyModel(payload.after))
+          : null,
+        fields: [],
+      };
+    } else {
+      const embedded = (value: AuditJson | null) => {
+        if (!value || Array.isArray(value) || typeof value !== "object")
+          return null;
+        const views = z.array(BackOfficeViewSchema).safeParse(value.views);
+        return views.success
+          ? auditJson(views.data.find((view) => view.id === target.id) ?? null)
+          : null;
+      };
+      if (payload.entityType === "view" && payload.entityId === target.id) {
+        before = viewSide(payload.before, previousModelRevision);
+        after = viewSide(payload.after, activeModelRevision);
+      } else if (payload.entityType === "model") {
+        const old = embedded(payload.before),
+          next = embedded(payload.after);
+        if (canonicalBackOfficeAudit(old) === canonicalBackOfficeAudit(next))
+          continue;
+        before = viewSide(old, previousModelRevision);
+        after = viewSide(next, activeModelRevision);
+      } else continue;
+    }
+    if (before.value === null && after.value === null) continue;
+    // Server row envelopes and field-filtered displays are deliberately not
+    // represented as the original signed payload.
+    const originalBefore =
+      target.type === "record"
+        ? historyComparableRecord(payload.before)
+        : payload.before;
+    const originalAfter =
+      target.type === "record"
+        ? historyComparableRecord(payload.after)
+        : payload.after;
+    const redacted =
+      canonicalBackOfficeAudit(before.value) !==
+        canonicalBackOfficeAudit(originalBefore) ||
+      canonicalBackOfficeAudit(after.value) !==
+        canonicalBackOfficeAudit(originalAfter);
+    result.push({
+      eventId: payload.eventId,
+      entityType: target.type,
+      entityId: target.type === "view" ? target.id : payload.entityId,
+      recordedAt: payload.recordedAt,
+      actor: payload.actor,
+      action: payload.action,
+      modelRevision: payload.modelRevision,
+      before: before.value,
+      after: after.value,
+      beforeFields: before.fields,
+      afterFields: after.fields,
+      redacted,
+      payload: redacted ? null : payload,
+      proof: entry.proof,
+    });
+  }
+  return result.reverse();
+}
+
+export function pageBackOfficeHistory(
+  items: readonly BackOfficeHistoryItem[],
+  limit = 50,
+  cursor?: string | null,
+) {
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100)
+    throw new Error("Choose a history page size between 1 and 100.");
+  const start = cursor
+    ? items.findIndex((item) => item.eventId === cursor) + 1
+    : 0;
+  if (cursor && start === 0)
+    throw new Error(
+      "History access changed. Refresh the history before continuing.",
+    );
+  const page = items.slice(start, start + limit);
+  return {
+    items: page,
+    nextCursor:
+      start + page.length < items.length ? page.at(-1)!.eventId : null,
+  };
+}
+
+export function backOfficeHistoryDisplayMatchesPayload(
+  item: BackOfficeHistoryItem,
+): boolean {
+  const payload = item.payload;
+  if (
+    !payload ||
+    item.redacted ||
+    payload.eventId !== item.eventId ||
+    payload.entityType !== item.entityType ||
+    payload.entityId !== item.entityId ||
+    payload.action !== item.action ||
+    payload.recordedAt !== item.recordedAt ||
+    payload.modelRevision !== item.modelRevision ||
+    canonicalBackOfficeAudit(payload.actor) !==
+      canonicalBackOfficeAudit(item.actor)
+  )
+    return false;
+  const before =
+    item.entityType === "record"
+      ? historyComparableRecord(payload.before)
+      : payload.before;
+  const after =
+    item.entityType === "record"
+      ? historyComparableRecord(payload.after)
+      : payload.after;
+  return (
+    canonicalBackOfficeAudit(before) ===
+      canonicalBackOfficeAudit(item.before) &&
+    canonicalBackOfficeAudit(after) === canonicalBackOfficeAudit(item.after)
+  );
 }

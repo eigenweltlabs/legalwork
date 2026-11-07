@@ -554,6 +554,9 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
           )}
           {data && detail && detailObject && (
             <RecordDetail
+              client={client}
+              team={team}
+              historyAccessKey={`${data.permissions.userId}:${data.permissions.model}:${data.permissions.finance}`}
               key={detail.id}
               record={detail}
               focusName={focusNameId === detail.id}
@@ -610,15 +613,17 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
                             .map((value) => value.replace(/^"|"$/g, "").trim());
                           setMapping(
                             Object.fromEntries(
-                              object.fields.filter((field) => field.type !== "file").flatMap((field) => {
-                                const header = headers.find((header) =>
-                                  [
-                                    field.id.toLowerCase(),
-                                    field.label.toLowerCase(),
-                                  ].includes(header.toLowerCase()),
-                                );
-                                return header ? [[field.id, header]] : [];
-                              }),
+                              object.fields
+                                .filter((field) => field.type !== "file")
+                                .flatMap((field) => {
+                                  const header = headers.find((header) =>
+                                    [
+                                      field.id.toLowerCase(),
+                                      field.label.toLowerCase(),
+                                    ].includes(header.toLowerCase()),
+                                  );
+                                  return header ? [[field.id, header]] : [];
+                                }),
                             ),
                           );
                         });

@@ -64,6 +64,7 @@ const GERMAN_KEEPS_ENGLISH = new Set<string>([
   "tool.generic", "tool.detail_in_path", "tool_activity.agent_prefix",
   "reload.label_skill", "reload.label_plugin", "reload.label_mcp", "reload.label_agent",
   // Product and brand names
+  "back_office.history.system", // LegalWork attribution on system revisions.
   "ocr.api_paddle", "ocr.api_mistral",
   "benchmark.onboarding_eyebrow", "benchmark.import_title", "settings.tab_benchmark",
   "premium_upsell.eyebrow",

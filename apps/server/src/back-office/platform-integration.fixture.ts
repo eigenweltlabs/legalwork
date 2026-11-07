@@ -13,6 +13,12 @@ import {
   type BackOfficeActor,
 } from "./schema.js";
 import { BackOfficeStore, backOfficeStore } from "./store.js";
+import { platformBackOfficeHistory } from "./history.js";
+import {
+  BackOfficeHistoryPageSchema,
+  BackOfficeHistoryExportSchema,
+} from "./schema.js";
+import { verifyBackOfficeHistoryExport } from "./history-export.js";
 import {
   backOfficePlatform,
   syncBackOffice,
@@ -316,6 +322,31 @@ try {
         columns: ["name", "status", "openedOn"],
       }),
     ),
+  );
+  const historyTarget = { type: "record", id: matter.id } satisfies {
+    type: "record";
+    id: string;
+  };
+  const remoteHistory = BackOfficeHistoryPageSchema.parse(
+    await platformBackOfficeHistory(a.config, a.store, scope, historyTarget, {
+      limit: 1,
+      cursor: null,
+      export: false,
+    }),
+  );
+  assert.equal(remoteHistory.source, "platform");
+  assert.ok(remoteHistory.items.length > 0);
+  const remoteExport = BackOfficeHistoryExportSchema.parse(
+    await platformBackOfficeHistory(a.config, a.store, scope, historyTarget, {
+      limit: 1,
+      cursor: null,
+      export: true,
+    }),
+  );
+  assert.equal(verifyBackOfficeHistoryExport(remoteExport).chainsValid, true);
+  assert.equal(
+    verifyBackOfficeHistoryExport(remoteExport).fullyAnchored,
+    false,
   );
   await syncBackOffice(a.config);
   await syncBackOffice(b.config);

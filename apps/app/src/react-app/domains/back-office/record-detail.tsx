@@ -3,6 +3,7 @@ import {
   Archive,
   CalendarDays,
   Home,
+  History,
   Link2,
   LockKeyhole,
   Maximize2,
@@ -24,8 +25,14 @@ import type {
 import { FieldIcon, ValueDisplay } from "./record-values";
 import { CellEditor } from "./cell-editor";
 import { DirectoryMenu, DirectorySelect } from "./twenty-controls";
+import { HistoryPanel } from "./history-panel";
+import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
+import { t } from "@/i18n";
 
 export function RecordDetail({
+  client,
+  team,
+  historyAccessKey,
   record,
   object,
   records,
@@ -42,6 +49,9 @@ export function RecordDetail({
   onLink,
   onUnlink,
 }: {
+  client: LegalworkServerClient;
+  team: boolean;
+  historyAccessKey: string;
   record: BackOfficeRecord;
   object: BackOfficeObject;
   records: BackOfficeRecord[];
@@ -65,6 +75,7 @@ export function RecordDetail({
   const [edit, setEdit] = useState<string | null>(null),
     [project, setProject] = useState(""),
     [error, setError] = useState("");
+  const [tab, setTab] = useState<"home" | "history">("home");
   const cancelName = useRef(false);
   const [name, setName] = useState(String(record.values.name));
   useEffect(() => setName(String(record.values.name)), [record.values.name]);
@@ -164,220 +175,250 @@ export function RecordDetail({
           startIcon={<X size={16} />}
         />
       </div>
-      <Tabs.Root value="home">
+      <Tabs.Root
+        value={tab}
+        onValueChange={(value) =>
+          setTab(value === "history" ? "history" : "home")
+        }
+      >
         <Tabs.List className="bo-detail-tabs">
           <Tabs.Tab value="home" size="sm" startIcon={<Home size={14} />}>
-            Home
+            {t("back_office.history.home")}
+          </Tabs.Tab>
+          <Tabs.Tab
+            value="history"
+            size="sm"
+            disabled={record.revision === 0}
+            startIcon={<History size={14} />}
+          >
+            {t("back_office.history.tab")}
           </Tabs.Tab>
           <Tabs.Indicator />
         </Tabs.List>
       </Tabs.Root>
-      <div className="bo-detail-fields">
-        {record.revision === 0 && (
-          <p className="bo-muted">
-            Complete required fields to save this record.
-          </p>
-        )}
-        <div className="bo-property bo-system-property">
-          <label>
-            <CalendarDays size={13} />
-            Creation date
-          </label>
-          <span>{date(record.createdAt)}</span>
-        </div>
-        <div className="bo-property bo-system-property">
-          <label>
-            <CalendarDays size={13} />
-            Last update
-          </label>
-          <span>{date(record.updatedAt)}</span>
-        </div>
-        {object.fields
-          .filter(
-            (field) =>
-              field.id !== "name" &&
-              (field.visibility !== "finance" || finance),
-          )
-          .map((field) => (
-            <div className="bo-property" key={field.id}>
+      {tab === "history" ? (
+        <HistoryPanel
+          client={client}
+          team={team}
+          target={{ type: "record", id: record.id }}
+          revision={record.revision}
+          accessKey={historyAccessKey}
+          records={records}
+          userId={userId}
+          onOpen={onOpen}
+        />
+      ) : (
+        <>
+          <div className="bo-detail-fields">
+            {record.revision === 0 && (
+              <p className="bo-muted">
+                Complete required fields to save this record.
+              </p>
+            )}
+            <div className="bo-property bo-system-property">
               <label>
-                <FieldIcon field={field} />
-                {field.label}
-                {field.visibility === "private" && <LockKeyhole size={11} />}
+                <CalendarDays size={13} />
+                Creation date
               </label>
-              <div className="bo-property-value">
-                <Popover.Root
-                  open={edit === field.id}
-                  onOpenChange={(open) => setEdit(open ? field.id : null)}
-                >
-                  <Popover.Trigger
-                    render={
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        fullWidth
-                        disabled={
-                          !editable ||
-                          (field.visibility === "private" &&
-                            record.ownerId !== userId)
-                        }
-                        aria-label={`Edit ${field.label}`}
-                      />
-                    }
-                  >
-                    <ValueDisplay
-                      field={field}
-                      value={record.values[field.id]}
-                      records={records}
-                      onOpen={onOpen}
-                    />
-                    {(record.values[field.id] === null ||
-                      record.values[field.id] === undefined ||
-                      record.values[field.id] === "") && (
-                      <span className="bo-muted">{field.label}</span>
+              <span>{date(record.createdAt)}</span>
+            </div>
+            <div className="bo-property bo-system-property">
+              <label>
+                <CalendarDays size={13} />
+                Last update
+              </label>
+              <span>{date(record.updatedAt)}</span>
+            </div>
+            {object.fields
+              .filter(
+                (field) =>
+                  field.id !== "name" &&
+                  (field.visibility !== "finance" || finance),
+              )
+              .map((field) => (
+                <div className="bo-property" key={field.id}>
+                  <label>
+                    <FieldIcon field={field} />
+                    {field.label}
+                    {field.visibility === "private" && (
+                      <LockKeyhole size={11} />
                     )}
-                  </Popover.Trigger>
-                  <Popover.Portal>
-                    <Popover.Positioner align="start" sideOffset={-28}>
-                      <Popover.Popup
-                        className="bo-editor-popup"
-                        style={{
-                          width:
-                            field.type === "date"
-                              ? "max-content"
-                              : field.type === "select"
-                                ? 200
-                                : 260,
-                        }}
+                  </label>
+                  <div className="bo-property-value">
+                    <Popover.Root
+                      open={edit === field.id}
+                      onOpenChange={(open) => setEdit(open ? field.id : null)}
+                    >
+                      <Popover.Trigger
+                        render={
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            fullWidth
+                            disabled={
+                              !editable ||
+                              (field.visibility === "private" &&
+                                record.ownerId !== userId)
+                            }
+                            aria-label={`Edit ${field.label}`}
+                          />
+                        }
                       >
-                        <CellEditor
-                          record={record}
-                          key={record.id + field.id + record.revision}
+                        <ValueDisplay
                           field={field}
                           value={record.values[field.id]}
                           records={records}
-                          onCancel={() => setEdit(null)}
-                          onSave={(value) =>
-                            onSave(record, { [field.id]: value })
-                          }
+                          onOpen={onOpen}
                         />
-                      </Popover.Popup>
-                    </Popover.Positioner>
-                  </Popover.Portal>
-                </Popover.Root>
-              </div>
-            </div>
-          ))}
-      </div>
-      {object.id === "matters" && (
-        <>
-          <div className="bo-detail-section">
-            <Link2 size={14} />
-            Projects · {links.length}
+                        {(record.values[field.id] === null ||
+                          record.values[field.id] === undefined ||
+                          record.values[field.id] === "") && (
+                          <span className="bo-muted">{field.label}</span>
+                        )}
+                      </Popover.Trigger>
+                      <Popover.Portal>
+                        <Popover.Positioner align="start" sideOffset={-28}>
+                          <Popover.Popup
+                            className="bo-editor-popup"
+                            style={{
+                              width:
+                                field.type === "date"
+                                  ? "max-content"
+                                  : field.type === "select"
+                                    ? 200
+                                    : 260,
+                            }}
+                          >
+                            <CellEditor
+                              record={record}
+                              key={record.id + field.id + record.revision}
+                              field={field}
+                              value={record.values[field.id]}
+                              records={records}
+                              onCancel={() => setEdit(null)}
+                              onSave={(value) =>
+                                onSave(record, { [field.id]: value })
+                              }
+                            />
+                          </Popover.Popup>
+                        </Popover.Positioner>
+                      </Popover.Portal>
+                    </Popover.Root>
+                  </div>
+                </div>
+              ))}
           </div>
-          <div className="bo-detail-links">
-            {links.map((link) => (
-              <div key={link.id}>
-                <span>
-                  {projects.find(
-                    (project) => project.id === link.values.projectId,
-                  )?.name ?? String(link.values.name)}
-                </span>
-                {editable && (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    aria-label={`Unlink ${link.values.name}`}
-                    onClick={() =>
-                      void onUnlink(link).catch((error) =>
-                        setError(error.message),
-                      )
-                    }
-                    startIcon={<X size={13} />}
-                  />
+          {object.id === "matters" && (
+            <>
+              <div className="bo-detail-section">
+                <Link2 size={14} />
+                Projects · {links.length}
+              </div>
+              <div className="bo-detail-links">
+                {links.map((link) => (
+                  <div key={link.id}>
+                    <span>
+                      {projects.find(
+                        (project) => project.id === link.values.projectId,
+                      )?.name ?? String(link.values.name)}
+                    </span>
+                    {editable && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        aria-label={`Unlink ${link.values.name}`}
+                        onClick={() =>
+                          void onUnlink(link).catch((error) =>
+                            setError(error.message),
+                          )
+                        }
+                        startIcon={<X size={13} />}
+                      />
+                    )}
+                  </div>
+                ))}
+                {editable && record.revision > 0 && (
+                  <form
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      if (project)
+                        void onLink(project, record)
+                          .then(() => setProject(""))
+                          .catch((error) => setError(error.message));
+                    }}
+                  >
+                    <DirectorySelect
+                      label="Project to link"
+                      value={project}
+                      onChange={setProject}
+                      options={[
+                        { value: "", label: "Choose a project…" },
+                        ...projects
+                          .filter(
+                            (project) =>
+                              !links.some(
+                                (link) => link.values.projectId === project.id,
+                              ),
+                          )
+                          .map((project) => ({
+                            value: project.id,
+                            label: project.name,
+                          })),
+                      ]}
+                    />
+                    <Button
+                      size="sm"
+                      disabled={!project}
+                      type="submit"
+                      startIcon={<Plus size={13} />}
+                    >
+                      Link
+                    </Button>
+                  </form>
                 )}
               </div>
-            ))}
-            {editable && record.revision > 0 && (
-              <form
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  if (project)
-                    void onLink(project, record)
-                      .then(() => setProject(""))
-                      .catch((error) => setError(error.message));
-                }}
-              >
-                <DirectorySelect
-                  label="Project to link"
-                  value={project}
-                  onChange={setProject}
-                  options={[
-                    { value: "", label: "Choose a project…" },
-                    ...projects
-                      .filter(
-                        (project) =>
-                          !links.some(
-                            (link) => link.values.projectId === project.id,
-                          ),
-                      )
-                      .map((project) => ({
-                        value: project.id,
-                        label: project.name,
-                      })),
-                  ]}
-                />
+            </>
+          )}
+          {error && (
+            <p className="bo-error" role="alert">
+              {error}
+            </p>
+          )}
+          <div className="bo-detail-bottom">
+            <span className="bo-muted">
+              {record.archivedAt ? "Archived" : object.label}
+            </span>
+            <DirectoryMenu
+              trigger={
                 <Button
                   size="sm"
-                  disabled={!project}
-                  type="submit"
-                  startIcon={<Plus size={13} />}
-                >
-                  Link
-                </Button>
-              </form>
-            )}
+                  variant="ghost"
+                  aria-label="Record options"
+                  startIcon={<MoreVertical size={14} />}
+                />
+              }
+            >
+              <Dropdown.ActionItem
+                disabled={!editable}
+                startIcon={
+                  record.archivedAt ? (
+                    <RotateCcw size={14} />
+                  ) : (
+                    <Archive size={14} />
+                  )
+                }
+                onClick={() =>
+                  void onSave(record, {}, !record.archivedAt).catch((error) =>
+                    setError(error.message),
+                  )
+                }
+              >
+                {record.archivedAt ? "Restore record" : "Archive record"}
+              </Dropdown.ActionItem>
+            </DirectoryMenu>
           </div>
         </>
       )}
-      {error && (
-        <p className="bo-error" role="alert">
-          {error}
-        </p>
-      )}
-      <div className="bo-detail-bottom">
-        <span className="bo-muted">
-          {record.archivedAt ? "Archived" : object.label}
-        </span>
-        <DirectoryMenu
-          trigger={
-            <Button
-              size="sm"
-              variant="ghost"
-              aria-label="Record options"
-              startIcon={<MoreVertical size={14} />}
-            />
-          }
-        >
-          <Dropdown.ActionItem
-            disabled={!editable}
-            startIcon={
-              record.archivedAt ? (
-                <RotateCcw size={14} />
-              ) : (
-                <Archive size={14} />
-              )
-            }
-            onClick={() =>
-              void onSave(record, {}, !record.archivedAt).catch((error) =>
-                setError(error.message),
-              )
-            }
-          >
-            {record.archivedAt ? "Restore record" : "Archive record"}
-          </Dropdown.ActionItem>
-        </DirectoryMenu>
-      </div>
     </aside>
   );
 }
