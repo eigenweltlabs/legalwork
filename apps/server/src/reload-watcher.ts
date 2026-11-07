@@ -5,8 +5,6 @@ import { basename, join, resolve } from "node:path";
 import type { ReloadEventStore } from "./events.js";
 import { computeReloadFingerprint, fingerprintedReloadReasons } from "./reload-fingerprint.js";
 import type { ReloadReason, ReloadTrigger, ServerConfig, WorkspaceInfo } from "./types.js";
-import { watchConnectedConfiguration } from "./connected-project-config.js";
-import { writeLegalworkRuntimeConfigFile } from "./legalwork-runtime-config.js";
 
 type LogLevel = "info" | "warn" | "error";
 
@@ -35,12 +33,8 @@ export function startReloadWatchers(input: {
   const debounceMs = typeof input.debounceMs === "number" ? input.debounceMs : 750;
 
   const workspaceWatchers = new Map<string, WorkspaceReloadWatcher>();
-  const contentWatchers: Array<() => void> = [];
 
   for (const workspace of config.workspaces) {
-    contentWatchers.push(watchConnectedConfiguration(workspace, async () => {
-      await writeLegalworkRuntimeConfigFile(config, workspace.id);
-    }, error => logger?.log("warn", "Connected project resources could not be refreshed", { workspaceId: workspace.id, error: error instanceof Error ? error.message : String(error) })));
     try {
       const watcher = startWorkspaceReloadWatcher({ workspace, reloadEvents, logger, debounceMs });
       workspaceWatchers.set(workspace.id, watcher);
@@ -61,7 +55,6 @@ export function startReloadWatchers(input: {
 
   return {
     close: () => {
-      for (const close of contentWatchers) close();
       for (const watcher of workspaceWatchers.values()) {
         try {
           watcher.close();

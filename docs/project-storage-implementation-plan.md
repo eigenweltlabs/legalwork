@@ -1,5 +1,13 @@
 # Local project support storage implementation
 
+## Requested removal — root OpenCode configuration snapshots
+
+User requested removing migration of root opencode.json/jsonc on 2026-11-07. Remove their snapshot preparation, cached bytes, ownership journal and connected-config refresh watcher. Keep migration limited to .opencode and .legalwork. Existing root configuration remains in the document folder and is not copied into the engine home. Preserve native root AGENTS instructions and the path helpers used by retained runtime instructions/MCP settings. Update the existing regression to verify excluded root files remain untouched and no snapshot/cache is created, then run the relevant existing checks and update the same draft PR. Earlier snapshot verification below describes the previous revision and is superseded by this removal.
+
+Implemented removal. The connected-config module now contains only path helpers for retained runtime configuration; it performs no file IO, snapshot preparation or watching. The native projection and reload watcher no longer invoke the removed behavior. The existing storage regression verifies both root file formats remain byte-unchanged, neither appears in the local home, no snapshot journal/cache is created, local native configuration still publishes with content offline, and skills remain discoverable.
+
+Verification after removal: `pnpm --filter legalwork-server build`, `pnpm docs:generate`, `pnpm docs:check` and `git diff --check` passed. `bun test apps/server/src/project-storage.test.ts apps/server/src/engine-project.test.ts apps/server/src/legalwork-runtime-config.test.ts apps/server/src/reload-watcher.test.ts`: **51 passed**, 0 failed. With the pinned engine configured, `bun test apps/server/src/managed-file-permissions.released.test.ts`: **2 passed**, 0 failed, including Git/non-Git confirmation that an agent declared only in the external root configuration is not loaded while authored .opencode and runtime restrictions still apply.
+
 ## Requested removal — nested instruction reminders
 
 User requested removing the scoped nested-AGENTS reminder on 2026-11-07. Remove its plugin registration, implementation, dedicated test and now-unused reminder callback argument. Retain native root AGENTS instructions, local root-configuration snapshots and existing app-state reminders. Update the current proposal/help and draft PR; run the relevant existing checks after editing. Earlier verification below describes the preceding revision and is superseded for nested instructions by this removal.

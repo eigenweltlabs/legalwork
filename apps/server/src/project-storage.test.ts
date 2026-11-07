@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile } from
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { finishLocalProject, localProjectMigrationPending, markLocalProjectPublished, prepareLocalProject, prepareLocalProjects, projectFilePermissionRules, workspaceFileRoot } from "./project-storage.js";
-import { prepareConnectedConfiguration } from "./connected-project-config.js";
+import { writeNativeProjectProjection } from "./engine-project.js";
 import { listSkills } from "./skills.js";
 import { saveEmailDraft } from "./email-drafts/store.js";
 import { createLocalProjectFolder, registerLocalProject } from "./routes/workspaces.js";
@@ -46,29 +46,26 @@ test("rejects stale unpublished copies and recovers published content ownership 
   expect(await readFile(join(local.path, ".legalwork", "attachments", "mail.txt"), "utf8")).toBe("Committed local work");
 });
 
-test("keeps original configuration and capabilities while local native snapshots survive offline startup", async () => {
+test("leaves root configurations untouched without copying them into the local engine home", async () => {
   const f = await fixture();
   const raw = JSON.stringify({ agents: { original: { system: `{file:${join(f.source, ".legalwork", "attachments", "mail.txt")}}`, mode: "subagent" } }, instructions: ["Rules.md"], plugins: ["./custom.mjs"], mcp: { servers: { fixture: { type: "local", command: ["node", "server.mjs"], cwd: "mcp" } } } });
-  await writeFile(join(f.source, "opencode.jsonc"), raw);
+  for (const name of ["opencode.json", "opencode.jsonc"]) await writeFile(join(f.source, name), raw);
   for (const folder of ["Skills/visible", ".claude/skills/claude", ".agents/skills/agents", ".opencode/skills/native"]) {
     await mkdir(join(f.source, folder), { recursive: true });
     await writeFile(join(f.source, folder, "SKILL.md"), `---\nname: ${folder.split("/").at(-1)}\ndescription: Existing capability\n---\nInstructions.\n`);
   }
   const local = await prepareLocalProject(f.config, f.original);
   await markLocalProjectPublished(local);
-  await prepareConnectedConfiguration(local);
-  const snapshot = await readFile(join(local.path, "opencode.jsonc"), "utf8");
-  expect(JSON.parse(snapshot.slice(snapshot.indexOf("\n") + 1))).toMatchObject({
-    agents: { original: { system: `{file:${join(local.path, ".legalwork", "attachments", "mail.txt")}}` } },
-    instructions: [join(f.source, "Rules.md")], plugins: [join(f.source, "custom.mjs")], mcp: { servers: { fixture: { cwd: join(f.source, "mcp") } } },
-  });
-  expect(await readFile(join(f.source, "opencode.jsonc"), "utf8")).toBe(raw);
+  f.config.workspaces = [local];
+  const projection = await writeNativeProjectProjection(f.config, local, {});
+  expect(projection.startsWith(join(local.path, ".opencode"))).toBe(true);
+  for (const name of ["opencode.json", "opencode.jsonc"]) expect(await readFile(join(f.source, name), "utf8")).toBe(raw);
+  for (const path of ["opencode.json", "opencode.jsonc", ".opencode/legalwork/connected-config.json", ".opencode/legalwork/connected-config-cache"]) {
+    expect(await stat(join(local.path, path)).catch(() => null)).toBeNull();
+  }
   expect((await listSkills(local, false)).map(skill => skill.name)).toEqual(expect.arrayContaining(["visible", "claude", "agents", "native"]));
   await rm(f.source, { recursive: true });
-  await prepareConnectedConfiguration(local);
-  expect(await readFile(join(local.path, "opencode.jsonc"), "utf8")).toBe(snapshot);
-  await writeFile(join(local.path, "opencode.jsonc"), "// Human edits\n{}");
-  await expect(prepareConnectedConfiguration(local)).rejects.toMatchObject({ code: "project_engine_configuration_conflict" });
+  expect(await writeNativeProjectProjection(f.config, local, {})).toBe(projection);
 });
 
 test("email drafts snapshot both connected documents and retained local attachments", async () => {

@@ -12,7 +12,6 @@ import { runtimeStorageDir } from "./runtime-opencode-config-store.js";
 import { nativeEngineProjectRegistrySchema } from "./native-engine-project-registry.js";
 import { engineStorageDir } from "./engine-storage.js";
 import type { ServerConfig, WorkspaceInfo } from "./types.js";
-import { prepareConnectedConfiguration } from "./connected-project-config.js";
 
 const recordSchema = z.object({
   version: z.literal(1), directory: z.string(),
@@ -230,7 +229,6 @@ async function writeProjectProjection(config: ServerConfig, workspace: Workspace
   // unchanged, receipt-owned file, preserving its full private original.
   const existing = await readRecord(config, workspace, directory);
   if (existing.projection && dirname(existing.projection.path) === directory) await archiveNativeProjectProjection(config, workspace);
-  await prepareConnectedConfiguration(workspace);
   const privateDirectory = join(runtimeStorageDir(config), "native-config-strings");
   if (privateDirectory.includes("}")) throw new ApiError(409, "native_config_reference_path", "The private LegalWork configuration path contains a closing brace, which OpenCode file references cannot represent. Choose another LegalWork data folder.");
   await mkdir(privateDirectory, { recursive: true, mode: 0o700 });

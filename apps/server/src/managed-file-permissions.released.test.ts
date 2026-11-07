@@ -97,7 +97,7 @@ test.skipIf(!binary).each([false, true])("real managed file tools enforce projec
     let client = connect();
     const location = { directory: a }, otherLocation = { directory: b };
     await client.model.list({ location });
-    expect((await client.agent.list({ location })).data.some(agent => agent.id === "original-root-agent")).toBe(true);
+    expect((await client.agent.list({ location })).data.some(agent => agent.id === "original-root-agent")).toBe(false);
     const nativeProject = (await client.location.get({ location })).project.id;
     const otherNativeProject = (await client.location.get({ location: otherLocation })).project.id;
     if (git) expect(otherNativeProject).toBe(nativeProject); else expect(otherNativeProject).not.toBe(nativeProject);
