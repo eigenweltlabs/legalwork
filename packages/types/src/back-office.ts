@@ -177,6 +177,7 @@ export const BackOfficeChangeSchema = z.object({
   baseRevision: z.number().int().nonnegative(),
   schemaRevision: z.number().int().nonnegative(),
   changedFields: z.array(identifier).max(100).optional(),
+  changedMetadata: z.array(z.enum(["sourceId", "sharing", "archive"])).max(3).optional(),
   data: z.unknown(),
 });
 export const BackOfficeSyncSchema = z.object({
@@ -586,6 +587,27 @@ export function readableBackOfficeRecord(
           : field?.visibility !== "finance" || actor.finance;
       }),
     ),
+  };
+}
+
+/** Saved selection criteria must not disclose values of unreadable fields. */
+export function readableBackOfficeView(view: BackOfficeView, model: BackOfficeModel, actor: BackOfficeActor, recordIds: ReadonlySet<string> = new Set()): BackOfficeView | null {
+  const object = model.objects.find(object => object.id === view.objectId);
+  if (!object || object.archived || (!actor.finance && ["feeAgreements", "billingItems", "invoices"].includes(object.id))) return null;
+  const allowed = (id: string) => object.fields.some(field => field.id === id && field.visibility !== "private" && (field.visibility !== "finance" || actor.finance));
+  return {
+    ...view,
+    columns: view.columns.filter(allowed),
+    widths: Object.fromEntries(Object.entries(view.widths).filter(([id]) => allowed(id))),
+    filters: Object.fromEntries(Object.entries(view.filters).filter(([id, value]) => {
+      if (!allowed(id)) return false;
+      if (object.fields.find(field => field.id === id)?.type !== "relation" || value === null) return true;
+      return (Array.isArray(value) ? value : [value]).every(id => typeof id === "string" && recordIds.has(id));
+    })),
+    query: object.fields.some(field => !allowed(field.id)) ? "" : view.query,
+    sortField: allowed(view.sortField) ? view.sortField : "name",
+    groupField: view.groupField && allowed(view.groupField) ? view.groupField : null,
+    dateField: view.dateField && allowed(view.dateField) ? view.dateField : null,
   };
 }
 
@@ -1251,7 +1273,16 @@ export function readableBackOfficeHistory(options: {
           Object.entries(view.widths).filter(([id]) => allowed(id)),
         ),
         filters: Object.fromEntries(
-          Object.entries(view.filters).filter(([id]) => allowed(id)),
+          Object.entries(view.filters).filter(([id, value]) => {
+            if (!allowed(id)) return false;
+            const field = oldObject.fields.find(field => field.id === id);
+            if (field?.type !== "relation" || value === null) return true;
+            return (Array.isArray(value) ? value : [value]).every(id => {
+              const then = typeof id === "string" ? historicalRecords.get(id) : null;
+              const now = typeof id === "string" ? currentRecords.get(id) : null;
+              return then && now && readable(then, historicalRecords) && readable(now, currentRecords);
+            });
+          }),
         ),
         sortField: allowed(view.sortField) ? view.sortField : "name",
         groupField:

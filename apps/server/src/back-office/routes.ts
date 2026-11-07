@@ -91,6 +91,7 @@ export function registerBackOfficeRoutes(options: {
         try {
           const store = await backOfficeStore(options.config);
           store.checkIntegrity();
+          store.restrictTeamAccess(access.scope, access.actor);
           if (
             access.scope !== "local" &&
             method !== "GET" &&
@@ -366,7 +367,7 @@ export function registerBackOfficeRoutes(options: {
         data: body.model,
       },
     ]);
-    store.receive(scope, snapshot);
+    store.receive(scope, snapshot, actor);
     if (snapshot.conflicts.length)
       throw new ApiError(
         409,
@@ -569,7 +570,10 @@ export function registerBackOfficeRoutes(options: {
           intent.fields.map((id) => [id, intent.record.values[id] ?? null]),
         ),
       },
-      archivedAt: intent.record.archivedAt,
+      archivedAt: intent.metadata.includes("archive") ? intent.record.archivedAt : current.archivedAt,
+      sourceId: intent.metadata.includes("sourceId") ? intent.record.sourceId : current.sourceId,
+      access: intent.metadata.includes("sharing") ? intent.record.access : current.access,
+      members: intent.metadata.includes("sharing") ? intent.record.members : current.members,
     };
     const operationId = randomUUID(),
       snapshot = await backOfficePlatform(options.config, [
@@ -580,6 +584,7 @@ export function registerBackOfficeRoutes(options: {
           schemaRevision: before.model.revision,
           data,
           changedFields: intent.fields,
+          changedMetadata: intent.metadata,
         },
       ]);
     if (!snapshot.accepted.includes(operationId))
@@ -590,7 +595,7 @@ export function registerBackOfficeRoutes(options: {
           "The team record could not be updated.",
       );
     store.discardQueued(scope, body.id);
-    store.receive(scope, snapshot);
+    store.receive(scope, snapshot, actor);
     return { ok: true };
   });
   route("POST", "/sync/discard", async (ctx, store, { scope }) => {

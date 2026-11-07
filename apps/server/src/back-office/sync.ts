@@ -8,6 +8,7 @@ import {
   BackOfficeRecordSchema,
   BackOfficeSnapshotSchema,
   type BackOfficeSnapshot,
+  type BackOfficeActor,
 } from "./schema.js";
 import { intakeRequest, requireIntakeClient } from "../eigenwelt-intake.js";
 import { readEigenweltConnection } from "../eigenwelt-connection-store.js";
@@ -40,8 +41,9 @@ export async function syncBackOffice(config: ServerConfig): Promise<void> {
   const key = `${config.configPath}:${connection.account.orgId}`;
   return rounds.run(key, async () => {
     let scope: string;
+    let actor: BackOfficeActor;
     try {
-      scope = (await backOfficeAccess(config, true)).scope;
+      ({ scope, actor } = await backOfficeAccess(config, true));
     } catch (error) {
       if (error instanceof ApiError && error.status === 403)
         (await backOfficeStore(config)).suspendTeam(
@@ -53,6 +55,7 @@ export async function syncBackOffice(config: ServerConfig): Promise<void> {
     const store = await backOfficeStore(config);
     if (!store.syncState(scope).enabled) return;
     try {
+      store.restrictTeamAccess(scope, actor);
       const pending = store.pending(scope),
         firstBlocked = pending.findIndex((entry) => entry.error);
       const batch = pending
@@ -97,7 +100,7 @@ export async function syncBackOffice(config: ServerConfig): Promise<void> {
           );
           if (local) record.values.projectId = local.workspaceId;
         }
-        store.receive(scope, snapshot);
+        store.receive(scope, snapshot, actor);
         accepted ||= snapshot.accepted.length > 0;
         if (
           snapshot.conflicts.length ||

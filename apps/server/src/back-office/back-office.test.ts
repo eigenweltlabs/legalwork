@@ -368,8 +368,8 @@ describe("Back Office imports and synchronization", () => {
       values: { name: "Mara" },
     });
     const id = store.pending("firm")[0].change.id;
-    store.receive("firm", snapshot([record], [id]));
-    store.receive("firm", snapshot([record], [id]));
+    store.receive("firm", snapshot([record], [id]), owner);
+    store.receive("firm", snapshot([record], [id]), owner);
     expect(store.pending("firm")).toEqual([]);
     expect(store.records("firm", owner)).toHaveLength(1);
   });
@@ -383,6 +383,7 @@ describe("Back Office imports and synchronization", () => {
     store.receive(
       "firm",
       snapshot([record], [store.pending("firm")[0].change.id]),
+      owner,
     );
     store.saveRecord("firm", owner, {
       id: record.id,
@@ -390,7 +391,7 @@ describe("Back Office imports and synchronization", () => {
       revision: 1,
       values: { name: "Local edit" },
     });
-    store.receive("firm", snapshot([]));
+    store.receive("firm", snapshot([]), owner);
     expect(store.records("firm", owner)).toEqual([]);
     expect(store.pending("firm")).toHaveLength(1);
   });
@@ -461,7 +462,7 @@ describe("Back Office compatibility, previews and isolation", () => {
         }),
       );
     const accepted = store.pending("firm").map((entry) => entry.change.id);
-    store.receive("firm", snapshot(records.slice(0, 100), accepted));
+    store.receive("firm", snapshot(records.slice(0, 100), accepted), owner);
     expect(store.syncState("firm").pending).toBe(1);
     expect(store.records("firm", owner)).toHaveLength(101);
   });
@@ -571,6 +572,7 @@ test("conflict review combines queued field edits and discarding leaves unrelate
   store.receive(
     "firm",
     snapshot([record], [store.pending("firm")[0].change.id]),
+      owner,
   );
   const renamed = store.saveRecord("firm", owner, {
     id: record.id,

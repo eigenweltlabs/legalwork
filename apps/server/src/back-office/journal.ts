@@ -10,7 +10,6 @@ import {
   BACK_OFFICE_AUDIT_GENESIS,
   BACK_OFFICE_AUDIT_VERSION,
   BackOfficeAuditActorSchema,
-  BackOfficeAuditPayloadSchema,
   BackOfficeAuditProofSchema,
   canonicalBackOfficeAudit,
   type BackOfficeActor,
