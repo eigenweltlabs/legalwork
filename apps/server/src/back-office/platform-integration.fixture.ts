@@ -243,7 +243,7 @@ try {
   const intent = b.store.queuedRecordIntent(scope, operation);
   const latest = await backOfficePlatform(b.config);
   b.store.discardQueued(scope, operation);
-  b.store.receive(scope, latest);
+  b.store.receive(scope, latest, b.actor);
   const authoritative = b.store.raw(scope, created.id);
   assert.ok(authoritative);
   b.store.saveRecord(scope, b.actor, {
