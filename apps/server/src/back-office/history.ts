@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { ApiError } from "../errors.js";
 import { intakeRequest, requireIntakeClient } from "../eigenwelt-intake.js";
-import { readEigenweltConnection } from "../eigenwelt-connection-store.js";
 import { ensureFreshPlatformToken } from "../eigenwelt-refresh.js";
 import { syncBackOffice } from "./sync.js";
+import { connectedBackOfficePrincipal, requireBackOfficePrincipal } from "./accounts.js";
 import type { ServerConfig } from "../types.js";
 import type { BackOfficeStore } from "./store.js";
 import {
@@ -168,9 +168,15 @@ export async function platformBackOfficeHistory(
   scope: string,
   target: BackOfficeHistoryTarget,
   options: { limit: number; cursor: string | null; export: boolean },
+  expectedPrincipal?: string,
 ) {
+  const principal = expectedPrincipal ?? await connectedBackOfficePrincipal(config);
+  if (!principal) throw new ApiError(403, "back_office_firm", "Sign in to your firm to open team history.");
   await ensureFreshPlatformToken(config);
-  const client = requireIntakeClient(await readEigenweltConnection(config));
+  const connection = await requireBackOfficePrincipal(config, principal);
+  if (connection.account?.orgId !== scope)
+    throw new ApiError(409, "back_office_account_changed", "The requested directory belongs to another connected account.");
+  const client = requireIntakeClient(connection);
   const query = new URLSearchParams({
     type: target.type,
     id: target.id,
@@ -184,6 +190,7 @@ export async function platformBackOfficeHistory(
       "GET",
       `/api/back-office/history?${query}`,
     );
+    await requireBackOfficePrincipal(config, principal);
     if (options.export) {
       const exported = BackOfficeHistoryExportSchema.parse(result);
       verifyBackOfficeHistoryExport(exported);
@@ -200,8 +207,9 @@ export async function platformBackOfficeHistory(
     }
     return BackOfficeHistoryPageSchema.parse(result);
   } catch (error) {
+    if (await connectedBackOfficePrincipal(config) !== principal) throw error;
     if (error instanceof ApiError && error.status === 401)
-      store.suspendTeam(scope, error.message);
+      store.suspendAccount(scope, principal, error.message, principal);
     else if (
       error instanceof ApiError &&
       (error.status === 403 || error.status === 404)

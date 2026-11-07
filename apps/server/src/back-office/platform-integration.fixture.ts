@@ -55,12 +55,6 @@ delete process.env.LEGALWORK_RUNTIME_DB;
 const root = await mkdtemp(join(tmpdir(), "legalwork-bo-platform-"));
 const configs: ServerConfig[] = [];
 const stores: BackOfficeStore[] = [];
-const actor = (userId: string): BackOfficeActor => ({
-  userId,
-  model: userId === settings.admin,
-  edit: true,
-  finance: false,
-});
 async function device(userId: string) {
   const directory = join(root, userId);
   await mkdir(directory);
@@ -125,10 +119,11 @@ async function device(userId: string) {
     lastError: null,
     report: null,
   });
+  const access = await backOfficeAccess(config, true);
   const store = await backOfficeStore(config);
   stores.push(store);
   store.setSync(settings.orgId, true);
-  return { config, store, actor: actor(userId) };
+  return { config, store, actor: access.actor };
 }
 try {
   const a = await device(settings.admin),

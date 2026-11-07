@@ -23,6 +23,7 @@ export function fileField(
   write = false,
   objectId?: string,
 ) {
+  store.requireAccount(scope, actor);
   const stored = store.raw(scope, recordId);
   const now = new Date().toISOString();
   const record =

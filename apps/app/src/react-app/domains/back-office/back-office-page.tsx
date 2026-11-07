@@ -124,6 +124,16 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
   useEffect(
     () =>
       onSyncPoke((poke) => {
+        if (poke.policy || poke.reload) {
+          setDraft(null);
+          setPendingChanges(null);
+          setDiscardChange(null);
+          setCsv("");
+          setImportPlan(null);
+          setImporting(false);
+          setError("");
+          return;
+        }
         if (poke.backOffice || poke.resync)
           void cache.invalidateQueries({
             queryKey: ["back-office", client.baseUrl],
@@ -144,7 +154,7 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
   );
   const object = rawObject && displayBackOfficeObject(rawObject);
   const archivedRecords = useQuery({
-    queryKey: [...key, "archive", selected],
+    queryKey: [...key, "archive", selected, data?.scope, data?.permissions.principalKey, data?.permissions.finance, data?.permissions.model],
     enabled: archived && Boolean(object),
     queryFn: async () =>
       z.object({ records: z.array(BackOfficeRecordSchema) }).parse(
@@ -556,7 +566,7 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
             <RecordDetail
               client={client}
               team={team}
-              historyAccessKey={`${data.permissions.userId}:${data.permissions.model}:${data.permissions.finance}`}
+              historyAccessKey={`${data.permissions.principalKey ?? data.permissions.userId}:${data.permissions.model}:${data.permissions.finance}`}
               key={detail.id}
               record={detail}
               focusName={focusNameId === detail.id}

@@ -1,6 +1,5 @@
 import { z } from "zod";
 import { intakeRequest, requireIntakeClient } from "../eigenwelt-intake.js";
-import { readEigenweltConnection } from "../eigenwelt-connection-store.js";
 import { ensureFreshPlatformToken } from "../eigenwelt-refresh.js";
 import { ApiError } from "../errors.js";
 import type { ServerConfig } from "../types.js";
@@ -11,15 +10,21 @@ import {
   type BackOfficeChange,
 } from "./schema.js";
 import { cachedFile, cacheFile } from "./files.js";
+import { connectedBackOfficePrincipal, requireBackOfficePrincipal } from "./accounts.js";
 
-async function fileRequest(config: ServerConfig, body: unknown) {
+async function fileRequest(config: ServerConfig, body: unknown, expectedPrincipal?: string) {
+  const principal = expectedPrincipal ?? await connectedBackOfficePrincipal(config);
+  if (!principal) throw new ApiError(403, "back_office_firm", "Sign in to your firm to open team attachments.");
   await ensureFreshPlatformToken(config);
-  const client = requireIntakeClient(await readEigenweltConnection(config));
-  return intakeRequest(client, "POST", "/api/back-office/files", body);
+  const client = requireIntakeClient(await requireBackOfficePrincipal(config, principal));
+  const result = await intakeRequest(client, "POST", "/api/back-office/files", body);
+  await requireBackOfficePrincipal(config, principal);
+  return result;
 }
 export async function syncRecordFiles(
   config: ServerConfig,
   changes: BackOfficeChange[],
+  expectedPrincipal?: string,
 ) {
   const sent = new Set<string>();
   for (const change of changes) {
@@ -38,7 +43,7 @@ export async function syncRecordFiles(
               action: "prepare",
               objectId: record.objectId,
               file,
-            }),
+            }, expectedPrincipal),
           );
         if (prepared.uploaded) continue;
         const bytes = await cachedFile(config, file);
@@ -48,6 +53,7 @@ export async function syncRecordFiles(
             "back_office_file",
             "This attachment is not available on this computer. Restore its saved copy before syncing.",
           );
+        if (expectedPrincipal) await requireBackOfficePrincipal(config, expectedPrincipal);
         const uploaded = await fetch(prepared.url, {
           method: "PUT",
           headers: {
@@ -64,7 +70,7 @@ export async function syncRecordFiles(
             "back_office_file",
             "The attachment upload failed. It will be retried.",
           );
-        await fileRequest(config, { action: "commit", id: file.id });
+        await fileRequest(config, { action: "commit", id: file.id }, expectedPrincipal);
       }
     }
   }
@@ -73,9 +79,14 @@ export async function loadAttachedFile(
   config: ServerConfig,
   scope: string,
   file: BackOfficeFile,
+  expectedPrincipal?: string,
 ) {
+  if (expectedPrincipal) await requireBackOfficePrincipal(config, expectedPrincipal);
   const local = await cachedFile(config, file);
-  if (local) return local;
+  if (local) {
+    if (expectedPrincipal) await requireBackOfficePrincipal(config, expectedPrincipal);
+    return local;
+  }
   if (scope === "local")
     throw new ApiError(
       404,
@@ -90,7 +101,7 @@ export async function loadAttachedFile(
         id: file.id,
         recordId: file.recordId,
         fieldId: file.fieldId,
-      }),
+      }, expectedPrincipal),
     );
   const response = await fetch(url, { signal: AbortSignal.timeout(120_000) });
   if (!response.ok) {
@@ -130,6 +141,7 @@ export async function loadAttachedFile(
     bytes.set(chunk, offset);
     offset += chunk.byteLength;
   }
+  if (expectedPrincipal) await requireBackOfficePrincipal(config, expectedPrincipal);
   await cacheFile(config, file, bytes);
   return bytes;
 }

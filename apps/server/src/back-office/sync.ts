@@ -18,37 +18,48 @@ import { ApiError } from "../errors.js";
 import { projectSyncStore } from "../project-sync-store.js";
 import type { ServerConfig } from "../types.js";
 import { BackOfficeSyncRounds } from "./sync-rounds.js";
+import { connectedBackOfficePrincipal, requireBackOfficePrincipal } from "./accounts.js";
+import { backOfficeAuthorKey, backOfficePrincipalKey } from "./principal.js";
 
 const rounds = new BackOfficeSyncRounds(),
   scheduled = new Map<string, ReturnType<typeof setTimeout>>();
 export async function backOfficePlatform(
   config: ServerConfig,
   changes: unknown[] = [],
+  expectedPrincipal?: string,
 ): Promise<BackOfficeSnapshot> {
+  const principal = expectedPrincipal ?? await connectedBackOfficePrincipal(config);
+  if (!principal) throw new ApiError(403, "back_office_firm", "Sign in to your firm to open team records.");
   await ensureFreshPlatformToken(config);
-  const client = requireIntakeClient(await readEigenweltConnection(config));
-  return BackOfficeSnapshotSchema.parse(
+  const client = requireIntakeClient(await requireBackOfficePrincipal(config, principal));
+  const snapshot = BackOfficeSnapshotSchema.parse(
     await intakeRequest(client, "POST", "/api/back-office", {
       protocol: 1,
       changes,
       cursor: 0,
     }),
   );
+  await requireBackOfficePrincipal(config, principal);
+  return snapshot;
 }
 export async function syncBackOffice(config: ServerConfig): Promise<void> {
   const connection = await readEigenweltConnection(config);
-  if (!connection?.account) return;
-  const key = `${config.configPath}:${connection.account.orgId}`;
+  if (!connection.account || !connection.platformURL || !connection.platformToken) return;
+  const initialPrincipal = backOfficePrincipalKey(connection.platformURL, connection.account.orgId, connection.account.userId);
+  const key = `${config.configPath}:${initialPrincipal}`;
   return rounds.run(key, async () => {
     let scope: string;
     let actor: BackOfficeActor;
     try {
       ({ scope, actor } = await backOfficeAccess(config, true));
+      if (actor.principalKey !== initialPrincipal) return;
     } catch (error) {
       if (error instanceof ApiError && error.status === 403)
-        (await backOfficeStore(config)).suspendTeam(
+        (await backOfficeStore(config)).suspendAccount(
           connection.account!.orgId,
+          initialPrincipal,
           error.message,
+          initialPrincipal,
         );
       return;
     }
@@ -56,7 +67,7 @@ export async function syncBackOffice(config: ServerConfig): Promise<void> {
     if (!store.syncState(scope).enabled) return;
     try {
       store.restrictTeamAccess(scope, actor);
-      const pending = store.pending(scope),
+      const pending = store.pending(scope, 100, actor),
         firstBlocked = pending.findIndex((entry) => entry.error);
       const batch = pending
         .slice(0, firstBlocked < 0 ? pending.length : firstBlocked)
@@ -89,8 +100,8 @@ export async function syncBackOffice(config: ServerConfig): Promise<void> {
           0,
           modelIndex === 0 ? 1 : modelIndex > 0 ? modelIndex : batch.length,
         );
-        await syncRecordFiles(config, chunk);
-        const snapshot = await backOfficePlatform(config, chunk);
+        await syncRecordFiles(config, chunk, actor.principalKey);
+        const snapshot = await backOfficePlatform(config, chunk, actor.principalKey);
         const localLinks = links.links().filter((link) => link.orgId === scope);
         for (const record of snapshot.records.filter(
           (record) => record.objectId === "projectLinks",
@@ -108,10 +119,11 @@ export async function syncBackOffice(config: ServerConfig): Promise<void> {
         )
           break;
       } while (batch.length);
-      if (accepted && store.pending(scope).some((entry) => !entry.error))
+      if (accepted && store.pending(scope, 100, actor).some((entry) => !entry.error))
         scheduleBackOfficeSync(config);
       announceSyncChange(config, "backOffice");
     } catch (error) {
+      if (await connectedBackOfficePrincipal(config) !== initialPrincipal) return;
       const message =
         error instanceof Error
           ? error.message
@@ -168,7 +180,7 @@ export async function previewBackOfficePublish(config: ServerConfig) {
     if (plan.expires < Date.now()) publishPlans.delete(key);
   publishPlans.set(planId, {
     scope,
-    actor: actor.userId,
+    actor: backOfficeAuthorKey(actor),
     revision: store.model("local").revision,
     fingerprint: createHash("sha256")
       .update(
@@ -206,7 +218,7 @@ export async function publishBackOffice(config: ServerConfig, planId: string) {
     !actor.edit ||
     !plan ||
     plan.scope !== scope ||
-    plan.actor !== actor.userId ||
+    plan.actor !== backOfficeAuthorKey(actor) ||
     plan.expires < Date.now() ||
     plan.revision !== store.model("local").revision
   )
@@ -273,7 +285,7 @@ export async function publishBackOffice(config: ServerConfig, planId: string) {
   });
   publishPlans.delete(planId);
   await syncBackOffice(config);
-  return store.syncState(scope);
+  return store.syncState(scope, actor);
 }
 
 export async function signOutBackOffice(
@@ -282,11 +294,15 @@ export async function signOutBackOffice(
 ) {
   const connection = await readEigenweltConnection(config),
     scope = connection?.account?.orgId;
-  if (!scope) return 0;
+  const account = connection.account;
+  if (!scope || !account || !connection.platformURL) return 0;
+  const principalKey = backOfficePrincipalKey(connection.platformURL, scope, account.userId);
   await syncBackOffice(config);
-  const store = await backOfficeStore(config),
-    pending = store.syncState(scope).pending;
+  if (await connectedBackOfficePrincipal(config) !== principalKey) return 0;
+  const store = await backOfficeStore(config);
+  const actor: BackOfficeActor = { userId: account.userId, principalKey, edit: false, model: false, finance: false };
+  const pending = store.syncState(scope, actor).pending;
   if (pending && !options.force) return pending;
-  if (options.apply) store.clearTeam(scope);
+  if (options.apply) store.clearTeam(scope, actor);
   return 0;
 }

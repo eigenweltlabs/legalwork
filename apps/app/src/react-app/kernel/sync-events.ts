@@ -1,4 +1,5 @@
 import { getReactQueryClient } from "../infra/query-client";
+import { resetBackOfficeCache } from "../infra/reset-back-office-cache";
 import { useEffect, useRef } from "react";
 import { create } from "zustand";
 import type { SyncPoke } from "@legalwork/types/sync-events";
@@ -58,6 +59,7 @@ export function useSyncEvents(client: LegalworkServerClient | null): void {
             heard = true;
             // The first event of every connection: from here on nothing is missed.
             if (poke.resync) useSyncEventsLive.setState({ live: true, metadata: poke.metadata === true, baseUrl });
+            if (poke.policy || poke.reload) void resetBackOfficeCache(getReactQueryClient(), baseUrl);
             const roots = [
               ...(poke.projects || poke.tasks || poke.policy || poke.hub || poke.sessions || poke.approvals || poke.reload || poke.resync ? ["calendar"] : []),
               ...(poke.reviews || poke.resync ? ["project-reviews"] : []),

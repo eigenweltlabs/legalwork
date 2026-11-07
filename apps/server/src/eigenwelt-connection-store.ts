@@ -434,6 +434,17 @@ async function persistConnection(
   } else db.upsert(value);
   if (nextAccountJson !== current?.accountJson || nextPlatformUrl !== current?.platformUrl ||
       (!expected && (input.platformToken !== undefined || input.refreshToken !== undefined))) invalidateConnectorCredentials(config);
+  if (nextAccountJson !== current?.accountJson || nextPlatformUrl !== current?.platformUrl || Boolean(nextPlatformToken) !== Boolean(current?.platformToken)) {
+    const previousAccount = decodeAccount(current?.accountJson ?? null);
+    const nextAccount = decodeAccount(nextAccountJson);
+    const { backOfficePrincipalKey } = await import("./back-office/principal.js");
+    const expectedConnection = nextAccount && nextPlatformUrl && nextPlatformToken ? backOfficePrincipalKey(nextPlatformUrl, nextAccount.orgId, nextAccount.userId) : null;
+    const previousPrincipal = previousAccount && current?.platformUrl && current.platformToken ? backOfficePrincipalKey(current.platformUrl, previousAccount.orgId, previousAccount.userId) : null;
+    if (previousPrincipal !== expectedConnection) {
+      const { reconcileBackOfficeAccounts } = await import("./back-office/accounts.js");
+      await reconcileBackOfficeAccounts(config, expectedConnection, nextAccount?.orgId ?? null, true);
+    }
+  }
   return true;
 }
 
