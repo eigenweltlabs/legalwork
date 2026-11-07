@@ -36,7 +36,6 @@ const de = {
   "projects.reference.unavailable": "Datensatz nicht verfügbar",
   "projects.reference.unavailable_object": "Back-Office-Objekt nicht verfügbar",
   "projects.reference.multiple": "Mehrere Datensätze zulassen",
-  "projects.reference.single_hint": "Wählen Sie zuerst nur einen Datensatz aus.",
 
   "back_office.history.project_linked": "hat ein Projekt verknüpft",
   "back_office.history.project_unlinked": "hat eine Projektverknüpfung entfernt",
@@ -2270,7 +2269,7 @@ const de = {
   "projects.folder_unavailable": "Der Projektordner ist nicht verfügbar. Verbinden Sie das Laufwerk erneut oder stellen Sie den Ordner am ursprünglichen Ort wieder her und versuchen Sie es erneut.",
   "projects.metadata_invalid": "Die Projektfelder konnten nicht gelesen oder gespeichert werden. Prüfen Sie Feldnamen, Typen und Werte. Bereits gespeicherte Daten bleiben erhalten.",
   "projects.access_error": "Sie haben keinen Zugriff auf dieses Projekt. Prüfen Sie die Ordnerberechtigungen oder verbinden Sie den Workspace erneut.",
-  "projects.type_preserve_value": "Dieser Wert passt nicht zum neuen Feldtyp. Leeren oder ändern Sie ihn zuerst. Der bisherige Wert bleibt erhalten.",
+  "projects.value_overwrite_notice": "Der bisherige Wert für {name} wird beim Speichern geleert.",
   "projects.options_value_missing": "Ein ausgewählter Wert fehlt in den Optionen. Stellen Sie die Option wieder her oder ändern bzw. leeren Sie den Wert vor dem Speichern.",
   "projects.reload_fields": "Aktuelle Felder laden",
   "projects.reload_fields_hint": "Dies ersetzt Ihre ungespeicherten Feldänderungen durch die zuletzt gespeicherten Felder.",

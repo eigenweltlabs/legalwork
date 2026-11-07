@@ -26,7 +26,6 @@ export default {
   "projects.reference.unavailable": "Unavailable record",
   "projects.reference.unavailable_object": "Unavailable Back Office object",
   "projects.reference.multiple": "Allow multiple records",
-  "projects.reference.single_hint": "Keep one selected record before switching to a single value.",
 
   "back_office.history.project_linked": "linked a project",
   "back_office.history.project_unlinked": "unlinked a project",
@@ -2266,7 +2265,7 @@ export default {
   "projects.folder_unavailable": "The project folder is unavailable. Reconnect its drive or restore the folder to its original location, then try again.",
   "projects.metadata_invalid": "The project fields could not be read or saved. Check the field names, types and values. Existing saved data has been preserved.",
   "projects.access_error": "You do not have access to this project. Check the folder permissions or reconnect to the workspace.",
-  "projects.type_preserve_value": "This value does not fit the new field type. Clear or change the value first; it has been kept.",
+  "projects.value_overwrite_notice": "The existing value for {name} will be cleared when you save.",
   "projects.options_value_missing": "A selected value is no longer among the options. Restore that option, or choose or clear the value before saving.",
   "projects.reload_fields": "Load latest fields",
   "projects.reload_fields_hint": "This replaces your unsaved field edits with the latest saved fields.",

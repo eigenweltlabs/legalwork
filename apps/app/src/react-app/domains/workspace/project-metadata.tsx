@@ -114,7 +114,9 @@ export function ProjectMetadata(props: {
                 const type = object ? "backoffice" : value === "text" || value === "number" || value === "date" || value === "select" ? value : null;
                 if (!type) return;
                 const next = changeProjectFieldType(field, type, object?.id);
-                if (!next) { setError(t("projects.type_preserve_value")); return; }
+                if (!next) return;
+                if (field.value !== null && field.value !== "" && next.value === null)
+                  toast.info(t("projects.value_overwrite_notice", { name: field.label }));
                 replace(next);
                 setOptionDrafts(current => ({ ...current, [field.id]: next.options?.join(", ") ?? "" }));
                 setError(null);
@@ -158,8 +160,10 @@ export function ProjectMetadata(props: {
             </Button>
             {field.type === "backoffice" ? <div className="space-y-2 sm:col-span-3">
               <label className="flex items-center gap-2 text-xs"><Checkbox checked={field.multiple} onCheckedChange={checked => {
-                if (!checked && (field.value?.recordIds.length ?? 0) > 1) { setError(t("projects.reference.single_hint")); return; }
-                replace({ ...field, multiple: checked === true });
+                const clear = !checked && (field.value?.recordIds.length ?? 0) > 1;
+                if (clear) toast.info(t("projects.value_overwrite_notice", { name: field.label }));
+                replace({ ...field, multiple: checked === true, value: clear ? null : field.value });
+                setError(null);
               }} />{t("projects.reference.multiple")}</label>
             </div> : field.type === "select" ? (
               <div className="grid gap-2 sm:col-span-3">

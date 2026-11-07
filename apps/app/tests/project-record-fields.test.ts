@@ -29,9 +29,10 @@ test("custom object references validate cardinality and IDs, while template copi
     { ...reference, value: { directoryId: "", recordIds: [first] } },
     { ...reference, value: "A name is not an identity" },
   ]) expect(projectFieldsSchema.safeParse([field]).success).toBe(false);
-  expect(changeProjectFieldType(reference, "text")).toBeNull();
-  expect(changeProjectFieldType(reference, "backoffice", "companies")).toBeNull();
-  expect(changeProjectFieldType({ id: "custom", label: "Custom", type: "text", value: "Acme" }, "backoffice", "companies")).toBeNull();
+  expect(changeProjectFieldType(reference, "text")).toMatchObject({ type: "text", value: null });
+  expect(changeProjectFieldType(reference, "backoffice", "companies")).toMatchObject({ type: "backoffice", objectId: "companies", value: null });
+  expect(changeProjectFieldType({ id: "custom", label: "Custom", type: "text", value: "Acme" }, "backoffice", "companies")).toMatchObject({ type: "backoffice", objectId: "companies", value: null });
+  expect(reference.value?.recordIds).toEqual([first, second]);
   expect(changeProjectFieldType({ ...reference, value: null }, "backoffice", "companies")).toMatchObject({ objectId: "companies", value: null });
 });
 
