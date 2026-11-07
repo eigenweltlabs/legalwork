@@ -121,13 +121,23 @@ export class BackOfficeJournal {
   private eraseAfterCommit = new Set<string>();
   private retireAfterFlush = new Set<string>();
   private failure: Error | null = null;
+  private readonly expectedTriggers = new Map<string, string>();
+  private prospectiveHeads = new Map<string, BackOfficeAuditHead>();
+  private admittedKeys = new Map<string, string | null>();
+  private admittedHeads = new Map<string, BackOfficeAuditHead>();
+  private preparedStamp: string | null = null;
+  private verifiedCache: {
+    stamp: string;
+    heads: string;
+    keys: string;
+    streams: number;
+  } | null = null;
+  private established = false;
   constructor(
     private readonly db: SqliteHandle,
     readonly storage: BackOfficeAuditStorage,
   ) {
-    db.exec(BACK_OFFICE_JOURNAL_TABLES);
-    if (db.get("SELECT stream_id FROM bo_journal_streams LIMIT 1"))
-      db.exec(legacyGuards);
+    const statements = [BACK_OFFICE_JOURNAL_TABLES, legacyGuards];
     for (const { table, kind, target } of auditedTables) {
       for (const operation of ["INSERT", "UPDATE", "DELETE"]) {
         const old = operation === "INSERT" ? "NULL" : "OLD.data";
@@ -136,13 +146,115 @@ export class BackOfficeJournal {
         const id = target === "id" ? `${side}.id` : target;
         const when =
           operation === "UPDATE" ? "WHEN OLD.data IS NOT NEW.data" : "";
-        db.exec(`CREATE TRIGGER IF NOT EXISTS ${table}_journal_guard_${operation} BEFORE ${operation} ON ${table} ${when}
-          BEGIN SELECT CASE WHEN NOT EXISTS(SELECT 1 FROM bo_journal_context WHERE id=1) THEN RAISE(ABORT,'Back Office changes require an audited transaction') END; END;
+        statements.push(`CREATE TRIGGER IF NOT EXISTS ${table}_journal_guard_${operation} BEFORE ${operation} ON ${table} ${when}
+          BEGIN SELECT RAISE(ABORT,'Back Office changes require an audited transaction') WHERE NOT EXISTS(SELECT 1 FROM bo_journal_context WHERE id=1); END;
           CREATE TRIGGER IF NOT EXISTS ${table}_journal_capture_${operation} AFTER ${operation} ON ${table} ${when}
           BEGIN INSERT INTO bo_journal_pending(scope,kind,target,before_data,after_data,actor,action,model_revision)
             SELECT ${side}.scope,'${kind}',${id},${old},${next},actor,action,COALESCE((SELECT json_extract(data,'$.revision') FROM bo_models WHERE scope=${side}.scope),0) FROM bo_journal_context WHERE id=1; END;`);
       }
     }
+    for (const statement of statements) {
+      for (const match of statement.matchAll(
+        /CREATE TRIGGER IF NOT EXISTS (\w+)[\s\S]*?END;/g,
+      ))
+        this.expectedTriggers.set(match[1], this.normalizeTrigger(match[0]));
+    }
+    const initialized = Boolean(
+      db.get(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='bo_journal_entries'",
+      ),
+    );
+    this.established = initialized;
+    if (
+      initialized &&
+      !db.get("SELECT version FROM bo_migrations WHERE version=2")
+    )
+      throw new Error(
+        "Back Office audit migration evidence is missing. Preserve this database before recovery.",
+      );
+    if (initialized) this.validateGuards();
+    db.exec(BACK_OFFICE_JOURNAL_TABLES);
+    for (const statement of statements.slice(2)) db.exec(statement);
+    if (initialized) db.exec(legacyGuards);
+  }
+  private normalizeTrigger(sql: string) {
+    return sql
+      .replace(/IF NOT EXISTS /gi, "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .replace(/;$/, "");
+  }
+  private validateGuards() {
+    const initialized = this.established;
+    if (
+      initialized &&
+      !this.db.get("SELECT version FROM bo_migrations WHERE version=2")
+    )
+      throw new Error(
+        "Back Office audit migration evidence is missing. Preserve this database before recovery.",
+      );
+    const rows = this.db.all(
+      "SELECT name,sql,tbl_name FROM sqlite_master WHERE type='trigger' AND tbl_name LIKE 'bo_%'",
+    );
+    const found = new Map(
+      rows.map((row) => [
+        String(row.name),
+        this.normalizeTrigger(String(row.sql)),
+      ]),
+    );
+    for (const [name, sql] of this.expectedTriggers) {
+      if (!initialized && name.startsWith("bo_journal_legacy_")) continue;
+      if (found.get(name) !== sql)
+        throw new Error(
+          "Back Office audit security triggers were changed or removed. Further changes are blocked.",
+        );
+    }
+    for (const name of found.keys())
+      if (!this.expectedTriggers.has(name))
+        throw new Error(
+          "Unexpected Back Office audit security trigger. Further changes are blocked.",
+        );
+  }
+  private stamp() {
+    return canonicalBackOfficeAudit({
+      data: Number(this.db.get("PRAGMA data_version")?.data_version),
+      schema: Number(this.db.get("PRAGMA schema_version")?.schema_version),
+      changes: Number(this.db.get("SELECT total_changes() AS value")?.value),
+    });
+  }
+  private keyHashes() {
+    return new Map(
+      this.streams().map((stream) => {
+        const key = this.storage.key(stream.stream_id);
+        return [
+          stream.stream_id,
+          key ? backOfficeAuditStateHash(key.toString("hex")) : null,
+        ];
+      }),
+    );
+  }
+  verify(force = false) {
+    const stamp = this.stamp();
+    const heads = canonicalBackOfficeAudit(
+      this.storage.heads().sort((a, b) => a.streamId.localeCompare(b.streamId)),
+    );
+    const keyHashes = this.keyHashes();
+    const keys = canonicalBackOfficeAudit(Object.fromEntries(keyHashes));
+    if (
+      !force &&
+      this.verifiedCache?.stamp === stamp &&
+      this.verifiedCache.heads === heads &&
+      this.verifiedCache.keys === keys
+    )
+      return { streams: this.verifiedCache.streams, locallyVerified: true };
+    this.validateGuards();
+    const result = this.verifyFull();
+    this.admittedKeys = keyHashes;
+    this.admittedHeads = new Map(
+      this.storage.heads().map((head) => [head.streamId, head]),
+    );
+    this.verifiedCache = { stamp, heads, keys, streams: result.streams };
+    return result;
   }
 
   systemActor(migration = false): BackOfficeAuditActor {
@@ -268,7 +380,7 @@ export class BackOfficeJournal {
     return result;
   }
 
-  verify() {
+  private verifyFull() {
     const streams = this.streams();
     for (const head of this.storage.heads()) {
       if (!streams.some((stream) => stream.stream_id === head.streamId))
@@ -326,8 +438,10 @@ export class BackOfficeJournal {
         throw new Error(
           "Back Office database contents differ from their recorded history. Further changes are blocked.",
         );
-      if (checkpoint && head.sequence > checkpoint.sequence)
+      if (checkpoint && head.sequence > checkpoint.sequence) {
         this.changed.add(stream.stream_id);
+        this.prospectiveHeads.set(stream.stream_id, head);
+      }
     }
     return { streams: streams.length, locallyVerified: true };
   }
@@ -405,7 +519,14 @@ export class BackOfficeJournal {
       ? BackOfficeAuditProofSchema.parse(JSON.parse(String(last.proof)))
       : null;
     const key = this.storage.key(stream.stream_id);
-    if (!key) throw new Error("Back Office history key is missing.");
+    if (
+      !key ||
+      this.admittedKeys.get(stream.stream_id) !==
+        backOfficeAuditStateHash(key.toString("hex"))
+    )
+      throw new Error(
+        "Back Office history encryption key changed outside its audited lifecycle.",
+      );
     const entry = signBackOfficeAudit(
       {
         ...input,
@@ -426,6 +547,12 @@ export class BackOfficeJournal {
       seal(entry.payload, key),
     ]);
     this.changed.add(stream.stream_id);
+    this.prospectiveHeads.set(stream.stream_id, {
+      streamId: stream.stream_id,
+      publicKey: entry.proof.publicKey,
+      sequence: entry.proof.sequence,
+      hash: entry.proof.hash,
+    });
     return entry;
   }
 
@@ -441,7 +568,11 @@ export class BackOfficeJournal {
       public_key: this.storage.identity.publicKey,
       created_at: new Date().toISOString(),
     };
-    this.storage.createKey(stream.stream_id);
+    const key = this.storage.createKey(stream.stream_id);
+    this.admittedKeys.set(
+      stream.stream_id,
+      backOfficeAuditStateHash(key.toString("hex")),
+    );
     this.db.run("INSERT INTO bo_journal_streams VALUES(?,?,?,?)", [
       stream.stream_id,
       scope,
@@ -513,7 +644,12 @@ export class BackOfficeJournal {
         this.db.run("DELETE FROM bo_audit");
         this.db.exec(legacyGuards);
       }
+      this.db.run(
+        "INSERT OR IGNORE INTO bo_migrations VALUES(2,datetime('now'))",
+      );
+      this.established = true;
       this.db.run("DELETE FROM bo_journal_context");
+      this.preparedStamp = this.stamp();
       this.db.exec("COMMIT");
     } catch (error) {
       this.db.exec("ROLLBACK");
@@ -524,6 +660,7 @@ export class BackOfficeJournal {
   }
 
   flush() {
+    this.validateGuards();
     const pending = this.db
       .all("SELECT * FROM bo_journal_pending ORDER BY seq")
       .map((row) => PendingSchema.parse(row));
@@ -548,6 +685,11 @@ export class BackOfficeJournal {
     this.retireAfterFlush.clear();
     this.db.run("DELETE FROM bo_journal_pending");
     this.db.run("DELETE FROM bo_journal_context");
+    if (this.db.get("SELECT seq FROM bo_journal_pending LIMIT 1"))
+      throw new Error(
+        "Back Office has changes outside its completed audit batch.",
+      );
+    this.preparedStamp = this.stamp();
   }
 
   retire(scope: string) {
@@ -575,27 +717,62 @@ export class BackOfficeJournal {
   }
   checkpoint() {
     try {
-      for (const id of this.changed) {
-        const last = this.db.get(
-          "SELECT proof FROM bo_journal_entries WHERE stream_id=? ORDER BY sequence DESC LIMIT 1",
-          [id],
+      const expectedHeads = new Map(this.admittedHeads);
+      for (const [id, head] of this.prospectiveHeads)
+        expectedHeads.set(id, head);
+      for (const head of this.prospectiveHeads.values())
+        this.storage.checkpoint(head);
+      const heads = this.storage
+        .heads()
+        .sort((a, b) => a.streamId.localeCompare(b.streamId));
+      if (
+        canonicalBackOfficeAudit(heads) !==
+        canonicalBackOfficeAudit(
+          [...expectedHeads.values()].sort((a, b) =>
+            a.streamId.localeCompare(b.streamId),
+          ),
+        )
+      )
+        throw new Error(
+          "Back Office audit checkpoints changed during persistence.",
         );
-        if (!last) continue;
-        const proof = BackOfficeAuditProofSchema.parse(
-          JSON.parse(String(last.proof)),
-        );
-        this.storage.checkpoint({
-          streamId: id,
-          publicKey: proof.publicKey,
-          sequence: proof.sequence,
-          hash: proof.hash,
-        });
+      for (const id of this.eraseAfterCommit) {
+        this.storage.eraseKey(id);
+        this.admittedKeys.set(id, null);
       }
-      for (const id of this.eraseAfterCommit) this.storage.eraseKey(id);
+      const keys = this.keyHashes();
+      if (
+        canonicalBackOfficeAudit(Object.fromEntries(keys)) !==
+        canonicalBackOfficeAudit(Object.fromEntries(this.admittedKeys))
+      )
+        throw new Error(
+          "Back Office history encryption keys changed during checkpoint persistence.",
+        );
+      if (this.preparedStamp !== this.stamp()) {
+        this.db.exec("BEGIN");
+        try {
+          this.verify(true);
+          this.db.exec("COMMIT");
+        } catch (error) {
+          this.db.exec("ROLLBACK");
+          throw error;
+        }
+      } else {
+        this.verifiedCache = {
+          stamp: this.preparedStamp,
+          heads: canonicalBackOfficeAudit(heads),
+          keys: canonicalBackOfficeAudit(Object.fromEntries(keys)),
+          streams: this.streams().length,
+        };
+      }
+      this.admittedHeads = expectedHeads;
       this.changed.clear();
+      this.prospectiveHeads.clear();
       this.eraseAfterCommit.clear();
+      this.preparedStamp = null;
       this.failure = null;
     } catch (error) {
+      this.verifiedCache = null;
       this.failure =
         error instanceof Error
           ? error
@@ -603,7 +780,11 @@ export class BackOfficeJournal {
       throw this.failure;
     }
   }
+
   rollback() {
+    this.verifiedCache = null;
+    this.preparedStamp = null;
+    this.prospectiveHeads.clear();
     this.changed.clear();
     this.eraseAfterCommit.clear();
     this.retireAfterFlush.clear();

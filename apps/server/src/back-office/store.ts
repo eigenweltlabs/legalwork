@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
 import { BackOfficeJournal } from "./journal.js";
 import {
-  fileBackOfficeAuditStorage,
+  openBackOfficeAuditStorage,
   memoryBackOfficeAuditStorage,
   type BackOfficeAuditStorage,
 } from "./audit-storage.js";
@@ -63,14 +63,32 @@ function conflict(
 export class BackOfficeStore {
   private transactionDepth = 0;
   readonly journal: BackOfficeJournal;
+  private readonly releaseAuditStorage: () => void;
+  private closed = false;
   constructor(
     readonly db: SqliteHandle,
     storage: BackOfficeAuditStorage = memoryBackOfficeAuditStorage(),
   ) {
-    db.exec("PRAGMA busy_timeout=5000");
-    db.exec(table);
-    this.journal = new BackOfficeJournal(db, storage);
-    this.journal.initialize();
+    if (storage.persistent && !storage.serialized)
+      throw new Error(
+        "Persistent Back Office history requires the audit coordinator.",
+      );
+    this.releaseAuditStorage = storage.retain();
+    try {
+      storage.acquire();
+      try {
+        db.exec("PRAGMA busy_timeout=5000");
+        db.exec("PRAGMA secure_delete=ON");
+        db.exec(table);
+        this.journal = new BackOfficeJournal(db, storage);
+        this.journal.initialize();
+      } finally {
+        storage.release();
+      }
+    } catch (error) {
+      this.releaseAuditStorage();
+      throw error;
+    }
   }
   model(scope: string): BackOfficeModel {
     const row = this.db.get("SELECT data FROM bo_models WHERE scope=?", [
@@ -78,25 +96,36 @@ export class BackOfficeStore {
     ]);
     if (typeof row?.data === "string") {
       const current = BackOfficeModelSchema.parse(JSON.parse(row.data));
-      const upgraded =
-        scope === "local" ? upgradeBackOfficeModel(current) : current;
-      if (upgraded !== current)
-        this.transaction(() => {
+      if (scope !== "local" || upgradeBackOfficeModel(current) === current)
+        return current;
+    }
+    // Re-read after acquiring the transaction lock. Another process may have
+    // created or edited the model since the optimistic read above.
+    return this.transaction(
+      () => {
+        const latest = this.db.get("SELECT data FROM bo_models WHERE scope=?", [
+          scope,
+        ]);
+        if (typeof latest?.data !== "string") {
+          const model = defaultBackOfficeModel();
+          this.db.run("INSERT INTO bo_models VALUES(?,?)", [
+            scope,
+            JSON.stringify(model),
+          ]);
+          return model;
+        }
+        const current = BackOfficeModelSchema.parse(JSON.parse(latest.data));
+        const upgraded =
+          scope === "local" ? upgradeBackOfficeModel(current) : current;
+        if (upgraded !== current)
           this.db.run("UPDATE bo_models SET data=? WHERE scope=?", [
             JSON.stringify(upgraded),
             scope,
           ]);
-        });
-      return upgraded;
-    }
-    const model = defaultBackOfficeModel();
-    this.transaction(() =>
-      this.db.run("INSERT OR IGNORE INTO bo_models VALUES(?,?)", [
-        scope,
-        JSON.stringify(model),
-      ]),
+        return upgraded;
+      },
+      { action: "model.initialize-or-upgrade" },
     );
-    return model;
   }
   transaction<T>(
     fn: () => T,
@@ -105,13 +134,24 @@ export class BackOfficeStore {
     const level = this.transactionDepth++;
     const journalSavepoint = this.journal.savepoint();
     const savepoint = `bo_save_${level}`;
-    this.db.exec(level ? `SAVEPOINT ${savepoint}` : "BEGIN IMMEDIATE");
-    let committed = false;
+    let acquired = false,
+      started = false,
+      committed = false;
     try {
+      if (!level) {
+        this.journal.storage.acquire();
+        acquired = true;
+      }
+      this.db.exec(level ? `SAVEPOINT ${savepoint}` : "BEGIN IMMEDIATE");
+      started = true;
       if (!level) this.journal.begin();
       const previousContext = context ? this.journal.currentContext() : null;
       if (context) this.journal.context(context.actor, context.action);
       const value = fn();
+      if (value instanceof Promise)
+        throw new Error(
+          "Back Office database transactions must be synchronous.",
+        );
       if (level && previousContext)
         this.journal.restoreContext(previousContext);
       if (!level) this.journal.flush();
@@ -120,7 +160,7 @@ export class BackOfficeStore {
       if (!level) this.journal.checkpoint();
       return value;
     } catch (error) {
-      if (!committed) {
+      if (started && !committed) {
         this.db.exec(level ? `ROLLBACK TO ${savepoint}` : "ROLLBACK");
         if (!level) this.journal.rollback();
         else this.journal.rollbackTo(journalSavepoint);
@@ -128,8 +168,26 @@ export class BackOfficeStore {
       throw error;
     } finally {
       this.transactionDepth--;
+      if (acquired) this.journal.storage.release();
     }
   }
+  checkIntegrity() {
+    this.journal.storage.acquire();
+    try {
+      this.db.exec("BEGIN");
+      try {
+        const result = this.journal.verify();
+        this.db.exec("COMMIT");
+        return result;
+      } catch (error) {
+        this.db.exec("ROLLBACK");
+        throw error;
+      }
+    } finally {
+      this.journal.storage.release();
+    }
+  }
+
   audit(
     scope: string,
     actor: BackOfficeActor,
@@ -923,7 +981,13 @@ export class BackOfficeStore {
     });
   }
   close() {
-    this.db.close();
+    if (this.closed) return;
+    this.closed = true;
+    try {
+      this.db.close();
+    } finally {
+      this.releaseAuditStorage();
+    }
   }
 }
 const instances = new Map<string, Promise<BackOfficeStore>>();
@@ -944,7 +1008,7 @@ export function backOfficeStore(
         );
         return new BackOfficeStore(
           db,
-          fileBackOfficeAuditStorage(
+          await openBackOfficeAuditStorage(
             join(dirname(path), "back-office-audit"),
             existing,
           ),
@@ -955,6 +1019,9 @@ export function backOfficeStore(
       }
     })();
     instances.set(path, instance);
+    void instance.catch(() => {
+      if (instances.get(path) === instance) instances.delete(path);
+    });
   }
   return instance;
 }

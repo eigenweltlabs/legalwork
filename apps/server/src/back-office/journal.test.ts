@@ -1,11 +1,13 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, spyOn, test } from "bun:test";
 import { copyFile, mkdtemp, rm } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { BackOfficeStore } from "./store.js";
 import { openSqlite } from "../runtime-db.js";
 import {
-  fileBackOfficeAuditStorage,
+  openBackOfficeAuditStorage,
   memoryBackOfficeAuditStorage,
 } from "./audit-storage.js";
 import { defaultBackOfficeModel, type BackOfficeActor } from "./schema.js";
@@ -100,16 +102,23 @@ test("application SQL cannot update or delete accepted journal entries or bypass
 test("an audit-write failure rolls back both business data and queued proposals", async () => {
   const { store } = await fixture();
   const before = store.records("firm", owner);
-  store.db.exec(
-    "CREATE TRIGGER inject_journal_failure BEFORE INSERT ON bo_journal_entries BEGIN SELECT RAISE(ABORT,'audit disk unavailable'); END",
-  );
-  expect(() =>
-    store.saveRecord("firm", owner, {
-      objectId: "people",
-      revision: 0,
-      values: { name: "Must not commit" },
-    }),
-  ).toThrow("audit disk unavailable");
+  const run = store.db.run;
+  const failure = spyOn(store.db, "run").mockImplementation((sql, params) => {
+    if (sql.startsWith("INSERT INTO bo_journal_entries"))
+      throw new Error("audit disk unavailable");
+    run(sql, params);
+  });
+  try {
+    expect(() =>
+      store.saveRecord("firm", owner, {
+        objectId: "people",
+        revision: 0,
+        values: { name: "Must not commit" },
+      }),
+    ).toThrow("audit disk unavailable");
+  } finally {
+    failure.mockRestore();
+  }
   expect(store.pending("firm")).toHaveLength(0);
   expect(store.records("firm", owner)).toEqual(before);
   expect(store.journal.verify().locallyVerified).toBe(true);
@@ -117,6 +126,11 @@ test("an audit-write failure rolls back both business data and queued proposals"
 
 test("projection tampering is detected even when an administrator bypasses the SQL guard", async () => {
   const { store, person } = await fixture();
+  const guard = String(
+    store.db.get(
+      "SELECT sql FROM sqlite_master WHERE name='bo_records_journal_guard_UPDATE'",
+    )!.sql,
+  );
   store.db.exec("DROP TRIGGER bo_records_journal_guard_UPDATE");
   store.db.run("UPDATE bo_records SET data=? WHERE id=?", [
     JSON.stringify({
@@ -125,6 +139,7 @@ test("projection tampering is detected even when an administrator bypasses the S
     }),
     person.id,
   ]);
+  store.db.exec(guard);
   expect(() => store.journal.verify()).toThrow(
     "differ from their recorded history",
   );
@@ -199,7 +214,7 @@ test("restoring an older database is rejected against its separately retained ch
   const directory = join(root, "audit");
   let store = new BackOfficeStore(
     await openSqlite(path),
-    fileBackOfficeAuditStorage(directory, false),
+    await openBackOfficeAuditStorage(directory, false),
   );
   const person = store.saveRecord("local", owner, {
     objectId: "people",
@@ -210,7 +225,7 @@ test("restoring an older database is rejected against its separately retained ch
   await copyFile(path, join(root, "older.sqlite"));
   store = new BackOfficeStore(
     await openSqlite(path),
-    fileBackOfficeAuditStorage(directory, true),
+    await openBackOfficeAuditStorage(directory, true),
   );
   store.saveRecord("local", owner, {
     id: person.id,
@@ -221,11 +236,11 @@ test("restoring an older database is rejected against its separately retained ch
   store.close();
   await copyFile(join(root, "older.sqlite"), path);
   const db = await openSqlite(path);
+  const restoredStorage = await openBackOfficeAuditStorage(directory, true);
   try {
-    expect(
-      () =>
-        new BackOfficeStore(db, fileBackOfficeAuditStorage(directory, true)),
-    ).toThrow("truncated or replaced");
+    expect(() => new BackOfficeStore(db, restoredStorage)).toThrow(
+      "truncated or replaced",
+    );
   } finally {
     db.close();
   }
@@ -328,3 +343,166 @@ test("agent and user attribution follows nested writes and their queued changes"
     ),
   ).toBe(true);
 });
+
+test("removed and altered SQL guards block reads and are not silently recreated", async () => {
+  for (const sql of [
+    "DROP TRIGGER bo_records_journal_guard_UPDATE",
+    "DROP TRIGGER bo_records_journal_guard_UPDATE; CREATE TRIGGER bo_records_journal_guard_UPDATE BEFORE UPDATE ON bo_records BEGIN SELECT 1; END",
+    "CREATE TRIGGER unexpected_audit_write AFTER INSERT ON bo_records BEGIN SELECT 1; END",
+    "DELETE FROM bo_migrations WHERE version=2",
+  ]) {
+    const { store, storage } = await fixture();
+    store.db.exec(sql);
+    if (sql.startsWith("DELETE")) {
+      expect(() => store.checkIntegrity()).toThrow("migration evidence");
+      expect(() => new BackOfficeStore(store.db, storage)).toThrow(
+        "migration evidence",
+      );
+    } else {
+      expect(() => store.checkIntegrity()).toThrow("audit security trigger");
+      expect(() => new BackOfficeStore(store.db, storage)).toThrow(
+        "audit security trigger",
+      );
+    }
+    if (sql === "DROP TRIGGER bo_records_journal_guard_UPDATE")
+      expect(
+        store.db.get(
+          "SELECT name FROM sqlite_master WHERE name='bo_records_journal_guard_UPDATE'",
+        ),
+      ).toBeUndefined();
+  }
+});
+
+test("cached verification detects independent database, key and checkpoint changes", async () => {
+  const { store, storage } = await fixture();
+  expect(store.checkIntegrity().locallyVerified).toBe(true);
+  const key = spyOn(storage, "key").mockImplementation(() =>
+    Buffer.alloc(32, 42),
+  );
+  try {
+    expect(() => store.checkIntegrity()).toThrow();
+  } finally {
+    key.mockRestore();
+  }
+  expect(store.checkIntegrity().locallyVerified).toBe(true);
+  const head = storage.heads()[0];
+  storage.checkpoint({ ...head, sequence: head.sequence + 1 });
+  expect(() => store.checkIntegrity()).toThrow("truncated or replaced");
+});
+
+test("a checkpoint changed while persistence runs cannot be admitted to the verification cache", async () => {
+  const { store, storage } = await fixture();
+  const checkpoint = storage.checkpoint;
+  const corrupt = spyOn(storage, "checkpoint").mockImplementation((head) => {
+    checkpoint({ ...head, sequence: head.sequence + 1 });
+  });
+  try {
+    expect(() =>
+      store.saveRecord("local", owner, {
+        objectId: "people",
+        revision: 0,
+        values: { name: "Committed but checkpoint damaged" },
+      }),
+    ).toThrow("checkpoints changed during persistence");
+  } finally {
+    corrupt.mockRestore();
+  }
+  expect(() => store.checkIntegrity()).toThrow();
+});
+
+test("a failed checkpoint blocks further writes and a valid committed extension survives restart", async () => {
+  const root = await mkdtemp(join(tmpdir(), "legalwork-audit-checkpoint-"));
+  directories.push(root);
+  const path = join(root, "runtime.sqlite");
+  const directory = join(root, "audit");
+  const storage = await openBackOfficeAuditStorage(directory, false);
+  const store = new BackOfficeStore(await openSqlite(path), storage);
+  const person = store.saveRecord("local", owner, {
+    objectId: "people",
+    revision: 0,
+    values: { name: "Before" },
+  });
+  const head = storage.heads()[0];
+  const failure = spyOn(storage, "checkpoint").mockImplementation(() => {
+    throw new Error("checkpoint volume unavailable");
+  });
+  try {
+    expect(() =>
+      store.saveRecord("local", owner, {
+        id: person.id,
+        objectId: "people",
+        revision: person.revision,
+        values: { name: "After" },
+      }),
+    ).toThrow("checkpoint volume unavailable");
+    expect(() =>
+      store.saveRecord("local", owner, {
+        objectId: "people",
+        revision: 0,
+        values: { name: "Unsecured" },
+      }),
+    ).toThrow("checkpoint volume unavailable");
+    expect(storage.head(head.streamId)).toEqual(head);
+  } finally {
+    failure.mockRestore();
+    store.close();
+  }
+  const reopenedStorage = await openBackOfficeAuditStorage(directory, true);
+  const reopened = new BackOfficeStore(await openSqlite(path), reopenedStorage);
+  stores.push(reopened);
+  expect(reopened.raw("local", person.id)?.values.name).toBe("After");
+  expect(reopenedStorage.head(head.streamId)!.sequence).toBeGreaterThan(
+    head.sequence,
+  );
+  expect(reopened.checkIntegrity().locallyVerified).toBe(true);
+});
+
+test("independent processes serialize the business commit and durable checkpoint", async () => {
+  const root = await mkdtemp(join(tmpdir(), "legalwork-audit-processes-"));
+  directories.push(root);
+  const storage = await openBackOfficeAuditStorage(join(root, "audit"), false);
+  const initial = new BackOfficeStore(
+    await openSqlite(join(root, "runtime.sqlite")),
+    storage,
+  );
+  initial.model("local");
+  initial.close();
+  const script = fileURLToPath(
+    new URL("./journal-process.fixture.ts", import.meta.url),
+  );
+  const first = Bun.spawn(
+    [process.execPath, script, root, "First writer", "pause"],
+    { stdout: "pipe", stderr: "pipe" },
+  );
+  try {
+    const deadline = Date.now() + 4000;
+    while (!existsSync(join(root, "checkpoint-gap")) && Date.now() < deadline)
+      await Bun.sleep(10);
+    expect(existsSync(join(root, "checkpoint-gap"))).toBe(true);
+    const second = Bun.spawn(
+      [process.execPath, script, root, "Second writer"],
+      { stdout: "pipe", stderr: "pipe" },
+    );
+    const outcomes = await Promise.all([
+      first.exited,
+      second.exited,
+      new Response(first.stderr).text(),
+      new Response(second.stderr).text(),
+    ]);
+    expect(outcomes).toEqual([0, 0, "", ""]);
+  } finally {
+    first.kill();
+  }
+  const final = new BackOfficeStore(
+    await openSqlite(join(root, "runtime.sqlite")),
+    await openBackOfficeAuditStorage(join(root, "audit"), true),
+  );
+  stores.push(final);
+  expect(
+    final
+      .records("local", owner)
+      .map((record) => record.values.name)
+      .sort(),
+  ).toEqual(["First writer", "Second writer"]);
+  expect(final.checkIntegrity().locallyVerified).toBe(true);
+}, 10000);
