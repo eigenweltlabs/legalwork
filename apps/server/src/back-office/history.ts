@@ -171,6 +171,7 @@ export async function platformBackOfficeHistory(
   expectedPrincipal?: string,
 ) {
   const principal = expectedPrincipal ?? await connectedBackOfficePrincipal(config);
+  const replicaId = store.replicaId(scope);
   if (!principal) throw new ApiError(403, "back_office_firm", "Sign in to your firm to open team history.");
   await ensureFreshPlatformToken(config);
   const connection = await requireBackOfficePrincipal(config, principal);
@@ -191,6 +192,7 @@ export async function platformBackOfficeHistory(
       `/api/back-office/history?${query}`,
     );
     await requireBackOfficePrincipal(config, principal);
+    if (store.replicaId(scope) !== replicaId) throw new ApiError(409, "back_office_replica_changed", "History access changed. Refresh Back Office before continuing.");
     if (options.export) {
       const exported = BackOfficeHistoryExportSchema.parse(result);
       verifyBackOfficeHistoryExport(exported);
@@ -208,6 +210,7 @@ export async function platformBackOfficeHistory(
     return BackOfficeHistoryPageSchema.parse(result);
   } catch (error) {
     if (await connectedBackOfficePrincipal(config) !== principal) throw error;
+    if (store.replicaId(scope) !== replicaId) throw error;
     if (error instanceof ApiError && error.status === 401)
       store.suspendAccount(scope, principal, error.message, principal);
     else if (

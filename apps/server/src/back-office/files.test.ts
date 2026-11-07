@@ -6,13 +6,14 @@ import {
 import { resetOrgPolicyRuntimeForTests } from "../org-policy.js";
 import { afterEach, expect, test, spyOn } from "bun:test";
 import { randomUUID } from "node:crypto";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { ServerConfig } from "../types.js";
 import { openSqlite } from "../runtime-db.js";
 import { BackOfficeStore } from "./store.js";
-import { attachFile, attachedFile, cacheFile, cachedFile } from "./files.js";
+import { attachFile, attachedFile, historicalFile, encryptedFilePath, cacheFile, cachedFile, migrateLegacyFiles } from "./files.js";
+import { localBackOfficeHistoryPage } from "./history.js";
 import {
   BACK_OFFICE_FILE_LIMIT,
   BackOfficeFileSchema,
@@ -93,7 +94,7 @@ test("an attachment is an immutable named version; removal keeps its managed cop
     values: { invoiceFile: [file] },
   });
   await writeFile(original, "%PDF-new version");
-  const cached = await cachedFile(config, file);
+  const cached = await cachedFile(config, file, store, "local", owner);
   if (!cached) throw new Error("The attachment was not cached.");
   expect(new TextDecoder().decode(cached)).toBe(
     "%PDF-first version",
@@ -110,7 +111,64 @@ test("an attachment is an immutable named version; removal keeps its managed cop
   expect(() =>
     attachedFile(store, "local", owner, record.id, "invoiceFile", file.id),
   ).toThrow("unavailable");
-  expect(await cachedFile(config, file)).not.toBeNull();
+  expect(await cachedFile(config, file, store, "local", owner)).not.toBeNull();
+  const item = localBackOfficeHistoryPage(store, "local", owner, { type: "record", id: record.id }).items.find(item => JSON.stringify(item.after).includes(file.id));
+  if (!item) throw new Error("The original attachment revision is missing.");
+  expect(historicalFile(store, "local", owner, record.id, "invoiceFile", file.id, item.eventId)).toEqual(file);
+  expect(() => historicalFile(store, "local", other, record.id, "invoiceFile", file.id, item.eventId)).toThrow("unavailable");
+  expect(() => historicalFile(store, "local", owner, record.id, "invoiceFile", file.id, randomUUID())).toThrow("unavailable");
+});
+
+test("scoped encrypted file caches preserve local originals and permitted versions while revocation erases only removed keys", async () => {
+  const { config, store } = await fixture();
+  const record = invoice(store), bytes = new TextEncoder().encode("%PDF sensitive immutable original");
+  const file = await attachFile(config, store, "local", owner, record.id, "invoiceFile", "Original.pdf", bytes);
+  store.saveRecord("firm", owner, { id: record.id, create: true, objectId: "invoices", revision: 0, values: { name: "Shared invoice" } });
+  await cacheFile(config, file, bytes, store, "firm", owner);
+  const local = store.fileManifest("local", file.id)!, team = store.fileManifest("firm", file.id)!;
+  expect(team.keyId).not.toBe(local.keyId);
+  const encrypted = await readFile(encryptedFilePath(config, file, "firm", team.keyId), "utf8");
+  expect(encrypted).not.toContain("sensitive immutable original");
+  store.restrictTeamAccess("firm", owner);
+  expect(await cachedFile(config, file, store, "firm", owner)).toEqual(bytes);
+  store.restrictTeamAccess("firm", other);
+  expect(store.journal.storage.fileKey(team.keyId)).toBeNull();
+  expect(await cachedFile(config, file, store, "firm", owner)).toBeNull();
+  expect(await cachedFile(config, file, store, "local", owner)).toEqual(bytes);
+  expect(store.journal.evidence("local").entries.some(entry => entry.payload.action === "file.commit")).toBe(true);
+  expect(store.checkIntegrity().locallyVerified).toBe(true);
+});
+
+test("changed encrypted bytes and replacement keys fail verification without rewriting accepted evidence", async () => {
+  const { config, store } = await fixture();
+  const record = invoice(store);
+  const file = await attachFile(config, store, "local", owner, record.id, "invoiceFile", "Original.pdf", new TextEncoder().encode("%PDF original"));
+  const manifest = store.fileManifest("local", file.id)!;
+  const path = encryptedFilePath(config, file, "local", manifest.keyId), original = await readFile(path);
+  await writeFile(path, "changed ciphertext");
+  await expect(cachedFile(config, file, store, "local", owner)).rejects.toBeDefined();
+  await writeFile(path, original);
+  const heads = store.journal.storage.heads();
+  store.journal.storage.eraseFileKey(manifest.keyId);
+  store.journal.storage.createFileKey(manifest.keyId);
+  expect(() => store.checkIntegrity()).toThrow("attachment key");
+  expect(() => store.saveRecord("local", owner, { objectId: "people", revision: 0, values: { name: "Blocked" } })).toThrow("attachment key");
+  expect(store.journal.storage.heads()).toEqual(heads);
+});
+
+test("legacy Back Office attachment copies migrate to encrypted versions before the old cache is removed", async () => {
+  const { config, store, root } = await fixture();
+  const record = invoice(store), bytes = new TextEncoder().encode("%PDF original legacy");
+  const file = await attachFile(config, store, "local", owner, record.id, "invoiceFile", "Legacy.pdf", bytes);
+  store.saveRecord("local", owner, { ...record, values: { invoiceFile: [file] } });
+  const directory = join(root, "back-office-files", file.recordId, file.id);
+  await mkdir(directory, { recursive: true }); await writeFile(join(directory, file.sha256), bytes);
+  // A committed old field reference is preserved even when the new cache has not been populated.
+  store.transaction(() => store.db.run("DELETE FROM bo_files WHERE scope='local' AND id=?", [file.id]));
+  await migrateLegacyFiles(config, store);
+  expect(await cachedFile(config, file, store, "local", owner)).toEqual(bytes);
+  await expect(readFile(join(directory, file.sha256))).rejects.toMatchObject({ code: "ENOENT" });
+  expect(store.checkIntegrity().locallyVerified).toBe(true);
 });
 
 test("financial fields, record access and file ownership are checked independently of knowing a file ID", async () => {
@@ -266,7 +324,7 @@ test("file size, names, cardinality and content hashes are validated", async () 
     }),
   ).toThrow("one file");
   await expect(
-    cacheFile(config, file, new Uint8Array([1, 2, 4])),
+    cacheFile(config, file, new Uint8Array([1, 2, 4]), store, "local", owner),
   ).rejects.toMatchObject({ status: 409 });
 });
 

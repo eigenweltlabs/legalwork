@@ -55,6 +55,7 @@ delete process.env.LEGALWORK_RUNTIME_DB;
 const root = await mkdtemp(join(tmpdir(), "legalwork-bo-platform-"));
 const configs: ServerConfig[] = [];
 const stores: BackOfficeStore[] = [];
+const deviceActors = new Map<ServerConfig, BackOfficeActor>();
 async function device(userId: string) {
   const directory = join(root, userId);
   await mkdir(directory);
@@ -123,7 +124,20 @@ async function device(userId: string) {
   const store = await backOfficeStore(config);
   stores.push(store);
   store.setSync(settings.orgId, true);
+  deviceActors.set(config, access.actor);
   return { config, store, actor: access.actor };
+}
+async function refreshDeviceActor(config: ServerConfig) {
+  const actor = deviceActors.get(config);
+  if (actor) Object.assign(actor, (await backOfficeAccess(config, true)).actor);
+}
+async function syncDevice(config: ServerConfig) {
+  await syncBackOffice(config);
+  await refreshDeviceActor(config);
+}
+async function publishDevice(config: ServerConfig, planId: string) {
+  await publishBackOffice(config, planId);
+  await refreshDeviceActor(config);
 }
 try {
   const a = await device(settings.admin),
@@ -189,8 +203,8 @@ try {
   });
   const preview = await previewBackOfficePublish(a.config);
   assert.equal(preview.count, 3);
-  await publishBackOffice(a.config, preview.planId);
-  await syncBackOffice(b.config);
+  await publishDevice(a.config, preview.planId);
+  await syncDevice(b.config);
   assert.equal(a.store.syncState(scope).pending, 0);
   assert.deepEqual(b.store.raw(scope, localMatter.id)?.values.clients, [
     client.id,
@@ -203,7 +217,7 @@ try {
     b.store.raw(scope, localMatter.id)?.values.caseFile,
   )[0];
   assert.equal(receivedFile.id, attachment.id);
-  assert.equal(await cachedFile(b.config, receivedFile), null);
+  assert.equal(await cachedFile(b.config, receivedFile, b.store, scope, (await backOfficeAccess(b.config, true)).actor), null);
   assert.deepEqual(
     await loadAttachedFile(b.config, scope, receivedFile),
     attachmentBytes,
@@ -213,8 +227,8 @@ try {
     revision: 0,
     values: { name: "Mara" },
   });
-  await syncBackOffice(a.config);
-  await syncBackOffice(b.config);
+  await syncDevice(a.config);
+  await syncDevice(b.config);
   assert.equal(a.store.syncState(scope).pending, 0);
   assert.equal(b.store.raw(scope, created.id)?.values.name, "Mara");
 
@@ -227,8 +241,8 @@ try {
     ...created,
     values: { email: "mara@example.test" },
   });
-  await syncBackOffice(a.config);
-  await syncBackOffice(b.config);
+  await syncDevice(a.config);
+  await syncDevice(b.config);
   assert.equal(b.store.syncState(scope).pending, 1);
   assert.match(
     b.store.syncState(scope).error ?? "",
@@ -239,6 +253,7 @@ try {
   const latest = await backOfficePlatform(b.config);
   b.store.discardQueued(scope, operation);
   b.store.receive(scope, latest, b.actor);
+  await refreshDeviceActor(b.config);
   const authoritative = b.store.raw(scope, created.id);
   assert.ok(authoritative);
   b.store.saveRecord(scope, b.actor, {
@@ -247,8 +262,8 @@ try {
       intent.fields.map((key) => [key, intent.record.values[key]]),
     ),
   });
-  await syncBackOffice(b.config);
-  await syncBackOffice(a.config);
+  await syncDevice(b.config);
+  await syncDevice(a.config);
   assert.deepEqual(a.store.raw(scope, created.id)?.values, {
     name: "Mara Weber",
     email: "mara@example.test",
@@ -261,9 +276,9 @@ try {
       revision: 0,
       values: { name: `Batch person ${index}` },
     });
-  await syncBackOffice(a.config);
-  await syncBackOffice(a.config);
-  await syncBackOffice(b.config);
+  await syncDevice(a.config);
+  await syncDevice(a.config);
+  await syncDevice(b.config);
   assert.equal(a.store.syncState(scope).pending, 0);
   assert.equal(b.store.records(scope, b.actor, "people").length, 102);
 
@@ -285,8 +300,8 @@ try {
     revision: 0,
     values: { name: "Case", firmReference: "Preserve" },
   });
-  await syncBackOffice(a.config);
-  await syncBackOffice(b.config);
+  await syncDevice(a.config);
+  await syncDevice(b.config);
   assert.equal(a.store.syncState(scope).error, null);
   assert.equal(b.store.raw(scope, matter.id)?.values.firmReference, "Preserve");
   const laterLocal = a.store.saveRecord("local", localActor, {
@@ -295,8 +310,8 @@ try {
     values: { name: "Later local contact" },
   });
   const laterPreview = await previewBackOfficePublish(a.config);
-  await publishBackOffice(a.config, laterPreview.planId);
-  await syncBackOffice(b.config);
+  await publishDevice(a.config, laterPreview.planId);
+  await syncDevice(b.config);
   assert.equal(
     b.store.raw(scope, laterLocal.id)?.values.name,
     "Later local contact",
@@ -343,8 +358,8 @@ try {
     verifyBackOfficeHistoryExport(remoteExport).fullyAnchored,
     false,
   );
-  await syncBackOffice(a.config);
-  await syncBackOffice(b.config);
+  await syncDevice(a.config);
+  await syncDevice(b.config);
   assert.deepEqual(
     b.store
       .views(scope)
@@ -361,8 +376,8 @@ try {
     name: "Renamed board",
     archived: true,
   });
-  await syncBackOffice(a.config);
-  await syncBackOffice(b.config);
+  await syncDevice(a.config);
+  await syncDevice(b.config);
   assert.equal(
     b.store.views(scope).find((view) => view.id === savedViews[1].id)?.archived,
     true,
@@ -414,7 +429,7 @@ try {
     method: "POST",
   });
   assert.equal(revoked.status, 200);
-  await syncBackOffice(a.config);
+  await syncDevice(a.config);
   assert.equal(a.store.syncState(scope).enabled, false);
   assert.equal(a.store.records(scope, a.actor).length, 0);
   assert.equal(a.store.syncState(scope).pending, 1);

@@ -35,7 +35,7 @@ const JsonSchema = z.json();
 const PendingSchema = z.object({
   seq: z.number(),
   scope: z.string(),
-  kind: z.enum(["record", "model", "view", "proposal", "replica"]),
+  kind: z.enum(["record", "model", "view", "proposal", "replica", "file"]),
   target: z.string(),
   before_data: z.string().nullable(),
   after_data: z.string().nullable(),
@@ -87,6 +87,7 @@ const auditedTables = [
   { table: "bo_views", kind: "view", target: "id" },
   { table: "bo_outbox", kind: "proposal", target: "id" },
   { table: "bo_replicas", kind: "replica", target: "'replica'" },
+  { table: "bo_files", kind: "file", target: "id" },
 ] satisfies { table: string; kind: Pending["kind"]; target: string }[];
 type Pending = z.infer<typeof PendingSchema>;
 type Json = z.infer<typeof JsonSchema>;
@@ -146,6 +147,7 @@ export class BackOfficeJournal {
     streams: number;
   } | null = null;
   private established = false;
+  private filesEstablished = false;
   constructor(
     private readonly db: SqliteHandle,
     readonly storage: BackOfficeAuditStorage,
@@ -182,6 +184,9 @@ export class BackOfficeJournal {
       ),
     );
     this.established = initialized;
+    this.filesEstablished = Boolean(db.get("SELECT version FROM bo_migrations WHERE version=4"));
+    if (initialized && !this.filesEstablished && db.get("SELECT sequence FROM bo_journal_entries WHERE json_extract(proof,'$.entityType')='file' LIMIT 1"))
+      throw new Error("Back Office attachment migration evidence is missing. Preserve this database before recovery.");
     if (
       initialized &&
       !db.get("SELECT version FROM bo_migrations WHERE version=3")
@@ -225,6 +230,7 @@ export class BackOfficeJournal {
       throw new Error("Back Office audit nonce storage was changed or removed. Preserve this database before recovery.");
     for (const [name, sql] of this.expectedTriggers) {
       if (!initialized && name.startsWith("bo_journal_legacy_")) continue;
+      if (!this.filesEstablished && name.startsWith("bo_files_journal_")) continue;
       if (found.get(name) !== sql)
         throw new Error(
           "Back Office audit security triggers were changed or removed. Further changes are blocked.",
@@ -722,7 +728,7 @@ export class BackOfficeJournal {
     try {
       this.begin("audit.initialize");
       for (const row of this.db.all(
-        "SELECT scope FROM bo_models UNION SELECT scope FROM bo_records UNION SELECT scope FROM bo_views UNION SELECT scope FROM bo_outbox UNION SELECT scope FROM bo_audit UNION SELECT scope FROM bo_replicas",
+        "SELECT scope FROM bo_models UNION SELECT scope FROM bo_records UNION SELECT scope FROM bo_views UNION SELECT scope FROM bo_outbox UNION SELECT scope FROM bo_audit UNION SELECT scope FROM bo_replicas UNION SELECT scope FROM bo_files",
       )) {
         const scope = String(row.scope);
         if (
@@ -745,6 +751,8 @@ export class BackOfficeJournal {
         "INSERT OR IGNORE INTO bo_migrations VALUES(3,datetime('now'))",
       );
       this.established = true;
+      this.db.run("INSERT OR IGNORE INTO bo_migrations VALUES(4,datetime('now'))");
+      this.filesEstablished = true;
       this.db.run("DELETE FROM bo_journal_context");
       this.preparedStamp = this.stamp();
       this.db.exec("COMMIT");

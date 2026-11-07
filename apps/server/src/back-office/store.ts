@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { BackOfficeJournal } from "./journal.js";
@@ -20,6 +20,7 @@ import {
   BackOfficeRecordSchema,
   BackOfficeValueSchema,
   BackOfficeFilesSchema,
+  BackOfficeFileSchema,
   BackOfficeViewSchema,
   assertModelChange,
   defaultBackOfficeModel,
@@ -36,6 +37,7 @@ import {
   type BackOfficeRecord,
   type BackOfficeSnapshot,
   type BackOfficeView,
+  type BackOfficeFile,
 } from "./schema.js";
 
 const table = `
@@ -46,6 +48,7 @@ CREATE INDEX IF NOT EXISTS bo_records_object ON bo_records(scope,object_id);
 CREATE TABLE IF NOT EXISTS bo_views (scope TEXT NOT NULL, id TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY(scope,id));
 CREATE TABLE IF NOT EXISTS bo_outbox (seq INTEGER PRIMARY KEY AUTOINCREMENT, scope TEXT NOT NULL, id TEXT NOT NULL UNIQUE, data TEXT NOT NULL, error TEXT);
 CREATE TABLE IF NOT EXISTS bo_replicas (scope TEXT PRIMARY KEY, data TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS bo_files (scope TEXT NOT NULL, id TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY(scope,id));
 CREATE TABLE IF NOT EXISTS bo_audit (seq INTEGER PRIMARY KEY AUTOINCREMENT, scope TEXT NOT NULL, actor TEXT NOT NULL, action TEXT NOT NULL, record_id TEXT NOT NULL, data TEXT NOT NULL, created_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS bo_sync (scope TEXT PRIMARY KEY, cursor INTEGER NOT NULL DEFAULT 0, enabled INTEGER NOT NULL DEFAULT 0, last_error TEXT);
 INSERT OR IGNORE INTO bo_migrations VALUES(1,datetime('now'));`;
@@ -65,12 +68,16 @@ function conflict(
 ): never {
   throw new ApiError(409, "back_office_conflict", message);
 }
+const ReplicaBindingSchema = z.object({ id: z.literal("replica"), principalKey: z.string(), replicaId: z.string().uuid().optional(), permissions: z.object({ model: z.boolean(), edit: z.boolean(), finance: z.boolean() }).optional() });
 
 export class BackOfficeStore {
   private transactionDepth = 0;
   readonly journal: BackOfficeJournal;
   private readonly releaseAuditStorage: () => void;
   private closed = false;
+  private fileCleanupNeeded = true;
+  private fileCleanupVersion: number | null = null;
+  private fileFailure: Error | null = null;
   constructor(
     readonly db: SqliteHandle,
     storage: BackOfficeAuditStorage = memoryBackOfficeAuditStorage(),
@@ -89,6 +96,7 @@ export class BackOfficeStore {
         this.journal = new BackOfficeJournal(db, storage);
         this.journal.initialize();
         this.applyCachedPolicy();
+        this.cleanFileKeys();
       } finally {
         storage.release();
       }
@@ -151,7 +159,8 @@ export class BackOfficeStore {
       }
       this.db.exec(level ? `SAVEPOINT ${savepoint}` : "BEGIN IMMEDIATE");
       started = true;
-      if (!level) this.journal.begin();
+      if (this.fileFailure) throw this.fileFailure;
+      if (!level) { this.journal.begin(); this.validateFileKeys(); }
       const previousContext = context ? this.journal.currentContext() : null;
       if (context) this.journal.context(context.actor, context.action);
       const value = fn();
@@ -164,7 +173,7 @@ export class BackOfficeStore {
       if (!level) this.journal.flush();
       this.db.exec(level ? `RELEASE ${savepoint}` : "COMMIT");
       committed = true;
-      if (!level) this.journal.checkpoint();
+      if (!level) { this.journal.checkpoint(); this.cleanFileKeys(); }
       return value;
     } catch (error) {
       if (started && !committed) {
@@ -183,7 +192,10 @@ export class BackOfficeStore {
     try {
       this.db.exec("BEGIN");
       try {
+        if (this.fileFailure) throw this.fileFailure;
         const result = this.journal.verify();
+        this.validateFileKeys();
+        this.cleanFileKeys();
         this.db.exec("COMMIT");
         return result;
       } catch (error) {
@@ -233,6 +245,10 @@ export class BackOfficeStore {
       finance: value.billingMembers.includes(account.userId),
     } : null;
   }
+  currentCachedActor(scope: string): BackOfficeActor | null {
+    const actor = this.cachedPolicyActor(scope), replicaId = this.replicaId(scope);
+    return actor && replicaId ? { ...actor, replicaId } : null;
+  }
   /** Apply a persisted policy even without a subsequent UI request or sync. */
   applyCachedPolicy() {
     const expected = this.connectedPrincipalKey();
@@ -249,7 +265,7 @@ export class BackOfficeStore {
   }
 
   teamScopes() {
-    return this.db.all("SELECT scope FROM bo_models UNION SELECT scope FROM bo_records UNION SELECT scope FROM bo_views UNION SELECT scope FROM bo_outbox UNION SELECT scope FROM bo_replicas")
+    return this.db.all("SELECT scope FROM bo_models UNION SELECT scope FROM bo_records UNION SELECT scope FROM bo_views UNION SELECT scope FROM bo_outbox UNION SELECT scope FROM bo_replicas UNION SELECT scope FROM bo_files")
       .map(row => String(row.scope)).filter(scope => scope !== "local");
   }
 
@@ -257,13 +273,74 @@ export class BackOfficeStore {
     const row = this.db.get("SELECT data FROM bo_replicas WHERE scope=?", [scope]);
     return row ? z.object({ replicaId: z.string().uuid().optional() }).parse(JSON.parse(String(row.data))).replicaId ?? null : null;
   }
-  private retireCache(scope: string) {
+  private retireCache(scope: string, actor?: BackOfficeActor) {
+    for (const row of this.db.all("SELECT id FROM bo_files WHERE scope=?", [scope])) {
+      const file = this.fileManifest(scope, String(row.id));
+      const record = file ? this.raw(scope, file.recordId) : null;
+      const field = file ? this.model(scope).objects.find(object => object.id === record?.objectId)?.fields.find(field => field.id === file.fieldId && field.type === "file") : null;
+      if (!actor || !record || !field || !this.canRead(scope, record, actor) || (field.visibility === "finance" && !actor.finance) || (field.visibility === "private" && record.ownerId !== actor.userId))
+        this.db.run("DELETE FROM bo_files WHERE scope=? AND id=?", [scope, String(row.id)]);
+    }
+    this.fileCleanupNeeded = true;
     const binding = this.db.get("SELECT data FROM bo_replicas WHERE scope=?", [scope]);
     if (binding) {
-      const previous = z.object({ id: z.literal("replica"), principalKey: z.string() }).parse(JSON.parse(String(binding.data)));
+      const previous = ReplicaBindingSchema.parse(JSON.parse(String(binding.data)));
       this.db.run("UPDATE bo_replicas SET data=? WHERE scope=?", [JSON.stringify({ ...previous, replicaId: randomUUID() }), scope]);
     }
     this.journal.retire(scope);
+  }
+
+  fileManifest(scope: string, id: string) {
+    const row = this.db.get("SELECT data FROM bo_files WHERE scope=? AND id=?", [scope, id]);
+    return row ? BackOfficeFileSchema.extend({ keyId: z.string().uuid(), keyHash: z.string(), ready: z.boolean() }).parse(JSON.parse(String(row.data))) : null;
+  }
+  private cleanFileKeys() {
+    const version = Number(this.db.get("PRAGMA data_version")?.data_version);
+    if (!this.fileCleanupNeeded && this.fileCleanupVersion === version) return;
+    try {
+      const retained = new Set(this.db.all("SELECT data FROM bo_files").map(row => z.object({ keyId: z.string().uuid() }).parse(JSON.parse(String(row.data))).keyId));
+      for (const id of this.journal.storage.fileKeyIds()) if (!retained.has(id)) this.journal.storage.eraseFileKey(id);
+      this.fileCleanupNeeded = false;
+      this.fileCleanupVersion = version;
+    } catch (error) {
+      this.fileFailure = error instanceof Error ? error : new Error("Attachment keys could not be cleaned up.");
+      throw this.fileFailure;
+    }
+  }
+  private validateFileKeys() {
+    for (const row of this.db.all("SELECT scope,id FROM bo_files")) {
+      const manifest = this.fileManifest(String(row.scope), String(row.id));
+      const key = manifest ? this.journal.storage.fileKey(manifest.keyId) : null;
+      if (!manifest || !key || createHash("sha256").update(key).digest("hex") !== manifest.keyHash)
+        throw new Error("The attachment key is missing or changed. Preserve the data before recovery.");
+    }
+  }
+  prepareFileManifest(scope: string, actor: BackOfficeActor, file: BackOfficeFile) {
+    this.model(scope);
+    return this.transaction(() => {
+      this.requireAccount(scope, actor);
+      const previous = this.fileManifest(scope, file.id);
+      if (previous) {
+        if (canonicalBackOfficeAudit(BackOfficeFileSchema.parse(previous)) !== canonicalBackOfficeAudit(file))
+          throw new ApiError(409, "back_office_file", "This attachment identity already belongs to another version.");
+        const key = this.journal.storage.fileKey(previous.keyId);
+        if (!key || createHash("sha256").update(key).digest("hex") !== previous.keyHash) throw new Error("The attachment key is missing or changed. Preserve the data before recovery.");
+        return { ...previous, key };
+      }
+      const keyId = randomUUID(), key = this.journal.storage.createFileKey(keyId);
+      this.fileCleanupNeeded = true;
+      const manifest = { ...file, keyId, keyHash: createHash("sha256").update(key).digest("hex"), ready: false };
+      this.db.run("INSERT INTO bo_files VALUES(?,?,?)", [scope, file.id, JSON.stringify(manifest)]);
+      return { ...manifest, key };
+    }, { actor, action: "file.prepare" });
+  }
+  commitFileManifest(scope: string, actor: BackOfficeActor, id: string, keyId: string) {
+    this.transaction(() => {
+      this.requireAccount(scope, actor);
+      const current = this.fileManifest(scope, id);
+      if (!current || current.keyId !== keyId) throw new ApiError(409, "back_office_replica_changed", "Attachment access changed. Try again.");
+      this.db.run("UPDATE bo_files SET data=? WHERE scope=? AND id=?", [JSON.stringify({ ...current, ready: true }), scope, id]);
+    }, { actor, action: "file.commit" });
   }
 
   bindAccount(scope: string, actor: BackOfficeActor) {
@@ -271,12 +348,22 @@ export class BackOfficeStore {
       this.requireAccount(scope, actor);
       const key = backOfficeAuthorKey(actor);
       const current = this.db.get("SELECT data FROM bo_replicas WHERE scope=?", [scope]);
-      const previous = current ? z.object({ id: z.literal("replica"), principalKey: z.string(), replicaId: z.string().uuid().optional() }).parse(JSON.parse(String(current.data))) : null;
-      if (previous?.principalKey === key && previous.replicaId) return;
+      const previous = current ? ReplicaBindingSchema.parse(JSON.parse(String(current.data))) : null;
+      const permissions = { model: actor.model, edit: actor.edit, finance: actor.finance };
+      if (previous?.principalKey === key && previous.replicaId) {
+        if (canonicalBackOfficeAudit(previous.permissions ?? null) !== canonicalBackOfficeAudit(permissions)) {
+          this.db.run("UPDATE bo_replicas SET data=? WHERE scope=?", [JSON.stringify({ ...previous, permissions }), scope]);
+          if (!previous.permissions || (previous.permissions.model && !actor.model) || (previous.permissions.edit && !actor.edit) || (previous.permissions.finance && !actor.finance)) {
+            this.restrictTeamAccess(scope, actor);
+            this.retireCache(scope, actor);
+          }
+        }
+        return;
+      }
       this.suspendTeam(scope, "The connected account changed. Reconnect to load authorized team records.");
       if (previous?.principalKey !== key)
         this.db.run("UPDATE bo_sync SET cursor=0 WHERE scope=?", [scope]);
-      this.db.run("INSERT INTO bo_replicas VALUES(?,?) ON CONFLICT(scope) DO UPDATE SET data=excluded.data", [scope, JSON.stringify({ id: "replica", principalKey: key, replicaId: randomUUID() })]);
+      this.db.run("INSERT INTO bo_replicas VALUES(?,?) ON CONFLICT(scope) DO UPDATE SET data=excluded.data", [scope, JSON.stringify({ id: "replica", principalKey: key, replicaId: randomUUID(), permissions })]);
     }, { actor, action: "cache.account" });
   }
 
@@ -474,13 +561,17 @@ export class BackOfficeStore {
             );
           const value = BackOfficeValueSchema.parse(raw);
           if (field.type === "file" && value !== null) {
-            for (const file of BackOfficeFilesSchema.parse(value))
+            for (const file of BackOfficeFilesSchema.parse(value)) {
               if (file.recordId !== recordId || file.fieldId !== field.id)
                 throw new ApiError(
                   400,
                   "back_office_file",
                   "Attach a copy to this record and field before linking it.",
                 );
+              const manifest = scope === "local" ? this.fileManifest(scope, file.id) : null;
+              if (scope === "local" && (!manifest?.ready || canonicalBackOfficeAudit(BackOfficeFileSchema.parse(manifest)) !== canonicalBackOfficeAudit(file)))
+                throw new ApiError(409, "back_office_file", "The attachment has not been saved successfully. Attach its copy before saving.");
+            }
           }
           if (field.type === "relation" && value) {
             for (const target of Array.isArray(value) ? value : [value]) {
@@ -816,7 +907,8 @@ export class BackOfficeStore {
       const cursor = Number(this.db.get("SELECT cursor FROM bo_sync WHERE scope=?", [scope])?.cursor ?? 0);
       if (snapshot.cursor < cursor)
         throw new ApiError(409, "back_office_snapshot_stale", "A newer team snapshot is already stored. Refresh Back Office before continuing.");
-      let revoked = false;
+      const previousModel = this.db.get("SELECT data FROM bo_models WHERE scope=?", [scope]);
+      let revoked = Boolean(previousModel && canonicalBackOfficeAudit(BackOfficeModelSchema.parse(JSON.parse(String(previousModel.data)))) !== canonicalBackOfficeAudit(snapshot.model));
       for (const id of snapshot.accepted)
         this.db.run("DELETE FROM bo_outbox WHERE scope=? AND id=? AND json_extract(data,'$.authorKey')=?", [
           scope,
@@ -859,7 +951,7 @@ export class BackOfficeStore {
       }
       for (const record of snapshot.records) {
         const previous = this.raw(scope, record.id);
-        if (previous && Object.keys(previous.values).some(id => !(id in record.values))) revoked = true;
+        if (previous && (Object.keys(previous.values).some(id => !(id in record.values)) || previous.access !== record.access || previous.ownerId !== record.ownerId || canonicalBackOfficeAudit(previous.members) !== canonicalBackOfficeAudit(record.members))) revoked = true;
         let projected = record;
         const object = snapshot.model.objects.find(object => object.id === record.objectId);
         for (const queued of pending) {
@@ -897,7 +989,7 @@ export class BackOfficeStore {
         [scope, snapshot.cursor, snapshot.conflicts[0]?.message ?? null],
       );
       this.restrictTeamAccess(scope, actor);
-      if (revoked) this.retireCache(scope);
+      if (revoked) this.retireCache(scope, actor);
       return this.replicaId(scope);
     });
   }
@@ -985,7 +1077,7 @@ export class BackOfficeStore {
           revoked = true;
         }
       }
-      if (revoked) this.retireCache(scope);
+      if (revoked) this.retireCache(scope, actor);
     }, { action: "cache.permissions" });
   }
   syncError(scope: string, message: string) {
@@ -997,7 +1089,7 @@ export class BackOfficeStore {
   suspendTeam(scope: string, message: string) {
     this.transaction(() => {
       const modelRow = this.db.get("SELECT data FROM bo_models WHERE scope=?", [scope]);
-      if (!modelRow && !this.db.get("SELECT id FROM bo_records WHERE scope=? LIMIT 1", [scope]) && !this.db.get("SELECT id FROM bo_views WHERE scope=? LIMIT 1", [scope]) && !this.syncState(scope).enabled) {
+      if (!modelRow && !this.db.get("SELECT id FROM bo_records WHERE scope=? LIMIT 1", [scope]) && !this.db.get("SELECT id FROM bo_views WHERE scope=? LIMIT 1", [scope]) && !this.db.get("SELECT id FROM bo_files WHERE scope=? LIMIT 1", [scope]) && !this.syncState(scope).enabled) {
         this.syncError(scope, message);
         return;
       }
@@ -1288,21 +1380,25 @@ export function backOfficeStore(
     instance = (async () => {
       await ensureDir(dirname(path));
       const db = await openSqlite(path);
+      let store: BackOfficeStore | null = null;
       try {
         const existing = Boolean(
           db.get(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='bo_journal_streams'",
           ) && db.get("SELECT stream_id FROM bo_journal_streams LIMIT 1"),
         );
-        return new BackOfficeStore(
+        store = new BackOfficeStore(
           db,
           await openBackOfficeAuditStorage(
             join(dirname(path), "back-office-audit"),
             existing,
           ),
         );
+        const { migrateLegacyFiles } = await import("./files.js");
+        await migrateLegacyFiles(config, store);
+        return store;
       } catch (error) {
-        db.close();
+        if (store) store.close(); else db.close();
         throw error;
       }
     })();

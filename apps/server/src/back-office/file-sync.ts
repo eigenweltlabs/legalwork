@@ -9,7 +9,11 @@ import {
   type BackOfficeFile,
   type BackOfficeChange,
 } from "./schema.js";
-import { cachedFile, cacheFile } from "./files.js";
+import { cachedFile, cacheFile, historicalFile } from "./files.js";
+import { backOfficeStore } from "./store.js";
+import { backOfficeAccess } from "./access.js";
+import type { BackOfficeActor } from "./schema.js";
+import type { BackOfficeStore } from "./store.js";
 import { connectedBackOfficePrincipal, requireBackOfficePrincipal } from "./accounts.js";
 
 async function fileRequest(config: ServerConfig, body: unknown, expectedPrincipal?: string) {
@@ -26,6 +30,9 @@ export async function syncRecordFiles(
   changes: BackOfficeChange[],
   expectedPrincipal?: string,
 ) {
+  const { scope, actor } = await backOfficeAccess(config, true), store = await backOfficeStore(config);
+  if (expectedPrincipal && actor.principalKey !== expectedPrincipal)
+    throw new ApiError(409, "back_office_account_changed", "The connected account changed.");
   const sent = new Set<string>();
   for (const change of changes) {
     if (change.kind !== "record") continue;
@@ -46,7 +53,7 @@ export async function syncRecordFiles(
             }, expectedPrincipal),
           );
         if (prepared.uploaded) continue;
-        const bytes = await cachedFile(config, file);
+        const bytes = await cachedFile(config, file, store, scope, actor) ?? await cachedFile(config, file, store, "local", { userId: "local", edit: true, model: true, finance: true });
         if (!bytes || !prepared.url)
           throw new ApiError(
             409,
@@ -80,9 +87,14 @@ export async function loadAttachedFile(
   scope: string,
   file: BackOfficeFile,
   expectedPrincipal?: string,
+  context?: { store: BackOfficeStore; actor: BackOfficeActor; eventId?: string },
 ) {
+  const store = context?.store ?? await backOfficeStore(config);
+  const actor = context?.actor ?? (await backOfficeAccess(config, scope !== "local")).actor;
+  store.requireAccount(scope, actor);
   if (expectedPrincipal) await requireBackOfficePrincipal(config, expectedPrincipal);
-  const local = await cachedFile(config, file);
+  // Team historical downloads must be authorized against the server's current policy first.
+  const local = context?.eventId && scope !== "local" ? null : await cachedFile(config, file, store, scope, actor);
   if (local) {
     if (expectedPrincipal) await requireBackOfficePrincipal(config, expectedPrincipal);
     return local;
@@ -101,6 +113,7 @@ export async function loadAttachedFile(
         id: file.id,
         recordId: file.recordId,
         fieldId: file.fieldId,
+        eventId: context?.eventId,
       }, expectedPrincipal),
     );
   const response = await fetch(url, { signal: AbortSignal.timeout(120_000) });
@@ -142,6 +155,8 @@ export async function loadAttachedFile(
     offset += chunk.byteLength;
   }
   if (expectedPrincipal) await requireBackOfficePrincipal(config, expectedPrincipal);
-  await cacheFile(config, file, bytes);
+  store.requireAccount(scope, actor);
+  if (context?.eventId && scope === "local") historicalFile(store, scope, actor, file.recordId, file.fieldId, file.id, context.eventId);
+  await cacheFile(config, file, bytes, store, scope, actor);
   return bytes;
 }
