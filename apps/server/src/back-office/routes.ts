@@ -29,6 +29,17 @@ import { backOfficeStore, type BackOfficeStore } from "./store.js";
 import { backOfficeAccess } from "./access.js";
 import { previewImport, applyImport } from "./import.js";
 import { announceSyncChange } from "../app-sync-events.js";
+import {
+  localBackOfficeHistoryPage,
+  localBackOfficeHistoryExport,
+  platformBackOfficeHistory,
+} from "./history.js";
+import { BackOfficeHistoryTargetSchema } from "./schema.js";
+import {
+  BackOfficeAuditHeadSchema,
+  BackOfficeHistoryExportSchema,
+} from "./schema.js";
+import { verifyBackOfficeHistoryExport } from "./history-export.js";
 
 export function registerBackOfficeRoutes(options: {
   routes: Route[];
@@ -119,6 +130,45 @@ export function registerBackOfficeRoutes(options: {
       },
     );
   };
+  // Verifying an existing export remains available when the local database
+  // cannot be opened. It does not read or mutate the Back Office store.
+  addRoute(
+    options.routes,
+    "POST",
+    "/back-office/history/verify",
+    "client",
+    async (ctx) => {
+      options.requireClientScope(ctx, "viewer");
+      try {
+        const body = z
+          .object({
+            exported: BackOfficeHistoryExportSchema,
+            trustedHeads: z.array(BackOfficeAuditHeadSchema).default([]),
+          })
+          .parse(
+            await options.readJsonBodyLimited(ctx.request, 32 * 1024 * 1024),
+          );
+        return options.jsonResponse(
+          verifyBackOfficeHistoryExport(body.exported, body.trustedHeads),
+        );
+      } catch (error) {
+        if (error instanceof ApiError) throw error;
+        throw new ApiError(
+          400,
+          "back_office_history_verification",
+          "The history export failed verification.",
+          {
+            reason:
+              error instanceof z.ZodError
+                ? "The export format is invalid."
+                : error instanceof Error
+                  ? error.message
+                  : "The signature or proof chain is invalid.",
+          },
+        );
+      }
+    },
+  );
   route("GET", "", async (_ctx, store, { scope, actor }) => {
     if (scope !== "local") {
       store.setSync(scope, true);
@@ -331,6 +381,54 @@ export function registerBackOfficeRoutes(options: {
   route("GET", "/audit/:id", async (ctx, store, { scope, actor }) => ({
     history: store.history(scope, actor, ctx.params.id),
   }));
+  route("GET", "/history/:type/:id", async (ctx, store, { scope, actor }) => {
+    const target = BackOfficeHistoryTargetSchema.parse({
+      type: ctx.params.type,
+      id: ctx.params.id,
+    });
+    const limit = z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(100)
+      .parse(ctx.url.searchParams.get("limit") ?? 50);
+    const cursor = z
+      .string()
+      .uuid()
+      .nullable()
+      .parse(ctx.url.searchParams.get("cursor"));
+    if (scope !== "local")
+      return platformBackOfficeHistory(options.config, store, scope, target, {
+        limit,
+        cursor,
+        export: false,
+      });
+    return localBackOfficeHistoryPage(
+      store,
+      scope,
+      actor,
+      target,
+      limit,
+      cursor,
+    );
+  });
+  route(
+    "GET",
+    "/history/:type/:id/export",
+    async (ctx, store, { scope, actor }) => {
+      const target = BackOfficeHistoryTargetSchema.parse({
+        type: ctx.params.type,
+        id: ctx.params.id,
+      });
+      return scope === "local"
+        ? localBackOfficeHistoryExport(store, scope, actor, target)
+        : platformBackOfficeHistory(options.config, store, scope, target, {
+            limit: 50,
+            cursor: null,
+            export: true,
+          });
+    },
+  );
   route("POST", "/import/preview", async (ctx, store, { scope, actor }) => {
     const body = z
       .object({

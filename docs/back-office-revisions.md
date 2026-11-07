@@ -36,7 +36,7 @@ Audit history cannot be dropped during normal cleanup or because an event sink i
 - Integration tests use real SQLite and disposable Postgres, exercise two clients and a witness, and prove that local use works with sync disabled or an older platform.
 - History and export APIs, agent tools and UI use the same permission filters. Tests explicitly cover historical financial/private-field leakage and revoked records.
 - File replacement/removal retains auditable references and does not rewrite earlier bytes. Historical downloads follow retention and current access policy.
-- Standard DOCX development checkout remains running. Feature verification must not switch that app without the user's instruction; no native mouse/keyboard automation is used.
+- Preserve the user's selected DOCX checkout and standard profile. Do not start, stop or switch that app for feature verification without the user's instruction; no native mouse/keyboard automation is used.
 - Only relevant feature tests run locally during development. Required type/build/help checks and integration validation run after implementation, with concrete commands/results recorded in both draft PRs.
 
 Twenty's timeline and log-console architecture is a product reference. Enterprise/AGPL source is not copied; LegalWork remains within the requested MIT-only dependency scope.
@@ -55,15 +55,37 @@ Real Postgres tests cover idempotence, racing devices, SQL bypass/forgery, encry
 
 Current foundation validation: 65 native tests pass across the seven Back Office feature files (241 assertions), and 24 directly affected platform integration/migration checks pass against disposable Postgres. The separate platform RLS inventory check, fresh schema-push bootstrap with authority setup, native server TypeScript check and platform TypeScript check also pass. These are local checks; the rebased feature branches and new goal commits have not yet been pushed, and no new CI result is claimed.
 
+The next stage adds shared permission filtering for record/model/view history, historical definitions, stable pagination, signed JSON selections and standalone export verification. Disclosed original payloads are verified separately from redacted displays. The platform uses current membership/policy/project permissions; a missing or unreachable history endpoint does not cause fallback to stale team history. Agent tools expose inspection, export and verification. The record panel now has a History tab built from MIT Twenty primitives, including authors, before/after values, baseline explanations, proof details and export. Project-link changes show the project name without exposing the internal junction layout. English/German strings, help, topic routing and the screen inventory are updated.
+
+Stage validation: 78 native/UI checks passed across nine feature files, followed by an expanded 13-case history-specific suite covering model/view filters, baseline parent ordering and read-only verification against a damaged-store configuration. The platform's 27 relevant integration/migration checks passed, including the real native-to-platform history/export HTTP path and inaccessible project links. UI/server/platform typechecks, i18n and help checks pass. Read-only Chromium captures of the actual HistoryPanel with synthetic signed data were inspected in light and dark mode. QA artifacts are outside both repositories at `/tmp/legalwork-history-qa.Tzy0bJ/`. The standard app was not started, stopped or switched; port 5173 was not listening when checked.
+
+## Proof privacy: v1 finding and v2 correction
+
+The prototype v1 proof format is not ready for publication. An adversarial check on 7 November recovered a hidden synthetic currency value in 56 guesses from a redacted export. The full payload was withheld, but the public unsalted `afterHash` let the reader hash candidate values together with the visible record metadata. Plaintext redaction tests therefore do not establish confidentiality of these proofs. The reproduction uses only synthetic data; its output is recorded outside the repositories in `/tmp/bo-history-hash-privacy.log`.
+
+The replacement v2 protocol implements the following safeguards:
+
+- Add a fresh private random nonce to each signed payload, protecting its payload digest from dictionary guessing even when other metadata is public.
+- Commit each non-null before/after state with a private random state nonce. A transition's before nonce must be the preceding state’s after nonce, preserving verifiable state continuity. A new after nonce must be independent on every change. Null states retain a fixed public empty-state commitment.
+- Keep these nonces inside encrypted payloads. Only an entirely authorized, unredacted original payload may disclose them. Public proofs and redacted displays must not expose them.
+- Maintain a transactionally updated, encrypted nonce cache for current projected business states, scoped to stream and entity. This permits projection verification after a retired stream's content key is erased. Do not retain nonce-cache entries for historical/deleted states or non-projected baseline metadata. On retirement, remove the old nonce cache and baseline any retained own drafts into a fresh stream with new private nonces and a new key. Old cache ciphertext remains protected even in freed SQLite pages; its stream key is erased after the durable checkpoint. Opaque signed proofs remain.
+- Apply the protocol and current-state nonce cache to both SQLite and Postgres. Preserve fail-closed mutation/guard/checkpoint behavior and the database authority against fabricated evidence. Nonce caches are internal implementation tables, never editable CRM objects.
+- Turn the synthetic guessing reproduction into a regression test. Include an attempted guess using nonces disclosed by later public revisions, state-transition continuity, erased keys, missing/altered nonce-cache rows, exports, witness proofs and two-client integration.
+
+The v2 implementation and new adversarial tests pass: 39 native crypto/journal/history checks (286 assertions) and 29 relevant platform integration/migration checks, including two native clients. Missing nonce caches, transition nonce substitution, direct SQL cache mutation and the original dictionary attack are tested. Application database roles have only SELECT on the platform nonce cache; an authenticated, server-authorized append trigger alone maintains it. The versioned schemas reject the unpublished v1 prototype rather than silently resetting it.
+
+This v1 journal is an unpublished goal prototype. No standard user profile has been opened with it, and the goal commits remain unpushed. Unexpected existing prototype evidence must fail closed and be preserved, rather than silently reset. The supported migration from pre-feature data/legacy `bo_audit` rows must still establish a truthful dated baseline.
+
 Remaining work before completion:
 
+- Keep the v2 privacy regressions in the final lifecycle and witness validation matrix.
 - Add process-termination/crash tests and explicit recovery/export preserving damaged evidence. The simultaneous-process and failed-checkpoint restart cases are covered; interrupted first-stream creation still needs an explicit recovery path.
 - Add a scaling check for cached verification, including invalidation by another database connection.
 - Provide integrity status and explicit recovery/export of damaged evidence when normal store initialization fails.
 - Give file upload/commit and historical file access their own complete evidence path and retention/access checks.
 - Complete platform history APIs and the remaining authorization/lifecycle audit matrix, including Back Office policy changes. The shared signed-history foundation and migration/role enforcement are implemented, but do not yet include independent rollback evidence.
 - Implement independent signed checkpoint receipts, key pinning, replay/rollback protection and deployment configuration, separately from team sharing. Do not label unanchored local history independently secured.
-- Add permission-filtered historical values, historical model interpretation, pagination, verifiable exports, agent tools and the Twenty-style history UI with en/de help.
+- Finish the history/export lifecycle matrix, historical attachment downloads, legacy metadata presentation and any remaining model/view UI coverage. The initial permission-filtered APIs, record History UI, agent tools and en/de help are implemented; proof privacy remains a release blocker.
 - Complete two-client/real-database integration and the adversarial permission/lifecycle matrix. Finish required builds/help checks, update both draft PRs and assess CI only after the complete feature is ready.
 
 ## Twenty source comparison

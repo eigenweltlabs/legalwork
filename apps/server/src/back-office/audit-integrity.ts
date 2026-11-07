@@ -3,11 +3,13 @@ import {
   createPrivateKey,
   createPublicKey,
   generateKeyPairSync,
+  randomBytes,
   sign,
   verify,
 } from "node:crypto";
 import {
   BACK_OFFICE_AUDIT_GENESIS,
+  BACK_OFFICE_AUDIT_EMPTY_STATE,
   BackOfficeAuditEntrySchema,
   BackOfficeAuditPayloadSchema,
   BackOfficeAuditProofSchema,
@@ -18,7 +20,7 @@ import {
   type BackOfficeAuditProof,
 } from "./schema.js";
 
-const domain = "LegalWork.BackOffice.Audit.v1";
+const domain = "LegalWork.BackOffice.Audit.v2";
 export function newBackOfficeAuditKey() {
   const keys = generateKeyPairSync("ed25519");
   return {
@@ -30,11 +32,21 @@ export function newBackOfficeAuditKey() {
       .toString("base64"),
   };
 }
-const hash = (value: string) =>
+export const backOfficeAuditDigest = (value: string) =>
   createHash("sha256").update(value).digest("hex");
-export const backOfficeAuditStateHash = (
+const hash = backOfficeAuditDigest;
+export const newBackOfficeAuditNonce = () => randomBytes(32).toString("hex");
+export function backOfficeAuditStateHash(
   value: BackOfficeAuditPayload["after"],
-) => hash(canonicalBackOfficeAudit(value));
+  nonce: string | null,
+) {
+  if (value === null && nonce === null) return BACK_OFFICE_AUDIT_EMPTY_STATE;
+  if (value === null || !nonce || !/^[a-f0-9]{64}$/.test(nonce))
+    throw new Error("A nonempty audit state requires a private random nonce.");
+  return hash(canonicalBackOfficeAudit({ domain: `${domain}.State`, nonce, value }));
+}
+const payloadHash = (payload: BackOfficeAuditPayload) =>
+  hash(canonicalBackOfficeAudit({ domain: `${domain}.Payload`, payload }));
 export const backOfficeAuditEntityKey = (
   scope: string,
   entityType: BackOfficeAuditPayload["entityType"],
@@ -82,15 +94,15 @@ export function signBackOfficeAudit(
     streamId: payload.streamId,
     sequence: payload.sequence,
     previousHash,
-    payloadHash: hash(canonicalBackOfficeAudit(payload)),
+    payloadHash: payloadHash(payload),
     entityType: payload.entityType,
     entityKey: backOfficeAuditEntityKey(
       payload.scope,
       payload.entityType,
       payload.entityId,
     ),
-    beforeHash: backOfficeAuditStateHash(payload.before),
-    afterHash: backOfficeAuditStateHash(payload.after),
+    beforeHash: backOfficeAuditStateHash(payload.before, payload.beforeNonce),
+    afterHash: backOfficeAuditStateHash(payload.after, payload.afterNonce),
   };
   const proof = {
     version: payload.version,
@@ -138,7 +150,7 @@ export function verifyBackOfficeAuditEntry(raw: unknown): BackOfficeAuditEntry {
   if (
     entry.proof.streamId !== entry.payload.streamId ||
     entry.proof.sequence !== entry.payload.sequence ||
-    entry.proof.payloadHash !== hash(canonicalBackOfficeAudit(entry.payload)) ||
+    entry.proof.payloadHash !== payloadHash(entry.payload) ||
     entry.proof.entityType !== entry.payload.entityType ||
     entry.proof.entityKey !==
       backOfficeAuditEntityKey(
@@ -146,8 +158,8 @@ export function verifyBackOfficeAuditEntry(raw: unknown): BackOfficeAuditEntry {
         entry.payload.entityType,
         entry.payload.entityId,
       ) ||
-    entry.proof.beforeHash !== backOfficeAuditStateHash(entry.payload.before) ||
-    entry.proof.afterHash !== backOfficeAuditStateHash(entry.payload.after)
+    entry.proof.beforeHash !== backOfficeAuditStateHash(entry.payload.before, entry.payload.beforeNonce) ||
+    entry.proof.afterHash !== backOfficeAuditStateHash(entry.payload.after, entry.payload.afterNonce)
   )
     throw new Error("Back Office audit entry does not match its signed proof.");
   return entry;
@@ -167,6 +179,7 @@ export function verifyBackOfficeAuditProofChain(
   trusted: BackOfficeAuditHead,
 ): BackOfficeAuditHead {
   let previousHash = BACK_OFFICE_AUDIT_GENESIS;
+  const states = new Map<string, string>();
   let anchored = trusted.sequence === 0 && trusted.hash === previousHash;
   for (let index = 0; index < raw.length; index++) {
     const proof = verifyBackOfficeAuditProof(raw[index]);
@@ -181,6 +194,10 @@ export function verifyBackOfficeAuditProofChain(
       );
     if (proof.sequence === trusted.sequence)
       anchored = proof.hash === trusted.hash;
+    if (proof.beforeHash !== (states.get(proof.entityKey) ?? BACK_OFFICE_AUDIT_EMPTY_STATE))
+      throw new Error("Back Office history contains an inconsistent state transition.");
+    if (proof.afterHash === BACK_OFFICE_AUDIT_EMPTY_STATE) states.delete(proof.entityKey);
+    else states.set(proof.entityKey, proof.afterHash);
     previousHash = proof.hash;
   }
   if (!anchored)
