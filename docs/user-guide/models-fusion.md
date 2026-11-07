@@ -2,6 +2,31 @@
 
 Open in LegalWork: [AI Providers](legalwork://app/settings/ai), [Tabular Review settings](legalwork://app/settings/tabular-review).
 
+## Web search
+
+Ask the assistant to search the web in a chat. Search follows the chat's web permissions and network settings. Opening a result's complete page is a separate web request and follows those settings too.
+
+With an entitled paid LegalWork account, searches use AWS Web Search through the existing Eigenwelt gateway in **Europe**. Your firm's region choices on the Model API **Models** page control the search endpoint:
+
+| Enabled regions | Search endpoint |
+| --- | --- |
+| Europe only | AWS Ireland (`eu-west-1`) |
+| United States only | AWS Virginia (`us-east-1`) |
+| Both | The selected Eigenwelt chat model's region |
+| Both, with your own provider or an unknown model region | AWS Ireland |
+
+An account that has never chosen regions defaults to Europe. If neither supported region is enabled, paid search is unavailable until a firm admin enables Europe or the United States. The Model API checks the current choices on every search, so a stale model selection cannot override the firm's settings. A search outage does not switch to another region.
+
+The Eigenwelt gateway remains in Europe even for US searches, so US endpoint selection does not mean US-only processing. Endpoint selection does not change the customer's saved chat history or the handling of a subsequent page read by its source website. Search costs **€0.01 per completed search** in either region, including searches without matches, and uses the account's existing AI allowance or prepaid usage. Standalone Jev API keys cannot use paid search.
+
+Free and lapsed accounts continue to use free Exa search. No separate AWS or Exa key is needed. Paid-search failures and usage limits are reported in the chat; they do not silently send the query to Exa. Check your account connection or request more usage when prompted.
+
+When paid search is blocked by an exhausted allowance, an empty credit balance or a spending limit, the chat shows the same usage controls as a model allowance failure, below the search activity. You can leave tool details collapsed. Members can choose **Request more usage**; firm admins see the relevant spending settings or credit options. Restore access, then ask the assistant to retry. A blocked search is not charged. If the chat uses your own model provider, the card says **Web search limit reached** and explains that search uses your Eigenwelt allowance. Your chat model provider has separate usage limits; the search limit does not indicate that its allowance is exhausted.
+
+If a search reports **The web search service is unavailable**, retry later. Changing the search terms does not resolve a service outage. A failed search does not mean that no matching information exists.
+
+Paid searches accept up to **200 characters per query**. The assistant must reformulate longer searches instead of truncating legal citations. Results include excerpts and source links; ask the assistant to open the relevant sources when excerpts omit an important passage. Search processing does not change the app's saved chat history or the destination website's handling of a subsequent page read.
+
 ## Connect and select a model
 
 Open **Settings > AI Providers**, choose the connection action, then follow the provider's supported sign-in or API-key flow. The provider catalog includes hosted services and OpenAI-compatible custom endpoints. For a local service such as Ollama, install and start that service, make the intended model available, and configure its endpoint/model through the local provider flow.

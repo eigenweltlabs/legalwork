@@ -46,6 +46,7 @@ export function ProviderLimitMessage({
   workspaceId,
   plan,
   providerId,
+  scope,
   limit: suppliedLimit = null,
   onChoosePlan,
   resolved = false,
@@ -54,11 +55,14 @@ export function ProviderLimitMessage({
   workspaceId: string;
   plan: EigenweltBudgetPlan;
   providerId: string;
+  scope?: "web-search";
   limit?: UsageLimitDetails | null;
   onChoosePlan?: (plan: "plus" | "pro") => Promise<void>;
   resolved?: boolean;
 }) {
   const limit = useMemo(() => suppliedLimit, [suppliedLimit?.reason, suppliedLimit?.requiredMicros, suppliedLimit?.availableMicros]);
+  // One micro is the gateway's positive-balance check, not a request estimate.
+  const sizedRequest = limit !== null && limit.requiredMicros > 1;
   const transport = useDesktopUsageTransport(client, workspaceId);
   const locale = useLocale();
   const account = useEigenweltEntitlements({ client, workspaceId });
@@ -178,8 +182,14 @@ export function ProviderLimitMessage({
       setBusy(false);
     }
   }
-  if (!resolved && trialAllowanceExhausted(managed, providerId, limit) && managed)
-    return <TrialRecovery view={managed} transport={transport} onRefresh={refreshTrial} limit={limit} />;
+  if (!resolved && trialAllowanceExhausted(managed, providerId, limit) && managed) {
+    const trial = <TrialRecovery view={managed} transport={transport} onRefresh={refreshTrial} limit={limit} />;
+    return scope === "web-search" ? <div className="space-y-2">
+      <p className="text-sm font-medium">{t("provider_limit.search_title")}</p>
+      <p className="text-sm text-muted-foreground">{t("provider_limit.search_body")}</p>
+      {trial}
+    </div> : trial;
+  }
   return (
     <div
       role="status"
@@ -189,19 +199,20 @@ export function ProviderLimitMessage({
         {topUpRecovery?.status === "checking" && !topUpRecovery.refreshFailed || settingChecking && !refreshFailed ? <Loader2 className="mt-0.5 size-4 shrink-0 animate-spin" /> : recovered || upgradedPlan || topUpRecovery || settingUpdated ? <Check className="mt-0.5 size-4 shrink-0" /> : <AlertTriangle className="mt-0.5 size-4 shrink-0 text-muted-foreground" />}
         <div className="space-y-1">
           <p className="font-medium">
-            {resolved ? t("provider_limit.resumed") : topUpRecovery ? t(topUpRecovery.status === "checking" ? "limits.topup_paid" : "limits.credits_added") : settingUpdated ? t(recovered ? "provider_limit.usage_ready" : "limits.intent_saved") : upgradedPlan ? t("provider_limit.plan_now", { plan: upgradedPlan === "pro" ? "Pro" : "Plus" }) : recovered ? t("provider_limit.usage_ready") : t(
-              reason === "member_limit" ? limit ? "provider_limit.member_request_title" : "provider_limit.member_title"
-                : reason === "organization_limit" ? limit ? "provider_limit.organization_request_title" : "provider_limit.organization_title"
-                : reason === "wallet_empty" ? limit ? "provider_limit.wallet_request_title" : "provider_limit.wallet_title"
+            {resolved ? t("provider_limit.resumed") : topUpRecovery ? t(topUpRecovery.status === "checking" ? "limits.topup_paid" : "limits.credits_added") : settingUpdated ? t(recovered ? scope === "web-search" ? "provider_limit.search_ready" : "provider_limit.usage_ready" : "limits.intent_saved") : upgradedPlan ? t("provider_limit.plan_now", { plan: upgradedPlan === "pro" ? "Pro" : "Plus" }) : recovered ? t(scope === "web-search" ? "provider_limit.search_ready" : "provider_limit.usage_ready") : scope === "web-search" ? t("provider_limit.search_title") : t(
+              reason === "member_limit" ? sizedRequest ? "provider_limit.member_request_title" : "provider_limit.member_title"
+                : reason === "organization_limit" ? sizedRequest ? "provider_limit.organization_request_title" : "provider_limit.organization_title"
+                : reason === "wallet_empty" ? sizedRequest ? "provider_limit.wallet_request_title" : "provider_limit.wallet_title"
                 : reason === "extra_disabled" ? "provider_limit.disabled_title"
                 : providerId === "eigenwelt" ? "provider_limit.request_title"
                 : "provider_limit.title",
             )}
           </p>
+          {scope === "web-search" && <p className="text-muted-foreground">{t("provider_limit.search_body")}</p>}
           {!resolved && <p className="text-muted-foreground">
             {upgradedPlan || topUpRecovery || settingUpdated || recovered ? recoveryBody : providerId === "eigenwelt"
               ? reason && (managed || limit)
-                ? t(limit ? usageRequestMessageKey(reason, managed?.isAdmin ?? false) : usageBlockMessageKey(reason, managed?.isAdmin ?? false))
+                ? t(sizedRequest ? usageRequestMessageKey(reason, managed?.isAdmin ?? false) : usageBlockMessageKey(reason, managed?.isAdmin ?? false))
                 : t("provider_limit.eigenwelt_unknown_body")
               : t("provider_limit.external_body", { provider })}
           </p>}
