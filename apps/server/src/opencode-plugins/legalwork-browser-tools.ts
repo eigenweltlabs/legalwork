@@ -102,13 +102,23 @@ async function publishArtifact(path: string, bytes: Uint8Array, signal?: AbortSi
   } finally { await rm(temporary, { force: true }); }
 }
 async function receiveDownloads(capability: string, files: z.infer<typeof downloadList>["downloads"], context: OpenCodeContext) {
+  let contentRoot: string | undefined;
   for (const file of files) {
     if (!file.transferRequired || file.state !== "completed") continue;
     const key = JSON.stringify([context.sessionID, capability, file.id]);
     let saved = transferredDownloads.get(key);
     if (!saved) {
       if (!context.directory || !context.ask) throw new Error("Downloads require this project's native file permissions.");
-      const root = await canonicalFilePath(context.directory);
+      if (!contentRoot) {
+        const workspaceID = await resolveWorkspaceId(context, { requireDirectory: true });
+        const response = await fetch(`${serverUrl()}/workspaces`, { headers: await workspaceToolHeaders(context), signal: context.abort });
+        if (!response.ok) throw new Error("The download's registered project could not be resolved.");
+        const { items } = z.object({ items: z.array(z.object({ id: z.string(), path: z.string(), contentPath: z.string().nullable().optional() })) }).parse(await response.json());
+        const workspace = items.find(item => item.id === workspaceID);
+        if (!workspace) throw new Error("The download's project is no longer registered.");
+        contentRoot = await canonicalFilePath(workspace.contentPath || workspace.path);
+      }
+      const root = contentRoot;
       const name = basename(file.name).replace(/[\\/\x00-\x1f]/g, "_");
       const path = await canonicalFilePath(resolve(root, "Downloads", `${file.id}-${name}`));
       const inside = relative(root, path);

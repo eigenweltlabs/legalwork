@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { registerAppStateReminders } from "./native-app-state-reminders.js";
 import { nativePluginTestRuntime } from "./native-plugin-test-support.js";
+import { registerConnectedProjectInstructions } from "./connected-project-instructions.js";
+import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { z } from "zod";
 
 const stops: Array<() => Promise<void> | void> = [];
 afterEach(async () => { for (const stop of stops.splice(0)) await stop(); });
@@ -17,6 +22,36 @@ async function prompt(runtime: ReturnType<typeof nativePluginTestRuntime>, sessi
 }
 
 describe("native app context durability", () => {
+  test("connected nested instructions keep their file scope and survive Code Mode result composition", async () => {
+    const root = await realpath(await mkdtemp(join(tmpdir(), "connected-instructions-")));
+    stops.push(() => rm(root, { recursive: true, force: true }));
+    const engine = join(root, "engine"), content = join(root, "content"), nested = join(content, "Nested");
+    await mkdir(engine); await mkdir(nested, { recursive: true });
+    await mkdir(join(content, "Unrelated"));
+    await writeFile(join(nested, "AGENTS.md"), "NESTED_INSTRUCTION_MARKER");
+    await writeFile(join(content, "Unrelated", "AGENTS.md"), "UNRELATED_INSTRUCTION_MARKER");
+    await writeFile(join(nested, "note.txt"), "Document");
+    const runtime = nativePluginTestRuntime(engine); stops.push(runtime.close);
+    stops.push(await registerConnectedProjectInstructions(runtime.ctx, { directory: engine, contentPath: content }));
+    const invocation = { sessionID: "ses_nested", messageID: "msg_nested", agent: "legalwork", id: "call_nested" };
+    await runtime.hook("tool", "execute.before", { ...invocation, tool: "execute", input: {} });
+    const read = { ...invocation, tool: "read", status: "completed", input: { path: join(nested, "note.txt") }, result: { content: "Document" } };
+    await runtime.hook("tool", "execute.after", read);
+    expect(read.result.content).toBe("Document");
+    const outer = { ...invocation, tool: "execute", status: "completed", input: {}, result: { content: "Code Mode result" } };
+    await runtime.hook("tool", "execute.after", outer);
+    expect(JSON.stringify(outer.result)).toContain("NESTED_INSTRUCTION_MARKER");
+    expect(JSON.stringify(outer.result)).toContain(nested);
+    expect(JSON.stringify(outer.result)).not.toContain("UNRELATED_INSTRUCTION_MARKER");
+    const metadata = z.object({ metadata: z.object({ legalworkSystemReminders: z.record(z.string(), z.string()) }) }).parse(outer.result).metadata;
+    const restarted = nativePluginTestRuntime(engine); stops.push(restarted.close);
+    restarted.histories.set(invocation.sessionID, [{ type: "user", text: "Earlier task", metadata }]);
+    stops.push(await registerConnectedProjectInstructions(restarted.ctx, { directory: engine, contentPath: content }));
+    await writeFile(join(nested, "AGENTS.md"), "UPDATED_NESTED_INSTRUCTION_MARKER");
+    await prompt(restarted, invocation.sessionID);
+    expect(restarted.prompts.at(-1)?.text).toContain("UPDATED_NESTED_INSTRUCTION_MARKER");
+    expect(restarted.prompts.at(-1)?.text).not.toContain("no longer apply");
+  });
   test("admits chronological state without changing the user's prompt or a system prefix", async () => {
     const state = { value: "NDA.docx is open" }, { runtime, reads } = await reminderRuntime(state);
     const incoming = { sessionID: "ses_1", messageID: "msg_user", prompt: { text: "Review the current document" }, delivery: "steer" };

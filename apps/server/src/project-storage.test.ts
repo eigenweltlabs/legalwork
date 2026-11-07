@@ -2,7 +2,10 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { finishLocalProject, localProjectMigrationPending, prepareLocalProject, prepareLocalProjects, projectFilePermissionRules, workspaceFileRoot } from "./project-storage.js";
+import { finishLocalProject, localProjectMigrationPending, markLocalProjectPublished, prepareLocalProject, prepareLocalProjects, projectFilePermissionRules, workspaceFileRoot } from "./project-storage.js";
+import { prepareConnectedConfiguration } from "./connected-project-config.js";
+import { listSkills } from "./skills.js";
+import { saveEmailDraft } from "./email-drafts/store.js";
 import { createLocalProjectFolder, registerLocalProject } from "./routes/workspaces.js";
 import { startServer } from "./server.js";
 import type { ServerConfig } from "./types.js";
@@ -26,6 +29,58 @@ async function fixture() {
   };
   return { root, source, config, original: config.workspaces[0]! };
 }
+
+test("rejects stale unpublished copies and recovers published content ownership without its drive", async () => {
+  const f = await fixture();
+  const local = await prepareLocalProject(f.config, f.original);
+  await writeFile(join(f.source, ".legalwork", "attachments", "mail.txt"), "Newer source data");
+  await expect(prepareLocalProject(f.config, f.original)).rejects.toThrow("diverged");
+  expect(await readFile(join(local.path, ".legalwork", "attachments", "mail.txt"), "utf8")).toBe("Retained attachment");
+  await markLocalProjectPublished(local);
+  await writeFile(join(local.path, ".legalwork", "attachments", "mail.txt"), "Committed local work");
+  expect((await prepareLocalProject(f.config, f.original)).path).toBe(local.path);
+  await rm(f.source, { recursive: true });
+  f.config.workspaces = [];
+  const recovered = (await registerLocalProject(f.config, { id: local.id, folderPath: local.path, name: "Recovered", preset: "starter" })).workspace;
+  expect(recovered).toMatchObject({ id: local.id, path: local.path, contentPath: f.source, previousPath: f.source });
+  expect(await readFile(join(local.path, ".legalwork", "attachments", "mail.txt"), "utf8")).toBe("Committed local work");
+});
+
+test("keeps original configuration and capabilities while local native snapshots survive offline startup", async () => {
+  const f = await fixture();
+  const raw = JSON.stringify({ agents: { original: { system: `{file:${join(f.source, ".legalwork", "attachments", "mail.txt")}}`, mode: "subagent" } }, instructions: ["Rules.md"], plugins: ["./custom.mjs"], mcp: { servers: { fixture: { type: "local", command: ["node", "server.mjs"], cwd: "mcp" } } } });
+  await writeFile(join(f.source, "opencode.jsonc"), raw);
+  for (const folder of ["Skills/visible", ".claude/skills/claude", ".agents/skills/agents", ".opencode/skills/native"]) {
+    await mkdir(join(f.source, folder), { recursive: true });
+    await writeFile(join(f.source, folder, "SKILL.md"), `---\nname: ${folder.split("/").at(-1)}\ndescription: Existing capability\n---\nInstructions.\n`);
+  }
+  const local = await prepareLocalProject(f.config, f.original);
+  await markLocalProjectPublished(local);
+  await prepareConnectedConfiguration(local);
+  const snapshot = await readFile(join(local.path, "opencode.jsonc"), "utf8");
+  expect(JSON.parse(snapshot.slice(snapshot.indexOf("\n") + 1))).toMatchObject({
+    agents: { original: { system: `{file:${join(local.path, ".legalwork", "attachments", "mail.txt")}}` } },
+    instructions: [join(f.source, "Rules.md")], plugins: [join(f.source, "custom.mjs")], mcp: { servers: { fixture: { cwd: join(f.source, "mcp") } } },
+  });
+  expect(await readFile(join(f.source, "opencode.jsonc"), "utf8")).toBe(raw);
+  expect((await listSkills(local, false)).map(skill => skill.name)).toEqual(expect.arrayContaining(["visible", "claude", "agents", "native"]));
+  await rm(f.source, { recursive: true });
+  await prepareConnectedConfiguration(local);
+  expect(await readFile(join(local.path, "opencode.jsonc"), "utf8")).toBe(snapshot);
+  await writeFile(join(local.path, "opencode.jsonc"), "// Human edits\n{}");
+  await expect(prepareConnectedConfiguration(local)).rejects.toMatchObject({ code: "project_engine_configuration_conflict" });
+});
+
+test("email drafts snapshot both connected documents and retained local attachments", async () => {
+  const f = await fixture(), local = await prepareLocalProject(f.config, f.original);
+  const draft = await saveEmailDraft(local.path, local.id, { from: "", replyTo: "", to: "client@example.invalid", cc: "", bcc: "", subject: "Matter", body: "Attached", html: "", attachments: [
+    { path: "contract.txt", contentType: "text/plain" }, { path: ".legalwork/attachments/mail.txt", contentType: "text/plain" },
+  ] }, undefined, undefined, local.contentPath);
+  const bytes = await readFile(join(local.path, draft.path), "utf8");
+  expect(bytes).toContain(Buffer.from("Original document").toString("base64"));
+  expect(bytes).toContain(Buffer.from("Retained attachment").toString("base64"));
+  expect(await stat(join(f.source, draft.path)).catch(() => null)).toBeNull();
+});
 
 test("moves only the two support trees, preserves linked targets and IDs, and keeps a local recovery copy", async () => {
   const f = await fixture();

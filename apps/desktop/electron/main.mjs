@@ -746,6 +746,9 @@ const browserPanel = createBrowserPanel({
   resolveDownloadDirectory: async (context, windowUrl) => resolveBrowserProject(
     context, await workspaceStore.readWorkspaceState(), await runtimeManager.legalworkServerInfo(), windowUrl,
   ),
+  resolveEngineDirectory: async (context, windowUrl) => resolveBrowserProject(
+    context, await workspaceStore.readWorkspaceState(), await runtimeManager.legalworkServerInfo(), windowUrl, "engine",
+  ),
   getWindow: () => mainWindow,
   getWindowForEvent: (event) => BrowserWindow.fromWebContents(event?.sender) ?? null,
   isAllowedAppNavigation: (url) => isAppUrl(url) || url === SHUTDOWN_SCREEN_URL,

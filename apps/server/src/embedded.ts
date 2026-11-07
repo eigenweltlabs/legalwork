@@ -42,6 +42,7 @@ import { createConfiguredManagedEngine, startManagedEngineLifecycle } from "./ma
 import { legacyMcpAuthPath } from "./legacy-mcp-credentials.js";
 import { expectedOpencodeVersion } from "@legalwork/opencode-release/candidate";
 import { ensureWikiAgentToken } from "./wiki/agent-access.js";
+import { WikiStore } from "./wiki/store.js";
 
 export type EmbeddedServerOptions = CliArgs & {
   /** Publish the bound API while the managed engine is still starting/migrating. */
@@ -117,9 +118,11 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
 
   // Desktop startup owns this one-time transition, before provider repair or
   // connector imports can observe the current configuration.
+  const startupWikis = new WikiStore(config);
+  try { await startupWikis.list({ publish: false }); } finally { await startupWikis.close(); }
   await bootstrapRuntimeOpencodeConfig(config);
   await prepareConnectorStorage(config);
-  const storageMigrationPending = managedEngine && !config.readOnly && config.workspaces.some(workspace => !workspace.contentPath && workspace.preset !== "wiki");
+  const storageMigrationPending = managedEngine && !config.readOnly && config.workspaces.some(workspace => !workspace.contentPath);
   config.projectStorageMigrating = storageMigrationPending;
   if (storageMigrationPending) {
     // Stop the predecessor before the original OpenCode history upgrade.

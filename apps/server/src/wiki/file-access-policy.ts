@@ -5,10 +5,14 @@ import { z } from "zod";
 import { ApiError } from "../errors.js";
 import type { SandboxMount } from "../agent-sandbox/files.js";
 import { canonicalFolderPath } from "./workspace-safety.js";
+import { wikiForDirectory } from "./access.js";
+import type { WikiRegistration } from "@legalwork/types/wiki";
+import type { WorkspaceInfo } from "../types.js";
 
 export const wikiFilePolicySchema = z.object({
   directory: z.string().min(1),
   ownRoot: z.string().min(1).nullable(),
+  ownEngineRoot: z.string().min(1).nullable().optional(),
   ownWritable: z.boolean(),
   protectedRoots: z.array(z.string().min(1)),
   runtimeRoots: z.array(z.string().min(1)),
@@ -20,18 +24,22 @@ function within(root: string, path: string): boolean {
   return suffix === "" || !isAbsolute(suffix) && suffix !== ".." && !suffix.startsWith(`..${sep}`);
 }
 /** Includes every registered wiki, even private or project-disabled wikis. */
-export async function buildWikiFilePolicy(wikis: ReadonlyArray<{ root: string }>, directory: string, runtimeRoots: string[] = []): Promise<WikiFilePolicy> {
+export async function buildWikiFilePolicy(wikis: ReadonlyArray<{ root: string }>, directory: string, runtimeRoots: string[] = [], workspaces: readonly WorkspaceInfo[] = []): Promise<WikiFilePolicy> {
   const canonicalDirectory = await realpath(directory);
-  const roots = [...new Set(await Promise.all(wikis.map(wiki => canonicalFolderPath(wiki.root))))];
-  const ownRoot = roots.filter(root => within(root, canonicalDirectory)).sort((a, b) => b.length - a.length)[0] ?? null;
-  const protectedRoots = roots.filter(root => root !== ownRoot);
+  const registered = wikis.filter((wiki): wiki is Pick<WikiRegistration, "root" | "workspaceId" | "id"> => "workspaceId" in wiki && typeof wiki.workspaceId === "string" && "id" in wiki && typeof wiki.id === "string");
+  const own = wikiForDirectory(registered, canonicalDirectory, workspaces);
+  const roots = [...new Set(await Promise.all(wikis.flatMap(wiki => [wiki.root, ...("workspaceId" in wiki ? workspaces.filter(workspace => workspace.id === wiki.workspaceId).map(workspace => workspace.path) : [])]).map(canonicalFolderPath)))];
+  const ownRoot = own ? await canonicalFolderPath(own.root) : roots.filter(root => within(root, canonicalDirectory)).sort((a, b) => b.length - a.length)[0] ?? null;
+  const ownWorkspace = own && workspaces.find(workspace => workspace.id === own.workspaceId);
+  const ownEngineRoot = ownWorkspace ? await canonicalFolderPath(ownWorkspace.path) : ownRoot;
+  const protectedRoots = roots.filter(root => root !== ownRoot && root !== ownEngineRoot);
   const engineConfigRoot = join(process.env.XDG_CONFIG_HOME || join(homedir(), ".config"), "opencode");
-  return { directory: canonicalDirectory, ownRoot, ownWritable: true, protectedRoots,
+  return { directory: canonicalDirectory, ownRoot, ownEngineRoot, ownWritable: true, protectedRoots,
     runtimeRoots: [...new Set(await Promise.all([...runtimeRoots, ...(protectedRoots.length ? [engineConfigRoot] : [])].map(canonicalFolderPath)))] };
 }
 
 export function wikiContentPath(policy: WikiFilePolicy, path: string): boolean {
-  return [...policy.protectedRoots, ...(policy.ownRoot ? [policy.ownRoot] : [])].some(root => within(root, path));
+  return [...policy.protectedRoots, ...(policy.ownRoot ? [policy.ownRoot] : []), ...(policy.ownEngineRoot ? [policy.ownEngineRoot] : [])].some(root => within(root, path));
 }
 
 /** Keep optional external wiki mounts read-only. Refuse broad writable mounts

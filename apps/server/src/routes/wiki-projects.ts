@@ -3,6 +3,7 @@ import { constants } from "node:fs";
 import { isAbsolute, relative, resolve } from "node:path";
 import type { WikiRegistration } from "@legalwork/types/wiki";
 import type { ServerConfig } from "../types.js";
+import { workspaceContentPath } from "../project-storage-paths.js";
 import { ApiError } from "../errors.js";
 import { within } from "../agent-sandbox/files.js";
 import { authenticateWikiAgentRequest, verifiedWikiSessionOrigin } from "../wiki/agent-access.js";
@@ -26,7 +27,7 @@ export function registerWikiProjectRoutes({ routes, config, store, selected, jso
     const workspace = config.workspaces.find(item => item.id === wiki.workspaceId);
     if (!workspace || !ctx.actor) throw new ApiError(403, "wiki_project_access_denied", "This wiki chat is unavailable.");
     const agent = await authenticateWikiAgentRequest(config, ctx.request);
-    if (agent && (agent.sessionId !== ctx.params.sessionId || agent.directory !== await realpath(wiki.root)))
+    if (agent && (agent.sessionId !== ctx.params.sessionId || agent.directory !== await realpath(workspace.directory || workspace.path)))
       throw new ApiError(403, "wiki_project_session_mismatch", "Use project access only from this wiki's own chat.");
     const scope = ctx.actor.scope ?? "owner";
     const origin = await verifiedWikiSessionOrigin(config, workspace, ctx.params.sessionId, scope, ctx.request.signal);
@@ -36,7 +37,7 @@ export function registerWikiProjectRoutes({ routes, config, store, selected, jso
   const projects = async () => {
     const wikis = await store.list();
     return (await Promise.all(config.workspaces.filter(item => !wikis.some(wiki => wiki.workspaceId === item.id)).map(async item => {
-      const root = await realpath(item.directory || item.path).catch(() => null);
+      const root = await realpath(workspaceContentPath(item)).catch(() => null);
       if (!root || wikis.some(wiki => within(root, wiki.root) || within(wiki.root, root))) return null;
       return { id: item.id, name: item.displayName || item.name, root };
     }))).filter(item => item !== null);

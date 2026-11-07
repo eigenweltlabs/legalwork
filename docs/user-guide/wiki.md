@@ -12,6 +12,10 @@ Open a wiki chat and ask, "Help me set up this wiki for our firm." Identify the 
 
 Wiki chats can search, list and read pages with Sandbox off. Running shell commands in a wiki chat requires protected execution: enable **Sandboxing** in **Settings > Tool Permissions** when a command is necessary. The option to run commands directly on your computer with Sandbox off applies to project chats. For questions about wiki contents, the assistant can use wiki and file-reading tools without enabling Sandbox.
 
+LegalWork keeps each wiki's engine settings, attachments and working state in a local app-owned folder. On upgrade, it moves only `.opencode` and `.legalwork`; existing pages, sources, instructions and other wiki files stay in their current folder. New wikis without a selected folder store their pages in the local home's `files` folder. Wiki chats and sharing identities are preserved. If a connected wiki folder is unavailable, reconnect it to read or edit its pages; its local chat history and retained attachments remain available.
+
+In a wiki chat, ask to read a project's files to request this chat's read-only access. The picker shows the project's document folder. Approved projects remain read-only in protected commands, including when another folder connection covers the same files. Revoking access stops commands using that grant.
+
 ## Your legal research knowledge base
 
 For a legal research question, the agent first searches this wiki and reads relevant findings and saved sources. When they answer the question for the relevant jurisdiction and date, it reuses them instead of repeating the research. It searches external sources for missing information, conflicts or changes that need checking, then updates the existing page with new findings. Ask for fresh research when you want the sources checked again.

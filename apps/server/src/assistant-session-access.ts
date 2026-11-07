@@ -55,7 +55,7 @@ export class AssistantSessionAccess {
     this.db.run("INSERT INTO assistant_session_access VALUES (?, ?) ON CONFLICT(session_id) DO UPDATE SET data = excluded.data", [sessionId, JSON.stringify(record)]);
   }
   async checkDirectory(directory: string, authority: SessionAuthority) {
-    assertWikiWorkspaceAccess({ type: "remote", scope: authority.scope }, wikiForDirectory(await new WikiStore(this.config).list(), await realpath(directory)));
+    assertWikiWorkspaceAccess({ type: "remote", scope: authority.scope }, wikiForDirectory(await new WikiStore(this.config).list(), await realpath(directory), this.config.workspaces));
   }
   /** Scoped tools keep the actual verified ancestor, never flatten inherited access. */
   async captureSource(sessionId: string, directory: string, authority: SessionAuthority): Promise<SessionAuthority> {

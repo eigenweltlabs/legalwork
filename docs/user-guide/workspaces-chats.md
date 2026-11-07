@@ -16,6 +16,10 @@ The agent has access to its local project home and the connected document folder
 
 The agent receives both folder locations. Its native file tools follow OpenCode's normal rules: relative paths start in the local project home, and the agent uses explicit paths for connected documents. Memory Drive continues to show the document folder. For commands that work on documents, the agent can select that folder as the command's working directory.
 
+Project instructions and skills in the document folder remain available. Keep editable `AGENTS.md`, `Skills/` and project-root OpenCode configuration in that folder. LegalWork keeps a local engine snapshot of root configuration; correct configuration conflicts in the original file before retrying. Existing file restrictions continue to apply to connected documents. Browser downloads appear in the document folder's `Downloads` folder, including downloads transferred from a browser attached to another LegalWork server.
+
+An unavailable synced document folder is not an empty project. LegalWork retains local work while it cannot check the connected folder. Reconnect it before removing the copy normally, or explicitly choose to discard local changes. Recovery of a retained project home uses its saved document-folder association.
+
 On Windows, you can select a project folder through a mapped drive, such as `P:`, or its network location. LegalWork recognizes both locations as the same folder. When project folders are nested, project actions and instructions use the nearest containing project.
 
 Workspace settings include authorized folders. Global settings include model providers and the shared skill library. A remote worker may have different files, credentials, models and permissions from your local computer. Check the selected workspace before diagnosing missing files or tools.

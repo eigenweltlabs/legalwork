@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { listSkills } from "./skills.js";
+import { listSkills, type SkillWorkspace } from "./skills.js";
 import { ApiError } from "./errors.js";
 import { deadlineToolGuide } from "./calculations/guidance.js";
 
@@ -17,7 +17,7 @@ export async function extensionAt(path: string) {
   try { return SkillExtensionSchema.parse(JSON.parse(await readFile(join(dirname(path), "legalwork-extension.json"), "utf8"))); }
   catch (error) { if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") return null; throw error; }
 }
-export async function composedSkill(workspace: string, name: string, includeExtensions = true) {
+export async function composedSkill(workspace: SkillWorkspace, name: string, includeExtensions = true) {
   const installed = await listSkills(workspace, true);
   const chain: Array<{ name: string; hash: string; scope: string; content: string; directory: string; files: Array<{ path: string; size: number }> }> = [];
   const visiting = new Set<string>();

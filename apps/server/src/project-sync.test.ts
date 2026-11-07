@@ -871,6 +871,28 @@ describe("project sync between computers", () => {
     expect(projectsOf(member.config)).toEqual([]);
   });
 
+  test("offline content retains local support and pending changes during removal and firm revocation", async () => {
+    const { platform } = fakeFirm();
+    const owner = await machine("user_anna", "Anna"), member = await machine("user_ben", "Ben");
+    const akte = await localProject(owner.config, "Matter");
+    await saveProjectSyncSettings(owner.config, akte, settings({ memberIds: [member.userId] }));
+    await runProjectSync(owner.config, { platform }); await runProjectSync(member.config, { platform });
+    const [copy] = projectsOf(member.config);
+    const store = await projectSyncStore(member.config), link = store.linkByWorkspace(copy.id)!;
+    await mkdir(join(copy.path, ".legalwork", "attachments"), { recursive: true });
+    const attachment = join(copy.path, ".legalwork", "attachments", "retained.txt");
+    await writeFile(attachment, "Retained local work");
+    store.enqueue(link.projectId, { kind: "personalization", prompt: "Not yet uploaded", changedAt: new Date().toISOString() });
+    await rm(workspaceContentPath(copy), { recursive: true });
+    await expect(resolveProjectSync(member.config, copy, { action: "remove" })).rejects.toMatchObject({ code: "project_changes_pending" });
+    expect(store.pendingOps(link.projectId)).toHaveLength(1);
+    await saveProjectSyncSettings(owner.config, akte, settings({ memberIds: [] }));
+    await runProjectSync(owner.config, { platform }); await runProjectSync(member.config, { platform });
+    expect(await readFile(attachment, "utf8")).toBe("Retained local work");
+    expect(store.linkByWorkspace(copy.id)?.state).toBe("revoked");
+    expect(projectsOf(member.config).map(item => item.id)).toContain(copy.id);
+  });
+
   test("stopping sync keeps the owner's project local and takes every copy away", async () => {
     const { platform } = fakeFirm();
     const owner = await machine("user_anna", "Anna");

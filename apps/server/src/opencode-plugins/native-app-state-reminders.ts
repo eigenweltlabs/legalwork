@@ -7,7 +7,7 @@ type History = Awaited<ReturnType<Plugin.Context["session"]["context"]>>;
 type ReminderOptions = {
   topic: string;
   /** Empty means cleared; null means unknown, so previously reported state remains current. */
-  read: (sessionID: string, directory: string) => Promise<string | null>;
+  read: (sessionID: string, directory: string, previousState: string | null) => Promise<string | null>;
   cleared: string;
   /** Clocks are snapshots at admission; tool results must replay that snapshot unchanged. */
   toolResults?: boolean;
@@ -74,7 +74,7 @@ export async function registerAppStateReminders(ctx: Plugin.Context, options: Re
         reported.set(sessionID, last === options.cleared ? "" : last ?? "");
         reset.delete(sessionID);
       }
-      const state = await options.read(sessionID, session.location.directory);
+      const state = await options.read(sessionID, session.location.directory, reported.get(sessionID) ?? null);
       if (state === null || state === reported.get(sessionID)) return;
       await publish(reminder(options.topic, state || options.cleared), state);
       // A prompt draft is not admitted yet. Reload durable state on the next prompt,

@@ -521,11 +521,14 @@ async function applyRemote(config: ServerConfig, store: ProjectSyncStore, link: 
 }
 
 /** Files here that differ from what both sides last agreed on, without reading their content. */
-async function localChanges(config: ServerConfig, store: ProjectSyncStore, link: ProjectLink, root: string): Promise<number> {
+async function localChanges(config: ServerConfig, store: ProjectSyncStore, link: ProjectLink, root: string): Promise<{ pending: number; available: boolean }> {
   const workspace = workspaceOf(config, link.workspaceId);
   const stateRoot = workspace?.path || root;
   root = workspace ? workspaceContentPath(workspace) : root;
-  if (!await folderAvailable(root)) return 0;
+  const supportAvailable = await folderAvailable(stateRoot);
+  const pending = store.pendingOps(link.projectId).length + (await calendarStore(config)).pending(link.workspaceId).length
+    + (supportAvailable && link.settings.scope.reviews ? await pendingReviewChanges(stateRoot, store.reviewBase(link.projectId)) : 0);
+  if (!supportAvailable || !await folderAvailable(root)) return { pending, available: false };
   const cloud = await isCloudFolder(root);
   const scope = folderSettings(link.settings, cloud).scope;
   const base = store.fileBase(link.projectId).entries();
@@ -552,8 +555,7 @@ async function localChanges(config: ServerConfig, store: ProjectSyncStore, link:
     }
   }
   for (const key of base.keys()) if (!seen.has(key)) changed += 1;
-  if (link.settings.scope.reviews) changed += await pendingReviewChanges(stateRoot, store.reviewBase(link.projectId));
-  return changed + store.pendingOps(link.projectId).length + (await calendarStore(config)).pending(link.workspaceId).length;
+  return { pending: changed + pending, available: true };
 }
 
 /** The project stays here as a local project: nothing about it syncs any more. */
@@ -609,7 +611,8 @@ async function onHidden(config: ServerConfig, store: ProjectSyncStore, link: Pro
     return true;
   }
   const workspace = workspaceOf(config, link.workspaceId);
-  if (workspace && (await folderAvailable(workspace.path)) && (await localChanges(config, store, link, workspace.path)) > 0) {
+  const changes = workspace ? await localChanges(config, store, link, workspace.path) : undefined;
+  if (changes && (!changes.available || changes.pending > 0)) {
     store.updateLink(link.workspaceId, { state: "revoked" });
     workspacesChanged(config);
     return false;
@@ -977,8 +980,8 @@ export async function projectSyncStatus(config: ServerConfig, workspace: Workspa
   const available = await folderAvailable(workspaceContentPath(workspace));
   // A copy held back no longer syncs, so no round reports on it: count what it is held for.
   const pendingChanges =
-    link.state === "revoked" && available
-      ? await localChanges(config, store, link, workspace.path)
+    link.state === "revoked"
+      ? (await localChanges(config, store, link, workspace.path)).pending
       : store.pendingOps(link.projectId).length + (link.report?.pending ?? 0);
   return {
     workspaceId: workspace.id,
@@ -1171,10 +1174,10 @@ export async function resolveProjectSync(
       await keepAsLocal(config, store, link);
       break;
     case "remove": {
-      const changes = (await folderAvailable(workspace.path)) ? await localChanges(config, store, link, workspace.path) : 0;
-      if (changes > 0 && input.force !== true) {
-        throw new ApiError(409, "project_changes_pending", `${changes} change(s) made on this computer have not reached the firm yet.`, {
-          pending: changes,
+      const changes = await localChanges(config, store, link, workspace.path);
+      if ((!changes.available || changes.pending > 0) && input.force !== true) {
+        throw new ApiError(409, "project_changes_pending", changes.available ? `${changes.pending} change(s) made on this computer have not reached the firm yet.` : "The connected folder is unavailable. Reconnect it before removing this copy, or explicitly discard local changes.", {
+          pending: Math.max(changes.pending, changes.available ? 0 : 1),
         });
       }
       if (link.state !== "revoked") store.markRemoved(link.projectId, link.orgId);
@@ -1296,7 +1299,10 @@ export async function signOutOfFirmProjects(
   let pending = 0;
   for (const link of copies) {
     const workspace = workspaceOf(config, link.workspaceId);
-    if (workspace && (await folderAvailable(workspace.path))) pending += await localChanges(config, store, link, workspace.path);
+    if (workspace) {
+      const changes = await localChanges(config, store, link, workspace.path);
+      pending += Math.max(changes.pending, changes.available ? 0 : 1);
+    }
   }
   if (pending > 0 && !options.force) return { ok: false, pending };
   // Checked only: the caller has more to check before anything leaves.

@@ -1001,7 +1001,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
   const guardWikiDirectory = async (actor: Actor | undefined, request: Request, url: URL, readWikis: WikiStore["list"] = () => wikiStore.list()) => {
     const directory = url.searchParams.get("location[directory]") || url.searchParams.get("directory") || decodeOpencodeDirectoryHeader(request.headers.get("x-opencode-directory"));
     if (!directory) return;
-    const wiki = wikiForDirectory(await readWikis(), await realpath(directory).catch(() => resolve(directory)));
+    const wiki = wikiForDirectory(await readWikis(), await realpath(directory).catch(() => resolve(directory)), config.workspaces);
     assertWikiWorkspaceAccess(actor, wiki);
     if (wiki) await wikiSync.ensureReadable(wiki, ownsWikis(actor));
     if (wiki && request.method !== "GET" && request.method !== "HEAD") await wikiSync.ensureWritable(wiki, ownsWikis(actor));
@@ -1387,7 +1387,7 @@ async function forwardOpencodeRequest(input: NativeProxyInput) {
   const root = workspaceEngineLocation(workspace).directory;
   const allowed = async (directory: string) => {
     try {
-      assertWikiWorkspaceAccess(actor, wikiForDirectory(wikis, await realpath(directory).catch(() => resolve(directory))));
+      assertWikiWorkspaceAccess(actor, wikiForDirectory(wikis, await realpath(directory).catch(() => resolve(directory)), input.config.workspaces));
       return await pathWithin(root, directory);
     } catch { return false; }
   };
@@ -1419,11 +1419,11 @@ async function forwardOpencodeRequest(input: NativeProxyInput) {
   }
   if (method === "GET" && path === "/event") {
     const roots = await Promise.all(input.config.workspaces.map(async project => {
-      try { assertWikiWorkspaceAccess(actor, wikiForDirectory(wikis, project.directory || project.path)); return project.directory || project.path; }
+      try { assertWikiWorkspaceAccess(actor, wikiForDirectory(wikis, project.directory || project.path, input.config.workspaces)); return project.directory || project.path; }
       catch { return null; }
     }));
     return scopedNativeEvents(client, async directory => {
-      try { assertWikiWorkspaceAccess(actor, wikiForDirectory(wikis, await realpath(directory).catch(() => resolve(directory)))); }
+      try { assertWikiWorkspaceAccess(actor, wikiForDirectory(wikis, await realpath(directory).catch(() => resolve(directory)), input.config.workspaces)); }
       catch { return false; }
       for (const candidate of roots) if (candidate && await pathWithin(candidate, directory)) return true;
       return false;
@@ -1440,7 +1440,7 @@ async function forwardOpencodeRequest(input: NativeProxyInput) {
   if (method === "GET" && path === "/project") {
     const projects = await client.project.list();
     return jsonResponse({ data: projects.filter(project => input.config.workspaces.some(item => resolve(item.directory || item.path) === resolve(project.canonical))).filter(project => {
-      try { assertWikiWorkspaceAccess(actor, wikiForDirectory(wikis, project.canonical)); return true; } catch { return false; }
+      try { assertWikiWorkspaceAccess(actor, wikiForDirectory(wikis, project.canonical, input.config.workspaces)); return true; } catch { return false; }
     }) });
   }
   if (path.startsWith("/permission/saved")) {
@@ -1475,9 +1475,9 @@ async function forwardOpencodeRequest(input: NativeProxyInput) {
         permitted = projectPermissionEffect({ ...runtimeEngineConfiguration(configured), projectPermissionApprovals: runtime.projectPermissionApprovals }, "external_directory", resources, "allow") === "allow";
       }
     }
-    assertWikiWorkspaceAccess(actor, wikiForDirectory(wikis, await canonicalFilePath(file)));
+    assertWikiWorkspaceAccess(actor, wikiForDirectory(wikis, await canonicalFilePath(file), input.config.workspaces));
     if (!permitted) throw new ApiError(403, "file_access_denied", "This file is outside the project's authorized folders. Open it through LegalWork file access.");
-    if (method !== "GET" && method !== "HEAD" && wikiForDirectory(wikis, file) && !ownsWikis(actor)) throw new ApiError(403, "wiki_write_denied", "Change shared knowledge through approved LegalWork tools.");
+    if (method !== "GET" && method !== "HEAD" && wikiForDirectory(wikis, file, input.config.workspaces) && !ownsWikis(actor)) throw new ApiError(403, "wiki_write_denied", "Change shared knowledge through approved LegalWork tools.");
   }
   const protectedExecution = input.config.agentSandboxEnabled || wikis.length > 0;
   if (protectedExecution) assertSandboxProxyAllowed(method, `/api${path}`);
@@ -3230,7 +3230,7 @@ function createRoutes(
     if (!skill) throw new ApiError(400, "invalid_skill_name", "Skill name is required");
     const name = typeof body.name === "string" && body.name.trim() ? body.name.trim() : skill;
     const description = typeof body.description === "string" ? body.description : undefined;
-    const payload = await serializeWorkflowSkill(workspace.path, skill);
+    const payload = await serializeWorkflowSkill(workspace, skill);
     const result = await hubCreate(client, { kind: "workflow", name, description, payload });
     return jsonResponse({ ok: true, ...result });
   });
@@ -3640,10 +3640,10 @@ function createRoutes(
         if (kind === "skill" || kind === "workflow") {
           // Generated workflows live in the global skill library, so resolve
           // the kind against the same list the Workflows page shows.
-          const localSkills = await listSkills(workspace.path, true);
+          const localSkills = await listSkills(workspace, true);
           const localSkill = localSkills.find((skill) => skill.name === ref);
           const publishedKind = resolveHubSkillKind(localSkill, kind, ref);
-          const payload = await serializeWorkflowSkill(workspace.path, ref);
+          const payload = await serializeWorkflowSkill(workspace, ref);
           const res = await hubCreate(client, { kind: publishedKind, name: ref, description, payload });
           results.push({ ref, kind: publishedKind, ok: true, id: res.id, version: res.version });
         } else if (kind === "mcp") {
@@ -4516,7 +4516,7 @@ function createRoutes(
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const includeGlobal = ctx.url.searchParams.get("includeGlobal") === "true";
     const skipped: SkippedSkill[] = [];
-    const items = await listSkills(workspace.path, includeGlobal, skipped);
+    const items = await listSkills(workspace, includeGlobal, skipped);
     // The firm's skills apply in every workspace, like the member's global ones.
     return jsonResponse({ items: includeGlobal ? [...items, ...(await firmHubSkills(config))] : items, skipped });
   });
@@ -4626,7 +4626,7 @@ function createRoutes(
     if (!name) {
       throw new ApiError(400, "invalid_skill_name", "Skill name is required");
     }
-    const items = await listSkills(workspace.path, includeGlobal);
+    const items = await listSkills(workspace, includeGlobal);
     const item = items.find((skill) => skill.name === name);
     if (!item) {
       throw new ApiError(404, "skill_not_found", `Skill not found: ${name}`);
@@ -4638,7 +4638,7 @@ function createRoutes(
   addRoute(routes, "GET", "/workspace/:id/skills/:name/composed", "client", async ctx => {
     requireClientScope(ctx, "viewer");
     const workspace = await resolveWorkspace(config, ctx.params.id);
-    const composed = await composedSkill(workspace.path, ctx.params.name);
+    const composed = await composedSkill(workspace, ctx.params.name);
     return jsonResponse({ ...composed, chain: await Promise.all(composed.chain.map(skill => withResearchExperience(config, workspace.path, skill))) });
   });
 
@@ -4648,7 +4648,7 @@ function createRoutes(
     const parsed = z.object({ directory: z.string().min(1), operation: researchExperienceAction, connectionId: z.string().uuid().optional(), websiteUrl: z.string().url().optional() }).strict().safeParse(await readJsonBodyLimited(ctx.request, 8192));
     if (!parsed.success) throw new ApiError(400, "research_experience_invalid", "Use the loaded research skill and a valid experience operation.");
     const { directory, operation, connectionId, websiteUrl } = parsed.data;
-    const installed = (await listSkills(workspace.path, true)).find(item => item.name === ctx.params.name);
+    const installed = (await listSkills(workspace, true)).find(item => item.name === ctx.params.name);
     if (!installed) throw new ApiError(404, "skill_not_found", "This research skill is no longer installed.");
     const skill = { ...installed, ...await inspectSkillPackage(installed.path) };
     if (connectionId || websiteUrl) requireClientScope(ctx, "collaborator");
@@ -4671,7 +4671,7 @@ function createRoutes(
     requireClientScope(ctx, "viewer");
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const input = z.object({ directory: z.string().min(1), path: z.string().min(1), offset: z.coerce.number().int().min(0).default(0) }).parse(Object.fromEntries(ctx.url.searchParams));
-    const skill = (await listSkills(workspace.path, true)).find(item => item.name === ctx.params.name);
+    const skill = (await listSkills(workspace, true)).find(item => item.name === ctx.params.name);
     if (!skill) throw new ApiError(404, "skill_not_found", "This skill is no longer installed.");
     return jsonResponse(await readSkillPackageFile(skill.path, input.directory, input.path, input.offset));
   });
@@ -4731,7 +4731,7 @@ function createRoutes(
       summary: `Delete skill ${name}`,
       paths: [join(workspace.path, ".opencode", "skills", name)],
     });
-    const result = await deleteSkill(workspace.path, name);
+    const result = await deleteSkill(workspace, name);
     await recordAudit(workspace.path, {
       id: shortId(),
       workspaceId: workspace.id,
@@ -4756,14 +4756,14 @@ function createRoutes(
   // Mutations also regenerate the managed "Attached resources" SKILL.md section.
   addRoute(routes, "GET", "/workspace/:id/skills/:skill/resources", "client", async (ctx) => {
     const workspace = await resolveWorkspace(config, ctx.params.id);
-    const items = await listSkillResources(workspace.path, String(ctx.params.skill ?? ""));
+    const items = await listSkillResources(workspace, String(ctx.params.skill ?? ""));
     return jsonResponse({ items });
   });
 
   addRoute(routes, "GET", "/workspace/:id/skills/:skill/resources/:name", "client", async (ctx) => {
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const result = await readSkillResource(
-      workspace.path,
+      workspace,
       String(ctx.params.skill ?? ""),
       String(ctx.params.name ?? "").trim(),
       ctx.url.searchParams.get("encoding") === "base64" ? "base64" : "utf8",
@@ -4782,14 +4782,14 @@ function createRoutes(
     const contentBase64 = typeof body.contentBase64 === "string" ? body.contentBase64 : undefined;
     // Validate + resolve up front so the approval prompt shows the real path.
     validateResourceName(name);
-    const skillDir = await resolveSkillDir(workspace.path, skill);
+    const skillDir = await resolveSkillDir(workspace, skill);
     await requireApproval(ctx, {
       workspaceId: workspace.id,
       action: "skills.resource.upsert",
       summary: `Attach ${name} to skill ${skill}`,
       paths: [join(skillDir, "resources", name)],
     });
-    const result = await upsertSkillResource(workspace.path, skill, { name, content, contentBase64 });
+    const result = await upsertSkillResource(workspace, skill, { name, content, contentBase64 });
     await recordAudit(workspace.path, {
       id: shortId(),
       workspaceId: workspace.id,
@@ -4816,14 +4816,14 @@ function createRoutes(
     const skill = String(ctx.params.skill ?? "").trim();
     const name = String(ctx.params.name ?? "").trim();
     validateResourceName(name);
-    const skillDir = await resolveSkillDir(workspace.path, skill);
+    const skillDir = await resolveSkillDir(workspace, skill);
     await requireApproval(ctx, {
       workspaceId: workspace.id,
       action: "skills.resource.delete",
       summary: `Remove ${name} from skill ${skill}`,
       paths: [join(skillDir, "resources", name)],
     });
-    const result = await deleteSkillResource(workspace.path, skill, name);
+    const result = await deleteSkillResource(workspace, skill, name);
     await recordAudit(workspace.path, {
       id: shortId(),
       workspaceId: workspace.id,
@@ -5820,7 +5820,7 @@ async function exportWorkspace(
   const rawOpencode = await readOpencodeConfig(config, workspace);
   let opencode = sanitizePortableOpencodeConfig(rawOpencode);
   const legalwork = sanitizeLegalworkTemplateConfig(await readLegalworkConfig(workspace.path));
-  const skills = await listSkills(workspace.path, false);
+  const skills = await listSkills(workspace, false);
   const commands = await listCommands(workspace.path, "workspace");
   let files = await listPortableFiles(workspace.path);
   const warnings = collectWorkspaceExportWarnings({ opencode: rawOpencode, files });

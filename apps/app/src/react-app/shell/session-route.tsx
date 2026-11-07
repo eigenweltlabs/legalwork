@@ -2559,8 +2559,9 @@ export function SessionRoute() {
   const handleOpenWikiSession = async (wiki: WikiVault, prompt?: string) => {
     const endpoint = resolveWorkspaceEndpoint({ id: wiki.workspaceId, workspaceType: "local" }, { baseUrl, token, hostToken });
     if (!endpoint) throw new Error(t("wiki.offline"));
-    const wikiClient = createClient(endpoint.opencodeBaseUrl, wiki.root, { token: endpoint.token, hostToken: endpoint.hostToken, mode: "legalwork" });
-    const session = unwrap(await createSessionView(wikiClient,{ directory: wiki.root, title: wiki.name }));
+    const engineDirectory = wiki.engineDirectory || wiki.root;
+    const wikiClient = createClient(endpoint.opencodeBaseUrl, engineDirectory, { token: endpoint.token, hostToken: endpoint.hostToken, mode: "legalwork" });
+    const session = unwrap(await createSessionView(wikiClient,{ directory: engineDirectory, title: wiki.name }));
     if (prompt) useComposerStateStore.getState().setDraft(session.id, prompt);
     setLegacySelectedWorkspaceId(wiki.workspaceId);
     writeActiveWorkspaceId(wiki.workspaceId);

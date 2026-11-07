@@ -31,6 +31,7 @@ import { prepareManagedOpencodeDependencies } from "./managed-opencode-dependenc
 import { prepareManagedOpencodeEngineDb } from "./managed-opencode-db.js";
 import { refreshEigenweltProviderModels } from "./eigenwelt-auth.js";
 import { ensureWikiAgentToken } from "./wiki/agent-access.js";
+import { WikiStore } from "./wiki/store.js";
 import pkg from "../package.json" with { type: "json" };
 import { orgPolicyEngineDir } from "./org-policy-engine.js";
 import { createConfiguredManagedEngine, startManagedEngineLifecycle } from "./managed-engine-lifecycle.js";
@@ -61,9 +62,11 @@ let stopConfigRefresh: (() => Promise<void>) | null = null;
 
 // Complete private storage upgrades before any provider or connector producer
 // reads settings. Ordinary reads never fall back to the retired storage.
+const startupWikis = new WikiStore(config);
+try { await startupWikis.list({ publish: false }); } finally { await startupWikis.close(); }
 await bootstrapRuntimeOpencodeConfig(config);
 await prepareConnectorStorage(config);
-const storageMigrationPending = managedEngine && !config.readOnly && config.workspaces.some(workspace => !workspace.contentPath && workspace.preset !== "wiki");
+const storageMigrationPending = managedEngine && !config.readOnly && config.workspaces.some(workspace => !workspace.contentPath);
 config.projectStorageMigrating = storageMigrationPending;
 if (storageMigrationPending) {
   // Stop the predecessor before the original OpenCode history upgrade.

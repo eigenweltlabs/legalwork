@@ -8,6 +8,8 @@ Give an exact filename or attach the document when several copies exist. "This d
 
 File cards in chat show the filename without its folder path. Select a card to open the referenced file.
 
+When preparing an email draft, the assistant can attach a document from the connected project folder or an attachment already retained locally. The draft and its saved attachment bytes remain in the project's local support folder; saving a draft does not move the original document.
+
 When you send a message with a document from Memory Drive, the composer clears immediately. The outgoing message shows **Preparing attachments…** while LegalWork saves the document for the chat. If preparation or submission fails, your message and its attachments return to the composer so you can retry. Anything you typed meanwhile is kept separately and returns after you send or clear the restored draft.
 
 ## Supported work

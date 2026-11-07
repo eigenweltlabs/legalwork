@@ -1,6 +1,7 @@
 import { Plugin } from "@opencode/plugin";
 import { ManagedSettingsWorkspaceMissingError, managedSettingsRpc, readManagedEngineSettings } from "../managed-engine-settings.js";
 import { registerManagedFolderPermissions } from "./managed-folder-permissions.js";
+import { registerConnectedProjectInstructions } from "./connected-project-instructions.js";
 
 /** Native files supply configuration. This hook enforces LegalWork's narrower
  * project permission boundary when the engine groups several folders together. */
@@ -14,6 +15,8 @@ export const LegalWorkManagedConfig = Plugin.define({
       catch (error) { if (error instanceof ManagedSettingsWorkspaceMissingError) return undefined; throw error; }
     };
     const permissions = await registerManagedFolderPermissions(ctx, read);
+    const roots = await read();
+    const instructions = roots ? await registerConnectedProjectInstructions(ctx, roots) : async () => {};
     let selections = (await read())?.providerModelSelection ?? {};
     // Preserve this project's selected inventory, including when a custom
     // provider reuses a built-in ID. Prune both source definitions and the
@@ -45,7 +48,7 @@ export const LegalWorkManagedConfig = Plugin.define({
       }
       return { refreshed: true };
     } });
-    return async () => { await refresh.dispose(); await models.dispose(); await providers.dispose(); await permissions.dispose(); };
+    return async () => { await instructions(); await refresh.dispose(); await models.dispose(); await providers.dispose(); await permissions.dispose(); };
   },
 });
 export default LegalWorkManagedConfig;

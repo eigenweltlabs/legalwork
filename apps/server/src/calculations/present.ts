@@ -28,14 +28,14 @@ export async function presentCalculation(store: CalendarStore, workspace: Worksp
     });
   }
   if (input.assessment) {
-    const skill = await composedSkill(workspace.path, input.assessment.skill);
+    const skill = await composedSkill(workspace, input.assessment.skill);
     runs.push({ id: randomUUID(), skill: skill.name, version: skill.chain.map(item => `${item.name}@${item.hash.slice(0, 12)}`).join(", "),
       codeHash: "", createdAt: new Date().toISOString(), origin: "assessment", status: input.assessment.status, inputs: input.assessment.inputs,
       steps: [], results: [], missingFacts: input.assessment.missingFacts, sources: [],
     });
   }
   // Keep the exact tested source alongside the receipt if it is still available, never substitute a newer script.
-  const installed = await listSkills(workspace.path, true);
+  const installed = await listSkills(workspace, true);
   for (const run of runs) {
     if (run.origin !== "skill" || run.code) continue;
     const skill = installed.find(skill => skill.name === run.skill);

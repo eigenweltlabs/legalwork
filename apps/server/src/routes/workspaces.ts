@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
-import { prepareLocalProject, projectHome, workspaceContentPath } from "../project-storage.js";
+import { markLocalProjectPublished, prepareLocalProject, projectHome, workspaceContentPath } from "../project-storage.js";
 import type { registerProjectFolderRoutes } from "./project-folders.js";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
@@ -109,6 +109,7 @@ export async function persistServerWorkspaceState(config: ServerConfig): Promise
     try {
       await writeFile(tmpPath, `${JSON.stringify(next, null, 2)}\n`, "utf8");
       await rename(tmpPath, configPath);
+      for (const workspace of config.workspaces) await markLocalProjectPublished(workspace);
       return true;
     } finally {
       try {

@@ -1,6 +1,6 @@
 # LegalWork project storage proposal — migrate two folders intact
 
-Date: 2026-11-07. Status: implemented for review in draft PR #405; native file tools retain standard OpenCode path resolution.
+Date: 2026-11-07. Status: follow-up implementation includes wiki support-folder migration and review fixes in draft PR #405; native file tools retain standard OpenCode path resolution.
 Source inspection: origin/dev at `65e42ac5b` (the existing source inventory uses this revision).
 User constraints: migrate only `.opencode/` and `.legalwork/`; retain their names and internal layouts; no split into engine/state/workspace directories; no Move Files into LegalWork action.
 
@@ -165,3 +165,18 @@ The [source inventory](project-storage-reference-inventory.md) remains an audit 
 Before bulk migration, prove the pinned engine can run a project whose native location is a local directory containing intact `.opencode` and `.legalwork`, while content remains on another volume. Read/edit one connected document, read a migrated attachment, reopen an old chat, and disconnect the content share while retaining access to the local chat and attachment.
 
 Cover interrupted/resumed migration, read-only/offline sources, destination collisions, Windows UNC/mapped aliases and Unicode/case behavior, authored configuration and skill resource paths, pending/suspended/subagent work, old attachment/file cards, review/source path associations, sync exclusions, Office document matching and reset/cleanup preservation. Implementation and verification results, including outstanding platform acceptance, are recorded in the implementation plan.
+
+
+## Follow-up contract: discovery, recovery and wikis
+
+Wiki workspaces participate in the same post-OpenCode-history relocation. Keep wiki IDs, workspace IDs, chat IDs, sharing bindings and wiki.root. Move only the two support trees to Projects/<existing-workspace-id>; workspace.contentPath remains wiki.root. New default wikis allocate a stable workspace ID first and use its home/files directory. Create, join, restore and registry recovery use this same mapping. Shared wiki registration, indexes/history and sync stores keep their existing locations. Content unavailability does not make a wiki's local engine home unavailable.
+
+Wiki privacy, own-wiki classification, approvals and native/sandbox guards resolve engine identity through the authenticated registered workspace. Content APIs, project-file grants and read-only project mounts use document roots; private support homes are protected separately. The UI creates wiki chats at the engine location and continues opening authored assets at wiki.root.
+
+Primary content-folder AGENTS.md is an explicit native instruction source. Nested instructions for successful external reads are supplied as scoped, durable conversation reminders through the public native plugin API, including Code Mode, without changing file-tool arguments or the cached system prefix. Visible Skills/, .claude/skills and .agents/skills remain in content and join the local .opencode skill library. Secondary connected folders keep their existing discovery semantics.
+
+Authored primary-root opencode.json/jsonc stay in content. Owned local native snapshots retain their original precedence below .opencode; known relative file/plugin/instruction/skill references retain their original base. Their private content-addressed cache and ownership journal permit interrupted publication to finish without contacting the source. Post-startup content watchers refresh changes; cached configuration does not require the connected drive during engine startup. Arbitrary parent configuration ancestry is not newly imported. Native global discovery remains unchanged.
+
+Migration receipts distinguish a prepared copy, a durably published registry mapping and completed native session relocation. Revalidate unpublished source/copy fingerprints; keep divergent versions rather than selecting stale data. Recovery consults the saved original content association before assuming home/files. Offline synced document state is unknown, not zero changes: count local support/database work separately and hold automatic or ordinary no-force removal.
+
+Browser ownership uses registered engine identity separately from document download destinations. Local and transferred browser downloads publish to content Downloads/. Email draft artifacts remain under local .legalwork while each attachment resolves against its document/support source. Existing native relative path resolution remains unchanged.
