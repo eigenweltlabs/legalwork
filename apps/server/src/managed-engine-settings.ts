@@ -4,7 +4,7 @@ import { z } from "zod";
 import { readFile, realpath } from "node:fs/promises";
 import { isAbsolute, relative, resolve } from "node:path";
 
-const entry = z.object({ directory: z.string(), contentPath: z.string().optional(), previousPath: z.string().optional(), configuration: z.unknown(),
+const entry = z.object({ directory: z.string(), configuration: z.unknown(),
   providerActivation: z.record(z.string(), z.enum(["allow", "deny"])),
   providerModelSelection: z.record(z.string(), z.array(z.string())).optional(),
   projectPermissionApprovals: z.array(z.object({ id: z.string(), action: z.string(), resources: z.array(z.string()), createdAt: z.number(), updatedAt: z.number().optional() }).strict()),

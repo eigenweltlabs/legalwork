@@ -22,12 +22,12 @@ test.skipIf(!binary).each([false, true])("real managed file tools enforce projec
   // Keep this outside the checkout: native file tools also consider the
   // surrounding Git worktree internal, which would hide a missing default.
   const root = await realpath(await mkdtemp(join(tmpdir(), "legalwork-managed-files-")));
-  const previous = { ...process.env }, a = join(root, "a"), b = join(root, "b"), added = join(root, "added"), outside = join(root, "outside");
+  const previous = { ...process.env }, a = join(root, "a"), b = join(root, "b"), content = join(root, "documents"), added = join(root, "added"), outside = join(root, "outside");
   const library = join(root, "library", "opencode"), probe = join(library, "plugins", "file-probe");
   const config: ServerConfig = {
     host: "127.0.0.1", port: 0, token: "fixture", hostToken: "fixture-host", configPath: join(root, "private", "server.json"),
     managedEngineStorageDirectory: join(root, "private"), engineConfigurationMode: "native-project", engineProjectTrustRequired: true,
-    workspaces: [a, b].map((path, index) => ({ id: index ? "b" : "a", name: "Matter", path, preset: "starter", workspaceType: "local" })),
+    workspaces: [a, b].map((path, index) => ({ id: index ? "b" : "a", name: "Matter", path, ...(index === 0 ? { contentPath: content } : {}), preset: "starter", workspaceType: "local" })),
     authorizedRoots: [a, b], approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: [], readOnly: false,
     startedAt: Date.now(), tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false,
   };
@@ -36,7 +36,7 @@ test.skipIf(!binary).each([false, true])("real managed file tools enforce projec
     process.env.LEGALWORK_RUNTIME_DB = join(root, "runtime.sqlite");
     process.env.LEGALWORK_TOKEN_STORE = join(root, "tokens.json");
     process.env.XDG_CONFIG_HOME = join(root, "library");
-    for (const directory of [a, b, added, outside, probe, join(library, "agents")]) await mkdir(directory, { recursive: true });
+    for (const directory of [a, b, content, added, outside, probe, join(library, "agents")]) await mkdir(directory, { recursive: true });
     if (git) {
       const child = Bun.spawn(["git", "init", "--quiet", root], { stdout: "pipe", stderr: "pipe" });
       expect(await child.exited).toBe(0);
@@ -44,6 +44,7 @@ test.skipIf(!binary).each([false, true])("real managed file tools enforce projec
       expect(await initial.exited).toBe(0);
     }
     await writeFile(join(a, "inside.txt"), "project-readable");
+    await writeFile(join(content, "inside.txt"), "connected-document-content");
     await writeFile(join(a, ".env"), "protected-project-secret");
     await writeFile(join(a, ".env.example"), "safe-example");
     await writeFile(join(a, "target.env"), "sensitive-symlink-target");
@@ -110,6 +111,8 @@ test.skipIf(!binary).each([false, true])("real managed file tools enforce projec
     };
     for (const agent of ["legalwork", "explore", "helper"]) {
       const session = await client.session.create({ location, agent });
+      expect((await invoke(session.id, "read", { path: "inside.txt" })).output).toContain("project-readable");
+      expect((await invoke(session.id, "read", { path: join(content, "inside.txt") })).output).toContain("connected-document-content");
       expect((await invoke(session.id, "read", { path: join(a, "inside.txt") })).output).toContain("project-readable");
       expect((await invoke(session.id, "read", { path: join(added, "added.txt") })).output).toContain("approved-folder-content");
       expect((await invoke(session.id, "start-glob", { path: outside, pattern: "*" })).output).toBe("started");

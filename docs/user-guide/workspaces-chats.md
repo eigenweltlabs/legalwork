@@ -14,6 +14,8 @@ For a new project without a chosen folder, documents go in the local project's `
 
 The agent has access to its local project home and the connected document folder. Additional folders still use **Settings > Permissions** and the existing chat approval controls. Choosing a content folder does not grant access to its parent or neighboring projects. With sandboxing enabled, the local project home is `/workspace` and the connected document folder is shared separately; in normal host mode, tools use their real paths.
 
+The agent receives both folder locations. Its native file tools follow OpenCode's normal rules: relative paths start in the local project home, and the agent uses explicit paths for connected documents. Memory Drive continues to show the document folder. For commands that work on documents, the agent can select that folder as the command's working directory.
+
 On Windows, you can select a project folder through a mapped drive, such as `P:`, or its network location. LegalWork recognizes both locations as the same folder. When project folders are nested, project actions and instructions use the nearest containing project.
 
 Workspace settings include authorized folders. Global settings include model providers and the shared skill library. A remote worker may have different files, credentials, models and permissions from your local computer. Check the selected workspace before diagnosing missing files or tools.

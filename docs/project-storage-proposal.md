@@ -1,6 +1,6 @@
 # LegalWork project storage proposal — migrate two folders intact
 
-Date: 2026-11-07. Status: revised proposal, not implemented or approved.
+Date: 2026-11-07. Status: implemented for review in draft PR #405; native file tools retain standard OpenCode path resolution.
 Source inspection: origin/dev at `65e42ac5b` (the existing source inventory uses this revision).
 User constraints: migrate only `.opencode/` and `.legalwork/`; retain their names and internal layouts; no split into engine/state/workspace directories; no Move Files into LegalWork action.
 
@@ -88,7 +88,7 @@ Use explicit root resolvers throughout the server and desktop:
 - Document listing, ordinary document reads/writes, editor matching, reveal and document synchronization use `contentDirectory`.
 - Engine context is resolved to the project ID using `localDirectory`; content lookup then uses that ID's registered content directory.
 - Existing application file references beginning `.opencode/` or `.legalwork/` resolve against `localDirectory`. Ordinary document-relative references resolve against `contentDirectory`. The resolver validates the selected root and relative path with no arbitrary fallback to another root.
-- Native engine file tools operate with explicit resolved absolute paths where content is outside the engine location. A relative document path must not accidentally be interpreted as a file under the local engine home.
+- Native engine file tools retain standard OpenCode path resolution: relative paths start at the local engine/project home. The agent receives both directory locations and uses explicit absolute host paths for connected documents and document searches. File-tool arguments, patch headers and search defaults are not rewritten. Existing external-directory and read/edit permissions govern access to connected folders.
 - Existing shell instructions or skill helpers that assume `.opencode` is under the document working directory must use the resolved local capability path instead.
 
 ### What already exists and what is new
@@ -164,4 +164,4 @@ The [source inventory](project-storage-reference-inventory.md) remains an audit 
 
 Before bulk migration, prove the pinned engine can run a project whose native location is a local directory containing intact `.opencode` and `.legalwork`, while content remains on another volume. Read/edit one connected document, read a migrated attachment, reopen an old chat, and disconnect the content share while retaining access to the local chat and attachment.
 
-Cover interrupted/resumed migration, read-only/offline sources, destination collisions, Windows UNC/mapped aliases and Unicode/case behavior, authored configuration and skill resource paths, pending/suspended/subagent work, old attachment/file cards, review/source path associations, sync exclusions, Office document matching and reset/cleanup preservation. This remains a source-backed proposal; no migration implementation or runtime acceptance has been performed.
+Cover interrupted/resumed migration, read-only/offline sources, destination collisions, Windows UNC/mapped aliases and Unicode/case behavior, authored configuration and skill resource paths, pending/suspended/subagent work, old attachment/file cards, review/source path associations, sync exclusions, Office document matching and reset/cleanup preservation. Implementation and verification results, including outstanding platform acceptance, are recorded in the implementation plan.

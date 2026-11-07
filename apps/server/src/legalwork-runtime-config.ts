@@ -503,7 +503,7 @@ export async function writeLegalworkRuntimeConfigFile(config: ServerConfig, work
     const systemOneSettings = await readSystemOneSettings(config).catch(() => null);
     for (const workspace of config.workspaces) {
       const settings = await buildLegalworkRuntimeSettings(config, workspace.id, systemOneSettings);
-      workspaces[workspace.id] = { ...settings, contentPath: workspace.contentPath, previousPath: workspace.previousPath, directory: workspace.directory?.trim() || workspace.path };
+      workspaces[workspace.id] = { ...settings, directory: workspace.directory?.trim() || workspace.path };
       // Only application bundles belong in the common engine bootstrap.
       // User-owned project plugins are still discovered by the released host.
       for (const plugin of settings.configuration.plugins ?? []) {
