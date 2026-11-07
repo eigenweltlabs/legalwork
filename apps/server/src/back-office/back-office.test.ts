@@ -621,20 +621,22 @@ test("preview template migration removes provider fields while preserving import
     label: "Firm reference",
     protected: false,
   });
-  store.db.run("UPDATE bo_models SET data=? WHERE scope='local'", [
-    JSON.stringify(legacyModel),
-  ]);
-  store.db.run("UPDATE bo_records SET data=? WHERE scope='local' AND id=?", [
-    JSON.stringify({
-      ...record,
-      values: {
-        ...record.values,
-        actaportId: "legacy-42",
-        firmReference: "F-1",
-      },
-    }),
-    record.id,
-  ]);
+  store.transaction(() => {
+    store.db.run("UPDATE bo_models SET data=? WHERE scope='local'", [
+      JSON.stringify(legacyModel),
+    ]);
+    store.db.run("UPDATE bo_records SET data=? WHERE scope='local' AND id=?", [
+      JSON.stringify({
+        ...record,
+        values: {
+          ...record.values,
+          actaportId: "legacy-42",
+          firmReference: "F-1",
+        },
+      }),
+      record.id,
+    ]);
+  });
   const upgraded = store.model("local");
   expect(upgraded.templateVersion).toBe(4);
   expect(
