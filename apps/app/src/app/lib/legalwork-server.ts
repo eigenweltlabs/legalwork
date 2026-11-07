@@ -2855,7 +2855,9 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     viewAssistantGreeting: () => requestJson<AssistantOnboardingState>(baseUrl, "/assistant/onboarding/view", { token, hostToken, method: "POST" }),
     answerAssistantOnboarding: (answer: { name: string } | { icon: AssistantAvatarIcon }) => requestJson<AssistantOnboardingState>(baseUrl, "/assistant/onboarding", { token, hostToken, method: "POST", body: answer }),
     updateAssistantProfile: (profile: AssistantProfile) => requestJson<{ profile: AssistantProfile }>(baseUrl, "/assistant/profile", { token, hostToken, method: "PATCH", body: profile }),
-    mainAssistantCurrent: (projectFields?: ProjectField[]) => requestJson<{ workspace: LegalworkWorkspaceInfo; day: { date: string; sessionId: string }; profile: AssistantProfile }>(baseUrl, "/assistant/current", { token, hostToken, method: "POST", body: { projectFields } }),
+    // Explicit initialization can check, recover and create a chat. Its engine
+    // calls each have a 10s deadline; don't race that deadline in the renderer.
+    mainAssistantCurrent: (projectFields?: ProjectField[]) => requestJson<{ workspace: LegalworkWorkspaceInfo; day: { date: string; sessionId: string }; profile: AssistantProfile }>(baseUrl, "/assistant/current", { token, hostToken, method: "POST", body: { projectFields }, timeoutMs: 30_000 }),
     mainAssistantHistory: (before?: string, limit = 14) => requestJson<{ days: { date: string; sessionId: string }[]; nextBefore: string | null }>(baseUrl, `/assistant/history?limit=${limit}${before ? `&before=${encodeURIComponent(before)}` : ""}`, { token, hostToken }),
     scheduledTasks: () => requestJson<{ tasks: ScheduledTask[] }>(baseUrl, "/scheduled-tasks", { token, hostToken }),
     scheduledTask: (workspaceId: string, id: string) => requestJson<{ task: ScheduledTask; runs: ScheduledRun[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/scheduled-tasks/${encodeURIComponent(id)}`, { token, hostToken }),
