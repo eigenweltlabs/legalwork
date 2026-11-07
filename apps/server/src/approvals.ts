@@ -40,6 +40,7 @@ export class ApprovalService {
     signal?: AbortSignal,
     forceManual = false,
     rememberKey?: string,
+    chatScope?: { sessionID: string; key: string },
   ): Promise<ApprovalResult> {
     if (this.disposed || signal?.aborted) {
       return { id: "cancelled", allowed: false, reason: "cancelled" };
@@ -52,12 +53,17 @@ export class ApprovalService {
     if (this.config.mode === "auto" && !forceManual) {
       return { id: "auto", allowed: true };
     }
-    const rememberHash = rememberKey && input.sessionID
-      ? createHash("sha256").update(JSON.stringify(["chat-approval-v1", input.workspaceId, input.sessionID, rememberKey])).digest("hex") : undefined;
+    const hash = (version: string, sessionID: string, key: string) =>
+      createHash("sha256").update(JSON.stringify([version, input.workspaceId, sessionID, key])).digest("hex");
+    const originalHash = rememberKey && input.sessionID ? hash("chat-approval-v1", input.sessionID, rememberKey) : undefined;
+    // The server supplies the verified parent chat, while the request retains
+    // its actual subtask identity for display, cancellation and reply checks.
+    const rememberHash = originalHash && chatScope
+      ? hash("chat-approval-v2", chatScope.sessionID, chatScope.key) : originalHash;
     // Existing explicitly project-wide approvals retain their original scope.
     // New approvals are written only under the chat-specific key above.
     const legacyProjectHash = rememberHash ? createHash("sha256").update(JSON.stringify(["project-approval-v1", input.workspaceId, rememberKey])).digest("hex") : undefined;
-    if ([rememberHash, legacyProjectHash].some(key => key && (this.store ? this.store.has(input.workspaceId, key) : this.remembered.has(key))))
+    if ([rememberHash, originalHash, legacyProjectHash].some(key => key && (this.store ? this.store.has(input.workspaceId, key) : this.remembered.has(key))))
       return { id: "remembered", allowed: true };
     const id = shortId();
     const request: ApprovalRequest = {
@@ -109,6 +115,12 @@ export class ApprovalService {
       try { this.store?.remember(pending.request.workspaceId, pending.rememberHash); }
       catch { return this.settle(id, false, "approval_storage_unavailable"); }
       this.remembered.set(pending.rememberHash, pending.request.workspaceId);
+      // Requests queued before the remembered grant must observe it too.
+      // Allow once and Deny continue to settle only the selected request.
+      for (const [otherID, other] of this.pending) {
+        if (otherID !== id && other.rememberHash === pending.rememberHash && other.request.workspaceId === pending.request.workspaceId)
+          this.settle(otherID, true);
+      }
     }
     return this.settle(id, reply !== "deny", reply === "deny" ? "denied" : undefined);
   }

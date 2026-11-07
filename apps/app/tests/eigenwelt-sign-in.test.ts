@@ -13,7 +13,7 @@ afterEach(() => {
   setLocale("en");
 });
 
-function signInFixture(saveStatus: number, reloadStatus = 200, reloadDelayMs = 0, waitResponse?: () => Response, engineConnected = true) {
+function signInFixture(saveStatus: number, reloadStatus = 200, reloadDelayMs = 0, waitResponse?: () => Response, engineConnected = true, saveDelayMs = 0) {
   const requests: string[] = [];
   let scheduledReloads = 0;
   const server = Bun.serve({
@@ -29,6 +29,7 @@ function signInFixture(saveStatus: number, reloadStatus = 200, reloadDelayMs = 0
         return Response.json({ apiKey: "test-key", baseURL: "https://example.test/v1", models: [], platformToken: "test-token" });
       }
       if (path.endsWith("/eigenwelt/connection")) {
+        if (saveDelayMs) await Bun.sleep(saveDelayMs);
         return saveStatus === 200
           ? Response.json({})
           : Response.json({ code: "workspace_not_found", message: "Workspace not found" }, { status: saveStatus });
@@ -106,6 +107,28 @@ test("account save errors still surface when the project's agent is disconnected
   ]);
   expect(fixture.store.getSnapshot().providerAuthError).toContain("Workspace not found");
 });
+
+test("a slow account commit completes sign-in without timing out or replaying the save", async () => {
+  const fixture = signInFixture(200, 200, 0, undefined, false, 10_250);
+  await expect(fixture.store.completeEigenweltSignIn("slow-commit")).resolves.toMatchObject({ connected: true });
+  expect(fixture.requests).toEqual(["GET /api/eigenwelt/oauth/wait/slow-commit", "PUT /workspace/ws/eigenwelt/connection"]);
+}, 15_000);
+
+test("sign-out waits for the server's cleanup instead of declaring failure at ten seconds", async () => {
+  let calls = 0;
+  const server = Bun.serve({ port: 0, async fetch() { calls++; await Bun.sleep(10_250); return Response.json({ connected: false }); } });
+  cleanups.push(() => server.stop(true));
+  const client = createLegalworkServerClient({ baseUrl: server.url.href });
+  await expect(client.eigenweltSaveConnection("ws", { disconnect: true })).resolves.toMatchObject({ connected: false });
+  expect(calls).toBe(1);
+}, 15_000);
+
+test("the account refresh after login can finish token and model publication beyond ten seconds", async () => {
+  const server = Bun.serve({ port: 0, async fetch() { await Bun.sleep(10_250); return Response.json({ connected: true }); } });
+  cleanups.push(() => server.stop(true));
+  const client = createLegalworkServerClient({ baseUrl: server.url.href });
+  await expect(client.eigenweltEntitlements("ws", { refresh: true })).resolves.toMatchObject({ connected: true });
+}, 15_000);
 
 test("checkout can continue past ten minutes and still connect", async () => {
   const startedAt = Date.now();

@@ -911,7 +911,7 @@ test("a new read-only project boundary cannot commit an older writable mount", a
   } finally { await store.close(); }
 });
 
-test("remembered network approval repeats only for an identical request in the same chat", async () => {
+test("remembered network approval covers identical requests in the chat and its subtasks", async () => {
   const f = await fixture([{ action: "webfetch", resource: "*", effect: "allow" }]);
   const net = observedWebNetwork();
   const input = webInput("https://example.com/document");
@@ -926,16 +926,46 @@ test("remembered network approval repeats only for an identical request in the s
   expect(f.service.approvals.list()).toEqual([]);
   expect(net.sent).toHaveLength(2);
 
-  for (const request of [{ ...input, sessionID: "child" }, { ...input, url: "https://example.com/other-document" }]) {
-    const result = run(request, [request.sessionID, input.sessionID]).catch(error => error);
+  await run({ ...input, sessionID: "child" }, ["child", input.sessionID]);
+  expect(f.service.approvals.list()).toEqual([]);
+  expect(net.sent).toHaveLength(3);
+  for (const request of [{ ...input, sessionID: "unrelated" }, { ...input, url: "https://example.com/other-document" }]) {
+    const result = run(request).catch(error => error);
     const [changed] = await waitForWebApproval(f.service);
     f.service.approvals.respond(changed.id, "deny");
     expect(await result).toBeInstanceOf(Error);
   }
-  expect(net.sent).toHaveLength(2);
+  expect(net.sent).toHaveLength(3);
   await writeRuntimeOpencodeConfig(f.config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permissions: [{ action: "webfetch", resource: "*", effect: "deny" }] }));
   await expect(run()).rejects.toThrow("blocked by your permissions");
-  expect(net.sent).toHaveLength(2);
+  expect(net.sent).toHaveLength(3);
+});
+
+test("remembered shell approval settles queued subtasks and checks each helper's restrictions", async () => {
+  const f = await fixture([{ action: "shell", resource: "*", effect: "ask" }]);
+  await writeSandboxDefault(f.config, { enabled: true, networkMode: "allow" });
+  const run = (sessionID: string, rules: AgentPermissionRule[] = [], command = "extract same-document.pdf", workdir?: string) => f.service.run(f.workspace,
+    { command, workdir, sessionID, description: "extract same-document.pdf", write: false, timeoutMs: 5000 }, { type: "host" },
+    new AbortController().signal, rules, sessionID === "parent" ? [sessionID] : [sessionID, "parent"]);
+  const first = run("child-a");
+  const second = run("child-b", [{ permission: "bash", pattern: "*", action: "ask" }]);
+  for (let attempt = 0; attempt < 100 && f.service.approvals.list().length < 2; attempt++) await Bun.sleep(10);
+  expect(f.service.approvals.list()).toHaveLength(2);
+  f.service.approvals.respond(f.service.approvals.list()[0].id, "always");
+  expect((await Promise.all([first, second])).every(result => result.exitCode === 0)).toBe(true);
+  expect(f.service.approvals.list()).toEqual([]);
+  await run("parent");
+  await run("late-helper", [{ permission: "bash", pattern: "extract *", action: "ask" }]);
+  expect(f.service.approvals.list()).toEqual([]);
+  await expect(run("denied-helper", [{ permission: "bash", pattern: "*", action: "deny" }])).rejects.toThrow("bash is blocked");
+  const changed = run("changed", [], "extract another-document.pdf").catch(error => error);
+  const [request] = await waitForWebApproval(f.service);
+  f.service.approvals.respond(request.id, "deny");
+  expect(await changed).toBeInstanceOf(Error);
+  const changedDirectory = run("changed-directory", [], "extract same-document.pdf", "/workspace/another-folder").catch(error => error);
+  const [directoryRequest] = await waitForWebApproval(f.service);
+  f.service.approvals.respond(directoryRequest.id, "deny");
+  expect(await changedDirectory).toBeInstanceOf(Error);
 });
 
 test("unchanged config writes retain remembered network approval but permission changes revoke it", async () => {

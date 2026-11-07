@@ -13,6 +13,8 @@ Open in LegalWork: [Home](legalwork://app/home), [Account](legalwork://app/setti
 
 Opening a project does not require a separate setup approval. LegalWork loads the project's settings and available tools automatically. Firm policies, allowed folders and permissions for individual actions still apply. Install skills, workflows and connectors through LegalWork, and manage access in Settings.
 
+In **Settings > Account**, sign-in finishes after the browser connection has been saved in the app. Signing out can take longer while LegalWork checks for unsent firm changes and updates saved projects. Wait for the account screen to finish; refreshing the app or starting sign-in again does not cancel an account change already in progress.
+
 ## Set up meeting recording
 
 On the **Record meetings.** welcome screen, open setup and complete the permission prompts. Available cloud regions appear first, with a cloud option selected by default. Cloud transcription runs in your selected region with zero data retention (ZDR). Local transcription requires a model download and uses your computer’s CPU power. Select your source and choose **Continue**; an installed local model is reused.

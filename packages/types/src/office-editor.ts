@@ -53,6 +53,14 @@ const docxIdentity = {
   draftRevision: z.number().int().min(0).describe("Revision from that read. Re-read after edits or stale-revision errors."),
 };
 const paraId = z.string().min(1).describe("Live paragraph handle from read_document or find_text.");
+const docxArea = z.enum(["main", "table", "textBox", "contentControl"]).describe("Paragraph location.area from the live read. main is ordinary body text. Explicitly select a nested area only when the requested edit belongs inside it.");
+export const docxSuggestSchema = z.object({
+  path: path.optional(), ...docxIdentity, paraId,
+  area: docxArea.default("main"),
+  search: z.string().describe("Exact unique text to replace. Empty appends within this paragraph. Use insert_paragraphs to compose new paragraphs."),
+  replaceWith: z.string(),
+});
+export const docxPreviewSchema = z.object({ path: path.optional(), page: z.number().int().min(1).default(1), annotate: z.boolean().default(true).describe("Label writing areas and body paragraph IDs in the returned image. Does not change the document or the user's view.") });
 const docxTarget = {
   bookmark: z.string().min(1).optional(),
   targetSearch: z.string().min(1).optional().describe("Unique plain phrase in targetParaId, e.g. § 2 Schlussbestimmungen. Omit to reference the whole target paragraph; use only with targetParaId."),
@@ -61,7 +69,8 @@ const docxTarget = {
 };
 export const docxReadSchema = z.object({
   path: path.optional(),
-  view: z.enum(["all", "text", "structure", "formatting"]).optional().describe("Default all. Focus structure for linked fields, notes, controls/locks and sections; formatting for paragraph/run properties."),
+  view: z.enum(["all", "text", "structure", "formatting", "layout"]).optional().describe("Default all. layout maps main text, positioned containers, headers/footers and notes; formatting reads paragraph/run properties."),
+  page: z.number().int().min(1).optional().describe("One-based page to inspect with view=layout. Defaults to 1."),
   paraId: paraId.optional(),
   fromIndex: z.number().int().min(0).optional(),
   toIndex: z.number().int().min(0).optional().describe("Optional inclusive end paragraph index. Omit to read through the end unless limit is supplied."),
@@ -90,7 +99,8 @@ const docxFormattingOperation = z.object({
     fontFamily: z.object({ ascii: z.string().min(1), hAnsi: z.string().min(1).optional() }).strict().optional(),
     color: z.union([z.object({ rgb: z.string().regex(/^[\da-f]{6}$/i) }).strict(), z.object({ themeColor: z.enum(["dark1", "light1", "dark2", "light2", "accent1", "accent2", "accent3", "accent4", "accent5", "accent6", "hyperlink", "followedHyperlink"]) }).strict()]).optional(),
     highlight: z.enum(["yellow", "green", "cyan", "magenta", "blue", "red", "darkBlue", "darkCyan", "darkGreen", "darkMagenta", "darkRed", "darkYellow", "darkGray", "lightGray", "black", "white", "none"]).optional(),
-    vertAlign: z.enum(["baseline", "superscript", "subscript"]).optional(),
+    characterSpacing: z.object({ spacing: z.number().min(-100).max(100).optional().describe("Additional character spacing in points; 0 resets condensation."), scale: z.number().min(1).max(600).optional().describe("Character width percent; 100 is normal."), kerning: z.number().min(0).max(400).optional().describe("Kerning threshold in points; 0 disables it.") }).strict().optional(),
+      vertAlign: z.enum(["baseline", "superscript", "subscript"]).optional(),
   }).strict().optional(),
   paragraph: z.object({
     alignment: z.enum(["left", "center", "right", "both", "distribute"]).optional().describe("both means justified."),
@@ -109,6 +119,12 @@ export const docxEditOperationSchema = z.discriminatedUnion("operation", [
   z.object({ operation: z.enum(["edit_cross_reference"]), paraId, ...docxTarget, ordinal: z.number().int().min(0).describe("Zero-based field ordinal in this paragraph from the live read.") }).strict(),
   z.object({ operation: z.enum(["edit_note"]), noteType: z.enum(["footnote", "endnote"]), noteId: z.number().int().min(1), search: z.string().min(1), replaceWith: z.string() }).strict(),
   z.object({ operation: z.enum(["insert_note"]), noteType: z.enum(["footnote", "endnote"]), paraId, search: z.string().describe("Place the note marker after this unique phrase; empty appends."), text: z.string().min(1) }).strict(),
+  z.object({
+    operation: z.enum(["insert_paragraphs"]),
+    placement: z.enum(["start", "end", "before", "after", "replace_empty"]).describe("start/end inserts in the MAIN text flow. before/after/replace_empty requires a paragraph handle; replace_empty fills an empty template paragraph."),
+    paraId: paraId.optional(), area: docxArea.default("main"),
+    paragraphs: z.array(z.object({ text: z.string().max(100000), styleId: z.string().min(1).optional(), alignment: z.enum(["left", "center", "right", "both"]).optional() }).strict()).min(1).max(500).describe("One object per real Word paragraph. Single newlines within text are manual line breaks. For a letter, supply separate date, subject, salutation, body and closing paragraphs."),
+  }).strict(),
   z.object({ operation: z.enum(["insert_break"]), paraId, type: z.enum(["page", "sectionNextPage", "sectionContinuous"]) }).strict(),
   z.object({ operation: z.enum(["set_page_numbering"]), sectionIndex: z.number().int().min(0), format: z.enum(["decimal", "decimalZero", "upperRoman", "lowerRoman", "upperLetter", "lowerLetter"]), start: z.number().int().min(1).max(32767).nullable().describe("Restart at this number; null continues numbering.") }).strict(),
   z.object({ operation: z.enum(["set_protection"]), mode: z.enum(["none", "forms", "trackedChanges"]) }).strict(),

@@ -10,7 +10,7 @@ Open **Wiki > Add wiki > Create**, enter a name and choose **Personal** or **Tea
 
 Open a wiki chat and ask, "Help me set up this wiki for our firm." Identify the particular connected source if you want the assistant to read it. Creating the wiki does not automatically import all connected documents. Review the resulting structure and source references before relying on it.
 
-Wiki chats can search, list and read pages with Sandbox off. Running shell commands in a wiki chat requires protected execution: use the chat's **Sandbox** menu to enable it when a command is necessary. The option to run commands directly on your computer with Sandbox off applies to project chats. For questions about wiki contents, the assistant can use wiki and file-reading tools without enabling Sandbox.
+Wiki chats can search, list and read pages with Sandbox off. Running shell commands in a wiki chat requires protected execution: enable **Sandboxing** in **Settings > Tool Permissions** when a command is necessary. The option to run commands directly on your computer with Sandbox off applies to project chats. For questions about wiki contents, the assistant can use wiki and file-reading tools without enabling Sandbox.
 
 ## Your legal research knowledge base
 

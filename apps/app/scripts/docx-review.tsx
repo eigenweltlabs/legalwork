@@ -3,6 +3,8 @@ import { createRoot } from "react-dom/client";
 import { DocxReviewer } from "@eigenpal/docx-editor-agents";
 import { getCaretPositionFromDom } from "@eigenpal/docx-editor-core/layout-bridge";
 import JSZip from "jszip";
+import { writingTemplate } from "./fixtures/writing-template";
+import { letterheadTemplate } from "./fixtures/letterhead-template";
 import { readWordMetadata } from "../src/react-app/domains/session/artifacts/docx-word-package";
 import { ArtifactDocxEditor, type DocxEditorApi } from "../src/react-app/domains/session/artifacts/artifact-docx-editor";
 import { ArtifactFrame } from "../src/react-app/domains/session/artifacts/artifact-frame";
@@ -27,6 +29,7 @@ function ReviewHarness({ initial, fixture }: { initial: ArrayBuffer; fixture: st
   const [failSave, setFailSave] = useState(false);
   const [savedReport, setSavedReport] = useState("");
   const [agentReport, setAgentReport] = useState("");
+  const [previewImage, setPreviewImage] = useState("");
   const agentRead = async () => {
     const combined: Record<string, unknown> = {};
     let next: number | null = 0;
@@ -226,18 +229,60 @@ function ReviewHarness({ initial, fixture }: { initial: ArrayBuffer; fixture: st
   const testReviewToolbar = async () => {
     try {
       const first = await agentRead(), source = records(first.paragraphs)[0];
-      const result = await api.current?.executeAgentTool("suggest_change", { paraId: source.paraId, search: "Vollständiger Verweis", replaceWith: "Vollständige Referenz" });
+      const result = await api.current?.executeAgentTool("suggest_change", { documentId: first.documentId, draftRevision: first.draftRevision, paraId: source.paraId, area: "main", search: "Vollständiger Verweis", replaceWith: "Vollständige Referenz" });
       if (!result?.success) throw new Error(`Tracked edit failed: ${JSON.stringify(result)}`);
       const toolbar = document.querySelector('.docx-word-tools[role="toolbar"]');
       if (!toolbar || toolbar.querySelectorAll("button").length !== 4) throw new Error("Fields and review commands must share one toolbar");
       setAgentReport(JSON.stringify({ combinedToolbarPassed: true, commands: Array.from(toolbar.querySelectorAll("button")).map(button => button.textContent) }, null, 2));
     } catch (cause) { setAgentReport(String(cause)); }
   };
+  const verifyWriting = async () => {
+    const current = await agentRead();
+    const paragraphs = records(current.paragraphs);
+    const letter = paragraphs.filter(paragraph => paragraph.text === "Writing test letter" || paragraph.text === "Dear recipient," || paragraph.text === "This belongs in the main text flow." || paragraph.text === "Kind regards");
+    if (letter.length !== 4 || letter.some(paragraph => !record(paragraph.location) || paragraph.location.area !== "main")) throw new Error("Letter paragraphs are outside the main text flow");
+    const box = paragraphs.filter(paragraph => record(paragraph.location) && paragraph.location.area === "textBox");
+    if (box.length !== 2 || box[0].text !== "Reserved bottom box" || box[1].text !== "") throw new Error("The positioned box was modified");
+    const buffer = await api.current?.getBuffer(); if (!buffer) throw new Error("No saved draft");
+    const zip = await JSZip.loadAsync(buffer);
+    for (const path of ["word/header1.xml", "word/footer1.xml", "word/footnotes.xml"]) if ((await zip.file(path)!.async("string")).includes("Writing test letter")) throw new Error(`Letter escaped into ${path}`);
+    return { mainParagraphs: letter.length, nestedBoxUnchanged: true, notesAndPageStoriesUnchanged: true };
+  };
+  const testWriting = async () => {
+    setAgentReport("Testing writing destinations…");
+    try {
+      const first = await agentRead();
+      const paragraphs = records(first.paragraphs);
+      const table = paragraphs.find(paragraph => paragraph.text === "Second table paragraph");
+      const main = paragraphs.find(paragraph => paragraph.text === "" && record(paragraph.location) && paragraph.location.area === "main");
+      const box = paragraphs.find(paragraph => paragraph.text === "" && record(paragraph.location) && paragraph.location.area === "textBox");
+      if (!table || !main || !box) throw new Error("The fixture's writing areas are missing");
+      const focused = await api.current?.executeAgentTool("read_document", { paraId: table.paraId });
+      if (!focused?.success || !record(focused.data) || typeof focused.data.text !== "string" || !focused.data.text.includes(`[${table.paraId}]`) || !focused.data.text.includes("Second table paragraph")) throw new Error("Table read and paragraph identity disagree");
+      const blocked = await api.current?.executeAgentTool("suggest_change", { documentId: first.documentId, draftRevision: first.draftRevision, paraId: box.paraId, search: "", replaceWith: "Must not enter bottom box" });
+      if (blocked?.success || !blocked?.error?.includes("textBox")) throw new Error("A main-flow request entered a text box");
+      await agentRun("insert_paragraphs", { placement: "replace_empty", paraId: main.paraId, paragraphs: [{ text: "Writing test letter" }, { text: "Dear recipient," }, { text: "This belongs in the main text flow." }, { text: "Kind regards" }] });
+      const stale = await api.current?.executeAgentTool("suggest_change", { documentId: first.documentId, draftRevision: first.draftRevision, paraId: main.paraId, search: "", replaceWith: "Stale edit" });
+      if (stale?.success) throw new Error("Stale proposal was allowed");
+      const verified = await verifyWriting();
+      const preview = await api.current?.executeAgentTool("preview", { page: 1 });
+      if (!preview?.success || !record(preview.data) || !record(preview.data.preview) || typeof preview.data.preview.dataUrl !== "string") throw new Error(`Preview unavailable: ${preview?.error}`);
+      setPreviewImage(preview.data.preview.dataUrl);
+      setAgentReport(JSON.stringify({ writingDestinationsPassed: true, ...verified, focusedTableReadPassed: true, wrongAreaBlocked: true, staleProposalBlocked: true, annotatedPreviewPassed: true, previewLabels: preview.data.labels }, null, 2));
+    } catch (cause) { setAgentReport(String(cause)); }
+  };
   return <TooltipProvider><div style={{ height: "100vh", display: "flex", flexDirection: "column", background: "#fff" }}>
     <div style={{ padding: 10, display: "flex", gap: 16, flexWrap: "wrap", borderBottom: "1px solid #ddd" }}>
+      <label>Load local DOCX<input type="file" accept=".docx" onChange={async event => { const file = event.target.files?.[0]; if (!file) return; const buffer = await file.arrayBuffer(); setContent(buffer); setSaved(buffer); setGeneration(value => value + 1); setDirty(false); setAgentReport(""); setPreviewImage(""); setStatus("Loaded local DOCX"); }} /></label>
+      <button onClick={async () => { try { const buffer = await api.current?.getBuffer(); if (!buffer) throw new Error("Editor not ready"); setSaved(buffer); setStatus("Exported current draft"); } catch (cause) { setAgentReport(String(cause)); } }}>Export current draft</button>
+      <button onClick={() => void api.current?.executeAgentTool("preview", {page: 1, annotate: false}).then(result => { if (record(result.data) && record(result.data.preview) && typeof result.data.preview.dataUrl === "string") setPreviewImage(result.data.preview.dataUrl); else setAgentReport(JSON.stringify(result)); })}>Preview page</button>
+      <button onClick={() => void api.current?.executeAgentTool("read_document", {view: "layout"}).then(result => setAgentReport(JSON.stringify(result.data, null, 2)))}>Read page layout</button>
+      <button onClick={() => { const url = URL.createObjectURL(new Blob([saved], {type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"})); const link = document.createElement("a"); link.href = url; link.download = "regression-letter.docx"; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); }}>Download saved DOCX</button>
+      <button onClick={async () => { try { await agentRun("insert_paragraphs", { placement: "start", paragraphs: [{ text: "Rendering regression letter", alignment: "left" }, { text: "Dear recipient,", alignment: "left" }, { text: "This letter belongs in the main document body.", alignment: "left" }, { text: "Kind regards", alignment: "left" }] }); setAgentReport("Sample letter inserted and saved in the main body."); } catch (cause) { setAgentReport(String(cause)); } }}>Insert sample letter</button>
       <button onClick={async () => { try { const ok = await api.current?.save(); setStatus(ok ? "Saved to workspace" : "Save failed"); } catch { setStatus("Save failed; draft retained"); } }}>Save to workspace</button>
       <button onClick={() => { setContent(saved.slice(0)); setGeneration((value) => value + 1); setDirty(false); setStatus("Reopened saved copy"); }}>Reopen saved copy</button>
       <button onClick={() => setNarrow(!narrow)}>{narrow ? "Full width" : "Narrow panel"}</button>
+      {fixture === "writing" && <><button onClick={() => void testWriting()}>Test writing destinations</button><button onClick={() => void verifyWriting().then(result => setAgentReport(JSON.stringify({ reopenedWritingPassed: true, ...result }))).catch(cause => setAgentReport(String(cause)))}>Verify reopened writing</button></>}
       <button onClick={() => void testNativeBatch()}>Test typed native batch</button>
       <button onClick={() => void testPartialBatch()}>Test partial batch</button>
       {fixture === "references" && <button onClick={() => void testReviewToolbar()}>Test review toolbar</button>}
@@ -266,7 +311,7 @@ function ReviewHarness({ initial, fixture }: { initial: ArrayBuffer; fixture: st
         setStatus("Saved to workspace");
       }} />
       </ArtifactFrame>
-    </div><Toaster />
+    </div>{previewImage && <details><summary>Annotated page preview</summary><img src={previewImage} alt="Annotated Word page preview" style={{ width: 480, maxWidth: "100%" }} /></details>}<Toaster />
   </div></TooltipProvider>;
 }
 
@@ -278,6 +323,8 @@ if (import.meta.env.DEV || import.meta.env.MODE === "docx-review") {
     ? new URL("./fixtures/legal-review-positions.docx", import.meta.url)
     : fixture === "word" ? new URL("./fixtures/legal-word-workflows.docx", import.meta.url) : new URL("./fixtures/legal-review.docx", import.meta.url));
   let initial = await response.arrayBuffer();
+  if (fixture === "writing") initial = await writingTemplate();
+  if (fixture === "letterhead") initial = await letterheadTemplate();
   if (fixture === "references") {
     const zip = new JSZip();
     zip.file("[Content_Types].xml", '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>');
@@ -285,5 +332,5 @@ if (import.meta.env.DEV || import.meta.env.MODE === "docx-review") {
     zip.file("word/document.xml", '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>§ 1 Vertragsgegenstand: Vollständiger Verweis: [FULL]. Kurzer Verweis: [SHORT].</w:t></w:r></w:p><w:p><w:r><w:t>§ 2 Schlussbestimmungen: Dies ist der zweite Absatz der Test-Datei. Änderungen und Ergänzungen dieses Testdokuments können direkt im Editor vorgenommen werden.</w:t></w:r></w:p><w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440"/></w:sectPr></w:body></w:document>');
     initial = await zip.generateAsync({ type: "arraybuffer" });
   }
-  if (root) createRoot(root).render(<ReviewHarness initial={initial} fixture={positions ? "positions" : fixture === "word" ? "word" : fixture === "references" ? "references" : "review"} />);
+  if (root) createRoot(root).render(<ReviewHarness initial={initial} fixture={positions ? "positions" : fixture === "word" ? "word" : fixture === "references" ? "references" : fixture === "writing" ? "writing" : "review"} />);
 }

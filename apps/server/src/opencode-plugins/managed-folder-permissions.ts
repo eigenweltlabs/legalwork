@@ -3,7 +3,8 @@ import { homedir } from "node:os";
 import { stat } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { canonicalFilePath } from "../file-write-lock.js";
-import { permissionPatternMatches } from "../agent-sandbox/permissions.js";
+import { permissionAction, permissionPatternMatches } from "../agent-sandbox/permissions.js";
+import { chatApprovalLineage } from "../chat-approval-scope.js";
 import { projectPermissionEffect } from "../project-permission-approvals.js";
 import type { ManagedEngineSettings } from "../managed-engine-settings.js";
 
@@ -23,10 +24,15 @@ export async function registerManagedFolderPermissions(ctx: Plugin.Context, read
     if (event.effect === "deny") return;
     const settings = await read();
     if (!settings) { event.effect = "deny"; event.message = "This project has no LegalWork permissions."; return; }
-    const session = await ctx.session.get({ sessionID: event.sessionID });
+    const lineage = await chatApprovalLineage(event.sessionID, id => ctx.session.get({ sessionID: id }));
+    const session = lineage[0];
+    if (lineage.some(ancestor => event.resources.some(resource => permissionAction(ancestor.permissions ?? [], event.action, resource, "ask") === "deny"))) {
+      event.effect = "deny";
+      return;
+    }
     const agentID = event.agent ?? session.agent ?? settings.configuration.default_agent;
-    const approvals = [...settings.projectPermissionApprovals ?? [], ...session.permissions?.filter(rule => rule.effect === "allow")
-      .map(rule => ({ action: rule.action, resources: [rule.resource] })) ?? []];
+    const approvals = [...settings.projectPermissionApprovals ?? [], ...lineage.flatMap(ancestor => ancestor.permissions?.filter(rule => rule.effect === "allow")
+      .map(rule => ({ action: rule.action, resources: [rule.resource] })) ?? [])];
     event.effect = projectPermissionEffect({ ...settings.configuration, projectPermissionApprovals: approvals }, event.action,
       event.resources, event.metadata?.legalworkCanonicalAsk ? "ask" : event.effect, agentID);
     if (event.effect === "deny") return;

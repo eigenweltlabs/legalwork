@@ -70,7 +70,38 @@ For a named reference document that is not already open, inspect its saved file 
   field codes/targets/missing-reference status, bookmarks, linked notes, controls
   and locks, section numbering and protection. Formatting exposes run/paragraph
   properties in points; `includeStyles` adds native definitions and inheritance.
-- Edit with `inapp_docx_suggest_change`. Add comments only when the user requests them.
+- Each paragraph has a `location` with its area and container path. `main` is the
+  ordinary text flow; table cells, floating text boxes and controls are separate
+  areas, even when they are stored in the document body. `writingAreas` also
+  identifies headers, footers and linked notes. For an unfamiliar template, start with `view: "layout"` for geometry, wrapping
+  exclusions and formatting diagnostics. Images consume additional tokens. Use
+  `inapp_docx_preview({page: 1})` only for a visual question or unresolved layout
+  uncertainty, never for every document or after each edit. Its image is private
+  to the agent. If it shows a defect, distinguish document formatting from a
+  capture problem, fix supported defects and verify before finishing. Do not
+  leave a known fixable defect with a suggestion to check Word. A box at the bottom of a page is
+  not a suitable destination for ordinary letter content just because it is empty.
+- Compose new letters or sections with `inapp_docx_edit` and an
+  `insert_paragraphs` operation. Supply one object per real Word paragraph.
+  `placement: "start"` or `"end"` always targets the main text flow.
+  `"before"`, `"after"` or `"replace_empty"` requires a returned `paraId` and its
+  `area`; `replace_empty` fills a blank template paragraph without deleting text.
+  Example: `{operation: "insert_paragraphs", placement: "replace_empty",
+  paraId: emptyMainParagraphId, area: "main", paragraphs: [{text: "Subject"},
+  {text: "Dear recipient,"}, {text: "Letter content"}]}`. These are direct native
+  edits and enforce protection. Do not compose an entire letter as one multiline
+  `suggest_change` inside an arbitrary paragraph.
+- For a new multi-paragraph draft, write in coherent sections of about 3 to 6
+  paragraphs per native edit call. Start with the address, date and subject, then
+  add the body and closing in subsequent calls. This lets the live editor tile
+  show useful progress while you compose. Read fresh document identity, revision
+  and anchors between calls and continue after the last paragraph you inserted.
+  Keep a short edit in one call. The tile is the same live editor and does not
+  require `inapp_docx_preview`, images or `show: true` to update.
+- Edit existing wording with `inapp_docx_suggest_change`, with fresh
+  `documentId`/`draftRevision`, `paraId` and its `area` from a live read or find.
+  `area` defaults to `main`; explicitly choose a table, text box or control only
+  when the requested edit belongs there. Add comments only when requested.
   Replace the smallest exact phrase that needs changing; retain surrounding language and formatting.
   Negotiated text edits are tracked changes and save back to the workspace automatically.
 - For clean template population in a new output copy, use `inapp_docx_fill_template` with the exact placeholder and value. This accepts only the new replacement and preserves existing revisions.
@@ -86,7 +117,7 @@ For a named reference document that is not already open, inspect its saved file 
   retry a failed save. Note edits reload handles; put them last and read again.
 - The operation names are `apply_formatting`, `set_paragraph_style`,
   `create_bookmark`, `insert_cross_reference`, `edit_cross_reference`, `edit_note`,
-  `insert_note`, `insert_break`, `set_page_numbering`, `set_protection`, `update_fields`.
+  `insert_note`, `insert_paragraphs`, `insert_break`, `set_page_numbering`, `set_protection`, `update_fields`.
   For a short linked reference use, for example,
   `{operation: "insert_cross_reference", paraId: sourceId, targetParaId: targetId,
   targetSearch: "§ 2 Schlussbestimmungen", kind: "text", search: "[REFERENCE]"}`.

@@ -6,7 +6,6 @@ import { PanelsTopLeft } from "lucide-react";
 import { projectViewTab, usePanelTabStore, workspacePanelKey } from "../panel/panel-tab-store";
 import { projectViewLabel } from "../panel/side-panel";
 import type { AssistantProfile } from "@legalwork/types/main-assistant";
-import { AssistantNavigation } from "./assistant-appearance";
 /** @jsxImportSource react */
 import * as React from "react";
 import { StatusDot } from "@legalwork/ui/react";
@@ -132,12 +131,12 @@ import {
 import { cn } from "@/lib/utils";
 import { WorkspaceIcon } from "../../../design-system/workspace-icon";
 import { getSessionActivityStatusLabel, type SessionActivityStatus } from "../status/session-activity-store";
-import { DEFAULT_SHELL_CONFIG, useShellConfig, type ShellNavKey } from "../../../shell/shell-config";
+import { DEFAULT_SHELL_CONFIG, useShellConfig, type ShellWindowNavKey } from "../../../shell/shell-config";
 import { allProjectSessions, SessionProjectHover } from "./session-project-hover";
 import { SidebarCustomization, SIDEBAR_ITEMS } from "./sidebar-customization";
 import { startSessionDrag, acceptsSessionsDrag, readSessionsDrag } from "./session-drag";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
-import { MainActionRail } from "./main-action-rail";
+import { MainActionRail, type MainRailActions } from "./main-action-rail";
 import { EigenweltAccountMenu } from "./eigenwelt-account-menu";
 import { ProjectFolderIcon } from "../../workspace/project-sync";
 import { projectSectionGroups, reorderProjectSection } from "./project-sections";
@@ -572,7 +571,7 @@ export type AppSidebarProps = {
   selectedSessionId: string | null;
   onOpenProjectFiles: (workspaceId: string) => void;
   projectFilesOpen?: boolean;
-  onOpenNavWindow?: (key: ShellNavKey) => void;
+  onOpenNavWindow?: (key: ShellWindowNavKey) => void;
   onOpenProjectWindow?: SidebarContextValue["onOpenProjectWindow"];
   activeProjectView?: SidebarContextValue["activeProjectFeature"];
   showSessionActions?: boolean;
@@ -637,8 +636,8 @@ export function AppSidebar(props: AppSidebarProps) {
 
 function AppSidebarContent(props: AppSidebarProps) {
   const { config: shellConfig } = useShellConfig();
-  const { open, isMobile, setOpen } = useSidebar();
-  const collapsed = !isMobile && !open;
+  const { open, isMobile, setOpen, setOpenMobile } = useSidebar();
+  const collapsed = props.assistantActive || (!isMobile && !open);
   const [customizingNavigation, setCustomizingNavigation] = React.useState(false);
   const customizationButtonRef = React.useRef<HTMLButtonElement>(null);
   const finishCustomizingNavigation = () => {
@@ -778,8 +777,19 @@ function AppSidebarContent(props: AppSidebarProps) {
     });
   }, [props.selectedWorkspaceId, props.selectedSessionId]);
   const projectsPage = location.pathname === "/projects";
-  const actions: Record<ShellNavKey, { onClick: () => void; active: boolean; available?: boolean }> = {
+  const actions: MainRailActions = {
     navHome: { onClick: () => { setOpen(true); props.onShowChats?.(); }, active: location.pathname === "/home" },
+    navAssistant: {
+      profile: props.assistantProfile,
+      active: props.assistantActive,
+      available: Boolean(props.onOpenAssistant),
+      disabled: props.assistantDisabled,
+      unread: Boolean(props.assistantGreetingUnread || unreadWorkspace(inbox, props.assistantWorkspaceId)),
+      onClick: () => {
+        if (isMobile) setOpenMobile(false);
+        props.onOpenAssistant?.();
+      },
+    },
     navScheduled: { onClick: () => navigate("/scheduled"), active: location.pathname === "/scheduled" },
     navCalendar: { onClick: () => navigate("/calendar"), active: location.pathname === "/calendar" },
     navProjects: { onClick: () => props.onShowProjects?.(), active: projectsPage },
@@ -859,8 +869,8 @@ function AppSidebarContent(props: AppSidebarProps) {
         {(!customizingNavigation || collapsed) && <MainActionRail actions={actions} onOpenWindow={props.onOpenNavWindow} unreadTasks={unreadTasks}>
           <EigenweltAccountMenu client={props.accountClient} workspaceId={props.selectedWorkspaceId} />
         </MainActionRail>}
-        <div className="lw-chat-sidebar flex min-h-0 min-w-0 flex-1 flex-col group-data-[collapsible=icon]:hidden">
-        {customizingNavigation ? <SidebarCustomization onDone={finishCustomizingNavigation} /> : <>
+        <div className={cn("lw-chat-sidebar flex min-h-0 min-w-0 flex-1 flex-col group-data-[collapsible=icon]:hidden", props.assistantActive && "hidden")}>
+        {customizingNavigation ? <SidebarCustomization assistantIcon={props.assistantProfile?.icon} onDone={finishCustomizingNavigation} /> : <>
         <div className="flex shrink-0 flex-col pb-1 mac:titlebar-no-drag">
         <div className="shrink-0 px-2 pb-1 mac:titlebar-no-drag">
           <div className={cn("lw-sidebar-brand flex gap-2.5 px-3", showSidebarBrandName ? "items-center py-2" : "items-center py-0") }>
@@ -892,7 +902,6 @@ function AppSidebarContent(props: AppSidebarProps) {
         <SidebarWorkflowGenerationBadge onOpenSession={(workspaceId, sessionId) => navigate(workspaceSessionRoute(workspaceId, sessionId))} />
         <SidebarMenu className="px-2 pb-3 pt-1">
           {newChatSection}
-          {shellConfig.navAssistant !== false && props.onOpenAssistant && <AssistantNavigation profile={props.assistantProfile} active={props.assistantActive} disabled={props.assistantDisabled} unread={props.assistantGreetingUnread || unreadWorkspace(inbox, props.assistantWorkspaceId)} onOpen={props.onOpenAssistant} />}
         </SidebarMenu>
         </div>
         <LazyMotion features={domMax}><m.div layoutScroll data-slot="sidebar-content" data-sidebar="content" className="no-scrollbar min-h-0 flex-1 overflow-y-auto pt-1 mac:titlebar-no-drag">

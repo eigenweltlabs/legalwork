@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createDocumentRuntime } from "../src/react-app/domains/session/artifacts/document-runtime-store";
+import { createDocumentRuntime, documentPreviewVisible, visibleDocumentDestination } from "../src/react-app/domains/session/artifacts/document-runtime-store";
 import { usePanelTabStore } from "../src/react-app/domains/session/panel/panel-tab-store";
 
 function fixture() {
@@ -105,9 +105,9 @@ describe("task document runtime", () => {
   test("user tab selection and detachment cannot redirect the task after its first read", async () => {
     const { runtime, document } = fixture();
     const one = document("a", "one.docx"), two = document("a", "two.docx");
-    one.destinations.set({}, true);
+    one.destinations.set({}, {active: true, visible: true});
     expect(await runtime.execute("document.agent_tool", { sessionId: "left" })).toEqual({ ok: true, path: "one.docx" });
-    one.destinations.clear(); two.destinations.set({}, true);
+    one.destinations.clear(); two.destinations.set({}, {active: true, visible: true});
     expect(await runtime.execute("document.agent_tool", { sessionId: "left" })).toEqual({ ok: true, path: "one.docx" });
     expect(runtime.ensure(one.props)).toBe(one);
   });
@@ -215,17 +215,64 @@ test("promotion and closing the full document view retain the agent's exact edit
   const entry = document("a", "one.docx");
   await runtime.select({ sessionId: "left", path: "one.docx" });
   const destination = {};
-  entry.destinations.set(destination, true);
+  entry.destinations.set(destination, {active: true, visible: true});
   runtime.prune();
   expect(runtime.entries.get(entry.key)).toBe(entry);
   entry.destinations.delete(destination);
   runtime.prune();
   expect(runtime.entries.get(entry.key)).toBe(entry);
   expect(await runtime.execute("document.agent_tool", { sessionId: "left" })).toEqual({ ok: true, path: "one.docx" });
-  entry.destinations.set(destination, true);
+  entry.destinations.set(destination, {active: true, visible: true});
   runtime.releaseTask("left");
   expect(runtime.entries.get(entry.key)).toBe(entry);
   expect(entry.tasks.size).toBe(0);
+});
+
+test("a retained hidden tab returns to its owning task's miniature without replacing the editor", async () => {
+  const previous = usePanelTabStore.getState().sessions;
+  usePanelTabStore.setState({sessions: {}});
+  try {
+    const {runtime, document} = fixture(), entry = document("a", "one.docx");
+    const host = entry.host, registration = entry.registration;
+    await runtime.select({sessionId: "left", path: "one.docx"});
+    usePanelTabStore.getState().openTab("workspace:a", entry.props.tab);
+    const destination = {isConnected: true};
+    entry.destinations.set(destination, {active: false, visible: true});
+    expect(documentPreviewVisible(entry, "left")).toBe(false);
+    expect(visibleDocumentDestination(entry)).toBe(destination);
+
+    // Switching tabs retains the editor but detaches its full-size pane.
+    destination.isConnected = false;
+    expect(documentPreviewVisible(entry, "left")).toBe(true);
+    expect(documentPreviewVisible(entry, "right")).toBe(false);
+    expect(usePanelTabStore.getState().sessions["workspace:a"].tabs).toContainEqual(entry.props.tab);
+    expect(await runtime.execute("document.agent_tool", {sessionId: "left"})).toEqual({ok: true, path: "one.docx"});
+    expect(entry.host).toBe(host);
+    expect(entry.registration).toBe(registration);
+
+    // A hidden workspace can keep its pane connected to the DOM.
+    destination.isConnected = true;
+    entry.destinations.set(destination, {active: false, visible: false});
+    expect(documentPreviewVisible(entry, "left")).toBe(true);
+    runtime.dismiss(entry, "left");
+    expect(documentPreviewVisible(entry, "left")).toBe(false);
+    await runtime.select({sessionId: "left", path: "one.docx"});
+    expect(documentPreviewVisible(entry, "left")).toBe(true);
+    runtime.releaseTask("left");
+    expect(documentPreviewVisible(entry, "left")).toBe(false);
+  } finally { usePanelTabStore.setState({sessions: previous}); }
+});
+
+test("split panes show the editor in a visible destination even when it has no control focus", () => {
+  const {document} = fixture(), entry = document("a", "one.docx");
+  const hidden = {isConnected: true}, detached = {isConnected: false};
+  const visible = {isConnected: true}, focused = {isConnected: true};
+  entry.destinations.set(hidden, {active: true, visible: false});
+  entry.destinations.set(detached, {active: true, visible: true});
+  entry.destinations.set(visible, {active: false, visible: true});
+  expect(visibleDocumentDestination(entry)).toBe(visible);
+  entry.destinations.set(focused, {active: true, visible: true});
+  expect(visibleDocumentDestination(entry)).toBe(focused);
 });
 
 test("chat inventory excludes another chat's parked drafts but file writes still protect them", async () => {
@@ -243,7 +290,7 @@ test("file handoff saves, releases the editor and reopens fresh bytes in the sam
   const { runtime, document, clients } = fixture();
   const entry = document("a", "one.docx", async () => ({ ok: true, saved: true }));
   const host = entry.host, destination = {};
-  entry.destinations.set(destination, true);
+  entry.destinations.set(destination, {active: true, visible: true});
   await runtime.select({ sessionId: "left", path: "one.docx" });
   const oldGeneration = entry.generation;
   const registration = entry.registration;
@@ -260,7 +307,7 @@ test("file handoff saves, releases the editor and reopens fresh bytes in the sam
     await runtime.open({ sessionId: "left", path: "one.docx" });
     expect(await runtime.execute("document.agent_tool", { sessionId: "left" })).toBe("new saved content");
     expect(entry.host).toBe(host);
-    expect(entry.destinations.get(destination)).toBe(true);
+    expect(entry.destinations.get(destination)).toEqual({active: true, visible: true});
   } finally { stop(); }
 });
 

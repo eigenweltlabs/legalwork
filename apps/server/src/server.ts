@@ -71,6 +71,7 @@ import { ApprovalService } from "./approvals.js";
 import { AgentSandboxService } from "./agent-sandbox/service.js";
 import { explicitFileApprovals, managedPermissionRules } from "./agent-sandbox/engine-policy.js";
 import { rememberNativeChatApproval, listNativeProjectApprovals, removeNativeProjectApproval, updateNativeProjectApproval } from "./native-folder-approval.js";
+import { chatApprovalLineage } from "./chat-approval-scope.js";
 import { registerAgentSandboxRoutes } from "./routes/agent-sandbox.js";
 import { assertSandboxProxyAllowed, sandboxSessionBody } from "./agent-sandbox/proxy-gate.js";
 import { addPlugin, listPlugins, normalizePluginSpec, removePlugin } from "./plugins.js";
@@ -976,18 +977,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
   registerAgentSandboxRoutes({ routes, config, sandbox: agentSandbox, resolveWorkspace, requireClientScope, readJsonBodyLimited, jsonResponse,
     sessionLineage: async (workspace, sessionID) => {
       const client = createWorkspaceOpencodeClient(config, workspace);
-      const lineage: string[] = [];
-      let id: string | undefined = sessionID;
-      while (id) {
-        if (lineage.includes(id) || lineage.length >= 64) throw new ApiError(400, "sandbox_session", "Invalid chat ancestry.");
-        const currentId: string = id;
-        const session = await getWorkspaceEngineSession(client, workspace, currentId);
-        const directory = resolveOpencodeDirectory(workspace);
-        if (!directory || !await sameProjectDirectory(session.location.directory, directory)) throw new ApiError(403, "sandbox_session", "This chat belongs to a different workspace.");
-        lineage.push(id);
-        id = session.parentID;
-      }
-      return lineage;
+      return (await chatApprovalLineage(sessionID, id => getWorkspaceEngineSession(client, workspace, id))).map(session => session.id);
     },
     agentRules: async (workspace, sessionID, agentName) => {
       const client = createWorkspaceOpencodeClient(config, workspace);
@@ -3066,10 +3056,15 @@ function createRoutes(
           models: parseManifestModels(body.models),
           ...(SystemOneConfigurationSchema.safeParse(body.systemOne).success ? { systemOne: SystemOneConfigurationSchema.parse(body.systemOne) } : {}),
         });
-        await rebuildEngineConfigFile(workspace);
       }
       return view;
     });
+    // Global credential commits must not hold the account lock while scanning
+    // projects or checking remote model readiness. Those reads may themselves
+    // need token refresh. Publications read the latest committed credentials.
+    if (typeof body.baseURL === "string" && body.baseURL && typeof body.apiKey === "string" && body.apiKey) {
+      await rebuildEngineConfigFile(workspace);
+    }
     if (view.connected) {
       void scheduleOrgPolicySync(config, { force: true });
       void scheduleFirmHubSync(config, { force: true });

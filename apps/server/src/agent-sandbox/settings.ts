@@ -6,6 +6,7 @@ import { DEFAULT_SANDBOX_SETTINGS, type SandboxSettings } from "./settings-schem
 import type { ServerConfig } from "../types.js";
 import { appliedOrgPolicy, readOrgPolicyView, requireOrgPolicyUnmanaged } from "../org-policy.js";
 import { GLOBAL_TOOL_PERMISSIONS_ID, readRuntimeOpencodeConfig, writeSandboxRuntimeConfig } from "../runtime-opencode-config-store.js";
+import { announceSyncChange } from "../app-sync-events.js";
 
 const locks = new WeakMap<ServerConfig, Promise<unknown>>();
 export function withSandboxSettingsLock<T>(config: ServerConfig, work: () => Promise<T>): Promise<T> {
@@ -27,6 +28,7 @@ export function onSandboxSettingsChange(listener: Listener): () => void {
   return () => { listeners.delete(listener); };
 }
 export async function notifySandboxSettingsChange(config: ServerConfig, id: string): Promise<void> {
+  announceSyncChange(config, "sandbox");
   await Promise.all([...listeners].map(listener => listener(config, id)));
 }
 export async function readSandboxDefault(config: ServerConfig): Promise<SandboxSettings> {
