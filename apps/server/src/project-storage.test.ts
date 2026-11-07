@@ -85,7 +85,17 @@ test("file APIs read and write connected documents and local attachments, includ
   expect(await prepareLocalProjects(f.config)).toBe(true);
   const local = f.config.workspaces[0]!;
   await finishLocalProject(local);
-  const server = await startServer(f.config);
+  f.config.projectStorageMigrating = true;
+  const server = await startServer(f.config, { onListening: async port => {
+    const root = `http://127.0.0.1:${port}`;
+    const headers = { Authorization: `Bearer ${f.config.token}` };
+    // Project reads initialize bundled files; they must wait until copying ends.
+    const pending = await fetch(`${root}/workspace/${local.id}/sessions`, { headers });
+    expect(pending.status).toBe(503);
+    expect((await pending.json()).code).toBe("project_storage_migrating");
+    expect((await fetch(`${root}/workspaces`, { headers })).status).toBe(200);
+    f.config.projectStorageMigrating = false;
+  } });
   cleanups.push(async () => { await server.stop(); });
   const base = `http://127.0.0.1:${server.port}/workspace/${local.id}`;
   const headers = { Authorization: `Bearer ${f.config.token}`, "Content-Type": "application/json" };

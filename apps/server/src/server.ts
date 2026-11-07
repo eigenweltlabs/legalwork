@@ -1069,7 +1069,10 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
         return finalize(new Response(null, { status: 204 }));
       }
       if (!ready) return finalize(jsonResponse({ code: "server_starting", message: "LegalWork is starting." }, 503));
-      if (config.projectStorageMigrating && !["GET", "HEAD"].includes(request.method))
+      // Project reads can initialize bundled files too. Hold them while the
+      // support trees are copied, so opening the selected project cannot
+      // change its source halfway through verification.
+      if (config.projectStorageMigrating && (url.pathname.startsWith("/workspace/") || !["GET", "HEAD"].includes(request.method)))
         return finalize(jsonResponse({ code: "project_storage_migrating", message: "Project storage is being upgraded. Retry when startup finishes." }, 503));
 
       if (url.pathname === WORD_ADDIN_PATH_PREFIX || url.pathname.startsWith(`${WORD_ADDIN_PATH_PREFIX}/`)) {
