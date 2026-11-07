@@ -22,6 +22,7 @@ import {
 import {
   backOfficeAuditEntityKey,
   backOfficeAuditDigest,
+  backOfficeAuditScopeKey,
   backOfficeAuditStateHash,
   newBackOfficeAuditNonce,
   signBackOfficeAudit,
@@ -71,6 +72,9 @@ CREATE TRIGGER IF NOT EXISTS bo_journal_entries_no_update BEFORE UPDATE ON bo_jo
 CREATE TRIGGER IF NOT EXISTS bo_journal_entries_no_delete BEFORE DELETE ON bo_journal_entries BEGIN SELECT RAISE(ABORT,'Back Office audit history is append-only'); END;
 CREATE TRIGGER IF NOT EXISTS bo_journal_streams_no_update BEFORE UPDATE ON bo_journal_streams BEGIN SELECT RAISE(ABORT,'Back Office audit identity is immutable'); END;
 CREATE TRIGGER IF NOT EXISTS bo_journal_streams_no_delete BEFORE DELETE ON bo_journal_streams BEGIN SELECT RAISE(ABORT,'Back Office audit identity is immutable'); END;
+CREATE TRIGGER IF NOT EXISTS bo_journal_active_no_update BEFORE UPDATE ON bo_journal_active BEGIN SELECT RAISE(ABORT,'Back Office active-stream identity is immutable'); END;
+CREATE TRIGGER IF NOT EXISTS bo_journal_active_guard_insert BEFORE INSERT ON bo_journal_active BEGIN SELECT RAISE(ABORT,'Back Office active streams require an audited transaction') WHERE NOT EXISTS(SELECT 1 FROM bo_journal_context WHERE id=1); END;
+CREATE TRIGGER IF NOT EXISTS bo_journal_active_guard_delete BEFORE DELETE ON bo_journal_active BEGIN SELECT RAISE(ABORT,'Back Office active streams require an audited transaction') WHERE NOT EXISTS(SELECT 1 FROM bo_journal_context WHERE id=1); END;
 `;
 const legacyGuards = `
 CREATE TRIGGER IF NOT EXISTS bo_journal_legacy_no_insert BEFORE INSERT ON bo_audit BEGIN SELECT RAISE(ABORT,'Legacy Back Office audit history is immutable'); END;
@@ -153,8 +157,12 @@ export class BackOfficeJournal {
         const id = target === "id" ? `${side}.id` : target;
         const when =
           operation === "UPDATE" ? "WHEN OLD.data IS NOT NEW.data" : "";
-        statements.push(`CREATE TRIGGER IF NOT EXISTS ${table}_journal_guard_${operation} BEFORE ${operation} ON ${table} ${when}
-          BEGIN SELECT RAISE(ABORT,'Back Office changes require an audited transaction') WHERE NOT EXISTS(SELECT 1 FROM bo_journal_context WHERE id=1); END;
+        const identity = ["scope", ...(table === "bo_models" ? [] : ["id"]), ...(table === "bo_records" ? ["object_id"] : [])];
+        const guard = operation === "UPDATE"
+          ? `SELECT RAISE(ABORT,'Back Office row identity is immutable') WHERE ${identity.map(column => `OLD.${column} IS NOT NEW.${column}`).join(" OR ")}; SELECT RAISE(ABORT,'Back Office changes require an audited transaction') WHERE OLD.data IS NOT NEW.data AND NOT EXISTS(SELECT 1 FROM bo_journal_context WHERE id=1);`
+          : "SELECT RAISE(ABORT,'Back Office changes require an audited transaction') WHERE NOT EXISTS(SELECT 1 FROM bo_journal_context WHERE id=1);";
+        statements.push(`CREATE TRIGGER IF NOT EXISTS ${table}_journal_guard_${operation} BEFORE ${operation} ON ${table}
+          BEGIN ${guard} END;
           CREATE TRIGGER IF NOT EXISTS ${table}_journal_capture_${operation} AFTER ${operation} ON ${table} ${when}
           BEGIN INSERT INTO bo_journal_pending(scope,kind,target,before_data,after_data,actor,action,model_revision)
             SELECT ${side}.scope,'${kind}',${id},${old},${next},actor,action,COALESCE((SELECT json_extract(data,'$.revision') FROM bo_models WHERE scope=${side}.scope),0) FROM bo_journal_context WHERE id=1; END;`);
@@ -357,10 +365,14 @@ export class BackOfficeJournal {
     const result: Record<string, Json> = {};
     for (const { table, kind, target } of auditedTables) {
       for (const row of this.db.all(
-        `SELECT ${target} AS target,data FROM ${table} WHERE scope=?`,
+        `SELECT ${target} AS target,data${kind === "record" ? ",object_id" : ""} FROM ${table} WHERE scope=?`,
         [scope],
-      ))
-        result[`${kind}:${String(row.target)}`] = parseJson(String(row.data));
+      )) {
+        const value = parseJson(String(row.data));
+        if (kind !== "model" && (!value || typeof value !== "object" || Array.isArray(value) || value.id !== String(row.target) || (kind === "record" && value.objectId !== row.object_id)))
+          throw new Error("Back Office indexed row identity differs from its recorded data.");
+        result[`${kind}:${String(row.target)}`] = value;
+      }
     }
     return result;
   }
@@ -432,11 +444,20 @@ export class BackOfficeJournal {
         rows.map((row) => JSON.parse(row.proof)),
         checkpoint ?? this.root(stream),
       );
+      for (const row of rows) {
+        const proof = BackOfficeAuditProofSchema.parse(JSON.parse(row.proof));
+        if (proof.streamId !== row.stream_id || proof.sequence !== row.sequence || proof.eventId !== row.event_id || proof.scopeKey !== backOfficeAuditScopeKey(stream.scope))
+          throw new Error("Back Office journal row identity differs from its signed proof.");
+      }
       const active = this.db.get(
         "SELECT scope FROM bo_journal_active WHERE stream_id=?",
         [stream.stream_id],
       );
       const key = this.storage.key(stream.stream_id);
+      if (active && (active.scope !== stream.scope || latest.get(stream.scope) !== stream.stream_id))
+        throw new Error("Back Office active-stream identity differs from its recorded scope.");
+      if (latest.get(stream.scope) !== stream.stream_id && this.db.get("SELECT entity_key FROM bo_journal_state_nonces WHERE stream_id=? LIMIT 1", [stream.stream_id]))
+        throw new Error("Back Office retains nonce state for a superseded stream.");
       if (active && !key)
         throw new Error(
           "Back Office history encryption key is missing. Further changes are blocked.",
@@ -470,12 +491,16 @@ export class BackOfficeJournal {
   entries(streamId: string): BackOfficeAuditEntry[] {
     const key = this.storage.key(streamId);
     if (!key) return [];
-    return this.rows(streamId).map((row) =>
-      verifyBackOfficeAuditEntry({
+    const stream = StreamSchema.parse(this.db.get("SELECT * FROM bo_journal_streams WHERE stream_id=?", [streamId]));
+    return this.rows(streamId).map((row) => {
+      const entry = verifyBackOfficeAuditEntry({
         payload: unseal(row.sealed, key),
         proof: JSON.parse(row.proof),
-      }),
-    );
+      });
+      if (entry.payload.scope !== stream.scope || entry.proof.sequence !== row.sequence || entry.proof.eventId !== row.event_id || entry.proof.streamId !== row.stream_id)
+        throw new Error("Back Office journal row identity differs from its signed proof.");
+      return entry;
+    });
   }
 
   /** Call inside the store's coordinated read transaction after verification. */

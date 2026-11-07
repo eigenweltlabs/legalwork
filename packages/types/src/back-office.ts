@@ -937,6 +937,8 @@ export const BackOfficeAuditProofSchema = z
   .object({
     version: z.literal(BACK_OFFICE_AUDIT_VERSION),
     streamId: z.string().uuid(),
+    eventId: z.string().uuid(),
+    scopeKey: digest,
     sequence: z.number().int().positive().safe(),
     previousHash: digest,
     payloadHash: digest,

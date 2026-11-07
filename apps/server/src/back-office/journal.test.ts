@@ -2,6 +2,7 @@ import { afterEach, expect, spyOn, test } from "bun:test";
 import { copyFile, mkdtemp, rm } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { BackOfficeStore } from "./store.js";
@@ -80,6 +81,11 @@ test("record, relationship, model and view changes produce signed encrypted hist
 test("application SQL cannot update or delete accepted journal entries or bypass capture", async () => {
   const { store, person } = await fixture();
   expect(() =>
+    store.db.run("UPDATE bo_records SET object_id='companies' WHERE id=?", [person.id]),
+  ).toThrow("row identity is immutable");
+  expect(() => store.db.run("UPDATE bo_journal_active SET scope='other'"))
+    .toThrow("active-stream identity is immutable");
+  expect(() =>
     store.db.run("UPDATE bo_journal_entries SET sealed='changed'"),
   ).toThrow("append-only");
   expect(() => store.db.run("DELETE FROM bo_journal_entries")).toThrow(
@@ -97,6 +103,41 @@ test("application SQL cannot update or delete accepted journal entries or bypass
   expect(store.raw("local", person.id)?.values.name).toBe(
     "Confidential client",
   );
+});
+
+test("indexed record identity cannot be altered behind an unchanged signed data payload", async () => {
+  const { store, person } = await fixture();
+  const guard = String(store.db.get("SELECT sql FROM sqlite_master WHERE name='bo_records_journal_guard_UPDATE'")!.sql);
+  store.db.exec("DROP TRIGGER bo_records_journal_guard_UPDATE");
+  store.db.run("UPDATE bo_records SET object_id='companies' WHERE id=?", [person.id]);
+  store.db.exec(guard);
+  expect(() => store.journal.verify()).toThrow("indexed row identity");
+});
+
+test("retained proofs bind row event IDs and directory scope after payload key erasure", async () => {
+  for (const mutation of ["event", "scope"]) {
+    const { store, storage } = await fixture();
+    const person = store.saveRecord("firm", owner, { objectId: "people", revision: 0, values: { name: "Revoked client" } });
+    const stream = storage.heads().find(head => store.journal.entries(head.streamId).some(entry => entry.payload.entityId === person.id))!;
+    store.suspendTeam("firm", "Revoked");
+    expect(storage.key(stream.streamId)).toBeNull();
+    const trigger = mutation === "event" ? "bo_journal_entries_no_update" : "bo_journal_streams_no_update";
+    const guard = String(store.db.get("SELECT sql FROM sqlite_master WHERE name=?", [trigger])!.sql);
+    store.db.exec(`DROP TRIGGER ${trigger}`);
+    if (mutation === "event") store.db.run("UPDATE bo_journal_entries SET event_id=? WHERE stream_id=? AND sequence=1", [randomUUID(), stream.streamId]);
+    else store.db.run("UPDATE bo_journal_streams SET scope='changed-scope' WHERE stream_id=?", [stream.streamId]);
+    store.db.exec(guard);
+    expect(() => store.journal.verify()).toThrow("row identity differs from its signed proof");
+  }
+});
+
+test("an altered active-stream scope is detected independently of current business values", async () => {
+  const { store } = await fixture();
+  const guard = String(store.db.get("SELECT sql FROM sqlite_master WHERE name='bo_journal_active_no_update'")!.sql);
+  store.db.exec("DROP TRIGGER bo_journal_active_no_update");
+  store.db.run("UPDATE bo_journal_active SET scope='changed-scope'");
+  store.db.exec(guard);
+  expect(() => store.journal.verify()).toThrow("active-stream identity differs");
 });
 
 test("an audit-write failure rolls back both business data and queued proposals", async () => {

@@ -52,9 +52,13 @@ export const backOfficeAuditEntityKey = (
   entityType: BackOfficeAuditPayload["entityType"],
   entityId: string,
 ) => hash(canonicalBackOfficeAudit({ scope, entityType, entityId }));
+export const backOfficeAuditScopeKey = (scope: string) =>
+  hash(canonicalBackOfficeAudit({ domain: `${domain}.Scope`, scope }));
 function proofBody(proof: BackOfficeAuditProof) {
   return {
     streamId: proof.streamId,
+    eventId: proof.eventId,
+    scopeKey: proof.scopeKey,
     sequence: proof.sequence,
     previousHash: proof.previousHash,
     payloadHash: proof.payloadHash,
@@ -92,6 +96,8 @@ export function signBackOfficeAudit(
   const payload = BackOfficeAuditPayloadSchema.parse(raw);
   const chain = {
     streamId: payload.streamId,
+    eventId: payload.eventId,
+    scopeKey: backOfficeAuditScopeKey(payload.scope),
     sequence: payload.sequence,
     previousHash,
     payloadHash: payloadHash(payload),
@@ -149,6 +155,8 @@ export function verifyBackOfficeAuditEntry(raw: unknown): BackOfficeAuditEntry {
   verifyBackOfficeAuditProof(entry.proof);
   if (
     entry.proof.streamId !== entry.payload.streamId ||
+    entry.proof.eventId !== entry.payload.eventId ||
+    entry.proof.scopeKey !== backOfficeAuditScopeKey(entry.payload.scope) ||
     entry.proof.sequence !== entry.payload.sequence ||
     entry.proof.payloadHash !== payloadHash(entry.payload) ||
     entry.proof.entityType !== entry.payload.entityType ||

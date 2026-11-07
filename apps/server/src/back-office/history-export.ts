@@ -11,6 +11,7 @@ import {
 import {
   verifyBackOfficeAuditEntry,
   verifyBackOfficeAuditProofChain,
+  backOfficeAuditScopeKey,
 } from "./audit-integrity.js";
 
 const bytes = (body: BackOfficeHistoryExportBody) =>
@@ -55,6 +56,8 @@ export function verifyBackOfficeHistoryExport(
 ) {
   const exported = BackOfficeHistoryExportSchema.parse(raw),
     { body } = exported;
+  if (body.proofs.some(proof => proof.scopeKey !== backOfficeAuditScopeKey(body.scope)))
+    throw new Error("History export contains proofs from a different directory.");
   const key = createPublicKey({
     key: Buffer.from(exported.publicKey, "base64"),
     type: "spki",
