@@ -1,5 +1,13 @@
 # Local project support storage implementation
 
+## Requested removal — nested instruction reminders
+
+User requested removing the scoped nested-AGENTS reminder on 2026-11-07. Remove its plugin registration, implementation, dedicated test and now-unused reminder callback argument. Retain native root AGENTS instructions, local root-configuration snapshots and existing app-state reminders. Update the current proposal/help and draft PR; run the relevant existing checks after editing. Earlier verification below describes the preceding revision and is superseded for nested instructions by this removal.
+
+Implemented removal. Server source has no remaining hook registration, scope metadata or implementation references. The shared reminder helper and its tests match the version before the nested-instruction addition. Existing chat history is preserved.
+
+Verification after removal: `pnpm --filter legalwork-server build`, `pnpm docs:generate`, `pnpm docs:check` and `git diff --check` passed. `bun test apps/server/src/opencode-plugins/native-app-state-reminders.test.ts apps/server/src/legalwork-runtime-config.test.ts apps/server/src/managed-config-sources.test.ts apps/server/src/project-storage.test.ts`: **49 passed**, 0 failed. With the pinned engine configured, `bun test apps/server/src/managed-file-permissions.released.test.ts`: **2 passed**, 0 failed. The real native model fixture completed a document read with root instructions present and the external nested instruction marker absent; evidence: `/tmp/legalwork-storage-remove-scoped-model-evidence.json`.
+
 ## Follow-up fixes and wiki migration — authorized 2026-11-07
 
 Implement in the same worktree, after recording this plan. Keep standard native file-tool arguments and resolution. Run focused verification after the implementation/path audit, extending existing tests where useful.
