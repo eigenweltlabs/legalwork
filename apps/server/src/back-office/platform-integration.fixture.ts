@@ -325,6 +325,10 @@ try {
       .map((view) => view.type)
       .sort(),
     ["calendar", "kanban", "list", "table"],
+    JSON.stringify({
+      first: a.store.syncState(scope),
+      second: b.store.syncState(scope),
+    }),
   );
   a.store.saveView(scope, a.actor, {
     ...savedViews[1],
@@ -350,9 +354,11 @@ try {
     required: false,
   });
   clientObject.plural = "Firm clients";
-  a.store.transaction(() => a.store.db.run("UPDATE bo_models SET data=? WHERE scope='local'", [
-    JSON.stringify(local),
-  ]));
+  a.store.transaction(() =>
+    a.store.db.run("UPDATE bo_models SET data=? WHERE scope='local'", [
+      JSON.stringify(local),
+    ]),
+  );
   a.store.saveRecord(scope, a.actor, {
     objectId: "companies",
     revision: 0,
