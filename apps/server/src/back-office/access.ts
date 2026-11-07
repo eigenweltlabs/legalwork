@@ -7,6 +7,14 @@ import { backOfficePrincipalKey } from "./principal.js";
 import { reconcileBackOfficeAccounts } from "./accounts.js";
 import { backOfficeStore, existingBackOfficeStore } from "./store.js";
 
+/** Refresh only a completed sync's response context, never its captured write authority. */
+export async function refreshBackOfficeActor(config: ServerConfig, scope: string, actor: BackOfficeActor) {
+  const current = await backOfficeAccess(config, scope !== "local");
+  if (current.scope !== scope || current.actor.principalKey !== actor.principalKey)
+    throw new ApiError(409, "back_office_account_changed", "The connected account changed. Refresh Back Office before continuing.");
+  Object.assign(actor, current.actor);
+}
+
 export async function backOfficeAccess(
   config: ServerConfig,
   team?: boolean,

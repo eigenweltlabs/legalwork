@@ -26,7 +26,7 @@ import {
 } from "../routes/registry.js";
 import type { ServerConfig, TokenScope, WorkspaceInfo } from "../types.js";
 import { backOfficeStore, type BackOfficeStore } from "./store.js";
-import { backOfficeAccess } from "./access.js";
+import { backOfficeAccess, refreshBackOfficeActor } from "./access.js";
 import { previewImport, applyImport } from "./import.js";
 import { announceSyncChange } from "../app-sync-events.js";
 import {
@@ -176,10 +176,7 @@ export function registerBackOfficeRoutes(options: {
     if (scope !== "local") {
       store.setSync(scope, true);
       await syncBackOffice(options.config);
-      const refreshed = await backOfficeAccess(options.config, true);
-      if (refreshed.actor.principalKey !== actor.principalKey)
-        throw new ApiError(409, "back_office_account_changed", "The connected account changed. Refresh Back Office before continuing.");
-      Object.assign(actor, refreshed.actor);
+      await refreshBackOfficeActor(options.config, scope, actor);
     }
     return {
       scope,
@@ -618,22 +615,28 @@ export function registerBackOfficeRoutes(options: {
       actor,
     );
     await syncBackOffice(options.config);
+    await refreshBackOfficeActor(options.config, scope, actor);
     return { ok: true };
   });
-  route("POST", "/sync/preview", async () =>
-    previewBackOfficePublish(options.config),
-  );
-  route("POST", "/sync/publish", async (ctx) =>
-    publishBackOffice(
+  route("POST", "/sync/preview", async (_ctx, _store, { scope, actor }) => {
+    const result = await previewBackOfficePublish(options.config);
+    await refreshBackOfficeActor(options.config, scope, actor);
+    return result;
+  });
+  route("POST", "/sync/publish", async (ctx, _store, { scope, actor }) => {
+    const result = await publishBackOffice(
       options.config,
       z
         .string()
         .uuid()
         .parse((await input(ctx)).planId),
-    ),
-  );
+    );
+    await refreshBackOfficeActor(options.config, scope, actor);
+    return result;
+  });
   route("POST", "/sync", async (_ctx, store, { scope, actor }) => {
     await syncBackOffice(options.config);
+    await refreshBackOfficeActor(options.config, scope, actor);
     return store.syncState(scope, actor);
   });
   route("GET", "/projects", async () => ({
