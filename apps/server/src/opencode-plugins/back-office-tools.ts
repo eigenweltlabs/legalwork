@@ -102,7 +102,7 @@ export function backOfficeTools(ctx: Plugin.Context) {
     nativeTool(ctx, {
       name: "legalwork_back_office_records",
       description:
-        "List accessible records of a discovered object, including the archive when requested. Relations use stable record IDs. Project links form a many-to-many relationship through the projectLinks object.",
+        "List accessible records of a discovered object, including the archive when requested. Relations use stable record IDs. Projects reference records through their existing metadata: use a backoffice field with objectId, multiple and a value {directoryId, recordIds}. Discover the directoryId first; do not create separate project-link records.",
       schema: z.object({
         objectId: z.string().min(1),
         archived: z.boolean().default(false),

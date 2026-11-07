@@ -5,7 +5,7 @@ import { Plugin } from "@opencode/plugin";
 import { nativeTool, nativeToolSignal, nativeObjectOutput } from "./native-tool.js";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import { projectFieldsSchema } from "../project-schema.js";
+import { projectFieldsSchema, projectFieldValueSchema } from "../project-schema.js";
 import { listWorkspaces, serverToken, serverUrl, type OpenCodeContext } from "./office-plugin-shared.js";
 import { findProjectForDirectory } from "../workspace-path-match.js";
 import { registerAppStateReminders } from "./native-app-state-reminders.js";
@@ -48,7 +48,7 @@ const createArgs = z.object({
   name: z.string().trim().min(1).max(120),
   templateId: z.string().min(1).max(100).nullable().optional().describe("Exact ID from legalwork_project_templates. Omit to use the default; null creates no metadata fields. Do not combine with projectFields."),
   templateLanguage: z.enum(["en", "de"]).optional().describe("Language for the selected template's suggested fields. Use de for German."),
-  projectFields: projectFieldsSchema.optional().describe("Create your own metadata fields instead of a template. Each field has a unique id, label, type (text/number/date/select), value (null if unknown), and options for select. Dates use YYYY-MM-DD. Supply only known values. An empty array creates no fields. Omit templateId when providing this."),
+  projectFields: projectFieldsSchema.optional().describe("Create your own metadata fields instead of a template. Each field has a unique id, label, type (text/number/date/select/backoffice), value (null if unknown), and options for select. Back Office fields also need objectId and multiple; values are {directoryId, recordIds}, using the exact directoryId and record IDs from legalwork_back_office_discover. Never match or invent a record from a name. Dates use YYYY-MM-DD. Supply only known values. An empty array creates no fields. Omit templateId when providing this."),
 }).refine((input) => input.templateId === undefined || input.projectFields === undefined, "Choose either a template or your own fields.");
 
 async function request(context: OpenCodeContext, route: string, args: Record<string, string | number | undefined>, body?: unknown, method = body === undefined ? "GET" : "PATCH", approve?: (current: unknown, workspace: { id: string; path: string }) => Promise<void>) {
@@ -87,7 +87,7 @@ const setupArgs = z.object({
 });
 const metadataArgs = z.object({
   revision: z.number().int().nonnegative().describe("Latest revision from legalwork_project_get_details."),
-  values: z.record(z.string(), z.union([z.string().max(4000), z.number().finite(), z.null()])).describe("Values keyed by the exact discovered field IDs. Preserve labels/types/options. Number fields need numbers, dates YYYY-MM-DD, select values an existing option. Omitted fields stay unchanged; null clears a value. Never guess missing facts."),
+  values: z.record(z.string(), projectFieldValueSchema).describe("Values keyed by the exact discovered field IDs. Preserve labels/types/options. Number fields need numbers, dates YYYY-MM-DD, select values an existing option. Omitted fields stay unchanged; null clears a value. Never guess missing facts."),
 });
 const instructionsArgs = z.object({
   revision: z.number().int().nonnegative().describe("Latest revision from legalwork_project_get_instructions. Reread after any project change or revision conflict."),

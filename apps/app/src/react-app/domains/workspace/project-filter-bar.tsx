@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ArrowLeft, CalendarDays, Check, ChevronDown, Hash, ListFilter, Loader2, Plus, Search, Type, Users, X } from "lucide-react";
+import { ArrowLeft, Database, CalendarDays, Check, ChevronDown, Hash, ListFilter, Loader2, Plus, Search, Type, Users, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -11,10 +11,10 @@ import { currentLocale, t } from "@/i18n";
 import { cn } from "@/lib/utils";
 import { filterNeedsValue, filterOperators, validProjectFilter, type FilterOperator, type ProjectFilter, type ProjectFilterField, type ProjectFilterMode } from "./project-filters";
 
-const icons = { text: Type, number: Hash, date: CalendarDays, select: ListFilter };
+const icons = { text: Type, number: Hash, date: CalendarDays, select: ListFilter, backoffice: Database };
 
 function operatorLabel(operator: FilterOperator, type: ProjectFilterField["type"]) {
-  if (type === "select" && (operator === "is" || operator === "is_not")) return operator === "is" ? t("project_filters.is_any") : t("project_filters.is_none");
+  if ((type === "select" || type === "backoffice") && (operator === "is" || operator === "is_not")) return operator === "is" ? t("project_filters.is_any") : t("project_filters.is_none");
   if (type === "date" && operator === "is") return t("project_filters.on");
   return {
     contains: t("project_filters.contains"),
@@ -45,13 +45,14 @@ function fieldTypeLabel(type: ProjectFilterField["type"]) {
     number: t("projects.type_number"),
     date: t("projects.type_date"),
     select: t("projects.type_select"),
+    backoffice: t("projects.reference.type"),
   }[type];
 }
 
-function filterSummary(filter: ProjectFilter) {
+function filterSummary(filter: ProjectFilter, field?: ProjectFilterField) {
   const display = (value: string) => filter.field.type === "date"
     ? new Date(`${value}T00:00:00`).toLocaleDateString(currentLocale(), { day: "numeric", month: "short", year: "numeric" })
-    : filter.field.type === "number" ? Number(value).toLocaleString(currentLocale()) : value;
+    : filter.field.type === "number" ? Number(value).toLocaleString(currentLocale()) : filter.field.type === "backoffice" ? field?.options.find(option => option.value === value)?.label ?? t("projects.reference.unavailable") : value;
   if (!filterNeedsValue(filter.operator)) return "";
   if (filter.operator === "between") return filter.values.map(display).join(" – ");
   if (filter.values.length > 2) return `${display(filter.values[0])} +${filter.values.length - 1}`;
@@ -145,7 +146,7 @@ function FilterChip({ filter, field, onChange, onRemove }: { filter: ProjectFilt
   const [open, setOpen] = useState(false);
   const resolved = field ?? { ...filter.field, options: [] };
   const Icon = icons[resolved.type];
-  const summary = filterSummary(filter);
+  const summary = filterSummary(filter, field);
   return <div className="inline-flex h-7 min-w-0 max-w-full items-center rounded-lg border border-border/80 bg-muted/35 text-xs">
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger render={<Button variant="ghost" className="h-[26px] min-w-0 gap-1.5 rounded-r-none px-2 text-xs font-normal" title={`${resolved.label} ${operatorLabel(filter.operator, resolved.type)} ${summary}`}>
@@ -169,8 +170,8 @@ function ProjectFilterEditor({ field, initial, onApply }: { field: ProjectFilter
   const [search, setSearch] = useState("");
   const draft: ProjectFilter = { id: initial?.id ?? "draft", field: { key: field.key, label: field.label, type: field.type }, operator, values };
   const needsValue = filterNeedsValue(operator);
-  const options = [...field.options, ...values.filter(value => value && !field.options.some(option => option.value === value)).map(value => ({ value, count: 0 }))];
-  const visibleOptions = options.filter(option => option.value.toLocaleLowerCase().includes(search.toLocaleLowerCase()));
+  const options = [...field.options, ...values.filter(value => value && !field.options.some(option => option.value === value)).map(value => ({ value, label: field.type === "backoffice" ? t("projects.reference.unavailable") : value, count: 0 }))];
+  const visibleOptions = options.filter(option => (option.label ?? option.value).toLocaleLowerCase().includes(search.toLocaleLowerCase()));
   const suggestions = field.type === "text" ? field.options.filter(option => option.value.toLocaleLowerCase().includes((values[0] ?? "").toLocaleLowerCase())).slice(0, 6) : [];
   const valid = validProjectFilter(draft);
   return <form className="min-w-0 p-3" onSubmit={event => { event.preventDefault(); if (valid) onApply({ ...draft, id: initial?.id ?? crypto.randomUUID() }); }}>
@@ -178,17 +179,17 @@ function ProjectFilterEditor({ field, initial, onApply }: { field: ProjectFilter
       const next = filterOperators(field.type).find(operator => operator === value);
       if (!next) return;
       setOperator(next);
-      setValues(current => field.type === "select" ? current : current.slice(0, next === "between" ? 2 : 1));
+      setValues(current => (field.type === "select" || field.type === "backoffice") ? current : current.slice(0, next === "between" ? 2 : 1));
     }}>
       <SelectTrigger aria-label={t("project_filters.operator")} className="h-8 w-full text-xs"><SelectValue>{operatorLabel(operator, field.type)}</SelectValue></SelectTrigger>
       <SelectContent align="start">{filterOperators(field.type).map(operator => <SelectItem key={operator} value={operator} className="text-xs">{operatorLabel(operator, field.type)}</SelectItem>)}</SelectContent>
     </Select>
-    {needsValue && (field.type === "select" ? <div className="mt-3">
+    {needsValue && ((field.type === "select" || field.type === "backoffice") ? <div className="mt-3">
       <div className="relative"><Search className="pointer-events-none absolute left-2.5 top-2.5 size-3.5 text-muted-foreground" /><Input autoFocus aria-label={t("project_filters.search_options")} placeholder={t("project_filters.search_options")} className="h-8 pl-8 text-xs md:text-xs" value={search} onChange={event => setSearch(event.target.value)} /></div>
       <div className="mt-2 max-h-52 space-y-0.5 overflow-auto">
         {visibleOptions.map(option => <label key={option.value} className="flex cursor-pointer items-center gap-2.5 rounded-lg px-2 py-2 text-xs hover:bg-muted/70">
           <Checkbox checked={values.includes(option.value)} onCheckedChange={checked => setValues(current => checked ? [...current, option.value] : current.filter(value => value !== option.value))} />
-          <span className="min-w-0 flex-1 truncate" title={option.value}>{option.value}</span><span className="text-[10px] tabular-nums text-muted-foreground">{option.count}</span>
+          <span className="min-w-0 flex-1 truncate" title={option.label ?? option.value}>{option.label ?? (field.type === "backoffice" ? t("projects.reference.unavailable") : option.value)}</span><span className="text-[10px] tabular-nums text-muted-foreground">{option.count}</span>
         </label>)}
         {!visibleOptions.length && <p className="py-4 text-center text-xs text-muted-foreground">{t("project_filters.no_options")}</p>}
       </div>
@@ -208,7 +209,7 @@ function ProjectFilterEditor({ field, initial, onApply }: { field: ProjectFilter
       </div>}
     </div>)}
     <div className="mt-3 flex items-center justify-end gap-2 border-t border-border/60 pt-3">
-      {field.type === "select" && needsValue && <span className="mr-auto text-[11px] text-muted-foreground">{t("project_filters.selected", { count: values.length })}</span>}
+      {(field.type === "select" || field.type === "backoffice") && needsValue && <span className="mr-auto text-[11px] text-muted-foreground">{t("project_filters.selected", { count: values.length })}</span>}
       <Button type="submit" size="sm" className="h-7 px-3 text-xs" disabled={!valid}>{t(initial ? "project_filters.apply" : "project_filters.add")}</Button>
     </div>
   </form>;

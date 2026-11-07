@@ -12,7 +12,7 @@ import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { z } from "zod";
 import type { ProjectDetails, ProjectRemote } from "@legalwork/types/workspace";
-import { projectRemoteSchema, projectFieldsSchema } from "./project-schema.js";
+import { projectRemoteSchema, projectFieldsSchema, projectFieldValueSchema } from "./project-schema.js";
 import { ApiError } from "./errors.js";
 import { MAX_CUSTOM_INSTRUCTIONS_LENGTH } from "./runtime-opencode-config-store.js";
 import { keepProjectStateDownloaded } from "./project-availability.js";
@@ -150,7 +150,7 @@ export async function updateProjectPersonalization(root: string, input: unknown)
 export async function updateProjectFieldValues(root: string, input: unknown): Promise<ProjectDetails> {
   const parsed = z.object({
     revision: z.number().int().nonnegative(),
-    values: z.record(z.string(), z.union([z.string().max(4000), z.number().finite(), z.null()])),
+    values: z.record(z.string(), projectFieldValueSchema),
   }).strict().safeParse(input);
   if (!parsed.success) throw new ApiError(400, "invalid_project_metadata", "Provide the current revision and values keyed by existing field IDs.");
   return writeProjectDetails(root, (current) => {

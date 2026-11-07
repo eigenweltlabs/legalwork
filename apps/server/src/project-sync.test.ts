@@ -719,6 +719,25 @@ describe("project sync between computers", () => {
     }
   });
 
+  test("Back Office metadata references round-trip between computers with custom targets and stable directory identity", async () => {
+    const { platform } = fakeFirm();
+    const owner = await machine("user_anna", "Anna"), member = await machine("user_ben", "Ben");
+    const project = await localProject(owner.config, "References");
+    const reference: ProjectField = { id: "our_contact", label: "Our contacts", type: "backoffice", objectId: "customContacts", multiple: true,
+      value: { directoryId: "team:fixture-firm", recordIds: [crypto.randomUUID(), crypto.randomUUID()] } };
+    await updateProjectDetails(project.path, { revision: 0, fields: [reference] });
+    await saveProjectSyncSettings(owner.config, project, settings({ access: "org" }));
+    await runProjectSync(owner.config, { platform });
+    await runProjectSync(member.config, { platform });
+    const [copy] = projectsOf(member.config), before = await readProjectDetails(copy.path);
+    expect(before.fields).toEqual([reference]);
+    const updated = await updateProjectDetails(copy.path, { revision: before.revision, fields: [{ ...reference, value: null }] });
+    await noteProjectDetailsSaved(member.config, copy.id, before.fields, updated.fields);
+    await runProjectSync(member.config, { platform });
+    await runProjectSync(owner.config, { platform });
+    expect((await readProjectDetails(project.path)).fields).toEqual([{ ...reference, value: null }]);
+  });
+
   test("keeps both versions when two members edit the same document", async () => {
     const { platform } = fakeFirm();
     const owner = await machine("user_anna", "Anna");

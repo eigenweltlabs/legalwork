@@ -1,5 +1,8 @@
 import { useState, type ReactNode } from "react";
 import type { ProjectDetails, ProjectField } from "@legalwork/types/workspace";
+import { Checkbox } from "@/components/ui/checkbox";
+import { projectReferenceObjects, useProjectBackOffice } from "./project-record-field";
+import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,6 +22,7 @@ import { projectErrorMessage } from "./project-errors";
 import { changeProjectFieldType, parseProjectOptions } from "./project-field-editing";
 
 export function ProjectMetadata(props: {
+  client?: LegalworkServerClient | null;
   details: Pick<ProjectDetails, "fields">;
   definitionsOnly?: boolean;
   children?: ReactNode;
@@ -27,6 +31,8 @@ export function ProjectMetadata(props: {
   onCancel: () => void;
   onReload?: () => Promise<Pick<ProjectDetails, "fields">>;
 }) {
+  const directory = useProjectBackOffice(props.client);
+  const objects = projectReferenceObjects(directory.data);
   const templates = useProjectDefaultsStore((state) => state.templates);
   const [templateId, setTemplateId] = useState<string | null>(null);
   const typeLabels = {
@@ -34,18 +40,14 @@ export function ProjectMetadata(props: {
     number: t("projects.type_number"),
     date: t("projects.type_date"),
     select: t("projects.type_select"),
+    backoffice: t("projects.reference.type"),
   };
   const [fields, setFields] = useState(() => props.definitionsOnly ? localizedTemplateFields(props.details.fields) : localizedProjectFields(props.details.fields));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [conflict, setConflict] = useState(false);
   const [optionDrafts, setOptionDrafts] = useState<Record<string, string>>({});
-  const change = (id: string, patch: Partial<ProjectField>) =>
-    setFields((current) =>
-      current.map((field) =>
-        field.id === id ? { ...field, ...patch } : field,
-      ),
-    );
+  const replace = (next: ProjectField) => setFields(current => current.map(field => field.id === next.id ? next : field));
   const save = async () => {
     if (busy || conflict || props.saveDisabled) return;
     if (fields.some((field) => !field.label.trim())) return;
@@ -102,31 +104,27 @@ export function ProjectMetadata(props: {
               maxLength={100}
               value={field.label}
               onChange={(event) =>
-                change(field.id, { label: event.target.value, labelSource: "custom" })
+                replace({ ...field, label: event.target.value, labelSource: "custom" })
               }
             />
             <Select
-              value={field.type}
+              value={field.type === "backoffice" ? `backoffice:${field.objectId}` : field.type}
               onValueChange={(value) => {
-                if (
-                  value === "text" ||
-                  value === "number" ||
-                  value === "date" ||
-                  value === "select"
-                ) {
-                  const next = changeProjectFieldType(field, value);
-                  if (!next) { setError(t("projects.type_preserve_value")); return; }
-                  change(field.id, next);
-                  setOptionDrafts((current) => ({ ...current, [field.id]: next.options?.join(", ") ?? "" }));
-                  setError(null);
-                }
+                const object = objects.find(object => `backoffice:${object.id}` === value);
+                const type = object ? "backoffice" : value === "text" || value === "number" || value === "date" || value === "select" ? value : null;
+                if (!type) return;
+                const next = changeProjectFieldType(field, type, object?.id);
+                if (!next) { setError(t("projects.type_preserve_value")); return; }
+                replace(next);
+                setOptionDrafts(current => ({ ...current, [field.id]: next.options?.join(", ") ?? "" }));
+                setError(null);
               }}
             >
               <SelectTrigger
                 aria-label={t("projects.field_type")}
                 className="w-full"
               >
-                <SelectValue>{typeLabels[field.type]}</SelectValue>
+                <SelectValue>{field.type === "backoffice" ? objects.find(object => object.id === field.objectId)?.plural ?? t("projects.reference.unavailable_object") : typeLabels[field.type]}</SelectValue>
               </SelectTrigger>
               <SelectContent>
                 {(
@@ -141,6 +139,8 @@ export function ProjectMetadata(props: {
                     {typeLabels[type]}
                   </SelectItem>
                 ))}
+                {objects.map(object => <SelectItem key={object.id} value={`backoffice:${object.id}`}>{object.plural}</SelectItem>)}
+                {field.type === "backoffice" && !objects.some(object => object.id === field.objectId) && <SelectItem value={`backoffice:${field.objectId}`} disabled>{t("projects.reference.unavailable_object")}</SelectItem>}
               </SelectContent>
             </Select>
             <Button
@@ -156,7 +156,12 @@ export function ProjectMetadata(props: {
             >
               <Trash2 className="size-4" />
             </Button>
-            {field.type === "select" ? (
+            {field.type === "backoffice" ? <div className="space-y-2 sm:col-span-3">
+              <label className="flex items-center gap-2 text-xs"><Checkbox checked={field.multiple} onCheckedChange={checked => {
+                if (!checked && (field.value?.recordIds.length ?? 0) > 1) { setError(t("projects.reference.single_hint")); return; }
+                replace({ ...field, multiple: checked === true });
+              }} />{t("projects.reference.multiple")}</label>
+            </div> : field.type === "select" ? (
               <div className="grid gap-2 sm:col-span-3">
                 <Input
                   aria-label={t("projects.options")}
@@ -165,59 +170,11 @@ export function ProjectMetadata(props: {
                   onChange={(event) => {
                     const draft = event.target.value;
                     setOptionDrafts((current) => ({ ...current, [field.id]: draft }));
-                    change(field.id, { options: parseProjectOptions(draft) });
+                    replace({ ...field, options: parseProjectOptions(draft) });
                   }}
                 />
-                {!props.definitionsOnly ? <Select
-                  value={String(field.value ?? "")}
-                  onValueChange={(value) =>
-                    change(field.id, { value: value || null })
-                  }
-                >
-                  <SelectTrigger
-                    className="w-full"
-                    aria-label={field.label || t("projects.value")}
-                  >
-                    <SelectValue placeholder={t("projects.value")} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="">
-                      {t("projects.empty_value")}
-                    </SelectItem>
-                    {field.options?.map((option) => (
-                      <SelectItem key={option} value={option}>
-                        {option}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select> : null}
+
               </div>
-            ) : !props.definitionsOnly ? (
-              <Input
-                className="sm:col-span-3"
-                aria-label={field.label || t("projects.value")}
-                placeholder={t("projects.value")}
-                type={
-                  field.type === "number"
-                    ? "number"
-                    : field.type === "date"
-                      ? "date"
-                      : "text"
-                }
-                step="any"
-                maxLength={4000}
-                value={field.value ?? ""}
-                onChange={(event) =>
-                  change(field.id, {
-                    value:
-                      field.type === "number"
-                        ? event.target.value === ""
-                          ? null
-                          : Number(event.target.value)
-                        : event.target.value,
-                  })
-                }
-              />
             ) : null}
           </div>
         ))}

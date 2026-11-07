@@ -56,7 +56,7 @@ export function ProjectDefaultsSection({ client = null }: { client?: LegalworkSe
     <Dialog open={editing !== null} onOpenChange={(open) => { if (!open) setEditing(null); }}>
       <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader><DialogTitle>{t("projects.templates.edit")}</DialogTitle><DialogDescription>{t("projects.templates.edit_hint")}</DialogDescription></DialogHeader>
-        {editing ? <ProjectMetadata key={`${editing.id}:${editingRevision}`} definitionsOnly details={{ fields: editing.fields }} saveDisabled={disabled || !editing.name.trim()} onCancel={() => setEditing(null)} onReload={async () => {
+        {editing ? <ProjectMetadata client={client} key={`${editing.id}:${editingRevision}`} definitionsOnly details={{ fields: editing.fields }} saveDisabled={disabled || !editing.name.trim()} onCancel={() => setEditing(null)} onReload={async () => {
           const latest = await catalog.refetch();
           if (!latest.data || latest.error) throw latest.error;
           const template = latest.data.templates.find((entry) => entry.id === editing.id);

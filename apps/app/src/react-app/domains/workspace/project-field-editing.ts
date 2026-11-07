@@ -5,8 +5,18 @@ export function parseProjectOptions(value: string): string[] {
 }
 
 /** Reject incompatible conversions instead of silently erasing a stored value. */
-export function changeProjectFieldType(field: ProjectField, type: ProjectField["type"]): ProjectField | null {
+export function changeProjectFieldType(field: ProjectField, type: ProjectField["type"], objectId?: string): ProjectField | null {
+  if (type === "backoffice") {
+    if (!objectId) return null;
+    if (field.type === type && field.objectId === objectId) return field;
+    if (field.value !== null && field.value !== "") return null;
+    return { id: field.id, label: field.label, labelSource: field.labelSource, type, objectId, multiple: true, value: null };
+  }
   if (field.type === type) return field;
+  if (field.type === "backoffice") {
+    if (field.value !== null) return null;
+    return { id: field.id, label: field.label, labelSource: field.labelSource, type, value: null, ...(type === "select" ? { options: [] } : {}) };
+  }
   let value = field.value;
   if (value !== null && value !== "") {
     if (type === "number") {

@@ -223,7 +223,7 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
   const beginCreate = async (values: Record<string, BackOfficeValue> = {}) => {
     if (!object || !data) return;
     if (object.id === "projectLinks") {
-      setError("Link projects from a matter’s record panel.");
+      setError("Use project metadata to connect Back Office records.");
       return;
     }
     setError("");
@@ -577,26 +577,10 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
               editable={data.permissions.edit}
               finance={data.permissions.finance}
               userId={data.permissions.userId}
-              projects={projects.data?.projects ?? []}
               onClose={() => setDetailId(null)}
               onSave={save}
               onOpen={(record) => setDetailId(record.id)}
-              onLink={async (projectId, matter) => {
-                const project = projects.data?.projects.find(
-                  (project) => project.id === projectId,
-                );
-                await request("/records", {
-                  objectId: "projectLinks",
-                  revision: 0,
-                  values: {
-                    name: project?.name ?? projectId,
-                    projectId,
-                    matter: matter.id,
-                  },
-                });
-                await refresh();
-              }}
-              onUnlink={(record) => save(record, {}, true)}
+
             />
           )}
           {importing && object && (

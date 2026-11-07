@@ -22,6 +22,7 @@ import { resolveWorkspaceEndpoint } from "@/app/lib/workspace-endpoint";
 import { defaultProjectFields, useProjectDefaultsStore, withInitialProjectFields } from "./project-defaults-store";
 import { collectProjectFilterFields, matchesProjectFilters, useProjectFilterStore } from "./project-filters";
 import { ProjectFilterBar } from "./project-filter-bar";
+import { useProjectBackOffice } from "./project-record-field";
 import { ProjectViews } from "./project-views";
 import { useProjectPersonalisation } from "./project-personalisation-modal";
 
@@ -50,6 +51,7 @@ function Updated({ timestamp }: { timestamp: number }) {
 }
 
 export function ProjectsPage(props: Props) {
+  const directory = useProjectBackOffice(props.client);
   const [page, setPage] = useState(0);
   const favoriteIds = useProjectFavoritesStore(state => state.favoriteIds);
   const filterState = useProjectFilterStore();
@@ -72,7 +74,7 @@ export function ProjectsPage(props: Props) {
     retry: 1,
   })) });
   const projectFields = details.map(result => result.data ? withInitialProjectFields(result.data, defaults).fields : null);
-  const fields = collectProjectFilterFields([defaults, ...projectFields.filter(fields => fields !== null)]);
+  const fields = collectProjectFilterFields([defaults, ...projectFields.filter(fields => fields !== null)], directory.data);
   const inTeamScope = (index: number) => !filterState.teamOnly || syncStates[props.groups[index].workspace.id] !== undefined;
   const metadataLoading = filterState.filters.length > 0 && details.some((result, index) => inTeamScope(index) && endpoints[index] && !result.data && result.isPending);
   const unavailable = details.filter((result, index) => inTeamScope(index) && !result.data && (result.isError || !endpoints[index])).length;

@@ -1,4 +1,4 @@
-import { ProjectMatters } from "../back-office/project-matters";
+import { projectFieldsSchema } from "@legalwork/types/workspace";
 import { ProjectRemoteFolders } from "./project-remote-folders";
 import { useProjectPersonalisation } from "./project-personalisation-modal";
 import { useState, type ReactNode } from "react";
@@ -159,7 +159,6 @@ export function ProjectHome(props: {
 
         {props.isRemoteWorkspace ? null : <ProjectSyncNotice client={client} workspaceId={workspaceId} onOpenFile={props.onOpenFile} />}
 
-        <div className="px-5 py-3"><ProjectMatters client={client} projectId={props.projectId} name={props.name} /></div>
         <ProjectRemoteFolders client={client} workspaceId={workspaceId} />
         <ContextMenu>
         <ContextMenuTrigger render={<div />}>
@@ -174,10 +173,10 @@ export function ProjectHome(props: {
           <CollapsibleContent>
             <div className="pb-3 pt-2">
               {details.isPending ? <Notice>{t("projects.loading")}</Notice> : details.error ? <Notice error>{t("projects.failed")}</Notice> : details.data?.fields.length ? (
-                <ProjectProperties className="grid gap-x-10 space-y-0 @min-[640px]/project-page:grid-cols-2" fields={details.data.fields} onSave={async (id, value) => {
+                <ProjectProperties client={client} className="grid gap-x-10 space-y-0 @min-[640px]/project-page:grid-cols-2" fields={details.data.fields} onSave={async (id, value) => {
                   if (!details.data) return;
                   try {
-                    const data = await client.updateProjectDetails(workspaceId, { revision: details.data.revision, fields: details.data.fields.map((field) => field.id === id ? { ...field, value } : field) });
+                    const data = await client.updateProjectDetails(workspaceId, { revision: details.data.revision, fields: projectFieldsSchema.parse(details.data.fields.map((field) => field.id === id ? { ...field, value } : field)) });
                     queryClient.setQueryData(["project", workspaceId], data);
                   } catch (error) {
                     void details.refetch();
@@ -260,7 +259,7 @@ export function ProjectHome(props: {
       <Dialog open={editMetadata} onOpenChange={setEditMetadata}>
         <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
           <DialogHeader><DialogTitle>{t("projects.metadata")}</DialogTitle><DialogDescription>{t("projects.metadata_hint")}</DialogDescription></DialogHeader>
-          {details.data ? <ProjectMetadata details={details.data} onCancel={() => setEditMetadata(false)} onReload={async () => {
+          {details.data ? <ProjectMetadata client={client} details={details.data} onCancel={() => setEditMetadata(false)} onReload={async () => {
             const data = await client.getProjectDetails(workspaceId);
             queryClient.setQueryData(["project", workspaceId], data);
             return withInitialProjectFields(data, savedDefaults);

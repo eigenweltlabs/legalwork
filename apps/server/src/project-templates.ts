@@ -3,7 +3,7 @@ import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { ProjectTemplateCatalog } from "@legalwork/types/workspace";
-import { defaultProjectTemplates, localizedTemplateFields, projectTemplateCatalogSchema, projectTemplateName } from "./project-schema.js";
+import { upgradeProjectTemplateReferences, defaultProjectTemplates, localizedTemplateFields, projectTemplateCatalogSchema, projectTemplateName } from "./project-schema.js";
 import { ApiError } from "./errors.js";
 import type { ServerConfig } from "./types.js";
 
@@ -14,7 +14,7 @@ function catalogPath(config: Pick<ServerConfig, "configPath">) {
 
 export async function readProjectTemplates(config: Pick<ServerConfig, "configPath">): Promise<ProjectTemplateCatalog> {
   try {
-    return projectTemplateCatalogSchema.parse(JSON.parse(await readFile(catalogPath(config), "utf8")));
+    return upgradeProjectTemplateReferences(projectTemplateCatalogSchema.parse(JSON.parse(await readFile(catalogPath(config), "utf8"))));
   } catch (error) {
     if (error instanceof Error && "code" in error && error.code === "ENOENT")
       return { revision: 0, defaultTemplateId: "legal_matter", templates: defaultProjectTemplates() };

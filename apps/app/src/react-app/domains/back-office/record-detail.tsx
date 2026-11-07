@@ -4,11 +4,9 @@ import {
   CalendarDays,
   Home,
   History,
-  Link2,
   LockKeyhole,
   Maximize2,
   MoreVertical,
-  Plus,
   RotateCcw,
   X,
 } from "lucide-react";
@@ -24,7 +22,7 @@ import type {
 } from "@legalwork/types/back-office";
 import { FieldIcon, ValueDisplay } from "./record-values";
 import { CellEditor } from "./cell-editor";
-import { DirectoryMenu, DirectorySelect } from "./twenty-controls";
+import { DirectoryMenu } from "./twenty-controls";
 import { HistoryPanel } from "./history-panel";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { t } from "@/i18n";
@@ -39,15 +37,12 @@ export function RecordDetail({
   editable,
   finance,
   userId,
-  projects,
   focusName,
   width,
   onWidthChange,
   onClose,
   onSave,
   onOpen,
-  onLink,
-  onUnlink,
 }: {
   client: LegalworkServerClient;
   team: boolean;
@@ -58,7 +53,6 @@ export function RecordDetail({
   editable: boolean;
   finance: boolean;
   userId: string;
-  projects: { id: string; name: string }[];
   focusName?: boolean;
   width: number;
   onWidthChange: (width: number) => void;
@@ -69,22 +63,13 @@ export function RecordDetail({
     values: Record<string, BackOfficeValue>,
     archived?: boolean,
   ) => Promise<void>;
-  onLink: (projectId: string, matter: BackOfficeRecord) => Promise<void>;
-  onUnlink: (link: BackOfficeRecord) => Promise<void>;
 }) {
   const [edit, setEdit] = useState<string | null>(null),
-    [project, setProject] = useState(""),
     [error, setError] = useState("");
   const [tab, setTab] = useState<"home" | "history">("home");
   const cancelName = useRef(false);
   const [name, setName] = useState(String(record.values.name));
   useEffect(() => setName(String(record.values.name)), [record.values.name]);
-  const links = records.filter(
-    (item) =>
-      item.objectId === "projectLinks" &&
-      item.values.matter === record.id &&
-      !item.archivedAt,
-  );
   const saveName = () => {
     if (name.trim() && name.trim() !== record.values.name)
       void onSave(record, { name: name.trim() }).catch((error) =>
@@ -308,77 +293,6 @@ export function RecordDetail({
                 </div>
               ))}
           </div>
-          {object.id === "matters" && (
-            <>
-              <div className="bo-detail-section">
-                <Link2 size={14} />
-                Projects · {links.length}
-              </div>
-              <div className="bo-detail-links">
-                {links.map((link) => (
-                  <div key={link.id}>
-                    <span>
-                      {projects.find(
-                        (project) => project.id === link.values.projectId,
-                      )?.name ?? String(link.values.name)}
-                    </span>
-                    {editable && (
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        aria-label={`Unlink ${link.values.name}`}
-                        onClick={() =>
-                          void onUnlink(link).catch((error) =>
-                            setError(error.message),
-                          )
-                        }
-                        startIcon={<X size={13} />}
-                      />
-                    )}
-                  </div>
-                ))}
-                {editable && record.revision > 0 && (
-                  <form
-                    onSubmit={(event) => {
-                      event.preventDefault();
-                      if (project)
-                        void onLink(project, record)
-                          .then(() => setProject(""))
-                          .catch((error) => setError(error.message));
-                    }}
-                  >
-                    <DirectorySelect
-                      label="Project to link"
-                      value={project}
-                      onChange={setProject}
-                      options={[
-                        { value: "", label: "Choose a project…" },
-                        ...projects
-                          .filter(
-                            (project) =>
-                              !links.some(
-                                (link) => link.values.projectId === project.id,
-                              ),
-                          )
-                          .map((project) => ({
-                            value: project.id,
-                            label: project.name,
-                          })),
-                      ]}
-                    />
-                    <Button
-                      size="sm"
-                      disabled={!project}
-                      type="submit"
-                      startIcon={<Plus size={13} />}
-                    >
-                      Link
-                    </Button>
-                  </form>
-                )}
-              </div>
-            </>
-          )}
           {error && (
             <p className="bo-error" role="alert">
               {error}

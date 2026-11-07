@@ -357,10 +357,6 @@
   background: var(--bo-surface);
 }
 
-.bo-choices > button > span:nth-child(2) {
-  flex: 1;
-}
-
 .bo-editor-footer {
   display: flex;
   align-items: center;

@@ -1,7 +1,6 @@
 import { z } from "zod";
 import { projectTemplateStrings } from "./project-template-strings.js";
 export { projectTemplateStrings } from "./project-template-strings.js";
-import type { ProjectField } from "./workspace.js";
 
 type Locale = "en" | "de";
 
@@ -19,6 +18,7 @@ export function emptyProjectFields(fields: ProjectField[]): ProjectField[] {
 /** Resolve only our known presets. Legacy defaults are recognized by both id and original label. */
 function suggestedLabels(locale: Locale): Record<string, string> {
   return {
+    matter: t("projects.schema.matter", locale),
     matter_number: t("projects.schema.matter_number", locale),
     client: t("projects.schema.client", locale),
     opposing_party: t("projects.schema.opposing_party", locale),
@@ -84,12 +84,13 @@ export function localizedTemplateFields(fields: ProjectField[], locale: Locale =
 
 export function defaultAkteFields(locale: Locale = "en"): ProjectField[] {
   return [
+    { id: "matter", labelSource: "suggested", label: t("projects.schema.matter", locale), type: "backoffice", objectId: "matters", multiple: true, value: null },
     { id: "matter_number", labelSource: "suggested", label: t("projects.schema.matter_number", locale), type: "text", value: null },
-    { id: "client", labelSource: "suggested", label: t("projects.schema.client", locale), type: "text", value: null },
+    { id: "client", labelSource: "suggested", label: t("projects.schema.client", locale), type: "backoffice", objectId: "clients", multiple: true, value: null },
     { id: "opposing_party", labelSource: "suggested", label: t("projects.schema.opposing_party", locale), type: "text", value: null },
     { id: "subject", labelSource: "suggested", label: t("projects.schema.subject", locale), type: "text", value: null },
     { id: "practice_area", labelSource: "suggested", label: t("projects.schema.practice_area", locale), type: "text", value: null },
-    { id: "responsible", labelSource: "suggested", label: t("projects.schema.responsible", locale), type: "text", value: null },
+    { id: "responsible", labelSource: "suggested", label: t("projects.schema.responsible", locale), type: "backoffice", objectId: "people", multiple: true, value: null },
     { id: "status", labelSource: "suggested", label: t("projects.schema.status", locale), type: "select", value: null,
       options: [t("projects.schema.status_open", locale), t("projects.schema.status_active", locale), t("projects.schema.status_waiting", locale), t("projects.schema.status_closed", locale)] },
     { id: "opened_on", labelSource: "suggested", label: t("projects.schema.opened_on", locale), type: "date", value: null },
@@ -121,29 +122,27 @@ export function projectTemplateName(template: ProjectMetadataTemplate, locale: L
 
 export function defaultProjectTemplates(locale: Locale = "en"): ProjectMetadataTemplate[] {
   const labels = suggestedLabels(locale);
-  const field = (id: string, type: ProjectField["type"] = "text"): ProjectField => ({
+  const field = (id: string, type: Exclude<ProjectField["type"], "backoffice"> = "text"): ProjectField => ({
     id, label: labels[id], labelSource: "suggested", type, value: null,
     ...(id === "status" ? { options: [t("projects.schema.status_open", locale), t("projects.schema.status_active", locale), t("projects.schema.status_waiting", locale), t("projects.schema.status_closed", locale)] } : {}),
     ...(id === "priority" ? { options: [t("projects.schema.priority_low", locale), t("projects.schema.priority_normal", locale), t("projects.schema.priority_high", locale)] } : {}),
   });
+  const reference = (id: string, objectId: string): ProjectField => ({ id, label: labels[id], labelSource: "suggested", type: "backoffice", objectId, multiple: true, value: null });
   const schemas: Record<string, ProjectField[]> = {
     legal_matter: defaultAkteFields(locale),
-    internal: [field("objective"), field("project_owner"), field("department"), field("status", "select"), field("priority", "select"), field("target_date", "date")],
-    contracts: [field("counterparty"), field("contract_type"), field("reference"), field("project_owner"), field("status", "select"), field("effective_date", "date"), field("renewal_date", "date"), field("contract_value", "number"), field("currency")],
-    research: [field("research_question"), field("project_owner"), field("practice_area"), field("jurisdiction"), field("deliverable"), field("status", "select"), field("target_date", "date")],
+    internal: [field("objective"), reference("project_owner", "people"), field("department"), field("status", "select"), field("priority", "select"), field("target_date", "date")],
+    contracts: [reference("counterparty", "companies"), field("contract_type"), field("reference"), reference("project_owner", "people"), field("status", "select"), field("effective_date", "date"), field("renewal_date", "date"), field("contract_value", "number"), field("currency")],
+    research: [field("research_question"), reference("project_owner", "people"), field("practice_area"), field("jurisdiction"), field("deliverable"), field("status", "select"), field("target_date", "date")],
   };
   const names = suggestedTemplateNames(locale);
   return Object.entries(schemas).map(([id, fields]) => ({ id, name: names[id], nameSource: "suggested", fields }));
 }
 
 
-const projectFieldSchema = z
+export const projectFieldIdSchema = z.string().min(1).max(100).regex(/^[a-zA-Z0-9_-]+$/);
+const standardProjectFieldSchema = z
   .object({
-    id: z
-      .string()
-      .min(1)
-      .max(100)
-      .regex(/^[a-zA-Z0-9_-]+$/),
+    id: projectFieldIdSchema,
     label: z.string().trim().min(1).max(100),
     labelSource: z.enum(["suggested", "custom"]).optional(),
     type: z.enum(["text", "number", "date", "select"]),
@@ -185,6 +184,27 @@ const projectFieldSchema = z
       }
     }
   });
+export const projectRecordReferenceSchema = z.object({
+  directoryId: z.string().min(1).max(200),
+  recordIds: z.array(z.string().uuid()).min(1).max(1000).refine(ids => new Set(ids).size === ids.length, "Record IDs must be unique."),
+}).strict();
+const backOfficeProjectFieldSchema = z.object({
+  id: projectFieldIdSchema,
+  label: z.string().trim().min(1).max(100),
+  labelSource: z.enum(["suggested", "custom"]).optional(),
+  type: z.literal("backoffice"),
+  objectId: z.string().min(1).max(100).regex(/^[a-zA-Z][a-zA-Z0-9_]*$/),
+  multiple: z.boolean().default(true),
+  value: projectRecordReferenceSchema.nullable(),
+  options: z.array(z.string()).max(0).optional(),
+}).superRefine((field, ctx) => {
+  if (!field.multiple && field.value && field.value.recordIds.length > 1)
+    ctx.addIssue({ code: "custom", message: "Choose one record for this field." });
+});
+export const projectFieldSchema = z.discriminatedUnion("type", [standardProjectFieldSchema, backOfficeProjectFieldSchema]);
+export const projectFieldValueSchema = z.union([z.string().max(4000), z.number().finite(), projectRecordReferenceSchema, z.null()]);
+export type ProjectField = z.infer<typeof projectFieldSchema>;
+export type ProjectRecordReference = z.infer<typeof projectRecordReferenceSchema>;
 export const projectFieldsSchema = z
   .array(projectFieldSchema)
   .max(50)
@@ -209,3 +229,18 @@ export const projectTemplateCatalogSchema = z.object({
     ctx.addIssue({ code: "custom", message: "Choose an existing default template." });
 });
 export type ProjectTemplateCatalog = z.infer<typeof projectTemplateCatalogSchema>;
+
+/** Upgrade only untouched built-in template definitions; never reinterpret saved text values or custom schemas. */
+export function upgradeProjectTemplateReferences(catalog: ProjectTemplateCatalog): ProjectTemplateCatalog {
+  const defaults = defaultProjectTemplates();
+  return { ...catalog, templates: catalog.templates.map(template => {
+    const current = defaults.find(item => item.id === template.id);
+    if (!current || template.nameSource !== "suggested") return template;
+    const legacy = current.fields.filter(field => field.id !== "matter").map((field): ProjectField => field.type === "backoffice"
+      ? { id: field.id, label: field.label, labelSource: field.labelSource, type: "text", value: null } : field);
+    const normalized = localizedTemplateFields(template.fields, "en");
+    const signature = (fields: ProjectField[]) => JSON.stringify(fields.map(field => [field.id, field.label, field.labelSource, field.type, field.options ?? null]));
+    if (signature(normalized) !== signature(legacy)) return template;
+    return { ...template, fields: current.fields };
+  }) };
+}

@@ -5,7 +5,6 @@ import { attachFile, attachedFile, historicalFile, fileFromHistory, fileField } 
 import { loadAttachedFile } from "./file-sync.js";
 import { BACK_OFFICE_FILE_LIMIT } from "./schema.js";
 import {
-  backOfficeProjectContext,
   readableBackOfficeRecord,
   type BackOfficeRecord,
 } from "./schema.js";
@@ -40,6 +39,16 @@ import {
   BackOfficeHistoryExportSchema,
 } from "./schema.js";
 import { verifyBackOfficeHistoryExport } from "./history-export.js";
+import { readEigenweltConnection } from "../eigenwelt-connection-store.js";
+import { readProjectDetails } from "../project-store.js";
+import { backOfficeDirectoryKey } from "./principal.js";
+
+async function directoryIdentity(config: ServerConfig, scope: string, store: BackOfficeStore) {
+  if (scope === "local") return `local:${store.journal.storage.identity.deviceId}`;
+  const platformURL = (await readEigenweltConnection(config)).platformURL;
+  if (!platformURL) throw new ApiError(409, "back_office_account_changed", "The connected directory changed.");
+  return backOfficeDirectoryKey(platformURL, scope);
+}
 
 export function registerBackOfficeRoutes(options: {
   routes: Route[];
@@ -180,6 +189,7 @@ export function registerBackOfficeRoutes(options: {
     }
     return {
       scope,
+      directoryId: await directoryIdentity(options.config, scope, store),
       model: store.model(scope),
       permissions: actor,
       views: store.views(scope),
@@ -314,39 +324,6 @@ export function registerBackOfficeRoutes(options: {
   route("POST", "/records", async (ctx, store, { scope, actor }) => ({
     record: store.saveRecord(scope, actor, await input(ctx)),
   }));
-  route(
-    "POST",
-    "/projects/:id/matter",
-    async (ctx, store, { scope, actor }) => {
-      const workspace = await options.resolveWorkspace(
-        options.config,
-        ctx.params.id,
-      );
-      const body = z
-        .object({
-          name: z.string().trim().min(1).max(500),
-          clients: z.array(z.string().uuid()).default([]),
-        })
-        .parse(await input(ctx));
-      return store.transaction(() => {
-        const matter = store.saveRecord(scope, actor, {
-          objectId: "matters",
-          revision: 0,
-          values: { name: body.name, clients: body.clients },
-        });
-        const link = store.saveRecord(scope, actor, {
-          objectId: "projectLinks",
-          revision: 0,
-          values: {
-            name: workspace.name,
-            projectId: workspace.id,
-            matter: matter.id,
-          },
-        });
-        return { matter, link };
-      });
-    },
-  );
   route("POST", "/model/preview", async (ctx, store, { scope, actor }) => {
     const body = await input(ctx);
     return store.previewModel(
@@ -659,7 +636,7 @@ export function registerBackOfficeRoutes(options: {
     "client",
     async (ctx) => {
       options.requireClientScope(ctx, "viewer");
-      await options.resolveWorkspace(options.config, ctx.params.id);
+      const workspace = await options.resolveWorkspace(options.config, ctx.params.id);
       const { scope, actor } = await backOfficeAccess(
           options.config,
           ctx.url.searchParams.get("scope") === "team"
@@ -669,9 +646,13 @@ export function registerBackOfficeRoutes(options: {
               : undefined,
         ),
         store = await backOfficeStore(options.config);
-      return options.jsonResponse(
-        backOfficeProjectContext(store.records(scope, actor), ctx.params.id),
-      );
+      const details = await readProjectDetails(workspace.path), directoryId = await directoryIdentity(options.config, scope, store);
+      const available = store.records(scope, actor);
+      const fields = details.fields.flatMap(field => field.type === "backoffice" && field.value?.directoryId === directoryId
+        ? [{ id: field.id, label: field.label, objectId: field.objectId, records: available.filter(record => record.objectId === field.objectId && field.value?.recordIds.includes(record.id)) }] : []);
+      store.requireAccount(scope, actor);
+      const records = [...new Map(fields.flatMap(field => field.records).map(record => [record.id, record])).values()];
+      return options.jsonResponse({ directoryId, fields, records, matters: records.filter(record => record.objectId === "matters"), clients: records.filter(record => record.objectId === "clients") });
     },
   );
 }

@@ -25,7 +25,7 @@ export function applyProjectTemplate(fields: ProjectField[], template: ProjectMe
   const selected = new Set(template.fields.map((field) => field.id));
   const existing = new Map(fields.map((field) => [field.id, field]));
   return [
-    ...localizedTemplateFields(template.fields).map((field) => existing.get(field.id) ?? field),
+    ...localizedTemplateFields(template.fields).map((field) => (existing.get(field.id)?.value === null && existing.get(field.id)?.labelSource === "suggested" && field.type === "backoffice" ? field : existing.get(field.id) ?? field)),
     ...fields.filter((field) => !selected.has(field.id) && (field.value !== null && field.value !== "" || field.labelSource !== "suggested")),
   ];
 }
@@ -57,7 +57,8 @@ export function migrateProjectDefaults(persisted: unknown): Pick<ProjectTemplate
         parsed.data.templates.push(templates.find((entry) => entry.id === "contracts")!);
         if (pristine && parsed.data.defaultTemplateId === legacy.id) parsed.data.defaultTemplateId = "contracts";
       }
-      return { templates: parsed.data.templates, defaultTemplateId: parsed.data.defaultTemplateId, hasLegacyDefaults: true };
+      const upgraded = shared.upgradeProjectTemplateReferences(parsed.data);
+      return { templates: upgraded.templates, defaultTemplateId: upgraded.defaultTemplateId, hasLegacyDefaults: true };
     }
   }
   if (persisted && typeof persisted === "object" && "fields" in persisted && Array.isArray(persisted.fields)) {
@@ -79,7 +80,7 @@ export const useProjectDefaultsStore = create<ProjectTemplatesState>()(persist((
   defaultTemplateId: "legal_matter",
 }), {
   name: "legalwork.projectMetadataDefaults",
-  version: 2,
+  version: 3,
   migrate: migrateProjectDefaults,
   partialize: ({ templates, defaultTemplateId, migrated, hasLegacyDefaults }) => ({ templates, defaultTemplateId, migrated, hasLegacyDefaults }),
 }));
