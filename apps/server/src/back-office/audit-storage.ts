@@ -20,6 +20,7 @@ import {
   type BackOfficeAuditHead,
 } from "./schema.js";
 import { newBackOfficeAuditKey } from "./audit-integrity.js";
+import { openSqlite } from "../runtime-db.js";
 
 const IdentitySchema = z
   .object({
@@ -35,6 +36,10 @@ export type BackOfficeAuditIdentity = z.infer<typeof IdentitySchema>;
 export type BackOfficeAuditStorage = {
   identity: BackOfficeAuditIdentity;
   persistent: boolean;
+  serialized: boolean;
+  acquire: () => void;
+  release: () => void;
+  retain: () => () => void;
   key: (streamId: string) => Buffer | null;
   createKey: (streamId: string) => Buffer;
   eraseKey: (streamId: string) => void;
@@ -61,6 +66,10 @@ export function memoryBackOfficeAuditStorage(): BackOfficeAuditStorage {
   return {
     identity: newIdentity(),
     persistent: false,
+    serialized: true,
+    acquire: () => {},
+    release: () => {},
+    retain: () => () => {},
     key: (id) => keys.get(id) ?? null,
     createKey: (id) => {
       const key = keys.get(id) ?? randomBytes(32);
@@ -130,7 +139,10 @@ export function fileBackOfficeAuditStorage(
   mkdirSync(directory, { recursive: true, mode: 0o700 });
   const identityPath = join(directory, "identity.json");
   if (!existsSync(identityPath)) {
-    if (existingHistory)
+    if (
+      existingHistory ||
+      readdirSync(directory).some((name) => name.endsWith(".head.json"))
+    )
       throw new Error(
         "Back Office audit identity is missing. Restore its secured backup; history cannot be reset automatically.",
       );
@@ -144,6 +156,10 @@ export function fileBackOfficeAuditStorage(
   return {
     identity,
     persistent: true,
+    serialized: false,
+    acquire: () => {},
+    release: () => {},
+    retain: () => () => {},
     key: (id) => {
       const keyPath = path(id, "key");
       if (!existsSync(keyPath)) return null;
@@ -222,6 +238,67 @@ export function fileBackOfficeAuditStorage(
           );
       }
       durableWrite(headPath, directory, head);
+    },
+  };
+}
+
+/** One SQLite write lock spans the business commit and checkpoint fsync. */
+export async function openBackOfficeAuditStorage(
+  directory: string,
+  existingHistory: boolean,
+): Promise<BackOfficeAuditStorage> {
+  mkdirSync(directory, { recursive: true, mode: 0o700 });
+  const mutex = await openSqlite(join(directory, "coordination.sqlite"));
+  mutex.exec("PRAGMA busy_timeout=10000");
+  let depth = 0,
+    references = 0,
+    closed = false;
+  const acquire = () => {
+    if (closed) throw new Error("Back Office audit coordinator is closed.");
+    if (depth === 0) mutex.exec("BEGIN IMMEDIATE");
+    depth++;
+  };
+  const release = () => {
+    if (depth < 1)
+      throw new Error("Back Office audit coordinator is not locked.");
+    if (--depth === 0) {
+      try {
+        mutex.exec("COMMIT");
+      } catch (error) {
+        mutex.exec("ROLLBACK");
+        throw error;
+      }
+    }
+  };
+  let files: BackOfficeAuditStorage;
+  try {
+    acquire();
+    try {
+      files = fileBackOfficeAuditStorage(directory, existingHistory);
+    } finally {
+      release();
+    }
+  } catch (error) {
+    mutex.close();
+    throw error;
+  }
+  return {
+    ...files,
+    serialized: true,
+    acquire,
+    release,
+    retain: () => {
+      if (closed) throw new Error("Back Office audit coordinator is closed.");
+      references++;
+      let retained = true;
+      return () => {
+        if (!retained) return;
+        retained = false;
+        if (--references === 0) {
+          mutex.close();
+          closed = true;
+        }
+      };
     },
   };
 }

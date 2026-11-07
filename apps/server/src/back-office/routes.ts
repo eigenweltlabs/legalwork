@@ -79,6 +79,7 @@ export function registerBackOfficeRoutes(options: {
           access.actor = { ...access.actor, agentId: "back-office" };
         try {
           const store = await backOfficeStore(options.config);
+          store.checkIntegrity();
           if (
             access.scope !== "local" &&
             method !== "GET" &&
@@ -91,6 +92,7 @@ export function registerBackOfficeRoutes(options: {
               "Open the team directory and reconnect before changing team records.",
             );
           const result = await action(ctx, store, access);
+          store.checkIntegrity();
           if (method !== "GET") {
             announceSyncChange(options.config, "backOffice");
             if (access.scope !== "local")
