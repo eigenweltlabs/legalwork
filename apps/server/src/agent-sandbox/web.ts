@@ -3,6 +3,7 @@ import { ApiError } from "../errors.js";
 import { convertHtml } from "./web-convert.js";
 import type { OutboundResponse } from "./network.js";
 import type { SearchProvider } from "./search-provider.js";
+import { eigenweltUsageLimitFromText } from "../provider-usage-limit.js";
 
 export const webFetchArgs = z.object({
   url: z.string().url().max(8192).describe("The HTTP or HTTPS page to read."),
@@ -54,6 +55,19 @@ export async function webResult(input: WebInput, url: string, response: Outbound
   provider: SearchProvider = { name: "exa" }) {
   signal.throwIfAborted();
   if (response.status < 200 || response.status >= 300) {
+    if (input.kind === "search" && provider.name === "aws" && response.status === 429) {
+      // A transient rate limit is not an allowance failure. Never echo provider diagnostics.
+      const body = Buffer.from(response.bodyBase64, "base64");
+      if (body.length <= 8192) {
+        let payload: unknown;
+        try { payload = JSON.parse(body.toString("utf8")); } catch { /* Keep outages generic. */ }
+        const error = z.object({ detail: z.string().optional(), error: z.object({ message: z.string() }).optional() }).safeParse(payload);
+        const limit = error.success ? eigenweltUsageLimitFromText(error.data.detail) ?? eigenweltUsageLimitFromText(error.data.error?.message) : null;
+        if (limit) throw new ApiError(429, "web_search_usage_limit",
+          "Web search is blocked because your AI allowance or spending limit has been reached. Request more usage from your firm admin, or add credit if available. Do not retry or use another search route until access is restored. " +
+          "Eigenwelt usage limit: " + JSON.stringify(limit), limit);
+      }
+    }
     if (input.kind === "search" && provider.name === "aws" && response.status === 403)
       throw new ApiError(403, "web_search_not_allowed",
         "Paid web search is not allowed for this account. Ask your firm admin to check your subscription, paid seat and enabled EU/US regions on the Model API Models page.");

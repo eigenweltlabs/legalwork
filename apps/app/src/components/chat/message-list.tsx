@@ -15,6 +15,8 @@ import { assistantChatMessages, assistantReactions } from "./assistant-chat-pres
 import { DelegationCard } from "./delegation-card";
 import { AssistantNameCard } from "./assistant-name-card";
 import { ScheduledRunCard, scheduledRunOf } from "./scheduled-run-card";
+import { webSearchUsageLimitError } from "./web-search-usage-limit";
+import { parseProviderUsageLimit } from "@legalwork/types/provider-usage-limit";
 import { ScheduledTaskToolCard, ScheduledTaskRunCard } from "./scheduled-task-card";
 import { parseScheduledRunMessage } from "@/react-app/domains/scheduled-tasks/scheduled-message";
 import { HistoricalAttachmentSchema } from "@legalwork/types/session-history";
@@ -973,6 +975,7 @@ function MessageGroup({
 }: AssistantMessageGroupProps) {
   const { onRevertToUserMessage, onForkAtMessage, legalworkClient, workspaceId, showThinking, readOnly, assistantChat } = useMessageList()
   const displayItems = React.useMemo(() => groupAssistantToolRuns(items, showThinking), [items, showThinking])
+  const searchLimit = webSearchUsageLimitError(items.flatMap(item => item.message.parts));
   const lastItem = items[items.length - 1]
   const isLiveGroup = isStreaming && lastItem?.index === messages.length - 1
   // Every document this turn's LegalMemory calls returned, read from the tool
@@ -1019,6 +1022,7 @@ function MessageGroup({
   return (
       <div className={cn("relative flex flex-col gap-2 group/message-group", assistantChat && "pb-5")}>
       {displayItems.map(renderItem)}
+      {searchLimit && !items.some(item => isSessionErrorMessage(item.message) && parseProviderUsageLimit(getMessagesText([item.message]))?.providerId === "eigenwelt") && <ErrorMessage error={searchLimit} />}
       {assistantChat && <AssistantLinkedFileCards messages={items.map(item => item.message)} />}
       {filedTasks.length > 0 ? <ArtifactList messages={EMPTY_MESSAGES} tasks={filedTasks} /> : null}
       {/* The graph and the sources belong under the finished answer, not among

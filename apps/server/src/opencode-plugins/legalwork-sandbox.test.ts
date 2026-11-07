@@ -9,6 +9,9 @@ test("native sandbox removes host tools, guards shell creation and preserves man
   let enabled = true;
   let blockExecution = false;
   let observedAbort = false;
+  let webFailure = false;
+  const limit = { reason: "wallet_empty", requiredMicros: 1, availableMicros: 0 };
+  const limitMessage = "Web search is blocked. Do not retry until access is restored. Eigenwelt usage limit: " + JSON.stringify(limit);
   const output = "sandbox-output:" + "x".repeat(300000);
   const api = Bun.serve({ port: 0, async fetch(request) {
     const path = new URL(request.url).pathname;
@@ -25,7 +28,9 @@ test("native sandbox removes host tools, guards shell creation and preserves man
       });
       return Response.json({ output, exitCode: 0, truncated: false, sandbox: "virtual-machine", future: "preserved" });
     }
-    if (path.endsWith("/sandbox/web")) return Response.json({ title: "Page", output: "page body", metadata: { url: "https://example.org" }, attachments: [{ type: "file", url: "file:///page.png", mime: "image/png" }] });
+    if (path.endsWith("/sandbox/web")) return webFailure
+      ? Response.json({ code: "web_search_usage_limit", message: limitMessage, details: limit }, { status: 429 })
+      : Response.json({ title: "Page", output: "page body", metadata: { url: "https://example.org" }, attachments: [{ type: "file", url: "file:///page.png", mime: "image/png" }] });
     if (path.endsWith("/sandbox/http")) return Response.json({ url: "https://example.org/final", status: 418, statusText: "Complete raw response", headers: { "x-result": "complete" }, bodyBase64: Buffer.from(output).toString("base64"), redirected: true });
     return new Response("Unexpected route", { status: 404 });
   } });
@@ -85,6 +90,10 @@ test("native sandbox removes host tools, guards shell creation and preserves man
     await expect(cancelled).rejects.toThrow();
     for (let attempt = 0; attempt < 100 && !observedAbort; attempt++) await Bun.sleep(5);
     expect(observedAbort).toBe(true);
+    webFailure = true;
+    const search = runtime.tools.get("legalwork_websearch");
+    if (!search) throw new Error("No native web search");
+    await expect(search.execute({ query: "public law" }, nativeTestInvocation("ses_sandbox"))).rejects.toThrow(limitMessage);
   } finally {
     await runtime.close();
     api.stop(true);

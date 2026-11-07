@@ -8,6 +8,7 @@ import { registerAppStateReminders } from "./native-app-state-reminders.js";
 import { registerPrimaryContext } from "./native-review-worker.js";
 import { nativeHostExecutionActions } from "../agent-sandbox/engine-policy.js";
 import { rawHttpInputSchema, rawHttpOutputSchema, rawHttpToolName } from "../agent-sandbox/raw-http-schema.js";
+import { usageLimitDetailsSchema } from "../provider-usage-limit.js";
 
 const args = z.object({
   command: z.string().min(1).max(128000).describe("Command to execute using the shell and paths in the latest sandbox-settings reminder."),
@@ -94,7 +95,16 @@ export const LegalWorkSandbox = Plugin.define({
               method: "POST", headers: { ...await workspaceToolHeaders(context), "Content-Type": "application/json" },
               body: JSON.stringify({ ...input, kind, sessionID: context.sessionID, agent: context.agent }), signal: nativeToolSignal(900000, context),
             });
-            if (!response.ok) throw new Error(`Web access failed (${response.status}): ${await response.text()}`);
+            if (!response.ok) {
+              const body = await response.text();
+              if (kind === "search" && response.status === 429) {
+                let payload: unknown;
+                try { payload = JSON.parse(body); } catch { /* Preserve the normal web error. */ }
+                const error = z.object({ code: z.literal("web_search_usage_limit"), message: z.string(), details: usageLimitDetailsSchema }).safeParse(payload);
+                if (error.success) throw new Error(error.data.message);
+              }
+              throw new Error(`Web access failed (${response.status}): ${body}`);
+            }
             const result = webResult.parse(await response.json());
             return { output: result, metadata: { ...result.metadata, title: result.title },
               content: [{ type: "text", text: result.output }, ...(result.attachments ?? []).map(file => ({ type: file.type, mime: file.mime, uri: file.url }))] };
