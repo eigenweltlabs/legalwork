@@ -15,6 +15,7 @@ Use this map when you know what you want to do but not where to start. The assis
 | Manage saved login | Edit an existing account and use Add URL to manage its starting pages and sign-in websites | [Saved login URLs](integrations.md#add-urls-to-an-existing-login) |
 | Fill saved login | Choose a saved account from a browser login field and fill its username and password | [Browser passwords](settings-privacy.md#browser-passwords) |
 | Projects | Select the matter or working context from the project catalog | [Projects](projects-sharing.md) |
+| Back Office > record > History | Inspect changes, compare previous values, check attribution and download signed history | [Back Office history](back-office.md#history-and-verification) |
 | Project Home | Matter details, notes, linked folders, recordings and upcoming deadlines | [Projects](projects-sharing.md) |
 | Project Files | Local files and linked storage, with import and document panels | [Files](files-documents.md), [Storage](connected-storage.md) |
 | Project Chats | Conversations belonging to one project | [Chats](workspaces-chats.md) |

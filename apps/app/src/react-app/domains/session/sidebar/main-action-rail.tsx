@@ -1,3 +1,5 @@
+import { BriefcaseBusiness } from "lucide-react";
+import { useLocation, useNavigate } from "react-router-dom";
 import type { ReactNode } from "react";
 import type { AssistantProfile } from "@legalwork/types/main-assistant";
 import { Button } from "@/components/ui/button";
@@ -30,6 +32,7 @@ export function MainActionRail({ actions, onOpenWindow, unreadTasks = 0, childre
   children: ReactNode;
 }) {
   const { config } = useShellConfig();
+  const navigate = useNavigate(), location = useLocation();
   // What the firm switched off leaves the rail.
   const firmOff: Partial<Record<ShellNavKey, boolean>> = {
     navRecorder: useOrgPolicyForbids("recorder.allow"),
@@ -57,6 +60,7 @@ export function MainActionRail({ actions, onOpenWindow, unreadTasks = 0, childre
           </Tooltip>
         );
       })}
+      <Tooltip><TooltipTrigger render={<Button variant="ghost" size="icon" className={cn("relative size-9 cursor-pointer rounded-lg text-muted-foreground hover:bg-foreground/10 hover:text-foreground", location.pathname.startsWith("/back-office") && "bg-sidebar-accent text-foreground")} aria-label="Back Office" aria-pressed={location.pathname.startsWith("/back-office")} onClick={() => navigate("/back-office/matters")} />}><BriefcaseBusiness className="size-[18px]" strokeWidth={1.6} /></TooltipTrigger><TooltipContent side="right" sideOffset={10}>Back Office</TooltipContent></Tooltip>
       <div className="mt-auto flex shrink-0 flex-col items-center pt-4">{children}</div>
     </nav>
   );

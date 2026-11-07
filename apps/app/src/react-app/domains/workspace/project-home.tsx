@@ -1,3 +1,4 @@
+import { ProjectMatters } from "../back-office/project-matters";
 import { ProjectRemoteFolders } from "./project-remote-folders";
 import { useProjectPersonalisation } from "./project-personalisation-modal";
 import { useState, type ReactNode } from "react";
@@ -158,6 +159,7 @@ export function ProjectHome(props: {
 
         {props.isRemoteWorkspace ? null : <ProjectSyncNotice client={client} workspaceId={workspaceId} onOpenFile={props.onOpenFile} />}
 
+        <div className="px-5 py-3"><ProjectMatters client={client} projectId={props.projectId} name={props.name} /></div>
         <ProjectRemoteFolders client={client} workspaceId={workspaceId} />
         <ContextMenu>
         <ContextMenuTrigger render={<div />}>

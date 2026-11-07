@@ -37,6 +37,8 @@ const placeholders = (value: string): string[] =>
  * Everything else matching English is an untranslated string.
  */
 const GERMAN_KEEPS_ENGLISH = new Set<string>([
+  "back_office.kanban", "back_office.icon.kanban", // Shared name for the Kanban view.
+  "back_office.people.singular", // Person is the same noun in German and English.
   "catalog.category_eigenwelt", "catalog.status", "catalog.method_skill", "catalog.method_mcp", "catalog.website_url", // Shared technical terms and loanwords.
   // The shared browser-login card uses the same German words and loanword.
   "browser_password_request.optional", "settings.browser_passwords.label", "settings.browser_passwords.website",
@@ -62,6 +64,7 @@ const GERMAN_KEEPS_ENGLISH = new Set<string>([
   "tool.generic", "tool.detail_in_path", "tool_activity.agent_prefix",
   "reload.label_skill", "reload.label_plugin", "reload.label_mcp", "reload.label_agent",
   // Product and brand names
+  "back_office.history.system", // LegalWork attribution on system revisions.
   "ocr.api_paddle", "ocr.api_mistral",
   "benchmark.onboarding_eyebrow", "benchmark.import_title", "settings.tab_benchmark",
   "premium_upsell.eyebrow",

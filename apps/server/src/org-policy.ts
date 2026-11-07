@@ -295,6 +295,13 @@ async function syncOnce(config: ServerConfig): Promise<void> {
   if (JSON.stringify(beforeSecrets?.values ?? {}) !== JSON.stringify(runtime.secrets?.values ?? {})) scopes.add("engine").add("server");
   if (runtime.lastState !== null && runtime.lastState !== afterState) scopes.add("app");
   runtime.lastState = afterState;
+  const backOfficeBefore = parseOrgPolicyEntries(before?.snapshot.entries)["backOffice.sync"];
+  const backOfficeAfter = parseOrgPolicyEntries(after?.snapshot.entries)["backOffice.sync"];
+  if (JSON.stringify(backOfficeBefore) !== JSON.stringify(backOfficeAfter)) {
+    const { existingBackOfficeStore } = await import("./back-office/store.js");
+    try { (await existingBackOfficeStore(config))?.applyCachedPolicy(); }
+    catch { console.warn("[back-office] Firm policy saved; Back Office cache cleanup failed. Back Office remains unavailable until its integrity is restored."); }
+  }
   notify(config, scopes);
 }
 

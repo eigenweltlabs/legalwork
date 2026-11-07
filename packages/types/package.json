@@ -70,7 +70,8 @@
     "./line-diff": "./src/line-diff.ts",
     "./opencode-view": "./src/opencode-view.ts",
     "./legal-research": "./src/legal-research.ts",
-    "./legal-research-wiki": "./src/legal-research-wiki.ts"
+    "./legal-research-wiki": "./src/legal-research-wiki.ts",
+    "./back-office": "./src/back-office.ts"
   },
   "files": [
     "src",

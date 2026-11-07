@@ -37,6 +37,7 @@ const routeGuides = {
   "/scheduled": "scheduled-tasks.md",
   "/calendar": "calendar.md",
   "/workspace/:workspaceId/calendar": "calendar.md",
+  "/back-office/*": "back-office.md",
   "/projects": "projects-sharing.md",
   "/workflows": "skills-workflows.md",
   "/recorder": "audio.md",
@@ -105,6 +106,7 @@ export function generateHelpScreens(root = repoRoot) {
     generatedBy: "scripts/gen-core-skills.mjs",
     note: "Source-defined routes and visible settings for the build that bundles this file. Runtime, platform, account and permissions can restrict them.",
     dialogs: [{ id: "assistant-upgrade", guide: "assistant.md", source: "apps/app/src/react-app/shell/assistant-upgrade.tsx" }, { id: "unsaved-shutdown", guide: "settings-privacy.md", source: "apps/app/src/react-app/domains/session/artifacts/document-discard-dialog.tsx" }, { id: "browser-autofill", guide: "settings-privacy.md", source: "apps/app/src/overlay/index.tsx" }, { id: "manage-saved-login", guide: "integrations.md", source: "apps/app/src/react-app/domains/settings/pages/research-connection-dialog.tsx" }],
+    panels: [{ id: "back-office-history", guide: "back-office.md", source: "apps/app/src/react-app/domains/back-office/history-panel.tsx" }],
     routes: [...routes].sort().map((path) => ({ path, guide: guide(routeGuides, path), source: routerSource })),
     settings: [...settings].sort(([a], [b]) => a.localeCompare(b, "en")).map(([id, scope]) => ({
       id, scope, guide: guide(settingGuides, id), source: settingsSource,
