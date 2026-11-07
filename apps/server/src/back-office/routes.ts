@@ -176,6 +176,10 @@ export function registerBackOfficeRoutes(options: {
     if (scope !== "local") {
       store.setSync(scope, true);
       await syncBackOffice(options.config);
+      const refreshed = await backOfficeAccess(options.config, true);
+      if (refreshed.actor.principalKey !== actor.principalKey)
+        throw new ApiError(409, "back_office_account_changed", "The connected account changed. Refresh Back Office before continuing.");
+      Object.assign(actor, refreshed.actor);
     }
     return {
       scope,
@@ -360,6 +364,7 @@ export function registerBackOfficeRoutes(options: {
         "back_office_model",
         "Model administrator permission is required.",
       );
+    store.requireAccount(scope, actor);
     const snapshot = await backOfficePlatform(options.config, [
       {
         id: randomUUID(),
@@ -369,7 +374,8 @@ export function registerBackOfficeRoutes(options: {
         data: body.model,
       },
     ], actor.principalKey);
-    store.receive(scope, snapshot, actor);
+    const replicaId = store.receive(scope, snapshot, actor);
+    if (replicaId) actor.replicaId = replicaId;
     if (snapshot.conflicts.length)
       throw new ApiError(
         409,
@@ -577,6 +583,7 @@ export function registerBackOfficeRoutes(options: {
       access: intent.metadata.includes("sharing") ? intent.record.access : current.access,
       members: intent.metadata.includes("sharing") ? intent.record.members : current.members,
     };
+    store.requireAccount(scope, actor);
     const operationId = randomUUID(),
       snapshot = await backOfficePlatform(options.config, [
         {
@@ -597,7 +604,8 @@ export function registerBackOfficeRoutes(options: {
           "The team record could not be updated.",
       );
     store.discardQueued(scope, body.id, actor);
-    store.receive(scope, snapshot, actor);
+    const replicaId = store.receive(scope, snapshot, actor);
+    if (replicaId) actor.replicaId = replicaId;
     return { ok: true };
   });
   route("POST", "/sync/discard", async (ctx, store, { scope, actor }) => {

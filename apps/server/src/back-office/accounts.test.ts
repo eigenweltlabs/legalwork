@@ -3,11 +3,11 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { ServerConfig } from "../types.js";
-import { runtimeDbPath } from "../runtime-db.js";
+import { openSqlite, runtimeDbPath } from "../runtime-db.js";
 import { writeEigenweltConnection, writeEigenweltConnectionIfCurrent, closeEigenweltConnectionForTests, claimEigenweltRefreshRequest } from "../eigenwelt-connection-store.js";
 import { scheduleOrgPolicySync, resetOrgPolicyRuntimeForTests } from "../org-policy.js";
 import { BackOfficeRecordSchema, defaultBackOfficeModel, type BackOfficeActor, type BackOfficeRecord, type BackOfficeSnapshot } from "./schema.js";
-import { backOfficeStore, closeBackOfficeStoreForTests } from "./store.js";
+import { BackOfficeStore, backOfficeStore, closeBackOfficeStoreForTests } from "./store.js";
 import { backOfficeAccess } from "./access.js";
 import { backOfficePlatform, signOutBackOffice, syncBackOffice } from "./sync.js";
 import { backOfficePrincipalKey } from "./principal.js";
@@ -37,12 +37,12 @@ async function fixture() {
   const platformURL = "http://127.0.0.1:55499";
   process.env.EIGENWELT_PLATFORM_URL = platformURL;
   const snapshot = (records: BackOfficeRecord[] = [], accepted: string[] = []): BackOfficeSnapshot => ({ protocol: 1, model: defaultBackOfficeModel(), records, accepted, conflicts: [], views: [], cursor: 1 });
-  const backend: { enabled: boolean; revision: number; respond: (() => Promise<Response>) | null } = { enabled: true, revision: 1, respond: null };
+  const backend: { enabled: boolean; revision: number; finance: string[]; respond: (() => Promise<Response>) | null } = { enabled: true, revision: 1, finance: ["alice"], respond: null };
   const requests: { url: string; authorization: string | null }[] = [];
   const network = spyOn(globalThis, "fetch").mockImplementation(Object.assign(async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
     requests.push({ url, authorization: new Headers(init?.headers).get("authorization") });
-    if (url.endsWith("/api/desktop/policy")) return Response.json({ schemaVersion: 1, orgId: "firm", orgName: "Fixture firm", revision: backend.revision, role: "member", updatedAt: null, entries: { "backOffice.sync": { mode: "enforced", value: { enabled: backend.enabled, modelEditors: ["alice"], directoryEditors: ["alice", "bob"], billingMembers: ["alice"] } } } });
+    if (url.endsWith("/api/desktop/policy")) return Response.json({ schemaVersion: 1, orgId: "firm", orgName: "Fixture firm", revision: backend.revision, role: "member", updatedAt: null, entries: { "backOffice.sync": { mode: "enforced", value: { enabled: backend.enabled, modelEditors: ["alice"], directoryEditors: ["alice", "bob"], billingMembers: backend.finance } } } });
     if (url.endsWith("/api/desktop/policy/secrets")) return Response.json({ schemaVersion: 1, revision: backend.revision, secrets: {} });
     if (backend.respond && url.includes("/api/back-office")) return backend.respond();
     if (url.endsWith("/api/back-office")) return Response.json(snapshot());
@@ -118,10 +118,38 @@ test("a known policy denial cleans the cache on access while local use remains a
   const { store, config, backend, oldHead, original } = await fixture();
   backend.enabled = false; backend.revision++;
   await scheduleOrgPolicySync(config, { force: true });
+  expect(store.raw("firm", original.id)).toBeNull();
+  expect(store.journal.storage.key(oldHead.streamId)).toBeNull();
   await expect(backOfficeAccess(config, true)).rejects.toMatchObject({ code: "back_office_sync_disabled" });
   expect(store.raw("firm", original.id)).toBeNull();
   expect(store.journal.storage.key(oldHead.streamId)).toBeNull();
   expect((await backOfficeAccess(config)).scope).toBe("local");
+});
+
+test("an actor captured before a policy change cannot commit with its old cached finance rights", async () => {
+  const { store, config, alice, original, backend } = await fixture();
+  backend.finance = []; backend.revision++;
+  await scheduleOrgPolicySync(config, { force: true });
+  expect(() => store.saveRecord("firm", alice, { id: original.id, objectId: original.objectId, revision: original.revision, values: { vatId: "Rejected stale edit" } })).toThrow("Firm permissions changed");
+  expect(store.raw("firm", original.id)?.values.vatId).toBeUndefined();
+  expect(store.accountPendingCount("firm", alice)).toBe(0);
+  expect(await signOutBackOffice(config, { force: true, apply: true })).toBe(0);
+  expect(store.raw("firm", original.id)).toBeNull();
+  expect(store.checkIntegrity().locallyVerified).toBe(true);
+});
+
+test("startup applies a committed policy denial after an interrupted cleanup without waiting for a UI request", async () => {
+  const { store, config, original, oldHead } = await fixture();
+  const external = await openSqlite(runtimeDbPath(config));
+  try {
+    external.run("UPDATE org_policy SET snapshot_json=json_set(snapshot_json,'$.entries.\"backOffice.sync\".value.enabled',json('false')) WHERE id='current'");
+  } finally { external.close(); }
+  const restarted = new BackOfficeStore(await openSqlite(runtimeDbPath(config)), store.journal.storage);
+  try {
+    expect(restarted.raw("firm", original.id)).toBeNull();
+    expect(restarted.journal.storage.key(oldHead.streamId)).toBeNull();
+    expect(restarted.checkIntegrity().locallyVerified).toBe(true);
+  } finally { restarted.close(); }
 });
 
 test("a late sync response from the previous principal cannot restore records or consume the new user's drafts", async () => {

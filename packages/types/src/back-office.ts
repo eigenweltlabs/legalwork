@@ -167,6 +167,7 @@ export type BackOfficeView = z.infer<typeof BackOfficeViewSchema>;
 export type BackOfficeActor = {
   userId: string;
   principalKey?: string;
+  replicaId?: string;
   agentId?: string;
   model: boolean;
   edit: boolean;

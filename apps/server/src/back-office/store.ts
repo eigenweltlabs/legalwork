@@ -10,6 +10,7 @@ import {
 } from "./audit-storage.js";
 import { z } from "zod";
 import { ApiError } from "../errors.js";
+import { OrgPolicySnapshotSchema, parseOrgPolicyEntries } from "../org-policy-schema.js";
 import { openSqlite, runtimeDbPath, type SqliteHandle } from "../runtime-db.js";
 import { ensureDir } from "../utils.js";
 import type { ServerConfig } from "../types.js";
@@ -87,6 +88,7 @@ export class BackOfficeStore {
         db.exec(table);
         this.journal = new BackOfficeJournal(db, storage);
         this.journal.initialize();
+        this.applyCachedPolicy();
       } finally {
         storage.release();
       }
@@ -196,15 +198,54 @@ export class BackOfficeStore {
   private connectedAccount() {
     const hasConnection = this.db.get("SELECT name FROM sqlite_master WHERE type='table' AND name='eigenwelt_connections'");
     const row = hasConnection ? this.db.get("SELECT account_json,platform_url,platform_token FROM eigenwelt_connections WHERE workspace_id='eigenwelt-account'") : null;
-    const account = row?.account_json ? z.object({ orgId: z.string(), userId: z.string() }).safeParse(JSON.parse(String(row.account_json))) : null;
+    const account = row?.account_json ? z.object({ orgId: z.string(), userId: z.string(), orgRole: z.string().nullable().optional() }).safeParse(JSON.parse(String(row.account_json))) : null;
     return row?.platform_token && row.platform_url && account?.success ? { ...account.data, principalKey: backOfficePrincipalKey(String(row.platform_url), account.data.orgId, account.data.userId) } : null;
   }
   connectedPrincipalKey() { return this.connectedAccount()?.principalKey ?? null; }
-  requireAccount(scope: string, actor: BackOfficeActor) {
+  private requireIdentity(scope: string, actor: BackOfficeActor) {
     if (scope === "local" || !actor.principalKey) return;
     const account = this.connectedAccount();
     if (!account || account.orgId !== scope || account.userId !== actor.userId || account.principalKey !== actor.principalKey)
       throw new ApiError(409, "back_office_account_changed", "The connected account changed. Refresh Back Office before continuing.");
+    if (actor.replicaId && actor.replicaId !== this.replicaId(scope))
+      throw new ApiError(409, "back_office_replica_changed", "The directory reconnected. Refresh Back Office before continuing.");
+  }
+  requireAccount(scope: string, actor: BackOfficeActor) {
+    this.requireIdentity(scope, actor);
+    if (scope === "local" || !actor.principalKey) return;
+    const current = this.cachedPolicyActor(scope);
+    if (!current || (actor.model && !current.model) || (actor.edit && !current.edit) || (actor.finance && !current.finance))
+      throw new ApiError(403, "back_office_permissions_changed", "Firm permissions changed. Refresh Back Office before continuing.");
+  }
+  private cachedPolicyActor(scope: string): BackOfficeActor | null {
+    const account = this.connectedAccount();
+    if (!account || account.orgId !== scope) return null;
+    const hasPolicy = this.db.get("SELECT name FROM sqlite_master WHERE type='table' AND name='org_policy'");
+    const row = hasPolicy ? this.db.get("SELECT snapshot_json,released_json FROM org_policy WHERE id='current'") : null;
+    const snapshot = row ? OrgPolicySnapshotSchema.safeParse(JSON.parse(String(row.snapshot_json))) : null;
+    const released = row ? z.array(z.string()).parse(JSON.parse(String(row.released_json))) : [];
+    const policy = snapshot?.success && snapshot.data.orgId === scope ? parseOrgPolicyEntries(snapshot.data.entries)["backOffice.sync"] : null;
+    const value = policy?.mode === "enforced" && !released.includes("backOffice.sync") ? policy.value : null;
+    const admin = account?.orgRole === "org:admin";
+    return value?.enabled ? { userId: account.userId, principalKey: account.principalKey,
+      model: admin || value.modelEditors.includes(account.userId),
+      edit: admin || value.directoryEditors.includes(account.userId),
+      finance: value.billingMembers.includes(account.userId),
+    } : null;
+  }
+  /** Apply a persisted policy even without a subsequent UI request or sync. */
+  applyCachedPolicy() {
+    const expected = this.connectedPrincipalKey();
+    for (const row of this.db.all("SELECT scope FROM bo_replicas")) {
+      const scope = String(row.scope), actor = this.cachedPolicyActor(scope);
+      if (actor) { this.bindAccount(scope, actor); this.restrictTeamAccess(scope, actor); }
+      else this.suspendAccount(scope, null, "Team access changed. Reconnect as the author to review remaining drafts.", expected);
+    }
+  }
+
+  accountPendingCount(scope: string, actor: BackOfficeActor) {
+    this.requireIdentity(scope, actor);
+    return Number(this.db.get("SELECT count(*) AS count FROM bo_outbox WHERE scope=? AND json_extract(data,'$.authorKey')=?", [scope, backOfficeAuthorKey(actor)])?.count ?? 0);
   }
 
   teamScopes() {
@@ -212,15 +253,30 @@ export class BackOfficeStore {
       .map(row => String(row.scope)).filter(scope => scope !== "local");
   }
 
+  replicaId(scope: string): string | null {
+    const row = this.db.get("SELECT data FROM bo_replicas WHERE scope=?", [scope]);
+    return row ? z.object({ replicaId: z.string().uuid().optional() }).parse(JSON.parse(String(row.data))).replicaId ?? null : null;
+  }
+  private retireCache(scope: string) {
+    const binding = this.db.get("SELECT data FROM bo_replicas WHERE scope=?", [scope]);
+    if (binding) {
+      const previous = z.object({ id: z.literal("replica"), principalKey: z.string() }).parse(JSON.parse(String(binding.data)));
+      this.db.run("UPDATE bo_replicas SET data=? WHERE scope=?", [JSON.stringify({ ...previous, replicaId: randomUUID() }), scope]);
+    }
+    this.journal.retire(scope);
+  }
+
   bindAccount(scope: string, actor: BackOfficeActor) {
     this.transaction(() => {
       this.requireAccount(scope, actor);
       const key = backOfficeAuthorKey(actor);
       const current = this.db.get("SELECT data FROM bo_replicas WHERE scope=?", [scope]);
-      const previous = current ? z.object({ id: z.literal("replica"), principalKey: z.string() }).parse(JSON.parse(String(current.data))) : null;
-      if (previous?.principalKey === key) return;
+      const previous = current ? z.object({ id: z.literal("replica"), principalKey: z.string(), replicaId: z.string().uuid().optional() }).parse(JSON.parse(String(current.data))) : null;
+      if (previous?.principalKey === key && previous.replicaId) return;
       this.suspendTeam(scope, "The connected account changed. Reconnect to load authorized team records.");
-      this.db.run("INSERT INTO bo_replicas VALUES(?,?) ON CONFLICT(scope) DO UPDATE SET data=excluded.data", [scope, JSON.stringify({ id: "replica", principalKey: key })]);
+      if (previous?.principalKey !== key)
+        this.db.run("UPDATE bo_sync SET cursor=0 WHERE scope=?", [scope]);
+      this.db.run("INSERT INTO bo_replicas VALUES(?,?) ON CONFLICT(scope) DO UPDATE SET data=excluded.data", [scope, JSON.stringify({ id: "replica", principalKey: key, replicaId: randomUUID() })]);
     }, { actor, action: "cache.account" });
   }
 
@@ -706,6 +762,7 @@ export class BackOfficeStore {
     return view;
   }
   history(scope: string, actor: BackOfficeActor, id: string) {
+    this.requireAccount(scope, actor);
     if (id !== "model") {
       const record = this.raw(scope, id);
       if (!record || !this.canRead(scope, record, actor))
@@ -754,8 +811,11 @@ export class BackOfficeStore {
     );
   }
   receive(scope: string, snapshot: BackOfficeSnapshot, actor: BackOfficeActor) {
-    this.transaction(() => {
+    return this.transaction(() => {
       this.requireAccount(scope, actor);
+      const cursor = Number(this.db.get("SELECT cursor FROM bo_sync WHERE scope=?", [scope])?.cursor ?? 0);
+      if (snapshot.cursor < cursor)
+        throw new ApiError(409, "back_office_snapshot_stale", "A newer team snapshot is already stored. Refresh Back Office before continuing.");
       let revoked = false;
       for (const id of snapshot.accepted)
         this.db.run("DELETE FROM bo_outbox WHERE scope=? AND id=? AND json_extract(data,'$.authorKey')=?", [
@@ -837,7 +897,8 @@ export class BackOfficeStore {
         [scope, snapshot.cursor, snapshot.conflicts[0]?.message ?? null],
       );
       this.restrictTeamAccess(scope, actor);
-      if (revoked) this.journal.retire(scope);
+      if (revoked) this.retireCache(scope);
+      return this.replicaId(scope);
     });
   }
 
@@ -924,7 +985,7 @@ export class BackOfficeStore {
           revoked = true;
         }
       }
-      if (revoked) this.journal.retire(scope);
+      if (revoked) this.retireCache(scope);
     }, { action: "cache.permissions" });
   }
   syncError(scope: string, message: string) {
@@ -963,7 +1024,7 @@ export class BackOfficeStore {
       ]);
       this.setSync(scope, false);
       this.syncError(scope, message);
-      this.journal.retire(scope);
+      this.retireCache(scope);
     });
   }
   stagePublish(
@@ -1177,7 +1238,7 @@ export class BackOfficeStore {
   }
   clearTeam(scope: string, actor?: BackOfficeActor) {
     this.transaction(() => {
-      if (actor) this.requireAccount(scope, actor);
+      if (actor) this.requireIdentity(scope, actor);
       this.suspendTeam(scope, "The account disconnected. Reconnect as the author to review remaining drafts.");
       for (const table of [
         "bo_records",
