@@ -844,3 +844,76 @@ export function moveCalendarDate(
   moved.setFullYear(year, month - 1, date);
   return moved.toISOString();
 }
+
+
+export const BACK_OFFICE_AUDIT_VERSION = 1;
+export const BACK_OFFICE_AUDIT_GENESIS = "0".repeat(64);
+const digest = z.string().regex(/^[a-f0-9]{64}$/);
+const base64 = z.string().min(1).max(2000).regex(/^[A-Za-z0-9+/]+={0,2}$/);
+
+export const BackOfficeAuditActorSchema = z.object({
+  id: z.string().min(1).max(200),
+  name: z.string().max(200).nullable(),
+  kind: z.enum(["user", "agent", "system"]),
+  identitySource: z.enum(["platform", "account-cache", "operating-system", "migration"]),
+  deviceId: z.string().uuid().nullable(),
+  agentId: z.string().max(200).nullable(),
+}).strict();
+
+export const BackOfficeAuditPayloadSchema = z.object({
+  version: z.literal(BACK_OFFICE_AUDIT_VERSION),
+  streamId: z.string().uuid(),
+  sequence: z.number().int().positive().safe(),
+  eventId: z.string().uuid(),
+  recordedAt: z.string().datetime(),
+  scope: z.string().min(1).max(200),
+  actor: BackOfficeAuditActorSchema,
+  action: z.string().min(1).max(100),
+  entityType: z.enum(["record", "model", "view", "directory", "file", "proposal"]),
+  entityId: z.string().min(1).max(200),
+  modelRevision: z.number().int().nonnegative().safe(),
+  before: z.json().nullable(),
+  after: z.json().nullable(),
+}).strict();
+
+// Proofs deliberately exclude record contents. They can be independently
+// witnessed without uploading clients, matters, file names or model definitions.
+export const BackOfficeAuditProofSchema = z.object({
+  version: z.literal(BACK_OFFICE_AUDIT_VERSION),
+  streamId: z.string().uuid(),
+  sequence: z.number().int().positive().safe(),
+  previousHash: digest,
+  payloadHash: digest,
+  entityType: z.enum(["record", "model", "view", "directory", "file", "proposal"]),
+  entityKey: digest,
+  beforeHash: digest,
+  afterHash: digest,
+  hash: digest,
+  publicKey: base64,
+  signature: base64,
+}).strict();
+
+export const BackOfficeAuditEntrySchema = z.object({
+  payload: BackOfficeAuditPayloadSchema,
+  proof: BackOfficeAuditProofSchema,
+}).strict();
+
+export const BackOfficeAuditHeadSchema = z.object({
+  streamId: z.string().uuid(),
+  sequence: z.number().int().nonnegative().safe(),
+  hash: digest,
+  publicKey: base64,
+}).strict();
+
+export type BackOfficeAuditActor = z.infer<typeof BackOfficeAuditActorSchema>;
+export type BackOfficeAuditPayload = z.infer<typeof BackOfficeAuditPayloadSchema>;
+export type BackOfficeAuditProof = z.infer<typeof BackOfficeAuditProofSchema>;
+export type BackOfficeAuditEntry = z.infer<typeof BackOfficeAuditEntrySchema>;
+export type BackOfficeAuditHead = z.infer<typeof BackOfficeAuditHeadSchema>;
+
+/** Deterministic, lossless encoding of the supported JSON value domain. */
+export function canonicalBackOfficeAudit(value: z.infer<ReturnType<typeof z.json>>): string {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(canonicalBackOfficeAudit).join(",")}]`;
+  return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalBackOfficeAudit(value[key])}`).join(",")}}`;
+}

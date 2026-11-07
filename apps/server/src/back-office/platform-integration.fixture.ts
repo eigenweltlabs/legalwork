@@ -350,9 +350,9 @@ try {
     required: false,
   });
   clientObject.plural = "Firm clients";
-  a.store.db.run("UPDATE bo_models SET data=? WHERE scope='local'", [
+  a.store.transaction(() => a.store.db.run("UPDATE bo_models SET data=? WHERE scope='local'", [
     JSON.stringify(local),
-  ]);
+  ]));
   a.store.saveRecord(scope, a.actor, {
     objectId: "companies",
     revision: 0,
@@ -360,6 +360,7 @@ try {
   });
   const reopened = new BackOfficeStore(
     await openSqlite(runtimeDbPath(a.config)),
+    a.store.journal.storage,
   );
   assert.equal(reopened.syncState(scope).pending, 1);
   assert.equal(

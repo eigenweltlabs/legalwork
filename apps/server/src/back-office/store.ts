@@ -1,5 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
+import { BackOfficeJournal } from "./journal.js";
+import {
+  fileBackOfficeAuditStorage,
+  memoryBackOfficeAuditStorage,
+  type BackOfficeAuditStorage,
+} from "./audit-storage.js";
 import { z } from "zod";
 import { ApiError } from "../errors.js";
 import { openSqlite, runtimeDbPath, type SqliteHandle } from "../runtime-db.js";
@@ -56,9 +62,15 @@ function conflict(
 
 export class BackOfficeStore {
   private transactionDepth = 0;
-  constructor(readonly db: SqliteHandle) {
+  readonly journal: BackOfficeJournal;
+  constructor(
+    readonly db: SqliteHandle,
+    storage: BackOfficeAuditStorage = memoryBackOfficeAuditStorage(),
+  ) {
     db.exec("PRAGMA busy_timeout=5000");
     db.exec(table);
+    this.journal = new BackOfficeJournal(db, storage);
+    this.journal.initialize();
   }
   model(scope: string): BackOfficeModel {
     const row = this.db.get("SELECT data FROM bo_models WHERE scope=?", [
@@ -69,29 +81,50 @@ export class BackOfficeStore {
       const upgraded =
         scope === "local" ? upgradeBackOfficeModel(current) : current;
       if (upgraded !== current)
-        this.db.run("UPDATE bo_models SET data=? WHERE scope=?", [
-          JSON.stringify(upgraded),
-          scope,
-        ]);
+        this.transaction(() => {
+          this.db.run("UPDATE bo_models SET data=? WHERE scope=?", [
+            JSON.stringify(upgraded),
+            scope,
+          ]);
+        });
       return upgraded;
     }
     const model = defaultBackOfficeModel();
-    this.db.run("INSERT OR IGNORE INTO bo_models VALUES(?,?)", [
-      scope,
-      JSON.stringify(model),
-    ]);
+    this.transaction(() =>
+      this.db.run("INSERT OR IGNORE INTO bo_models VALUES(?,?)", [
+        scope,
+        JSON.stringify(model),
+      ]),
+    );
     return model;
   }
-  transaction<T>(fn: () => T): T {
+  transaction<T>(
+    fn: () => T,
+    context?: { actor?: BackOfficeActor; action: string },
+  ): T {
     const level = this.transactionDepth++;
+    const journalSavepoint = this.journal.savepoint();
     const savepoint = `bo_save_${level}`;
     this.db.exec(level ? `SAVEPOINT ${savepoint}` : "BEGIN IMMEDIATE");
+    let committed = false;
     try {
+      if (!level) this.journal.begin();
+      const previousContext = context ? this.journal.currentContext() : null;
+      if (context) this.journal.context(context.actor, context.action);
       const value = fn();
+      if (level && previousContext)
+        this.journal.restoreContext(previousContext);
+      if (!level) this.journal.flush();
       this.db.exec(level ? `RELEASE ${savepoint}` : "COMMIT");
+      committed = true;
+      if (!level) this.journal.checkpoint();
       return value;
     } catch (error) {
-      this.db.exec(level ? `ROLLBACK TO ${savepoint}` : "ROLLBACK");
+      if (!committed) {
+        this.db.exec(level ? `ROLLBACK TO ${savepoint}` : "ROLLBACK");
+        if (!level) this.journal.rollback();
+        else this.journal.rollbackTo(journalSavepoint);
+      }
       throw error;
     } finally {
       this.transactionDepth--;
@@ -104,17 +137,7 @@ export class BackOfficeStore {
     id: string,
     data: unknown,
   ) {
-    this.db.run(
-      "INSERT INTO bo_audit(scope,actor,action,record_id,data,created_at) VALUES(?,?,?,?,?,?)",
-      [
-        scope,
-        actor.userId + (actor.agentId ? "/agent:" + actor.agentId : ""),
-        action,
-        id,
-        JSON.stringify(data),
-        new Date().toISOString(),
-      ],
-    );
+    this.journal.attribute(scope, actor, action, id);
   }
   enqueue(
     scope: string,
@@ -195,174 +218,183 @@ export class BackOfficeStore {
         "You do not have permission to edit these records.",
       );
     const parsed = inputRecord.parse(input);
-    return this.transaction(() => {
-      const model = this.model(scope),
-        object = model.objects.find(
-          (object) => object.id === parsed.objectId && !object.archived,
-        );
-      if (
-        ["feeAgreements", "billingItems", "invoices"].includes(
-          parsed.objectId,
-        ) &&
-        !actor.finance
-      )
-        throw new ApiError(
-          403,
-          "back_office_finance",
-          "Billing access is required for this object.",
-        );
-      if (!object)
-        throw new ApiError(
-          404,
-          "back_office_object",
-          "The object is unavailable.",
-        );
-      const existing = parsed.id ? this.raw(scope, parsed.id) : null;
-      if (parsed.id && !existing && !parsed.create)
-        throw new ApiError(
-          404,
-          "back_office_record",
-          "The record is unavailable.",
-        );
-      if (
-        existing &&
-        (!this.canRead(scope, existing, actor) ||
-          existing.objectId !== object.id)
-      )
-        throw new ApiError(
-          404,
-          "back_office_record",
-          "The record is unavailable.",
-        );
-      if (parsed.create && existing)
-        conflict("This record identity already exists.");
-      if ((existing?.revision ?? 0) !== parsed.revision) conflict();
-      if (
-        existing &&
-        ((parsed.access !== undefined && parsed.access !== existing.access) ||
-          (parsed.members !== undefined &&
-            JSON.stringify(parsed.members) !==
-              JSON.stringify(existing.members))) &&
-        existing.ownerId !== actor.userId &&
-        !actor.model
-      )
-        throw new ApiError(
-          403,
-          "back_office_access",
-          "Only the owner or a model administrator can change sharing.",
-        );
-      const recordId = existing?.id ?? parsed.id ?? randomUUID();
-      const values = { ...existing?.values };
-      for (const [id, raw] of Object.entries(parsed.values)) {
-        const field = object.fields.find((field) => field.id === id);
-        if (!field)
-          throw new ApiError(400, "back_office_field", `Unknown field ${id}.`);
+    return this.transaction(
+      () => {
+        const model = this.model(scope),
+          object = model.objects.find(
+            (object) => object.id === parsed.objectId && !object.archived,
+          );
         if (
-          (field.visibility === "finance" && !actor.finance) ||
-          (field.visibility === "private" &&
-            existing &&
-            existing.ownerId !== actor.userId)
+          ["feeAgreements", "billingItems", "invoices"].includes(
+            parsed.objectId,
+          ) &&
+          !actor.finance
         )
           throw new ApiError(
             403,
-            "back_office_field",
-            `You cannot edit ${field.label}.`,
+            "back_office_finance",
+            "Billing access is required for this object.",
           );
-        const value = BackOfficeValueSchema.parse(raw);
-        if (field.type === "file" && value !== null) {
-          for (const file of BackOfficeFilesSchema.parse(value))
-            if (file.recordId !== recordId || file.fieldId !== field.id)
-              throw new ApiError(
-                400,
-                "back_office_file",
-                "Attach a copy to this record and field before linking it.",
-              );
-        }
-        if (field.type === "relation" && value) {
-          for (const target of Array.isArray(value) ? value : [value]) {
-            const related =
-              typeof target === "string" ? this.raw(scope, target) : null;
-            if (
-              !related ||
-              related.archivedAt ||
-              related.objectId !== field.target ||
-              !this.canRead(scope, related, actor)
-            )
-              throw new ApiError(
-                400,
-                "back_office_relation",
-                "Choose an accessible record from the target object.",
-              );
+        if (!object)
+          throw new ApiError(
+            404,
+            "back_office_object",
+            "The object is unavailable.",
+          );
+        const existing = parsed.id ? this.raw(scope, parsed.id) : null;
+        if (parsed.id && !existing && !parsed.create)
+          throw new ApiError(
+            404,
+            "back_office_record",
+            "The record is unavailable.",
+          );
+        if (
+          existing &&
+          (!this.canRead(scope, existing, actor) ||
+            existing.objectId !== object.id)
+        )
+          throw new ApiError(
+            404,
+            "back_office_record",
+            "The record is unavailable.",
+          );
+        if (parsed.create && existing)
+          conflict("This record identity already exists.");
+        if ((existing?.revision ?? 0) !== parsed.revision) conflict();
+        if (
+          existing &&
+          ((parsed.access !== undefined && parsed.access !== existing.access) ||
+            (parsed.members !== undefined &&
+              JSON.stringify(parsed.members) !==
+                JSON.stringify(existing.members))) &&
+          existing.ownerId !== actor.userId &&
+          !actor.model
+        )
+          throw new ApiError(
+            403,
+            "back_office_access",
+            "Only the owner or a model administrator can change sharing.",
+          );
+        const recordId = existing?.id ?? parsed.id ?? randomUUID();
+        const values = { ...existing?.values };
+        for (const [id, raw] of Object.entries(parsed.values)) {
+          const field = object.fields.find((field) => field.id === id);
+          if (!field)
+            throw new ApiError(
+              400,
+              "back_office_field",
+              `Unknown field ${id}.`,
+            );
+          if (
+            (field.visibility === "finance" && !actor.finance) ||
+            (field.visibility === "private" &&
+              existing &&
+              existing.ownerId !== actor.userId)
+          )
+            throw new ApiError(
+              403,
+              "back_office_field",
+              `You cannot edit ${field.label}.`,
+            );
+          const value = BackOfficeValueSchema.parse(raw);
+          if (field.type === "file" && value !== null) {
+            for (const file of BackOfficeFilesSchema.parse(value))
+              if (file.recordId !== recordId || file.fieldId !== field.id)
+                throw new ApiError(
+                  400,
+                  "back_office_file",
+                  "Attach a copy to this record and field before linking it.",
+                );
           }
+          if (field.type === "relation" && value) {
+            for (const target of Array.isArray(value) ? value : [value]) {
+              const related =
+                typeof target === "string" ? this.raw(scope, target) : null;
+              if (
+                !related ||
+                related.archivedAt ||
+                related.objectId !== field.target ||
+                !this.canRead(scope, related, actor)
+              )
+                throw new ApiError(
+                  400,
+                  "back_office_relation",
+                  "Choose an accessible record from the target object.",
+                );
+            }
+          }
+          values[id] = value;
         }
-        values[id] = value;
-      }
-      try {
-        validateBackOfficeValues(object, values);
-      } catch (error) {
-        throw new ApiError(
-          400,
-          "back_office_value",
-          error instanceof Error ? error.message : "Check the values.",
+        try {
+          validateBackOfficeValues(object, values);
+        } catch (error) {
+          throw new ApiError(
+            400,
+            "back_office_value",
+            error instanceof Error ? error.message : "Check the values.",
+          );
+        }
+        if (
+          object.id === "projectLinks" &&
+          (!values.matter ||
+            this.records(scope, actor, "projectLinks").some(
+              (record) =>
+                record.id !== existing?.id &&
+                record.values.projectId === values.projectId &&
+                record.values.matter === values.matter,
+            ))
+        )
+          throw new ApiError(
+            409,
+            "back_office_project_link",
+            "This project and matter are already linked, or the matter is missing.",
+          );
+        const now = new Date().toISOString();
+        const record = BackOfficeRecordSchema.parse({
+          ...existing,
+          id: recordId,
+          objectId: object.id,
+          values,
+          sourceId:
+            parsed.sourceId === undefined
+              ? existing?.sourceId
+              : parsed.sourceId,
+          revision: parsed.revision + 1,
+          schemaRevision: model.revision,
+          ownerId: existing?.ownerId ?? actor.userId,
+          access: parsed.access ?? existing?.access ?? "org",
+          members: parsed.members ?? existing?.members ?? [],
+          createdAt: existing?.createdAt ?? now,
+          updatedAt: now,
+          archivedAt:
+            parsed.archived === undefined
+              ? (existing?.archivedAt ?? null)
+              : parsed.archived
+                ? now
+                : null,
+        });
+        this.db.run(
+          "INSERT INTO bo_records VALUES(?,?,?,?) ON CONFLICT(scope,id) DO UPDATE SET data=excluded.data",
+          [scope, record.id, record.objectId, JSON.stringify(record)],
         );
-      }
-      if (
-        object.id === "projectLinks" &&
-        (!values.matter ||
-          this.records(scope, actor, "projectLinks").some(
-            (record) =>
-              record.id !== existing?.id &&
-              record.values.projectId === values.projectId &&
-              record.values.matter === values.matter,
-          ))
-      )
-        throw new ApiError(
-          409,
-          "back_office_project_link",
-          "This project and matter are already linked, or the matter is missing.",
+        this.audit(
+          scope,
+          actor,
+          existing ? "record.update" : "record.create",
+          record.id,
+          { before: existing, after: record },
         );
-      const now = new Date().toISOString();
-      const record = BackOfficeRecordSchema.parse({
-        ...existing,
-        id: recordId,
-        objectId: object.id,
-        values,
-        sourceId:
-          parsed.sourceId === undefined ? existing?.sourceId : parsed.sourceId,
-        revision: parsed.revision + 1,
-        schemaRevision: model.revision,
-        ownerId: existing?.ownerId ?? actor.userId,
-        access: parsed.access ?? existing?.access ?? "org",
-        members: parsed.members ?? existing?.members ?? [],
-        createdAt: existing?.createdAt ?? now,
-        updatedAt: now,
-        archivedAt:
-          parsed.archived === undefined
-            ? (existing?.archivedAt ?? null)
-            : parsed.archived
-              ? now
-              : null,
-      });
-      this.db.run(
-        "INSERT INTO bo_records VALUES(?,?,?,?) ON CONFLICT(scope,id) DO UPDATE SET data=excluded.data",
-        [scope, record.id, record.objectId, JSON.stringify(record)],
-      );
-      this.audit(
-        scope,
-        actor,
-        existing ? "record.update" : "record.create",
-        record.id,
-        { before: existing, after: record },
-      );
-      this.enqueue(
-        scope,
-        "record",
-        parsed.revision,
-        record,
-        Object.keys(parsed.values),
-      );
-      return readableBackOfficeRecord(record, object, actor);
-    });
+        this.enqueue(
+          scope,
+          "record",
+          parsed.revision,
+          record,
+          Object.keys(parsed.values),
+        );
+        return readableBackOfficeRecord(record, object, actor);
+      },
+      { actor, action: "record.write" },
+    );
   }
   previewModel(
     scope: string,
@@ -444,64 +476,67 @@ export class BackOfficeStore {
         "Only model administrators can change the data model.",
       );
     const candidate = BackOfficeModelSchema.parse(input);
-    return this.transaction(() => {
-      const current = this.model(scope);
-      if (current.revision !== baseRevision)
-        conflict(
-          "The data model changed. Refresh before applying your changes.",
-        );
-      try {
-        assertModelChange(current, candidate);
-      } catch (error) {
-        throw new ApiError(
-          400,
-          "back_office_protected",
-          error instanceof Error ? error.message : "Check the model.",
-        );
-      }
-      const allRecords = this.db.all(
-        "SELECT data FROM bo_records WHERE scope=?",
-        [scope],
-      );
-      for (const row of allRecords) {
-        const record = BackOfficeRecordSchema.parse(
-          JSON.parse(String(row.data)),
-        );
-        const object = candidate.objects.find(
-          (object) => object.id === record.objectId,
-        );
-        if (!object)
-          throw new ApiError(
-            409,
-            "back_office_migration",
-            "Archive an object instead of deleting records it contains.",
+    return this.transaction(
+      () => {
+        const current = this.model(scope);
+        if (current.revision !== baseRevision)
+          conflict(
+            "The data model changed. Refresh before applying your changes.",
           );
         try {
-          validateBackOfficeValues(object, record.values);
-        } catch {
+          assertModelChange(current, candidate);
+        } catch (error) {
           throw new ApiError(
-            409,
-            "back_office_migration",
-            "This model change requires a data migration. Preserve existing field types and values, or fill required fields first.",
+            400,
+            "back_office_protected",
+            error instanceof Error ? error.message : "Check the model.",
           );
         }
-      }
-      const next = {
-        ...candidate,
-        templateVersion: current.templateVersion,
-        revision: current.revision + 1,
-      };
-      this.db.run("UPDATE bo_models SET data=? WHERE scope=?", [
-        JSON.stringify(next),
-        scope,
-      ]);
-      this.audit(scope, actor, "model.update", "model", {
-        before: current,
-        after: next,
-      });
-      this.enqueue(scope, "model", current.revision, next);
-      return next;
-    });
+        const allRecords = this.db.all(
+          "SELECT data FROM bo_records WHERE scope=?",
+          [scope],
+        );
+        for (const row of allRecords) {
+          const record = BackOfficeRecordSchema.parse(
+            JSON.parse(String(row.data)),
+          );
+          const object = candidate.objects.find(
+            (object) => object.id === record.objectId,
+          );
+          if (!object)
+            throw new ApiError(
+              409,
+              "back_office_migration",
+              "Archive an object instead of deleting records it contains.",
+            );
+          try {
+            validateBackOfficeValues(object, record.values);
+          } catch {
+            throw new ApiError(
+              409,
+              "back_office_migration",
+              "This model change requires a data migration. Preserve existing field types and values, or fill required fields first.",
+            );
+          }
+        }
+        const next = {
+          ...candidate,
+          templateVersion: current.templateVersion,
+          revision: current.revision + 1,
+        };
+        this.db.run("UPDATE bo_models SET data=? WHERE scope=?", [
+          JSON.stringify(next),
+          scope,
+        ]);
+        this.audit(scope, actor, "model.update", "model", {
+          before: current,
+          after: next,
+        });
+        this.enqueue(scope, "model", current.revision, next);
+        return next;
+      },
+      { actor, action: "model.update" },
+    );
   }
   views(scope: string): BackOfficeView[] {
     return this.db
@@ -525,14 +560,17 @@ export class BackOfficeStore {
         error instanceof Error ? error.message : "Check the view settings.",
       );
     }
-    this.transaction(() => {
-      this.db.run(
-        "INSERT INTO bo_views VALUES(?,?,?) ON CONFLICT(scope,id) DO UPDATE SET data=excluded.data",
-        [scope, view.id, JSON.stringify(view)],
-      );
-      this.enqueue(scope, "view", 0, view);
-      this.audit(scope, actor, "view.save", view.id, view);
-    });
+    this.transaction(
+      () => {
+        this.db.run(
+          "INSERT INTO bo_views VALUES(?,?,?) ON CONFLICT(scope,id) DO UPDATE SET data=excluded.data",
+          [scope, view.id, JSON.stringify(view)],
+        );
+        this.enqueue(scope, "view", 0, view);
+        this.audit(scope, actor, "view.save", view.id, view);
+      },
+      { actor, action: "view.save" },
+    );
     return view;
   }
   history(scope: string, actor: BackOfficeActor, id: string) {
@@ -546,10 +584,7 @@ export class BackOfficeStore {
         );
     }
     if (!actor.model) return [];
-    return this.db.all(
-      "SELECT actor,action,created_at FROM bo_audit WHERE scope=? AND record_id=? ORDER BY seq DESC LIMIT 100",
-      [scope, id],
-    );
+    return this.journal.history(scope, id);
   }
   pending(scope: string, limit = 100) {
     return this.db
@@ -672,7 +707,7 @@ export class BackOfficeStore {
   }
   suspendTeam(scope: string, message: string) {
     this.transaction(() => {
-      for (const table of ["bo_records", "bo_models", "bo_views", "bo_audit"])
+      for (const table of ["bo_records", "bo_models", "bo_views"])
         this.db.run(`DELETE FROM ${table} WHERE scope=?`, [scope]);
       this.db.run("UPDATE bo_outbox SET error=? WHERE scope=?", [
         message,
@@ -680,6 +715,7 @@ export class BackOfficeStore {
       ]);
       this.setSync(scope, false);
       this.syncError(scope, message);
+      this.journal.retire(scope);
     });
   }
   stagePublish(
@@ -881,9 +917,9 @@ export class BackOfficeStore {
         "bo_views",
         "bo_outbox",
         "bo_sync",
-        "bo_audit",
       ])
         this.db.run(`DELETE FROM ${table} WHERE scope=?`, [scope]);
+      this.journal.retire(scope);
     });
   }
   close() {
@@ -899,7 +935,24 @@ export function backOfficeStore(
   if (!instance) {
     instance = (async () => {
       await ensureDir(dirname(path));
-      return new BackOfficeStore(await openSqlite(path));
+      const db = await openSqlite(path);
+      try {
+        const existing = Boolean(
+          db.get(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='bo_journal_streams'",
+          ) && db.get("SELECT stream_id FROM bo_journal_streams LIMIT 1"),
+        );
+        return new BackOfficeStore(
+          db,
+          fileBackOfficeAuditStorage(
+            join(dirname(path), "back-office-audit"),
+            existing,
+          ),
+        );
+      } catch (error) {
+        db.close();
+        throw error;
+      }
     })();
     instances.set(path, instance);
   }
