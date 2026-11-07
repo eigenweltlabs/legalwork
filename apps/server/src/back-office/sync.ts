@@ -16,8 +16,9 @@ import { announceSyncChange } from "../app-sync-events.js";
 import { ApiError } from "../errors.js";
 import { projectSyncStore } from "../project-sync-store.js";
 import type { ServerConfig } from "../types.js";
+import { BackOfficeSyncRounds } from "./sync-rounds.js";
 
-const rounds = new Map<string, Promise<void>>(),
+const rounds = new BackOfficeSyncRounds(),
   scheduled = new Map<string, ReturnType<typeof setTimeout>>();
 export async function backOfficePlatform(
   config: ServerConfig,
@@ -37,9 +38,7 @@ export async function syncBackOffice(config: ServerConfig): Promise<void> {
   const connection = await readEigenweltConnection(config);
   if (!connection?.account) return;
   const key = `${config.configPath}:${connection.account.orgId}`;
-  const running = rounds.get(key);
-  if (running) return running;
-  const round = (async () => {
+  return rounds.run(key, async () => {
     let scope: string;
     try {
       scope = (await backOfficeAccess(config, true)).scope;
@@ -121,13 +120,7 @@ export async function syncBackOffice(config: ServerConfig): Promise<void> {
         store.suspendTeam(scope, message);
       else store.syncError(scope, message);
     }
-  })();
-  rounds.set(key, round);
-  try {
-    await round;
-  } finally {
-    rounds.delete(key);
-  }
+  });
 }
 export function scheduleBackOfficeSync(config: ServerConfig) {
   const key = config.configPath ?? "default";
