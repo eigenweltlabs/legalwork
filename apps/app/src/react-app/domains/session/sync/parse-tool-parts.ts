@@ -1,5 +1,5 @@
 import type { DynamicToolUIPart, TextUIPart } from "ai";
-import type { ToolPart } from "@/app/lib/opencode-view";
+import type { FilePart, ToolPart } from "@/app/lib/opencode-view";
 import { ViewPreviewSchema } from "@legalwork/types/views";
 import { codeModeWidgetResults } from "@legalwork/types/chat-tool-results";
 
@@ -30,6 +30,17 @@ export function parseDynamicToolUIParts(part: ToolPart): DynamicToolUIPart[] {
     callProviderMetadata: { opencode: { partId: part.id, codeModeCallId: part.callID } },
   }));
   return widgets[0].callId === part.callID ? cards : [mapped, ...cards];
+}
+
+/** Inspection images remain in model history, never expand into chat attachments.
+ * The filename also covers previews inside mixed Code Mode batches. */
+export function visibleToolAttachments(part: ToolPart): FilePart[] {
+  if (part.state.status !== "completed") return [];
+  const inspectionOnly = part.tool === "inapp_docx_preview" || part.tool === "execute"
+    && Array.isArray(part.state.metadata?.toolCalls)
+    && part.state.metadata.toolCalls.some((call: unknown) => call && typeof call === "object" && "tool" in call && call.tool === "inapp_docx_preview");
+  return (part.state.attachments ?? []).filter(file => !file.filename?.startsWith("docx-inspection-page-")
+    && !(inspectionOnly && /^page-\d+\.png$/.test(file.filename ?? "")));
 }
 
 function shouldDeferInProgressTool(part: ToolPart) {

@@ -708,12 +708,12 @@ test("Word reads treat empty or null optional selectors as whole-document defaul
   expect(requests).toHaveLength(count);
 });
 
-test("Word exposes fifteen focused tools and routes typed batches, controls and copy workflows", async () => {
+test("Word exposes focused tools and routes typed batches, controls and copy workflows", async () => {
   const requests: unknown[] = [];
   await withBridge({}, body => { requests.push(body); return { ok: true, result: { ok: true, saved: true } }; });
   const plugin = await LegalWorkExtensionsPreview();
   const names = Object.keys(plugin.tool).filter(name => name.startsWith("inapp_docx"));
-  expect(names).toHaveLength(15); expect(names).not.toContain("inapp_docx");
+  expect(names).toHaveLength(16); expect(names).toContain("inapp_docx_preview"); expect(names).not.toContain("inapp_docx");
   const identity = { documentId: "live-1", draftRevision: 2, path: "Contract.docx" };
   const edit = { ...identity, operations: [{ operation: "apply_formatting", paraId: "P1", marks: { bold: false, fontSize: 11 }, paragraph: { spaceAfter: 6 } }, { operation: "insert_cross_reference", paraId: "P2", targetParaId: "P3", kind: "number", search: "clause 3" }] };
   await plugin.tool.inapp_docx_edit.execute(edit, { sessionID: "ses_open" });
@@ -746,6 +746,30 @@ test("Word exposes fifteen focused tools and routes typed batches, controls and 
   expect(editSchema).toContain('"enum":["create_bookmark"]');
   expect(editSchema).toContain('"enum":["insert_cross_reference"]');
   expect(editSchema).toContain('"targetSearch"');
+});
+
+test("Word visual inspection attaches a labeled live page without leaking base64 into text", async () => {
+  let request: unknown;
+  await withBridge({}, body => {
+    request = body;
+    return { ok: true, result: { ok: true, saved: false, data: { documentId: "draft", draftRevision: 3, page: 2, labels: [{ label: "main: BODY" }], preview: { available: true, width: 800, height: 1100, dataUrl: "data:image/png;base64,cHJldmlldw==" } } } };
+  });
+  const plugin = await LegalWorkExtensionsPreview();
+  const result = await plugin.tool.inapp_docx_preview.executeResult({ path: "Letter.docx", page: 2 }, { sessionID: "ses_word" });
+  expect(request).toMatchObject({ actionId: "document.agent_tool", args: { sessionId: "ses_word", path: "Letter.docx", toolName: "preview", args: { page: 2, annotate: true } } });
+  expect(result.content).toContainEqual({ type: "file", mime: "image/png", uri: "data:image/png;base64,cHJldmlldw==", name: "docx-inspection-page-2.png" });
+  expect(JSON.stringify(result.output)).not.toContain("cHJldmlldw==");
+  expect(result.output).toMatchObject({ result: { data: { page: 2, preview: { attached: true } } } });
+});
+
+test("Word proposals carry fresh identity and explicit writing area through the bridge", async () => {
+  const requests: unknown[] = [];
+  await withBridge({}, body => { requests.push(body); return { ok: true }; });
+  const plugin = await LegalWorkExtensionsPreview();
+  await expect(plugin.tool.inapp_docx_suggest_change.execute({ path: "Letter.docx", paraId: "BOX", search: "", replaceWith: "Letter" }, { sessionID: "ses_word" })).rejects.toThrow();
+  expect(requests).toHaveLength(0);
+  await plugin.tool.inapp_docx_suggest_change.execute({ path: "Letter.docx", documentId: "draft", draftRevision: 4, paraId: "BOX", area: "textBox", search: "", replaceWith: "Requested box text" }, { sessionID: "ses_word" });
+  expect(requests[0]).toMatchObject({ args: { toolName: "suggest_change", args: { documentId: "draft", draftRevision: 4, area: "textBox", paraId: "BOX" } } });
 });
 
 test("native cancellation reaches the UI bridge and never retries an uncertain mutation", async () => {

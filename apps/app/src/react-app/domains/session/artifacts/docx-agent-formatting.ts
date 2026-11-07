@@ -21,7 +21,7 @@ export function readWordFormatting(doc: Node, document: Document, args: Record<s
   const selected = typeof args.paraId === "string" ? items.filter((item) => item.paraId === args.paraId) : items.slice(from, from + limit);
   if (typeof args.paraId === "string" && selected.length !== 1) throw new Error("Paragraph is missing or ambiguous. Read the document again.");
   return {
-    units: { fontSize: "points", paragraphSpacingAndIndents: "points", autoLineSpacing: "multiple", exactLineSpacing: "points" },
+    units: { fontSize: "points", paragraphSpacingAndIndents: "points", autoLineSpacing: "multiple", exactLineSpacing: "points", characterSpacingAndKerning: "points", characterScale: "percent" },
     paragraphs: selected.map(({ node, paraId, index }) => {
       const formatting: Record<string, unknown> = {};
       for (const key of paragraphKeys) if (node.attrs[key] !== null && node.attrs[key] !== undefined) formatting[key] = twips.includes(key) ? node.attrs[key] / 20 : key === "lineSpacing" ? node.attrs[key] / (node.attrs.lineSpacingRule === "auto" || !node.attrs.lineSpacingRule ? 240 : 20) : node.attrs[key];
@@ -38,9 +38,14 @@ export function readWordFormatting(doc: Node, document: Document, args: Record<s
           const mark = child.marks.find((mark) => mark.type.name === type);
           if (mark) formatting[key] = type === "highlight" ? mark.attrs.color : type === "runStyle" ? mark.attrs.styleId : { ...mark.attrs };
         }
+        const spacing = child.marks.find(mark => mark.type.name === "characterSpacing");
+        if (spacing) formatting.characterSpacing = { spacing: typeof spacing.attrs.spacing === "number" ? spacing.attrs.spacing / 20 : null, scale: spacing.attrs.scale, kerning: typeof spacing.attrs.kerning === "number" ? spacing.attrs.kerning / 2 : null };
         runs.push({ from: offset, to: offset + child.nodeSize, text: child.text ?? (child.type.name === "field" ? String(child.attrs.displayText ?? "") : child.type.name === "tab" ? "\t" : child.type.name === "hardBreak" ? "\n" : ""), kind: child.type.name, formatting, marks });
       });
-      return { paraId, index, styleId: node.attrs.styleId ?? null, formatting, runs };
+      const warnings: string[] = [];
+      if (["both", "distribute"].includes(node.attrs.alignment) && runs.some(run => run.kind === "hardBreak")) warnings.push("Justified text with manual line breaks can stretch word spacing. Use real paragraphs or left alignment for addresses and short letter lines.");
+      if (runs.some(run => run.marks.some(mark => mark.type === "characterSpacing" && (typeof mark.attrs.spacing === "number" && mark.attrs.spacing < 0 || typeof mark.attrs.scale === "number" && mark.attrs.scale < 100)))) warnings.push("Condensed character spacing is stored in the document. Read the characterSpacing mark and correct it before finishing if unintended.");
+      return { paraId, index, styleId: node.attrs.styleId ?? null, formatting, runs, warnings };
     }),
     totalParagraphs: items.length, nextIndex: typeof args.paraId !== "string" && from + selected.length < items.length ? from + selected.length : null,
     // Native definitions retain OOXML units, for examining inheritance and advanced properties.
@@ -74,6 +79,13 @@ export function applyWordFormatting(context: WordToolContext, args: Record<strin
     else if (key === "fontFamily") { if (!record(value) || typeof value.ascii !== "string" || !value.ascii || value.hAnsi !== undefined && typeof value.hAnsi !== "string") throw new Error("fontFamily requires ascii and optional hAnsi font names."); setMark("fontFamily", true, { ascii: value.ascii, hAnsi: value.hAnsi ?? value.ascii }); }
     else if (key === "color") { if (!record(value) || !(typeof value.rgb === "string" && /^[\da-f]{6}$/i.test(value.rgb) || typeof value.themeColor === "string" && ["dark1", "light1", "dark2", "light2", "accent1", "accent2", "accent3", "accent4", "accent5", "accent6", "hyperlink", "followedHyperlink"].includes(value.themeColor))) throw new Error("color requires a six-digit RGB or Word themeColor."); setMark("textColor", true, value); }
     else if (key === "highlight") { if (typeof value !== "string" || !["yellow", "green", "cyan", "magenta", "blue", "red", "darkBlue", "darkCyan", "darkGreen", "darkMagenta", "darkRed", "darkYellow", "darkGray", "lightGray", "black", "white", "none"].includes(value)) throw new Error("Invalid Word highlight color."); setMark("highlight", value !== "none", { color: value }); }
+    else if (key === "characterSpacing") { if (!record(value) || !Object.keys(value).length || Object.entries(value).some(([key, item]) => !["spacing", "scale", "kerning"].includes(key) || typeof item !== "number" || !Number.isFinite(item))) throw new Error("characterSpacing accepts spacing/kerning in points and scale in percent."); const type = tr.doc.type.schema.marks.characterSpacing;
+      tr.doc.nodesBetween(from, to, (node, pos) => {
+        if (!node.isText) return;
+        const attrs = { ...node.marks.find(mark => mark.type === type)?.attrs };
+        for (const [key, item] of Object.entries(value)) if (typeof item === "number") attrs[key] = key === "scale" ? item : Math.round(item * (key === "spacing" ? 20 : 2));
+        tr = tr.addMark(Math.max(from, pos), Math.min(to, pos + node.nodeSize), type.create(attrs));
+      }); }
     else if (key === "vertAlign") { if (!["baseline", "superscript", "subscript"].includes(String(value))) throw new Error("Invalid vertAlign."); setMark("superscript", value === "superscript"); setMark("subscript", value === "subscript"); }
     else throw new Error(`Unsupported character formatting: ${key}`);
   }

@@ -458,6 +458,25 @@ export async function readEngineEigenweltProvider(config: ServerConfig): Promise
 // (and clobber) a newer one. Content is built inside the queued job so each
 // job reads the latest runtime-DB state.
 const fileWriteQueue = new Map<string, Promise<void>>();
+const pendingFileWrites = new Map<string, { job: () => Promise<void>; promise: Promise<void> }>();
+
+// A burst of policy, provider and connector changes needs one publication of
+// the latest state, not one full scan of every saved project per notification.
+// Calls arriving during a build wait for the next build, so their own changes
+// are always included before they return.
+function queueRuntimePublication(path: string, job: () => Promise<void>) {
+  const pending = pendingFileWrites.get(path);
+  if (pending) { pending.job = job; return pending.promise; }
+  const entry = { job, promise: Promise.resolve() };
+  const previous = fileWriteQueue.get(path) ?? Promise.resolve();
+  entry.promise = previous.catch(() => undefined).then(async () => {
+    pendingFileWrites.delete(path);
+    await entry.job();
+  }).finally(() => { if (fileWriteQueue.get(path) === entry.promise) fileWriteQueue.delete(path); });
+  pendingFileWrites.set(path, entry);
+  fileWriteQueue.set(path, entry.promise);
+  return entry.promise;
+}
 
 /**
  * Rebuild the engine-visible runtime config file from the runtime DB.
@@ -536,10 +555,7 @@ export async function writeLegalworkRuntimeConfigFile(config: ServerConfig, work
     // atomic replacement alone can be missed by the explicit-file watch.
     await writeGeneratedConfigFile(join(orgPolicyEngineDir(config), "runtime-config.revision"), createHash("sha256").update(content).digest("hex"));
   };
-  const previous = fileWriteQueue.get(path) ?? Promise.resolve();
-  const next = previous.then(job, job);
-  fileWriteQueue.set(path, next);
-  await next;
+  await queueRuntimePublication(path, job);
   return path;
 }
 

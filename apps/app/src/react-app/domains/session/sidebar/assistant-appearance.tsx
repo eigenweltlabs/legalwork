@@ -1,18 +1,13 @@
-import { useId, type ComponentProps } from "react";
+import { useId } from "react";
 import { Check } from "lucide-react";
 import { AssistantAvatarIconSchema, DEFAULT_ASSISTANT_PROFILE, type AssistantAvatarIcon, type AssistantIcon, type AssistantProfile } from "@legalwork/types/main-assistant";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { SidebarMenuButton, SidebarMenuItem } from "@/components/ui/sidebar";
 import { cn } from "@/lib/utils";
 import { t } from "@/i18n";
 import { assistantAvatarAnimations } from "./assistant-avatar-animation";
 import { assistantAvatarIcon, assistantAvatarImages } from "./assistant-avatar-assets";
-
-export function AssistantFlowerIcon({ className, size = 16, ...props }: ComponentProps<"img"> & { size?: number | string }) {
-  return <img src={assistantAvatarImages.flower} width={size} height={size} alt="" draggable={false} aria-hidden="true" className={cn("shrink-0 object-contain", className)} {...props} />;
-}
 
 export function AssistantAvatar({ icon = DEFAULT_ASSISTANT_PROFILE.icon, className = "", motion }: { icon?: AssistantIcon; className?: string; motion?: "idle" | "thinking" }) {
   const avatar = assistantAvatarIcon(icon);
@@ -23,19 +18,6 @@ export function AssistantAvatar({ icon = DEFAULT_ASSISTANT_PROFILE.icon, classNa
       <img src={animation[motion]} alt="" draggable={false} width={256} height={256} className="size-full object-contain" />
     </picture> : <img src={assistantAvatarImages[avatar]} alt="" draggable={false} className={cn("size-full object-contain", avatar !== "flower" && "scale-125")} />}
   </span>;
-}
-
-export function AssistantNavigation({ profile = DEFAULT_ASSISTANT_PROFILE, active, disabled, unread, onOpen }: {
-  profile?: AssistantProfile; active?: boolean; disabled?: boolean; unread?: boolean; onOpen: () => void;
-}) {
-  const name = profile.name ?? t("assistant.title");
-  return <SidebarMenuItem>
-    <SidebarMenuButton isActive={active} disabled={disabled} onClick={onOpen} aria-label={name} aria-current={active ? "page" : undefined} className="text-sm leading-5 font-medium [&_svg]:size-[18px]">
-      <AssistantAvatar icon={profile.icon} />
-      <span className="min-w-0 flex-1 truncate">{name}</span>
-      {unread && <span className="size-1.5 shrink-0 rounded-full bg-green-9" role="img" aria-label={t("assistant.unread_activity")} title={t("assistant.unread_activity")} />}
-    </SidebarMenuButton>
-  </SidebarMenuItem>;
 }
 
 export function AssistantAppearanceFields({ profile, compact, onChange, onNameBlur }: { profile: AssistantProfile; compact?: boolean; onChange: (profile: AssistantProfile) => void; onNameBlur?: () => void }) {

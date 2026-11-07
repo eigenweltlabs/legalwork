@@ -1,5 +1,16 @@
-import type { QueryClient } from "@tanstack/react-query";
+import { queryOptions, type QueryClient } from "@tanstack/react-query";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
+
+export function savedAssistantQuery(client: LegalworkServerClient | null) {
+  return queryOptions({
+    queryKey: ["main-assistant-profile", client?.baseUrl],
+    enabled: Boolean(client),
+    queryFn: () => {
+      if (!client) throw new Error("Server unavailable");
+      return client.mainAssistantProfile();
+    },
+  });
+}
 
 /** The server's saved identity is enough to browse history while online checks run. */
 export function seedSavedAssistant(cache: QueryClient, baseUrl: string, saved: Awaited<ReturnType<LegalworkServerClient["mainAssistantProfile"]>>) {

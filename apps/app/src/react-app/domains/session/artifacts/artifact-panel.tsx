@@ -74,6 +74,7 @@ export type ArtifactPanelProps = {
   workspaceRoot: string;
   isRemoteWorkspace?: boolean;
   localReadOnly?: boolean;
+  visible?: boolean;
   onClose: () => void;
 };
 

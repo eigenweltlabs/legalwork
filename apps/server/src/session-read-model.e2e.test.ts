@@ -317,28 +317,31 @@ describe("workspace session read APIs", () => {
   test("acknowledges server-staged native commands before engine execution completes", async () => {
     const workspaceRoot = await createWorkspaceRoot();
     const command = deferred();
-    const mock = startMockOpencode({ directory: workspaceRoot, holdCommand: command.promise, idle: () => true });
+    let commandCompleted = false;
+    const mock = startMockOpencode({ directory: workspaceRoot, holdCommand: command.promise.then(() => { commandCompleted = true; }), idle: () => true });
     const legalwork = await startLegalworkServer({
       workspaceRoot,
       opencodeBaseUrl: `http://127.0.0.1:${mock.server.port}`, readOnly: false,
     });
 
-    const response = await Promise.race([
-      fetch(`http://127.0.0.1:${legalwork.server.port}/workspace/ws_1/sessions/ses_1/dispatch`, {
+    try {
+      // The command stays blocked until after the acknowledgement assertions.
+      // Test that ordering, not a 100ms wall-clock budget on a shared CI runner.
+      const response = await fetch(`http://127.0.0.1:${legalwork.server.port}/workspace/ws_1/sessions/ses_1/dispatch`, {
         method: "POST",
         headers: { ...auth(legalwork.token), "Content-Type": "application/json" },
         body: JSON.stringify({ kind: "command", command: "review", args: "" }),
-      }),
-      new Promise<"timeout">((resolve) => setTimeout(() => resolve("timeout"), 100)),
-    ]);
+        signal: AbortSignal.timeout(5000),
+      });
 
-    expect(response).not.toBe("timeout");
-    expect(response instanceof Response ? response.status : 0).toBe(200);
-    await expect(response instanceof Response ? response.json() : null).resolves.toMatchObject({ accepted: true });
-    const sawCommand = await waitUntil(() => mock.requests.some((request) => request.pathname === "/api/session/ses_1/command"));
-    command.resolve();
-    expect(sawCommand).toBe(true);
-  });
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({ accepted: true });
+      expect(await waitUntil(() => mock.requests.some((request) => request.pathname === "/api/session/ses_1/command"))).toBe(true);
+      expect(commandCompleted).toBe(false);
+    } finally {
+      command.resolve();
+    }
+  }, 10_000);
 
   test("keeps legacy /w workspace opencode proxy alias", async () => {
     const workspaceRoot = await createWorkspaceRoot();

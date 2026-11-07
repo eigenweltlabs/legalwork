@@ -10,6 +10,7 @@ import { SYNTHETIC_SESSION_ERROR_MESSAGE_PREFIX } from "../../../../app/types";
 import { eigenweltProviderRecoveryMessage } from "./eigenwelt-provider-error";
 import {
   parseDynamicToolUIParts,
+  visibleToolAttachments,
   parseStructuredOutputUIPart,
   STRUCTURED_OUTPUT_TOOL,
 } from "./parse-tool-parts";
@@ -201,7 +202,7 @@ function mapSnapshotToolParts(part: ToolPart): UIMessage["parts"] {
   const mapped = parseDynamicToolUIParts(part);
 
   if (part.state.status === "completed" && part.state.attachments) {
-    return [...mapped, ...part.state.attachments.flatMap(mapFileParts)];
+    return [...mapped, ...visibleToolAttachments(part).flatMap(mapFileParts)];
   }
 
   return mapped;

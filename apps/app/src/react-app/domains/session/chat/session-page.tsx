@@ -86,7 +86,7 @@ import { useReactRenderWatchdog } from "../../../shell/react-render-watchdog";
 import { navigationTab } from "../../../shell/panel-navigation-history";
 import { syncRouteChatTab } from "../panel/route-chat-tab";
 import { usePanelNavigationHistory } from "../../../shell/use-panel-navigation-history";
-import { useShellConfig, type ShellNavKey } from "../../../shell/shell-config";
+import { useShellConfig, type ShellWindowNavKey } from "../../../shell/shell-config";
 import { readWikiNavigationWidth, writeWikiNavigationWidth, readWikiNavigationOpen, writeWikiNavigationOpen } from "../../../shell/session-memory";
 import { wikiWorkspaceRoute, workspaceSessionRoute, workspaceProjectRoute, workspaceReviewsRoute, workspaceTasksRoute, workspaceCalendarRoute } from "../../../shell/workspace-routes";
 import { type SidePanelItem, useUiStateStore } from "../../../shell/ui-state-store";
@@ -398,7 +398,8 @@ export function SessionPage(props: SessionPageProps) {
   const sidebarOpen = useUiStateStore((state) => state.sidebarOpen);
   const setSidebarOpen = useUiStateStore((state) => state.setSidebarOpen);
   const topLevelPage = Boolean(props.projectsPage || props.sidebar.activeNav);
-  const chatSidebarOpen = sidebarOpen && !topLevelPage;
+  const assistantActive = props.sidebar.assistantActive;
+  const chatSidebarOpen = sidebarOpen && !topLevelPage && !assistantActive;
   // A project window owns one layout, independently of the currently focused chat.
   const panelStateSessionId = props.sidebar.activeNav === "evals" ? EVALS_PANEL_SESSION_ID : workspacePanelKey(props.selectedWorkspaceId);
   const workspaceScope = workspacePanelKey(props.selectedWorkspaceId);
@@ -981,11 +982,11 @@ export function SessionPage(props: SessionPageProps) {
     });
   }, [props.sidebar.workspaceSessionGroups]);
 
-  const openNavWindow = useCallback((key: ShellNavKey) => {
+  const openNavWindow = useCallback((key: ShellWindowNavKey) => {
     const pages = {
       navHome: "home", navScheduled: "scheduled", navCalendar: "calendar", navProjects: "projects", navWorkflows: "workflows",
       navTasks: "tasks", navRecorder: "recorder", navWikis: "wikis", navEvaluations: "evals",
-    } satisfies Record<ShellNavKey, Parameters<typeof desktopBridge.openAppWindow>[0]["page"]>;
+    } satisfies Record<ShellWindowNavKey, Parameters<typeof desktopBridge.openAppWindow>[0]["page"]>;
     void desktopBridge.openAppWindow({ page: pages[key] }).catch(() => {
       toast.error(t("projects.open_in_new_window_failed"));
     });
@@ -1203,7 +1204,7 @@ export function SessionPage(props: SessionPageProps) {
     <div className="lw-window-frame flex h-full min-h-0 flex-col text-dls-text">
       <SidebarProvider
         open={chatSidebarOpen}
-        onOpenChange={setSidebarOpen}
+        onOpenChange={assistantActive ? undefined : setSidebarOpen}
         className={cn(
           "lw-workspace-shell relative min-h-0 flex-1",
           leftSidebarResizing &&
@@ -1218,7 +1219,7 @@ export function SessionPage(props: SessionPageProps) {
             <div className="lw-window-navigation flex h-6 shrink-0 items-center gap-1 border-r border-border/60 px-3" style={{ width: sidebarVisible ? "var(--sidebar-width)" : undefined }}>
               <Button variant="ghost" size="icon-sm" className="titlebar-no-drag text-muted-foreground" aria-label={t("sidebar.go_back")} title={t("sidebar.go_back")} onClick={() => navigate(-1)}><ArrowLeft className="size-4" /></Button>
               <Button variant="ghost" size="icon-sm" className="titlebar-no-drag text-muted-foreground" aria-label={t("sidebar.go_forward")} title={t("sidebar.go_forward")} onClick={() => navigate(1)}><ArrowRight className="size-4" /></Button>
-              {wikiWorkspace ? <SidebarTrigger className="titlebar-no-drag text-muted-foreground" aria-label={t("wiki.toggle_navigation")} title={t("wiki.toggle_navigation")} aria-expanded={wikiNavigationOpen} onToggleSidebar={toggleWikiNavigation} /> : shellConfig.sidebar && !props.titlebarControlsHidden && (!topLevelPage || mobile) && <SidebarTrigger className="titlebar-no-drag text-muted-foreground" />}
+              {wikiWorkspace ? <SidebarTrigger className="titlebar-no-drag text-muted-foreground" aria-label={t("wiki.toggle_navigation")} title={t("wiki.toggle_navigation")} aria-expanded={wikiNavigationOpen} onToggleSidebar={toggleWikiNavigation} /> : shellConfig.sidebar && !props.titlebarControlsHidden && (mobile || (!topLevelPage && !assistantActive)) && <SidebarTrigger className="titlebar-no-drag text-muted-foreground" />}
               <WindowMenubar />
             </div>
             <div className="flex min-w-0 flex-1 items-center gap-3">
