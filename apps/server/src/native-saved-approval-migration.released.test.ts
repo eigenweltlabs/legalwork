@@ -1,5 +1,7 @@
+import { waitForNativeFixture } from "./native-mcp.test-support.js";
+import { nativeFixtureDirectory, removeNativeFixtureDirectory } from "./native-fixture-directory.test-support.js";
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, readdir, realpath, rm } from "node:fs/promises";
+import { mkdir, readFile, readdir, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { OpenCode } from "@opencode/client";
@@ -15,7 +17,7 @@ import type { ServerConfig } from "./types.js";
 
 const binary = process.env.LEGALWORK_TEST_OPENCODE_BIN;
 test.skipIf(!binary)("managed startup stops its actual service before preserving identifiable Saved grants and reconfirming unknown origins", async () => {
-  const root = await realpath(await mkdtemp(join(tmpdir(), "legalwork-saved-startup-"))), previous = { ...process.env };
+  const root = await realpath(await nativeFixtureDirectory(join(tmpdir(), "legalwork-saved-startup-"))), previous = { ...process.env };
   const folders = ["known", "foreign", "unregistered"].map(name => join(root, name)), home = join(root, "home");
   for (const folder of [...folders, home]) await mkdir(folder);
   process.env.LEGALWORK_RUNTIME_DB = join(root, "private", "runtime.sqlite"); process.env.XDG_CONFIG_HOME = join(root, "library");
@@ -33,7 +35,7 @@ test.skipIf(!binary)("managed startup stops its actual service before preserving
     for (const workspace of config.workspaces) {
       const location = { directory: workspace.path };
       await client.location.get({ location });
-      await client.model.list({ location });
+      await waitForNativeFixture(() => client.model.list({ location }), () => true, `native project ${workspace.id} plugin activation`);
     }
     return client;
   };
@@ -95,6 +97,6 @@ test.skipIf(!binary)("managed startup stops its actual service before preserving
   } finally {
     await lifecycle?.close(); await original?.close(); await server?.stop(); await closeRuntimeOpencodeConfig(config);
     for (const key of Object.keys(process.env)) if (!(key in previous)) delete process.env[key]; Object.assign(process.env, previous);
-    await rm(root, { recursive: true, force: true });
+    await removeNativeFixtureDirectory(root);
   }
 }, 60_000);

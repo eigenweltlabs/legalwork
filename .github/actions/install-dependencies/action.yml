@@ -1,0 +1,52 @@
+name: Install frozen workspace dependencies
+description: Cache full and filtered dependency closures in separate stores and namespaces
+inputs:
+  ignore-scripts:
+    default: 'false'
+    description: Skip package lifecycle scripts for checks that do not need native modules
+  cache:
+    default: 'true'
+    description: Restore and save the selected store; false permits a fresh-install comparison
+  filter:
+    default: ''
+    description: Optional pnpm workspace dependency filters, one per line
+runs:
+  using: composite
+  steps:
+    - id: store
+      shell: bash
+      env:
+        WORKSPACE_FILTER: ${{ inputs.filter }}
+        IGNORE_SCRIPTS: ${{ inputs.ignore-scripts }}
+      run: |
+        if [ -z "$WORKSPACE_FILTER" ]; then export PNPM_DEFAULT_STORE="$(pnpm store path --silent)"; fi
+        node scripts/ci/dependency-store.mjs
+    - uses: actions/cache/restore@v4
+      id: cache
+      if: inputs.cache == 'true'
+      with:
+        path: ${{ steps.store.outputs.path }}
+        key: ${{ steps.store.outputs.prefix }}${{ hashFiles('pnpm-lock.yaml', 'pnpm-workspace.yaml', '.npmrc') }}
+        restore-keys: ${{ steps.store.outputs.restore-keys }}
+    - name: Install dependencies
+      shell: bash
+      env:
+        PNPM_STORE_DIR: ${{ steps.store.outputs.path }}
+        IGNORE_SCRIPTS: ${{ inputs.ignore-scripts }}
+        WORKSPACE_FILTER: ${{ inputs.filter }}
+      run: |
+        args=()
+        if [ -n "$WORKSPACE_FILTER" ]; then
+          args+=(--store-dir "$PNPM_STORE_DIR")
+          while IFS= read -r selector; do
+            if [ -n "$selector" ]; then args+=(--filter "$selector"); fi
+          done <<< "$WORKSPACE_FILTER"
+        fi
+        args+=(install --frozen-lockfile --prefer-offline)
+        if [ "$IGNORE_SCRIPTS" = true ]; then args+=(--ignore-scripts); fi
+        pnpm "${args[@]}"
+    - uses: actions/cache/save@v4
+      if: inputs.cache == 'true' && steps.cache.outputs.cache-hit != 'true'
+      with:
+        path: ${{ steps.store.outputs.path }}
+        key: ${{ steps.cache.outputs.cache-primary-key }}

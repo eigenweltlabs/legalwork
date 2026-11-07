@@ -50,6 +50,9 @@ test('filter changes run tooling and workflow changes exercise the relevant entr
   assert.equal(changeScope(['.github/workflows/ci-docx.yml']).docx, true);
   assert.equal(changeScope(['.github/workflows/ci-tests.yml']).sandbox, true);
   assert.equal(changeScope(['.github/workflows/alpha-macos-aarch64.yml']).alpha, true);
+  for (const file of ['scripts/ci/recover-sandbox-runtime.mjs', 'scripts/ci/extract-runtime-artifact.py']) {
+    for (const key of ['server', 'desktop', 'sandbox', 'engine', 'alpha']) assert.equal(changeScope([file])[key], true);
+  }
 });
 
 test('selection covers the whole PR/push and includes deleted and renamed dependencies', () => {

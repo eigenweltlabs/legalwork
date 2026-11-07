@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { safeRelative } from "./files.js";
 import { sandboxPaths } from "./paths.js";
 const mounts = [
   { source: "/Users/test/Project One", target: "/workspace" },
@@ -14,4 +15,9 @@ test("maps quoted attachment and skill paths using the longest authorized root",
 test("does not map siblings, unknown roots or already translated paths", () => {
   for (const path of ["/Users/test/Project One Other/input.docx", "/Users/another/file", "/workspace/input.docx"])
     expect(sandboxPaths(path, mounts)).toBe(path);
+});
+
+test("portable paths reject traversal, Windows aliases, devices and alternate streams", () => {
+  for (const path of ["../secret", "a/../../b", "/root", "a\\b", "a:secret", "CON", "x/nul.txt", "x.", "a /b", "a\u0000b", "a//b"]) expect(safeRelative(path)).toBe(false);
+  expect(safeRelative("Müller/contract v2.docx")).toBe(true);
 });

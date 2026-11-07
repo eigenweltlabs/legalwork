@@ -5,8 +5,9 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
-const require = createRequire(join(repoRoot, "apps/app/package.json"));
-const ts = require("typescript");
+// Help generation also runs after a server-only or app-only frozen install.
+const require = createRequire(import.meta.url);
+const ts = require(require.resolve("typescript", { paths: [join(repoRoot, "apps/server"), join(repoRoot, "apps/app")] }));
 const localeDirectory = "apps/app/src/i18n/locales";
 
 // Git may check text out with CRLF on Windows. Bundled text and source hashes

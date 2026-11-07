@@ -7,17 +7,23 @@ import { pinManifest } from "./refresh-alpha-feeds.mjs";
 const { parse } = createRequire(new URL("../../apps/desktop/package.json", import.meta.url))("yaml");
 const workflow = (name) => parse(readFileSync(new URL(`../../.github/workflows/${name}.yml`, import.meta.url), "utf8"));
 
-test("app-affecting dev merges build both alpha workflows without canceling older builds or retesting the sandbox", () => {
+test("dev merges share one signed producer and coalesce obsolete queued alpha builds", () => {
   for (const name of ["alpha-macos-aarch64", "alpha-windows-x64"]) {
     const config = workflow(name);
-    assert.deepEqual(config.on.push.branches, ["dev"]);
+    if (name === "alpha-macos-aarch64") assert.deepEqual(config.on.push.branches, ["dev"]);
+    else assert.equal(config.on.push, undefined);
     assert.equal(config.concurrency["cancel-in-progress"], false);
-    assert.match(config.concurrency.group, /github.sha/);
+    assert.doesNotMatch(config.concurrency.group, /github.sha/);
     assert.equal(config.on.workflow_dispatch.inputs.sandbox_tests.default, false);
     assert.match(config.jobs["sandbox-runtime"].with.run_tests, /github.event_name == 'workflow_dispatch'/);
     const job = Object.values(config.jobs).find((job) => job.steps?.some(step => step.name === "Verify packaged startup"));
     assert.equal(config.jobs["opencode-engine"].if, "needs.changes.outputs.alpha == 'true'");
-    assert.equal(config.jobs["sandbox-runtime"].if, "needs.changes.outputs.alpha == 'true'");
+    const selected = (alpha, event, warm) => Function("needs", "github", "inputs", `return ${config.jobs["sandbox-runtime"].if};`)(
+      { changes: { outputs: { alpha } } }, { event_name: event }, { warm_engine_cache: warm });
+    for (const event of ["push", "workflow_dispatch"]) for (const warm of [false, true]) {
+      assert.equal(selected("false", event, warm), false);
+      assert.equal(selected("true", event, warm), !(name === "alpha-macos-aarch64" && event === "workflow_dispatch" && warm));
+    }
     assert.ok(job.steps.some((step) => step.name === "Verify packaged startup"));
     const create = job.steps.find((step) => step.name === "Create immutable alpha prerelease").run;
     assert.match(create, /--draft/);
@@ -27,6 +33,10 @@ test("app-affecting dev merges build both alpha workflows without canceling olde
     assert.match(publish, /--prerelease --latest=false/);
     assert.ok(!job.steps.some((step) => step.name === "Update alpha updater pointer"));
   }
+  const combined = workflow("alpha-macos-aarch64");
+  assert.ok(combined.jobs["publish-alpha-windows"].needs.includes("opencode-engine"));
+  assert.ok(combined.jobs["publish-alpha-macos-aarch64"].needs.includes("opencode-engine"));
+  assert.equal(Object.keys(combined.jobs).filter(name => name === "opencode-engine").length, 1);
   assert.equal(workflow("ci-tests").on.push, undefined);
   assert.ok(workflow("ci-tests").on.pull_request);
 });

@@ -1,0 +1,54 @@
+name: Compare Windows installer payload compression
+
+on:
+  workflow_dispatch:
+  push:
+    paths: [.github/workflows/ci-windows-packaging-benchmark.yml]
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  compare:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2022
+            arch: x64
+          - os: windows-11-arm
+            arch: arm64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24.22.1
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.4.0
+      - uses: ./.github/actions/install-dependencies
+        with:
+          filter: '@legalwork/desktop...'
+          ignore-scripts: 'true'
+          cache: 'false'
+      # Read the last measured signed installers; no signing credentials or
+      # release writes are needed to compare their identical native payloads.
+      - uses: actions/download-artifact@v4
+        with:
+          name: azure-signing-test-windows-${{ matrix.arch }}
+          run-id: 42058781441
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/signed-installer
+      - name: Compare the actual NSIS archiver and every extracted payload file
+        shell: pwsh
+        run: node scripts/ci/benchmark-windows-archive.mjs "${{ runner.temp }}/signed-installer" "${{ matrix.arch }}"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-archive-comparison-${{ matrix.arch }}
+          path: ${{ runner.temp }}/windows-archive-benchmark/*.json
+          if-no-files-found: ignore
+          retention-days: 7

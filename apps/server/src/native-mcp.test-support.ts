@@ -16,7 +16,7 @@ export async function waitForNativeFixture<T>(read: () => Promise<T>, accepts: (
 
 export async function beginNativeMcpOAuth(client: OpenCodeClient, location: { directory: string }, serverName: string): Promise<NativeMcpOAuthAttempt> {
   // Model discovery initializes native configured domains; it performs no inference.
-  await client.model.list({ location });
+  await waitForNativeFixture(() => client.model.list({ location }), () => true, "native OAuth plugin activation");
   const server = await waitForNativeFixture(async () => (await client.mcp.list({ location })).data.find(server => server.name === serverName), server => Boolean(server?.integrationID), `OAuth integration ${serverName}`);
   if (!server?.integrationID) throw new Error(`Missing OAuth integration ${serverName}`);
   const integrationID = server.integrationID;

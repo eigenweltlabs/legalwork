@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, jest, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { QueryClient } from "@tanstack/react-query";
 import type { TodoItem } from "../src/app/types";
@@ -27,7 +27,7 @@ const snapshot: LegalworkSessionSnapshot = {
   messages: [], todos: [], status: { type: "idle" },
 };
 
-afterEach(() => getReactQueryClient().clear());
+afterEach(() => { getReactQueryClient().clear(); jest.useRealTimers(); });
 
 test("unfinished plans remain collapsible; completed and cancelled plans leave the composer", () => {
   const html = renderToStaticMarkup(<TodoPanel todos={todos} />);
@@ -42,6 +42,7 @@ test("unfinished plans remain collapsible; completed and cancelled plans leave t
 });
 
 test("a plan observed through the external cache subscription survives query garbage collection", async () => {
+  jest.useFakeTimers();
   const cache = getReactQueryClient();
   const key = todoKey("plan-project", "long-running-chat");
   cache.setQueryData(key, todos);
@@ -49,7 +50,7 @@ test("a plan observed through the external cache subscription survives query gar
   expect(query?.getObserversCount()).toBe(0);
   expect(query?.gcTime).toBe(Infinity);
   // Wait beyond the old 15-second GC deadline with no query observers.
-  await Bun.sleep(15_050);
+  jest.advanceTimersByTime(15_050);
   expect(cache.getQueryData(key)).toEqual(todos);
   const done = todos.map(todo => ({ ...todo, status: "completed" }));
   seedTodoState("plan-project", "long-running-chat", done, Date.now() + 1);

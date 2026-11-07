@@ -1,0 +1,25 @@
+name: Recover a retained verified native package after cache eviction
+description: Verify original upload digest and complete native cache receipt before reuse
+inputs:
+  key:
+    required: true
+    description: Exact native build key
+  directory:
+    required: true
+    description: Owned native cache directory
+runs:
+  using: composite
+  steps:
+    - id: source
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: node scripts/ci/native-package-artifacts.mjs find "${{ inputs.key }}"
+    - name: Restore independently pinned native output
+      if: steps.source.outputs.artifact-id != ''
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        RECOVERY_ARTIFACT_ID: ${{ steps.source.outputs.artifact-id }}
+        RECOVERY_DIGEST: ${{ steps.source.outputs.digest }}
+      run: node scripts/ci/native-package-artifacts.mjs restore "${{ inputs.key }}" "${{ inputs.directory }}"

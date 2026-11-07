@@ -1,0 +1,109 @@
+name: Compare Linux release archive compression
+on:
+  workflow_call:
+    inputs:
+      version:
+        type: string
+        required: true
+      artifact-run-id:
+        type: string
+        required: true
+      manifest-sha256:
+        type: string
+        required: true
+permissions:
+  contents: read
+  actions: read
+jobs:
+  package:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            arch: x64
+            target: x86_64-unknown-linux-gnu
+            unpacked: linux-unpacked
+          - os: ubuntu-24.04-arm
+            arch: arm64
+            target: aarch64-unknown-linux-gnu
+            unpacked: linux-arm64-unpacked
+    env:
+      TARGET: ${{ matrix.target }}
+      NODE_OPTIONS: --max-old-space-size=6144
+      LEGALWORK_PREBUILT_UI: '1'
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24.22.1
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.4.0
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - uses: ./.github/actions/install-dependencies
+      - uses: actions/download-artifact@v4
+        with:
+          name: opencode-derivative-ci-Linux
+          run-id: ${{ inputs.artifact-run-id }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/opencode-derivative
+      - uses: ./.github/actions/setup-opencode
+        with:
+          build-mode: production
+          archive-directory: ${{ runner.temp }}/opencode-derivative/archives
+          archive-family: 'true'
+          manifest-sha256: ${{ inputs.manifest-sha256 }}
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: sandbox-runtime-v2-linux-${{ matrix.arch }}-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/sandbox-runtime
+      - name: Unpack protected runtime
+        run: |
+          mkdir -p apps/server/resources/agent-sandbox/runtime
+          tar -xzf "$RUNNER_TEMP/sandbox-runtime/sandbox-runtime.tgz" -C apps/server/resources/agent-sandbox/runtime
+      - name: Stamp the exact comparison version
+        env:
+          BUILD_VERSION: ${{ inputs.version }}
+        run: |
+          node scripts/release/apply-version.mjs --version "$BUILD_VERSION"
+          pnpm install --lockfile-only --no-frozen-lockfile
+      - uses: actions/download-artifact@v4
+        with:
+          name: portable-desktop-assets
+          path: apps/app
+      - name: Build the production desktop app
+        run: pnpm --filter @legalwork/desktop build:electron:production
+      - name: Package the app once for both archive samples
+        run: pnpm --dir apps/desktop exec electron-builder --config electron-builder.yml --linux --${{ matrix.arch }} --dir --publish never
+      - name: Verify packaged startup and the actual shipped engine
+        timeout-minutes: 3
+        run: xvfb-run -a node apps/desktop/scripts/packaged-startup-regression.mjs "apps/desktop/dist-electron/${{ matrix.unpacked }}/legalwork"
+      - name: Compare release tarballs and verify every extracted payload entry
+        run: node scripts/ci/benchmark-linux-archive.mjs "apps/desktop/dist-electron/${{ matrix.unpacked }}" "${{ matrix.arch }}"
+      - name: Verify the AppImage target remains unchanged
+        run: pnpm --dir apps/desktop exec electron-builder --config electron-builder.yml --linux AppImage --${{ matrix.arch }} --prepackaged "dist-electron/${{ matrix.unpacked }}" --publish never
+      - name: Retain comparison and operation timings
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-archive-comparison-${{ matrix.arch }}
+          path: |
+            ${{ runner.temp }}/linux-archive-benchmark/comparison.json
+            ${{ runner.temp }}/ci-spans.jsonl
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Retain redacted startup failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-benchmark-startup-failure-${{ matrix.arch }}
+          path: apps/desktop/.test-artifacts/packaged-startup/
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 7

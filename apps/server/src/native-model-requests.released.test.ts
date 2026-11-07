@@ -7,6 +7,7 @@ import { z } from "zod";
 import { Model } from "@opencode/schema/model";
 import { createManagedOpencodeServer } from "./managed-opencode.js";
 import { nativeMcpEngine } from "./native-mcp-engine.test-support.js";
+import { waitForNativeFixture } from "./native-mcp.test-support.js";
 import { legalworkMandatoryRuntimeConfigContent, legalworkRuntimeConfigFilePath, writeLegalworkRuntimeConfigFile } from "./legalwork-runtime-config.js";
 import { orgPolicyEngineDir } from "./org-policy-engine.js";
 import { closeRuntimeOpencodeConfig, readRuntimeOpencodeConfig, writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
@@ -98,7 +99,10 @@ async function fixture(run: (context: {
 
 async function prompt(client: OpenCodeClient, directory: string, modelID: string, variant?: string) {
   const location = { directory };
-  const models = (await client.model.list({ location })).data;
+  // Project plugins activate lazily; finish catalog readiness before inference,
+  // including projects registered after startup and locations after restart.
+  await client.location.get({ location });
+  const models = (await waitForNativeFixture(() => client.model.list({ location }), () => true, "model request fixture plugin activation")).data;
   expect(models.some(model => model.providerID === "fixture" && model.id === modelID)).toBe(true);
   const session = await client.session.create({ location, title: "LW287 synthetic model request", agent: "legalwork", model: { providerID: "fixture", id: modelID, ...(variant ? { variant } : {}) } });
   await client.session.prompt({ sessionID: session.id, text: `LW287 fixture: ${modelID}` });

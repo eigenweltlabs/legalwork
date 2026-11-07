@@ -93,3 +93,6 @@ apps/server/src/help-i18n.generated.ts
 # Engine source-build outputs; reviewed source policy stays tracked.
 /packages/opencode-release/generated/
 /.legalwork/opencode-build/
+
+# Same-run portable renderer/Office build receipt.
+/apps/app/portable-ui-receipt.json

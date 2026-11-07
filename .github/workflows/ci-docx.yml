@@ -1,7 +1,7 @@
 name: DOCX interoperability
 on:
   pull_request:
-    branches: [dev, codex/projects-akte-workspace, codex/opencode-v2-migration]
+    branches: [ dev, codex/projects-akte-workspace, codex/opencode-v2-migration ]
   workflow_dispatch:
 permissions:
   contents: read
@@ -36,7 +36,10 @@ jobs:
       # Bun resolves it the way every other test suite here does; plain node
       # does not.
       - uses: oven-sh/setup-bun@v2
-      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - uses: ./.github/actions/install-dependencies
+        with:
+          ignore-scripts: "true"
+          filter: "@legalwork/app..."
       - run: pnpm --filter @legalwork/app exec bun test tests/docx-document-state.test.ts tests/docx-roundtrip.test.ts tests/docx-table-grid.test.ts
       - run: sudo apt-get update && sudo apt-get install -y libreoffice-writer poppler-utils fonts-liberation
       - run: pnpm --filter @legalwork/app exec node scripts/docx-interop.mjs

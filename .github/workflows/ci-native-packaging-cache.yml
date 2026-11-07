@@ -1,0 +1,46 @@
+name: Prepare native packaging caches
+
+on:
+  workflow_dispatch:
+  # Also exercise a new/edited warmer before it reaches the default branch.
+  push:
+    paths: [.github/workflows/ci-native-packaging-cache.yml]
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  prepare:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, windows-2022, windows-11-arm]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24.22.1
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.4.0
+      - uses: ./.github/actions/install-dependencies
+        with:
+          cache: ${{ runner.os != 'Windows' || runner.arch != 'ARM64' }}
+          filter: |
+            @legalwork/desktop...
+            legalwork-orchestrator...
+            @legalwork/actaport-mcp...
+      - uses: ./.github/actions/prepare-windows-arm64-speech
+        if: runner.os == 'Windows' && runner.arch == 'ARM64'
+      - uses: ./.github/actions/prepare-electron-native
+        if: runner.os == 'Windows'
+      - name: Prepare and load the exact Electron SQLite addon
+        if: runner.os == 'Windows'
+        shell: bash
+        run: node apps/desktop/scripts/electron-native-cache.mjs prepare
+      - name: Retain verified native packaging outputs
+        if: runner.os == 'Windows'
+        uses: ./.github/actions/retain-native-packaging
