@@ -202,6 +202,38 @@ test("an altered active-stream scope is detected independently of current busine
   expect(() => store.journal.verify()).toThrow("active-stream identity differs");
 });
 
+test("cached verification avoids rescanning a growing journal and invalidates after another connection writes", async () => {
+  const root = await mkdtemp(join(tmpdir(), "legalwork-audit-cache-scale-"));
+  directories.push(root);
+  const path = join(root, "runtime.sqlite");
+  const store = new BackOfficeStore(await openSqlite(path), await openBackOfficeAuditStorage(join(root, "audit"), false));
+  stores.push(store);
+  let person = store.saveRecord("local", owner, { objectId: "people", revision: 0, values: { name: "Initial" } });
+  for (let index = 0; index < 150; index++)
+    person = store.saveRecord("local", owner, { id: person.id, objectId: person.objectId, revision: person.revision, values: { name: `Revision ${index}` } });
+  store.setSync("local", false);
+  store.checkIntegrity();
+  const all = store.db.all;
+  let historyScans = 0;
+  const observed = spyOn(store.db, "all").mockImplementation((sql, params) => {
+    if (sql.startsWith("SELECT * FROM bo_journal_entries")) historyScans++;
+    return all(sql, params);
+  });
+  try {
+    for (let index = 0; index < 100; index++) store.checkIntegrity();
+    expect(historyScans).toBe(0);
+    const external = await openSqlite(path);
+    try { external.run("UPDATE bo_sync SET last_error='External metadata write' WHERE scope='local'"); }
+    finally { external.close(); }
+    expect(store.checkIntegrity().locallyVerified).toBe(true);
+    expect(historyScans).toBeGreaterThan(0);
+    const rescanned = historyScans;
+    for (let index = 0; index < 100; index++) store.checkIntegrity();
+    expect(historyScans).toBe(rescanned);
+    expect(store.raw("local", person.id)?.revision).toBe(151);
+  } finally { observed.mockRestore(); }
+});
+
 test("an audit-write failure rolls back both business data and queued proposals", async () => {
   const { store } = await fixture();
   const before = store.records("firm", owner);

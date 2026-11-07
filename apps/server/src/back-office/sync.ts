@@ -100,7 +100,9 @@ export async function syncBackOffice(config: ServerConfig): Promise<void> {
           0,
           modelIndex === 0 ? 1 : modelIndex > 0 ? modelIndex : batch.length,
         );
+        store.requireAccount(scope, actor);
         await syncRecordFiles(config, chunk, actor.principalKey);
+        store.requireAccount(scope, actor);
         const snapshot = await backOfficePlatform(config, chunk, actor.principalKey);
         const localLinks = links.links().filter((link) => link.orgId === scope);
         for (const record of snapshot.records.filter(
@@ -111,7 +113,8 @@ export async function syncBackOffice(config: ServerConfig): Promise<void> {
           );
           if (local) record.values.projectId = local.workspaceId;
         }
-        store.receive(scope, snapshot, actor);
+        const replicaId = store.receive(scope, snapshot, actor);
+        if (replicaId) actor = { ...actor, replicaId };
         accepted ||= snapshot.accepted.length > 0;
         if (
           snapshot.conflicts.length ||
@@ -124,6 +127,7 @@ export async function syncBackOffice(config: ServerConfig): Promise<void> {
       announceSyncChange(config, "backOffice");
     } catch (error) {
       if (await connectedBackOfficePrincipal(config) !== initialPrincipal) return;
+      if (error instanceof ApiError && ["back_office_replica_changed", "back_office_snapshot_stale"].includes(error.code)) return;
       const message =
         error instanceof Error
           ? error.message
@@ -296,12 +300,13 @@ export async function signOutBackOffice(
     scope = connection?.account?.orgId;
   const account = connection.account;
   if (!scope || !account || !connection.platformURL) return 0;
+  const store = await backOfficeStore(config), replicaId = store.replicaId(scope);
   const principalKey = backOfficePrincipalKey(connection.platformURL, scope, account.userId);
   await syncBackOffice(config);
   if (await connectedBackOfficePrincipal(config) !== principalKey) return 0;
-  const store = await backOfficeStore(config);
+  if (store.replicaId(scope) !== replicaId) return 0;
   const actor: BackOfficeActor = { userId: account.userId, principalKey, edit: false, model: false, finance: false };
-  const pending = store.syncState(scope, actor).pending;
+  const pending = store.accountPendingCount(scope, actor);
   if (pending && !options.force) return pending;
   if (options.apply) store.clearTeam(scope, actor);
   return 0;

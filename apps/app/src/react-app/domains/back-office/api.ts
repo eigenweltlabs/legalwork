@@ -12,6 +12,7 @@ export const BackOfficeStateSchema = z.object({
   permissions: z.object({
     userId: z.string(),
     principalKey: z.string().optional(),
+    replicaId: z.string().optional(),
     model: z.boolean(),
     edit: z.boolean(),
     finance: z.boolean(),

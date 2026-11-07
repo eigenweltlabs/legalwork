@@ -32,6 +32,9 @@ export async function backOfficeAccess(
     if (store) {
       store.bindAccount(account.orgId, actor);
       store.restrictTeamAccess(account.orgId, actor);
+      const replicaId = store.replicaId(account.orgId);
+      if (!replicaId) throw new Error("Back Office replica identity is missing.");
+      actor = { ...actor, replicaId };
     }
   }
   if (!team)

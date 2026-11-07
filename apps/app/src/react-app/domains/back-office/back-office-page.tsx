@@ -154,7 +154,7 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
   );
   const object = rawObject && displayBackOfficeObject(rawObject);
   const archivedRecords = useQuery({
-    queryKey: [...key, "archive", selected, data?.scope, data?.permissions.principalKey, data?.permissions.finance, data?.permissions.model],
+    queryKey: [...key, "archive", selected, data?.scope, data?.permissions.principalKey, data?.permissions.replicaId, data?.permissions.finance, data?.permissions.model],
     enabled: archived && Boolean(object),
     queryFn: async () =>
       z.object({ records: z.array(BackOfficeRecordSchema) }).parse(
@@ -566,7 +566,7 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
             <RecordDetail
               client={client}
               team={team}
-              historyAccessKey={`${data.permissions.principalKey ?? data.permissions.userId}:${data.permissions.model}:${data.permissions.finance}`}
+              historyAccessKey={`${data.permissions.principalKey ?? data.permissions.userId}:${data.permissions.replicaId ?? "local"}:${data.permissions.model}:${data.permissions.finance}`}
               key={detail.id}
               record={detail}
               focusName={focusNameId === detail.id}
