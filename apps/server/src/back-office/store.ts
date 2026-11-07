@@ -890,6 +890,10 @@ export class BackOfficeStore {
   suspendTeam(scope: string, message: string) {
     this.transaction(() => {
       const modelRow = this.db.get("SELECT data FROM bo_models WHERE scope=?", [scope]);
+      if (!modelRow && !this.db.get("SELECT id FROM bo_records WHERE scope=? LIMIT 1", [scope]) && !this.db.get("SELECT id FROM bo_views WHERE scope=? LIMIT 1", [scope]) && !this.syncState(scope).enabled) {
+        this.syncError(scope, message);
+        return;
+      }
       const model = modelRow ? BackOfficeModelSchema.parse(JSON.parse(String(modelRow.data))) : null;
       for (const { change } of this.pending(scope, 0)) {
         if (change.kind !== "record") {

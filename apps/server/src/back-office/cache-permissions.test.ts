@@ -100,6 +100,11 @@ test("complete disconnection removes copied fields and blocks remaining authored
   expect(JSON.stringify(pending)).not.toContain("Confidential tax reference");
   expect(storage.key(head.streamId)).toBeNull();
   expect(store.checkIntegrity().locallyVerified).toBe(true);
+  const retained = JSON.stringify(store.pending("firm"));
+  const checkpoints = storage.heads();
+  store.suspendTeam("firm", "Membership removed");
+  expect(JSON.stringify(store.pending("firm"))).toBe(retained);
+  expect(storage.heads()).toEqual(checkpoints);
 });
 
 test("authored source and sharing changes survive a later separate field edit in conflict review", async () => {

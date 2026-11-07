@@ -1,5 +1,5 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
-import { copyFile, mkdtemp, rm } from "node:fs/promises";
+import { copyFile, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
@@ -37,6 +37,68 @@ async function fixture() {
   });
   return { storage, store, person };
 }
+
+test("a confirmed first-stream rollback removes only its unacknowledged genesis evidence", async () => {
+  const storage = memoryBackOfficeAuditStorage();
+  const store = new BackOfficeStore(await openSqlite(":memory:"), storage);
+  stores.push(store);
+  const run = store.db.run;
+  const failure = spyOn(store.db, "run").mockImplementation((sql, params) => {
+    if (sql.startsWith("INSERT INTO bo_journal_entries")) throw new Error("Synthetic append failure");
+    run(sql, params);
+  });
+  try {
+    expect(() => store.saveRecord("local", owner, { objectId: "people", revision: 0, values: { name: "Rolled back" } })).toThrow("Synthetic append failure");
+  } finally { failure.mockRestore(); }
+  expect(storage.heads()).toEqual([]);
+  expect(store.db.all("SELECT * FROM bo_journal_streams")).toEqual([]);
+  store.saveRecord("local", owner, { objectId: "people", revision: 0, values: { name: "Committed" } });
+  const head = storage.heads()[0];
+  expect(head.sequence).toBeGreaterThan(0);
+  expect(() => storage.discardUncommittedStream(head.streamId)).toThrow("non-genesis checkpoint evidence");
+  expect(storage.head(head.streamId)).toEqual(head);
+});
+
+test.each(["before", "after"])("an actual process exit %s a first database commit preserves its genesis evidence", async (point) => {
+  const root = await mkdtemp(join(tmpdir(), "legalwork-first-stream-crash-"));
+  directories.push(root);
+  const path = join(root, "runtime.sqlite"), audit = join(root, "audit"), script = join(root, "crash.ts");
+  await writeFile(script, `
+    import { openSqlite } from ${JSON.stringify(fileURLToPath(new URL("../runtime-db.ts", import.meta.url)))};
+    import { openBackOfficeAuditStorage } from ${JSON.stringify(fileURLToPath(new URL("./audit-storage.ts", import.meta.url)))};
+    import { BackOfficeStore } from ${JSON.stringify(fileURLToPath(new URL("./store.ts", import.meta.url)))};
+    const db = await openSqlite(process.argv[2]);
+    const store = new BackOfficeStore(db, await openBackOfficeAuditStorage(process.argv[3], false));
+    const execute = db.exec;
+    db.exec = sql => {
+      if (sql === "COMMIT" && ${JSON.stringify(point)} === "before") process.exit(78);
+      execute(sql);
+      if (sql === "COMMIT") process.exit(77);
+    };
+    store.saveRecord("local", { userId: "local", model: true, edit: true, finance: true }, { objectId: "people", revision: 0, values: { name: "Survived first commit" } });
+    throw new Error("The crash barrier was not reached");
+  `);
+  const child = Bun.spawn([process.execPath, script, path, audit], { stdout: "pipe", stderr: "pipe" });
+  const [code, stderr] = await Promise.all([child.exited, new Response(child.stderr).text()]);
+  expect(code, stderr).toBe(point === "after" ? 77 : 78);
+  const storage = await openBackOfficeAuditStorage(audit, true);
+  expect(storage.heads()[0].sequence).toBe(0);
+  const db = await openSqlite(path);
+  if (point === "before") {
+    try {
+      expect(() => new BackOfficeStore(db, storage)).toThrow("missing a previously checkpointed stream");
+      expect(db.all("SELECT * FROM bo_records")).toEqual([]);
+      expect(storage.heads()[0].sequence).toBe(0);
+      expect(storage.key(storage.heads()[0].streamId)).not.toBeNull();
+    } finally { db.close(); }
+    return;
+  }
+  const store = new BackOfficeStore(db, storage);
+  stores.push(store);
+  expect(store.records("local", { ...owner, userId: "local" })[0].values.name).toBe("Survived first commit");
+  expect(storage.heads()[0].sequence).toBeGreaterThan(0);
+  expect(store.checkIntegrity().locallyVerified).toBe(true);
+});
 
 test("record, relationship, model and view changes produce signed encrypted history", async () => {
   const { store, storage, person } = await fixture();
