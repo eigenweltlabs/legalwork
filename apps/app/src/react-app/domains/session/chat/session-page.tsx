@@ -936,11 +936,6 @@ export function SessionPage(props: SessionPageProps) {
     selectedWorkspaceGroupError ||
     "";
   const showSelectedWorkspaceError = Boolean(selectedWorkspaceErrorMessage);
-  const workspaceErrorNotice = showSelectedWorkspaceError ? (
-    <div role="alert" className="mx-6 mt-4 shrink-0 rounded-xl border border-red-7/35 bg-red-1/40 p-4 text-sm text-red-11">
-      <p className="whitespace-pre-wrap wrap-anywhere">{selectedWorkspaceErrorMessage}</p>
-    </div>
-  ) : null;
   const selectedWorkspaceErrorTitle = "OpenCode unavailable";
 
   const reactSessionBaseUrl = props.opencodeBaseUrl?.trim() ?? "";
@@ -1331,7 +1326,6 @@ export function SessionPage(props: SessionPageProps) {
             <ResizablePanelGroup orientation="horizontal" className={cn("lw-workspace-surface min-h-0 flex-1", workflowFocusMode && "!grid !grid-cols-1")}>
               <ResizablePanel id="session-content" minSize={workflowFocusMode ? "0px" : workflowsPage ? "280px" : "360px"} className={cn("min-w-0", workflowFocusMode && "hidden")}>
             <main className="flex h-full min-w-0 flex-1 flex-col overflow-hidden">
-              {workspaceErrorNotice}
               {props.legalworkServerClient && props.runtimeWorkspaceId ? <EngineProjectRecovery client={props.legalworkServerClient} workspaceId={props.runtimeWorkspaceId} /> : null}
               <div className={cn("flex min-h-0 flex-1 flex-col overflow-hidden", props.projectPage && "@container/project-page")}>{props.projectPage ? <div ref={setOverviewHost} className="h-full min-h-0" /> : workflowsPage ? <div ref={setWorkflowLibraryHost} className="h-full min-h-0" /> : mainView}</div>
               {shellConfig.statusBar ? (
@@ -1475,7 +1469,6 @@ export function SessionPage(props: SessionPageProps) {
               {canRenderWorkspace && <div className="flex h-full min-h-0 flex-col">
                 {props.sidebar.assistantActive && props.legalworkServerClient && <AssistantAttentionPanel client={props.legalworkServerClient} profile={props.sidebar.assistantProfile} onOpenSession={props.sidebar.onOpenSession}
                   permission={props.activePermission} question={props.activeQuestion} permissionBusy={props.permissionReplyBusy} questionBusy={props.questionReplyBusy} onPermission={props.respondPermission} onQuestion={props.respondQuestion} />}
-                {workspaceErrorNotice}
                 <div ref={setWorkspaceHost} className="min-h-0 flex-1" />
               </div>}
 

@@ -296,7 +296,7 @@ export class AgentSandboxService {
         { allowPrivate: !settings.enabled || settings.networkMode === "allow", network, send: this.rawHttpSend }));
   }
 
-  private async withPolicy<T>(workspace: WorkspaceInfo, operation: { sessionID?: string; description?: string }, actor: Actor,
+  private async withPolicy<T>(workspace: WorkspaceInfo, operation: { sessionID?: string; description?: string; workdir?: string; skills?: string[]; write?: boolean }, actor: Actor,
     parentSignal: AbortSignal, agentRules: AgentPermissionRule[], lineage: string[], work: (scope: {
       settings: Awaited<ReturnType<typeof effectiveSandbox>>;
       permissions: readonly NativePermissionRule[];
@@ -339,11 +339,17 @@ export class AgentSandboxService {
         if (action === "deny") throw new ApiError(403, "sandbox_permission_denied", `${permission} is blocked by your permissions.`);
         if (action === "ask") {
           if (!reviewable) throw new ApiError(403, "sandbox_review_limit", "This request is too large to review in the approval dialog. Send a smaller request.");
+          const rememberContext = [root, actor, this.config.readOnly, permission, pattern, paths, network, permissions];
+          const commandScope = permission === "bash" ? { workdir: operation.workdir, skills: operation.skills, write: operation.write } : undefined;
           const result = await this.approvals.requestApproval({ workspaceId: workspace.id, actor,
             action: `sandbox.${permission}`,
             summary, paths, sessionID: operation.sessionID, description: operation.description,
-            ...(network ? { network } : {}) }, signal, true, operation.sessionID ? JSON.stringify([root, actor, this.config.readOnly, permission, pattern, paths, network, permissions,
-              agentRules.map(({ session: _, ...rule }) => rule), settings.enabled, settings.networkMode]) : undefined);
+            ...(network ? { network } : {}) }, signal, true, operation.sessionID ? JSON.stringify([...rememberContext,
+              agentRules.map(({ session: _, ...rule }) => rule), settings.enabled, settings.networkMode]) : undefined,
+            operation.sessionID ? { sessionID: lineage.at(-1) ?? operation.sessionID,
+              // Agent restrictions were checked above. Different helper rule
+              // lists must not change the identity of the approved operation.
+              key: JSON.stringify([...rememberContext, commandScope, settings.enabled, settings.networkMode]) } : undefined);
           if (!result.allowed) {
             if (result.reason === "approval_storage_unavailable") throw new ApiError(503, "approval_storage_unavailable", "LegalWork's approval storage is unavailable. No access was granted.");
             throw new ApiError(403, "sandbox_permission_denied", "Sandbox permission was declined.");

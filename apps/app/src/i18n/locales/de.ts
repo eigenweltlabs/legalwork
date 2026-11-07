@@ -3698,7 +3698,7 @@ const de = {
   "question_modal.question_counter": "Frage {current} von {total}",
   "session.allow_for_session": "Für diesen Chat erlauben",
   "session.allow_once": "Einmal erlauben",
-  "session.permission_folder_decision_hint": "Diese Anfrage einmal erlauben oder den Zugriff auf diesen Ordner nur für diesen Chat merken. Andere Chats erhalten keinen Zugriff.",
+  "session.permission_folder_decision_hint": "Diese Anfrage einmal erlauben oder den Zugriff auf diesen Ordner für diesen Chat und seine Teilaufgaben merken. Andere Chats erhalten keinen Zugriff.",
   "session.cmd_agent_active": "Aktiv",
   "session.cmd_agent_default_detail": "Den Standard-Agenten der Engine verwenden",
   "session.cmd_agents_detail": "Wählen, welcher Agent Ihre Prompts ausführt",
@@ -3800,7 +3800,7 @@ const de = {
   "session.permission_title_read": "Dateien lesen?",
   "session.permission_title_task": "Teilaufgabe starten?",
   "session.permission_decision_hint":
-    "Einmal für diese Anfrage erlauben oder diesen Zugriff nur für diesen Chat merken, auch nach einem Neustart von LegalWork.",
+    "Einmal für diese Anfrage erlauben oder denselben Zugriff für diesen Chat und seine Teilaufgaben merken, auch nach einem Neustart von LegalWork.",
   "session.redo_aria_label": "Letzte zurückgenommene Nachricht wiederherstellen",
   "session.redo_label": "Wiederherstellen",
   "session.redo_title": "Letzte zurückgenommene Nachricht wiederherstellen",

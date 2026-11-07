@@ -28,6 +28,8 @@ Choose **Skip** or the **Close** (×) button to decline the question request wit
 
 A background refresh keeps the current chat ready for typing, Run and Dictate. Opening a different chat still waits for that chat to load.
 
+If a background project refresh fails, check the affected project in the sidebar for its connection or loading error. These background errors do not add a warning above your conversation. A failed message or agent response still shows its own error in the chat.
+
 In an idle project, wiki or Assistant chat, a normal message appears immediately while LegalWork confirms delivery. Confirmation updates that same message. If sending fails, the local message is removed and your draft remains available to retry. Messages for busy or paused chats remain in the editable queue until delivered.
 
 ### Steer with a queued message

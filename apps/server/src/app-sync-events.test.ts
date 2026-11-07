@@ -3,6 +3,7 @@ import { serverSentEvents, syncPokeOf, type SyncPoke } from "@legalwork/types/sy
 
 import { announceSyncChange, syncEventStream } from "./app-sync-events.js";
 import type { ServerConfig } from "./types.js";
+import { notifySandboxSettingsChange, SANDBOX_DEFAULT_ID, sandboxSessionId } from "./agent-sandbox/settings.js";
 
 function configAt(configPath: string): ServerConfig {
   return { configPath } as ServerConfig;
@@ -31,6 +32,20 @@ function listen(config: ServerConfig) {
 const settle = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 describe("app sync events", () => {
+  test("sandbox changes notify windows even when they do not originate in an HTTP request", async () => {
+    const config = configAt("/tmp/app-sync-events-sandbox.json");
+    const stream = listen(config);
+    try {
+      await notifySandboxSettingsChange(config, SANDBOX_DEFAULT_ID);
+      await settle(400);
+      expect(stream.events).toEqual([{ resync: true, metadata: true }, { sandbox: true }]);
+      await notifySandboxSettingsChange(config, sandboxSessionId("project", "chat"));
+      await settle(400);
+      expect(stream.events.at(-1)).toEqual({ sandbox: true });
+      expect(stream.events).toHaveLength(3);
+    } finally { stream.close(); await stream.ended; }
+  });
+
   test("a window hears a resync first, then changes, close together as one", async () => {
     const config = configAt("/tmp/app-sync-events-a.json");
     const stream = listen(config);
