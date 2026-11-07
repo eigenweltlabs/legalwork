@@ -272,7 +272,8 @@ const ToolMessageInner = ({ part }: ToolMessageProps) => {
 const isEmptyMessage = (message: UIMessage): boolean => message.parts.length === 0
 
 type RetryStatus = Extract<SessionStatus, { type: "retry" }>
-const UsageLimitRendererContext = React.createContext<((error: string, messageId?: string) => React.ReactNode) | null>(null)
+type UsageLimitRenderer = (error: string, messageId?: string, scope?: "web-search") => React.ReactNode
+const UsageLimitRendererContext = React.createContext<UsageLimitRenderer | null>(null)
 const EigenweltBudgetPlanContext = React.createContext<EigenweltBudgetPlan>(null)
 
 function isSessionErrorMessage(message: UIMessage) {
@@ -818,12 +819,13 @@ LoadingMessage.displayName = "LoadingMessage"
 interface ErrorMessageProps {
   error: string | null
   messageId?: string
+  scope?: "web-search"
 }
 
-function ErrorMessage({ error, messageId }: ErrorMessageProps) {
+function ErrorMessage({ error, messageId, scope }: ErrorMessageProps) {
   const eigenweltPlan = React.useContext(EigenweltBudgetPlanContext)
   const renderUsageLimit = React.useContext(UsageLimitRendererContext)
-  const recovery = error ? renderUsageLimit?.(error, messageId) : null
+  const recovery = error ? renderUsageLimit?.(error, messageId, scope) : null
   if (recovery) return <Message className="not-prose w-full">{recovery}</Message>
   if (isEigenweltBudgetExceededErrorText(error)) {
     return <BudgetExceededMessage plan={eigenweltPlan} />
@@ -1022,7 +1024,7 @@ function MessageGroup({
   return (
       <div className={cn("relative flex flex-col gap-2 group/message-group", assistantChat && "pb-5")}>
       {displayItems.map(renderItem)}
-      {searchLimit && !items.some(item => isSessionErrorMessage(item.message) && parseProviderUsageLimit(getMessagesText([item.message]))?.providerId === "eigenwelt") && <ErrorMessage error={searchLimit} />}
+      {searchLimit && !items.some(item => isSessionErrorMessage(item.message) && parseProviderUsageLimit(getMessagesText([item.message]))?.providerId === "eigenwelt") && <ErrorMessage error={searchLimit} scope="web-search" />}
       {assistantChat && <AssistantLinkedFileCards messages={items.map(item => item.message)} />}
       {filedTasks.length > 0 ? <ArtifactList messages={EMPTY_MESSAGES} tasks={filedTasks} /> : null}
       {/* The graph and the sources belong under the finished answer, not among
@@ -1086,7 +1088,7 @@ function MessageGroup({
 
 interface MessageListProps {
   showWelcome?: boolean
-  renderUsageLimit?: (error: string, messageId?: string) => React.ReactNode
+  renderUsageLimit?: UsageLimitRenderer
 
   eigenweltPlan?: EigenweltBudgetPlan
   messages: UIMessage[]

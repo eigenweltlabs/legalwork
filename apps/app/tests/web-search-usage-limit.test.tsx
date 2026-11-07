@@ -14,6 +14,7 @@ import { ProviderLimitMessage } from "../src/react-app/domains/connections/usage
 import { createLegalworkServerClient } from "../src/app/lib/legalwork-server";
 import { parseDynamicToolUIPart } from "../src/react-app/domains/session/sync/parse-tool-parts";
 import type { ToolPart } from "../src/app/lib/opencode-view";
+import { currentLocale, setLocale } from "../src/i18n";
 
 const limit = { reason: "wallet_empty", requiredMicros: 1, availableMicros: 0 };
 const search: DynamicToolUIPart = { type: "dynamic-tool", toolName: "legalwork_websearch", toolCallId: "search", input: {},
@@ -44,6 +45,7 @@ test("a collapsed failed search shows the existing recovery controls once outsid
     { id: "reply", role: "assistant", parts: [{ type: "text", text: "Search needs more allowance." }] }];
   const cache = new QueryClient(), noop = () => {};
   const seen: string[] = [];
+  const scopes: Array<"web-search" | undefined> = [];
   const sanitize = Object.getOwnPropertyDescriptor(DOMPurify, "sanitize");
   // Only trusted fixture prose: Bun's server renderer has no browser DOM.
   Object.defineProperty(DOMPurify, "sanitize", { value: (html: string) => html, configurable: true });
@@ -51,9 +53,10 @@ test("a collapsed failed search shows the existing recovery controls once outsid
   const html = renderToStaticMarkup(<QueryClientProvider client={cache}><MemoryRouter><OpenTargetProvider openTargets={[]} onOpenTarget={noop}>
     <MessageListProvider workspaceId="matter" sessionId="chat" showThinking={false} developerMode={false} displaySuggestions={false}
       providerConnectedCount={1} dispatchAction={noop} setPrompt={noop} onRevertToUserMessage={noop} onForkAtMessage={noop} onEditUserMessage={noop}>
-      <MessageList messages={messages} status="ready" renderUsageLimit={error => { seen.push(error); return <button>Request more usage</button>; }} />
+      <MessageList messages={messages} status="ready" renderUsageLimit={(error, _messageId, scope) => { seen.push(error); scopes.push(scope); return <button>Request more usage</button>; }} />
     </MessageListProvider></OpenTargetProvider></MemoryRouter></QueryClientProvider>);
   expect(seen).toHaveLength(1);
+  expect(scopes).toEqual(["web-search"]);
   expect(parseProviderUsageLimit(seen[0])).toEqual({ providerId: "eigenwelt", limit });
   expect(html).toContain("Request more usage");
   expect(html).not.toContain("Eigenwelt usage limit:");
@@ -75,4 +78,26 @@ test("the positive-balance admission check shows an exhausted limit rather than 
     expect(render(1)).toContain("Personal usage limit reached");
     expect(render(10000)).toContain("Personal spending limit too low for this request");
   } finally { cache.clear(); }
+});
+
+test("search recovery names the web search limit and its separate Eigenwelt allowance in both shipped languages", () => {
+  const cache = new QueryClient();
+  const previousLocale = currentLocale();
+  try {
+    const client = createLegalworkServerClient({ baseUrl: "http://127.0.0.1:4321", token: "fixture" });
+    const render = (scope?: "web-search") => renderToStaticMarkup(<QueryClientProvider client={cache}>
+      <ProviderLimitMessage client={client} workspaceId="matter" plan="plus" providerId="eigenwelt" scope={scope}
+        limit={{ reason: "member_limit", requiredMicros: 1, availableMicros: 0 }} />
+    </QueryClientProvider>);
+    setLocale("en");
+    const search = render("web-search");
+    expect(search).toContain("Web search limit reached");
+    expect(search).toContain("Web search uses your Eigenwelt allowance and spending limits.");
+    expect(search).toContain("Your chat model provider has separate usage limits.");
+    expect(render()).toContain("Personal usage limit reached");
+    expect(render()).not.toContain("Your chat model provider has separate usage limits.");
+    setLocale("de");
+    expect(render("web-search")).toContain("Nutzungslimit für die Websuche erreicht");
+    expect(render("web-search")).toContain("Für den Anbieter Ihres Chatmodells gelten separate Nutzungslimits.");
+  } finally { setLocale(previousLocale); cache.clear(); }
 });

@@ -64,6 +64,7 @@ import { AppHome } from "@/react-app/domains/session/home/app-home";
 import { submitHomeMessage, type PendingHomeMessage } from "@/react-app/domains/session/home/home-submission";
 import { providerUsageLimitErrorText } from "@/app/lib/provider-usage-limit";
 import { organizationRequestLimit, usageLimitFixture } from "@/react-app/design-system/usage-limit-fixture";
+import { chatModelKey, useSessionModelStore } from "@/react-app/domains/session/chat/session-model-store";
 
 if (!import.meta.env.DEV) throw new Error("The session fixture is available only in development.");
 initLocale();
@@ -342,6 +343,8 @@ if (previewParams.has("statusStates")) {
   });
 }
 if (limitParam) {
+  // Keep provider variants deterministic when the same preview chat was opened before.
+  if (searchLimitPreview) useSessionModelStore.getState().select(chatModelKey("https://legalwork-preview.invalid/opencode", workspace.id, "visual-limit"), { model, variant: null });
   const item = snapshot("visual-limit", "Review supplier agreement", "Review the supplier agreement and highlight the clauses that need attention.");
   saveSnapshot({
     ...item,

@@ -21,7 +21,7 @@ The Eigenwelt gateway remains in Europe even for US searches, so US endpoint sel
 
 Free and lapsed accounts continue to use free Exa search. No separate AWS or Exa key is needed. Paid-search failures and usage limits are reported in the chat; they do not silently send the query to Exa. Check your account connection or request more usage when prompted.
 
-When paid search is blocked by an exhausted allowance, an empty credit balance or a spending limit, the chat shows the same usage controls as a model allowance failure, below the search activity. You can leave tool details collapsed. Members can choose **Request more usage**; firm admins see the relevant spending settings or credit options. Restore access, then ask the assistant to retry. A blocked search is not charged. These controls refer to your Eigenwelt account even if the chat uses your own model provider.
+When paid search is blocked by an exhausted allowance, an empty credit balance or a spending limit, the chat shows the same usage controls as a model allowance failure, below the search activity. You can leave tool details collapsed. Members can choose **Request more usage**; firm admins see the relevant spending settings or credit options. Restore access, then ask the assistant to retry. A blocked search is not charged. If the chat uses your own model provider, the card says **Web search limit reached** and explains that search uses your Eigenwelt allowance. Your chat model provider has separate usage limits; the search limit does not indicate that its allowance is exhausted.
 
 If a search reports **The web search service is unavailable**, retry later. Changing the search terms does not resolve a service outage. A failed search does not mean that no matching information exists.
 
