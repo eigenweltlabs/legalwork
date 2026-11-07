@@ -95,6 +95,8 @@ test("changes to attribution, timestamps, model versions or record contents fail
   expect(() =>
     verifyBackOfficeAuditProof({ ...first.proof, hash: "a".repeat(64) }),
   ).toThrow();
+  expect(() => verifyBackOfficeAuditProof({ ...first.proof, eventId: randomUUID() })).toThrow();
+  expect(() => verifyBackOfficeAuditProof({ ...first.proof, scopeKey: "f".repeat(64) })).toThrow();
 });
 
 test("deleting, reordering or duplicating journal entries fails verification", () => {

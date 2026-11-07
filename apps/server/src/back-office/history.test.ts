@@ -75,6 +75,13 @@ test("redacted exports resist guessing hidden rates even using a later fully dis
   } finally { store.close(); }
 });
 
+test("a newly signed export cannot relabel proofs as belonging to another directory", async () => {
+  const { store, target } = await fixture();
+  const exported = localBackOfficeHistoryExport(store, "local", owner, target);
+  const relabeled = signBackOfficeHistoryExport({ ...exported.body, scope: "another-firm" }, store.journal.storage.identity);
+  expect(() => verifyBackOfficeHistoryExport(relabeled)).toThrow("different directory");
+});
+
 test("export verification stays authenticated and read-only when the current history store is damaged", async () => {
   const { store, target } = await fixture();
   const exported = localBackOfficeHistoryExport(store, "local", owner, target);
