@@ -10,6 +10,8 @@ With an entitled paid LegalWork account, searches use AWS Web Search in the **Un
 
 Free and lapsed accounts continue to use free Exa search. No separate AWS or Exa key is needed. Paid-search failures and usage limits are reported in the chat; they do not silently send the query to Exa. Check your account connection or request more usage when prompted.
 
+If a search reports **The web search service is unavailable**, retry later. Changing the search terms does not resolve a service outage. A failed search does not mean that no matching information exists.
+
 Paid searches accept up to **200 characters per query**. The assistant must reformulate longer searches instead of truncating legal citations. Results include excerpts and source links; ask the assistant to open the relevant sources when excerpts omit an important passage. Search processing does not change the app's saved chat history or the destination website's handling of a subsequent page read.
 
 ## Connect and select a model

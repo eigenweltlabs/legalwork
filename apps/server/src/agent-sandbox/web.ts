@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ApiError } from "../errors.js";
 import { convertHtml } from "./web-convert.js";
 import type { OutboundResponse } from "./network.js";
 import type { SearchProvider } from "./search-provider.js";
@@ -51,7 +52,11 @@ export function webRequest(input: WebInput, provider: SearchProvider = { name: "
 export async function webResult(input: WebInput, url: string, response: OutboundResponse, signal = new AbortController().signal,
   provider: SearchProvider = { name: "exa" }) {
   signal.throwIfAborted();
-  if (response.status < 200 || response.status >= 300) throw new Error(`Website returned HTTP ${response.status}.`);
+  if (response.status < 200 || response.status >= 300) {
+    if (input.kind === "search") throw new ApiError(502, "web_search_unavailable",
+      "The web search service is unavailable. Please try again later.");
+    throw new Error(`Website returned HTTP ${response.status}.`);
+  }
   const bytes = Buffer.from(response.bodyBase64, "base64");
   const content = bytes.toString("utf8");
   if (input.kind === "search") {

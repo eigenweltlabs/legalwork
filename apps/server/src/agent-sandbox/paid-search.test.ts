@@ -62,7 +62,8 @@ test("paid search never truncates queries, downgrades on failure, or follows an 
   const provider = { name: "aws", url: "https://gateway.example/v1/web/search", apiKey: "secret" } satisfies Awaited<ReturnType<typeof searchProvider>>;
   expect(() => webRequest(input("x".repeat(201)), provider)).toThrow("200 characters");
   expect(() => webRequest(input("😀".repeat(200)), provider)).not.toThrow();
-  await expect(webResult(input(), provider.url, { status: 503, headers: {}, bodyBase64: "" }, undefined, provider)).rejects.toThrow("503");
+  await expect(webResult(input(), provider.url, { status: 503, headers: {}, bodyBase64: "" }, undefined, provider))
+    .rejects.toMatchObject({ status: 502, code: "web_search_unavailable" });
   const config = await fixture();
   await writeEigenweltConnection(config, { entitlements: parseEigenweltEntitlements({ plan: "pro", subscriptionStatus: "active", features: ["premium_models"] }) });
   await expect(searchProvider(config)).rejects.toThrow("Sign in again");

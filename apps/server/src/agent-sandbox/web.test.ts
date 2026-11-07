@@ -1,7 +1,19 @@
 import { expect, test } from "bun:test";
 import { convertHtml } from "./web-convert.js";
 import { webResult } from "./web.js";
+import type { SearchProvider } from "./search-provider.js";
 const signal = new AbortController().signal;
+
+test("search outages return a clear API error without exposing the upstream body", async () => {
+  const providers: SearchProvider[] = [{ name: "exa" }, { name: "aws", url: "https://gateway.example/v1/web/search", apiKey: "secret" }];
+  for (const provider of providers) {
+    await expect(webResult({ kind: "search", sessionID: "chat", agent: "legalwork", query: "private query", numResults: 8,
+      type: "auto", livecrawl: "fallback" }, "https://gateway.example/v1/web/search", {
+      status: 502, headers: {}, bodyBase64: Buffer.from("private upstream diagnostics").toString("base64"),
+    }, signal, provider)).rejects.toMatchObject({ status: 502, code: "web_search_unavailable",
+      message: "The web search service is unavailable. Please try again later." });
+  }
+});
 
 test("web pages preserve readable markdown and hide non-content elements", async () => {
   const result = await webResult({ kind: "fetch", sessionID: "chat", agent: "build", url: "https://example.com", format: "markdown" }, "https://example.com", {
