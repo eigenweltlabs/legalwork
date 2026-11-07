@@ -3,7 +3,8 @@ import { mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile } from
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { finishLocalProject, localProjectMigrationPending, markLocalProjectPublished, prepareLocalProject, prepareLocalProjects, projectFilePermissionRules, workspaceFileRoot } from "./project-storage.js";
-import { writeNativeProjectProjection } from "./engine-project.js";
+import { engineProjectStatus, writeNativeProjectProjection } from "./engine-project.js";
+import { readLegalworkWorkspaceConfig } from "./legalwork-workspace-config-store.js";
 import { listSkills } from "./skills.js";
 import { saveEmailDraft } from "./email-drafts/store.js";
 import { createLocalProjectFolder, registerLocalProject, unregisterWorkspace } from "./routes/workspaces.js";
@@ -77,6 +78,23 @@ test("email drafts snapshot both connected documents and retained local attachme
   expect(bytes).toContain(Buffer.from("Original document").toString("base64"));
   expect(bytes).toContain(Buffer.from("Retained attachment").toString("base64"));
   expect(await stat(join(f.source, draft.path)).catch(() => null)).toBeNull();
+});
+
+test("preserves generated configuration ownership when migrating a folder alias", async () => {
+  const f = await fixture(), alias = join(f.root, "selected-matter");
+  await symlink(f.source, alias, process.platform === "win32" ? "junction" : "dir");
+  f.original.path = alias;
+  const originalProjection = await writeNativeProjectProjection(f.config, f.original, {});
+  const authored = join(f.source, ".opencode", "opencode.jsonc");
+  await writeFile(authored, "// Authored settings\n{}");
+  expect(await prepareLocalProjects(f.config)).toBe(true);
+  const local = f.config.workspaces[0]!;
+  const projection = join(local.path, ".opencode", "opencode.json");
+  expect(originalProjection).toBe(join(f.source, ".opencode", "opencode.json"));
+  expect((await readLegalworkWorkspaceConfig(f.config, local.id)).nativeEngineProject).toMatchObject({ directory: local.path, projection: { path: projection } });
+  expect(await writeNativeProjectProjection(f.config, local, {})).toBe(projection);
+  expect((await engineProjectStatus(f.config, local)).state).toBe("ready");
+  expect(await readFile(join(local.path, ".opencode", "opencode.jsonc"), "utf8")).toBe("// Authored settings\n{}");
 });
 
 test("moves only the two support trees, preserves linked targets and IDs, and keeps a local recovery copy", async () => {

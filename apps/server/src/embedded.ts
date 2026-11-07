@@ -1,5 +1,5 @@
 import { stopManagedOpencodeService } from "./managed-opencode-service.js";
-import { localProjectsDirectory, prepareLocalProjects } from "./project-storage.js";
+import { localProjectReferenceRoots, localProjectsDirectory, prepareLocalProjects } from "./project-storage.js";
 import { persistServerWorkspaceState } from "./routes/workspaces.js";
 /**
  * Single entry point for embedding the LegalWork server in-process.
@@ -43,6 +43,7 @@ import { legacyMcpAuthPath } from "./legacy-mcp-credentials.js";
 import { expectedOpencodeVersion } from "@legalwork/opencode-release/candidate";
 import { ensureWikiAgentToken } from "./wiki/agent-access.js";
 import { WikiStore } from "./wiki/store.js";
+import { canonicalProjectPath, projectPathKey } from "./workspace-path-match.js";
 
 export type EmbeddedServerOptions = CliArgs & {
   /** Publish the bound API while the managed engine is still starting/migrating. */
@@ -85,6 +86,8 @@ export type EmbeddedServerHandle = {
   url: string;
   /** The resolved server config (with OpenCode URLs populated). */
   config: ServerConfig;
+  /** Host-only selection captured before project roots change during migration. */
+  selectedWorkspaceId: string | null;
   /** Redacted details for the managed OpenCode child process, when spawned. */
   managedOpencodeExecution: OpencodeExecutionSnapshot | null;
   managedOpencodeStatus: () => { running: boolean; pid: number | null } | null;
@@ -93,6 +96,32 @@ export type EmbeddedServerHandle = {
   /** Host-only notification after a successful explicit OS trust change. */
   invalidateRawHttpTrust: () => void;
 };
+
+async function selectedEmbeddedWorkspaceId(config: ServerConfig, directory: string | undefined): Promise<string | null> {
+  if (!directory?.trim()) return null;
+  const roots = config.workspaces.flatMap(workspace => [workspace.path, workspace.contentPath, workspace.previousPath]
+    .flatMap(path => path ? [{ id: workspace.id, path }] : []));
+  const key = projectPathKey(directory);
+  const exact = () => [...new Set(roots.filter(root => projectPathKey(root.path) === key).map(root => root.id))];
+  let ids = exact();
+  if (ids.length) return ids.length === 1 ? ids[0] : null;
+  // Receipts are local. An old mapped-drive selection must not require its
+  // document drive merely to identify an already-relocated engine home.
+  for (const workspace of config.workspaces.filter(workspace => workspace.previousPath)) {
+    try {
+      const local = await localProjectReferenceRoots(workspace);
+      roots.push(...(local.previousPaths ?? []).map(path => ({ id: workspace.id, path })));
+    } catch { /* An unrelated damaged receipt must not block other projects. */ }
+  }
+  ids = exact();
+  if (ids.length) return ids.length === 1 ? ids[0] : null;
+  // One startup-boundary canonical lookup handles pre-migration Windows and
+  // symlink aliases. Connection snapshots never repeat filesystem matching.
+  const canonical = projectPathKey(await canonicalProjectPath(directory));
+  const resolved = await Promise.all(roots.map(async root => ({ id: root.id, key: projectPathKey(await canonicalProjectPath(root.path)) })));
+  ids = [...new Set(resolved.filter(root => root.key === canonical).map(root => root.id))];
+  return ids.length === 1 ? ids[0] : null;
+}
 
 export async function startEmbeddedServer(options: EmbeddedServerOptions): Promise<EmbeddedServerHandle> {
   const config = await resolveServerConfig(options, { approvalMode: options.defaultApprovalMode });
@@ -120,6 +149,10 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
   // connector imports can observe the current configuration.
   const startupWikis = new WikiStore(config);
   try { await startupWikis.list({ publish: false }); } finally { await startupWikis.close(); }
+  const selectedWorkspaceId = await selectedEmbeddedWorkspaceId(config, options.opencodeDirectory);
+  // The selection can still name the old connected folder. Managed engines
+  // always use registered engine homes, including configuration before spawn.
+  if (managedEngine) for (const workspace of config.workspaces) workspace.directory = workspace.path;
   await bootstrapRuntimeOpencodeConfig(config);
   await prepareConnectorStorage(config);
   const storageMigrationPending = managedEngine && !config.readOnly && config.workspaces.some(workspace => !workspace.contentPath);
@@ -261,6 +294,7 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
     port: server.port,
     url: `http://${config.host === "0.0.0.0" ? "127.0.0.1" : config.host}:${server.port}`,
     config,
+    selectedWorkspaceId,
     invalidateRawHttpTrust: () => server.invalidateRawHttpTrust(),
     get managedOpencodeExecution() { return managed.engine?.execution ?? null; },
     managedOpencodeStatus: () => managed.engine

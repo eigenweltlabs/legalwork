@@ -93,8 +93,11 @@ test("registered browser tools expose typed direct results and compose with nati
       expect((await connect.execute(input, nativeTestInvocation("ses_upload"))).output).toEqual(opened);
       expect(bridgeCalls.at(-1)).toMatchObject({ actionId: "browser.connection", args: { tabId: output.tabID }, callerSessionId: "ses_upload" });
     }
-    bridgeResult = { ok: false, error: "Browser unavailable" };
-    await expect(open.execute({ url: snapshot.tab.url }, nativeTestInvocation("ses_upload"))).rejects.toThrow();
+    const failure = { ok: false, error: "The local browser engine is unavailable.", code: "engine_unavailable" };
+    bridgeResult = failure;
+    for (const invoke of [() => open.execute({ url: snapshot.tab.url }, nativeTestInvocation("ses_upload")), () => connect.execute({ tabID: output.tabID }, nativeTestInvocation("ses_upload"))]) {
+      await expect(invoke()).rejects.toMatchObject({ message: failure.error, code: failure.code });
+    }
   } finally { await runtime.close(); }
 });
 function tool(name: "legalwork_browser_connections" | "legalwork_browser_add_website" | "legalwork_browser_upload" | "legalwork_browser_capture" | "legalwork_browser_downloads" | "legalwork_browser_passwords" | "legalwork_browser_fill_password", ctx = native.ctx) {

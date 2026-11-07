@@ -10,6 +10,7 @@ import {
   alignWindowsOpencodeConfigEnv,
   desktopProjectsDirectory,
   embeddedOpencodeConnection,
+  embeddedWorkspaceIdForPath,
   commandMatchesPackagedSidecar,
   bundledNodeDirectory,
   bundledOpencodeSdkDirectory,
@@ -28,36 +29,55 @@ describe("private embedded engine connection", () => {
     const config = {
       opencodeBaseUrl: "http://127.0.0.1:41000", opencodeUsername: "default-user", opencodePassword: "default-password",
       workspaces: [
-        { path: "/cases/other", opencodePassword: "other-password" },
-        { path: "/cases/selected", directory: "/engine/location", baseUrl: "http://127.0.0.1:42000", opencodeUsername: "selected-user", opencodePassword: "selected-password" },
+        { id: "other", path: "/cases/other", opencodePassword: "other-password" },
+        { id: "selected", path: "/cases/selected", directory: "/engine/location", baseUrl: "http://127.0.0.1:42000", opencodeUsername: "selected-user", opencodePassword: "selected-password" },
       ],
     };
-    assert.deepEqual(embeddedOpencodeConnection(config, "/cases/selected/../selected", "linux"), {
+    assert.equal(embeddedWorkspaceIdForPath(config, "/cases/selected/../selected", "linux"), "selected");
+    assert.deepEqual(embeddedOpencodeConnection(config, "selected"), {
       baseUrl: "http://127.0.0.1:42000", projectDir: "/engine/location", hostname: "127.0.0.1", port: 42000,
       opencodeUsername: "selected-user", opencodePassword: "selected-password",
     });
-    assert.equal(embeddedOpencodeConnection(config, "/cases/missing", "linux"), null);
-    assert.equal(embeddedOpencodeConnection(config, "", "linux"), null);
-    assert.equal(embeddedOpencodeConnection(config, "/cases/SELECTED", "linux"), null);
-    assert.equal(embeddedOpencodeConnection({ ...config, workspaces: [config.workspaces[1], config.workspaces[1]] }, "/cases/selected", "linux"), null);
+    assert.equal(embeddedWorkspaceIdForPath(config, "/cases/missing", "linux"), null);
+    assert.equal(embeddedWorkspaceIdForPath(config, "", "linux"), null);
+    assert.equal(embeddedWorkspaceIdForPath(config, "/cases/SELECTED", "linux"), null);
+    assert.equal(embeddedOpencodeConnection(config, "missing"), null);
+    assert.equal(embeddedOpencodeConnection(config, "/cases/selected"), null);
+    assert.equal(embeddedOpencodeConnection({ ...config, workspaces: [config.workspaces[1], config.workspaces[1]] }, "selected"), null);
+    const selection = { id: "selected", path: "/original/selection" };
+    assert.equal(embeddedWorkspaceIdForPath(config, selection.path, "linux", selection), "selected");
+    assert.equal(embeddedWorkspaceIdForPath(config, "/original/SELECTION", "linux", selection), null);
+    assert.equal(embeddedWorkspaceIdForPath({ ...config, workspaces: [...config.workspaces, { id: "conflict", path: selection.path }] }, selection.path, "linux", selection), null);
   });
 
   it("reads newly published lifecycle credentials and preserves unauthenticated standalone connections", () => {
-    const config = { workspaces: [{ path: "/cases/current" }], opencodeBaseUrl: "http://127.0.0.1:41000", opencodeUsername: "engine", opencodePassword: "before" };
-    assert.equal(embeddedOpencodeConnection(config, "/cases/current", "darwin").opencodePassword, "before");
+    const config = { workspaces: [{ id: "current", path: "/cases/current" }], opencodeBaseUrl: "http://127.0.0.1:41000", opencodeUsername: "engine", opencodePassword: "before" };
+    assert.equal(embeddedOpencodeConnection(config, "current").opencodePassword, "before");
     Object.assign(config, { opencodeBaseUrl: "http://127.0.0.1:41001", opencodePassword: "after" });
-    const rotated = embeddedOpencodeConnection(config, "/cases/current", "darwin");
+    const rotated = embeddedOpencodeConnection(config, "current");
     assert.equal(rotated.opencodePassword, "after");
     assert.equal(rotated.port, 41001);
-    assert.equal(embeddedOpencodeConnection({ workspaces: config.workspaces, opencodeBaseUrl: config.opencodeBaseUrl }, "/cases/current", "darwin").opencodePassword, null);
-    assert.equal(embeddedOpencodeConnection({ workspaces: config.workspaces }, "/cases/current", "darwin"), null);
+    assert.equal(embeddedOpencodeConnection({ workspaces: config.workspaces, opencodeBaseUrl: config.opencodeBaseUrl }, "current").opencodePassword, null);
+    assert.equal(embeddedOpencodeConnection({ workspaces: config.workspaces }, "current"), null);
   });
 
   it("matches Windows drive paths and extended paths without crossing projects", () => {
-    const config = { opencodeBaseUrl: "http://127.0.0.1:41000", workspaces: [{ path: "C:\\Cases\\Current", opencodePassword: "private" }] };
-    assert.equal(embeddedOpencodeConnection(config, "c:/cases/current", "win32").opencodePassword, "private");
-    assert.equal(embeddedOpencodeConnection(config, "\\\\?\\C:\\Cases\\Current", "win32").opencodePassword, "private");
-    assert.equal(embeddedOpencodeConnection(config, "C:\\Cases\\Current-other", "win32"), null);
+    const config = { opencodeBaseUrl: "http://127.0.0.1:41000", workspaces: [{ id: "current", path: "C:\\Cases\\Current", opencodePassword: "private" }] };
+    assert.equal(embeddedWorkspaceIdForPath(config, "c:/cases/current", "win32"), "current");
+    assert.equal(embeddedWorkspaceIdForPath(config, "\\\\?\\C:\\Cases\\Current", "win32"), "current");
+    assert.equal(embeddedWorkspaceIdForPath(config, "C:\\Cases\\Current-other", "win32"), null);
+  });
+
+  it("keeps the captured project identity when a mapped drive becomes a UNC alias and local engine home", () => {
+    const workspace = { id: "matter", path: "J:\\Matter" };
+    const config = { opencodeBaseUrl: "http://127.0.0.1:41000", workspaces: [workspace] };
+    const id = embeddedWorkspaceIdForPath(config, "j:/Matter", "win32");
+    Object.assign(workspace, { path: "C:\\Users\\Person\\AppData\\Local\\LegalWork\\Projects\\matter", previousPath: "\\\\server\\share\\Matter", contentPath: "\\\\server\\share\\Matter" });
+    assert.equal(embeddedOpencodeConnection(config, id).projectDir, workspace.path);
+    assert.equal(embeddedOpencodeConnection(config, id).baseUrl, config.opencodeBaseUrl);
+    assert.equal(embeddedWorkspaceIdForPath(config, "\\\\?\\UNC\\SERVER\\share\\Matter", "win32"), id);
+    config.workspaces = [];
+    assert.equal(embeddedOpencodeConnection(config, id), null);
   });
 });
 

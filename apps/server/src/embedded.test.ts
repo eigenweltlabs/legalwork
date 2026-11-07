@@ -86,6 +86,7 @@ test.each(["first", "last", "only"])("an unavailable cloud project does not bloc
     host: "127.0.0.1", port: 0, workspaces: position === "only" ? [cloud] : position === "first" ? [cloud, local] : [local, cloud],
     configPath: join(root, "server.json"), logRequests: false,
     projectsDirectory: join(root, "projects"),
+    opencodeDirectory: cloud,
     token: "test-client", hostToken: "test-host", manageOpencode: true, opencodeBin: bin, opencodeCandidateBuild: candidateBuild, opencodeSdkDirectory: sdk,
   });
   cleanup.push(() => server.stop());
@@ -95,6 +96,7 @@ test.each(["first", "last", "only"])("an unavailable cloud project does not bloc
   const list = await (await fetch(`${server.url}/workspaces`, { headers })).json();
   expect(list.items.map((item: { path: string; contentPath?: string }) => item.contentPath || item.path).sort()).toEqual(position === "only" ? [cloud] : [cloud, local].sort());
   const cloudId = server.config.workspaces.find(workspace => workspace.path === cloud)!.id;
+  expect(server.selectedWorkspaceId).toBe(cloudId);
   if (position !== "only") {
     const registered = server.config.workspaces.find(workspace => workspace.contentPath === local)!;
     expect(registered.path).toBe(join(root, "projects", registered.id));

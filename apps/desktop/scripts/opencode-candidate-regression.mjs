@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, realpathSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, symlinkSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -40,7 +40,8 @@ try {
   const { createRuntimeManager } = await import("../electron/runtime.mjs");
   const { OpenCode } = await import("@opencode/client");
   const desktopRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-  const workspace = path.join(root, "matter");
+  const content = path.join(root, "matter"), workspace = path.join(root, "selected-matter");
+  symlinkSync(content, workspace, process.platform === "win32" ? "junction" : "dir");
   // A serialized lookalike cannot cross the capability boundary, even frozen.
   const forged = createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths: () => [workspace], opencodeCandidateBuild: Object.freeze({ ...candidate }) });
   await assert.rejects(forged.engineStart(workspace, { opencodeBinPath: candidate.path }), /unknown or mutable candidate/);
@@ -61,13 +62,15 @@ try {
     pids.add(info.pid);
     assert.equal((await fetch(`${server.baseUrl}/health`)).status, 200);
     const workspaces = await (await fetch(`${server.baseUrl}/workspaces`, { headers })).json();
-    const selected = workspaces.items.find(item => item.contentPath === workspace);
+    const selected = workspaces.items.find(item => item.contentPath === content);
     assert.ok(selected);
     assert.equal(selected.path, realpathSync(path.join(root, "projects", selected.id)));
     assert.equal(selected.opencode?.directory, selected.path);
+    assert.ok(engine.baseUrl, "A healthy engine must publish its private connection after alias relocation");
+    assert.equal(engine.projectDir, selected.path);
     const projectUrl = `${server.baseUrl}/workspace/${selected.id}/engine-project`;
     const status = await (await fetch(projectUrl, { headers })).json();
-    assert.equal(status.state, "ready");
+    assert.equal(status.state, "ready", JSON.stringify({ cycle, status }));
     assert.equal(status.required, false);
     const location = { directory: selected.path };
     await client.model.list({ location });
@@ -93,6 +96,7 @@ try {
       } }).server.info();
       assert.equal(nextInfo.pid, restarted.pid);
       assert.equal(nextInfo.version, candidate.version);
+      assert.equal((await runtime.engineStart(workspace, { opencodeBinPath: candidate.path })).pid, restarted.pid, "The original selection must reuse its project after restart");
     }
     await runtime.engineStop();
     assert.throws(() => process.kill(info.pid, 0), /ESRCH/);

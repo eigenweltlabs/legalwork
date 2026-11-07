@@ -153,7 +153,7 @@ test.skipIf(!binary).each([false, true])("managed startup completes V1 migration
     const configPath = join(root, "server.json");
     await writeFile(configPath, JSON.stringify({ workspaces: [{ id: "ws_managed", name: "Matter", path: source, workspaceType: "local" }], authorizedRoots: [source], token: "synthetic", hostToken: "synthetic-host", approval: { mode: "auto", timeoutMs: 1000 } }));
     const options = { configPath, workspaces: [], host: "127.0.0.1", port: 0, manageOpencode: true, opencodeBin: binary,
-      projectsDirectory: join(root, "local"), managedEngineStorageDirectory: engineRoot, opencodeCwd: join(root, "home") };
+      projectsDirectory: join(root, "local"), managedEngineStorageDirectory: engineRoot, opencodeCwd: join(root, "home"), opencodeDirectory: source };
     if (broken) {
       await expect(startEmbeddedServer(options)).rejects.toThrow("migration failed");
       expect((await stat(join(source, ".legalwork"))).isDirectory()).toBe(true);
@@ -164,6 +164,7 @@ test.skipIf(!binary).each([false, true])("managed startup completes V1 migration
     }
     server = await startEmbeddedServer(options);
     const workspace = server.config.workspaces[0]!;
+    expect(server.selectedWorkspaceId).toBe(workspace.id);
     expect(workspace.path).toBe(join(root, "local", "ws_managed"));
     expect(workspace.contentPath).toBe(source);
     expect((await createEngineClient(server.config, workspace).session.get({ sessionID: chat.id })).location.directory, JSON.stringify(server.config.managedEngineRecoveryState?.())).toBe(workspace.path);
@@ -175,6 +176,7 @@ test.skipIf(!binary).each([false, true])("managed startup completes V1 migration
     await rm(source, { recursive: true });
     server = await startEmbeddedServer(options);
     const restored = server.config.workspaces[0]!;
+    expect(server.selectedWorkspaceId).toBe(restored.id);
     expect(restored.path).toBe(workspace.path);
     expect((await createEngineClient(server.config, restored).session.get({ sessionID: chat.id })).title).toBe("Before upgrade");
     const response = await fetch(`${server.url}/workspace/${restored.id}/files/content?path=.legalwork%2Fattachments%2Fmail.txt`, { headers: { authorization: "Bearer synthetic" } });

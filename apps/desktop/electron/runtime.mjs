@@ -140,18 +140,27 @@ export function selectStickyLegalworkPortWorkspace(requestedWorkspacePaths = [],
   return "";
 }
 
-/** Main-process access to the embedded server's live, private connection. */
-export function embeddedOpencodeConnection(config, workspacePath, platform = process.platform) {
+/** Resolve registered spellings at the host boundary, not on every snapshot. */
+export function embeddedWorkspaceIdForPath(config, workspacePath, platform = process.platform, selection = null) {
   const paths = platform === "win32" ? path.win32 : path.posix;
   const key = (value) => {
     const trimmed = String(value ?? "").trim();
     if (!trimmed) return "";
-    const resolved = paths.resolve(platform === "win32" ? trimmed.replace(/^\\\\\?\\/, "") : trimmed);
+    const normalized = platform === "win32" ? trimmed.replaceAll("/", "\\").replace(/^\\\\\?\\UNC\\/i, "\\\\").replace(/^\\\\\?\\/, "") : trimmed;
+    const resolved = paths.resolve(normalized);
     return platform === "win32" ? resolved.toLowerCase() : resolved;
   };
   const selected = key(workspacePath);
   if (!selected) return null;
-  const matches = config.workspaces.filter((workspace) => key(workspace.path) === selected || key(workspace.previousPath) === selected);
+  const matches = config.workspaces.filter((workspace) => [workspace.path, workspace.contentPath, workspace.previousPath,
+    ...(workspace.id === selection?.id ? [selection.path] : [])].some(root => key(root) === selected));
+  return matches.length === 1 ? matches[0].id : null;
+}
+
+/** Identity survives relocation; lifecycle URLs and credentials stay live. */
+export function embeddedOpencodeConnection(config, workspaceId) {
+  if (!workspaceId) return null;
+  const matches = config.workspaces.filter(workspace => workspace.id === workspaceId);
   if (matches.length !== 1) return null;
   const workspace = matches[0];
   const baseUrl = workspace.baseUrl?.trim() || config.opencodeBaseUrl?.trim();
@@ -1325,13 +1334,14 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
 
   // In-process server handle. Kept alive across restarts so we can stop it.
   let inProcessServer = null;
-  let embeddedWorkspacePath = null;
+  let embeddedWorkspaceId = null;
+  let embeddedRequestedPath = null;
 
   function engineSnapshot() {
     if (inProcessServer) {
       // Recovery can replace the engine and rotate its credentials. Read the
       // current host-owned config each time; never recover secrets over HTTP.
-      const connection = embeddedOpencodeConnection(inProcessServer.config, embeddedWorkspacePath);
+      const connection = embeddedOpencodeConnection(inProcessServer.config, embeddedWorkspaceId);
       Object.assign(engineState, connection ?? {
         baseUrl: null, hostname: null, port: null, opencodeUsername: null, opencodePassword: null,
       });
@@ -1351,6 +1361,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
   }
 
   async function startLegalworkServer(options) {
+    const previousSelection = { id: embeddedWorkspaceId, path: embeddedRequestedPath };
     const currentPort = legalworkServerState.port;
     const managedOpencode = options.manageOpencode ? resolveOpencodeBinary(options.opencodeBinPath) : null;
     // Verify host-only candidate capability before stopping an existing server.
@@ -1361,6 +1372,8 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       try { await inProcessServer.stop(); } catch { /* ignore */ }
       inProcessServer = null;
     }
+    embeddedWorkspaceId = null;
+    embeddedRequestedPath = null;
     await stopChild(legalworkServerState);
 
     const host = "127.0.0.1";
@@ -1485,7 +1498,8 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     });
     publishServerConnection(handle);
     inProcessServer = handle;
-    embeddedWorkspacePath = activeWorkspace || null;
+    embeddedWorkspaceId = handle.selectedWorkspaceId;
+    embeddedRequestedPath = embeddedWorkspaceId && embeddedWorkspaceId === previousSelection.id ? previousSelection.path : activeWorkspace || null;
     legalworkServerState.managedOpencodeExecution = handle.managedOpencodeExecution ?? null;
 
     const boundPort = handle.port;
@@ -1682,7 +1696,9 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
 
   async function engineStart(projectDir, options = {}, forceRestart = false) {
     const requestedProjectDir = String(projectDir ?? "").trim();
-    const safeProjectDir = inProcessServer ? embeddedOpencodeConnection(inProcessServer.config, requestedProjectDir)?.projectDir || requestedProjectDir : requestedProjectDir;
+    const workspaceId = inProcessServer ? embeddedWorkspaceIdForPath(inProcessServer.config, requestedProjectDir, process.platform,
+      { id: embeddedWorkspaceId, path: embeddedRequestedPath }) : null;
+    const safeProjectDir = inProcessServer ? embeddedOpencodeConnection(inProcessServer.config, workspaceId)?.projectDir || requestedProjectDir : requestedProjectDir;
     if (!safeProjectDir) {
       throw new Error("projectDir is required");
     }

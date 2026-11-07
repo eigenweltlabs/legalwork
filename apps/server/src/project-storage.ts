@@ -182,10 +182,11 @@ export async function prepareLocalProjects(config: ServerConfig): Promise<boolea
       const local = await prepareLocalProject(config, workspace);
       const stored = await readLegalworkWorkspaceConfig(config, workspace.id);
       const native = stored.nativeEngineProject;
-      if (native && typeof native === "object" && !Array.isArray(native) && "directory" in native && native.directory === workspace.path) {
+      if (native && typeof native === "object" && !Array.isArray(native) && "directory" in native && typeof native.directory === "string"
+        && [workspace.path, local.previousPath].flatMap(root => root ? [projectPathKey(root)] : []).includes(projectPathKey(native.directory))) {
         let projection = "projection" in native ? native.projection : undefined;
         if (projection && typeof projection === "object" && "path" in projection && typeof projection.path === "string") {
-          const suffix = relative(workspace.path, projection.path);
+          const suffix = relative(native.directory, projection.path);
           projection = suffix.startsWith(`.opencode${sep}`) ? { ...projection, path: join(local.path, suffix) } : undefined;
         }
         await writeLegalworkWorkspaceConfig(config, workspace.id, current => ({ ...current, nativeEngineProject: { ...native, directory: local.path, ...(projection ? { projection } : { projection: undefined }) } }));
