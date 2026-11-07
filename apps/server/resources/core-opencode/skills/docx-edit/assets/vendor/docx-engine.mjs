@@ -37,7 +37,7 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
-// node_modules/.pnpm/@eigenpal+docx-editor-agents@1.8.3_ai@6.0.146_zod@4.5.4__react@19.2.4/node_modules/@eigenpal/docx-editor-agents/dist/chunk-2WFD55YM.mjs
+// node_modules/.pnpm/@eigenpal+docx-editor-agents@1.8.3_patch_hash=0721fac7fa42bef9585ae9d1ec7cedab4b4156f87_7528ec917ae27a9400f086f6542d1bed/node_modules/@eigenpal/docx-editor-agents/dist/chunk-2WFD55YM.mjs
 function te(a, e2) {
   return a.map((t) => S.register(t, e2));
 }
@@ -425,7 +425,7 @@ function Ve(a, e2) {
 }
 var D, S, Q, C, E;
 var init_chunk_2WFD55YM = __esm({
-  "node_modules/.pnpm/@eigenpal+docx-editor-agents@1.8.3_ai@6.0.146_zod@4.5.4__react@19.2.4/node_modules/@eigenpal/docx-editor-agents/dist/chunk-2WFD55YM.mjs"() {
+  "node_modules/.pnpm/@eigenpal+docx-editor-agents@1.8.3_patch_hash=0721fac7fa42bef9585ae9d1ec7cedab4b4156f87_7528ec917ae27a9400f086f6542d1bed/node_modules/@eigenpal/docx-editor-agents/dist/chunk-2WFD55YM.mjs"() {
     D = class {
       constructor() {
         this.plugins = /* @__PURE__ */ new Map();
@@ -28813,7 +28813,7 @@ var require_docxtemplater = __commonJS({
   }
 });
 
-// node_modules/.pnpm/@eigenpal+docx-editor-agents@1.8.3_ai@6.0.146_zod@4.5.4__react@19.2.4/node_modules/@eigenpal/docx-editor-agents/dist/chunk-UILTIEBD.mjs
+// node_modules/.pnpm/@eigenpal+docx-editor-agents@1.8.3_patch_hash=0721fac7fa42bef9585ae9d1ec7cedab4b4156f87_7528ec917ae27a9400f086f6542d1bed/node_modules/@eigenpal/docx-editor-agents/dist/chunk-UILTIEBD.mjs
 function T2(e2, r, t = {}) {
   return b(e2, r, t).buffer;
 }
@@ -28919,14 +28919,14 @@ function U2(e2 = {}) {
 }
 var import_pizzip, import_docxtemplater, z2;
 var init_chunk_UILTIEBD = __esm({
-  "node_modules/.pnpm/@eigenpal+docx-editor-agents@1.8.3_ai@6.0.146_zod@4.5.4__react@19.2.4/node_modules/@eigenpal/docx-editor-agents/dist/chunk-UILTIEBD.mjs"() {
+  "node_modules/.pnpm/@eigenpal+docx-editor-agents@1.8.3_patch_hash=0721fac7fa42bef9585ae9d1ec7cedab4b4156f87_7528ec917ae27a9400f086f6542d1bed/node_modules/@eigenpal/docx-editor-agents/dist/chunk-UILTIEBD.mjs"() {
     import_pizzip = __toESM(require_js(), 1);
     import_docxtemplater = __toESM(require_docxtemplater(), 1);
     z2 = T2;
   }
 });
 
-// node_modules/.pnpm/@eigenpal+docx-editor-agents@1.8.3_ai@6.0.146_zod@4.5.4__react@19.2.4/node_modules/@eigenpal/docx-editor-agents/dist/processTemplate-DEFHEMLN.mjs
+// node_modules/.pnpm/@eigenpal+docx-editor-agents@1.8.3_patch_hash=0721fac7fa42bef9585ae9d1ec7cedab4b4156f87_7528ec917ae27a9400f086f6542d1bed/node_modules/@eigenpal/docx-editor-agents/dist/processTemplate-DEFHEMLN.mjs
 var processTemplate_DEFHEMLN_exports = {};
 __export(processTemplate_DEFHEMLN_exports, {
   createTemplateProcessor: () => U2,
@@ -28942,12 +28942,12 @@ __export(processTemplate_DEFHEMLN_exports, {
   validateTemplate: () => D2
 });
 var init_processTemplate_DEFHEMLN = __esm({
-  "node_modules/.pnpm/@eigenpal+docx-editor-agents@1.8.3_ai@6.0.146_zod@4.5.4__react@19.2.4/node_modules/@eigenpal/docx-editor-agents/dist/processTemplate-DEFHEMLN.mjs"() {
+  "node_modules/.pnpm/@eigenpal+docx-editor-agents@1.8.3_patch_hash=0721fac7fa42bef9585ae9d1ec7cedab4b4156f87_7528ec917ae27a9400f086f6542d1bed/node_modules/@eigenpal/docx-editor-agents/dist/processTemplate-DEFHEMLN.mjs"() {
     init_chunk_UILTIEBD();
   }
 });
 
-// node_modules/.pnpm/@eigenpal+docx-editor-agents@1.8.3_ai@6.0.146_zod@4.5.4__react@19.2.4/node_modules/@eigenpal/docx-editor-agents/dist/chunk-LPCN5G3A.mjs
+// node_modules/.pnpm/@eigenpal+docx-editor-agents@1.8.3_patch_hash=0721fac7fa42bef9585ae9d1ec7cedab4b4156f87_7528ec917ae27a9400f086f6542d1bed/node_modules/@eigenpal/docx-editor-agents/dist/chunk-LPCN5G3A.mjs
 function A2(e2) {
   return e2.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
 }
@@ -29012,7 +29012,7 @@ function Qn(e2) {
 function As(e2, t) {
   let n = e2.size.width, r = e2.size.height, o3 = e2.rId || "rId1", i2 = t, s = e2.filename || `image${i2}`, a = "";
   e2.transform?.rotation && (a += ` rot="${Math.round(e2.transform.rotation * 6e4)}"`), e2.transform?.flipH && (a += ' flipH="1"'), e2.transform?.flipV && (a += ' flipV="1"');
-  let l3 = e2.opacity !== void 0 && e2.opacity < 1 ? `<a:alphaModFix amt="${Math.round(Math.max(0, Math.min(1, e2.opacity)) * 1e5)}"/>` : "", u3 = l3 ? `<a:blip r:embed="${o3}">${l3}</a:blip>` : `<a:blip r:embed="${o3}"/>`, p3 = [];
+  let l3 = e2.opacity !== void 0 && e2.opacity < 1 ? `<a:alphaModFix amt="${Math.round(Math.max(0, Math.min(1, e2.opacity)) * 1e5)}"/>` : "", u3 = (l3 += e2.drawingProps?.effectsXml ?? "", l3) ? `<a:blip r:embed="${o3}">${l3}</a:blip>` : `<a:blip r:embed="${o3}"/>`, p3 = [];
   e2.crop?.left && p3.push(`l="${Math.round(e2.crop.left * 1e5)}"`), e2.crop?.top && p3.push(`t="${Math.round(e2.crop.top * 1e5)}"`), e2.crop?.right && p3.push(`r="${Math.round(e2.crop.right * 1e5)}"`), e2.crop?.bottom && p3.push(`b="${Math.round(e2.crop.bottom * 1e5)}"`);
   let d3 = p3.length > 0 ? `<a:srcRect ${p3.join(" ")}/>` : "";
   return ['<a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">', '<a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">', '<pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">', "<pic:nvPicPr>", `<pic:cNvPr id="${i2}" name="${A2(s)}"${e2.alt ? ` descr="${A2(e2.alt)}"` : ""}/>`, "<pic:cNvPicPr/>", "</pic:nvPicPr>", "<pic:blipFill>", u3, d3, "<a:stretch><a:fillRect/></a:stretch>", "</pic:blipFill>", "<pic:spPr>", `<a:xfrm${a}>`, '<a:off x="0" y="0"/>', `<a:ext cx="${F2(n)}" cy="${F2(r)}"/>`, "</a:xfrm>", '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom>', e2.outline ? Jn(e2.outline) : "", "</pic:spPr>", "</pic:pic>", "</a:graphicData>", "</a:graphic>"].join("");
@@ -29020,14 +29020,14 @@ function As(e2, t) {
 function er(e2) {
   let t = e2.image, n = t.wrap.type !== "inline", r = t.size.width, o3 = t.size.height, i2 = t.wrap.distT ?? 0, s = t.wrap.distB ?? 0, a = t.wrap.distL ?? 0, l3 = t.wrap.distR ?? 0, u3 = t.padding?.left ?? 0, p3 = t.padding?.top ?? 0, d3 = t.padding?.right ?? 0, m4 = t.padding?.bottom ?? 0, y4 = `<wp:effectExtent l="${F2(u3)}" t="${F2(p3)}" r="${F2(d3)}" b="${F2(m4)}"/>`, g3 = Yn(t.id), x4 = t.title || t.filename || `Picture ${g3}`, b5 = As(t, g3);
   if (!n) return ["<w:drawing>", `<wp:inline distT="${F2(i2)}" distB="${F2(s)}" distL="${F2(a)}" distR="${F2(l3)}">`, `<wp:extent cx="${F2(r)}" cy="${F2(o3)}"/>`, y4, `<wp:docPr id="${g3}" name="${A2(x4)}"${t.alt ? ` descr="${A2(t.alt)}"` : ""}${t.decorative ? ' hidden="1"' : ""}/>`, '<wp:cNvGraphicFramePr><a:graphicFrameLocks xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" noChangeAspect="1"/></wp:cNvGraphicFramePr>', b5, "</wp:inline>", "</w:drawing>"].join("");
-  let k5 = t.wrap.type === "behind" ? "1" : "0", R5 = t.position ? Kn(t.position) : '<wp:positionH relativeFrom="column"><wp:posOffset>0</wp:posOffset></wp:positionH><wp:positionV relativeFrom="paragraph"><wp:posOffset>0</wp:posOffset></wp:positionV>', E3 = Qn(t.wrap);
-  return ["<w:drawing>", `<wp:anchor distT="${F2(i2)}" distB="${F2(s)}" distL="${F2(a)}" distR="${F2(l3)}" simplePos="0" relativeHeight="251658240" behindDoc="${k5}" locked="0" layoutInCell="${t.layoutInCell === false ? "0" : "1"}" allowOverlap="${t.allowOverlap === false ? "0" : "1"}">`, '<wp:simplePos x="0" y="0"/>', R5, `<wp:extent cx="${F2(r)}" cy="${F2(o3)}"/>`, y4, E3, `<wp:docPr id="${g3}" name="${A2(x4)}"${t.alt ? ` descr="${A2(t.alt)}"` : ""}/>`, '<wp:cNvGraphicFramePr><a:graphicFrameLocks xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" noChangeAspect="1"/></wp:cNvGraphicFramePr>', b5, "</wp:anchor>", "</w:drawing>"].join("");
+  let k5 = t.drawingProps?.behindDoc ?? t.wrap.type === "behind" ? "1" : "0", R5 = t.position ? Kn(t.position) : '<wp:positionH relativeFrom="column"><wp:posOffset>0</wp:posOffset></wp:positionH><wp:positionV relativeFrom="paragraph"><wp:posOffset>0</wp:posOffset></wp:positionV>', E3 = Qn(t.wrap);
+  return ["<w:drawing>", `<wp:anchor distT="${F2(i2)}" distB="${F2(s)}" distL="${F2(a)}" distR="${F2(l3)}" simplePos="0" relativeHeight="${F2(t.drawingProps?.relativeHeight ?? 251658240)}" behindDoc="${k5}" locked="0" layoutInCell="${t.layoutInCell === false ? "0" : "1"}" allowOverlap="${t.allowOverlap === false ? "0" : "1"}">`, '<wp:simplePos x="0" y="0"/>', R5, `<wp:extent cx="${F2(r)}" cy="${F2(o3)}"/>`, y4, E3, `<wp:docPr id="${g3}" name="${A2(x4)}"${t.alt ? ` descr="${A2(t.alt)}"` : ""}/>`, '<wp:cNvGraphicFramePr><a:graphicFrameLocks xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" noChangeAspect="1"/></wp:cNvGraphicFramePr>', b5, "</wp:anchor>", "</w:drawing>"].join("");
 }
 function Ms(e2) {
   return e2.map((t) => fe2(t)).join("");
 }
 function tr(e2) {
-  let t = e2.shape, n = t.size.width, r = t.size.height, o3 = t.shapeType === "textBox", i2 = t.wrap && t.wrap.type !== "inline", s = t.wrap?.distT ?? 0, a = t.wrap?.distB ?? 0, l3 = t.wrap?.distL ?? 0, u3 = t.wrap?.distR ?? 0, p3 = Yn(t.id), d3 = t.name || (o3 ? `TextBox ${p3}` : `Shape ${p3}`), m4 = "";
+  let t = e2.shape, n = t.size.width, r = t.size.height, o3 = t.shapeType === "textBox" || Boolean(t.textBody), i2 = t.wrap && t.wrap.type !== "inline", s = t.wrap?.distT ?? 0, a = t.wrap?.distB ?? 0, l3 = t.wrap?.distL ?? 0, u3 = t.wrap?.distR ?? 0, p3 = Yn(t.id), d3 = t.name || (o3 ? `TextBox ${p3}` : `Shape ${p3}`), m4 = "";
   t.transform?.rotation && (m4 += ` rot="${Math.round(t.transform.rotation * 6e4)}"`), t.transform?.flipH && (m4 += ' flipH="1"'), t.transform?.flipV && (m4 += ' flipV="1"');
   let y4 = ["<wps:spPr>", `<a:xfrm${m4}>`, '<a:off x="0" y="0"/>', `<a:ext cx="${F2(n)}" cy="${F2(r)}"/>`, "</a:xfrm>", `<a:prstGeom prst="${t.shapeType === "textBox" ? "rect" : t.shapeType}"><a:avLst/></a:prstGeom>`, Rs(t.fill), Jn(t.outline), "</wps:spPr>"].join(""), g3 = "";
   if (t.textBody) {
@@ -29355,24 +29355,7 @@ function dr(e2) {
       n.push("<w:picture/>");
       break;
   }
-  let r = e2.content.map((s) => {
-    switch (s.type) {
-      case "run":
-        return pe2(s);
-      case "hyperlink":
-        return Qt(s);
-      case "simpleField":
-        return fr(s);
-      case "complexField":
-        return pr(s);
-      case "inlineSdt":
-        return dr(s);
-      case "mathEquation":
-        return s.ommlXml || "";
-      default:
-        return s;
-    }
-  }).join(""), o3 = t.rawPropertiesXml ?? `<w:sdtPr>${n.join("")}</w:sdtPr>`, i2 = t.rawEndPropertiesXml ?? "";
+  let r = e2.content.map(mr).join(""), o3 = t.rawPropertiesXml ?? `<w:sdtPr>${n.join("")}</w:sdtPr>`, i2 = t.rawEndPropertiesXml ?? "";
   return `<w:sdt>${o3}${i2}<w:sdtContent>${r}</w:sdtContent></w:sdt>`;
 }
 function lr(e2, t) {
@@ -33685,7 +33668,7 @@ function Re(e2, t, n, r, o3, i2, s = "default") {
       case "sdt": {
         let E3 = (k5.elements ?? []).find((h4) => h4.type === "element" && (h4.name === "w:sdtPr" || h4.name?.endsWith(":sdtPr"))), C3 = (k5.elements ?? []).find((h4) => h4.type === "element" && (h4.name === "w:sdtContent" || h4.name?.endsWith(":sdtContent")));
         if (C3) {
-          let h4 = Re(C3, t, n, null, o3, i2, s), S4 = { type: "inlineSdt", properties: Ft(E3 ?? null), content: h4.filter((P3) => P3.type === "run" || P3.type === "hyperlink" || P3.type === "simpleField" || P3.type === "complexField" || P3.type === "inlineSdt" || P3.type === "mathEquation") };
+          let h4 = Re(C3, t, n, null, o3, i2, s), S4 = { type: "inlineSdt", properties: Ft(E3 ?? null), content: h4.filter((P3) => P3.type === "run" || P3.type === "hyperlink" || P3.type === "simpleField" || P3.type === "complexField" || P3.type === "inlineSdt" || P3.type === "mathEquation" || P3.type === "insertion" || P3.type === "deletion" || P3.type === "moveFrom" || P3.type === "moveTo") };
           a.push(S4);
         }
         break;
@@ -34723,7 +34706,7 @@ function J2(e2) {
   return t.join("");
 }
 function je(e2) {
-  return e2.content.filter((t) => t.type === "text").map((t) => t.text).join("");
+  return e2.content.map((t) => t.type === "text" ? t.text : t.type === "tab" ? "	" : t.type === "break" ? "\n" : "").join("");
 }
 function rt(e2) {
   let t = [];
@@ -35340,7 +35323,7 @@ function Bp() {
 }
 var import_jszip, import_xml_js, ce2, ue2, Zn, Bs, sa, V2, Aa, H2, Ba, $a, Oa, za, Hr, Ua, qa, Gr, Za, Ka, Qa, gt, ht, wt, xt, el, wo, xo, So, Ct, gn, yl, Al, Ll, Xl, Hl, ec, Ho, En, Zo, Jo, wc, xc, zi, _e, et, Qi, ze, iu, Zi, Bn, An, Qe, Ki, fu, mu, gu, hu, yu, Su, Pu, tt, ae, ye, Wt, Ve2, Af, le2, ws, Me, ip, Ps, ap, Gn, Ap, Gw;
 var init_chunk_LPCN5G3A = __esm({
-  "node_modules/.pnpm/@eigenpal+docx-editor-agents@1.8.3_ai@6.0.146_zod@4.5.4__react@19.2.4/node_modules/@eigenpal/docx-editor-agents/dist/chunk-LPCN5G3A.mjs"() {
+  "node_modules/.pnpm/@eigenpal+docx-editor-agents@1.8.3_patch_hash=0721fac7fa42bef9585ae9d1ec7cedab4b4156f87_7528ec917ae27a9400f086f6542d1bed/node_modules/@eigenpal/docx-editor-agents/dist/chunk-LPCN5G3A.mjs"() {
     init_chunk_2WFD55YM();
     import_jszip = __toESM(require_lib3(), 1);
     import_xml_js = __toESM(require_lib4(), 1);
@@ -35653,7 +35636,7 @@ var init_chunk_LPCN5G3A = __esm({
   }
 });
 
-// node_modules/.pnpm/@eigenpal+docx-editor-agents@1.8.3_ai@6.0.146_zod@4.5.4__react@19.2.4/node_modules/@eigenpal/docx-editor-agents/dist/headless-HLWBVNLB.mjs
+// node_modules/.pnpm/@eigenpal+docx-editor-agents@1.8.3_patch_hash=0721fac7fa42bef9585ae9d1ec7cedab4b4156f87_7528ec917ae27a9400f086f6542d1bed/node_modules/@eigenpal/docx-editor-agents/dist/headless-HLWBVNLB.mjs
 var headless_HLWBVNLB_exports = {};
 __export(headless_HLWBVNLB_exports, {
   ContentControlBoundError: () => Ve2,
@@ -35782,14 +35765,14 @@ __export(headless_HLWBVNLB_exports, {
   validateTemplate: () => D2
 });
 var init_headless_HLWBVNLB = __esm({
-  "node_modules/.pnpm/@eigenpal+docx-editor-agents@1.8.3_ai@6.0.146_zod@4.5.4__react@19.2.4/node_modules/@eigenpal/docx-editor-agents/dist/headless-HLWBVNLB.mjs"() {
+  "node_modules/.pnpm/@eigenpal+docx-editor-agents@1.8.3_patch_hash=0721fac7fa42bef9585ae9d1ec7cedab4b4156f87_7528ec917ae27a9400f086f6542d1bed/node_modules/@eigenpal/docx-editor-agents/dist/headless-HLWBVNLB.mjs"() {
     init_chunk_LPCN5G3A();
     init_chunk_UILTIEBD();
     init_chunk_2WFD55YM();
   }
 });
 
-// node_modules/.pnpm/@eigenpal+docx-editor-agents@1.8.3_ai@6.0.146_zod@4.5.4__react@19.2.4/node_modules/@eigenpal/docx-editor-agents/dist/chunk-CTF74DCM.mjs
+// node_modules/.pnpm/@eigenpal+docx-editor-agents@1.8.3_patch_hash=0721fac7fa42bef9585ae9d1ec7cedab4b4156f87_7528ec917ae27a9400f086f6542d1bed/node_modules/@eigenpal/docx-editor-agents/dist/chunk-CTF74DCM.mjs
 init_chunk_LPCN5G3A();
 init_chunk_2WFD55YM();
 function h2(o3) {
@@ -35904,6 +35887,7 @@ function j(o3, t, r) {
     }
     if (e2.type === "run") n.push(je(e2));
     else if (e2.type === "hyperlink") n.push(rt(e2));
+    else if (e2.type === "inlineSdt") n.push(j(e2, t, r));
     else if (h2(e2)) {
       let i2 = b2(e2.content);
       e2.type === "insertion" || e2.type === "moveTo" ? t && n.push(`[+${i2}+]{by:${e2.info.author}}`) : t ? n.push(`[-${i2}-]{by:${e2.info.author}}`) : n.push(i2);
@@ -36042,9 +36026,11 @@ function Z3(o3, t) {
 function Te(o3, t, r) {
   let n = /* @__PURE__ */ new Map(), a = (i2, s, u3) => {
     let l3 = null;
-    for (let c3 of i2.content) if (h2(c3)) {
+    for (let c3 of i2.content) if (c3.type === "inlineSdt") {
+      a(c3, s, u3);
+    } else if (h2(c3)) {
       l3 === null && (l3 = w4(i2));
-      let f3 = b2(c3.content), d3 = c3.info.id, x4 = `${u3.noteType ?? "body"}:${u3.noteId ?? ""}:${s}:${d3}`, T4 = n.get(x4);
+      let f3 = b2(c3.content), d3 = c3.info.id, x4 = `${u3.noteType ?? "body"}:${u3.noteId ?? ""}:${s}:${d3}:${c3.type}`, T4 = n.get(x4);
       T4 ? T4.text += f3 : n.set(x4, { id: d3, type: c3.type, author: c3.info.author, date: c3.info.date ?? null, text: f3, context: l3, paragraphIndex: s, ...u3.noteId !== void 0 ? { noteId: u3.noteId } : {}, ...u3.noteType !== void 0 ? { noteType: u3.noteType } : {} });
     }
   };
@@ -36309,7 +36295,7 @@ function ke2(o3) {
   } };
 }
 
-// node_modules/.pnpm/@eigenpal+docx-editor-agents@1.8.3_ai@6.0.146_zod@4.5.4__react@19.2.4/node_modules/@eigenpal/docx-editor-agents/dist/chunk-52DPIL2H.mjs
+// node_modules/.pnpm/@eigenpal+docx-editor-agents@1.8.3_patch_hash=0721fac7fa42bef9585ae9d1ec7cedab4b4156f87_7528ec917ae27a9400f086f6542d1bed/node_modules/@eigenpal/docx-editor-agents/dist/chunk-52DPIL2H.mjs
 init_chunk_LPCN5G3A();
 function R4(o3, e2) {
   let { paragraphIndex: t, author: n = "AI", text: r, search: a } = e2, s = R3(o3, t), i2 = (o3.comments ?? []).map((m4) => m4.id), p3 = i2.length > 0 ? Math.max(...i2) + 1 : 1, u3 = { id: p3, author: n, date: (/* @__PURE__ */ new Date()).toISOString(), content: [{ type: "paragraph", content: [{ type: "run", content: [{ type: "text", text: r }] }], formatting: {} }] };
@@ -36353,6 +36339,10 @@ function y2(o3, e2, t) {
   let n = 0;
   for (let r = o3.content.length - 1; r >= 0; r--) {
     let a$1 = o3.content[r];
+    if (a$1.type === "inlineSdt") {
+      n += y2(a$1, e2, t);
+      continue;
+    }
     h2(a$1) && t(a$1) && (J4(o3, r, a$1, e2), n++);
   }
   return n;
@@ -36535,7 +36525,7 @@ var X4 = class o {
   }
 };
 
-// node_modules/.pnpm/@eigenpal+docx-editor-agents@1.8.3_ai@6.0.146_zod@4.5.4__react@19.2.4/node_modules/@eigenpal/docx-editor-agents/dist/chunk-MSKW7E36.mjs
+// node_modules/.pnpm/@eigenpal+docx-editor-agents@1.8.3_patch_hash=0721fac7fa42bef9585ae9d1ec7cedab4b4156f87_7528ec917ae27a9400f086f6542d1bed/node_modules/@eigenpal/docx-editor-agents/dist/chunk-MSKW7E36.mjs
 var c2 = ["single", "words", "double", "thick", "dotted", "dottedHeavy", "dash", "dashedHeavy", "dashLong", "dashLongHeavy", "dotDash", "dashDotHeavy", "dotDotDash", "dashDotDotHeavy", "wave", "wavyHeavy", "wavyDouble", "none"];
 var o2 = ["black", "blue", "cyan", "darkBlue", "darkCyan", "darkGray", "darkGreen", "darkMagenta", "darkRed", "darkYellow", "green", "lightGray", "magenta", "red", "white", "yellow", "none"];
 var p2 = { name: "apply_formatting", displayName: "Applying formatting", description: 'Apply character formatting (bold, italic, underline, strike, color, highlight, font size, font family) to a paragraph or to a unique phrase within it. Pass `search` to scope the change to part of the paragraph; omit it to format the whole paragraph. Direct edit \u2014 does not create a tracked change. Pass `false` to clear a mark; omit a key to leave it untouched. Color uses `{rgb: "FF0000"}` (no hash) or `{themeColor: "accent1"}`. Font size is in points. Font family takes `{ascii, hAnsi}`.', inputSchema: { type: "object", properties: { paraId: { type: "string", description: "Paragraph id from read_document / find_text." }, search: { type: "string", description: "Optional: format only this exact phrase within the paragraph (must be unique)." }, marks: { type: "object", description: "Marks to set or clear. Omit a key to leave it untouched.", properties: { bold: { type: "boolean" }, italic: { type: "boolean" }, underline: { description: 'true \u2192 single underline; false \u2192 clear; or { style: "single"|"double"|"thick"|"dotted"|"dottedHeavy"|"dash"|"dashedHeavy"|"dashLong"|"dashLongHeavy"|"dotDash"|"dashDotHeavy"|"dotDotDash"|"dashDotDotHeavy"|"wave"|"wavyHeavy"|"wavyDouble"|"words"|"none" }. Other values are rejected.' }, strike: { type: "boolean" }, color: { type: "object", description: 'Either {rgb: "RRGGBB"} (no hash) or {themeColor: "accent1"|"text1"|...}.', properties: { rgb: { type: "string" }, themeColor: { type: "string" } } }, highlight: { type: "string", enum: [...o2], description: "Highlight color \u2014 must be one of the Word-supported names: " + o2.join(", ") + '. Pass "none" to clear. Hex values are rejected (Word does not accept hex for <w:highlight>).' }, fontSize: { type: "number", description: "Size in points (e.g. 12, 14, 24)." }, fontFamily: { type: "object", properties: { ascii: { type: "string" }, hAnsi: { type: "string" } } } } } }, required: ["paraId", "marks"] }, handler: (e2, r) => {

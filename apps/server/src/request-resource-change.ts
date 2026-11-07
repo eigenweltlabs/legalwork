@@ -7,6 +7,7 @@ export function requestResourceChange(method: string, path: string): "reviews" |
   }
   if (/\/wiki-suggestions(?:\/|$)/.test(path)) return "suggestions";
   if (/\/ui-views(?:\/|$)/.test(path)) return "views";
+  if (method === "POST" && path === "/sandbox/prepare") return "sandbox";
   if (method === "PATCH" && (/^\/sandbox\/(settings|network)$/.test(path) || /\/sandbox\/session\/[^/]+$/.test(path))) return "sandbox";
   return null;
 }

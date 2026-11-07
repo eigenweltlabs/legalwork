@@ -52,8 +52,8 @@ export function AssistantHistory({ client, workspaceId, sessionId, date, scrollR
   const loadOlder = useCallback(() => {
     if (!history.hasNextPage || history.isFetching || history.isError) return;
     const container = scrollRef.current;
-    if (container) anchor.current = { top: container.scrollTop, height: container.scrollHeight };
-    void history.fetchNextPage();
+    if (container) anchor.current ??= { top: container.scrollTop, height: container.scrollHeight };
+    void history.fetchNextPage({ cancelRefetch: false });
   }, [history.hasNextPage, history.isFetching, history.isError, history.fetchNextPage, scrollRef]);
   useLayoutEffect(() => {
     const container = scrollRef.current;
@@ -68,9 +68,19 @@ export function AssistantHistory({ client, workspaceId, sessionId, date, scrollR
     const load = () => {
       if (container.scrollTop < 240 && getSessionScrollState(useSessionScrollStore.getState().sessions, sessionId).mode === "manual") loadOlder();
     };
+    // At the top, a short transcript may never emit a scroll event.
+    const loadOnUpwardWheel = (event: WheelEvent) => {
+      if (event.ctrlKey || event.deltaY >= 0 || container.scrollTop > 1) return;
+      const nested = event.target instanceof Element && event.target.closest("[data-scrollable]");
+      if (!nested || nested === container) loadOlder();
+    };
     container.addEventListener("scroll", load);
+    container.addEventListener("wheel", loadOnUpwardWheel, { passive: true });
     load();
-    return () => container.removeEventListener("scroll", load);
+    return () => {
+      container.removeEventListener("scroll", load);
+      container.removeEventListener("wheel", loadOnUpwardWheel);
+    };
   }, [loadOlder, scrollRef, sessionId]);
   const hasOnboarding = (id: string) => onboarding?.step === "complete" && onboarding.sessionId === id;
   const days = history.data?.pages.flatMap(page => page.days).filter(day => assistantHasVisibleContent(day.messages) || hasOnboarding(day.sessionId)).toReversed() ?? [];

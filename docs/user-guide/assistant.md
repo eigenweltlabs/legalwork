@@ -4,8 +4,8 @@ The Assistant is included with an active **Plus** or **Pro** plan, including
 trials. Sync and using your own model do not include it. No separate add-on
 is needed.
 
-Without an eligible plan, click **Assistant** in the sidebar, then **Explore AI
-plans**. Choose **Plus** or **Pro**, complete the upgrade, and return to LegalWork.
+Without an eligible plan, click the Assistant avatar in the navigation rail,
+then **Explore AI plans**. Choose **Plus** or **Pro**, complete the upgrade, and return to LegalWork.
 The app checks your subscription and opens the Assistant once access is active.
 If you already subscribe, use **Sign in** on the plan screen with that account.
 **Maybe later** closes the introduction without changing your subscription.
@@ -15,9 +15,10 @@ Assistant work and proactive checks pause. Your saved conversations stay
 available, and you can still stop delegated work. Reconnect an eligible account
 to continue; ordinary project chats with your own model remain available.
 
-Open **Assistant** in the sidebar to coordinate work across your projects. On
-first use, choose a name and appearance. Each calendar day has its own chat;
-earlier conversations remain available in Assistant history.
+Click the Assistant avatar in the navigation rail to coordinate work across your
+projects. It appears below **Home** by default. The conversation uses the space beside the rail
+and hides the chat sidebar. On first use, choose a name and appearance. Each
+calendar day has its own chat. Scroll up to load earlier conversations.
 
 After reopening the app, your saved Assistant conversation loads while account
 and model updates continue in the background. If a new day has started, the app
@@ -29,13 +30,14 @@ signed-in LegalWork account when available. It updates this context when you
 switch accounts or sign out. Your account profile is separate from the name
 and appearance you choose for the Assistant.
 
-To show or hide the Assistant entry, open **Customize navigation** using the
-gear at the top of the sidebar. Under **Chat sidebar**, toggle **Your assistant**
-below **New Chat**, then choose **Done**. This only changes sidebar visibility.
+Open **Customize navigation** using the gear at the top of the chat sidebar.
+Under **Main actions**, toggle **Your assistant** to show or hide it, or drag
+its handle to move it in the rail. Choose **Done** when finished.
 To change its name or avatar, click the assistant at the top of its conversation, or open
 **Settings > Assistant**. You can also ask in chat, for example, “Call yourself Maya.”
 During first setup, saving the name shows the appearance picker in the conversation.
-Renaming later keeps the current appearance.
+The selected avatar appears in the navigation rail, Customize navigation, and
+Settings. Renaming later keeps the current appearance.
 
 To choose the Assistant's model, click its name or avatar at the top of the
 conversation, expand **Advanced**, and change **Model** or **Thinking effort**.

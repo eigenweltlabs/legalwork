@@ -4,7 +4,9 @@ import { OrgPolicyFeatureOff } from "@/react-app/domains/connections/org-policy-
 /** @jsxImportSource react */
 import { cloneElement, useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import { toast } from "@/components/ui/sonner";
+import { savedAssistantQuery } from "./assistant-navigation";
 
 import { SUGGESTED_PLUGINS } from "@/app/constants";
 import type { EnablementContext } from "@/app/enablement";
@@ -404,6 +406,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   const [baseUrl, setBaseUrl] = useState("");
   const [token, setToken] = useState("");
   const [legalworkClient, setLegalworkClient] = useState<LegalworkServerClient | null>(null);
+  const assistantIcon = useQuery(savedAssistantQuery(props.singleView && route.tab !== "general" ? null : legalworkClient)).data?.profile.icon;
   // On its own route, Settings keeps the window's line to the server (inside a session, that has it).
   useSyncEvents(props.embedded ? null : legalworkClient);
   const [activeClient, setActiveClient] = useState<Client | null>(null);
@@ -1895,6 +1898,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       case "general":
         return (
           <GeneralSettingsView
+            assistantIcon={assistantIcon}
             onNavigateTab={(tab) => navigateSettingsPath(tab)}
             developerMode={developerMode}
           />
@@ -2399,6 +2403,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       ) : (
         <SettingsShell
           accountClient={legalworkClient ?? legalworkServerSnapshot.legalworkServerClient}
+          assistantIcon={assistantIcon}
           activeTab={route.tab}
           onSelectTab={(tab) => navigateSettingsPath(tab)}
           developerMode={developerMode}

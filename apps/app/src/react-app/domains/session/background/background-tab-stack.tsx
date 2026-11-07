@@ -4,8 +4,9 @@ import { animate, motion, useMotionValue, useReducedMotion } from "motion/react"
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { t } from "@/i18n";
-import { usePanelTabStore, workspacePanelKey } from "../panel/panel-tab-store";
+import { workspacePanelKey } from "../panel/panel-tab-store";
 import { DocumentMiniPreview, useDocumentRuntime } from "../artifacts/document-runtime";
+import { documentPreviewVisible } from "../artifacts/document-runtime-store";
 import { assistantBrowserWorkerIds, useTaskBrowserTabs, visibleTaskBrowserTabs } from "./task-browser-tabs";
 import { openBackgroundTab } from "./open-background-tab";
 import { magneticTabDock, tabThrowVelocity, type TabDock } from "./magnetic-tab-dock";
@@ -217,7 +218,6 @@ function FloatingTabStack({ tabs, sessionId }: { tabs: MiniTab[]; sessionId: str
 export function BackgroundTabStack({ sessionId, workspaceId, client, assistantChat = false }: { sessionId: string; workspaceId: string; client: Client; assistantChat?: boolean }) {
   const runtime = useDocumentRuntime();
   useSyncExternalStore(runtime?.subscribe ?? subscribeEmpty, runtime?.version ?? zero);
-  const panels = usePanelTabStore(state => state.sessions);
   const browsers = useTaskBrowserTabs(state => state.tabs);
   const statuses = useSessionActivityStore(state => state.statusesByWorkspaceId[workspaceId] ?? emptyStatuses);
   const sessions = useQueryCacheState<InteractionSessions>(interactionSessionsKey(workspaceId), emptyInteractionSessions);
@@ -232,8 +232,7 @@ export function BackgroundTabStack({ sessionId, workspaceId, client, assistantCh
   });
   const tabs: MiniTab[] = [];
   for (const entry of runtime?.entries.values() ?? []) {
-    if (!entry.tasks.has(sessionId) || entry.dismissed.has(sessionId)) continue;
-    if (panels[entry.props.sessionId]?.tabs.some(tab => tab.id === entry.props.tab.id)) continue;
+    if (!documentPreviewVisible(entry, sessionId)) continue;
     tabs.push({ id: entry.key, label: entry.props.tab.label,
       preview: <DocumentMiniPreview entry={entry} />, open: () => openBackgroundTab(entry.props.sessionId, sessionId, entry.props.tab), close: () => runtime?.dismiss(entry, sessionId) });
   }

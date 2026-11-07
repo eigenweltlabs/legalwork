@@ -1,5 +1,6 @@
 /** @jsxImportSource react */
 import type * as React from "react";
+import type { AssistantIcon } from "@legalwork/types/main-assistant";
 import {
   Bell,
   Bug,
@@ -59,9 +60,9 @@ import {
 } from "./panel";
 import { WorkspaceIcon } from "../../../design-system/workspace-icon";
 import { OrgPolicyBanner } from "../../connections/org-policy-ui";
-import { AssistantFlowerIcon } from "../../session/sidebar/assistant-appearance";
+import { AssistantAvatar } from "../../session/sidebar/assistant-appearance";
 
-export function getSettingsTabIcon(tab: SettingsTab) {
+function getSettingsTabIcon(tab: SettingsTab) {
   switch (tab) {
     case "ai":
       return Zap;
@@ -69,8 +70,6 @@ export function getSettingsTabIcon(tab: SettingsTab) {
       return TableProperties;
     case "account":
       return UserCircle;
-    case "assistant":
-      return AssistantFlowerIcon;
     case "personalisation":
       return Sparkles;
     case "notifications":
@@ -116,6 +115,16 @@ export function getSettingsTabIcon(tab: SettingsTab) {
     default:
       return Cog;
   }
+}
+
+export function SettingsTabIcon({ tab, assistantIcon, className }: {
+  tab: SettingsTab;
+  assistantIcon?: AssistantIcon;
+  className?: string;
+}) {
+  if (tab === "assistant") return <AssistantAvatar icon={assistantIcon} className={className ?? "size-4"} />;
+  const Icon = getSettingsTabIcon(tab);
+  return <Icon className={className} />;
 }
 
 export function getSettingsTabLabel(tab: SettingsTab) {
@@ -275,6 +284,7 @@ type SettingsPageProps = {
 };
 
 type SettingsSidebarProps = Pick<SettingsPageProps, "activeTab" | "onSelectTab" | "developerMode"> & {
+  assistantIcon?: AssistantIcon;
   selectedWorkspaceId: string;
   selectedWorkspaceName: string;
   selectedWorkspaceColor: string;
@@ -370,22 +380,19 @@ export function SettingsSidebar(props: SettingsSidebarProps) {
           <SidebarGroupLabel>{t("settings.group_global")}</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {globalTabs.map((tab) => {
-                const Icon = getSettingsTabIcon(tab);
-                return (
-                  <SidebarMenuItem key={tab}>
-                    <SidebarMenuButton
-                      type="button"
-                      isActive={props.activeTab === tab}
-                      aria-current={props.activeTab === tab ? "page" : undefined}
-                      onClick={() => props.onSelectTab(tab)}
-                    >
-                      <Icon />
-                      <span>{getSettingsTabLabel(tab)}</span>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                );
-              })}
+              {globalTabs.map((tab) => (
+                <SidebarMenuItem key={tab}>
+                  <SidebarMenuButton
+                    type="button"
+                    isActive={props.activeTab === tab}
+                    aria-current={props.activeTab === tab ? "page" : undefined}
+                    onClick={() => props.onSelectTab(tab)}
+                  >
+                    <SettingsTabIcon tab={tab} assistantIcon={props.assistantIcon} />
+                    <span>{getSettingsTabLabel(tab)}</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>

@@ -20,8 +20,8 @@ overrides:
   '@xmldom/xmldom@>=0.8.0 <0.8.15': 0.8.15
 
 patchedDependencies:
-  '@eigenpal/docx-editor-agents@1.8.3': 5da7071d2dd079a10cdb38fd54f58ebf23967ab5e5c6619178d2dceceabf3cbf
-  '@eigenpal/docx-editor-core@1.8.3': 31ac887960976c7d505919d946d3bd3898a416ec5800e44a006c70c161d7606f
+  '@eigenpal/docx-editor-agents@1.8.3': 0721fac7fa42bef9585ae9d1ec7cedab4b4156f871150fb3af0d08069f3f215e
+  '@eigenpal/docx-editor-core@1.8.3': a9219c9e6ffdf8058b5eb8d18855926a1070020fdc42737064c8619af5a45070
   '@eigenpal/docx-editor-react@1.8.3': 0d08ecc710bd4527a6d0c3627ff58df001629bdd3a64408dc1b956a7ef4d1457
   electron-updater@6.8.3: 888077fedf8e715e8c3ba8d2d29d361b33bbab7ae8b7440d12a5c8f344c5f1c6
   pptx-react-viewer@3.5.4: ae71f58f97e49015c0b4704b0cc5e00a5f8c955a5005b6858407adee07e9e70b
@@ -98,10 +98,10 @@ importers:
         version: 3.5.1(@luma.gl/core@9.3.6)(@luma.gl/engine@9.3.6(@luma.gl/core@9.3.6)(@luma.gl/shadertools@9.3.6(@luma.gl/core@9.3.6)))(@luma.gl/shadertools@9.3.6(@luma.gl/core@9.3.6))(@luma.gl/webgl@9.3.6(@luma.gl/core@9.3.6))
       '@eigenpal/docx-editor-agents':
         specifier: 1.8.3
-        version: 1.8.3(patch_hash=5da7071d2dd079a10cdb38fd54f58ebf23967ab5e5c6619178d2dceceabf3cbf)(ai@6.0.146(zod@4.6.7))(react@19.2.4)
+        version: 1.8.3(patch_hash=0721fac7fa42bef9585ae9d1ec7cedab4b4156f871150fb3af0d08069f3f215e)(ai@6.0.146(zod@4.6.7))(react@19.2.4)
       '@eigenpal/docx-editor-core':
         specifier: 1.8.3
-        version: 1.8.3(patch_hash=31ac887960976c7d505919d946d3bd3898a416ec5800e44a006c70c161d7606f)(prosemirror-commands@1.7.1)(prosemirror-dropcursor@1.8.2)(prosemirror-history@1.5.0)(prosemirror-keymap@1.2.3)(prosemirror-model@1.25.9)(prosemirror-state@1.4.4)(prosemirror-tables@1.8.5)(prosemirror-transform@1.12.0)(prosemirror-view@1.41.9)
+        version: 1.8.3(patch_hash=a9219c9e6ffdf8058b5eb8d18855926a1070020fdc42737064c8619af5a45070)(prosemirror-commands@1.7.1)(prosemirror-dropcursor@1.8.2)(prosemirror-history@1.5.0)(prosemirror-keymap@1.2.3)(prosemirror-model@1.25.9)(prosemirror-state@1.4.4)(prosemirror-tables@1.8.5)(prosemirror-transform@1.12.0)(prosemirror-view@1.41.9)
       '@eigenpal/docx-editor-react':
         specifier: 1.8.3
         version: 1.8.3(patch_hash=0d08ecc710bd4527a6d0c3627ff58df001629bdd3a64408dc1b956a7ef4d1457)(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(ai@6.0.146(zod@4.6.7))(prosemirror-commands@1.7.1)(prosemirror-dropcursor@1.8.2)(prosemirror-history@1.5.0)(prosemirror-keymap@1.2.3)(prosemirror-model@1.25.9)(prosemirror-state@1.4.4)(prosemirror-tables@1.8.5)(prosemirror-transform@1.12.0)(prosemirror-view@1.41.9)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
@@ -11284,7 +11284,7 @@ snapshots:
       - bufferutil
       - utf-8-validate
 
-  '@eigenpal/docx-editor-agents@1.8.3(patch_hash=5da7071d2dd079a10cdb38fd54f58ebf23967ab5e5c6619178d2dceceabf3cbf)(ai@6.0.146(zod@4.6.7))(react@19.2.4)':
+  '@eigenpal/docx-editor-agents@1.8.3(patch_hash=0721fac7fa42bef9585ae9d1ec7cedab4b4156f871150fb3af0d08069f3f215e)(ai@6.0.146(zod@4.6.7))(react@19.2.4)':
     dependencies:
       docxtemplater: 3.69.0
       jszip: 3.10.1
@@ -11294,7 +11294,7 @@ snapshots:
       ai: 6.0.146(zod@4.6.7)
       react: 19.2.4
 
-  '@eigenpal/docx-editor-core@1.8.3(patch_hash=31ac887960976c7d505919d946d3bd3898a416ec5800e44a006c70c161d7606f)(prosemirror-commands@1.7.1)(prosemirror-dropcursor@1.8.2)(prosemirror-history@1.5.0)(prosemirror-keymap@1.2.3)(prosemirror-model@1.25.9)(prosemirror-state@1.4.4)(prosemirror-tables@1.8.5)(prosemirror-transform@1.12.0)(prosemirror-view@1.41.9)':
+  '@eigenpal/docx-editor-core@1.8.3(patch_hash=a9219c9e6ffdf8058b5eb8d18855926a1070020fdc42737064c8619af5a45070)(prosemirror-commands@1.7.1)(prosemirror-dropcursor@1.8.2)(prosemirror-history@1.5.0)(prosemirror-keymap@1.2.3)(prosemirror-model@1.25.9)(prosemirror-state@1.4.4)(prosemirror-tables@1.8.5)(prosemirror-transform@1.12.0)(prosemirror-view@1.41.9)':
     dependencies:
       docxtemplater: 3.69.0
       jszip: 3.10.1
@@ -11314,8 +11314,8 @@ snapshots:
 
   '@eigenpal/docx-editor-react@1.8.3(patch_hash=0d08ecc710bd4527a6d0c3627ff58df001629bdd3a64408dc1b956a7ef4d1457)(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(ai@6.0.146(zod@4.6.7))(prosemirror-commands@1.7.1)(prosemirror-dropcursor@1.8.2)(prosemirror-history@1.5.0)(prosemirror-keymap@1.2.3)(prosemirror-model@1.25.9)(prosemirror-state@1.4.4)(prosemirror-tables@1.8.5)(prosemirror-transform@1.12.0)(prosemirror-view@1.41.9)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)':
     dependencies:
-      '@eigenpal/docx-editor-agents': 1.8.3(patch_hash=5da7071d2dd079a10cdb38fd54f58ebf23967ab5e5c6619178d2dceceabf3cbf)(ai@6.0.146(zod@4.6.7))(react@19.2.4)
-      '@eigenpal/docx-editor-core': 1.8.3(patch_hash=31ac887960976c7d505919d946d3bd3898a416ec5800e44a006c70c161d7606f)(prosemirror-commands@1.7.1)(prosemirror-dropcursor@1.8.2)(prosemirror-history@1.5.0)(prosemirror-keymap@1.2.3)(prosemirror-model@1.25.9)(prosemirror-state@1.4.4)(prosemirror-tables@1.8.5)(prosemirror-transform@1.12.0)(prosemirror-view@1.41.9)
+      '@eigenpal/docx-editor-agents': 1.8.3(patch_hash=0721fac7fa42bef9585ae9d1ec7cedab4b4156f871150fb3af0d08069f3f215e)(ai@6.0.146(zod@4.6.7))(react@19.2.4)
+      '@eigenpal/docx-editor-core': 1.8.3(patch_hash=a9219c9e6ffdf8058b5eb8d18855926a1070020fdc42737064c8619af5a45070)(prosemirror-commands@1.7.1)(prosemirror-dropcursor@1.8.2)(prosemirror-history@1.5.0)(prosemirror-keymap@1.2.3)(prosemirror-model@1.25.9)(prosemirror-state@1.4.4)(prosemirror-tables@1.8.5)(prosemirror-transform@1.12.0)(prosemirror-view@1.41.9)
       '@eigenpal/docx-editor-i18n': 1.8.3
       '@radix-ui/react-select': 2.3.1(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
       clsx: 2.1.1

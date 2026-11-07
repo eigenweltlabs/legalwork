@@ -1672,6 +1672,13 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     sessionList: 90_000,
     status: 6_000,
     config: 10_000,
+    // Account transitions flush synced changes and publish settings across
+    // saved projects. They outlive an ordinary config read and must not be
+    // reported as failures while the server is still committing them.
+    accountTransition: 180_000,
+    // Entitlements can refresh the platform token and publish a changed model
+    // catalog before returning. Keep this bounded, but longer than config I/O.
+    accountRead: 60_000,
     // Connector creation waits for OAuth discovery and engine registration
     // across local workspaces before it is safe to open sign-in.
     mcpSetup: 90_000,
@@ -2508,7 +2515,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         hostToken,
         method: "PUT",
         body: payload,
-        timeoutMs: timeouts.config,
+        timeoutMs: timeouts.accountTransition,
       }),
     // `refresh: true` forces the server to re-pull entitlements from the
     // platform NOW (bypassing the access-token skew short-circuit) — used by the
@@ -2522,7 +2529,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
       requestJson<EigenweltEntitlementsView>(
         baseUrl,
         `/workspace/${encodeURIComponent(workspaceId)}/eigenwelt/entitlements${opts?.refresh ? "?refresh=1" : ""}`,
-        { token, hostToken, timeoutMs: timeouts.config },
+        { token, hostToken, timeoutMs: timeouts.accountRead },
       ),
     // Manual model refresh: re-pull the gateway manifest and rewrite the
     // eigenwelt provider's model list without re-authenticating.
