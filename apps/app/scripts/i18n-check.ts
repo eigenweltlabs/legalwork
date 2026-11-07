@@ -39,6 +39,7 @@ const placeholders = (value: string): string[] =>
 const GERMAN_KEEPS_ENGLISH = new Set<string>([
   "back_office.kanban", "back_office.icon.kanban", // Shared name for the Kanban view.
   "back_office.people.singular", // Person is the same noun in German and English.
+  "back_office.organisations.singular", "back_office.icon.building", // Organisation has the same spelling in both languages.
   "catalog.category_eigenwelt", "catalog.status", "catalog.method_skill", "catalog.method_mcp", "catalog.website_url", // Shared technical terms and loanwords.
   // The shared browser-login card uses the same German words and loanword.
   "browser_password_request.optional", "settings.browser_passwords.label", "settings.browser_passwords.website",

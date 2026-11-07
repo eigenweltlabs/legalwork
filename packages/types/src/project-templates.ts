@@ -87,14 +87,14 @@ export function defaultAkteFields(locale: Locale = "en"): ProjectField[] {
     { id: "matter", labelSource: "suggested", label: t("projects.schema.matter", locale), type: "backoffice", objectId: "matters", multiple: true, value: null },
     { id: "matter_number", labelSource: "suggested", label: t("projects.schema.matter_number", locale), type: "text", value: null },
     { id: "client", labelSource: "suggested", label: t("projects.schema.client", locale), type: "backoffice", objectId: "clients", multiple: true, value: null },
-    { id: "opposing_party", labelSource: "suggested", label: t("projects.schema.opposing_party", locale), type: "text", value: null },
+    { id: "opposing_party", labelSource: "suggested", label: t("projects.schema.opposing_party", locale), type: "backoffice", objectId: "companies", multiple: true, value: null },
     { id: "subject", labelSource: "suggested", label: t("projects.schema.subject", locale), type: "text", value: null },
     { id: "practice_area", labelSource: "suggested", label: t("projects.schema.practice_area", locale), type: "text", value: null },
     { id: "responsible", labelSource: "suggested", label: t("projects.schema.responsible", locale), type: "backoffice", objectId: "people", multiple: true, value: null },
     { id: "status", labelSource: "suggested", label: t("projects.schema.status", locale), type: "select", value: null,
       options: [t("projects.schema.status_open", locale), t("projects.schema.status_active", locale), t("projects.schema.status_waiting", locale), t("projects.schema.status_closed", locale)] },
     { id: "opened_on", labelSource: "suggested", label: t("projects.schema.opened_on", locale), type: "date", value: null },
-    { id: "court", labelSource: "suggested", label: t("projects.schema.court", locale), type: "text", value: null },
+    { id: "court", labelSource: "suggested", label: t("projects.schema.court", locale), type: "backoffice", objectId: "companies", multiple: true, value: null },
     { id: "external_reference", labelSource: "suggested", label: t("projects.schema.external_reference", locale), type: "text", value: null },
   ];
 }
@@ -239,8 +239,10 @@ export function upgradeProjectTemplateReferences(catalog: ProjectTemplateCatalog
     const legacy = current.fields.filter(field => field.id !== "matter").map((field): ProjectField => field.type === "backoffice"
       ? { id: field.id, label: field.label, labelSource: field.labelSource, type: "text", value: null } : field);
     const normalized = localizedTemplateFields(template.fields, "en");
-    const signature = (fields: ProjectField[]) => JSON.stringify(fields.map(field => [field.id, field.label, field.labelSource, field.type, field.options ?? null]));
-    if (signature(normalized) !== signature(legacy)) return template;
+    const previousReferences = current.fields.map((field): ProjectField => field.id === "court" || field.id === "opposing_party"
+      ? { id: field.id, label: field.label, labelSource: field.labelSource, type: "text", value: null } : field);
+    const signature = (fields: ProjectField[]) => JSON.stringify(fields.map(field => [field.id, field.label, field.labelSource, field.type, field.options ?? null, ...(field.type === "backoffice" ? [field.objectId, field.multiple] : [])]));
+    if (![legacy, previousReferences].some(fields => signature(normalized) === signature(fields))) return template;
     return { ...template, fields: current.fields };
   }) };
 }

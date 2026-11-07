@@ -80,7 +80,7 @@ export const useProjectDefaultsStore = create<ProjectTemplatesState>()(persist((
   defaultTemplateId: "legal_matter",
 }), {
   name: "legalwork.projectMetadataDefaults",
-  version: 3,
+  version: 4,
   migrate: migrateProjectDefaults,
   partialize: ({ templates, defaultTemplateId, migrated, hasLegacyDefaults }) => ({ templates, defaultTemplateId, migrated, hasLegacyDefaults }),
 }));

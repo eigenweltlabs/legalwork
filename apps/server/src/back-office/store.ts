@@ -31,6 +31,8 @@ import {
   validateBackOfficeView,
   visibleBackOfficeRecord,
   upgradeBackOfficeModel,
+  upgradeBackOfficeRecord,
+  upgradeBackOfficeView,
   type BackOfficeActor,
   type BackOfficeChange,
   type BackOfficeModel,
@@ -132,11 +134,21 @@ export class BackOfficeStore {
         const current = BackOfficeModelSchema.parse(JSON.parse(latest.data));
         const upgraded =
           scope === "local" ? upgradeBackOfficeModel(current) : current;
-        if (upgraded !== current)
-          this.db.run("UPDATE bo_models SET data=? WHERE scope=?", [
-            JSON.stringify(upgraded),
-            scope,
-          ]);
+        if (upgraded !== current) {
+          for (const row of this.db.all("SELECT data FROM bo_records WHERE scope=?", [scope])) {
+            if (typeof row.data !== "string") continue;
+            const previous = BackOfficeRecordSchema.parse(JSON.parse(row.data));
+            const record = upgradeBackOfficeRecord(current, upgraded, previous);
+            if (record !== previous) this.db.run("UPDATE bo_records SET data=? WHERE scope=? AND id=?", [JSON.stringify(record), scope, record.id]);
+          }
+          for (const row of this.db.all("SELECT data FROM bo_views WHERE scope=?", [scope])) {
+            if (typeof row.data !== "string") continue;
+            const previous = BackOfficeViewSchema.parse(JSON.parse(row.data));
+            const view = upgradeBackOfficeView(current, upgraded, previous);
+            if (view !== previous) this.db.run("UPDATE bo_views SET data=? WHERE scope=? AND id=?", [JSON.stringify(view), scope, view.id]);
+          }
+          this.db.run("UPDATE bo_models SET data=? WHERE scope=?", [JSON.stringify(upgraded), scope]);
+        }
         return upgraded;
       },
       { action: "model.initialize-or-upgrade" },

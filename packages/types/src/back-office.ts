@@ -2,7 +2,7 @@ import { z } from "zod";
 export { z } from "zod";
 
 export const BACK_OFFICE_PROTOCOL = 1;
-export const BACK_OFFICE_TEMPLATE = 4;
+export const BACK_OFFICE_TEMPLATE = 5;
 const identifier = z
   .string()
   .min(1)
@@ -268,8 +268,8 @@ export function defaultBackOfficeModel(): BackOfficeModel {
       ]),
       object("clients", "Client", "Clients", "clients", [
         field("clientNumber", "Client number"),
-        selection("clientType", "Client type", ["Company", "Individual"]),
-        relation("company", "Company", "companies"),
+        selection("clientType", "Client type", ["Organisation", "Individual"]),
+        relation("company", "Organisation", "companies"),
         relation("person", "Person", "people"),
         field("billingAddress", "Billing address"),
         field("billingEmail", "Billing email", "email"),
@@ -279,7 +279,7 @@ export function defaultBackOfficeModel(): BackOfficeModel {
         field("email", "Email", "email"),
         field("phone", "Phone"),
         field("jobTitle", "Job title"),
-        relation("company", "Company", "companies"),
+        relation("company", "Organisation", "companies"),
         field("address", "Address"),
         field("city", "City"),
         field("salutation", "Salutation"),
@@ -287,7 +287,8 @@ export function defaultBackOfficeModel(): BackOfficeModel {
         field("nationality", "Nationality"),
         field("taxNumber", "Tax number", "text", { visibility: "finance" }),
       ]),
-      object("companies", "Company", "Companies", "company", [
+      object("companies", "Organisation", "Organisations", "building", [
+        selection("organisationType", "Organisation type", ["Company", "Court", "Public authority", "Law firm", "Association / nonprofit", "Other"]),
         field("domain", "Domain name"),
         field("industry", "Industry"),
         field("registrationNumber", "Registration number"),
@@ -312,7 +313,7 @@ export function defaultBackOfficeModel(): BackOfficeModel {
           "Other",
         ]),
         relation("person", "Person", "people"),
-        relation("company", "Company", "companies"),
+        relation("company", "Organisation", "companies"),
         relation("client", "Client account", "clients"),
         field("reference", "Party reference"),
         field("subrole", "Subrole"),
@@ -650,12 +651,23 @@ export function upgradeBackOfficeModel(
           `Fill ${field.label} before applying this template upgrade.`,
         );
     }
+    const organisationUpgrade = current.templateVersion < 5 && baseline.templateVersion >= 5;
     return {
       ...object,
+      ...(organisationUpgrade && object.id === "companies" ? {
+        label: object.label === "Company" ? "Organisation" : object.label,
+        plural: object.plural === "Companies" ? "Organisations" : object.plural,
+        icon: object.icon === "company" ? "building" : object.icon,
+      } : {}),
       fields: [
         ...object.fields.filter(
           (field) => !(field.protected && field.id === "actaportId"),
-        ),
+        ).map(field => !organisationUpgrade ? field : {
+          ...field,
+          ...(field.id === "company" && field.target === "companies" && field.label === "Company" ? { label: "Organisation" } : {}),
+          ...(object.id === "clients" && field.id === "clientType" && JSON.stringify(field.options) === JSON.stringify(["Company", "Individual"])
+            ? { options: ["Organisation", "Individual"] } : {}),
+        }),
         ...core.fields.filter(
           (field) =>
             !object.fields.some((existing) => existing.id === field.id),
@@ -674,6 +686,20 @@ export function upgradeBackOfficeModel(
     templateVersion: baseline.templateVersion,
     revision: current.revision + 1,
   };
+}
+
+// Stable object/field IDs preserve existing record relations, project references and signed history.
+function replacesCompanyClientType(current: BackOfficeModel, next: BackOfficeModel) {
+  const options = next.objects.find(object => object.id === "clients")?.fields.find(field => field.id === "clientType")?.options;
+  return current.templateVersion < 5 && next.templateVersion >= 5 && Boolean(options?.includes("Organisation") && !options.includes("Company"));
+}
+export function upgradeBackOfficeRecord(current: BackOfficeModel, next: BackOfficeModel, record: BackOfficeRecord, now = new Date().toISOString()): BackOfficeRecord {
+  return replacesCompanyClientType(current, next) && record.objectId === "clients" && record.values.clientType === "Company"
+    ? { ...record, values: { ...record.values, clientType: "Organisation" }, revision: record.revision + 1, schemaRevision: next.revision, updatedAt: now } : record;
+}
+export function upgradeBackOfficeView(current: BackOfficeModel, next: BackOfficeModel, view: BackOfficeView): BackOfficeView {
+  return replacesCompanyClientType(current, next) && view.objectId === "clients" && view.filters.clientType === "Company"
+    ? { ...view, filters: { ...view.filters, clientType: "Organisation" } } : view;
 }
 
 /** Resolve an already permission-filtered directory without granting project access. */

@@ -18,8 +18,8 @@ const objectLabels = (): Record<string, { label: string; plural: string }> => ({
     plural: t("back_office.people.plural"),
   },
   companies: {
-    label: t("back_office.companies.singular"),
-    plural: t("back_office.companies.plural"),
+    label: t("back_office.organisations.singular"),
+    plural: t("back_office.organisations.plural"),
   },
   parties: {
     label: t("back_office.parties.singular"),

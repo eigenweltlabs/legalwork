@@ -77,6 +77,7 @@ const defaults: Record<string, string[]> = {
   people: ["name", "email", "jobTitle", "company", "phone", "city"],
   companies: [
     "name",
+    "organisationType",
     "domain",
     "industry",
     "registrationNumber",

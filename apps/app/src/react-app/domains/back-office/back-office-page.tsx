@@ -52,7 +52,7 @@ const primary = [
   { id: "matters", name: "Matters", icon: BriefcaseBusiness },
   { id: "clients", name: "Clients", icon: UsersRound },
   { id: "people", name: "People", icon: UserRound },
-  { id: "companies", name: "Companies", icon: Building2 },
+  { id: "companies", name: "Organisations", icon: Building2 },
 ];
 const projectsSchema = z.object({
   projects: z.array(z.object({ id: z.string(), name: z.string() })),

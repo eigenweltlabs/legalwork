@@ -68,3 +68,14 @@ test("untouched starter templates upgrade to reference fields while custom schem
   expect(applyProjectTemplate([client, reference], current[0])).toContainEqual(reference);
   expect(applyProjectTemplate([{ ...client, value: null }], current[0])).toContainEqual(current[0].fields.find(field => field.id === "client"));
 });
+
+test("starter templates connect courts, opposing organisations and contract counterparties to organisation records", () => {
+  const templates = defaultProjectTemplates(), legal = templates.find(template => template.id === "legal_matter")!;
+  for (const id of ["court", "opposing_party"]) expect(legal.fields.find(field => field.id === id)).toMatchObject({ type: "backoffice", objectId: "companies", multiple: true });
+  expect(templates.find(template => template.id === "contracts")?.fields.find(field => field.id === "counterparty")).toMatchObject({ type: "backoffice", objectId: "companies" });
+  const previous = { ...legal, fields: legal.fields.map((field): ProjectField => ["court", "opposing_party"].includes(field.id) ? { id: field.id, label: field.label, labelSource: field.labelSource, type: "text", value: null } : field) };
+  const catalog = { revision: 7, defaultTemplateId: legal.id, templates: [previous] };
+  expect(upgradeProjectTemplateReferences(catalog).templates[0]).toEqual(legal);
+  const custom = { ...catalog, templates: [{ ...previous, nameSource: "custom" satisfies "custom" }] };
+  expect(upgradeProjectTemplateReferences(custom)).toEqual(custom);
+});
