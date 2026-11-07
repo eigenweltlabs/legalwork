@@ -414,6 +414,18 @@ export class BenchmarkStore {
     this.db.close();
   }
 
+  /** Only this project's owned benchmark placements are eligible. */
+  relocateProjectDirectories(workspaceId: string, relocate: (directory: string) => string): void {
+    this.transaction(() => {
+      const rows = this.db.prepare("SELECT i.id, i.work_dir FROM benchmark_run_items i JOIN benchmark_runs r ON r.id = i.run_id WHERE r.workspace_id = ? AND i.work_dir IS NOT NULL").all(workspaceId);
+      for (const row of rows) {
+        if (!row || typeof row !== "object" || !("id" in row) || !("work_dir" in row) || typeof row.id !== "string" || typeof row.work_dir !== "string") continue;
+        const next = relocate(row.work_dir);
+        if (next !== row.work_dir) this.db.prepare("UPDATE benchmark_run_items SET work_dir = ? WHERE id = ? AND work_dir = ?").run(next, row.id, row.work_dir);
+      }
+    });
+  }
+
   private transaction<T>(fn: () => T): T {
     this.db.exec("BEGIN");
     try {

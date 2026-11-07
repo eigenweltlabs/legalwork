@@ -14,6 +14,7 @@ import { DEADLINE_RULE_VERSION, DEADLINE_SKILLS, DeadlineInputSchema } from "./d
 export const DEADLINE_CODE_HASH = createHash("sha256").update(DEADLINE_CODE).digest("hex");
 // Exact reviewed bundles from dev and the earlier migration build; same rules.
 const PREVIOUS_CODE_HASHES = new Set([
+  "e62c559530b9500206f3113d3e3f206c3cbf0e2e7ae343362f54290364b3f461",
   "601e3c01a042647e0260965622b7a3ba42a563318592606d034f67adb81adbff",
   "9bee79e8895bc3144f9d3c23aad3d6ffbfccd8077ffc382d1f0e44831871b341",
 ]);

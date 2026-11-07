@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
-import { markLocalProjectPublished, prepareLocalProject, projectHome, workspaceContentPath } from "../project-storage.js";
+import { localProjectIdForContent, markLocalProjectPublished, prepareLocalProject, projectHome, recoverLocalProject, workspaceContentPath } from "../project-storage.js";
 import type { registerProjectFolderRoutes } from "./project-folders.js";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
@@ -144,8 +144,9 @@ export async function registerLocalProject(
 
 
   const existing = config.workspaces.find(entry => resolve(workspaceContentPath(entry)) === workspacePath);
+  const retainedId = !existing && !input.id ? await localProjectIdForContent(config, workspacePath) : undefined;
   let workspace: WorkspaceInfo = {
-    id: existing?.id || input.id || (config.projectsDirectory ? `ws_${randomUUID().replaceAll("-", "")}` : workspaceIdForPath(workspacePath)),
+    id: existing?.id || input.id || retainedId || (config.projectsDirectory ? `ws_${randomUUID().replaceAll("-", "")}` : workspaceIdForPath(workspacePath)),
     name: input.name,
     path: workspacePath,
     preset: input.preset,
@@ -153,7 +154,7 @@ export async function registerLocalProject(
     ...inheritWorkspaceOpencodeConnection(config),
   };
   if (existing?.contentPath) workspace = { ...workspace, path: existing.path, contentPath: existing.contentPath, previousPath: existing.previousPath };
-  else if (config.projectsDirectory) workspace = await prepareLocalProject(config, workspace);
+  else if (config.projectsDirectory) workspace = await recoverLocalProject(config, workspace) ?? await prepareLocalProject(config, workspace);
   await ensureWorkspaceFiles(workspace.path, input.preset, { bundledCore: config.engineConfigurationMode !== "managed" });
   if (input.projectFields) await initializeProjectFields(workspace.path, input.projectFields);
   const previous = config.workspaces.find(entry => entry.id === workspace.id);

@@ -32,14 +32,16 @@ export async function registerManagedFolderPermissions(ctx: Plugin.Context, read
     const fileResources = settings.contentPath && ["read", "edit", "list"].includes(event.action);
     const aliases = (resources: readonly string[]) => [...new Set(resources.flatMap(resource => fileResources && resource !== "*" ? [resource, resolve(ctx.location.directory, home(resource)).replaceAll("\\", "/")] : [resource]))];
     const resources = aliases(event.resources);
-    if (lineage.some(ancestor => resources.some(resource => permissionAction(ancestor.permissions ?? [], event.action, resource, "ask") === "deny"))) {
+    const roots = { path: settings.directory, contentPath: settings.contentPath, previousPath: settings.previousPath };
+    const fileAction = ["read", "edit", "list", "external_directory"].includes(event.action);
+    const sessionRules = (rules: NonNullable<typeof session.permissions>) => fileAction ? projectFilePermissionRules(roots, rules) : rules;
+    if (lineage.some(ancestor => resources.some(resource => permissionAction(sessionRules(ancestor.permissions ?? []), event.action, resource, "ask") === "deny"))) {
       event.effect = "deny";
       return;
     }
     const agentID = event.agent ?? session.agent ?? settings.configuration.default_agent;
     let configuration = settings.configuration;
     if (settings.contentPath && ["read", "edit", "list", "external_directory"].includes(event.action)) {
-      const roots = { path: settings.directory, contentPath: settings.contentPath, previousPath: settings.previousPath };
       const agent = agentID ? (await ctx.agent.get({ agentID })).data : undefined;
       // Evaluate the final native agent, including authored declarations and
       // helpers loaded after this plugin. Transform registration order must
@@ -47,8 +49,8 @@ export async function registerManagedFolderPermissions(ctx: Plugin.Context, read
       configuration = { ...configuration, permissions: projectFilePermissionRules(roots, configuration.permissions ?? []),
         ...(agentID && agent ? { agents: { ...configuration.agents, [agentID]: { ...configuration.agents?.[agentID], permissions: projectFilePermissionRules(roots, agent.permissions) } } } : {}) };
     }
-    const approvals = [...settings.projectPermissionApprovals ?? [], ...lineage.flatMap(ancestor => ancestor.permissions?.filter(rule => rule.effect === "allow")
-      .map(rule => ({ action: rule.action, resources: [rule.resource] })) ?? [])].map(approval => ({ ...approval, resources: aliases(approval.resources) }));
+    const approvals = [...settings.projectPermissionApprovals ?? [], ...lineage.flatMap(ancestor => sessionRules(ancestor.permissions ?? []).filter(rule => rule.effect === "allow")
+      .map(rule => ({ action: rule.action, resources: [rule.resource] })))].map(approval => ({ ...approval, resources: aliases(approval.resources) }));
     event.effect = projectPermissionEffect({ ...configuration, projectPermissionApprovals: approvals }, event.action,
       resources, event.metadata?.legalworkCanonicalAsk ? "ask" : event.effect, agentID);
     if (event.effect === "deny") return;

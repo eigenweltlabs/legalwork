@@ -6,7 +6,10 @@ import { dirname, join } from "node:path";
 import { zipSync, strToU8 } from "fflate";
 import { resolvePluginImports, discoverPluginImports, parsePluginImportRequest } from "./plugin-imports.js";
 import { preparePluginImport, reviewedPluginImport, assertImportable } from "./plugin-import-checks.js";
-import { installPluginImport, rollbackPluginImport } from "./plugin-import-install.js";
+import { installPluginImport, rollbackPluginImport, assertPluginUnmodified } from "./plugin-import-install.js";
+import { prepareLocalProject, markLocalProjectPublished } from "./project-storage.js";
+import { relocateProjectImports } from "./project-storage-imports.js";
+import { buildLegalworkRuntimeSettings } from "./legalwork-runtime-config.js";
 import { readInstalledCloudPlugins, resolveWorkspaceInstallPath } from "./cloud-plugins.js";
 import type { ServerConfig } from "./types.js";
 import { GLOBAL_MCP_ID, readRuntimeOpencodeConfig, writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
@@ -26,6 +29,43 @@ async function fixture(run: (root: string, config: ServerConfig) => Promise<void
   finally { if (previous.discovery === undefined) delete process.env.LEGALWORK_PLUGIN_DISCOVERY_HOME; else process.env.LEGALWORK_PLUGIN_DISCOVERY_HOME = previous.discovery; if (previous.claude === undefined) delete process.env.CLAUDE_CONFIG_DIR; else process.env.CLAUDE_CONFIG_DIR = previous.claude; if (previous.db === undefined) delete process.env.LEGALWORK_RUNTIME_DB; else process.env.LEGALWORK_RUNTIME_DB = previous.db; if (previous.xdg === undefined) delete process.env.XDG_CONFIG_HOME; else process.env.XDG_CONFIG_HOME = previous.xdg; await rm(root, { recursive: true, force: true }); }
 }
 async function plan(path: string, root: string) { const [value] = await resolvePluginImports({ source: { provider: "claude", path }, scope: "project" }, root); if (!value) throw new Error("No import plan"); return value; }
+
+test("relocation repairs actual imported plugin references, preserves ownership hashes and rollback originals", () => fixture(async (root, config) => {
+  const source = join(root, "package"), content = join(root, "documents");
+  await mkdir(content);
+  const original = join(root, "connected documents");
+  await symlink(await realpath(content), original, "dir");
+  config.projectsDirectory = join(root, "local"); config.workspaces[0].path = original;
+  const entries = {
+    ".claude-plugin/plugin.json": '{"name":"path-kit","version":"1.0.0"}',
+    ".mcp.json": JSON.stringify({ mcpServers: { docs: { command: "node", args: ["${CLAUDE_PLUGIN_ROOT}/server.js"], cwd: "${CLAUDE_PLUGIN_ROOT}", env: { ASSET: "${CLAUDE_PLUGIN_ROOT}/asset.txt" } } } }),
+    "server.js": "// Imported fixture; never started", "asset.txt": "Asset",
+    "skills/review/SKILL.md": skill + "Read ${CLAUDE_PLUGIN_ROOT}/asset.txt.\n",
+  };
+  await files(source, entries);
+  const installed = await installPluginImport(config, "test", original, await plan(source, original), false);
+  await files(source, { ".claude-plugin/plugin.json": '{"name":"path-kit","version":"2.0.0"}' });
+  await installPluginImport(config, "test", original, await plan(source, original), false);
+  const local = await prepareLocalProject(config, config.workspaces[0]);
+  await markLocalProjectPublished(local); config.workspaces = [local];
+  const before = await buildLegalworkRuntimeSettings(config, "test");
+  expect(JSON.stringify(before.configuration.mcp)).not.toContain(`${original}/.opencode/`);
+  await relocateProjectImports(config, local);
+  await relocateProjectImports(config, local);
+  const migrated = (await readInstalledCloudPlugins(config, "test")).plugins[installed.pluginId];
+  await assertPluginUnmodified(local.path, migrated, false);
+  expect(JSON.stringify((await readRuntimeOpencodeConfig(config, "test")).mcp)).not.toContain(`${original}/.opencode/`);
+  const file = installed.files.find(item => item.objectType === "skill")!;
+  expect(await readFile(join(local.path, file.path), "utf8")).toContain(`${local.path}/.opencode/`);
+  const backup = migrated.snapshots?.at(-1)!;
+  expect(await readFile(join(local.path, backup, "snapshot.json"), "utf8")).toContain(original);
+  const restored = await rollbackPluginImport(config, "test", local.path, installed.pluginId, false);
+  await assertPluginUnmodified(local.path, restored, false);
+  expect(await readFile(join(local.path, file.path), "utf8")).not.toContain(`${original}/.opencode/`);
+  await writeFile(join(local.path, file.path), `${skill}User changed ${original}/.opencode/private.txt`);
+  await expect(relocateProjectImports(config, local)).rejects.toThrow("modified files");
+  expect(await readFile(join(local.path, file.path), "utf8")).toContain("User changed");
+}));
 
 for (const provider of ["claude", "chatgpt"] satisfies Array<"claude" | "chatgpt">) {
   test(`${provider} plugin skills explicitly become workflows while the full plugin and connector survive install and update`, () => fixture(async (root, config) => {

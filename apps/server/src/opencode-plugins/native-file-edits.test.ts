@@ -10,8 +10,12 @@ test("native writes hand off exact project files, then release once on failure o
     events.push({ session, paths }); return async () => { events.push("reload"); };
   });
   await edits.before({ tool: "read", sessionID: "chat", callID: "read" }, { args: { filePath: "/project/report.md" } });
-  await edits.before({ tool: "write", sessionID: "chat", callID: "external" }, { args: { filePath: "/other/report.md" } });
   expect(events).toEqual([]);
+  // A connected document folder can be outside the local engine home.
+  await edits.before({ tool: "write", sessionID: "chat", callID: "external" }, { args: { filePath: "/other/report.md" } });
+  expect(events).toEqual([{ session: "chat", paths: undefined }]);
+  await edits.after("chat", "external");
+  events.length = 0;
   await edits.before({ tool: "write", sessionID: "chat", callID: "write" }, { args: { filePath: "/project/report.md" } });
   await edits.after("chat", "write");
   await edits.after("chat", "write");

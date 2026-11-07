@@ -1,5 +1,56 @@
 # Local project support storage implementation
 
+## Confirmed findings implementation — authorized 2026-11-07
+
+Implement the fourteen validated finding groups from the report at `/tmp/legalwork-storage-findings-PUfh54/REPORT.md` in this same worktree. Record the plan first, edit implementation and help, then extend relevant existing regressions and run checks at the end.
+
+1. Resolve application document paths against their correct content/support root, retaining the selected root for absolute files and engine-owned ordinary artifacts. Reuse this identity for editor handoffs without changing native file-tool arguments.
+2. Adapt task attachments, wiki suggestion sources, benchmark inputs, storage uploads and ordinary browser/image/recording exports. Keep hidden working files local and preserve the existing correct automatic recording export path.
+3. Pass engine and content roots separately through content extraction and OCR preparation. Preserve existing search scope; do not add attachment indexing.
+4. Preserve saved wildcard command rules and file restrictions, include both roots in restricted Assistant access and private-image storage validation.
+5. Preserve project identity when its registration is removed and the content folder is re-added. Persist an owned content/home association without moving user content.
+6. Relocate known owned nested benchmark chat locations and stored work directories. Reconcile saved Assistant authorization, proactive source and selected-resource references only after verified chat relocation, preserving existing scope/revocation restrictions and shared database locations.
+7. Repair retained runtime MCP and verified app-generated imported-plugin references, including environment values and ownership hashes. Preserve user-modified files and report unsafe conflicts. Do not import or snapshot external root OpenCode configuration.
+8. Hold scheduled occurrences until their workspace/chat migration is ready. Read-only startup must retain pending migration for a writable restart.
+9. Validate managed CLI requests through the registered content/previous-folder association and returned local engine identity. Accept the exact reviewed calculator predecessor while retaining executable tamper protection.
+10. Update help, inventory and PR description. At the end verify the investigation repros against the fixes, run focused existing server/desktop/UI/native checks and an isolated previous-profile exercise where relevant. Record remaining platform/live-service limits and update draft PR #405.
+
+Keep the user's scope decisions: move only `.opencode` and `.legalwork`; no root-config snapshot/cache/watcher, nested-AGENTS reminder, symlink join or native file-tool argument router. No signed-in profile is used for destructive verification.
+
+### Implemented and verified
+
+All fourteen confirmed groups are implemented in this worktree:
+
+1. Verified native chat moves now relocate saved Assistant authorization, proactive source directories, selected skill/plugin references and affected path-derived selection IDs. Revocation, scope, project selection and user prose are preserved. Shared databases stay in place.
+2. Re-adding a removed project's original document folder recovers its identity from retained local ownership receipts. Default `files` folders recover their owning home ID. Conflicting retained associations fail explicitly.
+3. App file APIs select the most specific registered root for an absolute address, preventing `files/files`. Ordinary engine-owned artifacts retain absolute references through previews, reads, copies and writes.
+4. Editor handoffs compare resolved file identities. Linked or external native write destinations use the existing all-editors handoff rather than skipping open drafts. Native file-tool arguments are unchanged.
+5. Task attachments, wiki suggestion sources, benchmark document inputs and storage uploads resolve advertised project-document references against content roots. Hidden references and working copies stay local.
+6. Browser captures, image exports and manual recording saves use content roots. The existing automatic recording-sync export remains intact.
+7. Content search and corpus extraction pass source and engine roots separately, so OCR preparation files remain local. Search scope is unchanged.
+8. Native benchmark chats and benchmark `work_dir` records retain their suffix under the relocated `.legalwork/benchmarks` tree. Other connected subfolders are not moved.
+9. Final merged MCP configuration now rebases commands, cwd and environment references. Retained runtime references and hash-verified importer-generated files follow their support folders. Updated ownership hashes and a local per-file journal make interrupted file/registry updates retryable. User modifications block unsafe rewriting; immutable originals and rollback snapshots remain preserved. Rollback rebases verified restored files too. Registered source spellings are retained locally for symlink/mapped-path references.
+10. Wildcard shell policies keep their original resources; translated permission aliases apply only to file actions. Restricted Assistant access checks engine and content roots.
+11. Private retained-image storage is rejected inside either root.
+12. Schedules remain unclaimed while project migration or their destination chat is held. Read-only startup does not move chats or complete pending receipts. A separate reference-completion flag also upgrades homes completed by earlier revisions of this PR.
+13. Managed CLI validation matches registered content/previous paths, then validates the registered engine home. Explicit external/container directory expectations remain enforced.
+14. The exact committed calculator predecessor `e62c5595…b3f461` is accepted while modified executable bytes remain rejected.
+
+Verification was performed after implementation using prepared Bun 1.4.4 and the pinned OpenCode binary:
+
+- Server regressions: **137 passed**, 0 failed across 17 files: `project-storage`, `artifact-resolution`, `plugin-import-lifecycle`, `content-search`, `corpus/{extract,service}`, `wiki/suggestions`, `opencode-plugins/{legalwork-task-tools,legalwork-storage-tools,native-file-edits,managed-folder-permissions,legalwork-browser-tools}`, `assistant-tool-access`, `tool-image-original-store`, `tool-image-originals.e2e`, `calendar/skills`, and `managed-engine-lifecycle` (all under `apps/server/src`, with `.test.ts` suffixes).
+- `bun test apps/server/src/legalwork-runtime-config.test.ts apps/server/src/engine-project.test.ts apps/server/src/workspace-path-match.test.ts`: **48 passed**. Final permission/wiki/config rerun: `bun test apps/server/src/project-storage.test.ts apps/server/src/engine-project.test.ts apps/server/src/legalwork-runtime-config.test.ts apps/server/src/opencode-plugins/managed-folder-permissions.test.ts apps/server/src/wiki/suggestions.test.ts`: **55 passed**. Final imported-plugin/rollback check: **22 passed** in `plugin-import-lifecycle.test.ts`. Counts overlap and are not a combined total.
+- `bun test apps/app/tests/document-runtime.test.js apps/server/src/opencode-plugins/native-file-edits.test.ts`: **32 passed**.
+- `node --test apps/desktop/electron/browser-native-host.test.mjs apps/desktop/electron/project-file-copy.test.mjs apps/desktop/electron/runtime.test.mjs`: **45 passed**.
+- With `LEGALWORK_TEST_OPENCODE_BIN` set to the installed pinned engine, `bun test apps/server/src/project-storage.released.test.ts apps/server/src/managed-file-permissions.released.test.ts`: **5 passed**. Exercises actual root/child/benchmark chat moves, saved state and revoked authority, read-only holds, generic command denials, Git/non-Git native permissions, V1 success/failure ordering and disconnected document access.
+- `pnpm --filter legalwork-server build`, final `pnpm --filter legalwork-server exec tsc -p tsconfig.json` / `pnpm --filter legalwork-server build:plugins`, `pnpm typecheck`, `pnpm --filter legalwork-orchestrator typecheck`, `pnpm docs:generate`, `pnpm docs:check` and `git diff --check`: passed. Unrelated generated minifier changes were excluded from the commit.
+
+Investigation probes were replayed in fresh isolated directories. Task attachment succeeded; OCR cache appeared only under the engine home; external private-image storage was rejected; imported MCP environment/command/cwd and generated skill references used the new home; re-add preserved identity; absolute reads returned the original bytes; Assistant authorization resumed; nested benchmark placement moved; command denial remained denied. The overdue one-time schedule stayed active with its original due time and zero claimed runs while migration was pending; read-only migration made zero native moves. CLI validation accepts the original document folder and still rejects an explicit mismatched engine expectation. A separate exact-calculator probe compared the committed current hash `9bee79e8…18b341` with the committed predecessor hash above, accepted the predecessor and rejected a tampered copy, avoiding a rebuilt-bundle false positive.
+
+Restarted the preserved isolated Electron profile from the earlier migration revision, including all nine local workspace scenarios and the wiki: **211 checks passed, zero failed**. This specifically exercises the new reference-completion upgrade for already-migrated homes. The earlier cold pre-version/APFS-disconnect exercises below remain historical evidence; they were not all replayed again in this batch. The stopped pre-batch profile and project homes are preserved at `~/.legalwork/storage-migration-exercise-C1HIMb/confirmed-fixes-before-1pawvyla`; this run's checks and screenshot are `inspection-confirmed-fixes-final.json` and `confirmed-fixes-final.png` in the parent exercise directory. No video was recorded.
+
+Remaining acceptance limits: Windows, real SMB/FUSE/protected VM execution, packaged distribution, live cloud sync and a live separately operated browser-transfer server. Existing synthetic sync identities/settings were preserved. No external root OpenCode configuration migration, native argument router, nested-AGENTS reminder or ordinary document migration was reintroduced.
+
 ## Requested removal — root OpenCode configuration snapshots
 
 User requested removing migration of root opencode.json/jsonc on 2026-11-07. Remove their snapshot preparation, cached bytes, ownership journal and connected-config refresh watcher. Keep migration limited to .opencode and .legalwork. Existing root configuration remains in the document folder and is not copied into the engine home. Preserve native root AGENTS instructions and the path helpers used by retained runtime instructions/MCP settings. Update the existing regression to verify excluded root files remain untouched and no snapshot/cache is created, then run the relevant existing checks and update the same draft PR. Earlier snapshot verification below describes the previous revision and is superseded by this removal.

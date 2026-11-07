@@ -8,6 +8,7 @@ import { createToolImageRaster } from "./tool-image-raster.js";
 import { resolveNodeToolImageRasterRuntime } from "./tool-image-raster-runtime.js";
 import { registerToolImageOriginalRoutes } from "./routes/tool-image-originals.js";
 import { toolImageOriginalStore } from "./tool-image-original-store.js";
+import { localProjectMigrationPending } from "./project-storage.js";
 import { startToolImageOriginalLifecycle } from "./tool-image-original-lifecycle.js";
 import { LegalMemoryPermissionReplySchema } from "./native-shared-values.js";
 import { isRetiredRemoteWorkspace } from "./native-shared-values.js";
@@ -898,7 +899,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
         throw new ApiError(409, "corpus_provider", "Select an available JEV provider supporting yes/no and classification in Settings.");
       return settings.selection;
     },
-    extract: (workspace, path, signal) => extractCorpusText(workspace, path, preparation, signal),
+    extract: (workspace, path, signal, contentPath) => extractCorpusText({ path: workspace, contentPath }, path, preparation, signal),
     infer: (request, selection, signal) => systemOne(config, request, { providerId: selection.providerId, signal, retry: false }),
   });
   const reviews = new ReviewService(new ReviewExecutor(config), preparation, new ReviewDefaults(runtimeStorageDir(config), {
@@ -916,10 +917,13 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
   const scheduledRunner = new ScheduledTaskRunner(scheduledTasks, {
     resolveSession: async task => assistantRuntime.scheduledSession(task, await scheduledWorkspace(task)),
     available: async task => {
-      if (config.readOnly) return false;
+      if (config.readOnly || config.projectStorageMigrating || config.managedEngineStarting) return false;
       const workspace = await scheduledWorkspace(task);
-      const status = await createWorkspaceOpencodeClient(config, workspace).session.active({ signal: AbortSignal.timeout(10000) });
+      if (config.projectsDirectory && !workspace.contentPath || await localProjectMigrationPending(workspace)) return false;
+      const recovery = config.managedEngineRecoveryState?.();
       const target = task.sessionId ?? scheduledTasks.runs(task.id)[0]?.sessionId;
+      if (recovery?.mode === "promoting" || recovery?.heldSessions.some(session => session.id === target)) return false;
+      const status = await createWorkspaceOpencodeClient(config, workspace).session.active({ signal: AbortSignal.timeout(10000) });
       return !target || !status[target];
     },
     createSession: async task => {

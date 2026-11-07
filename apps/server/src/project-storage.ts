@@ -9,11 +9,12 @@ import { ApiError } from "./errors.js";
 import { readLegalworkWorkspaceConfig, writeLegalworkWorkspaceConfig } from "./legalwork-workspace-config-store.js";
 import { canonicalFilePath, withFileWriteLock } from "./file-write-lock.js";
 import type { ServerConfig, WorkspaceInfo } from "./types.js";
+import { projectPathKey } from "./workspace-path-match.js";
 
 export { workspaceContentPath, workspaceFileRoot };
 const folders = [".opencode", ".legalwork"];
 const missing = (error: unknown) => error instanceof Error && "code" in error && error.code === "ENOENT";
-const receiptSchema = z.object({ version: z.literal(1), id: z.string(), source: z.string(), fingerprints: z.record(z.string(), z.string()), copiedFingerprints: z.record(z.string(), z.string()).optional(), published: z.boolean().optional(), complete: z.boolean(), cleanupComplete: z.boolean().optional() });
+const receiptSchema = z.object({ version: z.literal(1), id: z.string(), source: z.string(), sourceAliases: z.array(z.string()).optional(), fingerprints: z.record(z.string(), z.string()), copiedFingerprints: z.record(z.string(), z.string()).optional(), published: z.boolean().optional(), complete: z.boolean(), referencesComplete: z.boolean().optional(), cleanupComplete: z.boolean().optional() });
 const receiptPath = (root: string) => join(root, ".project-storage-migration.json");
 
 /** Independently local project data; never derive this from Documents. */
@@ -136,7 +137,7 @@ export async function prepareLocalProject(config: ServerConfig, workspace: Works
         }
         await relocateSupportLinks(staging, source, target);
         const copiedFingerprints = Object.fromEntries(await Promise.all(folders.map(async folder => [folder, await fingerprint(join(staging, folder))])));
-        receipt = { version: 1, id: workspace.id, source, fingerprints, copiedFingerprints, complete: false };
+        receipt = { version: 1, id: workspace.id, source, sourceAliases: [...new Set([source, resolve(workspace.path)])], fingerprints, copiedFingerprints, complete: false };
         await saveReceipt(staging, receipt);
         await rename(staging, target);
       } finally { await rm(staging, { recursive: true, force: true }); }
@@ -169,6 +170,7 @@ export async function markLocalProjectPublished(workspace: WorkspaceInfo): Promi
 
 /** Owned registry updates are persisted by the startup caller after this batch. */
 export async function prepareLocalProjects(config: ServerConfig): Promise<boolean> {
+  if (config.readOnly) return false;
   let changed = false;
   for (let index = 0; index < config.workspaces.length; index++) {
     const workspace = config.workspaces[index];
@@ -198,14 +200,38 @@ export async function prepareLocalProjects(config: ServerConfig): Promise<boolea
   return changed;
 }
 
+/** Receipts survive removal from the registry. Inspect only owned local
+ * metadata, never probe other projects' disconnected document drives. */
+export async function localProjectIdForContent(config: Pick<ServerConfig, "projectsDirectory">, content: string): Promise<string | undefined> {
+  if (!config.projectsDirectory) return;
+  const home = await canonicalFilePath(config.projectsDirectory), selected = await canonicalFilePath(content);
+  const suffix = relative(home, selected).split(sep);
+  if (suffix.length === 2 && suffix[1] === "files" && /^[a-zA-Z0-9_-]+$/.test(suffix[0])) return suffix[0];
+  const entries = await readdir(home, { withFileTypes: true }).catch(error => { if (missing(error)) return []; throw error; });
+  const ids: string[] = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory() || !/^[a-zA-Z0-9_-]+$/.test(entry.name)) continue;
+    const path = join(home, entry.name);
+    const raw = await readFile(receiptPath(path), "utf8").catch(error => { if (missing(error)) return; throw error; });
+    if (!raw) continue;
+    let value: unknown;
+    try { value = JSON.parse(raw); } catch { continue; }
+    const parsed = receiptSchema.safeParse(value);
+    if (!parsed.success || parsed.data.id !== entry.name || !isAbsolute(parsed.data.source)) continue;
+    if (projectPathKey(parsed.data.source) === projectPathKey(selected)) ids.push(entry.name);
+  }
+  if (ids.length > 1) throw new ApiError(409, "project_storage_identity_conflict", "More than one retained project home belongs to this folder. Open the intended local project home to preserve its identity.");
+  return ids[0];
+}
+
 /** Called only after all native session locations were verified at the local home. */
 export async function finishLocalProject(workspace: WorkspaceInfo): Promise<void> {
   if (!workspace.previousPath || !workspace.contentPath) return;
   await withFileWriteLock(`${workspace.path}.migration.lock`, async () => {
     const receipt = receiptSchema.parse(JSON.parse(await readFile(receiptPath(workspace.path), "utf8")));
-    if (receipt.complete) return;
+    if (receipt.complete && receipt.referencesComplete) return;
     if (receipt.id !== workspace.id || receipt.source !== workspace.previousPath) throw new Error("Project migration receipt does not match the registered project.");
-    await saveReceipt(workspace.path, { ...receipt, published: true, complete: true });
+    await saveReceipt(workspace.path, { ...receipt, published: true, complete: true, referencesComplete: true });
     await cleanupLocalProject(workspace).catch(error => console.warn(`[project-storage] Cleanup deferred for ${workspace.id}: ${error instanceof Error ? error.message : String(error)}`));
   });
 }
@@ -214,7 +240,18 @@ export async function localProjectMigrationPending(workspace: WorkspaceInfo): Pr
   if (!workspace.previousPath) return false;
   const receipt = receiptSchema.parse(JSON.parse(await readFile(receiptPath(workspace.path), "utf8")));
   if (receipt.id !== workspace.id || receipt.source !== workspace.previousPath) throw new Error("Project migration ownership is invalid.");
-  return !receipt.complete;
+  return !receipt.complete || !receipt.referencesComplete;
+}
+
+/** Remember the registered spelling as well as realpath (for example a mapped
+ * drive or symlink). Reading these aliases never needs the document drive. */
+export async function localProjectReferenceRoots(workspace: WorkspaceInfo): Promise<WorkspaceInfo & { previousPaths?: string[] }> {
+  if (!workspace.previousPath) return workspace;
+  const raw = await readFile(receiptPath(workspace.path), "utf8").catch(error => { if (missing(error)) return; throw error; });
+  if (!raw) return workspace;
+  const receipt = receiptSchema.parse(JSON.parse(raw));
+  if (receipt.id !== workspace.id || receipt.source !== workspace.previousPath) throw new Error("Project migration ownership is invalid.");
+  return { ...workspace, previousPaths: receipt.sourceAliases ?? [receipt.source] };
 }
 
 /** Retire the original names only after native history moved. Keep a verified

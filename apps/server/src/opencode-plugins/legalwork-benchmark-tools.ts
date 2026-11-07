@@ -1,10 +1,11 @@
+import { resolveWorkspaceFile, type WorkspaceRoots } from "../project-storage-paths.js";
 import { Plugin } from "@opencode/plugin";
 import { nativeTool, nativeToolSignal } from "./native-tool.js";
 import { readFile } from "node:fs/promises";
-import { basename, isAbsolute, join } from "node:path";
+import { basename, isAbsolute } from "node:path";
 import { z } from "zod";
 
-import { resolveWorkspaceId, serverToken, serverUrl, type OpenCodeContext } from "./office-plugin-shared.js";
+import { resolveWorkspaceInfo, serverToken, serverUrl, type OpenCodeContext } from "./office-plugin-shared.js";
 import {
   resolveSkillDecision,
   SKILL_TOOL,
@@ -78,13 +79,13 @@ const createTaskArgs = z.object({
 /** Read the given file paths and base64-encode them for the create payload. */
 async function readDocuments(
   paths: string[],
-  baseDir: string,
+  workspace: WorkspaceRoots,
 ): Promise<{ documents: Array<{ name: string; contentBase64: string }>; errors: string[] }> {
   const documents: Array<{ name: string; contentBase64: string }> = [];
   const errors: string[] = [];
   for (const path of paths) {
     try {
-      const absolute = isAbsolute(path) ? path : join(baseDir, path);
+      const absolute = isAbsolute(path) ? path : resolveWorkspaceFile(workspace, path).path;
       const bytes = await readFile(absolute);
       if (bytes.byteLength === 0) {
         errors.push(`${path}: file is empty`);
@@ -180,9 +181,10 @@ async execute(rawArgs: unknown, context: OpenCodeContext) {
           });
         }
         try {
-          const workspaceId = await resolveWorkspaceId(context);
+          const workspace = await resolveWorkspaceInfo(context);
+          const workspaceId = workspace.id;
           const { documents, errors: documentErrors } = args.documentPaths?.length
-            ? await readDocuments(args.documentPaths, context.directory?.trim() || process.cwd())
+            ? await readDocuments(args.documentPaths, workspace)
             : { documents: [], errors: [] };
           const response = await fetch(`${url}/workspace/${encodeURIComponent(workspaceId)}/benchmarks/tasks`, {
             method: "POST",

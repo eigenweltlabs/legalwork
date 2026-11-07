@@ -16,6 +16,7 @@ import type { createToolImageRaster } from "../tool-image-raster.js";
 import type { ApprovalRequest, ServerConfig, TokenScope, WorkspaceInfo } from "../types.js";
 import { addRoute, type RequestContext, type Route } from "./registry.js";
 import { originalImageExportPath } from "../tool-image-original-path.js";
+import { workspaceContentPath } from "../project-storage-paths.js";
 
 const sha256 = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
 async function withinProject(directory: string, path: string, allowRoot = false) {
@@ -123,7 +124,7 @@ export function registerToolImageOriginalRoutes(options: {
   addRoute(routes, "POST", `${path}/export`, "client", async ctx => {
     options.ensureWritable(config); options.requireClientScope(ctx, "collaborator");
     const input = toolImageExportInput.parse(await ctx.request.json()), current = await authorizedImage(ctx, input.reference);
-    const directory = workspaceEngineLocation(current.workspace).directory, destination = originalImageExportPath(directory, input.path);
+    const directory = workspaceContentPath(current.workspace), destination = originalImageExportPath(directory, input.path);
     await withinProject(directory, destination);
     await options.requireApproval(ctx, { workspaceId: current.workspace.id, action: "workspace.file.write", paths: [destination], summary: `Export the exact original image to ${input.path}` });
     return withFileWriteLock(destination, async () => {

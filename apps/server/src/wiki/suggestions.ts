@@ -1,3 +1,4 @@
+import { workspaceFileRoot } from "../project-storage-paths.js";
 import { createHash, randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import { lstat, mkdir, open, readFile, readdir, realpath, rename, writeFile, rm } from "node:fs/promises";
@@ -29,7 +30,7 @@ async function boundedFile(path: string) {
 
 /** Drafts belong to the originating project. Nothing here writes a wiki. */
 export class WikiSuggestions {
-  constructor(private root: string, private workspaceId: string) {}
+  constructor(private root: string, private workspaceId: string, private contentPath = root) {}
 
   async locked<T>(id: string, action: () => Promise<T>): Promise<T> {
     const key = `${await realpath(this.root)}:${id}`;
@@ -67,7 +68,7 @@ export class WikiSuggestions {
     // Downloads in the project's temporary folder are supported, but hidden
     // configuration, absolute paths and symlinked project escapes are not.
     wikiPath(path.startsWith(".legalwork/tmp/") ? path.slice(".legalwork/tmp/".length) : path);
-    let current = await realpath(this.root);
+    let current = await realpath(workspaceFileRoot({ path: this.root, contentPath: this.contentPath }, path));
     for (const part of path.split("/")) {
       current = join(current, part);
       if ((await lstat(current)).isSymbolicLink()) throw new ApiError(400, "invalid_suggestion_attachment", "Source files must be inside this project, without symbolic links.");

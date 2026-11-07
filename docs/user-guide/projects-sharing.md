@@ -8,6 +8,10 @@ A project is the working context for a matter or other body of work: its files, 
 
 Open **Projects** and use the create action. Choose the name, an existing local folder or the offered project location, and optionally link folders from connected storage. Remote folder choices appear only when storage is connected.
 
+LegalWork keeps its engine files and project state in its own local application-data folder. When you choose an existing document folder, your documents stay there. For a project without a chosen folder, LegalWork creates a local **files** folder for its documents. Downloads, saved recordings and exported images go to the project's document folder; temporary processing files stay in local project storage.
+
+Upgrading moves the existing `.opencode` and `.legalwork` folders, including saved project data, attachments and wiki references. Saved chats keep their identities. Wait for migration to finish before running a chat or scheduled task. If you remove a local project from the project list and later add the same document folder, LegalWork reconnects its retained local project data. A disconnected document drive still needs to be reconnected to open or save the documents on it.
+
 **Set up from existing files**, when selected, starts an assistant chat to inspect the chosen material and establish the project. It can fill supported project details, identify concrete tasks and add useful source notes. Leave it off to create/link the project without starting that work. Review any extracted details and dates against their sources.
 
 On **Project Home**, edit matter details inline. Enter or leaving a text field saves; Escape cancels. Use the field-settings control to add or change text, number, date or selection fields. **Save to defaults** makes a field definition available to future projects without copying its current matter value. **Settings > Customization > Projects** controls the starting schema; existing saved project schemas keep their own definitions.

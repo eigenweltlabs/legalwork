@@ -74,6 +74,7 @@ export async function startManagedEngineLifecycle(options: {
   const preflight = async () => {
     if (!foldersPrepared) throw new ApiError(409, "project_storage_upgrade_pending", "OpenCode history must finish upgrading before project folders move.");
     if (await projectSessionMovesPending(config)) {
+      if (config.readOnly) throw new ApiError(409, "project_storage_read_only", "Saved project migration is held until LegalWork restarts with write access.");
       if (!endpointLive) throw new ApiError(409, "project_storage_history_pending", "Saved chats are moving to local project storage before interrupted work can resume.");
       await migrateLocalProjectSessions(config, client());
     }

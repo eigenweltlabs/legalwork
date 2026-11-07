@@ -3366,13 +3366,13 @@ async function verifyLegalworkServer(input: {
 
   const expectedPath = normalizeWorkspacePath(input.expectedWorkspace);
   const matched = items.find((item) => {
-    const candidate = item as { path?: string };
-    const path = typeof candidate.path === "string" ? candidate.path : "";
-    return path && normalizeWorkspacePath(path) === expectedPath;
+    return [item.path, item.contentPath, item.previousPath].some(path => typeof path === "string" && normalizeWorkspacePath(path) === expectedPath);
   }) as
     | {
         id?: string;
         path?: string;
+        contentPath?: string;
+        previousPath?: string;
         opencode?: {
           baseUrl?: string;
           directory?: string;
@@ -3382,13 +3382,17 @@ async function verifyLegalworkServer(input: {
       }
     | undefined;
 
-  if (!matched) {
+  if (!matched || !matched.path) {
     throw new Error(
       `LegalWork server workspace mismatch. Expected ${expectedPath}.`,
     );
   }
 
   const opencode = matched.opencode;
+  // A managed local server relocates the requested project's engine home.
+  // Explicit remote/container directory expectations still compare verbatim.
+  const expectedDirectory = input.expectedOpencodeDirectory && normalizeWorkspacePath(input.expectedOpencodeDirectory) === expectedPath
+    ? matched.path : input.expectedOpencodeDirectory;
   if (
     input.expectedOpencodeBaseUrl &&
     opencode?.baseUrl !== input.expectedOpencodeBaseUrl
@@ -3398,11 +3402,11 @@ async function verifyLegalworkServer(input: {
     );
   }
   if (
-    input.expectedOpencodeDirectory &&
-    opencode?.directory !== input.expectedOpencodeDirectory
+    expectedDirectory &&
+    normalizeWorkspacePath(opencode?.directory ?? "") !== normalizeWorkspacePath(expectedDirectory)
   ) {
     throw new Error(
-      `LegalWork server OpenCode directory mismatch: expected ${input.expectedOpencodeDirectory}, got ${opencode?.directory ?? "<missing>"}.`,
+      `LegalWork server OpenCode directory mismatch: expected ${expectedDirectory}, got ${opencode?.directory ?? "<missing>"}.`,
     );
   }
   if (

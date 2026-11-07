@@ -1,4 +1,5 @@
 import { workspaceFileRoot } from "@legalwork/types/workspace";
+import { resolveLocalFilePath } from "@/app/lib/local-file-path.impl.js";
 import { useProjectFiles } from "../../workspace/project-file-context";
 import { documentNavigationSchema } from "@legalwork/types/office-editor";
 import { suggestionIdFromFile } from "@legalwork/types/wiki-suggestions";
@@ -111,10 +112,7 @@ function nextBinaryRevision(updatedAt: number | null) {
 }
 
 function absoluteWorkspacePath(root: string, path: string) {
-  const cleanRoot = root.trim().replace(/[/\\]+$/, "");
-  const cleanPath = path.trim().replace(/^\.\//, "");
-  
-  return cleanRoot ? `${cleanRoot}/${cleanPath}` : cleanPath;
+  return root ? resolveLocalFilePath(root, path) : path;
 }
 
 function isTextContent(target: OpenTarget): boolean {

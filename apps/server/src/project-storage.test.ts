@@ -6,7 +6,7 @@ import { finishLocalProject, localProjectMigrationPending, markLocalProjectPubli
 import { writeNativeProjectProjection } from "./engine-project.js";
 import { listSkills } from "./skills.js";
 import { saveEmailDraft } from "./email-drafts/store.js";
-import { createLocalProjectFolder, registerLocalProject } from "./routes/workspaces.js";
+import { createLocalProjectFolder, registerLocalProject, unregisterWorkspace } from "./routes/workspaces.js";
 import { startServer } from "./server.js";
 import type { ServerConfig } from "./types.js";
 
@@ -130,6 +130,26 @@ test("default creation allocates documents inside files and keeps path permissio
   expect(workspaceFileRoot(workspace, "contract.txt")).toBe(workspace.contentPath!);
   const rules = projectFilePermissionRules(workspace, [{ action: "read", resource: "private/*", effect: "deny" }]);
   expect(rules).toContainEqual({ action: "read", resource: `${workspace.contentPath}/private/*`, effect: "deny" });
+  const generic = { action: "*", resource: "curl *", effect: "deny" };
+  const aliases = projectFilePermissionRules(workspace, [generic]);
+  expect(aliases[0]).toEqual(generic);
+  expect(aliases.slice(1).map(rule => rule.action)).toEqual(["read", "edit", "list", "external_directory"]);
+});
+
+test("re-adding the original folder or a default files folder preserves retained identity and local changes", async () => {
+  const f = await fixture();
+  const local = await prepareLocalProject(f.config, f.original);
+  await markLocalProjectPublished(local); await finishLocalProject(local);
+  await writeFile(join(local.path, ".legalwork", "attachments", "mail.txt"), "New local work");
+  f.config.workspaces = [local];
+  await unregisterWorkspace(f.config, local);
+  const restored = (await registerLocalProject(f.config, { folderPath: f.source, name: "Reopened", preset: "starter" })).workspace;
+  expect(restored).toMatchObject({ id: local.id, path: local.path, contentPath: f.source });
+  expect(await readFile(join(restored.path, ".legalwork", "attachments", "mail.txt"), "utf8")).toBe("New local work");
+  const folder = await createLocalProjectFolder(f.config, "Default matter");
+  const created = (await registerLocalProject(f.config, { ...folder, name: "Default matter", preset: "starter" })).workspace;
+  await unregisterWorkspace(f.config, created);
+  expect((await registerLocalProject(f.config, { folderPath: created.contentPath!, name: "Default again", preset: "starter" })).workspace.id).toBe(created.id);
 });
 
 test("file APIs read and write connected documents and local attachments, including legacy absolute links", async () => {
@@ -137,6 +157,10 @@ test("file APIs read and write connected documents and local attachments, includ
   expect(await prepareLocalProjects(f.config)).toBe(true);
   const local = f.config.workspaces[0]!;
   await finishLocalProject(local);
+  const folder = await createLocalProjectFolder(f.config, "Default");
+  const standard = (await registerLocalProject(f.config, { ...folder, name: "Default", preset: "starter" })).workspace;
+  await writeFile(join(standard.contentPath!, "contract.txt"), "Default document");
+  await writeFile(join(standard.path, "engine-result.txt"), "Native result");
   f.config.projectStorageMigrating = true;
   const server = await startServer(f.config, { onListening: async port => {
     const root = `http://127.0.0.1:${port}`;
@@ -151,6 +175,15 @@ test("file APIs read and write connected documents and local attachments, includ
   cleanups.push(async () => { await server.stop(); });
   const base = `http://127.0.0.1:${server.port}/workspace/${local.id}`;
   const headers = { Authorization: `Bearer ${f.config.token}`, "Content-Type": "application/json" };
+  const standardBase = `http://127.0.0.1:${server.port}/workspace/${standard.id}`;
+  for (const path of ["contract.txt", join(standard.contentPath!, "contract.txt")]) {
+    const response = await fetch(`${standardBase}/files/raw?path=${encodeURIComponent(path)}`, { headers });
+    expect(response.status).toBe(200); expect(await response.text()).toBe("Default document");
+  }
+  const nativeArtifact = await fetch(`${standardBase}/artifacts/resolve`, { method: "POST", headers, body: JSON.stringify({ targets: [{ value: "engine-result.txt", reason: "write tool metadata" }] }) });
+  const artifact = (await nativeArtifact.json()).items[0];
+  expect(artifact).toMatchObject({ value: join(standard.path, "engine-result.txt"), exists: true });
+  expect(await (await fetch(`${standardBase}/files/raw?path=${encodeURIComponent(artifact.value)}`, { headers })).text()).toBe("Native result");
   for (const [path, content] of [["contract.txt", "Original document"], [".legalwork/attachments/mail.txt", "Retained attachment"]]) {
     const response = await fetch(`${base}/files/content?path=${encodeURIComponent(path!)}`, { headers });
     expect(response.status).toBe(200);

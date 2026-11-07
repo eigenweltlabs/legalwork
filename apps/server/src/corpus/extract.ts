@@ -1,12 +1,13 @@
 import { createHash } from "node:crypto";
 import { readFile, realpath, stat } from "node:fs/promises";
-import { extname, resolve } from "node:path";
+import { extname } from "node:path";
 import { unzipSync } from "fflate";
 import { within } from "../reviews/storage.js";
 import { docxEvidence, prepareReviewEvidence } from "../reviews/evidence.js";
 import { inspectPdfText } from "../document-preparation/render.js";
 import type { EvidencePage } from "../reviews/chunks.js";
 import type { DocumentPreparation } from "../document-preparation/service.js";
+import { resolveWorkspaceFile, type WorkspaceRoots } from "../project-storage-paths.js";
 
 const TEXT = new Set(["", ".rtf", ".js", ".ts", ".tsx", ".jsx", ".py", ".css", ".sql", ".txt", ".md", ".markdown", ".csv", ".tsv", ".json", ".jsonl", ".xml", ".yaml", ".yml", ".html", ".htm", ".log"]);
 export const CORPUS_EXTENSIONS = new Set([...TEXT, ".pdf", ".docx", ".xlsx", ".pptx", ".odt", ".ods", ".odp", ".png", ".jpg", ".jpeg", ".webp"]);
@@ -40,9 +41,11 @@ export function officeText(bytes: Uint8Array, extension: string) {
   }).join("\n\n");
 }
 export type CorpusText = { text: string; pages: EvidencePage[]; complete: boolean; extraction: "native" | "ocr"; hash: string; preparationPath?: string; issue?: string };
-export async function extractCorpusText(workspace: string, path: string, preparation: DocumentPreparation, signal: AbortSignal, options: { retry?: boolean } = {}): Promise<CorpusText> {
+export async function extractCorpusText(workspace: string | WorkspaceRoots, path: string, preparation: DocumentPreparation, signal: AbortSignal, options: { retry?: boolean } = {}): Promise<CorpusText> {
   signal.throwIfAborted();
-  const root = await realpath(workspace), absolute = await realpath(resolve(root, path));
+  const roots = typeof workspace === "string" ? { path: workspace } : workspace;
+  const location = resolveWorkspaceFile(roots, path);
+  const root = await realpath(location.root), absolute = await realpath(location.path);
   if (!within(root, absolute)) throw new Error("The file is outside this project.");
   const size = await stat(absolute);
   if (!size.isFile() || size.size > 64 * 1024 * 1024) throw new Error("Files must be at most 64 MiB.");
@@ -69,7 +72,7 @@ export async function extractCorpusText(workspace: string, path: string, prepara
   }
   if (needsOcr) {
     try {
-      const evidence = await prepareReviewEvidence({ workspace, path, preparation, signal, force: options.retry ?? false, onProgress: async () => {} });
+      const evidence = await prepareReviewEvidence({ workspace: roots.path, contentPath: location.root, path: location.relativePath, preparation, signal, force: options.retry ?? false, onProgress: async () => {} });
       pages = evidence.pages; preparationPath = evidence.preparationPath; complete = evidence.complete; extraction = "ocr";
     } catch (error) {
       signal.throwIfAborted();

@@ -7,11 +7,14 @@ export function projectFilePermissionRules<T extends { action: string; resource:
   if (!workspace.contentPath) return [...rules];
   const contentPath = workspace.contentPath;
   return rules.flatMap(rule => {
-    if (rule.resource === "*" || !["read", "edit", "list", "external_directory"].some(action => permissionPatternMatches(action, rule.action))) return [rule];
+    const actions = ["read", "edit", "list", "external_directory"].filter(action => permissionPatternMatches(action, rule.action));
+    if (rule.resource === "*" || !actions.length) return [rule];
     const suffix = isAbsolute(rule.resource) && workspace.previousPath ? relative(workspace.previousPath, rule.resource) : rule.resource;
     const moved = /^(?:\.opencode|\.legalwork)(?:[\\/]|$)/.test(suffix);
     const resource = moved ? resolve(workspace.path, suffix) : isAbsolute(rule.resource) ? rule.resource : resolve(contentPath, rule.resource);
-    return resource === rule.resource ? [rule] : [rule, { ...rule, resource: resource.replaceAll("\\", "/") }];
+    // A generic rule can also describe a command. Its translated aliases must
+    // apply only to filesystem actions, preserving the original shell policy.
+    return resource === rule.resource ? [rule] : [rule, ...actions.map(action => ({ ...rule, action, resource: resource.replaceAll("\\", "/") }))];
   });
 }
 

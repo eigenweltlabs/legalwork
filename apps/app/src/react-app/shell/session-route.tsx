@@ -2930,13 +2930,13 @@ export function SessionRoute() {
               id: workspace.id,
               name: workspace.displayNameResolved || workspace.name || workspace.id,
             }))}
-            workspacePath={selectedWorkspaceRoot ?? null}
+            workspacePath={selectedWorkspace?.contentPath || selectedWorkspaceRoot || null}
             workspaceTargets={workspaces
               .filter((workspace) => workspace.path?.trim())
               .map((workspace) => ({
                 id: workspace.id,
                 name: workspace.displayNameResolved,
-                path: workspace.path,
+                path: workspace.contentPath || workspace.path,
               }))
               // Selected workspace first, so the common case is one click away.
               .sort((a, b) => Number(b.id === selectedWorkspaceId) - Number(a.id === selectedWorkspaceId))}

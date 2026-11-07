@@ -9,6 +9,8 @@ import { storageFileTab } from "../panel/storage-file-tab";
 import { createDocumentTaskQueue, checkDocumentTask, type DocumentTaskOptions } from "./document-task-queue";
 import { openBackgroundTab } from "../background/open-background-tab";
 import { t } from "@/i18n";
+import { workspaceFileRoot } from "@legalwork/types/workspace";
+import { localFileIdentity } from "@/app/lib/local-file-path.impl.js";
 
 export type DocumentProject = { projectId: string; workspaceId: string; workspaceRoot: string; contentRoot?: string; client: LegalworkServerClient; isRemoteWorkspace: boolean };
 export type Registration = { surface: LegalworkControlSurface; action: LegalworkControlAction; ready: () => boolean; dirty: () => boolean; updatedAt?: () => number | null };
@@ -170,6 +172,7 @@ export function createDocumentRuntime(createHost = () => document.createElement(
       const project = await getProject(sessionId);
       const paths: unknown = args && typeof args === "object" ? Reflect.get(args, "paths") : undefined;
       if (paths !== undefined && (!Array.isArray(paths) || !paths.every(path => typeof path === "string" && validPath(path)))) throw new Error("Use workspace-relative file paths.");
+      const edited = Array.isArray(paths) ? new Set(paths.map(path => localFileIdentity(project.workspaceRoot, path))) : null;
       if (fileEdits.has(operationId)) throw new Error("This file operation is already running.");
       let finish!: () => void, ready!: () => void, fail!: (error: unknown) => void;
       const released = new Promise<void>(resolve => { finish = resolve; });
@@ -179,7 +182,7 @@ export function createDocumentRuntime(createHost = () => document.createElement(
         const matches = (props: ArtifactPanelProps) => props.workspaceId === project.workspaceId
           && props.client?.baseUrl === project.client.baseUrl && !props.tab.storage
           && ["word", "markdown", "sheet", "slides"].includes(props.tab.preview ?? "")
-          && (!Array.isArray(paths) || paths.includes(props.tab.value));
+          && (!edited || edited.has(localFileIdentity(workspaceFileRoot({ path: project.workspaceRoot, contentPath: project.contentRoot }, props.tab.value ?? ""), props.tab.value ?? "")));
         const handoff = { matches, opened: new Array<Entry>() };
         activeHandoffs.set(operationId, handoff);
         try {

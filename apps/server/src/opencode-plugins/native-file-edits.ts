@@ -1,6 +1,7 @@
 import { relative, resolve, isAbsolute } from "node:path";
 import { beginFileEditorHandoff } from "../file-editor-handoff.js";
 import { cancelUiBridgeRequests } from "../inapp-document-bridge.js";
+import { canonicalFilePath } from "../file-write-lock.js";
 
 /** Native file tools have no execution wrapper, so pair the before/after hooks
  * and the engine's error event. Shell processes are coordinated at execution. */
@@ -22,8 +23,11 @@ export function nativeFileEdits(directory?: string, begin = beginFileEditorHando
       const raw = output.args.filePath ?? output.args.path;
       let paths: string[] | undefined;
       if (typeof raw === "string" && directory) {
-        const path = relative(directory, resolve(directory, raw)).replace(/\\/g, "/");
-        if (path !== ".." && !path.startsWith("../") && !isAbsolute(path)) paths = [path];
+        const absolute = resolve(directory, raw);
+        const path = relative(directory, absolute).replace(/\\/g, "/");
+        // Linked aliases can name an editor through a different path. In that
+        // case retain the existing all-editors handoff instead of missing it.
+        if (path !== ".." && !path.startsWith("../") && !isAbsolute(path) && await canonicalFilePath(absolute) === absolute) paths = [path];
       }
       await finish(input.sessionID, input.callID);
       const id = key(input.sessionID, input.callID);
