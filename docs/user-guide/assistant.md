@@ -226,6 +226,12 @@ Scheduled morning briefings use the same layout and share one primary document c
 
 Related: [Dashboards and reports](dashboards.md), [Files](files-documents.md), [Scheduled tasks](scheduled-tasks.md).
 
+## If the Assistant does not open
+
+If the Assistant takes too long to open, LegalWork stops that attempt and shows
+an error. Wait for the engine to become available, then select **Your assistant**
+again. Saved Assistant conversations remain available while it reconnects.
+
 ## Settings
 
 Open **Settings > Assistant** to change its appearance, add custom instructions, or choose Plugins, Workflows and Skills

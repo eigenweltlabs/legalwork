@@ -12,6 +12,23 @@ import { assertEngineProjectReady } from "./engine-project.js";
 import { recoverSessionMcp } from "./workspace-mcp-recovery.js";
 import { ensureLegacySessionPermissions } from "./session-history-permissions.js";
 
+/** Cancel this caller's wait without cancelling another caller's publication. */
+function abortableAdmission<T>(operation: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+  signal?.throwIfAborted();
+  if (!signal) return operation();
+  return new Promise((resolve, reject) => {
+    const abort = () => reject(signal.reason);
+    signal.addEventListener("abort", abort, { once: true });
+    void Promise.resolve().then(operation).then(value => {
+      signal.removeEventListener("abort", abort);
+      resolve(value);
+    }, error => {
+      signal.removeEventListener("abort", abort);
+      reject(error);
+    });
+  });
+}
+
 /** The native v2 client returns domain values directly and throws on failure.
  * Location is explicit on location-scoped operations; a session routes through
  * its saved location. Never change a process-global default for another project. */
@@ -22,11 +39,12 @@ export function createEngineClient(config: ServerConfig, workspace: WorkspaceInf
     fetch: Object.assign(async (request: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
       const url = new URL(typeof request === "string" ? request : request instanceof URL ? request.href : request.url);
       const method = (init?.method ?? (request instanceof Request ? request.method : "GET")).toUpperCase();
+      const signal = init?.signal ?? (request instanceof Request ? request.signal : undefined) ?? undefined;
       const passive = method === "GET" && (url.pathname === "/api/info" || url.pathname === "/api/event" || /^\/api\/session\/[^/]+$/.test(url.pathname))
         || method === "POST" && (/^\/api\/session\/[^/]+\/interrupt$/.test(url.pathname) || /\/legalwork\.commands\/cancel$/.test(url.pathname));
       if (!passive) {
-        await awaitRegisteredEngineProjects(config);
-        await assertEngineProjectReady(config, workspace);
+        await abortableAdmission(() => awaitRegisteredEngineProjects(config), signal);
+        await abortableAdmission(() => assertEngineProjectReady(config, workspace), signal);
       }
       assertManagedHistoryReadable(config, method, url.pathname);
       let response: Response;
@@ -50,7 +68,6 @@ export function createEngineClient(config: ServerConfig, workspace: WorkspaceInf
         await config.observeManagedEngineResponse?.({ method, path: url.pathname, directory: url.searchParams.get("location[directory]") || workspaceEngineLocation(workspace).directory }, result);
         return result;
       };
-      const signal = init?.signal ?? (request instanceof Request ? request.signal : undefined);
       try {
         if (sessionID) await ensureLegacySessionPermissions(config, workspace, client, sessionID);
         if (sessionID && /\/(?:prompt|command)$/.test(url.pathname)) {
@@ -101,12 +118,13 @@ export async function getWorkspaceEngineSessionOrNull(client: OpenCodeClient, wo
 
 /** Native lists are paginated. An omitted application limit means all pages,
  * not the engine's first page. A supplied UI page size never caps model context. */
-export async function listEngineSessions(client: OpenCodeClient, input: SessionListInput = {}): Promise<SessionInfo[]> {
+export async function listEngineSessions(client: OpenCodeClient, input: SessionListInput = {}, options?: Parameters<OpenCodeClient["session"]["list"]>[1]): Promise<SessionInfo[]> {
   const result: SessionInfo[] = [];
   const seen = new Set<string>();
   let cursor = input.cursor;
   do {
-    const page = await client.session.list({ ...(cursor ? { cursor } : input), ...(input.limit === undefined ? {} : { limit: input.limit - result.length }) });
+    options?.signal?.throwIfAborted();
+    const page = await client.session.list({ ...(cursor ? { cursor } : input), ...(input.limit === undefined ? {} : { limit: input.limit - result.length }) }, options);
     result.push(...page.data);
     if (input.limit !== undefined && result.length >= input.limit) break;
     cursor = page.cursor.next ?? undefined;

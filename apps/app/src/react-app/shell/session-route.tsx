@@ -22,7 +22,7 @@ import type { AssistantAvatarIcon, AssistantProfile } from "@legalwork/types/mai
 import { carryAssistantDraft } from "@/react-app/domains/session/surface/composer-state-store";
 import { hasAssistantSubscription } from "@legalwork/types/main-assistant";
 import { AssistantUpgradeModal } from "./assistant-upgrade";
-import { resolveAssistantChat, savedAssistantQuery, seedSavedAssistant } from "./assistant-navigation";
+import { currentAssistantQuery, resolveAssistantChat, savedAssistantQuery, seedSavedAssistant } from "./assistant-navigation";
 import { useSessionInbox } from "./use-session-inbox";
 import { ScheduledTasksPage } from "../domains/scheduled-tasks/scheduled-tasks-page";
 import { CalendarView } from "../domains/calendar/calendar-view";
@@ -584,11 +584,7 @@ export function SessionRoute() {
   useEffect(() => {
     if (eigenweltEntitlementsQuery.data && !assistantIncluded && selectedWorkspace?.preset === "main-assistant") setAssistantUpgrade("intro");
   }, [assistantIncluded, eigenweltEntitlementsQuery.data?.connected, selectedWorkspace?.id]);
-  const assistant = useQuery({
-    queryKey: ["main-assistant", client?.baseUrl], enabled: Boolean(client) && assistantIncluded && !isOfficeAddinRuntime(),
-    queryFn: () => { if (!client) throw new Error("Server unavailable"); return client.mainAssistantCurrent(defaultProjectFields(useProjectDefaultsStore.getState())); },
-    refetchInterval: 30_000, refetchOnWindowFocus: "always",
-  });
+  const assistant = useQuery(currentAssistantQuery(client));
   const savedAssistant = useQuery({
     ...savedAssistantQuery(client), enabled: Boolean(client) && !isOfficeAddinRuntime(),
     staleTime: 30_000,
@@ -651,7 +647,7 @@ export function SessionRoute() {
     if (!client) return;
     if (!assistantIncluded && !assistant.data) { pendingAssistantOpen.current = true; setAssistantUpgrade("intro"); return; }
     try {
-      const current = assistant.data ?? await resolveAssistantChat(client, getReactQueryClient());
+      const current = await resolveAssistantChat(client, getReactQueryClient(), new Date(), defaultProjectFields(useProjectDefaultsStore.getState()));
       getReactQueryClient().setQueryData(["main-assistant", client.baseUrl], current);
       const panels = usePanelTabStore.getState();
       panels.setAssistantWorkspace(current.workspace.id);
@@ -2478,7 +2474,7 @@ export function SessionRoute() {
       let assistantSessionId: string | null = null;
       if (homeProjectId && !workspace) throw new Error(t("workspace.not_found"));
       if (!workspace) {
-        const current = await resolveAssistantChat(client, getReactQueryClient());
+        const current = await resolveAssistantChat(client, getReactQueryClient(), new Date(), defaultProjectFields(useProjectDefaultsStore.getState()));
         workspace = mapDesktopWorkspace(current.workspace);
         assistantSessionId = current.day.sessionId;
         getReactQueryClient().setQueryData(["main-assistant", client.baseUrl], current);
