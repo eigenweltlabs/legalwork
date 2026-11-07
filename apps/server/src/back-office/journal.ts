@@ -35,7 +35,7 @@ const JsonSchema = z.json();
 const PendingSchema = z.object({
   seq: z.number(),
   scope: z.string(),
-  kind: z.enum(["record", "model", "view", "proposal"]),
+  kind: z.enum(["record", "model", "view", "proposal", "replica"]),
   target: z.string(),
   before_data: z.string().nullable(),
   after_data: z.string().nullable(),
@@ -86,6 +86,7 @@ const auditedTables = [
   { table: "bo_records", kind: "record", target: "id" },
   { table: "bo_views", kind: "view", target: "id" },
   { table: "bo_outbox", kind: "proposal", target: "id" },
+  { table: "bo_replicas", kind: "replica", target: "'replica'" },
 ] satisfies { table: string; kind: Pending["kind"]; target: string }[];
 type Pending = z.infer<typeof PendingSchema>;
 type Json = z.infer<typeof JsonSchema>;
@@ -158,7 +159,7 @@ export class BackOfficeJournal {
         const id = target === "id" ? `${side}.id` : target;
         const when =
           operation === "UPDATE" ? "WHEN OLD.data IS NOT NEW.data" : "";
-        const identity = ["scope", ...(table === "bo_models" ? [] : ["id"]), ...(table === "bo_records" ? ["object_id"] : [])];
+        const identity = ["scope", ...(target === "id" ? ["id"] : []), ...(table === "bo_records" ? ["object_id"] : [])];
         const guard = operation === "UPDATE"
           ? `SELECT RAISE(ABORT,'Back Office row identity is immutable') WHERE ${identity.map(column => `OLD.${column} IS NOT NEW.${column}`).join(" OR ")}; SELECT RAISE(ABORT,'Back Office changes require an audited transaction') WHERE OLD.data IS NOT NEW.data AND NOT EXISTS(SELECT 1 FROM bo_journal_context WHERE id=1);`
           : "SELECT RAISE(ABORT,'Back Office changes require an audited transaction') WHERE NOT EXISTS(SELECT 1 FROM bo_journal_context WHERE id=1);";
@@ -382,7 +383,7 @@ export class BackOfficeJournal {
     const empty = backOfficeAuditStateHash(null, null);
     for (const row of this.rows(stream.stream_id)) {
       const proof = BackOfficeAuditProofSchema.parse(JSON.parse(row.proof));
-      if (!["record", "model", "view", "proposal"].includes(proof.entityType))
+      if (!auditedTables.some(table => table.kind === proof.entityType))
         continue;
       if (proof.beforeHash !== (result[proof.entityKey] ?? empty))
         throw new Error(
@@ -721,7 +722,7 @@ export class BackOfficeJournal {
     try {
       this.begin("audit.initialize");
       for (const row of this.db.all(
-        "SELECT scope FROM bo_models UNION SELECT scope FROM bo_records UNION SELECT scope FROM bo_views UNION SELECT scope FROM bo_outbox UNION SELECT scope FROM bo_audit",
+        "SELECT scope FROM bo_models UNION SELECT scope FROM bo_records UNION SELECT scope FROM bo_views UNION SELECT scope FROM bo_outbox UNION SELECT scope FROM bo_audit UNION SELECT scope FROM bo_replicas",
       )) {
         const scope = String(row.scope);
         if (

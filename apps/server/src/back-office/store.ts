@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { BackOfficeJournal } from "./journal.js";
+import { backOfficeAuthorKey, backOfficePrincipalKey } from "./principal.js";
 import {
   openBackOfficeAuditStorage,
   memoryBackOfficeAuditStorage,
@@ -42,6 +44,7 @@ CREATE TABLE IF NOT EXISTS bo_records (scope TEXT NOT NULL, id TEXT NOT NULL, ob
 CREATE INDEX IF NOT EXISTS bo_records_object ON bo_records(scope,object_id);
 CREATE TABLE IF NOT EXISTS bo_views (scope TEXT NOT NULL, id TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY(scope,id));
 CREATE TABLE IF NOT EXISTS bo_outbox (seq INTEGER PRIMARY KEY AUTOINCREMENT, scope TEXT NOT NULL, id TEXT NOT NULL UNIQUE, data TEXT NOT NULL, error TEXT);
+CREATE TABLE IF NOT EXISTS bo_replicas (scope TEXT PRIMARY KEY, data TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS bo_audit (seq INTEGER PRIMARY KEY AUTOINCREMENT, scope TEXT NOT NULL, actor TEXT NOT NULL, action TEXT NOT NULL, record_id TEXT NOT NULL, data TEXT NOT NULL, created_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS bo_sync (scope TEXT PRIMARY KEY, cursor INTEGER NOT NULL DEFAULT 0, enabled INTEGER NOT NULL DEFAULT 0, last_error TEXT);
 INSERT OR IGNORE INTO bo_migrations VALUES(1,datetime('now'));`;
@@ -190,6 +193,47 @@ export class BackOfficeStore {
     }
   }
 
+  private connectedAccount() {
+    const hasConnection = this.db.get("SELECT name FROM sqlite_master WHERE type='table' AND name='eigenwelt_connections'");
+    const row = hasConnection ? this.db.get("SELECT account_json,platform_url,platform_token FROM eigenwelt_connections WHERE workspace_id='eigenwelt-account'") : null;
+    const account = row?.account_json ? z.object({ orgId: z.string(), userId: z.string() }).safeParse(JSON.parse(String(row.account_json))) : null;
+    return row?.platform_token && row.platform_url && account?.success ? { ...account.data, principalKey: backOfficePrincipalKey(String(row.platform_url), account.data.orgId, account.data.userId) } : null;
+  }
+  connectedPrincipalKey() { return this.connectedAccount()?.principalKey ?? null; }
+  requireAccount(scope: string, actor: BackOfficeActor) {
+    if (scope === "local" || !actor.principalKey) return;
+    const account = this.connectedAccount();
+    if (!account || account.orgId !== scope || account.userId !== actor.userId || account.principalKey !== actor.principalKey)
+      throw new ApiError(409, "back_office_account_changed", "The connected account changed. Refresh Back Office before continuing.");
+  }
+
+  teamScopes() {
+    return this.db.all("SELECT scope FROM bo_models UNION SELECT scope FROM bo_records UNION SELECT scope FROM bo_views UNION SELECT scope FROM bo_outbox UNION SELECT scope FROM bo_replicas")
+      .map(row => String(row.scope)).filter(scope => scope !== "local");
+  }
+
+  bindAccount(scope: string, actor: BackOfficeActor) {
+    this.transaction(() => {
+      this.requireAccount(scope, actor);
+      const key = backOfficeAuthorKey(actor);
+      const current = this.db.get("SELECT data FROM bo_replicas WHERE scope=?", [scope]);
+      const previous = current ? z.object({ id: z.literal("replica"), principalKey: z.string() }).parse(JSON.parse(String(current.data))) : null;
+      if (previous?.principalKey === key) return;
+      this.suspendTeam(scope, "The connected account changed. Reconnect to load authorized team records.");
+      this.db.run("INSERT INTO bo_replicas VALUES(?,?) ON CONFLICT(scope) DO UPDATE SET data=excluded.data", [scope, JSON.stringify({ id: "replica", principalKey: key })]);
+    }, { actor, action: "cache.account" });
+  }
+
+  suspendAccount(scope: string, principalKey: string | null, message: string, expectedConnection?: string | null, preservePrincipal?: string | null) {
+    this.transaction(() => {
+      if (expectedConnection !== undefined && this.connectedPrincipalKey() !== expectedConnection) return;
+      const row = this.db.get("SELECT data FROM bo_replicas WHERE scope=?", [scope]);
+      const bound = row ? z.object({ principalKey: z.string() }).parse(JSON.parse(String(row.data))).principalKey : null;
+      if (bound && ((principalKey !== null && bound !== principalKey) || (preservePrincipal && bound === preservePrincipal))) return;
+      this.suspendTeam(scope, message);
+    }, { action: "cache.account-revoke" });
+  }
+
   audit(
     scope: string,
     actor: BackOfficeActor,
@@ -201,6 +245,7 @@ export class BackOfficeStore {
   }
   enqueue(
     scope: string,
+    actor: BackOfficeActor,
     kind: BackOfficeChange["kind"],
     revision: number,
     data: unknown,
@@ -226,6 +271,7 @@ export class BackOfficeStore {
       data,
       changedFields,
       changedMetadata,
+      authorKey: backOfficeAuthorKey(actor),
     };
     this.db.run("INSERT INTO bo_outbox(scope,id,data) VALUES(?,?,?)", [
       scope,
@@ -257,6 +303,7 @@ export class BackOfficeStore {
     objectId?: string,
     archived = false,
   ): BackOfficeRecord[] {
+    this.requireAccount(scope, actor);
     const model = this.model(scope);
     return this.db
       .all(
@@ -292,6 +339,7 @@ export class BackOfficeStore {
     const parsed = inputRecord.parse(input);
     return this.transaction(
       () => {
+        this.requireAccount(scope, actor);
         const model = this.model(scope),
           object = model.objects.find(
             (object) => object.id === parsed.objectId && !object.archived,
@@ -466,6 +514,7 @@ export class BackOfficeStore {
           changedMetadata.push("archive");
         this.enqueue(
           scope,
+          actor,
           "record",
           parsed.revision,
           record,
@@ -559,6 +608,7 @@ export class BackOfficeStore {
     const candidate = BackOfficeModelSchema.parse(input);
     return this.transaction(
       () => {
+        this.requireAccount(scope, actor);
         const current = this.model(scope);
         if (current.revision !== baseRevision)
           conflict(
@@ -613,7 +663,7 @@ export class BackOfficeStore {
           before: current,
           after: next,
         });
-        this.enqueue(scope, "model", current.revision, next);
+        this.enqueue(scope, actor, "model", current.revision, next);
         return next;
       },
       { actor, action: "model.update" },
@@ -643,11 +693,12 @@ export class BackOfficeStore {
     }
     this.transaction(
       () => {
+        this.requireAccount(scope, actor);
         this.db.run(
           "INSERT INTO bo_views VALUES(?,?,?) ON CONFLICT(scope,id) DO UPDATE SET data=excluded.data",
           [scope, view.id, JSON.stringify(view)],
         );
-        this.enqueue(scope, "view", 0, view);
+        this.enqueue(scope, actor, "view", 0, view);
         this.audit(scope, actor, "view.save", view.id, view);
       },
       { actor, action: "view.save" },
@@ -667,12 +718,13 @@ export class BackOfficeStore {
     if (!actor.model) return [];
     return this.journal.history(scope, id);
   }
-  pending(scope: string, limit = 100) {
+  pending(scope: string, limit = 100, actor?: BackOfficeActor) {
+    if (actor) this.requireAccount(scope, actor);
     return this.db
       .all(
-        "SELECT seq,data,error FROM bo_outbox WHERE scope=? ORDER BY seq" +
+        "SELECT seq,data,error FROM bo_outbox WHERE scope=?" + (actor ? " AND json_extract(data,'$.authorKey')=?" : "") + " ORDER BY seq" +
           (limit ? ` LIMIT ${limit}` : ""),
-        [scope],
+        actor ? [scope, backOfficeAuthorKey(actor)] : [scope],
       )
       .map((row) => ({
         seq: Number(row.seq),
@@ -680,9 +732,10 @@ export class BackOfficeStore {
         error: row.error,
       }));
   }
-  syncState(scope: string) {
+  syncState(scope: string, actor?: BackOfficeActor) {
     const row = this.db.get("SELECT * FROM bo_sync WHERE scope=?", [scope]);
-    const blocked = this.pending(scope).find((entry) => entry.error);
+    const personal = this.pending(scope, 0, actor);
+    const blocked = personal.find((entry) => entry.error);
     return {
       enabled: Boolean(row?.enabled),
       cursor: Number(row?.cursor ?? 0),
@@ -691,11 +744,7 @@ export class BackOfficeStore {
         : typeof row?.last_error === "string"
           ? row.last_error
           : null,
-      pending: Number(
-        this.db.get("SELECT count(*) AS count FROM bo_outbox WHERE scope=?", [
-          scope,
-        ])?.count ?? 0,
-      ),
+      pending: personal.length,
     };
   }
   setSync(scope: string, enabled: boolean) {
@@ -706,26 +755,22 @@ export class BackOfficeStore {
   }
   receive(scope: string, snapshot: BackOfficeSnapshot, actor: BackOfficeActor) {
     this.transaction(() => {
+      this.requireAccount(scope, actor);
       let revoked = false;
       for (const id of snapshot.accepted)
-        this.db.run("DELETE FROM bo_outbox WHERE scope=? AND id=?", [
+        this.db.run("DELETE FROM bo_outbox WHERE scope=? AND id=? AND json_extract(data,'$.authorKey')=?", [
           scope,
           id,
+          backOfficeAuthorKey(actor),
         ]);
       for (const conflict of snapshot.conflicts)
-        this.db.run("UPDATE bo_outbox SET error=? WHERE scope=? AND id=?", [
+        this.db.run("UPDATE bo_outbox SET error=? WHERE scope=? AND id=? AND json_extract(data,'$.authorKey')=?", [
           conflict.message,
           scope,
           conflict.id,
+          backOfficeAuthorKey(actor),
         ]);
-      const pending = this.db
-        .all("SELECT data,error FROM bo_outbox WHERE scope=? ORDER BY seq", [
-          scope,
-        ])
-        .map((row) => ({
-          change: BackOfficeChangeSchema.parse(JSON.parse(String(row.data))),
-          error: row.error,
-        }));
+      const pending = this.pending(scope, 0, actor);
       this.db.run(
           "INSERT INTO bo_models VALUES(?,?) ON CONFLICT(scope) DO UPDATE SET data=excluded.data",
           [scope, JSON.stringify(snapshot.model)],
@@ -800,6 +845,7 @@ export class BackOfficeStore {
   restrictTeamAccess(scope: string, actor: BackOfficeActor) {
     if (scope === "local") return;
     this.transaction(() => {
+      this.requireAccount(scope, actor);
       const modelRow = this.db.get("SELECT data FROM bo_models WHERE scope=?", [scope]);
       if (!modelRow) return;
       const model = BackOfficeModelSchema.parse(JSON.parse(String(modelRow.data)));
@@ -819,7 +865,7 @@ export class BackOfficeStore {
         }
       }
       const readableIds = new Set(records.filter(record => this.raw(scope, record.id) && this.canRead(scope, record, actor)).map(record => record.id));
-      for (const entry of this.pending(scope, 0)) {
+      for (const entry of this.pending(scope, 0, actor)) {
         const change = entry.change;
         if (change.kind === "view") {
           const view = BackOfficeViewSchema.parse(change.data);
@@ -925,6 +971,7 @@ export class BackOfficeStore {
     actor: BackOfficeActor,
     source: BackOfficeRecord[],
   ) {
+    this.requireAccount(scope, actor);
     const model = this.model(scope);
     const waiting = source.filter(
       (record) => record.objectId !== "projectLinks",
@@ -991,7 +1038,7 @@ export class BackOfficeStore {
         identity.objectId,
         JSON.stringify(identity),
       ]);
-      this.enqueue(scope, "record", 0, identity, Object.keys(values));
+      this.enqueue(scope, actor, "record", 0, identity, Object.keys(values));
     }
     for (const record of source) {
       const object = model.objects.find(
@@ -1018,7 +1065,7 @@ export class BackOfficeStore {
           next.objectId,
           JSON.stringify(next),
         ]);
-        this.enqueue(scope, "record", 0, next, Object.keys(next.values));
+        this.enqueue(scope, actor, "record", 0, next, Object.keys(next.values));
       } else if (Object.keys(relations).length) {
         const existing = this.raw(scope, record.id);
         if (!existing) continue;
@@ -1034,6 +1081,7 @@ export class BackOfficeStore {
         ]);
         this.enqueue(
           scope,
+          actor,
           "record",
           existing.revision,
           next,
@@ -1045,8 +1093,8 @@ export class BackOfficeStore {
       records: source.map((record) => record.id),
     });
   }
-  queuedRecordIntent(scope: string, operationId: string) {
-    const pending = this.pending(scope, 0),
+  queuedRecordIntent(scope: string, operationId: string, actor?: BackOfficeActor) {
+    const pending = this.pending(scope, 0, actor),
       entry = pending.find((entry) => entry.change.id === operationId);
     if (!entry || entry.change.kind !== "record")
       throw new ApiError(
@@ -1089,8 +1137,8 @@ export class BackOfficeStore {
     const metadata = [...new Set(related.flatMap(entry => entry.change.changedMetadata ?? ["sourceId", "sharing", "archive"]))];
     return { record, fields, metadata };
   }
-  discardQueued(scope: string, operationId: string) {
-    const entry = this.pending(scope, 0).find(
+  discardQueued(scope: string, operationId: string, actor?: BackOfficeActor) {
+    const entry = this.pending(scope, 0, actor).find(
       (entry) => entry.change.id === operationId,
     );
     if (!entry)
@@ -1100,6 +1148,7 @@ export class BackOfficeStore {
         "The queued change is unavailable.",
       );
     this.transaction(() => {
+      if (actor) this.requireAccount(scope, actor);
       if (entry.change.kind === "record") {
         const id = BackOfficeRecordSchema.parse(entry.change.data).id;
         for (const row of this.db.all(
@@ -1111,7 +1160,7 @@ export class BackOfficeStore {
           );
           if (
             change.kind === "record" &&
-            BackOfficeRecordSchema.parse(change.data).id === id
+            BackOfficeRecordSchema.parse(change.data).id === id && change.authorKey === entry.change.authorKey
           )
             this.db.run("DELETE FROM bo_outbox WHERE id=?", [String(row.id)]);
         }
@@ -1126,16 +1175,19 @@ export class BackOfficeStore {
         ]);
     });
   }
-  clearTeam(scope: string) {
+  clearTeam(scope: string, actor?: BackOfficeActor) {
     this.transaction(() => {
+      if (actor) this.requireAccount(scope, actor);
+      this.suspendTeam(scope, "The account disconnected. Reconnect as the author to review remaining drafts.");
       for (const table of [
         "bo_records",
         "bo_models",
         "bo_views",
-        "bo_outbox",
         "bo_sync",
+        "bo_replicas",
       ])
         this.db.run(`DELETE FROM ${table} WHERE scope=?`, [scope]);
+      this.db.run("DELETE FROM bo_outbox WHERE scope=?" + (actor ? " AND json_extract(data,'$.authorKey')=?" : ""), actor ? [scope, backOfficeAuthorKey(actor)] : [scope]);
       this.journal.retire(scope);
     });
   }
@@ -1150,6 +1202,22 @@ export class BackOfficeStore {
   }
 }
 const instances = new Map<string, Promise<BackOfficeStore>>();
+export async function existingBackOfficeStore(config: ServerConfig): Promise<BackOfficeStore | null> {
+  const path = runtimeDbPath(config);
+  const instance = instances.get(path);
+  if (instance) return instance;
+  if (!existsSync(path)) return null;
+  const db = await openSqlite(path);
+  try {
+    if (!db.get("SELECT name FROM sqlite_master WHERE type='table' AND name='bo_models'")) return null;
+  } finally { db.close(); }
+  return backOfficeStore(config);
+}
+
+export async function closeBackOfficeStoreForTests(config: ServerConfig) {
+  const path = runtimeDbPath(config), instance = instances.get(path);
+  if (instance) { (await instance).close(); instances.delete(path); }
+}
 export function backOfficeStore(
   config: ServerConfig,
 ): Promise<BackOfficeStore> {

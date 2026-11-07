@@ -91,6 +91,7 @@ export function registerBackOfficeRoutes(options: {
         try {
           const store = await backOfficeStore(options.config);
           store.checkIntegrity();
+          store.requireAccount(access.scope, access.actor);
           store.restrictTeamAccess(access.scope, access.actor);
           if (
             access.scope !== "local" &&
@@ -104,6 +105,7 @@ export function registerBackOfficeRoutes(options: {
               "Open the team directory and reconnect before changing team records.",
             );
           const result = await action(ctx, store, access);
+          store.requireAccount(access.scope, access.actor);
           store.checkIntegrity();
           if (method !== "GET") {
             announceSyncChange(options.config, "backOffice");
@@ -180,7 +182,7 @@ export function registerBackOfficeRoutes(options: {
       model: store.model(scope),
       permissions: actor,
       views: store.views(scope),
-      sync: store.syncState(scope),
+      sync: store.syncState(scope, actor),
       records: store.records(scope, actor),
     };
   });
@@ -290,7 +292,7 @@ export function registerBackOfficeRoutes(options: {
         ctx.params.field,
         ctx.params.file,
       );
-      const bytes = await loadAttachedFile(options.config, scope, file);
+      const bytes = await loadAttachedFile(options.config, scope, file, actor.principalKey);
       return new Response(new Uint8Array(bytes), {
         headers: {
           "Content-Type": file.contentType,
@@ -366,7 +368,7 @@ export function registerBackOfficeRoutes(options: {
         schemaRevision: revision,
         data: body.model,
       },
-    ]);
+    ], actor.principalKey);
     store.receive(scope, snapshot, actor);
     if (snapshot.conflicts.length)
       throw new ApiError(
@@ -403,7 +405,7 @@ export function registerBackOfficeRoutes(options: {
         limit,
         cursor,
         export: false,
-      });
+      }, actor.principalKey);
     return localBackOfficeHistoryPage(
       store,
       scope,
@@ -427,7 +429,7 @@ export function registerBackOfficeRoutes(options: {
             limit: 50,
             cursor: null,
             export: true,
-          });
+          }, actor.principalKey);
     },
   );
   route("POST", "/import/preview", async (ctx, store, { scope, actor }) => {
@@ -461,14 +463,14 @@ export function registerBackOfficeRoutes(options: {
   route("GET", "/sync/pending", async (_ctx, store, { scope, actor }) => {
     let current: BackOfficeRecord[] = [];
     try {
-      current = (await backOfficePlatform(options.config)).records;
+      current = (await backOfficePlatform(options.config, [], actor.principalKey)).records;
     } catch {
       /* Keep local proposals readable while offline. */
     }
     const model = store.model(scope),
       records = store.records(scope, actor);
     return {
-      changes: store.pending(scope).map((entry) => {
+      changes: store.pending(scope, 100, actor).map((entry) => {
         if (entry.change.kind !== "record")
           return {
             id: entry.change.id,
@@ -480,7 +482,7 @@ export function registerBackOfficeRoutes(options: {
             currentRevision: null,
             comparison: [],
           };
-        const intent = store.queuedRecordIntent(scope, entry.change.id),
+        const intent = store.queuedRecordIntent(scope, entry.change.id, actor),
           object = model.objects.find(
             (object) => object.id === intent.record.objectId,
           );
@@ -553,8 +555,8 @@ export function registerBackOfficeRoutes(options: {
         revision: z.number().int().nonnegative(),
       })
       .parse(await input(ctx));
-    const intent = store.queuedRecordIntent(scope, body.id),
-      before = await backOfficePlatform(options.config),
+    const intent = store.queuedRecordIntent(scope, body.id, actor),
+      before = await backOfficePlatform(options.config, [], actor.principalKey),
       current = before.records.find((record) => record.id === intent.record.id);
     if (!current || current.revision !== body.revision)
       throw new ApiError(
@@ -586,7 +588,7 @@ export function registerBackOfficeRoutes(options: {
           changedFields: intent.fields,
           changedMetadata: intent.metadata,
         },
-      ]);
+      ], actor.principalKey);
     if (!snapshot.accepted.includes(operationId))
       throw new ApiError(
         409,
@@ -594,17 +596,18 @@ export function registerBackOfficeRoutes(options: {
         snapshot.conflicts[0]?.message ??
           "The team record could not be updated.",
       );
-    store.discardQueued(scope, body.id);
+    store.discardQueued(scope, body.id, actor);
     store.receive(scope, snapshot, actor);
     return { ok: true };
   });
-  route("POST", "/sync/discard", async (ctx, store, { scope }) => {
+  route("POST", "/sync/discard", async (ctx, store, { scope, actor }) => {
     store.discardQueued(
       scope,
       z
         .string()
         .uuid()
         .parse((await input(ctx)).id),
+      actor,
     );
     await syncBackOffice(options.config);
     return { ok: true };
@@ -621,9 +624,9 @@ export function registerBackOfficeRoutes(options: {
         .parse((await input(ctx)).planId),
     ),
   );
-  route("POST", "/sync", async (_ctx, store, { scope }) => {
+  route("POST", "/sync", async (_ctx, store, { scope, actor }) => {
     await syncBackOffice(options.config);
-    return store.syncState(scope);
+    return store.syncState(scope, actor);
   });
   route("GET", "/projects", async () => ({
     projects: options.config.workspaces.map((workspace) => ({

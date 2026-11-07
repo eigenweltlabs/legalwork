@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { ApiError } from "../errors.js";
+import { backOfficeAuthorKey } from "./principal.js";
 import type { BackOfficeActor, BackOfficeValue } from "./schema.js";
 import type { BackOfficeStore } from "./store.js";
 import {
@@ -215,7 +216,7 @@ export function previewImport(
     );
   const planId = randomUUID();
   plans.set(planId, {
-    actor: actor.userId,
+    actor: backOfficeAuthorKey(actor),
     scope,
     objectId,
     fingerprint: fingerprint(store, scope, actor, objectId),
@@ -235,7 +236,7 @@ export function applyImport(
     !plan ||
     plan.expires < Date.now() ||
     plan.scope !== scope ||
-    plan.actor !== actor.userId
+    plan.actor !== backOfficeAuthorKey(actor)
   )
     throw new ApiError(409, "back_office_import", "Preview the import again.");
   if (

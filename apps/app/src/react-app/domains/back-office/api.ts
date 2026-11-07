@@ -11,6 +11,7 @@ export const BackOfficeStateSchema = z.object({
   views: z.array(BackOfficeViewSchema),
   permissions: z.object({
     userId: z.string(),
+    principalKey: z.string().optional(),
     model: z.boolean(),
     edit: z.boolean(),
     finance: z.boolean(),

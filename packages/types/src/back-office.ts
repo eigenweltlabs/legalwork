@@ -166,6 +166,7 @@ export type BackOfficeValue = z.infer<typeof BackOfficeValueSchema>;
 export type BackOfficeView = z.infer<typeof BackOfficeViewSchema>;
 export type BackOfficeActor = {
   userId: string;
+  principalKey?: string;
   agentId?: string;
   model: boolean;
   edit: boolean;
@@ -178,6 +179,7 @@ export const BackOfficeChangeSchema = z.object({
   schemaRevision: z.number().int().nonnegative(),
   changedFields: z.array(identifier).max(100).optional(),
   changedMetadata: z.array(z.enum(["sourceId", "sharing", "archive"])).max(3).optional(),
+  authorKey: z.string().min(1).max(300).optional(),
   data: z.unknown(),
 });
 export const BackOfficeSyncSchema = z.object({
@@ -914,6 +916,7 @@ export const BackOfficeAuditPayloadSchema = z
       "file",
       "proposal",
       "policy",
+      "replica",
     ]),
     entityId: z.string().min(1).max(200),
     modelRevision: z.number().int().nonnegative().safe(),
@@ -950,6 +953,7 @@ export const BackOfficeAuditProofSchema = z
       "file",
       "proposal",
       "policy",
+      "replica",
     ]),
     entityKey: digest,
     beforeHash: digest,
