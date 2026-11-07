@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, realpathSync } from "node:fs";
-import { rm } from "node:fs/promises";
+import fs, { rm } from "node:fs/promises";
+import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -33,6 +34,13 @@ app.whenReady().then(async () => {
 app.hide();
 let runtime, failed = false;
 const pids = new Set();
+const readFile = fs.readFile;
+let provenanceReads = 0;
+fs.readFile = async (file, ...args) => {
+  if (String(file) === path.join(directory, "provenance.json")) provenanceReads++;
+  return readFile(file, ...args);
+};
+syncBuiltinESMExports();
 try {
   const candidate = await verifyOpencodeCandidate({ directory, provenanceSha256 });
   console.log("Candidate identity verified in the real Electron host.");
@@ -46,7 +54,9 @@ try {
   await forged.dispose();
   runtime = createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths: () => [workspace], opencodeCandidateBuild: candidate });
   for (let cycle = 0; cycle < 2; cycle++) {
+    const beforeStart = provenanceReads;
     const engine = await runtime.engineStart(workspace, { opencodeBinPath: candidate.path });
+    assert.equal(provenanceReads - beforeStart, 1, "startup must verify the executable exactly once");
     assert.equal(engine.running, true);
     const server = await runtime.legalworkServerInfo();
     assert.equal(server.running, true);
@@ -73,10 +83,14 @@ try {
     for (const id of ["legalwork.project-admission", "legalwork.product-scope", "legalwork.commands", "legalwork.legalmemory-access"]) {
       assert.equal(plugins.find(plugin => plugin.id === id)?.state.status, "active", id);
     }
+    const beforeReuse = provenanceReads;
     const repeated = await runtime.engineStart(workspace, { opencodeBinPath: candidate.path });
     assert.equal(repeated.pid, info.pid);
+    assert.equal(provenanceReads, beforeReuse, "reusing a live engine must not reread its executable");
     if (cycle === 0) {
+      const beforeRestart = provenanceReads;
       const restarted = await runtime.engineRestart();
+      assert.equal(provenanceReads - beforeRestart, 1, "restart must freshly verify the executable exactly once");
       assert.equal(restarted.running, true);
       assert.notEqual(restarted.pid, info.pid);
       assert.equal(pids.has(restarted.pid), false);
@@ -99,6 +113,8 @@ try {
 } catch (error) {
   failed = true; console.error(error);
 } finally {
+  fs.readFile = readFile;
+  syncBuiltinESMExports();
   await runtime?.dispose();
   for (const pid of pids) {
     try { process.kill(pid, 0); failed = true; console.error(`Owned candidate process ${pid} remained after runtime disposal.`); }

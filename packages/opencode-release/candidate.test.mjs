@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -74,6 +74,45 @@ test("each spawn check rejects binary and manifest changes after initial verific
     await writeFile(binary, "non-executable candidate test bytes");
     await writeFile(path.join(directory, "provenance.json"), `${provenance} `);
     await assert.rejects(candidate.expectedOpencodeVersion(binary, descriptor), /reviewed receipt/);
+  });
+});
+
+test("service-file metadata does not reread the executable", async () => {
+  await fixture(async ({ candidate, directory, binary, provenanceSha256 }) => {
+    const descriptor = await candidate.verifyOpencodeCandidate({ directory, provenanceSha256 });
+    await writeFile(binary, "changed after verification");
+    assert.equal(await candidate.expectedOpencodeServiceFilename(binary, descriptor), "service-legalwork.json");
+    await assert.rejects(candidate.expectedOpencodeVersion(binary, descriptor), /binary changed/);
+  });
+});
+
+test("startup metadata reuses identity while every execution still checks current bytes", async () => {
+  await fixture(async ({ candidate, directory, binary, provenance, provenanceSha256 }) => {
+    const descriptor = await candidate.verifyOpencodeCandidate({ directory, provenanceSha256 });
+    const identity = { version: recipe.version, serviceFilename: "service-legalwork.json" };
+    assert.deepEqual(await candidate.opencodeEngineIdentity(binary, descriptor), identity);
+    // Even same-size changes with the same version/provenance must fail at spawn.
+    await writeFile(binary, "NON-executable candidate test bytes");
+    for (let layer = 0; layer < 6; layer++) {
+      assert.equal(await candidate.expectedOpencodeServiceFilename(binary, descriptor), identity.serviceFilename);
+      assert.deepEqual(await candidate.opencodeEngineIdentity(binary, descriptor), identity);
+    }
+    await assert.rejects(candidate.verifyOpencodeForExecution(binary, descriptor), /binary changed/);
+    await writeFile(binary, "non-executable candidate test bytes");
+    assert.equal(await candidate.verifyOpencodeForExecution(binary, descriptor), recipe.version);
+    await writeFile(path.join(directory, "provenance.json"), `${provenance} `);
+    assert.deepEqual(await candidate.opencodeEngineIdentity(binary, descriptor), identity);
+    await assert.rejects(candidate.verifyOpencodeForExecution(binary, descriptor), /reviewed receipt/);
+    await assert.rejects(candidate.opencodeEngineIdentity(binary, Object.freeze({ ...descriptor })), /unknown or mutable/);
+  });
+});
+
+test("integrity worker read failures reject verification", async () => {
+  await fixture(async ({ candidate, directory, binary, provenanceSha256 }) => {
+    await rm(binary);
+    // realpath succeeds, but reading a directory must not yield a trusted digest.
+    await mkdir(binary);
+    await assert.rejects(candidate.verifyOpencodeCandidate({ directory, provenanceSha256 }), /EISDIR|EACCES|EPERM/);
   });
 });
 
