@@ -1,0 +1,142 @@
+# Local project support storage implementation
+
+## Requested removal — nested instruction reminders
+
+User requested removing the scoped nested-AGENTS reminder on 2026-11-07. Remove its plugin registration, implementation, dedicated test and now-unused reminder callback argument. Retain native root AGENTS instructions, local root-configuration snapshots and existing app-state reminders. Update the current proposal/help and draft PR; run the relevant existing checks after editing. Earlier verification below describes the preceding revision and is superseded for nested instructions by this removal.
+
+Implemented removal. Server source has no remaining hook registration, scope metadata or implementation references. The shared reminder helper and its tests match the version before the nested-instruction addition. Existing chat history is preserved.
+
+Verification after removal: `pnpm --filter legalwork-server build`, `pnpm docs:generate`, `pnpm docs:check` and `git diff --check` passed. `bun test apps/server/src/opencode-plugins/native-app-state-reminders.test.ts apps/server/src/legalwork-runtime-config.test.ts apps/server/src/managed-config-sources.test.ts apps/server/src/project-storage.test.ts`: **49 passed**, 0 failed. With the pinned engine configured, `bun test apps/server/src/managed-file-permissions.released.test.ts`: **2 passed**, 0 failed. The real native model fixture completed a document read with root instructions present and the external nested instruction marker absent; evidence: `/tmp/legalwork-storage-remove-scoped-model-evidence.json`.
+
+## Follow-up fixes and wiki migration — authorized 2026-11-07
+
+Implement in the same worktree, after recording this plan. Keep standard native file-tool arguments and resolution. Run focused verification after the implementation/path audit, extending existing tests where useful.
+
+1. Preserve filesystem restrictions across runtime agents and authored native configurations through permission evaluation/projection, including original document-relative policies; retain precedence and session scope.
+2. Treat offline document state as unknown during sync removal. Count support/database pending changes independently and retain remote-origin homes until destructive cleanup can be decided safely.
+3. Fix wiki project document browsing/approval and read-only sandbox boundaries together. Protect document roots and private support homes, including parent mounts and revocation.
+4. Validate browser ownership against registered engine identity independently from document/download destinations. Publish transferred server downloads into the authorized content Downloads folder, retaining desktop staging and file-link identity.
+5. Revalidate unpublished migration receipts/copies before registry cutover. Preserve divergent data and committed local changes. Store a durable, validated home/content association and recover it before choosing the default files folder.
+6. Resolve email attachment sources through the appropriate document/support root while retaining drafts and immutable snapshots under local .legalwork.
+7. Preserve primary-content instruction/capability discovery and authored project-root native configuration using supported native extension points. Keep precedence and nested AGENTS scope; additional connected folders retain their existing semantics. External content unavailability must not prevent the local engine/history from starting. Do not add an argument router, symlink joins, or invented configuration includes.
+8. Include wiki .opencode and .legalwork in the same post-OpenCode-history migration. Preserve wiki/workspace/chat identities, wiki.root and all existing authored content. Local engine path is the workspace home; contentPath remains wiki.root. New default wikis use home/files. Shared wiki databases/history/sync stores retain their locations.
+9. Adapt wiki identity, private/shared access, native guards, protected execution, create/join/restore and registry recovery to separate engine/content roots. Load active wiki registrations before computing migration gates; restored wikis follow the same migration boundary. Keep unavailable content separate from local engine availability.
+10. Update help, proposal and source audit for final behavior. At the end run build/type checks, relevant existing regressions, native permission/config/instruction/browser/draft checks and the isolated previous-profile migration exercise with wiki and failure scenarios. Record platform/VM/live-cloud limits explicitly.
+
+Acceptance: the nine revalidated finding groups are resolved; picker/read and sandbox subfindings are both covered. Existing ordinary project/wiki files stay in place. Native relative paths remain rooted in the local engine home. Local history/support survives unavailable content. No live user profile is used for destructive verification.
+
+User authorized implementation on 2026-11-07. Worktree: `legalwork-project-storage-proposal`; branch: `codex/local-project-storage`. Tests are deferred until the implementation and path audit are complete.
+
+## Contract
+
+- Move only `.opencode` and `.legalwork`, preserving their complete internal layouts, into a stable local home per existing project ID.
+- `workspace.path` becomes the local engine/project home. A persisted `contentPath` identifies ordinary documents. One shared resolver returns the content path; absent means a legacy/unmigrated workspace.
+- Keep existing IDs, shared database locations, ordinary documents, outside downloads, credentials and existing authorized folders. No move-files feature.
+- New projects without an external folder use `<local-home>/files` for documents. Native locations and chat identity use the local home. The file UI and document IO use contentPath.
+- Reuse existing additional-folder permissions and protected file broker. Local home is `/workspace`; connected content is an authorized folder. Both sandbox modes remain supported.
+
+## Implementation sequence
+
+1. Add shared path/root contracts and platform-local project directory resolution. Persist and serialize the new root roles through server, desktop and UI metadata.
+2. Add journaled, per-project startup/creation migration. Copy/verify support trees without merging conflicts or deleting original bytes before verification. Missing sources remain pending. Reconcile engine session locations and preserved history state through a supported migration boundary; do not silently strand older chats.
+3. Route hidden-folder stores/configuration to local path, and ordinary files, sync, document preparation inputs, linked source documents, editor/Office matching and file reveal/copy to the content resolver. Mixed consumers receive both roots explicitly.
+4. Bind permissions, sandbox mounts, agent tools and context reminders to the local engine root plus primary content path. Preserve project and chat restrictions and avoid new broad parent-directory grants.
+5. Reconcile desktop registries and startup/recovery, creation, import/export, reset/cleanup, offline content behavior and UI path displays. Update user help and generated skill instructions.
+6. Audit every tracked path occurrence and indirect consumer against the source inventory. Record any deliberately unchanged global/legacy references and remaining limitations here.
+7. At the end, add focused migration/path regression coverage, run relevant existing server/desktop/UI tests, type checks, help generation/checks and a realistic engine/file-flow check where the environment supports it. Fix failures, then report exact results and remaining platform limits.
+
+## Acceptance
+
+Existing project documents remain in their original folder. Both hidden trees are local and retain their suffixes. Existing chats, attachments, reviews and sync identity remain accessible. New projects use local storage. Agent file operations can address content and retained local attachments, with sandbox on and off. A disconnected content folder does not prevent local engine startup or access to retained local data.
+
+## Progress
+
+- Plan recorded before implementation.
+- Implemented dual-root serialization, platform-local homes, verified support migration, native session relocation, recoverable retirement and local backups. Retired snapshots remain at the source under `.legalwork-migrated` names for other installations upgrading a shared folder; runtimes never use those archives.
+- Adapted document IO, UI preview/reveal/Office matching, creation (UI/assistant/sync), sync staging/trash, review/corpus/preparation inputs, working copies, delegated files, sandbox mounts, path permissions and dynamic agent reminders.
+- Intentionally retained local-root references for engine/session identity, settings/skills/plugins, hidden stores, audit, reviews, drafts, attachments and connector downloads. Shared runtime/history databases keep their existing locations. Wiki support folders now follow the same local-home migration; authored wiki content and its independent registry/history remain separate. Standalone externally managed engines keep legacy registration behavior; automatic migration belongs to managed startup.
+- Verification phase follows the implementation and help updates; no tests were run during the path-editing phase.
+
+
+## Verification
+
+Checks were run after the implementation and path audit, as requested. Test failures were corrected before completion.
+
+- `pnpm --filter legalwork-server build`: passed; includes TypeScript, generated resources and native plugin bundles. Shared path helpers have a plain JavaScript server bundle for packaged Node/Electron use.
+- `pnpm typecheck` and `pnpm build:ui`: passed.
+- `pnpm docs:generate` and `pnpm docs:check`: passed.
+- Focused server regression run: **204 passed, 9 skipped, 0 failed** across 15 files. Covers file APIs, reviews/preparation/corpus, sync, working copies, sandbox policy, history permissions and managed lifecycle. Skips require external reference storage services.
+- Additional final regression run: **36 passed** across 7 files, including migration, plugin reminders and project registration. Final mount checks also cover default projects without duplicate mounts of their `files` directory (**63 passed** in the combined migration/mount run).
+- UI file/editor/Office/attachment/registry tests: **61 passed** across 7 files.
+- Desktop runtime, registry/recovery, profile-reset preservation and file-copy tests: **53 passed**. Platform path assertions cover macOS and Windows.
+- Pinned native engine checks: **2 passed**. Verified parent and child chats, original IDs and timestamps, permission rebasing, queued attachment URI compatibility, real managed startup/cutover, service promotion, and restart with the content drive unavailable while the old chat and local attachment remain readable.
+- `git diff --check` and Electron main-process syntax check: passed.
+
+The installed Bun 1.3.14 cannot load the locked Undici dependency. Server/UI tests use the engine build's pinned Bun **1.4.4** at `.legalwork/opencode-build/*/compiler/package/bin/bun`; native checks set `LEGALWORK_TEST_OPENCODE_BIN` to that build's `build-darwin-arm64/artifact/opencode`. Build outputs are ignored, not part of the source change.
+
+Runtime verification was on macOS ARM64. A Windows runtime and an actual SMB/FUSE VM were unavailable; Windows path handling and sandbox mount/policy behavior were verified through the existing regression surfaces. The existing filesystem broker was reused.
+
+## Completed path audit
+
+Engine/session identity, native projection ownership, history provenance/undo and approval migration use the local home and its retained old-directory alias. Document IO, editor/reveal/download destinations, Office matching, source discovery and document sync use the content root. Mixed operations receive both roots explicitly. Attachments, drafts, review/preparation outputs, connector downloads, audit and sync staging/trash remain at their existing suffixes under the local home. Native file tools retain standard OpenCode path resolution. Application file links and queued support-file URIs retain compatibility with migrated hidden-folder files without rewriting immutable transcripts. Sandbox reminders distinguish host engine paths, host document paths and guest command paths. Default local documents are reachable as `/workspace/files`; a separate connected folder uses `/authorized/0` alongside existing additional folders.
+
+Only the managed desktop/CLI startup owns automatic engine/history migration. A separately operated external engine keeps its existing registration behavior. Retired source snapshots are recovery data for other computers; a changed original is preserved. Completed migrations do not probe the connected drive at startup. Profile resets preserve project homes and connected files, including the macOS `Projects` directory now nested under Application Support. Wiki support folders now follow local homes; shared runtime/history database locations remain unchanged. Root-level authored files outside the two requested hidden trees are not moved.
+
+## Ordering correction — OpenCode upgrade first
+
+Requested after review: complete the existing OpenCode history upgrade before copying either hidden folder or changing registered project paths.
+
+Implementation steps (recorded before this correction):
+
+1. Keep predecessor shutdown and legacy settings/history backup preparation early, but remove the early project-folder migration from embedded and CLI startup.
+2. When legacy project folders are pending, force the existing plain-serve recovery bootstrap. Its factory already waits for OpenCode's native migration-completed status. Keep new agent admission and project mutations closed during this phase.
+3. After that bootstrap succeeds, close its engine, copy/verify the two folders, persist the new roots, republish generated configuration and restart the recovery engine. Reassociate existing chats only against the upgraded history; service recovery follows those checks.
+4. Start background sync, scheduled work and root-bound file watchers after startup migration finishes, so they cannot write old folders during the copy.
+5. At the end, verify success ordering, failure preservation (no folder/path cutover if OpenCode migration fails), existing lifecycle behavior, and the pinned-engine upgrade followed by offline restart. Preserve the existing worktree and all prior changes.
+
+Correction implemented and verified:
+
+- Managed embedded and CLI startup now finish the native history upgrade before stopping the bootstrap engine and invoking the folder copy. Root-bound watchers, sync, Assistant background work and schedules start after this transition. Project creation and new engine admissions are held during the upgrade.
+- Pinned native engine storage checks: **3 passed**. Covers existing parent/child chats, a real V1 history conversion followed by local-folder cutover and offline restart, and an actual native conversion failure that leaves source folders and registered paths in place.
+- Lifecycle, storage, registration, sync and scheduled-work regressions: **72 passed, 1 skipped** across 8 files. Additional released-engine lifecycle/scheduled-work checks: **2 passed**.
+- Assistant, queue, schedule and watcher checks: **33 passed, 1 skipped** across 7 files, including the separately rerun HTTP flow after fixing its remaining single-root document-sharing assumption. Assistant summaries expose the content root; file sharing resolves ordinary documents and local support attachments through the shared root resolver.
+- Server build, bundled-help check and `git diff --check`: passed. Checks used the same pinned Bun and native engine described above.
+
+Draft PR preparation: rebased onto `dev` at `62eb0f717`; the only conflict was the generated help bundle, regenerated from the combined source. Rechecked the server build, UI typecheck, help consistency and diff whitespace. Post-rebase regressions passed: **52 server tests** across storage, registration, lifecycle and engine configuration; **63 UI tests** across registry, Office matching, document runtime and attachments; **5 real-engine tests** covering storage migration, legacy connector migration and scheduled work.
+
+## Native file paths — standard OpenCode behavior
+
+User requested removing the custom native file-tool router. Before editing: remove the argument-rewriting hook (including search defaults, patch headers and multi-edit paths), retain existing folder permissions and application file-link compatibility, and update runtime context and documentation. Native relative paths will resolve from the local engine/project home. Connected documents will use explicit host paths; shell commands can select the connected folder as their working directory. No symlinks are introduced. At the end, adapt the existing released-engine folder-permission check to verify local relative files and explicit connected documents, run the relevant build/regressions and update draft PR #405.
+
+Implemented: the managed-config file-tool router and its private settings metadata are removed. The agent's runtime reminder now describes native project-relative resolution and explicit connected-document paths. Verification after removal: **38 passed** across storage, managed configuration and sandbox plugin checks; **5 real-engine tests passed** across project folder permissions and storage migration. The existing permission test now uses a distinct connected content root and identically named files to verify that native relative reads select the local project file while explicit connected reads select the document. Server build, help generation/check and diff whitespace checks passed.
+
+## Real Electron previous-profile exercise
+
+The isolated multi-project upgrade from dev revision `62eb0f717` reproduced a selected-project copy retry: a concurrent GET initialized updated bundled help files in the source `.opencode` directory. File-watch evidence identified the two help pages and `.legalwork-core` marker changing during the verified copy. Hold workspace-scoped reads as well as mutations until folder migration completes; project listing and the engine's shared bootstrap endpoints remain available. Re-run the cold upgrade from the preserved old profile, then the reconnect and disconnected-volume scenarios. Verification results follow after the real runs.
+
+Completed the real Electron exercise with seven regular projects, the Assistant and an independent wiki: default Documents layout, chosen folder with an additional grant, Unicode/spaces, a separate APFS volume, synthetic synced owner/member copies, and an unavailable source. The old build seeded 18 parent/child chats and 27 user messages. Baseline: **84 checks passed**. After restoring the exact old snapshot, the corrected first upgrade passed **185 checks**, leaving only the intentionally unavailable project unmigrated. Reconnecting it completed all eight project homes while preserving the wiki (**209 checks passed**). Restarting with the APFS volume detached preserved local history/attachments and correctly rejected unavailable document reads (**207 checks passed**). Remounting restored all document access (**209 checks passed**). Original document/support bytes, chat IDs/titles/timestamps/messages, parent/child links, scoped permissions, project/shared skill discovery and sync identities/settings were checked.
+
+The existing file-API regression now covers holding workspace GET initialization during migration and allowing project listing. Focused storage/lifecycle regressions: **8 passed**. Pinned installed-engine storage/legacy-MCP/scheduling checks: **5 passed**. Electron's server builds, help check and diff whitespace check passed. This is macOS ARM64 acceptance with a real separate APFS filesystem; it is not a Windows or SMB test. Synced cases use the old version's real local sync store with synthetic identities, not a live cloud account. The before snapshot, screenshots, raw check results and report are preserved in the owned migration-exercise directory; the upgraded isolated app remains open for inspection.
+
+## Follow-up verification — review fixes and wiki migration
+
+Implemented all nine revalidated finding groups, including both wiki project-file browsing and read-only sandbox enforcement. The independent reviewer found four further defects during implementation: absolute moved-support configuration references, relative MCP working directories, nested instruction scope lost on plugin restart, and another private wiki's support home entering a sandbox mount. All four were fixed and independently rechecked; no source-review blocker remained.
+
+Native tool inputs remain untouched. Permission evaluation reads the final native agent, preserving authored permissions as well as runtime policies. Native resources in a shared Git worktree can be relative to the engine location; evaluation and remembered approvals include the corresponding absolute aliases. The rebuilt pinned engine passes both Git and non-Git cases.
+
+Two compatibility mechanisms accompany the path fixes. Authored root OpenCode configuration stays in the document folder and has owned local snapshots with a restartable publication journal. Nested external AGENTS instructions use scoped conversation reminders, including durable restart metadata. Neither mechanism introduces a file-tool argument router. MCP working directories retain their original content base, while references into moved hidden folders follow the local home.
+
+Checks ran at the end of implementation. Existing test files were extended for the changed contracts; no parallel test framework was added. Commands below use the pinned Bun 1.4.4 described above:
+
+- `pnpm --filter legalwork-server build`, `pnpm typecheck`, `pnpm docs:generate`, `pnpm docs:check`: passed. Electron startup also rebuilt the final server/plugin bundles successfully.
+- `bun test apps/server/src/{legalwork-runtime-config,project-sync,project-storage}.test.ts apps/server/src/agent-sandbox/service.test.ts apps/server/src/wiki/{store,access,native-project-guard,file-access-policy}.test.ts apps/server/src/wiki/project-access.e2e.test.ts apps/server/src/opencode-plugins/{legalwork-browser-tools,native-app-state-reminders}.test.ts`: **179 passed**, 0 failed.
+- `bun test apps/server/src/{skill-resources,project-engine-registration,skills,managed-engine-lifecycle}.test.ts apps/server/src/wiki/{file-access-policy,team-agent-access,write-approval,agent-workspace-tools}.e2e.test.ts apps/server/src/wiki/agent-access.test.ts apps/server/src/wiki/sharing-routes.test.ts`: **111 passed**, 1 skipped, 0 failed. The skip requires an actual protected VM.
+- `node --test apps/desktop/electron/{browser-panel,browser-native-host,project-file-copy,reset-profile,runtime}.test.mjs`: **63 passed**, 0 failed.
+- `bun test apps/app/tests/{workspace-registry,word-addin-workspace-match,document-ownership,workspace-file-identity,workspace-attachment,task-attachment-state,native-browser-admission}.test.ts`: **40 passed**, 0 failed.
+- With `LEGALWORK_TEST_OPENCODE_BIN` set to the installed pinned engine: `bun test apps/server/src/{managed-file-permissions,project-storage,legacy-mcp-lifecycle}.released.test.ts`: **6 passed**, 0 failed. Covers authored/runtime file restrictions with and without Git, preserved parent/child history, V1 upgrade success/failure ordering, and connector credential migration.
+- A real native model turn against an isolated local model fixture confirmed root AGENTS and nested AGENTS both reached the model after a native read. The fixture uses no external model account. Durable restart and Code Mode reminder handling also pass the existing reminder harness.
+- `git diff --check` and Node syntax checks for the changed Electron modules: passed.
+
+Replayed the exact pre-migration Electron profile again, preserving the previous exercise and source fixtures as separate backups. This run includes wiki support relocation: **190 checks passed** on the cold upgrade with one unavailable source, **211 passed** after reconnecting that source, **209 passed** after restarting with the separate APFS volume detached, and **211 passed** after remounting it while the app stayed open. All nine original workspace homes, including the wiki, migrated with original chat identities and authored content preserved. The actual Electron browser successfully attached using engine identity and downloaded the expected bytes into the chosen project's connected `Downloads` folder, with no copy under the engine root.
+
+Evidence is retained under `~/.legalwork/storage-migration-exercise-C1HIMb`: `inspection-followup-*.json`, `followup-browser.json`, `followup-*.png`, and `FOLLOWUP-REPORT.md`. Native model-context evidence is in `/tmp/legalwork-storage-instructions-model-probe-evidence.json`. The real signed-in profile was not used for these checks. Remaining runtime acceptance: Windows, actual SMB/FUSE/protected VM execution, packaged distribution, a live cloud sync account, and transfer from an actual separately operated remote server (the transfer destination has an automated regression).

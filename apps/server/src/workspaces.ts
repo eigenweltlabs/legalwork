@@ -26,6 +26,8 @@ export function buildWorkspaceInfos(
       id,
       name,
       path: resolvedPath,
+      ...(workspace.contentPath ? { contentPath: resolve(cwd, workspace.contentPath) } : {}),
+      ...(workspace.previousPath ? { previousPath: resolve(cwd, workspace.previousPath) } : {}),
       preset: workspace.preset?.trim() || "starter",
       workspaceType: "local",
       baseUrl: workspace.baseUrl,

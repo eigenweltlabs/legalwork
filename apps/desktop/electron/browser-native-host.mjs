@@ -125,7 +125,8 @@ export function createNativeBrowserHost(options) {
     const directory = await realpath(session.location.directory);
     const verified = { ...context, directory };
     const downloadDirectory = await options.resolveDownloadDirectory(verified, owner.webContents.getURL());
-    const relative = path.relative(await realpath(downloadDirectory), directory);
+    const engineDirectory = options.resolveEngineDirectory ? await options.resolveEngineDirectory(verified, owner.webContents.getURL()) : downloadDirectory;
+    const relative = path.relative(await realpath(engineDirectory), directory);
     if (path.isAbsolute(relative) || relative === ".." || relative.startsWith(`..${path.sep}`)) throw new Error("The browser chat does not belong to its project.");
     const server = "legalwork-local-engine";
     endpoints.set(server, { id: server, url: engine.baseUrl, headers, local: true });

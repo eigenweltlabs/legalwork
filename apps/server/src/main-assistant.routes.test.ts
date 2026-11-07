@@ -91,7 +91,8 @@ test("assistant HTTP provisioning, scheduling, source scope, delegation and perm
       const [a, b] = await Promise.all([call("/assistant/current", "POST", { projectFields }), call("/assistant/current", "POST", {})]);
       const assistant = await a.json(); assert.deepEqual(await b.json(), assistant);
       assert.equal(assistant.workspace.preset, "main-assistant");
-      assert.equal(assistant.workspace.path, join(root, "projects", "Assistant"));
+      assert.equal(assistant.workspace.path, await realpath(join(root, "projects", assistant.workspace.id)));
+      assert.equal(assistant.workspace.contentPath, join(assistant.workspace.path, "files"));
       assert.equal(sessions.size, 1);
       await subscribe("sync");
       assert.equal((await call("/workspace/" + assistant.workspace.id + "/opencode/session/" + assistant.day.sessionId + "/prompt", "POST", { text: "Must not run" })).status, 403);
@@ -151,7 +152,8 @@ test("assistant HTTP provisioning, scheduling, source scope, delegation and perm
       })).json();
       assert.equal(schedule.task.sessionId, null); assert.equal(schedule.task.reuseChat, false); assert.equal(schedule.task.projectAccess, "all"); assert.equal(schedule.task.pinSession, false);
       const project = await (await call("/assistant/projects", "POST", { name: "Acquisition" })).json();
-      assert.equal(project.project.path, join(root, "projects", "Acquisition"));
+      assert.equal(project.project.path, await realpath(join(root, "projects", project.project.id)));
+      assert.equal(project.project.contentPath, join(project.project.path, "files"));
       assert.deepEqual(project.details.fields, projectFields);
       const metadata = await call("/workspace/" + project.project.id + "/project/metadata", "PATCH", { revision: project.details.revision, values: { our_client: "Nordstern GmbH" } });
       assert.equal(metadata.status, 200);
@@ -208,11 +210,16 @@ test("assistant HTTP provisioning, scheduling, source scope, delegation and perm
       assert.equal((await call("/assistant/recordings/rec-1")).status, 404);
       assert.equal((await call("/assistant/recordings/..%2Fsecret", "DELETE")).status, 400);
 
-      await writeFile(join(assistant.workspace.path, "request.txt"), "Nordstern GmbH agreement for review");
+      await writeFile(join(assistant.workspace.contentPath, "request.txt"), "Nordstern GmbH agreement for review");
       const share = { workspaceId: assistant.workspace.id, sessionId: assistant.day.sessionId, path: "request.txt", title: "Agreement" };
       const shared = await call("/assistant/share-file", "POST", share);
       assert.equal(shared.status, 200);
       assert.equal((await shared.json()).file.path, "request.txt");
+      await mkdir(join(assistant.workspace.path, ".legalwork"), { recursive: true });
+      await writeFile(join(assistant.workspace.path, ".legalwork", "attachment.txt"), "Local attachment");
+      const attachment = await call("/assistant/share-file", "POST", { ...share, path: ".legalwork/attachment.txt" });
+      assert.equal(attachment.status, 200);
+      assert.equal((await attachment.json()).file.path, ".legalwork/attachment.txt");
       assert.equal((await call("/assistant/share-file", "POST", { ...share, path: "missing.md" })).status, 404);
       assert.equal((await call("/assistant/share-file", "POST", { ...share, path: "../outside.md" })).status, 400);
       assert.equal((await call("/assistant/share-file", "POST", { ...share, path: "." })).status, 404);
@@ -224,7 +231,7 @@ test("assistant HTTP provisioning, scheduling, source scope, delegation and perm
       const report = await reportResponse.json();
       assert.equal(report.view.owner.id, assistant.workspace.id);
       assert.ok(report.markdown.includes(report.reference));
-      assert.equal(JSON.parse(await readFile(join(assistant.workspace.path, report.path), "utf8")).id, report.view.id);
+      assert.equal(JSON.parse(await readFile(join(assistant.workspace.contentPath, report.path), "utf8")).id, report.view.id);
       const reportRetry = await call("/assistant/save-report", "POST", reportArgs);
       assert.deepEqual(await reportRetry.json(), report);
       const reportCard = await call("/assistant/share-file", "POST", { ...share, path: report.path, title: report.view.title });
@@ -232,13 +239,13 @@ test("assistant HTTP provisioning, scheduling, source scope, delegation and perm
       assert.equal((await call("/assistant/save-report", "POST", { ...reportArgs, workspaceId: project.project.id })).status, 403);
       assert.equal((await call("/assistant/save-report", "POST", { ...reportArgs, sourceSessionId: "other" })).status, 400);
       assert.equal((await call("/assistant/save-report", "POST", { ...reportArgs, input: { ...reportInput, title: "Changed" } })).status, 409);
-      await writeFile(join(project.project.path, "review.md"), "Provider-side review");
+      await writeFile(join(project.project.contentPath, "review.md"), "Provider-side review");
       const projectShare = { ...share, projectId: project.project.id, path: "review.md", title: "Provider-side review" };
       const projectCard = await call("/assistant/share-file", "POST", projectShare);
       assert.equal(projectCard.status, 200);
       assert.deepEqual((await projectCard.json()).file, { path: "review.md", title: "Provider-side review", size: 20,
-        source: { workspaceId: project.project.id, workspaceRoot: await realpath(project.project.path), projectName: project.project.name } });
-      await assert.rejects(readFile(join(assistant.workspace.path, "review.md")), { code: "ENOENT" }, "Sharing references the original instead of copying it");
+        source: { workspaceId: project.project.id, workspaceRoot: await realpath(project.project.contentPath), projectName: project.project.name } });
+      await assert.rejects(readFile(join(assistant.workspace.contentPath, "review.md")), { code: "ENOENT" }, "Sharing references the original instead of copying it");
       assert.equal((await call("/assistant/share-file", "POST", { ...projectShare, path: "../private.md" })).status, 400);
       assert.equal((await call("/assistant/share-file", "POST", { ...projectShare, path: "missing.md" })).status, 404);
       assert.equal((await call("/assistant/share-file", "POST", { ...projectShare, projectId: "unknown-project" })).status, 404);
@@ -253,7 +260,7 @@ test("assistant HTTP provisioning, scheduling, source scope, delegation and perm
       assert.equal(sessions.size, beforeBadFile);
       const result = await (await call("/assistant/delegate", "POST", input)).json();
       assert.equal(result.files.length, 1);
-      assert.equal(await readFile(join(project.project.path, result.files[0].path), "utf8"), "Nordstern GmbH agreement for review");
+      assert.equal(await readFile(join(project.project.contentPath, result.files[0].path), "utf8"), "Nordstern GmbH agreement for review");
       assert.ok(deliveries[0].parts[1].text.includes(result.files[0].path));
       assert.ok(deliveries[0].parts[1].text.includes("legalwork_project_set_metadata"), "Metadata discovery is required even without initializeProject");
       assert.ok(deliveries[0].parts[1].text.includes("Fill missing source-supported client and matter metadata"));

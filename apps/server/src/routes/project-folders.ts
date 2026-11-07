@@ -1,3 +1,4 @@
+import { workspaceContentPath } from "../project-storage.js";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { ProjectRemoteFolder, ProjectRemoteFolderStatus } from "@legalwork/types/workspace";
@@ -152,7 +153,8 @@ export function registerProjectFolderRoutes(options: {
     return jsonResponse({
       projectId: workspace.id, name: workspace.displayName?.trim() || workspace.name,
       revision: details.revision, fields: details.fields,
-      localFolder: workspace.path,
+      localFolder: workspaceContentPath(workspace),
+      engineFolder: workspace.path,
       initialization: details.remote?.initialization ?? "none",
       remote: details.remote ?? null,
     });

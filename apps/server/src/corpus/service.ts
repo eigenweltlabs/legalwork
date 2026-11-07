@@ -1,3 +1,4 @@
+import { workspaceContentPath } from "../project-storage.js";
 import { randomUUID } from "node:crypto";
 import { setMaxListeners } from "node:events";
 import { readdir, realpath, lstat } from "node:fs/promises";
@@ -13,7 +14,7 @@ import { CORPUS_FALLBACKS, CorpusQuerySchema, type CorpusQuery, type CorpusRow, 
 import { CorpusStore } from "./storage.js";
 
 const TTL = 60 * 60_000;
-type Job = SavedCorpusJob & { workspace: string; controller: AbortController; done: Promise<void>; checkpoint?: ReturnType<typeof setTimeout>; saving?: Promise<void> };
+type Job = SavedCorpusJob & { workspace: string; contentPath?: string; controller: AbortController; done: Promise<void>; checkpoint?: ReturnType<typeof setTimeout>; saving?: Promise<void> };
 export function validateDocumentQuestion(input: CorpusQuery) {
   if (!input.paths?.length || !input.question) throw new ApiError(400, "corpus_input", "Supply files or folders and a question about ONE document. The same question is applied independently to every file.");
   if (input.kind === "classification" && !input.options) throw new ApiError(400, "corpus_choices", "Classification requires explicit answer options.");
@@ -85,7 +86,7 @@ export class CorpusService {
         if (saved) {
           // A saved running job has no workers after a restart. Retain its actual progress without rerunning inference.
           job = { ...saved, status: saved.status === "running" ? "interrupted" : saved.status,
-            workspace: workspace.path, controller: new AbortController(), done: Promise.resolve() };
+            workspace: workspace.path, contentPath: workspaceContentPath(workspace), controller: new AbortController(), done: Promise.resolve() };
           this.jobs.set(job.id, job);
           if (saved.status === "running") await this.persist(job);
         }
@@ -100,11 +101,11 @@ export class CorpusService {
         if ([...this.jobs.values()].filter(job => job.status === "running").length >= 4) throw new ApiError(429, "corpus_busy", "Four corpus queries are already running. Wait for a query to finish.");
         // Reserve before asynchronous discovery so simultaneous starts cannot exceed the bound.
         const controller = new AbortController(); setMaxListeners(0, controller.signal);
-        job = { id: randomUUID(), workspace: workspace.path, requestId, createdAt: Date.now(), status: "running", controller, rows: [], total: 0, skipped: 0,
+        job = { id: randomUUID(), workspace: workspace.path, contentPath: workspaceContentPath(workspace), requestId, createdAt: Date.now(), status: "running", controller, rows: [], total: 0, skipped: 0,
           question: input.question!, kind: input.kind, options: input.kind === "classification" ? [...new Set([...(input.options ?? []), ...CORPUS_FALLBACKS])] : undefined, selection: { providerId: "", model: "" }, done: Promise.resolve() };
         this.jobs.set(job.id, job);
         try {
-          const sources = await discoverCorpus(workspace.path, input.paths!);
+          const sources = await discoverCorpus(workspaceContentPath(workspace), input.paths!);
           job.selection = await this.backend.selection(); job.total = sources.files.length; job.skipped = sources.skipped;
           await this.persist(job);
           const current = job;
@@ -122,7 +123,7 @@ export class CorpusService {
       if (input.cancel) throw new ApiError(400, "corpus_input", "Retrieve evidence or cancel, not both.");
       const row = job.rows.find(row => row.path === input.evidencePath);
       if (!row?.sourceHash) throw new ApiError(404, "corpus_source", "This query has no prepared source for that file.");
-      const source = await this.backend.extract(job.workspace, row.path, AbortSignal.timeout(120_000));
+      const source = await this.backend.extract(job.contentPath || job.workspace, row.path, AbortSignal.timeout(120_000));
       if (source.hash !== row.sourceHash) throw new ApiError(409, "corpus_source_changed", "The source changed after this query. Run it again before using this evidence.");
       const chunk = splitReviewEvidence(source.pages)[input.evidenceChunk];
       if (!chunk) throw new ApiError(404, "corpus_source", "This source chunk does not exist.");
@@ -163,7 +164,7 @@ export class CorpusService {
         await this.documents.run(job.id, "documents", signal, async () => {
           if (!file.supported) { job.rows.push({ path: file.path, status: "unsupported", answer: null, confidence: null, error: "Unsupported file type; no classification attempted." }); return; }
           try {
-            const source = await this.extraction.run(job.id, "extract", signal, () => this.backend.extract(job.workspace, file.path, signal));
+            const source = await this.extraction.run(job.id, "extract", signal, () => this.backend.extract(job.contentPath || job.workspace, file.path, signal));
             const row = await this.classify(job, input, source, signal);
             job.rows.push({ path: file.path, extraction: source.extraction, sourceHash: source.hash, ...row });
           } catch (error) { job.rows.push({ path: file.path, status: "error", answer: null, confidence: null, error: signal.aborted ? "Query cancelled or timed out." : error instanceof Error ? error.message.slice(0, 500) : "Document processing failed." }); }

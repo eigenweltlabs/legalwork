@@ -39,6 +39,7 @@ const vaultSchema = z.object({
   purpose: z.literal("legal-research").optional(),
   requireAgentApproval: z.boolean().default(true),
   root: z.string().min(1),
+  engineDirectory: z.string().min(1).optional(),
   workspaceId: z.string().min(1),
   allowInProjects: z.boolean(),
   projectWorkspaceIds: z.array(z.string()).nullable().optional(),
@@ -115,7 +116,7 @@ async function scope(context: OpenCodeContext) {
   const directory = await realpath(context.directory).catch(() => null);
   if (!directory) throw new ApiError(403, "wiki_workspace_unknown", "This task's working directory could not be resolved.");
   const { items } = vaultsSchema.parse(await request("/wikis", "GET", undefined, context, 5_000));
-  const roots = await Promise.all(items.map(async (wiki) => ({ wiki, root: await realpath(wiki.root).catch(() => null) })));
+  const roots = await Promise.all(items.map(async (wiki) => ({ wiki, root: await realpath(wiki.engineDirectory || wiki.root).catch(() => null) })));
   const own = roots.filter((entry) => entry.root && within(entry.root, directory))
     .sort((a, b) => (b.root?.length ?? 0) - (a.root?.length ?? 0))[0]?.wiki;
   let workspaceId = own?.workspaceId;
@@ -240,7 +241,7 @@ if (!nativeClassification) {
         if (!context.directory) throw new ApiError(403, "wiki_workspace_unknown", "This task has no known working directory.");
         const directory = await realpath(context.directory);
         const { items } = vaultsSchema.parse(await request("/wikis", "GET", undefined, context, 5_000));
-        const candidates = await Promise.all(items.map(async wiki => ({ wiki, root: await realpath(wiki.root).catch(() => null) })));
+        const candidates = await Promise.all(items.map(async wiki => ({ wiki, root: await realpath(wiki.engineDirectory || wiki.root).catch(() => null) })));
         const own = candidates.filter(item => item.root && within(item.root, directory)).sort((a, b) => (b.root?.length ?? 0) - (a.root?.length ?? 0))[0]?.wiki;
         if (own) return own;
         const projects = workspacesSchema.parse(await request("/workspaces", "GET", undefined, context, 5_000));
@@ -260,7 +261,7 @@ await ctx.session.hook("prompt",event=>{for(const key of nativeClassifications.k
 await ctx.tool.hook("execute.before",async event=>{
 if(!wikiNativeFileTools.has(event.tool))return;
 const context=await nativeToolContext(ctx,event);const own=await nativeWiki(context);
-if(own)await assertWikiNativeFileAccess(own.root,event.tool,z.record(z.string(),z.unknown()).parse(event.input),context.directory);
+if(own)await assertWikiNativeFileAccess(own.root,event.tool,z.record(z.string(),z.unknown()).parse(event.input),context.directory,own.engineDirectory || own.root);
 });
 const views=registerViewGeneration(ctx,async(sessionID,directory,chunk)=>{
 if(!process.env.LEGALWORK_WIKI_AGENT_TOKEN)return;const context={sessionID,directory,abort:nativeToolSignal(5000)};const current=await scope(context);if(!current.workspaceId)throw new Error("The view session has no workspace.");

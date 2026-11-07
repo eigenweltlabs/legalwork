@@ -365,6 +365,8 @@ export function createWorkspaceStore({ app, defaultDenBaseUrl, defaultRequireSig
       id: String(input.id),
       name: String(input.name ?? "Workspace"),
       path: String(input.path ?? ""),
+      contentPath: input.contentPath ?? null,
+      previousPath: input.previousPath ?? null,
       preset: String(input.preset ?? "starter"),
       workspaceType: "local",
       baseUrl: input.baseUrl ?? null,
@@ -471,6 +473,13 @@ export function createWorkspaceStore({ app, defaultDenBaseUrl, defaultRequireSig
         changed = true;
       }
     }
+    const authoritative = await recoverWorkspacesFromServerConfig();
+    workspaces = workspaces.map(entry => {
+      const saved = authoritative.find(item => item.id === entry.id);
+      if (!saved?.contentPath) return entry;
+      if (entry.path !== saved.path || entry.contentPath !== saved.contentPath) changed = true;
+      return { ...entry, path: saved.path, contentPath: saved.contentPath, previousPath: saved.previousPath, directory: saved.path };
+    });
     const retired = workspaces.filter(entry => entry?.workspaceType === "remote");
     workspaces = workspaces.filter(entry => entry?.workspaceType !== "remote");
     const warnings = retired.length ? [`${retired.length} saved remote agent workspace(s) are no longer supported. Their connection settings remain preserved in ${workspaceStatePath()}.`] : [];

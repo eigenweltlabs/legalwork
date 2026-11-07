@@ -240,7 +240,7 @@ export function registerWikiRoutes(options: Options): WikiStore {
       catch (error) {
         // A disconnected local folder must not hide the other wikis or prevent reconnecting it.
         const status = options.getSyncStatus ? await options.getSyncStatus(wiki.id) : { state: "error", lastSyncedAt: null, error: error instanceof Error ? error.message : "Wiki folder unavailable.", conflicts: [] };
-        items.push({ ...wiki, writable: false, pageCount: 0, totalBytes: 0, syncStatus: { ...status, state: "error", error: error instanceof Error ? error.message : "Wiki folder unavailable." } });
+        items.push({ ...wiki, engineDirectory: config.workspaces.find(item => item.id === wiki.workspaceId)?.path || wiki.root, writable: false, pageCount: 0, totalBytes: 0, syncStatus: { ...status, state: "error", error: error instanceof Error ? error.message : "Wiki folder unavailable." } });
       }
     }
     return jsonResponse({ items });

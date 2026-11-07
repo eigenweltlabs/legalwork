@@ -1,3 +1,4 @@
+import { workspaceContentPath, workspaceFileRoot } from "../project-storage.js";
 import { randomUUID } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 import { setMaxListeners } from "node:events";
@@ -88,7 +89,7 @@ export class ReviewService {
     if (review.status === "running") throw new ApiError(409, "review_running", "Stop the review before changing its columns, sources or settings.");
   }
   private async documents(workspace: WorkspaceInfo, paths: string[], previous: ReviewDocument[] = []) {
-    const sources = await Promise.all(paths.map(path => reviewSource(workspace.path, path)));
+    const sources = await Promise.all(paths.map(path => reviewSource(workspaceFileRoot(workspace, path), path)));
     if (new Set(sources.map(source => source.path)).size !== sources.length) throw new ApiError(400, "review_duplicate_source", "Choose each document only once.");
     return sources.map(source => previous.find(document => document.path === source.path) ?? {
       id: randomUUID(), path: source.path, name: source.name, sourceHash: null, status: "pending", completedPages: 0, pageCount: 0, error: null,
@@ -307,7 +308,7 @@ export class ReviewService {
       signal.throwIfAborted();
       const files = snapshot.documents.filter(document => /\.(pdf|png|jpe?g|webp)$/i.test(document.path)
         && snapshot.cells.some(cell => cell.documentId === document.id && cell.status === "queued")).map(document => document.path);
-      preparationJobId = (await this.preparation.start(workspace.path, { files, force: input.reprocess, ocr: reviewOcr(snapshot.settings) })).id;
+      preparationJobId = (await this.preparation.start(workspace.path, { files, force: input.reprocess, ocr: reviewOcr(snapshot.settings) }, workspaceContentPath(workspace))).id;
       if (signal.aborted) cancelPreparation();
       signal.throwIfAborted();
       return preparationJobId;
@@ -320,7 +321,7 @@ export class ReviewService {
         const selected = (cell: ReviewCell) => cell.documentId === document.id && (!input.columnKeys || input.columnKeys.includes(cell.columnKey))
           && (!input.retryFailed || snapshot.cells.some(target => target.documentId === cell.documentId && target.columnKey === cell.columnKey && target.status === "queued"));
         try {
-          const { hash } = await sourceHash(workspace.path, document.path);
+          const { hash } = await sourceHash(workspaceFileRoot(workspace, document.path), document.path);
           if (document.sourceHash && document.sourceHash !== hash) current = await store.update(snapshot.id, review => {
             for (const cell of review.cells.filter(cell => cell.documentId === document.id)) {
               cell.blockedBy = selected(cell) ? blocked.get(cell.columnKey) : undefined;
@@ -335,7 +336,7 @@ export class ReviewService {
           const queuedColumns = new Set(current.cells.filter(cell => selected(cell) && cell.status === "queued").map(cell => cell.columnKey));
           await store.update(snapshot.id, review => { const item = review.documents.find(item => item.id === document.id)!; item.status = "preparing"; item.error = null; });
           const jobId = /\.(pdf|png|jpe?g|webp)$/i.test(document.path) ? await prepare() : undefined;
-          const evidence = await prepareReviewEvidence({ workspace: workspace.path, path: document.path, preparation: this.preparation, preparationJobId: jobId, signal, force: input.reprocess,
+          const evidence = await prepareReviewEvidence({ workspace: workspace.path, contentPath: workspaceContentPath(workspace), path: document.path, preparation: this.preparation, preparationJobId: jobId, signal, force: input.reprocess,
             onProgress: async progress => { await store.update(snapshot.id, review => { const item = review.documents.find(item => item.id === document.id)!; item.completedPages = progress.completedPages; item.pageCount = progress.pageCount; }); },
           });
           await store.update(snapshot.id, review => {
@@ -353,7 +354,7 @@ export class ReviewService {
               try {
                 const result = await this.executor.execute(workspace, snapshot, column, evidence, AbortSignal.any([signal, AbortSignal.timeout(30 * 60_000)]), actor);
                 signal.throwIfAborted();
-                if ((await sourceHash(workspace.path, document.path)).hash !== evidence.hash) throw new Error("The source changed during review. Run this document again.");
+                if ((await sourceHash(workspaceFileRoot(workspace, document.path), document.path)).hash !== evidence.hash) throw new Error("The source changed during review. Run this document again.");
                 await store.update(snapshot.id, review => { const cell = review.cells.find(predicate)!; cell.result = result; cell.error = null; cell.status = result.evidence === "uncertain" ? "needs_review" : "complete"; });
               } catch (error) {
                 if (signal.aborted) throw error;
@@ -396,7 +397,7 @@ export class ReviewService {
   async verifySource(workspace: WorkspaceInfo, id: string, documentId: string, expectedHash?: string) {
     const review = await this.get(workspace, id), document = review.documents.find(document => document.id === documentId);
     if (!document) throw new ApiError(404, "review_document_not_found", "Document not found in this review.");
-    const { hash } = await sourceHash(workspace.path, document.path);
+    const { hash } = await sourceHash(workspaceFileRoot(workspace, document.path), document.path);
     if (document.sourceHash !== hash || (expectedHash && expectedHash !== hash)) {
       if (review.status !== "running") await new ReviewStore(workspace.path).update(id, current => { for (const cell of current.cells.filter(cell => cell.documentId === documentId)) cell.status = "stale"; current.status = "needs_review"; });
       throw new ApiError(409, "review_source_changed", "The source has changed since this review. Rerun it before using the old evidence.");
@@ -408,13 +409,13 @@ export class ReviewService {
     const cell = review.cells.find(cell => cell.documentId === documentId && cell.columnKey === columnKey);
     if (!cell?.result || cell.result.completedAt !== completedAt) throw new ApiError(409, "review_conflict", "This answer has changed. Open its current source citation.");
     const source = await this.verifySource(workspace, id, documentId, cell.result.sourceHash);
-    return reviewSourcePage(workspace.path, source.path, cell.result, citationIndex, signal, page);
+    return reviewSourcePage(workspaceFileRoot(workspace, source.path), source.path, cell.result, citationIndex, signal, page, workspace.path);
   }
   async recognitionPage(workspace: WorkspaceInfo, id: string, documentId: string, signal: AbortSignal, page?: number) {
     const preparationPath = (await this.get(workspace, id)).documents.find(document => document.id === documentId)?.preparationPath;
     if (!preparationPath) throw new ApiError(409, "review_not_prepared", "This document has no recognized pages yet. Run the review first.");
     const source = await this.verifySource(workspace, id, documentId);
-    return reviewRecognitionPage(workspace.path, source.path, preparationPath, signal, page);
+    return reviewRecognitionPage(workspace.path, source.path, preparationPath, signal, page, workspaceFileRoot(workspace, source.path));
   }
   async stop() { for (const controller of this.active.values()) controller.abort(); await Promise.allSettled(this.runs.values()); }
 }

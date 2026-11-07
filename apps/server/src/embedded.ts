@@ -1,3 +1,6 @@
+import { stopManagedOpencodeService } from "./managed-opencode-service.js";
+import { localProjectsDirectory, prepareLocalProjects } from "./project-storage.js";
+import { persistServerWorkspaceState } from "./routes/workspaces.js";
 /**
  * Single entry point for embedding the LegalWork server in-process.
  *
@@ -39,6 +42,7 @@ import { createConfiguredManagedEngine, startManagedEngineLifecycle } from "./ma
 import { legacyMcpAuthPath } from "./legacy-mcp-credentials.js";
 import { expectedOpencodeVersion } from "@legalwork/opencode-release/candidate";
 import { ensureWikiAgentToken } from "./wiki/agent-access.js";
+import { WikiStore } from "./wiki/store.js";
 
 export type EmbeddedServerOptions = CliArgs & {
   /** Publish the bound API while the managed engine is still starting/migrating. */
@@ -66,7 +70,7 @@ export type EmbeddedServerOptions = CliArgs & {
   opencodeCandidateBuild?: import("@legalwork/opencode-release/candidate").VerifiedOpencodeCandidate;
   /** Working directory for the managed OpenCode process. */
   opencodeCwd?: string;
-  /** OS-resolved Documents project root provided by the desktop host. */
+  /** Host-owned local project homes, independent of the document folder. */
   projectsDirectory?: string;
   /** Native folder-picker hook, forwarded to ServerConfig.pickDirectory. */
   pickDirectory?: ServerConfig["pickDirectory"];
@@ -100,7 +104,7 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
   config.engineConfigurationMode = "native-project";
   config.requestHostApproval = options.requestHostApproval;
   config.pickDirectory = options.pickDirectory ?? null;
-  config.projectsDirectory = options.projectsDirectory;
+  if (managedEngine) config.projectsDirectory = options.projectsDirectory || localProjectsDirectory();
   config.recorder = options.recorder ?? null;
 
   // Spawn managed OpenCode if requested and no explicit base URL was provided.
@@ -114,8 +118,16 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
 
   // Desktop startup owns this one-time transition, before provider repair or
   // connector imports can observe the current configuration.
+  const startupWikis = new WikiStore(config);
+  try { await startupWikis.list({ publish: false }); } finally { await startupWikis.close(); }
   await bootstrapRuntimeOpencodeConfig(config);
   await prepareConnectorStorage(config);
+  const storageMigrationPending = managedEngine && !config.readOnly && config.workspaces.some(workspace => !workspace.contentPath);
+  config.projectStorageMigrating = storageMigrationPending;
+  if (storageMigrationPending) {
+    // Stop the predecessor before the original OpenCode history upgrade.
+    await stopManagedOpencodeService({ configDirectory: orgPolicyEngineDir(config), stateDirectory: join(engineStorageDir(config), "engine-home", "state") });
+  }
 
   if (!config.readOnly) {
     await retireSharedLegacyReview(globalSkillsDir());
@@ -158,15 +170,6 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
         // on every runtime-DB write — so disposes always pick up current state.
         const runtimeConfigPath = await writeLegalworkRuntimeConfigFile(config, workspace.id);
         stopConfigRefresh = keepLegalworkRuntimeConfigFileFresh(config, workspace.id);
-        // Fire-and-forget: refresh the GLOBAL paid manifest's model list around
-        // the kept key (no-op when not signed in) with the firm's access token,
-        // so the list reflects the admin's on/off choices, then rewrite the
-        // engine config so the current models appear across every workspace.
-        void ensureFreshPlatformToken(config)
-          .catch(() => null)
-          .then((platformToken) => refreshEigenweltPaidManifest(config, { platformToken }))
-          .then((r) => (r.changed && !stopped ? writeLegalworkRuntimeConfigFile(config, workspace.id) : undefined))
-          .catch(() => undefined);
         const cwd = options.opencodeCwd
           || process.env.LEGALWORK_MANAGED_OPENCODE_CWD?.trim()
           || workspace.path;
@@ -193,7 +196,13 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
         const catalog = managed.catalog;
         const dependencies = await prepareManagedOpencodeDependencies(config, options.opencodeSdkDirectory);
         if (dependencies.reason === "bundle-unavailable") console.warn("[legalwork-server] Prepare desktop resources to validate the released engine's bundled runtime declaration.");
-        managed.lifecycle = await startManagedEngineLifecycle({ config, database, service, legacyMcpAuthPath: legacyMcpAuthPath(), create: async (mode, beforeSpawn) => {
+        managed.lifecycle = await startManagedEngineLifecycle({ config, database, service, legacyMcpAuthPath: legacyMcpAuthPath(),
+          ...(storageMigrationPending ? { migrateProjectFolders: async () => {
+            await stopConfigRefresh?.(); stopConfigRefresh = null;
+            if (await prepareLocalProjects(config)) await persistServerWorkspaceState(config);
+            await writeLegalworkRuntimeConfigFile(config, workspace.id);
+            stopConfigRefresh = keepLegalworkRuntimeConfigFileFresh(config, workspace.id);
+          } } : {}), create: async (mode, beforeSpawn) => {
           const engine = await createConfiguredManagedEngine(config, {
           bin: executablePath,
           candidateBuild: options.opencodeCandidateBuild,
@@ -227,6 +236,16 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
           await managed.catalog?.stop();
           throw error;
         });
+        // Fire-and-forget: refresh the GLOBAL paid manifest's model list around
+        // the kept key (no-op when not signed in) with the firm's access token,
+        // so the list reflects the admin's on/off choices, then rewrite the
+        // engine config so the current models appear across every workspace.
+        void ensureFreshPlatformToken(config)
+          .catch(() => null)
+          .then((platformToken) => refreshEigenweltPaidManifest(config, { platformToken }))
+          .then((r) => (r.changed && !stopped ? writeLegalworkRuntimeConfigFile(config, workspace.id) : undefined))
+          .catch(() => undefined);
+
 
       }
     }

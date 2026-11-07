@@ -1,8 +1,8 @@
 import { mkdir, stat } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { ApiError } from "./errors.js";
-import { createDefaultProjectFolder, defaultProjectRoot, parseProjectFieldDefaults } from "./project-store.js";
-import { registerLocalProject } from "./routes/workspaces.js";
+import { parseProjectFieldDefaults } from "./project-store.js";
+import { createLocalProjectFolder, registerLocalProject } from "./routes/workspaces.js";
 import { openSqlite, type SqliteHandle } from "./runtime-db.js";
 import type { ServerConfig, WorkspaceInfo } from "./types.js";
 import { AssistantProfileSchema, DEFAULT_ASSISTANT_PROFILE, AssistantResourceSchema, AssistantSettingsSchema, DEFAULT_ASSISTANT_SETTINGS } from "./assistant-schema.js";
@@ -178,8 +178,8 @@ export class MainAssistant {
       return existing;
     }
     if (this.config.readOnly) throw new ApiError(403, "read_only", "The main assistant requires a writable server.");
-    const folderPath = await createDefaultProjectFolder("Assistant", defaultProjectRoot(this.config.projectsDirectory));
-    const { workspace } = await registerLocalProject(this.config, { folderPath, name: "Assistant", preset: MAIN_ASSISTANT_PRESET, position: "last" });
+    const folder = await createLocalProjectFolder(this.config, "Assistant");
+    const { workspace } = await registerLocalProject(this.config, { ...folder, name: "Assistant", preset: MAIN_ASSISTANT_PRESET, position: "last" });
     this.changed();
     return workspace;
   }

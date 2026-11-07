@@ -10,7 +10,7 @@ import { createDocumentTaskQueue, checkDocumentTask, type DocumentTaskOptions } 
 import { openBackgroundTab } from "../background/open-background-tab";
 import { t } from "@/i18n";
 
-export type DocumentProject = { projectId: string; workspaceId: string; workspaceRoot: string; client: LegalworkServerClient; isRemoteWorkspace: boolean };
+export type DocumentProject = { projectId: string; workspaceId: string; workspaceRoot: string; contentRoot?: string; client: LegalworkServerClient; isRemoteWorkspace: boolean };
 export type Registration = { surface: LegalworkControlSurface; action: LegalworkControlAction; ready: () => boolean; dirty: () => boolean; updatedAt?: () => number | null };
 export type Entry = {
   key: string;

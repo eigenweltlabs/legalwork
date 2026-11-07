@@ -264,9 +264,9 @@ export async function resolveServerConfig(
   const envWorkspaces = parseList(process.env.LEGALWORK_WORKSPACES);
   let workspaceConfigs: WorkspaceConfig[] =
     cli.workspaces.length > 0
-      ? cli.workspaces.map((path) => ({ path }))
+      ? cli.workspaces.map(path => fileConfig.workspaces?.find(workspace => resolve(configDir, workspace.path || "") === resolve(path) || workspace.previousPath && resolve(configDir, workspace.previousPath) === resolve(path)) ?? { path })
       : envWorkspaces.length > 0
-        ? envWorkspaces.map((path) => ({ path }))
+        ? envWorkspaces.map(path => fileConfig.workspaces?.find(workspace => resolve(configDir, workspace.path || "") === resolve(path) || workspace.previousPath && resolve(configDir, workspace.previousPath) === resolve(path)) ?? { path })
         : fileConfig.workspaces ?? [];
 
   const envOpencodeBaseUrl = process.env.LEGALWORK_OPENCODE_BASE_URL;

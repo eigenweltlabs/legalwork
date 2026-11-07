@@ -1,3 +1,4 @@
+import { migrateLocalProjectSessions, projectSessionMovesPending } from "./project-storage-sessions.js";
 import { OpenCode } from "@opencode/client";
 import { join } from "node:path";
 import { z } from "zod";
@@ -20,6 +21,8 @@ export async function startManagedEngineLifecycle(options: {
   config: ServerConfig;
   database: string;
   legacyMcpAuthPath?: string;
+  /** Run only after the bootstrap factory completed OpenCode migration and its engine stopped. */
+  migrateProjectFolders?: () => Promise<void>;
   service: ManagedOpencodeServiceOptions;
   create: (mode: "service" | "recovery", beforeSpawn?: () => Promise<void>) => Promise<ManagedOpencodeServer>;
 }) {
@@ -31,9 +34,19 @@ export async function startManagedEngineLifecycle(options: {
   let engine: ManagedOpencodeServer;
   let mode: "service" | "recovery" | "promoting" = "recovery";
   let failure: { code: string; message: string } | undefined;
-  let admissions = 0, closed = false, serviceStartupFailed = false;
+  let admissions = 0, closed = false, serviceStartupFailed = false, starting = true;
+  let foldersPrepared = options.migrateProjectFolders === undefined;
   let endpointLive = false, legacyPoliciesPrepared = false;
   const attempts = new Map<string, { kind: "oauth" | "command"; integrationID: string; attemptID: string; directory: string }>();
+  config.withManagedEngineAdmission = async (sessionID, action) => {
+    if (starting || mode === "promoting" || catalogReloading) throw new ApiError(503, "engine_recovery_transition", catalogReloading
+      ? "OpenCode is updating its model list. Retry this action when the update finishes."
+      : "OpenCode is enabling native restart recovery. Retry this action when the engine reconnects.");
+    if (mode === "recovery" && heldIDs.has(sessionID)) throw new ApiError(409, "engine_recovery_held", "This interrupted chat is preserved while native recovery waits for project approval or history resolution. Other approved projects can continue working.", failure);
+    admissions++;
+    try { return await action(); }
+    finally { admissions--; }
+  };
   let checking: Promise<void> | undefined;
   let catalogReload: Promise<boolean> | undefined;
   let catalogReloading = false;
@@ -59,6 +72,11 @@ export async function startManagedEngineLifecycle(options: {
     legacyPoliciesPrepared = true;
   };
   const preflight = async () => {
+    if (!foldersPrepared) throw new ApiError(409, "project_storage_upgrade_pending", "OpenCode history must finish upgrading before project folders move.");
+    if (await projectSessionMovesPending(config)) {
+      if (!endpointLive) throw new ApiError(409, "project_storage_history_pending", "Saved chats are moving to local project storage before interrupted work can resume.");
+      await migrateLocalProjectSessions(config, client());
+    }
     if (mcpImportPending && legacyMcpSource) {
       if (!endpointLive) throw new ApiError(409, "mcp_credential_import_pending", "Saved connector logins must be imported before interrupted work resumes.");
       await migrateLegacyMcpCredentials(client(), legacyMcpSource, mcpReceipt);
@@ -88,6 +106,7 @@ export async function startManagedEngineLifecycle(options: {
       workspace.directory = workspace.path;
     }
     endpointLive = true;
+    try { await migrateLocalProjectSessions(config, client()); } catch (error) { remember(error); }
     // Session get/update is passive in the released API. Restore original chat
     // policies before service promotion can resume any interrupted agent work.
     try { await prepareLegacyPolicies(); } catch (error) { remember(error); }
@@ -179,20 +198,24 @@ export async function startManagedEngineLifecycle(options: {
   let attemptedService = false;
   try { await preflight(); attemptedService = true; engine = await createStopped("service", preflight); mode = "service"; }
   catch (error) { remember(error); serviceStartupFailed = attemptedService; engine = await createStopped("recovery"); }
+  if (options.migrateProjectFolders) {
+    // The engine factory has awaited native migration completion. Quiesce it
+    // before copying files or publishing a different project directory.
+    await engine.close();
+    await options.migrateProjectFolders();
+    foldersPrepared = true;
+    engine = await createStopped("recovery");
+  }
+  config.projectStorageMigrating = false;
+  // V1 suspended work becomes visible only after native history conversion.
+  held.splice(0, held.length, ...(await inspectNativeEngineRecovery(options.database)).sessions);
+  heldIDs.clear(); for (const session of held) heldIDs.add(session.id);
   await publish();
+  starting = false;
   config.managedImageAffinity = imageAffinity.resolve;
   config.managedEngineRecoveryState = () => ({ mode, heldSessions: mode === "service" ? [] : held, ...(failure ? { error: failure } : {}) });
   config.retryManagedEngineRecovery = refresh;
   config.reloadManagedEngineCatalog = reloadCatalog;
-  config.withManagedEngineAdmission = async (sessionID, action) => {
-    if (mode === "promoting" || catalogReloading) throw new ApiError(503, "engine_recovery_transition", catalogReloading
-      ? "OpenCode is updating its model list. Retry this action when the update finishes."
-      : "OpenCode is enabling native restart recovery. Retry this action when the engine reconnects.");
-    if (mode === "recovery" && heldIDs.has(sessionID)) throw new ApiError(409, "engine_recovery_held", "This interrupted chat is preserved while native recovery waits for project approval or history resolution. Other approved projects can continue working.", failure);
-    admissions++;
-    try { return await action(); }
-    finally { admissions--; }
-  };
   config.observeManagedEngineResponse = async (request, response) => {
     if (!response.ok) return;
     const match = request.path.match(/^\/api\/integration\/([^/]+)\/connect\/(oauth|command)(?:\/([^/]+)(?:\/(complete))?)?$/);
@@ -206,7 +229,8 @@ export async function startManagedEngineLifecycle(options: {
     const id = parsed.data.data.attemptID;
     attempts.set(`${integrationID}:${id}`, { kind, integrationID, attemptID: id, directory: request.directory });
   };
-  if (mode === "recovery") monitor();
+  config.migrateProjectStorageSessions = () => migrateLocalProjectSessions(config, client());
+  if (mode === "recovery") { monitor(); await refresh(false); }
   return {
     get engine() { return engine; },
     refresh,
@@ -214,7 +238,7 @@ export async function startManagedEngineLifecycle(options: {
     async close() {
       closed = true; endpointLive = false; imageAffinity.disconnect(); delete config.managedImageAffinity; events?.abort(); if (retryTimer) clearTimeout(retryTimer);
       await checking; await engine.close();
-      delete config.managedEngineRecoveryState; delete config.retryManagedEngineRecovery; delete config.reloadManagedEngineCatalog; delete config.withManagedEngineAdmission; delete config.observeManagedEngineResponse;
+      delete config.migrateProjectStorageSessions; delete config.managedEngineRecoveryState; delete config.retryManagedEngineRecovery; delete config.reloadManagedEngineCatalog; delete config.withManagedEngineAdmission; delete config.observeManagedEngineResponse;
     },
   };
 }

@@ -11,6 +11,8 @@ import { ApiError } from "./errors.js";
 import { globalSkillsDir, projectSkillsDir } from "./workspace-files.js";
 import { BUNDLED_WORKFLOW_NAMES } from "./bundled-workflows.js";
 
+export type SkillWorkspace = string | { path: string; contentPath?: string | null };
+
 export type SkippedSkill = { path: string; reason: string };
 
 async function findWorkspaceRoots(workspaceRoot: string): Promise<string[]> {
@@ -147,16 +149,19 @@ export async function listSkillsInDir(dir: string, scope: "project" | "global", 
   return items;
 }
 
-export async function listSkills(workspaceRoot: string, includeGlobal: boolean, skipped?: SkippedSkill[]): Promise<SkillItem[]> {
-  const roots = await findWorkspaceRoots(workspaceRoot);
+export async function listSkills(workspace: SkillWorkspace, includeGlobal: boolean, skipped?: SkippedSkill[]): Promise<SkillItem[]> {
+  const workspaceRoot = typeof workspace === "string" ? workspace : workspace.path;
+  const contentRoot = typeof workspace === "string" ? workspace : workspace.contentPath || workspace.path;
+  const roots = [...new Set([workspaceRoot, ...await findWorkspaceRoots(contentRoot)])];
   // Visible workspace packages travel with a wiki and remain editable in its tree.
   // Only scan this workspace, never another wiki or a parent's visible content.
-  const items = await listSkillsInDir(join(workspaceRoot, "Skills"), "project", skipped);
+  const items = await listSkillsInDir(join(contentRoot, "Skills"), "project", skipped);
   for (const root of roots) {
     const opencodeDir = join(root, ".opencode", "skills");
     const claudeDir = join(root, ".claude", "skills");
     items.push(...(await listSkillsInDir(opencodeDir, "project", skipped)));
     items.push(...(await listSkillsInDir(claudeDir, "project", skipped)));
+    items.push(...(await listSkillsInDir(join(root, ".agents", "skills"), "project", skipped)));
   }
 
   if (includeGlobal) {
@@ -280,9 +285,10 @@ export async function upsertSkill(
   return { path: skillPath, action: existed ? "updated" : "added", scope };
 }
 
-export async function deleteSkill(workspaceRoot: string, name: string): Promise<{ path: string }> {
+export async function deleteSkill(workspace: SkillWorkspace, name: string): Promise<{ path: string }> {
   const trimmed = name.trim();
   validateSkillName(trimmed);
+  const workspaceRoot = typeof workspace === "string" ? workspace : workspace.path;
   const flatDir = dirname(await skillPathForScope(workspaceRoot, "project", trimmed));
   if (await exists(join(flatDir, "SKILL.md"))) {
     await rm(flatDir, { recursive: true, force: true });
@@ -291,7 +297,7 @@ export async function deleteSkill(workspaceRoot: string, name: string): Promise<
   // Nested layout: skills/<domain>/<name>/SKILL.md (e.g. skills installed by
   // marketplace plugin bundles are namespaced under a plugin folder). Listing
   // supports this layout, so deletion must resolve it the same way.
-  const items = await listSkills(workspaceRoot, false);
+  const items = await listSkills(workspace, false);
   const item = items.find((skill) => skill.name === trimmed && skill.scope === "project");
   if (!item) {
     throw new ApiError(404, "skill_not_found", `Skill not found: ${trimmed}`);

@@ -1,7 +1,10 @@
+import { randomUUID } from "node:crypto";
+import { join } from "node:path";
+import { markLocalProjectPublished, prepareLocalProject, projectHome, workspaceContentPath } from "../project-storage.js";
 import type { registerProjectFolderRoutes } from "./project-folders.js";
-import { readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
-import { withFileWriteLock } from "../file-write-lock.js";
+import { canonicalFilePath, withFileWriteLock } from "../file-write-lock.js";
 import { recordAudit } from "../audit.js";
 import { readProjectTemplates, saveProjectTemplates, localizeProjectTemplates, projectFieldsFromTemplate } from "../project-templates.js";
 import { ApiError } from "../errors.js";
@@ -76,6 +79,8 @@ async function readServerConfigFile(configPath: string): Promise<Record<string, 
 function serializeWorkspaceConfigEntry(workspace: WorkspaceInfo): Record<string, unknown> {
   return {
     id: workspace.id, path: workspace.path, name: workspace.name,
+    ...(workspace.contentPath ? { contentPath: workspace.contentPath } : {}),
+    ...(workspace.previousPath ? { previousPath: workspace.previousPath } : {}),
     preset: workspace.preset, workspaceType: "local",
     ...(workspace.displayName ? { displayName: workspace.displayName } : {}),
     ...(workspace.sandboxBackend ? { sandboxBackend: workspace.sandboxBackend } : {}),
@@ -84,7 +89,7 @@ function serializeWorkspaceConfigEntry(workspace: WorkspaceInfo): Record<string,
   };
 }
 
-async function persistServerWorkspaceState(config: ServerConfig): Promise<boolean> {
+export async function persistServerWorkspaceState(config: ServerConfig): Promise<boolean> {
   const configPath = config.configPath?.trim() ?? "";
   if (!configPath) return false;
 
@@ -104,6 +109,7 @@ async function persistServerWorkspaceState(config: ServerConfig): Promise<boolea
     try {
       await writeFile(tmpPath, `${JSON.stringify(next, null, 2)}\n`, "utf8");
       await rename(tmpPath, configPath);
+      for (const workspace of config.workspaces) await markLocalProjectPublished(workspace);
       return true;
     } finally {
       try {
@@ -124,35 +130,51 @@ export async function registerLocalProject(
   config: ServerConfig,
   input: {
     folderPath: string;
+    id?: string;
     name: string;
     preset: string;
     projectFields?: ReturnType<typeof parseProjectFields> | null;
     position?: "first" | "last";
   },
 ): Promise<{ workspace: WorkspaceInfo; persisted: boolean }> {
-  const workspacePath = resolve(input.folderPath);
+  if (config.projectStorageMigrating) throw new ApiError(503, "project_storage_migrating", "Project storage is being upgraded. Retry when startup finishes.");
+  const workspacePath = await canonicalFilePath(resolve(input.folderPath));
   await assertProjectFolderIndependent(workspacePath, await new WikiStore(config).list());
   await ensureDir(workspacePath);
-  await ensureWorkspaceFiles(workspacePath, input.preset, { bundledCore: config.engineConfigurationMode !== "managed" });
-  if (input.projectFields) await initializeProjectFields(workspacePath, input.projectFields);
 
-  const workspace: WorkspaceInfo = {
-    id: workspaceIdForPath(workspacePath),
+
+  const existing = config.workspaces.find(entry => resolve(workspaceContentPath(entry)) === workspacePath);
+  let workspace: WorkspaceInfo = {
+    id: existing?.id || input.id || (config.projectsDirectory ? `ws_${randomUUID().replaceAll("-", "")}` : workspaceIdForPath(workspacePath)),
     name: input.name,
     path: workspacePath,
     preset: input.preset,
     workspaceType: "local",
     ...inheritWorkspaceOpencodeConnection(config),
   };
+  if (existing?.contentPath) workspace = { ...workspace, path: existing.path, contentPath: existing.contentPath, previousPath: existing.previousPath };
+  else if (config.projectsDirectory) workspace = await prepareLocalProject(config, workspace);
+  await ensureWorkspaceFiles(workspace.path, input.preset, { bundledCore: config.engineConfigurationMode !== "managed" });
+  if (input.projectFields) await initializeProjectFields(workspace.path, input.projectFields);
   const previous = config.workspaces.find(entry => entry.id === workspace.id);
   if (previous && (previous.workspaceType !== workspace.workspaceType || (previous.directory || previous.path) !== workspace.path)) revokeWikiProjectEverywhere(config, workspace.id);
   const others = config.workspaces.filter((entry) => entry.id !== workspace.id);
   config.workspaces = input.position === "last" ? [...others, workspace] : [workspace, ...others];
-  if (!config.authorizedRoots.some((root) => resolve(root) === workspacePath)) {
-    config.authorizedRoots = [...config.authorizedRoots, workspacePath];
+  if (!config.authorizedRoots.some((root) => resolve(root) === workspace.path)) {
+    config.authorizedRoots = [...config.authorizedRoots, workspace.path];
   }
   const persisted = await commitRegisteredEngineProjects(config, () => persistServerWorkspaceState(config));
   return { workspace, persisted };
+}
+
+/** Allocate the same local layout for UI, assistant and sync-created projects. */
+export async function createLocalProjectFolder(config: ServerConfig, name: string): Promise<{ folderPath: string; id?: string }> {
+  if (config.projectStorageMigrating) throw new ApiError(503, "project_storage_migrating", "Project storage is being upgraded. Retry when startup finishes.");
+  if (!config.projectsDirectory) return { folderPath: await createDefaultProjectFolder(name, defaultProjectRoot()) };
+  const id = `ws_${randomUUID().replaceAll("-", "")}`;
+  const folderPath = join(projectHome(config, id), "files");
+  await mkdir(folderPath, { recursive: true, mode: 0o700 });
+  return { folderPath, id };
 }
 
 /** Change a workspace's display name and persist the registry; false when there is no such workspace. */
@@ -297,10 +319,13 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
     const name = typeof body.name === "string" && body.name.trim() ? body.name.trim() : basename(folderPath || "Workspace");
     const preset = typeof body.preset === "string" && body.preset.trim() ? body.preset.trim() : "starter";
 
+    let newProjectId: string | undefined;
     if (body.folderMode === "default") {
       if (folderPath || !readStringField(body, "name")) throw new ApiError(400, "invalid_payload", "A default-folder project needs a name and no selected path.");
       try {
-        folderPath = await createDefaultProjectFolder(name, defaultProjectRoot(config.projectsDirectory));
+        const created = await createLocalProjectFolder(config, name);
+        newProjectId = created.id;
+        folderPath = created.folderPath;
       } catch (error) {
         if (error instanceof ApiError) throw error;
         throw new ApiError(422, "project_folder_unavailable", "The project folder could not be created. Check folder access or choose your own folder.");
@@ -310,7 +335,7 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
       throw new ApiError(400, "invalid_payload", "folderPath is required");
     }
 
-    const { workspace, persisted } = await registerLocalProject(config, { folderPath, name, preset, projectFields });
+    const { workspace, persisted } = await registerLocalProject(config, { folderPath, id: newProjectId, name, preset, projectFields });
     if (preparedFolders?.length || initializeFromFolders)
       await options.projectFolders?.attach(workspace, preparedFolders ?? [], initializeFromFolders);
     onWorkspacesChanged();
@@ -327,7 +352,7 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
 
     if (newProjectOnly) return jsonResponse({
       activeId: workspace.id,
-      project: { id: workspace.id, name: workspace.name, localFolder: workspace.path, ...await readProjectDetails(workspace.path) },
+      project: { id: workspace.id, name: workspace.name, localFolder: workspaceContentPath(workspace), engineFolder: workspace.path, ...await readProjectDetails(workspace.path) },
       persisted,
     }, 201);
     return jsonResponse({

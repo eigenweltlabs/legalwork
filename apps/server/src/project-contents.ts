@@ -1,3 +1,4 @@
+import { workspaceContentPath } from "./project-storage.js";
 import { open, readdir, realpath, stat } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep, extname } from "node:path";
 import { z } from "zod";
@@ -244,7 +245,7 @@ export async function listProjectContents(
           };
         } else if (kind === "files" || kind === "notes") {
           page = await fileSection(
-            workspace.path,
+            workspaceContentPath(workspace),
             kind,
             query.path,
             query.limit,
@@ -409,7 +410,7 @@ export async function readProjectContent(
         "Use the document tools to read this file; its project-relative path is the listed id.",
       );
     }
-    const path = await projectPath(workspace.path, query.id);
+    const path = await projectPath(workspaceContentPath(workspace), query.id);
     if ((await stat(path)).size > 2_000_000)
       throw new ApiError(
         413,

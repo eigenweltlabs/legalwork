@@ -1,3 +1,4 @@
+import type { SkillWorkspace } from "./skills.js";
 import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -78,18 +79,15 @@ function globalSkillsBaseDirs(): string[] {
  * .claude/skills first, then the global skills dirs, in both the flat and the
  * nested (<domain>/<name>) layouts.
  */
-export async function resolveSkillDir(workspaceRoot: string, skillName: string): Promise<string> {
+export async function resolveSkillDir(workspace: SkillWorkspace, skillName: string): Promise<string> {
   const trimmed = skillName.trim();
-  validateSkillName(trimmed); // kebab-case only — path-traversal safe
-  const fromVisible = await findSkillDirInBase(join(workspaceRoot, "Skills"), trimmed);
-  if (fromVisible) return fromVisible;
-  const fromOpencode = await findSkillDirInBase(projectSkillsDir(workspaceRoot), trimmed);
-  if (fromOpencode) return fromOpencode;
-  const fromClaude = await findSkillDirInBase(join(workspaceRoot, ".claude", "skills"), trimmed);
-  if (fromClaude) return fromClaude;
-  for (const baseDir of globalSkillsBaseDirs()) {
-    const fromGlobal = await findSkillDirInBase(baseDir, trimmed);
-    if (fromGlobal) return fromGlobal;
+  validateSkillName(trimmed);
+  const engine = typeof workspace === "string" ? workspace : workspace.path;
+  const content = typeof workspace === "string" ? workspace : workspace.contentPath || workspace.path;
+  const bases = [join(content, "Skills"), projectSkillsDir(engine), join(content, ".claude", "skills"), join(content, ".agents", "skills"), ...globalSkillsBaseDirs()];
+  for (const base of bases) {
+    const directory = await findSkillDirInBase(base, trimmed);
+    if (directory) return directory;
   }
   throw new ApiError(404, "skill_not_found", `Skill not found: ${trimmed}`);
 }
@@ -103,7 +101,7 @@ async function listResourceNames(resourcesDir: string): Promise<string[]> {
     .sort((a, b) => a.localeCompare(b));
 }
 
-export async function listSkillResources(workspaceRoot: string, skillName: string): Promise<SkillResourceItem[]> {
+export async function listSkillResources(workspaceRoot: SkillWorkspace, skillName: string): Promise<SkillResourceItem[]> {
   const skillDir = await resolveSkillDir(workspaceRoot, skillName);
   const dir = join(skillDir, "resources");
   const items: SkillResourceItem[] = [];
@@ -116,7 +114,7 @@ export async function listSkillResources(workspaceRoot: string, skillName: strin
 }
 
 export async function readSkillResource(
-  workspaceRoot: string,
+  workspaceRoot: SkillWorkspace,
   skillName: string,
   fileName: string,
   encoding: "utf8" | "base64" = "utf8",
@@ -143,7 +141,7 @@ export type UpsertSkillResourcePayload = {
 };
 
 export async function upsertSkillResource(
-  workspaceRoot: string,
+  workspaceRoot: SkillWorkspace,
   skillName: string,
   payload: UpsertSkillResourcePayload,
 ): Promise<{ name: string; path: string; skillPath: string; action: "added" | "updated" }> {
@@ -167,7 +165,7 @@ export async function upsertSkillResource(
 }
 
 export async function deleteSkillResource(
-  workspaceRoot: string,
+  workspaceRoot: SkillWorkspace,
   skillName: string,
   fileName: string,
 ): Promise<{ path: string; skillPath: string }> {

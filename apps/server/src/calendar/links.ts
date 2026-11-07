@@ -1,3 +1,4 @@
+import { workspaceContentPath } from "../project-storage.js";
 import { realpath, stat } from "node:fs/promises";
 import { resolve, sep } from "node:path";
 import { ApiError } from "../errors.js";
@@ -8,7 +9,7 @@ export async function validateCalendarLinks(workspace: WorkspaceInfo, input: { a
   for (const path of input.attachmentPaths ?? []) {
     if (previous?.attachmentPaths.includes(path)) continue;
     if (!safeRemotePath(path)) throw new ApiError(400, "calendar_attachment", "Choose a visible project file.");
-    const root = await realpath(workspace.path);
+    const root = await realpath(workspaceContentPath(workspace));
     const target = await realpath(resolve(root, path)).catch(() => null);
     if (!target?.startsWith(root + sep) || !(await stat(target)).isFile()) throw new ApiError(400, "calendar_attachment", "The attachment must be a file inside this project.");
   }

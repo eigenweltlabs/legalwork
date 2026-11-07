@@ -48,7 +48,7 @@ export function ensureDeadlineSkills() {
   })().catch(error => { installing = null; throw error; });
   return installing;
 }
-export async function calculateWithSkill(workspacePath: string, skillName: string, raw: unknown) {
+export async function calculateWithSkill(workspacePath: import("../skills.js").SkillWorkspace, skillName: string, raw: unknown) {
   await ensureDeadlineSkills();
   const input = DeadlineInputSchema.parse(raw), supported = DEADLINE_SKILLS.find(skill => skill.name === skillName && skill.rules.includes(input.rule));
   if (!supported) throw new ApiError(422, "unsupported_rule", "This jurisdiction skill has no executable support for that rule.");

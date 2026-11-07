@@ -1,3 +1,4 @@
+import { workspaceFileRoot } from "../project-storage.js";
 import { managedStorageCapability } from "../connectors/broker.js";
 import { hasConnectorRuntimeCapability, hasConnectorHostAuthorization } from "../connectors/capability.js";
 import { ConnectorStorageAccounts, isConnectorStorageId } from "../file-storage/connector-accounts.js";
@@ -483,9 +484,9 @@ export function registerStorageRoutes({
       workspaceId: current.id,
       action: "workspace.file.write",
       summary: `Save local copy ${destination}`,
-      paths: [join(current.path, destination)],
+      paths: [join(workspaceFileRoot(current, destination), destination)],
     });
-    const saved = await keepWorkspaceCopy(current.path, parsed.data.localPath, destination);
+    const saved = await keepWorkspaceCopy(current.path, parsed.data.localPath, destination, workspaceFileRoot(current, destination));
     await recordAudit(current.path, {
       id: randomUUID(),
       timestamp: Date.now(),
@@ -529,7 +530,7 @@ export function registerStorageRoutes({
         const staged = await (async () => {
           if (endpoint === "from-workspace") {
             if (!input.localPath) throw new ApiError(400, "invalid_storage_file", "Choose a workspace file.");
-            return snapshotWorkspaceFile(current.path, input.localPath);
+            return snapshotWorkspaceFile(workspaceFileRoot(current, input.localPath), input.localPath);
           }
           const directory = await mkdtemp(join(tmpdir(), "legalwork-upload-"));
           const target = join(directory, "content");

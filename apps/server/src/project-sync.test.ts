@@ -1,3 +1,4 @@
+import { workspaceFileRoot, workspaceContentPath } from "./project-storage.js";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readdir, readFile, rm, utimes, writeFile } from "node:fs/promises";
@@ -13,7 +14,7 @@ import type { IntakeClient } from "./eigenwelt-intake.js";
 import type { RemoteProject } from "./eigenwelt-projects.js";
 import { ApiError } from "./errors.js";
 import { checkCondition, conflict, entry, type StorageAdapter } from "./file-storage/common.js";
-import { readProjectDetails, updateProjectDetails, updateProjectPersonalization, updateProjectRemote } from "./project-store.js";
+import { readProjectDetails, setProjectSyncId, updateProjectDetails, updateProjectPersonalization, updateProjectRemote } from "./project-store.js";
 import { projectSyncStore } from "./project-sync-store.js";
 import {
   diffFields,
@@ -237,20 +238,20 @@ function projectsOf(config: ServerConfig): WorkspaceInfo[] {
   return config.workspaces.filter((workspace) => workspace.workspaceType === "local");
 }
 
-const read = (workspace: WorkspaceInfo, path: string) => readFile(join(workspace.path, path), "utf8").catch(() => null);
+const read = (workspace: WorkspaceInfo, path: string) => readFile(join(workspaceFileRoot(workspace, path), path), "utf8").catch(() => null);
 
 async function write(workspace: WorkspaceInfo, path: string, text: string) {
-  await mkdir(join(workspace.path, path, ".."), { recursive: true });
-  await writeFile(join(workspace.path, path), text);
+  await mkdir(join(workspaceFileRoot(workspace, path), path, ".."), { recursive: true });
+  await writeFile(join(workspaceFileRoot(workspace, path), path), text);
   // Past the settle time, as a file saved a moment ago would be by the next round.
   const past = new Date(Date.now() - 60_000);
-  await utimes(join(workspace.path, path), past, past);
+  await utimes(join(workspaceFileRoot(workspace, path), path), past, past);
 }
 
 /** Every file of a copy past the settle time, as it is a few seconds after it arrived. */
 async function settleFiles(workspace: WorkspaceInfo) {
   const past = new Date(Date.now() - 60_000);
-  for (const entry of await readdir(workspace.path, { recursive: true, withFileTypes: true })) {
+  for (const entry of await readdir(workspaceContentPath(workspace), { recursive: true, withFileTypes: true })) {
     if (entry.isFile()) await utimes(join(entry.parentPath, entry.name), past, past);
   }
 }
@@ -280,7 +281,7 @@ describe("project sync between computers", () => {
     const userHome = join(owner.dir, "profile");
     const providerConfig = join(userHome, ".dropbox", "info.json");
     await mkdir(join(userHome, ".dropbox"), { recursive: true });
-    await writeFile(providerConfig, JSON.stringify({ personal: { path: cloud.path } }));
+    await writeFile(providerConfig, JSON.stringify({ personal: { path: workspaceContentPath(cloud) } }));
     const profile = spyOn(os, "homedir").mockReturnValue(userHome);
     try {
       expect(await projectSyncStatus(owner.config, cloud)).toMatchObject({ fileSharingDisabledReason: "cloud_folder" });
@@ -351,10 +352,10 @@ describe("project sync between computers", () => {
     await runProjectSync(owner.config, { platform });
     await runProjectSync(member.config, { platform });
     const [copy] = projectsOf(member.config);
-    await utimes(join(copy.path, "a.txt"), new Date(), new Date(Date.now() - 30_000));
+    await utimes(join(workspaceContentPath(copy), "a.txt"), new Date(), new Date(Date.now() - 30_000));
     await saveProjectSyncSettings(owner.config, project, settings({ memberIds: [] }));
     await runProjectSync(owner.config, { platform });
-    const check = spyOn(cloudFolders, "isCloudFolder").mockImplementation(async path => path === copy.path);
+    const check = spyOn(cloudFolders, "isCloudFolder").mockImplementation(async path => path === workspaceContentPath(copy));
     const hash = spyOn(fileSync, "hashFile").mockImplementation(async () => { throw new Error("Must not read cloud documents"); });
     try {
       await runProjectSync(member.config, { platform });
@@ -784,7 +785,7 @@ describe("project sync between computers", () => {
     // The next rounds take the choice to the firm and to Anna, copies gone there too
     // (once the restored file has settled, as every file saved a moment ago waits).
     const past = new Date(Date.now() - 60_000);
-    await utimes(join(copy.path, "Vertrag.docx"), past, past);
+    await utimes(join(workspaceContentPath(copy), "Vertrag.docx"), past, past);
     await runProjectSync(member.config, { platform });
     await runProjectSync(owner.config, { platform });
     expect(await read(akte, "Vertrag.docx")).toBe("Ben's edit");
@@ -862,12 +863,34 @@ describe("project sync between computers", () => {
     await runProjectSync(member.config, { platform });
     const [copy] = projectsOf(member.config);
     const touched = new Date(Date.now() - 30_000);
-    await utimes(join(copy.path, "a.txt"), touched, touched);
+    await utimes(join(workspaceContentPath(copy), "a.txt"), touched, touched);
 
     await saveProjectSyncSettings(owner.config, akte, settings({ memberIds: [] }));
     await runProjectSync(owner.config, { platform });
     await runProjectSync(member.config, { platform });
     expect(projectsOf(member.config)).toEqual([]);
+  });
+
+  test("offline content retains local support and pending changes during removal and firm revocation", async () => {
+    const { platform } = fakeFirm();
+    const owner = await machine("user_anna", "Anna"), member = await machine("user_ben", "Ben");
+    const akte = await localProject(owner.config, "Matter");
+    await saveProjectSyncSettings(owner.config, akte, settings({ memberIds: [member.userId] }));
+    await runProjectSync(owner.config, { platform }); await runProjectSync(member.config, { platform });
+    const [copy] = projectsOf(member.config);
+    const store = await projectSyncStore(member.config), link = store.linkByWorkspace(copy.id)!;
+    await mkdir(join(copy.path, ".legalwork", "attachments"), { recursive: true });
+    const attachment = join(copy.path, ".legalwork", "attachments", "retained.txt");
+    await writeFile(attachment, "Retained local work");
+    store.enqueue(link.projectId, { kind: "personalization", prompt: "Not yet uploaded", changedAt: new Date().toISOString() });
+    await rm(workspaceContentPath(copy), { recursive: true });
+    await expect(resolveProjectSync(member.config, copy, { action: "remove" })).rejects.toMatchObject({ code: "project_changes_pending" });
+    expect(store.pendingOps(link.projectId)).toHaveLength(1);
+    await saveProjectSyncSettings(owner.config, akte, settings({ memberIds: [] }));
+    await runProjectSync(owner.config, { platform }); await runProjectSync(member.config, { platform });
+    expect(await readFile(attachment, "utf8")).toBe("Retained local work");
+    expect(store.linkByWorkspace(copy.id)?.state).toBe("revoked");
+    expect(projectsOf(member.config).map(item => item.id)).toContain(copy.id);
   });
 
   test("stopping sync keeps the owner's project local and takes every copy away", async () => {
@@ -949,7 +972,7 @@ describe("project sync between computers", () => {
     await runProjectSync(fresh, { platform });
 
     expect(projectsOf(fresh).map((workspace) => workspace.path)).toEqual([copy.path]);
-    expect(await readdir(member.config.projectsDirectory ?? "")).toEqual(["Akte"]);
+    expect(await readdir(member.config.projectsDirectory ?? "")).toEqual([copy.id]);
   });
 
   /** One folder both computers see (a shared drive), each has as its own project; the owner shares it. */
@@ -965,9 +988,12 @@ describe("project sync between computers", () => {
     const tasks = await taskStore(member.config);
     const task = tasks.createTask({ title: "Privat", projectId: own.id }, { userId: "user_ben", name: "Ben", email: null });
     await saveProjectSyncSettings(owner.config, akte, settings({ memberIds: [member.userId] }));
+    // Both installations had the shared project's marker before their support
+    // folders became private. Content folders no longer carry live metadata.
+    await setProjectSyncId(own.path, (await readProjectDetails(akte.path)).syncProjectId!);
     await runProjectSync(owner.config, { platform });
     await runProjectSync(member.config, { platform });
-    const projectId = (await readProjectDetails(folderPath)).syncProjectId;
+    const projectId = (await readProjectDetails(akte.path)).syncProjectId;
     return { platform, owner, member, akte, own, tasks, task, folderPath, projectId };
   }
 
@@ -1019,7 +1045,7 @@ describe("project sync between computers", () => {
     expect(projectsOf(member.config).map((workspace) => workspace.id)).toEqual([own.id]);
     expect((await projectSyncStatus(member.config, own)).mode).toBe("local");
     expect(await read(own, "a.txt")).toBe("a");
-    expect((await readProjectDetails(folderPath)).syncProjectId).toBe(projectId);
+    expect((await readProjectDetails(own.path)).syncProjectId).toBe(projectId);
 
     // Given access again, he chose this folder before; leaving keeps it too.
     await saveProjectSyncSettings(owner.config, akte, settings({ memberIds: [member.userId] }));

@@ -1,3 +1,4 @@
+import { workspaceFileRoot } from "../project-storage-paths.js";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, realpath, rename, stat, writeFile } from "node:fs/promises";
 import { extname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -78,7 +79,7 @@ export class DocumentPreparation {
     open?: (bytes: Uint8Array, kind: "pdf" | "image") => Promise<RenderedDocument>;
   } = {}) { this.layout = options.layout ?? new LayoutRuntime(ocr.runtime.local); }
 
-  async start(workspace: string, raw: unknown) {
+  async start(workspace: string, raw: unknown, contentPath = workspace) {
     const input = prepareInput.parse(raw);
     const root = await realpath(workspace);
     // Bound jobs without ever evicting running work.
@@ -89,7 +90,7 @@ export class DocumentPreparation {
       }
       if (this.jobs.size >= 100) throw new ApiError(429, "preparation_limit", "Wait for current document preparation runs to finish.");
     }
-    const sources = await Promise.all(input.files.map(file => documentPath(root, file)));
+    const sources = await Promise.all(input.files.map(file => documentPath(workspaceFileRoot({ path: root, contentPath }, file), file)));
     if (new Set(sources.map(source => source.path)).size !== sources.length) throw new ApiError(400, "duplicate_document", "Each document should appear once in a review run.");
     const selected = await (this.options.snapshot ? this.options.snapshot() : snapshot(this.ocr));
     const engine = selected.service.listEngines()[0];
@@ -112,7 +113,7 @@ export class DocumentPreparation {
       entry.status = "running";
       try {
         // Revalidate paths at execution time, after any time spent queued.
-        const source = await documentPath(root, sources[index]!.file);
+        const source = await documentPath(sources[index]!.root, sources[index]!.file);
         const bytes = await readFile(source.path);
         if (bytes.length > MAX_FILE_BYTES) throw new Error("Document is too large.");
         const sourceSha256 = digest(bytes);

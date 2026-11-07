@@ -1,5 +1,5 @@
 import { afterAll, expect, test } from "bun:test";
-import { mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { legalworkBrowserTools } from "./legalwork-browser-tools.js";
@@ -32,9 +32,10 @@ const websiteAdds: Array<{ id: string; url: string; name?: string; loginUrl?: st
 let rejectWebsiteAdd = false;
 let bridgeResult: unknown;
 let transferReads = 0;
+let downloadContentPath: string | undefined;
 const policy = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
   const path = new URL(request.url).pathname;
-  if (path === "/workspaces") return Response.json({ items: [{ id: "project", path: root }] });
+  if (path === "/workspaces") return Response.json({ items: [{ id: "project", path: root, contentPath: downloadContentPath }] });
   if (path.endsWith("/sandbox/session/ses_upload")) return Response.json({ enabled: true, networkMode: blockNetwork ? "block" : "allow" });
   if (path.endsWith("/browser-connections")) {
     expect(request.headers.get("authorization")).toBe("Bearer fixture");
@@ -151,15 +152,17 @@ test("native password tools send only the ID/ref, preserve calling identity and 
   await expect(tool("legalwork_browser_fill_password").execute({ browser_url: capability, password_id, ref: "@e2" }, nativeTestInvocation("ses_upload"))).rejects.toThrow("local LegalWork desktop");
 });
 test("manual-server downloads save complete bytes under native edit permission and repeated reads do not duplicate writes", async () => {
+  downloadContentPath = join(root, "connected-documents"); await mkdir(downloadContentPath);
   const asks: unknown[] = []; native.permissionHandler(async input => { asks.push(input); });
   const capability = `${policy.url.origin}/workspace/project/browser/ses_upload/extensions/${token}/execute`;
   const first = await tool("legalwork_browser_downloads").execute({ browser_url: capability }, nativeTestInvocation("ses_upload"));
   const output = z.object({ downloads: z.array(z.object({ path: z.string(), relativePath: z.string(), transferRequired: z.boolean() })) }).parse(first.output);
   expect(output.downloads[0].relativePath).toBe("Downloads/file_remote-large-record.bin"); expect(output.downloads[0].transferRequired).toBe(false);
   expect(await readFile(output.downloads[0].path)).toEqual(bytes);
-  expect(asks).toMatchObject([{ permission: "edit", patterns: [join(root, "Downloads/file_remote-large-record.bin")] }]);
+  expect(asks).toMatchObject([{ permission: "edit", patterns: [join(downloadContentPath, "Downloads/file_remote-large-record.bin")] }]);
   expect(native.permissions).toContainEqual(expect.objectContaining({ action: "legalwork_browser_downloads", resources: ["*"] }));
   expect((await tool("legalwork_browser_downloads").execute({ browser_url: capability }, nativeTestInvocation("ses_upload"))).output).toEqual(first.output); expect(transferReads).toBe(1);
+  downloadContentPath = undefined;
 });
 test("large uploads preserve full bytes and filenames, bind the chat, and require exact source-read permission", async () => {
   await writeFile(join(root, "source.bin"), bytes);
