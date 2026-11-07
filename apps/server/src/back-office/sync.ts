@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { syncRecordFiles } from "./file-sync.js";
-import { backOfficeAccess } from "./access.js";
+import { backOfficeAccess, refreshBackOfficeActor } from "./access.js";
 import { backOfficeStore } from "./store.js";
 import { mergePublishModel } from "./publish-model.js";
 import {
@@ -127,6 +127,7 @@ export async function syncBackOffice(config: ServerConfig): Promise<void> {
       announceSyncChange(config, "backOffice");
     } catch (error) {
       if (await connectedBackOfficePrincipal(config) !== initialPrincipal) return;
+      if (actor.replicaId && actor.replicaId !== store.replicaId(scope)) return;
       if (error instanceof ApiError && ["back_office_replica_changed", "back_office_snapshot_stale"].includes(error.code)) return;
       const message =
         error instanceof Error
@@ -167,6 +168,7 @@ export async function previewBackOfficePublish(config: ServerConfig) {
     store = await backOfficeStore(config);
   store.setSync(scope, true);
   await syncBackOffice(config);
+  await refreshBackOfficeActor(config, scope, actor);
   const local = store.records("local", {
     userId: "local",
     model: true,
@@ -289,6 +291,7 @@ export async function publishBackOffice(config: ServerConfig, planId: string) {
   });
   publishPlans.delete(planId);
   await syncBackOffice(config);
+  await refreshBackOfficeActor(config, scope, actor);
   return store.syncState(scope, actor);
 }
 

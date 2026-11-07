@@ -130,9 +130,9 @@ test("an actor captured before a policy change cannot commit with its old cached
   const { store, config, alice, original, backend } = await fixture();
   backend.finance = []; backend.revision++;
   await scheduleOrgPolicySync(config, { force: true });
-  expect(() => store.saveRecord("firm", alice, { id: original.id, objectId: original.objectId, revision: original.revision, values: { vatId: "Rejected stale edit" } })).toThrow("Firm permissions changed");
+  expect(() => store.saveRecord("firm", alice, { id: original.id, objectId: original.objectId, revision: original.revision, values: { vatId: "Rejected stale edit" } })).toThrow("Refresh Back Office");
   expect(store.raw("firm", original.id)?.values.vatId).toBeUndefined();
-  expect(store.accountPendingCount("firm", alice)).toBe(0);
+  expect(store.accountPendingCount("firm", (await backOfficeAccess(config, true)).actor)).toBe(0);
   expect(await signOutBackOffice(config, { force: true, apply: true })).toBe(0);
   expect(store.raw("firm", original.id)).toBeNull();
   expect(store.checkIntegrity().locallyVerified).toBe(true);
@@ -187,8 +187,40 @@ test("a captured principal cannot post changes after a platform or account switc
   expect(backOfficePrincipalKey("http://127.0.0.1:55498", "firm", "alice")).not.toBe(alice.principalKey);
 });
 
+test("a late response cannot restore a cache after the same principal reconnects", async () => {
+  const { store, config, alice, original, backend, snapshot } = await fixture();
+  backend.respond = async () => {
+    backend.respond = null;
+    store.suspendAccount("firm", alice.principalKey!, "Fixture reconnect", alice.principalKey!);
+    const current = (await backOfficeAccess(config, true)).actor;
+    expect(current.replicaId).not.toBe(alice.replicaId);
+    store.setSync("firm", true);
+    store.syncError("firm", "New connection state");
+    store.saveRecord("firm", current, { objectId: "people", revision: 0, values: { name: "New connection draft" } });
+    return Response.json(snapshot([original]));
+  };
+  await syncBackOffice(config);
+  const current = (await backOfficeAccess(config, true)).actor;
+  expect(store.raw("firm", original.id)).toBeNull();
+  expect(store.records("firm", current).map(record => record.values.name)).toEqual(["New connection draft"]);
+  expect(store.pending("firm", 100, current)).toHaveLength(1);
+  expect(store.syncState("firm", current).error).toBe("New connection state");
+});
+
+test("permission shrink at an unchanged cursor fences earlier responses and older cursors cannot roll back state", async () => {
+  const { store, config, alice, original, snapshot } = await fixture();
+  const { vatId: _hidden, ...values } = original.values;
+  store.receive("firm", snapshot([{ ...original, values }]), alice);
+  expect(() => store.receive("firm", snapshot([original]), alice)).toThrow("directory reconnected");
+  const current = (await backOfficeAccess(config, true)).actor;
+  store.receive("firm", { ...snapshot([{ ...original, values: { name: "Newest" } }]), cursor: 20 }, current);
+  expect(() => store.receive("firm", { ...snapshot([original]), cursor: 19 }, current)).toThrow("newer team snapshot");
+  expect(store.raw("firm", original.id)?.values).toEqual({ name: "Newest" });
+  expect(store.checkIntegrity().locallyVerified).toBe(true);
+});
+
 test("identical user and firm IDs on a different platform cannot adopt the previous origin's cache or drafts", async () => {
-  const { store, config, alice, original, oldHead, signIn } = await fixture();
+  const { store, config, alice, original, oldHead, signIn, snapshot } = await fixture();
   store.saveRecord("firm", alice, { id: original.id, objectId: original.objectId, revision: original.revision, values: { email: "old-origin@example.test" } });
   const nextURL = "http://127.0.0.1:55498";
   process.env.EIGENWELT_PLATFORM_URL = nextURL;
@@ -199,6 +231,8 @@ test("identical user and firm IDs on a different platform cannot adopt the previ
   expect(current.principalKey).not.toBe(alice.principalKey);
   expect(store.pending("firm", 100, current)).toEqual([]);
   expect(store.pending("firm")).toHaveLength(1);
+  store.receive("firm", { ...snapshot(), cursor: 0 }, current);
+  expect(store.syncState("firm", current).cursor).toBe(0);
   await expect(backOfficePlatform(config, [], alice.principalKey)).rejects.toMatchObject({ code: "back_office_account_changed" });
 });
 
@@ -209,11 +243,12 @@ test("another principal's draft cannot be acknowledged or discarded through the 
   await signIn("bob");
   const bob = (await backOfficeAccess(config, true)).actor;
   const own = store.saveRecord("firm", bob, { objectId: "people", revision: 0, values: { name: "Bob own" } });
-  store.receive("firm", snapshot([], [originalOperation]), bob);
+  const replicaId = store.receive("firm", snapshot([], [originalOperation]), bob);
+  if (replicaId) bob.replicaId = replicaId;
   expect(store.pending("firm").some(entry => entry.change.id === originalOperation)).toBe(true);
   expect(store.pending("firm", 100, bob)).toHaveLength(1);
   store.clearTeam("firm", bob);
-  expect(store.pending("firm", 100, bob)).toEqual([]);
+  expect(store.pending("firm").some(entry => entry.change.authorKey === bob.principalKey)).toBe(false);
   expect(store.raw("firm", own.id)).toBeNull();
   expect(store.pending("firm").map(entry => entry.change.id)).toEqual([originalOperation]);
   expect(store.checkIntegrity().locallyVerified).toBe(true);
