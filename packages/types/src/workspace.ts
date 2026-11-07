@@ -184,6 +184,10 @@ export type WorkspaceWire = {
   id: string;
   name: string;
   path: string;
+  /** Local engine home is path; ordinary documents stay in this directory. */
+  contentPath?: string | null;
+  /** Original native location, retained only for verified history migration. */
+  previousPath?: string | null;
   preset: string;
   workspaceType: WorkspaceKind;
   baseUrl?: string | null;
@@ -231,3 +235,14 @@ export type ProjectContentSection = z.infer<typeof projectContentsSchema>["secti
 export type ProjectContents = z.infer<typeof projectContentsSchema>;
 
 export * from "./project-templates.js";
+
+/** Document root; legacy records used one directory for documents and support data. */
+export function workspaceContentPath(workspace: { path: string; contentPath?: string | null }): string {
+  return workspace.contentPath || workspace.path;
+}
+
+/** Existing attachment links retain their suffix while their base moves locally. */
+export function workspaceFileRoot(workspace: { path: string; contentPath?: string | null }, file: string): string {
+  const normalized = file.replaceAll("\\", "/").replace(/^\.\//, "");
+  return /^(?:\.opencode|\.legalwork)(?:\/|$)/.test(normalized) ? workspace.path : workspaceContentPath(workspace);
+}

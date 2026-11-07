@@ -54,7 +54,7 @@ export async function prepareSessionHistoryUndo(config:ServerConfig,workspace:Wo
   }
   const revert=original.undo;
   if(revert.status==="none")return {session};
-  if(original.directory!==actual)return unresolved("original_ownership_unavailable");
+  if(original.directory!==actual && (!workspace.previousPath || original.directory!==await canonicalFilePath(workspace.previousPath)))return unresolved("original_ownership_unavailable");
   if(revert.status==="unresolved")return unresolved(revert.reason);
   await assertEngineProjectReady(config,workspace);
   try{await client.session.message.get({sessionID:session.id,messageID:revert.messageID});}catch{return unresolved("original_revert_message_unavailable");}

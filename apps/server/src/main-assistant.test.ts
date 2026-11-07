@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { MainAssistant, isMainAssistant } from "./main-assistant.js";
@@ -42,7 +42,8 @@ test("concurrent callers share one persisted project and one session; midnight a
   expect(new Set(first.map(value => value.day.sessionId)).size).toBe(1);
   expect(f.config.workspaces).toHaveLength(1);
   expect(isMainAssistant(first[0].workspace)).toBe(true);
-  expect(first[0].workspace.path).toBe(join(f.config.projectsDirectory!, "Assistant"));
+  expect(first[0].workspace.path).toBe(await realpath(join(f.config.projectsDirectory!, first[0].workspace.id)));
+  expect(first[0].workspace.contentPath).toBe(join(first[0].workspace.path, "files"));
   expect(JSON.parse(await readFile(f.config.configPath!, "utf8")).workspaces[0].preset).toBe("main-assistant");
   f.setTime(new Date(2026, 9, 8, 0, 0));
   const today = await f.assistant.current();

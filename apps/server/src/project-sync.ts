@@ -1,10 +1,12 @@
+import { canonicalFilePath } from "./file-write-lock.js";
+import { workspaceContentPath, projectHome } from "./project-storage.js";
 import { syncProjectCalendar } from "./calendar/sync.js";
 import { calendarStore } from "./calendar/store.js";
 import { updateProjectRemote } from "./project-store.js";
 import { randomUUID } from "node:crypto";
 import { watch, type FSWatcher } from "node:fs";
 import { copyFile, readdir, rm, stat } from "node:fs/promises";
-import { join, resolve, sep } from "node:path";
+import { basename, join, resolve, sep } from "node:path";
 import type {
   ProjectField,
   ProjectSyncOverview,
@@ -35,7 +37,6 @@ import type { StorageAdapter } from "./file-storage/common.js";
 import { fileKey, hashFile, moveToSyncTrash, syncExcluded, syncProjectFiles } from "./project-file-sync.js";
 import { pendingReviewChanges, reviewDocumentKeys, syncProjectReviews } from "./project-review-sync.js";
 import {
-  createDefaultProjectFolder,
   defaultProjectRoot,
   readProjectDetails,
   setProjectSyncId,
@@ -50,7 +51,7 @@ import {
   type ProjectSyncStore,
 } from "./project-sync-store.js";
 import { reviewRunActive } from "./reviews/service.js";
-import { registerLocalProject, renameRegisteredWorkspace, unregisterWorkspace } from "./routes/workspaces.js";
+import { createLocalProjectFolder, registerLocalProject, renameRegisteredWorkspace, unregisterWorkspace } from "./routes/workspaces.js";
 import { taskStore } from "./task-store.js";
 import { scheduleTaskSync } from "./task-sync.js";
 import { connectedTaskOrgId } from "./tasks-api.js";
@@ -369,12 +370,12 @@ async function registeredCopy(config: ServerConfig, store: ProjectSyncStore, pro
 
 /** A folder in the projects folder that already is this project: left by an interrupted arrival, or a reinstall. */
 async function unregisteredCopy(config: ServerConfig, root: string, projectId: string): Promise<string | null> {
-  const registered = new Set(config.workspaces.map((workspace) => resolve(workspace.path)));
+  const registered = new Set(await Promise.all(config.workspaces.map(workspace => canonicalFilePath(workspace.path))));
   const entries = await readdir(root, { withFileTypes: true }).catch(() => []);
   for (const entry of entries) {
     if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
-    const path = join(root, entry.name);
-    if (registered.has(resolve(path))) continue;
+    const path = await canonicalFilePath(join(root, entry.name));
+    if (registered.has(path)) continue;
     const details = await readProjectDetails(path).catch(() => null);
     if (details?.syncProjectId === projectId) return path;
   }
@@ -444,12 +445,13 @@ async function arrive(config: ServerConfig, store: ProjectSyncStore, orgId: stri
   if (!workspace) {
     const root = defaultProjectRoot(config.projectsDirectory);
     const existing = await unregisteredCopy(config, root, remote.id);
-    const folderPath = existing ?? (await createDefaultProjectFolder(remote.name, root));
+    const folder = existing ? { folderPath: existing, ...(config.projectsDirectory ? { id: basename(existing) } : {}) } : await createLocalProjectFolder(config, remote.name);
+    const folderPath = folder.folderPath;
     if (!existing) {
-      await setProjectSyncId(folderPath, remote.id);
+      await setProjectSyncId(config.projectsDirectory && folder.id ? projectHome(config, folder.id) : folderPath, remote.id);
       origin = "remote";
     }
-    workspace = (await registerLocalProject(config, { folderPath, name: remote.name, preset: "starter", position: "last" })).workspace;
+    workspace = (await registerLocalProject(config, { ...folder, name: remote.name, preset: "starter", position: "last" })).workspace;
   }
   store.clearRemoved(remote.id);
   const link: ProjectLink = {
@@ -520,10 +522,14 @@ async function applyRemote(config: ServerConfig, store: ProjectSyncStore, link: 
 
 /** Files here that differ from what both sides last agreed on, without reading their content. */
 async function localChanges(config: ServerConfig, store: ProjectSyncStore, link: ProjectLink, root: string): Promise<number> {
+  const workspace = workspaceOf(config, link.workspaceId);
+  const stateRoot = workspace?.path || root;
+  root = workspace ? workspaceContentPath(workspace) : root;
+  if (!await folderAvailable(root)) return 0;
   const cloud = await isCloudFolder(root);
   const scope = folderSettings(link.settings, cloud).scope;
   const base = store.fileBase(link.projectId).entries();
-  const reviewed = cloud ? undefined : await reviewedDocuments(scope, root);
+  const reviewed = cloud ? undefined : await reviewedDocuments(scope, stateRoot);
   const attached = cloud ? undefined : new Set((await calendarStore(config)).list(link.workspaceId).flatMap(item => item.attachmentPaths.map(fileKey)));
   const seen = new Set<string>();
   let changed = 0;
@@ -546,7 +552,7 @@ async function localChanges(config: ServerConfig, store: ProjectSyncStore, link:
     }
   }
   for (const key of base.keys()) if (!seen.has(key)) changed += 1;
-  if (link.settings.scope.reviews) changed += await pendingReviewChanges(root, store.reviewBase(link.projectId));
+  if (link.settings.scope.reviews) changed += await pendingReviewChanges(stateRoot, store.reviewBase(link.projectId));
   return changed + store.pendingOps(link.projectId).length + (await calendarStore(config)).pending(link.workspaceId).length;
 }
 
@@ -581,7 +587,7 @@ async function removeCopy(config: ServerConfig, store: ProjectSyncStore, link: P
     await unregisterWorkspace(config, workspace);
     removedWorkspaces.set(keyOf(config), (removedWorkspaces.get(keyOf(config)) ?? new Set<string>()).add(workspace.id));
     // Only a folder sync made itself is deleted; a folder the member brought is theirs.
-    const root = resolve(defaultProjectRoot(config.projectsDirectory));
+    const root = await canonicalFilePath(defaultProjectRoot(config.projectsDirectory));
     if (link.origin === "remote" && resolve(workspace.path).startsWith(root + sep)) {
       await rm(workspace.path, { recursive: true, force: true });
     }
@@ -690,15 +696,15 @@ async function syncDocuments(
   // A project leaves sync only when it is removed from the list (noteProjectRemoved),
   // never because a server with another project list does not know it.
   const workspace = workspaceOf(config, link.workspaceId);
-  if (!workspace || !(await folderAvailable(workspace.path))) return;
-  const cloud = await isCloudFolder(workspace.path);
+  if (!workspace || !(await folderAvailable(workspaceContentPath(workspace)))) return;
+  const cloud = await isCloudFolder(workspaceContentPath(workspace));
   const scope = folderSettings(link.settings, cloud).scope;
   if (!scope.documents && !scope.notes && !scope.recordings && !scope.reviews && scope.calendar === false) {
     store.updateLink(link.workspaceId, { lastSyncAt: Date.now(), lastError: null, report: null });
     return;
   }
   const reconcile = link.filesReconciledAt === null || link.filesReconciledAt !== link.remoteUpdatedAt;
-  if (scope.recordings) await exportRecordings(config, store, link, workspace.path);
+  if (scope.recordings) await exportRecordings(config, store, link, workspaceContentPath(workspace));
   if (!scope.reviews) store.clearReviewBase(link.projectId);
   const index = store.remoteIndex(link.projectId);
   // One listing for the round: its reviews and its documents.
@@ -720,7 +726,8 @@ async function syncDocuments(
     const attached = cloud ? undefined : new Set((await calendarStore(config)).list(link.workspaceId).flatMap(item => item.attachmentPaths.map(fileKey)));
     const files = await syncProjectFiles({
       enabled: !cloud || scope.notes || scope.recordings,
-      root: resolve(workspace.path),
+      root: resolve(workspaceContentPath(workspace)),
+      stateRoot: workspace.path,
       remote,
       base: store.fileBase(link.projectId),
       includes: (path) => scopeIncludes(scope, path, reviewed, attached),
@@ -859,7 +866,10 @@ function refreshWatchers(config: ServerConfig, links: ProjectLink[]): void {
   const wanted = new Map<string, string>();
   for (const link of links) {
     const workspace = link.state === "active" ? workspaceOf(config, link.workspaceId) : null;
-    if (workspace) wanted.set(link.workspaceId, workspace.path);
+    if (workspace) {
+      wanted.set(link.workspaceId, workspaceContentPath(workspace));
+      if (workspace.contentPath) wanted.set(`${link.workspaceId}:support`, workspace.path);
+    }
   }
   for (const [workspaceId, watcher] of current) {
     if (wanted.has(workspaceId)) continue;
@@ -934,7 +944,7 @@ function stateOf(
 }
 
 export async function projectSyncStatus(config: ServerConfig, workspace: WorkspaceInfo): Promise<ProjectSyncStatus> {
-  const cloud = await isCloudFolder(workspace.path);
+  const cloud = await isCloudFolder(workspaceContentPath(workspace));
   const fileSharingDisabledReason = cloud ? "cloud_folder" : undefined;
   const store = await projectSyncStore(config);
   const { orgId, userId } = await connectedOrg(config);
@@ -964,7 +974,7 @@ export async function projectSyncStatus(config: ServerConfig, workspace: Workspa
   }
   const round = roundStates.get(keyOf(config));
   const conflicts = store.conflicts(link.projectId);
-  const available = await folderAvailable(workspace.path);
+  const available = await folderAvailable(workspaceContentPath(workspace));
   // A copy held back no longer syncs, so no round reports on it: count what it is held for.
   const pendingChanges =
     link.state === "revoked" && available
@@ -1004,7 +1014,7 @@ export async function projectSyncOverview(config: ServerConfig): Promise<Project
     const pendingChanges = store.pendingOps(link.projectId).length + (link.report?.pending ?? 0);
     states[link.workspaceId] = stateOf(
       link,
-      await folderAvailable(workspace.path),
+      await folderAvailable(workspaceContentPath(workspace)),
       orgId !== null,
       round,
       pendingChanges,
@@ -1046,7 +1056,7 @@ export async function saveProjectSyncSettings(
   if (orgId === null) {
     throw new ApiError(409, "project_sync_not_connected", "Sign in with Eigenwelt to sync this project with your firm.");
   }
-  if (settings.scope.documents && await isCloudFolder(workspace.path)) {
+  if (settings.scope.documents && await isCloudFolder(workspaceContentPath(workspace))) {
     throw new ApiError(409, "project_sync_cloud_folder", "File sharing cannot be enabled for cloud folders. Link a Cloud Folder instead.");
   }
   const store = await projectSyncStore(config);
@@ -1181,7 +1191,7 @@ export async function resolveProjectSync(
       // finds them only at the firm, and brings them back.
       const base = store.fileBase(link.projectId);
       for (const [key, entry] of base.entries()) {
-        const present = await stat(join(workspace.path, ...entry.path.split("/"))).catch(() => null);
+        const present = await stat(join(workspaceContentPath(workspace), ...entry.path.split("/"))).catch(() => null);
         if (!present) base.drop(key);
       }
       store.updateLink(workspace.id, {
@@ -1199,7 +1209,7 @@ export async function resolveProjectSync(
       // The paths come from the conflict as sync recorded it, never from the request.
       const conflict = store.conflicts(link.projectId).find((entry) => entry.copyPath === input.copyPath);
       if (!conflict) throw new ApiError(404, "project_conflict_not_found", "There is no such conflicting copy.");
-      const root = resolve(workspace.path);
+      const root = resolve(workspaceContentPath(workspace));
       const copy = join(root, ...conflict.copyPath.split("/"));
       const present = await stat(copy).catch(() => null);
       if (input.action === "keep_mine") {
@@ -1208,7 +1218,7 @@ export async function resolveProjectSync(
         await copyFile(copy, join(root, ...conflict.path.split("/")));
       }
       // Recoverable for a while, like everything sync removes; the next round removes it at the firm too.
-      if (present) await moveToSyncTrash(root, conflict.copyPath);
+      if (present) await moveToSyncTrash(root, conflict.copyPath, undefined, workspace.path);
       store.dismissConflict(link.projectId, conflict.copyPath);
       break;
     }

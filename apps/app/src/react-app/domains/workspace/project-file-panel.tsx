@@ -45,6 +45,6 @@ export function ProjectFilePanel({ source, tab, sessionId, onClose }: { source: 
     </div> : null;
   return <ArtifactOriginContext value={banner}><div className="flex h-full min-h-0 flex-col">
     {(!owner || resolved.isError) && banner}
-    {resolved.isError ? <PreviewError message={resolved.error.message} /> : owner ? <ArtifactPanel sessionId={sessionId} tab={{ ...tab, sourceProject: undefined, value: storage ? undefined : source.path, storage }} client={owner.client} workspaceId={owner.workspaceId} workspaceRoot={owner.root} isRemoteWorkspace={owner.isRemote} localReadOnly={!editing} onClose={onClose} /> : <PreviewLoading />}
+    {resolved.isError ? <PreviewError message={resolved.error.message} /> : owner ? <ArtifactPanel sessionId={sessionId} tab={{ ...tab, sourceProject: undefined, value: storage ? undefined : source.path, storage }} client={owner.client} workspaceId={owner.workspaceId} workspaceRoot={owner.localRoot || owner.root} isRemoteWorkspace={owner.isRemote} localReadOnly={!editing} onClose={onClose} /> : <PreviewLoading />}
   </div></ArtifactOriginContext>;
 }

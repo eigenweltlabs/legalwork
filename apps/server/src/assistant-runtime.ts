@@ -32,6 +32,7 @@ type Helpers = Pick<Parameters<typeof registerMainAssistantRoutes>[0], "jsonResp
 
 export async function createAssistantRuntime(config: ServerConfig, options: {
   scheduledTasks: ScheduledTaskStore;
+  deferStart?: boolean;
   resolveWorkspace: (id: string) => Promise<WorkspaceInfo>;
   changed: () => void;
   tokenActive: (hash: string) => Promise<boolean>;
@@ -126,14 +127,28 @@ export async function createAssistantRuntime(config: ServerConfig, options: {
     registerAssistantProactivityRoutes(assistantRoutes, scheduledTasks);
     registerPushRoutes(routes, push, readJsonBodyLimited);
   }
-  const stopPush = push.start();
-  migrateMorningBriefing(config, scheduledTasks);
-  const stopMain = config.readOnly ? () => {} : mainAssistant.start(undefined, () => assistantSubscriptionAvailable(config));
-  const stopDelegations = config.readOnly ? async () => {} : delegations.start();
-  const stopQueue = config.readOnly ? async () => {} : sessionQueue.start();
-  const stopProactivity = await startAssistantProactivity(config, mainAssistant, options.resolveWorkspace, assistantSessionAccess);
+  let startPromise: Promise<void> | undefined, closed = false;
+  let stopPush: ReturnType<typeof push.start> | undefined;
+  let stopMain: ReturnType<typeof mainAssistant.start> | undefined;
+  let stopDelegations: ReturnType<typeof delegations.start> | undefined;
+  let stopQueue: ReturnType<typeof sessionQueue.start> | undefined;
+  let stopProactivity: Awaited<ReturnType<typeof startAssistantProactivity>> | undefined;
+  const start = () => {
+    if (closed) return Promise.resolve();
+    return startPromise ??= (async () => {
+      stopPush = push.start();
+      migrateMorningBriefing(config, scheduledTasks);
+      if (!config.readOnly) {
+        stopMain = mainAssistant.start(undefined, () => assistantSubscriptionAvailable(config));
+        stopDelegations = delegations.start();
+        stopQueue = sessionQueue.start();
+      }
+      stopProactivity = await startAssistantProactivity(config, mainAssistant, options.resolveWorkspace, assistantSessionAccess);
+    })();
+  };
+  if (!options.deferStart) await start();
   return {
-    register,
+    register, start,
     scheduledSession: async (task: ScheduledTask, workspace: WorkspaceInfo) => {
       if (!isMainAssistant(workspace)) return null;
       await requireAssistantSubscription(config);
@@ -147,7 +162,8 @@ export async function createAssistantRuntime(config: ServerConfig, options: {
       return isMainAssistant(workspace) ? prepareAssistantScheduledWork(task, workspace, session, client, delegations) : { model: task.model, prompt: task.prompt };
     },
     async close() {
-      stopMain(); await stopProactivity(); await stopDelegations(); await stopQueue(); await stopPush();
+      closed = true; await startPromise?.catch(() => {});
+      stopMain?.(); await stopProactivity?.(); await stopDelegations?.(); await stopQueue?.(); await stopPush?.();
     },
   };
 }

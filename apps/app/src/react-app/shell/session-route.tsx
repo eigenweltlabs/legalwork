@@ -1,3 +1,4 @@
+import { workspaceFileRoot } from "@legalwork/types/workspace";
 import { defaultProjectFields, useProjectDefaultsStore } from "@/react-app/domains/workspace/project-defaults-store";
 import {ensureNativeCatalogReady} from "@/app/lib/opencode-catalog-ready";
 import type { Client } from "@/app/types";
@@ -325,7 +326,7 @@ function attachmentMime(attachment: ComposerAttachment) {
   return "text/plain";
 }
 
-async function draftToParts(draft: ComposerDraft, workspaceRoot: string, client:Client) {
+async function draftToParts(draft: ComposerDraft, workspaceRoot: string, client:Client, contentRoot?: string) {
   const parts: import("@/app/lib/opencode-view").PromptPart[] = [];
   const root = workspaceRoot.trim();
 
@@ -335,7 +336,7 @@ async function draftToParts(draft: ComposerDraft, workspaceRoot: string, client:
     if (trimmed.startsWith("/")) return trimmed;
     if (/^[a-zA-Z]:\\/.test(trimmed)) return trimmed;
     if (!root) return "";
-    return `${root}/${trimmed}`.replace(/\/\/+/g, "/");
+    return `${workspaceFileRoot({path: root, contentPath: contentRoot}, trimmed)}/${trimmed}`.replace(/\/\/+/g, "/");
   };
 
   const filenameFromPath = (path: string) => {
@@ -1688,7 +1689,7 @@ export function SessionRoute() {
           workspaceId: selectedWorkspaceId,
           readStatuses: async () => await readMcpStatuses(opencodeClient,selectedWorkspaceRoot || undefined),
         });
-        const parts = await draftToParts(draft, selectedWorkspaceRoot,opencodeClient);
+        const parts = await draftToParts(draft, selectedWorkspaceRoot,opencodeClient, selectedWorkspace?.contentPath ?? undefined);
         const envSystemContext = await buildLegalworkEnvSystemContext(client, {
           cacheKey: targetSessionId,
           runtimeKey: environmentRuntimeKey,
@@ -2285,7 +2286,7 @@ export function SessionRoute() {
     const workspace = workspaces.find(workspace => workspace.id === owner?.[0]);
     const endpoint = workspace ? endpointForWorkspace(workspace) : null;
     if (!workspace || !endpoint) throw new Error("The task's project could not be resolved. Do not navigate the user's workspace to retry.");
-    return { projectId: workspace.id, workspaceId: endpoint.workspaceId, workspaceRoot: workspace.path || "", client: endpoint.client, isRemoteWorkspace: endpoint.isRemote };
+    return { projectId: workspace.id, workspaceId: endpoint.workspaceId, workspaceRoot: workspace.path || "", contentRoot: workspace.contentPath || workspace.path || "", client: endpoint.client, isRemoteWorkspace: endpoint.isRemote };
   }, [sessionsByWorkspaceId, workspaces, endpointForWorkspace]));
 
   const sessionTarget = useCallback((sessionId: string) => {

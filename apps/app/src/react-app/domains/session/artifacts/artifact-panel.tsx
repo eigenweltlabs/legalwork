@@ -1,3 +1,5 @@
+import { workspaceFileRoot } from "@legalwork/types/workspace";
+import { useProjectFiles } from "../../workspace/project-file-context";
 import { documentNavigationSchema } from "@legalwork/types/office-editor";
 import { suggestionIdFromFile } from "@legalwork/types/wiki-suggestions";
 import { PersistentArtifactPanel, useDocumentAgentControl, useDocumentRuntimeEntry, useDocumentTaskActive } from "./document-runtime";
@@ -72,6 +74,7 @@ export type ArtifactPanelProps = {
   client: LegalworkServerClient | null;
   workspaceId: string | null;
   workspaceRoot: string;
+  contentRoot?: string;
   isRemoteWorkspace?: boolean;
   localReadOnly?: boolean;
   visible?: boolean;
@@ -83,6 +86,7 @@ type ArtifactPanelViewProps = {
   client: LegalworkServerClient;
   workspaceId: string;
   workspaceRoot: string;
+  contentRoot?: string;
   isRemoteWorkspace?: boolean;
   target: OpenTarget;
   sourcePage?: number;
@@ -123,7 +127,9 @@ export function ArtifactPanel(input: ArtifactPanelProps) {
   return <PersistentArtifactPanel {...props} />;
 }
 
-export function ArtifactPanelContent({ sessionId, tab, client, workspaceId, workspaceRoot, isRemoteWorkspace = false, localReadOnly = false, onClose }: ArtifactPanelProps) {
+export function ArtifactPanelContent({ sessionId, tab, client, workspaceId, workspaceRoot: suppliedRoot, contentRoot, isRemoteWorkspace = false, localReadOnly = false, onClose }: ArtifactPanelProps) {
+  const projectFiles = useProjectFiles();
+  const project = projectFiles?.projects.find(item => item.workspaceId === workspaceId && item.client.baseUrl === client?.baseUrl);
   const transcriptTargets = usePanelTabStore((state) => state.transcriptArtifactTargets[tab.sourceSessionId ?? sessionId] ?? EMPTY_TRANSCRIPT_TARGETS);
   const artifactTargets = useMemo(() => transcriptTargets.filter(isCollectibleArtifactTarget), [transcriptTargets]);
   // Tabs opened from the workspace file browser carry their own path, so they
@@ -140,6 +146,8 @@ export function ArtifactPanelContent({ sessionId, tab, client, workspaceId, work
     size: tab.size,
     updatedAt: tab.updatedAt,
   } satisfies OpenTarget : null);
+
+  const workspaceRoot = workspaceFileRoot({ path: project?.localRoot || suppliedRoot, contentPath: project?.root || contentRoot }, target?.value || "");
 
   if (tab.wikiSource && target && client) {
     const source = tab.wikiSource;

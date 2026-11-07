@@ -1,3 +1,4 @@
+import { clearDesktopProfile } from "./reset-profile.mjs";
 import { createShutdownGuard } from "./shutdown-guard.mjs";
 import { execFileSync, spawn } from "node:child_process";
 import { boundedShutdown } from "./bounded-shutdown.mjs";
@@ -1388,6 +1389,9 @@ async function bootRuntimeForSelectedWorkspace() {
       watchedId: String(fallback.id ?? ""),
     }).catch(() => undefined);
   }
+  const reconciled = await workspaceStore.readWorkspaceState();
+  bootWorkspace = reconciled.workspaces.find(entry => entry.id === bootWorkspace.id) || bootWorkspace;
+  bootWorkspaceRoot = bootWorkspace.path;
   await runtimeManager.orchestratorWorkspaceActivate({
     workspacePath: bootWorkspaceRoot,
     name: bootWorkspace.name ?? bootWorkspace.displayName ?? null,
@@ -1855,7 +1859,14 @@ const desktopCommandHandlers = {
       return workspaceStore.setRuntimeActiveWorkspace(typeof args[0] === "string" && args[0].trim() ? args[0] : null);
   },
   "workspaceCreate": async (event, ...args) => {
-      return workspaceStore.createWorkspace(args[0] ?? {});
+      const server = assertLegalworkServerReady(await runtimeManager.legalworkServerInfo());
+      const input = args[0] ?? {};
+      const response = await fetch(`${server.baseUrl.replace(/\/+$/, "")}/workspaces`, {
+        method: "POST", headers: { Authorization: `Bearer ${server.ownerToken || server.clientToken}`, "Content-Type": "application/json" }, body: JSON.stringify(input),
+      });
+      if (!response.ok) throw new Error(await response.text());
+      const result = await response.json();
+      return workspaceStore.setSelectedWorkspace(result.workspace.id);
   },
   "workspaceCopyFiles": async (event, ...args) => {
       const input = args[0];
@@ -1886,7 +1897,19 @@ const desktopCommandHandlers = {
       return workspaceStore.exportConfig(args[0] ?? {});
   },
   "workspaceImportConfig": async (event, ...args) => {
-      return workspaceStore.importConfig(args[0] ?? {});
+      const input = args[0] ?? {};
+      const imported = await workspaceStore.importConfig(input);
+      const selected = imported.workspaces.find(entry => entry.id === imported.selectedId);
+      if (!selected) throw new Error("Imported project was not registered.");
+      const server = assertLegalworkServerReady(await runtimeManager.legalworkServerInfo());
+      const response = await fetch(`${server.baseUrl.replace(/\/+$/, "")}/workspaces/local`, {
+        method: "POST", headers: { Authorization: `Bearer ${server.ownerToken || server.clientToken}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ folderPath: selected.path, name: selected.name, preset: selected.preset }),
+      });
+      if (!response.ok) throw new Error(await response.text());
+      const result = await response.json();
+      if (result.workspace.id !== selected.id) await workspaceStore.forgetWorkspace(selected.id);
+      return workspaceStore.setSelectedWorkspace(result.workspace.id);
   },
   "opencodeCommandList": async (event, ...args) => {
       return listCommandNames(String(args[0]?.scope ?? "").trim(), String(args[0]?.projectDir ?? "").trim());
@@ -2014,7 +2037,10 @@ const desktopCommandHandlers = {
       return workspaceStore.setDesktopBootstrapConfig(args[0] ?? {});
   },
   "nukeLegalworkAndOpencodeConfigAndExit": async (event, ...args) => {
-      await rm(app.getPath("userData"), { recursive: true, force: true });
+      const state = await workspaceStore.readWorkspaceState();
+      await runtimeManager.dispose();
+      await clearDesktopProfile(app.getPath("userData"), [process.env.LEGALWORK_PROJECT_DATA_DIR,
+        ...state.workspaces.flatMap(workspace => [workspace.path, workspace.contentPath])]);
       app.exit(0);
       return undefined;
   },

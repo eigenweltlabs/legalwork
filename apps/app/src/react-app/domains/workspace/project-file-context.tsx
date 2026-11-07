@@ -20,7 +20,7 @@ export function createProjectFileAccess(groups: WorkspaceSessionGroup[], local: 
   const projects = groups.flatMap(({ workspace }) => {
     const endpoint = resolveWorkspaceEndpoint(workspace, { baseUrl: local?.baseUrl, token: local?.token });
     if (!endpoint) return [];
-    return [{ ...endpoint, client: !endpoint.isRemote && endpoint.baseUrl === local?.baseUrl ? local : endpoint.client, projectId: workspace.id, name: workspaceLabel(workspace), root: workspace.path, isWiki: workspace.preset === "wiki" }];
+    return [{ ...endpoint, client: !endpoint.isRemote && endpoint.baseUrl === local?.baseUrl ? local : endpoint.client, projectId: workspace.id, name: workspaceLabel(workspace), root: workspace.contentPath || workspace.path, localRoot: workspace.path, isWiki: workspace.preset === "wiki" }];
   });
   const project = (id: string) => {
     const result = projects.find(item => item.projectId === id);

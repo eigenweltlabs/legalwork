@@ -1,5 +1,6 @@
 import { AssistantSaveReportSchema, StoredViewSchema } from "../views/schema.js";
 import { saveAssistantReport } from "../assistant-reports.js";
+import { workspaceFileRoot } from "../project-storage.js";
 import { relative, resolve } from "node:path";
 import { readFile, realpath, stat } from "node:fs/promises";
 import { z } from "zod";
@@ -42,7 +43,7 @@ export function registerAssistantChatRoutes(options: Parameters<typeof registerM
     const { workspace } = await source(parsed.data);
     const project = parsed.data.projectId ? await options.resolveWorkspace(config, parsed.data.projectId) : workspace;
 
-    const root = await realpath(project.path);
+    const root = await realpath(workspaceFileRoot(project, parsed.data.path));
     const path = await resolveWithinRoot(root, parsed.data.path);
     const info = await stat(path).catch(() => null);
     if (!info?.isFile()) throw new ApiError(404, "assistant_file", "This file does not exist. Save it before sharing it.");

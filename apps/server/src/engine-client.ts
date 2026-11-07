@@ -1,3 +1,5 @@
+import { relative, resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { OpenCode, type OpenCodeClient, type SessionInfo, type SessionListInput, type SessionMessageInfo } from "@opencode/client";
 import { canonicalFilePath } from "./file-write-lock.js";
 import { sameProjectDirectory } from "./workspace-path-match.js";
@@ -30,7 +32,21 @@ export function createEngineClient(config: ServerConfig, workspace: WorkspaceInf
       let response: Response;
       const sessionID = method === "POST" ? url.pathname.match(/^\/api\/session\/([^/]+)\/(?:prompt|command|synthetic|shell|compact|fork|generate)$/)?.[1] : undefined;
       const perform = async () => {
-        const result = await fetch(request, init);
+        // Editable queues and restored drafts retain their original source URI.
+        // Translate only relocated support files at delivery; saved history and
+        // already-admitted native inbox items retain their immutable payloads.
+        let forwarded = init;
+        if (workspace.previousPath && method === "POST" && /\/(?:prompt|command)$/.test(url.pathname) && typeof init?.body === "string") {
+          const payload: unknown = JSON.parse(init.body);
+          if (payload && typeof payload === "object" && "files" in payload && Array.isArray(payload.files)) {
+            for (const file of payload.files) if (file && typeof file === "object" && typeof file.uri === "string" && file.uri.startsWith("file:")) {
+              const suffix = relative(workspace.previousPath, fileURLToPath(file.uri));
+              if (/^(?:\.opencode|\.legalwork)(?:[\\/]|$)/.test(suffix)) file.uri = pathToFileURL(resolve(workspace.path, suffix)).href;
+            }
+            forwarded = { ...init, body: JSON.stringify(payload) };
+          }
+        }
+        const result = await fetch(request, forwarded);
         await config.observeManagedEngineResponse?.({ method, path: url.pathname, directory: url.searchParams.get("location[directory]") || workspaceEngineLocation(workspace).directory }, result);
         return result;
       };

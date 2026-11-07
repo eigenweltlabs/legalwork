@@ -1,3 +1,4 @@
+import { workspaceContentPath } from "./project-storage.js";
 import { existsSync } from "node:fs";
 import { setImmediate } from "node:timers/promises";
 import { opendir, realpath, stat } from "node:fs/promises";
@@ -214,7 +215,7 @@ export async function searchFileContents(
   preparation: DocumentPreparation,
   retry = false,
 ): Promise<ContentSearchResponse> {
-  const root = await realpath(workspace.path);
+  const root = await realpath(workspaceContentPath(workspace));
   const items: ContentSearchResult[] = [],
     issues: Array<{ path: string; reason: string }> = [];
   let visited = 0,

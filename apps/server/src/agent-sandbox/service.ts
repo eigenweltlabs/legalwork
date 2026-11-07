@@ -1,3 +1,6 @@
+import { projectPathKey } from "../workspace-path-match.js";
+import { primaryContentFolderRules, projectFilePermissionRules } from "../project-storage.js";
+import { stat } from "node:fs/promises";
 import { verifiedWikiSessionOrigin } from "../wiki/agent-access.js";
 import { wikiProjectAccessSignal, validWikiProjectGrants, wikiProjectSandboxMounts } from "../wiki/project-access.js";
 import { within } from "./files.js";
@@ -178,12 +181,12 @@ export class AgentSandboxService {
         return { ...await withFileEditorHandoff({ ...command, signal }, () => { signal.throwIfAborted(); return runHostCommand({ command: command.command, cwd, timeoutMs: command.timeoutMs, capture: command.capture, signal }); }), sandbox: "host" };
       }
       const writeAction = commandAction("edit");
-      const externalRules = runtimeExternalDirectory(runtime);
+      const externalRules = [...primaryContentFolderRules(workspace), ...runtimeExternalDirectory(runtime)];
       const folderPermissions = { ...runtime, permissions, projectPermissionApprovals: [...runtime.projectPermissionApprovals ?? [],
         ...agentRules.filter(rule => rule.session && rule.permission === "external_directory" && rule.action === "allow")
           .map(rule => ({ action: rule.permission, resources: [rule.pattern] }))] };
       const rememberedFolders = rememberedProjectFolderRules(folderPermissions);
-      const sources = [...new Set(await Promise.all([workspace.path, ...authorizedFolders(externalRules), ...authorizedFolders(rememberedFolders), ...projectGrants.map(grant => grant.root)].map(source => ownWiki ? realpath(source).catch(() => { throw new ApiError(403, "wiki_project_mount_unavailable", "A shared folder is unavailable. Review this chat's project access."); }) : Promise.resolve(source))))];
+      const sources = [...new Set(await Promise.all([workspace.path, ...(workspace.contentPath && !within(workspace.path, workspace.contentPath) && (await stat(workspace.contentPath).catch(() => undefined))?.isDirectory() ? [workspace.contentPath] : []), ...authorizedFolders(externalRules).filter(folder => !workspace.contentPath || projectPathKey(folder) !== projectPathKey(workspace.contentPath)), ...authorizedFolders(rememberedFolders), ...projectGrants.map(grant => grant.root)].map(source => ownWiki ? realpath(source).catch(() => { throw new ApiError(403, "wiki_project_mount_unavailable", "A shared folder is unavailable. Review this chat's project access."); }) : Promise.resolve(source))))];
       if (sources.length > 1 && externalRules.some(rule => rule.resource !== "*" && rule.effect === "deny")) {
         throw new ApiError(403, "sandbox_directory_scope", "A scoped folder denial cannot be enforced by sharing the whole folder. Choose narrower authorized folders.");
       }
@@ -327,8 +330,9 @@ export class AgentSandboxService {
     });
     try {
       const runtime = await readRuntimeOpencodeConfig(this.config, workspace.id);
-      const nativePermissions = applyGlobalToolPermissions(runtime, await readGlobalToolPermissions(this.config)).permissions ?? [];
-      const { permission: permissions } = await orgPolicyPermissions(this.config, nativePermissions);
+      const nativePermissions = [...primaryContentFolderRules(workspace), ...applyGlobalToolPermissions(runtime, await readGlobalToolPermissions(this.config)).permissions ?? []];
+      const { permission: configured } = await orgPolicyPermissions(this.config, nativePermissions);
+      const permissions = projectFilePermissionRules(workspace, configured);
       const settings = await effectiveSandbox(this.config, workspace.id, lineage);
       const root = await realpath(workspace.path);
       dependencies = settings.dependencies;

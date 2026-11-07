@@ -61,9 +61,9 @@ export async function snapshotWorkspaceFile(root: string, path: string) {
   }
 }
 
-export async function keepWorkspaceCopy(root: string, source: string, destination: string) {
+export async function keepWorkspaceCopy(root: string, source: string, destination: string, destinationRoot = root) {
   const snapshot = await snapshotWorkspaceFile(root, source);
-  try { return await keepWorkspaceSnapshot(root, snapshot.path, destination); }
+  try { return await keepWorkspaceSnapshot(destinationRoot, snapshot.path, destination); }
   finally { await snapshot.remove(); }
 }
 

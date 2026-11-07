@@ -1,3 +1,4 @@
+import { workspaceContentPath } from "../project-storage.js";
 import { sandboxSyncStatus, saveSandboxDefault } from "../agent-sandbox/sync.js";
 import { webInputSchema } from "../agent-sandbox/web.js";
 import { hostShell } from "../agent-sandbox/host.js";
@@ -64,7 +65,7 @@ export function registerAgentSandboxRoutes(options: {
     const lineage = await options.sessionLineage(workspace, ctx.params.sessionId);
     const { dependencies: _, ...settings } = await effectiveSandbox(config, workspace.id, lineage);
     return jsonResponse({ ...settings, supported: config.agentSandboxEnabled === true, application: await applicationSandbox(config),
-      platform: settings.enabled ? "linux" : process.platform, shell: settings.enabled ? "Bash" : hostShell(), cwd: settings.enabled ? "/workspace" : workspace.path });
+      platform: settings.enabled ? "linux" : process.platform, shell: settings.enabled ? "Bash" : hostShell(), contentPath: workspaceContentPath(workspace), enginePath: workspace.path, cwd: settings.enabled ? "/workspace" : workspace.path });
   });
   addRoute(routes, "PATCH", "/workspace/:id/sandbox/session/:sessionId", "host-token", async (ctx) => {
     assertWritable();

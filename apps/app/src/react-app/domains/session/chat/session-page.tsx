@@ -1,3 +1,4 @@
+import { workspaceFileRoot } from "@legalwork/types/workspace";
 import { openWikiProjectPicker } from "../../wiki/wiki-project-files-dialog";
 import { sessionDeleteError } from "../../views/session-view-delete";
 import { viewPanelTab } from "../../views/view-reference";
@@ -379,6 +380,8 @@ function controlStringArg(args: unknown, key: string) {
 }
 
 export function SessionPage(props: SessionPageProps) {
+  const contentRoot = props.workspaces.find(workspace => workspace.id === props.selectedWorkspaceId)?.contentPath || props.selectedWorkspaceRoot;
+  const fileRoot = (file: string) => workspaceFileRoot({ path: props.selectedWorkspaceRoot, contentPath: contentRoot }, file);
   const navigate = useNavigate();
   const location = useLocation();
   const wikiWorkspace = props.wikiWorkspace;
@@ -648,7 +651,7 @@ export function SessionPage(props: SessionPageProps) {
       return;
     }
     if (options?.external && target.kind === "file") {
-      const path = absoluteWorkspacePath(props.selectedWorkspaceRoot, target.value);
+      const path = absoluteWorkspacePath(fileRoot(target.value), target.value);
       if (path && isElectronRuntime()) {
         void (async () => {
           try {
@@ -677,7 +680,7 @@ export function SessionPage(props: SessionPageProps) {
     if (!isCollectibleArtifactTarget(target)) {
       if (isOpenableFileTarget(target)) {
         if (isElectronRuntime()) {
-          void openDesktopPath(absoluteWorkspacePath(props.selectedWorkspaceRoot, target.value)).catch(() => undefined);
+          void openDesktopPath(absoluteWorkspacePath(fileRoot(target.value), target.value)).catch(() => undefined);
         }
       }
       return;
@@ -714,7 +717,7 @@ export function SessionPage(props: SessionPageProps) {
     const preview = classifyOpenTarget(entry.name, "file");
     if (preview === "external" || preview === "browser") {
       if (isElectronRuntime()) {
-        void openDesktopPath(absoluteWorkspacePath(props.selectedWorkspaceRoot, entry.path)).catch(() => undefined);
+        void openDesktopPath(absoluteWorkspacePath(fileRoot(entry.path), entry.path)).catch(() => undefined);
       } else {
         void downloadOpenTarget({
           id: `file:${entry.path}`,
@@ -1097,7 +1100,7 @@ export function SessionPage(props: SessionPageProps) {
   ) : view === "reviews" ? (
     props.legalworkServerClient && props.runtimeWorkspaceId ? <ProjectReviews overview={inWorkspace} localNavigation={!inWorkspace} onOpenInWorkspace={inWorkspace ? undefined : review => { openTab(workspaceScope, review ? { id: `review:${review.id}`, type: "review", reviewId: review.id, label: review.name } : projectViewTab("reviews", projectViewLabel("reviews"))); navigate(workspaceSessionRoute(props.selectedWorkspaceId) + "?view=workspace"); }} onOpenSession={sessionId => openSessionTab(props.selectedWorkspaceId, sessionId)} key={props.selectedWorkspaceId} client={props.legalworkServerClient} workspaceId={props.runtimeWorkspaceId} projectName={props.selectedWorkspaceDisplay.displayName || props.selectedWorkspaceDisplay.name || props.selectedWorkspaceId} /> : <p className="lw-project-page-content lw-project-page-top text-muted-foreground">{t("projects.connecting")}</p>
   ) : view === "files" ? <ProjectFilesPage
-    local={{ client: props.legalworkServerClient, workspaceId: props.runtimeWorkspaceId, workspaceRoot: props.selectedWorkspaceRoot, projectName: props.selectedWorkspaceDisplay.displayName || props.selectedWorkspaceDisplay.name, isRemoteWorkspace: false, active, onOpenFile: openWorkspaceFileEntry }}
+    local={{ client: props.legalworkServerClient, workspaceId: props.runtimeWorkspaceId, workspaceRoot: contentRoot, projectName: props.selectedWorkspaceDisplay.displayName || props.selectedWorkspaceDisplay.name, isRemoteWorkspace: false, active, onOpenFile: openWorkspaceFileEntry }}
     connected={{ client: props.legalworkServerClient, workspaceId: props.runtimeWorkspaceId, onOpenFile: openLegalMemoryFile, onOpenStorageFile: openStorageFile, onConnectStorage: props.sidebar.onShowFileStorage }}
   /> : view === "sessions" ? <ProjectSessionsPage
     workspaceId={props.selectedWorkspaceId}
@@ -1152,7 +1155,7 @@ export function SessionPage(props: SessionPageProps) {
           headerTarget={!mobile && filesRailActive ? filesHeaderTarget : null}
           client={props.legalworkServerClient}
           workspaceId={props.runtimeWorkspaceId}
-          workspaceRoot={props.selectedWorkspaceRoot}
+          workspaceRoot={contentRoot}
           isRemoteWorkspace={false}
           projectName={props.selectedWorkspaceDisplay.displayName || props.selectedWorkspaceDisplay.name}
           onOpenFile={openWorkspaceFileEntry}

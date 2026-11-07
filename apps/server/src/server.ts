@@ -1,3 +1,4 @@
+import { workspaceContentPath, workspaceFileRoot } from "./project-storage.js";
 import { assistantRouteRequiresSubscription, requireAssistantSubscription, requireAssistantWorkspaceSubscription } from "./assistant-subscription.js";
 import { createAssistantRuntime } from "./assistant-runtime.js";
 import { registerBrowserConnectionRoutes } from "./routes/browser-passwords.js";
@@ -856,42 +857,31 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
   const logger = createServerLogger(config);
   const wikiStore = new WikiStore(config);
   await wikiStore.list();
-  let watcherHandle = startReloadWatchers({ config, reloadEvents, logger });
+  let backgroundStarted = false;
+  const backgroundStops: Array<() => void> = [];
+  let watcherHandle: ReturnType<typeof startReloadWatchers> | undefined;
   reloadBaselineRefreshers.set(
     config,
-    (workspaceId, reasons) => watcherHandle.refreshWorkspace(workspaceId, reasons),
+    async (workspaceId, reasons) => { await watcherHandle?.refreshWorkspace(workspaceId, reasons); },
   );
   const restartReloadWatchers = () => {
-    watcherHandle.close();
+    if (!backgroundStarted) return;
+    watcherHandle?.close();
     watcherHandle = startReloadWatchers({ config, reloadEvents, logger });
   };
-  // Tasks push and pull with the firm's account in the background (a no-op
-  // while no firm is connected); each local write also asks for a round.
-  const stopTaskSync = startTaskSyncTimer(config);
-  // Synced projects (Akten) likewise; a project arriving from the firm is a
-  // new folder for the reload watchers too.
+  // Register change handlers now; background writers start after engine and
+  // project-storage initialization have completed.
   configureProjectSync(config, { onWorkspacesChanged: () => restartReloadWatchers() });
-  const stopProjectSyncTimer = startProjectSyncTimer(config);
-  // The firm pokes this computer when something changed, so rounds start at once.
-  const stopSyncEvents = startSyncEvents(config);
-  const stopSandboxSettingsSync = startSandboxSettingsSync(config);
-  // The firm's policy: pulled now and whenever the firm pokes; what changes
-  // the engine's settings reloads the engines once they are idle.
   const stopOrgPolicy = onOrgPolicyChange(config, (scopes) => {
     if (scopes.has("engine")) applyOrgPolicyToEngines(config);
   });
-  void scheduleOrgPolicySync(config, { force: true });
   // The firm's Knowledge Hub likewise: what it installs for everyone, and what
   // the member added, follows the platform; connectors and skills reload the engines.
   const stopFirmHub = onFirmHubChange(config, (changes) => {
     if (changes.has("engine")) applyOrgPolicyToEngines(config);
   });
-  void scheduleFirmHubSync(config, { force: true });
-  // Due days are checked every minute, connected or not, for the app to announce.
-  const stopTaskReminders = startTaskReminderTimer(config);
   const officeTools = new OfficeToolRelay();
   const wikiSync = new WikiSync(config, wikiStore);
-  wikiSync.start();
   const benchmarkRunner = new BenchmarkRunner({
     config,
     createClient: (workspace, directory) =>
@@ -916,7 +906,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
     requireUnmanaged: () => requireOrgPolicyUnmanaged(config, "reviews.defaults"),
   }));
   const scheduledTasks = await ScheduledTaskStore.open(runtimeDbPath(config), () => announceSyncChange(config, "sessions"));
-  const assistantRuntime = await createAssistantRuntime(config, { scheduledTasks, resolveWorkspace: id => resolveWorkspace(config, id),
+  const assistantRuntime = await createAssistantRuntime(config, { scheduledTasks, deferStart: true, resolveWorkspace: id => resolveWorkspace(config, id),
     changed: restartReloadWatchers, tokenActive: hash => tokens.isActiveHash(hash) });
   const scheduledWorkspace = async (task: ScheduledTask) => {
     const workspace = await resolveWorkspace(config, task.workspaceId);
@@ -1079,6 +1069,8 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
         return finalize(new Response(null, { status: 204 }));
       }
       if (!ready) return finalize(jsonResponse({ code: "server_starting", message: "LegalWork is starting." }, 503));
+      if (config.projectStorageMigrating && !["GET", "HEAD"].includes(request.method))
+        return finalize(jsonResponse({ code: "project_storage_migrating", message: "Project storage is being upgraded. Retry when startup finishes." }, 503));
 
       if (url.pathname === WORD_ADDIN_PATH_PREFIX || url.pathname.startsWith(`${WORD_ADDIN_PATH_PREFIX}/`)) {
         let addinResponse: Response | null;
@@ -1264,14 +1256,13 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
     }
   }
 
-  const stopScheduledTasks = config.readOnly ? () => {} : scheduledRunner.start();
   let originalImageCleanup: ReturnType<typeof startOriginalImageCleanup>;
   const startedServer = {
     ...server,
     wordAddinPort: wordAddinServer?.port ?? null,
     invalidateRawHttpTrust: () => rawHttpTransport?.rotate(),
     stop: async () => {
-      stopSandboxSettingsSync();
+      for (const stop of backgroundStops.splice(0).reverse()) stop();
       await originalImageCleanup?.close();
       await agentSandbox.stop();
       await rawHttpTransport?.close();
@@ -1284,17 +1275,12 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
       reviews.stop();
       preparation.stop();
       ocr.stop();
-      stopTaskSync();
-      stopProjectSyncTimer();
-      stopSyncEvents();
       stopOrgPolicy();
       stopFirmHub();
-      stopTaskReminders();
-      stopScheduledTasks();
       await wikiSync.stop();
       await wikiStore.close();
       benchmarkRunner.dispose();
-      watcherHandle.close();
+      watcherHandle?.close();
       workspaceBootstrapPromises.delete(config);
       reloadBaselineRefreshers.delete(config);
       await wordAddinServer?.stop();
@@ -1308,6 +1294,17 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
     // routes while its engine boots. Engine readiness is scoped separately.
     ready = true;
     await runtimeOptions.onListening?.(server.port);
+    // Startup can upgrade OpenCode and relocate project roots. Start writers
+    // and root-bound watchers only after that transition has completed.
+    backgroundStarted = true;
+    restartReloadWatchers();
+    for (const start of [() => startTaskSyncTimer(config), () => startProjectSyncTimer(config), () => startSyncEvents(config),
+      () => startSandboxSettingsSync(config), () => startTaskReminderTimer(config)]) backgroundStops.push(start());
+    void scheduleOrgPolicySync(config, { force: true });
+    void scheduleFirmHubSync(config, { force: true });
+    wikiSync.start();
+    await assistantRuntime.start();
+    if (!config.readOnly) backgroundStops.push(scheduledRunner.start());
     await toolImageOriginalStore(config).retryReferenceDeletions().catch(error => {
       console.warn("[legalwork-server] An explicitly requested original image deletion remains pending.", error);
     });
@@ -1876,7 +1873,7 @@ function buildAuthorizedFoldersResponse(workspace: WorkspaceInfo, config: Author
   return {
     folders: config.folders,
     hiddenCount: config.hiddenRules.length,
-    workspaceRoot: normalizeAuthorizedFolderPath(workspace.path),
+    workspaceRoot: normalizeAuthorizedFolderPath(workspaceContentPath(workspace)),
   };
 }
 
@@ -2584,7 +2581,7 @@ function createRoutes(
       await readOpencodeConfig(config, workspace),
       runtime,
     );
-    const foldersConfig = readAuthorizedFoldersFromOpencodeConfig(opencode, workspace.path, runtime.projectPermissionApprovals);
+    const foldersConfig = readAuthorizedFoldersFromOpencodeConfig(opencode, workspaceContentPath(workspace), runtime.projectPermissionApprovals);
     return jsonResponse(buildAuthorizedFoldersResponse(workspace, foldersConfig));
   });
 
@@ -2594,7 +2591,7 @@ function createRoutes(
     await requireOrgPolicyToolsUnmanaged(config, ["external_directory"]);
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const body = await readJsonBody(ctx.request);
-    const folders = parseAuthorizedFoldersPayload(body.folders, workspace.path);
+    const folders = parseAuthorizedFoldersPayload(body.folders, workspaceContentPath(workspace));
     const configPath = legalworkConfigPath(workspace.path);
 
     await requireApproval(ctx, {
@@ -2612,9 +2609,9 @@ function createRoutes(
       // Keeping a remembered folder does not turn its private approval into a
       // second native config rule. Manual native grants retain their ownership.
       const configured = folders.filter(folder => !remembered.has(folder) || (current.permissions ?? []).some(rule => rule.action === "external_directory" && externalDirectoryKeyToAuthorizedFolder(rule.resource, rule.effect) === folder));
-      const root = normalizeAuthorizedFolderPath(workspace.path), desired = new Set(folders);
+      const root = normalizeAuthorizedFolderPath(workspaceContentPath(workspace)), desired = new Set(folders);
       return { ...current,
-        permissions: mergeAuthorizedFoldersIntoExternalDirectory(configured, current.permissions ?? [], workspace.path),
+        permissions: mergeAuthorizedFoldersIntoExternalDirectory(configured, current.permissions ?? [], workspaceContentPath(workspace)),
         projectPermissionApprovals: current.projectPermissionApprovals?.flatMap(approval => {
           if (!permissionPatternMatches("external_directory", approval.action)) return [approval];
           const resources = approval.resources.filter(resource => {
@@ -2639,7 +2636,7 @@ function createRoutes(
 
     emitReloadEvent(ctx.reloadEvents, workspace, "config", buildConfigTrigger(configPath));
 
-    const updatedFoldersConfig = readAuthorizedFoldersFromOpencodeConfig(runtimeEngineConfiguration(updatedRuntime), workspace.path, updatedRuntime.projectPermissionApprovals);
+    const updatedFoldersConfig = readAuthorizedFoldersFromOpencodeConfig(runtimeEngineConfiguration(updatedRuntime), workspaceContentPath(workspace), updatedRuntime.projectPermissionApprovals);
 
     const response: AuthorizedFoldersUpdateResponse = {
       folders: updatedFoldersConfig.folders,
@@ -3359,7 +3356,7 @@ function createRoutes(
     // there by this route, so a same-named file is the same document fetched
     // again rather than the firm's work. Suffixing copies instead would leave a
     // trail of "Deed (2).docx" for repeat clicks on one source.
-    const exportDir = join(workspace.path, LEGALMEMORY_EXPORT_DIR);
+    const exportDir = join(workspaceContentPath(workspace), LEGALMEMORY_EXPORT_DIR);
     await mkdir(exportDir, { recursive: true });
     const relativePath = `${LEGALMEMORY_EXPORT_DIR}/${filename}`;
     await writeFile(join(exportDir, filename), document.bytes);
@@ -3399,7 +3396,7 @@ function createRoutes(
     }
 
     const relativeRoot = `${LEGALMEMORY_EXPORT_DIR}/${folderName}`;
-    await mkdir(join(workspace.path, relativeRoot), { recursive: true });
+    await mkdir(join(workspaceContentPath(workspace), relativeRoot), { recursive: true });
 
     // A few at a time: a folder of fifty documents fetched one after another
     // leaves the user watching a spinner, and the appliance is happy to answer
@@ -3417,7 +3414,7 @@ function createRoutes(
         }
         try {
           const document = await fetchLegalMemoryDocument(legalMemory, entry.file.document_id);
-          const target = join(workspace.path, relativeRoot, relativePath);
+          const target = join(workspaceContentPath(workspace), relativeRoot, relativePath);
           await mkdir(dirname(target), { recursive: true });
           await writeFile(target, document.bytes);
           written += 1;
@@ -3913,10 +3910,10 @@ function createRoutes(
       page: z.number().int().positive(), source: z.enum(["native", "ocr"]),
       quote: z.string().min(1).max(4000), preparationPath: z.string().max(4096).optional(),
     }).parse(await readJsonBodyLimited(ctx.request, 32 * 1024));
-    return jsonResponse(await reviewSourcePage(workspace.path, source.path, {
+    return jsonResponse(await reviewSourcePage(workspaceFileRoot(workspace, source.path), source.path, {
       sourceHash: source.hash, preparationPath: source.preparationPath,
       citations: [{ page: source.page, quote: source.quote, source: source.source }],
-    }, 0, ctx.request.signal));
+    }, 0, ctx.request.signal, undefined, workspace.path));
   });
 
   addRoute(routes, "GET", "/workspace/:id/search/:kind", "client", async (ctx) => {

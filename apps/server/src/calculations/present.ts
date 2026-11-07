@@ -1,3 +1,4 @@
+import { workspaceContentPath, workspaceFileRoot } from "../project-storage.js";
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -48,7 +49,7 @@ export async function presentCalculation(store: CalendarStore, workspace: Worksp
   const sources = [];
   const evidence = new Map<string, ReviewEvidence>();
   for (const reference of input.sources) {
-    const { hash, source, bytes } = await sourceHash(workspace.path, reference.path);
+    const { hash, source, bytes } = await sourceHash(workspaceFileRoot(workspace, reference.path), reference.path);
     let bound = { ...reference, path: source.path, hash };
     if (/\.(txt|md)$/i.test(source.path)) {
       if (!quoteRange(new TextDecoder("utf-8", { fatal: true }).decode(bytes), reference.quote)) throw new ApiError(422, "calculation_source_ambiguous", "Supply an exact, unique passage from the source file.");
@@ -57,8 +58,8 @@ export async function presentCalculation(store: CalendarStore, workspace: Worksp
       continue;
     }
     if (!reference.page) throw new ApiError(422, "calculation_source_page", "Supply the page number for a PDF or image source.");
-    const verify = () => reviewSourcePage(workspace.path, source.path, { sourceHash: hash, preparationPath: bound.preparationPath,
-      citations: [{ page: bound.page, quote: bound.quote, source: bound.source }] }, 0, signal);
+    const verify = () => reviewSourcePage(workspaceFileRoot(workspace, source.path), source.path, { sourceHash: hash, preparationPath: bound.preparationPath,
+      citations: [{ page: bound.page, quote: bound.quote, source: bound.source }] }, 0, signal, undefined, workspace.path);
     let verified;
     try { verified = await verify(); }
     catch (error) {
@@ -67,7 +68,7 @@ export async function presentCalculation(store: CalendarStore, workspace: Worksp
     if (!verified?.regions.length && preparation && !reference.preparationPath) {
       let prepared = evidence.get(source.path);
       if (!prepared) {
-        prepared = await prepareReviewEvidence({ workspace: workspace.path, path: source.path, preparation, signal, force: false, onProgress: async () => {} });
+        prepared = await prepareReviewEvidence({ workspace: workspace.path, contentPath: workspaceContentPath(workspace), path: source.path, preparation, signal, force: false, onProgress: async () => {} });
         evidence.set(source.path, prepared);
       }
       if (prepared.hash !== hash) throw new ApiError(409, "calculation_source_changed", "The source changed during preparation. Present a fresh calculation.");
@@ -86,6 +87,6 @@ export async function presentCalculation(store: CalendarStore, workspace: Worksp
 
 export async function validatePresentationSources(workspace: WorkspaceInfo, sources: Array<{ path: string; hash: string }>) {
   for (const reference of sources) {
-    if ((await sourceHash(workspace.path, reference.path)).hash !== reference.hash) throw new ApiError(409, "calculation_source_changed", "A source changed. Present a fresh calculation before saving.");
+    if ((await sourceHash(workspaceFileRoot(workspace, reference.path), reference.path)).hash !== reference.hash) throw new ApiError(409, "calculation_source_changed", "A source changed. Present a fresh calculation before saving.");
   }
 }

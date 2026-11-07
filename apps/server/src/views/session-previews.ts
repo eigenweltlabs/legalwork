@@ -1,3 +1,4 @@
+import { workspaceContentPath } from "../project-storage-paths.js";
 import { withViewSaveSources, type SavedSessionView } from "./save-source.js";
 import { createHash } from "node:crypto";
 import { z } from "zod";
@@ -67,7 +68,7 @@ export async function savedSessionViews(config: ServerConfig): Promise<SavedSess
     const wikis = await store.list();
     const repositories = [
       ...wikis.map(wiki => new ViewRepository({ kind: "wiki", id: wiki.id }, { list: async () => (await store.files(wiki.id)).map(file => file.path), read: path => store.readAsset(wiki.id, path), write: async () => { throw new Error("Read only"); } })),
-      ...config.workspaces.filter(workspace => !wikis.some(wiki => wiki.workspaceId === workspace.id)).map(workspace => new ViewRepository({ kind: "workspace", id: workspace.id }, workspaceViewFiles(workspace.path))),
+      ...config.workspaces.filter(workspace => !wikis.some(wiki => wiki.workspaceId === workspace.id)).map(workspace => new ViewRepository({ kind: "workspace", id: workspace.id }, workspaceViewFiles(workspaceContentPath(workspace)))),
     ];
     const records: ViewRecord[] = [];
     for (const repository of repositories) {

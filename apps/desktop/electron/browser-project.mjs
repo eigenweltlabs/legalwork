@@ -22,7 +22,7 @@ export async function resolveBrowserProject(context, state, server, windowUrl) {
     }
     const selected = state.workspaces.find((entry) => entry.id === selectedId);
     if (!selected || selected.workspaceType === "remote" || !selected.path) return null;
-    return realpath(selected.path);
+    return realpath(selected.contentPath || selected.path);
   }
   if (typeof directory !== "string" || !path.isAbsolute(directory)) throw new Error("Browser project directory must be absolute.");
   const requested = await realpath(directory);
@@ -30,7 +30,7 @@ export async function resolveBrowserProject(context, state, server, windowUrl) {
     for (const workspace of workspaces) {
       if (workspace.workspaceType === "remote" || typeof workspace.path !== "string") continue;
       const root = await realpath(workspace.path).catch(() => null);
-      if (root === requested) return root;
+      if (root === requested) return realpath(workspace.contentPath || workspace.path);
     }
     return null;
   }

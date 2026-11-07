@@ -1,4 +1,7 @@
 #!/usr/bin/env bun
+import { stopManagedOpencodeService } from "./managed-opencode-service.js";
+import { localProjectsDirectory, prepareLocalProjects } from "./project-storage.js";
+import { persistServerWorkspaceState } from "./routes/workspaces.js";
 
 import { mkdir } from "node:fs/promises";
 import { connectorRuntimeCapability } from "./connectors/capability.js";
@@ -50,6 +53,7 @@ const managedEngine = process.env.LEGALWORK_MANAGE_OPENCODE === "1" && !config.o
 config.agentSandboxEnabled = managedEngine && process.env.LEGALWORK_MANAGED_OPENCODE_SANDBOX !== "0";
 config.engineProjectTrustRequired = managedEngine;
 config.engineConfigurationMode = "native-project";
+if (managedEngine) config.projectsDirectory = localProjectsDirectory();
 const logger = createServerLogger(config);
 let managedOpencode: ManagedOpencodeServer | null = null;
 let managedLifecycle: Awaited<ReturnType<typeof startManagedEngineLifecycle>> | null = null;
@@ -59,6 +63,12 @@ let stopConfigRefresh: (() => Promise<void>) | null = null;
 // reads settings. Ordinary reads never fall back to the retired storage.
 await bootstrapRuntimeOpencodeConfig(config);
 await prepareConnectorStorage(config);
+const storageMigrationPending = managedEngine && !config.readOnly && config.workspaces.some(workspace => !workspace.contentPath && workspace.preset !== "wiki");
+config.projectStorageMigrating = storageMigrationPending;
+if (storageMigrationPending) {
+  // Stop the predecessor before the original OpenCode history upgrade.
+  await stopManagedOpencodeService({ configDirectory: orgPolicyEngineDir(config), stateDirectory: join(engineStorageDir(config), "engine-home", "state") });
+}
 
 if (!config.readOnly) {
   await retireSharedLegacyReview(globalSkillsDir());
@@ -90,9 +100,6 @@ const server = await startServer(config, { onListening: async (port) => {
       // on every runtime-DB write — so disposes always pick up current state.
       const runtimeConfigPath = await writeLegalworkRuntimeConfigFile(config, workspace.id);
       stopConfigRefresh = keepLegalworkRuntimeConfigFileFresh(config, workspace.id);
-      // Fire-and-forget: pick up models added on the Eigenwelt gateway since the
-      // provider was connected (no-op unless provider.eigenwelt is configured).
-      void refreshEigenweltProviderModels(config, workspace.id);
       const managedOpencodeCwd = process.env.LEGALWORK_MANAGED_OPENCODE_CWD?.trim() || workspace.path;
       await mkdir(managedOpencodeCwd, { recursive: true });
       // Private engine DB (see managed-opencode-db.ts): keep the managed engine
@@ -108,7 +115,13 @@ const server = await startServer(config, { onListening: async (port) => {
       const service = { configDirectory: orgPolicyEngineDir(config), stateDirectory: join(engineHome, "state") };
       const dependencies = await prepareManagedOpencodeDependencies(config);
       if (dependencies.reason === "bundle-unavailable") console.warn("[legalwork-server] Prepare desktop resources to validate the released engine's bundled runtime declaration.");
-      managedLifecycle = await startManagedEngineLifecycle({ config, database, service, legacyMcpAuthPath: legacyMcpAuthPath(), create: async (mode, beforeSpawn) => {
+      managedLifecycle = await startManagedEngineLifecycle({ config, database, service, legacyMcpAuthPath: legacyMcpAuthPath(),
+        ...(storageMigrationPending ? { migrateProjectFolders: async () => {
+          await stopConfigRefresh?.(); stopConfigRefresh = null;
+          if (await prepareLocalProjects(config)) await persistServerWorkspaceState(config);
+          await writeLegalworkRuntimeConfigFile(config, workspace.id);
+          stopConfigRefresh = keepLegalworkRuntimeConfigFileFresh(config, workspace.id);
+        } } : {}), create: async (mode, beforeSpawn) => {
         const engine = await createConfiguredManagedEngine(config, {
         bin: await resolveServerOpencodeExecutable(process.env.LEGALWORK_OPENCODE_BIN),
         ...(process.env.LEGALWORK_MANAGED_OPENCODE_PORT ? { port: Number(process.env.LEGALWORK_MANAGED_OPENCODE_PORT) } : {}),
@@ -139,6 +152,8 @@ const server = await startServer(config, { onListening: async (port) => {
         managedOpencode = engine;
         return engine;
       } });
+      // Refresh catalogs only after history and project paths are ready.
+      void refreshEigenweltProviderModels(config, workspace.id);
       logger.log("info", `Managed OpenCode listening on ${managedLifecycle.engine.url}`);
     }
   }

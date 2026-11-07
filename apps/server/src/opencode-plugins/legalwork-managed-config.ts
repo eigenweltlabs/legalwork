@@ -1,3 +1,4 @@
+import { isAbsolute, relative, resolve } from "node:path";
 import { Plugin } from "@opencode/plugin";
 import { ManagedSettingsWorkspaceMissingError, managedSettingsRpc, readManagedEngineSettings } from "../managed-engine-settings.js";
 import { registerManagedFolderPermissions } from "./managed-folder-permissions.js";
@@ -14,6 +15,28 @@ export const LegalWorkManagedConfig = Plugin.define({
       catch (error) { if (error instanceof ManagedSettingsWorkspaceMissingError) return undefined; throw error; }
     };
     const permissions = await registerManagedFolderPermissions(ctx, read);
+    const files = await ctx.tool.hook("execute.before", async event => {
+      if (!["read", "write", "edit", "multiedit", "patch", "apply_patch", "glob", "grep", "list"].includes(event.tool)) return;
+      const settings = await read();
+      if (!settings?.contentPath || !event.input || typeof event.input !== "object" || Array.isArray(event.input)) return;
+      const contentPath = settings.contentPath;
+      const mapPath = (path: string) => {
+        const suffix = isAbsolute(path) && settings.previousPath ? relative(settings.previousPath, path) : path;
+        if (/^(?:\.opencode|\.legalwork)(?:[\\/]|$)/.test(suffix)) return resolve(settings.directory, suffix);
+        return isAbsolute(path) ? path : resolve(contentPath, path);
+      };
+      for (const key of ["filePath", "path"]) {
+        const path = Reflect.get(event.input, key);
+        if (typeof path === "string") Reflect.set(event.input, key, mapPath(path));
+      }
+      if (["glob", "grep", "list"].includes(event.tool) && !Reflect.get(event.input, "path")) Reflect.set(event.input, "path", settings.contentPath);
+      for (const key of ["patchText", "patch"]) {
+        const patch = Reflect.get(event.input, key);
+        if (typeof patch === "string") Reflect.set(event.input, key, patch.replace(/^(\*\*\* (?:Add File|Update File|Delete File|Move to): )(.+)$/gm, (_line, prefix: string, path: string) => `${prefix}${mapPath(path)}`));
+      }
+      const edits = Reflect.get(event.input, "edits");
+      if (Array.isArray(edits)) for (const edit of edits) if (edit && typeof edit === "object" && typeof edit.filePath === "string") edit.filePath = mapPath(edit.filePath);
+    });
     let selections = (await read())?.providerModelSelection ?? {};
     // Preserve this project's selected inventory, including when a custom
     // provider reuses a built-in ID. Prune both source definitions and the
@@ -45,7 +68,7 @@ export const LegalWorkManagedConfig = Plugin.define({
       }
       return { refreshed: true };
     } });
-    return async () => { await refresh.dispose(); await models.dispose(); await providers.dispose(); await permissions.dispose(); };
+    return async () => { await refresh.dispose(); await models.dispose(); await providers.dispose(); await permissions.dispose(); await files.dispose(); };
   },
 });
 export default LegalWorkManagedConfig;

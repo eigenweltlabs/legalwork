@@ -1062,3 +1062,29 @@ test("native remembered folder approvals feed project sandbox mounts and are rev
   await f.run();
   expect(f.executions[2].mounts.map(mount => mount.source)).toEqual([await realpath(f.workspace.path)]);
 });
+
+test("local project home and connected documents share existing sandbox permissions and separate mounts", async () => {
+  const f = await fixture([{ action: "shell", resource: "*", effect: "allow" }, { action: "read", resource: "*", effect: "allow" }, { action: "edit", resource: "*", effect: "allow" }]);
+  const content = await realpath(await mkdtemp(join(tmpdir(), "sandbox-content-"))); roots.push(content);
+  const additional = await realpath(await mkdtemp(join(tmpdir(), "sandbox-additional-"))); roots.push(additional);
+  f.workspace.path = await realpath(f.workspace.path);
+  f.workspace.contentPath = content;
+  await writeRuntimeOpencodeConfig(f.config, f.workspace.id, () => ({ permissions: [{ action: "external_directory", resource: `${additional}/*`, effect: "allow" }] }));
+  await f.service.run(f.workspace, { command: `cat "${content}/contract.txt"`, workdir: content, write: true, timeoutMs: 1000 }, { type: "host" }, new AbortController().signal);
+  expect(f.executions[0].mounts).toEqual([
+    { source: f.workspace.path, target: "/workspace", writable: true },
+    { source: content, target: "/authorized/0", writable: true },
+    { source: additional, target: "/authorized/1", writable: true },
+  ]);
+  expect(f.executions[0].cwd).toBe("/authorized/0");
+  expect(f.executions[0].command).toBe('cat "/authorized/0/contract.txt"');
+  await rm(content, { recursive: true });
+  await f.run();
+  expect(f.executions[1].mounts.map(mount => mount.source)).toEqual([f.workspace.path, additional]);
+  const nested = join(f.workspace.path, "files");
+  await mkdir(nested);
+  f.workspace.contentPath = nested;
+  await f.service.run(f.workspace, { command: "true", workdir: nested, write: false, timeoutMs: 1000 }, { type: "host" }, new AbortController().signal);
+  expect(f.executions[2].cwd).toBe("/workspace/files");
+  expect(f.executions[2].mounts.map(mount => mount.source)).toEqual([f.workspace.path, additional]);
+});

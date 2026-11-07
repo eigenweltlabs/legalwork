@@ -122,11 +122,10 @@ export function resolveLegalworkServerConfigPath(env = process.env) {
   return path.join(root, "legalwork", "server.json");
 }
 
-// Documents is supplied by Electron's OS known-folder API, including redirected
-// Windows/OneDrive folders. Never derive user documents from the engine's HOME.
-export function desktopProjectsDirectory(documentsDirectory, development = false, platform = process.platform) {
+/** Local project support data is independent of Documents and Windows roaming userData. */
+export function desktopProjectsDirectory(applicationDataDirectory, development = false, platform = process.platform) {
   const paths = platform === "win32" ? path.win32 : path.posix;
-  return paths.join(documentsDirectory, development ? "LegalWork Dev" : "LegalWork", "Projects");
+  return paths.join(applicationDataDirectory, development ? "com.eigenweltlabs.legalwork.dev" : "com.eigenweltlabs.legalwork", "Projects");
 }
 
 export function seedWorkspacePathsForEmbeddedServer(workspacePaths, serverConfigExists) {
@@ -152,7 +151,7 @@ export function embeddedOpencodeConnection(config, workspacePath, platform = pro
   };
   const selected = key(workspacePath);
   if (!selected) return null;
-  const matches = config.workspaces.filter((workspace) => key(workspace.path) === selected);
+  const matches = config.workspaces.filter((workspace) => key(workspace.path) === selected || key(workspace.previousPath) === selected);
   if (matches.length !== 1) return null;
   const workspace = matches[0];
   const baseUrl = workspace.baseUrl?.trim() || config.opencodeBaseUrl?.trim();
@@ -647,7 +646,8 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
 
   const userDataDir = app.getPath("userData");
   const pluginDiscoveryHome = app.getPath("home");
-  const projectsDirectory = desktopProjectsDirectory(app.getPath("documents"), process.env.LEGALWORK_DEV_MODE === "1");
+  const localDataDirectory = process.platform === "win32" ? process.env.LOCALAPPDATA || path.join(app.getPath("home"), "AppData", "Local") : process.platform === "linux" ? process.env.XDG_DATA_HOME || path.join(app.getPath("home"), ".local", "share") : app.getPath("appData");
+  const projectsDirectory = process.env.LEGALWORK_PROJECT_DATA_DIR?.trim() || desktopProjectsDirectory(localDataDirectory, process.env.LEGALWORK_DEV_MODE === "1");
   const sidecarDirs = [
     path.join(desktopRoot, "resources", "sidecars"),
     process.resourcesPath ? path.join(process.resourcesPath, "sidecars") : null,
@@ -1681,7 +1681,8 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
   }
 
   async function engineStart(projectDir, options = {}, forceRestart = false) {
-    const safeProjectDir = String(projectDir ?? "").trim();
+    const requestedProjectDir = String(projectDir ?? "").trim();
+    const safeProjectDir = inProcessServer ? embeddedOpencodeConnection(inProcessServer.config, requestedProjectDir)?.projectDir || requestedProjectDir : requestedProjectDir;
     if (!safeProjectDir) {
       throw new Error("projectDir is required");
     }

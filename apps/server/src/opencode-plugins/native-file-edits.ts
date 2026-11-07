@@ -23,8 +23,7 @@ export function nativeFileEdits(directory?: string, begin = beginFileEditorHando
       let paths: string[] | undefined;
       if (typeof raw === "string" && directory) {
         const path = relative(directory, resolve(directory, raw)).replace(/\\/g, "/");
-        if (path === ".." || path.startsWith("../") || isAbsolute(path)) return;
-        paths = [path];
+        if (path !== ".." && !path.startsWith("../") && !isAbsolute(path)) paths = [path];
       }
       await finish(input.sessionID, input.callID);
       const id = key(input.sessionID, input.callID);
