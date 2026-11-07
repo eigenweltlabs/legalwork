@@ -9,6 +9,7 @@ import { Dialog } from "twenty-ui/primitives/surfaces";
 // Twenty uses a 13px root. Scope its rem-based typography to this feature,
 // including the library's portalled menus, without changing LegalWork's root.
 export const directoryTheme = {
+  "--t-corner-shape": "superellipse(2.2)",
   "--t-font-size-xxs": "10px",
   "--t-font-size-xs": "11px",
   "--t-font-size-sm": "12px",
