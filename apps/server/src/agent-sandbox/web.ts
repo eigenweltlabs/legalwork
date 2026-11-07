@@ -35,7 +35,8 @@ export function webRequest(input: WebInput, provider: SearchProvider = { name: "
     return { url: provider.url, method: "POST", headers: {
       accept: "application/json", "content-type": "application/json", "accept-encoding": "identity",
       authorization: `Bearer ${provider.apiKey}`,
-    }, bodyBase64: Buffer.from(JSON.stringify({ query: input.query, max_results: input.numResults })).toString("base64") };
+    }, bodyBase64: Buffer.from(JSON.stringify({ query: input.query, max_results: input.numResults,
+      preferred_region: provider.preferredRegion })).toString("base64") };
   }
   // The desktop enables Exa for the engine's web search. Keep that provider,
   // but broker its exact query/body instead of letting the engine send it.
@@ -53,6 +54,9 @@ export async function webResult(input: WebInput, url: string, response: Outbound
   provider: SearchProvider = { name: "exa" }) {
   signal.throwIfAborted();
   if (response.status < 200 || response.status >= 300) {
+    if (input.kind === "search" && provider.name === "aws" && response.status === 403)
+      throw new ApiError(403, "web_search_not_allowed",
+        "Paid web search is not allowed for this account. Ask your firm admin to check your subscription, paid seat and enabled EU/US regions on the Model API Models page.");
     if (input.kind === "search") throw new ApiError(502, "web_search_unavailable",
       "The web search service is unavailable. Please try again later.");
     throw new Error(`Website returned HTTP ${response.status}.`);
@@ -64,7 +68,7 @@ export async function webResult(input: WebInput, url: string, response: Outbound
       let payload: unknown;
       try { payload = JSON.parse(content); }
       catch { throw new Error("The search provider returned an unreadable response."); }
-      const result = z.object({ provider: z.literal("aws"), region: z.literal("us-east-1"), results: z.array(z.object({
+      const result = z.object({ provider: z.literal("aws"), region: z.enum(["eu-west-1", "us-east-1"]), results: z.array(z.object({
         title: z.string().nullable(), url: z.string().url().nullable(), text: z.string(), publishedDate: z.string().nullable(),
       })) }).safeParse(payload);
       if (!result.success) throw new Error("The search provider returned an unreadable response.");
@@ -74,7 +78,7 @@ export async function webResult(input: WebInput, url: string, response: Outbound
         remaining -= text.length;
         return `Title: ${item.title ?? "Web information"}\n${item.url ? `URL: ${item.url}\n` : ""}${item.publishedDate ? `Published: ${item.publishedDate}\n` : ""}Highlights:\n${text}`;
       }).join("\n\n");
-      return { title: `Web search: ${input.query}`, output: output || "No search results found.", metadata: { provider: "aws", region: "us-east-1" } };
+      return { title: `Web search: ${input.query}`, output: output || "No search results found.", metadata: { provider: "aws", region: result.data.region } };
     }
     const payloads = content.trim().startsWith("{") ? [content] : content.split("\n").filter(line => line.startsWith("data:")).map(line => line.slice(5).trim());
     for (const payload of payloads) {

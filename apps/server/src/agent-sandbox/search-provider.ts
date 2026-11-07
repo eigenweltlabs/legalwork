@@ -3,10 +3,11 @@ import { eigenweltHasPremiumModels } from "../eigenwelt-auth.js";
 import { readCachedEigenweltPaidManifest } from "../eigenwelt-paid-manifest.js";
 import type { ServerConfig } from "../types.js";
 
-export type SearchProvider = { name: "exa" } | { name: "aws"; url: string; apiKey: string };
+export type SearchModel = { id: string; providerID: string };
+export type SearchProvider = { name: "exa" } | { name: "aws"; url: string; apiKey: string; preferredRegion?: "EU" | "US" };
 
-/** Resolve on the server, independently of the model selected in the chat. */
-export async function searchProvider(config: ServerConfig): Promise<SearchProvider> {
+/** Paid access follows the account; only a server-read hosted model supplies a region preference. */
+export async function searchProvider(config: ServerConfig, readModel?: () => Promise<SearchModel | undefined>): Promise<SearchProvider> {
   const connection = await readEigenweltConnection(config);
   if (!eigenweltHasPremiumModels(connection.entitlements)) return { name: "exa" };
   const manifest = await readCachedEigenweltPaidManifest(config);
@@ -16,5 +17,8 @@ export async function searchProvider(config: ServerConfig): Promise<SearchProvid
       (url.protocol !== "https:" && !(url.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname))))
     throw new Error("The paid web search gateway URL is invalid.");
   url.pathname = url.pathname.replace(/\/v1\/?$/, "").replace(/\/$/, "") + "/v1/web/search";
-  return { name: "aws", url: url.href, apiKey: manifest.apiKey };
+  const model = await readModel?.();
+  const region = model?.providerID === "eigenwelt" ? manifest.models.find(item => item.id === model.id)?.region : undefined;
+  return { name: "aws", url: url.href, apiKey: manifest.apiKey,
+    ...(region === "EU" || region === "US" ? { preferredRegion: region } : {}) };
 }
