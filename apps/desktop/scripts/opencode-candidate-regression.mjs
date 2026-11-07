@@ -24,6 +24,7 @@ Object.assign(process.env, {
   LEGALWORK_RUNTIME_DB: path.join(root, "private", "runtime.sqlite"), LEGALWORK_TOKEN_STORE: path.join(root, "private", "tokens.json"),
   LEGALWORK_STORAGE_STORE: path.join(root, "private", "storage.json"), LEGALWORK_ENV_STORE: path.join(root, "private", "env.json"),
   LEGALWORK_DATA_DIR: path.join(root, "private", "orchestrator"),
+  LEGALWORK_PROJECT_DATA_DIR: path.join(root, "projects"),
   OPENCODE_CONFIG: "", OPENCODE_CONFIG_CONTENT: "", OPENCODE_DISABLE_MODELS_FETCH: "1", OPENCODE_DISABLE_CLAUDE_CODE: "1",
 });
 app.setPath("home", path.join(root, "home"));
@@ -60,13 +61,15 @@ try {
     pids.add(info.pid);
     assert.equal((await fetch(`${server.baseUrl}/health`)).status, 200);
     const workspaces = await (await fetch(`${server.baseUrl}/workspaces`, { headers })).json();
-    const selected = workspaces.items.find(item => item.path === workspace);
+    const selected = workspaces.items.find(item => item.contentPath === workspace);
     assert.ok(selected);
+    assert.equal(selected.path, realpathSync(path.join(root, "projects", selected.id)));
+    assert.equal(selected.opencode?.directory, selected.path);
     const projectUrl = `${server.baseUrl}/workspace/${selected.id}/engine-project`;
     const status = await (await fetch(projectUrl, { headers })).json();
     assert.equal(status.state, "ready");
     assert.equal(status.required, false);
-    const location = { directory: workspace };
+    const location = { directory: selected.path };
     await client.model.list({ location });
     const plugins = (await client.plugin.list({ location })).data;
     assert.deepEqual(plugins.filter(plugin => plugin.state.status === "failed"), []);

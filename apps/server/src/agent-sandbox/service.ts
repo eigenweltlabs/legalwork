@@ -237,7 +237,7 @@ export class AgentSandboxService {
         const checked = await validateMounts([{ ...mount, target: "/workspace" }], protectedPaths);
         safeMounts.push({ ...checked[0], target: mount.target });
       }
-      const cwd = sandboxPaths(command.workdir || "/workspace", safeMounts);
+      const cwd = sandboxPaths(command.workdir || "/workspace", safeMounts, { directory: true });
       if (!cwd.startsWith("/")) throw new ApiError(400, "sandbox_directory", "Use /workspace or an authorized sandbox folder.");
       const result = await withFileEditorHandoff({ ...command, signal: executionSignal }, () => { executionSignal.throwIfAborted(); return this.backend.run({ command: sandboxPaths(command.command, safeMounts), cwd, mounts: safeMounts,
         timeoutMs: command.timeoutMs, capture: command.capture, signal: executionSignal,

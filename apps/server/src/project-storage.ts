@@ -94,7 +94,7 @@ async function verifyPreparedProject(target: string, receipt: z.infer<typeof rec
 export async function prepareLocalProject(config: ServerConfig, workspace: WorkspaceInfo): Promise<WorkspaceInfo> {
   if (workspace.contentPath) return workspace;
   const source = await realpath(workspace.path);
-  if (!(await lstat(source)).isDirectory()) throw new Error("The project folder is unavailable.");
+  if (!(await stat(source)).isDirectory()) throw new Error("The project folder is unavailable.");
   const target = await canonicalFilePath(projectHome(config, workspace.id));
   if (resolve(target) === resolve(source)) {
     const recovered = await recoverLocalProject(config, workspace);
