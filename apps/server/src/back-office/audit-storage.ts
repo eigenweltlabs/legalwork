@@ -17,6 +17,7 @@ import { userInfo } from "node:os";
 import { z } from "zod";
 import {
   BackOfficeAuditHeadSchema,
+  BACK_OFFICE_AUDIT_GENESIS,
   type BackOfficeAuditHead,
 } from "./schema.js";
 import { newBackOfficeAuditKey } from "./audit-integrity.js";
@@ -43,6 +44,7 @@ export type BackOfficeAuditStorage = {
   key: (streamId: string) => Buffer | null;
   createKey: (streamId: string) => Buffer;
   eraseKey: (streamId: string) => void;
+  discardUncommittedStream: (streamId: string) => void;
   head: (streamId: string) => BackOfficeAuditHead | null;
   heads: () => BackOfficeAuditHead[];
   checkpoint: (head: BackOfficeAuditHead) => void;
@@ -63,8 +65,9 @@ function newIdentity(): BackOfficeAuditIdentity {
 export function memoryBackOfficeAuditStorage(): BackOfficeAuditStorage {
   const keys = new Map<string, Buffer>();
   const heads = new Map<string, BackOfficeAuditHead>();
+  const identity = newIdentity();
   return {
-    identity: newIdentity(),
+    identity,
     persistent: false,
     serialized: true,
     acquire: () => {},
@@ -79,12 +82,22 @@ export function memoryBackOfficeAuditStorage(): BackOfficeAuditStorage {
     eraseKey: (id) => {
       keys.delete(id);
     },
+    discardUncommittedStream: (id) => {
+      assertUncommittedHead(heads.get(id) ?? null, id, identity.publicKey);
+      heads.delete(id);
+      keys.delete(id);
+    },
     head: (id) => heads.get(id) ?? null,
     heads: () => [...heads.values()],
     checkpoint: (head) => {
       heads.set(head.streamId, { ...head });
     },
   };
+}
+
+function assertUncommittedHead(head: BackOfficeAuditHead | null, id: string, publicKey: string) {
+  if (head && (head.streamId !== id || head.sequence !== 0 || head.hash !== BACK_OFFICE_AUDIT_GENESIS || head.publicKey !== publicKey))
+    throw new Error("Uncommitted Back Office stream has non-genesis checkpoint evidence. Preserve it before recovery.");
 }
 
 /** Persist a checkpoint before acknowledging a write, including its directory entry. */
@@ -202,6 +215,20 @@ export function fileBackOfficeAuditStorage(
         } finally {
           closeSync(descriptor);
         }
+      }
+    },
+    discardUncommittedStream: (id) => {
+      const headPath = path(id, "head");
+      const head = existsSync(headPath) ? BackOfficeAuditHeadSchema.parse(JSON.parse(readFileSync(headPath, "utf8"))) : null;
+      assertUncommittedHead(head, id, identity.publicKey);
+      // Only called after SQLite has confirmed rollback of this process's
+      // newly created stream. Never remove an acknowledged checkpoint.
+      if (existsSync(headPath)) unlinkSync(headPath);
+      const keyPath = path(id, "key");
+      if (existsSync(keyPath)) unlinkSync(keyPath);
+      if (process.platform !== "win32") {
+        const descriptor = openSync(directory, "r");
+        try { fsyncSync(descriptor); } finally { closeSync(descriptor); }
       }
     },
     head: (id) => {

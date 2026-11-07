@@ -131,6 +131,7 @@ export class BackOfficeJournal {
   private changed = new Set<string>();
   private eraseAfterCommit = new Set<string>();
   private retireAfterFlush = new Set<string>();
+  private createdStreams = new Set<string>();
   private failure: Error | null = null;
   private readonly expectedTriggers = new Map<string, string>();
   private prospectiveHeads = new Map<string, BackOfficeAuditHead>();
@@ -430,6 +431,8 @@ export class BackOfficeJournal {
           "Back Office audit identity differs from its retained signing key.",
         );
       const rows = this.rows(stream.stream_id);
+      if (!rows.length)
+        throw new Error("Back Office journal stream has no signed baseline. Preserve this database before recovery.");
       const checkpoint = this.storage.head(stream.stream_id);
       if (
         !checkpoint &&
@@ -654,7 +657,13 @@ export class BackOfficeJournal {
       public_key: this.storage.identity.publicKey,
       created_at: new Date().toISOString(),
     };
+    this.createdStreams.add(stream.stream_id);
     const key = this.storage.createKey(stream.stream_id);
+    // A durable genesis checkpoint makes a committed first batch recoverable
+    // if the process dies before persisting its first nonempty checkpoint.
+    const genesis = this.root(stream);
+    this.storage.checkpoint(genesis);
+    this.admittedHeads.set(stream.stream_id, genesis);
     this.admittedKeys.set(
       stream.stream_id,
       backOfficeAuditDigest(key.toString("hex")),
@@ -859,6 +868,7 @@ export class BackOfficeJournal {
       this.admittedHeads = expectedHeads;
       this.changed.clear();
       this.prospectiveHeads.clear();
+      this.createdStreams.clear();
       this.eraseAfterCommit.clear();
       this.preparedStamp = null;
       this.failure = null;
@@ -873,6 +883,12 @@ export class BackOfficeJournal {
   }
 
   rollback() {
+    for (const id of this.createdStreams) {
+      this.storage.discardUncommittedStream(id);
+      this.admittedHeads.delete(id);
+      this.admittedKeys.delete(id);
+    }
+    this.createdStreams.clear();
     this.verifiedCache = null;
     this.preparedStamp = null;
     this.prospectiveHeads.clear();
