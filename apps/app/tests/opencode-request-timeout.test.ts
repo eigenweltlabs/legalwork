@@ -35,24 +35,27 @@ test("direct engine recovery allows OneDrive hydration without slowing ordinary 
   expect(resolveRequestTimeoutMs("http://localhost:5421/api/info", 10_000)).toBe(10_000);
 });
 
-test("cold provider and session reads survive the former deadlines without retrying", async () => {
+test("cold provider, session and Assistant requests survive the former deadlines without retrying", async () => {
   const paths: string[] = [];
   const server = Bun.serve({ port: 0, idleTimeout: 20, async fetch(request) {
     const path = new URL(request.url).pathname;
     paths.push(path);
     await Bun.sleep(13_000);
-    return Response.json(path.endsWith("/sessions") ? { items: [] } : {location:{directory:"/fixture"},data:[]});
+    return Response.json(path === "/assistant/current" ? { day: { sessionId: "daily-chat" } }
+      : path.endsWith("/sessions") ? { items: [] } : {location:{directory:"/fixture"},data:[]});
   } });
   try {
     const engine = createClient(String(server.url));
     const api = createLegalworkServerClient({ baseUrl: String(server.url) });
-    const [providers, sessions] = await Promise.all([
+    const [providers, sessions, assistant] = await Promise.all([
       engine.provider.list(),
       api.listSessions("ws_cold"),
+      api.mainAssistantCurrent(),
     ]);
     expect(providers.data).toEqual([]);
     expect(sessions.items).toEqual([]);
-    expect(paths.sort()).toEqual(["/api/provider", "/workspace/ws_cold/sessions"]);
+    expect(assistant.day.sessionId).toBe("daily-chat");
+    expect(paths.sort()).toEqual(["/api/provider", "/assistant/current", "/workspace/ws_cold/sessions"]);
   } finally {
     server.stop(true);
   }
