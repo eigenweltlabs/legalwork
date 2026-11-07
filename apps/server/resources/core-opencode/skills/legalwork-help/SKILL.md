@@ -28,6 +28,7 @@ For an ordinary how-to question, read the matching page with `legalwork_skill_re
 | Files, document editors or saving outputs | [files-documents.md](references/files-documents.md) |
 | Cloud drives, network storage, or moving and copying connected files | [connected-storage.md](references/connected-storage.md) |
 | Website logins, the general legal-research skill, research databases, country suggestions, beck-online, Lexis, Westlaw, CourtListener setup or learned website experience | [integrations.md](references/integrations.md) |
+| Postal mail, E-POST, sending PDFs or Word documents by post | [integrations.md](references/integrations.md#send-documents-by-post) |
 | Integration categories, installed connections, connector detail pages, multiple named connections, browser or Computer Use | [integrations.md](references/integrations.md) |
 | Wiki, Legal Research / Rechtliche Recherche, research starter selection, jurisdiction/area browsing, proposed folders, consent to file findings or staged research contributions | [wiki.md](references/wiki.md) |
 | Save, copy, rename, export or reopen dashboards and reports | [dashboards.md](references/dashboards.md) |

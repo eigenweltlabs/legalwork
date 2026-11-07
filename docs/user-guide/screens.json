@@ -4,6 +4,11 @@
   "note": "Source-defined routes and visible settings for the build that bundles this file. Runtime, platform, account and permissions can restrict them.",
   "dialogs": [
     {
+      "id": "postal-mail-confirmation",
+      "guide": "integrations.md",
+      "source": "apps/app/src/components/chat/epost-draft-card.tsx"
+    },
+    {
       "id": "assistant-upgrade",
       "guide": "assistant.md",
       "source": "apps/app/src/react-app/shell/assistant-upgrade.tsx"
