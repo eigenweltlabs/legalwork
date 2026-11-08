@@ -15,6 +15,7 @@ import { resolveServerConfig, type CliArgs } from "./config.js";
 import { resolveEngineExecutable, type ManagedOpencodeServer, type OpencodeExecutionSnapshot } from "./managed-opencode.js";
 import { startServer } from "./server.js";
 import { ensureWorkspaceFiles } from "./workspace-init.js";
+import { keepProjectStateDownloaded } from "./project-availability.js";
 import { globalSkillsDir } from "./workspace-files.js";
 import { ensureBundledWorkflows } from "./bundled-workflows.js";
 import { retireSharedLegacyReview } from "./reviews/retire-legacy.js";
@@ -37,7 +38,7 @@ import type { ServerConfig } from "./types.js";
 import { orgPolicyEngineDir } from "./org-policy-engine.js";
 import { createConfiguredManagedEngine, startManagedEngineLifecycle } from "./managed-engine-lifecycle.js";
 import { legacyMcpAuthPath } from "./legacy-mcp-credentials.js";
-import { expectedOpencodeVersion } from "@legalwork/opencode-release/candidate";
+import { opencodeEngineIdentity } from "@legalwork/opencode-release/candidate";
 import { ensureWikiAgentToken } from "./wiki/agent-access.js";
 
 export type EmbeddedServerOptions = CliArgs & {
@@ -94,7 +95,7 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
   const config = await resolveServerConfig(options, { approvalMode: options.defaultApprovalMode });
   config.decryptLegacyConnectorSecrets = options.decryptLegacyConnectorSecrets;
   const managedEngine = options.manageOpencode === true && !config.opencodeBaseUrl;
-  if (managedEngine) await expectedOpencodeVersion(options.opencodeBin?.trim() || "opencode", options.opencodeCandidateBuild);
+  if (managedEngine) await opencodeEngineIdentity(options.opencodeBin?.trim() || "opencode", options.opencodeCandidateBuild);
   config.agentSandboxEnabled = managedEngine && options.managedEngineSandbox !== false;
   config.engineProjectTrustRequired = managedEngine;
   config.engineConfigurationMode = "native-project";
@@ -102,6 +103,9 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
   config.pickDirectory = options.pickDirectory ?? null;
   config.projectsDirectory = options.projectsDirectory;
   config.recorder = options.recorder ?? null;
+  // Request pins before any startup reader can hydrate project configuration.
+  // This also covers existing projects; new folders are pinned at creation.
+  if (!config.readOnly) await Promise.all(config.workspaces.map(workspace => keepProjectStateDownloaded(workspace.path)));
 
   // Spawn managed OpenCode if requested and no explicit base URL was provided.
   const managed: {
@@ -123,7 +127,7 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
     for (const workspace of config.workspaces) {
       // A disconnected cloud project must not prevent the shared server from
       // starting. Its requests retry initialization and return the real error.
-      await ensureWorkspaceFiles(workspace.path, workspace.preset ?? "starter", { bundledCore: !managedEngine }).catch((error: unknown) => {
+      await ensureWorkspaceFiles(workspace.path, workspace.preset ?? "starter").catch((error: unknown) => {
         console.warn(`[workspace-init] ${workspace.path}: ${error instanceof Error ? error.message : String(error)}`);
       });
     }
@@ -188,7 +192,7 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
         if (!database) throw new Error("A private managed engine database is required for native restart recovery.");
         process.env.OPENCODE_DB = database;
         const executablePath = await resolveEngineExecutable(options.opencodeBin?.trim() || process.env.LEGALWORK_OPENCODE_BIN?.trim() || "opencode", options.opencodeCwd || process.env.LEGALWORK_MANAGED_OPENCODE_CWD?.trim() || engineHome, process.env);
-        await expectedOpencodeVersion(executablePath, options.opencodeCandidateBuild);
+        await opencodeEngineIdentity(executablePath, options.opencodeCandidateBuild);
         const service = { configDirectory: orgPolicyEngineDir(config), stateDirectory: join(engineHome, "state"), executablePath };
         const catalog = managed.catalog;
         const dependencies = await prepareManagedOpencodeDependencies(config, options.opencodeSdkDirectory);

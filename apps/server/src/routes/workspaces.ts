@@ -1,3 +1,4 @@
+import { prepareManagedCoreLibrary } from "../managed-core-library.js";
 import type { registerProjectFolderRoutes } from "./project-folders.js";
 import { readFile, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
@@ -133,7 +134,8 @@ export async function registerLocalProject(
   const workspacePath = resolve(input.folderPath);
   await assertProjectFolderIndependent(workspacePath, await new WikiStore(config).list());
   await ensureDir(workspacePath);
-  await ensureWorkspaceFiles(workspacePath, input.preset, { bundledCore: config.engineConfigurationMode !== "managed" });
+  await prepareManagedCoreLibrary(config);
+  await ensureWorkspaceFiles(workspacePath, input.preset);
   if (input.projectFields) await initializeProjectFields(workspacePath, input.projectFields);
 
   const workspace: WorkspaceInfo = {

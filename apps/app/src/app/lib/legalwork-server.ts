@@ -1,4 +1,6 @@
+export type RisIntegrationStatus = { enabled: boolean; allowed: boolean; readOnly: boolean; source: string; requiresAuthentication: false };
 import { trackLegalMemoryInterfaceRead } from "./legalmemory-interface-activity";
+import { pendingProjectRemoval, waitForProjectRemoval } from "./project-removal-state";
 import { LegalMemoryPermissionsSchema, type LegalMemoryPermissionReply } from "@legalwork/types/legalmemory";
 import type { CalendarEventDraft } from "@legalwork/types/calendar-event-draft";
 import type { EmailDraft } from "@legalwork/types/email-draft";
@@ -1508,13 +1510,27 @@ async function requestJson<T>(
   const url = `${baseUrl}${path}`;
   const method = options.method ?? "GET";
   const readOnly = method === "GET" || options.readOnly === true;
+  const workspaceId = /^\/workspace\/([^/?]+)/.exec(path)?.[1];
   const body = options.body === undefined ? undefined : JSON.stringify(options.body);
   const timeoutMs = options.timeoutMs ?? DEFAULT_LEGALWORK_SERVER_TIMEOUT_MS;
   const fetchImpl = method === "GET" && isDesktopRuntime() ? desktopReadFetch : resolveFetch(url);
-  const read = () => fetchWithTimeout(fetchImpl, url, {
-    method, headers: buildHeaders(options.token, options.hostToken),
-    body, signal: options.signal,
-  }, timeoutMs, async (response, progress) => ({ ok: response.ok, status: response.status, statusText: response.statusText, text: await readJsonText(response, progress) }));
+  const read = async (): Promise<JsonReply> => {
+    if (readOnly && workspaceId) await waitForProjectRemoval(baseUrl, workspaceId, options.signal);
+    try {
+      const response = await fetchWithTimeout(fetchImpl, url, {
+        method, headers: buildHeaders(options.token, options.hostToken),
+        body, signal: options.signal,
+      }, timeoutMs, async (response, progress) => ({ ok: response.ok, status: response.status, statusText: response.statusText, text: await readJsonText(response, progress) }));
+      if (!readOnly || !workspaceId || !pendingProjectRemoval(baseUrl, workspaceId)) return response;
+    } catch (error) {
+      if (options.signal?.aborted || !readOnly || !workspaceId || !pendingProjectRemoval(baseUrl, workspaceId)) throw error;
+    }
+    // An earlier read can return a 404 after the server unregisters the
+    // project. Do not publish it as a project error during removal. Retry
+    // the read if deletion failed; confirmed deletion cancels it instead.
+    await waitForProjectRemoval(baseUrl, workspaceId, options.signal);
+    return read();
+  };
   // Never share mutations or a caller's cancellation. Only concurrent reads
   // join; there is no result cache, and every caller parses its own value.
   const key = readOnly && !options.signal
@@ -1879,6 +1895,9 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     sessionSandbox: (workspace: string, session: string) => requestJson<{ enabled: boolean; supported: boolean; networkMode: "allow" | "block" | "approve"; source: "application" | "session" | "parent" | "organization"; policy: { mode: "enforced" | "default"; locked: boolean; orgName: string | null } | null; application: { enabled: boolean; networkMode: "allow" | "block" | "approve" } }>(baseUrl, `/workspace/${encodeURIComponent(workspace)}/sandbox/session/${encodeURIComponent(session)}`, { token, hostToken, timeoutMs: timeouts.status }),
     setSessionSandbox: (workspace: string, session: string, settings: { enabled: boolean; networkMode: "allow" | "block" | "approve" } | null) => requestJson<unknown>(baseUrl, `/workspace/${encodeURIComponent(workspace)}/sandbox/session/${encodeURIComponent(session)}`, { token, hostToken, method: "PATCH", body: { settings }, timeoutMs: timeouts.config }),
     prepareSandbox: () => requestJson<{ ready: boolean }>(baseUrl, "/sandbox/prepare", { token, hostToken, method: "POST", timeoutMs: 660_000 }),
+    risStatus: () => requestJson<RisIntegrationStatus>(baseUrl, "/integrations/ris", { token, hostToken, timeoutMs: timeouts.status }),
+    risSaveSettings: (enabled: boolean) => requestJson<RisIntegrationStatus>(baseUrl, "/integrations/ris", { token, hostToken, method: "PUT", body: { enabled }, timeoutMs: timeouts.status }),
+    risTestConnection: () => requestJson<{ ok: boolean; checkedAt: string }>(baseUrl, "/integrations/ris/test", { token, hostToken, method: "POST", timeoutMs: 60_000 }),
     googleWorkspaceStatus: () => requestJson<GoogleWorkspaceAuthStatus>(baseUrl, "/experimental/google-workspace/status", { token, hostToken, timeoutMs: timeouts.status }),
     googleWorkspaceConnectStart: (options?: { gmailRead?: boolean; features?: string[] }) => requestJson<GoogleWorkspaceConnectStart>(baseUrl, "/experimental/google-workspace/connect/start", { token, hostToken, method: "POST", body: { gmailRead: options?.gmailRead === true, features: options?.features ?? [] }, timeoutMs: timeouts.status }),
     googleWorkspaceConnectStatus: (flowId: string) => requestJson<GoogleWorkspaceConnectStatus>(baseUrl, `/experimental/google-workspace/connect/status/${encodeURIComponent(flowId)}`, { token, hostToken, timeoutMs: timeouts.status }),
@@ -2610,7 +2629,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     linkProjectFolders: (workspaceId: string, revision: number, folders: RemoteFolderSelection[]) => requestJson<ProjectDetails>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/project/remote-folders`, { token, hostToken, method: "POST", body: { revision, folders }, timeoutMs: 120_000 }),
     unlinkProjectFolder: (workspaceId: string, revision: number, folderId: string) => requestJson<ProjectDetails>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/project/remote-folders/${encodeURIComponent(folderId)}`, { token, hostToken, method: "DELETE", body: { revision }, timeoutMs: 30_000 }),
     storageRoots: (workspaceId: string) =>
-      requestJson<{ roots: StorageRoot[]; teamError?: string }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage/roots`, { token, hostToken, timeoutMs: 30_000 }),
+      requestJson<{ roots: StorageRoot[]; unavailableRoots?: StorageRoot[]; teamError?: string }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage/roots`, { token, hostToken, timeoutMs: 30_000 }),
     storageChildren: (workspaceId: string, id: string, path: string, cursor?: string) =>
       requestJson<StoragePage>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage/${encodeURIComponent(id)}/children?${new URLSearchParams({ path, ...(cursor ? { cursor } : {}) })}`, { token, hostToken, timeoutMs: 90_000 }),
     storageFilenameSearch: (workspaceId: string, id: string, input: StorageFilenameSearch, signal?: AbortSignal) =>

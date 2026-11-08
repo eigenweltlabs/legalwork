@@ -11,6 +11,7 @@ const NATIVE_MENU_OPEN_SESSION_WINDOW_EVENT = "legalwork:native-menu:open-sessio
 const NATIVE_MENU_TOGGLE_SIDEBAR_EVENT = "legalwork:native-menu:toggle-sidebar";
 const NATIVE_MENU_CHECK_UPDATES_EVENT = "legalwork:native-menu:check-updates";
 const NATIVE_MENU_ZOOM_EVENT = "legalwork:native-menu:zoom";
+const NATIVE_MENU_SELECT_TAB_EVENT = "legalwork:native-menu:select-tab";
 
 export function createApplicationMenu({ appName, getWindow, collectSupportLogs }) {
   let applicationMenuVisible = process.platform === "darwin";
@@ -61,6 +62,11 @@ export function createApplicationMenu({ appName, getWindow, collectSupportLogs }
   async function zoomFromNativeMenu(action) {
     const win = await activeMenuWindow();
     win.webContents.send(NATIVE_MENU_ZOOM_EVENT, action);
+  }
+
+  async function selectTabFromNativeMenu(number, targetWindow) {
+    const win = targetWindow && !targetWindow.isDestroyed() ? targetWindow : await activeMenuWindow();
+    win.webContents.send(NATIVE_MENU_SELECT_TAB_EVENT, number);
   }
 
   function install() {
@@ -163,6 +169,16 @@ export function createApplicationMenu({ appName, getWindow, collectSupportLogs }
       {
         label: "View",
         submenu: [
+          {
+            label: "Select Tab",
+            submenu: Array.from({ length: 9 }, (_, index) => ({
+              label: index === 8 ? "Last Tab" : `Tab ${index + 1}`,
+              accelerator: `CommandOrControl+${index + 1}`,
+              click: (_menuItem, targetWindow) => {
+                void selectTabFromNativeMenu(index + 1, targetWindow);
+              },
+            })),
+          },
           {
             label: "Toggle Sidebar",
             accelerator: "CommandOrControl+B",

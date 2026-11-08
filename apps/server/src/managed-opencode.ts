@@ -5,7 +5,7 @@ import { constants } from "node:fs";
 import { access, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import { OpenCode, type MigrationV1StatusOutput } from "@opencode/client";
-import { expectedOpencodeServiceFilename, expectedOpencodeVersion, type VerifiedOpencodeCandidate } from "@legalwork/opencode-release/candidate";
+import { opencodeEngineIdentity, verifyOpencodeForExecution, type VerifiedOpencodeCandidate } from "@legalwork/opencode-release/candidate";
 import { prepareManagedOpencodeService, type ManagedOpencodeServiceOptions } from "./managed-opencode-service.js";
 
 export type ManagedOpencodeServer = {
@@ -294,10 +294,10 @@ export async function createManagedOpencodeServer(options: {
   const password = randomSecret();
   const env: Record<string, string | undefined> = { ...process.env, ...options.env };
   const command = await resolveEngineExecutable(options.bin?.trim() || "opencode", options.cwd, env);
-  await expectedOpencodeVersion(command, options.candidateBuild);
+  const identity = await opencodeEngineIdentity(command, options.candidateBuild);
   if (options.service && options.parentLease) throw new Error("A managed engine cannot combine native service and stdin lease modes.");
   const serviceEnv = options.service ? await prepareManagedOpencodeService({ ...options.service,
-    filename: await expectedOpencodeServiceFilename(command, options.candidateBuild),
+    filename: identity.serviceFilename,
     executablePath: command,
   }, password) : {};
   await options.beforeSpawn?.();
@@ -334,7 +334,8 @@ export async function createManagedOpencodeServer(options: {
     const port = options.port ?? (await findFreePort(hostname, options.excludedPorts));
     const args = ["serve", ...(options.service ? ["--service"] : options.parentLease ? ["--stdio"] : []), "--hostname", hostname, "--port", String(port), "--cors", "*"];
     if (options.logLevel) args.push("--log-level", options.logLevel);
-    const expectedVersion = await expectedOpencodeVersion(command, options.candidateBuild);
+    const expectedVersion = await verifyOpencodeForExecution(command, options.candidateBuild);
+    options.signal?.throwIfAborted();
     const child: ChildProcess = spawn(command, args, {
       cwd: options.cwd,
       env,

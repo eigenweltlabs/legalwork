@@ -68,6 +68,29 @@ test("Windows never adds a second native menu row, including when visibility is 
   assert.deepEqual(mac.visibility, []);
 });
 
+test("numbered tab accelerators route to the invoking window on every platform", async () => {
+  for (const platform of ["darwin", "win32", "linux"]) {
+    const f = fixture(platform);
+    const sent = [];
+    const target = { isDestroyed: () => false, webContents: { send: (...args) => sent.push(args) } };
+    const view = f.getInstalled().items.find(item => item.label === "View");
+    const select = view.submenu.items.find(item => item.label === "Select Tab");
+    assert.equal(select.submenu.length, 9);
+    for (let number = 1; number <= 9; number++) {
+      const item = select.submenu[number - 1];
+      assert.equal(item.accelerator, `CommandOrControl+${number}`);
+      assert.equal(item.label, number === 9 ? "Last Tab" : `Tab ${number}`);
+      item.click(null, target);
+      await Promise.resolve();
+      assert.deepEqual(sent.at(-1), ["legalwork:native-menu:select-tab", number]);
+    }
+    assert.deepEqual(f.messages, []);
+    select.submenu[0].click(null, { isDestroyed: () => true });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(f.messages, [["legalwork:native-menu:select-tab", 1]]);
+  }
+});
+
 test("menu popups reject invalid names, geometry, destroyed windows and other platforms", () => {
   const f = fixture("win32");
   assert.equal(f.menu.popup(f.window, "Unknown", { x: 0, y: 44 }), false);

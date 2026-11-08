@@ -9,7 +9,7 @@ Use this map when you know what you want to do but not where to start. The assis
 | Welcome | First-run account, folder, audio and integration setup | [Getting started](getting-started.md) |
 | Save logins for the in-app browser | Save your own logins for legal research websites so you and your agent can use them | [Research databases](integrations.md#research-databases) |
 | Home / New Chat | Start an assistant conversation, attach inputs and choose a model | [Chats](workspaces-chats.md) |
-| Chat and document tabs | Continue work, respond to approvals, inspect files and use the terminal | [Chats](workspaces-chats.md), [Files](files-documents.md) |
+| Chat and document tabs, View > Select Tab | Continue work, switch tabs with Cmd/Ctrl+1–9, respond to approvals, inspect files and use the terminal | [Chats](workspaces-chats.md), [Files](files-documents.md) |
 | Message queue above the composer | Edit or reorder pending messages; use Steer to send one at the next step without stopping the current work | [Steer with a queued message](workspaces-chats.md#steer-with-a-queued-message) |
 | Sign-in details needed card | Save a missing website login directly in chat and let the browser task continue | [Browser passwords](settings-privacy.md#browser-passwords) |
 | Manage saved login | Edit an existing account and use Add URL to manage its starting pages and sign-in websites | [Saved login URLs](integrations.md#add-urls-to-an-existing-login) |
@@ -44,6 +44,7 @@ Opening a project or changing a filter can reveal items hidden in an aggregate l
 | Recorder: Meetings | How do meeting detection, Meeting Summarisation, mini-bar visibility and screen-share visibility work? | [Recorder settings](recorder-settings.md) |
 | Office Add-ins | How do I install and connect the Office sidebars? | [Office Add-ins](office-addins.md) |
 | Integrations: category catalogue and connector details | How do I connect an external service, sign in directly with Microsoft or manage an OAuth app override? | [Integrations](integrations.md), [Email](email.md) |
+| Integrations: Austrian RIS | How do I enable Austrian legal research, test access or disable local API tools? | [Austrian RIS](integrations.md#austrian-ris) |
 | Integrations: Files & storage | Where are cloud drives and network shares configured? | [Storage](connected-storage.md) |
 | Workflows: Skills | How do I install, inspect or share reusable instructions? | [Workflows](skills-workflows.md), [Integrations](integrations.md) |
 | Personalisation | Where do writing instructions, tone and legacy memory controls live? | [Settings](settings-privacy.md) |
