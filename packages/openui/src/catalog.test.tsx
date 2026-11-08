@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { createParser, createStreamingParser } from "@openuidev/react-lang";
 import { renderToStaticMarkup } from "react-dom/server";
+import { dashboardComponentSchemas, dashboardProgramErrors } from "./validation";
 import { OPENUI_CATALOG } from "./catalog";
 import { OpenUIView, openUILibrary } from "./runtime";
 
@@ -95,4 +96,35 @@ test("imported rows with unavailable sources render their values without mislead
     expect(render(false)).not.toContain('class="lw-view-source"');
     expect(render(true)).toContain('class="lw-view-source"');
   }
+});
+
+test("dashboard authoring validates single children while older previews still render their chart and table", () => {
+  const chart = 'BarChart([{area:"Commercial",amount:1234}],"area",["amount"])';
+  const table = 'Table([{client:"Example LLP"}],[{field:"client",label:"Client"}])';
+  const program = (single: boolean) => {
+    const child = (source: string) => single ? source : `[${source}]`;
+    return `root = Stack([Card("Revenue", ${child(chart)}), Card("Invoices", ${child(table)})], 2)`;
+  };
+  const issues = dashboardProgramErrors(program(true), []);
+  expect(issues.map(issue => issue.message)).toEqual([
+    'field "/children" expects array but got component "BarChart"',
+    'field "/children" expects array but got component "Table"',
+  ]);
+  expect(issues.every(issue => issue.component === "Card" && issue.hint?.includes("square brackets"))).toBe(true);
+  expect(dashboardProgramErrors(program(false), [])).toEqual([]);
+  expect(createParser(openUILibrary.toJSONSchema()).parse(program(true)).meta.errors).toEqual([]);
+  const html = renderToStaticMarkup(<OpenUIView program={program(true)} />);
+  expect(html).toContain('data-chart="bar"');
+  expect(html).toContain("Example LLP");
+});
+
+test("dashboard component discovery describes positional arguments and validation checks named datasets", () => {
+  expect(Object.keys(dashboardComponentSchemas("Card"))).toEqual(["Card"]);
+  expect(dashboardComponentSchemas("Card").Card).toMatchObject({
+    parameterOrder: ["title", "children", "subtitle"], required: ["title", "children"],
+    properties: { children: { type: "array" } },
+  });
+  const program = 'rows = Query("data",{name:"uploaded"})\nroot = Table(rows.rows, [{field:"client",label:"Client"}])';
+  expect(dashboardProgramErrors(program, ["uploaded"])).toEqual([]);
+  expect(dashboardProgramErrors(program, [])[0]).toMatchObject({ statementId: "rows", message: expect.stringContaining("uploaded") });
 });

@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { createContext, useContext, useEffect, useId, useMemo, useRef, useState, type ComponentProps, type ReactNode } from "react";
 import { createLibrary, defineComponent, Renderer, useIsQueryLoading } from "@openuidev/react-lang";
 import { Card } from "@openuidev/react-ui/Card";
@@ -203,15 +204,20 @@ function RowsReady({ rows, children }: { rows: Row[] | null | undefined; childre
   return <p className="lw-view-board-error" role="alert">This view's data is unavailable. Check the dataset name and rows binding.</p>;
 }
 
+// Older chat previews and saved files sometimes passed one component directly.
+const readableChildren = z.union([schemas.Stack.shape.children, z.object({ type: z.literal("element"), typeName: z.string() }).passthrough()]);
+function childList(value: unknown) {
+  return Array.isArray(value) ? value : value == null ? [] : [value];
+}
 export const openUILibrary = createLibrary({ id: "legalwork-1", components: [
-  defineComponent({ name: "Stack", props: schemas.Stack, description: "Responsive layout", component: ({ props, renderNode }) => {
+  defineComponent({ name: "Stack", props: schemas.Stack.extend({ children: readableChildren }), description: "Responsive layout", component: ({ props, renderNode }) => {
     const columns = typeof props.columns === "object" ? props.columns?.columns : props.columns;
     const count = Math.min(4, Math.max(1, Math.round(columns ?? 1)));
     return <div className="lw-view-stack" data-columns={count} style={{ gridTemplateColumns: `repeat(${count}, minmax(0, 1fr))` }}>
-      {props.children.map((child, i) => <div className="lw-view-stack-item" key={i}>{renderNode(child)}</div>)}
+      {childList(props.children).map((child, i) => <div className="lw-view-stack-item" key={i}>{renderNode(child)}</div>)}
     </div>;
   } }),
-  defineComponent({ name: "Card", props: schemas.Card, description: "Titled card", component: ({ props, renderNode }) => <Card width="full" className="lw-view-card"><CardHeader title={props.title} subtitle={props.subtitle} /><div className="lw-view-card-body">{props.children.map((child, i) => <div key={i}>{renderNode(child)}</div>)}</div></Card> }),
+  defineComponent({ name: "Card", props: schemas.Card.extend({ children: readableChildren }), description: "Titled card", component: ({ props, renderNode }) => <Card width="full" className="lw-view-card"><CardHeader title={props.title} subtitle={props.subtitle} /><div className="lw-view-card-body">{childList(props.children).map((child, i) => <div key={i}>{renderNode(child)}</div>)}</div></Card> }),
   defineComponent({ name: "Heading", props: schemas.Heading, description: "Section heading", component: ({ props }) => props.level === 1 ? <h1 className="lw-view-title">{props.text}</h1> : <h2 className="lw-view-heading">{props.text}</h2> }),
   defineComponent({ name: "Text", props: schemas.Text, description: "Plain prose", component: ({ props }) => <TextContent variant="clear"><p className="lw-view-prose">{props.text}</p></TextContent> }),
   defineComponent({ name: "Metric", props: schemas.Metric, description: "Metric with context", component: ({ props }) => <MetricCard {...props} /> }),

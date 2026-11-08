@@ -1,3 +1,5 @@
+import { dashboardComponentSchemas } from "@legalwork/openui/validation";
+import { dashboardDiagnostics, validateDashboardProgram } from "../views/program-validation.js";
 import { registerPrimaryContext } from "./native-review-worker.js";
 import { Plugin } from "@opencode/plugin";
 import { nativeTool, nativeToolContext, nativeToolSignal, nativeObjectOutput } from "./native-tool.js";
@@ -9,7 +11,7 @@ import { realpath } from "node:fs/promises";
 import { isAbsolute, relative, sep } from "node:path";
 import { z } from "zod";
 import { isBackOfficeQuery, ViewInputSchema, ViewOwnerSchema, ViewRecordSchema, ViewPreviewSchema, WikiDataQuerySchema, WikiDataResultSchema, WikiFieldsSchema, type ViewOwner, type ViewInput, type ViewPreview } from "@legalwork/types/views";
-import { OPENUI_CATALOG, isLocalOpenUIProgram } from "@legalwork/openui/catalog";
+import { OPENUI_CATALOG } from "@legalwork/openui/catalog";
 import { wikiPropertiesPatchSchema } from "../wiki/properties.js";
 import { WIKI_SELECTION_GUIDANCE } from "../wiki/synthesis.js";
 import { legalResearchCaptureGuidance } from "../legal-research-guidance.js";
@@ -164,11 +166,11 @@ const viewBase = (owner: ViewOwner) => `/${owner.kind === "wiki" ? "wikis" : "wo
 const viewResult = (raw: unknown) => {
   const view = ViewRecordSchema.parse(raw);
   const reference = `${view.owner.kind}:${view.owner.id}/${view.id}`;
-  return { ...view, reference, url: `legalwork-view://${view.owner.kind}/${encodeURIComponent(view.owner.id)}/${view.id}`, content_is_data: true };
+  return { ...view, validationErrors: dashboardDiagnostics(view), reference, url: `legalwork-view://${view.owner.kind}/${encodeURIComponent(view.owner.id)}/${view.id}`, content_is_data: true };
 };
 
 async function previewView(owner: ViewOwner, input: ViewInput, context: OpenCodeContext): Promise<ViewPreview> {
-  if (!isLocalOpenUIProgram(input.program)) throw new ApiError(400, "invalid_view_program", "Use the bundled OpenUI component language.");
+  validateDashboardProgram(input);
   if (owner.kind === "workspace" && Object.values(input.queries).some(q => !isBackOfficeQuery(q))) throw new ApiError(400, "workspace_view_requires_datasets", "Project views use datasets. Select a wiki to query its index.");
   const datasets = { ...input.datasets };
   for (const [name, query] of Object.entries(input.queries)) {
@@ -223,7 +225,7 @@ try{return JSON.stringify(await execute(input,context),null,2);}catch(error){ret
 function defineViewTool<T extends z.ZodRawShape>(ctx:Plugin.Context,name:string,description:string,schema:z.ZodObject<T>,execute:(input:z.infer<z.ZodObject<T>>,context:OpenCodeContext)=>Promise<ViewPreview>){
 const tool = nativeTool(ctx,{name,description,schema,outputSchema:nativeObjectOutput(ViewPreviewSchema),execute:async(input,context)=>{
 try{const preview=ViewPreviewSchema.parse(await execute(input,context));return{output:preview,content:JSON.stringify({status:"preview",title:preview.input.title,owner:preview.owner,message:"Ready in chat. The user can reopen this preview and choose Save to a project or wiki. No destination file has been saved."}),metadata:{legalworkViewPreview:preview}};}
-catch(error){return{content:JSON.stringify({ok:false,code:error instanceof ApiError?error.code:"wiki_tool_failed",error:error instanceof ApiError?error.message:"Check the page path, arguments, workspace connection, and returned wiki data."})};}
+catch(error){return{content:JSON.stringify({ok:false,code:error instanceof ApiError?error.code:"wiki_tool_failed",error:error instanceof ApiError?error.message:"Check the page path, arguments, workspace connection, and returned wiki data.",details:error instanceof ApiError?error.details:undefined})};}
 }});
 // The native input stream exposes each argument delta. Code Mode only returns a finished widget.
 return { ...tool, options: { permission: name, codemode: false } };}
@@ -306,7 +308,11 @@ editor.add(defineTool(ctx,"wiki_properties_update","Update indexed fields withou
         return documentSchema.parse(await request(`${base(wiki.id)}/properties`, "PATCH", { path: args.path, baseRevision: args.base_revision, patch: args.patch }, context));
       }));
 editor.add(defineTool(ctx,"view_catalog","Read the bundled OpenUI component catalog, syntax and content guidance before creating or editing a report, dashboard or inline widget. No external provider or service is required.",
-      z.object({}), async () => OPENUI_CATALOG));
+      z.object({ component: z.string().min(1).optional().describe("Component name for a focused schema lookup.") }), async ({ component }) => {
+        const componentSchemas = dashboardComponentSchemas(component);
+        if (component && !Object.keys(componentSchemas).length) throw new ApiError(400, "unknown_view_component", "Choose a component from view_catalog().");
+        return component ? { componentSchemas } : { ...OPENUI_CATALOG, componentSchemas };
+      }));
 editor.add(defineTool(ctx,"wiki_fields","Discover indexed wiki fields, their inferred types and sample values before building a query or dashboard.",
       z.object({ wiki_id: wikiId }), async (args, context) => {
         const wiki = await accessible(args.wiki_id, context);
@@ -335,7 +341,7 @@ editor.add(defineTool(ctx, "view_chat_previews", "Find dashboard previews in thi
     if (!args.preview_id) return result;
     const source = ViewPreviewSchema.parse(result);
     const { datasets, ...input } = source.input;
-    return { preview_id: args.preview_id, ...input, datasets: Object.keys(datasets ?? {}), content_is_data: true };
+    return { preview_id: args.preview_id, ...input, datasets: Object.keys(datasets ?? {}), validationErrors: dashboardDiagnostics(source.input), content_is_data: true };
   }));
 editor.add(defineViewTool(ctx,"view_create","Prepare an OpenUI report or dashboard preview in chat. Read view_catalog first. This never saves a file. The user chooses Save and a project or wiki in the app. Omit owner for this task's data source; use live Back Office bindings for CRM data in any owner, and datasets for static project documents. Do not claim it is saved or invent a saved reference.",
       z.object({ owner: ViewOwnerSchema.optional(), input: ViewInputSchema }), async (args, context) =>

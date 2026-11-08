@@ -179,7 +179,27 @@ test("chat preview edits use the stored transcript, retain bindings and enforce 
   expect(runtime.tools.get("view_update")?.options?.codemode).toBe(false);
   expect(JSON.parse(await tool.view_chat_previews.execute({})).previews).toEqual([{ preview_id: "call1", title: preview.input.title }]);
   expect(JSON.parse(await tool.view_chat_previews.execute({ preview_id: "call1" })).datasets).toEqual(["existing"]);
-  const program = 'root = Text("Revised")';
+  const context = { sessionID: "chat", system: [] };
+  await runtime.hook("session", "context", context);
+  const instructions = z.array(z.object({ text: z.string() })).parse(context.system).map(part => part.text).join("\n");
+  expect(instructions).toContain("view_catalog");
+  expect(instructions).not.toMatch(/parameterOrder|componentSchemas|square brackets|Card\(title/);
+  const catalog = JSON.parse(await tool.view_catalog.execute({ component: "Card" }));
+  expect(Object.keys(catalog.componentSchemas)).toEqual(["Card"]);
+  expect(catalog.componentSchemas.Card.parameterOrder).toEqual(["title", "children", "subtitle"]);
+  const invalid = 'root = Card("Latest", Table([], []))';
+  const failure = { ok: false, code: "invalid_view_program", details: {
+    issueCount: 1, issues: [{ component: "Card", path: "/children", hint: expect.stringContaining("square brackets") }],
+  } };
+  const create = await tool.view_create.executeResult({ input: { ...preview.input, program: invalid } });
+  expect(create.output).toMatchObject(failure);
+  expect(create.metadata).not.toHaveProperty("legalworkViewPreview");
+  const rejected = await tool.view_update.executeResult({ preview_id: "call1", program: invalid });
+  expect(rejected.output).toMatchObject(failure);
+  expect(JSON.parse(await tool.view_chat_previews.execute({ preview_id: "call1" })).program).toBe(preview.input.program);
+  preview.input.program = invalid;
+  expect(JSON.parse(await tool.view_chat_previews.execute({ preview_id: "call1" })).validationErrors).toMatchObject(failure.details);
+  const program = 'root = Card("Latest", [Table([], [])])';
   const result = await tool.view_update.executeResult({ preview_id: "call1", program });
   const revision = ViewPreviewSchema.parse(result.output);
   expect(revision).toEqual({ ...preview, input: { ...preview.input, program }, replacesCallId: "call1" });

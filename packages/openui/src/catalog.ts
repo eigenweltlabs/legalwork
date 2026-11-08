@@ -32,8 +32,8 @@ export const schemas = {
 export const OPENUI_CATALOG = {
   id: "legalwork-1",
   components: {
-    Stack: "Stack(children, columns=1): responsive grid of 1 to 4 columns. Set the second argument to the number of columns for this group of children",
-    Card: "Card(title, children, subtitle?): stock OpenUI card",
+    Stack: "Stack([children], columns=1): responsive grid of 1 to 4 columns. Set the second argument to the number of columns for this group of children",
+    Card: "Card(title, [children], subtitle?): put even a single chart or table in the children array",
     Heading: "Heading(text, level=2)",
     Text: "Text(text): plain text, no HTML",
     Metric: "Metric(label, value, detail?, currency?): grouped number or ISO currency amount in major units",

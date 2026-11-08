@@ -6,13 +6,15 @@
   "exports": {
     ".": "./src/index.ts",
     "./catalog": "./src/catalog.ts",
-    "./styles.css": "./src/styles.css"
+    "./styles.css": "./src/styles.css",
+    "./validation": "./src/validation.ts"
   },
   "devDependencies": {
     "@types/react": "^19.2.2",
     "@types/react-dom": "^19.2.2"
   },
   "dependencies": {
+    "@openuidev/lang-core": "0.4.1",
     "@openuidev/react-lang": "0.4.1",
     "@openuidev/react-ui": "0.17.1",
     "@openuidev/react-headless": "0.17.1",

@@ -1,3 +1,4 @@
+import { validateDashboardProgram } from "./program-validation.js";
 import { createHash, randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import { lstat, mkdir, open, readdir, realpath, rename, rm, writeFile } from "node:fs/promises";
@@ -84,7 +85,7 @@ export class ViewRepository {
   private validate(input: ViewInput) {
     const parsed = ViewInputSchema.safeParse(input);
     if (!parsed.success) throw new ApiError(400, "invalid_view", "Check the view title, program and data bindings.");
-    if (!isLocalOpenUIProgram(parsed.data.program)) throw new ApiError(400, "invalid_view_program", "Use the bundled OpenUI component language without scripts or hosted response bundles.");
+    validateDashboardProgram(parsed.data);
     if (this.owner.kind === "workspace" && Object.values(input.queries).some(q => !isBackOfficeQuery(q))) throw new ApiError(400, "workspace_view_requires_datasets", "Project reports and dashboards use named datasets from their sources. Live indexed wiki queries belong to the wiki.");
     if (input.mode === "report" && Object.keys(input.queries).some(name => !input.datasets?.[name])) throw new ApiError(400, "report_snapshot_missing", "Frozen reports must retain their query datasets.");
     return storedViewInput(parsed.data);
