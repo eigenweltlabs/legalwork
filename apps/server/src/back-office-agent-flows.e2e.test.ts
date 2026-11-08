@@ -58,7 +58,7 @@ test("Assistant and ordinary chats discover CRM models, create/reuse records and
     expect(directorySchema.parse(JSON.parse(await crm.tool.legalwork_back_office_discover.execute({}))).model.objects.some(object => object.id === "engagements")).toBe(true);
     const save = async (objectId: string, values: Record<string, unknown>) => z.object({ record: BackOfficeRecordSchema }).parse(JSON.parse(await crm.tool.legalwork_back_office_save.execute({ objectId, revision: 0, values }))).record;
     const organisation = await save("companies", { name: "Northbridge Foundation", organisationType: "Association / nonprofit", registrationNumber: "CRM-8842" });
-    const client = await save("clients", { name: "Northbridge client", clientType: "Organisation", company: organisation.id, clientNumber: "NB-44" });
+    const client = await save("clients", { name: "Northbridge client", company: organisation.id, clientNumber: "NB-44" });
     const matter = await save("matters", { name: "Acquisition work", fileNumber: "MAT-771", clients: [client.id] });
     const partner = await save("people", { name: "Alice", personType: "Partner" });
     const external = await save("people", { name: "Outside contact", personType: "External contact" });

@@ -88,7 +88,6 @@ const defaults: Record<string, string[]> = {
   clients: [
     "name",
     "clientNumber",
-    "clientType",
     "company",
     "person",
     "billingEmail",

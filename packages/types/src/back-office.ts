@@ -2,7 +2,7 @@ import { z } from "zod";
 export { z } from "zod";
 
 export const BACK_OFFICE_PROTOCOL = 1;
-export const BACK_OFFICE_TEMPLATE = 6;
+export const BACK_OFFICE_TEMPLATE = 7;
 export const DEFAULT_INTERNAL_PERSON_TYPES = ["Partner", "Counsel", "Associate", "Assistant", "Operations", "Freelancer", "Other team member"];
 const identifier = z
   .string()
@@ -269,7 +269,6 @@ export function defaultBackOfficeModel(): BackOfficeModel {
       ]),
       object("clients", "Client", "Clients", "clients", [
         field("clientNumber", "Client number"),
-        selection("clientType", "Client type", ["Organisation", "Individual"]),
         relation("company", "Organisation", "companies"),
         relation("person", "Person", "people"),
         field("billingAddress", "Billing address"),
@@ -664,12 +663,10 @@ export function upgradeBackOfficeModel(
       } : {}),
       fields: [
         ...object.fields.filter(
-          (field) => !(field.protected && field.id === "actaportId"),
+          (field) => !(field.protected && (field.id === "actaportId" || object.id === "clients" && field.id === "clientType" && baseline.templateVersion >= 7)),
         ).map(field => !organisationUpgrade ? field : {
           ...field,
           ...(field.id === "company" && field.target === "companies" && field.label === "Company" ? { label: "Organisation" } : {}),
-          ...(object.id === "clients" && field.id === "clientType" && JSON.stringify(field.options) === JSON.stringify(["Company", "Individual"])
-            ? { options: ["Organisation", "Individual"] } : {}),
         }),
         ...core.fields.filter(
           (field) =>
@@ -692,9 +689,8 @@ export function upgradeBackOfficeModel(
 }
 
 // Stable object/field IDs preserve existing record relations, project references and signed history.
-function replacesCompanyClientType(current: BackOfficeModel, next: BackOfficeModel) {
-  const options = next.objects.find(object => object.id === "clients")?.fields.find(field => field.id === "clientType")?.options;
-  return current.templateVersion < 5 && next.templateVersion >= 5 && Boolean(options?.includes("Organisation") && !options.includes("Company"));
+function removesClientType(current: BackOfficeModel, next: BackOfficeModel) {
+  return current.templateVersion < 7 && next.templateVersion >= 7 && !next.objects.find(object => object.id === "clients")?.fields.some(field => field.id === "clientType");
 }
 export function defaultBackOfficeValues(object: BackOfficeObject): Record<string, BackOfficeValue> {
   if (object.id !== "people") return {};
@@ -704,12 +700,18 @@ export function defaultBackOfficeValues(object: BackOfficeObject): Record<string
 export function upgradeBackOfficeRecord(current: BackOfficeModel, next: BackOfficeModel, record: BackOfficeRecord, now = new Date().toISOString()): BackOfficeRecord {
   if (current.templateVersion < 6 && next.templateVersion >= 6 && record.objectId === "people" && record.values.active === undefined)
     return { ...record, values: { ...record.values, active: true }, revision: record.revision + 1, schemaRevision: next.revision, updatedAt: now };
-  return replacesCompanyClientType(current, next) && record.objectId === "clients" && record.values.clientType === "Company"
-    ? { ...record, values: { ...record.values, clientType: "Organisation" }, revision: record.revision + 1, schemaRevision: next.revision, updatedAt: now } : record;
+  return removesClientType(current, next) && record.objectId === "clients" && "clientType" in record.values
+    ? { ...record, values: Object.fromEntries(Object.entries(record.values).filter(([id]) => id !== "clientType")), revision: record.revision + 1, schemaRevision: next.revision, updatedAt: now } : record;
 }
 export function upgradeBackOfficeView(current: BackOfficeModel, next: BackOfficeModel, view: BackOfficeView): BackOfficeView {
-  return replacesCompanyClientType(current, next) && view.objectId === "clients" && view.filters.clientType === "Company"
-    ? { ...view, filters: { ...view.filters, clientType: "Organisation" } } : view;
+  if (!removesClientType(current, next) || view.objectId !== "clients" || !(view.columns.includes("clientType") || "clientType" in view.filters || "clientType" in view.widths || view.sortField === "clientType" || view.groupField === "clientType" || view.dateField === "clientType")) return view;
+  return { ...view, columns: view.columns.filter(id => id !== "clientType"),
+    filters: Object.fromEntries(Object.entries(view.filters).filter(([id]) => id !== "clientType")),
+    widths: Object.fromEntries(Object.entries(view.widths).filter(([id]) => id !== "clientType")),
+    sortField: view.sortField === "clientType" ? "name" : view.sortField,
+    groupField: view.groupField === "clientType" ? null : view.groupField,
+    dateField: view.dateField === "clientType" ? null : view.dateField,
+    type: view.type === "kanban" && view.groupField === "clientType" ? "table" : view.type };
 }
 
 /** Resolve an already permission-filtered directory without granting project access. */

@@ -80,10 +80,14 @@ export function CellEditor({
   };
   const options =
     field.type === "relation"
-      ? [...new Map([...records, ...created].map(record => [record.id, record])).values()]
+      ? [...new Map([...created, ...records].map(record => [record.id, record])).values()]
           .filter(
             (record) => record.objectId === field.target && !record.archivedAt,
           )
+          .sort((a, b) => {
+            const left = selected.indexOf(a.id), right = selected.indexOf(b.id);
+            return (left < 0 ? selected.length : left) - (right < 0 ? selected.length : right);
+          })
           .map((record) => ({
             id: record.id,
             label: String(record.values.name ?? ""),
@@ -95,10 +99,10 @@ export function CellEditor({
     field.type === "select" ||
     (field.type === "multiselect" && field.options.length > 0);
   if (creating && target) return <RecordCreateForm object={displayBackOfficeObject(target)} name={query.trim()} filters={creationFilters} onCancel={() => setCreating(false)} onCreated={async record => {
-    setCreated(current => [...current, record]);
+    setCreated(current => [record, ...current]);
     setQuery(""); setCreating(false);
-    if (multiple) setSelected(current => [...new Set([...current, record.id])]);
-    else await save(record.id, true);
+    if (multiple) setSelected(current => [record.id, ...current.filter(id => id !== record.id)]);
+    else { setSelected([record.id]); await save(record.id, true); }
   }} />;
   if (field.type === "file")
     return (

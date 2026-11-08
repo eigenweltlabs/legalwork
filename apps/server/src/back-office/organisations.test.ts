@@ -13,6 +13,7 @@ function legacyModel() {
       object.label = "Company"; object.plural = "Companies"; object.icon = "company";
       object.fields = object.fields.filter(field => field.id !== "organisationType");
     }
+    if (object.id === "clients") object.fields.push({ ...object.fields[0], id: "clientType", label: "Client type", type: "select", required: false, options: ["Company", "Individual"] });
     for (const field of object.fields) {
       if (field.id === "company" && field.target === "companies") field.label = "Company";
       if (object.id === "clients" && field.id === "clientType") field.options = ["Company", "Individual"];
@@ -33,7 +34,7 @@ test("the starter covers courts, authorities and firms as organisations while pr
   expect(old.objects.find(object => object.id === "companies")?.label).toBe("Company");
 });
 
-test("a stored preview upgrades client classification and view filters atomically without breaking organisation links", async () => {
+test("a stored preview removes redundant client classification atomically without breaking organisation links", async () => {
   const store = new BackOfficeStore(await openSqlite(":memory:")); stores.push(store);
   const model = legacyModel(), now = "2026-11-07T12:00:00Z";
   const organisation = BackOfficeRecordSchema.parse({ id: crypto.randomUUID(), objectId: "companies", values: { name: "District Court" }, revision: 1, schemaRevision: 1, ownerId: "owner", createdAt: now, updatedAt: now, archivedAt: null });
@@ -44,11 +45,13 @@ test("a stored preview upgrades client classification and view filters atomicall
     for (const record of [organisation, client]) store.db.run("INSERT INTO bo_records VALUES(?,?,?,?)", ["local", record.id, record.objectId, JSON.stringify(record)]);
     store.db.run("INSERT INTO bo_views VALUES(?,?,?)", ["local", view.id, JSON.stringify(view)]);
   }, { action: "fixture.preview-v4" });
-  expect(store.model("local").templateVersion).toBe(6);
+  expect(store.model("local").templateVersion).toBe(7);
   const actor = { userId: "owner", edit: true, model: true, finance: true };
-  expect(store.records("local", actor).find(record => record.id === client.id)).toMatchObject({ revision: 2, values: { clientType: "Organisation", company: organisation.id } });
+  expect(store.records("local", actor).find(record => record.id === client.id)).toMatchObject({ revision: 2, values: { company: organisation.id } });
+  expect(store.records("local", actor).find(record => record.id === client.id)?.values.clientType).toBeUndefined();
   expect(store.records("local", actor).find(record => record.id === organisation.id)?.revision).toBe(1);
-  expect(store.views("local")[0].filters).toEqual({ clientType: "Organisation" });
+  expect(store.views("local")[0].filters).toEqual({});
+  expect(store.views("local")[0].columns).toEqual(["name"]);
   expect(store.model("local").revision).toBe(2);
   expect(store.records("local", actor).find(record => record.id === client.id)?.revision).toBe(2);
 });

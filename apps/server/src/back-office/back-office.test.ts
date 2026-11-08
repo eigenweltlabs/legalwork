@@ -640,7 +640,7 @@ test("preview template migration removes provider fields while preserving import
     ]);
   });
   const upgraded = store.model("local");
-  expect(upgraded.templateVersion).toBe(6);
+  expect(upgraded.templateVersion).toBe(7);
   expect(
     upgraded.objects
       .flatMap((object) => object.fields)

@@ -177,15 +177,15 @@ function ProjectFilterEditor({ field, initial, onApply }: { field: ProjectFilter
   const [search, setSearch] = useState("");
   const draft: ProjectFilter = { id: initial?.id ?? "draft", field: { key: field.key, label: field.label, type: field.type }, operator, values };
   const needsValue = filterNeedsValue(operator);
-  const knownOptions = [...field.options, ...createdOptions.filter(option => !field.options.some(previous => previous.value === option.value))];
+  const knownOptions = [...createdOptions, ...field.options.filter(option => !createdOptions.some(created => created.value === option.value))];
   const options = [...knownOptions, ...values.filter(value => value && !knownOptions.some(option => option.value === value)).map(value => ({ value, label: field.type === "backoffice" ? t("projects.reference.unavailable") : value, count: 0 }))];
   const visibleOptions = options.filter(option => (option.label ?? option.value).toLocaleLowerCase().includes(search.toLocaleLowerCase()));
   const suggestions = field.type === "text" ? field.options.filter(option => option.value.toLocaleLowerCase().includes((values[0] ?? "").toLocaleLowerCase())).slice(0, 6) : [];
   const valid = validProjectFilter(draft);
   if (creating && target && creation) return <BackOfficeTheme><RecordCreateForm object={displayBackOfficeObject(target)} name={search} onCancel={() => setCreating(false)} onCreated={async record => {
     const value = projectReferenceFilterValue(creation.state.directoryId!, record.id);
-    setCreatedOptions(current => [...current, { value, label: String(record.values.name), count: 0 }]);
-    setValues(current => [...new Set([...current, value])]); setSearch(""); setCreating(false);
+    setCreatedOptions(current => [{ value, label: String(record.values.name), count: 0 }, ...current]);
+    setValues(current => [value, ...current.filter(previous => previous !== value)]); setSearch(""); setCreating(false);
   }} /></BackOfficeTheme>;
   return <form className="min-w-0 p-3" onSubmit={event => { event.preventDefault(); event.stopPropagation(); if (valid) onApply({ ...draft, id: initial?.id ?? crypto.randomUUID() }); }}>
     <Select value={operator} onValueChange={value => {

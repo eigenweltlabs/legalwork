@@ -26,7 +26,7 @@ test("the preview upgrade enables Active without assigning a guessed person type
     store.db.run("INSERT INTO bo_models VALUES(?,?)", ["local", JSON.stringify(model)]);
     store.db.run("INSERT INTO bo_records VALUES(?,?,?,?)", ["local", person.id, person.objectId, JSON.stringify(person)]);
   }, { action: "fixture.people-v5" });
-  expect(store.model("local").templateVersion).toBe(6);
+  expect(store.model("local").templateVersion).toBe(7);
   expect(store.records("local", actor)[0]).toMatchObject({ id: person.id, revision: 2, values: { name: "Existing person", email: "person@example.test", active: true } });
   expect(store.records("local", actor)[0].values.personType).toBeUndefined();
   expect(store.model("local").revision).toBe(2);

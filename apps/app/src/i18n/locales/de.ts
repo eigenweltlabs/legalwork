@@ -45,6 +45,7 @@ const de = {
   "back_office.create.select": "Erstellen und auswählen",
   "back_office.create.filters": "Dieser Datensatz muss zu den Auswahlfiltern passen.",
   "projects.reference.type": "Back-Office-Datensatz",
+  "projects.reference.open_record": "{name} öffnen",
   "projects.reference.unavailable": "Datensatz nicht verfügbar",
   "projects.reference.unavailable_object": "Back-Office-Objekt nicht verfügbar",
   "projects.reference.filter_records": "Auswählbare Datensätze filtern",

@@ -35,6 +35,7 @@ export default {
   "back_office.create.select": "Create and select",
   "back_office.create.filters": "This record must match the selection filters.",
   "projects.reference.type": "Back Office record",
+  "projects.reference.open_record": "Open {name}",
   "projects.reference.unavailable": "Unavailable record",
   "projects.reference.unavailable_object": "Unavailable Back Office object",
   "projects.reference.filter_records": "Filter selectable records",
