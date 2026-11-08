@@ -38,7 +38,7 @@ import type { ServerConfig } from "./types.js";
 import { orgPolicyEngineDir } from "./org-policy-engine.js";
 import { createConfiguredManagedEngine, startManagedEngineLifecycle } from "./managed-engine-lifecycle.js";
 import { legacyMcpAuthPath } from "./legacy-mcp-credentials.js";
-import { expectedOpencodeVersion } from "@legalwork/opencode-release/candidate";
+import { opencodeEngineIdentity } from "@legalwork/opencode-release/candidate";
 import { ensureWikiAgentToken } from "./wiki/agent-access.js";
 
 export type EmbeddedServerOptions = CliArgs & {
@@ -95,7 +95,7 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
   const config = await resolveServerConfig(options, { approvalMode: options.defaultApprovalMode });
   config.decryptLegacyConnectorSecrets = options.decryptLegacyConnectorSecrets;
   const managedEngine = options.manageOpencode === true && !config.opencodeBaseUrl;
-  if (managedEngine) await expectedOpencodeVersion(options.opencodeBin?.trim() || "opencode", options.opencodeCandidateBuild);
+  if (managedEngine) await opencodeEngineIdentity(options.opencodeBin?.trim() || "opencode", options.opencodeCandidateBuild);
   config.agentSandboxEnabled = managedEngine && options.managedEngineSandbox !== false;
   config.engineProjectTrustRequired = managedEngine;
   config.engineConfigurationMode = "native-project";
@@ -192,7 +192,7 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
         if (!database) throw new Error("A private managed engine database is required for native restart recovery.");
         process.env.OPENCODE_DB = database;
         const executablePath = await resolveEngineExecutable(options.opencodeBin?.trim() || process.env.LEGALWORK_OPENCODE_BIN?.trim() || "opencode", options.opencodeCwd || process.env.LEGALWORK_MANAGED_OPENCODE_CWD?.trim() || engineHome, process.env);
-        await expectedOpencodeVersion(executablePath, options.opencodeCandidateBuild);
+        await opencodeEngineIdentity(executablePath, options.opencodeCandidateBuild);
         const service = { configDirectory: orgPolicyEngineDir(config), stateDirectory: join(engineHome, "state"), executablePath };
         const catalog = managed.catalog;
         const dependencies = await prepareManagedOpencodeDependencies(config, options.opencodeSdkDirectory);
