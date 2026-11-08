@@ -45,3 +45,11 @@ test("linked sources and destination folders cannot escape either project", asyn
   await expect(copyAssistantFiles(f.source, f.target, ["one.pdf"], async () => {})).rejects.toThrow("inside this workspace");
   expect(await readdir(join(f.root, "outside"))).toEqual([]);
 });
+
+test("a verified absolute engine attachment can be handed off with a separate content root", async () => {
+  const f = await fixture(), documents = join(f.root, "documents"); await mkdir(documents);
+  const file = join(f.source, "one.pdf");
+  const copied = await copyAssistantFiles(f.source, f.target, [file], async () => {}, documents);
+  expect(await readFile(join(f.target, copied[0]!.path))).toEqual(await readFile(file));
+  await expect(copyAssistantFiles(f.source, f.target, [join(f.root, "private.txt")], async () => {}, documents)).rejects.toThrow();
+});

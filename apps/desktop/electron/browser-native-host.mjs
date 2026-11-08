@@ -60,6 +60,10 @@ export function createNativeBrowserHost(options) {
         await authorize(entry.context);
       },
       downloadDirectory: binding => ownerEntry(binding)?.downloadDirectory,
+      fileRoots: binding => {
+        const entry = ownerEntry(binding);
+        return entry && !entry.context.remote ? [entry.engineDirectory, entry.downloadDirectory].filter(Boolean) : [];
+      },
       page: (binding, page) => {
         const entry = ownerEntry(binding);
         if (!entry) throw new Error("The browser page has no owning chat.");
@@ -124,13 +128,13 @@ export function createNativeBrowserHost(options) {
     if (session.agent === "document-extractor" || session.metadata?.legalworkReviewWorker === true) throw new Error("An internal review worker cannot own a browser.");
     const directory = await realpath(session.location.directory);
     const verified = { ...context, directory };
-    const downloadDirectory = await options.resolveDownloadDirectory(verified, owner.webContents.getURL());
-    const engineDirectory = options.resolveEngineDirectory ? await options.resolveEngineDirectory(verified, owner.webContents.getURL()) : downloadDirectory;
+    const engineDirectory = options.resolveEngineDirectory ? await options.resolveEngineDirectory(verified, owner.webContents.getURL()) : await options.resolveDownloadDirectory(verified, owner.webContents.getURL());
     const relative = path.relative(await realpath(engineDirectory), directory);
     if (path.isAbsolute(relative) || relative === ".." || relative.startsWith(`..${path.sep}`)) throw new Error("The browser chat does not belong to its project.");
+    const downloadDirectory = await options.resolveDownloadDirectory(verified, owner.webContents.getURL());
     const server = "legalwork-local-engine";
     endpoints.set(server, { id: server, url: engine.baseUrl, headers, local: true });
-    const entry = { owner, context: verified, downloadDirectory, binding: randomUUID(), closed: false, replaced: false, checking: false, ready: Promise.resolve() };
+    const entry = { owner, context: verified, engineDirectory, downloadDirectory, binding: randomUUID(), closed: false, replaced: false, checking: false, ready: Promise.resolve() };
     entries.set(entryKey, entry);
     entry.ready = getPane().then(pane => pane.register(owner.id, entry.binding, { server, session: context.sessionId }));
     try { await entry.ready; return entry; }

@@ -4692,7 +4692,7 @@ function createRoutes(
     // screens list; the default stays project-scoped for existing callers.
     const scope = body.scope === "global" ? "global" : "project";
     // The firm may allow no new skills of the member's own; existing ones stay editable.
-    const skillPath = await skillPathForScope(workspace.path, scope, name);
+    const skillPath = await skillPathForScope(workspace, scope, name);
     if (!(await exists(skillPath))) {
       await requireOrgPolicyAllows(config, "skills.allowCustom");
     }
@@ -4702,7 +4702,7 @@ function createRoutes(
       summary: `Upsert skill ${name}`,
       paths: [skillPath],
     });
-    const result = await upsertSkill(workspace.path, { name, content, description, scope, lesson: body.lesson });
+    const result = await upsertSkill(workspace, { name, content, description, scope, lesson: body.lesson });
     await recordAudit(workspace.path, {
       id: shortId(),
       workspaceId: workspace.id,
@@ -5928,7 +5928,7 @@ async function importWorkspace(workspace: WorkspaceInfo, payload: Record<string,
     for (const skill of input.skills) {
       const path = workspaceImportRelativePath(workspace, join(projectSkillsDir(workspace.path), skill.name, "SKILL.md"));
       if (!changedPath("skill", path)) continue;
-      await upsertSkill(workspace.path, skill);
+      await upsertSkill(workspace, skill);
     }
     if (input.modes.skills === "replace") {
       for (const change of preview.changes) {

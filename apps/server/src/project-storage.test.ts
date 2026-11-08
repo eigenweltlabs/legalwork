@@ -202,6 +202,15 @@ test("file APIs read and write connected documents and local attachments, includ
   const artifact = (await nativeArtifact.json()).items[0];
   expect(artifact).toMatchObject({ value: join(standard.path, "engine-result.txt"), exists: true });
   expect(await (await fetch(`${standardBase}/files/raw?path=${encodeURIComponent(artifact.value)}`, { headers })).text()).toBe("Native result");
+  const fileSession = await (await fetch(`${standardBase}/files/sessions`, { method: "POST", headers, body: JSON.stringify({ write: true }) })).json();
+  const renamedPath = join(standard.path, "renamed-result.txt");
+  const renamed = await fetch(`http://127.0.0.1:${server.port}/files/sessions/${fileSession.session.id}/ops`, {
+    method: "POST", headers, body: JSON.stringify({ operations: [{ type: "rename", from: artifact.value, to: renamedPath }] }),
+  });
+  expect(renamed.status).toBe(200);
+  expect((await renamed.json()).items[0].ok).toBe(true);
+  expect(await readFile(renamedPath, "utf8")).toBe("Native result");
+  expect(await stat(artifact.value).catch(() => null)).toBeNull();
   for (const [path, content] of [["contract.txt", "Original document"], [".legalwork/attachments/mail.txt", "Retained attachment"]]) {
     const response = await fetch(`${base}/files/content?path=${encodeURIComponent(path!)}`, { headers });
     expect(response.status).toBe(200);

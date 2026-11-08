@@ -9,6 +9,19 @@ import { openBenchmarkStore } from "./benchmarks/store.js";
 import { writeLegalworkRuntimeConfigFile } from "./legalwork-runtime-config.js";
 import type { ServerConfig, WorkspaceInfo } from "./types.js";
 import type { WorkspaceRoots } from "./project-storage-paths.js";
+import { resolveWorkspaceOpencodeConnection } from "./opencode-connection.js";
+import { ApiError } from "./errors.js";
+
+/** Additive native endpoint: an older engine must fail closed, never run move. */
+async function relocateStoppedSession(config: ServerConfig, workspace: WorkspaceInfo, sessionID: string, directory: string) {
+  const connection = resolveWorkspaceOpencodeConnection(config, workspace);
+  if (!connection.baseUrl) throw new ApiError(503, "opencode_unavailable", "The migration engine is unavailable.");
+  const response = await fetch(`${connection.baseUrl.replace(/\/$/, "")}/api/session/${encodeURIComponent(sessionID)}/relocate`, {
+    method: "POST", headers: { "Content-Type": "application/json", ...(connection.authHeader ? { Authorization: connection.authHeader } : {}) },
+    body: JSON.stringify({ directory }), signal: AbortSignal.timeout(30_000), redirect: "error",
+  });
+  if (!response.ok) throw new ApiError(503, "project_storage_relocation_pending", `The engine could not passively relocate this saved chat (${response.status}). Its queued work remains held; migration will retry.`);
+}
 
 export async function projectSessionMovesPending(config: ServerConfig): Promise<boolean> {
   for (const workspace of config.workspaces) if (await localProjectMigrationPending(workspace)) return true;
@@ -17,15 +30,19 @@ export async function projectSessionMovesPending(config: ServerConfig): Promise<
 
 /** Preserve path-scoped grants and denials when their native relative base moves.
  * Search expressions, shell patterns and wildcard-only policies keep their meaning. */
-function movedPermissions(session: SessionInfo, workspace: WorkspaceInfo) {
+function movedPermissions(session: SessionInfo, workspace: WorkspaceRoots) {
   return session.permissions?.map(rule => {
     // A wildcard action also applies to shell commands and search patterns.
     // Keep its resource unchanged; file-only aliases are evaluated by the
     // managed permission hook rather than rewriting the saved generic rule.
     if (!workspace.previousPath || rule.resource === "*" || !["read", "edit", "list", "external_directory"].includes(rule.action)) return rule;
     const path = isAbsolute(rule.resource) ? rule.resource : join(session.location.directory, rule.resource);
-    const suffix = relative(workspace.previousPath, path);
-    const resource = /^(?:\.opencode|\.legalwork)(?:[\\/]|$)/.test(suffix) ? join(workspace.path, suffix) : path;
+    const key = projectPathKey(path);
+    const source = [...new Set([workspace.previousPath, ...workspace.previousPaths ?? []])]
+      .sort((a, b) => b.length - a.length).find(root => key === projectPathKey(root) || key.startsWith(`${projectPathKey(root)}/`));
+    const suffix = source ? relative(source, path) : undefined;
+    const resource = suffix === undefined ? path : join(/^(?:\.opencode|\.legalwork)(?:[\\/]|$)/.test(suffix)
+      ? workspace.path : workspace.contentPath || workspace.previousPath, suffix);
     return { ...rule, resource: resource.split(sep).join("/") };
   });
 }
@@ -102,9 +119,8 @@ async function moveSessions(config: ServerConfig, client: OpenCodeClient): Promi
     }
     for (const { session, from, target } of moving) {
       const current = await client.session.get({ sessionID: session.id });
-      if (await sameProjectDirectory(current.location.directory, from)) await client.session.move({ sessionID: session.id, directory: target, delivery: "steer" });
-      // Native move admits a control item; a fully configured location can
-      // take time to initialize before the projector changes its placement.
+      if (await sameProjectDirectory(current.location.directory, from)) await relocateStoppedSession(config, workspace, session.id, target);
+      // Verify native publication before reconciling any saved application state.
       const deadline = Date.now() + 30_000;
       let moved = await client.session.get({ sessionID: session.id });
       while (!await sameProjectDirectory(moved.location.directory, target) && Date.now() < deadline) {

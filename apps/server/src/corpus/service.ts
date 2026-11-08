@@ -1,8 +1,9 @@
 import { workspaceContentPath } from "../project-storage.js";
+import { resolveWorkspaceFile } from "../project-storage-paths.js";
 import { randomUUID } from "node:crypto";
 import { setMaxListeners } from "node:events";
 import { readdir, realpath, lstat } from "node:fs/promises";
-import { extname, join, relative, resolve } from "node:path";
+import { extname, join, resolve } from "node:path";
 import { ApiError } from "../errors.js";
 import type { WorkspaceInfo } from "../types.js";
 import type { SystemOneRequest, SystemOneResponse, SystemOneSelection } from "../systemone-schema.js";
@@ -21,28 +22,32 @@ export function validateDocumentQuestion(input: CorpusQuery) {
   if (input.kind === "yes_no" && input.options) throw new ApiError(400, "corpus_choices", "Use classification for fixed answer options; yes_no uses Yes and No.");
   if (input.options && new Set(input.options.map(value => value.toLocaleLowerCase())).size !== input.options.length) throw new ApiError(400, "corpus_choices", "Classification options must be unique.");
 }
-export async function discoverCorpus(workspace: string, paths: string[]) {
-  const root = await realpath(workspace), files = new Map<string, boolean>(), visited = new Set<string>();
+export async function discoverCorpus(workspace: string, paths: string[], enginePath = workspace) {
+  const root = resolve(workspace), engine = await realpath(enginePath), files = new Map<string, boolean>(), visited = new Set<string>();
   let skipped = 0;
-  async function visit(input: string, explicit = false) {
-    const requested = resolve(root, input);
-    if (!within(root, requested)) throw new ApiError(403, "corpus_path", "Sources must belong to this project.");
+  async function visit(input: string, explicit = false, scope = { root, alias: root, content: root }) {
+    const requested = resolve(scope.root, input);
+    if (!within(scope.root, requested) && !within(scope.alias, requested)) throw new ApiError(403, "corpus_path", "Sources must belong to this project.");
     const info = await lstat(requested);
     if (info.isSymbolicLink()) { if (explicit) throw new ApiError(400, "corpus_symlink", "Use the actual project file or folder, not a symbolic link."); skipped++; return; }
     const absolute = await realpath(requested);
-    if (!within(root, absolute)) throw new ApiError(403, "corpus_path", "Sources must belong to this project.");
+    if (!within(scope.root, absolute)) throw new ApiError(403, "corpus_path", "Sources must belong to this project.");
     if (visited.has(absolute)) return; visited.add(absolute);
     if (info.isDirectory()) {
       const entries = (await readdir(absolute, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name));
       for (const entry of entries) {
         if (entry.name.startsWith(".") || ["node_modules", "vendor", "__pycache__"].includes(entry.name)) { skipped++; continue; }
-        await visit(join(absolute, entry.name));
+        await visit(join(absolute, entry.name), false, scope);
       }
     } else if (info.isFile()) {
-      files.set(relative(root, absolute).split("\\").join("/"), CORPUS_EXTENSIONS.has(extname(absolute).toLowerCase()));
+      files.set(resolveWorkspaceFile({ path: engine, contentPath: scope.content }, absolute).reference, CORPUS_EXTENSIONS.has(extname(absolute).toLowerCase()));
     } else skipped++;
   }
-  for (const path of paths) await visit(path, true);
+  for (const path of paths) {
+    const location = resolveWorkspaceFile({ path: enginePath, contentPath: root }, path, { allowRoot: true });
+    const canonical = await realpath(location.root);
+    await visit(location.path, true, { root: canonical, alias: resolve(location.root), content: resolve(location.root) === root ? canonical : root });
+  }
   return { files: [...files].map(([path, supported]) => ({ path, supported })), skipped };
 }
 export class CorpusService {
@@ -105,7 +110,7 @@ export class CorpusService {
           question: input.question!, kind: input.kind, options: input.kind === "classification" ? [...new Set([...(input.options ?? []), ...CORPUS_FALLBACKS])] : undefined, selection: { providerId: "", model: "" }, done: Promise.resolve() };
         this.jobs.set(job.id, job);
         try {
-          const sources = await discoverCorpus(workspaceContentPath(workspace), input.paths!);
+          const sources = await discoverCorpus(workspaceContentPath(workspace), input.paths!, workspace.path);
           job.selection = await this.backend.selection(); job.total = sources.files.length; job.skipped = sources.skipped;
           await this.persist(job);
           const current = job;

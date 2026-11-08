@@ -76,7 +76,7 @@ const browserSetProxyArgsSchema = z.object({
 // optional fields with "" or null; both mean no connection/copy, not a retry.
 const inAppDocumentsOpenArgsSchema = z.object({
   userRequested: explicitUiRequest,
-  path: z.string().min(1).max(4096).describe("Required non-empty relative file path in the workspace or connection root (at most 4096 characters)."),
+  path: z.string().min(1).max(4096).describe("A project-relative path or exact absolute project-file address. With connection_id, use a relative path inside that storage root (at most 4096 characters)."),
   connection_id: z.string().max(200).nullish().describe("For connected files, the ID from storage_list_connections (at most 200 characters). For workspace files, omit this field or use null or an empty string."),
   copy_to: z.string().max(4096).nullish().describe("For a new deliverable, copy the source to this new workspace-relative filename (same extension, at most 4096 characters), then open the copy without changing the original. Omit, null or an empty string opens the source without copying."),
   show: z.boolean().nullish().describe("Also open the file beside the chat so the user sees it. Set true only when the user explicitly asks to see or open the file. Omit, null or false prepares the task draft in the background."),
@@ -408,7 +408,7 @@ export function extensionToolDefinitions() {
       },
     },
     inapp_documents_open: {
-      description: "Prepare a file for this task without changing the user's visible workspace or tab, unless show is set. For a new deliverable from a template, supply copy_to to copy it to a new workspace filename and open that copy without changing the template. path is relative to the workspace or connection_id root. Then use inapp_documents_list and matching inapp_* read/edit tools to work on its draft, including in the background. In the main Assistant, require userRequested=true for explicit user requests to show a file. Preserves unsaved drafts and refuses to overwrite an existing copy_to file.",
+      description: "Prepare a file for this task without changing the user's visible workspace or tab, unless show is set. For a new deliverable from a template, supply copy_to to copy it to a new workspace filename and open that copy without changing the template. path accepts a project-relative or exact absolute project-file address; with connection_id it must be relative to that connection root. Then use inapp_documents_list and matching inapp_* read/edit tools to work on its draft, including in the background. In the main Assistant, require userRequested=true for explicit user requests to show a file. Preserves unsaved drafts and refuses to overwrite an existing copy_to file.",
       args: inAppDocumentsOpenArgsSchema.shape,
       async execute(rawArgs: unknown, context: OpenCodeContext) {
         if (!context.sessionID) return JSON.stringify({ ok: false, error: "A session is required to open a file." });

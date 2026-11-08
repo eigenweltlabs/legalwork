@@ -41,15 +41,15 @@ const within = (root: string, path: string) => { const part = relative(root, pat
 /** Resolve symlinks before reading; source documents must belong to this workspace. */
 export async function documentPath(workspace: string, input: string) {
   const root = await realpath(workspace);
-  const requested = resolve(root, input);
-  if (!within(root, requested)) throw new ApiError(403, "document_path", "Document is outside this workspace.");
+  const requested = resolve(workspace, input);
+  if (!within(root, requested) && !within(resolve(workspace), requested)) throw new ApiError(403, "document_path", "Document is outside this workspace.");
   const path = await realpath(requested);
   if (!within(root, path)) throw new ApiError(403, "document_path", "Document is outside this workspace.");
   const suffix = extname(path).toLowerCase();
   if (![".pdf", ".png", ".jpg", ".jpeg", ".webp"].includes(suffix)) throw new ApiError(400, "document_format", "Use PDF, PNG, JPEG or WebP files. Read DOCX with the Word document reader.");
   const info = await stat(path);
   if (!info.isFile() || info.size > MAX_FILE_BYTES) throw new ApiError(400, "document_size", "Documents must be files of at most 64 MiB.");
-  return { root, path, file: relative(root, path).split(sep).join("/"), kind: suffix === ".pdf" ? "pdf" as const : "image" as const };
+  return { root, path, file: isAbsolute(input) ? path : relative(root, path).split(sep).join("/"), kind: suffix === ".pdf" ? "pdf" as const : "image" as const };
 }
 
 async function snapshot(ocr: OcrManager): Promise<Snapshot> {
@@ -90,7 +90,7 @@ export class DocumentPreparation {
       }
       if (this.jobs.size >= 100) throw new ApiError(429, "preparation_limit", "Wait for current document preparation runs to finish.");
     }
-    const sources = await Promise.all(input.files.map(file => documentPath(workspaceFileRoot({ path: root, contentPath }, file), file)));
+    const sources = await Promise.all(input.files.map(file => documentPath(workspaceFileRoot({ path: workspace, contentPath }, file), file)));
     if (new Set(sources.map(source => source.path)).size !== sources.length) throw new ApiError(400, "duplicate_document", "Each document should appear once in a review run.");
     const selected = await (this.options.snapshot ? this.options.snapshot() : snapshot(this.ocr));
     const engine = selected.service.listEngines()[0];

@@ -1,7 +1,7 @@
 import { workspaceFileRoot } from "../project-storage-paths.js";
 import { createHash } from "node:crypto";
 import { readFile, realpath, stat } from "node:fs/promises";
-import { basename, extname, relative, resolve } from "node:path";
+import { basename, extname, isAbsolute, relative, resolve } from "node:path";
 import { unzipSync } from "fflate";
 import { ApiError } from "../errors.js";
 import { DocumentPreparation } from "../document-preparation/service.js";
@@ -19,7 +19,7 @@ export async function reviewSource(workspace: string, input: string) {
     throw new ApiError(400, "review_source", "Choose a PDF, Word document, image or text file inside this project.");
   const info = await stat(path);
   if (!info.isFile() || info.size > REVIEW_MAX_FILE_BYTES) throw new ApiError(413, "review_source_size", "Review documents must be files of at most 64 MiB.");
-  return { absolute: path, path: relative(root, path).split("\\").join("/"), name: basename(path), size: info.size };
+  return { absolute: path, path: isAbsolute(input) ? path : relative(root, path).split("\\").join("/"), name: basename(path), size: info.size };
 }
 export async function sourceHash(workspace: string, path: string) {
   const source = await reviewSource(workspace, path);

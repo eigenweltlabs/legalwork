@@ -1093,7 +1093,7 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
             await ensureDir(dirname(toAbs));
             const root = resolveWorkspaceFile(workspace, from).root;
             if (root !== resolveWorkspaceFile(workspace, to).root) throw new ApiError(400, "rename_root", "Use copy to save an attachment into the document folder.");
-            await renameProjectFileEntry(root, from, to, workspace.path);
+            await renameProjectFileEntry(root, resolveWorkspaceFile(workspace, from).relativePath, resolveWorkspaceFile(workspace, to).relativePath, workspace.path);
             recordWorkspaceFileEvent(workspace.id, { type: "rename", path: from, toPath: to });
             items.push({ ok: true, type, from, to });
           });

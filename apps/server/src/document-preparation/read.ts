@@ -20,7 +20,8 @@ export async function readPreparedDocument(workspace: string, file: string, prep
   const bytes = await readFile(source.path);
   if (bytes.length > 64 * 1024 * 1024) throw new ApiError(413, "preparation_size", "Document exceeds the size limit.");
   const hash = createHash("sha256").update(bytes).digest("hex");
-  if (prepared.sourceSha256 !== hash || prepared.fileAbs !== source.path && !/^(?:\.legalwork|\.opencode)\//.test(source.file) || prepared.file !== source.file)
+  const recorded = await documentPath(source.root, prepared.file);
+  if (prepared.sourceSha256 !== hash || recorded.path !== source.path)
     throw new ApiError(409, "preparation_stale", "The document changed. Prepare it again to update its locations.");
-  return prepared;
+  return { ...prepared, file: source.file, fileAbs: source.path };
 }

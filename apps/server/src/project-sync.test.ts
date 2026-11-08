@@ -1,7 +1,7 @@
-import { workspaceFileRoot, workspaceContentPath } from "./project-storage.js";
+import { finishLocalProject, prepareLocalProjects, workspaceFileRoot, workspaceContentPath } from "./project-storage.js";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readdir, readFile, rm, utimes, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readdir, readFile, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import * as os from "node:os";
 import { join } from "node:path";
@@ -1155,4 +1155,35 @@ test("team project configuration shares folder references and setup status even 
   await runProjectSync(owner.config, { platform });
   expect((await readProjectDetails(akte.path)).remote?.folders).toEqual([]);
   expect((await readProjectDetails(akte.path)).remote).not.toHaveProperty("context");
+});
+
+for (const retry of [false, true]) test(`removing a migrated downloaded copy cleans both owned locations despite a stale projects override (retry: ${retry})`, async () => {
+  const { platform } = fakeFirm(), owner = await machine("user_anna", "Anna"), member = await machine("user_ben", "Ben");
+  const akte = await localProject(owner.config, "Akte"); await write(akte, "contract.txt", "Retained contract");
+  await saveProjectSyncSettings(owner.config, akte, settings({ access: "org" }));
+  await runProjectSync(owner.config, { platform }); await runProjectSync(member.config, { platform });
+  const copy = projectsOf(member.config)[0]!;
+  const store = await projectSyncStore(member.config), legacy = join(member.config.projectsDirectory!, "Legacy downloaded matter");
+  await mkdir(legacy); await cp(join(copy.path, ".legalwork"), join(legacy, ".legalwork"), { recursive: true });
+  const contract = await read(copy, "contract.txt");
+  if (contract === null) throw new Error("Downloaded fixture contract is missing");
+  await writeFile(join(legacy, "contract.txt"), contract);
+  await rm(copy.path, { recursive: true, force: true });
+  store.releaseCopy(copy.id); copy.path = legacy; delete copy.contentPath; delete copy.previousPath;
+  expect(await prepareLocalProjects(member.config)).toBe(true);
+  const migrated = projectsOf(member.config)[0]!; await finishLocalProject(migrated);
+  expect(store.ownedCopy(copy.id)?.contentPath).toBe(migrated.contentPath!);
+  if (retry) {
+    await rm(legacy, { recursive: true }); store.markCopyContentRemoved(copy.id);
+  }
+  const previous = process.env.LEGALWORK_PROJECTS_DIR;
+  try {
+    process.env.LEGALWORK_PROJECTS_DIR = join(member.dir, "Stale old override");
+    await stopProjectSync(owner.config, akte); await runProjectSync(owner.config, { platform });
+    await runProjectSync(member.config, { platform });
+    expect(projectsOf(member.config)).toEqual([]);
+    expect(await stat(legacy).catch(() => null)).toBeNull();
+    expect(await stat(migrated.path).catch(() => null)).toBeNull();
+    expect(store.ownedCopy(copy.id)).toBeNull();
+  } finally { if (previous === undefined) delete process.env.LEGALWORK_PROJECTS_DIR; else process.env.LEGALWORK_PROJECTS_DIR = previous; }
 });

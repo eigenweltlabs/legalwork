@@ -1,11 +1,12 @@
 import { canonicalFilePath } from "./file-write-lock.js";
+import { retainDownloadedCopyOwnership } from "./project-sync-ownership.js";
 import { workspaceContentPath, projectHome } from "./project-storage.js";
 import { syncProjectCalendar } from "./calendar/sync.js";
 import { calendarStore } from "./calendar/store.js";
 import { updateProjectRemote } from "./project-store.js";
 import { randomUUID } from "node:crypto";
 import { watch, type FSWatcher } from "node:fs";
-import { copyFile, readdir, rm, stat } from "node:fs/promises";
+import { copyFile, readdir, realpath, rm, stat } from "node:fs/promises";
 import { basename, join, resolve, sep } from "node:path";
 import type {
   ProjectField,
@@ -443,7 +444,7 @@ async function arrive(config: ServerConfig, store: ProjectSyncStore, orgId: stri
   // interrupted) is one it may take away again.
   let origin: ProjectLink["origin"] = registered || remote.role === "owner" ? "local" : "remote";
   if (!workspace) {
-    const root = defaultProjectRoot(config.projectsDirectory);
+    const root = config.projectsDirectory || defaultProjectRoot();
     const existing = await unregisteredCopy(config, root, remote.id);
     const folder = existing ? { folderPath: existing, ...(config.projectsDirectory ? { id: basename(existing) } : {}) } : await createLocalProjectFolder(config, remote.name);
     const folderPath = folder.folderPath;
@@ -472,6 +473,7 @@ async function arrive(config: ServerConfig, store: ProjectSyncStore, orgId: stri
     report: null,
   };
   store.saveLink(link);
+  if (origin === "remote") store.ownCopy(workspace.id, remote.id, await canonicalFilePath(workspaceContentPath(workspace)));
   if (remote.scope.metadata) await applyRemoteDetails(config, store, link, workspace, remote);
   if (remote.remote) await updateProjectRemote(workspace.path, remote.remote);
   const tasks = await taskStore(config);
@@ -528,6 +530,10 @@ async function localChanges(config: ServerConfig, store: ProjectSyncStore, link:
   const supportAvailable = await folderAvailable(stateRoot);
   const pending = store.pendingOps(link.projectId).length + (await calendarStore(config)).pending(link.workspaceId).length
     + (supportAvailable && link.settings.scope.reviews ? await pendingReviewChanges(stateRoot, store.reviewBase(link.projectId)) : 0);
+  const owned = store.ownedCopy(link.workspaceId);
+  // After a successful content deletion, missing files are the completed cleanup
+  // phase, not an offline drive. Retain any newly queued support changes.
+  if (link.origin === "remote" && owned?.projectId === link.projectId && owned.contentRemoved) return { pending, available: true };
   if (!supportAvailable || !await folderAvailable(root)) return { pending, available: false };
   const cloud = await isCloudFolder(root);
   const scope = folderSettings(link.settings, cloud).scope;
@@ -583,17 +589,33 @@ async function removeCopy(config: ServerConfig, store: ProjectSyncStore, link: P
   }
   const workspace = workspaceOf(config, link.workspaceId);
   (await calendarStore(config)).withdraw(link.workspaceId, false);
-  store.discardOutbox(link.projectId);
-  store.removeLink(link.workspaceId);
   if (workspace) {
+    // Only a folder sync made itself is deleted; a folder the member brought is theirs.
+    const root = await canonicalFilePath(config.projectsDirectory || defaultProjectRoot());
+    const owned = await retainDownloadedCopyOwnership(config, workspace);
+    // A completed content phase must not probe that drive again on retry.
+    const content = owned?.contentRemoved ? resolve(workspaceContentPath(workspace)) : await canonicalFilePath(workspaceContentPath(workspace));
+    const home = await canonicalFilePath(workspace.path);
+    if (owned && (owned.projectId !== link.projectId || owned.contentPath !== content)) throw new ApiError(409, "project_copy_ownership", "The downloaded content folder no longer matches its saved ownership. Its files were preserved.");
+    const local = home.startsWith(root + sep);
+    const separate = content !== home && !content.startsWith(home + sep);
+    if (local && separate) {
+      if (!owned) throw new ApiError(409, "project_copy_ownership", "The original downloaded folder's ownership could not be verified. Its files and project were preserved.");
+      if (!owned.contentRemoved) {
+        const actual = await realpath(content).catch(() => undefined);
+        if (actual !== content || !(await stat(content).catch(() => null))?.isDirectory()) throw new ApiError(503, "project_copy_unavailable", "Reconnect the downloaded project folder before removing its local copy. Cleanup remains pending.");
+        await rm(content, { recursive: true, force: true });
+        store.markCopyContentRemoved(workspace.id);
+      }
+    }
+    if (local) {
+      await rm(home, { recursive: true, force: true });
+    }
     await unregisterWorkspace(config, workspace);
     removedWorkspaces.set(keyOf(config), (removedWorkspaces.get(keyOf(config)) ?? new Set<string>()).add(workspace.id));
-    // Only a folder sync made itself is deleted; a folder the member brought is theirs.
-    const root = await canonicalFilePath(defaultProjectRoot(config.projectsDirectory));
-    if (link.origin === "remote" && resolve(workspace.path).startsWith(root + sep)) {
-      await rm(workspace.path, { recursive: true, force: true });
-    }
   }
+  store.discardOutbox(link.projectId);
+  store.removeLink(link.workspaceId);
   workspacesChanged(config);
 }
 

@@ -209,10 +209,15 @@ export function skillsDirForScope(workspaceRoot: string, scope: SkillScope): str
   return scope === "global" ? globalSkillsDir() : projectSkillsDir(workspaceRoot);
 }
 
-export async function skillPathForScope(workspaceRoot: string, scope: SkillScope, name: string): Promise<string> {
+export async function skillPathForScope(workspace: SkillWorkspace, scope: SkillScope, name: string): Promise<string> {
   validateSkillName(name);
-  const visible = join(workspaceRoot, "Skills", name, "SKILL.md");
+  const workspaceRoot = typeof workspace === "string" ? workspace : workspace.path;
+  const visible = join(typeof workspace === "string" ? workspace : workspace.contentPath || workspace.path, "Skills", name, "SKILL.md");
   if (scope === "project" && await exists(visible)) return visible;
+  if (scope === "project") {
+    const existing = (await listSkills(workspace, false)).find(skill => skill.scope === "project" && skill.name === name);
+    if (existing) return existing.path;
+  }
   return join(skillsDirForScope(workspaceRoot, scope), name, "SKILL.md");
 }
 
@@ -261,16 +266,16 @@ export function buildSkillContent(payload: UpsertSkillPayload): { name: string; 
 }
 
 export async function upsertSkill(
-  workspaceRoot: string,
+  workspace: SkillWorkspace,
   payload: UpsertSkillPayload,
 ): Promise<{ path: string; action: "added" | "updated"; scope: SkillScope }> {
   const lesson = payload.lesson === undefined ? null : SkillLessonInputSchema.parse(payload.lesson);
-  const dependency = lesson ? await composedSkill(workspaceRoot, lesson.base, false) : null;
+  const dependency = lesson ? await composedSkill(workspace, lesson.base, false) : null;
   if (dependency?.chain.some(item => item.name === payload.name)) throw new ApiError(422, "skill_cycle", "A skill cannot extend itself or its descendants.");
   const skill = buildSkillContent(payload);
   const scope: SkillScope = payload.scope === "global" ? "global" : "project";
 
-  const skillPath = await skillPathForScope(workspaceRoot, scope, skill.name);
+  const skillPath = await skillPathForScope(workspace, scope, skill.name);
   const skillDir = dirname(skillPath);
   await mkdir(skillDir, { recursive: true });
   const existed = await exists(skillPath);
@@ -288,8 +293,7 @@ export async function upsertSkill(
 export async function deleteSkill(workspace: SkillWorkspace, name: string): Promise<{ path: string }> {
   const trimmed = name.trim();
   validateSkillName(trimmed);
-  const workspaceRoot = typeof workspace === "string" ? workspace : workspace.path;
-  const flatDir = dirname(await skillPathForScope(workspaceRoot, "project", trimmed));
+  const flatDir = dirname(await skillPathForScope(workspace, "project", trimmed));
   if (await exists(join(flatDir, "SKILL.md"))) {
     await rm(flatDir, { recursive: true, force: true });
     return { path: flatDir };

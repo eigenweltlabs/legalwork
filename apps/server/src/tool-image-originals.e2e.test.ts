@@ -46,7 +46,12 @@ test("ordinary exact project export supports top-level files, protects existing 
   const f=await fixture(),image=await f.capture();f.commit(image);
   const content=join(f.root,"connected-documents");await mkdir(content);f.config.workspaces[0].contentPath=content;
   const exported=await f.post("/export",{reference:image.reference,path:"original.png"});expect(exported.status).toBe(200);expect(await readFile(join(content,"original.png"))).toEqual(Buffer.from(data,"base64"));
+  expect((await exported.json()).path).toBe(join(content,"original.png"));
   expect(await stat(join(f.project,"original.png")).catch(()=>null)).toBeNull();
+  const hidden=await f.post("/export",{reference:image.reference,path:".legalwork/exports/original.png"});
+  expect(hidden.status).toBe(200);expect((await hidden.json()).path).toBe(join(f.project,".legalwork/exports/original.png"));
+  expect(await readFile(join(f.project,".legalwork/exports/original.png"))).toEqual(Buffer.from(data,"base64"));
+  expect(await stat(join(content,".legalwork")).catch(()=>null)).toBeNull();
   expect((await f.post("/export",{reference:image.reference,path:"original.png"})).status).toBe(409);
   expect((await f.post("/export",{reference:image.reference,path:"../escape.png"})).status).toBe(400);
   f.config.readOnly=true;expect((await f.post("/export",{reference:image.reference,path:"second.png"})).status).toBe(403);

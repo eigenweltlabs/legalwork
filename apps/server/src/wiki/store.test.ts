@@ -473,3 +473,15 @@ test("full text search ranks titles, finds deep body passages, phrases, prefixes
   expect(await store.search(wiki.id, '" OR * NEAR( --')).toEqual([]);
   expect(await store.search(wiki.id, "!!!")).toEqual([]);
 });
+
+test("forgetting and reattaching a default local wiki retains its engine workspace", async () => {
+  const f = await fixture(); f.config.projectsDirectory = join(f.root, "homes");
+  const wiki = await f.store.create({ name: "Default local", template: "blank" });
+  const before = f.config.workspaces.find(workspace => workspace.id === wiki.workspaceId)!;
+  await writeFile(join(before.path, "retained.txt"), "Local engine output");
+  await f.store.forget(wiki.id);
+  const restored = await f.store.create({ name: "Reattached", root: wiki.root, attach: true });
+  expect(restored.id).toBe(wiki.id); expect(restored.workspaceId).toBe(wiki.workspaceId);
+  expect(f.config.workspaces.find(workspace => workspace.id === restored.workspaceId)?.path).toBe(before.path);
+  expect(await readFile(join(before.path, "retained.txt"), "utf8")).toBe("Local engine output");
+});

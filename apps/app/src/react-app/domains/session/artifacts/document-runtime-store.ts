@@ -10,7 +10,7 @@ import { createDocumentTaskQueue, checkDocumentTask, type DocumentTaskOptions } 
 import { openBackgroundTab } from "../background/open-background-tab";
 import { t } from "@/i18n";
 import { workspaceFileRoot } from "@legalwork/types/workspace";
-import { localFileIdentity } from "@/app/lib/local-file-path.impl.js";
+import { localFileIdentity, normalizeLocalFilePath } from "@/app/lib/local-file-path.impl.js";
 
 export type DocumentProject = { projectId: string; workspaceId: string; workspaceRoot: string; contentRoot?: string; client: LegalworkServerClient; isRemoteWorkspace: boolean };
 export type Registration = { surface: LegalworkControlSurface; action: LegalworkControlAction; ready: () => boolean; dirty: () => boolean; updatedAt?: () => number | null };
@@ -286,7 +286,9 @@ export function createDocumentRuntime(createHost = () => document.createElement(
       checkDocumentTask(options);
       let path = stringArg(args, "path"), connectionId = stringArg(args, "connectionId");
       const copyTo = stringArg(args, "copyTo");
-      if (!validPath(path)) throw new Error("Use a relative file path within the workspace or connection.");
+      if (!connectionId) path = normalizeLocalFilePath(path).replaceAll("\\", "/");
+      const absoluteProjectFile = !connectionId && /^(?:\/|[A-Za-z]:\/)/.test(path) && !/[\x00-\x1f\x7f]/.test(path) && path.length <= 4096;
+      if (!validPath(path) && !absoluteProjectFile) throw new Error("Use a project file address or a relative path within the storage connection.");
       if (copyTo) {
         if (!validPath(copyTo) || copyTo.split(".").at(-1)?.toLowerCase() !== (connectionId ? path : attachmentFilename(path)).split(".").at(-1)?.toLowerCase()) throw new Error("Use a new workspace-relative filename with the same file extension as the template.");
         if (connectionId) {

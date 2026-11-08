@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdtemp, readFile, realpath, rm } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { MainAssistant, isMainAssistant } from "./main-assistant.js";
@@ -233,4 +233,18 @@ test("all four project access modes keep the Assistant workspace and handle futu
     expect(f.assistant.canAccessProject(workspace.id)).toBe(true);
     if (!expected[0]) expect(() => f.assistant.assertProjectAccess("a")).toThrow("allowed projects");
   }
+});
+
+test("pending chat migration keeps today's saved Assistant identity until relocation finishes", async () => {
+  const f = await fixture(), first = await f.assistant.current(), workspace = first.workspace;
+  workspace.previousPath = workspace.contentPath!;
+  const receipt = { version: 1, id: workspace.id, source: workspace.previousPath, fingerprints: {}, complete: false };
+  await writeFile(join(workspace.path, ".project-storage-migration.json"), JSON.stringify(receipt));
+  f.sessions[0]!.directory = workspace.previousPath;
+  await expect(f.assistant.current()).rejects.toMatchObject({ code: "project_storage_migrating" });
+  expect(f.assistant.savedDay()).toEqual(first.day);
+  expect(f.sessions).toHaveLength(1);
+  f.sessions[0]!.directory = workspace.path;
+  await writeFile(join(workspace.path, ".project-storage-migration.json"), JSON.stringify({ ...receipt, complete: true, referencesComplete: true }));
+  expect((await f.assistant.current()).day).toEqual(first.day);
 });

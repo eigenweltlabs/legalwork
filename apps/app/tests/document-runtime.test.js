@@ -463,3 +463,16 @@ test("a shell handoff with no open editor needs no document import",async()=>{
   expect(await runtime.beginFileEdit({sessionId:"left",operationId:"headless"})).toEqual({ok:true,operationId:"headless"});
   expect(await runtime.endFileEdit({sessionId:"left",operationId:"headless"})).toEqual({ok:true,reloaded:true});
 });
+
+test("the editor opens a verified absolute project file while connected storage keeps relative validation", async () => {
+  const { runtime, document, clients } = fixture();
+  const exact = "/a/engine/report.docx", engine = document("a", exact), content = document("a", "report.docx");
+  const checked = [];
+  clients.a.statWorkspaceFile = async (_workspace, path) => { checked.push(path); return { exists: path === exact, kind: "file" }; };
+  expect(await runtime.open({ sessionId: "left", path: exact })).toMatchObject({ ok: true, path: exact });
+  expect(checked).toEqual([exact]);
+  expect((await runtime.list({ sessionId: "left" })).activeSurface?.path).toBe(exact);
+  expect(runtime.entries.get(engine.key)).toBe(engine); expect(runtime.entries.get(content.key)).toBe(content);
+  await expect(runtime.open({ sessionId: "left", path: "/outside/report.docx" })).rejects.toThrow("not found");
+  await expect(runtime.open({ sessionId: "left", connectionId: "cloud", path: exact })).rejects.toThrow("relative");
+});

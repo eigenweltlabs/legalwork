@@ -15,8 +15,7 @@ import type { ToolImageOriginalReference } from "../tool-image-original-schema.j
 import type { createToolImageRaster } from "../tool-image-raster.js";
 import type { ApprovalRequest, ServerConfig, TokenScope, WorkspaceInfo } from "../types.js";
 import { addRoute, type RequestContext, type Route } from "./registry.js";
-import { originalImageExportPath } from "../tool-image-original-path.js";
-import { workspaceContentPath } from "../project-storage-paths.js";
+import { originalImageExportLocation } from "../tool-image-original-path.js";
 
 const sha256 = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
 async function withinProject(directory: string, path: string, allowRoot = false) {
@@ -124,7 +123,7 @@ export function registerToolImageOriginalRoutes(options: {
   addRoute(routes, "POST", `${path}/export`, "client", async ctx => {
     options.ensureWritable(config); options.requireClientScope(ctx, "collaborator");
     const input = toolImageExportInput.parse(await ctx.request.json()), current = await authorizedImage(ctx, input.reference);
-    const directory = workspaceContentPath(current.workspace), destination = originalImageExportPath(directory, input.path);
+    const { root: directory, path: destination } = originalImageExportLocation(current.workspace, input.path);
     await withinProject(directory, destination);
     await options.requireApproval(ctx, { workspaceId: current.workspace.id, action: "workspace.file.write", paths: [destination], summary: `Export the exact original image to ${input.path}` });
     return withFileWriteLock(destination, async () => {
@@ -152,7 +151,7 @@ export function registerToolImageOriginalRoutes(options: {
         if (input.overwrite) await rename(temporary, target);
         else await link(temporary, target).catch(error => { if (error instanceof Error && "code" in error && error.code === "EEXIST") throw new ApiError(409, "original_export_exists", "A file appeared at the export path. It was not overwritten."); throw error; });
       } finally { await rm(temporary, { force: true }); }
-      return jsonResponse({ image: current.image, path: input.path, bytes: bytes.byteLength, sha256: current.image.reference.sha256 });
+      return jsonResponse({ image: current.image, path: target, bytes: bytes.byteLength, sha256: current.image.reference.sha256 });
     });
   });
 }

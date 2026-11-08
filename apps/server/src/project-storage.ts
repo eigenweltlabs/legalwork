@@ -179,6 +179,8 @@ export async function prepareLocalProjects(config: ServerConfig): Promise<boolea
     // drive, including a source snapshot that could not be retired previously.
     if (workspace.contentPath) continue;
     try {
+      const { retainDownloadedCopyOwnership } = await import("./project-sync-ownership.js");
+      await retainDownloadedCopyOwnership(config, workspace);
       const local = await prepareLocalProject(config, workspace);
       const stored = await readLegalworkWorkspaceConfig(config, workspace.id);
       const native = stored.nativeEngineProject;
@@ -242,6 +244,12 @@ export async function localProjectMigrationPending(workspace: WorkspaceInfo): Pr
   const receipt = receiptSchema.parse(JSON.parse(await readFile(receiptPath(workspace.path), "utf8")));
   if (receipt.id !== workspace.id || receipt.source !== workspace.previousPath) throw new Error("Project migration ownership is invalid.");
   return !receipt.complete || !receipt.referencesComplete;
+}
+
+/** Incomplete placement is temporary, never evidence that a saved chat vanished. */
+export async function projectChatMigrationPending(config: ServerConfig, workspace: WorkspaceInfo): Promise<boolean> {
+  return Boolean(config.projectStorageMigrating || config.managedEngineStarting || config.projectsDirectory && !workspace.contentPath)
+    || await localProjectMigrationPending(workspace);
 }
 
 /** Remember the registered spelling as well as realpath (for example a mapped

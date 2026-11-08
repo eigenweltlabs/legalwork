@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PDFDocument, degrees } from "pdf-lib";
@@ -242,3 +242,18 @@ test("cancellation during layout resumes and completes the document", async () =
   const resumed = await done(service, root, (await service.start(root, { files: ["contract.pdf"] })).id);
   expect(resumed.status).toBe("complete"); expect(calls).toBe(2);
 }, 10_000);
+
+test("explicit engine sources and connected documents keep distinct identities through preparation reads", async () => {
+  const root = await fixture(), contentPath = await fixture();
+  await mkdir(join(root, ".legalwork", "attachments"), { recursive: true });
+  const files = [join(root, "contract.pdf"), join(root, ".legalwork", "attachments", "contract.pdf"), join(contentPath, "contract.pdf")];
+  await copyFile(files[0]!, files[1]!);
+  const service = new DocumentPreparation(new OcrManager(join(root, "ocr")), { layout, snapshot: async () => ({ fingerprint: "split-roots", service: new OcrService([{ info, async recognize() { return content; } }], "test") }) });
+  const job = await service.start(root, { files }, contentPath), result = await done(service, root, job.id);
+  expect(result.status).toBe("complete");
+  const { readPreparedDocument } = await import("./read.js");
+  for (const [index, entry] of result.documents.entries()) {
+    const prepared = await readPreparedDocument(root, files[index]!, entry.preparationPath!, contentPath);
+    expect(prepared.fileAbs).toBe(await import("node:fs/promises").then(fs => fs.realpath(files[index]!)));
+  }
+});

@@ -64,6 +64,7 @@ let stopConfigRefresh: (() => Promise<void>) | null = null;
 // reads settings. Ordinary reads never fall back to the retired storage.
 const startupWikis = new WikiStore(config);
 try { await startupWikis.list({ publish: false }); } finally { await startupWikis.close(); }
+if (managedEngine) for (const workspace of config.workspaces) workspace.directory = workspace.path;
 await bootstrapRuntimeOpencodeConfig(config);
 await prepareConnectorStorage(config);
 const storageMigrationPending = managedEngine && !config.readOnly && config.workspaces.some(workspace => !workspace.contentPath);

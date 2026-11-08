@@ -634,7 +634,7 @@ async execute(args, context) {
           context.abort?.throwIfAborted();
           const destination = resolveWorkspaceFile(workspace, args.path);
           const saved = await keepWorkspaceSnapshot(destination.root, staged.path, destination.relativePath);
-          return JSON.stringify({ ok: true, taskId: args.taskId, attachmentId: args.attachmentId, local_path: destination.reference, bytes: saved.bytes });
+          return JSON.stringify({ ok: true, taskId: args.taskId, attachmentId: args.attachmentId, local_path: destination.path, bytes: saved.bytes });
         } finally {
           await staged.remove();
         }

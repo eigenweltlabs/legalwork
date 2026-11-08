@@ -20,7 +20,7 @@ import { wikiSuggestionContent } from "./suggestion-schema.js";
 import { WikiGraphIndex } from "./graph.js";
 import { patchWikiProperties, type WikiPropertiesPatch } from "./properties.js";
 import { assertWikiFoldersIndependent, canonicalFolderPath } from "./workspace-safety.js";
-import { markLocalProjectPublished, prepareLocalProject, projectHome, recoverLocalProject } from "../project-storage.js";
+import { localProjectIdForContent, markLocalProjectPublished, prepareLocalProject, projectHome, recoverLocalProject } from "../project-storage.js";
 
 export const WIKI_MAX_PAGE_BYTES = 2 * 1024 * 1024;
 export const WIKI_MAX_ASSET_BYTES = 100 * 1024 * 1024;
@@ -302,7 +302,8 @@ export class WikiStore {
       const id = knownFolder?.id ?? newId;
       db.run("INSERT OR REPLACE INTO wiki_folders(root,id) VALUES(?,?)", [canonicalRoot, id]);
       const purpose = seed?.purpose ?? (!input.attach && input.template === "legal-research" ? "legal-research" : undefined);
-      const wiki: WikiRegistration = { id, name, requireAgentApproval: seed?.requireAgentApproval ?? true, root: canonicalRoot, workspaceId: !input.root?.trim() && this.config.projectsDirectory ? defaultWorkspaceId : workspaceIdForPath(canonicalRoot), allowInProjects: true, sync: input.sync ?? null, ...(purpose ? { purpose } : {}) };
+      const retainedWorkspaceId = this.config.projectsDirectory ? await localProjectIdForContent(this.config, canonicalRoot) : undefined;
+      const wiki: WikiRegistration = { id, name, requireAgentApproval: seed?.requireAgentApproval ?? true, root: canonicalRoot, workspaceId: retainedWorkspaceId ?? (!input.root?.trim() && this.config.projectsDirectory ? defaultWorkspaceId : workspaceIdForPath(canonicalRoot)), allowInProjects: true, sync: input.sync ?? null, ...(purpose ? { purpose } : {}) };
       for (const [path, content] of Object.entries(seed ? seed.files : input.attach ? {} : createWikiStarterFiles(input.template ?? "blank", name, input))) {
         const target = await this.safePath(wiki, path, true);
         try { await writeFile(target, path === "Wiki.md" ? markdownWithData(content, { name }) : content, { flag: "wx" }); }

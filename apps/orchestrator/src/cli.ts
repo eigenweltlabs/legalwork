@@ -2409,21 +2409,22 @@ async function waitForOpencodeHealthy(
 
 /** The managed server owns the HTTP watchdog; history conversion/recovery has
  * no overall task deadline. Stop waiting when that exact owner process exits. */
-async function waitForManagedOpencodeHealthy(client: OpenCodeClient, owner: ChildProcess, serverURL: string): Promise<void> {
+async function waitForManagedOpencodeHealthy(client: OpenCodeClient, owner: ChildProcess, serverURL: string): Promise<string> {
   while (owner.exitCode === null && owner.signalCode === null) {
-    let version: string;
-    let ready = false;
+    let version: string | undefined;
     try {
-      version = (await client.server.info({ signal: AbortSignal.timeout(10_000) })).version;
       const health: unknown = await (await fetch(`${serverURL}/health`, { signal: AbortSignal.timeout(10_000) })).json();
-      ready = Boolean(health && typeof health === "object" && "engine" in health && health.engine && typeof health.engine === "object" && "status" in health.engine && health.engine.status === "ready");
+      const ready = Boolean(health && typeof health === "object" && "engine" in health && health.engine && typeof health.engine === "object" && "status" in health.engine && health.engine.status === "ready");
+      if (ready) version = (await client.server.info({ signal: AbortSignal.timeout(10_000) })).version;
     }
     catch {
       await new Promise(resolve => setTimeout(resolve, 250));
       continue;
     }
-    if (!version.startsWith("2.")) throw new Error(`OpenCode v2 is required, received ${version}`);
-    if (ready) return;
+    if (version) {
+      if (!version.startsWith("2.")) throw new Error(`OpenCode v2 is required, received ${version}`);
+      return version;
+    }
     await new Promise(resolve => setTimeout(resolve, 250));
   }
   throw new Error("The managed LegalWork server exited before its native engine became ready.");
@@ -3332,12 +3333,40 @@ async function verifyOpencodeVersion(
   return actual;
 }
 
+/** Match the selected project without treating its original document root as engine placement. */
+async function selectedServerProject(items: unknown, requested: string, canonical = true) {
+  const projects = Array.isArray(items) ? items.flatMap((item: unknown) => {
+    if (!item || typeof item !== "object" || !("id" in item) || typeof item.id !== "string" || !("path" in item) || typeof item.path !== "string") return [];
+    const roots = [item.path, "contentPath" in item ? item.contentPath : undefined, "previousPath" in item ? item.previousPath : undefined]
+      .filter((value): value is string => typeof value === "string");
+    const engine = "opencode" in item && item.opencode && typeof item.opencode === "object" ? item.opencode : undefined;
+    return [{ id: item.id, path: item.path, roots, opencode: {
+      directory: engine && "directory" in engine && typeof engine.directory === "string" ? engine.directory : undefined,
+      baseUrl: engine && "baseUrl" in engine && typeof engine.baseUrl === "string" ? engine.baseUrl : undefined,
+      username: engine && "username" in engine && typeof engine.username === "string" ? engine.username : undefined,
+      password: engine && "password" in engine && typeof engine.password === "string" ? engine.password : undefined,
+    } }];
+  }) : [];
+  const key = (value: string) => process.platform === "win32" ? normalizeWorkspacePath(value).replaceAll("\\", "/").toLowerCase() : normalizeWorkspacePath(value);
+  let matches = projects.filter(project => project.roots.some(root => key(root) === key(requested)));
+  if (!matches.length && canonical) {
+    const selected = await realpath(requested).catch(() => undefined);
+    if (selected) {
+      const resolved = await Promise.all(projects.map(async project => ({ project, roots: await Promise.all(project.roots.map(root => realpath(root).catch(() => undefined))) })));
+      matches = resolved.filter(item => item.roots.some(root => root && key(root) === key(selected))).map(item => item.project);
+    }
+  }
+  if (matches.length !== 1) throw new Error(`LegalWork server workspace mismatch. Expected one registered project for ${requested}.`);
+  return matches[0]!;
+}
+
 async function verifyLegalworkServer(input: {
   baseUrl: string;
   token: string;
   hostToken: string;
   expectedVersion?: string;
   expectedWorkspace: string;
+  canonicalLocalPaths?: boolean;
   expectedOpencodeBaseUrl?: string;
   expectedOpencodeDirectory?: string;
   expectedOpencodeUsername?: string;
@@ -3357,42 +3386,18 @@ async function verifyLegalworkServer(input: {
   const workspaces = await fetchJson(`${input.baseUrl}/workspaces`, {
     headers,
   });
-  const items = Array.isArray(workspaces?.items)
-    ? (workspaces.items as Array<Record<string, unknown>>)
-    : [];
-  if (!items.length) {
-    throw new Error("LegalWork server returned no workspaces");
-  }
-
-  const expectedPath = normalizeWorkspacePath(input.expectedWorkspace);
-  const matched = items.find((item) => {
-    return [item.path, item.contentPath, item.previousPath].some(path => typeof path === "string" && normalizeWorkspacePath(path) === expectedPath);
-  }) as
-    | {
-        id?: string;
-        path?: string;
-        contentPath?: string;
-        previousPath?: string;
-        opencode?: {
-          baseUrl?: string;
-          directory?: string;
-          username?: string;
-          password?: string;
-        };
-      }
-    | undefined;
-
-  if (!matched || !matched.path) {
-    throw new Error(
-      `LegalWork server workspace mismatch. Expected ${expectedPath}.`,
-    );
-  }
+  const matched = await selectedServerProject(workspaces?.items, input.expectedWorkspace, input.canonicalLocalPaths !== false);
 
   const opencode = matched.opencode;
   // A managed local server relocates the requested project's engine home.
   // Explicit remote/container directory expectations still compare verbatim.
-  const expectedDirectory = input.expectedOpencodeDirectory && normalizeWorkspacePath(input.expectedOpencodeDirectory) === expectedPath
-    ? matched.path : input.expectedOpencodeDirectory;
+  let expectedDirectory = input.expectedOpencodeDirectory;
+  if (expectedDirectory) {
+    try {
+      const associated = await selectedServerProject(workspaces?.items, expectedDirectory, input.canonicalLocalPaths !== false);
+      if (associated.id === matched.id) expectedDirectory = matched.path;
+    } catch { /* Preserve an explicit unassociated expectation so it fails below. */ }
+  }
   if (
     input.expectedOpencodeBaseUrl &&
     opencode?.baseUrl !== input.expectedOpencodeBaseUrl
@@ -3477,12 +3482,14 @@ async function runChecks(input: {
     throw new Error("LegalWork server returned no workspaces");
   }
 
-  const workspaceId = workspaces.items[0].id as string;
+  const selected = await selectedServerProject(workspaces.items, input.directory);
+  const workspaceId = selected.id;
+  const directory = selected.opencode.directory || selected.path;
   await fetchJson(`${baseUrl}/workspace/${workspaceId}/config`, { headers });
 
   const created = await input.opencodeClient.session.create({
     title: "LegalWork headless check",
-    location: {directory:input.directory},
+    location: {directory},
   });
   const createdSession = created;
   await input.opencodeClient.message.list({sessionID:createdSession.id});
@@ -3504,7 +3511,7 @@ async function runChecks(input: {
       }
     })();
 
-    await input.opencodeClient.session.create({title:"LegalWork headless check events",location:{directory:input.directory}});
+    await input.opencodeClient.session.create({title:"LegalWork headless check events",location:{directory}});
     await new Promise((resolve) => setTimeout(resolve, 1200));
     controller.abort();
     await Promise.race([
@@ -5440,6 +5447,7 @@ async function runStart(args: ParsedArgs) {
           hostToken: legalworkHostToken,
           expectedVersion: legalworkServerBinary.expectedVersion,
           expectedWorkspace: "/workspace",
+          canonicalLocalPaths: false,
           expectedOpencodeDirectory: "/workspace",
         });
       } catch (verifyError) {
@@ -5517,8 +5525,7 @@ async function runStart(args: ParsedArgs) {
       );
 
       opencodeClient = OpenCode.make({ baseUrl: opencodeBaseUrl, headers: { Authorization: `Bearer ${legalworkToken}` } });
-      await waitForManagedOpencodeHealthy(opencodeClient, startedLegalworkChild, legalworkBaseUrl);
-      opencodeActualVersion = (await opencodeClient.server.info()).version;
+      opencodeActualVersion = await waitForManagedOpencodeHealthy(opencodeClient, startedLegalworkChild, legalworkBaseUrl);
       tui?.updateService("opencode", { status: "healthy", port: opencodePort });
 
     }

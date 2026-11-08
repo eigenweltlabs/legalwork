@@ -1,5 +1,15 @@
 # Engine and capability acceptance status
 
+Project-storage follow-up, 8 November: the reviewed derivative is now
+`2.1.4-legalwork.http-policy.5`, still based on the frozen OpenCode 2.1.4 commit
+and dependency graph. A separate native `session.relocate` endpoint changes an
+inactive chat's placement without executing queued input or clearing interrupted
+recovery. Normal interactive moves and native file-tool resolution stay intact.
+The combined source receipt is [recorded here](patches/opencode-2.1.4-project-relocation.receipt.json).
+Source regressions/typechecks and the macOS ARM64 runtime reproduction pass;
+cross-platform and packaged acceptance remain separate gates. Earlier results
+below describe their recorded snapshots and do not certify this derivative.
+
 Current debug follow-up, 28 October (LW-287): native project loading replaces
 shared-only reconstruction, as agreed with the user. No project-automation
 approval UI or endpoint remains. The shared capability library, native project

@@ -8,6 +8,7 @@ import type { ServerConfig, WorkspaceInfo } from "./types.js";
 import { AssistantProfileSchema, DEFAULT_ASSISTANT_PROFILE, AssistantResourceSchema, AssistantSettingsSchema, DEFAULT_ASSISTANT_SETTINGS } from "./assistant-schema.js";
 import type { AssistantAvatarIcon, AssistantOnboardingState, AssistantProfile, AssistantSettings, AssistantResource } from "@legalwork/types/main-assistant";
 import { hasAssistantInteraction } from "./assistant-onboarding.js";
+import { projectChatMigrationPending } from "./project-storage.js";
 
 export const MAIN_ASSISTANT_PRESET = "main-assistant";
 export const isMainAssistant = (workspace: { preset?: string }) => workspace.preset === MAIN_ASSISTANT_PRESET;
@@ -200,6 +201,7 @@ export class MainAssistant {
   private async ensureDay() {
     if (this.config.readOnly) throw new ApiError(403, "read_only", "The main assistant requires a writable server.");
     const workspace = await this.workspace();
+    if (await projectChatMigrationPending(this.config, workspace)) throw new ApiError(503, "project_storage_migrating", "The Assistant's saved chats are moving to local storage. Keep this conversation; it will be available when migration finishes.");
     const date = assistantDate(this.now());
     const engine = this.engine(workspace);
     const row = this.db.get("SELECT session_id FROM assistant_days WHERE workspace_id = ? AND date = ?", [workspace.id, date]);

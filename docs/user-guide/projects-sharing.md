@@ -45,6 +45,8 @@ Only the owner changes the audience and sharing scope. Members can edit shared p
 
 To stop sharing, the owner removes every person and the whole-firm audience, then saves. Read the confirmation: the owner's local project remains, while members lose the shared copy subject to the app's handling of unsent edits and pre-existing folders. Leaving a project is different from deleting source documents in connected storage.
 
+Removing a downloaded shared copy removes its LegalWork-created document folder and local project data. A folder you connected yourself remains yours. If the downloaded document folder is unavailable, reconnect it and retry removal; LegalWork keeps the project while cleanup is pending.
+
 ## Offline work and conflicting changes
 
 Offline edits remain pending until the service accepts them. A missing folder pauses sync instead of treating all its documents as deleted. Sync errors or an older firm service can leave changes pending; inspect the Home banner rather than assuming sharing succeeded.

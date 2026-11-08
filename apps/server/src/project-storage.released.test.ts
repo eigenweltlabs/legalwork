@@ -3,7 +3,7 @@ import { z } from "zod";
 import { pathToFileURL } from "node:url";
 import { createEngineClient } from "./engine-client.js";
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { OpenCode } from "@opencode/client";
@@ -34,7 +34,11 @@ test.skipIf(!binary)("pinned engine moves existing parent/child chats and scoped
       OPENCODE_CONFIG_CONTENT: JSON.stringify({ update: "disable" }),
     } });
     const client = OpenCode.make({ baseUrl: engine.url, headers: { authorization: `Basic ${Buffer.from(`${engine.username}:${engine.password}`).toString("base64")}` } });
-    const parent = await client.session.create({ location: { directory: source }, title: "Saved matter", permissions: [{ action: "read", resource: "private/*", effect: "deny" }, { action: "*", resource: "curl *", effect: "deny" }] });
+    config.opencodeBaseUrl = engine.url; config.opencodeUsername = engine.username; config.opencodePassword = engine.password;
+    const alias = join(root, "selected-matter"); await symlink(source, alias, process.platform === "win32" ? "junction" : "dir");
+    config.workspaces[0]!.path = alias;
+    const parent = await client.session.create({ location: { directory: source }, title: "Saved matter", permissions: [{ action: "read", resource: "private/*", effect: "deny" }, { action: "*", resource: "curl *", effect: "deny" },
+      { action: "read", resource: join(alias, ".legalwork/attachments/*"), effect: "deny" }, { action: "edit", resource: join(alias, "restricted/*"), effect: "ask" }, { action: "list", resource: join(alias, "visible/*"), effect: "allow" }] });
     const child = await client.session.create({ parentID: parent.id, title: "Saved helper" });
     expect(child.location.directory).toBe(source);
     const benchmarkDirectory = join(source, ".legalwork/benchmarks/run/item");
@@ -67,8 +71,11 @@ test.skipIf(!binary)("pinned engine moves existing parent/child chats and scoped
     for (const id of [parent.id, child.id]) expect((await client.session.get({ sessionID: id })).location.directory).toBe(local.path);
     const moved = await client.session.get({ sessionID: parent.id });
     expect(moved.id).toBe(parent.id); expect(moved.title).toBe(parent.title); expect(moved.time.created).toBe(parent.time.created);
-    expect(moved.permissions).toContainEqual({ action: "read", resource: `${source}/private/*`, effect: "deny" });
+    expect(moved.permissions).toContainEqual({ action: "read", resource: join(source, "private/*").replaceAll("\\", "/"), effect: "deny" });
     expect(moved.permissions).toContainEqual({ action: "*", resource: "curl *", effect: "deny" });
+    expect(moved.permissions).toContainEqual({ action: "read", resource: join(local.path, ".legalwork/attachments/*").replaceAll("\\", "/"), effect: "deny" });
+    expect(moved.permissions).toContainEqual({ action: "edit", resource: join(source, "restricted/*").replaceAll("\\", "/"), effect: "ask" });
+    expect(moved.permissions).toContainEqual({ action: "list", resource: join(source, "visible/*").replaceAll("\\", "/"), effect: "allow" });
     const nested = await client.session.get({ sessionID: benchmark.id });
     expect(nested.location.directory).toBe(join(local.path, ".legalwork/benchmarks/run/item"));
     expect(nested.permissions).toContainEqual({ action: "edit", resource: join(local.path, ".legalwork/benchmarks/run/item/private/*"), effect: "deny" });
