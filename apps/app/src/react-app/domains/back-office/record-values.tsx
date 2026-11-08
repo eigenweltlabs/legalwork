@@ -18,19 +18,21 @@ import type {
 import { selectColor } from "./select-colors";
 export function FieldIcon({ field }: { field: BackOfficeField }) {
   const Icon =
-    field.type === "file"
-      ? Paperclip
-      : field.type === "relation"
-        ? Link2
-        : field.type === "date" || field.type === "datetime"
-          ? CalendarDays
-          : field.type === "number" || field.type === "currency"
-            ? Hash
-            : field.type === "select" || field.type === "multiselect"
-              ? TagIcon
-              : field.visibility === "private"
-                ? LockKeyhole
-                : Type;
+    field.type === "boolean"
+      ? Check
+      : field.type === "file"
+        ? Paperclip
+        : field.type === "relation"
+          ? Link2
+          : field.type === "date" || field.type === "datetime"
+            ? CalendarDays
+            : field.type === "number" || field.type === "currency"
+              ? Hash
+              : field.type === "select" || field.type === "multiselect"
+                ? TagIcon
+                : field.visibility === "private"
+                  ? LockKeyhole
+                  : Type;
   return <Icon size={13} aria-hidden="true" />;
 }
 export function RecordChip({

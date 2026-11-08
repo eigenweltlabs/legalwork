@@ -12,6 +12,12 @@ Connect records through a project's metadata. Open **Project Home > Configure fi
 
 Open **Data model** to manage visible objects and fields. Choose an object, then **New field > select a type** to configure a custom field. Protected fields retain the types and relationships LegalWork needs. Labels remain editable. Changes affecting existing records show a review before applying. Changes that would invalidate stored values remain blocked. **Settings** edits the object's names. Custom objects can be archived and restored. **Add object** creates another directory type with a required Name field.
 
+### People and types
+
+People includes internal team members and external contacts in one directory. **Type** is a normal select field: Partner, Counsel, Associate, Assistant, Operations, Freelancer, Other team member and External contact are starting options. A model editor can open **Data model > People > Type**, edit **Options, separated by commas**, and save additional types. The assistant can also update the model. Types are not tied to employee status or app permissions.
+
+New people start with **Active** enabled and Type set to External contact when that option exists. Choose the actual type explicitly. Existing people keep their existing details and assignments; the upgrade enables Active without guessing their type. Set Active to false when someone should stop appearing in new active-team assignments. Existing project links remain readable.
+
 ### File fields
 
 Fee agreements have **Signed agreement**, and invoices have **Invoice PDF**. For another attachment field, open **Data model > choose an object > New field > File**. Enable **Allow several files** for up to 20 attachments in a custom field. Each file can be up to 10 MB.

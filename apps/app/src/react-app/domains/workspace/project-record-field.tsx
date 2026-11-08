@@ -5,6 +5,7 @@ import { ArrowUpRight, ChevronDown, X } from "lucide-react";
 import { Button } from "twenty-ui/primitives/input";
 import { Popover } from "twenty-ui/primitives/surfaces";
 import { BackOfficeFieldSchema, isInternalBackOfficeObject } from "@legalwork/types/back-office";
+import { matchesProjectReferenceFilters } from "@legalwork/types/workspace";
 import type { ProjectField, ProjectRecordReference } from "@legalwork/types/workspace";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { t } from "@/i18n";
@@ -42,6 +43,7 @@ export function ProjectRecordField({ field, client, onSave }: {
   const data = directory.isError ? undefined : directory.data, object = projectReferenceObjects(data).find(object => object.id === field.objectId);
   const ids = field.value?.directoryId === data?.directoryId ? field.value?.recordIds ?? [] : [];
   const records = data?.records ?? [];
+  const selectable = object ? records.filter(record => record.objectId === field.objectId && (ids.includes(record.id) || matchesProjectReferenceFilters(record, object, field.filters))) : [];
   const save = async (value: ProjectRecordReference | null) => { setError(""); await onSave(value); };
   const relation = BackOfficeFieldSchema.parse({ id: "projectReference", label: field.label, type: "relation", target: field.objectId, multiple: field.multiple });
   return <BackOfficeTheme><div className="flex min-h-8 min-w-0 flex-wrap items-center gap-1">
@@ -53,7 +55,7 @@ export function ProjectRecordField({ field, client, onSave }: {
       <Popover.Trigger render={<Button type="button" size="sm" variant="ghost" disabled={!object || !data?.directoryId} aria-label={t("projects.edit_value", { name: field.label })} endIcon={<ChevronDown size={12} />}>{field.value ? t("projects.edit") : t("projects.empty_value")}</Button>} />
       <Popover.Portal><Popover.Positioner align="start" sideOffset={4}>
         <Popover.Popup className="bo-editor-popup" style={{ width: 260 }}>
-      <CellEditor key={`${field.id}:${data?.directoryId}:${open}`} field={relation} value={field.multiple ? ids : ids[0] ?? null} records={records} onCancel={() => setOpen(false)} onSave={async value => {
+      <CellEditor key={`${field.id}:${data?.directoryId}:${open}`} field={relation} value={field.multiple ? ids : ids[0] ?? null} records={selectable} onCancel={() => setOpen(false)} onSave={async value => {
         const selected = Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : typeof value === "string" ? [value] : [];
         if (!data?.directoryId) throw new Error(t("projects.reference.unavailable"));
         await save(selected.length ? { directoryId: data.directoryId, recordIds: selected } : null);

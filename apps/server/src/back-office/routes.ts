@@ -25,7 +25,7 @@ import {
 } from "../routes/registry.js";
 import type { ServerConfig, TokenScope, WorkspaceInfo } from "../types.js";
 import { backOfficeStore, type BackOfficeStore } from "./store.js";
-import { backOfficeAccess, refreshBackOfficeActor } from "./access.js";
+import { backOfficeAccess, refreshBackOfficeActor, backOfficeDirectoryIdentity as directoryIdentity } from "./access.js";
 import { previewImport, applyImport } from "./import.js";
 import { announceSyncChange } from "../app-sync-events.js";
 import {
@@ -39,16 +39,8 @@ import {
   BackOfficeHistoryExportSchema,
 } from "./schema.js";
 import { verifyBackOfficeHistoryExport } from "./history-export.js";
-import { readEigenweltConnection } from "../eigenwelt-connection-store.js";
 import { readProjectDetails } from "../project-store.js";
-import { backOfficeDirectoryKey } from "./principal.js";
 
-async function directoryIdentity(config: ServerConfig, scope: string, store: BackOfficeStore) {
-  if (scope === "local") return `local:${store.journal.storage.identity.deviceId}`;
-  const platformURL = (await readEigenweltConnection(config)).platformURL;
-  if (!platformURL) throw new ApiError(409, "back_office_account_changed", "The connected directory changed.");
-  return backOfficeDirectoryKey(platformURL, scope);
-}
 
 export function registerBackOfficeRoutes(options: {
   routes: Route[];

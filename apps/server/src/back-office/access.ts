@@ -3,9 +3,9 @@ import { appliedOrgPolicy, readOrgPolicyState } from "../org-policy.js";
 import { ApiError } from "../errors.js";
 import type { ServerConfig } from "../types.js";
 import type { BackOfficeActor } from "./schema.js";
-import { backOfficePrincipalKey } from "./principal.js";
+import { backOfficeDirectoryKey, backOfficePrincipalKey } from "./principal.js";
 import { reconcileBackOfficeAccounts } from "./accounts.js";
-import { backOfficeStore, existingBackOfficeStore } from "./store.js";
+import { backOfficeStore, existingBackOfficeStore, type BackOfficeStore } from "./store.js";
 
 /** Refresh only a completed sync's response context, never its captured write authority. */
 export async function refreshBackOfficeActor(config: ServerConfig, scope: string, actor: BackOfficeActor) {
@@ -52,4 +52,11 @@ export async function backOfficeAccess(
   if (!actor)
     throw new ApiError(403, "back_office_sync_disabled", "Your platform administrator must enable Back Office sharing first.");
   return { scope: account.orgId, actor, sharingAllowed: true };
+}
+
+export async function backOfficeDirectoryIdentity(config: ServerConfig, scope: string, store: BackOfficeStore) {
+  if (scope === "local") return `local:${store.journal.storage.identity.deviceId}`;
+  const platformURL = (await readEigenweltConnection(config)).platformURL;
+  if (!platformURL) throw new ApiError(409, "back_office_account_changed", "The connected directory changed.");
+  return backOfficeDirectoryKey(platformURL, scope);
 }

@@ -101,6 +101,7 @@ export function CellEditor({
       <form
         onSubmit={(event) => {
           event.preventDefault();
+          event.stopPropagation();
           if (isChoices) {
             void save(multiple ? selected : (selected[0] ?? null));
             return;

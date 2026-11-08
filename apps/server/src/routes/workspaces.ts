@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { localProjectIdForContent, markLocalProjectPublished, prepareLocalProject, projectHome, recoverLocalProject, workspaceContentPath } from "../project-storage.js";
 import { prepareManagedCoreLibrary } from "../managed-core-library.js";
+import { validateProjectReferences, projectReferenceOptions } from "../back-office/project-references.js";
 import type { registerProjectFolderRoutes } from "./project-folders.js";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
@@ -271,7 +272,7 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
 
   addRoute(routes, "PUT", "/workspaces/project-templates", "host", async (ctx) => {
     ensureWritable(config);
-    return jsonResponse(await saveProjectTemplates(config, await readJsonBodyLimited(ctx.request, 2 * 1024 * 1024)));
+    return jsonResponse(await saveProjectTemplates(config, await readJsonBodyLimited(ctx.request, 2 * 1024 * 1024), (before, after) => validateProjectReferences(config, before, after)));
   });
 
   addRoute(routes, "GET", "/workspace/:id/project", "client", async (ctx) => {
@@ -284,7 +285,7 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
     const workspace = await resolveWorkspace(config, ctx.params.id);
     requireClientScope(ctx, "collaborator");
     const before = await readProjectDetails(workspace.path);
-    const updated = await updateProjectDetails(workspace.path, await readJsonBodyLimited(ctx.request, 512 * 1024));
+    const updated = await updateProjectDetails(workspace.path, await readJsonBodyLimited(ctx.request, 512 * 1024), (before, after) => validateProjectReferences(config, before, after));
     await onProjectDetailsSaved(workspace.id, before.fields, updated.fields);
     return jsonResponse(updated);
   });
@@ -294,9 +295,18 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
     requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const before = await readProjectDetails(workspace.path);
-    const updated = await updateProjectFieldValues(workspace.path, await readJsonBodyLimited(ctx.request, 256 * 1024));
+    const updated = await updateProjectFieldValues(workspace.path, await readJsonBodyLimited(ctx.request, 256 * 1024), (before, after) => validateProjectReferences(config, before, after));
     await onProjectDetailsSaved(workspace.id, before.fields, updated.fields);
     return jsonResponse(updated);
+  });
+
+  addRoute(routes, "GET", "/workspace/:id/project/metadata/:fieldId/options", "client", async ctx => {
+    requireClientScope(ctx, "viewer");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const field = (await readProjectDetails(workspace.path)).fields.find(field => field.id === ctx.params.fieldId);
+    if (field?.type !== "backoffice") throw new ApiError(404, "project_reference_field", "Choose an existing Back Office metadata field.");
+    const query = (ctx.url.searchParams.get("query") ?? "").slice(0, 500);
+    return jsonResponse(await projectReferenceOptions(config, field, query));
   });
 
   const createLocalWorkspace = async (ctx: RequestContext, newProjectOnly = false) => {
@@ -315,6 +325,7 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
       throw new ApiError(400, "invalid_project_template", "Choose either a template or explicit fields.");
     const projectFields = body.projectFields === undefined
       ? await projectFieldsFromTemplate(config, body) : parseProjectFields(body.projectFields);
+    await validateProjectReferences(config, [], projectFields);
     let folderPath = typeof body.folderPath === "string" ? body.folderPath.trim() : "";
     const initializeFromFolders = body.initializeFromFolders === true || body.fromRemoteFolder === true;
     if (initializeFromFolders && !folderPath && !preparedFolders?.length)

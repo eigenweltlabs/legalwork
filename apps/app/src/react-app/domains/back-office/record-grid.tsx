@@ -74,7 +74,7 @@ const defaults: Record<string, string[]> = {
     "leadLawyer",
     "openedOn",
   ],
-  people: ["name", "email", "jobTitle", "company", "phone", "city"],
+  people: ["name", "personType", "active", "email", "jobTitle", "company", "phone", "city"],
   companies: [
     "name",
     "organisationType",

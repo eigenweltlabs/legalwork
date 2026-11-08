@@ -2,7 +2,8 @@ import { z } from "zod";
 export { z } from "zod";
 
 export const BACK_OFFICE_PROTOCOL = 1;
-export const BACK_OFFICE_TEMPLATE = 5;
+export const BACK_OFFICE_TEMPLATE = 6;
+export const DEFAULT_INTERNAL_PERSON_TYPES = ["Partner", "Counsel", "Associate", "Assistant", "Operations", "Freelancer", "Other team member"];
 const identifier = z
   .string()
   .min(1)
@@ -276,6 +277,8 @@ export function defaultBackOfficeModel(): BackOfficeModel {
         field("buyerReference", "E-invoice buyer reference"),
       ]),
       object("people", "Person", "People", "person", [
+        selection("personType", "Type", [...DEFAULT_INTERNAL_PERSON_TYPES, "External contact"]),
+        field("active", "Active", "boolean"),
         field("email", "Email", "email"),
         field("phone", "Phone"),
         field("jobTitle", "Job title"),
@@ -693,7 +696,14 @@ function replacesCompanyClientType(current: BackOfficeModel, next: BackOfficeMod
   const options = next.objects.find(object => object.id === "clients")?.fields.find(field => field.id === "clientType")?.options;
   return current.templateVersion < 5 && next.templateVersion >= 5 && Boolean(options?.includes("Organisation") && !options.includes("Company"));
 }
+export function defaultBackOfficeValues(object: BackOfficeObject): Record<string, BackOfficeValue> {
+  if (object.id !== "people") return {};
+  return { ...(object.fields.some(field => field.id === "active" && field.type === "boolean") ? { active: true } : {}),
+    ...(object.fields.some(field => field.id === "personType" && field.type === "select" && field.options.includes("External contact")) ? { personType: "External contact" } : {}) };
+}
 export function upgradeBackOfficeRecord(current: BackOfficeModel, next: BackOfficeModel, record: BackOfficeRecord, now = new Date().toISOString()): BackOfficeRecord {
+  if (current.templateVersion < 6 && next.templateVersion >= 6 && record.objectId === "people" && record.values.active === undefined)
+    return { ...record, values: { ...record.values, active: true }, revision: record.revision + 1, schemaRevision: next.revision, updatedAt: now };
   return replacesCompanyClientType(current, next) && record.objectId === "clients" && record.values.clientType === "Company"
     ? { ...record, values: { ...record.values, clientType: "Organisation" }, revision: record.revision + 1, schemaRevision: next.revision, updatedAt: now } : record;
 }

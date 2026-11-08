@@ -1,3 +1,5 @@
+import { projectReferenceFiltersSchema } from "@legalwork/types/workspace";
+import { ProjectReferenceFilterEditor } from "./project-reference-filter-editor";
 import { useState, type ReactNode } from "react";
 import type { ProjectDetails, ProjectField } from "@legalwork/types/workspace";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -55,6 +57,7 @@ export function ProjectMetadata(props: {
       setError(t("projects.options_value_missing"));
       return;
     }
+    if (fields.some(field => field.type === "backoffice" && field.filters && !projectReferenceFiltersSchema.safeParse(field.filters).success)) { setError(t("projects.reference.filters_incomplete")); return; }
     setBusy(true);
     setError(null);
     try {
@@ -165,6 +168,7 @@ export function ProjectMetadata(props: {
                 replace({ ...field, multiple: checked === true, value: clear ? null : field.value });
                 setError(null);
               }} />{t("projects.reference.multiple")}</label>
+              <ProjectReferenceFilterEditor object={objects.find(object => object.id === field.objectId)} records={directory.data?.records ?? []} value={field.filters} onChange={filters => replace({ ...field, filters })} />
             </div> : field.type === "select" ? (
               <div className="grid gap-2 sm:col-span-3">
                 <Input

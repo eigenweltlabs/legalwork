@@ -724,6 +724,7 @@ describe("project sync between computers", () => {
     const owner = await machine("user_anna", "Anna"), member = await machine("user_ben", "Ben");
     const project = await localProject(owner.config, "References");
     const reference: ProjectField = { id: "our_contact", label: "Our contacts", type: "backoffice", objectId: "customContacts", multiple: true,
+      filters: { mode: "all", conditions: [{ fieldId: "category", operator: "is", values: ["Internal"] }] },
       value: { directoryId: "team:fixture-firm", recordIds: [crypto.randomUUID(), crypto.randomUUID()] } };
     await updateProjectDetails(project.path, { revision: 0, fields: [reference] });
     await saveProjectSyncSettings(owner.config, project, settings({ access: "org" }));

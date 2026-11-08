@@ -24,6 +24,7 @@ import {
   BackOfficeViewSchema,
   assertModelChange,
   defaultBackOfficeModel,
+  defaultBackOfficeValues,
   readableBackOfficeRecord,
   readableBackOfficeView,
   canonicalBackOfficeAudit,
@@ -551,7 +552,7 @@ export class BackOfficeStore {
             "Only the owner or a model administrator can change sharing.",
           );
         const recordId = existing?.id ?? parsed.id ?? randomUUID();
-        const values = { ...existing?.values };
+        const values = { ...(existing ? existing.values : defaultBackOfficeValues(object)) };
         for (const [id, raw] of Object.entries(parsed.values)) {
           const field = object.fields.find((field) => field.id === id);
           if (!field)

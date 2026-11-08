@@ -44,7 +44,7 @@ test("a stored preview upgrades client classification and view filters atomicall
     for (const record of [organisation, client]) store.db.run("INSERT INTO bo_records VALUES(?,?,?,?)", ["local", record.id, record.objectId, JSON.stringify(record)]);
     store.db.run("INSERT INTO bo_views VALUES(?,?,?)", ["local", view.id, JSON.stringify(view)]);
   }, { action: "fixture.preview-v4" });
-  expect(store.model("local").templateVersion).toBe(5);
+  expect(store.model("local").templateVersion).toBe(6);
   const actor = { userId: "owner", edit: true, model: true, finance: true };
   expect(store.records("local", actor).find(record => record.id === client.id)).toMatchObject({ revision: 2, values: { clientType: "Organisation", company: organisation.id } });
   expect(store.records("local", actor).find(record => record.id === organisation.id)?.revision).toBe(1);

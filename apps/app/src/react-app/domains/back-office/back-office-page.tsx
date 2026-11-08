@@ -28,6 +28,7 @@ import type {
 } from "@legalwork/types/back-office";
 import {
   BackOfficeRecordSchema,
+  defaultBackOfficeValues,
   validateBackOfficeValues,
   isInternalBackOfficeObject,
 } from "@legalwork/types/back-office";
@@ -231,7 +232,7 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
     const draft = BackOfficeRecordSchema.parse({
       id: crypto.randomUUID(),
       objectId: object.id,
-      values: { name: "Untitled", ...values },
+      values: { name: "Untitled", ...defaultBackOfficeValues(object), ...values },
       revision: 0,
       schemaRevision: data.model.revision,
       ownerId: data.permissions.userId,
