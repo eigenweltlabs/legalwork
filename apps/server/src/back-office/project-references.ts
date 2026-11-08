@@ -12,14 +12,14 @@ function previousSelection(before: ProjectField[], field: ReferenceField) {
   return previous?.type === "backoffice" && previous.objectId === field.objectId && previous.value?.directoryId === field.value?.directoryId
     ? previous.value?.recordIds ?? [] : [];
 }
-async function directory(config: ServerConfig) {
-  const { scope, actor } = await backOfficeAccess(config);
+export async function projectReferenceDirectory(config: ServerConfig, team?: boolean) {
+  const { scope, actor } = await backOfficeAccess(config, team);
   const store = await backOfficeStore(config), directoryId = await backOfficeDirectoryIdentity(config, scope, store);
   const model = store.model(scope), records = store.records(scope, actor);
   store.requireAccount(scope, actor);
   return { scope, actor, store, directoryId, model, records };
 }
-function referenceObject(context: Awaited<ReturnType<typeof directory>>, field: ReferenceField) {
+function referenceObject(context: Awaited<ReturnType<typeof projectReferenceDirectory>>, field: ReferenceField) {
   const object = context.model.objects.find(object => object.id === field.objectId && !object.archived && !isInternalBackOfficeObject(object.id));
   if (!object || (!context.actor.finance && ["feeAgreements", "billingItems", "invoices"].includes(object.id)))
     throw new ApiError(400, "project_reference_unavailable", "The selected Back Office object is unavailable.");
@@ -40,7 +40,7 @@ export async function validateProjectReferences(config: ServerConfig, before: Pr
       || Boolean(field.value?.recordIds.some(id => !kept.includes(id)));
   });
   if (!changed.length) return;
-  const context = await directory(config);
+  const context = await projectReferenceDirectory(config);
   for (const field of changed) {
     const object = referenceObject(context, field), kept = previousSelection(before, field);
     for (const id of field.value?.recordIds ?? []) {
@@ -56,7 +56,7 @@ export async function validateProjectReferences(config: ServerConfig, before: Pr
 }
 
 export async function projectReferenceOptions(config: ServerConfig, field: ReferenceField, query: string) {
-  const context = await directory(config), object = referenceObject(context, field);
+  const context = await projectReferenceDirectory(config), object = referenceObject(context, field);
   const available = context.records.filter(record => record.objectId === field.objectId && !record.archivedAt);
   return {
     directoryId: context.directoryId,
@@ -64,4 +64,13 @@ export async function projectReferenceOptions(config: ServerConfig, field: Refer
     records: available.filter(record => matchesProjectReferenceFilters(record, object, field.filters) && String(record.values.name ?? "").toLocaleLowerCase().includes(query.toLocaleLowerCase())),
     selectedRecords: field.value?.directoryId === context.directoryId ? available.filter(record => field.value?.recordIds.includes(record.id)) : [],
   };
+}
+
+/** Resolve identities with current directory permissions, never copied record names. */
+export function projectBackOfficeReferences(context: Awaited<ReturnType<typeof projectReferenceDirectory>>, projectFields: ProjectField[]) {
+  context.store.requireAccount(context.scope, context.actor);
+  const fields = projectFields.flatMap(field => field.type === "backoffice" && field.value?.directoryId === context.directoryId && !isInternalBackOfficeObject(field.objectId)
+    ? [{ id: field.id, label: field.label, objectId: field.objectId, records: context.records.filter(record => record.objectId === field.objectId && field.value?.recordIds.includes(record.id)) }] : []);
+  const records = [...new Map(fields.flatMap(field => field.records).map(record => [record.id, record])).values()];
+  return { directoryId: context.directoryId, fields, records, matters: records.filter(record => record.objectId === "matters"), clients: records.filter(record => record.objectId === "clients") };
 }

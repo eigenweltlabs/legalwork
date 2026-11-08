@@ -1,5 +1,6 @@
 import { workspaceContentPath } from "../project-storage.js";
 import { registerAssistantChatRoutes } from "./assistant-chat.js";
+import { projectBackOfficeReferences, projectReferenceDirectory } from "../back-office/project-references.js";
 import { registerAssistantSessionRoutes } from "./assistant-sessions.js";
 import type { AssistantSessionQueue } from "../assistant-session-queue.js";
 import { join, resolve } from "node:path";
@@ -115,10 +116,10 @@ export function registerMainAssistantRoutes(options: {
       return route.handler({ ...ctx, params: route.params });
     });
   }
-  for (const path of ["calendar/:itemId", "search/files"]) {
+  for (const path of ["calendar/:itemId", "search/files", "back-office/context", "project/metadata/:fieldId/options"]) {
     addRoute(routes, "GET", `/assistant/projects/:id/${path}`, "client", async ctx => {
       await accessible(ctx.params.id);
-      const suffix = path.replace(":itemId", encodeURIComponent(ctx.params.itemId ?? ""));
+      const suffix = path.replace(":itemId", encodeURIComponent(ctx.params.itemId ?? "")).replace(":fieldId", encodeURIComponent(ctx.params.fieldId ?? ""));
       const route = matchRoute(routes, "GET", `/workspace/${encodeURIComponent(ctx.params.id)}/${suffix}`);
       if (!route) throw new ApiError(404, "not_found", "Project tool unavailable.");
       return route.handler({ ...ctx, params: route.params });
@@ -200,6 +201,8 @@ export function registerMainAssistantRoutes(options: {
     const projects = [];
     const unavailable: string[] = [];
     const matches: { entry: WorkspaceInfo; score: number; match: string }[] = [];
+    let referenceDirectory: ReturnType<typeof projectReferenceDirectory> | undefined;
+    let backOfficeUnavailable = false;
     const local = config.workspaces.filter(entry => assistant.canAccessProject(entry.id));
     // Search matter/client metadata as well as names, with bounded filesystem concurrency.
     for (let offset = 0; offset < local.length; offset += 16) {
@@ -209,7 +212,15 @@ export function registerMainAssistantRoutes(options: {
           try {
             const allowed = await accessible(entry.id);
             const details = await readProjectDetails(allowed.path);
-            match = projectMatch(summary(entry), query.data.query, details.fields.map(field => field.value ?? "").join(" "));
+            let metadata = details.fields.filter(field => field.type !== "backoffice").map(field => field.value ?? "").join(" ");
+            if (details.fields.some(field => field.type === "backoffice" && field.value)) {
+              try {
+                referenceDirectory ??= projectReferenceDirectory(config);
+                const linked = projectBackOfficeReferences(await referenceDirectory, details.fields);
+                metadata += " " + linked.records.flatMap(record => Object.values(record.values).filter(value => typeof value === "string" || typeof value === "number")).join(" ");
+              } catch { backOfficeUnavailable = true; }
+            }
+            match = projectMatch(summary(entry), query.data.query, metadata);
           } catch { unavailable.push(entry.id); }
         }
         return match ? { entry, ...match } : null;
@@ -225,7 +236,7 @@ export function registerMainAssistantRoutes(options: {
     const items = projects.slice(0, query.data.limit);
     const last = items.at(-1);
     return jsonResponse({ projects: items, nextCursor: projects.length > query.data.limit && last ? Buffer.from(JSON.stringify({ fingerprint, score: last.score, id: last.id })).toString("base64url") : null,
-      unavailable, note: "Approximate matches are spelling suggestions, not confirmed identities. For a read-only status question, inspect the likely project's overview and state which project you used. Clarify genuinely ambiguous matches before starting or changing work. An empty task search does not mean a project is absent." });
+      unavailable, backOfficeUnavailable, note: "Approximate matches are spelling suggestions, not confirmed identities. For a read-only status question, inspect the likely project's overview and state which project you used. Clarify genuinely ambiguous matches before starting or changing work. An empty task search does not mean a project is absent. If backOfficeUnavailable is true, linked-record metadata could not be searched; do not conclude no matching project exists." });
   });
   addRoute(routes, "GET", "/assistant/projects/:id/overview", "client", async ctx => {
     options.requireClientScope(ctx, "viewer");
@@ -283,7 +294,7 @@ export function registerMainAssistantRoutes(options: {
       target: join(workspaceContentPath(workspace), file.path), summary: `Copied from ${source.id}: ${file.sourcePath}`, timestamp: Date.now(),
     });
     // Metadata capture must not depend on the coordinator remembering a setup flag.
-    const setupContext = `\n\n${input.initializeProject ? "This is a newly created project. " : ""}First use legalwork_project_get_details to discover its configured metadata fields and existing values. Read the provided source files and established client/perspective in the task. Fill missing source-supported client and matter metadata with legalwork_project_set_metadata using exact field IDs, types, options and the latest revision. Preserve existing values and leave uncertain fields empty. Cite the evidence in your result; do not invent a client relationship or legal deadline. Do not delay the requested work for optional unknown metadata. Then carry out the user's task below.`;
+    const setupContext = `\n\n${input.initializeProject ? "This is a newly created project. " : ""}First use legalwork_project_get_details to discover its configured metadata fields and existing values. Read the provided source files and established client/perspective in the task. Fill missing source-supported client and matter metadata with legalwork_project_set_metadata using exact field IDs, types, options and the latest revision. For Back Office fields, use legalwork_back_office_discover to inspect the current model, reuse matching accessible records or create only missing evidence-backed items, use legalwork_project_reference_options, and save {directoryId,recordIds}. Never copy record names into reference values or create projectLinks records. Verify links with legalwork_project_back_office_context. Preserve existing values and leave uncertain fields empty. Cite the evidence in your result; do not invent a client relationship or legal deadline. Do not delay the requested work for optional unknown metadata. Then carry out the user's task below.`;
     const client = options.client(workspace);
     const created = await client.session.create({ title: input.title }, { signal: AbortSignal.timeout(10000) });
     if (!created.data) throw new ApiError(502, "delegation_create", "Could not create the project chat.");

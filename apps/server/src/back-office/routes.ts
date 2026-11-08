@@ -1,4 +1,5 @@
 import { projectFilePath } from "../project-file-schema.js";
+import { projectBackOfficeReferences, projectReferenceDirectory } from "./project-references.js";
 import { readFile, realpath, stat } from "node:fs/promises";
 import { basename, isAbsolute, join, relative, sep } from "node:path";
 import { attachFile, attachedFile, historicalFile, fileFromHistory, fileField } from "./files.js";
@@ -629,22 +630,9 @@ export function registerBackOfficeRoutes(options: {
     async (ctx) => {
       options.requireClientScope(ctx, "viewer");
       const workspace = await options.resolveWorkspace(options.config, ctx.params.id);
-      const { scope, actor } = await backOfficeAccess(
-          options.config,
-          ctx.url.searchParams.get("scope") === "team"
-            ? true
-            : ctx.url.searchParams.get("scope") === "local"
-              ? false
-              : undefined,
-        ),
-        store = await backOfficeStore(options.config);
-      const details = await readProjectDetails(workspace.path), directoryId = await directoryIdentity(options.config, scope, store);
-      const available = store.records(scope, actor);
-      const fields = details.fields.flatMap(field => field.type === "backoffice" && field.value?.directoryId === directoryId
-        ? [{ id: field.id, label: field.label, objectId: field.objectId, records: available.filter(record => record.objectId === field.objectId && field.value?.recordIds.includes(record.id)) }] : []);
-      store.requireAccount(scope, actor);
-      const records = [...new Map(fields.flatMap(field => field.records).map(record => [record.id, record])).values()];
-      return options.jsonResponse({ directoryId, fields, records, matters: records.filter(record => record.objectId === "matters"), clients: records.filter(record => record.objectId === "clients") });
+      const details = await readProjectDetails(workspace.path);
+      const team = ctx.url.searchParams.get("scope") === "team" ? true : ctx.url.searchParams.get("scope") === "local" ? false : undefined;
+      return options.jsonResponse(projectBackOfficeReferences(await projectReferenceDirectory(options.config, team), details.fields));
     },
   );
 }
