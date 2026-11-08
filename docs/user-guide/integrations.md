@@ -44,7 +44,7 @@ LegalWork queues requests across chats and reads results afresh rather than keep
 
 For state legislation, name the state as well as the law. Different states can share the same numeric law number; LegalWork uses the specific section's document ID to keep the source unambiguous. A validity check for a state document applies to that exact version. If it is outside the requested date, search for the version in force on that date.
 
-For decisions referring to a law, the assistant is instructed to search both its abbreviation and its full name, such as IFG and Informationsfreiheitsgesetz. RIS can list different decisions under each spelling. The assistant should read all result pages for both searches using the same court and date filters, then combine the records without duplicates. A single spelling or result page does not establish completeness.
+To research decisions about a law, ask, for example: “Find VwGH decisions about IFG (Informationsfreiheitsgesetz) since 1 September 2025 and combine the results without duplicates.” RIS can list different decisions under the abbreviation and full name, so a search needs to cover both spellings and all result pages within the same court and date range.
 
 Results include original RIS source links, retrieval times and version information. Read any version warning. A connection test confirms reachability, not completeness or legal currency. When a request fails, narrow the query or open the original source; a failure does not establish that no relevant law or decision exists. For legislation, distinguish consolidated information from the authentic promulgation. RIS data is attributed to Bundeskanzleramt, Republik Österreich, under CC BY 4.0.
 
