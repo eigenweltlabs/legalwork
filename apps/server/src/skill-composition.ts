@@ -17,8 +17,8 @@ export async function extensionAt(path: string) {
   try { return SkillExtensionSchema.parse(JSON.parse(await readFile(join(dirname(path), "legalwork-extension.json"), "utf8"))); }
   catch (error) { if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") return null; throw error; }
 }
-export async function composedSkill(workspace: string, name: string, includeExtensions = true) {
-  const installed = await listSkills(workspace, true);
+export async function composedSkill(workspace: string, name: string, includeExtensions = true, coreRoot?: string) {
+  const installed = await listSkills(workspace, true, undefined, coreRoot);
   const chain: Array<{ name: string; hash: string; scope: string; content: string; directory: string; files: Array<{ path: string; size: number }> }> = [];
   const visiting = new Set<string>();
   async function visit(current: string) {

@@ -65,6 +65,23 @@ and the restarted real dev app. Managed projects no longer receive new core
 copies; existing project and personal files remain untouched. Full helper assets
 and generation settings are retained.
 
+Follow-up, 5 November: desktop `native-project` startup already used the shared
+bundle, but registration and first project access still seeded project copies.
+All three entry points now leave those copies alone. Known bundle receipts
+classify complete skill packages and standalone agents/commands: unchanged
+copies yield to the private library; edited, linked, incomplete, cloud-only or
+unknown packages retain their project selection. Existing project copies are
+neither moved nor deleted. Explicit skill edits create a complete custom copy.
+
+Skill discovery supplies the same selected paths to the native engine, API and
+sandbox mounts. The native command adapter omits verified old shortcuts. An
+agent declaration adapter retains the pinned ConfigAgent source order, native
+schema, permission fold and Markdown watching, omitting only verified old app
+copies; the unfiltered `opencode.config.agent` loader is disabled. Project
+configuration, custom plugins, MCP, providers and other native agent providers
+retain their existing ownership. Pinned-engine tests exercise older defaults,
+custom overrides, shared updates, live agent edits and unchanged project files.
+
 Managed MCP definitions have one location-scoped owner. Recovery reads that same
 managed selection; unchanged status refreshes do not wait for a new connection.
 The five real-engine recovery tests pass for disable/remove/disconnect barriers

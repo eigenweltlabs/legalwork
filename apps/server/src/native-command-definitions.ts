@@ -1,10 +1,11 @@
 import { readFile, readdir, realpath, stat } from "node:fs/promises";
-import { join, relative } from "node:path";
+import { dirname, join, relative } from "node:path";
 import type { ConfigGetOutput } from "@opencode/client";
 import { ConfigCommand } from "@opencode/schema/config/command";
 import { Option, Schema } from "effect";
 import { parseFrontmatter } from "./frontmatter.js";
 import type { CommandDefinitions } from "./native-command-schema.js";
+import { unchangedCoreFile } from "./core-bundle.js";
 export { commandDefinitionsSchema, encodeCommandDefinitions, type CommandDefinitions, type EncodedCommandDefinitions } from "./native-command-schema.js";
 
 const decodeCommand = Schema.decodeUnknownOption(ConfigCommand.Info);
@@ -34,6 +35,7 @@ async function commandFiles(root: string, ancestors: ReadonlySet<string> = new S
 export async function resolveNativeCommandDefinitions(
   entries: ConfigGetOutput,
   appCommands: unknown = {},
+  core?: { root: string; commands: Readonly<Record<string, ConfigCommand.Info>> },
 ): Promise<CommandDefinitions> {
   const commands = new Map<string, ConfigCommand.Info>();
   const add = (name: string, input: unknown) => {
@@ -47,6 +49,7 @@ export async function resolveNativeCommandDefinitions(
     }
     const files = (await Promise.all(["command", "commands"].map(name => commandFiles(join(entry.path, name))))).flat();
     for (const file of files.sort()) {
+      if (core && await unchangedCoreFile(dirname(entry.path), file, core.root)) continue;
       try {
         const markdown = parseFrontmatter(await readFile(file, "utf8"));
         const name = relative(entry.path, file).replaceAll("\\", "/")
@@ -56,7 +59,10 @@ export async function resolveNativeCommandDefinitions(
     }
   }
   if (appCommands && typeof appCommands === "object" && !Array.isArray(appCommands)) {
-    for (const [name, command] of Object.entries(appCommands)) add(name, command);
+    for (const [name, command] of Object.entries(appCommands)) {
+      if (core && JSON.stringify(core.commands[name]) === JSON.stringify(command)) continue;
+      add(name, command);
+    }
   }
   return { commands: Object.fromEntries(commands) };
 }

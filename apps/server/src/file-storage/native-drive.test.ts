@@ -28,6 +28,15 @@ function fixture() {
   return { adapter: nativeDriveAdapter(driver), driver, items, add, mutations };
 }
 describe("native drive identities and source capabilities", () => {
+  test("folder creation rejects an existing identity as a new name without provider mutations", async () => {
+    const { adapter, add, mutations } = fixture();
+    const tax = add("tax", "Tax", "root", true);
+    const folder = add("existing", "Fragebogen Steuerliche Erfassung", tax.id, true);
+    await expect(adapter.mkdir(`${nativeSegment(tax)}/${nativeSegment(folder)}`)).rejects.toMatchObject({ code: "invalid_storage_name" });
+    expect(mutations).toEqual([]);
+    await adapter.mkdir(`${nativeSegment(tax)}/${nativeSegment(folder)}/Versandbestätigung`);
+    expect(mutations).toEqual(["mkdir:Versandbestätigung"]);
+  });
   test("parallel identity lookups are bounded and still support ordinary name paths", async () => {
     const run = fixture(); run.driver.parallelMetadata = true;
     let parent = "root";

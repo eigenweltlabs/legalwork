@@ -21,6 +21,7 @@ let payload: unknown;
 let release: (() => void) | undefined;
 let hold = false;
 let tokenSequence = 0;
+let onSync: (() => Promise<void>) | undefined;
 const id = "af506b2e-82eb-40cd-936a-fef613abc765";
 const input = () =>
   storageInputSchema.parse({
@@ -34,18 +35,18 @@ const snapshot = (version = 1, orgId = "firm-one") => ({
   canManage: true,
   connections: [{ id, version, updatedAt: new Date().toISOString(), input: input() }],
 });
-async function signIn(orgId = "firm-one", token = "desktop-token") {
+async function signIn(orgId = "firm-one", token = "desktop-token", userId = "user-one") {
   await writeEigenweltConnection(config, {
     platformToken: token,
-    account: { userId: "user-one", userName: null, userEmail: null, orgId, orgName: orgId },
+    account: { userId, userName: null, userEmail: null, orgId, orgName: orgId },
   });
 }
-async function api(method: string, suffix = "", body?: unknown) {
+async function api(method: string, suffix = "", body?: unknown, owner = true) {
   return fetch(`http://127.0.0.1:${app.port}/workspace/storage-team/storage${suffix}`, {
     method,
     headers: {
       Authorization: `Bearer ${config.token}`,
-      "x-legalwork-host-token": config.hostToken,
+      ...(owner ? { "x-legalwork-host-token": config.hostToken } : {}),
       "Content-Type": "application/json",
     },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
@@ -93,13 +94,17 @@ beforeAll(async () => {
       calls++;
       expect(req.headers.get("authorization")).toStartWith("Bearer ");
       const captured = payload;
+      const capturedStatus = status;
       if (hold) {
         hold = false;
         await new Promise<void>((resolve) => {
           release = resolve;
         });
       }
-      if (req.method === "GET") return Response.json(captured, { status });
+      if (req.method === "GET") {
+        await onSync?.();
+        return Response.json(captured, { status: capturedStatus });
+      }
       if (status !== 200) return Response.json({ code: "forbidden" }, { status });
       return Response.json({ ok: true });
     },
@@ -113,6 +118,7 @@ beforeEach(async () => {
   status = 200;
   hold = false;
   release = undefined;
+  onSync = undefined;
   payload = snapshot();
   await signIn("firm-one", `desktop-token-${++tokenSequence}`);
 });
@@ -127,6 +133,94 @@ afterAll(async () => {
 });
 
 describe("team storage sync", () => {
+  test("retries a successful feed when the same member's token rotates in flight", async () => {
+    const team = new TeamStorage(config);
+    hold = true;
+    const pending = team.list("storage-team");
+    while (!release) await new Promise((resolve) => setTimeout(resolve, 1));
+    await signIn("firm-one", "renewed-token");
+    release();
+    expect((await pending).connections[0]?.id).toBe(`team:${id}`);
+    expect(calls).toBe(2);
+    await team.list("storage-team");
+    expect(calls).toBe(2);
+  });
+  test("retries a rejected old token against the renewed member token", async () => {
+    const team = new TeamStorage(config);
+    status = 401;
+    hold = true;
+    const pending = team.list("storage-team");
+    while (!release) await new Promise((resolve) => setTimeout(resolve, 1));
+    await signIn("firm-one", "renewed-token");
+    status = 200;
+    release();
+    expect((await pending).connections[0]?.id).toBe(`team:${id}`);
+    expect(calls).toBe(2);
+  });
+  test("keeps only display metadata during an outage, blocks tools, and recovers", async () => {
+    expect((await (await api("GET", "/roots")).json()).roots.some((root: { id: string }) => root.id === `team:${id}`)).toBe(true);
+    setSystemTime(Date.now() + 30_001);
+    status = 503;
+    const failed = await (await api("GET", "/roots")).json();
+    expect(failed.roots.some((root: { id: string }) => root.id === `team:${id}`)).toBe(false);
+    expect(failed.unavailableRoots).toEqual([{ id: `team:${id}`, name: "Shared documents", kind: "webdav", writable: false }]);
+    expect(JSON.stringify(failed)).not.toContain("team-secret-not-on-disk");
+    expect(JSON.stringify(failed.unavailableRoots)).not.toContain("endpoint");
+    expect((await api("GET", `/team:${id}/children`)).status).toBe(503);
+    status = 200;
+    const recovered = await (await api("GET", "/roots")).json();
+    expect(recovered.roots.some((root: { id: string }) => root.id === `team:${id}`)).toBe(true);
+    expect(recovered.unavailableRoots).toBeUndefined();
+    setSystemTime(Date.now() + 30_001);
+    payload = { ...snapshot(), connections: [] };
+    const removed = await (await api("GET", "/roots")).json();
+    expect(removed.roots.some((root: { id: string }) => root.id === `team:${id}`)).toBe(false);
+    expect(removed.unavailableRoots).toBeUndefined();
+  });
+  test("rejects an in-flight response after switching members in the same firm", async () => {
+    const team = new TeamStorage(config);
+    hold = true;
+    const pending = team.list("storage-team");
+    while (!release) await new Promise((resolve) => setTimeout(resolve, 1));
+    await signIn("firm-one", "other-member-token", "user-two");
+    release();
+    expect((await pending).connections).toEqual([]);
+    expect((await team.list("storage-team")).connections[0]?.id).toBe(`team:${id}`);
+  });
+  test("bounds retries during repeated token rotation without retaining credentials", async () => {
+    const team = new TeamStorage(config);
+    await team.list("storage-team");
+    calls = 0;
+    let rotations = 0;
+    onSync = () => signIn("firm-one", `rotated-${++rotations}`);
+    const result = await team.list("storage-team", true);
+    expect(calls).toBe(2);
+    expect(result.connections).toEqual([]);
+    expect(result.status.error).toBeDefined();
+    expect(result.unavailable?.[0].root.name).toBe("Shared documents");
+    expect(JSON.stringify(result)).not.toContain("team-secret-not-on-disk");
+  });
+  test("clears outage display metadata when the member changes", async () => {
+    const team = new TeamStorage(config);
+    await team.list("storage-team");
+    status = 503;
+    expect((await team.list("storage-team", true)).unavailable).toHaveLength(1);
+    await signIn("firm-one", "other-member-token", "user-two");
+    expect(await team.list("storage-team")).toEqual({ connections: [], status: { connected: false, canManage: false } });
+  });
+  test("does not expose owner-only cloud names to collaborators during an outage", async () => {
+    payload = { ...snapshot(), connections: [...snapshot().connections, {
+      id: "5c649790-c194-4443-931d-d281f9f4f502", version: 1, updatedAt: new Date().toISOString(),
+      input: storageInputSchema.parse({ name: "Member cloud view", config: { kind: "oauth", provider: "google-drive", root: "", sharingMode: "member" } }),
+    }] };
+    expect((await (await api("GET", "/roots")).json()).roots).toHaveLength(2);
+    setSystemTime(Date.now() + 30_001);
+    status = 503;
+    const collaborator = await (await api("GET", "/roots", undefined, false)).json();
+    expect(collaborator.unavailableRoots).toHaveLength(1);
+    expect(JSON.stringify(collaborator)).not.toContain("Member cloud view");
+    expect((await (await api("GET", "/roots")).json()).unavailableRoots).toHaveLength(2);
+  });
   test("optional connections require local installation and removal revokes file and search access", async () => {
     payload = {
       ...snapshot(),
@@ -229,7 +323,9 @@ describe("team storage sync", () => {
     const team = new TeamStorage(config);
     await team.list("storage-team");
     status = 403;
-    expect((await team.list("storage-team", true)).connections).toEqual([]);
+    const rejected = await team.list("storage-team", true);
+    expect(rejected.connections).toEqual([]);
+    expect(rejected.unavailable).toBeUndefined();
     expect((await team.list("storage-team")).status.error).toBeDefined();
     status = 200;
     for (const invalid of [
