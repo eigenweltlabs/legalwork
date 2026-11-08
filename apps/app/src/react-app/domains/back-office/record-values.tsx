@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { FileValue } from "./record-files";
 import {
   CalendarDays,
@@ -16,7 +17,7 @@ import type {
   BackOfficeValue,
 } from "@legalwork/types/back-office";
 import { selectColor } from "./select-colors";
-export function FieldIcon({ field }: { field: BackOfficeField }) {
+export const FieldIcon = memo(function FieldIcon({ field }: { field: BackOfficeField }) {
   const Icon =
     field.type === "boolean"
       ? Check
@@ -34,8 +35,8 @@ export function FieldIcon({ field }: { field: BackOfficeField }) {
                   ? LockKeyhole
                   : Type;
   return <Icon size={13} aria-hidden="true" />;
-}
-export function RecordChip({
+});
+export const RecordChip = memo(function RecordChip({
   record,
   onOpen,
 }: {
@@ -67,7 +68,7 @@ export function RecordChip({
       {name}
     </Chip>
   );
-}
+});
 export function ValueDisplay({
   field,
   value,
@@ -82,7 +83,6 @@ export function ValueDisplay({
   onOpen: (record: BackOfficeRecord) => void;
 }) {
   if (value === null || value === undefined || value === "") return null;
-  if (field.type === "file") return <FileValue value={value} />;
   if (field.type === "relation")
     return (
       <div className="bo-relation-values">
@@ -94,6 +94,11 @@ export function ValueDisplay({
         })}
       </div>
     );
+  return <FieldValue field={field} value={value} />;
+}
+
+const FieldValue = memo(function FieldValue({ field, value }: { field: BackOfficeField; value: NonNullable<BackOfficeValue> }) {
+  if (field.type === "file") return <FileValue value={value} />;
   if (field.type === "select")
     return <Tag color={selectColor(String(value))}>{String(value)}</Tag>;
   if (
@@ -134,4 +139,4 @@ export function ValueDisplay({
       </div>
     );
   return <span className="bo-truncate">{String(value)}</span>;
-}
+});

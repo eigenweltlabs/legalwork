@@ -1,5 +1,5 @@
 import { useRecordDrag } from "./use-record-drag";
-import { useState } from "react";
+import { memo, useId, useRef, useState } from "react";
 import {
   CalendarDays,
   ChevronDown,
@@ -58,6 +58,8 @@ function Property({
   placeholder?: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const anchor = useRef<HTMLButtonElement>(null);
+  const popupId = useId();
   const value = record.values[field.id];
   const content =
     value === null || value === undefined || value === "" ? (
@@ -78,37 +80,49 @@ function Property({
   )
     return <span className="bo-record-property">{content}</span>;
   return (
-    <Popover.Root open={open} onOpenChange={setOpen}>
-      <Popover.Trigger
-        render={
-          <button
-            className="bo-record-property"
-            aria-label={`${field.label}: ${String(value ?? "")}`}
-            onClick={(event) => event.stopPropagation()}
-          />
-        }
+    <>
+      <button
+        type="button"
+        ref={anchor}
+        className="bo-record-property"
+        aria-label={`${field.label}: ${String(value ?? "")}`}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        aria-controls={open ? popupId : undefined}
+        onMouseDown={(event) => { if (open) event.preventDefault(); }}
+        onClick={(event) => { event.stopPropagation(); setOpen(!open); }}
       >
         {content}
-      </Popover.Trigger>
-      <Popover.Portal>
-        <Popover.Positioner align="start" sideOffset={4}>
-          <DirectoryEditorPopup>
-            <CellEditor
-              record={record}
-              field={field}
-              value={value}
-              records={props.records}
-              onSave={(value) => props.onSave(record, { [field.id]: value })}
-              onCancel={() => setOpen(false)}
-            />
-          </DirectoryEditorPopup>
-        </Popover.Positioner>
-      </Popover.Portal>
-    </Popover.Root>
+      </button>
+      {open && (
+        <Popover.Root open onOpenChange={(nextOpen, details) => {
+          if (details.reason === "outside-press" && details.event.target instanceof Node && anchor.current?.contains(details.event.target)) {
+            details.cancel();
+            return;
+          }
+          setOpen(nextOpen);
+        }}>
+          <Popover.Portal>
+            <Popover.Positioner anchor={anchor} align="start" sideOffset={4}>
+              <DirectoryEditorPopup id={popupId} finalFocus={anchor}>
+                <CellEditor
+                  record={record}
+                  field={field}
+                  value={value}
+                  records={props.records}
+                  onSave={(value) => props.onSave(record, { [field.id]: value })}
+                  onCancel={() => setOpen(false)}
+                />
+              </DirectoryEditorPopup>
+            </Popover.Positioner>
+          </Popover.Portal>
+        </Popover.Root>
+      )}
+    </>
   );
 }
 
-function Title({
+const Title = memo(function Title({
   record,
   onOpen,
 }: {
@@ -133,7 +147,31 @@ function Title({
       <span>{name}</span>
     </button>
   );
-}
+});
+
+// A pending drop changes the columns and drag affordances. The other cards keep their contents.
+const CardContents = memo(function CardContents({ record, props }: { record: BackOfficeRecord; props: Props }) {
+  return (
+    <>
+      <Title record={record} onOpen={props.onOpen} />
+      <div className="bo-record-card-properties">
+        {props.fields
+          .filter((field) => field.id !== "name")
+          .map((field) => (
+            <div key={field.id} className="bo-record-card-property">
+              <FieldIcon field={field} />
+              <Property
+                record={record}
+                field={field}
+                props={props}
+                placeholder
+              />
+            </div>
+          ))}
+      </div>
+    </>
+  );
+});
 
 function RecordCard({
   record,
@@ -156,24 +194,8 @@ function RecordCard({
       onPointerDown={(event) => {
         if (draggable) drag?.start(record, event);
       }}
-      onClickCapture={drag?.preventClick}
     >
-      <Title record={record} onOpen={props.onOpen} />
-      <div className="bo-record-card-properties">
-        {props.fields
-          .filter((field) => field.id !== "name")
-          .map((field) => (
-            <div key={field.id} className="bo-record-card-property">
-              <FieldIcon field={field} />
-              <Property
-                record={record}
-                field={field}
-                props={props}
-                placeholder
-              />
-            </div>
-          ))}
-      </div>
+      <CardContents record={record} props={props} />
     </Card.Root>
   );
 }
@@ -215,45 +237,51 @@ export function RecordList(props: Props) {
   );
 }
 
-export function RecordKanban({
-  field,
-  ...props
-}: Props & { field: BackOfficeField }) {
+export function RecordKanban(props: Props & { field: BackOfficeField }) {
+  const { field } = props;
   const [error, setError] = useState("");
-  const [moving, setMoving] = useState(false);
-  const groups = groupViewRecords(props.rows, field, props.records);
+  const [move, setMove] = useState<{
+    record: BackOfficeRecord;
+    fieldId: string;
+    value: string | null;
+  } | null>(null);
+  // Show the drop immediately. A refreshed revision takes precedence over the pending move.
+  const rows = move?.fieldId === field.id
+    ? props.rows.map(row => row.id === move.record.id && row.revision === move.record.revision
+      ? { ...row, values: { ...row.values, [field.id]: move.value } } : row)
+    : props.rows;
+  const groups = groupViewRecords(rows, field, props.records);
   const drag = useRecordDrag((record, target) => {
     const group = groups.find(
       (group) => JSON.stringify(group.value) === target,
     );
     if (
       !props.editable ||
-      moving ||
+      move ||
       !group ||
       !props.rows.some((row) => row.id === record.id) ||
       (record.values[field.id] || null) === group.value
     )
       return;
-    setMoving(true);
+    setMove({ record, fieldId: field.id, value: group.value });
     setError("");
     void props
       .onSave(record, { [field.id]: group.value })
       .catch((error) => setError(error.message))
-      .finally(() => setMoving(false));
+      .finally(() => setMove(null));
   });
   return (
     <div className="bo-kanban-wrap">
-      {drag.preview}
       {error && (
         <p role="alert" className="bo-error">
           {error}
         </p>
       )}
-      <div className="bo-kanban" aria-label={field.label}>
+      <div {...drag.surfaceProps} className="bo-kanban" aria-label={field.label} aria-busy={Boolean(move)}>
         {groups.map((group) => (
           <section
             key={group.value ?? "__empty"}
-            className={`bo-kanban-column ${drag.over === JSON.stringify(group.value) ? "bo-drop-target" : ""}`}
+            className="bo-kanban-column"
             data-bo-drop={
               props.editable ? JSON.stringify(group.value) : undefined
             }
@@ -274,7 +302,7 @@ export function RecordKanban({
                 key={record.id}
                 record={record}
                 props={props}
-                draggable={props.editable && !moving}
+                draggable={props.editable && !move}
                 drag={drag}
               />
             ))}
@@ -348,7 +376,6 @@ export function RecordCalendar({
   };
   return (
     <div className="bo-calendar">
-      {drag.preview}
       <div className="bo-calendar-toolbar">
         <DirectorySelect
           label={t("back_office.calendar_period")}
@@ -449,6 +476,7 @@ export function RecordCalendar({
         ))}
       </div>
       <div
+        {...drag.surfaceProps}
         className="bo-calendar-grid"
         style={{
           gridTemplateColumns: `repeat(${mode === "day" ? 1 : 7},minmax(0,1fr))`,
@@ -460,7 +488,7 @@ export function RecordCalendar({
           return (
             <section
               key={key}
-              className={`bo-calendar-day ${day.getMonth() !== anchor.getMonth() ? "bo-other-month" : ""} ${drag.over === key ? "bo-drop-target" : ""}`}
+              className={`bo-calendar-day ${day.getMonth() !== anchor.getMonth() ? "bo-other-month" : ""}`}
               data-bo-drop={dateEditable ? key : undefined}
               aria-label={day.toLocaleDateString(locale)}
             >

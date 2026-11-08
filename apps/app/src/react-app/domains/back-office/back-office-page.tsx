@@ -1,6 +1,6 @@
 import { RecordCreationProvider } from "./record-creation-context";
 import { RecordFilesProvider } from "./record-files";
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "@legalwork/types/back-office";
@@ -82,6 +82,7 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
       new URLSearchParams(location.search).get("record"),
     ),
     [error, setError] = useState("");
+  const openRecord = useCallback((record: BackOfficeRecord) => setDetailId(record.id), []);
   const [draft, setDraft] = useState<BackOfficeRecord | null>(null);
   const [focusNameId, setFocusNameId] = useState<string | null>(null);
   const [detailWidth, setDetailWidth] = useState(400);
@@ -552,7 +553,7 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
                 finance={data.permissions.finance}
                 userId={data.permissions.userId}
                 onSave={save}
-                onOpen={(record) => setDetailId(record.id)}
+                onOpen={openRecord}
                 onCreate={(values) => void beginCreate(values)}
                 onSaveView={saveView}
                 archived={archived}
@@ -577,7 +578,7 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
               userId={data.permissions.userId}
               onClose={() => setDetailId(null)}
               onSave={save}
-              onOpen={(record) => setDetailId(record.id)}
+              onOpen={openRecord}
 
             />
           )}

@@ -1423,7 +1423,7 @@
   padding: 1px 5px;
   color: var(--bo-muted);
 }
-.bo-drop-target {
+[data-bo-drop][data-bo-drag-over] {
   background: var(--t-accent-tertiary);
 }
 .bo-calendar {
@@ -1507,6 +1507,9 @@
 }
 .bo-pointer-drag-preview {
   position: fixed;
+  top: 0;
+  left: 0;
+  will-change: transform;
   z-index: 10000;
   pointer-events: none;
   max-width: 220px;
