@@ -4,10 +4,17 @@ import { lstat, mkdir, open, readdir, realpath, rename, rm, writeFile } from "no
 import { join } from "node:path";
 import { z } from "zod";
 import type { ViewInput, ViewOwner, ViewRecord, ViewSummary, ViewIssue } from "@legalwork/types/views";
-import { StoredViewSchema, ViewInputSchema, isLocalOpenUIProgram } from "./schema.js";
+import { isBackOfficeQuery, StoredViewSchema, ViewInputSchema, isLocalOpenUIProgram } from "./schema.js";
 import { ApiError } from "../errors.js";
 import { withFileWriteLock } from "../file-write-lock.js";
 import { importProjectFile, projectFileParent } from "../project-file-links.js";
+
+/** Saved live directory bindings always resolve with the viewer's current permissions. */
+export function storedViewInput(input: ViewInput): ViewInput {
+  if (input.mode !== "dashboard" || !input.datasets) return input;
+  return { ...input, datasets: Object.fromEntries(Object.entries(input.datasets).filter(([name]) =>
+    !Object.hasOwn(input.queries, name) || !isBackOfficeQuery(input.queries[name]))) };
+}
 
 const MAX_BYTES = 2 * 1024 * 1024;
 const isRecordPath = (path: string) => /\.view(?:\.conflict-[a-f0-9]{12})?\.json$/i.test(path);
@@ -78,9 +85,9 @@ export class ViewRepository {
     const parsed = ViewInputSchema.safeParse(input);
     if (!parsed.success) throw new ApiError(400, "invalid_view", "Check the view title, program and data bindings.");
     if (!isLocalOpenUIProgram(parsed.data.program)) throw new ApiError(400, "invalid_view_program", "Use the bundled OpenUI component language without scripts or hosted response bundles.");
-    if (this.owner.kind === "workspace" && Object.keys(input.queries).length) throw new ApiError(400, "workspace_view_requires_datasets", "Project reports and dashboards use named datasets from their sources. Live indexed wiki queries belong to the wiki.");
+    if (this.owner.kind === "workspace" && Object.values(input.queries).some(q => !isBackOfficeQuery(q))) throw new ApiError(400, "workspace_view_requires_datasets", "Project reports and dashboards use named datasets from their sources. Live indexed wiki queries belong to the wiki.");
     if (input.mode === "report" && Object.keys(input.queries).some(name => !input.datasets?.[name])) throw new ApiError(400, "report_snapshot_missing", "Frozen reports must retain their query datasets.");
-    return parsed.data;
+    return storedViewInput(parsed.data);
   }
   async create(input: ViewInput, id: string = randomUUID()): Promise<ViewRecord> {
     z.string().uuid().parse(id);

@@ -1,3 +1,5 @@
+import { BackOfficeQueryPageSchema } from "../views/schema.js";
+import { queryDirectoryRecords } from "./dashboard-query.js";
 import { projectFilePath } from "../project-file-schema.js";
 import { projectBackOfficeReferences, projectReferenceDirectory } from "./project-references.js";
 import { readFile, realpath, stat } from "node:fs/promises";
@@ -72,6 +74,7 @@ export function registerBackOfficeRoutes(options: {
       store: BackOfficeStore,
       access: Awaited<ReturnType<typeof backOfficeAccess>>,
     ) => Promise<unknown>,
+    readOnly = method === "GET",
   ) => {
     addRoute(
       options.routes,
@@ -81,9 +84,9 @@ export function registerBackOfficeRoutes(options: {
       async (ctx) => {
         options.requireClientScope(
           ctx,
-          method === "GET" ? "viewer" : "collaborator",
+          readOnly ? "viewer" : "collaborator",
         );
-        if (method !== "GET") options.ensureWritable(options.config);
+        if (!readOnly) options.ensureWritable(options.config);
         const access = await backOfficeAccess(
           options.config,
           ctx.url.searchParams.get("scope") === "team"
@@ -101,7 +104,7 @@ export function registerBackOfficeRoutes(options: {
           store.restrictTeamAccess(access.scope, access.actor);
           if (
             access.scope !== "local" &&
-            method !== "GET" &&
+            !readOnly &&
             !["/sync/preview", "/sync/publish", "/sync"].includes(path) &&
             !store.syncState(access.scope).enabled
           )
@@ -113,7 +116,7 @@ export function registerBackOfficeRoutes(options: {
           const result = await action(ctx, store, access);
           store.requireAccount(access.scope, access.actor);
           store.checkIntegrity();
-          if (method !== "GET") {
+          if (!readOnly) {
             announceSyncChange(options.config, "backOffice");
             if (access.scope !== "local")
               scheduleBackOfficeSync(options.config);
@@ -192,6 +195,7 @@ export function registerBackOfficeRoutes(options: {
       views: store.views(scope),
       sync: store.syncState(scope, actor),
     };
+    if (ctx.url.searchParams.get("schema") === "1") return metadata;
     if (ctx.url.searchParams.get("manifest") !== "1") return { ...metadata, records: store.records(scope, actor) };
     const archivedObject = ctx.url.searchParams.get("archivedObject") || undefined;
     const records = store.records(scope, actor, archivedObject, Boolean(archivedObject));
@@ -200,6 +204,22 @@ export function registerBackOfficeRoutes(options: {
     const version = createHash("sha256").update(identity).update(JSON.stringify(index)).digest("hex");
     return { ...metadata, version, index: ctx.url.searchParams.get("known") === version ? null : index };
   });
+  route("POST", "/dashboard-query", async (ctx, store, { scope, actor }) => {
+    const query = BackOfficeQueryPageSchema.parse(await input(ctx));
+    if (query.directoryId !== await directoryIdentity(options.config, scope, store))
+      throw new ApiError(409, "back_office_directory_changed", "Open this dashboard from its original Back Office directory.");
+    if (scope !== "local") {
+      store.setSync(scope, true);
+      await syncBackOffice(options.config);
+      await refreshBackOfficeActor(options.config, scope, actor);
+    }
+    const model = store.model(scope);
+    const result = queryDirectoryRecords(model, actor, (objectId) => {
+      const active = store.records(scope, actor, objectId);
+      return query.includeArchived ? active.concat(store.records(scope, actor, objectId, true)) : active;
+    }, query);
+    return result;
+  }, true);
   route("GET", "/record-page", async (ctx, store, {scope, actor}) => {
     const ids = z.array(z.string().uuid()).min(1).max(100).parse(ctx.url.searchParams.get("ids")?.split(","));
     const directoryId = await directoryIdentity(options.config, scope, store);

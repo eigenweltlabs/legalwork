@@ -6,7 +6,7 @@ import { z } from "zod";
 import { AssistantSaveReportSchema, ViewInputSchema, viewReferenceKey } from "./views/schema.js";
 import { ApiError } from "./errors.js";
 import { withFileWriteLock } from "./file-write-lock.js";
-import { ViewRepository, workspaceViewFiles } from "./views/repository.js";
+import { storedViewInput, ViewRepository, workspaceViewFiles } from "./views/repository.js";
 
 /** Same key means the same file, even after a lost response or simultaneous retry. */
 export async function saveAssistantReport(workspace: { id: string; path: string; contentPath?: string }, raw: z.infer<typeof AssistantSaveReportSchema>) {
@@ -22,7 +22,7 @@ export async function saveAssistantReport(workspace: { id: string; path: string;
     const previousInput = current ? ViewInputSchema.parse(Object.fromEntries(
       Object.entries(current).filter(([name]) => name !== "id" && name !== "updatedAt" && name !== "owner" && name !== "revision"),
     )) : null;
-    const unchanged = current !== null && isDeepStrictEqual(previousInput, input);
+    const unchanged = current !== null && isDeepStrictEqual(previousInput, storedViewInput(input));
     if (current && !unchanged && baseRevision !== current.revision)
       throw new ApiError(409, "view_revision_conflict", "This report already exists. Read it with view_read and provide its current baseRevision before updating it.");
     if (!current && baseRevision) throw new ApiError(409, "view_revision_conflict", "The original report is missing. Do not recreate it as an update.");

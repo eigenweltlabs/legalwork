@@ -1,3 +1,4 @@
+import { isBackOfficeQuery } from "@legalwork/types/views";
 import type { ViewRecord, WikiDataResult } from "@legalwork/types/views";
 
 /** The renderer cannot choose a write target or revision. Derive both from the query result. */
@@ -6,7 +7,7 @@ export function viewBoardSource(view: ViewRecord, datasets: Record<string, WikiD
   const binding = row.__viewBinding;
   if (!Object.hasOwn(view.queries, binding) || !Object.hasOwn(datasets, binding)) return null;
   const query = view.queries[binding], data = datasets[binding];
-  if (query.groupBy || query.metrics?.length || !query.fields.includes(field) || !field.startsWith("properties.")) return null;
+  if (isBackOfficeQuery(query) || query.groupBy || query.metrics?.length || !query.fields.includes(field) || !field.startsWith("properties.")) return null;
   const property = field.slice(11);
   if (!property || property.length > 200 || /[\u0000-\u001f]/.test(property) || ["__proto__", "prototype", "constructor", "<<"].includes(property)) return null;
   if (data.sourceOwner && (data.sourceOwner.kind !== "wiki" || data.sourceOwner.id !== view.owner.id)) return null;

@@ -1,4 +1,5 @@
 export type RisIntegrationStatus = { enabled: boolean; allowed: boolean; readOnly: boolean; source: string; requiresAuthentication: false };
+import type { BackOfficeDataQuery } from "@legalwork/types/views";
 import { trackLegalMemoryInterfaceRead } from "./legalmemory-interface-activity";
 import { pendingProjectRemoval, waitForProjectRemoval } from "./project-removal-state";
 import { LegalMemoryPermissionsSchema, type LegalMemoryPermissionReply } from "@legalwork/types/legalmemory";
@@ -1785,6 +1786,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     readView: (owner: ViewOwner, id: string) => requestJson<ViewRecord>(baseUrl, `/${owner.kind === "wiki" ? "wikis" : "workspace"}/${encodeURIComponent(owner.id)}/ui-views/${encodeURIComponent(id)}`, { token, hostToken }),
     createView: (owner: ViewOwner, input: ViewInput, savedFrom?: ViewSaveSource) => requestJson<ViewRecord>(baseUrl, `/${owner.kind === "wiki" ? "wikis" : "workspace"}/${encodeURIComponent(owner.id)}/ui-views${savedFrom ? `?source=${encodeURIComponent(JSON.stringify(savedFrom))}` : ""}`, { token, hostToken, method: "POST", body: input }),
     updateView: (owner: ViewOwner, id: string, input: { baseRevision: string; input: ViewInput }, savedFrom?: ViewSaveSource) => requestJson<ViewRecord>(baseUrl, `/${owner.kind === "wiki" ? "wikis" : "workspace"}/${encodeURIComponent(owner.id)}/ui-views/${encodeURIComponent(id)}${savedFrom ? `?source=${encodeURIComponent(JSON.stringify(savedFrom))}` : ""}`, { token, hostToken, method: "PUT", body: input }),
+    queryBackOffice: (query: BackOfficeDataQuery) => requestJson<WikiDataResult>(baseUrl, "/back-office/dashboard-query", { token, hostToken, method: "POST", body: query, readOnly: true }),
     queryWiki: (id: string, query: WikiDataQuery) => requestJson<WikiDataResult>(baseUrl, `/wikis/${encodeURIComponent(id)}/query`, { token, hostToken, method: "POST", body: query, readOnly: true }),
     updateWikiProperties: (id: string, input: { path: string; baseRevision: string; patch: { set: Record<string, string> } }) => requestJson<WikiDocument>(baseUrl, `/wikis/${encodeURIComponent(id)}/properties`, { token, hostToken, method: "PATCH", body: input }),
     wikiFields: (id: string) => requestJson<WikiFields>(baseUrl, `/wikis/${encodeURIComponent(id)}/fields`, { token, hostToken }),

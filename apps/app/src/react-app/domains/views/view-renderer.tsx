@@ -1,3 +1,5 @@
+import { isBackOfficeQuery } from "@legalwork/types/views";
+import { onSyncPoke } from "@/react-app/kernel/sync-events";
 import { openDesktopUrl } from "@/app/lib/desktop";
 import { parseTaskLink } from "../tasks/task-reference";
 import { useRequestOpenTask } from "../session/panel/panel-tab-destination";
@@ -7,7 +9,7 @@ import { ViewSaveDialog } from "./view-save-dialog";
 import { ViewSaveActions } from "./view-save-actions";
 import { savedViewKey } from "./view-save-locations";
 import { viewInput } from "./view-save";
-import { t } from "@/i18n";
+import { currentLocale, subscribeLocale, t } from "@/i18n";
 import { Component, useCallback, useEffect, useState, useSyncExternalStore, type ComponentProps, type ReactNode } from "react";
 import { getResolvedThemeMode, subscribeToTheme } from "@/app/theme";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -17,7 +19,7 @@ import type { ViewOwner, ViewPreview, ViewRecord, WikiDataResult } from "@legalw
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { Button } from "@/components/ui/button";
 import { Download, Loader2, RefreshCw } from "lucide-react";
-import { downloadViewFile } from "./view-file";
+import { downloadViewFile, resolveViewBinding } from "./view-file";
 import { viewDataStatus, viewSourceAvailable } from "./view-data-status";
 import { useRequestPanelTab } from "../session/panel/panel-tab-destination";
 import { useProjectFiles } from "../workspace/project-file-context";
@@ -30,7 +32,8 @@ import "./views.css";
 
 function OpenUIView(props: Omit<ComponentProps<typeof OpenUIRenderer>, "dark">) {
   const theme = useSyncExternalStore(subscribeToTheme, getResolvedThemeMode, getResolvedThemeMode);
-  return <OpenUIRenderer {...props} dark={theme === "dark"} />;
+  const locale = useSyncExternalStore(subscribeLocale, currentLocale, currentLocale);
+  return <OpenUIRenderer {...props} locale={locale} dark={theme === "dark"} />;
 }
 class ViewBoundary extends Component<{ children: ReactNode; fallback?: string }, { failed: boolean }> {
   state = { failed: false };
@@ -50,21 +53,30 @@ function ResolvedView({ client, view, refreshKey, openSource, readOnly }: { clie
   const [error, setError] = useState("");
   const wikis = useQuery({ queryKey: ["wikis", client.baseUrl], queryFn: () => client.listWikis(), enabled: view.mode === "dashboard" && view.owner.kind === "wiki" });
   const writable = !readOnly && view.mode === "dashboard" && view.owner.kind === "wiki" && wikis.data?.items.some(wiki => wiki.id === view.owner.id && wiki.writable);
+  const liveDirectory = view.mode === "dashboard" && Object.values(view.queries).some(isBackOfficeQuery);
   const results = useQuery({
+    meta: { liveBackOffice: liveDirectory },
     queryKey: ["view-data", client.baseUrl, view.owner.kind, view.owner.id, view.id, view.revision, refreshKey],
     queryFn: async (): Promise<Record<string, WikiDataResult>> => {
       if (view.mode === "report" || !Object.keys(view.queries).length) return view.datasets ?? {};
-      if (view.owner.kind !== "wiki") throw new Error("This view has no wiki data source");
-      const entries = await Promise.all(Object.entries(view.queries).map(async ([name, query]) => [name, await client.queryWiki(view.owner.id, query)]));
+      const entries = await Promise.all(Object.entries(view.queries).map(async ([name, query]) => [name, await resolveViewBinding(client, view.owner, query)]));
       return { ...view.datasets, ...Object.fromEntries(entries) };
     },
     refetchInterval: view.mode === "dashboard" ? 15_000 : false,
   });
+  const localDirectory = Object.values(view.queries).some(q => isBackOfficeQuery(q) && q.directoryId.startsWith("local:"));
+  useEffect(() => {
+    if (!liveDirectory) return;
+    return onSyncPoke(poke => {
+      if ((localDirectory && poke.backOffice) || poke.resync)
+        void queryClient.invalidateQueries({ queryKey: ["view-data", client.baseUrl, view.owner.kind, view.owner.id, view.id] }, { cancelRefetch: false });
+    });
+  }, [liveDirectory, localDirectory, queryClient, client.baseUrl, view.owner.kind, view.owner.id, view.id]);
   const query = useCallback(async (name: string): Promise<WikiDataResult> => {
     if (!results.data || !Object.hasOwn(results.data, name)) throw new Error(`Unknown data binding: ${name}`);
     const data: WikiDataResult = results.data[name];
-    return { ...data, rows: data.rows.map(row => ({ ...row, __viewSourceOwner: data.sourceOwner ?? view.owner, __viewSourceAvailable: viewSourceAvailable(data, client.baseUrl), __viewBinding: name })) };
-  }, [results.data, view.owner, client.baseUrl]);
+    return { ...data, rows: data.rows.map(row => ({ ...row, __viewSourceOwner: data.sourceOwner ?? view.owner, __viewSourceAvailable: data.sourceKind !== "backOffice" && viewSourceAvailable(data, client.baseUrl), __viewBinding: name })) };
+  }, [results.data, view.owner, view.queries, client.baseUrl]);
   const canMove = (row: Record<string, unknown>, field: string) => Boolean(writable && results.data && viewBoardSource(view, results.data, row, field));
   const move = async (row: Record<string, unknown>, field: string, value: string) => {
     const source = writable && results.data && viewBoardSource(view, results.data, row, field);
@@ -127,13 +139,14 @@ export function SavedView({ client, reference, inline = false, onTitle, openSour
 function SavedViewCopy({ client, view, onClose }: { client: LegalworkServerClient; view: ViewRecord; onClose: () => void }) {
   const snapshot = useQuery({ queryKey: ["view-copy-snapshot", client.baseUrl, view.owner.kind, view.owner.id, view.id, view.revision], gcTime: 0, queryFn: async () => {
     const datasets = { ...view.datasets };
-    if (view.owner.kind === "wiki" && view.mode === "dashboard") for (const [name, query] of Object.entries(view.queries)) datasets[name] = { ...await client.queryWiki(view.owner.id, query), sourceOwner: view.owner };
+    if (view.mode === "dashboard") for (const [name, query] of Object.entries(view.queries)) datasets[name] = { ...await resolveViewBinding(client, view.owner, query), sourceOwner: view.owner };
     return { ...viewInput(view), datasets };
   } });
   if (!snapshot.data) return <div className="p-4 text-sm">{snapshot.error ? snapshot.error.message : t("wiki.loading")}{snapshot.error && <Button variant="ghost" size="sm" disabled={snapshot.isFetching} onClick={() => void snapshot.refetch()}>{t("wiki.retry")}</Button>}<Button variant="ghost" size="sm" onClick={onClose}>{t("common.close")}</Button></div>;
   return <ViewSaveDialog scope={{ key: savedViewKey(client.baseUrl, view), existing: view }} client={client} preview={{ status: "preview", owner: view.owner, input: snapshot.data }} onClose={onClose} onSaved={onClose} />;
 }
 export function PreviewView({ client, preview, generationId }: { client: LegalworkServerClient; preview: ViewPreview; generationId: string }) {
-  return <ResolvedView client={client} view={{ ...preview.input, queries: {}, mode: "report", owner: preview.owner, id: generationId, revision: generationId, updatedAt: 0 }} refreshKey={0} readOnly />;
+  const live = preview.input.mode === "dashboard" && Object.values(preview.input.queries).some(isBackOfficeQuery);
+  return <ResolvedView client={client} view={{ ...preview.input, queries: live ? preview.input.queries : {}, mode: live ? "dashboard" : "report", owner: preview.owner, id: generationId, revision: generationId, updatedAt: 0 }} refreshKey={0} readOnly />;
 }
 export { OpenUIView };

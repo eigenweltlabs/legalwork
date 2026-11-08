@@ -21,8 +21,8 @@ function property(page: WikiPage, field: string): WikiValue | undefined {
   const key = field.startsWith("properties.") ? field.slice(11) : field;
   return Object.hasOwn(page.properties, key) ? page.properties[key] : undefined;
 }
-function matches(page: WikiPage, filter: NonNullable<WikiDataQuery["filters"]>[number]) {
-  const actual = property(page, filter.field), expected = filter.value;
+function matches(actual: WikiValue | undefined, filter: NonNullable<WikiDataQuery["filters"]>[number]) {
+  const expected = filter.value;
   switch (filter.op) {
     case "eq": return equal(actual, expected);
     case "ne": return !equal(actual, expected);
@@ -37,12 +37,20 @@ function matches(page: WikiPage, filter: NonNullable<WikiDataQuery["filters"]>[n
 export function queryWikiPages(pages: WikiPage[], query: WikiDataQuery): WikiDataResult {
   const available = new Set(builtins);
   for (const page of pages) for (const name of Object.keys(page.properties)) { available.add(`properties.${name}`); available.add(name); }
+  return queryIndexedRows(pages, query, available, property, ["path", "title"]);
+}
+
+export function queryIndexedRows<T extends { path: string; revision: string; updatedAt: number; type: string }>(
+  pages: T[], query: WikiDataQuery, available: Set<string>,
+  property: (row: T, field: string) => WikiValue | undefined,
+  sourceFieldsToInclude: string[], emptySum: number | null = 0,
+): WikiDataResult {
   const aggregate = !!query.groupBy || !!query.metrics?.length;
   const metrics = query.metrics?.length ? query.metrics : query.groupBy ? [{ name: "count", op: "count" } satisfies NonNullable<WikiDataQuery["metrics"]>[number]] : [];
   const metricNames = new Set(metrics.map(metric => metric.name));
   const sourceFields = [...(query.filters ?? []).map(filter => filter.field), ...(query.groupBy ? [query.groupBy] : []), ...(query.metrics ?? []).flatMap(metric => metric.field ? [metric.field] : [])];
   const outputFields = aggregate ? new Set([...metricNames, ...(query.groupBy ? [query.groupBy] : [])]) : available;
-  if (sourceFields.some(field => !available.has(field)) || [...query.fields, ...(query.sort ?? []).map(sort => sort.field)].some(field => !outputFields.has(field))) throw new ApiError(400, "wiki_unknown_field", "Select indexed page fields, or the grouping field and metric names for an aggregate query.");
+  if (sourceFields.some(field => !available.has(field)) || [...query.fields, ...(query.sort ?? []).map(sort => sort.field)].some(field => !outputFields.has(field))) throw new ApiError(400, "wiki_unknown_field", "Select available fields. For aggregates, select the grouping field and metric names.");
   if (query.metrics?.some(metric => metric.op !== "count" && !metric.field)) throw new ApiError(400, "wiki_invalid_metric", "Choose a numeric field for this aggregate.");
   if (metricNames.size !== metrics.length || (query.groupBy && metricNames.has(query.groupBy))) throw new ApiError(400, "wiki_invalid_metric", "Metric names must be unique and distinct from the grouping field.");
   if (query.filters?.some(filter => filter.op === "in" && !Array.isArray(filter.value) || filter.op !== "exists" && filter.value === undefined)) throw new ApiError(400, "wiki_invalid_filter", "Choose a value for each filter; in requires a list.");
@@ -57,10 +65,10 @@ export function queryWikiPages(pages: WikiPage[], query: WikiDataQuery): WikiDat
     offset = Number(match[2]);
     if (!Number.isSafeInteger(offset)) throw new ApiError(400, "wiki_invalid_cursor", "Invalid query cursor.");
   }
-  const matching = pages.filter(page => (!query.pageType || page.type === query.pageType) && (query.filters ?? []).every(filter => matches(page, filter)));
+  const matching = pages.filter(page => (!query.pageType || page.type === query.pageType) && (query.filters ?? []).every(filter => matches(property(page, filter.field), filter)));
   let rows: Record<string, WikiValue>[];
   if (query.groupBy || query.metrics?.length) {
-    const groups = new Map<string, { value: WikiValue; pages: WikiPage[] }>();
+    const groups = new Map<string, { value: WikiValue; pages: T[] }>();
     if (!query.groupBy) groups.set("all", { value: null, pages: matching });
     else for (const page of matching) {
       const value = property(page, query.groupBy) ?? null, key = JSON.stringify(value);
@@ -73,7 +81,7 @@ export function queryWikiPages(pages: WikiPage[], query: WikiDataQuery): WikiDat
       for (const metric of metrics) {
         if (metric.op === "count") { row[metric.name] = group.pages.length; continue; }
         const numbers = group.pages.map(page => metric.field ? property(page, metric.field) : undefined).filter((value): value is number => typeof value === "number" && Number.isFinite(value));
-        if (!numbers.length) { row[metric.name] = metric.op === "sum" ? 0 : null; continue; }
+        if (!numbers.length) { row[metric.name] = metric.op === "sum" ? emptySum : null; continue; }
         const sum = numbers.reduce((total, value) => total + value, 0);
         row[metric.name] = metric.op === "sum" ? sum : metric.op === "avg" ? sum / numbers.length
           : numbers.reduce((result, value) => metric.op === "min" ? Math.min(result, value) : Math.max(result, value));
@@ -85,7 +93,7 @@ export function queryWikiPages(pages: WikiPage[], query: WikiDataQuery): WikiDat
       for (const sort of query.sort ?? []) { const result = compare(property(a, sort.field), property(b, sort.field)); if (result) return sort.direction === "desc" ? -result : result; }
       return a.path.localeCompare(b.path);
     });
-    rows = matching.map(page => Object.fromEntries([...new Set(["path", "title", ...query.fields])].map(field => [field, property(page, field) ?? null])));
+    rows = matching.map(page => Object.fromEntries([...new Set([...sourceFieldsToInclude, ...query.fields])].map(field => [field, property(page, field) ?? null])));
   }
   if ((query.groupBy || query.metrics?.length) && query.sort?.length) rows.sort((a, b) => {
     for (const sort of query.sort ?? []) { const result = compare(a[sort.field], b[sort.field]); if (result) return sort.direction === "desc" ? -result : result; }
@@ -93,7 +101,7 @@ export function queryWikiPages(pages: WikiPage[], query: WikiDataQuery): WikiDat
   });
   const total = rows.length, limit = query.limit ?? 100, slice = rows.slice(offset, offset + limit);
   const byPath = new Map(matching.map(page => [page.path, page]));
-  const sources = query.groupBy || query.metrics?.length ? undefined : slice.flatMap(row => {
+  const sources = !sourceFieldsToInclude.includes("path") || query.groupBy || query.metrics?.length ? undefined : slice.flatMap(row => {
     const source = typeof row.path === "string" ? byPath.get(row.path) : undefined;
     return source ? [{ path: source.path, revision: source.revision }] : [];
   });

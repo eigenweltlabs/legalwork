@@ -5,7 +5,7 @@ import { CardHeader } from "@openuidev/react-ui/CardHeader";
 import { TextContent } from "@openuidev/react-ui/TextContent";
 import { OverviewCardBlock } from "@openuidev/react-ui/OverviewCardBlock";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@openuidev/react-ui/Table";
-import { BarChart, LineChart, PieChart } from "@openuidev/react-ui/Charts";
+import { AreaChart, BarChart, FunnelChart, HorizontalBarChart, LineChart, PieChart } from "@openuidev/react-ui/Charts";
 import { Tag } from "@openuidev/react-ui/Tag";
 import { Callout } from "@openuidev/react-ui/Callout";
 import { Input } from "@openuidev/react-ui/Input";
@@ -18,17 +18,40 @@ export type BoardActions = {
   canMove: (row: Row, field: string) => boolean;
   move: (row: Row, field: string, value: string) => Promise<void>;
 };
-const Host = createContext<{ openLink?: (href: string) => void; openSource?: (path: string, owner?: SourceOwner, binding?: string) => void; boardActions?: BoardActions; streaming: boolean }>({ streaming: false });
-const numberFormat = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
+const Host = createContext<{ locale?: string; openLink?: (href: string) => void; openSource?: (path: string, owner?: SourceOwner, binding?: string) => void; boardActions?: BoardActions; streaming: boolean }>({ streaming: false });
+const numberFormats = new Map<string, Intl.NumberFormat>();
+function formatNumber(value: number, locale?: string, currency?: string) {
+  const key = [locale, currency].join(":");
+  let formatter = numberFormats.get(key);
+  if (!formatter) {
+    formatter = new Intl.NumberFormat(locale, currency ? { style: "currency", currency } : { maximumFractionDigits: 10 });
+    numberFormats.set(key, formatter);
+  }
+  return formatter.format(value);
+}
+export function formatMetric(value: unknown, locale?: string, currency?: string) {
+  if (typeof value === "number") return formatNumber(value, locale, currency);
+  // Older saved programs sometimes embedded the amount and ISO code as text.
+  const amount = typeof value === "string" && /^(?:([A-Z]{3})\s+)?(-?(?:0|[1-9]\d*)(?:\.\d+)?)$/.exec(value.trim());
+  if (amount && Number.isFinite(Number(amount[2]))) return formatNumber(Number(amount[2]), locale, currency ?? amount[1]);
+  return value == null ? "–" : String(value);
+}
+function MetricCard({ label, value, currency, detail }: { label: string; value: unknown; currency?: string; detail?: string }) {
+  const { locale } = useContext(Host);
+  return <OverviewCardBlock className={currency ? "lw-view-metric lw-view-metric-money" : "lw-view-metric"} items={[{ top: label, bottom: { value: formatMetric(value, locale, currency), subtext: detail } }]} />;
+}
 function fieldLabel(field: string) { return field.replace(/^properties\./, "").replace(/_/g, " ").replace(/\b\w/g, letter => letter.toUpperCase()); }
 function stageTone(value: unknown): "neutral" | "info" | "success" | "warning" | "danger" {
   const text = String(value).toLowerCase();
   return /overdue|over budget|high|blocked/.test(text) ? "danger" : /awaiting|review|hold|onboarding/.test(text) ? "warning" : /active|complete|current/.test(text) ? "success" : /progress|retainer|scoping/.test(text) ? "info" : "neutral";
 }
-function display(value: unknown): string {
+function display(value: unknown, locale?: string): string {
   if (value === null || value === undefined) return "";
-  if (typeof value === "number" && Number.isFinite(value)) return numberFormat.format(value);
+  if (typeof value === "number" && Number.isFinite(value)) return formatNumber(value, locale);
+  if (Array.isArray(value)) return value.map(item => display(item, locale)).join(", ");
+  if (typeof value === "object" && "amountMinor" in value && typeof value.amountMinor === "number" && "currency" in value && typeof value.currency === "string" && /^[A-Z]{3}$/.test(value.currency)) return formatNumber(value.amountMinor / 100, locale, value.currency);
   if (typeof value === "object") return JSON.stringify(value);
+  if (typeof value === "boolean") return value ? (locale === "de" ? "Ja" : "Yes") : (locale === "de" ? "Nein" : "No");
   return String(value);
 }
 function SourceButton({ path, sourceOwner, binding, available, children }: { path: unknown; sourceOwner?: unknown; binding?: string; available?: unknown; children: ReactNode }) {
@@ -60,14 +83,15 @@ export function safeActionHref(href: string) {
 }
 
 function DataTable({ rows, columns, searchable = true }: { rows: Row[]; columns: Column[]; searchable?: boolean }) {
+  const { locale } = useContext(Host);
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<{ field: string; desc: boolean } | null>(null);
   const visible = useMemo(() => {
-    const next = rows.slice(0, 1000).filter(row => !search || columns.some(col => display(row[col.field]).toLocaleLowerCase().includes(search.toLocaleLowerCase())));
+    const next = rows.slice(0, 1000).filter(row => !search || columns.some(col => display(row[col.field], locale).toLocaleLowerCase().includes(search.toLocaleLowerCase())));
     return sort ? next.sort((a, b) => (typeof a[sort.field] === "number" && typeof b[sort.field] === "number" ? Number(a[sort.field]) - Number(b[sort.field]) : display(a[sort.field]).localeCompare(display(b[sort.field]), undefined, { numeric: true })) * (sort.desc ? -1 : 1)) : next;
-  }, [rows, columns, search, sort]);
+  }, [rows, columns, search, sort, locale]);
   return <div className="lw-view-table">{searchable && rows.length > 5 && <Input aria-label="Filter displayed rows" placeholder="Filter displayed rows…" value={search} onChange={event => setSearch(event.target.value)} />}
-    <Table><TableHeader><TableRow>{columns.map(col => <TableHead key={col.field}><button type="button" onClick={() => setSort(current => ({ field: col.field, desc: current?.field === col.field && !current.desc }))}>{col.label}{sort?.field === col.field ? sort.desc ? " ↓" : " ↑" : ""}</button></TableHead>)}</TableRow></TableHeader><TableBody>{visible.map((row, i) => <TableRow key={typeof row.path === "string" ? row.path : i}>{columns.map((col, j) => <TableCell key={col.field} className={typeof row[col.field] === "number" ? "lw-view-number" : undefined}>{j === 0 ? <SourceButton path={row.path} sourceOwner={row.__viewSourceOwner} binding={typeof row.__viewBinding === "string" ? row.__viewBinding : undefined} available={row.__viewSourceAvailable}>{display(row[col.field])}</SourceButton> : /(?:stage|status|priority)$/.test(col.field) && typeof row[col.field] === "string" ? <Tag text={display(row[col.field])} variant={stageTone(row[col.field])} size="sm" /> : display(row[col.field])}</TableCell>)}</TableRow>)}</TableBody></Table>
+    <Table><TableHeader><TableRow>{columns.map(col => <TableHead key={col.field}><button type="button" onClick={() => setSort(current => ({ field: col.field, desc: current?.field === col.field && !current.desc }))}>{col.label}{sort?.field === col.field ? sort.desc ? " ↓" : " ↑" : ""}</button></TableHead>)}</TableRow></TableHeader><TableBody>{visible.map((row, i) => <TableRow key={typeof row.path === "string" ? row.path : i}>{columns.map((col, j) => <TableCell key={col.field} className={typeof row[col.field] === "number" ? "lw-view-number" : undefined}>{j === 0 ? <SourceButton path={row.path} sourceOwner={row.__viewSourceOwner} binding={typeof row.__viewBinding === "string" ? row.__viewBinding : undefined} available={row.__viewSourceAvailable}>{display(row[col.field], locale)}</SourceButton> : /(?:stage|status|priority)$/.test(col.field) && typeof row[col.field] === "string" ? <Tag text={display(row[col.field], locale)} variant={stageTone(row[col.field])} size="sm" /> : display(row[col.field], locale)}</TableCell>)}</TableRow>)}</TableBody></Table>
     {!visible.length && <p className="lw-view-muted">No matching records</p>}
   </div>;
 }
@@ -109,15 +133,46 @@ function Board({ rows, groupBy, titleField, fields = [], groupOrder = [] }: { ro
     })}{!items.length && <p className="lw-view-board-empty">No records</p>}</div></section>;
   })}</div></div>;
 }
-function Chart({ kind, rows, category, series, title }: { kind: "bar" | "line" | "pie"; rows: Row[]; category: string; series: string[]; title?: string }) {
+const chartPalette = ["#7465df", "#17a89d", "#508de0", "#d68b4c", "#b26caa", "#7f9d56", "#70849d", "#a99adf"];
+type ChartKind = "bar" | "horizontal" | "stacked" | "area" | "line" | "pie" | "funnel";
+function Chart({ kind, rows, category, series, title, shape = "donut" }: { kind: ChartKind; shape?: "pie" | "donut"; rows: Row[]; category: string; series: string[]; title?: string }) {
+  const { locale } = useContext(Host);
   const categoryName = fieldLabel(category);
   const seriesNames = series.map(fieldLabel);
   const data = rows.slice(0, 1000).flatMap(row => {
-    const entry: Record<string, string | number> = { [categoryName]: display(row[category]) };
+    const entry: Record<string, string | number> = { [categoryName]: display(row[category], locale) || (locale === "de" ? "Nicht zugeordnet" : "Unassigned") };
     for (const field of series) if (typeof row[field] === "number" && Number.isFinite(row[field])) entry[fieldLabel(field)] = row[field];
     return Object.keys(entry).length > 1 ? [entry] : [];
   });
-  return <div className="lw-view-chart">{title && <h3>{title}</h3>}{data.length ? kind === "pie" ? <PieChart data={data} categoryKey={categoryName} dataKey={seriesNames[0]} variant="donut" height={300} /> : kind === "bar" ? <BarChart data={data} categoryKey={categoryName} height={300} legend={series.length > 1} /> : <LineChart data={data} categoryKey={categoryName} height={300} /> : <p className="lw-view-muted">No numeric data to display</p>}<details><summary>View chart data</summary><DataTable rows={data} columns={[categoryName, ...seriesNames].map(field => ({ field, label: field }))} searchable={false} /></details></div>;
+  const common = { data, categoryKey: categoryName, height: 264, customPalette: chartPalette, legend: series.length > 1 };
+  function plot() {
+    switch (kind) {
+      case "horizontal": return <HorizontalBarChart {...common} internalLine={false} barRadius={5} maxBarWidth={28} />;
+      case "bar": case "stacked": return <BarChart {...common} variant={kind === "stacked" ? "stacked" : "grouped"} internalLine={false} barRadius={5} maxBarWidth={52} />;
+      case "line": return <LineChart {...common} />;
+      case "area": return <AreaChart {...common} variant="linear" />;
+      case "pie": return <PieChart {...common} dataKey={seriesNames[0]} variant={shape} legend format="number" cornerRadius={3} paddingAngle={1} />;
+      case "funnel": return <FunnelChart {...common} dataKey={seriesNames[0]} orientation="horizontal" edges="curved" legend showPercentage />;
+    }
+  }
+  return <section className="lw-view-chart">{title && <h3>{title}</h3>}{data.length ? plot() : <p className="lw-view-muted">No numeric data to display</p>}<details><summary>{locale === "de" ? "Diagrammdaten anzeigen" : "View chart data"}</summary><DataTable rows={data} columns={[categoryName, ...seriesNames].map(field => ({ field, label: field }))} searchable={false} /></details></section>;
+}
+
+function RankedBars({ rows, category, value, title, currency }: { rows: Row[]; category: string; value: string; title?: string; currency?: string }) {
+  const { locale } = useContext(Host);
+  const ranked = rows.flatMap(row => {
+    const amount = row[value];
+    if (amount != null && (typeof amount !== "number" || !Number.isFinite(amount))) return [];
+    return [{ label: display(row[category], locale) || (locale === "de" ? "Nicht zugeordnet" : "Unassigned"), amount: typeof amount === "number" ? amount : null }];
+  }).sort((a, b) => (b.amount ?? -Infinity) - (a.amount ?? -Infinity));
+  const max = Math.max(0, ...ranked.map(row => row.amount ?? 0));
+  const min = Math.min(0, ...ranked.map(row => row.amount ?? 0));
+  const range = max - min || 1;
+  return <section className="lw-view-chart">{title && <h3>{title}</h3>}
+    {ranked.length ? <ol className="lw-view-ranking">{ranked.map(({ label, amount }, index) => <li key={index}>
+      <div className="lw-view-rank-label"><span>{label}</span><strong>{amount === null ? (locale === "de" ? "Ohne Wert" : "No recorded value") : formatMetric(amount, locale, currency)}</strong></div>
+      <div className="lw-view-rank-track" aria-hidden="true">{amount !== null && <span style={{ insetInlineStart: `${(Math.min(0, amount) - min) / range * 100}%`, width: `${Math.abs(amount) / range * 100}%` }} />}</div>
+    </li>)}</ol> : <p className="lw-view-muted">No numeric data to display</p>}</section>;
 }
 
 // Query references are null until the renderer resolves them, despite the catalog's
@@ -138,23 +193,29 @@ export const openUILibrary = createLibrary({ id: "legalwork-1", components: [
   defineComponent({ name: "Card", props: schemas.Card, description: "Titled card", component: ({ props, renderNode }) => <Card width="full" className="lw-view-card"><CardHeader title={props.title} subtitle={props.subtitle} /><div className="lw-view-card-body">{props.children.map((child, i) => <div key={i}>{renderNode(child)}</div>)}</div></Card> }),
   defineComponent({ name: "Heading", props: schemas.Heading, description: "Section heading", component: ({ props }) => props.level === 1 ? <h1 className="lw-view-title">{props.text}</h1> : <h2 className="lw-view-heading">{props.text}</h2> }),
   defineComponent({ name: "Text", props: schemas.Text, description: "Plain prose", component: ({ props }) => <TextContent variant="clear"><p className="lw-view-prose">{props.text}</p></TextContent> }),
-  defineComponent({ name: "Metric", props: schemas.Metric, description: "Metric with context", component: ({ props }) => <OverviewCardBlock className="lw-view-metric" items={[{ top: props.label, bottom: { value: display(props.value), subtext: props.detail } }]} /> }),
+  defineComponent({ name: "Metric", props: schemas.Metric, description: "Metric with context", component: ({ props }) => <MetricCard {...props} /> }),
+  defineComponent({ name: "QueryMetric", props: schemas.QueryMetric, description: "Single aggregate value", component: ({ props }) => <RowsReady rows={props.rows}><MetricCard {...props} value={props.rows?.length === 1 ? props.rows[0][props.field] : null} /></RowsReady> }),
+  defineComponent({ name: "RankedBars", props: schemas.RankedBars, description: "Ranked categories with exact values", component: ({ props }) => <RowsReady rows={props.rows}><RankedBars {...props} /></RowsReady> }),
+  defineComponent({ name: "HorizontalBarChart", props: schemas.HorizontalBarChart, description: "Category ranking", component: ({ props }) => <RowsReady rows={props.rows}><Chart {...props} kind="horizontal" /></RowsReady> }),
+  defineComponent({ name: "StackedBarChart", props: schemas.StackedBarChart, description: "Stacked comparison", component: ({ props }) => <RowsReady rows={props.rows}><Chart {...props} kind="stacked" /></RowsReady> }),
+  defineComponent({ name: "AreaChart", props: schemas.AreaChart, description: "Shaded time series", component: ({ props }) => <RowsReady rows={props.rows}><Chart {...props} kind="area" /></RowsReady> }),
+  defineComponent({ name: "FunnelChart", props: schemas.FunnelChart, description: "Ordered stages", component: ({ props }) => <RowsReady rows={props.rows}><Chart rows={props.rows} category={props.category} series={[props.value]} title={props.title} kind="funnel" /></RowsReady> }),
   defineComponent({ name: "ActionList", props: schemas.ActionList, description: "Source-linked actions", component: ({ props }) => <RowsReady rows={props.rows}><ActionList {...props} /></RowsReady> }),
   defineComponent({ name: "Table", props: schemas.Table, description: "Data table", component: ({ props }) => <RowsReady rows={props.rows}><DataTable {...props} /></RowsReady> }),
   defineComponent({ name: "Board", props: schemas.Board, description: "Grouped stage board", component: ({ props }) => <RowsReady rows={props.rows}><Board {...props} /></RowsReady> }),
   defineComponent({ name: "BarChart", props: schemas.BarChart, description: "Bar chart", component: ({ props }) => <RowsReady rows={props.rows}><Chart {...props} kind="bar" /></RowsReady> }),
   defineComponent({ name: "LineChart", props: schemas.LineChart, description: "Line chart", component: ({ props }) => <RowsReady rows={props.rows}><Chart {...props} kind="line" /></RowsReady> }),
-  defineComponent({ name: "PieChart", props: schemas.PieChart, description: "Donut chart", component: ({ props }) => <RowsReady rows={props.rows}><Chart rows={props.rows} category={props.category} series={[props.value]} title={props.title} kind="pie" /></RowsReady> }),
+  defineComponent({ name: "PieChart", props: schemas.PieChart, description: "Donut chart", component: ({ props }) => <RowsReady rows={props.rows}><Chart rows={props.rows} category={props.category} series={[props.value]} title={props.title} shape={props.shape} kind="pie" /></RowsReady> }),
   defineComponent({ name: "Badge", props: schemas.Badge, description: "Status", component: ({ props }) => <Tag text={props.text} variant={props.tone} size="sm" /> }),
   defineComponent({ name: "Callout", props: schemas.Callout, description: "Notice", component: ({ props }) => <Callout title={props.title} description={props.description} variant={props.tone ?? "info"} /> }),
   defineComponent({ name: "Source", props: schemas.Source, description: "Local source", component: ({ props }) => <SourceButton path={props.path} binding={props.binding}>{props.label ?? props.path}</SourceButton> }),
 ] });
-export function OpenUIView({ program, query, openSource, openLink, boardActions, streaming = false, dark = false, onError }: { program: string; query?: (name: string) => Promise<unknown>; openLink?: (href: string) => void; openSource?: (path: string, owner?: SourceOwner, binding?: string) => void; boardActions?: BoardActions; streaming?: boolean; dark?: boolean; onError?: (message: string) => void }) {
+export function OpenUIView({ program, query, openSource, openLink, boardActions, streaming = false, dark = false, locale, onError }: { program: string; query?: (name: string) => Promise<unknown>; openLink?: (href: string) => void; openSource?: (path: string, owner?: SourceOwner, binding?: string) => void; boardActions?: BoardActions; streaming?: boolean; dark?: boolean; locale?: string; onError?: (message: string) => void }) {
   const themeId = `lw-openui-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
   const toolProvider = useMemo(() => { const resolve = async (args: Record<string, unknown>) => {
     if (streaming || typeof args.name !== "string" || !query) throw new Error("Data is unavailable for this preview");
     return query(args.name);
   }; return { data: resolve, wiki_query: resolve }; }, [query, streaming]);
   if (!isLocalOpenUIProgram(program)) return <div role="alert">This view contains an unsupported program format.</div>;
-  return <div className="lw-openui" id={themeId}><ThemeProvider mode={dark ? "dark" : "light"} cssSelector={`#${themeId}`}><Host.Provider value={{ openSource, openLink, boardActions, streaming }}><Renderer response={program} library={openUILibrary} isStreaming={streaming} toolProvider={toolProvider} publishObservability={false} queryLoader={<span className="lw-view-query-status" role="status">Updating…</span>} onError={errors => { if (!streaming) onError?.(errors.map(error => error.message).join("\n")); }} /></Host.Provider></ThemeProvider></div>;
+  return <div className="lw-openui" id={themeId}><ThemeProvider mode={dark ? "dark" : "light"} cssSelector={`#${themeId}`}><Host.Provider value={{ openSource, openLink, boardActions, streaming, locale }}><Renderer response={program} library={openUILibrary} isStreaming={streaming} toolProvider={toolProvider} publishObservability={false} queryLoader={<span className="lw-view-query-status" role="status">Updating…</span>} onError={errors => { if (!streaming) onError?.(errors.map(error => error.message).join("\n")); }} /></Host.Provider></ThemeProvider></div>;
 }
