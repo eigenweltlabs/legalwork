@@ -59,28 +59,28 @@ test("Assistant and ordinary chats discover CRM models, create/reuse records and
     const save = async (objectId: string, values: Record<string, unknown>) => z.object({ record: BackOfficeRecordSchema }).parse(JSON.parse(await crm.tool.legalwork_back_office_save.execute({ objectId, revision: 0, values }))).record;
     const organisation = await save("companies", { name: "Northbridge Foundation", organisationType: "Association / nonprofit", registrationNumber: "CRM-8842" });
     const client = await save("clients", { name: "Northbridge client", company: organisation.id, clientNumber: "NB-44" });
-    const matter = await save("matters", { name: "Acquisition work", fileNumber: "MAT-771", clients: [client.id] });
     const partner = await save("people", { name: "Alice", personType: "Partner" });
+    const matter = await save("matters", { name: "Acquisition work", fileNumber: "MAT-771", clients: [client.id], leadLawyer: partner.id });
     const external = await save("people", { name: "Outside contact", personType: "External contact" });
     const engagement = await save("engagements", { name: "Custom engagement" });
     const existing = z.object({ records: z.array(BackOfficeRecordSchema) }).parse(JSON.parse(await crm.tool.legalwork_back_office_records.execute({ objectId: "clients" })));
     expect(existing.records.map(record => record.id)).toEqual([client.id]);
     const created = z.object({ project: z.object({ id: z.string(), path: z.string() }), details: detailsSchema }).parse(JSON.parse(await assistant.tool.legalwork_assistant_project_create.execute({ name: "Project Alpha" })));
-    const eligible = optionsSchema.parse(JSON.parse(await assistant.tool.legalwork_assistant_project_reference_options.execute({ projectId: created.project.id, fieldId: "responsible" })));
-    expect(eligible.records.map(record => record.id)).toEqual([partner.id]);
-    const invalid = JSON.parse(await assistant.tool.legalwork_assistant_project_set_metadata.execute({ projectId: created.project.id, revision: created.details.revision, values: { responsible: { directoryId: eligible.directoryId, recordIds: [external.id] } } }));
+    const eligible = optionsSchema.parse(JSON.parse(await assistant.tool.legalwork_assistant_project_reference_options.execute({ projectId: created.project.id, fieldId: "matter" })));
+    expect(eligible.records.map(record => record.id)).toEqual([matter.id]);
+    const invalid = JSON.parse(await assistant.tool.legalwork_assistant_project_set_metadata.execute({ projectId: created.project.id, revision: created.details.revision, values: { matter: { directoryId: eligible.directoryId, recordIds: [external.id] } } }));
     expect(invalid.error).toContain("400");
-    const foreign = JSON.parse(await assistant.tool.legalwork_assistant_project_set_metadata.execute({ projectId: created.project.id, revision: created.details.revision, values: { responsible: { directoryId: "local:foreign", recordIds: [partner.id] } } }));
+    const foreign = JSON.parse(await assistant.tool.legalwork_assistant_project_set_metadata.execute({ projectId: created.project.id, revision: created.details.revision, values: { matter: { directoryId: "local:foreign", recordIds: [matter.id] } } }));
     expect(foreign.error).toContain("409");
     const fields = created.details.fields;
-    const clientField = fields.find(field => field.type === "backoffice" && field.objectId === "clients")!;
+    expect(fields.map(field => field.id)).toEqual(["matter"]);
     const matterField = fields.find(field => field.type === "backoffice" && field.objectId === "matters")!;
     const linked = detailsSchema.parse(JSON.parse(await assistant.tool.legalwork_assistant_project_set_metadata.execute({ projectId: created.project.id, revision: created.details.revision, values: {
-      [clientField.id]: { directoryId: eligible.directoryId, recordIds: [client.id] }, [matterField.id]: { directoryId: eligible.directoryId, recordIds: [matter.id] }, responsible: { directoryId: eligible.directoryId, recordIds: [partner.id] },
+      [matterField.id]: { directoryId: eligible.directoryId, recordIds: [matter.id] },
     } })));
     expect(linked.revision).toBe(created.details.revision + 1);
     const context = contextSchema.parse(JSON.parse(await assistant.tool.legalwork_assistant_project_back_office_context.execute({ projectId: created.project.id })));
-    expect(context.records.map(record => record.id).sort()).toEqual([client.id, matter.id, partner.id].sort());
+    expect(context.records.map(record => record.id).sort()).toEqual([organisation.id, client.id, matter.id, partner.id].sort());
     for (const query of ["Northbridge", "MAT-771", "NB-44"]) {
       const matches = z.object({ projects: z.array(z.object({ id: z.string() })), backOfficeUnavailable: z.boolean() }).parse(JSON.parse(await assistant.tool.legalwork_assistant_projects.execute({ query })));
       expect(matches.projects.map(project => project.id)).toContain(created.project.id); expect(matches.backOfficeUnavailable).toBe(false);

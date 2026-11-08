@@ -94,6 +94,11 @@ export const internalPeopleFilters = () => projectReferenceFiltersSchema.parse({
 ] });
 
 export function defaultAkteFields(locale: Locale = "en"): ProjectField[] {
+  return [{ id: "matter", labelSource: "suggested", label: t("projects.schema.matter", locale), type: "backoffice", objectId: "matters", multiple: true, value: null }];
+}
+
+/** Exact pre-normalization preset, used only to recognize untouched saved templates. */
+function legacyLegalMatterFields(locale: Locale = "en"): ProjectField[] {
   return [
     { id: "matter", labelSource: "suggested", label: t("projects.schema.matter", locale), type: "backoffice", objectId: "matters", multiple: true, value: null },
     { id: "matter_number", labelSource: "suggested", label: t("projects.schema.matter_number", locale), type: "text", value: null },
@@ -248,14 +253,15 @@ export function upgradeProjectTemplateReferences(catalog: ProjectTemplateCatalog
   return { ...catalog, templates: catalog.templates.map(template => {
     const current = defaults.find(item => item.id === template.id);
     if (!current || template.nameSource !== "suggested") return template;
-    const legacy = current.fields.filter(field => field.id !== "matter").map((field): ProjectField => field.type === "backoffice"
+    const previous = template.id === "legal_matter" ? legacyLegalMatterFields() : current.fields;
+    const legacy = previous.filter(field => field.id !== "matter").map((field): ProjectField => field.type === "backoffice"
       ? { id: field.id, label: field.label, labelSource: field.labelSource, type: "text", value: null } : field);
     const normalized = localizedTemplateFields(template.fields, "en");
-    const previousReferences = current.fields.map((field): ProjectField => field.id === "court" || field.id === "opposing_party"
+    const previousReferences = previous.map((field): ProjectField => field.id === "court" || field.id === "opposing_party"
       ? { id: field.id, label: field.label, labelSource: field.labelSource, type: "text", value: null } : field);
     const signature = (fields: ProjectField[]) => JSON.stringify(fields.map(field => [field.id, field.label, field.labelSource, field.type, field.options ?? null, ...(field.type === "backoffice" ? [field.objectId, field.multiple, field.filters ?? null] : [])]));
-    const previousUnfiltered = current.fields.map((field): ProjectField => field.type === "backoffice" ? { ...field, filters: undefined } : field);
-    if (![legacy, previousReferences, previousUnfiltered, previousReferences.map((field): ProjectField => field.type === "backoffice" ? { ...field, filters: undefined } : field)].some(fields => signature(normalized) === signature(fields))) return template;
+    const previousUnfiltered = previous.map((field): ProjectField => field.type === "backoffice" ? { ...field, filters: undefined } : field);
+    if (![previous, legacy, previousReferences, previousUnfiltered, previousReferences.map((field): ProjectField => field.type === "backoffice" ? { ...field, filters: undefined } : field)].some(fields => signature(normalized) === signature(fields))) return template;
     return { ...template, fields: current.fields };
   }) };
 }

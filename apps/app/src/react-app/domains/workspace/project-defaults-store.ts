@@ -69,7 +69,7 @@ export function migrateProjectDefaults(persisted: unknown): Pick<ProjectTemplate
     );
     templates[0].fields = emptyProjectFields(fields);
   }
-  return { templates, defaultTemplateId: "legal_matter", hasLegacyDefaults: Boolean(persisted && typeof persisted === "object" && "fields" in persisted) };
+  return { templates: shared.upgradeProjectTemplateReferences({ revision: 0, defaultTemplateId: "legal_matter", templates }).templates, defaultTemplateId: "legal_matter", hasLegacyDefaults: Boolean(persisted && typeof persisted === "object" && "fields" in persisted) };
 }
 
 export const useProjectDefaultsStore = create<ProjectTemplatesState>()(persist((): ProjectTemplatesState => ({
@@ -80,7 +80,7 @@ export const useProjectDefaultsStore = create<ProjectTemplatesState>()(persist((
   defaultTemplateId: "legal_matter",
 }), {
   name: "legalwork.projectMetadataDefaults",
-  version: 5,
+  version: 6,
   migrate: migrateProjectDefaults,
   partialize: ({ templates, defaultTemplateId, migrated, hasLegacyDefaults }) => ({ templates, defaultTemplateId, migrated, hasLegacyDefaults }),
 }));

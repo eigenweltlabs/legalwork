@@ -72,5 +72,22 @@ export function projectBackOfficeReferences(context: Awaited<ReturnType<typeof p
   const fields = projectFields.flatMap(field => field.type === "backoffice" && field.value?.directoryId === context.directoryId && !isInternalBackOfficeObject(field.objectId)
     ? [{ id: field.id, label: field.label, objectId: field.objectId, records: context.records.filter(record => record.objectId === field.objectId && field.value?.recordIds.includes(record.id)) }] : []);
   const records = [...new Map(fields.flatMap(field => field.records).map(record => [record.id, record])).values()];
+  const available = new Map(context.records.map(record => [record.id, record]));
+  const seen = new Set(records.map(record => record.id));
+  for (const record of records) {
+    const object = context.model.objects.find(object => object.id === record.objectId);
+    for (const field of object?.fields ?? []) {
+      if (field.type !== "relation" || !field.target || isInternalBackOfficeObject(field.target)
+        || !context.model.objects.some(object => object.id === field.target && !object.archived)
+        || !context.actor.finance && ["feeAgreements", "billingItems", "invoices"].includes(field.target)) continue;
+      const value = record.values[field.id];
+      for (const id of Array.isArray(value) ? value : [value]) {
+        if (typeof id !== "string" || seen.has(id)) continue;
+        const related = available.get(id);
+        if (!related || related.objectId !== field.target) continue;
+        seen.add(id); records.push(related);
+      }
+    }
+  }
   return { directoryId: context.directoryId, fields, records, matters: records.filter(record => record.objectId === "matters"), clients: records.filter(record => record.objectId === "clients") };
 }

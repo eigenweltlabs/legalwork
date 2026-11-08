@@ -1,3 +1,4 @@
+import legacyLegalMatter from "./fixtures/legal-matter-template-v6.json";
 import { expect, test } from "bun:test";
 import { BackOfficeRecordSchema } from "@legalwork/types/back-office";
 import { defaultProjectTemplates, emptyProjectFields, projectFieldsSchema, upgradeProjectTemplateReferences } from "@legalwork/types/workspace";
@@ -57,7 +58,7 @@ test("filter choices show current names and counts without changing identity or 
 test("untouched starter templates upgrade to reference fields while custom schemas and existing text values survive", () => {
   const current = defaultProjectTemplates();
   const legacy: ProjectTemplateCatalog = { revision: 5, defaultTemplateId: "legal_matter", templates: current.map(template => ({ ...template,
-    fields: template.fields.filter(field => field.id !== "matter").map((field): ProjectField => field.type === "backoffice"
+    fields: (template.id === "legal_matter" ? projectFieldsSchema.parse(legacyLegalMatter) : template.fields).filter(field => field.id !== "matter").map((field): ProjectField => field.type === "backoffice"
       ? { id: field.id, label: field.label, labelSource: field.labelSource, type: "text", value: null } : field),
   })) };
   expect(upgradeProjectTemplateReferences(legacy).templates).toEqual(current);
@@ -66,14 +67,14 @@ test("untouched starter templates upgrade to reference fields while custom schem
   const client: ProjectField = { id: "client", label: "Client", labelSource: "suggested", type: "text", value: "Existing free text" };
   expect(applyProjectTemplate([client, reference], current[0])).toContainEqual(client);
   expect(applyProjectTemplate([client, reference], current[0])).toContainEqual(reference);
-  expect(applyProjectTemplate([{ ...client, value: null }], current[0])).toContainEqual(current[0].fields.find(field => field.id === "client"));
+  expect(applyProjectTemplate([{ ...client, value: null }], current[0])).toEqual(current[0].fields);
 });
 
-test("starter templates connect courts, opposing organisations and contract counterparties to organisation records", () => {
+test("the legal starter links matters only while contract counterparties remain organisation references", () => {
   const templates = defaultProjectTemplates(), legal = templates.find(template => template.id === "legal_matter")!;
-  for (const id of ["court", "opposing_party"]) expect(legal.fields.find(field => field.id === id)).toMatchObject({ type: "backoffice", objectId: "companies", multiple: true });
+  expect(legal.fields.map(field => field.id)).toEqual(["matter"]);
   expect(templates.find(template => template.id === "contracts")?.fields.find(field => field.id === "counterparty")).toMatchObject({ type: "backoffice", objectId: "companies" });
-  const previous = { ...legal, fields: legal.fields.map((field): ProjectField => ["court", "opposing_party"].includes(field.id) ? { id: field.id, label: field.label, labelSource: field.labelSource, type: "text", value: null } : field) };
+  const previous = { ...legal, fields: projectFieldsSchema.parse(legacyLegalMatter).map((field): ProjectField => ["court", "opposing_party"].includes(field.id) ? { id: field.id, label: field.label, labelSource: field.labelSource, type: "text", value: null } : field) };
   const catalog = { revision: 7, defaultTemplateId: legal.id, templates: [previous] };
   expect(upgradeProjectTemplateReferences(catalog).templates[0]).toEqual(legal);
   const custom = { ...catalog, templates: [{ ...previous, nameSource: "custom" satisfies "custom" }] };

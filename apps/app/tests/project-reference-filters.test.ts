@@ -35,10 +35,9 @@ test("generic filters support custom object fields, typed comparisons and unavai
   expect(projectReferenceFiltersSchema.safeParse({ mode: "all", conditions: [{ fieldId: "name", operator: "is", values: [] }] }).success).toBe(false);
 });
 
-test("starter responsibility and court filters are stored in field definitions", () => {
+test("project-owner filters remain on non-matter templates without duplicating matter responsibilities", () => {
   const templates = defaultProjectTemplates();
   const legal = templates.find(template => template.id === "legal_matter")!;
-  expect(legal.fields.find(field => field.id === "responsible")).toMatchObject({ filters: internalPeopleFilters() });
-  expect(legal.fields.find(field => field.id === "court")).toMatchObject({ filters: { mode: "all", conditions: [{ fieldId: "organisationType", operator: "is", values: ["Court", "Public authority"] }] } });
+  expect(legal.fields.map(field => field.id)).toEqual(["matter"]);
   for (const template of templates.filter(template => template.id !== "legal_matter")) expect(template.fields.find(field => field.id === "project_owner")).toMatchObject({ filters: internalPeopleFilters() });
 });

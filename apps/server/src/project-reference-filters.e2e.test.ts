@@ -8,6 +8,7 @@ import { BackOfficeModelSchema, BackOfficeRecordSchema } from "./back-office/sch
 import { startServer } from "./server.js";
 import type { ServerConfig } from "./types.js";
 import { defaultProjectTemplates, projectFieldsSchema } from "./project-schema.js";
+import { internalPeopleFilters } from "@legalwork/types/workspace";
 import { nativePluginTools } from "./opencode-plugins/native-plugin-test-support.js";
 import ProjectTools from "./opencode-plugins/legalwork-project-tools.js";
 
@@ -38,7 +39,7 @@ test("metadata record filters discover dynamic types, enforce agent/UI writes an
     const partner = await createPerson("Partner", "Partner"), researcher = await createPerson("Researcher", "Research fellow"), external = await createPerson("External", "External contact");
     await createPerson("Inactive partner", "Partner", false);
     expect(researcher.values.active).toBe(true);
-    const created = await request("/workspaces/projects", { name: "Filtered project", templateId: "legal_matter" });
+    const created = await request("/workspaces/projects", { name: "Filtered project", projectFields: [{ id: "responsible", label: "Project owner", type: "backoffice", objectId: "people", multiple: true, filters: internalPeopleFilters(), value: null }] });
     expect(created.status).toBe(201);
     const id = z.object({ activeId: z.string() }).parse(await created.json()).activeId, path = `/workspace/${id}/project`;
     const detailsSchema = z.object({ revision: z.number(), fields: projectFieldsSchema });
