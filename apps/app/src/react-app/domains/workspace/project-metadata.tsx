@@ -99,9 +99,11 @@ export function ProjectMetadata(props: {
         {fields.map((field) => (
           <div
             key={field.id}
-            className="grid gap-2 rounded-xl border border-border p-3 sm:grid-cols-[1fr_130px_auto]"
+            className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 rounded-xl border border-border p-3 sm:grid-cols-[minmax(0,1fr)_160px_auto]"
           >
+            <label className="flex min-w-0 flex-col gap-1.5"><span className="text-xs text-muted-foreground">{t("projects.field_name")}</span>
             <Input
+              className="rounded-md"
               aria-label={t("projects.field_name")}
               placeholder={t("projects.field_name")}
               required
@@ -111,6 +113,8 @@ export function ProjectMetadata(props: {
                 replace({ ...field, label: event.target.value, labelSource: "custom" })
               }
             />
+            </label>
+            <div className="flex min-w-0 flex-col gap-1.5"><span className="text-xs text-muted-foreground">{t(field.type === "backoffice" ? "projects.reference.records_from" : "projects.field_type")}</span>
             <Select
               value={field.type === "backoffice" ? `backoffice:${field.objectId}` : field.type}
               onValueChange={(value) => {
@@ -128,7 +132,7 @@ export function ProjectMetadata(props: {
             >
               <SelectTrigger
                 aria-label={t("projects.field_type")}
-                className="w-full"
+                className="w-full rounded-md bg-transparent"
               >
                 <SelectValue>{field.type === "backoffice" ? objects.find(object => object.id === field.objectId)?.plural ?? t("projects.reference.unavailable_object") : typeLabels[field.type]}</SelectValue>
               </SelectTrigger>
@@ -149,10 +153,12 @@ export function ProjectMetadata(props: {
                 {field.type === "backoffice" && !objects.some(object => object.id === field.objectId) && <SelectItem value={`backoffice:${field.objectId}`} disabled>{t("projects.reference.unavailable_object")}</SelectItem>}
               </SelectContent>
             </Select>
+            </div>
             <Button
               type="button"
               variant="ghost"
               size="icon"
+              className="col-start-2 row-start-1 self-end text-muted-foreground sm:col-start-3"
               aria-label={t("projects.remove_field", { name: field.label })}
               onClick={() =>
                 setFields((current) =>
@@ -162,7 +168,7 @@ export function ProjectMetadata(props: {
             >
               <Trash2 className="size-4" />
             </Button>
-            {field.type === "backoffice" ? <div className="space-y-2 sm:col-span-3">
+            {field.type === "backoffice" ? <div className="col-span-2 space-y-2 sm:col-span-3">
               <label className="flex items-center gap-2 text-xs"><Checkbox checked={field.multiple} onCheckedChange={checked => {
                 const clear = !checked && (field.value?.recordIds.length ?? 0) > 1;
                 if (clear) toast.info(t("projects.value_overwrite_notice", { name: field.label }));
@@ -171,7 +177,7 @@ export function ProjectMetadata(props: {
               }} />{t("projects.reference.multiple")}</label>
               <ProjectReferenceFilterEditor object={objects.find(object => object.id === field.objectId)} records={directory.data?.records ?? []} value={field.filters} onChange={filters => replace({ ...field, filters })} />
             </div> : field.type === "select" ? (
-              <div className="grid gap-2 sm:col-span-3">
+              <div className="col-span-2 grid gap-2 sm:col-span-3">
                 <Input
                   aria-label={t("projects.options")}
                   placeholder={t("projects.options")}
