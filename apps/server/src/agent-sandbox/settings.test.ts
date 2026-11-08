@@ -11,6 +11,10 @@ import { eigenweltPlatformUrl } from "../eigenwelt-auth.js";
 import { writeEigenweltConnection } from "../eigenwelt-connection-store.js";
 import { scheduleOrgPolicySync } from "../org-policy.js";
 
+// This complete persistence/policy scenario takes about 30 seconds on Windows
+// ARM runners. Its aggregate watchdog is not an individual API latency limit.
+const scenarioTimeoutMs = process.platform === "win32" ? 60_000 : 30_000;
+
 test("network settings API authenticates, validates, persists and respects read-only mode", async () => {
   const childRoot = process.env.LEGALWORK_NETWORK_API_TEST_ROOT;
   if (!childRoot) {
@@ -69,7 +73,7 @@ test("network settings API authenticates, validates, persists and respects read-
     await mkdir(folder);
     config.workspaces.push({ id: "matter", name: "Matter", path: folder, preset: "starter", workspaceType: "local" });
     config.authorizedRoots.push(folder);
-    const engine = Bun.serve({ port: 0, fetch(request) {
+    const engine = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(request) {
       const path = new URL(request.url).pathname, location = { directory: folder };
       if (path === "/api/agent") return Response.json({ location, data: [{ id: "build", permissions: [{ action: "*", resource: "*", effect: "allow" }] }] });
       if (path === "/api/model") return Response.json({ location, data: [] });
@@ -137,6 +141,5 @@ test("network settings API authenticates, validates, persists and respects read-
     await server.stop();
     await closeRuntimeOpencodeConfig(config);
   }
-  // The supervisor also pays for starting/importing the child. Keep the API's
-  // own 30-second deadline, and allow startup time before receiving its result.
-}, process.env.LEGALWORK_NETWORK_API_TEST_ROOT ? 30_000 : 60_000);
+  // The supervisor also pays for starting/importing the child and cleanup.
+}, scenarioTimeoutMs + (process.env.LEGALWORK_NETWORK_API_TEST_ROOT ? 0 : 30_000));
