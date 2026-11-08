@@ -14,6 +14,23 @@ test("the agent catalog offers content guidance without a ready-made dashboard o
   }
 });
 
+test("dashboard metrics and rankings retain their requested columns and optional captions", () => {
+  const program = `totals = [{revenue:21714,count:14}]
+root = Stack([
+  Stack([QueryMetric("Revenue", totals, "revenue", "EUR", "Net"), QueryMetric("Invoices", totals, "count", {detail:"Issued invoices"}), Metric("Paid", 4)], {columns:3}),
+  Stack([RankedBars([], "client", "value"), RankedBars([], "matter", "value")], {columns:2}),
+  Stack([QueryMetric("Receivables", totals, "revenue", {currency:"EUR",detail:"Outstanding"})], 1)
+])`;
+  const parsed = createParser(openUILibrary.toJSONSchema()).parse(program);
+  expect(parsed.meta.errors).toEqual([]);
+  const html = renderToStaticMarkup(<OpenUIView locale="en" program={program} />);
+  expect(html).toContain("repeat(3, minmax(0, 1fr))");
+  expect(html).toContain("repeat(2, minmax(0, 1fr))");
+  expect(html).toContain("Issued invoices");
+  expect(html).toContain("€21,714.00");
+  expect(html).toContain("Outstanding");
+});
+
 test("a live query can drive a standalone chart chosen by the agent", () => {
   const program = 'areas = Query("data", {name:"areas"}, {rows:[]})\nroot = RankedBars(areas.rows, "area", "count")';
   const parsed = createParser(openUILibrary.toJSONSchema()).parse(program);

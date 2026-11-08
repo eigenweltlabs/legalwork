@@ -5,7 +5,7 @@ Dashboards and reports are saved files in your project or wiki. Project Files an
 ## Create and save
 
 1. Open a chat in the intended project or wiki. Ask for a dashboard and identify its sources, for example, "Create a dashboard of matters from this wiki, grouped by responsible lawyer and status."
-2. The agent chooses a layout from your question and the available data. You can ask for a particular chart or comparison, or ask for changes after reviewing the preview and its source records. Generation alone does not save a file.
+2. The agent chooses a layout from your question and the available data. You can ask for related figures side by side, a trend over time, or a ranking by client. You can also ask for changes after reviewing the preview and its source records. Generation alone does not save a file.
 3. Choose **Save** to save directly into the originating project or wiki. An update preview saves back to its original file, provided that version has not changed.
 4. Reopen the file from the project's **Files > Dashboards**, the file sidebar or the wiki explorer. Both file explorers refresh after saving.
 

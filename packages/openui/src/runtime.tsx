@@ -189,12 +189,22 @@ function RowsReady({ rows, children }: { rows: Row[] | null | undefined; childre
 }
 
 export const openUILibrary = createLibrary({ id: "legalwork-1", components: [
-  defineComponent({ name: "Stack", props: schemas.Stack, description: "Responsive layout", component: ({ props, renderNode }) => <div className="lw-view-stack" style={{ gridTemplateColumns: `repeat(${Math.min(4, Math.max(1, Math.round(props.columns ?? 1)))}, minmax(0, 1fr))` }}>{props.children.map((child, i) => <div className="lw-view-stack-item" key={i}>{renderNode(child)}</div>)}</div> }),
+  defineComponent({ name: "Stack", props: schemas.Stack, description: "Responsive layout", component: ({ props, renderNode }) => {
+    const columns = typeof props.columns === "object" ? props.columns?.columns : props.columns;
+    const count = Math.min(4, Math.max(1, Math.round(columns ?? 1)));
+    return <div className="lw-view-stack" style={{ gridTemplateColumns: `repeat(${count}, minmax(0, 1fr))` }}>
+      {props.children.map((child, i) => <div className="lw-view-stack-item" key={i}>{renderNode(child)}</div>)}
+    </div>;
+  } }),
   defineComponent({ name: "Card", props: schemas.Card, description: "Titled card", component: ({ props, renderNode }) => <Card width="full" className="lw-view-card"><CardHeader title={props.title} subtitle={props.subtitle} /><div className="lw-view-card-body">{props.children.map((child, i) => <div key={i}>{renderNode(child)}</div>)}</div></Card> }),
   defineComponent({ name: "Heading", props: schemas.Heading, description: "Section heading", component: ({ props }) => props.level === 1 ? <h1 className="lw-view-title">{props.text}</h1> : <h2 className="lw-view-heading">{props.text}</h2> }),
   defineComponent({ name: "Text", props: schemas.Text, description: "Plain prose", component: ({ props }) => <TextContent variant="clear"><p className="lw-view-prose">{props.text}</p></TextContent> }),
   defineComponent({ name: "Metric", props: schemas.Metric, description: "Metric with context", component: ({ props }) => <MetricCard {...props} /> }),
-  defineComponent({ name: "QueryMetric", props: schemas.QueryMetric, description: "Single aggregate value", component: ({ props }) => <RowsReady rows={props.rows}><MetricCard {...props} value={props.rows?.length === 1 ? props.rows[0][props.field] : null} /></RowsReady> }),
+  defineComponent({ name: "QueryMetric", props: schemas.QueryMetric, description: "Single aggregate value", component: ({ props }) => {
+    const options = typeof props.currency === "string" ? { currency: props.currency } : props.currency;
+    const value = props.rows?.length === 1 ? props.rows[0][props.field] : null;
+    return <RowsReady rows={props.rows}><MetricCard label={props.label} value={value} currency={options?.currency} detail={props.detail ?? options?.detail} /></RowsReady>;
+  } }),
   defineComponent({ name: "RankedBars", props: schemas.RankedBars, description: "Ranked categories with exact values", component: ({ props }) => <RowsReady rows={props.rows}><RankedBars {...props} /></RowsReady> }),
   defineComponent({ name: "HorizontalBarChart", props: schemas.HorizontalBarChart, description: "Category ranking", component: ({ props }) => <RowsReady rows={props.rows}><Chart {...props} kind="horizontal" /></RowsReady> }),
   defineComponent({ name: "StackedBarChart", props: schemas.StackedBarChart, description: "Stacked comparison", component: ({ props }) => <RowsReady rows={props.rows}><Chart {...props} kind="stacked" /></RowsReady> }),

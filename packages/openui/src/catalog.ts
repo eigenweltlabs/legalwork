@@ -5,18 +5,19 @@ const rows = z.array(z.record(z.string(), z.unknown()));
 const columns = z.array(z.object({ field: text, label: text }));
 const chart = () => z.object({ rows, category: text, series: z.array(text).min(1), title: text.optional() });
 const distribution = () => z.object({ rows, category: text, value: text, title: text.optional() });
-const currency = z.string().regex(/^[A-Z]{3}$/).optional();
+const currencyCode = z.string().regex(/^[A-Z]{3}$/);
+const currency = currencyCode.optional();
 const tone = z.enum(["neutral", "info", "success", "warning", "danger"]);
 export const SourceOwnerSchema = z.object({ kind: z.enum(["wiki", "workspace"]), id: z.string().min(1).max(200) });
 export type SourceOwner = z.infer<typeof SourceOwnerSchema>;
 // Order is the OpenUI positional argument contract. Keep this module React-free.
 export const schemas = {
-  Stack: z.object({ children: z.array(z.unknown()), columns: z.number().optional() }),
+  Stack: z.object({ children: z.array(z.unknown()), columns: z.union([z.number(), z.object({ columns: z.number() })]).optional() }),
   Card: z.object({ title: text, children: z.array(z.unknown()), subtitle: text.optional() }),
   Heading: z.object({ text, level: z.number().optional() }),
   Text: z.object({ text }),
   Metric: z.object({ label: text, value: z.union([text, z.number()]), detail: text.optional(), currency }),
-  QueryMetric: z.object({ label: text, rows, field: text, currency, detail: text.optional() }),
+  QueryMetric: z.object({ label: text, rows, field: text, currency: z.union([currencyCode, z.object({ currency, detail: text.optional() })]).optional(), detail: text.optional() }),
   ActionList: z.object({ rows, emptyText: text.optional() }),
   Table: z.object({ rows, columns, searchable: z.boolean().optional() }),
   Board: z.object({ rows, groupBy: text, titleField: text, fields: columns.optional(), groupOrder: z.array(text).optional() }),
@@ -31,12 +32,12 @@ export const schemas = {
 export const OPENUI_CATALOG = {
   id: "legalwork-1",
   components: {
-    Stack: "Stack(children, columns=1): responsive layout, 1 to 4 columns",
+    Stack: "Stack(children, columns=1): responsive grid of 1 to 4 columns. Set the second argument to the number of columns for this group of children",
     Card: "Card(title, children, subtitle?): stock OpenUI card",
     Heading: "Heading(text, level=2)",
     Text: "Text(text): plain text, no HTML",
     Metric: "Metric(label, value, detail?, currency?): grouped number or ISO currency amount in major units",
-    QueryMetric: "QueryMetric(label, rows, field, currency?, detail?): show a numeric field from a single summary row. Bind an ungrouped metrics query.",
+    QueryMetric: "QueryMetric(label, rows, field, currency?, detail?): show a numeric field from a single summary row. Bind an ungrouped metrics query. For a caption on a unitless count, the fourth argument can be an object with a detail string.",
     HorizontalBarChart: "HorizontalBarChart(rows, categoryField, [numericSeriesFields], title?): horizontal rankings for named categories",
     AreaChart: "AreaChart(rows, categoryField, [numericSeriesFields], title?): shaded time series in chronological order",
     StackedBarChart: "StackedBarChart(rows, categoryField, [numericSeriesFields], title?): compare parts with a common unit",
@@ -54,7 +55,9 @@ export const OPENUI_CATALOG = {
   },
   contentGuidance: [
     "Choose the content and layout around the question the reader wants answered. A portfolio might explore where work or value is concentrated. A briefing might highlight a change, a decision or a next action.",
-    "Show comparisons or trends when the records support them. Give figures clear units and scope. Include supporting records when the reader needs to inspect or act on them.",
+    "Use the width of a dashboard. Group two to four related headline figures in a nested Stack with that many columns. Pair charts in two columns when readers can compare them side by side. Give long labels, dense time series and detailed tables the width they need. Groups reflow in a narrow pane.",
+    "Choose the chart for the comparison. Horizontal bars suit ranked names, lines show change over dates, and stacked bars show how a total breaks down across categories. A pie or donut works for a few mutually exclusive shares of a whole. Use different chart forms when they answer different questions. Keep the same encoding and units when readers are comparing like with like.",
+    "Lead with the comparison the reader asked for. Label measures with their period and units, keep methodology near the relevant figure, and put detailed records below the summary when they help explain it. Give each chart one descriptive title.",
   ],
   rules: [
     "Return bare OpenUI Lang, never JavaScript, JSX, HTML, cloud bundles or fenced program text.",
