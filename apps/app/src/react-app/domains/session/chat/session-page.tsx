@@ -1,5 +1,6 @@
 import { workspaceFileRoot } from "@legalwork/types/workspace";
 import { openWikiProjectPicker } from "../../wiki/wiki-project-files-dialog";
+import { useProjectRemoving } from "@/app/lib/project-removal-state";
 import { sessionDeleteError } from "../../views/session-view-delete";
 import { viewPanelTab } from "../../views/view-reference";
 import { ProjectDashboards } from "../../views/project-dashboards";
@@ -382,6 +383,7 @@ function controlStringArg(args: unknown, key: string) {
 export function SessionPage(props: SessionPageProps) {
   const contentRoot = props.workspaces.find(workspace => workspace.id === props.selectedWorkspaceId)?.contentPath || props.selectedWorkspaceRoot;
   const fileRoot = (file: string) => workspaceFileRoot({ path: props.selectedWorkspaceRoot, contentPath: contentRoot }, file);
+  const removingProject = useProjectRemoving(props.selectedWorkspaceId);
   const navigate = useNavigate();
   const location = useLocation();
   const wikiWorkspace = props.wikiWorkspace;
@@ -1321,7 +1323,12 @@ export function SessionPage(props: SessionPageProps) {
           onReorderWorkspaces={props.sidebar.onReorderWorkspaces}
           onStartResize={startLeftSidebarResize}
         />
-        {hasMainView ? (
+        {removingProject && (!hasMainView || props.projectPage) ? (
+          <SidebarInset className="lw-session-workspace min-h-0 items-center justify-center gap-3 overflow-hidden" role="status" aria-live="polite" aria-busy="true">
+            <span className="size-5 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-muted-foreground" aria-hidden="true" />
+            <span className="text-sm text-muted-foreground">{t("catalog.removing")}</span>
+          </SidebarInset>
+        ) : hasMainView ? (
           // Top-level pages (Evals / Skills / Integrations): keep the app chrome the
           // chat has — the draggable top header and the bottom StatusBar (with the
           // settings gear) — and swap only the center content.

@@ -28,6 +28,24 @@ SharePoint and Dropbox each have one provider entry in **Files & storage**. Use 
 
 For Dropbox, give the file connection a name, choose its folder and access, then choose **Connect Dropbox**. Complete the sign-in in the browser. The setup dialog stays open until Dropbox confirms sign-in. Cancelling or failing a new sign-in removes the unfinished connection; it is not reported as a completed connection. An existing account that needs sign-in is marked **Sign in to use it** on its detail page.
 
+## Austrian RIS
+
+The built-in Austrian RIS integration searches Austria's official legal information system. It can search legislation and decisions, read legal texts and historical versions, check validity on a date, and inspect related publications and changes. It is based on [Matteo Bürgler’s RIS MCP server](https://github.com/mburgler/ris-mcp-worker).
+
+1. Open **Settings > Integrations > Legal databases** and select **Austrian RIS**.
+2. Choose **Connect** or the **+** beside the entry to open its setup panel, then choose **Enable RIS**. No RIS account, API key or separate installation is required.
+3. Choose **Test connection** to check whether RIS is reachable. The server owner can enable, disable and test the integration. Organization policy can prevent activation.
+4. Ask a legal research question in chat, naming the law or decision and the relevant date. For example: “Use Austrian RIS to read § 1295 ABGB in the version in force on 1 January 2025 and link the original source.” Select Austrian RIS from the chat's **Integrations** picker to name it explicitly.
+5. To stop using it, open its entry under **Installed**, choose **Manage**, then **Disable RIS**. This stops queued and running RIS operations on that LegalWork server.
+
+Requests go directly from the machine running the LegalWork server to RIS. With the local desktop server, that is your computer; with a remote server, it is the remote machine. No Eigenwelt RIS proxy or provider sign-in is involved. Research text returned to a chat is processed by that chat's configured model as usual.
+
+LegalWork queues requests across chats and reads results afresh rather than keeping a legal-result cache. Broad searches across many databases take longer; specify a court, state or date when possible. The integration does not synchronize whole databases in the background. RIS availability and its [published access conditions](https://www.ris.bka.gv.at/UI/Ogd.aspx) still apply.
+
+For state legislation, name the state as well as the law. Different states can share the same numeric law number; LegalWork uses the specific section's document ID to keep the source unambiguous. A validity check for a state document applies to that exact version. If it is outside the requested date, search for the version in force on that date.
+
+Results include original RIS source links, retrieval times and version information. Read any version warning. A connection test confirms reachability, not completeness or legal currency. When a request fails, narrow the query or open the original source; a failure does not establish that no relevant law or decision exists. For legislation, distinguish consolidated information from the authentic promulgation. RIS data is attributed to Bundeskanzleramt, Republik Österreich, under CC BY 4.0.
+
 ## Research databases
 
 The **Save logins for the in-app browser** welcome screen lets you save your own accounts for common legal research websites, including beck-online, juris, Lexis and Westlaw. Use these logins to stay signed in in the in-app browser. The Saved browser login entries are shortcuts for your saved browser logins. Country suggestions cover the EU, UK and US. They are a starting list, not a guarantee that your subscription covers a particular matter or jurisdiction.

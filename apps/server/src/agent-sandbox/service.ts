@@ -1,6 +1,7 @@
 import { projectPathKey } from "../workspace-path-match.js";
 import { primaryContentFolderRules, projectFilePermissionRules } from "../project-storage.js";
 import { stat } from "node:fs/promises";
+import { managedCoreLibraryRoot } from "../managed-core-library.js";
 import { verifiedWikiSessionOrigin } from "../wiki/agent-access.js";
 import { wikiProjectAccessSignal, validWikiProjectGrants, wikiProjectSandboxMounts } from "../wiki/project-access.js";
 import { within } from "./files.js";
@@ -169,7 +170,7 @@ export class AgentSandboxService {
           throw new ApiError(403, "sandbox_permission_denied", "external_directory is blocked by your permissions. Enable sandboxing to enforce folder restrictions.");
         }
         if (command.skills?.length) {
-          const skills = await listSkills(workspace, true);
+          const skills = await listSkills(workspace, true, undefined, managedCoreLibraryRoot(this.config));
           for (const name of command.skills) {
             const skill = skills.find(item => item.name === name);
             if (!skill) throw new ApiError(400, "sandbox_skill_missing", `Installed skill not found: ${name}`);
@@ -202,7 +203,7 @@ export class AgentSandboxService {
       const mounts: SandboxMount[] = sources.map((source, index) => ({ source,
         target: index === 0 ? "/workspace" : `/authorized/${index - 1}`, writable: command.write }));
       if (command.skills?.length) {
-        const installed = await listSkills(workspace, true);
+        const installed = await listSkills(workspace, true, undefined, managedCoreLibraryRoot(this.config));
         for (const [index, name] of command.skills.entries()) {
           const skill = installed.find((item) => item.name === name);
           if (!skill) throw new ApiError(400, "sandbox_skill_missing", `Installed skill not found: ${name}`);

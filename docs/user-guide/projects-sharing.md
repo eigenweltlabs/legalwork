@@ -49,6 +49,10 @@ Removing a downloaded shared copy removes its LegalWork-created document folder 
 
 ## Offline work and conflicting changes
 
+For projects in cloud-synced folders, LegalWork requests **Keep Downloaded** for the hidden `.opencode` and `.legalwork` folders when the storage client supports it. These contain project configuration, project details and custom capability files. The request covers existing files; new files inherit the folder's offline setting. Documents outside these two folders keep their current storage settings. Files still sync between devices, and the initial download or updates from another device can take time.
+
+If project setup still waits for cloud files, open the project's folder in Finder or File Explorer and check both folders in the storage client's menu. On Mac, press **Command–Shift–.** to show hidden folders, then choose **Keep Downloaded**, **Always keep on this device**, or the provider's offline action. On Windows, right-click each folder and choose **Always keep on this device** where offered. Google Drive uses **Offline access > Available offline**. The storage client must be connected, and the computer needs enough disk space. Older clients and streaming drives may require this manual step.
+
 Offline edits remain pending until the service accepts them. A missing folder pauses sync instead of treating all its documents as deleted. Sync errors or an older firm service can leave changes pending; inspect the Home banner rather than assuming sharing succeeded.
 
 When edits overlap, use the offered **Keep both**, **Use the other version** or **Keep mine** choice after comparing them. Keep both preserves a separate copy. A pending sign-out or access-loss decision can ask how to preserve unsent work. Resolve it before assuming that signing out has backed up those changes.

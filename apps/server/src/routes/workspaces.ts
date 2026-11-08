@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { localProjectIdForContent, markLocalProjectPublished, prepareLocalProject, projectHome, recoverLocalProject, workspaceContentPath } from "../project-storage.js";
+import { prepareManagedCoreLibrary } from "../managed-core-library.js";
 import type { registerProjectFolderRoutes } from "./project-folders.js";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
@@ -141,6 +142,7 @@ export async function registerLocalProject(
   const workspacePath = await canonicalFilePath(resolve(input.folderPath));
   await assertProjectFolderIndependent(workspacePath, await new WikiStore(config).list());
   await ensureDir(workspacePath);
+  await prepareManagedCoreLibrary(config);
 
 
   const existing = config.workspaces.find(entry => resolve(workspaceContentPath(entry)) === workspacePath);
@@ -155,7 +157,7 @@ export async function registerLocalProject(
   };
   if (existing?.contentPath) workspace = { ...workspace, path: existing.path, contentPath: existing.contentPath, previousPath: existing.previousPath };
   else if (config.projectsDirectory) workspace = await recoverLocalProject(config, workspace) ?? await prepareLocalProject(config, workspace);
-  await ensureWorkspaceFiles(workspace.path, input.preset, { bundledCore: config.engineConfigurationMode !== "managed" });
+  await ensureWorkspaceFiles(workspace.path, input.preset);
   if (input.projectFields) await initializeProjectFields(workspace.path, input.projectFields);
   const previous = config.workspaces.find(entry => entry.id === workspace.id);
   if (previous && (previous.workspaceType !== workspace.workspaceType || (previous.directory || previous.path) !== workspace.path)) revokeWikiProjectEverywhere(config, workspace.id);

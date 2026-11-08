@@ -7,6 +7,7 @@ import { Config } from "@opencode/schema/config";
 import { Schema } from "effect";
 import { ensureCoreOpencodeFiles } from "./workspace-init.js";
 import type { ServerConfig } from "./types.js";
+import { rememberCoreManifest } from "./core-bundle.js";
 
 export function managedCoreLibraryRoot(config: ServerConfig) {
   return join(engineStorageDir(config), "capability-library");
@@ -17,6 +18,7 @@ export function managedCoreLibraryRoot(config: ServerConfig) {
 export async function prepareManagedCoreLibrary(config: ServerConfig) {
   const root = managedCoreLibraryRoot(config);
   await mkdir(root, { recursive: true, mode: 0o700 });
+  await rememberCoreManifest(root);
   await ensureCoreOpencodeFiles(root);
 }
 

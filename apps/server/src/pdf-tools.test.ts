@@ -9,7 +9,7 @@ import { z } from "zod";
 import { CORE_OPENCODE_FILES } from "./core-skills.js";
 import { parseFrontmatter } from "./frontmatter.js";
 import { listCommands } from "./commands.js";
-import { ensureWorkspaceFiles } from "./workspace-init.js";
+import { ensureCoreOpencodeFiles } from "./workspace-init.js";
 
 const PDF_COMMANDS = ["open", "annotate", "fill-form", "sign"];
 
@@ -92,8 +92,8 @@ describe("pdf-agent script", () => {
 
   beforeAll(async () => {
     workspace = await mkdtemp(join(tmpdir(), "legalwork-pdf-tools-"));
-    // Seed the workspace exactly the way the app does, then run the seeded script.
-    await ensureWorkspaceFiles(workspace, "starter");
+    // Install the private capability bundle, then run its script against a fixture document.
+    await ensureCoreOpencodeFiles(workspace);
     agentScript = join(workspace, ".opencode", "skills", "pdf-tools", "assets", "pdf-agent.mjs");
 
     const doc = await PDFDocument.create();
@@ -113,7 +113,7 @@ describe("pdf-agent script", () => {
     await rm(workspace, { recursive: true, force: true });
   });
 
-  test("workspace seeding surfaces the four PDF commands", async () => {
+  test("the shared bundle includes the four PDF commands", async () => {
     const names = (await listCommands(workspace, "workspace")).map((c) => c.name);
     for (const name of PDF_COMMANDS) expect(names).toContain(name);
   });

@@ -531,7 +531,7 @@ export async function writeLegalworkRuntimeConfigFile(config: ServerConfig, work
       await bundledPluginSpec(legalworkPluginPath("legalwork-history-image-tools"), config),
       await bundledPluginSpec(legalworkPluginPath("legalwork-tool-image-original-capture"), config),
       await bundledPluginSpec(legalworkPluginPath("legalwork-tool-image-originals"), config),
-      { package: await bundledPluginSpec(legalworkPluginPath("legalwork-managed-config"), config), options: { settingsPath } },
+      { package: await bundledPluginSpec(legalworkPluginPath("legalwork-managed-config"), config), options: { settingsPath, agentDefinitions: true } },
       { package: await bundledPluginSpec(legalworkPluginPath("legalwork-model-catalog"), config), options: { connectionProviders: await orgChatProviderTemplates(config), azureCatalogPath: modelCatalogFor(config).engineFilePath } },
       { package: await bundledPluginSpec(legalworkPluginPath("legalwork-commands"), config), options: { settingsPath } },
       await bundledPluginSpec(legalworkOrgPolicyGuardPluginPath(), config),
@@ -558,9 +558,10 @@ export async function writeLegalworkRuntimeConfigFile(config: ServerConfig, work
       experimental: { ...sharedConfiguration.experimental, todo: true }, plugins: [...sharedPlugins, ...commonPlugins] });
     await writeGeneratedConfigFile(path, content);
     // The final process-owned directives restore mandatory guards even when a
-    // trusted authored document removes plugins. Only the unsafe native command
-    // expansion loader is replaced; native MCP discovery and execution remain.
-    await writeGeneratedConfigFile(mandatoryRuntimeConfigFilePath(config), JSON.stringify({ plugins: [...mandatoryPlugins, "-opencode.config.command"] }));
+    // trusted authored document removes plugins. The command adapter enforces
+    // shell permissions; the agent adapter excludes verified old bundled copies
+    // while preserving the native declaration fold. Native MCP loading remains.
+    await writeGeneratedConfigFile(mandatoryRuntimeConfigFilePath(config), JSON.stringify({ plugins: [...mandatoryPlugins, "-opencode.config.command", "-opencode.config.agent"] }));
     await writeOrgPolicyEngineLayer(config, await buildOrgPolicyEngineLayerFor(config, workspaceId));
     // The shared document lives outside the native configuration directory.
     // Signal the completed publication inside its recursive watch as well: an

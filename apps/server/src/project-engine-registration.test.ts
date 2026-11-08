@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, realpath, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ServerConfig } from "./types.js";
@@ -23,6 +23,7 @@ test.each(engineModes)("%s new local projects and wikis publish native settings 
   try {
     const project = await registerLocalProject(run.config, { folderPath: join(run.root, "matter"), name: "Matter", preset: "starter" });
     expect(project.persisted).toBe(true);
+    for (const name of ["skills", "agents", "commands"]) expect(await stat(join(project.workspace.path, ".opencode", name)).catch(() => null)).toBeNull();
     const registry = nativeEngineProjectRegistryPath(run.config);
     expect(await nativeEngineLocationApproved(registry, project.workspace.path)).toBe(true);
     expect(JSON.parse(await readFile(managedEngineSettingsFilePath(run.config), "utf8")).workspaces[project.workspace.id].directory).toBe(project.workspace.path);

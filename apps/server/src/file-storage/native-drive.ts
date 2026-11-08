@@ -212,6 +212,7 @@ export function nativeDriveAdapter(driver: DriveDriver): StorageAdapter {
     } } : {}),
     async mkdir(path) {
       const { parent, name } = await parentAndName(path);
+      if (segmentId(name)) throw new ApiError(400, "invalid_storage_name", "Use a new folder name, not an existing folder identity.");
       if (await childrenByName(parent, name)) conflict();
       await driver.mkdir(parent, name);
     },

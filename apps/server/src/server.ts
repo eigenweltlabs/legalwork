@@ -84,11 +84,12 @@ import { probeMcpServer, registerMcpClient } from "./mcp-probe.js";
 import { mcpRecovery, recoverWorkspaceMcp } from "./workspace-mcp-recovery.js";
 import { readNativeWorkspaceConfig } from "./native-workspace-config.js";
 import { deleteSkill, listSkills, resolveHubSkillKind, skillPathForScope, upsertSkill, type SkippedSkill } from "./skills.js";
+import { managedCoreLibraryRoot, prepareManagedCoreLibrary } from "./managed-core-library.js";
 import {
   deleteSkillResource,
   listSkillResources,
   readSkillResource,
-  resolveSkillDir,
+  writableSkillDir,
   upsertSkillResource,
   validateResourceName,
 } from "./skill-resources.js";
@@ -101,6 +102,7 @@ import { recordAudit, readAuditEntries, readLastAudit } from "./audit.js";
 import { ReloadEventStore } from "./events.js";
 import { computeReloadFingerprint } from "./reload-fingerprint.js";
 import { startReloadWatchers } from "./reload-watcher.js";
+import { keepProjectStateDownloaded } from "./project-availability.js";
 import { globalOpencodeConfigDir, globalSkillsDir, opencodeConfigPath, legalworkConfigPath, projectCommandsDir, projectPluginsDir, projectSkillsDir } from "./workspace-files.js";
 import { ensureDir, exists, hashToken, shortId, tokensMatch } from "./utils.js";
 import { ensureWorkspaceFiles, readRawOpencodeConfig } from "./workspace-init.js";
@@ -1303,6 +1305,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
     await runtimeOptions.onListening?.(server.port);
     // Startup can upgrade OpenCode and relocate project roots. Start writers
     // and root-bound watchers only after that transition has completed.
+    if (!config.readOnly) await Promise.all(config.workspaces.filter(workspace => !config.projectsDirectory || workspace.contentPath).map(workspace => keepProjectStateDownloaded(workspace.path)));
     backgroundStarted = true;
     restartReloadWatchers();
     for (const start of [() => startTaskSyncTimer(config), () => startProjectSyncTimer(config), () => startSyncEvents(config),
@@ -3234,7 +3237,7 @@ function createRoutes(
     if (!skill) throw new ApiError(400, "invalid_skill_name", "Skill name is required");
     const name = typeof body.name === "string" && body.name.trim() ? body.name.trim() : skill;
     const description = typeof body.description === "string" ? body.description : undefined;
-    const payload = await serializeWorkflowSkill(workspace, skill);
+    const payload = await serializeWorkflowSkill(workspace, skill, managedCoreLibraryRoot(config));
     const result = await hubCreate(client, { kind: "workflow", name, description, payload });
     return jsonResponse({ ok: true, ...result });
   });
@@ -3644,10 +3647,10 @@ function createRoutes(
         if (kind === "skill" || kind === "workflow") {
           // Generated workflows live in the global skill library, so resolve
           // the kind against the same list the Workflows page shows.
-          const localSkills = await listSkills(workspace, true);
+          const localSkills = await listSkills(workspace, true, undefined, managedCoreLibraryRoot(config));
           const localSkill = localSkills.find((skill) => skill.name === ref);
           const publishedKind = resolveHubSkillKind(localSkill, kind, ref);
-          const payload = await serializeWorkflowSkill(workspace, ref);
+          const payload = await serializeWorkflowSkill(workspace, ref, managedCoreLibraryRoot(config));
           const res = await hubCreate(client, { kind: publishedKind, name: ref, description, payload });
           results.push({ ref, kind: publishedKind, ok: true, id: res.id, version: res.version });
         } else if (kind === "mcp") {
@@ -4520,7 +4523,7 @@ function createRoutes(
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const includeGlobal = ctx.url.searchParams.get("includeGlobal") === "true";
     const skipped: SkippedSkill[] = [];
-    const items = await listSkills(workspace, includeGlobal, skipped);
+    const items = await listSkills(workspace, includeGlobal, skipped, managedCoreLibraryRoot(config));
     // The firm's skills apply in every workspace, like the member's global ones.
     return jsonResponse({ items: includeGlobal ? [...items, ...(await firmHubSkills(config))] : items, skipped });
   });
@@ -4630,7 +4633,7 @@ function createRoutes(
     if (!name) {
       throw new ApiError(400, "invalid_skill_name", "Skill name is required");
     }
-    const items = await listSkills(workspace, includeGlobal);
+    const items = await listSkills(workspace, includeGlobal, undefined, managedCoreLibraryRoot(config));
     const item = items.find((skill) => skill.name === name);
     if (!item) {
       throw new ApiError(404, "skill_not_found", `Skill not found: ${name}`);
@@ -4642,7 +4645,7 @@ function createRoutes(
   addRoute(routes, "GET", "/workspace/:id/skills/:name/composed", "client", async ctx => {
     requireClientScope(ctx, "viewer");
     const workspace = await resolveWorkspace(config, ctx.params.id);
-    const composed = await composedSkill(workspace, ctx.params.name);
+    const composed = await composedSkill(workspace, ctx.params.name, true, managedCoreLibraryRoot(config));
     return jsonResponse({ ...composed, chain: await Promise.all(composed.chain.map(skill => withResearchExperience(config, workspace.path, skill))) });
   });
 
@@ -4652,7 +4655,7 @@ function createRoutes(
     const parsed = z.object({ directory: z.string().min(1), operation: researchExperienceAction, connectionId: z.string().uuid().optional(), websiteUrl: z.string().url().optional() }).strict().safeParse(await readJsonBodyLimited(ctx.request, 8192));
     if (!parsed.success) throw new ApiError(400, "research_experience_invalid", "Use the loaded research skill and a valid experience operation.");
     const { directory, operation, connectionId, websiteUrl } = parsed.data;
-    const installed = (await listSkills(workspace, true)).find(item => item.name === ctx.params.name);
+    const installed = (await listSkills(workspace, true, undefined, managedCoreLibraryRoot(config))).find(item => item.name === ctx.params.name);
     if (!installed) throw new ApiError(404, "skill_not_found", "This research skill is no longer installed.");
     const skill = { ...installed, ...await inspectSkillPackage(installed.path) };
     if (connectionId || websiteUrl) requireClientScope(ctx, "collaborator");
@@ -4675,7 +4678,7 @@ function createRoutes(
     requireClientScope(ctx, "viewer");
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const input = z.object({ directory: z.string().min(1), path: z.string().min(1), offset: z.coerce.number().int().min(0).default(0) }).parse(Object.fromEntries(ctx.url.searchParams));
-    const skill = (await listSkills(workspace, true)).find(item => item.name === ctx.params.name);
+    const skill = (await listSkills(workspace, true, undefined, managedCoreLibraryRoot(config))).find(item => item.name === ctx.params.name);
     if (!skill) throw new ApiError(404, "skill_not_found", "This skill is no longer installed.");
     return jsonResponse(await readSkillPackageFile(skill.path, input.directory, input.path, input.offset));
   });
@@ -4702,7 +4705,7 @@ function createRoutes(
       summary: `Upsert skill ${name}`,
       paths: [skillPath],
     });
-    const result = await upsertSkill(workspace, { name, content, description, scope, lesson: body.lesson });
+    const result = await upsertSkill(workspace, { name, content, description, scope, lesson: body.lesson }, managedCoreLibraryRoot(config));
     await recordAudit(workspace.path, {
       id: shortId(),
       workspaceId: workspace.id,
@@ -4760,7 +4763,7 @@ function createRoutes(
   // Mutations also regenerate the managed "Attached resources" SKILL.md section.
   addRoute(routes, "GET", "/workspace/:id/skills/:skill/resources", "client", async (ctx) => {
     const workspace = await resolveWorkspace(config, ctx.params.id);
-    const items = await listSkillResources(workspace, String(ctx.params.skill ?? ""));
+    const items = await listSkillResources(workspace, String(ctx.params.skill ?? ""), managedCoreLibraryRoot(config));
     return jsonResponse({ items });
   });
 
@@ -4771,6 +4774,7 @@ function createRoutes(
       String(ctx.params.skill ?? ""),
       String(ctx.params.name ?? "").trim(),
       ctx.url.searchParams.get("encoding") === "base64" ? "base64" : "utf8",
+      managedCoreLibraryRoot(config),
     );
     return jsonResponse(result);
   });
@@ -4786,14 +4790,14 @@ function createRoutes(
     const contentBase64 = typeof body.contentBase64 === "string" ? body.contentBase64 : undefined;
     // Validate + resolve up front so the approval prompt shows the real path.
     validateResourceName(name);
-    const skillDir = await resolveSkillDir(workspace, skill);
+    const skillDir = await writableSkillDir(workspace, skill, managedCoreLibraryRoot(config));
     await requireApproval(ctx, {
       workspaceId: workspace.id,
       action: "skills.resource.upsert",
       summary: `Attach ${name} to skill ${skill}`,
       paths: [join(skillDir, "resources", name)],
     });
-    const result = await upsertSkillResource(workspace, skill, { name, content, contentBase64 });
+    const result = await upsertSkillResource(workspace, skill, { name, content, contentBase64 }, managedCoreLibraryRoot(config));
     await recordAudit(workspace.path, {
       id: shortId(),
       workspaceId: workspace.id,
@@ -4820,14 +4824,14 @@ function createRoutes(
     const skill = String(ctx.params.skill ?? "").trim();
     const name = String(ctx.params.name ?? "").trim();
     validateResourceName(name);
-    const skillDir = await resolveSkillDir(workspace, skill);
+    const skillDir = await writableSkillDir(workspace, skill, managedCoreLibraryRoot(config));
     await requireApproval(ctx, {
       workspaceId: workspace.id,
       action: "skills.resource.delete",
       summary: `Remove ${name} from skill ${skill}`,
       paths: [join(skillDir, "resources", name)],
     });
-    const result = await deleteSkillResource(workspace, skill, name);
+    const result = await deleteSkillResource(workspace, skill, name, managedCoreLibraryRoot(config));
     await recordAudit(workspace.path, {
       id: shortId(),
       workspaceId: workspace.id,
@@ -5318,7 +5322,8 @@ async function resolveWorkspace(config: ServerConfig, id: string): Promise<Works
     let bootstrap = bootstraps.get(bootstrapKey);
     if (!bootstrap) {
       bootstrap = (async () => {
-        const ensured = await ensureWorkspaceFiles(resolvedWorkspace, workspace.preset ?? "starter", { bundledCore: config.engineConfigurationMode !== "managed" });
+        await prepareManagedCoreLibrary(config);
+        const ensured = await ensureWorkspaceFiles(resolvedWorkspace, workspace.preset ?? "starter");
         const bootstrapReloadReasons = new Set<ReloadReason>(ensured.reloadReasons);
         if (await repairCommands(resolvedWorkspace)) {
           bootstrapReloadReasons.add("commands");
@@ -5824,7 +5829,7 @@ async function exportWorkspace(
   const rawOpencode = await readOpencodeConfig(config, workspace);
   let opencode = sanitizePortableOpencodeConfig(rawOpencode);
   const legalwork = sanitizeLegalworkTemplateConfig(await readLegalworkConfig(workspace.path));
-  const skills = await listSkills(workspace, false);
+  const skills = (await listSkills(workspace, false, undefined, managedCoreLibraryRoot(config))).filter(skill => skill.scope === "project");
   const commands = await listCommands(workspace.path, "workspace");
   let files = await listPortableFiles(workspace.path);
   const warnings = collectWorkspaceExportWarnings({ opencode: rawOpencode, files });

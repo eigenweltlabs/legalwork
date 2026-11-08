@@ -1,5 +1,11 @@
 # Local project support storage implementation
 
+## Branch update, alpha and local migration exercise — 2026-11-08
+
+Merge current `origin/dev` into `codex/local-project-storage`, preserving separate engine/content roots, the fourteen fixes and the shared-core library/read-only behavior added upstream. Regenerate bundled help and check the combined sources. Use the existing macOS ARM64 and Windows x64/ARM64 alpha workflows on the updated branch; the user explicitly requested a normal published alpha rather than a draft. Do not change the workflows' publication behavior or create a stable release tag. Confirm exact workflow commit, packaged startup, signatures and downloadable alpha assets.
+
+While alpha jobs run, replay an isolated synthetic profile from pre-storage version `62eb0f717`, with several project types/locations, parent/child chats, saved messages, attachments, permissions, Assistant, synced owner/member and wiki. Preserve the existing exercise, generate a separate disposable profile and owned source folders, check cold migration and repeated startup, disconnect/reconnect a test source, and record byte/identity/permission preservation and local history availability. No signed-in profile or real firm account is used. Validate the updated branch with focused merge regressions and full server coverage. Record exact alpha/migration outcomes in this plan and draft PR #405.
+
 ## Approved remaining fourteen fixes — 2026-11-08
 
 Implement all fourteen investigated findings in this worktree, including a reviewed pinned-engine change for passive relocation. The isolated November 8 probes reproduced parked native input executing during move, interrupted recovery state clearing, alias permissions retaining obsolete roots, daily Assistant replacement, rejected absolute engine attachments, ineffective skill updates, wiki workspace identity loss, file-link ambiguity, doubled rename paths, eager browser content access and original-export permission/destination mismatch.

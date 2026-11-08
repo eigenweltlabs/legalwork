@@ -1,11 +1,12 @@
 import type { SkillWorkspace } from "./skills.js";
 import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, isAbsolute, join, relative, sep } from "node:path";
 import { ApiError } from "./errors.js";
 import { exists } from "./utils.js";
 import { validateSkillName } from "./validators.js";
 import { globalSkillsDir, projectSkillsDir } from "./workspace-files.js";
+import { listSkills } from "./skills.js";
 
 // Attached files (firm templates, playbooks, …) live INSIDE the skill's own
 // folder: .opencode/skills/<name>/resources/<file>. A workflow plus its
@@ -79,9 +80,14 @@ function globalSkillsBaseDirs(): string[] {
  * .claude/skills first, then the global skills dirs, in both the flat and the
  * nested (<domain>/<name>) layouts.
  */
-export async function resolveSkillDir(workspace: SkillWorkspace, skillName: string): Promise<string> {
+export async function resolveSkillDir(workspace: SkillWorkspace, skillName: string, coreRoot?: string): Promise<string> {
   const trimmed = skillName.trim();
-  validateSkillName(trimmed);
+  validateSkillName(trimmed); // kebab-case only — path-traversal safe
+  if (coreRoot) {
+    const skill = (await listSkills(workspace, true, undefined, coreRoot)).find(item => item.name === trimmed);
+    if (skill) return dirname(skill.path);
+    throw new ApiError(404, "skill_not_found", `Skill not found: ${trimmed}`);
+  }
   const engine = typeof workspace === "string" ? workspace : workspace.path;
   const content = typeof workspace === "string" ? workspace : workspace.contentPath || workspace.path;
   const bases = [join(content, "Skills"), projectSkillsDir(engine), join(content, ".claude", "skills"), join(content, ".agents", "skills"), ...globalSkillsBaseDirs()];
@@ -90,6 +96,21 @@ export async function resolveSkillDir(workspace: SkillWorkspace, skillName: stri
     if (directory) return directory;
   }
   throw new ApiError(404, "skill_not_found", `Skill not found: ${trimmed}`);
+}
+
+/** Shared app-owned packages may be read/exported, never edited as user files. */
+export async function writableSkillDir(workspaceRoot: SkillWorkspace, skillName: string, coreRoot?: string) {
+  const directory = await resolveSkillDir(workspaceRoot, skillName, coreRoot);
+  if (coreRoot) {
+    const part = relative(coreRoot, directory);
+    if (part !== ".." && !part.startsWith(`..${sep}`) && !isAbsolute(part)) {
+      throw new ApiError(403, "bundled_skill_read_only", "Create a custom skill before changing a bundled skill's attached files.");
+    }
+    if (directory !== await resolveSkillDir(workspaceRoot, skillName)) {
+      throw new ApiError(403, "inherited_skill_read_only", "Create a project-specific skill before changing inherited attached files.");
+    }
+  }
+  return directory;
 }
 
 async function listResourceNames(resourcesDir: string): Promise<string[]> {
@@ -101,8 +122,8 @@ async function listResourceNames(resourcesDir: string): Promise<string[]> {
     .sort((a, b) => a.localeCompare(b));
 }
 
-export async function listSkillResources(workspaceRoot: SkillWorkspace, skillName: string): Promise<SkillResourceItem[]> {
-  const skillDir = await resolveSkillDir(workspaceRoot, skillName);
+export async function listSkillResources(workspaceRoot: SkillWorkspace, skillName: string, coreRoot?: string): Promise<SkillResourceItem[]> {
+  const skillDir = await resolveSkillDir(workspaceRoot, skillName, coreRoot);
   const dir = join(skillDir, "resources");
   const items: SkillResourceItem[] = [];
   for (const name of await listResourceNames(dir)) {
@@ -118,10 +139,11 @@ export async function readSkillResource(
   skillName: string,
   fileName: string,
   encoding: "utf8" | "base64" = "utf8",
+  coreRoot?: string,
 ): Promise<{ item: SkillResourceItem; content: string }> {
   const trimmed = fileName.trim();
   validateResourceName(trimmed);
-  const skillDir = await resolveSkillDir(workspaceRoot, skillName);
+  const skillDir = await resolveSkillDir(workspaceRoot, skillName, coreRoot);
   const path = join(skillDir, "resources", trimmed);
   if (!(await exists(path))) {
     throw new ApiError(404, "resource_not_found", `Attached file not found: ${trimmed}`);
@@ -144,13 +166,14 @@ export async function upsertSkillResource(
   workspaceRoot: SkillWorkspace,
   skillName: string,
   payload: UpsertSkillResourcePayload,
+  coreRoot?: string,
 ): Promise<{ name: string; path: string; skillPath: string; action: "added" | "updated" }> {
   const name = payload.name.trim();
   validateResourceName(name);
   if (typeof payload.content !== "string" && typeof payload.contentBase64 !== "string") {
     throw new ApiError(400, "invalid_resource_content", "Resource content is required");
   }
-  const skillDir = await resolveSkillDir(workspaceRoot, skillName);
+  const skillDir = await writableSkillDir(workspaceRoot, skillName, coreRoot);
   const dir = join(skillDir, "resources");
   await mkdir(dir, { recursive: true });
   const path = join(dir, name);
@@ -168,10 +191,11 @@ export async function deleteSkillResource(
   workspaceRoot: SkillWorkspace,
   skillName: string,
   fileName: string,
+  coreRoot?: string,
 ): Promise<{ path: string; skillPath: string }> {
   const trimmed = fileName.trim();
   validateResourceName(trimmed);
-  const skillDir = await resolveSkillDir(workspaceRoot, skillName);
+  const skillDir = await writableSkillDir(workspaceRoot, skillName, coreRoot);
   const path = join(skillDir, "resources", trimmed);
   if (!(await exists(path))) {
     throw new ApiError(404, "resource_not_found", `Attached file not found: ${trimmed}`);

@@ -7,8 +7,8 @@ import { join } from "node:path";
  * library and private bundled core; native-project mode keeps project overrides. */
 export async function resolveCapabilityLibrary(directory: SkillWorkspace, globalOnly = false, coreRoot?: string) {
   const skipped: SkippedSkill[] = [];
-  const core = coreRoot ? await listSkillsInDir(join(coreRoot, ".opencode", "skills"), "global", skipped) : [];
-  const candidates = globalOnly ? [...core, ...await listGlobalSkills(skipped)] : [...await listSkills(directory, true, skipped), ...core];
+  const core = globalOnly && coreRoot ? await listSkillsInDir(join(coreRoot, ".opencode", "skills"), "global", skipped) : [];
+  const candidates = globalOnly ? [...core, ...await listGlobalSkills(skipped)] : await listSkills(directory, true, skipped, coreRoot);
   const seen = new Set<string>();
   const skills = candidates.filter(skill => !seen.has(skill.name) && Boolean(seen.add(skill.name)));
   const nativeSkills = await Promise.all(skills.map(async skill => {

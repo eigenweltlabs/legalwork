@@ -1,5 +1,5 @@
 import { composedSkill, SkillLessonInputSchema } from "./skill-composition.js";
-import { readdir, readFile, writeFile, mkdir, rm } from "node:fs/promises";
+import { cp, lstat, readdir, readFile, writeFile, mkdir, rm } from "node:fs/promises";
 import type { Dirent } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { homedir } from "node:os";
@@ -10,6 +10,7 @@ import { validateDescription, validateSkillName } from "./validators.js";
 import { ApiError } from "./errors.js";
 import { globalSkillsDir, projectSkillsDir } from "./workspace-files.js";
 import { BUNDLED_WORKFLOW_NAMES } from "./bundled-workflows.js";
+import { unchangedCoreSkill } from "./core-bundle.js";
 
 export type SkillWorkspace = string | { path: string; contentPath?: string | null };
 
@@ -113,13 +114,14 @@ async function parseSkillEntry(
   };
 }
 
-export async function listSkillsInDir(dir: string, scope: "project" | "global", skipped?: SkippedSkill[]): Promise<SkillItem[]> {
+export async function listSkillsInDir(dir: string, scope: "project" | "global", skipped?: SkippedSkill[], ignore?: (path: string) => Promise<boolean>): Promise<SkillItem[]> {
   if (!(await exists(dir))) return [];
   const entries = (await readdir(dir, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name));
   const items: SkillItem[] = [];
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
     const skillPath = join(dir, entry.name, "SKILL.md");
+    if (ignore && await ignore(skillPath)) continue;
     if (await exists(skillPath)) {
       // Direct skill: <dir>/<name>/SKILL.md
       const item = await parseSkillEntry(skillPath, entry.name, scope, skipped);
@@ -149,7 +151,7 @@ export async function listSkillsInDir(dir: string, scope: "project" | "global", 
   return items;
 }
 
-export async function listSkills(workspace: SkillWorkspace, includeGlobal: boolean, skipped?: SkippedSkill[]): Promise<SkillItem[]> {
+export async function listSkills(workspace: SkillWorkspace, includeGlobal: boolean, skipped?: SkippedSkill[], coreRoot?: string): Promise<SkillItem[]> {
   const workspaceRoot = typeof workspace === "string" ? workspace : workspace.path;
   const contentRoot = typeof workspace === "string" ? workspace : workspace.contentPath || workspace.path;
   const roots = [...new Set([workspaceRoot, ...await findWorkspaceRoots(contentRoot)])];
@@ -159,7 +161,8 @@ export async function listSkills(workspace: SkillWorkspace, includeGlobal: boole
   for (const root of roots) {
     const opencodeDir = join(root, ".opencode", "skills");
     const claudeDir = join(root, ".claude", "skills");
-    items.push(...(await listSkillsInDir(opencodeDir, "project", skipped)));
+    items.push(...(await listSkillsInDir(opencodeDir, "project", skipped,
+      coreRoot ? path => unchangedCoreSkill(root, path, coreRoot) : undefined)));
     items.push(...(await listSkillsInDir(claudeDir, "project", skipped)));
     items.push(...(await listSkillsInDir(join(root, ".agents", "skills"), "project", skipped)));
   }
@@ -176,6 +179,10 @@ export async function listSkills(workspace: SkillWorkspace, includeGlobal: boole
       if (item) items.push(item);
     }
   }
+
+  // App-owned defaults are available to every project, including clients that
+  // cannot list the server owner's personal library. Authored overrides win.
+  if (coreRoot) items.push(...await listSkillsInDir(join(coreRoot, ".opencode", "skills"), "global", skipped));
 
   const seen = new Set<string>();
   return items.filter((item) => {
@@ -268,18 +275,37 @@ export function buildSkillContent(payload: UpsertSkillPayload): { name: string; 
 export async function upsertSkill(
   workspace: SkillWorkspace,
   payload: UpsertSkillPayload,
+  coreRoot?: string,
 ): Promise<{ path: string; action: "added" | "updated"; scope: SkillScope }> {
+  const workspaceRoot = typeof workspace === "string" ? workspace : workspace.path;
   const lesson = payload.lesson === undefined ? null : SkillLessonInputSchema.parse(payload.lesson);
-  const dependency = lesson ? await composedSkill(workspace, lesson.base, false) : null;
+  const dependency = lesson ? await composedSkill(workspace, lesson.base, false, coreRoot) : null;
   if (dependency?.chain.some(item => item.name === payload.name)) throw new ApiError(422, "skill_cycle", "A skill cannot extend itself or its descendants.");
   const skill = buildSkillContent(payload);
   const scope: SkillScope = payload.scope === "global" ? "global" : "project";
 
   const skillPath = await skillPathForScope(workspace, scope, skill.name);
   const skillDir = dirname(skillPath);
-  await mkdir(skillDir, { recursive: true });
   const existed = await exists(skillPath);
   if (lesson && existed) throw new ApiError(409, "skill_exists", "Choose a new name for this correction to preserve the existing skill.");
+  if (coreRoot && !lesson) {
+    const source = join(coreRoot, ".opencode", "skills", skill.name, "SKILL.md");
+    const selected = (await listSkills(workspace, true, undefined, coreRoot)).find(item => item.name === skill.name);
+    if (selected?.path === source) {
+      // An explicit edit creates a complete override, including its helpers.
+      // Project startup never calls this path. Preserve malformed/linked user
+      // packages rather than overwriting them while cloning the shared default.
+      for (const path of [skillDir, dirname(skillDir), dirname(dirname(skillDir))]) {
+        const info = await lstat(path).catch(error => { if (error.code === "ENOENT") return undefined; throw error; });
+        if (info && (!info.isDirectory() || info.isSymbolicLink())) throw new ApiError(409, "skill_override_conflict", "Choose another skill name: its destination must be an ordinary folder.");
+      }
+      if (await exists(skillDir) && (scope !== "project" || !await unchangedCoreSkill(workspaceRoot, skillPath, coreRoot))) {
+        throw new ApiError(409, "skill_override_conflict", "Choose another skill name to preserve the existing package.");
+      }
+      await cp(dirname(source), skillDir, { recursive: true });
+    }
+  }
+  await mkdir(skillDir, { recursive: true });
   if (lesson && dependency) {
     const base = dependency.chain.find(item => item.name === lesson.base)!;
     const pinned = { ...lesson, baseHash: base.hash, createdAt: new Date().toISOString() };

@@ -1,3 +1,4 @@
+import { managedCoreLibraryRoot } from "./managed-core-library.js";
 import type { AssistantResource, AssistantSettings, AssistantSettingsCatalog } from "@legalwork/types/main-assistant";
 import type { MainAssistant } from "./main-assistant.js";
 import { isMainAssistant } from "./main-assistant.js";
@@ -33,7 +34,7 @@ export async function assistantSettingsCatalog(config: ServerConfig): Promise<As
   for (let offset = 0; offset < roots.length; offset += 8) {
     await Promise.all(roots.slice(offset, offset + 8).map(async project => {
       try {
-        const [skills, imports] = await Promise.all([listSkills(project, false), readInstalledCloudPlugins(config, project.id)]);
+        const [skills, imports] = await Promise.all([listSkills(project, false, undefined, managedCoreLibraryRoot(config)), readInstalledCloudPlugins(config, project.id)]);
         for (const skill of skills.filter(skill => skill.scope === "project")) add({ kind: skill.kind === "workflow" ? "workflow" : "skill", name: skill.name,
           description: skill.description, reference: skill.path, projectId: project.id, projectName: project.displayName || project.name });
         plugins(imports.plugins, project.id, project.displayName || project.name, project.path);

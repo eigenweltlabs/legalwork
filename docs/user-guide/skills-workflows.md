@@ -28,6 +28,8 @@ Attach the firm's templates, playbooks and examples as workflow resources. Resou
 
 You can also ask the assistant to create or save a skill/workflow. The `legalwork_skill_create` tool adds it to the shared library and can attach resource files. `legalwork_skill_list` checks existing entries. Writing a loose `SKILL.md` into an arbitrary folder does not by itself add it to the library shown in the app. Accept the app's reload prompt when required for the engine to see updated skills or tools.
 
+When creating a skill, an invalid or already-used name shows a red hint below **Name**. Correct the name before selecting **Create skill**.
+
 ## Run a workflow
 
 Select a workflow and the documents/folder to use, or start it from a task's **Start workflow** action. Explain the intended result and any matter-specific constraints. Templates and instructions are inputs, so the assistant still needs the actual matter information. A skill that tells an agent how to do something does not itself grant credentials or access to folders.
@@ -40,6 +42,8 @@ For document-by-document tables, read [Tabular Review](reviews.md). The native p
 
 Use the library's supported import controls for a skill/workflow package or repository, and export a workflow as a ZIP when you need its reusable files. The **Team** view and sharing actions are available when the firm's connection and permissions allow them. Sharing a library item is different from sharing the source matter documents. Inspect imported instructions and resource files before running them against a matter.
 
-Bundled skills, including `legalwork-help`, are installed centrally with the app and refreshed when the bundled version changes. New projects do not need their own copies. Save a separately named custom skill for firm-specific adaptations instead of relying on modifications to an app-managed copy.
+Bundled skills, including the Word/PDF helpers, research skills and `legalwork-help`, are installed once in local app storage and shared by all projects. Creating or opening a project does not install or update separate bundled copies inside it.
+
+Older project folders can still contain those copies. When LegalWork can verify that a whole skill package matches its originally shipped version, it uses the maintained shared version and leaves the old files untouched. A changed instruction, helper script, added resource or unverifiable package keeps its project-specific selection. Custom project skills remain available and can override a bundled skill with the same name. Explicitly editing a bundled skill creates a complete custom copy with its helper files; later app updates maintain the shared default. Create that custom copy before changing attached files. Your documents, attachments, editable working copies and scratch files stay in the project. Save a separately named custom skill for firm-specific adaptations when you want to keep both versions available.
 
 Related: [Tasks](tasks-intake.md), [Scheduled tasks](scheduled-tasks.md), [Tabular Review](reviews.md), [Integrations](integrations.md), [Files](files-documents.md).

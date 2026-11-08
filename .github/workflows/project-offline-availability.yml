@@ -1,0 +1,27 @@
+name: Project offline availability
+on:
+  pull_request:
+    paths:
+      - apps/server/src/project-availability*
+      - apps/server/src/cloud-folder*
+      - .github/workflows/project-offline-availability.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native-availability:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-15, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - name: Verify native pin interop and local-folder behavior
+        run: bun test apps/server/src/project-availability.test.ts

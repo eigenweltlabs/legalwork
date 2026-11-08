@@ -35,6 +35,14 @@ caches use the full manifest digest, keeping different same-version builds
 separate. Every process reconstructs trust and verifies the actual five installed
 files; environment/PATH overrides do not replace the compiled selection.
 
+Startup layers use `opencodeEngineIdentity` for version and service-file metadata
+without reading executable contents. `verifyOpencodeForExecution` verifies the
+installed bytes once immediately before each spawn, including restart/retry and
+diagnostic executions. Executable hashing runs in a worker with a reusable 1 MiB
+buffer, keeping disk reads and SHA-256 work off the desktop main thread. No
+successful disk verification is cached across launches. The historical
+`expectedOpencodeVersion` export remains an execution-verification alias.
+
 Production preparation (`pnpm engine:prepare:production`) requires the complete
 twelve-target matrix and exact approved public Mac signer policy. Existing CI
 imports the identity in an owned temporary keychain, signs Mac outputs **before**

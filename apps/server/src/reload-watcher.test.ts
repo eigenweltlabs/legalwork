@@ -118,7 +118,7 @@ describe("reload watcher fingerprints", () => {
         jest.useRealTimers();
         await sleep(250);
 
-        expect(ensured.reloadReasons.sort()).toEqual(["agents", "commands", "skills"]);
+        expect(ensured.reloadReasons).toEqual([]);
         expect(events.list(workspace.id)).toEqual([]);
         await writeFile(join(root, ".opencode", "commands", "sign.md"), "User command change\n", "utf8");
         expect((await waitForEvent(events, workspace.id))?.reason).toBe("commands");

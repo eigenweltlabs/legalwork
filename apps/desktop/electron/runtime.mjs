@@ -13,7 +13,7 @@ import { createOfficeAddinManager } from "./office-addin-manager.mjs";
 import { createHostApprovalHandler } from "./host-approvals.mjs";
 import { migrateLegacyWindowsOpenCodeConfig } from "./opencode-config-migration.mjs";
 import { downloadOpencodeBinary, opencodeRelease, opencodeReleaseTarget } from "./opencode-release.mjs";
-import { expectedOpencodeVersion } from "@legalwork/opencode-release/candidate";
+import { opencodeEngineIdentity, verifyOpencodeForExecution } from "@legalwork/opencode-release/candidate";
 import { installSelectedOpencodeEngine, opencodeEngineSelection } from "@legalwork/opencode-release/selection";
 
 const __runtimeDir = path.dirname(fileURLToPath(import.meta.url));
@@ -1186,9 +1186,9 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       };
     }
 
-    await expectedOpencodeVersion(resolved.path, opencodeCandidateBuild);
+    await verifyOpencodeForExecution(resolved.path, opencodeCandidateBuild);
     const versionResult = spawnSync(resolved.path, ["--version"], { encoding: "utf8" });
-    await expectedOpencodeVersion(resolved.path, opencodeCandidateBuild);
+    await verifyOpencodeForExecution(resolved.path, opencodeCandidateBuild);
     const helpResult = spawnSync(resolved.path, ["serve", "--help"], { encoding: "utf8" });
     const notes = [`Using ${resolved.source}: ${resolved.path}`];
     if (versionResult.status !== 0) {
@@ -1364,9 +1364,9 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     const previousSelection = { id: embeddedWorkspaceId, path: embeddedRequestedPath };
     const currentPort = legalworkServerState.port;
     const managedOpencode = options.manageOpencode ? resolveOpencodeBinary(options.opencodeBinPath) : null;
-    // Verify host-only candidate capability before stopping an existing server.
-    // The managed lifecycle rechecks the same bytes immediately before spawn.
-    if (managedOpencode) await expectedOpencodeVersion(managedOpencode.path, opencodeCandidateBuild);
+    // Check the host-only identity before stopping an existing server. The
+    // managed lifecycle verifies executable bytes once, immediately before spawn.
+    if (managedOpencode) await opencodeEngineIdentity(managedOpencode.path, opencodeCandidateBuild);
     // Stop any previously running in-process server
     if (inProcessServer) {
       try { await inProcessServer.stop(); } catch { /* ignore */ }
@@ -1703,7 +1703,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       throw new Error("projectDir is required");
     }
     const requestedBinary = resolveOpencodeBinary(options.opencodeBinPath);
-    await expectedOpencodeVersion(requestedBinary.path, opencodeCandidateBuild);
+    await opencodeEngineIdentity(requestedBinary.path, opencodeCandidateBuild);
 
     // Reuse a healthy server instead of tearing it down. During boot the
     // main process kicks off bootRuntimeForSelectedWorkspace while renderer
@@ -1942,13 +1942,12 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       if (opencodeEngineSelection.kind === "derivative") {
         const current = findSelectedOpencodeBinary();
         if (current) {
-          await expectedOpencodeVersion(current.path, opencodeCandidateBuild);
+          await verifyOpencodeForExecution(current.path, opencodeCandidateBuild);
           return { ok: true, status: 0, stdout: `Verified selected LegalWork engine ${opencodeEngineSelection.version}.`, stderr: "" };
         }
         const target = opencodeReleaseTarget();
         const installed = await installSelectedOpencodeEngine({ directory: path.join(userDataDir, "engines", opencodeEngineSelection.artifactId, target),
           cacheDirectory: path.join(userDataDir, "downloads", "opencode"), target });
-        await expectedOpencodeVersion(installed.path, installed.candidateBuild);
         return { ok: true, status: 0, stdout: `Installed selected LegalWork engine ${installed.version} from its verified cache.`, stderr: "" };
       }
       const installDir = path.join(app.getPath("home"), ".opencode", "bin");
@@ -1977,7 +1976,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     if (!program) {
       throw new Error("Failed to locate opencode.");
     }
-    await expectedOpencodeVersion(program, opencodeCandidateBuild);
+    await verifyOpencodeForExecution(program, opencodeCandidateBuild);
 
     const result = await runShellCommand(program, ["mcp", "auth", safeServerName], {
       cwd: safeProjectDir,

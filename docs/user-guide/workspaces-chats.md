@@ -28,7 +28,7 @@ Workspace settings include authorized folders. Global settings include model pro
 
 **Projects** and **Project Home** provide matter details, linked folders and separate pages for files, chats, tasks, calendar, reviews and dashboards. See [Projects and sharing](projects-sharing.md). Sharing a project through the firm is different from the remote-worker connection described below.
 
-Project menus provide the actions available in this context, including renaming and opening another window. Choose **Remove project** and confirm to take a project out of the sidebar. Its saved chats and files on disk remain preserved. A workspace export is not a backup of every cloud account, secret or remote source.
+Project menus provide the actions available in this context, including renaming and opening another window. Choose **Remove project** and confirm to take a project out of the sidebar. The project shows **Removing…** with a loading indicator while the server responds. Its actions and data loading pause during removal, and the row disappears when the server confirms it. If removal fails, the project remains available and LegalWork reports the failed removal. Its saved chats and files on disk remain preserved. A workspace export is not a backup of every cloud account, secret or remote source.
 
 ## Conversations
 
@@ -85,6 +85,10 @@ Reloading the LegalWork window keeps its browser pages and text you have entered
 Connect cloud storage and other services through **Settings > Integrations**. Their account permissions apply separately from local folder permissions. A separately operated LegalWork server uses its own URL and access token and must remain reachable; its credentials and files belong to that server. Adding a remote agent as a workspace is no longer supported. Treat connection tokens as credentials.
 
 ## Keyboard shortcuts
+
+To switch workspace tabs, press **Cmd+1** through **Cmd+8** on macOS (**Ctrl+1** through **Ctrl+8** on Windows/Linux) to select the first through eighth tab from left to right. **Cmd/Ctrl+9** selects the last tab, even when more than nine tabs are open. If that numbered tab does not exist, the current tab stays selected. After you reorder tabs, the shortcuts follow their new order.
+
+In a split workspace, click a tab or its content first; the shortcut switches tabs in that pane. These shortcuts also work while typing in a chat or document, or using the built-in browser. In the desktop app, you can also choose **View > Select Tab > Tab 1–8** or **Last Tab**. **Ctrl+Tab** and **Ctrl+Shift+Tab** cycle forward and backward through the current pane's tabs.
 
 Use Command on macOS and Control elsewhere. In the chat shell: `Cmd/Ctrl+K` opens the command palette, `Cmd/Ctrl+Shift+F` searches sessions, `Cmd/Ctrl+J` toggles the terminal, and `Cmd/Ctrl+T` / `Cmd/Ctrl+Shift+T` moves between session tabs. `Cmd/Ctrl+N` creates a new chat when focus is not inside an editable field. These shortcuts are context-dependent; they are not Office shortcuts.
 
