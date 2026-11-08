@@ -581,6 +581,9 @@ importers:
       electron-devtools-installer:
         specifier: ^4.0.0
         version: 4.0.0
+      es-module-lexer:
+        specifier: 3.0.4
+        version: 3.0.4
       node-addon-api:
         specifier: 8.5.0
         version: 8.5.0

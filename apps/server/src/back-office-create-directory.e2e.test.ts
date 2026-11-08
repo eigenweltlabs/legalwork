@@ -4,14 +4,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
 import { startServer } from "./server.js";
-import type { ServerConfig } from "./types.js";
+import { backOfficeTestConfig } from "./back-office/config.test-support.js";
 import { BackOfficeRecordSchema } from "./back-office/schema.js";
 
 test("picker creation pins the directory and reserved identity, leaving no record after validation failures", async () => {
   const root = await mkdtemp(join(tmpdir(), "back-office-create-directory-"));
   const previous = { LEGALWORK_DATA_DIR: process.env.LEGALWORK_DATA_DIR, LEGALWORK_TOKEN_STORE: process.env.LEGALWORK_TOKEN_STORE };
   process.env.LEGALWORK_DATA_DIR = join(root, "data"); process.env.LEGALWORK_TOKEN_STORE = join(root, "tokens.json");
-  const config: ServerConfig = { host: "127.0.0.1", port: 0, token: "fixture", hostToken: "host", configPath: join(root, "server.json"), workspaces: [], authorizedRoots: [root], approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: [], readOnly: false, startedAt: 0, tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false };
+  const config = backOfficeTestConfig(root, { authorizedRoots: [root], startedAt: 0 });
   const server = await startServer(config), base = `http://127.0.0.1:${server.port}`;
   const request = (path: string, body?: unknown) => fetch(base + "/back-office" + path, { method: body ? "POST" : "GET", headers: { authorization: "Bearer fixture", "content-type": "application/json" }, ...(body ? { body: JSON.stringify(body) } : {}) });
   try {

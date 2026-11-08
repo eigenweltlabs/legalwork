@@ -1061,7 +1061,9 @@ export class BackOfficeStore {
         const object = model.objects.find(object => object.id === record.objectId);
         const current = this.raw(scope, record.id);
         const authored = new Set(change.changedFields ?? (change.baseRevision === 0 ? Object.keys(record.values) : []));
-        const values = Object.fromEntries(Object.entries(record.values).filter(([id]) => authored.has(id)));
+        // A create carries model defaults even when the caller only supplied a name.
+        const defaults = change.baseRevision === 0 && object ? defaultBackOfficeValues(object) : {};
+        const values = Object.fromEntries(Object.entries(record.values).filter(([id, value]) => authored.has(id) || defaults[id] === value));
         const permitted = object && visibleBackOfficeRecord(record, actor)
           ? readableBackOfficeRecord({ ...record, values }, object, actor).values : {};
         const filtered = Object.fromEntries(Object.entries(permitted).filter(([id, value]) => {

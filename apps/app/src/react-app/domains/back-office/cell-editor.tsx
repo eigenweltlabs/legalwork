@@ -1,3 +1,4 @@
+import { cellInputText, parseCellInput } from "./cell-input";
 import { FileCellEditor } from "./record-files";
 import { useState } from "react";
 import { Plus, X } from "lucide-react";
@@ -42,13 +43,7 @@ export function CellEditor({
   const creation = useRecordCreation();
   const target = field.type === "relation" ? creatableRecordObject(creation?.state, field.target) : undefined;
   const [creating, setCreating] = useState(false), [created, setCreated] = useState<BackOfficeRecord[]>([]);
-  const initial =
-    typeof value === "object" && value !== null && !Array.isArray(value)
-      ? String(value.amountMinor / 100)
-      : Array.isArray(value)
-        ? value.join(", ")
-        : String(value ?? "");
-  const [text, setText] = useState(initial);
+  const [text, setText] = useState(() => cellInputText(value));
   const [month, setMonth] = useState(
     (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)
       ? value
@@ -131,41 +126,11 @@ export function CellEditor({
             void save(multiple ? selected : (selected[0] ?? null));
             return;
           }
-          if (field.type === "number" || field.type === "currency") {
-            const numeric = Number(text);
-            if (!Number.isFinite(numeric)) {
-              setError("Enter a number.");
-              return;
-            }
-            void save(
-              text === ""
-                ? null
-                : field.type === "currency"
-                  ? {
-                      amountMinor: Math.round(numeric * 100),
-                      currency:
-                        typeof value === "object" &&
-                        value !== null &&
-                        !Array.isArray(value)
-                          ? value.currency
-                          : "EUR",
-                    }
-                  : numeric,
-            );
-            return;
+          try {
+            void save(parseCellInput(field.type, text, value));
+          } catch (error) {
+            setError(error instanceof Error ? error.message : "Invalid value.");
           }
-          void save(
-            text === ""
-              ? null
-              : field.type === "boolean"
-                ? text === "true"
-                : field.type === "multiselect"
-                  ? text
-                      .split(",")
-                      .map((item) => item.trim())
-                      .filter(Boolean)
-                  : text,
-          );
         }}
       >
         {field.type === "date" ? (

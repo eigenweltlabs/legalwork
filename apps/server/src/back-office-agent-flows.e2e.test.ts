@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
 import { startServer } from "./server.js";
-import type { ServerConfig } from "./types.js";
+import { backOfficeTestConfig } from "./back-office/config.test-support.js";
 import { writeEigenweltConnection } from "./eigenwelt-connection-store.js";
 import { nativeAssistantFixture } from "./assistant-engine.test-support.js";
 import { BackOfficeModelSchema, BackOfficeRecordSchema } from "./back-office/schema.js";
@@ -20,8 +20,9 @@ const contextSchema = z.object({ records: z.array(BackOfficeRecordSchema) });
 
 test("Assistant and ordinary chats discover CRM models, create/reuse records and link the correct new project", async () => {
   const root = await mkdtemp(join(tmpdir(), "legalwork-crm-agent-flows-"));
-  const previous = { LEGALWORK_DATA_DIR: process.env.LEGALWORK_DATA_DIR, LEGALWORK_TOKEN_STORE: process.env.LEGALWORK_TOKEN_STORE, LEGALWORK_SERVER_URL: process.env.LEGALWORK_SERVER_URL, LEGALWORK_SERVER_TOKEN: process.env.LEGALWORK_SERVER_TOKEN };
+  const previous = { OPENCODE_DB: process.env.OPENCODE_DB, LEGALWORK_DATA_DIR: process.env.LEGALWORK_DATA_DIR, LEGALWORK_TOKEN_STORE: process.env.LEGALWORK_TOKEN_STORE, LEGALWORK_SERVER_URL: process.env.LEGALWORK_SERVER_URL, LEGALWORK_SERVER_TOKEN: process.env.LEGALWORK_SERVER_TOKEN };
   process.env.LEGALWORK_DATA_DIR = join(root, "data"); process.env.LEGALWORK_TOKEN_STORE = join(root, "tokens.json");
+  process.env.OPENCODE_DB = join(root, "engine.sqlite");
   const sessions = new Map<string, { id: string; directory: string; title: string }>();
   const engine = Bun.serve({ port: 0, fetch: nativeAssistantFixture(async request => {
     const url = new URL(request.url);
@@ -34,8 +35,8 @@ test("Assistant and ordinary chats discover CRM models, create/reuse records and
     if (url.pathname.startsWith("/session/")) return Response.json(sessions.get(url.pathname.split("/")[2]) ?? {});
     return Response.json({});
   }, root) });
-  const config: ServerConfig = { host: "127.0.0.1", port: 0, token: "owner", hostToken: "host", configPath: join(root, "server.json"), projectsDirectory: join(root, "projects"), opencodeBaseUrl: engine.url.origin,
-    workspaces: [], authorizedRoots: [root], approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: [], readOnly: false, startedAt: 0, tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false };
+  const config = backOfficeTestConfig(root, { token: "owner", projectsDirectory: join(root, "projects"),
+    opencodeBaseUrl: engine.url.origin, authorizedRoots: [root], startedAt: 0 });
   await writeEigenweltConnection(config, { platformToken: "subscription", entitlements: { plan: "plus", subscriptionStatus: "active", trialEndsAt: null, features: [], seats: 1, usage: { window: "month", allowanceCents: 1000, remainingCents: 1000, usedPercent: 0, resetsAt: null, dailyAllowanceCents: 1000, dailyRemainingCents: 1000, dailyUsedPercent: 0, extraUsageEnabled: false, prepaidBalanceCents: 0 } } });
   const server = await startServer(config), base = `http://127.0.0.1:${server.port}`;
   process.env.LEGALWORK_SERVER_URL = base; process.env.LEGALWORK_SERVER_TOKEN = "owner";

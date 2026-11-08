@@ -27,7 +27,7 @@ import {
 } from "../routes/registry.js";
 import { ApiError } from "../errors.js";
 import { backOfficeAuditStateHash } from "./audit-integrity.js";
-import type { ServerConfig } from "../types.js";
+import { backOfficeTestConfig } from "./config.test-support.js";
 
 const owner: BackOfficeActor = {
   userId: "lawyer",
@@ -89,23 +89,7 @@ test("export verification stays authenticated and read-only when the current his
   try {
     store.db.exec("DROP TRIGGER bo_records_journal_guard_UPDATE");
     store.db.run("VACUUM INTO ?", [join(root, "runtime.sqlite")]);
-    const config: ServerConfig = {
-      configPath: join(root, "server.json"),
-      host: "127.0.0.1",
-      port: 0,
-      token: "viewer",
-      hostToken: "host",
-      approval: { mode: "auto", timeoutMs: 1000 },
-      corsOrigins: [],
-      workspaces: [],
-      authorizedRoots: [],
-      readOnly: true,
-      startedAt: Date.now(),
-      tokenSource: "cli",
-      hostTokenSource: "cli",
-      logFormat: "pretty",
-      logRequests: false,
-    };
+    const config = backOfficeTestConfig(root, { token: "viewer", readOnly: true });
     const routes: Route[] = [];
     registerBackOfficeRoutes({
       routes,

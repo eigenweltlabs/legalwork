@@ -8,7 +8,6 @@ import {
   Archive,
   ArrowDownToLine,
   BriefcaseBusiness,
-  Building2,
   ChevronDown,
   Cloud,
   Database,
@@ -16,8 +15,6 @@ import {
   Plus,
   RefreshCw,
   Upload,
-  UserRound,
-  UsersRound,
   X,
 } from "lucide-react";
 import { Dropdown } from "twenty-ui/components/navigation";
@@ -36,6 +33,7 @@ import {
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { onSyncPoke } from "@/react-app/kernel/sync-events";
 import { loadBackOfficeState, type BackOfficeState, ModelPreviewSchema } from "./api";
+import { primaryObjectIcons } from "./record-values";
 import { RecordGrid } from "./record-grid";
 import { RecordDetail } from "./record-detail";
 import { ModelEditor } from "./model-editor";
@@ -50,12 +48,6 @@ import { useLocale } from "@/i18n/use-locale";
 import { displayBackOfficeObject, backOfficeObjectLabel } from "./labels";
 import "./back-office.css";
 
-const primary = [
-  { id: "matters", name: "Matters", icon: BriefcaseBusiness },
-  { id: "clients", name: "Clients", icon: UsersRound },
-  { id: "people", name: "People", icon: UserRound },
-  { id: "companies", name: "Organisations", icon: Building2 },
-];
 const projectsSchema = z.object({
   projects: z.array(z.object({ id: z.string(), name: z.string() })),
 });
@@ -72,12 +64,27 @@ const importSchema = z.object({
   ),
 });
 
+const pendingChangesSchema = z.object({
+  changes: z.array(z.object({
+    id: z.string(),
+    summary: z.string(),
+    error: z.string().nullable(),
+    currentRevision: z.number().nullable(),
+    comparison: z.array(z.object({
+      field: z.string(),
+      proposed: z.string(),
+      current: z.string().nullable(),
+    })),
+  })),
+});
+
 export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
   const locale = useLocale();
   const location = useLocation(),
     navigate = useNavigate(),
     cache = useQueryClient();
   const selected = location.pathname.split("/")[2] ?? "matters";
+  const moreSelected = !primaryObjectIcons.has(selected) && selected !== "data-model";
   const [detailId, setDetailId] = useState<string | null>(
       new URLSearchParams(location.search).get("record"),
     ),
@@ -86,20 +93,7 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
   const [draft, setDraft] = useState<BackOfficeRecord | null>(null);
   const [focusNameId, setFocusNameId] = useState<string | null>(null);
   const [detailWidth, setDetailWidth] = useState(400);
-  const [pendingChanges, setPendingChanges] = useState<
-    | {
-        id: string;
-        summary: string;
-        error: string | null;
-        currentRevision: number | null;
-        comparison: {
-          field: string;
-          proposed: string;
-          current: string | null;
-        }[];
-      }[]
-    | null
-  >(null);
+  const [pendingChanges, setPendingChanges] = useState<z.infer<typeof pendingChangesSchema>["changes"] | null>(null);
   const [discardChange, setDiscardChange] = useState<string | null>(null);
   const [menu, setMenu] = useState(false),
     [more, setMore] = useState(false),
@@ -338,7 +332,7 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
           style={directoryStyle}
         >
           <nav className="bo-tabs" aria-label="Back Office">
-            {primary.map(({ id, icon: Icon }) => (
+            {Array.from(primaryObjectIcons, ([id, Icon]) => (
               <Button
                 key={id}
                 size="sm"
@@ -357,14 +351,10 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
                 <Button
                   size="sm"
                   variant="ghost"
-                  aria-pressed={
-                    !primary.some((tab) => tab.id === selected) &&
-                    selected !== "data-model"
-                  }
+                  aria-pressed={moreSelected}
                   endIcon={<ChevronDown size={13} />}
                 >
-                  {!primary.some((tab) => tab.id === selected) &&
-                  selected !== "data-model"
+                  {moreSelected
                     ? (object?.plural ?? t("back_office.more"))
                     : t("back_office.more")}
                 </Button>
@@ -375,7 +365,7 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
                   (object) =>
                     !object.archived &&
                     !isInternalBackOfficeObject(object.id) &&
-                    !primary.some((tab) => tab.id === object.id),
+                    !primaryObjectIcons.has(object.id),
                 )
                 .map((object) => (
                   <Dropdown.ActionItem
@@ -492,29 +482,7 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
                         onClick={() =>
                           void client
                             .backOffice("/sync/pending", { team })
-                            .then((response) =>
-                              setPendingChanges(
-                                z
-                                  .object({
-                                    changes: z.array(
-                                      z.object({
-                                        id: z.string(),
-                                        summary: z.string(),
-                                        error: z.string().nullable(),
-                                        currentRevision: z.number().nullable(),
-                                        comparison: z.array(
-                                          z.object({
-                                            field: z.string(),
-                                            proposed: z.string(),
-                                            current: z.string().nullable(),
-                                          }),
-                                        ),
-                                      }),
-                                    ),
-                                  })
-                                  .parse(response).changes,
-                              ),
-                            )
+                            .then((response) => setPendingChanges(pendingChangesSchema.parse(response).changes))
                             .catch((error) => setError(error.message))
                         }
                         startIcon={<Cloud size={14} />}

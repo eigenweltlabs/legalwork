@@ -1,3 +1,4 @@
+import { cellInputText, parseCellInput } from "./cell-input";
 import { useRef, useState } from "react";
 import { Input } from "twenty-ui/primitives/input";
 import type {
@@ -18,10 +19,7 @@ export function InlineCellEditor({
   onCancel: () => void;
   onError: (message: string) => void;
 }) {
-  const initial =
-    typeof value === "object" && value !== null && !Array.isArray(value)
-      ? String(value.amountMinor / 100)
-      : String(value ?? "");
+  const initial = cellInputText(value);
   const [text, setText] = useState(initial);
   const completed = useRef(false);
   const commit = async () => {
@@ -31,29 +29,8 @@ export function InlineCellEditor({
       onCancel();
       return;
     }
-    let next: BackOfficeValue = text || null;
-    if (text && (field.type === "number" || field.type === "currency")) {
-      const numeric = Number(text);
-      if (!Number.isFinite(numeric)) {
-        onError("Enter a number.");
-        onCancel();
-        return;
-      }
-      next =
-        field.type === "currency"
-          ? {
-              amountMinor: Math.round(numeric * 100),
-              currency:
-                typeof value === "object" &&
-                value !== null &&
-                !Array.isArray(value)
-                  ? value.currency
-                  : "EUR",
-            }
-          : numeric;
-    }
     try {
-      await onSave(next);
+      await onSave(parseCellInput(field.type, text, value));
     } catch (error) {
       onError(
         error instanceof Error ? error.message : "Could not save the value.",

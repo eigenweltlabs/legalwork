@@ -457,6 +457,10 @@ export function RecordGrid({
       onEdit={setEditing} onError={setError} onSelect={selectRow} onMove={moveCell}
       onSave={onSave} onOpen={onOpen} />
   );
+  const viewProps = {
+    rows, records, fields: visibleFields, editable: editable && !archived,
+    userId, onSave, onOpen, onCreate,
+  };
   return (
     <div className="bo-record-grid">
       <div className="bo-view-toolbar">
@@ -700,22 +704,10 @@ export function RecordGrid({
         })}
       </div>}
       {layout === "kanban" && kanbanField ? (
-        <RecordKanban
-          rows={rows}
-          records={records}
-          fields={visibleFields}
-          field={kanbanField}
-          editable={editable && !archived}
-          userId={userId}
-          onSave={onSave}
-          onOpen={onOpen}
-          onCreate={onCreate}
-        />
+        <RecordKanban {...viewProps} field={kanbanField} />
       ) : layout === "calendar" ? (
         <RecordCalendar
-          rows={rows}
-          records={records}
-          fields={visibleFields}
+          {...viewProps}
           allFields={object.fields}
           dateField={dateField ?? "createdAt"}
           mode={calendarMode}
@@ -726,23 +718,9 @@ export function RecordGrid({
                 (error) => setError(error.message),
               );
           }}
-          editable={editable && !archived}
-          userId={userId}
-          onSave={onSave}
-          onOpen={onOpen}
-          onCreate={onCreate}
         />
       ) : layout === "list" ? (
-        <RecordList
-          rows={rows}
-          records={records}
-          fields={visibleFields}
-          editable={editable && !archived}
-          userId={userId}
-          onSave={onSave}
-          onOpen={onOpen}
-          onCreate={onCreate}
-        />
+        <RecordList {...viewProps} />
       ) : (
         <div
           className="bo-grid-scroll"

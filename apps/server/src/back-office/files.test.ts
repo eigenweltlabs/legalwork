@@ -9,7 +9,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import type { ServerConfig } from "../types.js";
+import { backOfficeTestConfig } from "./config.test-support.js";
 import { openSqlite } from "../runtime-db.js";
 import { startServer } from "../server.js";
 import { backOfficeStore, closeBackOfficeStoreForTests, BackOfficeStore } from "./store.js";
@@ -38,23 +38,7 @@ const other: BackOfficeActor = {
 const fixtures: { root: string; store: BackOfficeStore }[] = [];
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), "bo-attachments-"));
-  const config: ServerConfig = {
-    configPath: join(root, "server.json"),
-    host: "127.0.0.1",
-    port: 0,
-    token: "test",
-    hostToken: "test-host",
-    approval: { mode: "auto", timeoutMs: 1000 },
-    corsOrigins: [],
-    workspaces: [],
-    authorizedRoots: [],
-    readOnly: false,
-    startedAt: Date.now(),
-    tokenSource: "cli",
-    hostTokenSource: "cli",
-    logFormat: "pretty",
-    logRequests: false,
-  };
+  const config = backOfficeTestConfig(root, { token: "test", hostToken: "test-host" });
   const store = new BackOfficeStore(await openSqlite(":memory:"));
   fixtures.push({ root, store });
   return { root, config, store };

@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { startServer } from "../src/server.js";
-import type { ServerConfig } from "../src/types.js";
+import { backOfficeTestConfig } from "../src/back-office/config.test-support.js";
 import { backOfficeStore, closeBackOfficeStoreForTests } from "../src/back-office/store.js";
 import { loadBackOfficeState } from "../../app/src/react-app/domains/back-office/api.js";
 
@@ -12,23 +12,7 @@ test("record pages assemble one complete directory, refresh changed records and 
   const previous = { LEGALWORK_DATA_DIR: process.env.LEGALWORK_DATA_DIR, LEGALWORK_TOKEN_STORE: process.env.LEGALWORK_TOKEN_STORE };
   process.env.LEGALWORK_DATA_DIR = join(root, "data");
   process.env.LEGALWORK_TOKEN_STORE = join(root, "tokens.json");
-  const config: ServerConfig = {
-    host: "127.0.0.1",
-    port: 0,
-    token: "fixture",
-    hostToken: "host",
-    configPath: join(root, "server.json"),
-    workspaces: [],
-    authorizedRoots: [root],
-    approval: { mode: "auto", timeoutMs: 1000 },
-    corsOrigins: [],
-    readOnly: false,
-    startedAt: 0,
-    tokenSource: "cli",
-    hostTokenSource: "cli",
-    logFormat: "pretty",
-    logRequests: false,
-  };
+  const config = backOfficeTestConfig(root, { authorizedRoots: [root], startedAt: 0 });
   const server = await startServer(config);
   const base = `http://127.0.0.1:${server.port}/back-office`;
   const request = (path: string, body?: unknown) => fetch(base + path, {

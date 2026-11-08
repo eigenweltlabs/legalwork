@@ -1,3 +1,4 @@
+import { backOfficeTestConfig } from "./config.test-support.js";
 import { attachFile, cachedFile } from "./files.js";
 import { loadAttachedFile } from "./file-sync.js";
 import { BackOfficeFilesSchema, BackOfficeFieldSchema } from "./schema.js";
@@ -59,23 +60,7 @@ const deviceActors = new Map<ServerConfig, BackOfficeActor>();
 async function device(userId: string) {
   const directory = join(root, userId);
   await mkdir(directory);
-  const config: ServerConfig = {
-    configPath: join(directory, "server.json"),
-    host: "127.0.0.1",
-    port: 0,
-    token: "integration-only",
-    hostToken: "integration-only-host",
-    approval: { mode: "auto", timeoutMs: 1000 },
-    corsOrigins: [],
-    workspaces: [],
-    authorizedRoots: [],
-    readOnly: false,
-    startedAt: Date.now(),
-    tokenSource: "cli",
-    hostTokenSource: "cli",
-    logFormat: "pretty",
-    logRequests: false,
-  };
+  const config = backOfficeTestConfig(directory, { token: "integration-only", hostToken: "integration-only-host" });
   configs.push(config);
   await writeEigenweltConnection(config, {
     account: {

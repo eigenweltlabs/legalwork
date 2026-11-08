@@ -7768,8 +7768,6 @@ export default {
   "back_office.add_view": "Add view",
   "back_office.view_name": "View name",
   "back_office.all_records": "All {name}",
-  "back_office.sync_enabled": "Sync enabled",
-  "back_office.sync_disabled": "Sync disabled",
   "back_office.more": "More",
   "back_office.create_view": "Create view",
   "back_office.view_type": "View type",

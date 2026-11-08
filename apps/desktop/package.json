@@ -102,6 +102,7 @@
     "electron": "^43.8.3",
     "electron-builder": "^26.16.1",
     "electron-devtools-installer": "^4.0.0",
+    "es-module-lexer": "3.0.4",
     "node-addon-api": "8.5.0"
   },
   "packageManager": "pnpm@10.27.0"

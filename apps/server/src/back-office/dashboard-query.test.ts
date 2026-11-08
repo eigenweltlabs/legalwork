@@ -8,7 +8,7 @@ import { BackOfficeModelSchema, defaultBackOfficeModel, isInternalBackOfficeObje
 import { queryDirectoryRecords } from "./dashboard-query.js";
 import { closeBackOfficeStoreForTests } from "./store.js";
 import { startServer } from "../server.js";
-import type { ServerConfig } from "../types.js";
+import { backOfficeTestConfig } from "./config.test-support.js";
 import { nativePluginTools } from "../opencode-plugins/native-plugin-test-support.js";
 import ProjectPlugin from "../opencode-plugins/legalwork-project-tools.js";
 import WikiPlugin from "../opencode-plugins/legalwork-wiki-tools.js";
@@ -24,9 +24,7 @@ test("chat queries built-in and custom models, saves a live workspace dashboard 
   const project = join(root, "project");
   await mkdir(project);
   const workspace = { id: "project", name: "Project", path: project, preset: "starter" as const, workspaceType: "local" as const };
-  const config: ServerConfig = { host: "127.0.0.1", port: 0, token: "owner", hostToken: "host", configPath: join(root, "server.json"),
-    workspaces: [workspace], authorizedRoots: [root], readOnly: false, approval: { mode: "auto", timeoutMs: 1000 },
-    corsOrigins: [], startedAt: 0, tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false };
+  const config = backOfficeTestConfig(root, { token: "owner", workspaces: [workspace], authorizedRoots: [root], startedAt: 0 });
   const server = await startServer(config);
   const plugins: Awaited<ReturnType<typeof nativePluginTools>>[] = [];
   try {

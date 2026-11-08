@@ -4,14 +4,14 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { z } from "zod";
 import { startServer } from "./server.js";
-import type { ServerConfig } from "./types.js";
+import { backOfficeTestConfig } from "./back-office/config.test-support.js";
 import { BackOfficeFilterCriteriaSchema, BackOfficeRecordSchema, BackOfficeViewSchema } from "./back-office/schema.js";
 
 test("typed saved-view filters round-trip through native HTTP and survive older-client view updates", async () => {
   const root = await mkdtemp(join(tmpdir(), "back-office-record-filters-"));
   const previous = { LEGALWORK_DATA_DIR: process.env.LEGALWORK_DATA_DIR, LEGALWORK_TOKEN_STORE: process.env.LEGALWORK_TOKEN_STORE };
   process.env.LEGALWORK_DATA_DIR = join(root, "data"); process.env.LEGALWORK_TOKEN_STORE = join(root, "tokens.json");
-  const config: ServerConfig = { host: "127.0.0.1", port: 0, token: "fixture", hostToken: "host", configPath: join(root, "server.json"), workspaces: [], authorizedRoots: [root], approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: [], readOnly: false, startedAt: 0, tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false };
+  const config = backOfficeTestConfig(root, { authorizedRoots: [root], startedAt: 0 });
   const server = await startServer(config), base = `http://127.0.0.1:${server.port}/back-office`;
   const request = (path: string, body?: unknown) => fetch(base + path, { method: body === undefined ? "GET" : "POST", headers: { authorization: "Bearer fixture", "content-type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
   try {

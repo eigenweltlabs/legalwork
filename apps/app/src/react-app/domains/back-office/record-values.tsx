@@ -1,6 +1,11 @@
 import { memo } from "react";
 import { FileValue } from "./record-files";
 import {
+  BriefcaseBusiness,
+  Building2,
+  Database,
+  UserRound,
+  UsersRound,
   CalendarDays,
   Paperclip,
   Check,
@@ -17,7 +22,19 @@ import type {
   BackOfficeValue,
 } from "@legalwork/types/back-office";
 import { selectColor } from "./select-colors";
-export const FieldIcon = memo(function FieldIcon({ field }: { field: BackOfficeField }) {
+export const primaryObjectIcons = new Map([
+  ["matters", BriefcaseBusiness],
+  ["clients", UsersRound],
+  ["people", UserRound],
+  ["companies", Building2],
+]);
+
+export function ObjectIcon({ id }: { id: string }) {
+  const Icon = primaryObjectIcons.get(id) ?? Database;
+  return <Icon size={15} />;
+}
+
+export const FieldIcon = memo(function FieldIcon({ field }: { field: { type: BackOfficeField["type"]; visibility?: BackOfficeField["visibility"] } }) {
   const Icon =
     field.type === "boolean"
       ? Check

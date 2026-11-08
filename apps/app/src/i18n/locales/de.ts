@@ -8117,8 +8117,6 @@ const de = {
   "back_office.add_view": "Ansicht hinzufügen",
   "back_office.view_name": "Name der Ansicht",
   "back_office.all_records": "Alle {name}",
-  "back_office.sync_enabled": "Synchronisierung aktiviert",
-  "back_office.sync_disabled": "Synchronisierung deaktiviert",
   "back_office.more": "Weitere",
   "back_office.create_view": "Ansicht erstellen",
   "back_office.view_type": "Ansichtstyp",

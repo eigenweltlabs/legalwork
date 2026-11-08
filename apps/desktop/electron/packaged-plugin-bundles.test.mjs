@@ -51,6 +51,13 @@ test('a string that reads "from" is not an import', () => {
   assert.deepEqual(findUnresolvableImports(dir), []);
 });
 
+test("dashboard schema diagnostics can quote import examples alongside a real import", () => {
+  const dir = fixture({
+    "view.js": 'const diagnostic = `Component ${name} requires Zod 4. Use import from "zod/v4".`; export * from "missing";',
+  });
+  assert.deepEqual(findUnresolvableImports(dir), [{ file: "view.js", imports: ["missing"] }]);
+});
+
 // electron-builder filters these out, so they must not fail the build.
 test("compiled test files are ignored", () => {
   const dir = fixture({ "a.test.js": 'import { test } from "bun:test";\n' });

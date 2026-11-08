@@ -1,3 +1,4 @@
+import { backOfficeTestConfig } from "./config.test-support.js";
 import { afterEach, expect, spyOn, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
@@ -30,7 +31,7 @@ afterEach(async () => {
 
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), "legalwork-bo-accounts-"));
-  const config: ServerConfig = { configPath: join(root, "server.json"), host: "127.0.0.1", port: 0, token: "fixture", hostToken: "fixture-host", approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: [], workspaces: [], authorizedRoots: [], readOnly: false, startedAt: Date.now(), tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false };
+  const config = backOfficeTestConfig(root, { hostToken: "fixture-host" });
   fixtures.push({ root, config });
   if (runtimeDbPath(config) !== join(root, "runtime.sqlite"))
     throw new Error("Account fixtures must use their temporary runtime database, never an environment override.");
@@ -225,7 +226,12 @@ test("a late response cannot restore a cache after the same principal reconnects
   const current = (await backOfficeAccess(config, true)).actor;
   expect(store.raw("firm", original.id)).toBeNull();
   expect(store.records("firm", current).map(record => record.values.name)).toEqual(["New connection draft"]);
-  expect(store.pending("firm", 100, current)).toHaveLength(1);
+  const pending = store.pending("firm", 100, current);
+  expect(pending).toHaveLength(1);
+  expect(pending[0].error).toBeNull();
+  expect(BackOfficeRecordSchema.parse(pending[0].change.data).values).toEqual({
+    name: "New connection draft", active: true, personType: "External contact",
+  });
   expect(store.syncState("firm", current).error).toBe("New connection state");
 });
 

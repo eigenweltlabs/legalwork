@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { z } from "zod";
 import { BackOfficeModelSchema, BackOfficeRecordSchema } from "./back-office/schema.js";
 import { startServer } from "./server.js";
-import type { ServerConfig } from "./types.js";
+import { backOfficeTestConfig } from "./back-office/config.test-support.js";
 import { defaultProjectTemplates, projectFieldsSchema } from "./project-schema.js";
 import { internalPeopleFilters } from "@legalwork/types/workspace";
 import { nativePluginTools } from "./opencode-plugins/native-plugin-test-support.js";
@@ -19,7 +19,7 @@ test("metadata record filters discover dynamic types, enforce agent/UI writes an
   const root = await mkdtemp(join(tmpdir(), "legalwork-reference-filters-"));
   const previous = { LEGALWORK_DATA_DIR: process.env.LEGALWORK_DATA_DIR, LEGALWORK_TOKEN_STORE: process.env.LEGALWORK_TOKEN_STORE, LEGALWORK_SERVER_URL: process.env.LEGALWORK_SERVER_URL, LEGALWORK_SERVER_TOKEN: process.env.LEGALWORK_SERVER_TOKEN };
   process.env.LEGALWORK_DATA_DIR = join(root, "data"); process.env.LEGALWORK_TOKEN_STORE = join(root, "tokens.json");
-  const config: ServerConfig = { host: "127.0.0.1", port: 0, configPath: join(root, "server.json"), projectsDirectory: join(root, "projects"), token: "owner", hostToken: "host", approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: ["*"], workspaces: [], authorizedRoots: [root], readOnly: false, startedAt: Date.now(), tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false };
+  const config = backOfficeTestConfig(root, { token: "owner", projectsDirectory: join(root, "projects"), corsOrigins: ["*"], authorizedRoots: [root] });
   await validateProjectReferences(config, [], defaultProjectTemplates()[0].fields);
   expect(await readdir(root)).toEqual([]);
   const server = await startServer(config), url = `http://127.0.0.1:${server.port}`;

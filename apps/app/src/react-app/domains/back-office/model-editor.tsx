@@ -3,10 +3,7 @@ import { useState } from "react";
 import {
   ArrowUpRight,
   ArrowLeft,
-  BriefcaseBusiness,
-  Building2,
   ChevronRight,
-  Database,
   Link2,
   LockKeyhole,
   Plus,
@@ -14,8 +11,6 @@ import {
   Settings2,
   SlidersHorizontal,
   Trash2,
-  UserRound,
-  UsersRound,
 } from "lucide-react";
 import { Button, Checkbox, Input } from "twenty-ui/primitives/input";
 import { Tag } from "twenty-ui/primitives/data-display";
@@ -25,44 +20,26 @@ import {
   isInternalBackOfficeObject,
   BackOfficeObjectSchema,
   type BackOfficeModel,
+  type BackOfficeObject,
   type BackOfficeField,
 } from "@legalwork/types/back-office";
 import type { ModelPreview } from "./api";
-import { FieldIcon } from "./record-values";
+import { FieldIcon, ObjectIcon } from "./record-values";
 import { DirectoryDialog, DirectorySelect } from "./twenty-controls";
 
-const fieldTypeOrder: BackOfficeField["type"][] = [
-  "text",
-  "number",
-  "boolean",
-  "datetime",
-  "date",
-  "select",
-  "multiselect",
-  "currency",
-  "email",
-  "relation",
-  "file",
-];
-const objectIcons = {
-  matters: BriefcaseBusiness,
-  clients: UsersRound,
-  people: UserRound,
-  companies: Building2,
-};
-function ObjectIcon({ id }: { id: string }) {
-  const Icon =
-    id === "matters"
-      ? objectIcons.matters
-      : id === "clients"
-        ? objectIcons.clients
-        : id === "people"
-          ? objectIcons.people
-          : id === "companies"
-            ? objectIcons.companies
-            : Database;
-  return <Icon size={15} />;
-}
+const basicFieldTypes = [
+  ["text", "Text"],
+  ["number", "Number"],
+  ["boolean", "True/False"],
+  ["datetime", "Date and Time"],
+  ["date", "Date"],
+  ["select", "Select"],
+  ["multiselect", "Multi-select"],
+  ["currency", "Currency"],
+  ["email", "Email"],
+  ["file", "File"],
+] satisfies [BackOfficeField["type"], string][];
+
 export function ModelEditor({
   model,
   editable,
@@ -134,6 +111,10 @@ export function ModelEditor({
       );
     }
   };
+  const applyObject = (updated: BackOfficeObject) => apply({
+    ...model,
+    objects: model.objects.map(item => item.id === updated.id ? updated : item),
+  });
   const add = (kind: "object" | "field", relation = false) => {
     setAdding(kind);
     setSelectingType(kind === "field" && !relation);
@@ -171,6 +152,7 @@ export function ModelEditor({
   const rows = object?.fields.filter((field) =>
     field.label.toLocaleLowerCase().includes(query.toLocaleLowerCase()),
   );
+  const editorTitle = adding === "object" ? "New object" : editing ? "Edit field" : "New field";
   return (
     <div className="bo-model">
       <header className="bo-model-header">
@@ -256,12 +238,7 @@ export function ModelEditor({
             className="bo-form"
             onSubmit={(event) => {
               event.preventDefault();
-              void apply({
-                ...model,
-                objects: model.objects.map((item) =>
-                  item.id === object.id ? { ...item, label, plural } : item,
-                ),
-              });
+              void applyObject({ ...object, label, plural });
             }}
           >
             <h3>Object settings</h3>
@@ -297,14 +274,7 @@ export function ModelEditor({
                   color="danger"
                   disabled={!editable || saving}
                   onClick={() => {
-                    void apply({
-                      ...model,
-                      objects: model.objects.map((item) =>
-                        item.id === object.id
-                          ? { ...item, archived: !item.archived }
-                          : item,
-                      ),
-                    }).then(() => setObjectId(null));
+                    void applyObject({ ...object, archived: !object.archived }).then(() => setObjectId(null));
                   }}
                 >
                   {object.archived ? "Restore object" : "Archive object"}
@@ -492,13 +462,7 @@ export function ModelEditor({
       {adding && (
         <div
           className="bo-field-page"
-          aria-label={
-            adding === "object"
-              ? "New object"
-              : editing
-                ? "Edit field"
-                : "New field"
-          }
+          aria-label={editorTitle}
         >
           <header className="bo-model-header">
             <Breadcrumb
@@ -520,12 +484,7 @@ export function ModelEditor({
                     ]
                   : []),
                 {
-                  children:
-                    adding === "object"
-                      ? "New object"
-                      : editing
-                        ? "Edit field"
-                        : "New field",
+                  children: editorTitle,
                 },
               ]}
             />
@@ -585,46 +544,20 @@ export function ModelEditor({
                 All the basic field types you need to start
               </p>
               <div className="bo-type-grid">
-                {fieldTypeOrder
-                  .filter(
-                    (type) =>
-                      type !== "relation" &&
-                      type.toLowerCase().includes(typeQuery.toLowerCase()),
-                  )
-                  .map((type) => (
+                {basicFieldTypes
+                  .filter(([type]) => type.includes(typeQuery.toLowerCase()))
+                  .map(([type, typeLabel]) => (
                     <ListItem
                       key={type}
                       render={<button />}
-                      startIcon={
-                        <FieldIcon
-                          field={BackOfficeFieldSchema.parse({
-                            id: "preview",
-                            label: type,
-                            type,
-                          })}
-                        />
-                      }
+                      startIcon={<FieldIcon field={{ type }} />}
                       endIcon={<ChevronRight size={13} />}
                       onClick={() => {
                         setFieldType(type);
                         setSelectingType(false);
                       }}
                     >
-                      {
-                        {
-                          file: "File",
-                          text: "Text",
-                          number: "Number",
-                          boolean: "True/False",
-                          datetime: "Date and Time",
-                          date: "Date",
-                          select: "Select",
-                          multiselect: "Multi-select",
-                          currency: "Currency",
-                          email: "Email",
-                          relation: "Relation",
-                        }[type]
-                      }
+                      {typeLabel}
                     </ListItem>
                   ))}
               </div>
@@ -691,21 +624,10 @@ export function ModelEditor({
                       .map((value) => value.trim())
                       .filter(Boolean),
                   });
-                  void apply({
-                    ...model,
-                    objects: model.objects.map((item) =>
-                      item.id === object.id
-                        ? {
-                            ...item,
-                            fields: editing
-                              ? item.fields.map((field) =>
-                                  field.id === editing.id ? nextField : field,
-                                )
-                              : [...item.fields, nextField],
-                          }
-                        : item,
-                    ),
-                  });
+                  const fields = editing
+                    ? object.fields.map(field => field.id === editing.id ? nextField : field)
+                    : [...object.fields, nextField];
+                  void applyObject({ ...object, fields });
                 } catch (error) {
                   setError(
                     error instanceof Error
@@ -869,19 +791,7 @@ export function ModelEditor({
                     disabled={!editable || saving}
                     startIcon={<Trash2 size={13} />}
                     onClick={() =>
-                      void apply({
-                        ...model,
-                        objects: model.objects.map((item) =>
-                          item.id === object.id
-                            ? {
-                                ...item,
-                                fields: item.fields.filter(
-                                  (field) => field.id !== editing.id,
-                                ),
-                              }
-                            : item,
-                        ),
-                      })
+                      void applyObject({ ...object, fields: object.fields.filter(field => field.id !== editing.id) })
                     }
                   >
                     Remove field
