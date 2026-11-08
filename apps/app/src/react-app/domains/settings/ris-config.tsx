@@ -5,14 +5,8 @@ import { CheckCircle2, Loader2 } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { t } from "@/i18n";
-import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { registerExtensionRuntime, type ExtensionConfigContext } from "./extension-registry";
-
-export function risStatusQuery(client: Pick<LegalworkServerClient, "baseUrl" | "risStatus"> | null | undefined) {
-  return { queryKey: ["settings", "ris", client?.baseUrl], enabled: Boolean(client),
-    queryFn: () => { if (!client) throw new Error(t("ris.unavailable")); return client.risStatus(); },
-    staleTime: 15_000, gcTime: 0, refetchInterval: 15_000, retry: false };
-}
+import { risStatusQuery } from "./ris-status";
 
 export function RisConfig({ legalworkServerClient: client, onExtensionConnectionChange }: Pick<ExtensionConfigContext, "legalworkServerClient" | "onExtensionConnectionChange">) {
   const cache = useQueryClient();

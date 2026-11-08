@@ -3,7 +3,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createLegalworkServerClient, type RisIntegrationStatus } from "../src/app/lib/legalwork-server";
 import { MCP_QUICK_CONNECT } from "../src/app/constants";
-import { RisConfig, risStatusQuery } from "../src/react-app/domains/settings/ris-config";
+import { RisConfig } from "../src/react-app/domains/settings/ris-config";
+import { risStatusQuery } from "../src/react-app/domains/settings/ris-status";
 import { connectorCategory } from "../src/react-app/domains/settings/pages/connector-categories";
 import { getExtensionConnected } from "../src/react-app/domains/settings/extension-registry";
 
