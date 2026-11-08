@@ -1,8 +1,8 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { finishLocalProject, localProjectMigrationPending, markLocalProjectPublished, prepareLocalProject, prepareLocalProjects, projectFilePermissionRules, workspaceFileRoot } from "./project-storage.js";
+import { completeProjectMigrationProgress, finishLocalProject, localProjectMigrationPending, markLocalProjectPublished, prepareLocalProject, prepareLocalProjects, projectFilePermissionRules, workspaceFileRoot } from "./project-storage.js";
 import { engineProjectStatus, writeNativeProjectProjection } from "./engine-project.js";
 import { readLegalworkWorkspaceConfig } from "./legalwork-workspace-config-store.js";
 import { listSkills } from "./skills.js";
@@ -10,6 +10,8 @@ import { saveEmailDraft } from "./email-drafts/store.js";
 import { createLocalProjectFolder, registerLocalProject, unregisterWorkspace } from "./routes/workspaces.js";
 import { startServer } from "./server.js";
 import type { ServerConfig } from "./types.js";
+import type { MigrationProgress } from "@legalwork/types/migration-progress";
+import { closeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
 
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => { while (cleanups.length) await cleanups.pop()?.(); });
@@ -30,6 +32,61 @@ async function fixture() {
   };
   return { root, source, config, original: config.workspaces[0]! };
 }
+
+test("migration reports completed copy/hash work while retaining file metadata and link ownership", async () => {
+  const f = await fixture();
+  const payload = Buffer.alloc(256 * 1024, 47);
+  await writeFile(join(f.source, ".legalwork", "attachments", "payload.bin"), payload);
+  const script = join(f.source, ".opencode", "reviews", "run.sh");
+  await writeFile(script, "#!/bin/sh\nexit 0\n");
+  await chmod(script, 0o751);
+  const timestamp = new Date("2020-01-02T03:04:05Z");
+  await utimes(script, timestamp, timestamp);
+  await symlink("mail.txt", join(f.source, ".legalwork", "attachments", "pointer"));
+  const snapshots: MigrationProgress[] = [];
+  Object.defineProperty(f.config, "migrationProgress", {
+    get: () => snapshots.at(-1), set: (value: MigrationProgress) => { snapshots.push(value); },
+  });
+  f.config.projectStorageMigrating = true;
+  expect(await prepareLocalProjects(f.config)).toBe(true);
+  const local = f.config.workspaces[0];
+  const copies = snapshots.filter(item => item.phase === "copying" && item.work?.unit === "files");
+  expect(copies.some(item => item.work?.total && item.work.completed === item.work.total)).toBe(true);
+  expect(snapshots.some(item => item.phase === "verifying" && item.work?.unit === "bytes" && item.work.total !== undefined && item.work.total >= payload.length && item.work.completed === item.work.total)).toBe(true);
+  expect(copies.every(item => item.project?.index === 1 && item.project.total === 1)).toBe(true);
+  expect(await readFile(join(local.path, ".legalwork", "attachments", "payload.bin"))).toEqual(payload);
+  expect(await readFile(join(local.path, ".legalwork", "attachments", "pointer"), "utf8")).toBe("Retained attachment");
+  const copiedScript = await stat(join(local.path, ".opencode", "reviews", "run.sh"));
+  if (process.platform !== "win32") expect(copiedScript.mode & 0o777).toBe(0o751);
+  expect(copiedScript.mtimeMs).toBe(timestamp.getTime());
+  expect(await readFile(join(f.source, "contract.txt"), "utf8")).toBe("Original document");
+  expect(await stat(join(local.path, "contract.txt")).catch(() => null)).toBeNull();
+});
+
+test("migration progress is authenticated and keeps health migrating while file work is active", async () => {
+  const f = await fixture();
+  f.config.engineProjectTrustRequired = true;
+  const server = await startServer(f.config);
+  cleanups.push(async () => { await server.stop(); await closeRuntimeOpencodeConfig(f.config); });
+  f.config.managedEngineStatus = "ready";
+  f.config.migrationProgress = { status: "running", phase: "copying", project: { name: "Confidential migration fixture", index: 1, total: 2 }, work: { completed: 3, total: 8, unit: "files" }, deferredProjects: 0 };
+  const base = `http://127.0.0.1:${server.port}`;
+  expect((await fetch(base + "/migration/progress")).status).toBe(401);
+  const health = await (await fetch(base + "/health")).json();
+  expect(health).toMatchObject({ engine: { status: "migrating" } });
+  expect(JSON.stringify(health)).not.toContain("Confidential");
+  const progress = await fetch(base + "/migration/progress", { headers: { authorization: "Bearer test-client" } });
+  expect(progress.status).toBe(200);
+  expect(await progress.json()).toEqual({ migration: f.config.migrationProgress });
+  await completeProjectMigrationProgress(f.config);
+  expect(f.config.migrationProgress).toMatchObject({ status: "waiting", deferredProjects: 1, phase: "finishing" });
+  const local = await prepareLocalProject(f.config, f.original);
+  f.config.workspaces = [local];
+  await finishLocalProject(local);
+  await completeProjectMigrationProgress(f.config);
+  expect(f.config.migrationProgress).toMatchObject({ status: "complete", deferredProjects: 0 });
+  expect(await (await fetch(base + "/health")).json()).toMatchObject({ engine: { status: "ready" } });
+});
 
 test("rejects stale unpublished copies and recovers published content ownership without its drive", async () => {
   const f = await fixture();

@@ -11,6 +11,7 @@ import type { ServerConfig, WorkspaceInfo } from "./types.js";
 import type { WorkspaceRoots } from "./project-storage-paths.js";
 import { resolveWorkspaceOpencodeConnection } from "./opencode-connection.js";
 import { ApiError } from "./errors.js";
+import { migrationWork, updateMigrationProgress } from "./migration-progress.js";
 
 /** Additive native endpoint: an older engine must fail closed, never run move. */
 async function relocateStoppedSession(config: ServerConfig, workspace: WorkspaceInfo, sessionID: string, directory: string) {
@@ -68,17 +69,20 @@ function previousProjectDirectory(workspace: WorkspaceInfo, directory: string): 
   return previous !== directory ? previous : undefined;
 }
 
-async function listSessions(client: OpenCodeClient) {
+async function listSessions(client: OpenCodeClient, config?: ServerConfig) {
   const sessions: SessionInfo[] = [];
   let cursor: string | undefined;
   const seen = new Set<string>();
+  const scanning = migrationWork(config, "finding-chats", "chats");
   do {
     const page = await client.session.list(cursor ? { cursor } : {});
     sessions.push(...page.data);
+    scanning.advance(page.data.length);
     cursor = page.cursor.next ?? undefined;
     if (cursor && seen.has(cursor)) throw new Error("Native history repeated a migration cursor.");
     if (cursor) seen.add(cursor);
   } while (cursor);
+  scanning.finish();
   return sessions;
 }
 
@@ -94,11 +98,17 @@ export async function migrateLocalProjectSessions(config: ServerConfig, client: 
 }
 async function moveSessions(config: ServerConfig, client: OpenCodeClient): Promise<void> {
   if (!await projectSessionMovesPending(config)) return;
+  // Startup owns this screen. Later recovery retries must not leave the
+  // server reporting a new startup migration after the app is already open.
+  const progress = config.migrationProgress?.status === "running" ? config : undefined;
   const { relocateProjectImports } = await import("./project-storage-imports.js");
-  const sessions = await listSessions(client);
-  for (const registered of config.workspaces) {
-    if (!await localProjectMigrationPending(registered) || !registered.previousPath) continue;
-    const originalDirectory = registered.previousPath;
+  if (progress) updateMigrationProgress(progress, { status: "running", project: undefined });
+  const sessions = await listSessions(client, progress);
+  const pending: Array<{ workspace: WorkspaceInfo; source: string }> = [];
+  for (const workspace of config.workspaces) if (workspace.previousPath && await localProjectMigrationPending(workspace)) pending.push({ workspace, source: workspace.previousPath });
+  for (const [index, { workspace: registered, source: originalDirectory }] of pending.entries()) {
+    if (progress) updateMigrationProgress(progress, { status: "running", phase: "chats", work: undefined,
+      project: { name: registered.name, index: index + 1, total: pending.length } });
     const workspace = await localProjectReferenceRoots(registered);
     const moving: Array<{ session: SessionInfo; from: string; target: string }> = [];
     const verified: SessionRelocation[] = [];
@@ -117,6 +127,8 @@ async function moveSessions(config: ServerConfig, client: OpenCodeClient): Promi
       const permissions = movedPermissions(restored, workspace);
       if (permissions && JSON.stringify(permissions) !== JSON.stringify(restored.permissions)) await client.session.update({ sessionID: session.id, permissions });
     }
+    const relocating = migrationWork(progress, "chats", "chats", moving.length + verified.length);
+    relocating.advance(verified.length);
     for (const { session, from, target } of moving) {
       const current = await client.session.get({ sessionID: session.id });
       if (await sameProjectDirectory(current.location.directory, from)) await relocateStoppedSession(config, workspace, session.id, target);
@@ -129,12 +141,16 @@ async function moveSessions(config: ServerConfig, client: OpenCodeClient): Promi
       }
       if (!await sameProjectDirectory(moved.location.directory, target)) throw new Error("A saved chat has not finished moving to its local project home. Its history remains preserved.");
       verified.push({ sessionId: session.id, from, to: moved.location.directory });
+      relocating.advance(1);
     }
+    relocating.finish();
     for (const session of await listSessions(client)) if (relocatedProjectDirectory(workspace, session.location.directory) !== session.location.directory || await sameProjectDirectory(session.location.directory, originalDirectory)) throw new Error("Native chats remain in the original project. Migration will resume on the next startup.");
+    if (progress) updateMigrationProgress(progress, { phase: "references", work: undefined });
     await relocateProjectState(config, workspace, verified);
     (await openBenchmarkStore(config)).relocateProjectDirectories(workspace.id, directory => relocatedProjectDirectory(workspace, directory));
     await relocateProjectImports(config, workspace);
     await writeLegalworkRuntimeConfigFile(config, workspace.id);
-    await finishLocalProject(workspace);
+    await finishLocalProject(workspace, progress);
   }
+  if (progress) updateMigrationProgress(progress, { phase: "finishing", project: undefined, work: undefined });
 }

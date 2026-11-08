@@ -14,6 +14,7 @@ import type { ServerConfig } from "./types.js";
 import { engineStorageDir } from "./engine-storage.js";
 import { legacyMcpCredentialImportPending, migrateLegacyMcpCredentials } from "./legacy-mcp-credentials.js";
 import { importLegacyProviderCredentials } from "./legacy-provider-credentials.js";
+import { reportHistoryMigration } from "./migration-progress.js";
 
 /** One engine at a time. Plain serve makes history readable while the global
  * native recovery sweep is held; only upstream service mode resumes old work. */
@@ -261,6 +262,7 @@ export async function createConfiguredManagedEngine(config: ServerConfig, option
       resolveEndpoint(); options.onAuthenticated?.(connection);
     }, onMigrationProgress(status) {
       config.managedEngineStatus = status.status === "running" ? "migrating" : "starting";
+      reportHistoryMigration(config, status);
       options.onMigrationProgress?.(status);
     } });
     try {

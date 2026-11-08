@@ -1,6 +1,7 @@
 import type { HostApprovalRequest } from "@legalwork/types/desktop-ipc";
 import type { AudioRecordingDetail, AudioRecordingMeta } from "@legalwork/types/audio";
 import type { WorkspaceWire } from "@legalwork/types/workspace";
+import type { MigrationProgress } from "@legalwork/types/migration-progress";
 
 /** Host callbacks are never loaded from saved configuration or exposed over HTTP. */
 export type ServerRuntimeOptions = {
@@ -173,6 +174,8 @@ export interface ServerConfig {
   /** Host-only coordinator state; never accepted from project/client config. */
   /** Host-owned startup gate, never supplied through project configuration. */
   projectStorageMigrating?: boolean;
+  /** Host-generated progress; never loaded from saved project configuration. */
+  migrationProgress?: MigrationProgress;
   migrateProjectStorageSessions?: () => Promise<void>;
   managedEngineRecoveryState?: () => { mode: "service" | "recovery" | "promoting"; heldSessions: Array<{ id: string; directory: string }>; error?: { code: string; message: string } };
   retryManagedEngineRecovery?: () => Promise<void>;

@@ -1,5 +1,7 @@
 import { stopManagedOpencodeService } from "./managed-opencode-service.js";
-import { localProjectReferenceRoots, localProjectsDirectory, prepareLocalProjects } from "./project-storage.js";
+import { completeProjectMigrationProgress, localProjectReferenceRoots, localProjectsDirectory, prepareLocalProjects } from "./project-storage.js";
+import { updateMigrationProgress } from "./migration-progress.js";
+import { projectSessionMovesPending } from "./project-storage-sessions.js";
 import { persistServerWorkspaceState } from "./routes/workspaces.js";
 /**
  * Single entry point for embedding the LegalWork server in-process.
@@ -161,6 +163,9 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
   await prepareConnectorStorage(config);
   const storageMigrationPending = managedEngine && !config.readOnly && config.workspaces.some(workspace => !workspace.contentPath);
   config.projectStorageMigrating = storageMigrationPending;
+  if (storageMigrationPending || managedEngine && await projectSessionMovesPending(config)) {
+    updateMigrationProgress(config, { status: "running", phase: "history", deferredProjects: 0 });
+  }
   if (storageMigrationPending) {
     // Stop the predecessor before the original OpenCode history upgrade.
     await stopManagedOpencodeService({ configDirectory: orgPolicyEngineDir(config), stateDirectory: join(engineStorageDir(config), "engine-home", "state") });
@@ -286,7 +291,9 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
 
       }
     }
+    await completeProjectMigrationProgress(config);
   } }).catch(async (error: unknown) => {
+    if (config.migrationProgress) updateMigrationProgress(config, { status: "error" });
     stopped = true;
     await stopConfigRefresh?.();
     if (managed.lifecycle) await managed.lifecycle.close(); else await managed.engine?.close();

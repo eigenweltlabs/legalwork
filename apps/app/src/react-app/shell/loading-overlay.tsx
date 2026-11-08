@@ -11,6 +11,7 @@ import type { EngineStartupState } from "./engine-startup";
 import { OwDotTicker } from "./dot-ticker";
 import { SettingsSurface } from "./settings-route";
 import { t } from "@/i18n";
+import { MigrationProgressView } from "./migration-progress";
 
 const RELEASES_URL = "https://github.com/eigenweltlabs/legalwork/releases";
 
@@ -78,6 +79,8 @@ export function LoadingOverlay({ startup = { status: "ready" } }: { startup?: En
   const { phase, message, error: bootError, routeReady } = useBootState();
   const error = startup.status === "error" ? startup.message : bootError;
   const updating = startup.status === "updating" && !error;
+  const migration = startup.status === "updating" ? startup.progress : undefined;
+  const preparingMessage = phase === "ready" || phase === "idle" ? t("boot.preparing_workspace") : message || t("boot.preparing_workspace");
   const [updatesOpen, setUpdatesOpen] = useState(false);
 
   const openUpdates = () => {
@@ -102,9 +105,9 @@ export function LoadingOverlay({ startup = { status: "ready" } }: { startup?: En
       <div className="flex w-full max-w-[320px] flex-col items-center gap-4 px-6 text-center">
         <OwDotTicker size="md" />
         <div className="text-[12px] leading-5 text-dls-secondary">
-          {error ? t("boot.error") : updating ? t("boot.updating") : startup.status === "starting" ? t("boot.preparing_workspace") : message || t("boot.preparing_workspace")}
+          {error ? t("boot.error") : updating ? t(migration ? "boot.migration_title" : "boot.updating") : preparingMessage}
         </div>
-        {updating ? <div className="text-[12px] leading-5 text-dls-secondary">{t("boot.updating_detail")}</div> : null}
+        {updating ? migration ? <MigrationProgressView progress={migration} /> : <div className="text-[12px] leading-5 text-dls-secondary">{t("boot.updating_detail")}</div> : null}
         {error ? (
           <div className="flex flex-col items-center gap-3 text-[12px] leading-5 text-red-11">
             <div>{error}</div>

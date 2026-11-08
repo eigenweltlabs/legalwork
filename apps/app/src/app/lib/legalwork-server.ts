@@ -46,6 +46,7 @@ import type { SessionViewReview, ViewSaveSource, ViewInput, ViewOwner, ViewRecor
 import type { SessionInfo, SessionMessageInfo, SessionStatus } from "@opencode/client";
 import { SessionHistoryProvenanceSchema, type SessionHistoryProvenance } from "@legalwork/types/session-history";
 import type { EngineProjectStatus } from "@legalwork/types/engine-project";
+import type { MigrationProgressResponse } from "@legalwork/types/migration-progress";
 import type { ConnectorConfigEdit, ConnectorDisplayItem } from "@legalwork/types/connector-config";
 import { projectSession, projectMessages, type SessionView as Session, type Todo, type MessageView, type SessionSnapshotView } from "./opencode-view";
 import { desktopFetch, desktopReadFetch, desktopStreamFetch } from "./desktop";
@@ -1804,6 +1805,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     searchWiki: (id: string, query: string, type?: string) => requestJson<{ items: WikiPage[] }>(baseUrl, `/wikis/${encodeURIComponent(id)}/search?q=${encodeURIComponent(query)}${type ? `&type=${encodeURIComponent(type)}` : ""}`, { token, hostToken }),
     health: () =>
       requestJson<{ ok: boolean; version: string; uptimeMs: number; engine?: { status: "starting" | "migrating" | "ready" | "error" } }>(baseUrl, "/health", { token, hostToken, timeoutMs: timeouts.health }),
+    migrationProgress: () => requestJson<MigrationProgressResponse>(baseUrl, "/migration/progress", { token, hostToken, timeoutMs: timeouts.health }),
     runtimeVersions: () =>
       requestJson<LegalworkRuntimeSnapshot>(baseUrl, "/runtime/versions", { token, hostToken, timeoutMs: timeouts.status }),
     status: () => requestJson<LegalworkServerDiagnostics>(baseUrl, "/status", { token, hostToken, timeoutMs: timeouts.status }),
