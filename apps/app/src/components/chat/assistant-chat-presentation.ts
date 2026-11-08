@@ -7,7 +7,7 @@ import type { ArtifactPanelTab } from "@/react-app/domains/session/panel/panel-t
 
 const fileLinks = new Marked();
 
-/** Older replies deliberately linked deliverables before the share-file tool existed. */
+/** Preserve legacy briefing and saved-view cards. Ordinary file citations stay inline. */
 export function linkedAssistantFiles(messages: UIMessage[], openTargets: OpenTarget[]) {
   const files = new Map<string, { path: string; title: string }>();
   const shared = new Set(messages.flatMap(message => message.parts.flatMap(part => {
@@ -26,6 +26,7 @@ export function linkedAssistantFiles(messages: UIMessage[], openTargets: OpenTar
         try { path = decodeURIComponent(token.href).split("#")[0]; } catch { return; }
         const target = resolvePathOpenTarget(path, openTargets);
         if (!target || target.exists === false || shared.has(target.id)) return;
+        if (target.preview !== "view" && !/^briefings\/[^/]+\.md$/i.test(target.value)) return;
         files.set(target.id, { path: target.value, title: token.text === token.href || token.text === path ? target.name : token.text });
       });
     }

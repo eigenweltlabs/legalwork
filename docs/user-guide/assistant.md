@@ -203,7 +203,7 @@ hours, still use normal
 
 ## Briefings and visual reports
 
-Ask for a morning briefing, matter overview or dashboard. The Assistant can deliver a dated report, a dashboard, or a Markdown document with an embedded chart. It chooses a document when the result benefits from more space than a chat reply.
+Ask for a project overview or a list of its files to get a reply in chat. You can also ask for a morning briefing, a dated report, a dashboard, or a Markdown document with an embedded chart.
 
 After a few useful exchanges, the Assistant may suggest a morning briefing if
 you do not already have one. It proposes a time and days, then creates the
