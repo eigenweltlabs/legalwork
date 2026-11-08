@@ -9,6 +9,7 @@ export type ProjectFilterField = {
   key: string;
   label: string;
   type: ProjectField["type"];
+  objectId?: string;
   options: Array<{ value: string; label?: string; count: number }>;
 };
 export type ProjectFilter = {
@@ -38,7 +39,7 @@ export function collectProjectFilterFields(projects: ProjectField[][], directory
       const key = projectFilterFieldKey(field);
       let entry = fields.get(key);
       if (!entry) {
-        entry = { key, label: projectFieldLabel(field), type: field.type, options: [] };
+        entry = { key, label: projectFieldLabel(field), type: field.type, ...(field.type === "backoffice" ? { objectId: field.objectId } : {}), options: [] };
         fields.set(key, entry);
       }
       if (field.type === "backoffice") {

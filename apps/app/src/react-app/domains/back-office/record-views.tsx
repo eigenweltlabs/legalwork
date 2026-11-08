@@ -22,7 +22,7 @@ import { t } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
 import { FieldIcon, ValueDisplay } from "./record-values";
 import { CellEditor } from "./cell-editor";
-import { DirectorySelect } from "./twenty-controls";
+import { DirectorySelect, DirectoryEditorPopup } from "./twenty-controls";
 import { selectColor } from "./select-colors";
 import {
   calendarDays,
@@ -92,7 +92,7 @@ function Property({
       </Popover.Trigger>
       <Popover.Portal>
         <Popover.Positioner align="start" sideOffset={4}>
-          <Popover.Popup className="bo-cell-popup">
+          <DirectoryEditorPopup>
             <CellEditor
               record={record}
               field={field}
@@ -101,7 +101,7 @@ function Property({
               onSave={(value) => props.onSave(record, { [field.id]: value })}
               onCancel={() => setOpen(false)}
             />
-          </Popover.Popup>
+          </DirectoryEditorPopup>
         </Popover.Positioner>
       </Popover.Portal>
     </Popover.Root>

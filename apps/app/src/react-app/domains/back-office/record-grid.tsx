@@ -46,6 +46,7 @@ import {
   DirectoryMenu,
   DirectorySelect,
   DirectoryDialog,
+  DirectoryEditorPopup,
 } from "./twenty-controls";
 
 const viewIcons = {
@@ -936,6 +937,7 @@ export function RecordGrid({
                     }}
                   >
                     <Popover.Trigger
+                      nativeButton={false}
                       render={
                         <div
                           role="gridcell"
@@ -984,7 +986,7 @@ export function RecordGrid({
                         side="bottom"
                         sideOffset={-32}
                       >
-                        <Popover.Popup
+                        <DirectoryEditorPopup
                           className="bo-editor-popup"
                           style={{
                             width:
@@ -1006,7 +1008,7 @@ export function RecordGrid({
                               onSave(record, { [field.id]: value })
                             }
                           />
-                        </Popover.Popup>
+                        </DirectoryEditorPopup>
                       </Popover.Positioner>
                     </Popover.Portal>
                   </Popover.Root>

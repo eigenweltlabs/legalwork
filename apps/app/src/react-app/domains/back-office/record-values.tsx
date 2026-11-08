@@ -57,6 +57,8 @@ export function RecordChip({
           colorSeed={record.id}
         />
       }
+      onPointerDown={(event) => event.stopPropagation()}
+      onMouseDown={(event) => event.stopPropagation()}
       onClick={(event) => {
         event.stopPropagation();
         onOpen(record);

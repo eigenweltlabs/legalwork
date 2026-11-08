@@ -1,3 +1,4 @@
+import { RecordCreationProvider } from "../back-office/record-creation-context";
 import { projectReferenceFiltersSchema } from "@legalwork/types/workspace";
 import { ProjectReferenceFilterEditor } from "./project-reference-filter-editor";
 import { useState, type ReactNode } from "react";
@@ -70,7 +71,7 @@ export function ProjectMetadata(props: {
     }
   };
   return (
-    <form
+    <RecordCreationProvider client={props.client} state={directory.data}><form
       className="mt-4 space-y-4"
       onSubmit={(event) => {
         event.preventDefault();
@@ -234,6 +235,6 @@ export function ProjectMetadata(props: {
           {busy ? t("projects.saving") : t("projects.save")}
         </Button>
       </div>
-    </form>
+    </form></RecordCreationProvider>
   );
 }

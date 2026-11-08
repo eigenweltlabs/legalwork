@@ -1,10 +1,10 @@
-import { useSyncExternalStore, type ReactElement, type ReactNode } from "react";
+import { useRef, useSyncExternalStore, type CSSProperties, type ReactElement, type ReactNode } from "react";
 import { ThemeProvider } from "twenty-ui/theme";
 import { getResolvedThemeMode, subscribeToTheme } from "@/app/theme";
 import { X } from "lucide-react";
 import { Dropdown } from "twenty-ui/components/navigation";
 import { Button, Select } from "twenty-ui/primitives/input";
-import { Dialog } from "twenty-ui/primitives/surfaces";
+import { Dialog, Popover } from "twenty-ui/primitives/surfaces";
 
 // Twenty uses a 13px root. Scope its rem-based typography to this feature,
 // including the library's portalled menus, without changing LegalWork's root.
@@ -35,6 +35,14 @@ export function BackOfficeTheme({ children }: { children: ReactNode }) {
       {children}
     </ThemeProvider>
   );
+}
+
+export function DirectoryEditorPopup({ children, className = "", style }: { children: ReactNode; className?: string; style?: CSSProperties }) {
+  const popup = useRef<HTMLDivElement>(null);
+  return <Popover.Popup ref={popup} initialFocus={() => {
+    popup.current?.querySelector<HTMLElement>("input, button:not(:disabled), [tabindex='0']")?.focus({ preventScroll: true });
+    return false;
+  }} className={`bo-editor-popup ${className}`} style={{ width: 260, maxHeight: "var(--available-height)", overflowY: "auto", ...style }}>{children}</Popover.Popup>;
 }
 
 export function DirectorySelect({

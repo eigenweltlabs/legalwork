@@ -22,7 +22,7 @@ import type {
 } from "@legalwork/types/back-office";
 import { FieldIcon, ValueDisplay } from "./record-values";
 import { CellEditor } from "./cell-editor";
-import { DirectoryMenu } from "./twenty-controls";
+import { DirectoryEditorPopup, DirectoryMenu } from "./twenty-controls";
 import { HistoryPanel } from "./history-panel";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { t } from "@/i18n";
@@ -263,7 +263,7 @@ export function RecordDetail({
                       </Popover.Trigger>
                       <Popover.Portal>
                         <Popover.Positioner align="start" sideOffset={-28}>
-                          <Popover.Popup
+                          <DirectoryEditorPopup
                             className="bo-editor-popup"
                             style={{
                               width:
@@ -285,7 +285,7 @@ export function RecordDetail({
                                 onSave(record, { [field.id]: value })
                               }
                             />
-                          </Popover.Popup>
+                          </DirectoryEditorPopup>
                         </Popover.Positioner>
                       </Popover.Portal>
                     </Popover.Root>

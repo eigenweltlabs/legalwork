@@ -1,3 +1,4 @@
+import { RecordCreationProvider } from "../back-office/record-creation-context";
 import { useId, useMemo, useState } from "react";
 import { useQueries } from "@tanstack/react-query";
 import { ArrowDown, ArrowUp, ArrowUpRight, ChevronDown, ChevronLeft, ChevronRight, FolderOpen, MessageSquare, MoreHorizontal, PanelsTopLeft, PenLine, Pencil, Pin, PinOff, Plus, Search, SquarePen, Trash2, WandSparkles } from "lucide-react";
@@ -97,12 +98,12 @@ export function ProjectsPage(props: Props) {
           <Button onClick={props.onCreate}><Plus className="size-4" />{t("projects.create")}</Button>
       </>} />
       <ProjectViews onSelect={() => setPage(0)} />
-      <ProjectFilterBar fields={fields} filters={filterState.filters} mode={filterState.mode}
+      <RecordCreationProvider client={props.client} state={directory.data}><ProjectFilterBar fields={fields} filters={filterState.filters} mode={filterState.mode}
         teamOnly={filterState.teamOnly} onTeamOnlyChange={teamOnly => { filterState.setTeamOnly(teamOnly); setPage(0); }}
         onChange={filters => { filterState.setFilters(filters); setPage(0); }}
         onModeChange={mode => { filterState.setMode(mode); setPage(0); }}
         onClear={() => { filterState.clear(); setPage(0); }} resultCount={groups.length} totalCount={props.groups.length}
-        loading={metadataLoading} unavailable={unavailable} onRetry={() => { details.forEach(result => { if (result.isError) void result.refetch(); }); }} />
+        loading={metadataLoading} unavailable={unavailable} onRetry={() => { details.forEach(result => { if (result.isError) void result.refetch(); }); }} /></RecordCreationProvider>
       <div className={cn(rowGrid, "border-b border-border/70 px-2 pb-2 text-xs text-muted-foreground")}>
         <span className="pl-6">{t("sidebar.project_name")}</span>
         <Button variant="ghost" size="xs" className="hidden justify-self-end px-0 hover:bg-transparent @min-[620px]/project-page:inline-flex" onClick={() => { setDescending(!descending); setPage(0); }}>{t("sidebar.updated")}{descending ? <ArrowDown className="size-3" /> : <ArrowUp className="size-3" />}</Button>

@@ -314,9 +314,12 @@ export function registerBackOfficeRoutes(options: {
       });
     },
   );
-  route("POST", "/records", async (ctx, store, { scope, actor }) => ({
-    record: store.saveRecord(scope, actor, await input(ctx)),
-  }));
+  route("POST", "/records", async (ctx, store, { scope, actor }) => {
+    const { directoryId, ...body } = await input(ctx);
+    if (directoryId !== undefined && directoryId !== await directoryIdentity(options.config, scope, store))
+      throw new ApiError(409, "back_office_directory_changed", "The Back Office directory changed. Reopen the picker before creating a record.");
+    return { record: store.saveRecord(scope, actor, body) };
+  });
   route("POST", "/model/preview", async (ctx, store, { scope, actor }) => {
     const body = await input(ctx);
     return store.previewModel(

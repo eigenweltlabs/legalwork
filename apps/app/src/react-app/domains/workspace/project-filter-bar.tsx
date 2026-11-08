@@ -1,4 +1,9 @@
 import { useState } from "react";
+import { useRecordCreation } from "../back-office/record-creation-context";
+import { creatableRecordObject } from "../back-office/record-creation-values";
+import { RecordCreateForm } from "../back-office/record-create-form";
+import { BackOfficeTheme } from "../back-office/twenty-controls";
+import { displayBackOfficeObject } from "../back-office/labels";
 import { ArrowLeft, Database, CalendarDays, Check, ChevronDown, Hash, ListFilter, Loader2, Plus, Search, Type, Users, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,7 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { currentLocale, t } from "@/i18n";
 import { cn } from "@/lib/utils";
-import { filterNeedsValue, filterOperators, validProjectFilter, type FilterOperator, type ProjectFilter, type ProjectFilterField, type ProjectFilterMode } from "./project-filters";
+import { filterNeedsValue, filterOperators, projectReferenceFilterValue, validProjectFilter, type FilterOperator, type ProjectFilter, type ProjectFilterField, type ProjectFilterMode } from "./project-filters";
 
 const icons = { text: Type, number: Hash, date: CalendarDays, select: ListFilter, backoffice: Database };
 
@@ -165,16 +170,24 @@ function FilterChip({ filter, field, onChange, onRemove }: { filter: ProjectFilt
 }
 
 function ProjectFilterEditor({ field, initial, onApply }: { field: ProjectFilterField; initial?: ProjectFilter; onApply: (filter: ProjectFilter) => void }) {
+  const creation = useRecordCreation(), target = creatableRecordObject(creation?.state, field.objectId);
+  const [creating, setCreating] = useState(false), [createdOptions, setCreatedOptions] = useState<ProjectFilterField["options"]>([]);
   const [operator, setOperator] = useState<FilterOperator>(initial?.operator ?? filterOperators(field.type)[0]);
   const [values, setValues] = useState(initial?.values ?? []);
   const [search, setSearch] = useState("");
   const draft: ProjectFilter = { id: initial?.id ?? "draft", field: { key: field.key, label: field.label, type: field.type }, operator, values };
   const needsValue = filterNeedsValue(operator);
-  const options = [...field.options, ...values.filter(value => value && !field.options.some(option => option.value === value)).map(value => ({ value, label: field.type === "backoffice" ? t("projects.reference.unavailable") : value, count: 0 }))];
+  const knownOptions = [...field.options, ...createdOptions.filter(option => !field.options.some(previous => previous.value === option.value))];
+  const options = [...knownOptions, ...values.filter(value => value && !knownOptions.some(option => option.value === value)).map(value => ({ value, label: field.type === "backoffice" ? t("projects.reference.unavailable") : value, count: 0 }))];
   const visibleOptions = options.filter(option => (option.label ?? option.value).toLocaleLowerCase().includes(search.toLocaleLowerCase()));
   const suggestions = field.type === "text" ? field.options.filter(option => option.value.toLocaleLowerCase().includes((values[0] ?? "").toLocaleLowerCase())).slice(0, 6) : [];
   const valid = validProjectFilter(draft);
-  return <form className="min-w-0 p-3" onSubmit={event => { event.preventDefault(); if (valid) onApply({ ...draft, id: initial?.id ?? crypto.randomUUID() }); }}>
+  if (creating && target && creation) return <BackOfficeTheme><RecordCreateForm object={displayBackOfficeObject(target)} name={search} onCancel={() => setCreating(false)} onCreated={async record => {
+    const value = projectReferenceFilterValue(creation.state.directoryId!, record.id);
+    setCreatedOptions(current => [...current, { value, label: String(record.values.name), count: 0 }]);
+    setValues(current => [...new Set([...current, value])]); setSearch(""); setCreating(false);
+  }} /></BackOfficeTheme>;
+  return <form className="min-w-0 p-3" onSubmit={event => { event.preventDefault(); event.stopPropagation(); if (valid) onApply({ ...draft, id: initial?.id ?? crypto.randomUUID() }); }}>
     <Select value={operator} onValueChange={value => {
       const next = filterOperators(field.type).find(operator => operator === value);
       if (!next) return;
@@ -193,6 +206,7 @@ function ProjectFilterEditor({ field, initial, onApply }: { field: ProjectFilter
         </label>)}
         {!visibleOptions.length && <p className="py-4 text-center text-xs text-muted-foreground">{t("project_filters.no_options")}</p>}
       </div>
+      {field.type === "backoffice" && target && <Button type="button" variant="ghost" size="sm" className="mt-1 w-full justify-start text-xs" onClick={() => setCreating(true)}><Plus className="size-3.5" />{t("back_office.create.title", { name: displayBackOfficeObject(target).label })}</Button>}
     </div> : <div className="mt-3 space-y-2">
       <div className={cn("grid gap-2", operator === "between" && "grid-cols-2")}>
         {(operator === "between" ? [0, 1] : [0]).map(index => <label key={index} className="min-w-0 space-y-1 text-xs text-muted-foreground">

@@ -680,8 +680,68 @@
   background: var(--bo-bg);
 }
 
-.bo-reference-filter-popup .bo-choices {
+.bo-editor-popup .bo-choices {
   max-height: min(240px, max(0px, calc(var(--available-height) - 72px)));
+}
+
+.bo-editor-popup:has(.bo-create-option) .bo-choices {
+  max-height: min(240px, max(0px, calc(var(--available-height) - 112px)));
+}
+
+.bo-editor-popup:has(.bo-create-record) {
+  width: min(380px, var(--available-width)) !important;
+}
+
+.bo-create-record.bo-cell-form {
+  padding: 12px;
+  gap: 12px;
+}
+
+.bo-create-heading,
+.bo-create-actions,
+.bo-create-field,
+.bo-create-field > span {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.bo-create-name {
+  display: grid;
+  gap: 6px;
+}
+
+.bo-create-fields {
+  display: grid;
+  gap: 3px;
+}
+
+.bo-create-field {
+  justify-content: space-between;
+  min-width: 0;
+  padding: 3px 0;
+}
+
+.bo-create-field > span {
+  flex: 1;
+  color: var(--bo-muted);
+  font-size: 12px;
+}
+
+.bo-create-field > button {
+  max-width: 58%;
+}
+
+.bo-create-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bo-create-actions {
+  justify-content: flex-end;
+  border-top: 1px solid var(--bo-border);
+  padding-top: 8px;
 }
 
 .bo-filter-form {
@@ -703,6 +763,7 @@
 }
 
 .bo-cell-form {
+  --t-color-blue: var(--bo-text);
   display: flex;
   flex-direction: column;
   gap: 8px;

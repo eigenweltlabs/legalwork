@@ -1,6 +1,6 @@
 import { FileCellEditor } from "./record-files";
 import { useState } from "react";
-import { X } from "lucide-react";
+import { Plus, X } from "lucide-react";
 import { DatePicker } from "twenty-ui/components/input";
 import { Button, Input } from "twenty-ui/primitives/input";
 import { ListItem } from "twenty-ui/primitives/navigation";
@@ -11,6 +11,12 @@ import type {
   BackOfficeValue,
 } from "@legalwork/types/back-office";
 import { DirectorySelect } from "./twenty-controls";
+import { useRecordCreation } from "./record-creation-context";
+import { creatableRecordObject } from "./record-creation-values";
+import { RecordCreateForm } from "./record-create-form";
+import { displayBackOfficeObject } from "./labels";
+import type { ProjectReferenceFilters } from "@legalwork/types/workspace";
+import { t } from "@/i18n";
 
 function focusEditorInput(input: HTMLInputElement | null) {
   input?.focus({ preventScroll: true });
@@ -23,6 +29,7 @@ export function CellEditor({
   records,
   onSave,
   onCancel,
+  creationFilters,
 }: {
   field: BackOfficeField;
   record?: BackOfficeRecord;
@@ -30,7 +37,11 @@ export function CellEditor({
   records: BackOfficeRecord[];
   onSave: (value: BackOfficeValue) => Promise<void>;
   onCancel: () => void;
+  creationFilters?: ProjectReferenceFilters | null;
 }) {
+  const creation = useRecordCreation();
+  const target = field.type === "relation" ? creatableRecordObject(creation?.state, field.target) : undefined;
+  const [creating, setCreating] = useState(false), [created, setCreated] = useState<BackOfficeRecord[]>([]);
   const initial =
     typeof value === "object" && value !== null && !Array.isArray(value)
       ? String(value.amountMinor / 100)
@@ -54,21 +65,22 @@ export function CellEditor({
   );
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
-  const save = async (next: BackOfficeValue) => {
+  const save = async (next: BackOfficeValue, newlyCreated = false) => {
     setSaving(true);
     setError("");
     try {
       await onSave(next);
       onCancel();
     } catch (error) {
-      setError(error instanceof Error ? error.message : "Could not save.");
+      const message = error instanceof Error ? error.message : "Could not save.";
+      setError(`${newlyCreated || created.length ? t("back_office.create.not_linked") + " " : ""}${message}`);
     } finally {
       setSaving(false);
     }
   };
   const options =
     field.type === "relation"
-      ? records
+      ? [...new Map([...records, ...created].map(record => [record.id, record])).values()]
           .filter(
             (record) => record.objectId === field.target && !record.archivedAt,
           )
@@ -82,6 +94,12 @@ export function CellEditor({
     field.type === "relation" ||
     field.type === "select" ||
     (field.type === "multiselect" && field.options.length > 0);
+  if (creating && target) return <RecordCreateForm object={displayBackOfficeObject(target)} name={query.trim()} filters={creationFilters} onCancel={() => setCreating(false)} onCreated={async record => {
+    setCreated(current => [...current, record]);
+    setQuery(""); setCreating(false);
+    if (multiple) setSelected(current => [...new Set([...current, record.id])]);
+    else await save(record.id, true);
+  }} />;
   if (field.type === "file")
     return (
       <FileCellEditor
@@ -225,10 +243,11 @@ export function CellEditor({
                 ))}
               {!options.length && (
                 <p className="bo-muted">
-                  Create a {field.target ?? "choice"} first.
+                  {t("back_office.create.empty")}
                 </p>
               )}
             </div>
+            {target && <ListItem className="bo-create-option" render={<button type="button" disabled={saving} />} startIcon={<Plus size={14} />} onClick={() => setCreating(true)}>{t("back_office.create.title", { name: displayBackOfficeObject(target).label })}</ListItem>}
             {multiple && (
               <Button
                 type="submit"

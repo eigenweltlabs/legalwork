@@ -1,3 +1,4 @@
+import { RecordCreationProvider } from "./record-creation-context";
 import { RecordFilesProvider } from "./record-files";
 import { useEffect, useState, type CSSProperties } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -329,6 +330,7 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
   };
   return (
     <BackOfficeTheme>
+      <RecordCreationProvider client={client} state={data}>
       <RecordFilesProvider
         key={data?.scope}
         records={records}
@@ -824,6 +826,7 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
           )}
         </div>
       </RecordFilesProvider>
+      </RecordCreationProvider>
     </BackOfficeTheme>
   );
 }

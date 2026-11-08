@@ -1,3 +1,4 @@
+import { RecordCreationProvider } from "../back-office/record-creation-context";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -12,7 +13,7 @@ import { t } from "@/i18n";
 import { onSyncPoke } from "@/react-app/kernel/sync-events";
 import "../back-office/back-office.css";
 import { BackOfficeStateSchema } from "../back-office/api";
-import { BackOfficeTheme } from "../back-office/twenty-controls";
+import { BackOfficeTheme, DirectoryEditorPopup } from "../back-office/twenty-controls";
 import { CellEditor } from "../back-office/cell-editor";
 import { displayBackOfficeObject } from "../back-office/labels";
 
@@ -46,7 +47,7 @@ export function ProjectRecordField({ field, client, onSave }: {
   const selectable = object ? records.filter(record => record.objectId === field.objectId && (ids.includes(record.id) || matchesProjectReferenceFilters(record, object, field.filters))) : [];
   const save = async (value: ProjectRecordReference | null) => { setError(""); await onSave(value); };
   const relation = BackOfficeFieldSchema.parse({ id: "projectReference", label: field.label, type: "relation", target: field.objectId, multiple: field.multiple });
-  return <BackOfficeTheme><div className="flex min-h-8 min-w-0 flex-wrap items-center gap-1">
+  return <RecordCreationProvider client={client} state={data}><BackOfficeTheme><div className="flex min-h-8 min-w-0 flex-wrap items-center gap-1">
     {field.value?.recordIds.map(id => {
       const record = ids.includes(id) ? records.find(record => record.id === id && record.objectId === field.objectId) : null;
       return <Button key={id} type="button" size="sm" variant="ghost" disabled={!record} onClick={() => { if (record) navigate(`/back-office/${encodeURIComponent(record.objectId)}?record=${record.id}`); }} endIcon={record ? <ArrowUpRight size={12} /> : undefined}>{record ? String(record.values.name ?? object?.label ?? "") : t("projects.reference.unavailable")}</Button>;
@@ -54,16 +55,16 @@ export function ProjectRecordField({ field, client, onSave }: {
     <Popover.Root open={open} onOpenChange={setOpen}>
       <Popover.Trigger render={<Button type="button" size="sm" variant="ghost" disabled={!object || !data?.directoryId} aria-label={t("projects.edit_value", { name: field.label })} endIcon={<ChevronDown size={12} />}>{field.value ? t("projects.edit") : t("projects.empty_value")}</Button>} />
       <Popover.Portal><Popover.Positioner align="start" sideOffset={4}>
-        <Popover.Popup className="bo-editor-popup" style={{ width: 260 }}>
-      <CellEditor key={`${field.id}:${data?.directoryId}:${open}`} field={relation} value={field.multiple ? ids : ids[0] ?? null} records={selectable} onCancel={() => setOpen(false)} onSave={async value => {
+        <DirectoryEditorPopup>
+      <CellEditor key={`${field.id}:${data?.directoryId}:${open}`} field={relation} creationFilters={field.filters} value={field.multiple ? ids : ids[0] ?? null} records={selectable} onCancel={() => setOpen(false)} onSave={async value => {
         const selected = Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : typeof value === "string" ? [value] : [];
         if (!data?.directoryId) throw new Error(t("projects.reference.unavailable"));
         await save(selected.length ? { directoryId: data.directoryId, recordIds: selected } : null);
       }} />
-        </Popover.Popup>
+        </DirectoryEditorPopup>
       </Popover.Positioner></Popover.Portal>
     </Popover.Root>
     {field.value && <Button type="button" size="sm" variant="ghost" aria-label={t("projects.clear_value")} onClick={() => { void save(null).catch(error => setError(error.message)); }} startIcon={<X size={12} />} />}
     {(error || directory.error) && <p role="alert" className="text-xs text-destructive">{error || directory.error?.message}</p>}
-  </div></BackOfficeTheme>;
+  </div></BackOfficeTheme></RecordCreationProvider>;
 }
