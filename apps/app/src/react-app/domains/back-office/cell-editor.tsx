@@ -4,13 +4,12 @@ import { X } from "lucide-react";
 import { DatePicker } from "twenty-ui/components/input";
 import { Button, Input } from "twenty-ui/primitives/input";
 import { ListItem } from "twenty-ui/primitives/navigation";
-import { Avatar, Tag } from "twenty-ui/primitives/data-display";
+import { Avatar } from "twenty-ui/primitives/data-display";
 import type {
   BackOfficeField,
   BackOfficeRecord,
   BackOfficeValue,
 } from "@legalwork/types/back-office";
-import { selectColor } from "./select-colors";
 import { DirectorySelect } from "./twenty-controls";
 
 function focusEditorInput(input: HTMLInputElement | null) {
@@ -182,9 +181,7 @@ export function CellEditor({
                   indicator="check"
                   onClick={() => void save(null)}
                 >
-                  <Tag color="gray" borderStyle="dashed">
-                    No {field.label}
-                  </Tag>
+                  No {field.label}
                 </ListItem>
               )}
 
@@ -202,7 +199,8 @@ export function CellEditor({
                     render={<button type="button" disabled={saving} />}
                     role="option"
                     selected={selected.includes(option.id)}
-                    indicator={multiple ? "checkbox" : "check"}
+                    indicator="check"
+                    aria-selected={selected.includes(option.id)}
                     startIcon={
                       field.type === "relation" ? (
                         <Avatar
@@ -222,13 +220,7 @@ export function CellEditor({
                       else void save(option.id);
                     }}
                   >
-                    {field.type === "relation" ? (
-                      option.label
-                    ) : (
-                      <Tag color={selectColor(option.label)}>
-                        {option.label}
-                      </Tag>
-                    )}
+                    {option.label}
                   </ListItem>
                 ))}
               {!options.length && (
@@ -242,7 +234,7 @@ export function CellEditor({
                 type="submit"
                 size="sm"
                 variant="solid"
-                color="accent"
+                color="neutral"
                 fullWidth
                 disabled={saving}
               >
@@ -284,7 +276,7 @@ export function CellEditor({
               type="submit"
               size="sm"
               variant="solid"
-              color="accent"
+              color="neutral"
               disabled={saving}
               fullWidth
             >

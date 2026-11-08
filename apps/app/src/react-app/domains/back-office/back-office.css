@@ -677,6 +677,7 @@
 .bo-editor-popup {
   width: 270px;
   padding: 0;
+  background: var(--bo-bg);
 }
 
 .bo-reference-filter-popup .bo-choices {
@@ -712,6 +713,10 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.bo-cell-form :focus-visible {
+  outline-color: var(--bo-text);
 }
 
 .bo-grid-cell > div {
