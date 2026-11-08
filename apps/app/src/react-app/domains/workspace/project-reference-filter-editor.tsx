@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Plus, X } from "lucide-react";
 import { Popover } from "twenty-ui/primitives/surfaces";
 import type { BackOfficeField, BackOfficeObject, BackOfficeRecord } from "@legalwork/types/back-office";
@@ -54,6 +54,7 @@ function ConditionEditor({ fields, condition, records, onChange, onRemove }: {
   onRemove: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  const popup = useRef<HTMLDivElement>(null);
   const field = fields.find(field => field.id === condition.fieldId);
   const operators = field ? projectReferenceOperators(field) : [];
   const noValue = condition.operator === "empty" || condition.operator === "not_empty";
@@ -84,7 +85,11 @@ function ConditionEditor({ fields, condition, records, onChange, onRemove }: {
     {editorField && !noValue && <div className="min-w-0 sm:col-span-2"><BackOfficeTheme>
       <Popover.Root open={open} onOpenChange={setOpen}>
         <Popover.Trigger render={<Button type="button" variant="outline" className="w-full justify-start overflow-hidden" aria-label={t("projects.reference.filter_value")} title={labels.join(", ")}><span className="truncate">{label || t("projects.reference.choose_filter_value")}</span></Button>} />
-        <Popover.Portal><Popover.Positioner align="start" sideOffset={4}><Popover.Popup className="bo-editor-popup" style={{ width: editorField.type === "date" ? "max-content" : 260 }}>
+        <Popover.Portal><Popover.Positioner align="start" sideOffset={4}><Popover.Popup ref={popup} initialFocus={() => {
+          // The popup library focuses again after mounting, inside the scrolling dialog.
+          popup.current?.querySelector<HTMLElement>("input, button:not(:disabled), [tabindex='0']")?.focus({ preventScroll: true });
+          return false;
+        }} className="bo-editor-popup bo-reference-filter-popup" style={{ width: editorField.type === "date" ? "max-content" : 260, maxHeight: "var(--available-height)", overflowY: "auto" }}>
           <CellEditor key={`${condition.fieldId}:${condition.operator}:${open}`} field={editorField} value={choice ? condition.values.filter((value): value is string => typeof value === "string") : condition.values[0] ?? null} records={records} onCancel={() => setOpen(false)} onSave={async value => {
             const values = Array.isArray(value) ? value.filter((value): value is string => typeof value === "string") : typeof value === "string" || typeof value === "number" || typeof value === "boolean" ? [value] : [];
             onChange({ ...condition, values });

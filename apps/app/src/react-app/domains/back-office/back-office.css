@@ -679,6 +679,10 @@
   padding: 0;
 }
 
+.bo-reference-filter-popup .bo-choices {
+  max-height: min(240px, max(0px, calc(var(--available-height) - 72px)));
+}
+
 .bo-filter-form {
   padding: 8px;
   display: flex;

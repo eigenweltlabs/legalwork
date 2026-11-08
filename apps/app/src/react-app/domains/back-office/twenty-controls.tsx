@@ -67,7 +67,7 @@ export function DirectorySelect({
         <Select.Icon />
       </Select.Trigger>
       <Select.Portal>
-        <Select.Positioner sideOffset={4}>
+        <Select.Positioner sideOffset={4} alignItemWithTrigger={false}>
           <Select.Popup>
             <Select.List>
               {options.map((option) => (

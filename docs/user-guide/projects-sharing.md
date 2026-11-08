@@ -24,7 +24,7 @@ On **Projects**, use **Filter** to choose a metadata field. Record fields offer 
 
 ### Filter a record field's choices
 
-Open **Project Home > Configure fields** and choose a Back Office object as a field's type. Under **Filter selectable records**, choose **Add filter**, select an object field, choose the operator and set its value. Multiple conditions can match **all** or **any**. The value picker uses the current model options, including user-created types and custom objects. Remove all conditions to allow all accessible records. These settings define the choices; select actual project values in the metadata row on Home.
+Open **Project Home > Configure fields** and choose a Back Office object as a field's type. Under **Filter selectable records**, choose **Add filter**, select an object field, choose the operator and set its value. Multiple conditions can match **all** or **any**. The value picker uses the current model options, including user-created types and custom objects. Search and edit choices without losing your position in the field editor. Remove all conditions to allow all accessible records. These settings define the choices; select actual project values in the metadata row on Home.
 
 The starter Responsible and project-owner fields require Active people with one of the initial team-member types. A new person of an allowed type becomes selectable automatically. After adding another team type, add it to the field's Type filter or remove that restriction as appropriate. Court / authority accepts organisations typed Court or Public authority. A responsible-partner field can target People with Type Partner and Active Yes. Choose multiple records for a matter-team field.
 

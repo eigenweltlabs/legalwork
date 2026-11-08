@@ -13,6 +13,10 @@ import type {
 import { selectColor } from "./select-colors";
 import { DirectorySelect } from "./twenty-controls";
 
+function focusEditorInput(input: HTMLInputElement | null) {
+  input?.focus({ preventScroll: true });
+}
+
 export function CellEditor({
   field,
   record,
@@ -161,7 +165,7 @@ export function CellEditor({
           <>
             <div className="bo-choice-search">
               <Input
-                autoFocus
+                ref={focusEditorInput}
                 size="sm"
                 variant="plain"
                 aria-label={`Search ${field.label}`}
@@ -261,7 +265,7 @@ export function CellEditor({
               />
             ) : (
               <Input
-                autoFocus
+                ref={focusEditorInput}
                 size="sm"
                 aria-label={field.label}
                 value={text}
