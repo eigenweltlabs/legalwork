@@ -113,6 +113,7 @@ describe("reload watcher fingerprints", () => {
       try {
         await watcher.refreshWorkspace(workspace.id);
         const ensured = await ensureWorkspaceFiles(root, "starter");
+        await mkdir(join(root, ".opencode", "commands"), { recursive: true });
         await watcher.refreshWorkspace(workspace.id, ensured.reloadReasons);
         jest.runOnlyPendingTimers();
         jest.useRealTimers();
