@@ -222,7 +222,7 @@ Shared document cards remain available when you reopen the conversation,
 including documents shared while the Assistant was doing several actions
 together. A card for a project deliverable opens that project's original file.
 
-Scheduled morning briefings use the same layout and share one primary document card. An unchanged built-in briefing schedule receives the new instructions automatically; custom schedule instructions are preserved. To use the layout in a custom schedule, ask it to prepare a visual morning briefing with an embedded matter chart and linked priority emails and tasks.
+Scheduled morning briefings adapt to the day's priorities. If you want a particular comparison or chart, include it in the scheduled task instructions.
 
 Related: [Dashboards and reports](dashboards.md), [Files](files-documents.md), [Scheduled tasks](scheduled-tasks.md).
 

@@ -1,5 +1,3 @@
-import { PORTFOLIO_TEMPLATE } from "./portfolio-template.js";
-import { MORNING_BRIEFING_TEMPLATE } from "./briefing-template.js";
 import { z } from "zod";
 
 const text = z.string();
@@ -49,26 +47,25 @@ export const OPENUI_CATALOG = {
     BarChart: "BarChart(rows, categoryField, [numericSeriesFields], title?)",
     LineChart: "LineChart(rows, categoryField, [numericSeriesFields], title?)",
     PieChart: "PieChart(rows, categoryField, numericValueField, title?, shape=donut): choose pie or donut",
-    RankedBars: "RankedBars(rows, categoryField, numericValueField, title?, currency?): ranked categories with an exact value alongside each bar. Best for portfolio values or counts.",
+    RankedBars: "RankedBars(rows, categoryField, numericValueField, title?, currency?): ranked categories with an exact value alongside each bar.",
     Badge: "Badge(text, tone=neutral)",
     Callout: "Callout(title, description?, tone=info)",
     Source: "Source(path, label?, bindingName?): open a source in a named dataset's source owner, or this view's owner when binding is omitted",
   },
-  templates: { morningBriefing: MORNING_BRIEFING_TEMPLATE, backOfficePortfolio: PORTFOLIO_TEMPLATE },
+  contentGuidance: [
+    "Choose the content and layout around the question the reader wants answered. A portfolio might explore where work or value is concentrated. A briefing might highlight a change, a decision or a next action.",
+    "Show comparisons or trends when the records support them. Give figures clear units and scope. Include supporting records when the reader needs to inspect or act on them.",
+  ],
   rules: [
     "Return bare OpenUI Lang, never JavaScript, JSX, HTML, cloud bundles or fenced program text.",
-    "Assign root = Stack([...]). Assignments use '=' and references use their variable name; no return statement.",
-    "Query data with clients = Query(\"wiki_query\", {name:\"clients\"}, {rows:[],total:0}); then pass clients.rows to components.",
+    "Assign the top-level component to root. Assignments use '=' and references use their variable name.",
     "The Query name must match a live Back Office or wiki query binding or saved dataset. No other tool calls, URLs or mutations are exposed.",
     "Use actual query or report data. Never invent totals, records or citations. Server totals can exceed the bounded row set; the viewer displays truncation.",
     "For wiki-backed dashboards, use wiki_fields and wiki_query to inspect indexed fields. Use groupBy/metrics on the server for aggregates over the full result set.",
     "Rows carry source provenance from the host. Board and table filters are local to returned rows. Human board moves use the host's revision-checked property API; agent edits require typed wiki tools.",
-    "Use one page heading, a row of metrics, then charts and tables. Metric is already an OpenUI overview card: do not wrap each metric in another Card. Avoid nested cards and repeated titles. Use short supporting text; a brief Badge or Text is enough for demo-data labels.",
     "Reports and dashboards work with project files, connected sources, user-provided data, and wikis. For Back Office, first call legalwork_back_office_discover then legalwork_back_office_query. Put the exact tested binding, including source, directoryId and objectId, in queries with mode dashboard. This works in projects, the Assistant and wikis, including custom models. For static documents and external data pass named datasets with queries: {}. Query(\"data\", {name:\"binding\"}, {rows:[],total:0}) reads a dataset or a live binding. Dataset dashboards refresh when their saved data is updated; they do not automatically re-fetch the original documents or external sources.",
-    "For a portfolio use a row of QueryMetric cards, then Stack([RankedBars(...), PieChart(...)], 2) for a ranking and composition, followed by the searchable register. Show exact currency in the metric and label currency axes or chart titles. Use area charts for change over time, funnels only for ordered stages. Never invent trends, benchmarks, percentages or controls.",
     "view_create/view_update return unsaved previews. The user chooses Save and a destination in the app. The main Assistant may instead use legalwork_assistant_save_report for authorized files in its own workspace. Never hand-write view files. Only a saved reference returned by that tool or view_read/view_list belongs in a legalwork-view Markdown fence.",
   ],
-  example: 'clients = Query("wiki_query", {name:"clients"}, {rows:[],total:0})\nroot = Stack([Heading("Client engagements", 1), Metric("Clients", clients.total), Card("Engagement stages", [Board(clients.rows, "properties.stage", "title", [{field:"properties.partner",label:"Partner"}])])])',
 };
 export const OPENUI_CATALOG_PROMPT = JSON.stringify(OPENUI_CATALOG, null, 2);
 

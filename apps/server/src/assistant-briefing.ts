@@ -14,4 +14,6 @@ export function migrateMorningBriefing(config: ServerConfig, store: ScheduledTas
   store.migrateDefaultPrompt(MORNING_BRIEFING_KEY, "5cdade5daef003fc8a906150f7375b426a6bf94fb32fb09f762b36f9512652f6", MORNING_BRIEFING_PROMPT, now);
   // Keep source files on task attachments when upgrading the unchanged preset.
   store.migrateDefaultPrompt(MORNING_BRIEFING_KEY, "099b22c8c59feb1f5f8de93c0f435bae502ffea167a862cea50c13cdbd84f38d", MORNING_BRIEFING_PROMPT, now);
+  // Upgrade the preset that referenced the retired briefing layout.
+  store.migrateDefaultPrompt(MORNING_BRIEFING_KEY, "586fd6750b986cfa087dd07e86015a52a7ba9454494528b8658174375a35b1c9", MORNING_BRIEFING_PROMPT, now);
 }

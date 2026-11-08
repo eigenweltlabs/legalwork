@@ -4,11 +4,22 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { OPENUI_CATALOG } from "./catalog";
 import { OpenUIView, openUILibrary } from "./runtime";
 
-test("the agent catalog example parses with the exact runtime component schemas", () => {
-  const parsed = createParser(openUILibrary.toJSONSchema()).parse(OPENUI_CATALOG.example);
+test("the agent catalog offers content guidance without a ready-made dashboard or briefing", () => {
+  expect(OPENUI_CATALOG).not.toHaveProperty("templates");
+  expect(OPENUI_CATALOG).not.toHaveProperty("example");
+  expect(OPENUI_CATALOG.contentGuidance.length).toBeGreaterThan(0);
+  for (const suggestion of OPENUI_CATALOG.contentGuidance) {
+    expect(typeof suggestion).toBe("string");
+    expect(suggestion).not.toMatch(/root\s*=|Query\(|Stack\(/);
+  }
+});
+
+test("a live query can drive a standalone chart chosen by the agent", () => {
+  const program = 'areas = Query("data", {name:"areas"}, {rows:[]})\nroot = RankedBars(areas.rows, "area", "count")';
+  const parsed = createParser(openUILibrary.toJSONSchema()).parse(program);
   expect(parsed.meta.errors).toEqual([]);
   expect(parsed.meta.incomplete).toBe(false);
-  expect(parsed.root?.typeName).toBe("Stack");
+  expect(parsed.root?.typeName).toBe("RankedBars");
   expect(parsed.queryStatements).toHaveLength(1);
   expect(parsed.mutationStatements).toEqual([]);
 });

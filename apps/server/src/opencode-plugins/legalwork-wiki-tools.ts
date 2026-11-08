@@ -303,7 +303,7 @@ editor.add(defineTool(ctx,"wiki_properties_update","Update indexed fields withou
         const wiki = await accessible(args.wiki_id, context, true);
         return documentSchema.parse(await request(`${base(wiki.id)}/properties`, "PATCH", { path: args.path, baseRevision: args.base_revision, patch: args.patch }, context));
       }));
-editor.add(defineTool(ctx,"view_catalog","Read the bundled OpenUI component catalog, layout syntax and examples before creating or editing a report, dashboard or inline widget. No external provider or service is required.",
+editor.add(defineTool(ctx,"view_catalog","Read the bundled OpenUI component catalog, syntax and content guidance before creating or editing a report, dashboard or inline widget. No external provider or service is required.",
       z.object({}), async () => OPENUI_CATALOG));
 editor.add(defineTool(ctx,"wiki_fields","Discover indexed wiki fields, their inferred types and sample values before building a query or dashboard.",
       z.object({ wiki_id: wikiId }), async (args, context) => {

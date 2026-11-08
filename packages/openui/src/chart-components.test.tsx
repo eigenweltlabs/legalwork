@@ -1,12 +1,10 @@
 import { expect, test } from "bun:test";
 import { createParser } from "@openuidev/react-lang";
 import { renderToStaticMarkup } from "react-dom/server";
-import { PORTFOLIO_TEMPLATE } from "./portfolio-template";
 import { formatMetric, openUILibrary, OpenUIView } from "./runtime";
 
-test("the portfolio and all stock chart adapters have independent OpenUI catalog entries", () => {
+test("all stock chart adapters can be used independently in a custom layout", () => {
   const parser = createParser(openUILibrary.toJSONSchema());
-  expect(parser.parse(PORTFOLIO_TEMPLATE.program).meta.errors).toEqual([]);
   for (const kind of ["HorizontalBarChart", "BarChart", "StackedBarChart", "LineChart", "AreaChart", "PieChart", "FunnelChart"]) {
     const value = ["PieChart","FunnelChart"].includes(kind) ? '"count"' : '["count"]';
     expect(parser.parse(`root = ${kind}([{area:"Commercial",count:10}], "area", ${value})`).meta.errors).toEqual([]);
