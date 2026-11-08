@@ -209,7 +209,7 @@ export const orgPolicyDefinitions = {
   "officeAddins.allow": { section: "features", scope: "app", modes: enforced, schema: z.boolean() },
   "evaluations.allow": { section: "features", scope: "app", modes: enforced, schema: z.boolean() },
   /** Built-in extensions by id; false switches one off. */
-  "extensions.builtIn": { section: "features", scope: "app", modes: enforced, schema: z.strictObject({ "open-computer-use": z.boolean().optional(), "computer-use": z.boolean().optional(), "google-workspace": z.boolean().optional() }) },
+  "extensions.builtIn": { section: "features", scope: "app", modes: enforced, schema: z.strictObject({ "open-computer-use": z.boolean().optional(), "computer-use": z.boolean().optional(), "google-workspace": z.boolean().optional(), ris: z.boolean().optional() }) },
 
   "sharing.projects": { section: "sharing", scope: "server", modes: enforced, schema: z.strictObject({ allow: z.boolean() }) },
   "hub.whoCanShare": { section: "sharing", scope: "server", modes: enforced, schema: z.enum(["members", "admins"]) },

@@ -334,6 +334,7 @@ async function postJson(path: string, body: ExtensionActionPayload): Promise<unk
       ...(connectorToken ? { "x-legalwork-connector-token": connectorToken } : {}),
     },
     body: JSON.stringify(body),
+    ...(body.extensionId === "ris" ? { signal: nativeToolAbortSignal() } : {}),
   });
   const payload = await parseResponse(response);
   if (!response.ok) {

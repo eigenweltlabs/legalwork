@@ -1,3 +1,4 @@
+export type RisIntegrationStatus = { enabled: boolean; allowed: boolean; readOnly: boolean; source: string; requiresAuthentication: false };
 import { trackLegalMemoryInterfaceRead } from "./legalmemory-interface-activity";
 import { pendingProjectRemoval, waitForProjectRemoval } from "./project-removal-state";
 import { LegalMemoryPermissionsSchema, type LegalMemoryPermissionReply } from "@legalwork/types/legalmemory";
@@ -1894,6 +1895,9 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     sessionSandbox: (workspace: string, session: string) => requestJson<{ enabled: boolean; supported: boolean; networkMode: "allow" | "block" | "approve"; source: "application" | "session" | "parent" | "organization"; policy: { mode: "enforced" | "default"; locked: boolean; orgName: string | null } | null; application: { enabled: boolean; networkMode: "allow" | "block" | "approve" } }>(baseUrl, `/workspace/${encodeURIComponent(workspace)}/sandbox/session/${encodeURIComponent(session)}`, { token, hostToken, timeoutMs: timeouts.status }),
     setSessionSandbox: (workspace: string, session: string, settings: { enabled: boolean; networkMode: "allow" | "block" | "approve" } | null) => requestJson<unknown>(baseUrl, `/workspace/${encodeURIComponent(workspace)}/sandbox/session/${encodeURIComponent(session)}`, { token, hostToken, method: "PATCH", body: { settings }, timeoutMs: timeouts.config }),
     prepareSandbox: () => requestJson<{ ready: boolean }>(baseUrl, "/sandbox/prepare", { token, hostToken, method: "POST", timeoutMs: 660_000 }),
+    risStatus: () => requestJson<RisIntegrationStatus>(baseUrl, "/integrations/ris", { token, hostToken, timeoutMs: timeouts.status }),
+    risSaveSettings: (enabled: boolean) => requestJson<RisIntegrationStatus>(baseUrl, "/integrations/ris", { token, hostToken, method: "PUT", body: { enabled }, timeoutMs: timeouts.status }),
+    risTestConnection: () => requestJson<{ ok: boolean; checkedAt: string }>(baseUrl, "/integrations/ris/test", { token, hostToken, method: "POST", timeoutMs: 60_000 }),
     googleWorkspaceStatus: () => requestJson<GoogleWorkspaceAuthStatus>(baseUrl, "/experimental/google-workspace/status", { token, hostToken, timeoutMs: timeouts.status }),
     googleWorkspaceConnectStart: (options?: { gmailRead?: boolean; features?: string[] }) => requestJson<GoogleWorkspaceConnectStart>(baseUrl, "/experimental/google-workspace/connect/start", { token, hostToken, method: "POST", body: { gmailRead: options?.gmailRead === true, features: options?.features ?? [] }, timeoutMs: timeouts.status }),
     googleWorkspaceConnectStatus: (flowId: string) => requestJson<GoogleWorkspaceConnectStatus>(baseUrl, `/experimental/google-workspace/connect/status/${encodeURIComponent(flowId)}`, { token, hostToken, timeoutMs: timeouts.status }),

@@ -5,6 +5,24 @@ import { projectTemplateStrings } from "@legalwork/types/workspace";
  */
 
 export default {
+  "ris.name": "Austrian RIS",
+  "ris.description": "Search Austrian laws, court decisions and official publications directly in RIS. Based on Matteo Bürgler’s RIS MCP server.",
+  "ris.prompt": "Use the Austrian RIS integration for this research. Discover its actions with legalwork_extension_list_actions(extensionId=\"ris\"), read ris_about for search and citation guidance, and retrieve the relevant primary texts. Cite the exact RIS source and distinguish historical versions from the law in force.",
+  "ris.setup": "Enable access to Austrian federal, state and municipal law, court decisions and official publications. No account, API key or separate installation is required.",
+  "ris.execution": "Requests go directly from the machine running your LegalWork server to RIS. LegalWork uses a shared request queue without caching legal results. If you use a remote server, requests leave from that server.",
+  "ris.unavailable": "The LegalWork server is unavailable.",
+  "ris.loading": "Loading RIS settings…",
+  "ris.blocked": "Your organization has disabled Austrian RIS.",
+  "ris.enabled": "Enabled",
+  "ris.disabled": "Disabled",
+  "ris.enable": "Enable RIS",
+  "ris.disable": "Disable RIS",
+  "ris.test": "Test connection",
+  "ris.test_success": "RIS is reachable. This check does not verify the completeness of its databases.",
+  "ris.read_only": "Integration settings cannot be changed on this read-only server.",
+  "ris.owner_only": "Only the server owner can change this integration or test its connection.",
+  "ris.source": "Source: Bundeskanzleramt, Republik Österreich. RIS data: CC BY 4.0. Research results include original source links and version information.",
+
   "shutdown.restart_title": "Save changes before restarting?",
   "shutdown.close_title": "Save changes before closing?",
   "shutdown.description": "These files have unsaved changes. Save them to keep your work, or discard the changes to continue.",

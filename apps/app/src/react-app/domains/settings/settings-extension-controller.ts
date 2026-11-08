@@ -10,6 +10,7 @@ import type { McpServerEntry } from "../../../app/types";
 import { getExtensionConfigSlot, getExtensionConnected, type ExtensionConfigContext } from "./extension-registry";
 import type { LocalProviderInstallInput } from "./openai-image-extension";
 import { connectorStatusQuery } from "./connector-status-query";
+import { risStatusQuery } from "./ris-config";
 
 type ProviderLike = {
   id: string;
@@ -56,6 +57,7 @@ function hasOpenAiEnv(input: Pick<SettingsExtensionControllerInput, "providers" 
 
 export function useSettingsExtensionController(input: SettingsExtensionControllerInput) {
   const [connectorConnections, setConnectorConnections] = useState<Record<string, boolean>>({});
+  const ris = useQuery(risStatusQuery(input.legalworkServerClient));
   const savedStatus = useQuery(connectorStatusQuery(input.legalworkServerClient));
   useEffect(() => {
     setConnectorConnections(Object.fromEntries((savedStatus.data?.connectors ?? []).map(connector => [connector.id, connectorIsConnected(connector)])));
@@ -66,6 +68,7 @@ export function useSettingsExtensionController(input: SettingsExtensionControlle
     restartLocalServer: input.restartLocalServer,
     extensionConnections: {
       ...connectorConnections,
+      ris: ris.data?.enabled === true && ris.data.allowed,
       "google-workspace": input.googleWorkspaceConnected,
     },
     onExtensionConnectionChange: (extensionId, connected) => {
@@ -90,7 +93,7 @@ export function useSettingsExtensionController(input: SettingsExtensionControlle
       onRefresh: input.refreshMcpServers,
     },
     localProvider: input.localProvider,
-  }), [input, connectorConnections]);
+  }), [input, connectorConnections, ris.data]);
 
   const configSlotForEntry = useCallback(
     (entry: McpDirectoryInfo) => getExtensionConfigSlot(entry, configContextForEntry(entry)),
@@ -105,11 +108,12 @@ export function useSettingsExtensionController(input: SettingsExtensionControlle
       legalworkServerClient: input.legalworkServerClient,
       extensionConnections: {
         ...connectorConnections,
+        ris: ris.data?.enabled === true && ris.data.allowed,
         "google-workspace": input.googleWorkspaceConnected,
       },
     });
     return runtimeConnected ?? false;
-  }, [input, connectorConnections]);
+  }, [input, connectorConnections, ris.data]);
 
   return {
     configContextForEntry,
