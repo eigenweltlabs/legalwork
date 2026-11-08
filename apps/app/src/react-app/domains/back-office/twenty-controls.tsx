@@ -1,4 +1,4 @@
-import { useRef, useState, useSyncExternalStore, type CSSProperties, type ReactElement, type ReactNode } from "react";
+import { useRef, useState, useSyncExternalStore, type CSSProperties, type ReactElement, type ReactNode, type RefObject } from "react";
 import { ThemeProvider } from "twenty-ui/theme";
 import { getResolvedThemeMode, subscribeToTheme } from "@/app/theme";
 import { ChevronDown, X } from "lucide-react";
@@ -38,9 +38,15 @@ export function BackOfficeTheme({ children }: { children: ReactNode }) {
   );
 }
 
-export function DirectoryEditorPopup({ children, className = "", style }: { children: ReactNode; className?: string; style?: CSSProperties }) {
+export function DirectoryEditorPopup({ children, className = "", style, finalFocus, id }: {
+  children: ReactNode;
+  className?: string;
+  style?: CSSProperties;
+  finalFocus?: RefObject<HTMLElement | null>;
+  id?: string;
+}) {
   const popup = useRef<HTMLDivElement>(null);
-  return <Popover.Popup ref={popup} initialFocus={() => {
+  return <Popover.Popup ref={popup} id={id} finalFocus={finalFocus} initialFocus={() => {
     popup.current?.querySelector<HTMLElement>("input, button:not(:disabled), [tabindex='0']")?.focus({ preventScroll: true });
     return false;
   }} className={`bo-editor-popup ${className}`} style={{ width: 260, maxHeight: "var(--available-height)", overflowY: "auto", ...style }}>{children}</Popover.Popup>;

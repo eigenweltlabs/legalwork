@@ -1,7 +1,7 @@
 import { RecordFilterEditor, recordFilterOperatorLabel, recordFilterValueLabel } from "./record-filter-editor";
 import { BackOfficeFilesSchema, backOfficeViewFilters, compileBackOfficeFilters } from "@legalwork/types/back-office";
 import { backOfficeViewLabel, backOfficeIconLabel } from "./labels";
-import { defaultRangeExtractor, useVirtualizer } from "@tanstack/react-virtual";
+import { defaultRangeExtractor, useVirtualizer, type Range } from "@tanstack/react-virtual";
 import { useSearchParams } from "react-router-dom";
 import { t } from "@/i18n";
 import {
@@ -42,15 +42,13 @@ import type {
   BackOfficeValue,
   BackOfficeView,
 } from "@legalwork/types/back-office";
-import { FieldIcon, RecordChip, ValueDisplay } from "./record-values";
-import { InlineCellEditor } from "./inline-cell-editor";
-import { CellEditor } from "./cell-editor";
+import { FieldIcon } from "./record-values";
+import { RecordGridRow, type EditingCell } from "./record-grid-row";
 import { RecordKanban, RecordCalendar, RecordList } from "./record-views";
 import {
   DirectoryMenu,
   DirectorySelect,
   DirectoryDialog,
-  DirectoryEditorPopup,
 } from "./twenty-controls";
 
 const viewIcons = {
@@ -161,10 +159,7 @@ export function RecordGrid({
   const [selected, setSelected] = useState<string[]>([]);
   const [filters, setFilters] = useState(() => backOfficeViewFilters(initialView));
   const [filterOpen, setFilterOpen] = useState(false);
-  const [editing, setEditing] = useState<{
-    record: string;
-    field: string;
-  } | null>(null);
+  const [editing, setEditing] = useState<EditingCell | null>(null);
   const [error, setError] = useState("");
   const [viewName, setViewName] = useState("");
   const [savingView, setSavingView] = useState(false);
@@ -226,10 +221,10 @@ export function RecordGrid({
     setSavingView(true);
     setError("");
   };
-  const visibleFields = columns.flatMap((id) => {
+  const visibleFields = useMemo(() => columns.flatMap((id) => {
     const field = object.fields.find((field) => field.id === id);
     return field && (field.visibility !== "finance" || finance) ? [field] : [];
-  });
+  }), [columns, object, finance]);
   const own = useMemo(
     () =>
       records.filter(
@@ -275,20 +270,24 @@ export function RecordGrid({
   const selectedCount = useMemo(() => rows.reduce((sum, row) => sum + Number(selectedIds.has(row.id)), 0), [rows, selectedIds]);
   const scroll = useRef<HTMLDivElement>(null);
   const editingIndex = editing ? rows.findIndex(row => row.id === editing.record) : -1;
+  // Small tables can scroll entirely on the compositor, even during a fast reversal.
+  const windowed = rows.length > 120 || rows.length * visibleFields.length > 1200;
+  const bufferedRange = useCallback((range: Range) => {
+    const visible = range.endIndex - range.startIndex + 1;
+    const indices = defaultRangeExtractor({ ...range, overscan: Math.ceil(visible * 1.5) });
+    if (editingIndex >= 0 && editingIndex < indices[0]) indices.unshift(editingIndex);
+    if (editingIndex > indices[indices.length - 1]) indices.push(editingIndex);
+    return indices;
+  }, [editingIndex]);
   const rowWindow = useVirtualizer({
     count: rows.length,
-    enabled: layout === "table",
+    enabled: layout === "table" && windowed,
     getScrollElement: () => scroll.current,
     getItemKey: useCallback((index: number) => rows[index].id, [rows]),
     estimateSize: () => 33,
     scrollMargin: 32,
     scrollPaddingStart: 32,
-    overscan: 8,
-    rangeExtractor: range => {
-      const indices = defaultRangeExtractor(range);
-      if (editingIndex >= 0 && !indices.includes(editingIndex)) indices.push(editingIndex);
-      return indices.sort((a, b) => a - b);
-    },
+    rangeExtractor: bufferedRange,
   });
   useLayoutEffect(() => {
     if (scroll.current) scroll.current.scrollTop = 0;
@@ -388,7 +387,10 @@ export function RecordGrid({
     )
       applyView();
   }, [views]);
-  const moveCell = (
+  const selectRow = useCallback((id: string, checked: boolean) => {
+    setSelected(current => checked ? [...current, id] : current.filter(value => value !== id));
+  }, []);
+  const moveCell = useCallback((
     event: KeyboardEvent<HTMLDivElement>,
     row: number,
     column: number,
@@ -415,7 +417,46 @@ export function RecordGrid({
         requestAnimationFrame(() => scroll.current?.querySelector<HTMLElement>(selector)?.focus());
       }
     }
-  };
+  }, [rows.length, visibleFields.length, rowWindow]);
+  const summaryCells = useMemo(() => layout !== "table" ? null : visibleFields.map((field) => {
+    const amounts = field.type !== "currency" ? [] : rows.flatMap((record) => {
+      const value = record.values[field.id];
+      return value &&
+        typeof value === "object" &&
+        !Array.isArray(value)
+        ? [value]
+        : [];
+    });
+    const currencies = [
+      ...new Set(amounts.map((value) => value.currency)),
+    ];
+    return (
+      <div key={field.id}>
+        {field.id === "name" ? (
+          <span className="bo-muted">{rows.length} records</span>
+        ) : field.type === "currency" && currencies.length === 1 ? (
+          new Intl.NumberFormat(undefined, {
+            style: "currency",
+            currency: currencies[0],
+          }).format(
+            amounts.reduce(
+              (sum, value) => sum + value.amountMinor,
+              0,
+            ) / 100,
+          )
+        ) : null}
+      </div>
+    );
+  }), [layout, rows, visibleFields]);
+  const renderRow = (record: BackOfficeRecord, index: number, top?: number) => (
+    <RecordGridRow key={record.id} record={record} index={index} top={top}
+      measure={windowed ? rowWindow.measureElement : undefined} template={template}
+      fields={visibleFields} records={records} recordById={recordById}
+      userId={userId} editable={editable} selected={selectedIds.has(record.id)}
+      editingField={editing?.record === record.id ? editing.field : undefined}
+      onEdit={setEditing} onError={setError} onSelect={selectRow} onMove={moveCell}
+      onSave={onSave} onOpen={onOpen} />
+  );
   return (
     <div className="bo-record-grid">
       <div className="bo-view-toolbar">
@@ -819,161 +860,11 @@ export function RecordGrid({
             <div className="bo-grid-fill" />
             <div className="bo-grid-fill" />
           </div>
-          <div className="bo-windowed-rows" style={{ height: rowWindow.getTotalSize() }}>
-          {rowWindow.getVirtualItems().map(item => {
-            const rowIndex = item.index, record = rows[rowIndex];
-            return (
-            <div
-              role="row"
-              key={record.id}
-              data-index={rowIndex}
-              ref={rowWindow.measureElement}
-              aria-rowindex={rowIndex + 2}
-              className={`bo-grid-row ${selectedIds.has(record.id) ? "bo-row-selected" : ""}`}
-              style={{ gridTemplateColumns: template, transform: `translateY(${item.start - 32}px)` }}
-            >
-              <div className="bo-check-cell">
-                <Checkbox
-                  size="sm"
-                  aria-label={`Select ${record.values.name}`}
-                  checked={selectedIds.has(record.id)}
-                  onCheckedChange={(checked) =>
-                    setSelected((current) =>
-                      checked
-                        ? [...current, record.id]
-                        : current.filter((id) => id !== record.id),
-                    )
-                  }
-                />
-              </div>
-              {visibleFields.map((field, columnIndex) => {
-                const canEdit =
-                  editable &&
-                  (field.visibility !== "private" || record.ownerId === userId);
-                if (
-                  field.id !== "name" &&
-                  ["text", "email", "number", "currency"].includes(field.type)
-                ) {
-                  const active =
-                    editing?.record === record.id && editing.field === field.id;
-                  return (
-                    <div
-                      key={field.id}
-                      role="gridcell"
-                      tabIndex={0}
-                      className={`bo-grid-cell ${active ? "bo-inline-cell" : ""}`}
-                      data-row={rowIndex}
-                      data-col={columnIndex}
-                      onClick={() => {
-                        if (canEdit)
-                          setEditing({ record: record.id, field: field.id });
-                      }}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter" && canEdit) {
-                          event.preventDefault();
-                          setEditing({ record: record.id, field: field.id });
-                        } else moveCell(event, rowIndex, columnIndex);
-                      }}
-                    >
-                      {active ? (
-                        <InlineCellEditor
-                          field={field}
-                          value={record.values[field.id]}
-                          onSave={(value) =>
-                            onSave(record, { [field.id]: value })
-                          }
-                          onCancel={() => setEditing(null)}
-                          onError={setError}
-                        />
-                      ) : (
-                        <ValueDisplay
-                          field={field}
-                          value={record.values[field.id]}
-                          records={records}
-                          recordById={recordById}
-                          onOpen={onOpen}
-                        />
-                      )}
-                    </div>
-                  );
-                }
-                return (
-                  <Popover.Root
-                    key={field.id}
-                    open={
-                      editing?.record === record.id &&
-                      editing.field === field.id
-                    }
-                    onOpenChange={(open) => {
-                      if (canEdit)
-                        setEditing(
-                          open ? { record: record.id, field: field.id } : null,
-                        );
-                    }}
-                  >
-                    <Popover.Trigger
-                      nativeButton={false}
-                      render={
-                        <div
-                          role="gridcell"
-                          tabIndex={0}
-                          className="bo-grid-cell"
-                          data-row={rowIndex}
-                          data-col={columnIndex}
-                          onKeyDown={event => moveCell(event, rowIndex, columnIndex)}
-                        />
-                      }
-                    >
-                      {field.id === "name" ? (
-                        <RecordChip record={record} onOpen={onOpen} />
-                      ) : (
-                        <ValueDisplay
-                          field={field}
-                          value={record.values[field.id]}
-                          records={records}
-                          recordById={recordById}
-                          onOpen={onOpen}
-                        />
-                      )}
-                    </Popover.Trigger>
-                    <Popover.Portal>
-                      <Popover.Positioner
-                        align="start"
-                        side="bottom"
-                        sideOffset={-32}
-                      >
-                        <DirectoryEditorPopup
-                          className="bo-editor-popup"
-                          style={{
-                            width:
-                              field.type === "date"
-                                ? "max-content"
-                                : field.type === "select"
-                                  ? 200
-                                  : 260,
-                          }}
-                        >
-                          <CellEditor
-                            record={record}
-                            key={record.id + field.id + record.revision}
-                            field={field}
-                            value={record.values[field.id]}
-                            records={records}
-                            onCancel={() => setEditing(null)}
-                            onSave={(value) =>
-                              onSave(record, { [field.id]: value })
-                            }
-                          />
-                        </DirectoryEditorPopup>
-                      </Popover.Positioner>
-                    </Popover.Portal>
-                  </Popover.Root>
-                );
-              })}
-              <div className="bo-grid-fill" />
-            </div>
-            );
-          })}
+          <div className={windowed ? "bo-windowed-rows" : undefined}
+            style={windowed ? { height: rowWindow.getTotalSize() } : undefined}>
+            {windowed
+              ? rowWindow.getVirtualItems().map(item => renderRow(rows[item.index], item.index, item.start - 32))
+              : rows.map((record, index) => renderRow(record, index))}
           </div>
           {!rows.length && (
             <div className="bo-empty">
@@ -1012,36 +903,7 @@ export function RecordGrid({
             style={{ gridTemplateColumns: template }}
           >
             <div />
-            {visibleFields.map((field) => {
-              const amounts = field.type !== "currency" ? [] : rows.flatMap((record) => {
-                const value = record.values[field.id];
-                return value &&
-                  typeof value === "object" &&
-                  !Array.isArray(value)
-                  ? [value]
-                  : [];
-              });
-              const currencies = [
-                ...new Set(amounts.map((value) => value.currency)),
-              ];
-              return (
-                <div key={field.id}>
-                  {field.id === "name" ? (
-                    <span className="bo-muted">{rows.length} records</span>
-                  ) : field.type === "currency" && currencies.length === 1 ? (
-                    new Intl.NumberFormat(undefined, {
-                      style: "currency",
-                      currency: currencies[0],
-                    }).format(
-                      amounts.reduce(
-                        (sum, value) => sum + value.amountMinor,
-                        0,
-                      ) / 100,
-                    )
-                  ) : null}
-                </div>
-              );
-            })}
+            {summaryCells}
           </div>
         </div>
       )}
