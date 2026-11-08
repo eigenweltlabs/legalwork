@@ -137,4 +137,6 @@ test("network settings API authenticates, validates, persists and respects read-
     await server.stop();
     await closeRuntimeOpencodeConfig(config);
   }
-}, 30000);
+  // The supervisor also pays for starting/importing the child. Keep the API's
+  // own 30-second deadline, and allow startup time before receiving its result.
+}, process.env.LEGALWORK_NETWORK_API_TEST_ROOT ? 30_000 : 60_000);
