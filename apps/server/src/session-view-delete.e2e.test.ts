@@ -3,8 +3,11 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
-import { ViewRecordSchema, type ViewPreview } from "@legalwork/types/views";
+import { ViewPreviewSchema, ViewRecordSchema, type ViewPreview } from "@legalwork/types/views";
 import { withSessionExecution } from "./session-execution-gate.js";
+import { grantWikiAgentSession, ensureWikiAgentToken } from "./wiki/agent-access.js";
+import { nativePluginTools } from "./opencode-plugins/native-plugin-test-support.js";
+import wikiTools from "./opencode-plugins/legalwork-wiki-tools.js";
 import { startServer } from "./server.js";
 import type { ServerConfig } from "./types.js";
 const cleanup: (() => void | Promise<void>)[] = [];
@@ -39,7 +42,7 @@ async function fixture() {
   const config: ServerConfig = { host: "127.0.0.1", port: 0, token: "test", hostToken: "host", configPath: join(root, "server.json"), approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: ["*"], workspaces: [{ id: "project", name: "Project", path: root, workspaceType: "local", preset: "starter", baseUrl: `http://127.0.0.1:${engine.port}` }], authorizedRoots: [root], readOnly: false, startedAt: 0, tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false };
   const server = await startServer(config); cleanup.push(() => server.stop());
   const request = (path: string, method = "GET", body?: unknown, source?: unknown) => fetch(`http://127.0.0.1:${server.port}${path}${source ? `?source=${encodeURIComponent(JSON.stringify(source))}` : ""}`, { method, headers: { authorization: "Bearer test", "x-legalwork-host-token": "host", "content-type": "application/json" }, ...(body ? { body: JSON.stringify(body) } : {}) });
-  return { root, state, request, preview, config };
+  return { root, state, request, preview, config, serverUrl: `http://127.0.0.1:${server.port}` };
 }
 const reviewSchema = z.object({ items: z.array(z.object({ callId: z.string() })), reviewToken: z.string() });
 const endpoint = "/workspace/project/sessions/chat";
@@ -159,4 +162,30 @@ test("a failed native recovery admission can be retried without losing the recov
   expect(state.prompts).toBe(1);
   expect((await request(`${endpoint}/review-recovery`, "POST", { messageId: "empty" })).status).toBe(200);
   expect(state.prompts).toBe(1);
+});
+
+test("chat preview edits use the stored transcript, retain bindings and enforce the originating session", async () => {
+  const { config, root, serverUrl, preview } = await fixture();
+  preview.input.datasets = { existing: { rows: [{ amount: 27 }], total: 1, revision: "r1", asOf: 1, truncated: false } };
+  const env = { LEGALWORK_SERVER_URL: serverUrl, LEGALWORK_SERVER_TOKEN: config.token, LEGALWORK_WIKI_AGENT_TOKEN: await ensureWikiAgentToken(config) };
+  for (const [key, value] of Object.entries(env)) {
+    const prior = process.env[key];
+    cleanup.push(() => { if (prior === undefined) delete process.env[key]; else process.env[key] = prior; });
+    process.env[key] = value;
+  }
+  await grantWikiAgentSession(config, { sessionId: "chat", directory: root, scope: "owner" });
+  const { tool, close, runtime } = await nativePluginTools(wikiTools, { directory: root, sessionID: "chat" });
+  cleanup.push(close);
+  expect(runtime.tools.get("view_update")?.options?.codemode).toBe(false);
+  expect(JSON.parse(await tool.view_chat_previews.execute({})).previews).toEqual([{ preview_id: "call1", title: preview.input.title }]);
+  expect(JSON.parse(await tool.view_chat_previews.execute({ preview_id: "call1" })).datasets).toEqual(["existing"]);
+  const program = 'root = Text("Revised")';
+  const result = await tool.view_update.executeResult({ preview_id: "call1", program });
+  const revision = ViewPreviewSchema.parse(result.output);
+  expect(revision).toEqual({ ...preview, input: { ...preview.input, program }, replacesCallId: "call1" });
+  expect(JSON.parse(await tool.view_update.execute({ preview_id: "child-call", program })).code).toBe("preview_unavailable");
+  const response = await fetch(serverUrl + "/workspace/project/sessions/child/view-previews", { headers: {
+    "x-legalwork-wiki-agent-token": env.LEGALWORK_WIKI_AGENT_TOKEN, "x-legalwork-wiki-agent-session": "chat", "x-legalwork-wiki-agent-directory": encodeURIComponent(root),
+  } });
+  expect(response.status).toBe(403);
 });

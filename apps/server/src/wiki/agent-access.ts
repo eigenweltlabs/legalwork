@@ -212,7 +212,7 @@ function workspaceToolPath(method: string, pathname: string): string | null {
   const route = match[2]!;
   const suggestion = (["GET", "POST"].includes(method) && route === "wiki-suggestions") || (["GET", "PUT"].includes(method) && /^wiki-suggestions\/[^/]+$/.test(route));
   const allowed = suggestion || (method === "GET"
-    ? /^(?:browser-connections|storage\/roots|storage\/[^/]+\/(?:capabilities|children|search|file)|sandbox\/session\/[^/]+|reviews\/workers\/[^/]+\/contract|sessions\/[^/]+\/(?:history-images|tool-image-originals|tool-output\/authorize)|skills|skills\/[^/]+\/(?:composed|package-file))$/.test(route)
+    ? /^(?:browser-connections|storage\/roots|storage\/[^/]+\/(?:capabilities|children|search|file)|sandbox\/session\/[^/]+|reviews\/workers\/[^/]+\/contract|sessions\/[^/]+\/(?:view-previews|history-images|tool-image-originals|tool-output\/authorize)|skills|skills\/[^/]+\/(?:composed|package-file))$/.test(route)
     : method === "POST" && /^(?:browser-connections\/[^/]+\/websites|pdf\/read|storage\/[^/]+\/(?:checkout|filename-search|from-workspace|rename|folders|transfer)|sandbox\/(?:execute|command|web|http)|office-tools\/execute|reviews\/workers\/[^/]+\/submit|sessions\/[^/]+\/(?:review-recovery|history-images\/read|tool-image-originals\/(?:capture|read|crop|export))|skills|skills\/(?!hub\/)[^/]+\/(?:resources|research-experience))$/.test(route));
   return allowed ? decodeURIComponent(match[1]!) : null;
 }
@@ -275,6 +275,9 @@ export async function authenticateWikiAgentRequest(config: ServerConfig, request
       throw new ApiError(403, "wiki_agent_session_mismatch", "Use this chat's own delegation context.");
   }
   if (toolWorkspaceId) {
+    const preview = pathname.match(/\/sessions\/([^/]+)\/view-previews$/);
+    if (preview && decodeURIComponent(preview[1]) !== sessionId)
+      throw new ApiError(403, "wiki_agent_session_mismatch", "Read dashboard previews from the originating chat.");
     const toolOutput = pathname.match(/\/sessions\/([^/]+)\/tool-output\/authorize$/);
     if (toolOutput && decodeURIComponent(toolOutput[1]) !== sessionId)
       throw new ApiError(403, "wiki_agent_session_mismatch", "Read saved tool outputs only through this chat's history scope.");

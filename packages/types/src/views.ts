@@ -114,6 +114,7 @@ export const ViewPreviewSchema = z.object({
   status: z.literal("preview"),
   owner: ViewOwnerSchema,
   input: ViewInputSchema,
+  replacesCallId: z.string().min(1).max(200).optional(),
   target: z.object({ viewId: z.string().uuid(), baseRevision: z.string().min(1).max(200) }).strict().optional(),
 }).strict();
 export type ViewPreview = z.infer<typeof ViewPreviewSchema>;

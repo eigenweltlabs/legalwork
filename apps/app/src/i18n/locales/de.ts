@@ -8028,6 +8028,8 @@ const de = {
   "views.loading": "Ansicht wird geladen…",
   "views.connection_unavailable": "Öffnen Sie dieses Dashboard oder diesen Bericht im zugehörigen Projekt oder Wiki, um die Verbindung wiederherzustellen.",
   "views.loading_data": "Daten werden geladen…",
+  "views.updated_preview": "Dashboard aktualisiert",
+  "views.updating_preview": "Dashboard wird aktualisiert…",
   "views.creating_preview": "Vorschau wird erstellt…",
   "views.generation_failed": "Die Erstellung ist fehlgeschlagen, bevor die Vorschau vollständig war.",
   "views.generation_stopped": "Die Erstellung wurde beendet, bevor die Vorschau vollständig war.",

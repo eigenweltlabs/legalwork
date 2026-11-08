@@ -540,6 +540,19 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
     const active = await client.session.active();
     if (sessionIds.some(id => active[id])) throw new ApiError(409, "session_busy", "Stop this chat and its related agent chats before deleting, so their dashboards can be checked.");
   }
+  addRoute(routes, "GET", "/workspace/:id/sessions/:sessionId/view-previews", "client", async ctx => {
+    requireClientScope(ctx, "viewer");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const sessionId = ctx.params.sessionId;
+    const client = await queueClient(workspace, sessionId);
+    const previews = sessionViewPreviews(await listEngineMessages(client, sessionId));
+    const callId = ctx.url.searchParams.get("callId");
+    if (callId === null) return jsonResponse({ previews: previews.filter(item => item.preview).map(item => ({ preview_id: item.callId, title: item.title })) });
+    const preview = previews.find(item => item.callId === callId)?.preview;
+    if (!preview) throw new ApiError(409, "preview_unavailable", "Read view_chat_previews for the current preview ID.");
+    return jsonResponse(preview);
+  });
+
   addRoute(routes, "GET", "/workspace/:id/sessions/:sessionId/views", "client", async ctx => {
     requireClientScope(ctx, "viewer");
     return jsonResponse((await viewReview(await resolveWorkspace(config, ctx.params.id), ctx.params.sessionId)).review);

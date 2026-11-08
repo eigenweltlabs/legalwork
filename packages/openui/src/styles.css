@@ -60,7 +60,7 @@
 .lw-view-metric .openui-small-card-block__row { flex: 1; }
 .lw-view-metric .openui-metric-indicator__row { flex-direction: column; align-items: flex-start; gap: var(--openui-space-3xs); }
 .lw-view-metric .openui-overview-card { background: var(--openui-foreground); }
-.lw-view-stack-item:has(> .lw-view-chart) { display: grid; }
+.lw-view-stack-item:has(> .lw-view-chart, > .lw-view-card) { display: grid; }
 @container (min-width: 521px) and (max-width: 820px) {
   .lw-view-stack:has(> :nth-child(3)):has(> .lw-view-stack-item > .lw-view-metric) { grid-template-columns: repeat(2, minmax(0,1fr)) !important; }
 }
@@ -76,7 +76,14 @@
   .lw-view-metric .openui-overview-card__vertical { gap: 8px; }
 }
 
-.lw-view-ranking { list-style: none; padding: 0; margin: 0; display: grid; gap: 11px; max-height: 420px; overflow-y: auto; }
+/* Paired ranking components share the same visible plot height, including across cards. */
+@container (min-width: 521px) {
+  .lw-view-stack:not([data-columns="1"]):has(.lw-view-ranking):has([data-chart="horizontal"]) > .lw-view-stack-item {
+    --lw-ranking-height: 420px;
+  }
+}
+.lw-view-ranking-plot { height: var(--lw-ranking-height, 264px); }
+.lw-view-ranking { height: var(--lw-ranking-height, auto); align-content: start; list-style: none; padding: 0; margin: 0; display: grid; gap: 11px; max-height: 420px; overflow-y: auto; }
 .lw-view-rank-label { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; font: var(--openui-text-body-sm); }
 .lw-view-rank-label strong { font-variant-numeric: tabular-nums; white-space: nowrap; font-weight: 600; }
 .lw-view-rank-track { height: 7px; position: relative; border-radius: 5px; margin-top: 5px; background: color-mix(in srgb, #7465df 13%, transparent); }

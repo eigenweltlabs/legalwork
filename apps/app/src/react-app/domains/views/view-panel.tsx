@@ -4,7 +4,7 @@ import { ViewSaveDialog } from "./view-save-dialog";
 import { viewPanelTab } from "./view-reference";
 import { Loader2 } from "lucide-react";
 import { useSessionActivityStore } from "../session/status/session-activity-store";
-import { useViewGenerationStore, type ViewDraftTab, type ViewGeneration } from "./view-generation";
+import { latestDraftId, draftRootId, useViewGenerationStore, type ViewDraftTab, type ViewGeneration } from "./view-generation";
 import type { ViewPreview, ViewRecord } from "@legalwork/types/views";
 import { ViewSaveActions } from "./view-save-actions";
 import { useViewSave } from "./use-view-save";
@@ -24,7 +24,9 @@ export function ViewPanel({ client, tab, sessionId }: { client: LegalworkServerC
 }
 
 export function ViewDraftPanel({ client, tab, sessionId: panelScope }: { client: LegalworkServerClient | null; tab: ViewDraftTab; sessionId: string }) {
-  const generation = useViewGenerationStore(state => state.entries[tab.generationId]);
+  const generationId = useViewGenerationStore(state => latestDraftId(tab.generationId, state.entries));
+  const generation = useViewGenerationStore(state => state.entries[generationId]);
+  const prior = useViewGenerationStore(state => generation?.replacesId ? state.entries[generation.replacesId] : undefined);
   const activity = useSessionActivityStore(state => generation ? state.statusesByWorkspaceId[generation.workspaceId]?.[generation.sessionId] : undefined);
   useEffect(() => {
     if (generation?.title) usePanelTabStore.getState().updateTabLabel(panelScope, tab.id, generation.title);
@@ -32,14 +34,16 @@ export function ViewDraftPanel({ client, tab, sessionId: panelScope }: { client:
   useEffect(() => {
     if (generation?.status !== "streaming" || (activity !== "idle" && activity !== "error")) return;
     // Completion parts can follow session-idle in the same event batch.
-    const timer = window.setTimeout(() => useViewGenerationStore.getState().fail(tab.generationId, activity === "error" ? t("views.generation_failed") : t("views.generation_stopped")), 1500);
+    const timer = window.setTimeout(() => useViewGenerationStore.getState().fail(generationId, activity === "error" ? t("views.generation_failed") : t("views.generation_stopped")), 1500);
     return () => window.clearTimeout(timer);
-  }, [activity, generation?.status, tab.generationId]);
-  if (generation?.preview && client?.baseUrl === tab.serverUrl) return <ViewDraftContent key={tab.generationId} client={client} generation={generation} preview={generation.preview} generationId={tab.generationId} />;
+  }, [activity, generation?.status, generationId]);
+  if (generation?.preview && client?.baseUrl === tab.serverUrl) return <ViewDraftContent key={generationId} client={client} generation={generation} preview={generation.preview} generationId={generationId} />;
   const failed = !generation || generation.status === "failed";
+  const hasRoot = /\broot\s*=/.test(generation?.program ?? "");
+  const priorPreview = generation?.status === "streaming" && (generation.layoutEdit || !hasRoot) ? prior?.preview : undefined;
   return <div className="h-full overflow-auto" style={{ containerType: "inline-size" }}><div className="lw-saved-view">
-    <div className="lw-saved-view-toolbar" role={failed ? "alert" : "status"}>{failed ? generation?.error ?? t("views.generation_unavailable") : <span className="flex items-center gap-2"><Loader2 className="size-4 animate-spin" />{t("views.creating_preview")}</span>}</div>
-    {generation?.program ? <div inert><OpenUIView program={generation.program} streaming /></div> : !failed ? <p className="lw-view-data-note">{t("views.preview_building_hint")}</p> : null}
+    <div className="lw-saved-view-toolbar" role={failed ? "alert" : "status"}>{failed ? generation?.error ?? t("views.generation_unavailable") : <span className="flex items-center gap-2"><Loader2 className="size-4 animate-spin" />{t(generation?.replacesId || generation?.sourceTab ? "views.updating_preview" : "views.creating_preview")}</span>}</div>
+    {priorPreview && generation?.replacesId && client?.baseUrl === tab.serverUrl ? <div inert><PreviewView client={client} preview={priorPreview} generationId={generation.replacesId} streamingProgram={hasRoot ? generation.program : undefined} /></div> : generation?.program ? <div inert><OpenUIView program={generation.program} streaming /></div> : !failed ? <p className="lw-view-data-note">{t("views.preview_building_hint")}</p> : null}
     {failed && generation?.program && <p className="lw-view-data-note">{t("views.preview_unfinished")}</p>}
   </div></div>;
 }
@@ -53,7 +57,7 @@ function ViewDraftContent({ client, generation, preview, generationId }: { clien
   const savedFrom = { workspaceId: generation.workspaceId, sessionId: generation.sessionId, callId: generation.toolCallId };
   const onSaved = (view: ViewRecord) => {
     useViewGenerationStore.getState().markSaved(generationId, view);
-    usePanelTabStore.getState().resolveViewTab(generationId, viewPanelTab(client.baseUrl, { owner: view.owner, viewId: view.id }, view.title));
+    usePanelTabStore.getState().resolveViewTab(draftRootId(generationId, useViewGenerationStore.getState().entries), viewPanelTab(client.baseUrl, { owner: view.owner, viewId: view.id }, view.title));
     setSaveCopy(false);
   };
   const save = useViewSave(client, preview, savedFrom, onSaved, scope);

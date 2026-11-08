@@ -7679,6 +7679,8 @@ export default {
   "views.loading": "Loading view…",
   "views.connection_unavailable": "Open this dashboard or report from its project or wiki to reconnect.",
   "views.loading_data": "Loading data…",
+  "views.updated_preview": "Dashboard updated",
+  "views.updating_preview": "Updating dashboard…",
   "views.creating_preview": "Creating preview…",
   "views.generation_failed": "Generation failed before the preview was complete.",
   "views.generation_stopped": "Generation stopped before the preview was complete.",

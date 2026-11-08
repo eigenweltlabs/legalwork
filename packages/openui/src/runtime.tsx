@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useId, useMemo, useRef, useState, type ComponentProps, type ReactNode } from "react";
 import { createLibrary, defineComponent, Renderer, useIsQueryLoading } from "@openuidev/react-lang";
 import { Card } from "@openuidev/react-ui/Card";
 import { CardHeader } from "@openuidev/react-ui/CardHeader";
@@ -135,6 +135,21 @@ function Board({ rows, groupBy, titleField, fields = [], groupOrder = [] }: { ro
 }
 const chartPalette = ["#7465df", "#17a89d", "#508de0", "#d68b4c", "#b26caa", "#7f9d56", "#70849d", "#a99adf"];
 type ChartKind = "bar" | "horizontal" | "stacked" | "area" | "line" | "pie" | "funnel";
+function HorizontalRankingPlot(props: ComponentProps<typeof HorizontalBarChart>) {
+  const frame = useRef<HTMLDivElement>(null);
+  const [height, setHeight] = useState(264);
+  useEffect(() => {
+    const element = frame.current;
+    if (!element) return;
+    const measure = () => setHeight(element.clientHeight);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+  // OpenUI uses the numeric plot height to size its scroll area and place its axis.
+  return <div ref={frame} className="lw-view-ranking-plot"><HorizontalBarChart {...props} height={height} /></div>;
+}
 function Chart({ kind, rows, category, series, title, shape = "donut" }: { kind: ChartKind; shape?: "pie" | "donut"; rows: Row[]; category: string; series: string[]; title?: string }) {
   const { locale } = useContext(Host);
   const categoryName = fieldLabel(category);
@@ -147,7 +162,7 @@ function Chart({ kind, rows, category, series, title, shape = "donut" }: { kind:
   const common = { data, categoryKey: categoryName, height: 264, customPalette: chartPalette, legend: series.length > 1 };
   function plot() {
     switch (kind) {
-      case "horizontal": return <HorizontalBarChart {...common} internalLine={false} barRadius={5} maxBarWidth={28} />;
+      case "horizontal": return <HorizontalRankingPlot {...common} internalLine={false} barRadius={5} maxBarWidth={28} />;
       case "bar": case "stacked": return <BarChart {...common} variant={kind === "stacked" ? "stacked" : "grouped"} internalLine={false} barRadius={5} maxBarWidth={52} />;
       case "line": return <LineChart {...common} />;
       case "area": return <AreaChart {...common} variant="linear" />;
@@ -155,7 +170,7 @@ function Chart({ kind, rows, category, series, title, shape = "donut" }: { kind:
       case "funnel": return <FunnelChart {...common} dataKey={seriesNames[0]} orientation="horizontal" edges="curved" legend showPercentage />;
     }
   }
-  return <section className="lw-view-chart">{title && <h3>{title}</h3>}{data.length ? plot() : <p className="lw-view-muted">No numeric data to display</p>}<details><summary>{locale === "de" ? "Diagrammdaten anzeigen" : "View chart data"}</summary><DataTable rows={data} columns={[categoryName, ...seriesNames].map(field => ({ field, label: field }))} searchable={false} /></details></section>;
+  return <section className="lw-view-chart" data-chart={kind}>{title && <h3>{title}</h3>}{data.length ? plot() : <p className="lw-view-muted">No numeric data to display</p>}<details><summary>{locale === "de" ? "Diagrammdaten anzeigen" : "View chart data"}</summary><DataTable rows={data} columns={[categoryName, ...seriesNames].map(field => ({ field, label: field }))} searchable={false} /></details></section>;
 }
 
 function RankedBars({ rows, category, value, title, currency }: { rows: Row[]; category: string; value: string; title?: string; currency?: string }) {
@@ -192,7 +207,7 @@ export const openUILibrary = createLibrary({ id: "legalwork-1", components: [
   defineComponent({ name: "Stack", props: schemas.Stack, description: "Responsive layout", component: ({ props, renderNode }) => {
     const columns = typeof props.columns === "object" ? props.columns?.columns : props.columns;
     const count = Math.min(4, Math.max(1, Math.round(columns ?? 1)));
-    return <div className="lw-view-stack" style={{ gridTemplateColumns: `repeat(${count}, minmax(0, 1fr))` }}>
+    return <div className="lw-view-stack" data-columns={count} style={{ gridTemplateColumns: `repeat(${count}, minmax(0, 1fr))` }}>
       {props.children.map((child, i) => <div className="lw-view-stack-item" key={i}>{renderNode(child)}</div>)}
     </div>;
   } }),
@@ -223,9 +238,9 @@ export const openUILibrary = createLibrary({ id: "legalwork-1", components: [
 export function OpenUIView({ program, query, openSource, openLink, boardActions, streaming = false, dark = false, locale, onError }: { program: string; query?: (name: string) => Promise<unknown>; openLink?: (href: string) => void; openSource?: (path: string, owner?: SourceOwner, binding?: string) => void; boardActions?: BoardActions; streaming?: boolean; dark?: boolean; locale?: string; onError?: (message: string) => void }) {
   const themeId = `lw-openui-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
   const toolProvider = useMemo(() => { const resolve = async (args: Record<string, unknown>) => {
-    if (streaming || typeof args.name !== "string" || !query) throw new Error("Data is unavailable for this preview");
+    if (typeof args.name !== "string" || !query) throw new Error("Data is unavailable for this preview");
     return query(args.name);
-  }; return { data: resolve, wiki_query: resolve }; }, [query, streaming]);
+  }; return { data: resolve, wiki_query: resolve }; }, [query]);
   if (!isLocalOpenUIProgram(program)) return <div role="alert">This view contains an unsupported program format.</div>;
   return <div className="lw-openui" id={themeId}><ThemeProvider mode={dark ? "dark" : "light"} cssSelector={`#${themeId}`}><Host.Provider value={{ openSource, openLink, boardActions, streaming, locale }}><Renderer response={program} library={openUILibrary} isStreaming={streaming} toolProvider={toolProvider} publishObservability={false} queryLoader={<span className="lw-view-query-status" role="status">Updating…</span>} onError={errors => { if (!streaming) onError?.(errors.map(error => error.message).join("\n")); }} /></Host.Provider></ThemeProvider></div>;
 }

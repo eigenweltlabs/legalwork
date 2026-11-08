@@ -16,6 +16,7 @@ import { deleteOrReviewSession } from "@/react-app/domains/views/session-view-de
 import { useDocumentProjectResolver } from "../domains/session/artifacts/document-runtime";
 import { registerEmptySession } from "@/react-app/domains/session/sidebar/session-list-visibility";
 import { projectViewFromPath } from "./workspace-routes";
+import { visibleDashboardContext } from "@/react-app/domains/views/view-generation-sync";
 import { usePanelTabStore, workspacePanelKey } from "@/react-app/domains/session/panel/panel-tab-store";
 import type { QueueInput } from "@legalwork/types/session-queue";
 import { buildFusionDelegationSystemPrompt } from "@/react-app/domains/session/fusion/fusion-prompt";
@@ -1687,7 +1688,8 @@ export function SessionRoute() {
           cacheKey: targetSessionId,
           runtimeKey: environmentRuntimeKey,
         });
-        const turnSystemContext = [envSystemContext, draft.modelContext, pluginContext]
+        const dashboardContext = visibleDashboardContext({ serverUrl: client.baseUrl, workspaceId: selectedWorkspaceId, sessionId: targetSessionId });
+        const turnSystemContext = [envSystemContext, draft.modelContext, pluginContext, dashboardContext]
           .filter((context): context is string => Boolean(context?.trim()))
           .join("\n\n");
         if (turnSystemContext) parts.push(systemReminderPart(turnSystemContext));

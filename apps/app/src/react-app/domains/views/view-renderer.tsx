@@ -40,7 +40,7 @@ class ViewBoundary extends Component<{ children: ReactNode; fallback?: string },
   static getDerivedStateFromError() { return { failed: true }; }
   render() { return this.state.failed ? <div role="alert" className="lw-saved-view-error">This view could not be displayed.{this.props.fallback && <pre>{this.props.fallback}</pre>}</div> : this.props.children; }
 }
-function ResolvedView({ client, view, refreshKey, openSource, readOnly }: { client: LegalworkServerClient; view: ViewRecord; refreshKey: number; readOnly?: boolean; openSource?: (path: string) => void }) {
+function ResolvedView({ client, view, refreshKey, openSource, readOnly, streamingProgram }: { client: LegalworkServerClient; view: ViewRecord; refreshKey: number; streamingProgram?: string; readOnly?: boolean; openSource?: (path: string) => void }) {
   const queryClient = useQueryClient();
   const requestTab = useRequestPanelTab();
   const projectFiles = useProjectFiles();
@@ -106,7 +106,7 @@ function ResolvedView({ client, view, refreshKey, openSource, readOnly }: { clie
   }, [client, openSource, projectFiles, requestTab, results.data, view.owner]);
   const datasets: WikiDataResult[] = Object.values(results.data ?? {});
   return <>
-    {results.isPending ? <div className="lw-saved-view-loading" role="status"><Loader2 className="size-4 animate-spin" />{t("views.loading_data")}</div> : results.error ? <div role="alert" className="lw-saved-view-error">{results.error.message}<Button variant="ghost" size="sm" onClick={() => void results.refetch()}>{t("wiki.retry")}</Button></div> : <ViewBoundary key={view.revision} fallback={view.fallbackMarkdown}><OpenUIView key={`${view.revision}:${datasets.map(data => data.revision).join(":")}` } program={view.program} query={query} openSource={navigate} openLink={openLink} boardActions={writable ? { canMove, move } : undefined} onError={setError} /></ViewBoundary>}
+    {results.isPending ? <div className="lw-saved-view-loading" role="status"><Loader2 className="size-4 animate-spin" />{t("views.loading_data")}</div> : results.error ? <div role="alert" className="lw-saved-view-error">{results.error.message}<Button variant="ghost" size="sm" onClick={() => void results.refetch()}>{t("wiki.retry")}</Button></div> : <ViewBoundary key={view.revision} fallback={view.fallbackMarkdown}><OpenUIView key={`${view.revision}:${datasets.map(data => data.revision).join(":")}` } program={streamingProgram ?? view.program} streaming={streamingProgram !== undefined} query={query} openSource={navigate} openLink={openLink} boardActions={writable ? { canMove, move } : undefined} onError={setError} /></ViewBoundary>}
     {error && <details className="lw-saved-view-error"><summary>This view has an error</summary><pre>{error}</pre>{view.fallbackMarkdown && <pre>{view.fallbackMarkdown}</pre>}</details>}
     {datasets.some(data => data.truncated) && <p className="lw-view-data-note">Showing a limited set of records. Charts and local filters use the displayed data.</p>}
     {(!viewSourceAvailable(view, client.baseUrl) || datasets.some(data => !viewSourceAvailable(data, client.baseUrl))) && <p className="lw-view-data-note">{t("views.source_connection_unavailable")}</p>}
@@ -145,8 +145,8 @@ function SavedViewCopy({ client, view, onClose }: { client: LegalworkServerClien
   if (!snapshot.data) return <div className="p-4 text-sm">{snapshot.error ? snapshot.error.message : t("wiki.loading")}{snapshot.error && <Button variant="ghost" size="sm" disabled={snapshot.isFetching} onClick={() => void snapshot.refetch()}>{t("wiki.retry")}</Button>}<Button variant="ghost" size="sm" onClick={onClose}>{t("common.close")}</Button></div>;
   return <ViewSaveDialog scope={{ key: savedViewKey(client.baseUrl, view), existing: view }} client={client} preview={{ status: "preview", owner: view.owner, input: snapshot.data }} onClose={onClose} onSaved={onClose} />;
 }
-export function PreviewView({ client, preview, generationId }: { client: LegalworkServerClient; preview: ViewPreview; generationId: string }) {
+export function PreviewView({ client, preview, generationId, streamingProgram }: { client: LegalworkServerClient; preview: ViewPreview; generationId: string; streamingProgram?: string }) {
   const live = preview.input.mode === "dashboard" && Object.values(preview.input.queries).some(isBackOfficeQuery);
-  return <ResolvedView client={client} view={{ ...preview.input, queries: live ? preview.input.queries : {}, mode: live ? "dashboard" : "report", owner: preview.owner, id: generationId, revision: generationId, updatedAt: 0 }} refreshKey={0} readOnly />;
+  return <ResolvedView client={client} view={{ ...preview.input, queries: live ? preview.input.queries : {}, mode: live ? "dashboard" : "report", owner: preview.owner, id: generationId, revision: generationId, updatedAt: 0 }} refreshKey={0} streamingProgram={streamingProgram} readOnly />;
 }
 export { OpenUIView };
