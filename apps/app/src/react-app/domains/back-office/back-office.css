@@ -650,6 +650,59 @@
   color: var(--bo-text);
 }
 
+.bo-record-filter-popup {
+  background: var(--bo-bg) !important;
+  color: var(--bo-text);
+  width: min(660px, calc(100vw - 32px)) !important;
+  max-height: var(--available-height);
+  overflow-y: auto;
+}
+.bo-record-filters {
+  --t-color-blue: var(--bo-text);
+  --t-color-blue9: var(--bo-text);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+}
+.bo-filter-heading, .bo-filter-footer, .bo-filter-combine, .bo-filter-inputs, .bo-filter-chips {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.bo-filter-heading, .bo-filter-footer { justify-content: space-between; }
+.bo-filter-footer { padding-top: 10px; border-top: 1px solid var(--bo-border); }
+.bo-filter-combine { font-size: 12px; }
+.bo-filter-combine > :last-child { width: 130px; }
+.bo-record-filter-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, .85fr) minmax(0, 1.4fr) 24px;
+  align-items: end;
+  gap: 8px;
+}
+.bo-record-filter-row > label, .bo-record-filter-value {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 6px;
+}
+.bo-record-filter-row > label > span, .bo-record-filter-value > span:first-child { font-size: 11px; color: var(--bo-muted); }
+.bo-record-filter-row > button { width: 24px; padding-inline: 0; }
+.bo-record-filter-value > .bo-muted { display: flex; min-height: 28px; align-items: center; }
+.bo-filter-value-trigger { width: 100%; justify-content: space-between; }
+.bo-filter-value-trigger > span, .bo-filter-chips button > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bo-filter-inputs { min-width: 0; gap: 4px; }
+.bo-filter-inputs > :first-child { min-width: 0; flex: 1; }
+.bo-filter-inputs > .bo-filter-currency { flex: 0 0 54px; width: 54px; }
+.bo-filter-count { border-radius: 4px; background: var(--bo-hover); padding: 1px 5px; font-size: 11px; }
+.bo-filter-chips { flex-wrap: wrap; padding: 0 12px 10px; }
+.bo-filter-chips button { max-width: 300px; }
+@media (max-width: 600px) {
+  .bo-record-filter-row { grid-template-columns: minmax(0, 1fr) 24px; }
+  .bo-record-filter-row > label, .bo-record-filter-value { grid-column: 1; }
+  .bo-record-filter-row > button { grid-column: 2; grid-row: 1; }
+}
+
 .bo-dialog {
   max-width: calc(100vw - 40px);
 }

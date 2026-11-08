@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { BackOfficeFilterCriteriaSchema, backOfficeFilterError } from "./back-office-filters.js";
+export * from "./back-office-filters.js";
 export { z } from "zod";
 
 export const BACK_OFFICE_PROTOCOL = 1;
@@ -145,6 +147,7 @@ export const BackOfficeViewSchema = z
     widths: z.record(identifier, z.number().min(80).max(800)).default({}),
     query: z.string().max(500).default(""),
     filters: z.record(identifier, BackOfficeValueSchema).default({}),
+    filterCriteria: BackOfficeFilterCriteriaSchema.nullable().optional(),
     sortField: identifier.default("name"),
     sortDirection: z.enum(["asc", "desc"]).default("asc"),
   })
@@ -610,6 +613,8 @@ export function readableBackOfficeView(view: BackOfficeView, model: BackOfficeMo
       if (object.fields.find(field => field.id === id)?.type !== "relation" || value === null) return true;
       return (Array.isArray(value) ? value : [value]).every(id => typeof id === "string" && recordIds.has(id));
     })),
+    filterCriteria: view.filterCriteria ? { ...view.filterCriteria, conditions: view.filterCriteria.conditions.filter(condition => allowed(condition.fieldId)
+      && (object.fields.find(field => field.id === condition.fieldId)?.type !== "relation" || condition.values.every(id => typeof id === "string" && recordIds.has(id)))) } : null,
     query: object.fields.some(field => !allowed(field.id)) ? "" : view.query,
     sortField: allowed(view.sortField) ? view.sortField : "name",
     groupField: view.groupField && allowed(view.groupField) ? view.groupField : null,
@@ -774,6 +779,10 @@ export function validateBackOfficeView(
   if (!object || isInternalBackOfficeObject(object.id))
     throw new Error("Choose a visible object for the view.");
   const fields = new Set(object.fields.map((field) => field.id));
+  if (view.filterCriteria) {
+    const error = backOfficeFilterError(object, view.filterCriteria);
+    if (error) throw new Error(error);
+  }
   if (
     view.columns.some((id) => !fields.has(id)) ||
     !fields.has(view.sortField) ||
@@ -1331,6 +1340,19 @@ export function readableBackOfficeHistory(options: {
             });
           }),
         ),
+        filterCriteria: view.filterCriteria ? {
+          ...view.filterCriteria,
+          conditions: view.filterCriteria.conditions.filter(condition => {
+            if (!allowed(condition.fieldId)) return false;
+            const field = oldObject.fields.find(field => field.id === condition.fieldId);
+            if (field?.type !== "relation") return true;
+            return condition.values.every(id => {
+              const then = typeof id === "string" ? historicalRecords.get(id) : null;
+              const now = typeof id === "string" ? currentRecords.get(id) : null;
+              return then && now && readable(then, historicalRecords) && readable(now, currentRecords);
+            });
+          }),
+        } : view.filterCriteria,
         sortField: allowed(view.sortField) ? view.sortField : "name",
         groupField:
           view.groupField && allowed(view.groupField) ? view.groupField : null,

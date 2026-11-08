@@ -1,4 +1,5 @@
-import { BackOfficeFilesSchema } from "@legalwork/types/back-office";
+import { RecordFilterEditor, recordFilterOperatorLabel, recordFilterValueLabel } from "./record-filter-editor";
+import { BackOfficeFilesSchema, backOfficeViewFilters, compileBackOfficeFilters } from "@legalwork/types/back-office";
 import { backOfficeViewLabel, backOfficeIconLabel } from "./labels";
 import { useSearchParams } from "react-router-dom";
 import { t } from "@/i18n";
@@ -155,11 +156,8 @@ export function RecordGrid({
     initialView?.widths ?? defaultWidths,
   );
   const [selected, setSelected] = useState<string[]>([]);
-  const initialFilter = Object.entries(initialView?.filters ?? {})[0];
-  const [filter, setFilter] = useState({
-    field: initialFilter?.[0] ?? "",
-    value: String(initialFilter?.[1] ?? ""),
-  });
+  const [filters, setFilters] = useState(() => backOfficeViewFilters(initialView));
+  const [filterOpen, setFilterOpen] = useState(false);
   const [editing, setEditing] = useState<{
     record: string;
     field: string;
@@ -255,19 +253,9 @@ export function RecordGrid({
       ? value.amountMinor
       : String(value ?? "");
   };
-  const rows = own
-    .filter(
-      (record) =>
-        (!query ||
-          object.fields.some((field) =>
-            String(display(record, field.id))
-              .toLocaleLowerCase()
-              .includes(query.toLocaleLowerCase()),
-          )) &&
-        (!filter.field ||
-          !filter.value ||
-          String(record.values[filter.field]) === filter.value),
-    )
+  const searchRows = own.filter(record => !query || object.fields.some(field =>
+    String(display(record, field.id)).toLocaleLowerCase().includes(query.toLocaleLowerCase())));
+  const rows = searchRows.filter(compileBackOfficeFilters(object, filters))
     .sort((a, b) => {
       const left = display(a, sort.field),
         right = display(b, sort.field);
@@ -309,9 +297,8 @@ export function RecordGrid({
         columns: editingView?.columns ?? columns,
         widths: editingView?.widths ?? widths,
         query: editingView?.query ?? query,
-        filters:
-          editingView?.filters ??
-          (filter.field ? { [filter.field]: filter.value } : {}),
+        filters: editingView?.filters ?? {},
+        filterCriteria: editingView ? backOfficeViewFilters(editingView) : filters,
         sortField: editingView?.sortField ?? sort.field,
         sortDirection:
           editingView?.sortDirection ??
@@ -336,8 +323,7 @@ export function RecordGrid({
       field: view?.sortField ?? "name",
       direction: view?.sortDirection ?? "asc",
     });
-    const first = Object.entries(view?.filters ?? {})[0];
-    setFilter({ field: first?.[0] ?? "", value: String(first?.[1] ?? "") });
+    setFilters(backOfficeViewFilters(view));
     if (updateUrl)
       setSearchParams(
         (current) => {
@@ -497,55 +483,10 @@ export function RecordGrid({
               />
             </label>
           )}
-          <DirectoryMenu
-            type="panel"
-            trigger={
-              <Button
-                size="sm"
-                variant="ghost"
-                color={filter.value ? "accent" : "neutral"}
-              >
-                Filter
-              </Button>
-            }
-          >
-            <Dropdown.Header>
-              <Dropdown.Title>Filter records</Dropdown.Title>
-            </Dropdown.Header>
-            <div className="bo-filter-form">
-              <DirectorySelect
-                label="Filter field"
-                value={filter.field}
-                onChange={(field) => setFilter({ field, value: "" })}
-                options={[
-                  { value: "", label: "Choose field" },
-                  ...object.fields
-                    .filter((field) => field.type === "select")
-                    .map((field) => ({ value: field.id, label: field.label })),
-                ]}
-              />
-              <DirectorySelect
-                label="Filter value"
-                value={filter.value}
-                onChange={(value) =>
-                  setFilter((current) => ({ ...current, value }))
-                }
-                options={[
-                  { value: "", label: "All values" },
-                  ...(
-                    object.fields.find((field) => field.id === filter.field)
-                      ?.options ?? []
-                  ).map((option) => ({ value: option, label: option })),
-                ]}
-              />
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => setFilter({ field: "", value: "" })}
-              >
-                Clear filter
-              </Button>
-            </div>
+          <DirectoryMenu type="panel" className="bo-record-filter-popup" open={filterOpen} onOpenChange={setFilterOpen} trigger={
+            <Button size="sm" variant="ghost" color="neutral">{t("back_office.filters.button")}{filters.conditions.length > 0 && <span className="bo-filter-count">{filters.conditions.length}</span>}</Button>
+          }>
+            <RecordFilterEditor key={String(filterOpen)} object={object} records={records} rows={searchRows} finance={finance} value={filters} onCancel={() => setFilterOpen(false)} onApply={next => { setFilters(next); setFilterOpen(false); }} />
           </DirectoryMenu>
           <DirectoryMenu
             trigger={
@@ -613,9 +554,8 @@ export function RecordGrid({
                     columns,
                     widths,
                     query,
-                    filters: filter.field
-                      ? { [filter.field]: filter.value }
-                      : {},
+                    filters: {},
+                    filterCriteria: filters,
                     sortField: sort.field,
                     sortDirection: sort.direction === "desc" ? "desc" : "asc",
                     calendarMode,
@@ -689,6 +629,14 @@ export function RecordGrid({
           />
         </div>
       )}
+      {filters.conditions.length > 0 && <div className="bo-filter-chips" aria-label={t("back_office.filters.active")}>
+        {filters.conditions.length > 1 && <span className="bo-muted">{t(filters.mode === "all" ? "projects.reference.all_rules" : "projects.reference.any_rule")}</span>}
+        {filters.conditions.map((condition, index) => {
+          const field = object.fields.find(field => field.id === condition.fieldId);
+          const label = `${field?.label ?? condition.fieldId} ${recordFilterOperatorLabel(condition.operator, field)} ${recordFilterValueLabel(condition, object, records)}`.trim();
+          return <Button key={index} type="button" size="sm" variant="outline" color="neutral" title={label} aria-label={t("back_office.filters.remove", { name: label })} endIcon={<X size={12} />} onClick={() => setFilters(current => ({ ...current, conditions: current.conditions.filter((_, i) => i !== index) }))}><span>{label}</span></Button>;
+        })}
+      </div>}
       {layout === "kanban" && kanbanField ? (
         <RecordKanban
           rows={rows}
@@ -1020,12 +968,12 @@ export function RecordGrid({
             <div className="bo-empty">
               <Columns3 size={26} />
               <strong>
-                {query || filter.value
+                {query || filters.conditions.length > 0
                   ? "No matching records"
                   : `Start with your ${object.plural.toLocaleLowerCase()}`}
               </strong>
               <span>
-                {query || filter.value
+                {query || filters.conditions.length > 0
                   ? "Adjust your search or filters."
                   : `Add your first ${object.label.toLocaleLowerCase()} or import a CSV file.`}
               </span>

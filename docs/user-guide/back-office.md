@@ -10,6 +10,14 @@ If a related record is missing, choose **Create [record type]** at the bottom of
 
 Clients link directly to a person or an organisation. There is no separate Client type to keep in sync with those links.
 
+### Filtering records
+
+Choose **Filter** above the records. The first row starts with **Name** and **contains**: enter text, then choose **Apply filters**. Change **Field** to another accessible property and choose its **Condition** and **Value**. Text, numbers, dates, Yes/No fields, linked records, selection fields, currency amounts and files are supported. Linked-record values use the same searchable picker as table cells. Currency filters include an explicit three-letter currency; comparisons use that currency only. File filters match filenames or check whether a file exists.
+
+Choose **Add filter** for more conditions, then **All rules** or **Any rule**. The preview count shows the result within the current search and archive selection. **Apply filters** updates the records; cancelling or closing the panel keeps the applied filters. Active filters appear above the records. Click a filter's × to remove it, or choose **Filter > Clear filters** to remove all of them.
+
+Filtering applies to Table, Kanban, Calendar and List. For a saved view, choose **Options > Save view** to retain its filters, or create a view with the current filters. Private notes are not offered as shared-view filters; financial fields follow your billing access.
+
 ### Working with the assistant
 
 The main Assistant and ordinary project chats can read and update Back Office records, including custom objects. Ask for the result you need, for example, “Create a project for this client's acquisition and connect the client and matter.” The agent discovers your current model and project fields, checks for existing records, creates missing records supported by your request or sources, and links them through project metadata. It verifies the saved links before reporting completion. Creating a project does not automatically create billing records or fill unknown details.
