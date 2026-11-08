@@ -6,12 +6,13 @@ import {
 import { resetOrgPolicyRuntimeForTests } from "../org-policy.js";
 import { afterEach, expect, test, spyOn } from "bun:test";
 import { randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { ServerConfig } from "../types.js";
 import { openSqlite } from "../runtime-db.js";
-import { BackOfficeStore } from "./store.js";
+import { startServer } from "../server.js";
+import { backOfficeStore, closeBackOfficeStoreForTests, BackOfficeStore } from "./store.js";
 import { attachFile, attachedFile, historicalFile, encryptedFilePath, cacheFile, cachedFile, migrateLegacyFiles } from "./files.js";
 import { localBackOfficeHistoryPage } from "./history.js";
 import {
@@ -441,5 +442,32 @@ test("a signed-in account on an older platform keeps file attachments local with
     else process.env.EIGENWELT_PLATFORM_URL = previousURL;
     await closeEigenweltConnectionForTests(config);
     await resetOrgPolicyRuntimeForTests(config);
+  }
+});
+
+test("a project attachment uses the document folder and rejects links outside it", async () => {
+  const { root, config } = await fixture();
+  const engine = join(root, "engine"), documents = join(root, "documents");
+  await Promise.all([mkdir(engine), mkdir(documents)]);
+  config.authorizedRoots.push(engine, documents);
+  config.workspaces.push({ id: "case", name: "Case", workspaceType: "local", preset: "starter", path: engine, contentPath: documents });
+  const content = "%PDF-selected document";
+  await writeFile(join(documents, "invoice.pdf"), content);
+  await writeFile(join(engine, "invoice.pdf"), "%PDF-private");
+  await symlink(join(engine, "invoice.pdf"), join(documents, "outside.pdf"));
+  const server = await startServer(config);
+  try {
+    const record = invoice(await backOfficeStore(config));
+    const attach = (path: string) => fetch(`http://127.0.0.1:${server.port}/back-office/records/${record.id}/files/invoiceFile`, {
+      method: "POST", headers: { authorization: "Bearer test", "content-type": "application/json" },
+      body: JSON.stringify({ source: { workspaceId: "case", path } }),
+    });
+    const result = await attach("invoice.pdf");
+    expect(result.status, result.ok ? undefined : await result.text()).toBe(200);
+    expect(await result.json()).toMatchObject({ file: { name: "invoice.pdf", size: content.length } });
+    expect((await attach("outside.pdf")).status).toBe(403);
+  } finally {
+    await server.stop();
+    await closeBackOfficeStoreForTests(config);
   }
 });

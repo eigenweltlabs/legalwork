@@ -42,6 +42,7 @@ import {
   BackOfficeHistoryExportSchema,
 } from "./schema.js";
 import { verifyBackOfficeHistoryExport } from "./history-export.js";
+import { workspaceContentPath } from "../project-storage-paths.js";
 import { readProjectDetails } from "../project-store.js";
 
 
@@ -287,7 +288,7 @@ export function registerBackOfficeRoutes(options: {
           options.config,
           body.source.workspaceId,
         );
-        const root = await realpath(workspace.path);
+        const root = await realpath(workspaceContentPath(workspace));
         const path = await realpath(join(root, body.source.path));
         const inside = relative(root, path);
         if (
