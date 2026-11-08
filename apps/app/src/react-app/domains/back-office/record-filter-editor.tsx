@@ -47,7 +47,7 @@ function FilterCondition({ condition, fields, object, records, onChange, onRemov
 }) {
   const field = fields.find(field => field.id === condition.fieldId);
   return <div className="bo-record-filter-row">
-    <label><span>{t("projects.reference.rule_field")}</span><DirectorySelect label={t("projects.reference.filter_field")} value={condition.fieldId} onChange={id => {
+    <label><span>{t("projects.reference.rule_field")}</span><DirectorySelect searchable label={t("projects.reference.filter_field")} value={condition.fieldId} onChange={id => {
       const next = fields.find(field => field.id === id);
       if (next) onChange({ fieldId: id, operator: backOfficeFilterOperators(next)[0], values: next.type === "boolean" ? [true] : [] });
     }} options={[{ value: "", label: t("projects.reference.choose_filter_field") }, ...fields.map(field => ({ value: field.id, label: field.label })), ...(condition.fieldId && !field ? [{ value: condition.fieldId, label: t("projects.reference.unavailable_object") }] : [])]} /></label>

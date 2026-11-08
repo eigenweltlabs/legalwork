@@ -1,10 +1,11 @@
-import { useRef, useSyncExternalStore, type CSSProperties, type ReactElement, type ReactNode } from "react";
+import { useRef, useState, useSyncExternalStore, type CSSProperties, type ReactElement, type ReactNode } from "react";
 import { ThemeProvider } from "twenty-ui/theme";
 import { getResolvedThemeMode, subscribeToTheme } from "@/app/theme";
-import { X } from "lucide-react";
+import { ChevronDown, X } from "lucide-react";
 import { Dropdown } from "twenty-ui/components/navigation";
 import { Button, Select } from "twenty-ui/primitives/input";
 import { Dialog, Popover } from "twenty-ui/primitives/surfaces";
+import { t } from "@/i18n";
 
 // Twenty uses a 13px root. Scope its rem-based typography to this feature,
 // including the library's portalled menus, without changing LegalWork's root.
@@ -52,6 +53,7 @@ export function DirectorySelect({
   label,
   disabled,
   required,
+  searchable = false,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -59,7 +61,9 @@ export function DirectorySelect({
   label: string;
   disabled?: boolean;
   required?: boolean;
+  searchable?: boolean;
 }) {
+  if (searchable) return <DirectorySearchSelect value={value} onChange={onChange} options={options} label={label} disabled={disabled} />;
   return (
     <Select.Root
       value={value}
@@ -90,6 +94,22 @@ export function DirectorySelect({
       </Select.Portal>
     </Select.Root>
   );
+}
+
+function DirectorySearchSelect({ value, onChange, options, label, disabled }: {
+  value: string; onChange: (value: string) => void; options: { value: string; label: string }[]; label: string; disabled?: boolean;
+}) {
+  const [open, setOpen] = useState(false), [query, setQuery] = useState("");
+  const matches = options.filter(option => option.label.normalize("NFC").toLocaleLowerCase().includes(query.normalize("NFC").trim().toLocaleLowerCase()));
+  return <DirectoryMenu type="picker" align="start" open={open} onOpenChange={next => { setOpen(next); if (!next) setQuery(""); }} className="bo-search-select" trigger={
+    <Button type="button" size="sm" variant="outline" color="neutral" aria-label={label} disabled={disabled} endIcon={<ChevronDown size={12} />} className="bo-search-select-trigger"><span>{options.find(option => option.value === value)?.label}</span></Button>
+  }>
+    <Dropdown.Search aria-label={t("project_filters.search_fields")} placeholder={t("project_filters.search_fields")} value={query} onValueChange={setQuery} />
+    <div className="bo-search-select-options">
+      {matches.map(option => <Dropdown.OptionItem key={option.value} value={option.value} selected={option.value === value} indicator="check" onClick={() => { onChange(option.value); setOpen(false); setQuery(""); }}>{option.label}</Dropdown.OptionItem>)}
+      {!matches.length && <p className="bo-muted" role="status">{t("content_search.no_results")}</p>}
+    </div>
+  </DirectoryMenu>;
 }
 
 export function DirectoryMenu({

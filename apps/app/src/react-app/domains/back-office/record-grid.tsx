@@ -26,11 +26,11 @@ import {
   UsersRound,
   Tag,
   Plus,
-  Search,
   X,
 } from "lucide-react";
 import { Button, Checkbox, Input } from "twenty-ui/primitives/input";
 import { Dropdown } from "twenty-ui/components/navigation";
+import { SearchInput } from "twenty-ui/components/input";
 import { Popover } from "twenty-ui/primitives/surfaces";
 import type {
   BackOfficeField,
@@ -142,7 +142,7 @@ export function RecordGrid({
   );
   const viewAnchor = useRef<HTMLButtonElement>(null);
   const [query, setQuery] = useState(initialView?.query ?? "");
-  const [showSearch, setShowSearch] = useState(false);
+  const searchInput = useRef<HTMLInputElement>(null);
   const [sort, setSort] = useState({
     field: initialView?.sortField ?? "name",
     direction: initialView?.sortDirection ?? "asc",
@@ -469,20 +469,17 @@ export function RecordGrid({
           )}
         </DirectoryMenu>
         <div className="bo-view-actions">
-          {(showSearch || query) && (
-            <label className="bo-search">
-              <Search size={14} />
-              <Input
-                size="sm"
-                variant="plain"
-                aria-label={`Search ${object.plural}`}
-                placeholder="Search"
-                autoFocus
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-              />
-            </label>
-          )}
+          <div className="bo-search">
+            <SearchInput
+              ref={searchInput}
+              size="sm"
+              aria-label={t("back_office.search_records")}
+              placeholder={t("back_office.search_records")}
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              actions={query ? <Button size="sm" type="button" variant="ghost" color="neutral" aria-label={t("integrations.clear_search")} startIcon={<X size={12} />} onClick={() => { setQuery(""); searchInput.current?.focus({ preventScroll: true }); }} /> : undefined}
+            />
+          </div>
           <DirectoryMenu type="panel" className="bo-record-filter-popup" open={filterOpen} onOpenChange={setFilterOpen} trigger={
             <Button size="sm" variant="ghost" color="neutral">{t("back_office.filters.button")}{filters.conditions.length > 0 && <span className="bo-filter-count">{filters.conditions.length}</span>}</Button>
           }>
@@ -540,12 +537,6 @@ export function RecordGrid({
             <Dropdown.Header>
               <Dropdown.Title>Visible fields</Dropdown.Title>
             </Dropdown.Header>
-            <Dropdown.ActionItem
-              startIcon={<Search size={14} />}
-              onClick={() => setShowSearch(true)}
-            >
-              {t("back_office.search_records")}
-            </Dropdown.ActionItem>
             {activeView && editable && (
               <Dropdown.ActionItem
                 onClick={() =>
