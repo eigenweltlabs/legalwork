@@ -43,6 +43,7 @@ import {
 } from "lucide-react";
 
 import { openDesktopUrl } from "@/app/lib/desktop";
+import { isMacPlatform } from "@/app/utils";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { PanelTab, PanelTabClose, PanelTabItem, PanelTabList } from "@/components/panel-tabs";
 import { ChatTabIcon } from "@/components/chat/chat-tab-icon";
@@ -980,18 +981,46 @@ function SidePanelContent({
 
   React.useEffect(() => {
     if (!workspaceVisible) return;
-    const handleKeyDown = (event: KeyboardEvent) => {
+    const focusedTabs = () => {
       const pane = panes.find(pane => pane.activeTabId === focusedId) ?? panes[0];
-      const paneTabs = tabs.filter(tab => pane.tabIds.includes(tab.id));
+      return { pane, paneTabs: tabs.filter(tab => pane.tabIds.includes(tab.id)) };
+    };
+    const activate = (tab: PanelTabEntry) => {
+      selectTab(tab.id); setFocusedTabId(tab.id);
+      if (tab.type === "chat") onFocusChat?.(tab.sessionId);
+    };
+    const selectNumberedTab = (number: number) => {
+      const { paneTabs } = focusedTabs();
+      const tab = paneTabs.at(number === 9 ? -1 : number - 1);
+      if (tab) activate(tab);
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.isComposing || event.altKey) return;
+      const mod = isMacPlatform() ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
+      if (mod && !event.shiftKey && /^[1-9]$/.test(event.key)) {
+        event.preventDefault();
+        event.stopPropagation();
+        selectNumberedTab(Number(event.key));
+        return;
+      }
+      const { pane, paneTabs } = focusedTabs();
       if (!event.ctrlKey || event.altKey || event.metaKey || event.key !== "Tab" || paneTabs.length < 2) return;
       const index = paneTabs.findIndex(tab => tab.id === pane.activeTabId);
       event.preventDefault();
       const next = paneTabs[(index + (event.shiftKey ? -1 : 1) + paneTabs.length) % paneTabs.length];
-      selectTab(next.id); setFocusedTabId(next.id);
-      if (next.type === "chat") onFocusChat?.(next.sessionId);
+      activate(next);
     };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    // Native accelerators also reach us while an embedded website or iframe has focus.
+    const handleNativeSelectTab = (event: Event) => {
+      const number: unknown = event instanceof CustomEvent ? event.detail : null;
+      if (typeof number === "number" && Number.isInteger(number) && number >= 1 && number <= 9) selectNumberedTab(number);
+    };
+    window.addEventListener("keydown", handleKeyDown, true);
+    window.addEventListener("legalwork:native-menu:select-tab", handleNativeSelectTab);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown, true);
+      window.removeEventListener("legalwork:native-menu:select-tab", handleNativeSelectTab);
+    };
   }, [panes, tabs, focusedId, selectTab, onFocusChat, workspaceVisible]);
 
   const portaledHeader = expanded ? null : headerTarget;
