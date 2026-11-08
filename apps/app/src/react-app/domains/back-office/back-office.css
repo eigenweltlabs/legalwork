@@ -230,6 +230,9 @@
   background: var(--t-color-transparent-blue4);
 }
 
+.bo-windowed-rows { position: relative; }
+.bo-windowed-rows > .bo-grid-row { position: absolute; top: 0; left: 0; }
+
 .bo-grid-row {
   min-height: 33px;
   border-bottom: 1px solid var(--bo-border);

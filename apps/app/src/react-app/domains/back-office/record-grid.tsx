@@ -1,9 +1,12 @@
 import { RecordFilterEditor, recordFilterOperatorLabel, recordFilterValueLabel } from "./record-filter-editor";
 import { BackOfficeFilesSchema, backOfficeViewFilters, compileBackOfficeFilters } from "@legalwork/types/back-office";
 import { backOfficeViewLabel, backOfficeIconLabel } from "./labels";
+import { defaultRangeExtractor, useVirtualizer } from "@tanstack/react-virtual";
 import { useSearchParams } from "react-router-dom";
 import { t } from "@/i18n";
 import {
+  useCallback,
+  useLayoutEffect,
   useEffect,
   useMemo,
   useRef,
@@ -236,9 +239,11 @@ export function RecordGrid({
       ),
     [records, object.id, archived],
   );
-  const display = (record: BackOfficeRecord, id: string) => {
+  const recordById = useMemo(() => new Map(records.map(record => [record.id, record])), [records]);
+  const fieldById = useMemo(() => new Map(object.fields.map(field => [field.id, field])), [object]);
+  const display = useCallback((record: BackOfficeRecord, id: string) => {
     const value = record.values[id],
-      field = object.fields.find((field) => field.id === id);
+      field = fieldById.get(id);
     if (field?.type === "file") {
       const files = BackOfficeFilesSchema.safeParse(value);
       return files.success ? files.data.map((file) => file.name).join(" ") : "";
@@ -246,32 +251,54 @@ export function RecordGrid({
     if (field?.type === "relation")
       return (Array.isArray(value) ? value : [value])
         .map(
-          (id) => records.find((record) => record.id === id)?.values.name ?? "",
+          (id) => typeof id === "string" ? recordById.get(id)?.values.name ?? "" : "",
         )
         .join(" ");
     return typeof value === "object" && value !== null && !Array.isArray(value)
       ? value.amountMinor
       : String(value ?? "");
-  };
-  const searchRows = own.filter(record => !query || object.fields.some(field =>
-    String(display(record, field.id)).toLocaleLowerCase().includes(query.toLocaleLowerCase())));
-  const rows = searchRows.filter(compileBackOfficeFilters(object, filters))
-    .sort((a, b) => {
-      const left = display(a, sort.field),
-        right = display(b, sort.field);
-      return (
-        (typeof left === "number" && typeof right === "number"
-          ? left - right
-          : String(left).localeCompare(String(right), undefined, {
-              numeric: true,
-            })) * (sort.direction === "asc" ? 1 : -1)
-      );
-    });
+  }, [fieldById, recordById]);
+  const searchRows = useMemo(() => {
+    const term = query.trim().toLocaleLowerCase();
+    if (!term) return own;
+    return own.filter(record => object.fields.some(field =>
+      String(display(record, field.id)).toLocaleLowerCase().includes(term)));
+  }, [own, query, object, display]);
+  const collator = useMemo(() => new Intl.Collator(undefined, { numeric: true }), []);
+  const rows = useMemo(() => searchRows.filter(compileBackOfficeFilters(object, filters)).sort((a, b) => {
+    const left = display(a, sort.field), right = display(b, sort.field);
+    const order = typeof left === "number" && typeof right === "number"
+      ? left - right : collator.compare(String(left), String(right));
+    return sort.direction === "asc" ? order : -order;
+  }), [searchRows, object, filters, sort, collator, display]);
+  const selectedIds = useMemo(() => new Set(selected), [selected]);
+  const selectedCount = useMemo(() => rows.reduce((sum, row) => sum + Number(selectedIds.has(row.id)), 0), [rows, selectedIds]);
+  const scroll = useRef<HTMLDivElement>(null);
+  const editingIndex = editing ? rows.findIndex(row => row.id === editing.record) : -1;
+  const rowWindow = useVirtualizer({
+    count: rows.length,
+    enabled: layout === "table",
+    getScrollElement: () => scroll.current,
+    getItemKey: useCallback((index: number) => rows[index].id, [rows]),
+    estimateSize: () => 33,
+    scrollMargin: 32,
+    scrollPaddingStart: 32,
+    overscan: 8,
+    rangeExtractor: range => {
+      const indices = defaultRangeExtractor(range);
+      if (editingIndex >= 0 && !indices.includes(editingIndex)) indices.push(editingIndex);
+      return indices.sort((a, b) => a - b);
+    },
+  });
+  useLayoutEffect(() => {
+    if (scroll.current) scroll.current.scrollTop = 0;
+  }, [query, sort, filters, archived, activeViewId]);
+
   const bulkArchive = async () => {
     setError("");
     try {
       for (const record of rows.filter((record) =>
-        selected.includes(record.id),
+        selectedIds.has(record.id),
       ))
         await onSave(record, {}, !archived);
       setSelected([]);
@@ -378,12 +405,15 @@ export function RecordGrid({
               : null;
     if (shift) {
       event.preventDefault();
-      event.currentTarget
-        .closest('[role="grid"]')
-        ?.querySelector<HTMLElement>(
-          `[data-row="${row + shift[0]}"][data-col="${column + shift[1]}"]`,
-        )
-        ?.focus();
+      const targetRow = row + shift[0], targetColumn = column + shift[1];
+      if (targetRow < 0 || targetRow >= rows.length || targetColumn < 0 || targetColumn >= visibleFields.length) return;
+      const selector = `[data-row="${targetRow}"][data-col="${targetColumn}"]`;
+      const cell = scroll.current?.querySelector<HTMLElement>(selector);
+      if (cell) cell.focus();
+      else {
+        rowWindow.scrollToIndex(targetRow);
+        requestAnimationFrame(() => scroll.current?.querySelector<HTMLElement>(selector)?.focus());
+      }
     }
   };
   return (
@@ -591,9 +621,9 @@ export function RecordGrid({
           </DirectoryMenu>
         </div>
       </div>
-      {selected.length > 0 && (
+      {selectedCount > 0 && (
         <div className="bo-selection-bar">
-          <span>{selected.length} selected</span>
+          <span>{selectedCount} selected</span>
           {editable && (
             <Button
               size="sm"
@@ -675,6 +705,7 @@ export function RecordGrid({
       ) : (
         <div
           className="bo-grid-scroll"
+          ref={scroll}
           role="grid"
           aria-label={object.plural}
           aria-rowcount={rows.length + 1}
@@ -690,11 +721,10 @@ export function RecordGrid({
                 aria-label="Select all rows"
                 checked={
                   rows.length > 0 &&
-                  rows.every((row) => selected.includes(row.id))
+                  selectedCount === rows.length
                 }
                 indeterminate={
-                  selected.length > 0 &&
-                  !rows.every((row) => selected.includes(row.id))
+                  selectedCount > 0 && selectedCount < rows.length
                 }
                 onCheckedChange={(checked) =>
                   setSelected(checked ? rows.map((row) => row.id) : [])
@@ -789,18 +819,24 @@ export function RecordGrid({
             <div className="bo-grid-fill" />
             <div className="bo-grid-fill" />
           </div>
-          {rows.map((record, rowIndex) => (
+          <div className="bo-windowed-rows" style={{ height: rowWindow.getTotalSize() }}>
+          {rowWindow.getVirtualItems().map(item => {
+            const rowIndex = item.index, record = rows[rowIndex];
+            return (
             <div
               role="row"
               key={record.id}
-              className={`bo-grid-row ${selected.includes(record.id) ? "bo-row-selected" : ""}`}
-              style={{ gridTemplateColumns: template }}
+              data-index={rowIndex}
+              ref={rowWindow.measureElement}
+              aria-rowindex={rowIndex + 2}
+              className={`bo-grid-row ${selectedIds.has(record.id) ? "bo-row-selected" : ""}`}
+              style={{ gridTemplateColumns: template, transform: `translateY(${item.start - 32}px)` }}
             >
               <div className="bo-check-cell">
                 <Checkbox
                   size="sm"
                   aria-label={`Select ${record.values.name}`}
-                  checked={selected.includes(record.id)}
+                  checked={selectedIds.has(record.id)}
                   onCheckedChange={(checked) =>
                     setSelected((current) =>
                       checked
@@ -854,6 +890,7 @@ export function RecordGrid({
                           field={field}
                           value={record.values[field.id]}
                           records={records}
+                          recordById={recordById}
                           onOpen={onOpen}
                         />
                       )}
@@ -883,27 +920,7 @@ export function RecordGrid({
                           className="bo-grid-cell"
                           data-row={rowIndex}
                           data-col={columnIndex}
-                          onKeyDown={(event) => {
-                            const shift =
-                              event.key === "ArrowDown"
-                                ? [1, 0]
-                                : event.key === "ArrowUp"
-                                  ? [-1, 0]
-                                  : event.key === "ArrowRight"
-                                    ? [0, 1]
-                                    : event.key === "ArrowLeft"
-                                      ? [0, -1]
-                                      : null;
-                            if (shift) {
-                              event.preventDefault();
-                              event.currentTarget
-                                .closest('[role="grid"]')
-                                ?.querySelector<HTMLElement>(
-                                  `[data-row="${rowIndex + shift[0]}"][data-col="${columnIndex + shift[1]}"]`,
-                                )
-                                ?.focus();
-                            }
-                          }}
+                          onKeyDown={event => moveCell(event, rowIndex, columnIndex)}
                         />
                       }
                     >
@@ -914,6 +931,7 @@ export function RecordGrid({
                           field={field}
                           value={record.values[field.id]}
                           records={records}
+                          recordById={recordById}
                           onOpen={onOpen}
                         />
                       )}
@@ -954,7 +972,9 @@ export function RecordGrid({
               })}
               <div className="bo-grid-fill" />
             </div>
-          ))}
+            );
+          })}
+          </div>
           {!rows.length && (
             <div className="bo-empty">
               <Columns3 size={26} />
@@ -993,7 +1013,7 @@ export function RecordGrid({
           >
             <div />
             {visibleFields.map((field) => {
-              const amounts = rows.flatMap((record) => {
+              const amounts = field.type !== "currency" ? [] : rows.flatMap((record) => {
                 const value = record.values[field.id];
                 return value &&
                   typeof value === "object" &&

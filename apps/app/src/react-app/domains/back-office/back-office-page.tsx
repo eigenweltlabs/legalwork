@@ -1,6 +1,6 @@
 import { RecordCreationProvider } from "./record-creation-context";
 import { RecordFilesProvider } from "./record-files";
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "@legalwork/types/back-office";
@@ -35,7 +35,7 @@ import {
 } from "@legalwork/types/back-office";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { onSyncPoke } from "@/react-app/kernel/sync-events";
-import { BackOfficeStateSchema, ModelPreviewSchema } from "./api";
+import { loadBackOfficeState, type BackOfficeState, ModelPreviewSchema } from "./api";
 import { RecordGrid } from "./record-grid";
 import { RecordDetail } from "./record-detail";
 import { ModelEditor } from "./model-editor";
@@ -73,7 +73,7 @@ const importSchema = z.object({
 });
 
 export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
-  useLocale();
+  const locale = useLocale();
   const location = useLocation(),
     navigate = useNavigate(),
     cache = useQueryClient();
@@ -112,8 +112,7 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
   const key = ["back-office", client.baseUrl, "auto"];
   const query = useQuery({
     queryKey: key,
-    queryFn: async () =>
-      BackOfficeStateSchema.parse(await client.backOffice("")),
+    queryFn: ({signal}) => loadBackOfficeState(client, cache.getQueryData<BackOfficeState>(key), signal),
     refetchInterval: 30_000,
   });
   const data = query.isError ? undefined : query.data;
@@ -139,7 +138,7 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
         if (poke.backOffice || poke.resync)
           void cache.invalidateQueries({
             queryKey: ["back-office", client.baseUrl],
-          });
+          }, { cancelRefetch: false });
       }),
     [cache, client.baseUrl],
   );
@@ -154,22 +153,18 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
       !object.archived &&
       !isInternalBackOfficeObject(object.id),
   );
-  const object = rawObject && displayBackOfficeObject(rawObject);
+  const object = useMemo(() => rawObject && displayBackOfficeObject(rawObject), [rawObject, locale]);
+  const archiveKey = [...key, "archive", selected, data?.scope, data?.permissions.principalKey, data?.permissions.replicaId, data?.permissions.finance, data?.permissions.model];
   const archivedRecords = useQuery({
-    queryKey: [...key, "archive", selected, data?.scope, data?.permissions.principalKey, data?.permissions.replicaId, data?.permissions.finance, data?.permissions.model],
+    queryKey: archiveKey,
     enabled: archived && Boolean(object),
-    queryFn: async () =>
-      z.object({ records: z.array(BackOfficeRecordSchema) }).parse(
-        await client.backOffice(`/records/${selected}?archived=true`, {
-          team,
-        }),
-      ),
+    queryFn: ({signal}) => loadBackOfficeState(client, cache.getQueryData<BackOfficeState>(archiveKey), signal, selected),
   });
-  const records = [
+  const records = useMemo(() => [
     ...(data?.records ?? []),
-    ...(archivedRecords.data?.records ?? []),
+    ...(archived && data && !archivedRecords.isError && archivedRecords.data?.directoryId === data.directoryId ? archivedRecords.data?.records ?? [] : []),
     ...(draft ? [draft] : []),
-  ];
+  ], [data?.records, data?.directoryId, archived, archivedRecords.data, archivedRecords.isError, draft]);
   const detail = records.find((record) => record.id === detailId),
     detailObject = data?.model.objects.find(
       (object) =>

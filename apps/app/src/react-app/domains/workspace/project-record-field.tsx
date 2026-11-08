@@ -12,7 +12,7 @@ import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { t } from "@/i18n";
 import { onSyncPoke } from "@/react-app/kernel/sync-events";
 import "../back-office/back-office.css";
-import { BackOfficeStateSchema } from "../back-office/api";
+import { loadBackOfficeState, type BackOfficeState } from "../back-office/api";
 import { BackOfficeTheme, DirectoryEditorPopup } from "../back-office/twenty-controls";
 import { CellEditor } from "../back-office/cell-editor";
 import { displayBackOfficeObject } from "../back-office/labels";
@@ -21,11 +21,11 @@ export function useProjectBackOffice(client?: LegalworkServerClient | null) {
   const cache = useQueryClient();
   useEffect(() => onSyncPoke(poke => {
     if (poke.backOffice || poke.resync || poke.policy || poke.reload)
-      void cache.invalidateQueries({ queryKey: ["back-office", client?.baseUrl] });
+      void cache.invalidateQueries({ queryKey: ["back-office", client?.baseUrl] }, { cancelRefetch: Boolean(poke.policy || poke.reload) });
   }), [cache, client?.baseUrl]);
-  const query = useQuery({ queryKey: ["back-office", client?.baseUrl, "auto"], queryFn: async () => {
+  const query = useQuery({ queryKey: ["back-office", client?.baseUrl, "auto"], queryFn: async ({signal}) => {
     if (!client) throw new Error("Back Office is unavailable.");
-    return BackOfficeStateSchema.parse(await client.backOffice(""));
+    return loadBackOfficeState(client, cache.getQueryData<BackOfficeState>(["back-office", client.baseUrl, "auto"]), signal);
   }, enabled: Boolean(client), retry: false, staleTime: 10_000, refetchInterval: 30_000 });
   return { ...query, data: query.isError ? undefined : query.data };
 }

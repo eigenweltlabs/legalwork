@@ -910,7 +910,7 @@ export class BackOfficeStore {
   }
   setSync(scope: string, enabled: boolean) {
     this.db.run(
-      "INSERT INTO bo_sync(scope,enabled) VALUES(?,?) ON CONFLICT(scope) DO UPDATE SET enabled=excluded.enabled",
+      "INSERT INTO bo_sync(scope,enabled) VALUES(?,?) ON CONFLICT(scope) DO UPDATE SET enabled=excluded.enabled WHERE bo_sync.enabled<>excluded.enabled",
       [scope, enabled ? 1 : 0],
     );
   }
@@ -937,7 +937,7 @@ export class BackOfficeStore {
         ]);
       const pending = this.pending(scope, 0, actor);
       this.db.run(
-          "INSERT INTO bo_models VALUES(?,?) ON CONFLICT(scope) DO UPDATE SET data=excluded.data",
+          "INSERT INTO bo_models VALUES(?,?) ON CONFLICT(scope) DO UPDATE SET data=excluded.data WHERE bo_models.data<>excluded.data",
           [scope, JSON.stringify(snapshot.model)],
         );
       const newDrafts = new Set(
@@ -983,22 +983,26 @@ export class BackOfficeStore {
             archivedAt: metadata?.includes("archive") ? draft.archivedAt : projected.archivedAt,
           };
         }
+        if (previous && JSON.stringify(previous) === JSON.stringify(projected)) continue;
         this.db.run(
           "INSERT INTO bo_records VALUES(?,?,?,?) ON CONFLICT(scope,id) DO UPDATE SET data=excluded.data",
           [scope, record.id, record.objectId, JSON.stringify(projected)],
         );
       }
-      if (!pending.some((entry) => entry.change.kind === "view")) {
-        this.db.run("DELETE FROM bo_views WHERE scope=?", [scope]);
-        for (const view of snapshot.views)
-          this.db.run("INSERT INTO bo_views VALUES(?,?,?)", [
-            scope,
-            view.id,
-            JSON.stringify(view),
-          ]);
+      if (!pending.some(entry => entry.change.kind === "view")) {
+        const kept = new Set(snapshot.views.map(view => view.id));
+        for (const row of this.db.all("SELECT id FROM bo_views WHERE scope=?", [scope])) {
+          if (!kept.has(String(row.id))) this.db.run("DELETE FROM bo_views WHERE scope=? AND id=?", [scope, String(row.id)]);
+        }
+        for (const view of snapshot.views) {
+          this.db.run(
+            "INSERT INTO bo_views VALUES(?,?,?) ON CONFLICT(scope,id) DO UPDATE SET data=excluded.data WHERE bo_views.data<>excluded.data",
+            [scope, view.id, JSON.stringify(view)],
+          );
+        }
       }
       this.db.run(
-        "INSERT INTO bo_sync(scope,cursor,enabled,last_error) VALUES(?,?,1,?) ON CONFLICT(scope) DO UPDATE SET cursor=excluded.cursor,last_error=excluded.last_error",
+        "INSERT INTO bo_sync(scope,cursor,enabled,last_error) VALUES(?,?,1,?) ON CONFLICT(scope) DO UPDATE SET cursor=excluded.cursor,last_error=excluded.last_error WHERE bo_sync.cursor<>excluded.cursor OR bo_sync.enabled<>1 OR bo_sync.last_error IS NOT excluded.last_error",
         [scope, snapshot.cursor, snapshot.conflicts[0]?.message ?? null],
       );
       this.restrictTeamAccess(scope, actor);

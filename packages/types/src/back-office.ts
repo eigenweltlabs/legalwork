@@ -187,7 +187,10 @@ export const BackOfficeChangeSchema = z.object({
   authorKey: z.string().min(1).max(300).optional(),
   data: z.unknown(),
 });
+export const BackOfficeBucketHashes = z.array(z.string().regex(/^[a-f0-9]{64}$/)).length(16);
+
 export const BackOfficeSyncSchema = z.object({
+  recordBuckets: BackOfficeBucketHashes.optional(),
   protocol: z.literal(BACK_OFFICE_PROTOCOL),
   changes: z.array(BackOfficeChangeSchema).max(100),
   cursor: z.number().int().nonnegative(),
@@ -1551,4 +1554,36 @@ export function backOfficeHistoryDisplayMatchesPayload(
       canonicalBackOfficeAudit(item.before) &&
     canonicalBackOfficeAudit(after) === canonicalBackOfficeAudit(item.after)
   );
+}
+
+/** Bucket by UUID prefix so inserting a row does not shift later pages. */
+export function directoryBuckets(records: readonly BackOfficeRecord[]) {
+  const buckets: BackOfficeRecord[][] = Array.from({ length: 16 }, () => []);
+  for (const record of records) buckets[parseInt(record.id[0], 16)].push(record);
+  return buckets;
+}
+
+export function directoryBucketHashes(buckets: BackOfficeRecord[][], digest: (text: string) => string) {
+  // PostgreSQL jsonb can reorder keys. Compare the canonical wire representation
+  // so equivalent records have the same digest after storage and transport.
+  return buckets.map(bucket => {
+    const rows = bucket.map(record => canonicalBackOfficeAudit(JSON.parse(JSON.stringify(record))));
+    return digest(rows.sort().join("\n"));
+  });
+}
+
+export const BackOfficeDeltaSchema = BackOfficeSnapshotSchema.omit({ records: true }).extend({
+  recordDelta: z.object({
+    replaced: z.array(z.number().int().min(0).max(15)).max(16),
+    records: z.array(BackOfficeRecordSchema),
+  }),
+});
+
+export function expandDirectoryDelta(base: BackOfficeRecord[][], delta: z.infer<typeof BackOfficeDeltaSchema>): BackOfficeSnapshot {
+  const { recordDelta, ...metadata } = delta;
+  const replaced = new Set(recordDelta.replaced);
+  if (recordDelta.records.some(record => !replaced.has(parseInt(record.id[0], 16)))) {
+    throw new Error("The directory update contains an unexpected record.");
+  }
+  return { ...metadata, records: [...base.flatMap((bucket, index) => replaced.has(index) ? [] : bucket), ...recordDelta.records] };
 }

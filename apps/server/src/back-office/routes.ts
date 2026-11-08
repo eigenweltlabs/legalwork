@@ -9,7 +9,7 @@ import {
   readableBackOfficeRecord,
   type BackOfficeRecord,
 } from "./schema.js";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   backOfficePlatform,
   syncBackOffice,
@@ -42,6 +42,10 @@ import {
 import { verifyBackOfficeHistoryExport } from "./history-export.js";
 import { readProjectDetails } from "../project-store.js";
 
+
+function recordDigest(record: BackOfficeRecord) {
+  return createHash("sha256").update(JSON.stringify(record)).digest("hex");
+}
 
 export function registerBackOfficeRoutes(options: {
   routes: Route[];
@@ -174,21 +178,42 @@ export function registerBackOfficeRoutes(options: {
       }
     },
   );
-  route("GET", "", async (_ctx, store, { scope, actor }) => {
+  route("GET", "", async (ctx, store, { scope, actor }) => {
     if (scope !== "local") {
       store.setSync(scope, true);
       await syncBackOffice(options.config);
       await refreshBackOfficeActor(options.config, scope, actor);
     }
-    return {
+    const metadata = {
       scope,
       directoryId: await directoryIdentity(options.config, scope, store),
       model: store.model(scope),
       permissions: actor,
       views: store.views(scope),
       sync: store.syncState(scope, actor),
-      records: store.records(scope, actor),
     };
+    if (ctx.url.searchParams.get("manifest") !== "1") return { ...metadata, records: store.records(scope, actor) };
+    const archivedObject = ctx.url.searchParams.get("archivedObject") || undefined;
+    const records = store.records(scope, actor, archivedObject, Boolean(archivedObject));
+    const index = records.map(record => [record.id, recordDigest(record)]);
+    const identity = JSON.stringify([archivedObject, metadata.directoryId, actor.userId, actor.principalKey, actor.replicaId, actor.finance, actor.model]);
+    const version = createHash("sha256").update(identity).update(JSON.stringify(index)).digest("hex");
+    return { ...metadata, version, index: ctx.url.searchParams.get("known") === version ? null : index };
+  });
+  route("GET", "/record-page", async (ctx, store, {scope, actor}) => {
+    const ids = z.array(z.string().uuid()).min(1).max(100).parse(ctx.url.searchParams.get("ids")?.split(","));
+    const directoryId = await directoryIdentity(options.config, scope, store);
+    const model = store.model(scope);
+    const archivedObject = ctx.url.searchParams.get("archivedObject");
+    const rows = ids.flatMap(id => {
+      const record = store.raw(scope, id);
+      const object = record && model.objects.find(item => item.id === record.objectId);
+      if (!record || !object || object.archived || !store.canRead(scope, record, actor)) return [];
+      if (Boolean(record.archivedAt) !== Boolean(archivedObject) || (archivedObject && record.objectId !== archivedObject)) return [];
+      const visible = readableBackOfficeRecord(record, object, actor);
+      return [{ record: visible, digest: recordDigest(visible) }];
+    });
+    return { directoryId, permissions: actor, rows };
   });
   route("GET", "/records/:object", async (ctx, store, { scope, actor }) => ({
     records: store.records(

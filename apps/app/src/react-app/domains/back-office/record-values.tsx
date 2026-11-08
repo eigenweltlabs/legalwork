@@ -72,11 +72,13 @@ export function ValueDisplay({
   field,
   value,
   records,
+  recordById,
   onOpen,
 }: {
   field: BackOfficeField;
   value: BackOfficeValue | undefined;
   records: BackOfficeRecord[];
+  recordById?: ReadonlyMap<string, BackOfficeRecord>;
   onOpen: (record: BackOfficeRecord) => void;
 }) {
   if (value === null || value === undefined || value === "") return null;
@@ -85,7 +87,7 @@ export function ValueDisplay({
     return (
       <div className="bo-relation-values">
         {(Array.isArray(value) ? value : [value]).map((id) => {
-          const record = records.find((record) => record.id === id);
+          const record = recordById && typeof id === "string" ? recordById.get(id) : records.find(record => record.id === id);
           return record ? (
             <RecordChip key={record.id} record={record} onOpen={onOpen} />
           ) : null;

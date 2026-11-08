@@ -7,6 +7,11 @@ import {
   BackOfficeChangeSchema,
   BackOfficeRecordSchema,
   BackOfficeSnapshotSchema,
+  BackOfficeDeltaSchema,
+  directoryBuckets,
+  directoryBucketHashes,
+  expandDirectoryDelta,
+  type BackOfficeRecord,
   type BackOfficeSnapshot,
   type BackOfficeActor,
 } from "./schema.js";
@@ -27,18 +32,20 @@ export async function backOfficePlatform(
   config: ServerConfig,
   changes: unknown[] = [],
   expectedPrincipal?: string,
+  baseline?: BackOfficeRecord[],
 ): Promise<BackOfficeSnapshot> {
   const principal = expectedPrincipal ?? await connectedBackOfficePrincipal(config);
   if (!principal) throw new ApiError(403, "back_office_firm", "Sign in to your firm to open team records.");
   await ensureFreshPlatformToken(config);
   const client = requireIntakeClient(await requireBackOfficePrincipal(config, principal));
-  const snapshot = BackOfficeSnapshotSchema.parse(
-    await intakeRequest(client, "POST", "/api/back-office", {
-      protocol: 1,
-      changes,
-      cursor: 0,
-    }),
-  );
+  const buckets = baseline && directoryBuckets(baseline);
+  const response = await intakeRequest(client, "POST", "/api/back-office", {
+    protocol: 1, changes, cursor: 0,
+    recordBuckets: buckets && directoryBucketHashes(buckets, text => createHash("sha256").update(text).digest("hex")),
+  });
+  const snapshot = buckets && response && typeof response === "object" && "recordDelta" in response
+    ? expandDirectoryDelta(buckets, BackOfficeDeltaSchema.parse(response))
+    : BackOfficeSnapshotSchema.parse(response);
   await requireBackOfficePrincipal(config, principal);
   return snapshot;
 }
@@ -103,7 +110,8 @@ export async function syncBackOffice(config: ServerConfig): Promise<void> {
         store.requireAccount(scope, actor);
         await syncRecordFiles(config, chunk, actor.principalKey);
         store.requireAccount(scope, actor);
-        const snapshot = await backOfficePlatform(config, chunk, actor.principalKey);
+        const baseline = [...store.records(scope, actor), ...store.records(scope, actor, undefined, true)];
+        const snapshot = await backOfficePlatform(config, chunk, actor.principalKey, baseline);
         const localLinks = links.links().filter((link) => link.orgId === scope);
         for (const record of snapshot.records.filter(
           (record) => record.objectId === "projectLinks",

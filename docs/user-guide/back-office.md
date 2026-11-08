@@ -10,6 +10,8 @@ If a related record is missing, choose **Create [record type]** at the bottom of
 
 Clients link directly to a person or an organisation. There is no separate Client type to keep in sync with those links.
 
+A table scrolls continuously through its records. Search, filters, sorting and column totals cover the full result set. **Select all rows** selects every matching record, including rows below the screen. Check the selected count before choosing **Archive** or **Restore**.
+
 ### Filtering records
 
 Use **Search records** beside **Filter** to search the current object's readable fields, including linked record names. Results update as you type and combine with active filters. The × in the search box clears the search. Search stays visible in Table, Kanban, Calendar and List.
