@@ -6779,7 +6779,7 @@ const de = {
   "boot.migration_finishing": "Migration wird abgeschlossen",
   "boot.migration_project": "Projekt {current} von {total}",
   "boot.migration_step_percent": "{percent}% dieses Schritts",
-  "boot.migration_count": "{completed} {unit}",
+  "boot.migration_count": "Bisher {completed} {unit}",
   "boot.migration_count_total": "{completed} von {total} {unit}",
   "boot.migration_unit_bytes": "geprüft",
   "boot.migration_unit_files": "Dateien",

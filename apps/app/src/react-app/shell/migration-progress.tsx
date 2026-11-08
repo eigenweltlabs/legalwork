@@ -19,7 +19,12 @@ const phases: Record<MigrationProgress["phase"], string> = {
 function workDescription(work: NonNullable<MigrationProgress["work"]>) {
   const completed = work.unit === "bytes" ? formatBytes(work.completed) : work.completed.toLocaleString();
   const total = work.total === undefined ? undefined : work.unit === "bytes" ? formatBytes(work.total) : work.total.toLocaleString();
-  const unit = t(`boot.migration_unit_${work.unit}`);
+  const unit = {
+    bytes: t("boot.migration_unit_bytes"),
+    files: t("boot.migration_unit_files"),
+    chats: t("boot.migration_unit_chats"),
+    items: t("boot.migration_unit_items"),
+  }[work.unit];
   return total === undefined ? t("boot.migration_count", { completed, unit }) : t("boot.migration_count_total", { completed, total, unit });
 }
 
