@@ -46,6 +46,7 @@ import type { SessionViewReview, ViewSaveSource, ViewInput, ViewOwner, ViewRecor
 import type { SessionInfo, SessionMessageInfo, SessionStatus } from "@opencode/client";
 import { SessionHistoryProvenanceSchema, type SessionHistoryProvenance } from "@legalwork/types/session-history";
 import type { EngineProjectStatus } from "@legalwork/types/engine-project";
+import type { MigrationProgressResponse } from "@legalwork/types/migration-progress";
 import type { ConnectorConfigEdit, ConnectorDisplayItem } from "@legalwork/types/connector-config";
 import { projectSession, projectMessages, type SessionView as Session, type Todo, type MessageView, type SessionSnapshotView } from "./opencode-view";
 import { desktopFetch, desktopReadFetch, desktopStreamFetch } from "./desktop";
@@ -1804,6 +1805,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     searchWiki: (id: string, query: string, type?: string) => requestJson<{ items: WikiPage[] }>(baseUrl, `/wikis/${encodeURIComponent(id)}/search?q=${encodeURIComponent(query)}${type ? `&type=${encodeURIComponent(type)}` : ""}`, { token, hostToken }),
     health: () =>
       requestJson<{ ok: boolean; version: string; uptimeMs: number; engine?: { status: "starting" | "migrating" | "ready" | "error" } }>(baseUrl, "/health", { token, hostToken, timeoutMs: timeouts.health }),
+    migrationProgress: () => requestJson<MigrationProgressResponse>(baseUrl, "/migration/progress", { token, hostToken, timeoutMs: timeouts.health }),
     runtimeVersions: () =>
       requestJson<LegalworkRuntimeSnapshot>(baseUrl, "/runtime/versions", { token, hostToken, timeoutMs: timeouts.status }),
     status: () => requestJson<LegalworkServerDiagnostics>(baseUrl, "/status", { token, hostToken, timeoutMs: timeouts.status }),
@@ -2874,7 +2876,9 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     viewAssistantGreeting: () => requestJson<AssistantOnboardingState>(baseUrl, "/assistant/onboarding/view", { token, hostToken, method: "POST" }),
     answerAssistantOnboarding: (answer: { name: string } | { icon: AssistantAvatarIcon }) => requestJson<AssistantOnboardingState>(baseUrl, "/assistant/onboarding", { token, hostToken, method: "POST", body: answer }),
     updateAssistantProfile: (profile: AssistantProfile) => requestJson<{ profile: AssistantProfile }>(baseUrl, "/assistant/profile", { token, hostToken, method: "PATCH", body: profile }),
-    mainAssistantCurrent: (projectFields?: ProjectField[]) => requestJson<{ workspace: LegalworkWorkspaceInfo; day: { date: string; sessionId: string }; profile: AssistantProfile }>(baseUrl, "/assistant/current", { token, hostToken, method: "POST", body: { projectFields } }),
+    // Explicit initialization can check, recover and create a chat. Its engine
+    // calls each have a 10s deadline; don't race that deadline in the renderer.
+    mainAssistantCurrent: (projectFields?: ProjectField[]) => requestJson<{ workspace: LegalworkWorkspaceInfo; day: { date: string; sessionId: string }; profile: AssistantProfile }>(baseUrl, "/assistant/current", { token, hostToken, method: "POST", body: { projectFields }, timeoutMs: 30_000 }),
     mainAssistantHistory: (before?: string, limit = 14) => requestJson<{ days: { date: string; sessionId: string }[]; nextBefore: string | null }>(baseUrl, `/assistant/history?limit=${limit}${before ? `&before=${encodeURIComponent(before)}` : ""}`, { token, hostToken }),
     scheduledTasks: () => requestJson<{ tasks: ScheduledTask[] }>(baseUrl, "/scheduled-tasks", { token, hostToken }),
     scheduledTask: (workspaceId: string, id: string) => requestJson<{ task: ScheduledTask; runs: ScheduledRun[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/scheduled-tasks/${encodeURIComponent(id)}`, { token, hostToken }),

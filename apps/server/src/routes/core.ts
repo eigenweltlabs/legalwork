@@ -92,10 +92,13 @@ export function registerCoreRoutes(options: RegisterCoreRoutesOptions): void {
     opencodeVersion,
     uptimeMs: Date.now() - config.startedAt,
     ...(config.engineProjectTrustRequired && (config.workspaces[0]?.path || config.managedEngineStatus)
-      ? { engine: { status: config.managedEngineStatus ?? (config.managedEngineStarting === false && config.opencodeBaseUrl ? "ready" : "starting") } } : {}),
+      ? { engine: { status: config.managedEngineStatus === "error" ? "error"
+        : config.projectStorageMigrating || config.migrationProgress?.status === "running" ? "migrating"
+        : config.managedEngineStatus ?? (config.managedEngineStarting === false && config.opencodeBaseUrl ? "ready" : "starting") } } : {}),
   });
 
   addRoute(routes, "GET", "/health", "none", async () => healthResponse());
+  addRoute(routes, "GET", "/migration/progress", "client", async () => jsonResponse({ migration: config.migrationProgress ?? null }));
 
   // Local support export spans chats, so ordinary workspace/client tokens cannot access it.
   addRoute(routes, "POST", "/diagnostics/export", "host-token", async (ctx) => {

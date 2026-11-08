@@ -1,3 +1,4 @@
+import { resolveWorkspaceFile } from "../project-storage-paths.js";
 import { registerPrimaryContext } from "./native-review-worker.js";
 import { Plugin } from "@opencode/plugin";
 import { nativeTool, nativeToolSignal } from "./native-tool.js";
@@ -53,7 +54,7 @@ function newFolderPath(parent: string, name: string) {
   storagePath(parent);
   return storagePath(parent ? `${parent}/${name}` : name, false);
 }
-const workspaceSchema = z.object({ items: z.array(z.object({ id: z.string(), path: z.string() })) });
+const workspaceSchema = z.object({ items: z.array(z.object({ id: z.string(), path: z.string(), contentPath: z.string().nullable().optional(), previousPath: z.string().nullable().optional() })) });
 const rootsSchema = z.object({
   teamError: z.string().optional(),
   roots: z.array(z.object({ id: z.string(), name: z.string(), kind: z.string(), provider: z.string().optional(), writable: z.boolean() })),
@@ -372,8 +373,9 @@ export default Plugin.define({
         let staged: Awaited<ReturnType<typeof workingCopy>> | undefined;
         let localPath: string;
         if (args.local_path !== undefined) {
-          const target = await realpath(resolve(root, args.local_path));
-          if (!within(root, target))
+          const location = resolveWorkspaceFile(current, args.local_path);
+          const target = await realpath(location.path);
+          if (!within(await realpath(location.root), target))
             throw new ApiError(
               403,
               "storage_local_path_outside_workspace",
@@ -386,7 +388,7 @@ export default Plugin.define({
           } finally {
             await handle.close();
           }
-          localPath = relative(root, target);
+          localPath = location.reference;
         } else {
           staged = await workingCopy(root, basename(args.path));
           await writeFile(staged.path, args.content!, { flag: "wx", mode: 0o600 });

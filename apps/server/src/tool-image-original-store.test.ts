@@ -37,6 +37,14 @@ test("opaque large originals survive restart byte-for-byte with private permissi
   await expect(restarted.read({ ...image.reference, sha256: "0".repeat(64) }, f.signal)).rejects.toMatchObject({ status: 404 });
 });
 
+test("private originals cannot be stored inside a connected document folder", async () => {
+  const f = await fixture(), content = join(f.root, "external-documents");
+  await mkdir(content);
+  f.config.workspaces[0].contentPath = content;
+  f.config.managedEngineStorageDirectory = join(content, "engine-store");
+  await expect(toolImageOriginalStore(f.config).capture("chat", f.input, Buffer.from("opaque bytes"), f.source, f.signal, async () => {})).rejects.toThrow("outside project folders");
+});
+
 test("metadata paging continues beyond100, binds cursor to the exact chat and rejects malformed cursor", async () => {
   const f = await fixture(); for (let i = 0; i < 101; i++) await f.capture(Buffer.from([i]));
   const first = await f.store.page("chat"); expect(first.images).toHaveLength(100); expect(first.nextCursor).not.toBeNull();

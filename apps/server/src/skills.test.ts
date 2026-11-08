@@ -208,3 +208,13 @@ test("legacy tabular workflows are normal workflows without renaming or rewritin
     expect(await readFile(path, "utf8")).toBe(before);
   }
 });
+
+test("editing a visible connected project skill updates the loaded copy and keeps its scope", async () => {
+  const contentPath = join(workspace, "documents"), visible = join(contentPath, "Skills", "drafting");
+  await writeSkill(visible, "drafting");
+  const project = { path: workspace, contentPath };
+  const saved = await upsertSkill(project, { name: "drafting", description: "Use when drafting.", content: "Updated instructions", scope: "project" });
+  expect(saved).toEqual({ path: join(visible, "SKILL.md"), action: "updated", scope: "project" });
+  expect((await composedSkill(project, "drafting", false)).chain[0]!.content).toContain("Updated instructions");
+  expect(await exists(join(workspace, ".opencode", "skills", "drafting", "SKILL.md"))).toBe(false);
+});

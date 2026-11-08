@@ -55,7 +55,13 @@ test.skipIf(!binary)("released v2 executes Assistant naming and file sharing thr
   } });
   const fixture = await nativeDomainEngine({ binary: binary!, plugins: [new URL("./opencode-plugins/legalwork-assistant-tools.ts", import.meta.url).pathname], modelURL: provider.url.origin + "/v1",
     directTools: false,
-    setup: async (config, root) => { config.projectsDirectory = root; config.workspaces[0].preset = "main-assistant"; await writeEigenweltConnection(config, { entitlements: parseEigenweltEntitlements({ plan: "plus", subscriptionStatus: "active" }) }); },
+    setup: async (config, root) => {
+      config.projectsDirectory = root;
+      config.workspaces[0].preset = "main-assistant";
+      // This fixture starts an already-local native engine without relocation.
+      config.workspaces[0].contentPath = config.workspaces[0].path;
+      await writeEigenweltConnection(config, { entitlements: parseEigenweltEntitlements({ plan: "plus", subscriptionStatus: "active" }) });
+    },
   });
   try {
     await writeFile(join(fixture.directory, "briefing.md"), "# Morning briefing\nCheck the agreement.");
@@ -108,9 +114,10 @@ test.skipIf(!binary)("released v2 admits delegated work and delivers a busy foll
       const directory = join(root, "assistant");
       await mkdir(directory);
       config.projectsDirectory = root;
+      config.workspaces[0].contentPath = config.workspaces[0].path;
       await writeEigenweltConnection(config, { entitlements: parseEigenweltEntitlements({ plan: "plus", subscriptionStatus: "active" }) });
       config.authorizedRoots.push(directory);
-      config.workspaces.push({ id: "assistant", name: "Assistant", path: directory, preset: "main-assistant", workspaceType: "local" });
+      config.workspaces.push({ id: "assistant", name: "Assistant", path: directory, contentPath: directory, preset: "main-assistant", workspaceType: "local" });
     },
   });
   const call = (path: string, body: unknown) => fetch(fixture.serverURL + path, { method: "POST",

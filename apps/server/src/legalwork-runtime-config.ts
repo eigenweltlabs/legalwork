@@ -1,3 +1,4 @@
+import { primaryContentFolderRules, projectFilePermissionRules, localProjectReferenceRoots } from "./project-storage.js";
 import { legalworkAssistantToolsPluginPath } from "./legalwork-extensions-plugin-path.js";
 import { ASSISTANT_BROWSER_AGENT, ASSISTANT_BROWSER_WORKER_INSTRUCTIONS } from "./assistant-browser.js";
 import { PROJECT_TASK_AGENT, ALL_PROJECTS_TASK_AGENT, projectTaskPermissions, allProjectTaskPermissions } from "./scheduled-tasks/access.js";
@@ -11,6 +12,8 @@ import { runtimeDbPath } from "./runtime-db.js";
 import { embeddedNativePluginBundle } from "./native-plugin-assets.js";
 import { resolveCapabilityLibrary } from "./capability-library.js";
 import { managedSettingsFileSchema, type ManagedSettingsFile } from "./managed-engine-settings.js";
+import { connectedConfigurationPath, connectedMcpServer, relocatedSupportReference, relocatedProviderFiles } from "./connected-project-config.js";
+import { nativeMcpDefinition } from "./native-mcp-config.js";
 import { legalworkPluginPath } from "./legalwork-extensions-plugin-path.js";
 import { nativeEngineProjectRegistryPath, writeNativeEngineProjectRegistry, writeNativeProjectProjection } from "./engine-project.js";
 import { nativePluginIdentity } from "./native-project-plugins.js";
@@ -285,12 +288,15 @@ export async function buildLegalworkRuntimeSettings(
   const configuredPermission = config
     ? (await orgPolicyPermissions(config, runtimeConfig.permissions ?? [])).permission
     : [...runtimeConfig.permissions ?? []];
+  const registered = config?.workspaces.find((item) => item.id === workspaceId);
+  const workspace = registered ? await localProjectReferenceRoots(registered) : undefined;
   const permission = [
     { action: "legalwork_tool_output_read", resource: "*", effect: "allow" },
     { action: "legalwork_tool_output_search", resource: "*", effect: "allow" },
     { action: "external_directory", resource: "*", effect: "ask" },
     { action: "legalwork_jev_corpus_question", resource: "*", effect: jevSearchEnabled ? "allow" : "deny" },
-    ...configuredPermission,
+    ...(workspace ? primaryContentFolderRules(workspace) : []),
+    ...(workspace ? projectFilePermissionRules(workspace, configuredPermission) : configuredPermission),
     { action: "legalwork_project_set_instructions", resource: "*", effect:
       permissionAction(configuredPermission, "legalwork_project_set_instructions", "*") === "deny" ? "deny" : "ask" },
   ];
@@ -299,20 +305,27 @@ export async function buildLegalworkRuntimeSettings(
     personalization ? buildPersonalizedAgentPrompt(LEGALWORK_AGENT_PROMPT, personalization) : LEGALWORK_AGENT_PROMPT,
     config ? (await appliedOrgPolicy(config, "personalization.firmInstructions"))?.value : undefined,
   );
-  const workspace = config?.workspaces.find((item) => item.id === workspaceId);
-  const library = workspace ? await resolveCapabilityLibrary(workspace.path, false, config ? managedCoreLibraryRoot(config) : undefined) : { skills: [], nativeSkills: [] };
+  const library = workspace ? await resolveCapabilityLibrary(workspace, false, config ? managedCoreLibraryRoot(config) : undefined) : { skills: [], nativeSkills: [] };
   const core = managedCoreConfiguration().config;
   const policies = [...runtimeConfig.policies ?? []].filter(rule => !(rule.action === "provider.use" && rule.effect === "deny" && firmProviderIds.includes(rule.resource)));
   for (const resource of disabledProviders) {
     if (policies.slice().reverse().find(rule => rule.action === "provider.use" && permissionPatternMatches(resource, rule.resource))?.effect !== "deny")
       policies.push({ action: "provider.use", resource, effect: "deny" });
   }
+  const connectors = config ? await allowedMemberConnectors(config, { ...sharedMcp, ...runtimeMcpMap(runtimeConfig) }) : { ...sharedMcp, ...runtimeMcpMap(runtimeConfig) };
+  // Resolve after the final policy merge; an earlier mcp spread was overwritten.
+  const servers = workspace ? Object.fromEntries(Object.entries(connectors).map(([name, input]) => {
+    const server = nativeMcpDefinition(input);
+    return [name, server.type === "local" ? { ...server, ...connectedMcpServer(workspace, server, Boolean(workspace.previousPath)) } : server];
+  })) : connectors;
   const result = {
     ...runtimeEngineConfiguration(runtimeConfig),
+    instructions: [...(runtimeConfig.instructions ?? []).map(path => workspace ? connectedConfigurationPath(workspace, path) : path),
+      ...(workspace?.contentPath ? [join(workspace.contentPath, "AGENTS.md")] : [])],
     permissions: permission,
     experimental: { ...runtimeConfig.experimental, todo: true },
     skills: library.skills.map(skill => dirname(skill.path)),
-    providers: providerMap,
+    providers: workspace ? relocatedProviderFiles(workspace, providerMap) : providerMap,
     default_agent: runtimeConfig.default_agent ?? "legalwork",
     agents: {
       ...core.agents,
@@ -365,13 +378,11 @@ export async function buildLegalworkRuntimeSettings(
       bundledPluginSpec(legalworkWikiToolsPluginPath(), config),
       bundledPluginSpec(legalworkOrgPolicyGuardPluginPath(), config),
       // The member's own plugins, unless the firm allows none.
-      ...(config && (await appliedOrgPolicy(config, "plugins.allowCustom"))?.value === false ? [] : runtimePluginList(runtimeConfig)),
+      ...(config && (await appliedOrgPolicy(config, "plugins.allowCustom"))?.value === false ? [] : runtimePluginList(runtimeConfig).map(plugin => !workspace ? plugin : typeof plugin === "string" ? relocatedSupportReference(workspace, plugin) : { ...plugin, package: relocatedSupportReference(workspace, plugin.package) })),
       ...(config?.agentSandboxEnabled ? [bundledPluginSpec(legalworkSandboxPluginPath(), config)] : []),
     ])).filter((item, index, list) => list.indexOf(item) === index),
     policies,
-    mcp: { ...runtimeConfig.mcp, servers: config
-      ? await allowedMemberConnectors(config, { ...sharedMcp, ...runtimeMcpMap(runtimeConfig) })
-      : { ...sharedMcp, ...runtimeMcpMap(runtimeConfig) } },
+    mcp: { ...runtimeConfig.mcp, servers },
   };
   const providerActivation = { ...runtimeConfig.providerActivation };
   for (const id of firmProviderIds) delete providerActivation[id];
@@ -501,7 +512,8 @@ export async function writeLegalworkRuntimeConfigFile(config: ServerConfig, work
     const systemOneSettings = await readSystemOneSettings(config).catch(() => null);
     for (const workspace of config.workspaces) {
       const settings = await buildLegalworkRuntimeSettings(config, workspace.id, systemOneSettings);
-      workspaces[workspace.id] = { ...settings, directory: workspace.directory?.trim() || workspace.path };
+      workspaces[workspace.id] = { ...settings, directory: workspace.directory?.trim() || workspace.path,
+        ...(workspace.contentPath ? { contentPath: workspace.contentPath } : {}), ...(workspace.previousPath ? { previousPath: workspace.previousPath } : {}) };
       // Only application bundles belong in the common engine bootstrap.
       // User-owned project plugins are still discovered by the released host.
       for (const plugin of settings.configuration.plugins ?? []) {

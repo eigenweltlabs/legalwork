@@ -1,3 +1,4 @@
+import { workspaceContentPath } from "../project-storage-paths.js";
 import { lineChanges } from "../wiki/line-diff.js";
 import { realpath } from "node:fs/promises";
 import { z } from "zod";
@@ -28,7 +29,7 @@ export function registerWikiSuggestionRoutes(options: {
     if (!project || (await store.list()).some(wiki => wiki.workspaceId === project.id)) throw new ApiError(404, "project_not_found", "Stage wiki suggestions in a project workspace.");
     if (writing) { options.ensureWritable(config); options.requireClientScope(ctx, "collaborator"); }
     await authenticateWikiAgentRequest(config, ctx.request);
-    return new WikiSuggestions(project.directory || project.path, project.id);
+    return new WikiSuggestions(project.directory || project.path, project.id, workspaceContentPath(project));
   };
   const destination = async (ctx: RequestContext, target: { wikiId: string; path: string; createFolders?: boolean }, writing = false) => {
     wikiPath(target.path);
@@ -79,7 +80,7 @@ export function registerWikiSuggestionRoutes(options: {
       try {
         const root = await realpath(project.directory || project.path);
         if (!await wikiAgentCanAccess(config, wikis, wiki, root)) continue;
-        for (const { content, ...item } of await new WikiSuggestions(root, project.id).list()) {
+        for (const { content, ...item } of await new WikiSuggestions(root, project.id, workspaceContentPath(project)).list()) {
           if (item.status !== "pending" || item.destination.wikiId !== wiki.id) continue;
           let current = "";
           try { current = (await store.read(wiki.id, item.destination.path)).content; }

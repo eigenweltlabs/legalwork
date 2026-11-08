@@ -11,6 +11,7 @@ import { toolImageOriginal, type ToolImageOriginal, type ToolImageOriginalRefere
 import { canonicalFilePath } from "./file-write-lock.js";
 import { isAbsolute, relative, sep } from "node:path";
 import { imageSize } from "image-size";
+import { workspaceContentPath } from "./project-storage-paths.js";
 
 const sha256 = (bytes: Uint8Array | string) => createHash("sha256").update(bytes).digest("hex");
 const cursor = z.object({ sessionID: z.string(), after: z.number().int().nonnegative().safe(), through: z.number().int().nonnegative().safe() }).strict();
@@ -39,8 +40,8 @@ export function toolImageOriginalStore(config: ServerConfig) {
     const stat = await lstat(root);
     if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error("Original image storage must be a private directory.");
     const actual = await realpath(root);
-    for (const workspace of config.workspaces) {
-      const part = relative(await canonicalFilePath(workspace.directory?.trim() || workspace.path), actual);
+    for (const workspace of config.workspaces) for (const directory of new Set([workspace.directory?.trim() || workspace.path, workspaceContentPath(workspace)])) {
+      const part = relative(await canonicalFilePath(directory), actual);
       if (!isAbsolute(part) && part !== ".." && !part.startsWith(`..${sep}`)) throw new Error("Original image storage must be outside project folders.");
     }
     await chmod(root, 0o700);

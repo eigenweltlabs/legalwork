@@ -1,6 +1,7 @@
 import type { HostApprovalRequest } from "@legalwork/types/desktop-ipc";
 import type { AudioRecordingDetail, AudioRecordingMeta } from "@legalwork/types/audio";
 import type { WorkspaceWire } from "@legalwork/types/workspace";
+import type { MigrationProgress } from "@legalwork/types/migration-progress";
 
 /** Host callbacks are never loaded from saved configuration or exposed over HTTP. */
 export type ServerRuntimeOptions = {
@@ -24,6 +25,8 @@ export type LogFormat = "pretty" | "json";
 export interface WorkspaceConfig {
   id?: string;
   path: string;
+  contentPath?: string;
+  previousPath?: string;
   name?: string;
   preset?: string;
   /** Legacy remote records are read only to preserve their original configuration. */
@@ -42,6 +45,8 @@ export interface WorkspaceInfo {
   id: string;
   name: string;
   path: string;
+  contentPath?: string;
+  previousPath?: string;
   preset: string;
   workspaceType: "local";
   baseUrl?: string;
@@ -137,7 +142,7 @@ export interface ServerConfig {
   hostToken: string;
   configPath?: string;
   wordAddin?: WordAddinConfig;
-  /** Native host default for new project folders; existing workspace paths stay authoritative. */
+  /** Host-owned local project homes. Set by managed startup; absent keeps standalone legacy folder behavior. */
   projectsDirectory?: string;
   /**
    * Host-app hook that opens a native "choose folder" dialog. Set by the
@@ -167,6 +172,11 @@ export interface ServerConfig {
   managedEngineStatus?: "starting" | "migrating" | "ready" | "error";
   waitForManagedEngineEndpoint?: () => Promise<void>;
   /** Host-only coordinator state; never accepted from project/client config. */
+  /** Host-owned startup gate, never supplied through project configuration. */
+  projectStorageMigrating?: boolean;
+  /** Host-generated progress; never loaded from saved project configuration. */
+  migrationProgress?: MigrationProgress;
+  migrateProjectStorageSessions?: () => Promise<void>;
   managedEngineRecoveryState?: () => { mode: "service" | "recovery" | "promoting"; heldSessions: Array<{ id: string; directory: string }>; error?: { code: string; message: string } };
   retryManagedEngineRecovery?: () => Promise<void>;
   /** Host-owned catalog lifecycle. False defers while work or sign-in is active. */

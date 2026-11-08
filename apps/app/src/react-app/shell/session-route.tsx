@@ -1,3 +1,4 @@
+import { workspaceFileRoot } from "@legalwork/types/workspace";
 import { defaultProjectFields, useProjectDefaultsStore } from "@/react-app/domains/workspace/project-defaults-store";
 import {ensureNativeCatalogReady} from "@/app/lib/opencode-catalog-ready";
 import type { Client } from "@/app/types";
@@ -21,7 +22,7 @@ import type { AssistantAvatarIcon, AssistantProfile } from "@legalwork/types/mai
 import { carryAssistantDraft } from "@/react-app/domains/session/surface/composer-state-store";
 import { hasAssistantSubscription } from "@legalwork/types/main-assistant";
 import { AssistantUpgradeModal } from "./assistant-upgrade";
-import { resolveAssistantChat, savedAssistantQuery, seedSavedAssistant } from "./assistant-navigation";
+import { currentAssistantQuery, resolveAssistantChat, savedAssistantQuery, seedSavedAssistant } from "./assistant-navigation";
 import { useSessionInbox } from "./use-session-inbox";
 import { ScheduledTasksPage } from "../domains/scheduled-tasks/scheduled-tasks-page";
 import { CalendarView } from "../domains/calendar/calendar-view";
@@ -325,7 +326,7 @@ function attachmentMime(attachment: ComposerAttachment) {
   return "text/plain";
 }
 
-async function draftToParts(draft: ComposerDraft, workspaceRoot: string, client:Client) {
+async function draftToParts(draft: ComposerDraft, workspaceRoot: string, client:Client, contentRoot?: string) {
   const parts: import("@/app/lib/opencode-view").PromptPart[] = [];
   const root = workspaceRoot.trim();
 
@@ -335,7 +336,7 @@ async function draftToParts(draft: ComposerDraft, workspaceRoot: string, client:
     if (trimmed.startsWith("/")) return trimmed;
     if (/^[a-zA-Z]:\\/.test(trimmed)) return trimmed;
     if (!root) return "";
-    return `${root}/${trimmed}`.replace(/\/\/+/g, "/");
+    return `${workspaceFileRoot({path: root, contentPath: contentRoot}, trimmed)}/${trimmed}`.replace(/\/\/+/g, "/");
   };
 
   const filenameFromPath = (path: string) => {
@@ -583,11 +584,7 @@ export function SessionRoute() {
   useEffect(() => {
     if (eigenweltEntitlementsQuery.data && !assistantIncluded && selectedWorkspace?.preset === "main-assistant") setAssistantUpgrade("intro");
   }, [assistantIncluded, eigenweltEntitlementsQuery.data?.connected, selectedWorkspace?.id]);
-  const assistant = useQuery({
-    queryKey: ["main-assistant", client?.baseUrl], enabled: Boolean(client) && assistantIncluded && !isOfficeAddinRuntime(),
-    queryFn: () => { if (!client) throw new Error("Server unavailable"); return client.mainAssistantCurrent(defaultProjectFields(useProjectDefaultsStore.getState())); },
-    refetchInterval: 30_000, refetchOnWindowFocus: "always",
-  });
+  const assistant = useQuery(currentAssistantQuery(client));
   const savedAssistant = useQuery({
     ...savedAssistantQuery(client), enabled: Boolean(client) && !isOfficeAddinRuntime(),
     staleTime: 30_000,
@@ -650,7 +647,7 @@ export function SessionRoute() {
     if (!client) return;
     if (!assistantIncluded && !assistant.data) { pendingAssistantOpen.current = true; setAssistantUpgrade("intro"); return; }
     try {
-      const current = assistant.data ?? await resolveAssistantChat(client, getReactQueryClient());
+      const current = await resolveAssistantChat(client, getReactQueryClient(), new Date(), defaultProjectFields(useProjectDefaultsStore.getState()));
       getReactQueryClient().setQueryData(["main-assistant", client.baseUrl], current);
       const panels = usePanelTabStore.getState();
       panels.setAssistantWorkspace(current.workspace.id);
@@ -1688,7 +1685,7 @@ export function SessionRoute() {
           workspaceId: selectedWorkspaceId,
           readStatuses: async () => await readMcpStatuses(opencodeClient,selectedWorkspaceRoot || undefined),
         });
-        const parts = await draftToParts(draft, selectedWorkspaceRoot,opencodeClient);
+        const parts = await draftToParts(draft, selectedWorkspaceRoot,opencodeClient, selectedWorkspace?.contentPath ?? undefined);
         const envSystemContext = await buildLegalworkEnvSystemContext(client, {
           cacheKey: targetSessionId,
           runtimeKey: environmentRuntimeKey,
@@ -2285,7 +2282,7 @@ export function SessionRoute() {
     const workspace = workspaces.find(workspace => workspace.id === owner?.[0]);
     const endpoint = workspace ? endpointForWorkspace(workspace) : null;
     if (!workspace || !endpoint) throw new Error("The task's project could not be resolved. Do not navigate the user's workspace to retry.");
-    return { projectId: workspace.id, workspaceId: endpoint.workspaceId, workspaceRoot: workspace.path || "", client: endpoint.client, isRemoteWorkspace: endpoint.isRemote };
+    return { projectId: workspace.id, workspaceId: endpoint.workspaceId, workspaceRoot: workspace.path || "", contentRoot: workspace.contentPath || workspace.path || "", client: endpoint.client, isRemoteWorkspace: endpoint.isRemote };
   }, [sessionsByWorkspaceId, workspaces, endpointForWorkspace]));
 
   const sessionTarget = useCallback((sessionId: string) => {
@@ -2477,7 +2474,7 @@ export function SessionRoute() {
       let assistantSessionId: string | null = null;
       if (homeProjectId && !workspace) throw new Error(t("workspace.not_found"));
       if (!workspace) {
-        const current = await resolveAssistantChat(client, getReactQueryClient());
+        const current = await resolveAssistantChat(client, getReactQueryClient(), new Date(), defaultProjectFields(useProjectDefaultsStore.getState()));
         workspace = mapDesktopWorkspace(current.workspace);
         assistantSessionId = current.day.sessionId;
         getReactQueryClient().setQueryData(["main-assistant", client.baseUrl], current);
@@ -2558,8 +2555,9 @@ export function SessionRoute() {
   const handleOpenWikiSession = async (wiki: WikiVault, prompt?: string) => {
     const endpoint = resolveWorkspaceEndpoint({ id: wiki.workspaceId, workspaceType: "local" }, { baseUrl, token, hostToken });
     if (!endpoint) throw new Error(t("wiki.offline"));
-    const wikiClient = createClient(endpoint.opencodeBaseUrl, wiki.root, { token: endpoint.token, hostToken: endpoint.hostToken, mode: "legalwork" });
-    const session = unwrap(await createSessionView(wikiClient,{ directory: wiki.root, title: wiki.name }));
+    const engineDirectory = wiki.engineDirectory || wiki.root;
+    const wikiClient = createClient(endpoint.opencodeBaseUrl, engineDirectory, { token: endpoint.token, hostToken: endpoint.hostToken, mode: "legalwork" });
+    const session = unwrap(await createSessionView(wikiClient,{ directory: engineDirectory, title: wiki.name }));
     if (prompt) useComposerStateStore.getState().setDraft(session.id, prompt);
     setLegacySelectedWorkspaceId(wiki.workspaceId);
     writeActiveWorkspaceId(wiki.workspaceId);
@@ -2928,13 +2926,13 @@ export function SessionRoute() {
               id: workspace.id,
               name: workspace.displayNameResolved || workspace.name || workspace.id,
             }))}
-            workspacePath={selectedWorkspaceRoot ?? null}
+            workspacePath={selectedWorkspace?.contentPath || selectedWorkspaceRoot || null}
             workspaceTargets={workspaces
               .filter((workspace) => workspace.path?.trim())
               .map((workspace) => ({
                 id: workspace.id,
                 name: workspace.displayNameResolved,
-                path: workspace.path,
+                path: workspace.contentPath || workspace.path,
               }))
               // Selected workspace first, so the common case is one click away.
               .sort((a, b) => Number(b.id === selectedWorkspaceId) - Number(a.id === selectedWorkspaceId))}

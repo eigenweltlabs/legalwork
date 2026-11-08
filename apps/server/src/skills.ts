@@ -12,6 +12,8 @@ import { globalSkillsDir, projectSkillsDir } from "./workspace-files.js";
 import { BUNDLED_WORKFLOW_NAMES } from "./bundled-workflows.js";
 import { unchangedCoreSkill } from "./core-bundle.js";
 
+export type SkillWorkspace = string | { path: string; contentPath?: string | null };
+
 export type SkippedSkill = { path: string; reason: string };
 
 async function findWorkspaceRoots(workspaceRoot: string): Promise<string[]> {
@@ -149,17 +151,20 @@ export async function listSkillsInDir(dir: string, scope: "project" | "global", 
   return items;
 }
 
-export async function listSkills(workspaceRoot: string, includeGlobal: boolean, skipped?: SkippedSkill[], coreRoot?: string): Promise<SkillItem[]> {
-  const roots = await findWorkspaceRoots(workspaceRoot);
+export async function listSkills(workspace: SkillWorkspace, includeGlobal: boolean, skipped?: SkippedSkill[], coreRoot?: string): Promise<SkillItem[]> {
+  const workspaceRoot = typeof workspace === "string" ? workspace : workspace.path;
+  const contentRoot = typeof workspace === "string" ? workspace : workspace.contentPath || workspace.path;
+  const roots = [...new Set([workspaceRoot, ...await findWorkspaceRoots(contentRoot)])];
   // Visible workspace packages travel with a wiki and remain editable in its tree.
   // Only scan this workspace, never another wiki or a parent's visible content.
-  const items = await listSkillsInDir(join(workspaceRoot, "Skills"), "project", skipped);
+  const items = await listSkillsInDir(join(contentRoot, "Skills"), "project", skipped);
   for (const root of roots) {
     const opencodeDir = join(root, ".opencode", "skills");
     const claudeDir = join(root, ".claude", "skills");
     items.push(...(await listSkillsInDir(opencodeDir, "project", skipped,
       coreRoot ? path => unchangedCoreSkill(root, path, coreRoot) : undefined)));
     items.push(...(await listSkillsInDir(claudeDir, "project", skipped)));
+    items.push(...(await listSkillsInDir(join(root, ".agents", "skills"), "project", skipped)));
   }
 
   if (includeGlobal) {
@@ -211,10 +216,15 @@ export function skillsDirForScope(workspaceRoot: string, scope: SkillScope): str
   return scope === "global" ? globalSkillsDir() : projectSkillsDir(workspaceRoot);
 }
 
-export async function skillPathForScope(workspaceRoot: string, scope: SkillScope, name: string): Promise<string> {
+export async function skillPathForScope(workspace: SkillWorkspace, scope: SkillScope, name: string): Promise<string> {
   validateSkillName(name);
-  const visible = join(workspaceRoot, "Skills", name, "SKILL.md");
+  const workspaceRoot = typeof workspace === "string" ? workspace : workspace.path;
+  const visible = join(typeof workspace === "string" ? workspace : workspace.contentPath || workspace.path, "Skills", name, "SKILL.md");
   if (scope === "project" && await exists(visible)) return visible;
+  if (scope === "project") {
+    const existing = (await listSkills(workspace, false)).find(skill => skill.scope === "project" && skill.name === name);
+    if (existing) return existing.path;
+  }
   return join(skillsDirForScope(workspaceRoot, scope), name, "SKILL.md");
 }
 
@@ -263,23 +273,24 @@ export function buildSkillContent(payload: UpsertSkillPayload): { name: string; 
 }
 
 export async function upsertSkill(
-  workspaceRoot: string,
+  workspace: SkillWorkspace,
   payload: UpsertSkillPayload,
   coreRoot?: string,
 ): Promise<{ path: string; action: "added" | "updated"; scope: SkillScope }> {
+  const workspaceRoot = typeof workspace === "string" ? workspace : workspace.path;
   const lesson = payload.lesson === undefined ? null : SkillLessonInputSchema.parse(payload.lesson);
-  const dependency = lesson ? await composedSkill(workspaceRoot, lesson.base, false, coreRoot) : null;
+  const dependency = lesson ? await composedSkill(workspace, lesson.base, false, coreRoot) : null;
   if (dependency?.chain.some(item => item.name === payload.name)) throw new ApiError(422, "skill_cycle", "A skill cannot extend itself or its descendants.");
   const skill = buildSkillContent(payload);
   const scope: SkillScope = payload.scope === "global" ? "global" : "project";
 
-  const skillPath = await skillPathForScope(workspaceRoot, scope, skill.name);
+  const skillPath = await skillPathForScope(workspace, scope, skill.name);
   const skillDir = dirname(skillPath);
   const existed = await exists(skillPath);
   if (lesson && existed) throw new ApiError(409, "skill_exists", "Choose a new name for this correction to preserve the existing skill.");
   if (coreRoot && !lesson) {
     const source = join(coreRoot, ".opencode", "skills", skill.name, "SKILL.md");
-    const selected = (await listSkills(workspaceRoot, true, undefined, coreRoot)).find(item => item.name === skill.name);
+    const selected = (await listSkills(workspace, true, undefined, coreRoot)).find(item => item.name === skill.name);
     if (selected?.path === source) {
       // An explicit edit creates a complete override, including its helpers.
       // Project startup never calls this path. Preserve malformed/linked user
@@ -305,10 +316,10 @@ export async function upsertSkill(
   return { path: skillPath, action: existed ? "updated" : "added", scope };
 }
 
-export async function deleteSkill(workspaceRoot: string, name: string): Promise<{ path: string }> {
+export async function deleteSkill(workspace: SkillWorkspace, name: string): Promise<{ path: string }> {
   const trimmed = name.trim();
   validateSkillName(trimmed);
-  const flatDir = dirname(await skillPathForScope(workspaceRoot, "project", trimmed));
+  const flatDir = dirname(await skillPathForScope(workspace, "project", trimmed));
   if (await exists(join(flatDir, "SKILL.md"))) {
     await rm(flatDir, { recursive: true, force: true });
     return { path: flatDir };
@@ -316,7 +327,7 @@ export async function deleteSkill(workspaceRoot: string, name: string): Promise<
   // Nested layout: skills/<domain>/<name>/SKILL.md (e.g. skills installed by
   // marketplace plugin bundles are namespaced under a plugin folder). Listing
   // supports this layout, so deletion must resolve it the same way.
-  const items = await listSkills(workspaceRoot, false);
+  const items = await listSkills(workspace, false);
   const item = items.find((skill) => skill.name === trimmed && skill.scope === "project");
   if (!item) {
     throw new ApiError(404, "skill_not_found", `Skill not found: ${trimmed}`);

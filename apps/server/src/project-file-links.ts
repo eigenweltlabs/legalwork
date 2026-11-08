@@ -71,12 +71,12 @@ export async function importProjectFile(root: string, path: string, bytes: Uint8
 
 /** Rename the folder and its virtual children under the same metadata lock.
  * Prepare the new metadata first; roll the folder back if publication fails. */
-export async function renameProjectFileEntry(root: string, from: string, to: string) {
+export async function renameProjectFileEntry(root: string, from: string, to: string, metadataRoot = root) {
   const source = join(root, from), destination = join(root, to);
   if (!(await stat(source)).isDirectory()) { await rename(source, destination); return; }
-  const path = await linksPath(root, true);
+  const path = await linksPath(metadataRoot, true);
   await withFileWriteLock(path, async () => {
-    const links = await readProjectFileLinks(root);
+    const links = await readProjectFileLinks(metadataRoot);
     const affected = (folder: string) => folder === from || folder.startsWith(`${from}/`);
     if (!links.some(link => affected(link.folder))) { await rename(source, destination); return; }
     const next = links.map(link => affected(link.folder) ? { ...link, folder: `${to}${link.folder.slice(from.length)}` } : link);

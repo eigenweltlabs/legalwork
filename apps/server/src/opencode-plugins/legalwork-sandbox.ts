@@ -42,8 +42,8 @@ export const LegalWorkSandbox = Plugin.define({
             headers: await workspaceToolHeaders(context), signal: AbortSignal.timeout(10000),
           });
           if (!response.ok) return null;
-          const state = z.object({ enabled: z.boolean(), networkMode: z.string(), shell: z.string(), platform: z.string(), cwd: z.string() }).parse(await response.json());
-          return `Sandboxing is ${state.enabled ? "on" : "off"}. Shell: ${state.shell}. Platform: ${state.platform}. Project working directory: ${state.cwd}. ` +
+          const state = z.object({ enabled: z.boolean(), networkMode: z.string(), shell: z.string(), platform: z.string(), cwd: z.string(), contentPath: z.string().optional(), enginePath: z.string().optional() }).parse(await response.json());
+          return `Sandboxing is ${state.enabled ? "on" : "off"}. Shell: ${state.shell}. Platform: ${state.platform}. Local engine/support directory on the host: ${state.enginePath || directory}. Command default directory: ${state.cwd}. Document directory on the host: ${state.contentPath || directory}. Use the document directory as workdir for document commands. Keep .legalwork scratch files and attachments under the local engine directory. Native file tools use standard OpenCode path resolution: relative paths start at the local engine/project directory. Use explicit absolute host paths for connected documents and document searches. Read the document directory’s AGENTS.md if present before changing project files. ` +
             (state.enabled ? `Network mode: ${state.networkMode}. Browser tools are ${state.networkMode === "allow" ? "available" : "disabled; use the managed web tools for policy-controlled requests"}. Only shared folders are accessible. Python 3 and Node.js are installed. Authorized folders: /authorized/N. Skills: /skills/N.` : "In project chats, commands run directly on this computer with its installed tools and OS permissions. Sandbox network controls do not apply. Wiki chats cannot run commands while sandboxing is off; use wiki tools, read and glob instead.");
         } catch { return null; }
       },

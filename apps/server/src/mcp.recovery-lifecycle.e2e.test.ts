@@ -48,7 +48,10 @@ async function setup(url: string, oauth: false | { callbackPort: number }, activ
   if (activationDelayMs) {
     const plugin = join(root, "slow-plugin"); await mkdir(plugin);
     await writeFile(join(plugin, "index.js"), `import {Plugin} from '@opencode/plugin';export default Plugin.define({id:'legalwork.slow-lifecycle-fixture',async setup(){await new Promise(resolve=>setTimeout(resolve,${activationDelayMs}))}});`);
-    for (const directory of directories) await writeFile(join(directory, "opencode.jsonc"), JSON.stringify({ plugins: [plugin] }));
+    for (const directory of directories) {
+      await mkdir(join(directory, ".opencode"));
+      await writeFile(join(directory, ".opencode", "opencode.jsonc"), JSON.stringify({ plugins: [plugin] }));
+    }
   }
   let server: Awaited<ReturnType<typeof startEmbeddedServer>> | undefined;
   const config: ServerConfig = {
@@ -68,7 +71,8 @@ async function setup(url: string, oauth: false | { callbackPort: number }, activ
     await writeFile(config.configPath!, JSON.stringify({ workspaces: config.workspaces, authorizedRoots: directories }));
     await addMcp(config, "a", "notes", remote);
     server = await startEmbeddedServer({ host: "127.0.0.1", port: 0, workspaces: [], configPath: config.configPath, token: config.token, hostToken: config.hostToken,
-      approvalMode: "auto", logRequests: false, manageOpencode: true, managedEngineSandbox: false, opencodeBin: binary });
+      approvalMode: "auto", logRequests: false, manageOpencode: true, managedEngineSandbox: false, opencodeBin: binary,
+      projectsDirectory: join(root, "project-homes") });
     Object.assign(config, server.config);
     const appUrl = server.url;
     async function request(path: string, body?: unknown, method = body === undefined ? "GET" : "POST") {
@@ -78,7 +82,11 @@ async function setup(url: string, oauth: false | { callbackPort: number }, activ
       return response.status === 204 ? undefined : response.json();
     }
     const directClient = OpenCode.make({ baseUrl: config.opencodeBaseUrl!, headers: { authorization: `Basic ${Buffer.from(`${config.opencodeUsername}:${config.opencodePassword}`).toString("base64")}` } });
-    const directory = (workspace: "a" | "b") => directories[workspace === "a" ? 0 : 1]!;
+    const directory = (workspace: "a" | "b") => {
+      const registered = config.workspaces.find(item => item.id === workspace);
+      if (!registered) throw new Error(`Missing native fixture workspace ${workspace}`);
+      return registered.path;
+    };
     const native = (workspace: "a" | "b") => OpenCode.make({ baseUrl: `${appUrl}/workspace/${workspace}/opencode`, headers: { authorization: `Bearer ${config.token}` } });
     const direct = async (workspace: "a" | "b", path: string) => {
       if (path !== "/mcp") throw new Error("Unsupported native fixture read");
@@ -88,6 +96,8 @@ async function setup(url: string, oauth: false | { callbackPort: number }, activ
       ? Object.fromEntries((await native(workspace).mcp.list({ location: { directory: directory(workspace) } })).data.map(server => [server.name, server.status]))
       : path === "/mcp/notes/disconnect" ? native(workspace).mcp.disconnect({ location: { directory: directory(workspace) }, server: "notes" }) : (() => { throw new Error("Unsupported native fixture control"); })();
     for (const workspace of ["a", "b"] satisfies Array<"a" | "b">) {
+      expect(config.workspaces.find(item => item.id === workspace)?.contentPath).toBe(directories[workspace === "a" ? 0 : 1]);
+      expect(directory(workspace)).not.toBe(directories[workspace === "a" ? 0 : 1]);
       expect(await request(`/workspace/${workspace}/engine-project`)).toMatchObject({ state: "ready", required: false });
       await waitForNativeFixture(() => directClient.model.list({ location: { directory: directory(workspace) } }), () => true, `initial plugin activation in workspace ${workspace}`);
       await waitFor(async () => statuses.parse(await direct(workspace, "/mcp")).notes?.status === "failed", "initial offline MCP state");

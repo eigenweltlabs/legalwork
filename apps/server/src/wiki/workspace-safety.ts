@@ -26,6 +26,7 @@ export async function assertWikiFoldersIndependent(wikis: WikiRegistration[], wo
   for (const workspace of workspaces) {
     if (workspace.workspaceType !== "local" || !workspace.path || (workspace.preset === "wiki" && wikiWorkspaceIds.has(workspace.id))) continue;
     projectRoots.push(await canonicalFolderPath(workspace.path));
+    if (workspace.contentPath) projectRoots.push(await canonicalFolderPath(workspace.contentPath));
   }
   for (const wiki of wikis) {
     const root = await canonicalFolderPath(wiki.root);

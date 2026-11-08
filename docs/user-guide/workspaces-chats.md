@@ -4,7 +4,23 @@ Open in LegalWork: [Home](legalwork://app/home), [Projects](legalwork://app/proj
 
 ## Folders and workspaces
 
-A workspace ties conversations and agent execution to a working directory or remote worker. Select the working context through **Projects** or the project sidebar. Create a project using a local folder, or use the connection flow for a remote worker. Selecting another workspace changes the files and runtime context used for new work.
+A project ties conversations, files and agent execution together. Select it through **Projects** or the project sidebar. Create a project with your own folder, or let LegalWork create one. Selecting another project changes the context used for new work.
+
+LegalWork keeps each project's `.opencode` and `.legalwork` folders together in a private local project home. On macOS this is `~/Library/Application Support/com.eigenweltlabs.legalwork/Projects/<project-id>/`; on Windows it is `%LOCALAPPDATA%\com.eigenweltlabs.legalwork\Projects\<project-id>\`. Development installations have their own `.dev` location. These folders include the project's engine settings, saved attachments, working copies and review data.
+
+When you choose an existing folder, your documents stay there. LegalWork remembers that folder separately and shows it in Memory Drive. During upgrade, LegalWork first completes the OpenCode history upgrade. It then moves only `.opencode` and `.legalwork` to the local home; ordinary documents in Documents, cloud folders and network drives stay in place. Existing project and chat identities are kept. The migration verifies copied files and saved chat locations before retiring the old hidden folders, and retains local recovery copies. Retired source snapshots use the `.legalwork-migrated` suffix so another computer upgrading the same shared folder can still recover its original project data. LegalWork runs from the new local home. If the initial copy cannot finish, LegalWork preserves the source and retries when it becomes available. A source changed after cutover is preserved instead of removed. Completed local projects do not contact the source drive during startup.
+
+For a new project without a chosen folder, documents go in the local project's `files` subfolder. There is no separate action to move existing documents into LegalWork. A disconnected document folder prevents reading or saving those documents; already migrated engine data and saved local attachments remain available.
+
+Queued messages and interrupted work stay waiting while saved chats move. The Personal Assistant keeps its existing daily conversation and pending follow-ups until that project's chat migration finishes. Reconnecting an unavailable source lets migration retry.
+
+The agent has access to its local project home and the connected document folder. Additional folders still use **Settings > Permissions** and the existing chat approval controls. Choosing a content folder does not grant access to its parent or neighboring projects. With sandboxing enabled, the local project home is `/workspace` and the connected document folder is shared separately; in normal host mode, tools use their real paths.
+
+The agent receives both folder locations. Its native file tools follow OpenCode's normal rules: relative paths start in the local project home, and the agent uses explicit paths for connected documents. Memory Drive continues to show the document folder. For commands that work on documents, the agent can select that folder as the command's working directory.
+
+Root project instructions and skills in the document folder remain available. Keep editable `AGENTS.md` and `Skills/` in that folder. For instructions in a subfolder of an external connected folder, ask the agent to read that `AGENTS.md` file explicitly. OpenCode configuration inside `.opencode` moves with the engine files. Root-level `opencode.json` and `opencode.jsonc` stay in the document folder and are not copied into the local home; the engine does not automatically load configuration left at an external document root. Existing file restrictions continue to apply to connected documents. Browser downloads appear in the document folder's `Downloads` folder, including downloads transferred from a browser attached to another LegalWork server.
+
+An unavailable synced document folder is not an empty project. LegalWork retains local work while it cannot check the connected folder. Reconnect it before removing the copy normally, or explicitly choose to discard local changes. Recovery of a retained project home uses its saved document-folder association.
 
 On Windows, you can select a project folder through a mapped drive, such as `P:`, or its network location. LegalWork recognizes both locations as the same folder. When project folders are nested, project actions and instructions use the nearest containing project.
 

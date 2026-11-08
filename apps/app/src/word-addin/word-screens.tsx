@@ -138,7 +138,7 @@ export function WordWorkspacesScreen() {
   const fileFolder = documentFolder.data ?? null;
   const fileFolderIsWorkspace = Boolean(
     fileFolder &&
-      items.some((workspace) => (workspace.path ?? "").toLowerCase() === fileFolder.toLowerCase()),
+      items.some((workspace) => (workspace.contentPath || workspace.path || "").toLowerCase() === fileFolder.toLowerCase()),
   );
 
   const openWorkspace = (workspaceId: string) => {
@@ -335,7 +335,7 @@ export function WordWorkspacesScreen() {
                       {workspace.name || workspace.id}
                     </span>
                     <span className="block truncate font-mono text-[10px] text-dls-secondary">
-                      {workspace.path}
+                      {workspace.contentPath || workspace.path}
                     </span>
                   </span>
                   <ChevronRight

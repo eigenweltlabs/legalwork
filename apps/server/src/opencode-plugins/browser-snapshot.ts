@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ApiError } from "../errors.js";
 
 export const browserConnectionOutput = z.object({
   tabID: z.string(),
@@ -12,9 +13,14 @@ export const browserConnectionOutput = z.object({
 
 /** The UI bridge envelope is transport detail, not the browser tool contract. */
 export function browserConnectionResult(value: unknown) {
-  const envelope = z.object({ ok: z.literal(true), result: z.object({ tab_id: z.string() }).passthrough() }).parse(value);
-  const { tab_id, ...result } = envelope.result;
-  return browserConnectionOutput.parse({ ...result, tabID: tab_id });
+  const failure = z.object({ ok: z.literal(false), error: z.string(), code: z.string().optional() }).safeParse(value);
+  if (failure.success) throw new ApiError(502, failure.data.code ?? "browser_connection_failed", failure.data.error);
+  const envelope = z.object({ ok: z.literal(true), result: z.object({ tab_id: z.string() }).passthrough() }).safeParse(value);
+  if (!envelope.success) throw new ApiError(502, "browser_connection_invalid", "The browser returned an invalid connection response.");
+  const { tab_id, ...result } = envelope.data.result;
+  const output = browserConnectionOutput.safeParse({ ...result, tabID: tab_id });
+  if (!output.success) throw new ApiError(502, "browser_connection_invalid", "The browser returned an invalid connection response.");
+  return output.data;
 }
 
 /** Keep tool results valid JSON and below the engine's generic truncation limit.

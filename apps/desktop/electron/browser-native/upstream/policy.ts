@@ -7,12 +7,12 @@ export function destinationOrigin(input: string) {
   return /^https?:$/.test(url.protocol) && !url.username && !url.password ? url.origin : undefined
 }
 
-/** A file URL for this machine: no host, so UNC shares and remote hosts are rejected. */
+/** File URLs still require an exact registered root, including UNC authority. */
 export function localFileURL(input: string) {
   if (!URL.canParse(input)) return
   const url = new URL(input)
 
-  return url.protocol === "file:" && !url.hostname ? url.href : undefined
+  return url.protocol === "file:" && !url.username && !url.password && !url.port ? url.href : undefined
 }
 
 /** Case-insensitive on Windows, where drive letters and paths compare that way. */
@@ -33,7 +33,8 @@ export function fileURLWithin(input: string, roots: ReadonlyArray<string>) {
   const href = localFileURL(input)
 
   if (!href || roots.length === 0) return false
-  const path = canonicalPath(new URL(href).pathname)
+  const url = new URL(href)
+  const path = canonicalPath(url.hostname && url.hostname !== "localhost" ? `//${url.hostname}${url.pathname}` : url.pathname)
 
   return roots.some((root) => {
     const prefix = canonicalPath(root).replace(/\/+$/, "")

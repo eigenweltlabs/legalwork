@@ -92,7 +92,7 @@ async function registeredCandidates(config: ServerConfig) {
   const result: Array<{ workspace: WorkspaceInfo; sessionID: string }> = [];
   for (const row of rows) {
     if (typeof row.id !== "string" || typeof row.directory !== "string") return hold("original_context_unavailable");
-    const directory = await canonicalFilePath(row.directory), selected = workspaces.find(entry => entry.directory === directory);
+    const directory = await canonicalFilePath(row.directory), selected = workspaces.find(entry => entry.directory === directory || entry.workspace.previousPath === directory);
     if (selected && sourcePolicy(backup, row.id)) result.push({ workspace: selected.workspace, sessionID: row.id });
   }
   return result;

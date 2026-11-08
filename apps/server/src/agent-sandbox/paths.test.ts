@@ -15,3 +15,17 @@ test("does not map siblings, unknown roots or already translated paths", () => {
   for (const path of ["/Users/test/Project One Other/input.docx", "/Users/another/file", "/workspace/input.docx"])
     expect(sandboxPaths(path, mounts)).toBe(path);
 });
+
+test("Windows drive, UNC and mixed separators use guest paths without changing other command escapes", () => {
+  const windows = [
+    { source: String.raw`C:\Users\Test\Project One`, target: "/workspace" },
+    { source: String.raw`C:\Users\Test\Project One\files`, target: "/workspace/files" },
+    { source: String.raw`\\server\share\Documents`, target: "/authorized/0" },
+  ];
+  expect(sandboxPaths(String.raw`c:\users\test\project one\files\Case A\Sources`, windows, { directory: true })).toBe("/workspace/files/Case A/Sources");
+  expect(sandboxPaths(String.raw`cat "C:\Users\Test\Project One\files\Case A\contract.txt" "//SERVER/share/Documents/input.pdf"; printf '\n'`, windows))
+    .toBe(String.raw`cat "/workspace/files/Case A/contract.txt" "/authorized/0/input.pdf"; printf '\n'`);
+  expect(sandboxPaths(String.raw`\\server\share\Documents`, windows, { directory: true })).toBe("/authorized/0");
+  expect(sandboxPaths(String.raw`C:\Users\Test\Project One Other\secret.txt`, windows, { directory: true })).toBe(String.raw`C:\Users\Test\Project One Other\secret.txt`);
+  expect(sandboxPaths(String.raw`\\server\share\Documents Other\secret.txt`, windows, { directory: true })).toBe(String.raw`\\server\share\Documents Other\secret.txt`);
+});

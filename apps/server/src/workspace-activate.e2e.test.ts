@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -25,7 +25,7 @@ afterEach(async () => {
 });
 
 async function createWorkspaceRoot() {
-  const root = await mkdtemp(join(tmpdir(), "legalwork-activate-"));
+  const root = await realpath(await mkdtemp(join(tmpdir(), "legalwork-activate-")));
   await mkdir(join(root, ".opencode"), { recursive: true });
   roots.push(root);
   return root;
@@ -541,23 +541,31 @@ test("local folder setup discovers custom defaults, saves values and finishes se
   expect(noSource.status).toBe(400);
 });
 
-test("new default projects use the native host root without relocating existing projects", async () => {
+test("new default projects use independent ID-based engine homes and document folders", async () => {
   const root = await createWorkspaceRoot();
-  const projectsDirectory = join(root, "Redirected Documents", "LegalWork", "Projects");
+  const projectsDirectory = join(root, "Local app data", "LegalWork", "Projects");
   const legalwork = await startLegalworkServerWithWorkspaces({ configPath: join(root, "server.json"), workspaces: [], authorizedRoots: [], projectsDirectory });
   const base = `http://127.0.0.1:${legalwork.server.port}`;
   const headers = { ...hostAuth(legalwork.hostToken), Authorization: "Bearer owt_test_token", "Content-Type": "application/json" };
   expect(await (await fetch(`${base}/workspaces/project-defaults`, { headers })).json()).toEqual({ folderPath: projectsDirectory });
-  for (const expected of ["Matter", "Matter (2)"]) {
+  const homes: string[] = [];
+  for (let index = 0; index < 2; index++) {
     const response = await fetch(`${base}/workspaces/local`, { method: "POST", headers, body: JSON.stringify({ folderMode: "default", name: "Matter", projectFields: [{ id: "client", label: "Mandant", type: "text", value: null }] }) });
     expect(response.status).toBe(201);
     const list = await response.json();
-    expect(list.workspaces[0].path).toBe(join(projectsDirectory, expected));
+    const workspace = list.workspaces[0];
+    const home = join(projectsDirectory, workspace.id);
+    expect(workspace.path).toBe(home);
+    expect(workspace.contentPath).toBe(join(home, "files"));
+    expect((await stat(workspace.contentPath)).isDirectory()).toBe(true);
+    homes.push(home);
     const details = await (await fetch(`${base}/workspace/${list.workspaces[0].id}/project`, { headers })).json();
     expect(details.fields).toEqual([{ id: "client", label: "Mandant", type: "text", value: null }]);
   }
   const persisted = await readPersistedConfig(join(root, "server.json"));
-  expect(workspacesFromConfig(persisted).map((workspace) => workspace.path)).toEqual([join(projectsDirectory, "Matter (2)"), join(projectsDirectory, "Matter")]);
+  expect(new Set(homes).size).toBe(2);
+  expect(workspacesFromConfig(persisted).map((workspace) => workspace.path)).toEqual([...homes].reverse());
+  expect(workspacesFromConfig(persisted).map((workspace) => workspace.contentPath)).toEqual([...homes].reverse().map(home => join(home, "files")));
 });
 
 

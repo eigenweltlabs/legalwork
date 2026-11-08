@@ -1,3 +1,4 @@
+import type { SkillWorkspace } from "./skills.js";
 import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative, sep } from "node:path";
@@ -79,29 +80,26 @@ function globalSkillsBaseDirs(): string[] {
  * .claude/skills first, then the global skills dirs, in both the flat and the
  * nested (<domain>/<name>) layouts.
  */
-export async function resolveSkillDir(workspaceRoot: string, skillName: string, coreRoot?: string): Promise<string> {
+export async function resolveSkillDir(workspace: SkillWorkspace, skillName: string, coreRoot?: string): Promise<string> {
   const trimmed = skillName.trim();
   validateSkillName(trimmed); // kebab-case only — path-traversal safe
   if (coreRoot) {
-    const skill = (await listSkills(workspaceRoot, true, undefined, coreRoot)).find(item => item.name === trimmed);
+    const skill = (await listSkills(workspace, true, undefined, coreRoot)).find(item => item.name === trimmed);
     if (skill) return dirname(skill.path);
     throw new ApiError(404, "skill_not_found", `Skill not found: ${trimmed}`);
   }
-  const fromVisible = await findSkillDirInBase(join(workspaceRoot, "Skills"), trimmed);
-  if (fromVisible) return fromVisible;
-  const fromOpencode = await findSkillDirInBase(projectSkillsDir(workspaceRoot), trimmed);
-  if (fromOpencode) return fromOpencode;
-  const fromClaude = await findSkillDirInBase(join(workspaceRoot, ".claude", "skills"), trimmed);
-  if (fromClaude) return fromClaude;
-  for (const baseDir of globalSkillsBaseDirs()) {
-    const fromGlobal = await findSkillDirInBase(baseDir, trimmed);
-    if (fromGlobal) return fromGlobal;
+  const engine = typeof workspace === "string" ? workspace : workspace.path;
+  const content = typeof workspace === "string" ? workspace : workspace.contentPath || workspace.path;
+  const bases = [join(content, "Skills"), projectSkillsDir(engine), join(content, ".claude", "skills"), join(content, ".agents", "skills"), ...globalSkillsBaseDirs()];
+  for (const base of bases) {
+    const directory = await findSkillDirInBase(base, trimmed);
+    if (directory) return directory;
   }
   throw new ApiError(404, "skill_not_found", `Skill not found: ${trimmed}`);
 }
 
 /** Shared app-owned packages may be read/exported, never edited as user files. */
-export async function writableSkillDir(workspaceRoot: string, skillName: string, coreRoot?: string) {
+export async function writableSkillDir(workspaceRoot: SkillWorkspace, skillName: string, coreRoot?: string) {
   const directory = await resolveSkillDir(workspaceRoot, skillName, coreRoot);
   if (coreRoot) {
     const part = relative(coreRoot, directory);
@@ -124,7 +122,7 @@ async function listResourceNames(resourcesDir: string): Promise<string[]> {
     .sort((a, b) => a.localeCompare(b));
 }
 
-export async function listSkillResources(workspaceRoot: string, skillName: string, coreRoot?: string): Promise<SkillResourceItem[]> {
+export async function listSkillResources(workspaceRoot: SkillWorkspace, skillName: string, coreRoot?: string): Promise<SkillResourceItem[]> {
   const skillDir = await resolveSkillDir(workspaceRoot, skillName, coreRoot);
   const dir = join(skillDir, "resources");
   const items: SkillResourceItem[] = [];
@@ -137,7 +135,7 @@ export async function listSkillResources(workspaceRoot: string, skillName: strin
 }
 
 export async function readSkillResource(
-  workspaceRoot: string,
+  workspaceRoot: SkillWorkspace,
   skillName: string,
   fileName: string,
   encoding: "utf8" | "base64" = "utf8",
@@ -165,7 +163,7 @@ export type UpsertSkillResourcePayload = {
 };
 
 export async function upsertSkillResource(
-  workspaceRoot: string,
+  workspaceRoot: SkillWorkspace,
   skillName: string,
   payload: UpsertSkillResourcePayload,
   coreRoot?: string,
@@ -190,7 +188,7 @@ export async function upsertSkillResource(
 }
 
 export async function deleteSkillResource(
-  workspaceRoot: string,
+  workspaceRoot: SkillWorkspace,
   skillName: string,
   fileName: string,
   coreRoot?: string,

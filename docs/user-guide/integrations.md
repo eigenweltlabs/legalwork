@@ -108,6 +108,10 @@ Connecting a calendar service lets the assistant use that service's available to
 
 ## Browser and Computer Use
 
+You can browse websites while a connected project drive is unavailable. Reconnect that drive before downloading into its project folder. For local projects, the browser can also open files in the connected document folder and local project support folder. A separately connected server does not grant access to files on your computer.
+
+If opening a browser reports that the local browser engine is unavailable, it is an engine connection problem. Wait for LegalWork startup to finish before retrying. Changing a valid website address does not repair the engine connection; use the reported browser error when troubleshooting.
+
 The built-in browser opens websites in a browser panel. Ask the assistant to open a URL and inspect the page with the browser tools. Opening or reconnecting a tab gives the assistant a page observation it can use directly for searches, forms, links and other interactions. It can perform known steps together, then inspect the result; a new page or an unexpected result requires another observation. For saved website passwords, use **Settings > Secrets > Browser passwords**; see [browser password setup and limits](settings-privacy.md#browser-passwords). Filling uses the existing tab. Background task tabs remain available after the assistant finishes, so you can reopen them from their chat cards or continue in the same tab on a follow-up. Close a tab when you no longer need it. Website sign-ins, downloads and site permissions are separate from LegalWork model-provider sign-in. Inspect the returned file location after downloading.
 
 Computer Use controls desktop applications and is configured from its integration card. The built-in desktop integration in this build targets macOS and requires Accessibility and Screen Recording permissions. Use its setup/test controls to confirm readiness. For LegalWork's own navigation, prefer the app's UI action tools so the assistant can open settings or sessions directly. Browser automation is for web content, not an assumption that LegalWork's native controls are a website.

@@ -2,6 +2,7 @@ import { realpath } from "node:fs/promises";
 import type { ServerConfig, TokenScope } from "../types.js";
 import { ApiError } from "../errors.js";
 import { within, type SandboxMount } from "../agent-sandbox/files.js";
+import { workspaceContentPath } from "../project-storage-paths.js";
 
 export type WikiProjectGrant = { wikiId: string; projectId: string; root: string; scope: TokenScope; origin: string };
 type SessionAccess = { revision: number; grants: Map<string, WikiProjectGrant>; controller: AbortController; protectedRoots: Set<string>; pending: Map<string, number> };
@@ -46,7 +47,7 @@ export function forgetWikiProjectAccess(config: ServerConfig, sessionId: string)
 export async function requireWikiProjectAccess(config: ServerConfig, sessionId: string, projectId: string, wikiId: string, origin: string, scope: TokenScope) {
   const grant = access.get(config)?.get(sessionId)?.grants.get(projectId);
   const project = config.workspaces.find(item => item.id === projectId);
-  const root = project ? await realpath(project.directory || project.path).catch(() => null) : null;
+  const root = project ? await realpath(workspaceContentPath(project)).catch(() => null) : null;
   if (!grant || grant.wikiId !== wikiId || grant.origin !== origin || grant.scope !== scope || grant.root !== root) {
     if (grant && grant.root !== root) revokeWikiProjectAccess(config, sessionId, projectId);
     throw new ApiError(403, "wiki_project_access_required", "This wiki chat needs the user's read-only approval for this project.");
@@ -75,7 +76,7 @@ export async function validWikiProjectGrants(config: ServerConfig, sessionId: st
 export async function wikiProjectSandboxMounts(config: ServerConfig, wikiId: string, wikiWorkspaceIds: Set<string>, sessionId: string,
   origin: string, scope: TokenScope, mounts: SandboxMount[]): Promise<SandboxMount[]> {
   const roots = (await Promise.all(config.workspaces.filter(project => !wikiWorkspaceIds.has(project.id))
-    .map(project => realpath(project.directory || project.path).catch(() => null)))).filter(root => root !== null);
+    .flatMap(project => [project.path, workspaceContentPath(project)].map(root => realpath(root).catch(() => null))))).filter(root => root !== null);
   const grants = await validWikiProjectGrants(config, sessionId, wikiId, origin, scope);
   // Retain the boundary after unregister/revoke. Otherwise the same root could
   // come back as a writable generic external-directory mount on the next call.

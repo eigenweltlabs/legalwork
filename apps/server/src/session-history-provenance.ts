@@ -31,7 +31,7 @@ export async function readSessionHistoryProvenance(config: ServerConfig, workspa
   try {
     const state = await readCurrentHistory(config), original = state?.sessions[session.id];
     if (!original) return { version: 1, status: "not-migrated", messages: {} };
-    if (original.directory !== actual) return { version: 1, status: "unavailable", messages: {}, issue: "Original chat ownership could not be verified." };
+    if (original.directory !== actual && (!workspace.previousPath || original.directory !== await canonicalFilePath(workspace.previousPath))) return { version: 1, status: "unavailable", messages: {}, issue: "Original chat ownership could not be verified." };
     const messages: Record<string, HistoricalMessage> = {};
     for (const native of nativeMessages) {
       const source = original.messages[native.id];

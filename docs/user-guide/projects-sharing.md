@@ -8,6 +8,12 @@ A project is the working context for a matter or other body of work: its files, 
 
 Open **Projects** and use the create action. Choose the name, an existing local folder or the offered project location, and optionally link folders from connected storage. Remote folder choices appear only when storage is connected.
 
+LegalWork keeps its engine files and project state in its own local application-data folder. When you choose an existing document folder, your documents stay there. For a project without a chosen folder, LegalWork creates a local **files** folder for its documents. Downloads, saved recordings and exported images go to the project's document folder; temporary processing files stay in local project storage.
+
+Upgrading moves the existing `.opencode` and `.legalwork` folders, including saved project data, attachments and wiki references. Saved chats keep their identities. Wait for migration to finish before running a chat or scheduled task. If you remove a local project from the project list and later add the same document folder, LegalWork reconnects its retained local project data. A disconnected document drive still needs to be reconnected to open or save the documents on it.
+
+During migration, the startup screen shows the current stage and project, with actual file, byte or chat counts. The progress bar measures the current stage; it is not an estimate of time remaining. While LegalWork is still finding the total, the bar shows activity and the amount already processed. Keep LegalWork open until migration finishes. If migration reports an error, restart LegalWork to resume; do not delete its data or recovery copies. An unavailable document folder remains pending until it is reconnected.
+
 **Set up from existing files**, when selected, starts an assistant chat to inspect the chosen material and establish the project. It can fill supported project details, identify concrete tasks and add useful source notes. Leave it off to create/link the project without starting that work. Review any extracted details and dates against their sources.
 
 On **Project Home**, edit matter details inline. Enter or leaving a text field saves; Escape cancels. Use the field-settings control to add or change text, number, date or selection fields. **Save to defaults** makes a field definition available to future projects without copying its current matter value. **Settings > Customization > Projects** controls the starting schema; existing saved project schemas keep their own definitions.
@@ -40,6 +46,8 @@ Use **Linked folders** on Home to add or remove references to connected storage.
 Only the owner changes the audience and sharing scope. Members can edit shared project content and can **Leave project**. Sharing Tabular Reviews includes their referenced documents even if general document sharing is off; calendar attachments have a similar exception. Chats are shared separately and do not sync merely because their project is shared.
 
 To stop sharing, the owner removes every person and the whole-firm audience, then saves. Read the confirmation: the owner's local project remains, while members lose the shared copy subject to the app's handling of unsent edits and pre-existing folders. Leaving a project is different from deleting source documents in connected storage.
+
+Removing a downloaded shared copy removes its LegalWork-created document folder and local project data. A folder you connected yourself remains yours. If the downloaded document folder is unavailable, reconnect it and retry removal; LegalWork keeps the project while cleanup is pending.
 
 ## Offline work and conflicting changes
 

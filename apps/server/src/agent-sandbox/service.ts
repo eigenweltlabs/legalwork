@@ -1,3 +1,6 @@
+import { projectPathKey } from "../workspace-path-match.js";
+import { primaryContentFolderRules, projectFilePermissionRules } from "../project-storage.js";
+import { stat } from "node:fs/promises";
 import { managedCoreLibraryRoot } from "../managed-core-library.js";
 import { verifiedWikiSessionOrigin } from "../wiki/agent-access.js";
 import { wikiProjectAccessSignal, validWikiProjectGrants, wikiProjectSandboxMounts } from "../wiki/project-access.js";
@@ -128,9 +131,9 @@ export class AgentSandboxService {
       const wikiStore = new WikiStore(this.config);
       const wikis = await wikiStore.list();
       const privateRoots = [wikiStore.baseDir, runtimeStorageDir(this.config)];
-      const wikiPolicy = await buildWikiFilePolicy(wikis, workspace.path, privateRoots);
+      const wikiPolicy = await buildWikiFilePolicy(wikis, workspace.path, privateRoots, this.config.workspaces);
       const wikiAccess = new WikiSync(this.config, wikiStore);
-      const ownWiki = wikiForDirectory(wikis, wikiPolicy.directory);
+      const ownWiki = wikiForDirectory(wikis, wikiPolicy.directory, this.config.workspaces);
       if (ownWiki && !settings.enabled) throw new ApiError(403, "wiki_sandbox_required", "Enable protected execution to run commands in a wiki chat. Approved projects remain available through the read-only project tools.");
       const projectOrigin = ownWiki && command.sessionID ? await verifiedWikiSessionOrigin(this.config, workspace, command.sessionID, actor.scope ?? "owner", signal) : undefined;
       const projectGrants = ownWiki && command.sessionID && projectOrigin ? await validWikiProjectGrants(this.config, command.sessionID, ownWiki.id, projectOrigin.generation, projectOrigin.scope) : [];
@@ -167,7 +170,7 @@ export class AgentSandboxService {
           throw new ApiError(403, "sandbox_permission_denied", "external_directory is blocked by your permissions. Enable sandboxing to enforce folder restrictions.");
         }
         if (command.skills?.length) {
-          const skills = await listSkills(workspace.path, true, undefined, managedCoreLibraryRoot(this.config));
+          const skills = await listSkills(workspace, true, undefined, managedCoreLibraryRoot(this.config));
           for (const name of command.skills) {
             const skill = skills.find(item => item.name === name);
             if (!skill) throw new ApiError(400, "sandbox_skill_missing", `Installed skill not found: ${name}`);
@@ -179,12 +182,12 @@ export class AgentSandboxService {
         return { ...await withFileEditorHandoff({ ...command, signal }, () => { signal.throwIfAborted(); return runHostCommand({ command: command.command, cwd, timeoutMs: command.timeoutMs, capture: command.capture, signal }); }), sandbox: "host" };
       }
       const writeAction = commandAction("edit");
-      const externalRules = runtimeExternalDirectory(runtime);
+      const externalRules = [...primaryContentFolderRules(workspace), ...runtimeExternalDirectory(runtime)];
       const folderPermissions = { ...runtime, permissions, projectPermissionApprovals: [...runtime.projectPermissionApprovals ?? [],
         ...agentRules.filter(rule => rule.session && rule.permission === "external_directory" && rule.action === "allow")
           .map(rule => ({ action: rule.permission, resources: [rule.pattern] }))] };
       const rememberedFolders = rememberedProjectFolderRules(folderPermissions);
-      const sources = [...new Set(await Promise.all([workspace.path, ...authorizedFolders(externalRules), ...authorizedFolders(rememberedFolders), ...projectGrants.map(grant => grant.root)].map(source => ownWiki ? realpath(source).catch(() => { throw new ApiError(403, "wiki_project_mount_unavailable", "A shared folder is unavailable. Review this chat's project access."); }) : Promise.resolve(source))))];
+      const sources = [...new Set(await Promise.all([workspace.path, ...(workspace.contentPath && !within(workspace.path, workspace.contentPath) && (await stat(workspace.contentPath).catch(() => undefined))?.isDirectory() ? [workspace.contentPath] : []), ...authorizedFolders(externalRules).filter(folder => !workspace.contentPath || projectPathKey(folder) !== projectPathKey(workspace.contentPath)), ...authorizedFolders(rememberedFolders), ...projectGrants.map(grant => grant.root)].map(source => ownWiki ? realpath(source).catch(() => { throw new ApiError(403, "wiki_project_mount_unavailable", "A shared folder is unavailable. Review this chat's project access."); }) : Promise.resolve(source))))];
       if (sources.length > 1 && externalRules.some(rule => rule.resource !== "*" && rule.effect === "deny")) {
         throw new ApiError(403, "sandbox_directory_scope", "A scoped folder denial cannot be enforced by sharing the whole folder. Choose narrower authorized folders.");
       }
@@ -200,7 +203,7 @@ export class AgentSandboxService {
       const mounts: SandboxMount[] = sources.map((source, index) => ({ source,
         target: index === 0 ? "/workspace" : `/authorized/${index - 1}`, writable: command.write }));
       if (command.skills?.length) {
-        const installed = await listSkills(workspace.path, true, undefined, managedCoreLibraryRoot(this.config));
+        const installed = await listSkills(workspace, true, undefined, managedCoreLibraryRoot(this.config));
         for (const [index, name] of command.skills.entries()) {
           const skill = installed.find((item) => item.name === name);
           if (!skill) throw new ApiError(400, "sandbox_skill_missing", `Installed skill not found: ${name}`);
@@ -213,7 +216,9 @@ export class AgentSandboxService {
       if (command.write) await ask("edit", "*", `Allow this command to change files in the listed folders?\n\n${command.command}`, sources, writeAction);
       const wikiMounts = await projectMounts(await wikiSafeSandboxMounts(wikiPolicy, mounts));
       for (const mount of wikiMounts) for (const wiki of wikis) {
-        if (wiki.id === ownWiki?.id || !within(mount.source, wiki.root) && !within(wiki.root, mount.source)) continue;
+        const engineRoot = this.config.workspaces.find(item => item.id === wiki.workspaceId)?.path;
+        const wikiRoots = engineRoot ? [wiki.root, engineRoot] : [wiki.root];
+        if (wiki.id === ownWiki?.id || !wikiRoots.some(root => within(mount.source, root) || within(root, mount.source))) continue;
         assertWikiWorkspaceAccess(actor, wiki);
         if (!await wikiAgentCanAccess(this.config, wikis, wiki, wikiPolicy.directory))
           throw new ApiError(403, "wiki_access_denied", "This wiki is not available to this project. Remove it from the command's authorized folders.");
@@ -228,11 +233,12 @@ export class AgentSandboxService {
       const sharedSkillsRoot = join(await canonicalFolderPath(globalOpencodeConfigDir()), "skills");
       for (const mount of wikiMounts) {
         const sharedSkill = mount.target.startsWith("/skills/") && mount.source !== sharedSkillsRoot && within(sharedSkillsRoot, mount.source);
-        const protectedPaths = wikiContentPath(wikiPolicy, mount.source) ? [] : sharedSkill ? privateRoots : wikiPolicy.runtimeRoots;
+        const ownSupport = workspace.contentPath && within(await canonicalFolderPath(workspace.path), mount.source);
+        const protectedPaths = wikiContentPath(wikiPolicy, mount.source) || ownSupport ? [] : sharedSkill ? privateRoots : wikiPolicy.runtimeRoots;
         const checked = await validateMounts([{ ...mount, target: "/workspace" }], protectedPaths);
         safeMounts.push({ ...checked[0], target: mount.target });
       }
-      const cwd = sandboxPaths(command.workdir || "/workspace", safeMounts);
+      const cwd = sandboxPaths(command.workdir || "/workspace", safeMounts, { directory: true });
       if (!cwd.startsWith("/")) throw new ApiError(400, "sandbox_directory", "Use /workspace or an authorized sandbox folder.");
       const result = await withFileEditorHandoff({ ...command, signal: executionSignal }, () => { executionSignal.throwIfAborted(); return this.backend.run({ command: sandboxPaths(command.command, safeMounts), cwd, mounts: safeMounts,
         timeoutMs: command.timeoutMs, capture: command.capture, signal: executionSignal,
@@ -244,7 +250,7 @@ export class AgentSandboxService {
           if (currentProjectMounts.some((mount, index) => mount.writable !== safeMounts[index].writable))
             throw new ApiError(403, "wiki_project_access_changed", "A shared folder became a read-only project while this command ran. Its file changes were not saved.");
           if (ownWiki && command.write) await wikiAccess.ensureWritable(await wikiStore.get(ownWiki.id), ownsWikis(actor));
-          const current = await buildWikiFilePolicy(await wikiStore.list(), workspace.path, wikiPolicy.runtimeRoots);
+          const current = await buildWikiFilePolicy(await wikiStore.list(), workspace.path, wikiPolicy.runtimeRoots, this.config.workspaces);
           const checked = await wikiSafeSandboxMounts(current, safeMounts);
           if (checked.some((mount, index) => mount.writable !== safeMounts[index].writable))
             throw new ApiError(403, "wiki_sandbox_policy_changed", "A shared folder became a protected wiki while this command ran. Its file changes were not saved. Use approved wiki tools.");
@@ -328,8 +334,9 @@ export class AgentSandboxService {
     });
     try {
       const runtime = await readRuntimeOpencodeConfig(this.config, workspace.id);
-      const nativePermissions = applyGlobalToolPermissions(runtime, await readGlobalToolPermissions(this.config)).permissions ?? [];
-      const { permission: permissions } = await orgPolicyPermissions(this.config, nativePermissions);
+      const nativePermissions = [...primaryContentFolderRules(workspace), ...applyGlobalToolPermissions(runtime, await readGlobalToolPermissions(this.config)).permissions ?? []];
+      const { permission: configured } = await orgPolicyPermissions(this.config, nativePermissions);
+      const permissions = projectFilePermissionRules(workspace, configured);
       const settings = await effectiveSandbox(this.config, workspace.id, lineage);
       const root = await realpath(workspace.path);
       dependencies = settings.dependencies;

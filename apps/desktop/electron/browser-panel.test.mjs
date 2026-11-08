@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { EventEmitter, once } from "node:events";
-import { mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -407,4 +407,18 @@ test("closing a tab while its initial load is pending never starts a late thumbn
   await opening;
   assert.equal(screenshots, 0);
   assert.equal(f.call("state", f.first).tabs.length, 0);
+});
+
+
+test("browser identity resolves the registered engine separately from connected and default documents", async t => {
+  const root = realpathSync(mkdtempSync(path.join(tmpdir(), "legalwork-browser-roots-")));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  for (const name of ["engine", "documents", "engine/files"]) mkdirSync(path.join(root, name), { recursive: true });
+  for (const contentPath of [path.join(root, "documents"), path.join(root, "engine/files")]) {
+    const state = { selectedId: "a", workspaces: [{ id: "a", workspaceType: "local", path: path.join(root, "engine"), contentPath }] };
+    const context = { workspaceId: "a", directory: path.join(root, "engine") };
+    assert.equal(await resolveBrowserProject(context, state, { running: false }, ""), contentPath);
+    assert.equal(await resolveBrowserProject(context, state, { running: false }, "", "engine"), path.join(root, "engine"));
+    await assert.rejects(resolveBrowserProject({ workspaceId: "foreign" }, state, { running: false }, "", "engine"), /not found/);
+  }
 });

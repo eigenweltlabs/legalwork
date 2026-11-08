@@ -527,7 +527,7 @@ describe("legalwork_task_download_attachment", () => {
     const result = JSON.parse(await tools.legalwork_task_download_attachment.execute(
       { taskId: "task-1", attachmentId: "att-1", path: target.path }, { directory: WORKSPACE.path },
     ));
-    expect(result).toEqual({ ok: true, taskId: "task-1", attachmentId: "att-1", local_path: target.path, bytes: ATTACHMENT_BYTES.byteLength });
+    expect(result).toEqual({ ok: true, taskId: "task-1", attachmentId: "att-1", local_path: target.absolute, bytes: ATTACHMENT_BYTES.byteLength });
     expect(new Uint8Array(await readFile(target.absolute))).toEqual(ATTACHMENT_BYTES);
     expect(taskRequests()).toHaveLength(1);
     expect(taskRequests()[0]?.url).toBe(`${SERVER_URL}/workspace/ws-1/tasks/task-1/attachments/att-1`);

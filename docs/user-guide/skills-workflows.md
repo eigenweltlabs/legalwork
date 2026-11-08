@@ -20,6 +20,8 @@ Open **Workflows** in the main sidebar. Use its **Workflows**, **Review prompts*
 
 Opening a saved workflow, moving the cursor, or switching between **Rich text**, **Source mode** and **Diff mode** keeps its **Saved** status. Editing the instructions or details marks it as **Unsaved changes**. Select **Save** to store those edits.
 
+Updating an existing project skill keeps it in its current library location, including a visible `Skills` folder in the connected document folder. New project skills use the local hidden library. Reusable corrections can extend an existing skill from either project location.
+
 Older libraries offer **Assistant workflow** and **Tabular workflow** types. Newer libraries create ordinary workflows and provide **Review prompts** separately for reusable question sets. Existing tabular workflows can remain editable, but the native review implementation uses saved reviews rather than generating a standalone HTML grid. Follow the controls actually present in your library.
 
 Attach the firm's templates, playbooks and examples as workflow resources. Resource files can be opened and edited in their supported editor; saving an edited resource updates the library copy. Generating a workflow from templates is available through the template generation action. Inspect the generated instructions before treating them as a firm standard.

@@ -76,7 +76,7 @@ export async function prepareNativeSavedApprovalMigration(config: ServerConfig, 
   }
   catch (error) { if (!(error && typeof error === "object" && "code" in error && error.code === "EEXIST")) throw error; }
   if (await readFile(backup, "utf8") !== content) throw new Error("The saved-permission original archive failed verification.");
-  const workspaces = await Promise.all(config.workspaces.map(async workspace => ({ id: workspace.id, directory: await canonicalFilePath(workspace.directory?.trim() || workspace.path) })));
+  const workspaces = await Promise.all(config.workspaces.map(async workspace => ({ id: workspace.id, directory: await canonicalFilePath(workspace.previousPath || workspace.directory?.trim() || workspace.path) })));
   const result: SavedNativeApprovalMigration = { version: 1, source, sourceHash, backup, sourceRows: original.rows.length, imports: [], unresolved: [] };
   for (const [sourceRow, row] of original.rows.entries()) {
     const project = original.projects.find(project => project.id === row.project_id);
