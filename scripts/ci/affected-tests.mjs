@@ -66,5 +66,5 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const changed = process.env.MERGE_CHANGED_FILES === undefined ? mergeDiff().files : JSON.parse(process.env.MERGE_CHANGED_FILES);
   const tests = changed === null ? null : affectedTests(area, changed);
   console.log(tests ? 'Affected tests:\n' + tests.join('\n') : 'Running the package portable suite');
-  process.exitCode = runTests(area, tests ?? []);
+  process.exitCode = runTests(area, tests ?? [], process.env.SERVER_TEST_SHARD);
 }

@@ -74,6 +74,8 @@ test('startup API fixtures get a fresh isolated worker without changing deadline
   const regular = testArguments('server', [], 2), startup = testArguments('server', groups[1], 1);
   for (const file of serialServerTestFiles) assert.ok(regular.includes('--path-ignore-patterns=**/' + file));
   assert.ok(regular.includes('--parallel=2'));
+  assert.ok(testArguments('server', [], 2, '2/2').includes('--shard=2/2'));
+  assert.throws(() => testArguments('app', [], 2, '1/2'));
   assert.ok(startup.includes('--parallel=1')); // One worker still implies Bun file isolation.
   assert.ok(!startup.some(arg => arg.startsWith('--path-ignore-patterns')));
   assert.ok(!startup.includes('--timeout')); // Retain the original five-second Bun default.

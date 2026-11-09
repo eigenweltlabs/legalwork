@@ -19,13 +19,14 @@ export function testWorkers(value = process.env.LEGALWORK_TEST_WORKERS) {
 
 export const serialServerTestFiles = ['wiki/file-access-policy.e2e.test.ts', 'wikis-team.e2e.test.ts'];
 
-export function testArguments(suite, files = [], workers = suite === 'sandbox' ? 1 : testWorkers()) {
+export function testArguments(suite, files = [], workers = suite === 'sandbox' ? 1 : testWorkers(), shard = '') {
   assert.ok(['app', 'server', 'engine', 'sandbox'].includes(suite), 'Unknown test suite');
   if (suite === 'sandbox') {
     assert.equal(workers, 1, 'Native VM files must run serially');
     assert.ok(files.length > 0, 'Native sandbox tests require an explicit file list');
   }
-  return ['test', ...(workers > 1 || suite === 'server' ? [`--parallel=${workers}`] : []),
+  if (shard) assert.ok(suite === 'server' && ['1/2', '2/2'].includes(shard), 'Unknown portable server shard');
+  return ['test', ...(shard ? ['--shard=' + shard] : []), ...(workers > 1 || suite === 'server' ? [`--parallel=${workers}`] : []),
     ...(suite === 'server' && files.length === 0 ? [...serverUnitIgnorePatterns, ...serialServerTestFiles.map(file => `**/${file}`)].map(pattern => `--path-ignore-patterns=${pattern}`) : []),
     ...(suite === 'app' ? [] : ['--preload', path.join(root, 'apps/server/test-preload.ts')]),
     ...(['engine', 'sandbox'].includes(suite) ? ['--timeout', '180000'] : []),
@@ -49,7 +50,7 @@ export function testGroups(suite, files) {
   return transport.length && remaining.length ? [transport, remaining] : [files];
 }
 
-export function runTests(suite, files = []) {
+export function runTests(suite, files = [], shard = '') {
   const prepared = spawnSync(process.execPath, [path.join(root, 'scripts/gen-core-skills.mjs'), '--check'], { cwd: root, stdio: 'inherit' });
   if (prepared.status !== 0) return prepared.status ?? 1;
   const workers = suite === 'sandbox' ? 1 : testWorkers(), started = performance.now();
@@ -58,7 +59,7 @@ export function runTests(suite, files = []) {
   let status = 0;
   for (const group of groups) {
     const groupWorkers = suite === 'server' && group.some(isSerialServerTest) ? 1 : workers;
-    const result = spawnSync(process.env.LEGALWORK_TEST_BUN_BIN || 'bun', testArguments(suite, group, groupWorkers), {
+    const result = spawnSync(process.env.LEGALWORK_TEST_BUN_BIN || 'bun', testArguments(suite, group, groupWorkers, shard), {
       cwd: ['engine', 'sandbox'].includes(suite) ? root : path.join(root, 'apps', suite === 'app' ? 'app' : 'server'),
       env: { ...process.env, LEGALWORK_TEST_PREPARED: '1' }, stdio: 'inherit', windowsHide: true,
     });

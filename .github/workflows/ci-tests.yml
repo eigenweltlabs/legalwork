@@ -401,9 +401,9 @@ jobs:
           bun-version: 1.4.4
       - uses: ./.github/actions/install-dependencies
         with:
-          filter: ${{ (matrix.area == 'app' || matrix.area == 'server') && fromJSON('"@legalwork/app...\nlegalwork-server..."') || matrix.area == 'openui' && '@legalwork/app...' || '' }}
+          filter: ${{ (matrix.area == 'app' || startsWith(matrix.area, 'server')) && fromJSON('"@legalwork/app...\nlegalwork-server..."') || matrix.area == 'openui' && '@legalwork/app...' || '' }}
       - name: Reserve sign-in ports for server fixtures
-        if: matrix.area == 'server'
+        if: startsWith(matrix.area, 'server')
         run: |
           reserved="$(cat /proc/sys/net/ipv4/ip_local_reserved_ports)"
           sudo sysctl -w "net.ipv4.ip_local_reserved_ports=${reserved:+$reserved,}43117-43119"
@@ -415,7 +415,9 @@ jobs:
         run: |
           pnpm --filter @legalwork/app typecheck
           node scripts/ci/affected-tests.mjs app
-      - if: matrix.area == 'server'
+      - if: startsWith(matrix.area, 'server')
+        env:
+          SERVER_TEST_SHARD: ${{ matrix.area == 'server-1' && '1/2' || matrix.area == 'server-2' && '2/2' || '' }}
         run: |
           node apps/desktop/scripts/prepare-node-runtime.mjs
           pnpm --filter legalwork-server build

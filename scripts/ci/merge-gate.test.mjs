@@ -4,13 +4,15 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { mergeDiff, mergePlan, portableAreas } from './merge-plan.mjs';
+import { mergeDiff, mergePlan, portableAreas, portableJobs } from './merge-plan.mjs';
 import { lastPublished, alphaTargets } from './alpha-candidate.mjs';
 import { enableDevQueue, queuedRuleset } from './dev-queue-ruleset.mjs';
 
 test('bundled help, ordinary SDK consumers and typed UI are portable; engine policy and shared VM changes use native checks', () => {
   const docs = ['apps/server/src/core-skills.ts', 'docs/user-guide/chat.md'];
   assert.deepEqual(mergePlan(docs), { fullEngine: false, focused: [], targets: [] });
+  assert.deepEqual(portableJobs(['apps/server/src/routes/files.ts']), ['server']);
+  assert.deepEqual(portableJobs(['apps/server/package.json']), ['server-1', 'server-2']);
   assert.deepEqual(portableAreas(docs), []);
   assert.deepEqual(portableAreas(['packages/openui/src/catalog.tsx']), ['app', 'openui']);
   assert.equal(mergePlan(['apps/server/package.json'], { engineDepsChanged: false }).fullEngine, false);

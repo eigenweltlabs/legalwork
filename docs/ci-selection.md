@@ -9,7 +9,9 @@ use their existing scopes.
 
 - App and server edits select portable tests through workspace imports, filenames
   and source-reading contract tests. An unmatched change or deleted input falls
-  back to the owning package's portable suite. Shared types select their consumers.
+  back to the owning package's portable suite. Shared types select their consumers. Broad server changes use Bun’s
+  deterministic two-runner sharding. Each selected file runs once, including
+  the isolated startup fixtures.
 - A changed real-engine fixture or its matching implementation selects focused
   tests on Linux. The runner prepares the reviewed host engine, verifies its
   provenance on cache hits and compiles that host on a miss. Dev warms the

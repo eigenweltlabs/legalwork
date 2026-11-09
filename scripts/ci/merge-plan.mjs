@@ -69,6 +69,16 @@ export function portableAreas(files) {
   return [...areas].sort();
 }
 
+export function portableJobs(files) {
+  const areas = portableAreas(files);
+  const serverInputs = files.filter(file => /^(?:apps\/server\/|packages\/types\/)/.test(file));
+  // Individual TS fixes normally have a small test set. Package and broad
+  // changes can reach the entire portable suite. Each file runs on just one host.
+  const split = serverInputs.length >= 4 || serverInputs.some(file => !/\.[cm]?[jt]sx?$/.test(file))
+    || files.some(file => ['package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml'].includes(file));
+  return areas.flatMap(area => area === 'server' && split ? ['server-1', 'server-2'] : [area]);
+}
+
 export function mergeDiff(env = process.env) {
   const base = env.BASE_SHA, head = env.HEAD_SHA;
   const pr = env.EVENT_NAME === 'pull_request';
@@ -95,7 +105,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     linux_arm: linuxArm,
     docx: has(/(?:apps\/app\/.*(?:docx|word-addin)|scripts\/docx|\.github\/workflows\/ci-docx|patches\/[^/]*docx)/),
     docs: has(/^(?:docs\/user-guide\/|scripts\/(?:gen-core-skills|help-)|apps\/server\/(?:src\/core-skills\.ts|resources\/core-opencode\/))/),
-    areas: JSON.stringify(portableAreas(files)), full_engine: plan.fullEngine, engine: native, sandbox: plan.targets.length > 0, targets: JSON.stringify(plan.targets),
+    areas: JSON.stringify(portableJobs(files)), full_engine: plan.fullEngine, engine: native, sandbox: plan.targets.length > 0, targets: JSON.stringify(plan.targets),
     focused: JSON.stringify(plan.focused),
     renderer: has(/(?:apps\/desktop\/(?:electron|scripts)\/(?:browser-|preview-security|unsaved-|workflow-editor|shutdown|updater-quit)|apps\/app\/.*(?:unsaved-change|workflow-editor|browser-autofill))/),
     windows_drafts: has(/(?:apps\/server\/src\/(?:email-drafts|calendar-event-drafts)\/|apps\/desktop\/.*(?:outlook|mail-draft|support-bundle|windows-update)|scripts\/test-drafts|scripts\/release\/windows-signing)/),
