@@ -5,10 +5,10 @@ run-name: >-
 on:
   merge_group:
     types: [checks_requested]
-    branches: [dev]
+    branches: [codex/ci-370-queue-validation]
   pull_request:
     branches:
-      - dev
+      - codex/ci-370-queue-validation
       - codex/projects-akte-workspace
       - codex/opencode-v2-migration
   workflow_dispatch:
