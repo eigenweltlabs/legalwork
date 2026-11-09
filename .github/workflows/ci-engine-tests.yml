@@ -113,7 +113,7 @@ jobs:
         uses: ./.github/actions/install-dependencies
 
       - name: Prepare checksum-pinned Node for worker tests
-        if: inputs.server || inputs.desktop || inputs.focused != '[]' || inputs.host-checks != '[]'
+        if: inputs.engine-required
         run: node apps/desktop/scripts/prepare-node-runtime.mjs
 
       - name: Build server and native plugins

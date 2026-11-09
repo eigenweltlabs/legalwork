@@ -148,6 +148,7 @@ test('PR targets prepare and validate their own native bytes without a global ho
   assert.equal(native.on.workflow_call.inputs['dependency-cache'].default, true);
   assert.equal(native.jobs.tests.steps.find(step => step.uses === './.github/actions/install-dependencies').with.cache, '${{ inputs.dependency-cache }}');
   const integration = workflow('ci-engine-tests').jobs.tests;
+  assert.equal(integration.steps.find(step => step.name === 'Prepare checksum-pinned Node for worker tests').if, 'inputs.engine-required');
   const validate = integration.steps.find(step => step.uses === './.github/actions/test-sandbox-runtime');
   assert.equal(validate.if, 'inputs.runtime-required && !inputs.protected-only');
   assert.equal(integration.steps.find(step => step.name === 'Verify the shipped engine uses protected execution').if, 'inputs.runtime-required');
