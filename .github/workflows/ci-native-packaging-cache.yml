@@ -2,8 +2,8 @@ name: Prepare native packaging caches
 
 on:
   workflow_dispatch:
-  # Also exercise a new/edited warmer before it reaches the default branch.
   push:
+    branches: [dev]
     paths: [.github/workflows/ci-native-packaging-cache.yml]
 
 permissions:

@@ -22,18 +22,32 @@ export function gateTiming(run, jobs) {
   return { kind: run.event === 'push' ? 'warm-alpha' : 'warm-benchmark', seconds: signed.every(Boolean) ? elapsed(signed) : null };
 }
 
+// A red step that goes green on a rerun of the identical commit is a triage
+// signal. Keep the original failure visible and never retry it automatically.
+export function recoveredSteps(first, latest) {
+  const passed = new Set(latest.filter(job => job.conclusion === 'success').map(job => job.name));
+  return first.filter(job => job.conclusion === 'failure' && passed.has(job.name))
+    .flatMap(job => (job.steps ?? []).filter(step => step.conclusion === 'failure')
+      .map(step => ({ job: job.name, step: step.name })));
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const ids = process.argv.slice(2);
   if (!ids.length || ids.some(id => !/^\d+$/.test(id)) || new Set(ids).size !== ids.length) throw Error('Pass unique Actions run IDs');
   const api = endpoint => JSON.parse(execFileSync('gh', ['api', 'repos/{owner}/{repo}/actions/' + endpoint], { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 }));
   const rows = ids.map(id => {
-    const run = api('runs/' + id), jobs = [];
-    for (let page = 1; ; page++) {
-      const batch = api('runs/' + id + '/jobs?per_page=100&page=' + page).jobs;
-      jobs.push(...batch);
-      if (batch.length < 100) break;
-    }
-    return { id, head: run.head_sha, attempt: run.run_attempt, ...gateTiming(run, jobs) };
+    const run = api('runs/' + id);
+    const jobsFor = prefix => {
+      const jobs = [];
+      for (let page = 1; ; page++) {
+        const batch = api(prefix + '/jobs?per_page=100&page=' + page).jobs;
+        jobs.push(...batch);
+        if (batch.length < 100) return jobs;
+      }
+    };
+    const jobs = jobsFor('runs/' + id);
+    const recovered = run.run_attempt > 1 ? recoveredSteps(jobsFor('runs/' + id + '/attempts/1'), jobs) : [];
+    return { id, head: run.head_sha, attempt: run.run_attempt, recovered, ...gateTiming(run, jobs) };
   });
   const summary = {};
   for (const row of rows.filter(row => row.kind)) {

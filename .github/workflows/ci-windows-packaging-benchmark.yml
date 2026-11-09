@@ -2,8 +2,6 @@ name: Compare Windows installer payload compression
 
 on:
   workflow_dispatch:
-  push:
-    paths: [.github/workflows/ci-windows-packaging-benchmark.yml]
 
 permissions:
   contents: read

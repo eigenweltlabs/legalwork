@@ -46,7 +46,8 @@ counts full-suite selections. It does not measure hosted execution times.
 
 `node scripts/ci/gate-timings.mjs RUN_ID ...` reads Actions job timestamps.
 Supply the run IDs for the chosen cohort, including failures. PR
-and queue times include scheduling and wait for both required gates. A warm
+and queue times include scheduling and wait for both required gates. A rerun that
+recovers lists the original failing job and step for flake investigation. A warm
 alpha needs an exact production-engine cache hit and all three signed outputs.
 The report separates nonpublishing benchmarks. A failed or incomplete measured
 run misses its threshold. A benchmark from before Mac artifact retention has no

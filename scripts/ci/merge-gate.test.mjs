@@ -95,3 +95,11 @@ test('timings count failed gates and require signed availability on all three pl
   assert.deepEqual(gateTiming({ ...run, event: 'push' }, [...builds, producer]), { kind: 'warm-alpha', seconds: 299 });
   assert.equal(gateTiming({ ...run, event: 'push' }, [...builds.slice(1), producer]).seconds, null);
 });
+
+test('report only failed steps that passed on a rerun of the same run', async () => {
+  const { recoveredSteps } = await import('./gate-timings.mjs');
+  const red = { name: 'portable (app)', conclusion: 'failure', steps: [
+    { name: 'Install', conclusion: 'success' }, { name: 'Run fixtures', conclusion: 'failure' }] };
+  assert.deepEqual(recoveredSteps([red], [red]), []);
+  assert.deepEqual(recoveredSteps([red], [{ name: red.name, conclusion: 'success' }]), [{ job: red.name, step: 'Run fixtures' }]);
+});
