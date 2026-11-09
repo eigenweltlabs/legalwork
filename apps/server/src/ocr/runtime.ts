@@ -7,8 +7,8 @@ import { createLocalOcrEngine, type LocalOcrRuntime } from "./local.js";
 import type { LocalEngineSettings } from "./settings.js";
 import { ApiError } from "../errors.js";
 import { LayoutRuntime } from "../document-preparation/layout-runtime.js";
-import { prepareSmallModel, prepareLayoutModel, layoutModelReady, type ModelDownloadFetch } from "./models.js";
-import { llamaSupported, prepareQualityModel, qualityModelReady } from "./llama.js";
+import { prepareSmallModel, prepareLayoutModel, layoutModelReady, smallModelAssets, type ModelDownloadFetch } from "./models.js";
+import { llamaSupported, prepareQualityModel, qualityModelReady, qualityDownloadBytes } from "./llama.js";
 
 const exists = async (path: string) => access(path).then(() => true, () => false);
 export const ocrResources = "resourcesPath" in process && typeof process.resourcesPath === "string" && existsSync(join(process.resourcesPath, "ocr", "worker.py"))
@@ -39,6 +39,12 @@ export class OcrRuntime {
   supported(model: LocalEngineSettings["model"]) {
     return model === "pp-ocrv6-small" || llamaSupported();
   }
+  downloadBytes(model: LocalEngineSettings["model"]) {
+    return model === "pp-ocrv6-small" ? smallModelAssets.reduce((total, asset) => total + asset.bytes, 0) : qualityDownloadBytes();
+  }
+  private readonly progress = (received: number, total: number) => {
+    if (this.installation) this.installation = { ...this.installation, download: { received, total } };
+  };
   async available() { return existsSync(join(ocrResources, "native-worker.cjs")); }
   async ready(model: LocalEngineSettings["model"]) {
     if (!await exists(join(this.root, `${model}.ready`)) || !await this.smallModelReady()) return false;
@@ -62,7 +68,7 @@ export class OcrRuntime {
   async layoutReady() { return layoutModelReady(this.local.modelDirectory); }
   private async prepareLayout(signal: AbortSignal, stage: (value: NonNullable<OcrSettingsView["installation"]>["stage"], id?: string) => void) {
     stage("models", "local-layout");
-    await prepareLayoutModel(this.local.modelDirectory, signal, this.download);
+    await prepareLayoutModel(this.local.modelDirectory, signal, this.download, this.progress);
     stage("checking");
     const layout = new LayoutRuntime(this.local);
     const result = await layout.detect(await ocrTestPage(), signal).finally(() => layout.close());
@@ -90,15 +96,15 @@ export class OcrRuntime {
     this.startInstall("local-layout", (signal, stage) => this.prepareLayout(signal, stage));
   }
   async install(engine: LocalEngineSettings) {
-    if (!this.supported(engine.model)) throw new ApiError(400, "ocr_unsupported", "This model requires an Apple Silicon Mac.");
+    if (!this.supported(engine.model)) throw new ApiError(400, "ocr_unsupported", "This model requires an Apple Silicon Mac or an x64 Windows PC.");
     this.startInstall(engine.id, async (signal, stage) => {
       if (engine.model === "pp-ocrv6-small") {
         stage("models");
-        await prepareSmallModel(this.local.modelDirectory, signal, this.download);
+        await prepareSmallModel(this.local.modelDirectory, signal, this.download, this.progress);
       } else {
         stage("models");
-        await prepareQualityModel(this.local.modelDirectory, signal, this.download);
-        await prepareSmallModel(this.local.modelDirectory, signal, this.download);
+        await prepareQualityModel(this.local.modelDirectory, signal, this.download, this.progress);
+        await prepareSmallModel(this.local.modelDirectory, signal, this.download, this.progress);
       }
       stage("checking");
       const check = createLocalOcrEngine(engine, this.local);

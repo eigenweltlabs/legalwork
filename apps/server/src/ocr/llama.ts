@@ -2,16 +2,19 @@
 // and an official llama.cpp build (MIT), both pinned and checksum-verified. No Python is involved.
 import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
-import { access, mkdir, rename, rm, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { access, copyFile, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { z } from "zod";
-import { assetReady, downloadModelAsset, type ModelDownloadFetch } from "./models.js";
+import { assetReady, downloadModelAsset, type ModelDownloadFetch, type ModelDownloadProgress } from "./models.js";
 import { OcrError } from "./types.js";
 
 const build = "b11234";
-const builds: Record<string, { name: string; bytes: number; sha256: string }> = {
-  "darwin-arm64": { name: `llama-${build}-bin-macos-arm64.tar.gz`, bytes: 11757756, sha256: "ee87c0ef14d224a408f8fa409c355f6734d2b34a899afe25a25975b275cc5094" },
+const builds: Record<string, { name: string; bytes: number; sha256: string; folder: string }> = {
+  "darwin-arm64": { name: `llama-${build}-bin-macos-arm64.tar.gz`, bytes: 11757756, sha256: "ee87c0ef14d224a408f8fa409c355f6734d2b34a899afe25a25975b275cc5094", folder: `llama-${build}` },
+  "win32-x64": { name: `llama-${build}-bin-win-vulkan-x64.zip`, bytes: 33058657, sha256: "a8a2a0f18d778a9efe0dd75bfce0efa29d4110bf4569c724b2f92846733f8a54", folder: "" },
 };
 const gguf = "https://huggingface.co/PaddlePaddle/PaddleOCR-VL-1.6-GGUF/resolve/511b09642bb324401f15f97cc23bc67e8f0a291d";
 const weights = [
@@ -23,37 +26,61 @@ const failed = "The local OCR model failed. Check the runtime installation or se
 
 /** Whether an official llama.cpp build is pinned for this platform. */
 export const llamaSupported = () => `${process.platform}-${process.arch}` in builds;
+export const qualityDownloadBytes = () => weights.reduce((total, asset) => total + asset.bytes, 0) + (builds[`${process.platform}-${process.arch}`]?.bytes ?? 0);
+const windowsRuntimeFiles = ["msvcp140.dll", "msvcp140_1.dll", "vcruntime140.dll", "vcruntime140_1.dll"];
+
+/** Reuse the signed CRT shipped for ONNX, beside llama-server.exe too.
+ * Setup is explicit; inference refreshes local DLLs after an app update without downloading. */
+export async function prepareQualityWindowsRuntime(directory: string) {
+  const resources = "resourcesPath" in process && typeof process.resourcesPath === "string" ? process.resourcesPath : undefined;
+  const source = resources && existsSync(join(resources, "app.asar"))
+    ? join(resources, "app.asar.unpacked/node_modules/onnxruntime-node/bin/napi-v6/win32/x64")
+    : fileURLToPath(new URL("../../../desktop/resources/node", import.meta.url));
+  for (const name of windowsRuntimeFiles) {
+    const bundled = join(source, name), target = join(directory, name);
+    const desired = await readFile(bundled), current = await readFile(target).catch(error => {
+      if (error?.code === "ENOENT") return undefined;
+      throw error;
+    });
+    // Identical files may already be loaded by another OCR job on Windows.
+    if (!current?.equals(desired)) await copyFile(bundled, target);
+  }
+}
 
 function paths(directory: string) {
   const root = join(directory, "paddleocr-vl-1.6");
-  return { root, build: join(root, `llama-${build}`), server: join(root, `llama-${build}`, "llama-server"), model: join(root, weights[0]!.name), mmproj: join(root, weights[1]!.name) };
+  return { root, build: join(root, `llama-${build}`), server: join(root, `llama-${build}`, process.platform === "win32" ? "llama-server.exe" : "llama-server"), model: join(root, weights[0]!.name), mmproj: join(root, weights[1]!.name) };
 }
 
 export async function qualityModelReady(directory: string, signal?: AbortSignal) {
   const { root, server } = paths(directory);
   if (!await access(server).then(() => true, () => false)) return false;
+  if (process.platform === "win32") for (const name of windowsRuntimeFiles)
+    if (!await access(join(root, `llama-${build}`, name)).then(() => true, () => false)) return false;
   for (const asset of weights) if (!await assetReady(join(root, asset.name), asset, signal)) return false;
   return true;
 }
 
 /** Downloads the pinned llama.cpp build and the model files. Complete files are reused on retry. */
-export async function prepareQualityModel(directory: string, signal: AbortSignal, download?: ModelDownloadFetch) {
+export async function prepareQualityModel(directory: string, signal: AbortSignal, download?: ModelDownloadFetch, progress?: ModelDownloadProgress) {
   const archive = builds[`${process.platform}-${process.arch}`];
-  if (!archive) throw new OcrError("runtime-unavailable", "This model requires an Apple Silicon Mac.");
+  if (!archive) throw new OcrError("runtime-unavailable", "This model requires an Apple Silicon Mac or an x64 Windows PC.");
   const location = paths(directory);
   await mkdir(location.root, { recursive: true, mode: 0o700 });
   if (!await access(location.server).then(() => true, () => false)) {
     const file = join(location.root, archive.name), temporary = join(location.root, `extract-${randomUUID()}`);
     try {
-      await downloadModelAsset({ ...archive, url: `https://github.com/ggml-org/llama.cpp/releases/download/${build}/${archive.name}` }, file, signal, download);
+      await downloadModelAsset({ ...archive, url: `https://github.com/ggml-org/llama.cpp/releases/download/${build}/${archive.name}` }, file, signal, download, progress);
       await mkdir(temporary, { mode: 0o700 });
-      // The system tar keeps the build's library symlinks; the archive's checksum was verified above.
+      // System tar supports both archives and preserves macOS library symlinks; the checksum was verified above.
       await new Promise<void>((resolve, reject) => execFile("tar", ["-xf", file, "-C", temporary], { signal }, error => error ? reject(error) : resolve()));
       await rm(location.build, { recursive: true, force: true });
-      await rename(join(temporary, `llama-${build}`), location.build);
+      await rename(join(temporary, archive.folder), location.build);
     } finally { await rm(temporary, { recursive: true, force: true }); await rm(file, { force: true }); }
   }
-  for (const asset of weights) await downloadModelAsset(asset, join(location.root, asset.name), signal, download);
+  signal.throwIfAborted();
+  if (process.platform === "win32") await prepareQualityWindowsRuntime(location.build);
+  for (const asset of weights) await downloadModelAsset(asset, join(location.root, asset.name), signal, download, progress);
 }
 
 /** Crops read at once. Two slots answered 53 crops 21% faster than one, with identical text; four gained little more. */
@@ -116,7 +143,8 @@ export class LlamaServer {
 
   private async launch() {
     if (!await qualityModelReady(this.directory)) throw new OcrError("runtime-unavailable", unavailable);
-    const { root, server, model, mmproj } = paths(this.directory);
+    const { root, server, model, mmproj, build: runtime } = paths(this.directory);
+    if (process.platform === "win32") await prepareQualityWindowsRuntime(runtime);
     const port = await new Promise<number>((resolve, reject) => {
       const probe = createServer().once("error", reject).listen(0, "127.0.0.1", () => {
         const address = probe.address();

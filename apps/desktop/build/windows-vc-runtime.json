@@ -1,0 +1,27 @@
+{
+  "packageVersion": "14.44.35211",
+  "directoryVersion": "14.44.35112",
+  "source": "https://aka.ms/vs/17/release/channel",
+  "targets": {
+    "x64": {
+      "url": "https://download.visualstudio.microsoft.com/download/pr/45d3b8dd-bced-4b37-9974-142f748d710c/4aaf54db0bfc9435f7c3660e1a00237a4b556042bfeea64bde44c2e0194e6ee5/Microsoft.VC.14.44.17.14.CRT.Redist.X64.base.vsix",
+      "sha256": "4aaf54db0bfc9435f7c3660e1a00237a4b556042bfeea64bde44c2e0194e6ee5",
+      "files": {
+        "msvcp140.dll": "0f885b509a685d2bbfa652fed26b5fb31d88fbdab0a978c641d1c7b8aa460aa9",
+        "msvcp140_1.dll": "bfad5aef4c63a669e3c140655cdfdf395b6c979b400a447bd5dcb65ed8826c3d",
+        "vcruntime140.dll": "d5e4d9a3e835fa679450145d6a7d94e36573a509317111904d9b3712c30d9066",
+        "vcruntime140_1.dll": "1f2d41c4aa5db0bc33ebf7b66d72943a817d7ce6cbe880502a9403823633093f"
+      }
+    },
+    "arm64": {
+      "url": "https://download.visualstudio.microsoft.com/download/pr/45d3b8dd-bced-4b37-9974-142f748d710c/fc8f37250188509818258582758a3b704810c77b6d25845486d583ea99d9aa1f/Microsoft.VC.14.44.17.14.CRT.Redist.ARM64.base.vsix",
+      "sha256": "fc8f37250188509818258582758a3b704810c77b6d25845486d583ea99d9aa1f",
+      "files": {
+        "msvcp140.dll": "045faeab0b5710816ae160ea20dae8495ffc11bb51feca15d22aaf7ff3752cb3",
+        "msvcp140_1.dll": "af9dd287c5e5d47186fec391099e140bf9e758245d39c78e94f8cb4ffaada1e5",
+        "vcruntime140.dll": "d8a8513921544569837e400d37cc71302819967ae6defa932266a7ecb41dbaf9",
+        "vcruntime140_1.dll": "42b5f76f1f0ae03c93fc4c107adf83c5f14e86032474860032cfe672d0836546"
+      }
+    }
+  }
+}

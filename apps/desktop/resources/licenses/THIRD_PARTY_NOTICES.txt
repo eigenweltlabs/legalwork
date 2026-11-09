@@ -1,5 +1,17 @@
 Third-party notices for native OpenCode integration
 
+Microsoft Visual C++ Runtime 14.44.35211 (Windows x64 and ARM64)
+=============================================================
+Copyright (c) Microsoft Corporation. All rights reserved.
+The Windows app includes unmodified retail msvcp140.dll, msvcp140_1.dll,
+vcruntime140.dll and vcruntime140_1.dll beside its ONNX Runtime native addon.
+Optional Windows x64 quality OCR setup copies these same files beside llama-server.exe.
+These files remain under Microsoft's license, not LegalWork's open-source license.
+License: https://visualstudio.microsoft.com/license-terms/vs2022-cruntime/
+Redistribution: https://learn.microsoft.com/visualstudio/releases/2022/redistribution
+Source archives and file digests: apps/desktop/build/windows-vc-runtime.json
+App-local runtime security updates must be shipped with LegalWork updates.
+
 The released OpenCode 2.1.4 engine supplies @opencode/plugin and Effect to
 first-party plugins. No foreign SDK node_modules tree is staged. Desktop uses
 the matching released browser RPC and a vendored MIT GUI controller. Versions
