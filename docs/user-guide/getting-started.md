@@ -11,8 +11,6 @@ Open in LegalWork: [Home](legalwork://app/home), [Account](legalwork://app/setti
 5. Choose **New Chat**, select an available model, and state the task. Attach a file or mention a workspace file with `@`. For example: "Read this agreement and identify the termination provisions, citing the clauses."
 6. Review the assistant's output and any permission request. Open output file links in the document panel. A chat response is not proof that a file was saved: check the named output and any tool errors.
 
-Onboarding does not ask about command approval. By default, commands run without asking for approval. To change it later, open **Settings > Tool Permissions > Ask before running computer commands**, or change **Computer commands** under **Per-tool rules**. Previously saved choices and firm policies still apply.
-
 Opening a project does not require a separate setup approval. LegalWork loads the project's settings and available tools automatically. Firm policies, allowed folders and permissions for individual actions still apply. Install skills, workflows and connectors through LegalWork, and manage access in Settings.
 
 In **Settings > Account**, sign-in finishes after the browser connection has been saved in the app. Signing out can take longer while LegalWork checks for unsent firm changes and updates saved projects. Wait for the account screen to finish; refreshing the app or starting sign-in again does not cancel an account change already in progress.
