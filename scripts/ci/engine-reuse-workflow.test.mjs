@@ -46,7 +46,7 @@ test('normal PR reuse still verifies cache bytes and production still rejects de
   const download = build.steps.findIndex(step => step.name === "Download the exact base commit's engine without recompiling");
   assert.ok(restore < base && base < download && download < verify);
   assert.match(build.steps[base].if, /inputs.build-mode == 'development'/);
-  assert.equal(build.steps[base].env.BASE_SHA, '${{ github.event.pull_request.base.sha }}');
+  assert.equal(build.steps[base].env.BASE_SHA, '${{ github.event.merge_group.base_sha || github.event.pull_request.base.sha }}');
   assert.equal(build.steps[download].with['run-id'], '${{ steps.base-producer.outputs.run-id }}');
   assert.match(build.steps.find(step => step.id === 'engine').if, /steps.base-producer.outputs.run-id == ''/);
   assert.match(build.steps.find(step => step.name === 'Validate explicit producer reuse inputs').run, /Production cannot use manually supplied development candidate reuse/);

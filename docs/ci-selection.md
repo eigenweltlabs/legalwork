@@ -1,16 +1,69 @@
 # Selecting CI work
 
-Automatic checks use `scripts/ci/change-scope.mjs` through the `ci-scope` action.
-It inspects the complete PR diff from its merge base, or every commit in a push.
-Deleted and renamed files count. Missing history, unknown inputs and shared
-dependency changes select all checks instead of silently dropping coverage.
+PR and merge queue jobs use `scripts/ci/merge-plan.mjs`. A PR compares its head
+with the merge base. The queue tests GitHub's combined head against the exact
+queue base. Unreadable ranges fail the gate. Manual acceptance and release jobs
+use their existing scopes.
+
+## Merge gate
+
+- App and server edits select portable tests through workspace imports, filenames
+  and source-reading contract tests. An unmatched change or deleted input falls
+  back to the owning package's portable suite. Shared types select their consumers.
+- A changed real-engine fixture or its matching implementation selects focused
+  tests on Linux. The runner prepares the reviewed host engine, verifies its
+  provenance on cache hits and compiles that host on a miss. The full engine suite
+  runs for changes to distribution, engine lifecycle, transport or pinned SDK inputs.
+- Shared VM and isolation changes select the native matrix. Host-specific edits
+  select that platform. Ordinary sandbox service changes use Linux x64.
+- Every candidate checks that desktop declares the server's shipped runtime
+  dependencies. CI also verifies bundled plugins after building the server.
+  Signed installers run on alpha and release. An explicit package acceptance
+  dispatch remains available.
+
+## Enabling the dev queue
+
+Land the merge-group handler on `dev` before enabling GitHub's queue. Preview
+the exact change to the current repository ruleset with a read-only command:
+
+```sh
+gh api repos/eigenweltlabs/legalwork/rulesets/18320382 | node scripts/ci/dev-queue-ruleset.mjs
+```
+
+In the dev-only ruleset, enable **Require merge queue** using the values printed
+by the preview and turn off **Require branches to be up to date before merging**.
+Keep both existing required check names. After activation, choose **Merge when
+ready** for a PR. GitHub creates and tests a temporary commit including earlier
+queue entries. A failed group cannot merge. A true source conflict still needs
+a resolution.
+
+## Measuring the rollout
+
+`node scripts/ci/replay-merge-plan.mjs` replays the 50 pinned GitHub base/head
+pairs from all authors. Run in a checkout with both revisions available. For a
+missing PR head, fetch `refs/pull/NUMBER/head` or the pinned commit. The replay
+counts full-suite selections. It does not measure hosted execution times.
+
+`node scripts/ci/gate-timings.mjs RUN_ID ...` reads Actions job timestamps.
+Supply the run IDs for the chosen cohort, including failures. PR
+and queue times include scheduling and wait for both required gates. A warm
+alpha needs an exact production-engine cache hit and all three signed outputs.
+The report separates nonpublishing benchmarks. A failed or incomplete measured
+run misses its threshold. A benchmark from before Mac artifact retention has no
+combined availability timestamp. Scheduled-out candidates are outside the alpha cohort.
+
+To measure actual hosted time before rollout, manually dispatch **LegalWork Tests**
+on the candidate branch with only `replay_pr` set to a number in the cohort.
+This runs the regular gate using that PR’s historical diff against the current
+checkout. Each replay has its own concurrency group and cannot publish. Use
+these timings for a routing benchmark, then measure real PR readiness after rollout.
 
 ## Automatic workflows
 
 | Workflow | When its work runs |
 | --- | --- |
 | LegalWork Tests | Affected app, server, desktop and tooling suites; native engine tests for engine consumers; VM tests for permission, sandbox and runtime changes. Pure UI primitives, styles and translations do not require an engine. |
-| i18n Audit | App source, translation tooling and shared inputs. |
+| i18n Audit | Runs inside the required PR and queue check for app source, translation tooling and shared inputs. The standalone push check remains available. |
 | DOCX interoperability | Document artifacts, DOCX tests/fixtures, dependency changes and its workflow. |
 | legalwork-ui-mcp | That package, shared dependencies or its workflow. Publishing still requires its package tag. |
 | DCO | Every PR update: sign-offs depend on commits, not file paths. |
@@ -18,8 +71,7 @@ dependency changes select all checks instead of silently dropping coverage.
 | Refresh alpha update feeds | Relevant release events, explicit requests, or an alpha run that actually completed a publication job. Skipped alpha builds do not refresh feeds. |
 | Download Stats | Its existing six-hour schedule or an explicit request. This collects analytics rather than testing code. |
 
-PR workflows report skipped **jobs** rather than disappearing through workflow
-path filters, so required checks can resolve. `Selected checks passed` reports
+The required workflow reports skipped jobs so both required checks resolve. `Selected checks passed` reports
 failures and cancellations in any selected job, including failed prerequisites.
 Repository protection can require that aggregate check. This change does not
 edit repository protection settings.
@@ -66,9 +118,10 @@ on later updates, even if its most recent commit is small. Looking only at that
 last commit would not validate the complete PR. Engine reuse avoids recompiling
 unchanged engine inputs while those tests still run against the current app.
 
-Validate changes with:
+Validate changes to merge routing with
 
 ```sh
-node --test scripts/ci/*.test.mjs scripts/release/*.test.mjs packages/opencode-release/*.test.mjs packages/opencode-release/build/*.test.mjs
+node --test scripts/ci/{merge-gate,workflow-selection,change-scope,deploy-benchmark-workflow,engine-reuse-workflow}.test.mjs
+node scripts/ci/replay-merge-plan.mjs
 actionlint -shellcheck= -pyflakes=
 ```

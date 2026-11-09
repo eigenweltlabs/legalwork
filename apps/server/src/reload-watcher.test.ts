@@ -1,4 +1,4 @@
-import { describe, expect, spyOn, test } from "bun:test";
+import { describe, expect, jest, spyOn, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -131,17 +131,23 @@ describe("reload watcher fingerprints", () => {
     await withWorkspace(async (root) => {
       const { config, workspace } = buildConfig(root);
       const events = new ReloadEventStore();
+      // Bootstrap writes may take longer than the debounce on a loaded runner.
+      // Advance its timer only once the new baseline is in place.
+      jest.useFakeTimers();
       const watcher = startReloadWatchers({ config, reloadEvents: events, debounceMs: 100 });
       try {
         await watcher.refreshWorkspace(workspace.id);
         const ensured = await ensureWorkspaceFiles(root, "starter");
         await watcher.refreshWorkspace(workspace.id, ensured.reloadReasons);
+        jest.runOnlyPendingTimers();
+        jest.useRealTimers();
         await sleep(250);
 
         expect(ensured.reloadReasons.sort()).toEqual(["agents", "commands", "skills"]);
         expect(events.list(workspace.id)).toEqual([]);
       } finally {
         watcher.close();
+        jest.useRealTimers();
       }
     });
   });
