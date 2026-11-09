@@ -67,7 +67,7 @@ async function fixture(platform, arch, kind, run) {
     await mkdir(binding, { recursive: true });
     await writeFile(join(binding, "onnxruntime_binding.node"), "fixture");
     for (const directory of ["ocr", "node", "opencode-sdk", "sidecars"]) await mkdir(join(resources, directory), { recursive: true });
-    for (const name of ["native-worker.cjs", "layout-worker.cjs"]) await writeFile(join(resources, "ocr", name), "fixture");
+    for (const name of ["native-worker.cjs", "layout-worker.cjs", "llama-launcher.cjs"]) await writeFile(join(resources, "ocr", name), "fixture");
     await writeFile(join(resources, "node", platform === "win32" ? "node.exe" : "node"), "fixture");
     await writeFile(join(resources, "opencode-sdk", "package.json"), JSON.stringify({ opencode: { version: "2.1.4", runtime: "released-cli", providedModules: ["@opencode/plugin", "effect"] } }));
     await run({ resources, engineDirectory, selection, afterPack, context: { appOutDir: root, electronPlatformName: platform, packager: { appInfo: { productFilename: "LegalWork" } } } });

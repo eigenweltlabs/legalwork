@@ -59,6 +59,25 @@ test("ready small OCR and layout are both reused without installation", async ()
   expect((await manager.view()).layout?.status).toBe("ready");
 });
 
+test("quality download requires an explicit install and never changes the default or retries at startup", async () => {
+  const { root, manager, install } = await setup();
+  const before = await manager.store.read();
+  await manager.view();
+  expect(install).not.toHaveBeenCalled();
+  expect((await manager.view()).engines.find(engine => engine.id === "local-quality")?.downloadBytes).toBeGreaterThan(1_800_000_000);
+  await manager.downloadDefaultIfNeeded();
+  expect(install.mock.calls.every(([engine]) => engine.model === "pp-ocrv6-small")).toBe(true);
+  await manager.install("local-quality");
+  expect(install.mock.calls.at(-1)?.[0]).toMatchObject({ id: "local-quality", model: "paddleocr-vl-1.6" });
+  expect(await manager.store.read()).toEqual(before);
+  await manager.cancelInstall(); manager.stop();
+  const reopened = new OcrManager(root);
+  const next = spyOn(reopened.runtime, "install").mockResolvedValue();
+  await reopened.downloadDefaultIfNeeded();
+  expect(next.mock.calls.every(([engine]) => engine.model === "pp-ocrv6-small")).toBe(true);
+  reopened.stop();
+});
+
 test("layout cancellation persists and explicit layout retry clears it", async () => {
   const { root, manager, layoutInstall } = await setup();
   spyOn(manager.runtime, "ready").mockResolvedValue(true);

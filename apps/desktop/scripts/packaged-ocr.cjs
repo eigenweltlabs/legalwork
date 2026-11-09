@@ -25,6 +25,7 @@ function pruneOcrRuntime(resources, platform, arch, vcRuntimePin) {
   createRequire(requireUnpacked.resolve("onnxruntime-node")).resolve("onnxruntime-common");
   if (!fs.existsSync(path.join(resources, "ocr", "native-worker.cjs"))) throw new Error("Missing bundled OCR worker");
   if (!fs.existsSync(path.join(resources, "ocr", "layout-worker.cjs"))) throw new Error("Missing bundled layout worker");
+  if (!fs.existsSync(path.join(resources, "ocr", "llama-launcher.cjs"))) throw new Error("Missing bundled quality OCR launcher");
 }
 
 module.exports = { pruneOcrRuntime };

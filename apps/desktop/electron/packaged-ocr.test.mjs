@@ -39,6 +39,7 @@ test("packaged OCR retains only its target runtime and fails if required payload
       }
       await mkdir(path.join(resources, "ocr")); await writeFile(path.join(resources, "ocr/native-worker.cjs"), "");
       await writeFile(path.join(resources, "ocr/layout-worker.cjs"), "");
+      await writeFile(path.join(resources, "ocr/llama-launcher.cjs"), "");
       const { files, pin } = vcFixture(arch);
       const prune = (target = arch) => pruneOcrRuntime(resources, platform, target, pin);
       if (platform === "win32") {
@@ -54,6 +55,9 @@ test("packaged OCR retains only its target runtime and fails if required payload
       await writeFile(path.join(resources, "ocr/layout-worker.cjs"), "");
       await rm(path.join(resources, "ocr/native-worker.cjs"));
       assert.throws(() => prune(), /Missing bundled OCR worker/);
+      await writeFile(path.join(resources, "ocr/native-worker.cjs"), "");
+      await rm(path.join(resources, "ocr/llama-launcher.cjs"));
+      assert.throws(() => prune(), /Missing bundled quality OCR launcher/);
     }
   } finally { await rm(root, { recursive: true, force: true }); }
 });

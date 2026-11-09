@@ -1,4 +1,4 @@
-# Windows small OCR runtime verification
+# Windows OCR runtime verification
 
 On 9 November 2026, the current dev small OCR worker was tested
 on Windows Server 2022 Desktop Experience x64 with no system VC++ runtime.
@@ -35,6 +35,49 @@ Only the target architecture ships. These compressed figures are estimates for
 the DLLs together; the final NSIS installer's incremental size can differ.
 The build downloads the larger VSIX source archive but does not ship it.
 
+## Optional quality-model downloads
+
+The optional Windows x64 runtime is llama.cpp `b11234`'s official Vulkan ZIP,
+including its CPU backends. It is downloaded only by an explicit **Download model**
+action, together with the two pinned PaddleOCR-VL-1.6 GGUF files. Startup downloads
+only the small text model and shared layout model. Installing quality OCR preserves
+the selected default. The same app-local CRT files are copied beside
+`llama-server.exe`; launching it refreshes changed files after an app update and
+leaves identical files untouched.
+
+| Optional Windows x64 asset | Download bytes |
+| --- | ---: |
+| Main GGUF | 935,769,056 |
+| Vision projector GGUF | 881,770,560 |
+| llama.cpp ZIP | 33,058,657 |
+| Total, before missing shared assets | 1,850,598,273 |
+
+The ZIP expands to 94,445,341 bytes before the app-local CRT copy. Completed,
+verified assets are reused; cancellation removes the current partial download.
+Settings show the maximum download size and current-file transferred bytes.
+
+The current branch's `OcrManager`/`OcrRuntime` ran on the same clean Windows x64
+VM, using bundled Node 22.23.4 and the staged packaged native libraries. The final
+run began with the verified runtime/main GGUF and shared models cached. It
+cancelled the projector download after 158,053 bytes, removed its partial file,
+made zero download requests after restart, and completed an explicit retry without
+re-downloading the cached assets. Setup preserved the fast default. A separate
+quality recognition run read all three English/German sample lines in 35.91
+seconds on the CPU-only 4-vCPU/16-GB VM. Selecting quality, hiding a required
+weight, and restarting still triggered zero downloads. With the weight restored
+and the download transport forced offline, **Test sample** passed again. All four
+system CRT DLLs remained absent; all four were present beside `llama-server.exe`.
+No owned native processes remained after completion. See the
+[machine-readable quality results](windows-quality-opt-in.json). These sample
+checks establish runtime behavior, not comparative recognition accuracy.
+
+The real Settings component was also exercised in an isolated browser fixture
+with synthetic responses: opening Settings started no install, Download model
+showed progress, Cancel stopped setup, retry was available, completion preserved
+the fast default, and only **Use as default** selected quality. The browser console
+had no errors. This UI check used a mocked client; native-model execution is
+reported separately. No screenshots or recordings are shared.
+
 ## Reproduction
 
 On the Windows build machine, install workspace dependencies with pnpm, then:
@@ -58,16 +101,26 @@ node --test apps/desktop/electron/packaged-*.test.mjs scripts/gen-core-skills.te
 pnpm docs:check
 ```
 
+To check the optional download in a Windows desktop build from this branch:
+
+1. Build the Windows app with `pnpm --filter @legalwork/desktop package:electron:dir` on Windows, using the repository's packaging prerequisites.
+2. Launch the packaged app on an isolated profile on a VM without the four system CRT DLLs.
+3. In **Settings > AI Providers > Document recognition providers (OCR)**, confirm the quality model shows about 1.85 GB and no quality download has started.
+4. Choose **Download model**, verify byte progress, cancel during a GGUF transfer, then restart the app. No quality transfer should restart automatically.
+5. Retry **Download model**, wait for setup verification, and choose **Test sample**. Confirm the default remains fast until **Use as default** is chosen.
+6. Restart with network access disabled and run **Test sample** again. Quit and confirm the owned `llama-server.exe` process exits.
+
 The broader packaging tests require the generated browser controller first:
 `node apps/desktop/scripts/build-browser-controller.mjs`.
 
 ## Limits and maintenance
 
-Native execution was verified on Windows x64. ARM64 source extraction, exact
-hashes, architecture-specific copying, and package validation were tested; no
-native ARM64 Windows host was available. A complete signed Windows installer
-and GUI model-download flow were not rebuilt for this change. This is headless
-native-worker evidence; no GUI video was recorded.
+Native execution was verified on Windows Server 2022 x64. ARM64 CRT source
+extraction, exact hashes, architecture-specific copying, and package validation
+were tested; no native ARM64 Windows host was available. The quality model is
+unsupported on Windows ARM64. A complete signed Windows installer, Windows 11,
+and real GPU acceleration were not tested for this change. The browser fixture
+verifies the controls; it does not replace an installed desktop end-to-end test.
 
 The DLLs remain unmodified Microsoft redistributable files, subject to the
 [Visual Studio redistribution terms](https://learn.microsoft.com/visualstudio/releases/2022/redistribution).
@@ -75,5 +128,5 @@ App-local runtime updates must be delivered with LegalWork updates. Update the
 archive URL, archive hash, directory version, and all DLL hashes together, and
 repeat the clean-machine smoke test when changing the pin.
 
-This change fixes packaged small/local OCR dependencies. It does not enable the
-quality model on Windows or reopen the closed quality-model PR #191.
+This change also enables the optional quality model on Windows x64. Closed
+quality-model PR #191 remains closed; implementation is in PR #420.
