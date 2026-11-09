@@ -11,5 +11,5 @@ for (const [key, value] of Object.entries(inputs)) {
 const sample = cases.find(pr => String(pr.number) === inputs.replay_pr);
 assert.ok(sample, 'Choose a PR number from the frozen replay cohort');
 for (const sha of [sample.base, sample.head]) assert.match(sha, /^[a-f0-9]{40}$/);
-execFileSync('git', ['fetch', '--no-tags', 'origin', sample.base, sample.head], { stdio: 'inherit' });
+execFileSync('git', ['fetch', '--filter=blob:none', '--no-tags', 'origin', sample.base, sample.head], { stdio: 'inherit' });
 appendFileSync(process.env.GITHUB_OUTPUT, 'base=' + sample.base + '\nhead=' + sample.head + '\nevent=pull_request\n');
