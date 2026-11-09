@@ -23,6 +23,7 @@ import { ProjectTemplateSelect } from "./project-template-select";
 import { LegalworkServerError } from "@/app/lib/legalwork-server";
 import { projectErrorMessage } from "./project-errors";
 import { changeProjectFieldType, parseProjectOptions } from "./project-field-editing";
+import { ObjectIcon } from "../back-office/object-icon";
 
 export function ProjectMetadata(props: {
   client?: LegalworkServerClient | null;
@@ -134,7 +135,10 @@ export function ProjectMetadata(props: {
                 aria-label={t("projects.field_type")}
                 className="w-full rounded-md bg-transparent"
               >
-                <SelectValue>{field.type === "backoffice" ? objects.find(object => object.id === field.objectId)?.plural ?? t("projects.reference.unavailable_object") : typeLabels[field.type]}</SelectValue>
+                <SelectValue className="min-w-0 items-center gap-2">
+                  {field.type === "backoffice" && <ObjectIcon id={field.objectId} className="shrink-0" />}
+                  <span className="truncate">{field.type === "backoffice" ? objects.find(object => object.id === field.objectId)?.plural ?? t("projects.reference.unavailable_object") : typeLabels[field.type]}</span>
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 {(
@@ -149,7 +153,7 @@ export function ProjectMetadata(props: {
                     {typeLabels[type]}
                   </SelectItem>
                 ))}
-                {objects.map(object => <SelectItem key={object.id} value={`backoffice:${object.id}`}>{object.plural}</SelectItem>)}
+                {objects.map(object => <SelectItem key={object.id} value={`backoffice:${object.id}`}><span className="flex items-center gap-2"><ObjectIcon id={object.id} className="shrink-0" />{object.plural}</span></SelectItem>)}
                 {field.type === "backoffice" && !objects.some(object => object.id === field.objectId) && <SelectItem value={`backoffice:${field.objectId}`} disabled>{t("projects.reference.unavailable_object")}</SelectItem>}
               </SelectContent>
             </Select>

@@ -8,6 +8,7 @@ import { useQuery } from "@tanstack/react-query";
 import { t } from "@/i18n";
 import { CellEditor } from "./cell-editor";
 import { FieldIcon } from "./record-values";
+import { ObjectIcon } from "./object-icon";
 import { RecordFilesProvider } from "./record-files";
 import { DirectoryEditorPopup } from "./twenty-controls";
 import { recordCreationValues } from "./record-creation-values";
@@ -58,7 +59,7 @@ export function RecordCreateForm({ object, name, filters, onCancel, onCreated }:
   const visible = fields.filter(field => more || primary(field));
   return <RecordFilesProvider client={creation.client} records={[...creation.state.records, draft]} projects={projects.data?.projects ?? []}>
     <div className="bo-create-record bo-cell-form" role="form" aria-label={t("back_office.create.title", { name: object.label })} onKeyDown={event => { event.stopPropagation(); if (event.key === "Escape") { event.preventDefault(); if (!busy) onCancel(); } }}>
-      <div className="bo-create-heading"><Button type="button" variant="ghost" size="sm" aria-label={t("back_office.create.back")} disabled={busy} onClick={onCancel} startIcon={<ArrowLeft size={14} />} /><strong>{t("back_office.create.title", { name: object.label })}</strong></div>
+      <div className="bo-create-heading"><Button type="button" variant="ghost" size="sm" aria-label={t("back_office.create.back")} disabled={busy} onClick={onCancel} startIcon={<ArrowLeft size={14} />} /><ObjectIcon id={object.id} /><strong>{t("back_office.create.title", { name: object.label })}</strong></div>
       <label className="bo-create-name"><span>{object.fields.find(field => field.id === "name")?.label} *</span><Input size="sm" ref={focusName} value={String(draft.values.name ?? "")} aria-label={t("back_office.create.name", { name: object.label })} disabled={busy} onChange={event => values({ name: event.target.value })} onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); void save(); } }} /></label>
       {filters?.conditions.length ? <p className="bo-muted">{t("back_office.create.filters")}</p> : null}
       <div className="bo-create-fields">{visible.map(field => {

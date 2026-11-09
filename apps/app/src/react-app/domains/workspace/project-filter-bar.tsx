@@ -4,7 +4,7 @@ import { creatableRecordObject } from "../back-office/record-creation-values";
 import { RecordCreateForm } from "../back-office/record-create-form";
 import { BackOfficeTheme } from "../back-office/twenty-controls";
 import { displayBackOfficeObject } from "../back-office/labels";
-import { ArrowLeft, Database, CalendarDays, Check, ChevronDown, Hash, ListFilter, Loader2, Plus, Search, Type, Users, X } from "lucide-react";
+import { ArrowLeft, CalendarDays, Check, ChevronDown, Hash, ListFilter, Loader2, Plus, Search, Type, Users, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -15,8 +15,15 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { currentLocale, t } from "@/i18n";
 import { cn } from "@/lib/utils";
 import { filterNeedsValue, filterOperators, projectReferenceFilterValue, validProjectFilter, type FilterOperator, type ProjectFilter, type ProjectFilterField, type ProjectFilterMode } from "./project-filters";
+import { ObjectIcon } from "../back-office/object-icon";
 
-const icons = { text: Type, number: Hash, date: CalendarDays, select: ListFilter, backoffice: Database };
+const icons = { text: Type, number: Hash, date: CalendarDays, select: ListFilter };
+
+function FilterFieldIcon({ field, className }: { field: Pick<ProjectFilterField, "type" | "objectId">; className: string }) {
+  if (field.type === "backoffice") return <ObjectIcon id={field.objectId ?? ""} className={className} />;
+  const Icon = icons[field.type];
+  return <Icon className={className} aria-hidden="true" />;
+}
 
 function operatorLabel(operator: FilterOperator, type: ProjectFilterField["type"]) {
   if ((type === "select" || type === "backoffice") && (operator === "is" || operator === "is_not")) return operator === "is" ? t("project_filters.is_any") : t("project_filters.is_none");
@@ -102,9 +109,8 @@ export function ProjectFilterBar(props: {
               <div className="border-t border-border/60">
                 <CommandList className="max-h-72 overflow-auto p-1.5">
                   {candidates.map(field => {
-                    const Icon = icons[field.type];
                     return <CommandItem key={field.key} value={field.key} onClick={() => setField(field)} className="gap-2.5 rounded-lg px-2 py-2 text-xs">
-                      <Icon className="size-3.5 shrink-0 text-muted-foreground" />
+                      <FilterFieldIcon field={field} className="size-3.5 shrink-0 text-muted-foreground" />
                       <span className="min-w-0 flex-1 truncate">{field.label}</span>
                       <span className="text-[10px] text-muted-foreground">{fieldTypeLabel(field.type)}</span>
                     </CommandItem>;
@@ -150,12 +156,11 @@ export function ProjectFilterBar(props: {
 function FilterChip({ filter, field, onChange, onRemove }: { filter: ProjectFilter; field?: ProjectFilterField; onChange: (filter: ProjectFilter) => void; onRemove: () => void }) {
   const [open, setOpen] = useState(false);
   const resolved = field ?? { ...filter.field, options: [] };
-  const Icon = icons[resolved.type];
   const summary = filterSummary(filter, field);
   return <div className="inline-flex h-7 min-w-0 max-w-full items-center rounded-lg border border-border/80 bg-muted/35 text-xs">
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger render={<Button variant="ghost" className="h-[26px] min-w-0 gap-1.5 rounded-r-none px-2 text-xs font-normal" title={`${resolved.label} ${operatorLabel(filter.operator, resolved.type)} ${summary}`}>
-        <Icon className="size-3 shrink-0 text-muted-foreground" />
+        <FilterFieldIcon field={resolved} className="size-3 shrink-0 text-muted-foreground" />
         <span className="max-w-36 truncate">{resolved.label}</span>
         <span className="shrink-0 text-muted-foreground">{operatorLabel(filter.operator, resolved.type)}</span>
         {summary && <span className="max-w-40 truncate font-medium">{summary}</span>}
@@ -175,7 +180,7 @@ function ProjectFilterEditor({ field, initial, onApply }: { field: ProjectFilter
   const [operator, setOperator] = useState<FilterOperator>(initial?.operator ?? filterOperators(field.type)[0]);
   const [values, setValues] = useState(initial?.values ?? []);
   const [search, setSearch] = useState("");
-  const draft: ProjectFilter = { id: initial?.id ?? "draft", field: { key: field.key, label: field.label, type: field.type }, operator, values };
+  const draft: ProjectFilter = { id: initial?.id ?? "draft", field: { key: field.key, label: field.label, type: field.type, ...(field.objectId ? { objectId: field.objectId } : {}) }, operator, values };
   const needsValue = filterNeedsValue(operator);
   const knownOptions = [...createdOptions, ...field.options.filter(option => !createdOptions.some(created => created.value === option.value))];
   const options = [...knownOptions, ...values.filter(value => value && !knownOptions.some(option => option.value === value)).map(value => ({ value, label: field.type === "backoffice" ? t("projects.reference.unavailable") : value, count: 0 }))];

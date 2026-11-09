@@ -1,6 +1,6 @@
 import { projectErrorMessage } from "./project-errors";
 import { useRef, useState } from "react";
-import { Database, CalendarDays, Hash, ListFilter, Pencil, Type, X } from "lucide-react";
+import { CalendarDays, Hash, ListFilter, Pencil, Type, X } from "lucide-react";
 import type { ProjectField } from "@legalwork/types/workspace";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { ProjectRecordField } from "./project-record-field";
 import { projectFieldLabel } from "./project-defaults-store";
+import { ObjectIcon } from "../back-office/object-icon";
 
 const fieldIcons = { text: Type, number: Hash, date: CalendarDays, select: ListFilter };
 
@@ -47,7 +48,7 @@ export function ProjectProperties({ fields, onSave, className, client }: {
     {fields.map((field) => {
       const label = projectFieldLabel(field);
       if (field.type === "backoffice") return <div key={field.id} className="grid min-h-9 grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] items-start gap-2 text-xs">
-        <dt className="flex min-w-0 items-center gap-2 py-2 text-muted-foreground"><Database className="size-3.5 shrink-0 opacity-70" /><span>{label}</span></dt>
+        <dt className="flex min-w-0 items-center gap-2 py-2 text-muted-foreground"><ObjectIcon id={field.objectId} className="size-3.5 shrink-0 opacity-70" /><span>{label}</span></dt>
         <dd className="min-w-0"><ProjectRecordField field={field} client={client} onSave={value => onSave(field.id, value)} /></dd>
       </div>;
       const Icon = fieldIcons[field.type];

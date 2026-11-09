@@ -4,6 +4,7 @@ import { useProjectTemplateCatalog } from "./project-template-catalog";
 import { ProjectTemplateSelect } from "./project-template-select";
 import { projectMatterField, type ProjectRecordReference, type RemoteFolderSelection } from "@legalwork/types/workspace";
 import { ProjectMatterPicker } from "./project-matter-picker";
+import { ObjectIcon } from "../back-office/object-icon";
 import { projectErrorMessage } from "./project-errors";
 import { useEffect, useState } from "react";
 import { isDesktopRuntime } from "@/app/lib/runtime-env";
@@ -138,7 +139,7 @@ export function CreateProjectModal(props: {
             <p className="text-xs text-muted-foreground">{selectedTemplate?.fields.length ? selectedTemplate.fields.map((field) => projectFieldLabel(field)).join(", ") : t("projects.templates.none_hint")}</p>
           </div>
           {props.open && <div className="space-y-2">
-            <div className="text-sm font-medium">{t("projects.matters.label")}</div>
+            <div className="flex items-center gap-2 text-sm font-medium"><ObjectIcon id="matters" />{t("projects.matters.label")}</div>
             <ProjectMatterPicker key={templateId ?? "no-template"} client={props.client}
               field={{ ...projectMatterField(selectedTemplate?.fields ?? [], currentLocale()), value: matters }}
               disabled={props.submitting || !catalog.ready} onChange={setMatters} onCreatingChange={setCreatingMatter} />

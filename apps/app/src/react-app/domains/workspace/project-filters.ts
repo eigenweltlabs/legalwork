@@ -14,7 +14,7 @@ export type ProjectFilterField = {
 };
 export type ProjectFilter = {
   id: string;
-  field: Pick<ProjectFilterField, "key" | "label" | "type">;
+  field: Pick<ProjectFilterField, "key" | "label" | "type" | "objectId">;
   operator: FilterOperator;
   values: string[];
 };

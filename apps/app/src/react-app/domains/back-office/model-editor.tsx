@@ -24,7 +24,8 @@ import {
   type BackOfficeField,
 } from "@legalwork/types/back-office";
 import type { ModelPreview } from "./api";
-import { FieldIcon, ObjectIcon } from "./record-values";
+import { FieldIcon } from "./record-values";
+import { ObjectIcon } from "./object-icon";
 import { DirectoryDialog, DirectorySelect } from "./twenty-controls";
 
 const basicFieldTypes = [
@@ -320,7 +321,7 @@ export function ModelEditor({
                   <ListItem
                     key={field.id}
                     render={<button />}
-                    startIcon={<Link2 size={14} />}
+                    startIcon={<FieldIcon field={field} />}
                     onClick={() => editField(field)}
                     actionsVisibility="always"
                     actions={

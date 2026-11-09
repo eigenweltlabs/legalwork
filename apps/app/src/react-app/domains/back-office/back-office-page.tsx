@@ -7,7 +7,6 @@ import { z } from "@legalwork/types/back-office";
 import {
   Archive,
   ArrowDownToLine,
-  BriefcaseBusiness,
   ChevronDown,
   Cloud,
   Database,
@@ -34,7 +33,7 @@ import {
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { onSyncPoke } from "@/react-app/kernel/sync-events";
 import { loadBackOfficeState, type BackOfficeState, ModelPreviewSchema } from "./api";
-import { primaryObjectIcons } from "./record-values";
+import { ObjectIcon, primaryObjectIcons } from "./object-icon";
 import { RecordGrid } from "./record-grid";
 import { RecordDetail } from "./record-detail";
 import { ModelEditor } from "./model-editor";
@@ -334,13 +333,13 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
           style={directoryStyle}
         >
           <nav className="bo-tabs" aria-label="Back Office">
-            {Array.from(primaryObjectIcons, ([id, Icon]) => (
+            {Array.from(primaryObjectIcons.keys(), id => (
               <Button
                 key={id}
                 size="sm"
                 variant={selected === id ? "soft" : "ghost"}
                 onClick={() => show(id)}
-                startIcon={<Icon size={16} />}
+                startIcon={<ObjectIcon id={id} size={16} />}
                 aria-current={selected === id ? "page" : undefined}
               >
                 {tabName(id)}
@@ -373,7 +372,7 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
                   <Dropdown.ActionItem
                     key={object.id}
                     onClick={() => show(object.id)}
-                    startIcon={<Database size={14} />}
+                    startIcon={<ObjectIcon id={object.id} size={14} />}
                   >
                     {displayBackOfficeObject(object).plural}
                   </Dropdown.ActionItem>
@@ -437,7 +436,7 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
             <>
               <header className="bo-object-header">
                 <h1>
-                  <BriefcaseBusiness size={16} />
+                  <ObjectIcon id={object.id} size={16} />
                   {object.plural}
                 </h1>
                 <div className="bo-object-actions">

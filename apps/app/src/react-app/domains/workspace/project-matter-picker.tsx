@@ -11,6 +11,7 @@ import { RecordCreateForm } from "../back-office/record-create-form";
 import { creatableRecordObject } from "../back-office/record-creation-values";
 import { displayBackOfficeObject } from "../back-office/labels";
 import { BackOfficeTheme } from "../back-office/twenty-controls";
+import { ObjectIcon } from "../back-office/object-icon";
 import { useProjectBackOffice } from "./project-record-field";
 
 export function ProjectMatterPicker({ client, field, disabled, onChange, onCreatingChange }: {
@@ -44,6 +45,7 @@ export function ProjectMatterPicker({ client, field, disabled, onChange, onCreat
         {selected.map(id => {
           const name = currentDirectory ? records.find(record => record.id === id)?.values.name : undefined;
           return <span key={id} className="inline-flex max-w-full items-center gap-1 rounded-md border bg-muted/30 py-1 pl-2 text-xs">
+            <ObjectIcon id="matters" className="size-3.5 shrink-0 text-muted-foreground" />
             <span className="truncate">{String(name ?? t("projects.reference.unavailable"))}</span>
             <Button type="button" variant="ghost" size="icon-sm" className="size-5 shrink-0" disabled={disabled}
               aria-label={`${t("common.remove")}: ${name ?? t("projects.reference.unavailable")}`}
@@ -69,6 +71,7 @@ export function ProjectMatterPicker({ client, field, disabled, onChange, onCreat
                   setSelection(ids.includes(record.id) ? ids.filter(id => id !== record.id) : field.multiple ? [...ids, record.id] : [record.id]);
                   if (!field.multiple) setOpen(false);
                 }} className="gap-2 rounded-md px-2">
+                  <ObjectIcon id="matters" className="size-3.5 shrink-0 text-muted-foreground" />
                   <span className="min-w-0 flex-1">
                     <span className="block truncate">{String(record.values.name)}</span>
                     {typeof record.values.fileNumber === "string" && record.values.fileNumber && <span className="block truncate text-xs text-muted-foreground">{record.values.fileNumber}</span>}
