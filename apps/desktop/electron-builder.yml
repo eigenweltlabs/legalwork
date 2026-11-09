@@ -170,6 +170,15 @@ linux:
 win:
   icon: resources/icons/icon.ico
   extraResources:
+    # Keep the signed Microsoft CRT beside the ONNX native addon. These
+    # app-local dependencies require neither a system install nor admin rights.
+    - from: resources/node
+      to: app.asar.unpacked/node_modules/onnxruntime-node/bin/napi-v6/win32/${arch}
+      filter:
+        - msvcp140.dll
+        - msvcp140_1.dll
+        - vcruntime140.dll
+        - vcruntime140_1.dll
     - from: resources/sidecars
       to: sidecars
       filter:

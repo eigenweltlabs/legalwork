@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { unzipSync } from "fflate";
+import windowsVcRuntime from "./windows-vc-runtime.cjs";
 
 const desktopRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const config = JSON.parse(await readFile(path.join(desktopRoot, "build/node-runtime.json"), "utf8"));
@@ -24,6 +25,9 @@ const archive = `${name}.${isWindows ? "zip" : "tar.gz"}`;
 const output = path.join(desktopRoot, "resources/node");
 const executable = isWindows ? "node.exe" : "node";
 const expectedMetadata = JSON.stringify({ version: config.version, target, archiveSha256: config.sha256[target] });
+// Prepare the CRT with the bundled Node. Windows extraResources puts
+// these files beside the ONNX addon, where its DLL loader can resolve them.
+if (isWindows) await windowsVcRuntime.prepareWindowsVcRuntime(output, target.slice(4));
 try {
   const existing = JSON.parse(await readFile(path.join(output, "runtime.json"), "utf8"));
   const binaryHash = createHash("sha256").update(await readFile(path.join(output, executable))).digest("hex");

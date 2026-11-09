@@ -57,6 +57,8 @@ Requests are sent to the model provider you select. Connecting a local model can
 
 In builds exposing **Document recognition providers (OCR)** under AI Providers, choose how scanned pages and images are read. Download the offered local model before using it, or configure a supported custom provider with its endpoint, model and credentials. Test the connection with the supplied sample, then check the selected default. Provider choice determines whether document images leave the computer. A chat-model change does not automatically change OCR.
 
+The Windows desktop app includes the runtime dependencies for its fast local OCR engine. You do not need to install Python, Visual Studio, or a separate Visual C++ runtime package. Download the recognition model from this settings page before using local OCR.
+
 The separate local layout model identifies page regions and reading order where supported. Inspect its download/error state as well as OCR readiness. Recognition and layout can be incomplete independently; neither guarantees correct handwriting or table reconstruction. See [Tabular Review](reviews.md) for how this affects evidence.
 
 Newer AI Providers pages also expose JEV/SystemOne models for structured review questions. They are separate from chat providers. Managed Eigenwelt models depend on firm subscription, region permission and model enablement. A custom JEV-compatible provider uses its own endpoint/key and available model IDs. Test the intended model and check its status. Review defaults belong under **Settings > Tabular Review**; saved reviews retain their own selection.
