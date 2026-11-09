@@ -1,3 +1,4 @@
+import { waitForNativeLocation } from "./native-mcp.test-support.js";
 import { expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
@@ -90,13 +91,15 @@ test.skipIf(!binary).each([false, true])("real managed file tools enforce projec
     } });
     engine = await start();
     config.opencodeBaseUrl = engine.url; config.opencodeUsername = engine.username; config.opencodePassword = engine.password;
-    const connect = () => {
-      if (!engine) throw new Error("Fixture engine is not running");
-      return OpenCode.make({ baseUrl: engine.url, headers: { authorization: `Basic ${Buffer.from(`${engine.username}:${engine.password}`).toString("base64")}` } });
-    };
-    let client = connect();
     const location = { directory: a }, otherLocation = { directory: b };
-    await client.model.list({ location });
+    const connect = async () => {
+      if (!engine) throw new Error("Fixture engine is not running");
+      const connected = OpenCode.make({ baseUrl: engine.url, headers: { authorization: `Basic ${Buffer.from(`${engine.username}:${engine.password}`).toString("base64")}` } });
+      await waitForNativeLocation(connected, location);
+      await waitForNativeLocation(connected, otherLocation);
+      return connected;
+    };
+    let client = await connect();
     expect((await client.agent.list({ location })).data.some(agent => agent.id === "original-root-agent")).toBe(false);
     const nativeProject = (await client.location.get({ location })).project.id;
     const otherNativeProject = (await client.location.get({ location: otherLocation })).project.id;
@@ -265,7 +268,7 @@ test.skipIf(!binary).each([false, true])("real managed file tools enforce projec
     await engine.close();
     engine = await start();
     config.opencodeBaseUrl = engine.url; config.opencodeUsername = engine.username; config.opencodePassword = engine.password;
-    client = connect();
+    client = await connect();
     expect((await invoke(remembered.id, "read", { path: external })).output).toContain("private-outside-content");
     const aliasDirectory = join(root, "outside-alias");
     await symlink(outside, aliasDirectory, process.platform === "win32" ? "junction" : "dir");
@@ -344,7 +347,7 @@ test.skipIf(!binary).each([false, true])("real managed file tools enforce projec
     expect(await client.permission.saved.list()).toEqual([]);
     await engine.close(); engine = await start();
     config.opencodeBaseUrl = engine.url; config.opencodeUsername = engine.username; config.opencodePassword = engine.password;
-    client = connect();
+    client = await connect();
     await invoke(generic.id, "start-permission", permissionInput);
     expect(await waitForOutcome(generic.id)).toBe("authorized");
     expect((await askFamily(lateChild.id, "helper")).effect).toBe("allow");
@@ -386,7 +389,7 @@ test.skipIf(!binary).each([false, true])("real managed file tools enforce projec
     expect((await projectApi("a", `/permission/saved/${genericSaved.id}`, "DELETE")).status).toBe(204);
     await engine.close(); engine = await start();
     config.opencodeBaseUrl = engine.url; config.opencodeUsername = engine.username; config.opencodePassword = engine.password;
-    client = connect();
+    client = await connect();
     await invoke(genericNext.id, "start-permission", editedInput);
     const removed = await pending(genericNext.id);
     await client.permission.reply({ sessionID: genericNext.id, requestID: removed.id, decision: "reject" });
@@ -406,7 +409,7 @@ test.skipIf(!binary).each([false, true])("real managed file tools enforce projec
     await writeLegalworkRuntimeConfigFile(config, "a");
     engine = await start();
     config.opencodeBaseUrl = engine.url; config.opencodeUsername = engine.username; config.opencodePassword = engine.password;
-    client = connect();
+    client = await connect();
     const legacyInput = { action, resources: ["legacy-only-record"], save: ["legacy-only-record"] };
     await invoke(genericNext.id, "start-permission", legacyInput);
     if (git) {

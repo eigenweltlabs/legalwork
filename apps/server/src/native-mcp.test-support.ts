@@ -3,20 +3,33 @@ import type { OpenCodeClient, IntegrationAttempt } from "@opencode/client";
 export type NativeMcpOAuthAttempt = IntegrationAttempt & { integrationID: string };
 
 /** Public released APIs only. This watchdog bounds fixture failures, not tools. */
-export async function waitForNativeFixture<T>(read: () => Promise<T>, accepts: (value: T) => boolean, label: string, timeoutMs = 15_000): Promise<T> {
+export async function waitForNativeFixture<T>(read: () => Promise<T>, accepts: (value: T) => boolean, label: string,
+  { timeoutMs = 15_000, retryError = () => true }: { timeoutMs?: number; retryError?: (error: unknown) => boolean } = {}): Promise<T> {
   const deadline = Date.now() + timeoutMs;
   let last: unknown;
   do {
     try { const value = await read(); if (accepts(value)) return value; last = value; }
-    catch (error) { last = error instanceof Error ? error.message : String(error); }
+    catch (error) {
+      if (!retryError(error)) throw error;
+      last = error instanceof Error ? error.message : String(error);
+    }
     await Bun.sleep(25);
   } while (Date.now() < deadline);
   throw new Error(`Native fixture did not reach ${label}: ${JSON.stringify(last)}`);
 }
 
+// Model discovery initializes location plugins without invoking a model. A cold
+// location can consume the engine's activation deadline on its first request.
+export function waitForNativeLocation(client: OpenCodeClient, location: { directory: string }) {
+  return waitForNativeFixture(() => client.model.list({ location }), () => true, `plugin activation for ${location.directory}`, {
+    timeoutMs: 40_000,
+    retryError: error => error instanceof Error && "_tag" in error && error._tag === "ServiceUnavailableError"
+      && "service" in error && error.service === "plugin",
+  });
+}
+
 export async function beginNativeMcpOAuth(client: OpenCodeClient, location: { directory: string }, serverName: string): Promise<NativeMcpOAuthAttempt> {
-  // Model discovery initializes native configured domains; it performs no inference.
-  await waitForNativeFixture(() => client.model.list({ location }), () => true, "native OAuth plugin activation");
+  await waitForNativeLocation(client, location);
   const server = await waitForNativeFixture(async () => (await client.mcp.list({ location })).data.find(server => server.name === serverName), server => Boolean(server?.integrationID), `OAuth integration ${serverName}`);
   if (!server?.integrationID) throw new Error(`Missing OAuth integration ${serverName}`);
   const integrationID = server.integrationID;
