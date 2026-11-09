@@ -82,9 +82,9 @@ export function ProjectMetadata(props: {
       <fieldset disabled={busy} className="space-y-4">
         {props.children}
         {!props.definitionsOnly && templates.length > 0 ? <div className="space-y-2 rounded-xl border border-border p-3">
-          <div className="text-sm font-medium">{t("projects.templates.template")}</div>
+          <div className="text-sm font-medium">{t("projects.templates.apply_title")}</div>
           <div className="flex items-center gap-2">
-            <ProjectTemplateSelect value={templateId} onChange={setTemplateId} />
+            <ProjectTemplateSelect value={templateId} onChange={setTemplateId} emptyLabel={t("projects.templates.choose")} />
             <Button type="button" variant="outline" disabled={!templateId || conflict} onClick={() => {
               const template = templates.find((entry) => entry.id === templateId);
               if (!template) return;
@@ -114,6 +114,7 @@ export function ProjectMetadata(props: {
                 replace({ ...field, label: event.target.value, labelSource: "custom" })
               }
             />
+            {field.type === "backoffice" && <span className="text-xs text-muted-foreground">{t("projects.reference.label_hint", { source: objects.find(object => object.id === field.objectId)?.plural ?? field.objectId })}</span>}
             </label>
             <div className="flex min-w-0 flex-col gap-1.5"><span className="text-xs text-muted-foreground">{t(field.type === "backoffice" ? "projects.reference.records_from" : "projects.field_type")}</span>
             <Select

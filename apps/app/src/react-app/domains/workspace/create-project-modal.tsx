@@ -133,17 +133,18 @@ export function CreateProjectModal(props: {
             <InputGroupAddon className="h-full border-r border-border px-4 text-foreground"><Folder className="size-5" /></InputGroupAddon>
             <InputGroupInput autoFocus required={!setup} maxLength={120} aria-label={t("projects.name")} placeholder={t(setup ? "projects.setup.name_placeholder" : "projects.name")} value={name} disabled={props.submitting} className="h-full px-4 text-base" onChange={(event) => setName(event.target.value)} />
           </InputGroup>
-          <div className="space-y-2">
-            <div className="text-sm font-medium">{t("projects.templates.template")}</div>
-            <ProjectTemplateSelect value={templateId} onChange={setTemplateId} disabled={props.submitting || !catalog.ready} />
-            <p className="text-xs text-muted-foreground">{selectedTemplate?.fields.length ? selectedTemplate.fields.map((field) => projectFieldLabel(field)).join(", ") : t("projects.templates.none_hint")}</p>
-          </div>
           {props.open && <div className="space-y-2">
             <div className="flex items-center gap-2 text-sm font-medium"><ObjectIcon id="matters" />{t("projects.matters.label")}</div>
             <ProjectMatterPicker key={templateId ?? "no-template"} client={props.client}
               field={{ ...projectMatterField(selectedTemplate?.fields ?? [], currentLocale()), value: matters }}
               disabled={props.submitting || !catalog.ready} onChange={setMatters} onCreatingChange={setCreatingMatter} />
           </div>}
+          <details className="space-y-2">
+            <summary className="cursor-pointer text-xs text-muted-foreground">{t("projects.advanced")}</summary>
+            <div className="text-sm font-medium">{t("projects.templates.template")}</div>
+            <ProjectTemplateSelect value={templateId} onChange={setTemplateId} disabled={props.submitting || !catalog.ready} />
+            <p className="text-xs text-muted-foreground">{selectedTemplate?.fields.length ? selectedTemplate.fields.map((field) => projectFieldLabel(field)).join(", ") : t("projects.templates.none_hint")}</p>
+          </details>
           <fieldset disabled={props.submitting || picking} className="space-y-3">
             <legend className="mb-3 text-sm font-medium">{t("projects.source_folders")}</legend>
             <div className="flex min-h-36 flex-col justify-center gap-4 rounded-xl border border-border p-5">

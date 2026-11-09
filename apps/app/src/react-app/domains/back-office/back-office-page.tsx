@@ -24,10 +24,7 @@ import type {
   BackOfficeView,
 } from "@legalwork/types/back-office";
 import {
-  BackOfficeRecordSchema,
   BackOfficeViewSchema,
-  defaultBackOfficeValues,
-  validateBackOfficeValues,
   isInternalBackOfficeObject,
 } from "@legalwork/types/back-office";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
@@ -36,6 +33,8 @@ import { loadBackOfficeState, type BackOfficeState, ModelPreviewSchema } from ".
 import { ObjectIcon, primaryObjectIcons } from "./object-icon";
 import { RecordGrid } from "./record-grid";
 import { RecordDetail } from "./record-detail";
+import { RecordCreateForm } from "./record-create-form";
+import { creatableRecordObject } from "./record-creation-values";
 import { ModelEditor } from "./model-editor";
 import {
   DirectoryDialog,
@@ -90,8 +89,7 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
     ),
     [error, setError] = useState("");
   const openRecord = useCallback((record: BackOfficeRecord) => setDetailId(record.id), []);
-  const [draft, setDraft] = useState<BackOfficeRecord | null>(null);
-  const [focusNameId, setFocusNameId] = useState<string | null>(null);
+  const [creating, setCreating] = useState<{ objectId: string; values: Record<string, BackOfficeValue> } | null>(null);
   const [detailWidth, setDetailWidth] = useState(400);
   const [pendingChanges, setPendingChanges] = useState<z.infer<typeof pendingChangesSchema>["changes"] | null>(null);
   const [discardChange, setDiscardChange] = useState<string | null>(null);
@@ -121,7 +119,7 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
     () =>
       onSyncPoke((poke) => {
         if (poke.policy || poke.reload) {
-          setDraft(null);
+          setCreating(null);
           setPendingChanges(null);
           setDiscardChange(null);
           setCsv("");
@@ -138,6 +136,7 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
     [cache, client.baseUrl],
   );
   useEffect(() => {
+    setCreating(null);
     setDetailId(new URLSearchParams(location.search).get("record"));
     setArchived(false);
     setError("");
@@ -158,8 +157,7 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
   const records = useMemo(() => [
     ...(data?.records ?? []),
     ...(archived && data && !archivedRecords.isError && archivedRecords.data?.directoryId === data.directoryId ? archivedRecords.data?.records ?? [] : []),
-    ...(draft ? [draft] : []),
-  ], [data?.records, data?.directoryId, archived, archivedRecords.data, archivedRecords.isError, draft]);
+  ], [data?.records, data?.directoryId, archived, archivedRecords.data, archivedRecords.isError]);
   const detail = records.find((record) => record.id === detailId),
     detailObject = data?.model.objects.find(
       (object) =>
@@ -178,85 +176,15 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
     values: Record<string, BackOfficeValue>,
     archived?: boolean,
   ) => {
-    if (record.revision === 0) {
-      const object = data?.model.objects.find(
-        (object) => object.id === record.objectId,
-      );
-      if (!object) return;
-      const next = { ...record, values: { ...record.values, ...values } };
-      setDraft(next);
-      try {
-        validateBackOfficeValues(object, next.values);
-      } catch {
-        return;
-      }
-      const result = z.object({ record: BackOfficeRecordSchema }).parse(
-        await request("/records", {
-          id: record.id,
-          create: true,
-          objectId: record.objectId,
-          revision: 0,
-          values: next.values,
-        }),
-      );
-      setDraft(null);
-      setDetailId(result.record.id);
-      setFocusNameId(result.record.id);
-    } else
-      await request("/records", {
-        id: record.id,
-        objectId: record.objectId,
-        revision: record.revision,
-        values,
-        archived,
-      });
+    await request("/records", {
+      id: record.id, objectId: record.objectId, revision: record.revision, values, archived,
+    });
     await refresh();
   };
-  const beginCreate = async (values: Record<string, BackOfficeValue> = {}) => {
-    if (!object || !data) return;
-    if (object.id === "projectLinks") {
-      setError("Use project metadata to connect Back Office records.");
-      return;
-    }
+  const beginCreate = (values: Record<string, BackOfficeValue> = {}) => {
+    if (!object || !creatableRecordObject(data, object.id)) return;
     setError("");
-    const now = new Date().toISOString();
-    const draft = BackOfficeRecordSchema.parse({
-      id: crypto.randomUUID(),
-      objectId: object.id,
-      values: { name: "Untitled", ...defaultBackOfficeValues(object), ...values },
-      revision: 0,
-      schemaRevision: data.model.revision,
-      ownerId: data.permissions.userId,
-      access: "org",
-      members: [],
-      createdAt: now,
-      updatedAt: now,
-      archivedAt: null,
-    });
-    try {
-      validateBackOfficeValues(object, draft.values);
-    } catch {
-      setDraft(draft);
-      setDetailId(draft.id);
-      setFocusNameId(draft.id);
-      return;
-    }
-    try {
-      const result = z.object({ record: BackOfficeRecordSchema }).parse(
-        await request("/records", {
-          objectId: object.id,
-          revision: 0,
-          values: draft.values,
-        }),
-      );
-      await refresh();
-      setDetailId(result.record.id);
-      setFocusNameId(result.record.id);
-    } catch (error) {
-      setError(
-        error instanceof Error ? error.message : "Could not create record.",
-      );
-    }
+    setCreating({ objectId: object.id, values });
   };
   const saveView = async (view: BackOfficeView, expected: BackOfficeView | null) => {
     const result = z.object({ view: BackOfficeViewSchema }).parse(await request("/views", { ...view, expected }));
@@ -530,6 +458,11 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
               />
             </>
           )}
+          {creating && object && creating.objectId === object.id && creatableRecordObject(data, object.id) && <DirectoryDialog title={t("back_office.create.title", { name: object.label })} onClose={() => setCreating(null)}>
+            <RecordCreateForm object={object} name="" initialValues={creating.values} standalone onCancel={() => setCreating(null)} onCreated={async record => {
+              setCreating(null); setDetailId(record.id); await refresh();
+            }} />
+          </DirectoryDialog>}
           {data && detail && detailObject && (
             <RecordDetail
               client={client}
@@ -537,7 +470,6 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
               historyAccessKey={`${data.permissions.principalKey ?? data.permissions.userId}:${data.permissions.replicaId ?? "local"}:${data.permissions.model}:${data.permissions.finance}`}
               key={detail.id}
               record={detail}
-              focusName={focusNameId === detail.id}
               width={detailWidth}
               onWidthChange={setDetailWidth}
               object={displayBackOfficeObject(detailObject)}

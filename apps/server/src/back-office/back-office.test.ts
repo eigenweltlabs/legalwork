@@ -244,6 +244,24 @@ describe("Back Office records and protected model", () => {
     );
     expect(store.model("local").revision).toBe(1);
   });
+  test("persists quick-create fields and rejects missing or duplicate field references", async () => {
+    const store = await database(), model = store.model("local");
+    expect(model.objects[0].quickCreateFields).toBeUndefined();
+    const candidate = structuredClone(model);
+    candidate.objects[0].quickCreateFields = ["clients", "fileNumber"];
+    const saved = store.saveModel("local", owner, candidate, model.revision);
+    expect(store.model("local").objects[0].quickCreateFields).toEqual(["clients", "fileNumber"]);
+    for (const fields of [["missing"], ["clients", "clients"]]) {
+      const invalid = structuredClone(saved);
+      invalid.objects[0].quickCreateFields = fields;
+      expect(() => store.saveModel("local", owner, invalid, saved.revision)).toThrow("Quick-create fields");
+      expect(store.model("local").revision).toBe(saved.revision);
+    }
+    const minimal = structuredClone(saved);
+    minimal.objects[0].quickCreateFields = [];
+    store.saveModel("local", owner, minimal, saved.revision);
+    expect(store.model("local").objects[0].quickCreateFields).toEqual([]);
+  });
   test("permits additive fields and rejects destructive changes to populated fields", async () => {
     const store = await database(),
       model = store.model("local"),

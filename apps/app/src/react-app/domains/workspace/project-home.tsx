@@ -17,6 +17,7 @@ import { toast } from "@/components/ui/sonner";
 import { SectionHeading, Surface } from "@/react-app/design-system/surface";
 import { cn } from "@/lib/utils";
 import { ProjectProperties } from "./project-properties";
+import { ProjectReferenceActions } from "./project-reference-actions";
 import { ProjectName } from "./project-name";
 import { ProjectMetadata } from "./project-metadata";
 import { ProjectNoteDialog } from "./project-note-dialog";
@@ -70,7 +71,7 @@ export function ProjectHome(props: {
   const [deletingNote, setDeletingNote] = useState<LegalworkWorkspaceDirectoryEntry | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [taskOpen, setTaskOpen] = useState(false);
-  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(true);
   const [editMetadata, setEditMetadata] = useState(false);
   const [sessionStarting, setSessionStarting] = useState(false);
   const newSession = async (shareRecording: boolean) => {
@@ -168,7 +169,7 @@ export function ProjectHome(props: {
               <ChevronRight className={cn("size-3.5 transition-transform", detailsOpen && "rotate-90")} />
               {t("projects.metadata")}
             </CollapsibleTrigger>
-            <Button size="icon-xs" variant="ghost" disabled={!details.data} aria-label={t("projects.configure_fields")} title={t("projects.configure_fields")} onClick={() => setEditMetadata(true)}><Settings2 className="size-3.5" /></Button>
+            <Button size="sm" variant="ghost" className="text-xs text-muted-foreground" disabled={!details.data} onClick={() => setEditMetadata(true)}><Settings2 className="size-3.5" />{t("projects.advanced")}</Button>
           </div>
           <CollapsibleContent>
             <div className="pb-3 pt-2">
@@ -183,13 +184,22 @@ export function ProjectHome(props: {
                     throw error;
                   }
                 }} />
-              ) : <Notice>{t("projects.no_metadata")}</Notice>}
+              ) : null}
+              {details.data && <ProjectReferenceActions client={client} fields={details.data.fields} onSave={async fields => {
+                try {
+                  const data = await client.updateProjectDetails(workspaceId, { revision: details.data.revision, fields: projectFieldsSchema.parse(fields) });
+                  queryClient.setQueryData(["project", workspaceId], data);
+                } catch (error) {
+                  void details.refetch();
+                  throw error;
+                }
+              }} />}
             </div>
           </CollapsibleContent>
         </Collapsible>
         </ContextMenuTrigger>
         <ContextMenuContent>
-          <ContextMenuItem disabled={!details.data} onClick={() => setEditMetadata(true)}><Settings2 />{t("projects.configure_fields")}</ContextMenuItem>
+          <ContextMenuItem disabled={!details.data} onClick={() => setEditMetadata(true)}><Settings2 />{t("projects.customize_connections")}</ContextMenuItem>
           <ContextMenuItem onClick={() => setDetailsOpen(!detailsOpen)}><ChevronDown />{t(detailsOpen ? "projects.collapse_details" : "projects.expand_details")}</ContextMenuItem>
           <ContextMenuItem disabled={details.isFetching} onClick={() => { void details.refetch(); }}><RefreshCw />{t("common.refresh")}</ContextMenuItem>
         </ContextMenuContent>
@@ -258,7 +268,7 @@ export function ProjectHome(props: {
       {taskOpen ? <ProjectTaskDialog client={client} workspaceId={workspaceId} onClose={() => setTaskOpen(false)} /> : null}
       <Dialog open={editMetadata} onOpenChange={setEditMetadata}>
         <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
-          <DialogHeader><DialogTitle>{t("projects.metadata")}</DialogTitle><DialogDescription>{t("projects.metadata_hint")}</DialogDescription></DialogHeader>
+          <DialogHeader><DialogTitle>{t("projects.customize_connections")}</DialogTitle><DialogDescription>{t("projects.customize_connections_hint")}</DialogDescription></DialogHeader>
           {details.data ? <ProjectMetadata client={client} details={details.data} onCancel={() => setEditMetadata(false)} onReload={async () => {
             const data = await client.getProjectDetails(workspaceId);
             queryClient.setQueryData(["project", workspaceId], data);

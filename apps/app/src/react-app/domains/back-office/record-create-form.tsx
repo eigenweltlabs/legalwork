@@ -12,29 +12,31 @@ import { FieldIcon } from "./record-values";
 import { ObjectIcon } from "./object-icon";
 import { RecordFilesProvider } from "./record-files";
 import { DirectoryEditorPopup } from "./twenty-controls";
-import { recordCreationValues } from "./record-creation-values";
+import { quickCreateFieldIds, recordCreationValues } from "./record-creation-values";
 import { useRecordCreation } from "./record-creation-context";
 import { RecordCreateRelation } from "./record-create-relation";
 
 function focusName(input: HTMLInputElement | null) { input?.focus({ preventScroll: true }); }
 
-function displayValue(value: BackOfficeValue | undefined, relation: boolean, records: BackOfficeRecord[]): string {
+function displayValue(value: BackOfficeValue | undefined): string {
   if (value === undefined || value === null || value === "") return t("projects.empty_value");
-  if (Array.isArray(value)) return value.map(item => typeof item === "string" ? relation ? String(records.find(record => record.id === item)?.values.name ?? t("projects.reference.unavailable")) : item : item.name).join(", ");
+  if (Array.isArray(value)) return value.map(item => typeof item === "string" ? item : item.name).join(", ");
   if (typeof value === "object") return `${value.amountMinor / 100} ${value.currency}`;
   if (typeof value === "boolean") return t(value ? "projects.reference.filter_true" : "projects.reference.filter_false");
-  return relation ? String(records.find(record => record.id === value)?.values.name ?? t("projects.reference.unavailable")) : String(value);
+  return String(value);
 }
 
-export function RecordCreateForm({ object, name, filters, persistenceNotice, onCancel, onCreated }: {
+export function RecordCreateForm({ object, name, filters, persistenceNotice, initialValues, standalone = false, onCancel, onCreated }: {
   object: BackOfficeObject; name: string; filters?: ProjectReferenceFilters | null;
   persistenceNotice?: string;
+  initialValues?: Record<string, BackOfficeValue>;
+  standalone?: boolean;
   onCancel: () => void; onCreated: (record: BackOfficeRecord) => Promise<void>;
 }) {
   const creation = useRecordCreation();
   const [draft, setDraft] = useState(() => {
     const now = new Date().toISOString();
-    return BackOfficeRecordSchema.parse({ id: crypto.randomUUID(), objectId: object.id, values: recordCreationValues(object, name, filters), revision: 0, schemaRevision: creation?.state.model.revision ?? 0,
+    return BackOfficeRecordSchema.parse({ id: crypto.randomUUID(), objectId: object.id, values: { ...recordCreationValues(object, name, filters), ...initialValues }, revision: 0, schemaRevision: creation?.state.model.revision ?? 0,
       ownerId: creation?.state.permissions.userId ?? "local", createdAt: now, updatedAt: now, archivedAt: null });
   });
   const [edit, setEdit] = useState<string | null>(null), [more, setMore] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState("");
@@ -59,10 +61,13 @@ export function RecordCreateForm({ object, name, filters, persistenceNotice, onC
     finally { saving.current = false; if (mounted.current) setBusy(false); }
   };
   if (!creation) return null;
-  const matter = object.id === "matters";
+  const quickFields = quickCreateFieldIds(object);
+  const createLabel = t(standalone ? "back_office.create.save" : "back_office.create.select");
   const fields = object.fields.filter(field => field.id !== "name" && (field.visibility !== "finance" || creation.state.permissions.finance));
-  if (matter) fields.sort((a, b) => (a.id === "clients" ? 0 : a.id === "fileNumber" ? 1 : 2) - (b.id === "clients" ? 0 : b.id === "fileNumber" ? 1 : 2));
-  const primary = (field: typeof fields[number]) => field.required || (matter ? ["clients", "fileNumber"].includes(field.id) : ["relation", "select", "boolean"].includes(field.type)) || filters?.conditions.some(condition => condition.fieldId === field.id);
+  const rank = (id: string) => quickFields.includes(id) ? quickFields.indexOf(id) : quickFields.length;
+  fields.sort((a, b) => rank(a.id) - rank(b.id));
+  const primary = (field: typeof fields[number]) => field.required || quickFields.includes(field.id) || filters?.conditions.some(condition => condition.fieldId === field.id)
+    || initialValues?.[field.id] !== undefined;
   const visible = fields.filter(field => more || primary(field));
   return <RecordFilesProvider client={creation.client} records={[...creation.state.records, draft]} projects={projects.data?.projects ?? []}>
     <div className="bo-create-record bo-cell-form" role="form" aria-label={t("back_office.create.title", { name: object.label })} onKeyDown={event => {
@@ -76,24 +81,24 @@ export function RecordCreateForm({ object, name, filters, persistenceNotice, onC
       <div className="bo-create-fields">{visible.map(field => {
         const criteria = filters?.mode === "all" ? filters.conditions.filter(condition => condition.fieldId === field.id && ["is", "is_not"].includes(condition.operator)) : [];
         const editorField = ["select", "multiselect"].includes(field.type) && criteria.length ? { ...field, options: field.options.filter(option => criteria.every(condition => condition.operator === "is" ? condition.values.includes(option) : !condition.values.includes(option))) } : field;
-        const direct = matter && (field.type === "text" || field.type === "email" || field.type === "relation" && field.id === "clients");
+        const direct = field.type === "text" || field.type === "email" || field.type === "relation";
         return <div className={`bo-create-field${direct ? " bo-create-field-direct" : ""}`} key={field.id}>
         <span><FieldIcon field={field} />{field.label}{field.required ? " *" : ""}</span>
-        {matter && field.type === "relation" && field.id === "clients" ? <RecordCreateRelation field={field} value={draft.values[field.id]} disabled={busy} onChange={value => values({ [field.id]: value })} onSubmit={() => void save()} />
-          : matter && (field.type === "text" || field.type === "email") ? <Input size="sm" aria-label={field.label} value={String(draft.values[field.id] ?? "")} disabled={busy} onChange={event => values({ [field.id]: event.target.value })} onKeyDown={event => { if (event.key === "Enter" && !event.metaKey && !event.ctrlKey && !event.nativeEvent.isComposing) event.preventDefault(); }} />
+        {field.type === "relation" ? <RecordCreateRelation field={field} value={draft.values[field.id]} disabled={busy} onChange={value => values({ [field.id]: value })} onSubmit={() => void save()} />
+          : field.type === "text" || field.type === "email" ? <Input size="sm" aria-label={field.label} value={String(draft.values[field.id] ?? "")} disabled={busy} onChange={event => values({ [field.id]: event.target.value })} onKeyDown={event => { if (event.key === "Enter" && !event.metaKey && !event.ctrlKey && !event.nativeEvent.isComposing) event.preventDefault(); }} />
           : <Popover.Root open={edit === field.id} onOpenChange={open => setEdit(open ? field.id : null)}>
           <Popover.Trigger render={<Button type="button" size="sm" variant="ghost" disabled={busy} aria-label={t("projects.edit_value", { name: field.label })} endIcon={<ChevronDown size={12} />} />}>
-            <span className="bo-create-value">{displayValue(draft.values[field.id], field.type === "relation", creation.state.records)}</span>
+            <span className="bo-create-value">{displayValue(draft.values[field.id])}</span>
           </Popover.Trigger>
           <Popover.Portal><Popover.Positioner align="start" sideOffset={4}><DirectoryEditorPopup style={{ width: field.type === "date" ? "max-content" : 260 }}>
             <CellEditor key={draft.id + field.id} record={draft} field={editorField} records={creation.state.records} value={draft.values[field.id]} onCancel={() => setEdit(null)} onSave={async value => values({ [field.id]: value })} />
           </DirectoryEditorPopup></Popover.Positioner></Popover.Portal>
         </Popover.Root>}
       </div>; })}</div>
-      {!more && fields.some(field => !primary(field)) && <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={() => setMore(true)}>{t(matter ? "back_office.create.more_details" : "back_office.create.more_fields")}</Button>}
+      {fields.some(field => !primary(field)) && <Button type="button" size="sm" variant="ghost" disabled={busy} aria-expanded={more} onClick={() => setMore(!more)}>{t("back_office.create.more_details")}<ChevronDown size={13} style={{ transform: more ? "rotate(180deg)" : undefined }} /></Button>}
       {persistenceNotice && <p className="bo-muted">{persistenceNotice}</p>}
       {error && <p className="bo-error" role="alert">{error}</p>}
-      <div className="bo-create-actions"><Button type="button" size="sm" variant="ghost" disabled={busy} onClick={onCancel}>{t("projects.cancel")}</Button><Button type="button" size="sm" variant="solid" color="neutral" disabled={busy || !String(draft.values.name ?? "").trim()} startIcon={<Plus size={14} />} aria-label={t("back_office.create.select")} aria-keyshortcuts={isMacPlatform() ? "Meta+Enter" : "Control+Enter"} onClick={() => void save()}>{t(busy ? "projects.saving" : "back_office.create.select")}<kbd aria-hidden="true">{isMacPlatform() ? "⌘↵" : "Ctrl+↵"}</kbd></Button></div>
+      <div className="bo-create-actions"><Button type="button" size="sm" variant="ghost" disabled={busy} onClick={onCancel}>{t("projects.cancel")}</Button><Button type="button" size="sm" variant="solid" color="neutral" disabled={busy || !String(draft.values.name ?? "").trim()} startIcon={<Plus size={14} />} aria-label={createLabel} aria-keyshortcuts={isMacPlatform() ? "Meta+Enter" : "Control+Enter"} onClick={() => void save()}>{busy ? t("projects.saving") : createLabel}<kbd aria-hidden="true">{isMacPlatform() ? "⌘↵" : "Ctrl+↵"}</kbd></Button></div>
     </div>
   </RecordFilesProvider>;
 }

@@ -1,0 +1,113 @@
+import assert from "node:assert/strict";
+import { Window } from "happy-dom";
+import { BackOfficeStore } from "../../../server/src/back-office/store";
+import { openSqlite } from "../../../server/src/runtime-db";
+import type { ProjectField } from "@legalwork/types/workspace";
+
+const window = new Window({ url: "http://localhost" });
+window.document.write("<!doctype html><html><head></head><body></body></html>");
+for (const [key, value] of Object.entries({
+  window, document: window.document, navigator: window.navigator, localStorage: window.localStorage,
+  HTMLElement: window.HTMLElement, HTMLInputElement: window.HTMLInputElement,
+  Element: window.Element, Node: window.Node, Event: window.Event,
+  MutationObserver: window.MutationObserver, ResizeObserver: window.ResizeObserver,
+  getComputedStyle: window.getComputedStyle.bind(window),
+  requestAnimationFrame: window.requestAnimationFrame.bind(window), cancelAnimationFrame: window.cancelAnimationFrame.bind(window),
+  IS_REACT_ACT_ENVIRONMENT: true,
+})) Object.defineProperty(globalThis, key, { value, configurable: true });
+const { act, useState } = await import("react");
+const { createRoot } = await import("react-dom/client");
+const { MemoryRouter } = await import("react-router-dom");
+const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
+const { createLegalworkServerClient } = await import("../../src/app/lib/legalwork-server");
+const { BackOfficePage } = await import("../../src/react-app/domains/back-office/back-office-page");
+const { ProjectReferenceActions } = await import("../../src/react-app/domains/workspace/project-reference-actions");
+const { t, setLocale } = await import("../../src/i18n");
+setLocale("en");
+const store = new BackOfficeStore(await openSqlite(":memory:"));
+const actor = { userId: "owner", model: true, edit: true, finance: true };
+const abc = store.saveRecord("local", actor, { objectId: "clients", revision: 0, values: { name: "ABC GmbH" } });
+const alice = store.saveRecord("local", actor, { objectId: "people", revision: 0, values: { name: "Alice" } });
+let writes = 0;
+const client = {
+  ...createLegalworkServerClient({ baseUrl: "http://localhost" }),
+  backOffice: async (path: string, options?: { body?: unknown }) => {
+    if (path.startsWith("?")) return { scope: "local", directoryId: "local:fixture", model: store.model("local"), records: store.records("local", actor), views: [], permissions: actor, sync: { enabled: false, cursor: 0, pending: 0, error: null } };
+    if (path === "/projects") return { projects: [] };
+    if (path === "/records" && options?.body) { writes++; return { record: store.saveRecord("local", actor, options.body) }; }
+    throw new Error(`Unexpected request ${path}`);
+  },
+};
+const cache = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+const host = document.createElement("div"); document.body.append(host);
+const root = createRoot(host);
+const initialFields: ProjectField[] = [{ id: "client", label: "Internal note", type: "text", value: "Keep me" },
+  { id: "people", label: "Witnesses", labelSource: "custom", type: "backoffice", objectId: "people", multiple: true, value: null }];
+let savedFields = initialFields, projectWrites = 0;
+function Links() {
+  const [fields, setFields] = useState(initialFields);
+  return <ProjectReferenceActions client={client} fields={fields} onSave={async next => { projectWrites++; savedFields = next; setFields(next); }} />;
+}
+async function render(links = false) {
+  await act(async () => { root.render(<QueryClientProvider client={cache}><MemoryRouter initialEntries={["/back-office/matters"]}>{links ? <Links /> : <BackOfficePage client={client} />}</MemoryRouter></QueryClientProvider>); });
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 10)); });
+}
+function input(label: string) { const element = document.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`); assert.ok(element, `Missing ${label}: ${document.body.textContent?.slice(-1300)}`); return element; }
+function button(text: string) { const element = [...document.querySelectorAll<HTMLButtonElement>("button")].find(button => button.getAttribute("aria-label") === text || button.textContent?.trim() === text); assert.ok(element, `Missing button ${text}: ${document.body.textContent?.slice(-1300)}`); return element; }
+async function click(label: string) { await act(async () => button(label).click()); }
+async function type(label: string, value: string) { await act(async () => { const element = input(label); element.focus(); const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set; assert.ok(setter); setter.call(element, value); element.dispatchEvent(new window.Event("input", { bubbles: true })); }); }
+async function key(label: string, key: string, metaKey = false) { await act(async () => input(label).dispatchEvent(new window.KeyboardEvent("keydown", { key, metaKey, bubbles: true, cancelable: true }))); }
+
+try {
+  await render();
+  await click("Create");
+  assert.equal(writes, 0, "Opening Create must not persist an Untitled record");
+  await type("Matter name", "Acquisition");
+  await type("File number", "2026/042");
+  await click("Edit Clients");
+  await type("Search Clients…", "ABC");
+  await key("Search Clients…", "Enter");
+  await key("Search Clients…", "Escape");
+  await key("File number", "Enter", true);
+  assert.equal(writes, 1);
+  const matter = store.records("local", actor, "matters").find(record => record.values.name === "Acquisition"); assert.ok(matter);
+  assert.deepEqual(matter.values.clients, [abc.id]);
+  assert.equal(matter.values.fileNumber, "2026/042");
+
+  await render(true);
+  await click("Add Matter");
+  await type("Search Matters…", "ABC 042");
+  assert.ok(document.body.textContent?.includes("ABC GmbH · Ref. 2026/042"));
+  await key("Search Matters…", "Enter");
+  await key("Search Matters…", "Enter", true);
+  assert.equal(projectWrites, 1);
+  assert.equal(savedFields[0].value, "Keep me");
+  assert.ok(document.body.textContent?.includes("Clients from linked matters"));
+  assert.ok(document.body.textContent?.includes("via Acquisition"));
+  assert.equal(savedFields.filter(field => field.type === "backoffice" && field.objectId === "clients").length, 0, "Inherited clients are displayed, not copied into project data");
+  await click("Add Person");
+  await type("Search People…", "Alice");
+  await key("Search People…", "Enter");
+  await key("Search People…", "Enter", true);
+  assert.equal(savedFields.find(field => field.id === "people")?.value, null, "Named role remains unchanged");
+  assert.deepEqual(savedFields.find(field => field.id === "people_2")?.value, { directoryId: "local:fixture", recordIds: [alice.id] });
+  await click("Add Client");
+  await type("Search Clients…", "New client");
+  await key("Search Clients…", "Enter");
+  assert.ok(!document.body.textContent?.includes(t("projects.connections.link")), "Outer action is hidden during nested creation");
+  await key("Client name", "Enter", true);
+  assert.equal(writes, 2);
+  await key("Search Clients…", "Enter", true);
+  assert.equal(savedFields[0].value, "Keep me");
+  assert.equal(savedFields.find(field => field.id === "client_2")?.type, "backoffice");
+
+  const model = store.model("local"), object = model.objects.find(object => object.id === "matters"); assert.ok(object);
+  store.saveModel("local", actor, { ...model, objects: model.objects.map(item => item.id === "matters" ? { ...item, quickCreateFields: ["subject"] } : item) }, model.revision);
+  await act(async () => cache.invalidateQueries({ queryKey: ["back-office", client.baseUrl] }));
+  await render(); await click("Create");
+  assert.ok(input("Matter name")); assert.ok(input("Subject"));
+  assert.equal(document.querySelector('input[aria-label="File number"]'), null, "Shared quick-form configuration applies to the normal Back Office Create button");
+  await click("More details"); assert.ok(input("File number"));
+  assert.equal(writes, 2, "Opening or configuring forms does not create records");
+  console.log("Simple Back Office flow passed");
+} finally { await act(async () => root.unmount()); cache.clear(); store.close(); await window.happyDOM.close(); }

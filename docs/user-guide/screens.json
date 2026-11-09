@@ -39,6 +39,26 @@
       "id": "back-office-history",
       "guide": "back-office.md",
       "source": "apps/app/src/react-app/domains/back-office/history-panel.tsx"
+    },
+    {
+      "id": "back-office-creation",
+      "guide": "back-office.md",
+      "source": "apps/app/src/react-app/domains/back-office/record-create-form.tsx"
+    },
+    {
+      "id": "back-office-model-settings",
+      "guide": "back-office.md",
+      "source": "apps/app/src/react-app/domains/back-office/model-editor.tsx"
+    },
+    {
+      "id": "project-record-links",
+      "guide": "projects-sharing.md",
+      "source": "apps/app/src/react-app/domains/workspace/project-reference-actions.tsx"
+    },
+    {
+      "id": "project-field-settings",
+      "guide": "projects-sharing.md",
+      "source": "apps/app/src/react-app/domains/workspace/project-metadata.tsx"
     }
   ],
   "routes": [

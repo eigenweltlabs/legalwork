@@ -27,6 +27,8 @@ import type { ModelPreview } from "./api";
 import { FieldIcon } from "./record-values";
 import { ObjectIcon } from "./object-icon";
 import { DirectoryDialog, DirectorySelect } from "./twenty-controls";
+import { quickCreateFieldIds } from "./record-creation-values";
+import { t } from "@/i18n";
 
 const basicFieldTypes = [
   ["text", "Text"],
@@ -64,6 +66,7 @@ export function ModelEditor({
   const [editing, setEditing] = useState<BackOfficeField | null>(null);
   const [label, setLabel] = useState("");
   const [plural, setPlural] = useState("");
+  const [quickFields, setQuickFields] = useState<string[]>([]);
   const [fieldType, setFieldType] = useState<BackOfficeField["type"]>("text");
   const [options, setOptions] = useState("");
   const [target, setTarget] = useState("");
@@ -206,6 +209,7 @@ export function ModelEditor({
             if (typeof value === "string") {
               setTab(value);
               setLabel(object.label);
+              setQuickFields(quickCreateFieldIds(object));
               setPlural(
                 object.plural === "Clients · Mandanten"
                   ? displayBackOfficeObject(object).plural
@@ -239,7 +243,7 @@ export function ModelEditor({
             className="bo-form"
             onSubmit={(event) => {
               event.preventDefault();
-              void applyObject({ ...object, label, plural });
+              void applyObject({ ...object, label, plural, quickCreateFields: quickFields });
             }}
           >
             <h3>Object settings</h3>
@@ -261,6 +265,15 @@ export function ModelEditor({
                 disabled={!editable}
               />
             </label>
+            <fieldset className="space-y-2">
+              <legend>{t("back_office.create.quick_fields")}</legend>
+              <p className="bo-muted">{t("back_office.create.quick_fields_hint")}</p>
+              {object.fields.map(field => <label key={field.id} className="flex items-center gap-2">
+                <Checkbox checked={field.required || quickFields.includes(field.id)} disabled={!editable || saving || field.required}
+                  onCheckedChange={checked => setQuickFields(current => checked ? [...current.filter(id => id !== field.id), field.id] : current.filter(id => id !== field.id))} />
+                <FieldIcon field={field} />{field.label}{field.required ? " *" : ""}
+              </label>)}
+            </fieldset>
             <p className="bo-model-notice">
               <LockKeyhole size={13} />
               {object.protected
@@ -792,7 +805,8 @@ export function ModelEditor({
                     disabled={!editable || saving}
                     startIcon={<Trash2 size={13} />}
                     onClick={() =>
-                      void applyObject({ ...object, fields: object.fields.filter(field => field.id !== editing.id) })
+                      void applyObject({ ...object, fields: object.fields.filter(field => field.id !== editing.id),
+                        ...(object.quickCreateFields ? { quickCreateFields: object.quickCreateFields.filter(id => id !== editing.id) } : {}) })
                     }
                   >
                     Remove field

@@ -2,6 +2,15 @@ import { defaultBackOfficeValues, isInternalBackOfficeObject, type BackOfficeObj
 import type { ProjectReferenceFilters } from "@legalwork/types/workspace";
 import type { BackOfficeState } from "./api";
 
+export function quickCreateFieldIds(object: BackOfficeObject): string[] {
+  if (object.quickCreateFields) return object.quickCreateFields;
+  const defaults: Record<string, string[]> = {
+    matters: ["clients", "fileNumber"], clients: ["company", "person", "clientNumber"],
+    people: ["email", "company", "personType"], companies: ["organisationType", "domain"],
+  };
+  return defaults[object.id] ?? object.fields.filter(field => ["relation", "select", "boolean"].includes(field.type)).map(field => field.id);
+}
+
 export function creatableRecordObject(state: BackOfficeState | undefined, objectId?: string) {
   if (!state?.directoryId || !state.permissions.edit || !objectId || isInternalBackOfficeObject(objectId)) return undefined;
   if (!state.permissions.finance && ["feeAgreements", "billingItems", "invoices"].includes(objectId)) return undefined;

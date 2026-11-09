@@ -43,6 +43,7 @@ export const BackOfficeObjectSchema = z.object({
   protected: z.boolean().default(false),
   archived: z.boolean().default(false),
   fields: z.array(BackOfficeFieldSchema).min(1).max(100),
+  quickCreateFields: z.array(identifier).max(100).optional(),
 });
 export const BackOfficeModelSchema = z.object({
   templateVersion: z.number().int().positive(),
@@ -443,6 +444,9 @@ export function assertModelChange(
     }
   }
   for (const object of candidate.objects) {
+    if (object.quickCreateFields && (new Set(object.quickCreateFields).size !== object.quickCreateFields.length
+      || object.quickCreateFields.some(id => !object.fields.some(field => field.id === id))))
+      throw new Error("Quick-create fields must reference distinct fields on the object.");
     if (
       new Set(object.fields.map((field) => field.id)).size !==
       object.fields.length
