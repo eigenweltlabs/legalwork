@@ -479,6 +479,14 @@ jobs:
           pnpm --filter @legalwork/desktop test:workflow-editor
           pnpm --filter @legalwork/desktop test:shutdown
           pnpm --filter @legalwork/desktop test:updater-quit
+      - name: Use the runner's installed Chromium sandbox
+        if: runner.os == 'Linux'
+        working-directory: apps/desktop
+        run: |
+          sandbox=/opt/google/chrome/chrome-sandbox
+          test "$(stat -Lc '%u:%a' "$sandbox")" = '0:4755'
+          electron=$(node -p "require('electron')")
+          ln -sf "$sandbox" "$(dirname "$electron")/chrome-sandbox"
       - name: Run selected Chromium fixtures
         if: contains(fromJSON(needs.changes.outputs.electron), 'ris') || contains(fromJSON(needs.changes.outputs.electron), 'browser')
         env:
