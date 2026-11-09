@@ -1,4 +1,3 @@
-import { permissionPatternMatches } from "./agent-sandbox/permissions.js";
 import { sandboxSettingsSchema, sandboxSyncSchema, type SandboxSettings } from "./agent-sandbox/settings-schema.js";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -227,11 +226,7 @@ export async function readGlobalPersonalizationSettings(
 /** Read native global tool rules (never includes a project folder grant). */
 export async function readGlobalToolPermissions(config: ServerConfig): Promise<NonNullable<NativeRuntimeConfiguration["permissions"]>> {
   const globalConfig = await readRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID);
-  const rules = (globalConfig.permissions ?? []).filter(rule => rule.action !== "external_directory");
-  // Ask before commands unless the member has already chosen a default.
-  // Specific command rules still override this fallback in native rule order.
-  if (rules.some(rule => permissionPatternMatches("shell", rule.action) && rule.resource === "*")) return rules;
-  return [{ action: "shell", resource: "*", effect: "ask" }, ...rules];
+  return (globalConfig.permissions ?? []).filter(rule => rule.action !== "external_directory");
 }
 
 /**
