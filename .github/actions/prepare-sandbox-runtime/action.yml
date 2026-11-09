@@ -13,6 +13,9 @@ inputs:
   prefix:
     default: ''
     description: Windows package prefix
+  local-guest:
+    default: 'false'
+    description: Build the guest locally on a native Linux test host after a verified runtime cache miss
   publish-runtime:
     default: 'true'
     description: Retain the prepared archive for same-run consumers
@@ -51,7 +54,15 @@ runs:
       with:
         name: sandbox-guest-${{ inputs.arch }}
         path: apps/server/resources/agent-sandbox/runtime/
-      if: steps.runtime-cache.outputs.cache-hit != 'true' && steps.runtime-recovery.outputs.artifact-id == ''
+      if: inputs.local-guest != 'true' && steps.runtime-cache.outputs.cache-hit != 'true' && steps.runtime-recovery.outputs.artifact-id == ''
+    - name: Build guest on the Linux test host after a cold miss
+      if: inputs.local-guest == 'true' && steps.runtime-cache.outputs.cache-hit != 'true' && steps.runtime-recovery.outputs.artifact-id == ''
+      shell: bash
+      env:
+        ARCH: ${{ inputs.arch }}
+      run: |
+        test "$RUNNER_OS" = Linux
+        node scripts/sandbox/build-guest.mjs "$ARCH"
     - uses: ./.github/actions/build-sandbox-runtime
       if: steps.runtime-cache.outputs.cache-hit != 'true' && steps.runtime-recovery.outputs.artifact-id == ''
       with:

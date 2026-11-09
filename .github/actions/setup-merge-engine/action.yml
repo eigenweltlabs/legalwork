@@ -1,0 +1,55 @@
+name: Prepare the development engine for this test host
+description: Reuse only the exact host distribution and verify it with the normal installer
+runs:
+  using: composite
+  steps:
+    - id: identity
+      shell: bash
+      run: |
+        node --input-type=module <<'NODE'
+        import { appendFileSync } from 'node:fs';
+        import { sourceBuildIdentity } from './packages/opencode-release/build/prepare.mjs';
+        const { sourceKey } = await sourceBuildIdentity({ mode: 'development' });
+        appendFileSync(process.env.GITHUB_OUTPUT, 'key=merge-engine-v1-' + process.platform + '-' + process.arch + '-' + sourceKey + '\n');
+        NODE
+    - id: cache
+      uses: actions/cache/restore@v4
+      with:
+        key: ${{ steps.identity.outputs.key }}
+        path: ${{ runner.temp }}/merge-engine
+    - id: handoff
+      if: steps.cache.outputs.cache-hit == 'true'
+      shell: bash
+      run: |
+        node --input-type=module <<'NODE'
+        import assert from 'node:assert/strict';
+        import { appendFileSync, readFileSync } from 'node:fs';
+        import path from 'node:path';
+        const directory = path.join(process.env.RUNNER_TEMP, 'merge-engine');
+        const digest = readFileSync(path.join(directory, 'manifest.sha256'), 'utf8');
+        assert.match(digest, /^[a-f0-9]{64}$/);
+        appendFileSync(process.env.GITHUB_OUTPUT, 'sha=' + digest + '\narchives=' + path.join(directory, 'archives') + '\n');
+        NODE
+    - uses: ./.github/actions/setup-opencode
+      with:
+        archive-directory: ${{ steps.handoff.outputs.archives }}
+        manifest-sha256: ${{ steps.handoff.outputs.sha }}
+    - if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        node --input-type=module <<'NODE'
+        import { cpSync, mkdirSync, writeFileSync } from 'node:fs';
+        import path from 'node:path';
+        import { checkPreparedOpencodeEngine } from './packages/opencode-release/build/prepare.mjs';
+        const { archiveDirectory, manifestPath, manifestSha256 } = await checkPreparedOpencodeEngine({ mode: 'development' });
+        const target = path.join(process.env.RUNNER_TEMP, 'merge-engine');
+        mkdirSync(target);
+        cpSync(archiveDirectory, path.join(target, 'archives'), { recursive: true });
+        cpSync(manifestPath, path.join(target, 'derivative-release.json'));
+        writeFileSync(path.join(target, 'manifest.sha256'), manifestSha256);
+        NODE
+    - if: steps.cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v4
+      with:
+        key: ${{ steps.identity.outputs.key }}
+        path: ${{ runner.temp }}/merge-engine

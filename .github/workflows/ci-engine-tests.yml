@@ -8,6 +8,15 @@ on:
       arch:
         type: string
         required: true
+      local-linux-runtime:
+        type: boolean
+        default: false
+      host-only:
+        type: boolean
+        default: false
+      focused:
+        type: string
+        default: '[]'
       engine-workers:
         type: number
         default: 2
@@ -50,7 +59,7 @@ jobs:
     steps:
       - name: Require the selected engine check
         env:
-          ENGINE_REQUIRED: ${{ inputs.engine-required }}
+          ENGINE_REQUIRED: ${{ inputs.engine-required && !inputs.host-only }}
           ENGINE_RESULT: ${{ inputs.engine-result }}
         shell: bash
         run: |
@@ -77,8 +86,10 @@ jobs:
         with:
           name: opencode-derivative-ci-${{ runner.os }}
           path: ${{ runner.temp }}/opencode-derivative
+      - uses: ./.github/actions/setup-merge-engine
+        if: inputs.host-only
       - uses: ./.github/actions/setup-opencode
-        if: inputs.engine-required
+        if: inputs.engine-required && !inputs.host-only
         with:
           archive-directory: ${{ inputs.engine-result == 'success' && format('{0}/opencode-derivative/archives', runner.temp) || '' }}
           manifest-sha256: ${{ inputs.manifest-sha256 }}
@@ -96,7 +107,7 @@ jobs:
         uses: ./.github/actions/install-dependencies
 
       - name: Prepare checksum-pinned Node for worker tests
-        if: inputs.server || inputs.desktop
+        if: inputs.server || inputs.desktop || inputs.focused != '[]'
         run: node apps/desktop/scripts/prepare-node-runtime.mjs
 
       - name: Build server and native plugins
@@ -108,6 +119,8 @@ jobs:
         with:
           arch: ${{ inputs.arch }}
           qemu: ${{ inputs.arch == 'arm64' && 'aarch64' || 'x86_64' }}
+          local-guest: ${{ inputs.local-linux-runtime }}
+          publish-runtime: ${{ !inputs.local-linux-runtime }}
 
       - uses: actions/download-artifact@v4
         if: inputs.runtime-required && inputs.runtime-artifact
@@ -139,10 +152,16 @@ jobs:
         run: pnpm --filter @legalwork/desktop test
 
       - name: Verify released engine authentication, native plugin modules, and shutdown
-        if: inputs.engine-required
+        if: inputs.engine-required && !inputs.host-only
         run: |
           node --test apps/desktop/electron/opencode-release.test.mjs
           bun test --preload ./apps/server/test-preload.ts apps/server/src/managed-opencode.released.test.ts
+
+      - name: Run affected native engine fixtures
+        if: inputs.server == false && inputs.focused != '[]'
+        env:
+          ENGINE_TEST_FILES: ${{ inputs.focused }}
+        run: LEGALWORK_TEST_OPENCODE_BIN="$(command -v opencode)" node --input-type=module -e 'import { runTests } from "./scripts/ci/run-tests.mjs"; process.exitCode = runTests("engine", JSON.parse(process.env.ENGINE_TEST_FILES));'
 
       - name: Run server engine integration tests
         env:

@@ -196,8 +196,8 @@ jobs:
         if: inputs.build-mode == 'development' && steps.mode.outputs.reuse != 'true' && steps.cache.outputs.cache-hit != 'true' && steps.artifact-source.outputs.run-id == ''
         id: base-producer
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          BASE_SHA: ${{ github.event.merge_group.base_sha || github.event.pull_request.base.sha }}
+          BASE_REF: ${{ github.event_name == 'merge_group' && 'dev' || github.event.pull_request.base.ref }}
           GH_TOKEN: ${{ github.token }}
         run: node scripts/ci/cache-opencode-derivative.mjs base-producer
       - name: Download the exact base commit's engine without recompiling

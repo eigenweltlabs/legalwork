@@ -1,0 +1,46 @@
+// Read-only. Pass Actions run IDs for a cohort, including failed runs.
+// Measure elapsed time including GitHub scheduling and any rerun wait.
+import { execFileSync } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
+import { signedJobs } from './alpha-candidate.mjs';
+
+export function gateTiming(run, jobs) {
+  const elapsed = steps => Math.ceil((Math.max(...steps.map(step => Date.parse(step.completed_at))) - Date.parse(run.created_at)) / 1000);
+  const replay = run.event === 'workflow_dispatch' && run.display_title?.startsWith('Merge gate replay #');
+  if (run.event === 'pull_request' || run.event === 'merge_group' || replay) {
+    const required = ['ubuntu-latest', 'macos-14'].map(os => jobs.find(job => job.name === 'legalwork-tests (' + os + ')'));
+    return { kind: replay ? 'replay' : run.event, seconds: required.every(job => job?.conclusion === 'success') ? elapsed(required) : null };
+  }
+  const packages = signedJobs(jobs);
+  if (!packages.some(job => job && job.conclusion !== 'skipped') || !jobs.some(job => job.steps?.some(
+    step => step.name === 'Download the independently pinned production engine cache' && step.conclusion === 'success'))) return null;
+  const signed = packages.map((job, index) => {
+    const passed = name => job?.steps?.find(step => step.name === name && step.conclusion === 'success');
+    if (!passed(index ? 'Verify signed Windows artifacts' : 'Package Electron alpha (macOS, signed + notarized)')) return undefined;
+    return passed('Publish complete alpha') || passed(index ? 'Upload signed Windows test artifacts' : 'Upload signed Mac test artifacts');
+  });
+  return { kind: run.event === 'push' ? 'warm-alpha' : 'warm-benchmark', seconds: signed.every(Boolean) ? elapsed(signed) : null };
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const ids = process.argv.slice(2);
+  if (!ids.length || ids.some(id => !/^\d+$/.test(id)) || new Set(ids).size !== ids.length) throw Error('Pass unique Actions run IDs');
+  const api = endpoint => JSON.parse(execFileSync('gh', ['api', 'repos/{owner}/{repo}/actions/' + endpoint], { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 }));
+  const rows = ids.map(id => {
+    const run = api('runs/' + id), jobs = [];
+    for (let page = 1; ; page++) {
+      const batch = api('runs/' + id + '/jobs?per_page=100&page=' + page).jobs;
+      jobs.push(...batch);
+      if (batch.length < 100) break;
+    }
+    return { id, head: run.head_sha, attempt: run.run_attempt, ...gateTiming(run, jobs) };
+  });
+  const summary = {};
+  for (const row of rows.filter(row => row.kind)) {
+    const target = row.kind.startsWith('warm') ? 1800 : 300;
+    const bucket = summary[row.kind] ??= { targetSeconds: target, total: 0, withinTarget: 0 };
+    bucket.total++;
+    if (row.seconds !== null && row.seconds <= target) bucket.withinTarget++;
+  }
+  console.log(JSON.stringify({ rows, summary }, null, 2));
+}

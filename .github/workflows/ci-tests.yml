@@ -1,4 +1,6 @@
 name: LegalWork Tests
+run-name: >-
+  ${{ inputs.replay_pr && format('Merge gate replay #{0}', inputs.replay_pr) || github.event.pull_request.title || github.event.merge_group.head_ref || github.ref_name }}
 
 on:
   merge_group:
@@ -11,6 +13,10 @@ on:
       - codex/opencode-v2-migration
   workflow_dispatch:
     inputs:
+      replay_pr:
+        description: Optional historical PR number for a nonpublishing run of the merge gate on this checkout
+        type: string
+        default: ''
       mac_signing_acceptance:
         description: Only compile, production-sign and execute the three Mac engine targets without publishing
         type: boolean
@@ -53,7 +59,7 @@ permissions:
   actions: read
 
 concurrency:
-  group: legalwork-tests-${{ github.event.pull_request.number || github.ref }}${{ github.event_name == 'workflow_dispatch' && inputs.mac_signing_acceptance && '-mac-signing' || '' }}${{ github.event_name == 'workflow_dispatch' && inputs.package_desktop && !inputs.mac_signing_acceptance && '-package' || '' }}${{ github.event_name == 'workflow_dispatch' && inputs.unit_acceptance && !inputs.package_desktop && !inputs.mac_signing_acceptance && '-unit' || '' }}${{ github.event_name == 'workflow_dispatch' && inputs.windows_archive_acceptance && !inputs.package_desktop && !inputs.unit_acceptance && !inputs.mac_signing_acceptance && '-windows-archive' || '' }}${{ github.event_name == 'workflow_dispatch' && inputs.native_source_acceptance && '-native-source' || '' }}${{ github.event_name == 'workflow_dispatch' && inputs.transport_diagnostic && '-transport' || '' }}
+  group: legalwork-tests-${{ inputs.replay_pr && format('replay-{0}', github.run_id) || github.event.pull_request.number || github.ref }}${{ github.event_name == 'workflow_dispatch' && inputs.mac_signing_acceptance && '-mac-signing' || '' }}${{ github.event_name == 'workflow_dispatch' && inputs.package_desktop && !inputs.mac_signing_acceptance && '-package' || '' }}${{ github.event_name == 'workflow_dispatch' && inputs.unit_acceptance && !inputs.package_desktop && !inputs.mac_signing_acceptance && '-unit' || '' }}${{ github.event_name == 'workflow_dispatch' && inputs.windows_archive_acceptance && !inputs.package_desktop && !inputs.unit_acceptance && !inputs.mac_signing_acceptance && '-windows-archive' || '' }}${{ github.event_name == 'workflow_dispatch' && inputs.native_source_acceptance && '-native-source' || '' }}${{ github.event_name == 'workflow_dispatch' && inputs.transport_diagnostic && '-transport' || '' }}
   cancel-in-progress: true
 
 jobs:
@@ -64,18 +70,55 @@ jobs:
       server: ${{ github.event_name == 'workflow_dispatch' && inputs.transport_diagnostic && 'false' || steps.scope.outputs.server }}
       desktop: ${{ github.event_name == 'workflow_dispatch' && inputs.transport_diagnostic && 'false' || steps.scope.outputs.desktop }}
       tooling: ${{ github.event_name == 'workflow_dispatch' && inputs.transport_diagnostic && 'false' || steps.scope.outputs.tooling }}
-      docs: ${{ github.event_name == 'workflow_dispatch' && inputs.transport_diagnostic && 'false' || steps.scope.outputs.docs }}
-      engine: ${{ github.event_name == 'workflow_dispatch' && inputs.transport_diagnostic && 'false' || steps.scope.outputs.engine }}
-      sandbox: ${{ github.event_name == 'workflow_dispatch' && inputs.transport_diagnostic && 'false' || steps.scope.outputs.sandbox }}
-      windows_meetings: ${{ github.event_name == 'workflow_dispatch' && inputs.transport_diagnostic && 'false' || steps.scope.outputs.windows_meetings }}
-      windows_drafts: ${{ github.event_name == 'workflow_dispatch' && inputs.transport_diagnostic && 'false' || steps.scope.outputs.windows_drafts }}
-      units: ${{ github.event_name == 'workflow_dispatch' && inputs.transport_diagnostic && 'false' || steps.scope.outputs.units }}
+      docs: ${{ github.event_name == 'workflow_dispatch' && inputs.transport_diagnostic && 'false' || steps.plan.outputs.docs || steps.scope.outputs.docs }}
+      engine: ${{ github.event_name == 'workflow_dispatch' && inputs.transport_diagnostic && 'false' || steps.plan.outputs.engine || steps.scope.outputs.engine }}
+      sandbox: ${{ github.event_name == 'workflow_dispatch' && inputs.transport_diagnostic && 'false' || steps.plan.outputs.sandbox || steps.scope.outputs.sandbox }}
+      windows_meetings: ${{ github.event_name == 'workflow_dispatch' && inputs.transport_diagnostic && 'false' || steps.plan.outputs.windows_meetings || steps.scope.outputs.windows_meetings }}
+      windows_drafts: ${{ github.event_name == 'workflow_dispatch' && inputs.transport_diagnostic && 'false' || steps.plan.outputs.windows_drafts || steps.scope.outputs.windows_drafts }}
+      units: ${{ github.event_name == 'workflow_dispatch' && inputs.transport_diagnostic && 'false' || ((github.event_name != 'workflow_dispatch' || inputs.replay_pr) && 'false') || steps.scope.outputs.units }}
+      replay_base: ${{ steps.replay.outputs.base }}
+      replay_head: ${{ steps.replay.outputs.head }}
+      targets: ${{ steps.plan.outputs.targets }}
+      full_engine: ${{ steps.plan.outputs.full_engine }}
+      focused: ${{ steps.plan.outputs.focused }}
+      areas: ${{ steps.plan.outputs.areas }}
+      renderer: ${{ steps.plan.outputs.renderer }}
+      docx: ${{ steps.plan.outputs.docx }}
+      linux_arm: ${{ steps.plan.outputs.linux_arm }}
+      direct_linux: ${{ steps.plan.outputs.direct_linux }}
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
+      - name: Resolve the historical comparison for a timing run
+        id: replay
+        if: inputs.replay_pr != ''
+        env:
+          DISPATCH_INPUTS: ${{ toJSON(inputs) }}
+        run: node scripts/ci/replay-input.mjs
       - uses: ./.github/actions/ci-scope
         id: scope
+        with:
+          compare-base: ${{ steps.replay.outputs.base }}
+          compare-head: ${{ steps.replay.outputs.head }}
+          compare-event: ${{ steps.replay.outputs.event }}
+      - name: Plan merge checks
+        id: plan
+        if: github.event_name == 'pull_request' || github.event_name == 'merge_group' || inputs.replay_pr != ''
+        env:
+          EVENT_NAME: ${{ steps.replay.outputs.event || github.event_name }}
+          BASE_SHA: ${{ steps.replay.outputs.base || github.event.merge_group.base_sha || github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ steps.replay.outputs.head || github.event.merge_group.head_sha || github.event.pull_request.head.sha }}
+        run: node scripts/ci/merge-plan.mjs
+      - name: Audit changed translations and UI strings
+        if: (github.event_name != 'workflow_dispatch' || inputs.replay_pr != '') && steps.scope.outputs.i18n == 'true'
+        run: node scripts/i18n-audit.mjs --ci
+      - name: Validate the UI MCP package
+        if: (github.event_name != 'workflow_dispatch' || inputs.replay_pr != '') && steps.scope.outputs.ui_mcp == 'true'
+        working-directory: packages/legalwork-ui-mcp
+        run: node --check index.mjs && npm publish --dry-run --access public
+      - name: Check desktop runtime dependency declarations
+        run: node apps/desktop/scripts/check-server-deps.mjs
       - name: Reject contradictory production package inputs
         if: github.event_name == 'workflow_dispatch'
         env:
@@ -210,7 +253,7 @@ jobs:
   sandbox-guest-x64:
     needs: changes
     if: >-
-      github.event_name != 'workflow_dispatch' && needs.changes.outputs.sandbox == 'true' && !(github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'skip-sandbox-tests'))
+      needs.changes.outputs.direct_linux != 'true' && (github.event_name != 'workflow_dispatch' || inputs.replay_pr != '') && needs.changes.outputs.sandbox == 'true' && !(github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'skip-sandbox-tests'))
     uses: ./.github/workflows/sandbox-runtime.yml
     with:
       targets: linux-x64
@@ -220,7 +263,7 @@ jobs:
   sandbox-guest-arm64:
     needs: changes
     if: >-
-      github.event_name != 'workflow_dispatch' && needs.changes.outputs.sandbox == 'true' && !(github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'skip-sandbox-tests'))
+      (needs.changes.outputs.linux_arm != 'false' || contains(needs.changes.outputs.targets, 'win32') || contains(needs.changes.outputs.targets, 'darwin')) && (github.event_name != 'workflow_dispatch' || inputs.replay_pr != '') && needs.changes.outputs.sandbox == 'true' && !(github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'skip-sandbox-tests'))
     uses: ./.github/workflows/sandbox-runtime.yml
     with:
       targets: linux-arm64
@@ -232,7 +275,7 @@ jobs:
     # Maintainers can skip expensive runtime checks for an individual PR.
     # Push, manual and release validation remain unaffected by PR labels.
     if: >-
-      github.event_name == 'workflow_dispatch' && needs.changes.outputs.sandbox == 'true' && !(github.event_name == 'workflow_dispatch' && (inputs.mac_signing_acceptance || inputs.unit_acceptance || inputs.windows_archive_acceptance || inputs.native_source_acceptance)) && !(github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'skip-sandbox-tests'))
+      github.event_name == 'workflow_dispatch' && inputs.replay_pr == '' && needs.changes.outputs.sandbox == 'true' && !(github.event_name == 'workflow_dispatch' && (inputs.mac_signing_acceptance || inputs.unit_acceptance || inputs.windows_archive_acceptance || inputs.native_source_acceptance)) && !(github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'skip-sandbox-tests'))
     uses: ./.github/workflows/sandbox-runtime.yml
     with:
       run_tests: false
@@ -246,7 +289,7 @@ jobs:
   opencode-derivative:
     needs: changes
     if: >-
-      always() && !cancelled() && needs.changes.result == 'success' && needs.changes.outputs.engine == 'true' && ( github.event_name != 'workflow_dispatch' || (!inputs.native_source_acceptance && !inputs.mac_signing_acceptance && ((!inputs.unit_acceptance && !inputs.windows_archive_acceptance) || (inputs.unit_acceptance && !inputs.package_desktop && !inputs.windows_archive_acceptance && inputs.engine_reuse_run_id != '' && inputs.engine_reuse_manifest_sha256 != '') || (inputs.windows_archive_acceptance && !inputs.package_desktop && !inputs.unit_acceptance && inputs.engine_reuse_run_id != '' && inputs.engine_reuse_manifest_sha256 != ''))))
+      always() && !cancelled() && needs.changes.result == 'success' && needs.changes.outputs.engine == 'true' && needs.changes.outputs.full_engine != 'false' && ( github.event_name != 'workflow_dispatch' || (!inputs.native_source_acceptance && !inputs.mac_signing_acceptance && ((!inputs.unit_acceptance && !inputs.windows_archive_acceptance) || (inputs.unit_acceptance && !inputs.package_desktop && !inputs.windows_archive_acceptance && inputs.engine_reuse_run_id != '' && inputs.engine_reuse_manifest_sha256 != '') || (inputs.windows_archive_acceptance && !inputs.package_desktop && !inputs.unit_acceptance && inputs.engine_reuse_run_id != '' && inputs.engine_reuse_manifest_sha256 != ''))))
     permissions:
       contents: read
       actions: read
@@ -324,12 +367,118 @@ jobs:
       - uses: ./.github/actions/install-dependencies
         with:
           ignore-scripts: "true"
+          filter: |
+            @legalwork/app...
+            legalwork-server...
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
       - run: node --test scripts/gen-core-skills.test.mjs
       - run: pnpm docs:check
+      - run: bun test --preload ./apps/server/test-preload.ts ./apps/server/src/legalwork-help.test.ts
+  portable:
+    name: portable (${{ matrix.area }})
+    needs: changes
+    if: needs.changes.outputs.areas != '' && needs.changes.outputs.areas != '[]'
+    strategy:
+      fail-fast: false
+      matrix:
+        area: ${{ fromJSON(needs.changes.outputs.areas) }}
+    runs-on: ubuntu-latest
+    env:
+      EVENT_NAME: ${{ inputs.replay_pr && 'pull_request' || github.event_name }}
+      BASE_SHA: ${{ needs.changes.outputs.replay_base || github.event.merge_group.base_sha || github.event.pull_request.base.sha }}
+      HEAD_SHA: ${{ needs.changes.outputs.replay_head || github.event.merge_group.head_sha || github.event.pull_request.head.sha }}
+      LEGALWORK_TEST_OPENCODE_BIN: ''
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - if: inputs.replay_pr != ''
+        run: git fetch --no-tags origin "$BASE_SHA" "$HEAD_SHA"
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24.22.1
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.4.0
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - uses: ./.github/actions/install-dependencies
+        with:
+          filter: ${{ (matrix.area == 'app' || matrix.area == 'openui') && '@legalwork/app...' || matrix.area == 'server' && 'legalwork-server...' || '' }}
+      - name: Reserve sign-in ports for server fixtures
+        if: matrix.area == 'server'
+        run: |
+          reserved="$(cat /proc/sys/net/ipv4/ip_local_reserved_ports)"
+          sudo sysctl -w "net.ipv4.ip_local_reserved_ports=${reserved:+$reserved,}43117-43119"
+      - name: Verify generated sources
+        run: node scripts/gen-core-skills.mjs --check
+      - if: matrix.area == 'openui'
+        run: bun test ./packages/openui/src
+      - if: matrix.area == 'app'
+        run: |
+          pnpm --filter @legalwork/app typecheck
+          node scripts/ci/affected-tests.mjs app
+      - if: matrix.area == 'server'
+        run: |
+          node apps/desktop/scripts/prepare-node-runtime.mjs
+          pnpm --filter legalwork-server build
+          node apps/desktop/scripts/check-plugin-bundles.mjs apps/server/dist/opencode-plugins
+          node scripts/ci/affected-tests.mjs server
+      - if: matrix.area == 'desktop'
+        run: |
+          node apps/desktop/scripts/prepare-node-runtime.mjs
+          pnpm --filter @legalwork/desktop typecheck:electron
+          pnpm --filter @legalwork/desktop test
+      - if: matrix.area == 'orchestrator'
+        run: |
+          pnpm --filter legalwork-orchestrator typecheck
+          bun test ./apps/orchestrator/src
+      - if: matrix.area == 'tooling'
+        run: node --test scripts/ci/*.test.mjs scripts/release/*.test.mjs packages/opencode-release/*.test.mjs packages/opencode-release/build/*.test.mjs
+
+  docx:
+    needs: changes
+    if: needs.changes.outputs.docx == 'true'
+    uses: ./.github/workflows/ci-docx.yml
+
+  electron-ui:
+    needs: [ changes, pr-renderer ]
+    if: needs.changes.outputs.renderer == 'true'
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24.22.1
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.4.0
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - uses: ./.github/actions/install-dependencies
+      - uses: actions/download-artifact@v4
+        with:
+          name: pr-renderer
+          path: apps/app
+      - run: |
+          node scripts/ci/portable-assets.mjs verify renderer
+          pnpm --filter @legalwork/desktop test:workflow-editor
+          pnpm --filter @legalwork/desktop test:shutdown
+          pnpm --filter @legalwork/desktop test:updater-quit
+          pnpm --filter @legalwork/desktop test:browser-autofill
+          pnpm --filter @legalwork/desktop test:preview-security
+          pnpm --filter @legalwork/desktop test:browser-workflow
+          pnpm --filter @legalwork/desktop test:browser-network
+          pnpm --filter @legalwork/desktop test:browser-observation
+
   pr-renderer:
     needs: changes
     if: >-
-      (needs.changes.outputs.app == 'true' || needs.changes.outputs.desktop == 'true') && !(github.event_name == 'workflow_dispatch' && (inputs.mac_signing_acceptance || inputs.windows_archive_acceptance || inputs.native_source_acceptance))
+      needs.changes.outputs.renderer != 'false' && (needs.changes.outputs.app == 'true' || needs.changes.outputs.desktop == 'true') && !(github.event_name == 'workflow_dispatch' && (inputs.mac_signing_acceptance || inputs.windows_archive_acceptance || inputs.native_source_acceptance))
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -435,14 +584,35 @@ jobs:
 
       - name: Verify workflow editing and close/restart decisions in Electron
         if: (runner.os == 'macOS') && (needs.changes.outputs.app == 'true' || needs.changes.outputs.desktop == 'true')
+        env:
+          LEGALWORK_SHUTDOWN_TEST_OUTPUT: ${{ runner.temp }}/unsaved-shutdown
+          LEGALWORK_EDITOR_TEST_OUTPUT: ${{ runner.temp }}/workflow-editor
         run: |
           pnpm --filter @legalwork/desktop test:workflow-editor
           pnpm --filter @legalwork/desktop test:shutdown
           pnpm --filter @legalwork/desktop test:updater-quit
 
+      - name: Upload unsaved-change Electron evidence
+        if: always() && (runner.os == 'macOS') && (needs.changes.outputs.app == 'true' || needs.changes.outputs.desktop == 'true')
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsaved-change-electron-evidence
+          path: |
+            ${{ runner.temp }}/unsaved-shutdown
+            ${{ runner.temp }}/workflow-editor
+
       - name: Verify saved-login suggestions in Electron
         if: (runner.os == 'macOS') && (needs.changes.outputs.app == 'true' || needs.changes.outputs.desktop == 'true')
+        env:
+          LEGALWORK_AUTOFILL_TEST_OUTPUT: ${{ runner.temp }}/browser-autofill
         run: pnpm --filter @legalwork/desktop test:browser-autofill
+
+      - name: Upload browser autofill evidence
+        if: always() && (runner.os == 'macOS') && (needs.changes.outputs.app == 'true' || needs.changes.outputs.desktop == 'true')
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-autofill-evidence
+          path: ${{ runner.temp }}/browser-autofill
 
       - name: Verify engine source policy, preparation and immutable artifacts
         if: needs.changes.outputs.engine == 'true' || needs.changes.outputs.tooling == 'true'
@@ -497,9 +667,9 @@ jobs:
 
   sandbox-validation-darwin-x64:
     name: sandbox-validation (macos-15-intel, darwin, x64)
-    needs: [ sandbox-guest-x64, sandbox-runtime ]
+    needs: [ changes, sandbox-guest-x64, sandbox-runtime ]
     if: >-
-      always() && !cancelled() && (needs.sandbox-guest-x64.result == 'success' || needs.sandbox-runtime.result == 'success')
+      always() && !cancelled() && (!needs.changes.outputs.targets || contains(needs.changes.outputs.targets, 'darwin')) && (needs.sandbox-guest-x64.result == 'success' || needs.sandbox-runtime.result == 'success')
     uses: ./.github/workflows/ci-sandbox-validation.yml
     with:
       os: macos-15-intel
@@ -509,9 +679,9 @@ jobs:
 
   sandbox-validation-win32-x64:
     name: sandbox-validation (windows-2022, win32, x64)
-    needs: [ sandbox-guest-x64, sandbox-runtime ]
+    needs: [ changes, sandbox-guest-x64, sandbox-runtime ]
     if: >-
-      always() && !cancelled() && (needs.sandbox-guest-x64.result == 'success' || needs.sandbox-runtime.result == 'success')
+      always() && !cancelled() && (!needs.changes.outputs.targets || contains(needs.changes.outputs.targets, 'win32')) && (needs.sandbox-guest-x64.result == 'success' || needs.sandbox-runtime.result == 'success')
     uses: ./.github/workflows/ci-sandbox-validation.yml
     with:
       os: windows-2022
@@ -521,9 +691,9 @@ jobs:
 
   sandbox-validation-win32-arm64:
     name: sandbox-validation (windows-11-arm, win32, arm64)
-    needs: [ sandbox-guest-arm64, sandbox-runtime ]
+    needs: [ changes, sandbox-guest-arm64, sandbox-runtime ]
     if: >-
-      always() && !cancelled() && (needs.sandbox-guest-arm64.result == 'success' || needs.sandbox-runtime.result == 'success')
+      always() && !cancelled() && (!needs.changes.outputs.targets || contains(needs.changes.outputs.targets, 'win32')) && (needs.sandbox-guest-arm64.result == 'success' || needs.sandbox-runtime.result == 'success')
     uses: ./.github/workflows/ci-sandbox-validation.yml
     with:
       os: windows-11-arm
@@ -534,9 +704,9 @@ jobs:
 
   sandbox-validation-linux-arm64:
     name: sandbox-validation (ubuntu-24.04-arm, linux, arm64)
-    needs: [ sandbox-guest-arm64, sandbox-runtime ]
+    needs: [ changes, sandbox-guest-arm64, sandbox-runtime ]
     if: >-
-      always() && !cancelled() && (needs.sandbox-guest-arm64.result == 'success' || needs.sandbox-runtime.result == 'success')
+      always() && !cancelled() && needs.changes.outputs.linux_arm != 'false' && (!needs.changes.outputs.targets || contains(needs.changes.outputs.targets, 'linux')) && (needs.sandbox-guest-arm64.result == 'success' || needs.sandbox-runtime.result == 'success')
     uses: ./.github/workflows/ci-sandbox-validation.yml
     with:
       os: ubuntu-24.04-arm
@@ -563,6 +733,9 @@ jobs:
       - engine-source-build
       - opencode-derivative
       - desktop-packaging
+      - portable
+      - docx
+      - electron-ui
       - windows-meetings
       - windows-drafts
       - documentation
@@ -584,8 +757,8 @@ jobs:
         run: |
           node -e 'const jobs = JSON.parse(process.env.RESULTS); const failed = Object.entries(jobs).filter(([, job]) => !["success", "skipped"].includes(job.result)); if (failed.length) { console.error(failed); process.exit(1); }'
   engine-runtime-linux:
-    needs: sandbox-guest-x64
-    if: always() && !cancelled() && needs.sandbox-guest-x64.result == 'success'
+    needs: [ changes, sandbox-guest-x64 ]
+    if: always() && !cancelled() && (!needs.changes.outputs.targets || contains(needs.changes.outputs.targets, 'linux')) && needs.sandbox-guest-x64.result == 'success'
     uses: ./.github/workflows/ci-prepare-engine-runtime.yml
     with:
       os: ubuntu-24.04
@@ -594,38 +767,42 @@ jobs:
     name: engine-tests (ubuntu-latest)
     needs: [ changes, opencode-derivative, sandbox-guest-x64, sandbox-runtime, engine-runtime-linux ]
     if: >-
-      always() && !cancelled() && needs.changes.result == 'success' && needs.changes.outputs.engine == 'true' && (needs.engine-runtime-linux.result == 'success' || needs.engine-runtime-linux.result == 'skipped') && !(github.event_name == 'workflow_dispatch' && (inputs.mac_signing_acceptance || inputs.windows_archive_acceptance || inputs.native_source_acceptance))
+      always() && !cancelled() && needs.changes.result == 'success' && needs.changes.outputs.engine == 'true' && (needs.changes.outputs.full_engine != 'false' || contains(needs.changes.outputs.targets, 'linux') || needs.changes.outputs.focused != '[]') && (needs.engine-runtime-linux.result == 'success' || needs.engine-runtime-linux.result == 'skipped') && !(github.event_name == 'workflow_dispatch' && (inputs.mac_signing_acceptance || inputs.windows_archive_acceptance || inputs.native_source_acceptance))
     uses: ./.github/workflows/ci-engine-tests.yml
     with:
       os: ubuntu-24.04
       arch: x64
       engine-workers: 4
       engine-required: ${{ needs.changes.outputs.engine == 'true' }}
+      host-only: ${{ needs.changes.outputs.full_engine == 'false' }}
       engine-result: ${{ needs.opencode-derivative.result }}
       manifest-sha256: ${{ needs.opencode-derivative.outputs.manifest-sha256 }}
-      app: ${{ needs.changes.outputs.app == 'true' }}
-      server: ${{ needs.changes.outputs.server == 'true' }}
-      desktop: ${{ needs.changes.outputs.desktop == 'true' }}
-      runtime-required: ${{ needs.sandbox-guest-x64.result == 'success' || needs.sandbox-runtime.result == 'success' }}
+      app: ${{ needs.changes.outputs.full_engine != 'false' && needs.changes.outputs.app == 'true' }}
+      server: ${{ needs.changes.outputs.full_engine == 'true' || (needs.changes.outputs.full_engine == '' && needs.changes.outputs.server == 'true') }}
+      desktop: ${{ needs.changes.outputs.full_engine != 'false' && needs.changes.outputs.desktop == 'true' }}
+      local-linux-runtime: ${{ needs.changes.outputs.direct_linux == 'true' }}
+      runtime-required: ${{ (needs.changes.outputs.direct_linux == 'true' && !(github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'skip-sandbox-tests'))) || (!needs.changes.outputs.targets || contains(needs.changes.outputs.targets, 'linux')) && (needs.sandbox-guest-x64.result == 'success' || needs.sandbox-runtime.result == 'success') }}
       runtime-artifact: ${{ needs.sandbox-runtime.result == 'success' || needs.engine-runtime-linux.result == 'success' }}
+      focused: ${{ needs.changes.outputs.focused || '[]' }}
       production-engine: ${{ inputs.production_engine == true }}
   engine-tests-mac:
     name: engine-tests (macos-14)
     needs: [ changes, opencode-derivative, sandbox-guest-arm64, sandbox-runtime ]
     if: >-
-      always() && !cancelled() && needs.changes.result == 'success' && needs.changes.outputs.engine == 'true' && !(github.event_name == 'workflow_dispatch' && (inputs.mac_signing_acceptance || inputs.windows_archive_acceptance || inputs.native_source_acceptance))
+      always() && !cancelled() && needs.changes.result == 'success' && needs.changes.outputs.engine == 'true' && (needs.changes.outputs.full_engine != 'false' || contains(needs.changes.outputs.targets, 'darwin')) && !(github.event_name == 'workflow_dispatch' && (inputs.mac_signing_acceptance || inputs.windows_archive_acceptance || inputs.native_source_acceptance))
     uses: ./.github/workflows/ci-engine-tests.yml
     with:
       os: macos-15
       arch: arm64
       engine-workers: 2
       engine-required: ${{ needs.changes.outputs.engine == 'true' }}
+      host-only: ${{ needs.changes.outputs.full_engine == 'false' }}
       engine-result: ${{ needs.opencode-derivative.result }}
       manifest-sha256: ${{ needs.opencode-derivative.outputs.manifest-sha256 }}
-      app: ${{ needs.changes.outputs.app == 'true' }}
-      server: ${{ needs.changes.outputs.server == 'true' }}
-      desktop: ${{ needs.changes.outputs.desktop == 'true' }}
-      runtime-required: ${{ needs.sandbox-guest-arm64.result == 'success' || needs.sandbox-runtime.result == 'success' }}
+      app: ${{ needs.changes.outputs.full_engine != 'false' && needs.changes.outputs.app == 'true' }}
+      server: ${{ needs.changes.outputs.full_engine == 'true' || (needs.changes.outputs.full_engine == '' && needs.changes.outputs.server == 'true') }}
+      desktop: ${{ needs.changes.outputs.full_engine != 'false' && needs.changes.outputs.desktop == 'true' }}
+      runtime-required: ${{ (!needs.changes.outputs.targets || contains(needs.changes.outputs.targets, 'darwin')) && (needs.sandbox-guest-arm64.result == 'success' || needs.sandbox-runtime.result == 'success') }}
       runtime-artifact: ${{ needs.sandbox-runtime.result == 'success' }}
       production-engine: ${{ inputs.production_engine == true }}
   legalwork-tests:
@@ -646,6 +823,9 @@ jobs:
       - engine-source-build
       - opencode-derivative
       - desktop-packaging
+      - portable
+      - docx
+      - electron-ui
       - windows-meetings
       - windows-drafts
       - documentation

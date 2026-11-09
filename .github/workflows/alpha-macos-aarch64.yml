@@ -49,13 +49,20 @@ jobs:
   changes:
     runs-on: ubuntu-latest
     outputs:
-      alpha: ${{ steps.scope.outputs.alpha }}
+      alpha: ${{ steps.candidate.outputs.alpha || steps.scope.outputs.alpha }}
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
       - uses: ./.github/actions/ci-scope
         id: scope
+      - name: Check for unpublished changes across coalesced pushes
+        id: candidate
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DIRECT_ALPHA: ${{ steps.scope.outputs.alpha }}
+        run: node scripts/ci/alpha-candidate.mjs
       - name: Require benchmark inputs to be nonpublishing
         if: github.event_name == 'workflow_dispatch'
         env:
@@ -98,7 +105,8 @@ jobs:
       targets: ${{ inputs.linux_benchmark && 'win32-x64,win32-arm64,linux-x64,linux-arm64' || 'win32-x64,win32-arm64' }}
       run_tests: ${{ github.event_name == 'workflow_dispatch' && inputs.sandbox_tests || false }}
   publish-alpha-macos-aarch64:
-    needs: [ sandbox-runtime, opencode-engine, portable-assets, portable-version ]
+    # The Mac packages its own native runtime. The shared runtime job prepares Windows.
+    needs: [ opencode-engine, portable-assets, portable-version ]
     name: Build + Publish alpha (aarch64-apple-darwin)
     runs-on: macos-15
     timeout-minutes: 180
@@ -329,6 +337,15 @@ jobs:
               --tag "$ALPHA_RUN_RELEASE_TAG" --target "$GITHUB_SHA" --draft=false --prerelease --latest=false
           fi
         if: ${{ !inputs.signing_test }}
+      - name: Upload signed Mac test artifacts
+        if: inputs.signing_test && env.MACOS_NOTARIZE == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: signed-alpha-macos-arm64
+          path: apps/desktop/dist-electron/*.zip
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 2
       - name: Retain redacted startup failure diagnostics
         if: failure()
         uses: actions/upload-artifact@v4

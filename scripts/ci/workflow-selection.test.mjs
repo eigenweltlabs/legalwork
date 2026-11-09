@@ -15,7 +15,7 @@ function condition(expression, scope, { engine = 'skipped', event = 'pull_reques
     'opencode-derivative': { result: engine }, 'sandbox-runtime': { result: sandbox }, 'sandbox-guest-x64': { result: guest }, 'sandbox-guest-arm64': { result: guest }, 'pr-renderer': { result: 'success' }, 'engine-runtime-linux': { result: guest }, 'engine-build-inputs': { result: 'success' } };
   const js = expression.replace(/needs\.([\w-]+)/g, 'needs["$1"]').replace(/inputs\.([\w-]+)/g, 'inputs["$1"]').replace('github.event.pull_request.labels.*.name', 'github.event.pull_request.labels.map(label => label.name)');
   return Boolean(Function('needs', 'github', 'inputs', 'runner', 'always', 'cancelled', 'contains', `return (${js});`)(needs,
-    { event_name: event, event: { pull_request: { labels: labels.map(name => ({ name })) } } }, inputs, { os }, () => true, () => false, (values, value) => values.includes(value)));
+    { event_name: event, event: { pull_request: { labels: labels.map(name => ({ name })) } } }, { replay_pr: '', ...inputs }, { os }, () => true, () => false, (values, value) => values.includes(value)));
 }
 
 test('unit jobs start independently while integration jobs require the verified engine', () => {
@@ -98,10 +98,12 @@ test('all six package jobs retain storage checks without a duplicate six-host su
 });
 
 test('required PR workflows have job filtering, and reusable/manual workflows stay opt-in', () => {
-  for (const name of ['ci-tests', 'ci-i18n', 'ci-docx', 'ci-legalwork-ui-mcp']) {
-    assert.equal(workflow(name).on.pull_request.paths, undefined);
-    assert.ok(workflow(name).jobs.changes);
-  }
+  assert.equal(main.on.pull_request.paths, undefined);
+  assert.ok(main.jobs.changes);
+  for (const name of ['ci-i18n', 'ci-legalwork-ui-mcp', 'ci-docx']) assert.equal(workflow(name).on.pull_request, undefined);
+  assert.ok(main.jobs.changes.steps.some(step => step.run?.includes('i18n-audit.mjs --ci')));
+  assert.ok(main.jobs.changes.steps.some(step => step.run?.includes('npm publish --dry-run')));
+  assert.equal(main.jobs.docx.uses, './.github/workflows/ci-docx.yml');
   for (const name of ['ci-opencode-derivative', 'ci-opencode-source-hosts', 'ci-desktop-packaging', 'ci-windows-opencode-install', 'mac-engine-signing-acceptance', 'ci-engine-tests', 'ci-sandbox-validation', 'ci-prepare-engine-runtime']) {
     assert.deepEqual(Object.keys(workflow(name).on), ['workflow_call']);
   }
@@ -171,7 +173,7 @@ test('cold engine-host runtime preparation overlaps compilation and failures gat
   for (const [platform, arch] of [['linux', 'x64']]) {
     const name = 'engine-runtime-' + platform;
     const prepare = main.jobs[name];
-    assert.equal(prepare.needs, 'sandbox-guest-' + arch);
+    assert.deepEqual(prepare.needs, ['changes', 'sandbox-guest-' + arch]);
     assert.equal(prepare.uses, './.github/workflows/ci-prepare-engine-runtime.yml');
     assert.equal(prepare.with.arch, arch);
     const engine = main.jobs['engine-tests-' + platform];
@@ -220,13 +222,18 @@ printf '%s' "$2" > "$ARCHIVE_TRACE"
 
 test('transport profiling is an exclusive manual mode and cannot suppress PR checks', () => {
   const outputs = main.jobs.changes.outputs;
-  for (const expression of Object.values(outputs)) {
-    const evaluate = (event, diagnostic) => Function('github', 'inputs', 'steps', `return ${expression.slice(3, -2)};`)(
-      { event_name: event }, { transport_diagnostic: diagnostic }, { scope: { outputs: Object.fromEntries(Object.keys(outputs).map(name => [name, 'true'])) } });
-    assert.equal(evaluate('pull_request', true), 'true');
-    assert.equal(evaluate('push', true), 'true');
-    assert.equal(evaluate('workflow_dispatch', false), 'true');
+  const scope = { outputs: Object.fromEntries(Object.keys(outputs).map(key => [key, 'true'])) };
+  const historic = ['app', 'server', 'desktop', 'tooling', 'docs', 'engine', 'sandbox', 'windows_meetings', 'windows_drafts', 'units'];
+  for (const key of historic) {
+    const evaluate = (event, diagnostic, plan = {}) => Function('github', 'inputs', 'steps', `return ${outputs[key].slice(3, -2)};`)(
+      { event_name: event }, { transport_diagnostic: diagnostic }, { scope, plan: { outputs: plan } });
     assert.equal(evaluate('workflow_dispatch', true), 'false');
+    assert.equal(evaluate('workflow_dispatch', false), 'true');
+    for (const event of ['pull_request', 'merge_group']) {
+      assert.equal(evaluate(event, true), key === 'units' ? 'false' : 'true');
+      if (['engine', 'sandbox', 'docs', 'windows_meetings', 'windows_drafts'].includes(key))
+        assert.equal(evaluate(event, false, { [key]: 'false' }), 'false');
+    }
   }
   const diagnostic = main.jobs['transport-diagnostic'];
   assert.equal(condition(diagnostic.if, changeScope(null)), false);
@@ -243,4 +250,22 @@ test('transport profiling is an exclusive manual mode and cannot suppress PR che
 
 test('development artifact recovery changes select real engine verification', () => {
   assert.equal(changeScope(['scripts/ci/recover-opencode-artifact.mjs']).engine, true);
+});
+
+test('focused PRs bypass the all-platform producer and isolated Linux VM checks run in their consumer', () => {
+  const scope = { engine: true, sandbox: true, full_engine: false, focused: '[]',
+    targets: '["linux"]', direct_linux: true, linux_arm: false, units: false, renderer: false };
+  for (const event of ['pull_request', 'merge_group', 'workflow_dispatch']) {
+    const opts = { event, inputs: { replay_pr: event === 'workflow_dispatch' ? '384' : '' } };
+    for (const job of ['sandbox-guest-x64', 'sandbox-guest-arm64', 'sandbox-runtime', 'opencode-derivative', 'engine-tests-mac', 'unit-tests']) {
+      assert.equal(condition(main.jobs[job].if, scope, opts), false, job);
+    }
+    const linux = main.jobs['engine-tests-linux'];
+    assert.equal(condition(linux.if, scope, opts), true);
+    assert.equal(condition(linux.with['runtime-required'].slice(3,-2), scope, opts), true);
+    assert.equal(condition(linux.with['host-only'].slice(3,-2), scope, opts), true);
+  }
+  const focused = { ...scope, direct_linux: false, targets: '[]', sandbox: false, focused: '["fixture.test.ts"]' };
+  assert.equal(condition(main.jobs['engine-tests-linux'].if, focused), true);
+  assert.equal(condition(main.jobs['opencode-derivative'].if, focused), false);
 });
