@@ -1,7 +1,8 @@
+import { eigenweltConnectionPlatformUrl } from "./eigenwelt-endpoints.js";
 /** Desktop refresh recovery. The request ID is saved before sending and kept
  * until the rotated credentials are saved, so retries survive sleep/restarts. */
 import {
-  eigenweltPlatformUrl, parseEigenweltAccountIdentity, parseEigenweltEntitlements,
+  parseEigenweltAccountIdentity, parseEigenweltEntitlements,
   validateEigenweltPlatformUrl,
 } from "./eigenwelt-auth.js";
 import {
@@ -61,10 +62,10 @@ async function doRefresh(config: ServerConfig, conn: EigenweltConnection): Promi
   let payload: unknown;
   const signal = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
   try {
-    response = await fetch(`${eigenweltPlatformUrl()}/api/desktop/refresh`, {
+    response = await fetch(`${eigenweltConnectionPlatformUrl(conn)}/api/desktop/refresh`, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ refreshToken: conn.refreshToken, requestId }),
-      signal,
+      signal, redirect: "error",
     });
     // The timeout also covers a response whose body never finishes.
     try { payload = await response.json(); }
@@ -102,6 +103,8 @@ async function doRefresh(config: ServerConfig, conn: EigenweltConnection): Promi
   if (typeof payload.platformURL === "string" && payload.platformURL) {
     try { platformURL = validateEigenweltPlatformUrl(payload.platformURL); }
     catch { console.warn("[eigenwelt-refresh] ignored untrusted platform URL"); }
+    // Optional metadata must not change the issuer of rotated credentials.
+    if (platformURL !== eigenweltConnectionPlatformUrl(conn)) platformURL = undefined;
   }
   // Narrow before the async closure, without asserting/casting the payload.
   const platformToken = payload.platformToken;
@@ -148,10 +151,10 @@ export async function revokeEigenweltConnection(config: ServerConfig): Promise<v
   });
   if (conn.refreshToken) {
     try {
-      const response = await fetch(`${eigenweltPlatformUrl()}/api/desktop/revoke`, {
+      const response = await fetch(`${eigenweltConnectionPlatformUrl(conn)}/api/desktop/revoke`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ refreshToken: conn.refreshToken }),
-        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS), redirect: "error",
       });
       await response.body?.cancel();
     } catch {

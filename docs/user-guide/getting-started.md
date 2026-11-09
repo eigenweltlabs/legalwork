@@ -15,6 +15,10 @@ Opening a project does not require a separate setup approval. LegalWork loads th
 
 In **Settings > Account**, sign-in finishes after the browser connection has been saved in the app. Signing out can take longer while LegalWork checks for unsent firm changes and updates saved projects. Wait for the account screen to finish; refreshing the app or starting sign-in again does not cancel an account change already in progress.
 
+When your firm is offered an infrastructure-region choice during Eigenwelt onboarding, an administrator chooses **European Union** (Scaleway) or **United States** (Google Cloud) once for the whole firm. Invited members use the firm's existing choice. Existing firms are assigned by the Eigenwelt team. A region change needs a coordinated migration; choosing another model does not move your firm's data.
+
+After browser sign-in, LegalWork saves the firm's deployment with the account and uses it for firm features, storage, account refresh and model access. Sign in with the intended firm when switching accounts. Model inference regions are configured separately on the Eigenwelt platform. Clerk remains the shared sign-in service. External model and connector providers have their own hosting arrangements.
+
 ## Set up meeting recording
 
 On the **Record meetings.** welcome screen, open setup and complete the permission prompts. Available cloud regions appear first, with a cloud option selected by default. Cloud transcription runs in your selected region with zero data retention (ZDR). Local transcription requires a model download and uses your computer’s CPU power. Select your source and choose **Continue**; an installed local model is reused.

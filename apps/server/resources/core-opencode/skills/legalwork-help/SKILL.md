@@ -36,6 +36,7 @@ For an ordinary how-to question, read the matching page with `legalwork_skill_re
 | Word, Excel or PowerPoint add-ins | [office-addins.md](references/office-addins.md) |
 | Browser passwords, inline sign-in card, automatic password filling, account, language, appearance, permissions, secrets or privacy | [settings-privacy.md](references/settings-privacy.md) |
 | Chat shield icon, sandbox on/off, network settings or application-default inheritance | [settings-privacy.md](references/settings-privacy.md#sandboxing) |
+| Firm infrastructure region, EU/US hosting or account routing | [settings-privacy.md](references/settings-privacy.md#firm-infrastructure-region) |
 | Setup | [getting-started.md](references/getting-started.md) |
 | Errors, updates or recovery | [troubleshooting.md](references/troubleshooting.md) |
 

@@ -1,3 +1,5 @@
+import { readEigenweltConnection } from "../eigenwelt-connection-store.js";
+import { eigenweltConnectionPlatformUrl } from "../eigenwelt-endpoints.js";
 import { resolveWorkspaceFile } from "../project-storage-paths.js";
 import { workspaceFileRoot } from "../project-storage.js";
 import { managedStorageCapability } from "../connectors/broker.js";
@@ -90,7 +92,7 @@ export function registerStorageRoutes({
   const store = new StorageStore(config);
   const team = new TeamStorage(config);
   const accounts = new ConnectorStorageAccounts(config, team);
-  const oauth = new StorageOAuth(oauthVaultPath(config));
+  const oauth = new StorageOAuth(oauthVaultPath(config), async () => eigenweltConnectionPlatformUrl(await readEigenweltConnection(config)));
   // File-server protocols lack conditional writes. Serialize this server's
   // mutations per connection so folder renames cannot interleave with descendant saves.
   const pendingWrites = new Map<string, Promise<unknown>>();

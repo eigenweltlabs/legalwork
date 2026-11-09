@@ -122,3 +122,9 @@ When you close LegalWork or choose **Settings > Updates > Install and restart**,
 - **Open unsaved file** cancels closing or restarting and brings an affected file to the front. This button appears only when an unsaved file is not already visible.
 
 Use the dialog's close button or press **Esc** to keep working without closing or restarting. If a save is already running, wait for it to finish and try again. A downloaded update remains ready to install when you cancel the restart.
+
+## Firm infrastructure region
+
+The Eigenwelt firm's infrastructure region is chosen once by its administrator during platform onboarding. LegalWork saves the deployment with **Settings > Account** and sends firm features to that deployment after sign-in. Existing firms are assigned by Eigenwelt. Switching the firm's region requires a coordinated migration; there is no region toggle in desktop Settings. See [Getting started](getting-started.md).
+
+This setting covers Eigenwelt's platform, gateway and storage. It does not choose where an AI model performs inference. Model and connector providers keep their own hosting arrangements, and Clerk remains the shared sign-in service. API-key integrations need the regional base URL supplied by the Eigenwelt platform.

@@ -1,3 +1,5 @@
+import { EIGENWELT_LEGACY_GATEWAY_URL } from "@legalwork/types/eigenwelt-deployment";
+import { eigenweltConnectionPlatformUrl } from "./eigenwelt-endpoints.js";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -88,13 +90,14 @@ async function updateStore(
 
 /** Fetch authoritative enablement before a managed call; outages never become permission. */
 async function managedProvider(config: ServerConfig, signal?: AbortSignal, selectedModel = "EigenJev") {
-  const token = await ensureFreshPlatformToken(config);
+  await ensureFreshPlatformToken(config);
   const connection = await readEigenweltConnection(config);
+  const token = connection.platformToken;
   const manifest = await readCachedEigenweltPaidManifest(config);
   const base: SystemOneProvider = {
     id: "eigenwelt",
     name: "Eigenwelt",
-    endpoint: "https://api.eigenweltlabs.com/v1/systemone",
+    endpoint: `${EIGENWELT_LEGACY_GATEWAY_URL}/v1/systemone`,
     models: [
       { id: "EigenJev", name: "Eigenwelt Europe EigenJev", region: "EU", questionTypes: ["noul", "choice", "score"], source: "configured" },
       { id: "TypeSafeJev", name: "Eigenwelt US Jev", region: "US", questionTypes: ["noul", "choice", "score"], source: "configured" },
@@ -109,7 +112,7 @@ async function managedProvider(config: ServerConfig, signal?: AbortSignal, selec
     return { view: { ...base, status: "disabled" }, target: null };
   let response: Response;
   try {
-    response = await fetch(`${connection.platformURL}/api/desktop/systemone`, {
+    response = await fetch(`${eigenweltConnectionPlatformUrl(connection)}/api/desktop/systemone`, {
       headers: { Authorization: `Bearer ${token}` },
       redirect: "error",
       signal: AbortSignal.any([

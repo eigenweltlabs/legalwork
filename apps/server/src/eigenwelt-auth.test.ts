@@ -158,6 +158,33 @@ async function setupRuntimeDb(): Promise<ServerConfig> {
 }
 
 describe("eigenwelt sign-in", () => {
+  test.each(["eu", "us"])("exchanges a regional sign-in directly with %s and preserves the original state", async (region) => {
+    delete process.env.EIGENWELT_PLATFORM_URL;
+    const originalFetch = globalThis.fetch;
+    const calls: { url: string; state: unknown }[] = [];
+    const platformURL = `https://${region}.platform.eigenweltlabs.com`;
+    const mock = spyOn(globalThis, "fetch").mockImplementation(Object.assign(async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+      const url = String(input);
+      if (url === `${platformURL}/api/desktop/exchange`) {
+        const body = JSON.parse(String(init?.body));
+        calls.push({ url, state: body.state });
+        expect(init?.redirect).toBe("error");
+        return Response.json({ ...EXCHANGE_PAYLOAD, platformURL });
+      }
+      return originalFetch(input, init);
+    }, { preconnect: originalFetch.preconnect }));
+    cleanups.push(() => mock.mockRestore());
+    const started = await startEigenweltSignIn();
+    const url = new URL(started.authorizeUrl);
+    const state = url.searchParams.get("state");
+    expect(url.searchParams.get("routing_version")).toBe("1");
+    const callback = await originalFetch(`http://127.0.0.1:${url.searchParams.get("port")}/callback?code=code&state=${state}.${region}`);
+    expect(callback.status).toBe(200);
+    const result = await waitForEigenweltSignIn(started.sessionId);
+    expect(result).toMatchObject({ platformURL });
+    expect(calls).toEqual([{ url: `${platformURL}/api/desktop/exchange`, state }]);
+  });
+
   test("checkout has a full hour before expiry closes the callback and a fresh sign-in can restart", async () => {
     await setupPlatform();
     const timerSpy = spyOn(globalThis, "setTimeout");

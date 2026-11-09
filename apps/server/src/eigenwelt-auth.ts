@@ -51,39 +51,8 @@ export class EigenweltSignInTimeoutError extends Error {
   }
 }
 
-export function eigenweltPlatformUrl(): string {
-  return (process.env.EIGENWELT_PLATFORM_URL ?? "https://platform.eigenweltlabs.com").replace(/\/+$/, "");
-}
-
-/**
- * Accept only the configured Eigenwelt platform origin. The OAuth payload is
- * relayed through the app before persistence, so treating its URL as arbitrary
- * would turn later server-side hub calls into an SSRF primitive.
- */
-export function validateEigenweltPlatformUrl(value: string): string {
-  const configured = eigenweltPlatformUrl();
-  let expected: URL;
-  let candidate: URL;
-  try {
-    expected = new URL(configured);
-    candidate = new URL(value.trim());
-  } catch {
-    throw new Error("Invalid Eigenwelt platform URL.");
-  }
-  const expectedPath = expected.pathname.replace(/\/+$/, "") || "/";
-  const candidatePath = candidate.pathname.replace(/\/+$/, "") || "/";
-  if (
-    candidate.origin !== expected.origin ||
-    candidatePath !== expectedPath ||
-    candidate.username ||
-    candidate.password ||
-    candidate.search ||
-    candidate.hash
-  ) {
-    throw new Error("The Eigenwelt platform URL does not match this LegalWork installation.");
-  }
-  return configured;
-}
+import { eigenweltPlatformUrl, validateEigenweltPlatformUrl, eigenweltCallbackPlatform } from "./eigenwelt-endpoints.js";
+export { eigenweltPlatformUrl, validateEigenweltPlatformUrl } from "./eigenwelt-endpoints.js";
 
 export type EigenweltManifestModel = OpenCodeModelConfig & {
   id: string;
@@ -431,7 +400,7 @@ export async function startEigenweltSignIn(opts?: {
   // Set once a valid browser callback arrived: the exchange is running, so a
   // newer sign-in must not replace this one.
   let exchanging = false;
-  let callbackExchange: { code: string; result: Promise<{ ok: true } | { ok: false; message: string }> } | null = null;
+  let callbackExchange: { code: string; platform: string; result: Promise<{ ok: true } | { ok: false; message: string }> } | null = null;
   const settleOk = (payload: EigenweltSignInPayload) => {
     if (settled) return;
     settled = true;
@@ -446,13 +415,15 @@ export async function startEigenweltSignIn(opts?: {
   const exchange = async (
     code: string,
     port: number,
+    exchangePlatform: string,
   ): Promise<{ ok: true } | { ok: false; message: string }> => {
     const fail = (message: string) => {
       settleErr(new Error(message));
       return { ok: false as const, message };
     };
     try {
-      const response = await fetch(`${platform}/api/desktop/exchange`, {
+      const response = await fetch(`${exchangePlatform}/api/desktop/exchange`, {
+        redirect: "error", signal: AbortSignal.timeout(30_000),
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ state, code, verifier, port }),
@@ -504,8 +475,10 @@ export async function startEigenweltSignIn(opts?: {
         delivered.refreshToken = payload.refreshToken;
       }
       if (typeof payload.platformURL === "string" && payload.platformURL.trim()) {
-        delivered.platformURL = payload.platformURL.replace(/\/+$/, "");
+        delivered.platformURL = validateEigenweltPlatformUrl(payload.platformURL);
+        if (delivered.platformURL !== exchangePlatform) return fail("Eigenwelt sign-in returned a different deployment.");
       }
+      if (!delivered.platformURL && exchangePlatform !== eigenweltPlatformUrl()) delivered.platformURL = exchangePlatform;
       settleOk(delivered);
       return { ok: true };
     } catch {
@@ -521,13 +494,14 @@ export async function startEigenweltSignIn(opts?: {
     }
     const code = url.searchParams.get("code");
     const receivedState = url.searchParams.get("state");
-    if (!code || receivedState !== state) {
+    const exchangePlatform = eigenweltCallbackPlatform(state, receivedState);
+    if (!code || !exchangePlatform) {
       res.writeHead(400, { "Content-Type": "text/plain" }).end("Invalid callback.");
       return;
     }
     // Answer the browser only once the exchange settled — the old
     // "You're connected" page lied whenever the exchange then failed.
-    if (callbackExchange && callbackExchange.code !== code) {
+    if (callbackExchange && (callbackExchange.code !== code || callbackExchange.platform !== exchangePlatform)) {
       res.writeHead(400, { "Content-Type": "text/plain" }).end("Invalid callback.");
       return;
     }
@@ -535,7 +509,7 @@ export async function startEigenweltSignIn(opts?: {
     // Browser reloads and duplicate redirects share the same exchange. An
     // OAuth code and platform state are single-use; a second exchange could
     // otherwise turn a successful connection into a failure.
-    callbackExchange ??= { code, result: exchange(code, boundPort) };
+    callbackExchange ??= { code, platform: exchangePlatform, result: exchange(code, boundPort, exchangePlatform) };
     const result = callbackExchange.result;
     void (async () => {
       const outcome = await result;
@@ -580,6 +554,7 @@ export async function startEigenweltSignIn(opts?: {
 
   const authorizeUrl = new URL(`${platform}/desktop/connect`);
   authorizeUrl.searchParams.set("state", state);
+  authorizeUrl.searchParams.set("routing_version", "1");
   authorizeUrl.searchParams.set("port", String(port));
   authorizeUrl.searchParams.set("code_challenge", challenge);
   // The platform's middleware routes a signed-out handshake to sign-up by
@@ -642,14 +617,16 @@ export async function waitForEigenweltSignIn(
  * or a legacy sign-in without tokens) it is the whole public catalog.
  */
 export async function fetchEigenweltManifest(options?: {
+  platformURL?: string | null;
   platformToken?: string | null;
 }): Promise<EigenweltManifest> {
-  const platform = eigenweltPlatformUrl();
+  const platform = options?.platformURL ? validateEigenweltPlatformUrl(options.platformURL) : eigenweltPlatformUrl();
   const token = options?.platformToken?.trim() || null;
   const url = token ? `${platform}/api/desktop/models` : `${platform}/api/public/models`;
   let response: Response;
   try {
     response = await fetch(url, {
+      redirect: "error", signal: AbortSignal.timeout(30_000),
       headers: {
         Accept: "application/json",
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
