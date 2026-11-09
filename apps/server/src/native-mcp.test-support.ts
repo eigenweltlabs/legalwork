@@ -3,8 +3,8 @@ import type { OpenCodeClient, IntegrationAttempt } from "@opencode/client";
 export type NativeMcpOAuthAttempt = IntegrationAttempt & { integrationID: string };
 
 /** Public released APIs only. This watchdog bounds fixture failures, not tools. */
-export async function waitForNativeFixture<T>(read: () => Promise<T>, accepts: (value: T) => boolean, label: string): Promise<T> {
-  const deadline = Date.now() + 15_000;
+export async function waitForNativeFixture<T>(read: () => Promise<T>, accepts: (value: T) => boolean, label: string, timeoutMs = 15_000): Promise<T> {
+  const deadline = Date.now() + timeoutMs;
   let last: unknown;
   do {
     try { const value = await read(); if (accepts(value)) return value; last = value; }

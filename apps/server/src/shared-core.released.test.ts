@@ -13,6 +13,7 @@ import type { ServerConfig } from "./types.js";
 import { CORE_OPENCODE_FILES } from "./core-skills.js";
 import { coreManifest, rememberCoreManifest } from "./core-bundle.js";
 import { Schema } from "effect";
+import { waitForNativeFixture } from "./native-mcp.test-support.js";
 import { commandDefinitionsSchema } from "./native-command-schema.js";
 
 test.skipIf(!process.env.LEGALWORK_TEST_OPENCODE_BIN)("released engine and UI select shared defaults, preserve overrides and load shared updates without project rewrites", async () => {
@@ -57,8 +58,11 @@ test.skipIf(!process.env.LEGALWORK_TEST_OPENCODE_BIN)("released engine and UI se
     } });
     config.opencodeBaseUrl = engine.url; config.opencodeUsername = engine.username; config.opencodePassword = engine.password;
     const client = OpenCode.make({ baseUrl: engine.url, headers: { authorization: `Basic ${Buffer.from(`${engine.username}:${engine.password}`).toString("base64")}` } });
+    // A cold location can consume the engine’s activation deadline on its first read.
+    const waitForLocation = (id: string) => waitForNativeFixture(() => client.model.list({ location: { directory: join(root, id) } }),
+      () => true, `plugin activation for ${id}`, 40_000);
     for (const id of ids) {
-      await client.model.list({ location: { directory: join(root, id) } });
+      await waitForLocation(id);
       const expected = ["custom", "unknown"].includes(id) ? projectSkill(id) : shared;
       const native = (await client.skill.list({ location: { directory: join(root, id) } })).data;
       const failed = (await client.plugin.list({ location: { directory: join(root, id) } })).data.filter(plugin => plugin.state.status === "failed");
@@ -91,7 +95,7 @@ test.skipIf(!process.env.LEGALWORK_TEST_OPENCODE_BIN)("released engine and UI se
     await writeLegalworkRuntimeConfigFile(config, "stock");
     await client.location.reload();
     for (const id of ["stock", "fresh"]) {
-      await client.model.list({ location: { directory: join(root, id) } });
+      await waitForLocation(id);
       const loaded = (await client.skill.list({ location: { directory: join(root, id) } })).data.find(skill => skill.id === "docx-edit");
       expect(loaded?.path).toBe(shared);
       expect(loaded?.content).toContain("Shared update verification marker.");
