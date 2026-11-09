@@ -394,7 +394,7 @@ export function ToolPermissionsPanel(props: ToolPermissionsPanelProps) {
           {/* Quick safety toggles */}
           {quick && firmTools ? <OrgPolicyNote policyKey="tools.permissions" locked={FIRM_TOOLS_TEXT[firmTools]} /> : null}
           <PermissionGroup>
-            {QUICK_TOGGLES.map((toggle) => (
+            {QUICK_TOGGLES.filter(toggle => !quick || toggle !== "ask_before_shell").map((toggle) => (
               <PermissionRow
                 key={toggle}
                 title={quickToggleLabels(toggle).title}

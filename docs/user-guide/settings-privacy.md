@@ -31,6 +31,8 @@ Firm policies can supply models, connectors or settings and can lock individual 
 
 If your firm allows a provider that uses your own API key or sign-in, complete that connection in **Settings > AI Providers** before using its models. Being added by your administrator does not connect you. If your firm supplies the key, its models become available when that key is available; ask your administrator if it is missing.
 
+Computer commands require approval by default. Onboarding does not show this switch. To change it, open **Tool Permissions** and use **Ask before running computer commands**, or select **Ask first** or **Allow** for **Computer commands** under **Per-tool rules**. Both controls update the same setting. Existing saved choices, specific command rules and firm policies still apply.
+
 ## Access and secrets
 
 Authorizing a folder allows the worker to access that location under its rules. Tool Permissions governs actions, not OS microphone, Accessibility or Screen Recording grants. Remote worker roles and provider permissions can impose additional restrictions. An approval in one layer does not override the others.
