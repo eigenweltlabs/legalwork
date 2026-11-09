@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { workingCopy } from "../file-storage/working-copy.js";
 import { ApiError } from "../errors.js";
 import { storageTransferSchema } from "@legalwork/types/file-storage";
+import { PDFDocument } from "pdf-lib";
 import pluginDefinition from "./legalwork-storage-tools.js";
 import { nativePluginTools } from "./native-plugin-test-support.js";
 const LegalWorkStorageTools = (context = {}) => nativePluginTools(pluginDefinition, context);
@@ -24,6 +25,12 @@ async function fixture(
   const outside = await mkdtemp(join(tmpdir(), "storage-outside-"));
   await mkdir(join(directory, "nested"));
   await writeFile(join(outside, "private.txt"), "outside workspace");
+  let checkoutBytes = Buffer.from([0, 255, 1, 2]);
+  if (checkoutName.endsWith(".pdf")) {
+    const pdf = await PDFDocument.create();
+    pdf.addPage();
+    checkoutBytes = Buffer.from(await pdf.save());
+  }
   const calls: Call[] = [];
   const previousUrl = process.env.LEGALWORK_SERVER_URL;
   const previousToken = process.env.LEGALWORK_SERVER_TOKEN;
@@ -104,10 +111,10 @@ async function fixture(
       if (url.pathname.endsWith("/checkout")) {
         try {
           const copy = await workingCopy(directory, checkoutName);
-          await writeFile(copy.path, Buffer.from([0, 255, 1, 2]));
+          await writeFile(copy.path, checkoutBytes);
           return Response.json({
             localPath: copy.relativePath,
-            size: 4,
+            size: checkoutBytes.length,
             contentType: "application/octet-stream",
             version: "v1",
             writable: true,
@@ -322,7 +329,7 @@ test("PDF reader cards use the checked-out filename and retain the remote file i
     plugin.runtime.models([{ providerID: "fixture", id: "pdf", capabilities: { input: ["text", "pdf"] } }]);
     await plugin.runtime.hook("session", "model.request", { sessionID: "read-cloud-pdf", agent: "build", kind: "primary", model: { providerID: "fixture", id: "pdf" } });
     const path = "~lw~Zm9sZGVy~Matters/~lw~cHJvdmlkZXItZmlsZQ~Rechnung (Signatur).pdf";
-    const result = await plugin.tool.storage_read_file.executeResult({ connection_id: "one", path }, { directory, sessionID: "read-cloud-pdf" });
+    const result = await plugin.tool.storage_read_file.executeResult({ connection_id: "one", path, attach: true }, { directory, sessionID: "read-cloud-pdf" });
     const attachment = typeof result.content === "string" ? undefined : result.content?.find(part => part.type === "file");
     expect(attachment?.name).toBe("Rechnung (Signatur).pdf");
     expect(result.output).toMatchObject({ path, local_path: expect.stringContaining("/Rechnung (Signatur).pdf"), extraction: "pdf" });
