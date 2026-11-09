@@ -44,7 +44,11 @@ test('filtered cache saves are enabled, and installation uses the exact cached p
   const restore = action.runs.steps.find(step => step.uses === 'actions/cache/restore@v4');
   const save = action.runs.steps.find(step => step.uses === 'actions/cache/save@v4');
   assert.equal(restore.if, "inputs.cache == 'true'");
-  assert.equal(save.if, "inputs.cache == 'true' && steps.cache.outputs.cache-hit != 'true'");
+  assert.equal(action.inputs['save-cache'].default, 'true');
+  assert.equal(save.if, "inputs.cache == 'true' && inputs.save-cache == 'true' && steps.cache.outputs.cache-hit != 'true'");
+  const gate = parse(readFileSync(new URL('../../.github/workflows/ci-tests.yml', import.meta.url), 'utf8'));
+  const electronInstall = gate.jobs['electron-ui'].steps.find(step => step.uses === './.github/actions/install-dependencies');
+  assert.deepEqual(electronInstall.with, { 'save-cache': 'false' });
   assert.equal(save.with.path, restore.with.path);
   assert.equal(restore.with['restore-keys'], '${{ steps.store.outputs.restore-keys }}');
   const directory = mkdtempSync(path.join(tmpdir(), 'filtered-store-arguments-'));
