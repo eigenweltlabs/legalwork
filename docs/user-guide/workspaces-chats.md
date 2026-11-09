@@ -46,7 +46,9 @@ A background refresh keeps the current chat ready for typing, Run and Dictate. O
 
 If a background project refresh fails, check the affected project in the sidebar for its connection or loading error. These background errors do not add a warning above your conversation. A failed message or agent response still shows its own error in the chat.
 
-In an idle project, wiki or Assistant chat, a normal message appears immediately while LegalWork confirms delivery. Confirmation updates that same message. If sending fails, the local message is removed and your draft remains available to retry. Messages for busy or paused chats remain in the editable queue until delivered.
+In an idle project, wiki or Assistant chat, a normal message appears immediately while LegalWork confirms delivery. Confirmation updates that same message. If sending fails, the local message is removed and your draft remains available to retry.
+
+If the assistant's reply ends in an error and the queue is empty, send your next message as usual. If messages were already waiting when the reply failed, review them above the composer and choose **Resume queue** when you're ready to send them in order.
 
 ### Steer with a queued message
 
