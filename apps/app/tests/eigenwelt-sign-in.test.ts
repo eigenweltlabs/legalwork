@@ -1,4 +1,4 @@
-import { afterEach, expect, spyOn, test } from "bun:test";
+import { afterEach, expect, jest, spyOn, test } from "bun:test";
 import { OpenCode } from "@opencode/client";
 import { createLegalworkServerClient } from "../src/app/lib/legalwork-server";
 import { createProviderAuthStore } from "../src/react-app/domains/connections/provider-auth/store";
@@ -9,11 +9,32 @@ import { EigenweltSignInTimeoutError } from "../src/app/lib/eigenwelt-sign-in";
 const cleanups: Array<() => void> = [];
 afterEach(() => {
   cleanups.splice(0).forEach((cleanup) => cleanup());
+  jest.useRealTimers();
   getReactQueryClient().clear();
   setLocale("en");
 });
 
-function signInFixture(saveStatus: number, reloadStatus = 200, reloadDelayMs = 0, waitResponse?: () => Response, engineConnected = true, saveDelayMs = 0) {
+// Hold a real HTTP response while advancing the client timer past its former deadline.
+function slowResponse() {
+  jest.useFakeTimers();
+  let received = () => {};
+  const started = new Promise<void>(resolve => { received = resolve; });
+  let respond = () => {};
+  const held = new Promise<void>(resolve => { respond = resolve; });
+  return {
+    wait() {
+      received();
+      return held;
+    },
+    async advance() {
+      await started;
+      jest.advanceTimersByTime(10_250);
+      respond();
+    },
+  };
+}
+
+function signInFixture(saveStatus: number, reloadStatus = 200, reloadDelay: (() => Promise<void>) | undefined = undefined, waitResponse?: () => Response, engineConnected = true, saveDelay?: () => Promise<void>) {
   const requests: string[] = [];
   let scheduledReloads = 0;
   const server = Bun.serve({
@@ -29,13 +50,13 @@ function signInFixture(saveStatus: number, reloadStatus = 200, reloadDelayMs = 0
         return Response.json({ apiKey: "test-key", baseURL: "https://example.test/v1", models: [], platformToken: "test-token" });
       }
       if (path.endsWith("/eigenwelt/connection")) {
-        if (saveDelayMs) await Bun.sleep(saveDelayMs);
+        if (saveDelay) await saveDelay();
         return saveStatus === 200
           ? Response.json({})
           : Response.json({ code: "workspace_not_found", message: "Workspace not found" }, { status: saveStatus });
       }
       if (path.endsWith("/engine/reload")) {
-        if (reloadDelayMs) await Bun.sleep(reloadDelayMs);
+        if (reloadDelay) await reloadDelay();
         if (reloadStatus === 404) return Response.json({ code: "workspace_not_found", message: "Workspace not found" }, { status: 404 });
         return reloadStatus === 200
           ? Response.json({ ok: true })
@@ -88,7 +109,7 @@ test("a failed account save fails sign-in before attempting any engine reload", 
 });
 
 test("account sign-in saves before the project's agent is connected or approved", async () => {
-  const fixture = signInFixture(200, 200, 0, undefined, false);
+  const fixture = signInFixture(200, 200, undefined, undefined, false);
   await expect(fixture.store.completeEigenweltSignIn("test-session")).resolves.toMatchObject({ connected: true });
   expect(fixture.requests).toEqual([
     "GET /api/eigenwelt/oauth/wait/test-session",
@@ -99,7 +120,7 @@ test("account sign-in saves before the project's agent is connected or approved"
 });
 
 test("account save errors still surface when the project's agent is disconnected", async () => {
-  const fixture = signInFixture(404, 200, 0, undefined, false);
+  const fixture = signInFixture(404, 200, undefined, undefined, false);
   await expect(fixture.store.completeEigenweltSignIn("test-session")).rejects.toThrow("Workspace not found");
   expect(fixture.requests).toEqual([
     "GET /api/eigenwelt/oauth/wait/test-session",
@@ -109,25 +130,34 @@ test("account save errors still surface when the project's agent is disconnected
 });
 
 test("a slow account commit completes sign-in without timing out or replaying the save", async () => {
-  const fixture = signInFixture(200, 200, 0, undefined, false, 10_250);
-  await expect(fixture.store.completeEigenweltSignIn("slow-commit")).resolves.toMatchObject({ connected: true });
+  const delay = slowResponse();
+  const fixture = signInFixture(200, 200, undefined, undefined, false, delay.wait);
+  const result = fixture.store.completeEigenweltSignIn("slow-commit");
+  await delay.advance();
+  expect(await result).toMatchObject({ connected: true });
   expect(fixture.requests).toEqual(["GET /api/eigenwelt/oauth/wait/slow-commit", "PUT /workspace/ws/eigenwelt/connection"]);
 }, 15_000);
 
 test("sign-out waits for the server's cleanup instead of declaring failure at ten seconds", async () => {
   let calls = 0;
-  const server = Bun.serve({ port: 0, async fetch() { calls++; await Bun.sleep(10_250); return Response.json({ connected: false }); } });
+  const delay = slowResponse();
+  const server = Bun.serve({ port: 0, idleTimeout: 30, async fetch() { calls++; await delay.wait(); return Response.json({ connected: false }); } });
   cleanups.push(() => server.stop(true));
   const client = createLegalworkServerClient({ baseUrl: server.url.href });
-  await expect(client.eigenweltSaveConnection("ws", { disconnect: true })).resolves.toMatchObject({ connected: false });
+  const result = client.eigenweltSaveConnection("ws", { disconnect: true });
+  await delay.advance();
+  expect(await result).toMatchObject({ connected: false });
   expect(calls).toBe(1);
 }, 15_000);
 
 test("the account refresh after login can finish token and model publication beyond ten seconds", async () => {
-  const server = Bun.serve({ port: 0, async fetch() { await Bun.sleep(10_250); return Response.json({ connected: true }); } });
+  const delay = slowResponse();
+  const server = Bun.serve({ port: 0, idleTimeout: 30, async fetch() { await delay.wait(); return Response.json({ connected: true }); } });
   cleanups.push(() => server.stop(true));
   const client = createLegalworkServerClient({ baseUrl: server.url.href });
-  await expect(client.eigenweltEntitlements("ws", { refresh: true })).resolves.toMatchObject({ connected: true });
+  const result = client.eigenweltEntitlements("ws", { refresh: true });
+  await delay.advance();
+  expect(await result).toMatchObject({ connected: true });
 }, 15_000);
 
 test("checkout can continue past ten minutes and still connect", async () => {
@@ -135,7 +165,7 @@ test("checkout can continue past ten minutes and still connect", async () => {
   const clock = spyOn(Date, "now").mockReturnValue(startedAt);
   cleanups.push(() => clock.mockRestore());
   let polls = 0;
-  const fixture = signInFixture(200, 200, 0, () => {
+  const fixture = signInFixture(200, 200, undefined, () => {
     if (++polls === 1) {
       clock.mockReturnValue(startedAt + 11 * 60 * 1000);
       return Response.json({ pending: true });
@@ -150,7 +180,7 @@ test("the app explains how to restart when its hour-long wait expires", async ()
   const startedAt = Date.now();
   const clock = spyOn(Date, "now").mockReturnValue(startedAt);
   cleanups.push(() => clock.mockRestore());
-  const fixture = signInFixture(200, 200, 0, () => {
+  const fixture = signInFixture(200, 200, undefined, () => {
     clock.mockReturnValue(startedAt + 60 * 60 * 1000 + 1);
     return Response.json({ pending: true });
   });
@@ -164,7 +194,7 @@ test("the app explains how to restart when its hour-long wait expires", async ()
 const languages: Array<"en" | "de"> = ["en", "de"];
 test.each(languages)("server expiry displays the customer restart instructions in %s", async language => {
   setLocale(language);
-  const fixture = signInFixture(200, 200, 0, () => Response.json({
+  const fixture = signInFixture(200, 200, undefined, () => Response.json({
     code: "eigenwelt_signin_timeout", message: "Raw server timeout",
   }, { status: 410 }));
   const message = t("providers.eigenwelt_signin_timeout");
@@ -196,8 +226,11 @@ test("a removed workspace cannot be recovered by disposing the instance", async 
 });
 
 test("cold engine readiness may exceed the ordinary API timeout without a second dispose", async () => {
-  const fixture = signInFixture(200, 200, 10_250);
-  await expect(fixture.store.completeEigenweltSignIn("test-session")).resolves.toMatchObject({ connected: true });
+  const delay = slowResponse();
+  const fixture = signInFixture(200, 200, delay.wait);
+  const result = fixture.store.completeEigenweltSignIn("test-session");
+  await delay.advance();
+  expect(await result).toMatchObject({ connected: true });
   expect(fixture.requests.filter((path) => path.endsWith("/engine/reload"))).toHaveLength(1);
   expect(fixture.requests.some((path) => path.endsWith("/api/location/reload"))).toBe(false);
 }, 15_000);
