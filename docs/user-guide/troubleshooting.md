@@ -44,6 +44,8 @@ LegalWork also upgrades older saved connector settings during startup and retrie
 
 ## Reload and restart
 
+If automatic reconnection to the local service fails, **LegalWork couldn’t reconnect.** appears in the workspace. In tabbed workspaces, the message is inside the tab content, below the tab bar. Choose **Try again** to rerun local-service recovery. The button shows **Reconnecting…** while the attempt runs, and the message disappears when the connection is restored. Choose **Show details** to inspect the actual failure, or **Hide details** to collapse it. The workspace keeps its tab bar and pane layout, and you can switch between open chats to read messages already loaded on this device. Sending and changing messages resume after reconnection. Your drafts stay available while you retry. A separate startup failure screen can ask you to restart LegalWork if the service never finishes starting.
+
 Configuration changes can require an engine reload. Use the reload prompt when offered and account for active tasks. Restarting a worker is different from switching chats or reloading the browser. A full application restart may be required after OS permission changes or an installed update. Avoid resetting configuration as the first response to an ordinary provider error.
 
 ## Updates

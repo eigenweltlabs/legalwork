@@ -79,6 +79,7 @@ import "@/react-app/domains/settings/open-computer-use-config";
 import "@/react-app/domains/settings/actaport-config";
 import "@/react-app/domains/settings/google-workspace-config";
 import "@/react-app/domains/settings/connector-config";
+import "@/react-app/domains/settings/ris-config";
 import { useSettingsExtensionController } from "@/react-app/domains/settings/settings-extension-controller";
 import { buildExtensionItems } from "@/react-app/domains/settings/extension-items";
 import { isLegalWorkExtensionEnabled, LEGALWORK_EXTENSION_STATE_CHANGED, setLegalWorkExtensionEnabled } from "@/react-app/domains/settings/extension-state";

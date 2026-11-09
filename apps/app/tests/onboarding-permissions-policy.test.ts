@@ -14,7 +14,7 @@ function policy(): OrgPolicyView {
 }
 
 describe("onboarding permission policy", () => {
-  test("skips only when sandbox, network and both tool choices are enforced", () => {
+  test("skips only when sandbox, network and file editing are enforced", () => {
     expect(onboardingPermissionsEnforced(policy())).toBe(true);
   });
 
@@ -32,7 +32,7 @@ describe("onboarding permission policy", () => {
     expect(onboardingPermissionsEnforced(partial)).toBe(false);
     tools.value.edit = "ask";
     delete tools.value.bash;
-    expect(onboardingPermissionsEnforced(partial)).toBe(false);
+    expect(onboardingPermissionsEnforced(partial)).toBe(true);
   });
 
   test("defaults and policies released after sign-out remain editable", () => {

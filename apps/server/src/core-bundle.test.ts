@@ -6,8 +6,26 @@ import { coreManifest, rememberCoreManifest, unchangedCoreSkill } from "./core-b
 import { listSkills, upsertSkill } from "./skills.js";
 import { listSkillResources, resolveSkillDir, upsertSkillResource } from "./skill-resources.js";
 import { serializeWorkflowSkill } from "./eigenwelt-hub.js";
+import { CORE_OPENCODE_FILES } from "./core-skills.js";
 
 const skill = (body: string) => `---\nname: docx-edit\ndescription: Edit Word documents\n---\n${body}\n`;
+
+test("unchanged legacy development research selects current persistence guidance, while edited packages remain project-owned", async () => {
+  const root = await mkdtemp(join(tmpdir(), "legalwork-legacy-research-"));
+  const project = join(root, "project"), library = join(root, "library"), relative = ".opencode/skills/legal-research/SKILL.md";
+  try {
+    const original = await readFile(new URL("./wiki/fixtures/legal-research-skill-alpha167.md", import.meta.url), "utf8");
+    const current = CORE_OPENCODE_FILES.find(file => file.path === relative)!;
+    for (const base of [project, library]) await mkdir(dirname(join(base, relative)), { recursive: true });
+    await writeFile(join(project, relative), original);
+    await writeFile(join(project, ".opencode/.legalwork-core"), "7cae87135b7adebe6e7e31629b021b67b96e92fc");
+    await writeFile(join(library, relative), current.content);
+    expect(await unchangedCoreSkill(project, join(project, relative), library)).toBe(true);
+    expect(await readFile(join(project, relative), "utf8")).toBe(original);
+    await writeFile(join(project, relative), original + "\nMy project-specific research preference.\n");
+    expect(await unchangedCoreSkill(project, join(project, relative), library)).toBe(false);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
 async function fixture(run: (project: string, library: string, path: string, original: string) => Promise<void>) {
   const root = await mkdtemp(join(tmpdir(), "legalwork-core-selection-"));
   const project = join(root, "project"), library = join(root, "library"), path = join(project, ".opencode/skills/docx-edit/SKILL.md");

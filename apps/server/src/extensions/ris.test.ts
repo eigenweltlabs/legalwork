@@ -40,7 +40,7 @@ test("is opt-in, needs no provider credentials, and status/discovery never conta
   let calls = 0;
   globalThis.fetch = Object.assign(async () => { calls++; throw new Error("unexpected external request"); }, { preconnect: nativeFetch.preconnect });
   expect(await risStatus(config)).toMatchObject({ enabled: false, allowed: true, requiresAuthentication: false });
-  expect(listExperimentalExtensionActions("ris")).toHaveLength(8);
+  expect(listExperimentalExtensionActions("ris")).toHaveLength(9);
   await expect(callRisAction(config, "ris_about", {})).rejects.toMatchObject({ code: "ris_disabled" });
   await saveRisSettings(config, { enabled: true });
   const value = await callExperimentalExtensionAction(config, new EnvService({ path: join(root, "env.json") }), {

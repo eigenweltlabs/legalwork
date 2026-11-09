@@ -10,7 +10,7 @@ import type { McpServerEntry } from "../../../app/types";
 import { getExtensionConfigSlot, getExtensionConnected, type ExtensionConfigContext } from "./extension-registry";
 import type { LocalProviderInstallInput } from "./openai-image-extension";
 import { connectorStatusQuery } from "./connector-status-query";
-import { risStatusQuery } from "./ris-config";
+import { risStatusQuery } from "./ris-status";
 
 type ProviderLike = {
   id: string;

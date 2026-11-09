@@ -986,10 +986,10 @@ function SessionPreview() {
           selectedWorkspaceRoot={activeWorkspace.path} runtimeWorkspaceId={activeWorkspace.id} workspaces={fixtureWorkspaces}
           wikiWorkspace={activeWorkspace.id === wikiWorkspace.id ? fixtureWiki : undefined}
           wiki={dashboardExplorer ? { client: fixtureClient, serverUrl: fixtureClient.baseUrl, workspaceId: activeWorkspace.id, workspaces: fixtureWorkspaces, selectedWikiId: fixtureWiki.id, onOpenWiki: wiki => navigate(`/wikis/${wiki.workspaceId}`), onOpenWikiSession: async () => { previewNotice(); } } : undefined}
-          clientConnected legalworkServerStatus="connected" legalworkServerClient={fixtureClient} environmentClient={fixtureClient}
+          clientConnected legalworkServerClient={fixtureClient} environmentClient={fixtureClient}
           legalworkServerToken="visual-fixture" opencodeBaseUrl="https://legalwork-preview.invalid/opencode"
           developerMode={false} headerStatus="Ready" busyHint={null} startupPhase="ready" providerConnectedIds={[model.providerID]}
-          mcpConnectedCount={0} onOpenSettings={previewNotice} onStartProjectRecording={previewNotice} todos={[]} sessionLoadingById={() => false}
+          onOpenSettings={previewNotice} onStartProjectRecording={previewNotice} todos={[]} sessionLoadingById={() => false}
           onCreateProjectSession={() => { newTask(); }}
           onArchiveSession={(id, archived) => {
             const item = snapshots.get(id);

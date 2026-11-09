@@ -1,15 +1,18 @@
 import type { IntegrationSelection } from "./integration-mention";
 import { connectorDefinitions, connectorIsConnected, type ConnectorStatus } from "@legalwork/types/connectors";
 import type { StorageConnection } from "@legalwork/types/file-storage";
-import type { LegalworkBrowserPassword } from "@/app/lib/legalwork-server";
+import type { LegalworkBrowserPassword, RisIntegrationStatus } from "@/app/lib/legalwork-server";
 import { t } from "@/i18n";
 import type { ConnectorState } from "@/react-app/domains/settings/pages/connector-status";
 
-export type ComposerConnection = { id: string; name: string; description: string; kind: "account" | "storage" | "website"; selection: IntegrationSelection; firm?: boolean; state?: ConnectorState };
+export type ComposerConnection = { id: string; name: string; description: string; kind: "account" | "storage" | "website" | "extension"; selection: IntegrationSelection; iconSrc?: string; firm?: boolean; state?: ConnectorState };
 
 /** Match the installed catalog, keeping named storage/logins distinct from providers. */
-export function installedConnections(accounts?: ConnectorStatus, storage: StorageConnection[] = [], passwords: LegalworkBrowserPassword[] = []): ComposerConnection[] {
+export function installedConnections(accounts?: ConnectorStatus, storage: StorageConnection[] = [], passwords: LegalworkBrowserPassword[] = [], ris?: RisIntegrationStatus): ComposerConnection[] {
   const items: ComposerConnection[] = [];
+  if (ris?.enabled && ris.allowed) {
+    items.push({ id: "native:ris", name: t("ris.name"), description: t("ris.description"), kind: "extension", iconSrc: "/ext-ris.svg", selection: { kind: "extension", id: "ris", label: t("ris.name") } });
+  }
   for (const definition of connectorDefinitions) {
     const account = accounts?.connectors.find(item => item.id === definition.id);
     if (!account?.connections.length) continue;
