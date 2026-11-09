@@ -30,9 +30,15 @@ the exact change to the current repository ruleset with a read-only command:
 gh api repos/eigenweltlabs/legalwork/rulesets/18320382 | node scripts/ci/dev-queue-ruleset.mjs
 ```
 
-In the dev-only ruleset, enable **Require merge queue** using the values printed
-by the preview and turn off **Require branches to be up to date before merging**.
-Keep both existing required check names. After activation, choose **Merge when
+After the handler has landed, a repository administrator can activate the
+previewed configuration from the merged checkout:
+
+```sh
+node scripts/ci/dev-queue-ruleset.mjs --enable
+```
+
+The command checks the live dev handler, retains both required checks, disables
+strict head freshness and verifies the updated ruleset. After activation, choose **Merge when
 ready** for a PR. GitHub creates and tests a temporary commit including earlier
 queue entries. A failed group cannot merge. A true source conflict still needs
 a resolution.

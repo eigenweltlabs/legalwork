@@ -1,5 +1,6 @@
-// Print a PUT payload from the current repository ruleset. This command is read-only.
+// Preview by default. An administrator can activate the queue after its handler lands.
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
@@ -25,6 +26,29 @@ export function queuedRuleset(current) {
   return { name, enforcement, target, conditions, bypass_actors, rules };
 }
 
+const api = 'repos/eigenweltlabs/legalwork';
+const ruleset = api + '/rulesets/18320382';
+const handler = '.github/workflows/ci-tests.yml';
+
+export function enableDevQueue(gh, handlerContent) {
+  const liveHandler = Buffer.from(JSON.parse(gh(['api', api + '/contents/' + handler + '?ref=dev'])).content, 'base64');
+  assert.ok(liveHandler.equals(handlerContent) && /^  merge_group:\s*\n    types: \[checks_requested\]\s*\n    branches: \[dev\]/m.test(handlerContent.toString()),
+    'Run from the landed dev checkout with the current merge-group handler');
+  const current = JSON.parse(gh(['api', ruleset]));
+  const payload = queuedRuleset(current);
+  if (JSON.stringify(current.rules) !== JSON.stringify(payload.rules)) {
+    gh(['api', '--method', 'PUT', ruleset, '--input', '-'], JSON.stringify(payload));
+  }
+  const active = JSON.parse(gh(['api', ruleset]));
+  assert.deepEqual(queuedRuleset(active).rules, active.rules);
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  console.log(JSON.stringify(queuedRuleset(JSON.parse(readFileSync(0, 'utf8'))), null, 2));
+  if (process.argv.length === 2) console.log(JSON.stringify(queuedRuleset(JSON.parse(readFileSync(0, 'utf8'))), null, 2));
+  else {
+    assert.deepEqual(process.argv.slice(2), ['--enable']);
+    const gh = (args, input) => execFileSync('gh', args, { encoding: 'utf8', input });
+    enableDevQueue(gh, readFileSync(new URL('../../' + handler, import.meta.url)));
+    console.log('Verified the dev merge queue and required checks.');
+  }
 }

@@ -6,7 +6,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { mergeDiff, mergePlan, portableAreas } from './merge-plan.mjs';
 import { lastPublished, alphaTargets } from './alpha-candidate.mjs';
-import { queuedRuleset } from './dev-queue-ruleset.mjs';
+import { enableDevQueue, queuedRuleset } from './dev-queue-ruleset.mjs';
 
 test('bundled help, ordinary SDK consumers and typed UI are portable; engine policy and shared VM changes use native checks', () => {
   const docs = ['apps/server/src/core-skills.ts', 'docs/user-guide/chat.md'];
@@ -68,6 +68,17 @@ test('queue payload preserves protection and fails closed on unexpected branch c
   assert.equal(after.rules[3].parameters.grouping_strategy, 'ALLGREEN');
   assert.deepEqual(queuedRuleset(after), after);
   assert.throws(() => queuedRuleset({ ...before, conditions: { ref_name: { include: ['~ALL'], exclude: [] } } }));
+  const handler = Buffer.from('on:\n  merge_group:\n    types: [checks_requested]\n    branches: [dev]\n');
+  let live = before, writes = 0;
+  const gh = (args, input) => {
+    if (args[1].includes('/contents/')) return JSON.stringify({ content: handler.toString('base64') });
+    if (args.includes('PUT')) { live = JSON.parse(input); writes++; }
+    return JSON.stringify(live);
+  };
+  assert.throws(() => enableDevQueue(gh, Buffer.from('old route')), /landed dev/);
+  enableDevQueue(gh, handler);
+  enableDevQueue(gh, handler);
+  assert.equal(writes, 1);
   protection.parameters.required_status_checks.push({ context: 'unknown' });
   assert.throws(() => queuedRuleset(before));
 });
