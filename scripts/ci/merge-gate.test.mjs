@@ -10,7 +10,11 @@ import { enableDevQueue, queuedRuleset } from './dev-queue-ruleset.mjs';
 
 test('bundled help, ordinary SDK consumers and typed UI are portable; engine policy and shared VM changes use native checks', () => {
   const docs = ['apps/server/src/core-skills.ts', 'docs/user-guide/chat.md'];
-  assert.deepEqual(mergePlan(docs), { fullEngine: false, focused: [], targets: [] });
+  assert.deepEqual(mergePlan(docs), { fullEngine: false, runtimeSuite: false, focused: [], targets: [] });
+  assert.equal(mergePlan(['apps/server/src/agent-sandbox/service.ts']).runtimeSuite, false);
+  for (const input of ['agent-sandbox/host.ts', 'agent-sandbox/raw-http-node.test.ts', 'skill-package.native.test.ts']) {
+    assert.equal(mergePlan(['apps/server/src/' + input, 'apps/server/src/agent-sandbox/service.ts']).runtimeSuite, true);
+  }
   assert.deepEqual(hostChecks(['apps/server/scripts/dev-node.test.mjs', 'apps/app/scripts/e2e.mjs']), ['app', 'dev-node']);
   assert.deepEqual(portableJobs(['apps/server/src/routes/files.ts']), ['server']);
   assert.deepEqual(portableJobs(['apps/server/package.json']), ['server-1', 'server-2']);

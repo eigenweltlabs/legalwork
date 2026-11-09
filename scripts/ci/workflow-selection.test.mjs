@@ -14,8 +14,8 @@ function condition(expression, scope, { engine = 'skipped', event = 'pull_reques
   const needs = { changes: { result: 'success', outputs: Object.fromEntries(Object.entries(scope).map(([key, value]) => [key, String(value)])) },
     'opencode-derivative': { result: engine }, 'sandbox-runtime': { result: sandbox }, 'sandbox-guest-x64': { result: guest }, 'sandbox-guest-arm64': { result: guest }, 'pr-renderer': { result: 'success' }, 'engine-runtime-linux': { result: guest }, 'engine-build-inputs': { result: 'success' } };
   const js = expression.replace(/needs\.([\w-]+)/g, 'needs["$1"]').replace(/inputs\.([\w-]+)/g, 'inputs["$1"]').replace('github.event.pull_request.labels.*.name', 'github.event.pull_request.labels.map(label => label.name)');
-  return Boolean(Function('needs', 'github', 'inputs', 'runner', 'always', 'cancelled', 'contains', `return (${js});`)(needs,
-    { event_name: event, event: { pull_request: { labels: labels.map(name => ({ name })) } } }, { replay_pr: '', ...inputs }, { os }, () => true, () => false, (values, value) => values.includes(value)));
+  return Boolean(Function('needs', 'github', 'inputs', 'runner', 'always', 'cancelled', 'contains', 'fromJSON', `return (${js});`)(needs,
+    { event_name: event, event: { pull_request: { labels: labels.map(name => ({ name })) } } }, { replay_pr: '', 'host-checks': '[]', ...inputs }, { os }, () => true, () => false, (values, value) => values.includes(value), JSON.parse));
 }
 
 test('unit jobs start independently while integration jobs require the verified engine', () => {
@@ -149,7 +149,8 @@ test('PR targets prepare and validate their own native bytes without a global ho
   assert.equal(native.jobs.tests.steps.find(step => step.uses === './.github/actions/install-dependencies').with.cache, '${{ inputs.dependency-cache }}');
   const integration = workflow('ci-engine-tests').jobs.tests;
   const validate = integration.steps.find(step => step.uses === './.github/actions/test-sandbox-runtime');
-  assert.equal(validate.if, 'inputs.runtime-required');
+  assert.equal(validate.if, 'inputs.runtime-required && !inputs.protected-only');
+  assert.equal(integration.steps.find(step => step.name === 'Verify the shipped engine uses protected execution').if, 'inputs.runtime-required');
   const protectedStep = integration.steps.find(step => step.name === 'Verify the shipped engine uses protected execution');
   assert.equal(protectedStep.env.LEGALWORK_SANDBOX_INTEGRATION, '1');
   assert.ok(protectedStep.run.includes('agent-sandbox/engine.integration.test.ts'));

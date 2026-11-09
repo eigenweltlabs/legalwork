@@ -120,13 +120,14 @@ test('runtime cache hits retain verification and isolation tests while skipping 
   }
   assert.equal(workflow('ci-runtime-cache').jobs.warm.with.run_tests, false);
   assert.equal(workflow('ci-runtime-cache').jobs.warm.with.publish_runtime, false);
+  assert.equal(workflow('ci-runtime-cache').jobs.warm.with.retain_fresh_build, true);
   assert.ok(workflow('ci-runtime-cache').on.schedule.length);
   const guest = jobs.guest.steps.find(step => step.with?.name === 'sandbox-guest-${{ matrix.arch }}');
   assert.equal(guest.with.path, 'apps/server/resources/agent-sandbox/runtime/*');
   assert.equal(guest.with['include-hidden-files'], false);
   const prepare = parse(readFileSync(new URL('../../.github/actions/prepare-sandbox-runtime/action.yml', import.meta.url), 'utf8')).runs.steps;
   const artifact = prepare.find(step => step.uses === 'actions/upload-artifact@v4');
-  assert.equal(artifact.if, "inputs.publish-runtime == 'true'");
+  assert.equal(artifact.if, "inputs.publish-runtime == 'true' || (inputs.retain-fresh-build == 'true' && steps.runtime-cache.outputs.cache-hit != 'true' && steps.runtime-recovery.outputs.artifact-id == '')");
   assert.equal(artifact.with.name, '${{ steps.runtime-key.outputs.key }}');
   assert.ok(prepare.some(step => step.run?.includes('cache-sandbox-runtime.mjs verify runtime')));
   const restore = prepare.find(step => step.uses === 'actions/cache/restore@v4');

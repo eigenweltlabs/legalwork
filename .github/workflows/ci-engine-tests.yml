@@ -11,6 +11,9 @@ on:
       local-linux-runtime:
         type: boolean
         default: false
+      protected-only:
+        type: boolean
+        default: false
       host-only:
         type: boolean
         default: false
@@ -136,8 +139,11 @@ jobs:
         run: |
           mkdir -p apps/server/resources/agent-sandbox/runtime
           tar -xzf "$RUNNER_TEMP/sandbox-runtime/sandbox-runtime.tgz" -C apps/server/resources/agent-sandbox/runtime
+      - name: Verify the protected engine fixture's native runtime
+        if: inputs.runtime-required && inputs.protected-only
+        run: node scripts/sandbox/verify-runtime.mjs
       - uses: ./.github/actions/test-sandbox-runtime
-        if: inputs.runtime-required
+        if: inputs.runtime-required && !inputs.protected-only
       - name: Verify the shipped engine uses protected execution
         if: inputs.runtime-required
         env:

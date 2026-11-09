@@ -14,6 +14,9 @@ const sandboxShared = /^(?:scripts\/sandbox\/|apps\/server\/resources\/agent-san
 const packageInput = /(?:^|\/)package\.json$|^(?:pnpm-lock\.yaml|pnpm-workspace\.yaml|constants\.json)$/;
 const engineDependency = /@opencode\/|@legalwork\/opencode-release|opencode-ai|^[-+]\s*"(?:opencodeVersion|opencodeCommit)"|(?:bun|effect)@\d|^[-+]\s*"(?:effect|bun|@effect\/[^"]+)":/;
 const nativeTests = /^(?:apps\/server\/src\/(?:agent-sandbox|calculations)\/|scripts\/sandbox\/)/;
+// These consumers use the protected engine and service. Boot, transport,
+// filesystem, networking and permission implementations keep the native battery.
+const serviceConsumer = /^apps\/server\/src\/(?:agent-sandbox\/(?:service|settings|sync|web|paid-search|search-provider)(?:\.test)?|opencode-plugins\/legalwork-sandbox(?:\.test)?|routes\/agent-sandbox)\.ts$/;
 const windowsFile = /windows|win32|\.ps1$|mingw|^scripts\/sandbox\/pe-imports/;
 const macFile = /macos|darwin|entitlements\.plist$/;
 const linuxFile = /linux/;
@@ -26,6 +29,7 @@ export function mergePlan(files, { engineDepsChanged = true, realTests = [] } = 
     || packageInput.test(file) && engineDepsChanged));
   const targets = new Set(fallback ? platforms : fullEngine ? ['linux'] : []);
   const focused = new Set();
+  let runtimeSuite = fullEngine;
   for (const file of paths) {
     if (file.endsWith('.md')) continue;
     // The application owns admission and permissions even when the VM image
@@ -35,11 +39,14 @@ export function mergePlan(files, { engineDepsChanged = true, realTests = [] } = 
     if (file.startsWith('.github/actions/setup-merge-engine/')) {
       for (const fixture of realTests.filter(test => test.endsWith('/engine-client.released.test.ts'))) focused.add(fixture);
     }
+    if (file.endsWith('/skill-package.native.test.ts')) runtimeSuite = true;
     if (sandboxShared.test(file)) {
+      runtimeSuite = true;
       const platform = windowsFile.test(file) ? 'win32' : macFile.test(file) ? 'darwin' : linuxFile.test(file) ? 'linux' : null;
       for (const target of platform ? [platform] : platforms) targets.add(target);
     } else if (nativeTests.test(file) || /\/legalwork-sandbox(?:\.|-)|\/routes\/agent-sandbox\./.test(file)) {
       targets.add('linux');
+      if (!serviceConsumer.test(file)) runtimeSuite = true;
     }
     for (const test of realTests) {
       // Test files normally share a stem with their implementation. Keep
@@ -48,7 +55,7 @@ export function mergePlan(files, { engineDepsChanged = true, realTests = [] } = 
       if (file === test || file === stem + '.ts') focused.add(test);
     }
   }
-  return { fullEngine, targets: platforms.filter(target => targets.has(target)), focused: [...focused].sort() };
+  return { fullEngine, runtimeSuite, targets: platforms.filter(target => targets.has(target)), focused: [...focused].sort() };
 }
 
 export function hostChecks(files) {
@@ -114,6 +121,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const encodedFiles = JSON.stringify(files);
   const result = {
     changed_files: Buffer.byteLength(encodedFiles, 'utf8') <= 32768 ? encodedFiles : 'null',
+    protected_only: !plan.runtimeSuite && plan.targets.length === 1 && plan.targets[0] === 'linux',
     direct_linux: !plan.fullEngine && !linuxArm && plan.targets.length === 1 && plan.targets[0] === 'linux',
     linux_arm: linuxArm,
     docx: docxDepsChanged || has(/(?:apps\/app\/.*(?:docx|word-addin|office-editor-boundary)|scripts\/docx|\.docx$|\.github\/workflows\/ci-docx|patches\/[^/]*docx)/),

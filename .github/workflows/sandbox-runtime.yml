@@ -18,6 +18,10 @@ on:
         description: Run sandbox validation after preparing the runtime
         type: boolean
         default: true
+      retain_fresh_build:
+        description: Retain a verified newly built archive for future cache recovery
+        type: boolean
+        default: false
       publish_runtime:
         description: Retain native runtime artifacts for same-run consumers
         type: boolean
@@ -132,5 +136,6 @@ jobs:
           msystem: ${{ matrix.msystem || '' }}
           prefix: ${{ matrix.prefix || '' }}
           publish-runtime: ${{ inputs.publish_runtime }}
+          retain-fresh-build: ${{ inputs.retain_fresh_build }}
       - uses: ./.github/actions/test-sandbox-runtime
         if: inputs.run_tests

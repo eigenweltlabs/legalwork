@@ -86,6 +86,7 @@ jobs:
       docx: ${{ steps.plan.outputs.docx }}
       linux_arm: ${{ steps.plan.outputs.linux_arm }}
       direct_linux: ${{ steps.plan.outputs.direct_linux }}
+      protected_only: ${{ steps.plan.outputs.protected_only }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -783,6 +784,7 @@ jobs:
       server: ${{ needs.changes.outputs.full_engine == 'true' || (needs.changes.outputs.full_engine == '' && needs.changes.outputs.server == 'true') }}
       desktop: ${{ needs.changes.outputs.full_engine != 'false' && needs.changes.outputs.desktop == 'true' }}
       local-linux-runtime: ${{ needs.changes.outputs.direct_linux == 'true' }}
+      protected-only: ${{ needs.changes.outputs.protected_only == 'true' }}
       runtime-required: ${{ (needs.changes.outputs.direct_linux == 'true' && !(github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'skip-sandbox-tests'))) || (!needs.changes.outputs.targets || contains(needs.changes.outputs.targets, 'linux')) && (needs.sandbox-guest-x64.result == 'success' || needs.sandbox-runtime.result == 'success') }}
       runtime-artifact: ${{ needs.sandbox-runtime.result == 'success' || needs.engine-runtime-linux.result == 'success' }}
       focused: ${{ needs.changes.outputs.focused || '[]' }}

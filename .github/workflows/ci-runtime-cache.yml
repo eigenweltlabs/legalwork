@@ -7,6 +7,7 @@ on:
       - apps/server/resources/agent-sandbox/**
       - scripts/ci/cache-sandbox-runtime.mjs
       - .github/actions/build-sandbox-runtime/**
+      - .github/actions/prepare-sandbox-runtime/**
       - .github/workflows/ci-runtime-cache.yml
   workflow_dispatch:
   # Image/toolchain revisions are part of the exact cache key.
@@ -25,3 +26,4 @@ jobs:
     with:
       run_tests: false
       publish_runtime: false
+      retain_fresh_build: true

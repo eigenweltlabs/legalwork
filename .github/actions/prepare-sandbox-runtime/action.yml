@@ -16,6 +16,9 @@ inputs:
   local-guest:
     default: 'false'
     description: Build the guest locally on a native Linux test host after a verified runtime cache miss
+  retain-fresh-build:
+    default: 'false'
+    description: Retain an exact-key archive after a cold build in the base branch cache warmer
   publish-runtime:
     default: 'true'
     description: Retain the prepared archive for same-run consumers
@@ -93,11 +96,11 @@ runs:
     # Preserve the built runtime before validation so manual package diagnostics
     # can run independently. Uploading it does not certify that tests passed.
     - name: Preserve executable modes in runtime artifact
-      if: inputs.publish-runtime == 'true'
+      if: inputs.publish-runtime == 'true' || (inputs.retain-fresh-build == 'true' && steps.runtime-cache.outputs.cache-hit != 'true' && steps.runtime-recovery.outputs.artifact-id == '')
       shell: bash
       run: tar -czf sandbox-runtime.tgz -C apps/server/resources/agent-sandbox/runtime .
     - uses: actions/upload-artifact@v4
-      if: inputs.publish-runtime == 'true'
+      if: inputs.publish-runtime == 'true' || (inputs.retain-fresh-build == 'true' && steps.runtime-cache.outputs.cache-hit != 'true' && steps.runtime-recovery.outputs.artifact-id == '')
       with:
         name: ${{ steps.runtime-key.outputs.key }}
         path: sandbox-runtime.tgz

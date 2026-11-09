@@ -19,7 +19,9 @@ use their existing scopes.
   Desktop unit tests use the same verified selector. The full engine suite
   runs for changes to distribution, engine lifecycle, transport or pinned SDK inputs.
 - Shared VM and isolation changes select the native matrix. Host-specific edits
-  select that platform. Ordinary sandbox service changes use Linux x64.
+  select that platform. Service and policy consumers run against the shipped engine and a real Linux
+  x64 VM. Changes to boot, transport, filesystem or network enforcement also
+  run the native sandbox battery.
 - Every candidate checks that desktop declares the server's shipped runtime
   dependencies. CI also verifies bundled plugins after building the server.
   Signed installers run on alpha and release. An explicit package acceptance
