@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { hostChecks, mergeDiff, mergePlan, portableAreas, portableJobs } from './merge-plan.mjs';
+import { electronChecks, hostChecks, mergeDiff, mergePlan, portableAreas, portableJobs } from './merge-plan.mjs';
 import { lastPublished, alphaTargets } from './alpha-candidate.mjs';
 import { enableDevQueue, queuedRuleset } from './dev-queue-ruleset.mjs';
 
@@ -15,6 +15,9 @@ test('bundled help, ordinary SDK consumers and typed UI are portable; engine pol
   for (const input of ['agent-sandbox/host.ts', 'agent-sandbox/raw-http-node.test.ts', 'skill-package.native.test.ts']) {
     assert.equal(mergePlan(['apps/server/src/' + input, 'apps/server/src/agent-sandbox/service.ts']).runtimeSuite, true);
   }
+  assert.deepEqual(electronChecks(['apps/desktop/scripts/ris-pdf-regression.mjs']), ['ris']);
+  assert.deepEqual(electronChecks(['apps/desktop/electron/browser-autofill.mjs']), ['browser']);
+  assert.deepEqual(electronChecks(['apps/app/tests/fixtures/workflow-editor-dirty.tsx']), ['renderer']);
   assert.deepEqual(hostChecks(['apps/server/scripts/dev-node.test.mjs', 'apps/app/scripts/e2e.mjs']), ['app', 'dev-node']);
   assert.deepEqual(portableJobs(['apps/server/src/routes/files.ts']), ['server']);
   assert.deepEqual(portableJobs(['apps/server/package.json']), ['server-1', 'server-2']);

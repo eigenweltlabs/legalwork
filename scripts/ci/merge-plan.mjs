@@ -58,6 +58,16 @@ export function mergePlan(files, { engineDepsChanged = true, realTests = [] } = 
   return { fullEngine, runtimeSuite, targets: platforms.filter(target => targets.has(target)), focused: [...focused].sort() };
 }
 
+export function electronChecks(files) {
+  const groups = new Set();
+  for (const file of files) {
+    if (/^apps\/(?:desktop\/(?:electron|scripts)\/|app\/).*(?:unsaved-change|workflow-editor|shutdown|updater-quit)/.test(file)) groups.add('renderer');
+    if (/^apps\/desktop\/(?:electron|scripts)\/(?:browser-|(?:run-)?preview-security)|^apps\/app\/.*browser-autofill/.test(file)) groups.add('browser');
+    if (/^apps\/(?:desktop\/(?:electron|scripts)\/(?:ris-pdf|browser-downloads|browser-project)|server\/src\/extensions\/ris-pdf)/.test(file)) groups.add('ris');
+  }
+  return [...groups].sort();
+}
+
 export function hostChecks(files) {
   const checks = new Set();
   for (const file of files) {
@@ -116,6 +126,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const plan = mergePlan(files, { engineDepsChanged, realTests });
   const has = pattern => files.some(file => pattern.test(file));
   const host = hostChecks(files);
+  const electron = electronChecks(files);
   const native = host.length > 0 || plan.fullEngine || plan.targets.some(target => target !== 'win32') || plan.focused.length > 0;
   const linuxArm = plan.targets.length === 3 || has(/linux[-_/]arm64|aarch64-linux/);
   const encodedFiles = JSON.stringify(files);
@@ -128,7 +139,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     docs: has(/^(?:docs\/user-guide\/|scripts\/(?:gen-core-skills|help-)|apps\/server\/(?:src\/core-skills\.ts|resources\/core-opencode\/))/),
     areas: JSON.stringify(portableJobs(files)), full_engine: plan.fullEngine, engine: native, sandbox: plan.targets.length > 0, targets: JSON.stringify(plan.targets),
     focused: JSON.stringify(plan.focused), host_checks: JSON.stringify(host),
-    renderer: has(/(?:apps\/desktop\/(?:electron|scripts)\/(?:browser-|ris-pdf|preview-security|unsaved-|workflow-editor|shutdown|updater-quit)|apps\/app\/.*(?:unsaved-change|workflow-editor|browser-autofill))/),
+    renderer: electron.includes('renderer'), electron: JSON.stringify(electron),
     windows_drafts: has(/(?:apps\/server\/src\/(?:email-drafts|calendar-event-drafts)\/|apps\/desktop\/.*(?:outlook|mail-draft|support-bundle|windows-update)|scripts\/test-drafts|scripts\/release\/windows-signing)/),
     windows_meetings: has(/^apps\/desktop\/.*(?:meeting|recorder|capture-helper)/),
   };

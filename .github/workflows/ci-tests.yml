@@ -83,6 +83,7 @@ jobs:
       host_checks: ${{ steps.plan.outputs.host_checks }}
       areas: ${{ steps.plan.outputs.areas }}
       renderer: ${{ steps.plan.outputs.renderer }}
+      electron: ${{ steps.plan.outputs.electron }}
       docx: ${{ steps.plan.outputs.docx }}
       linux_arm: ${{ steps.plan.outputs.linux_arm }}
       direct_linux: ${{ steps.plan.outputs.direct_linux }}
@@ -448,7 +449,10 @@ jobs:
 
   electron-ui:
     needs: [ changes, pr-renderer ]
-    if: needs.changes.outputs.renderer == 'true'
+    if: >-
+      always() && !cancelled() && needs.changes.result == 'success' && needs.changes.outputs.electron != '' &&
+      needs.changes.outputs.electron != '[]' && (needs.pr-renderer.result == 'success' ||
+      (needs.pr-renderer.result == 'skipped' && needs.changes.outputs.renderer == 'false'))
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v6
@@ -463,15 +467,22 @@ jobs:
           bun-version: 1.4.4
       - uses: ./.github/actions/install-dependencies
       - uses: actions/download-artifact@v4
+        if: needs.changes.outputs.renderer == 'true'
         with:
           name: pr-renderer
           path: apps/app
-      - run: |
+      - if: needs.changes.outputs.renderer == 'true'
+        run: |
           node scripts/ci/portable-assets.mjs verify renderer
           pnpm --filter @legalwork/desktop test:workflow-editor
           pnpm --filter @legalwork/desktop test:shutdown
           pnpm --filter @legalwork/desktop test:updater-quit
+      - if: contains(fromJSON(needs.changes.outputs.electron), 'ris')
+        run: |
+          pnpm --filter legalwork-server build
           pnpm --filter @legalwork/desktop test:ris-pdf
+      - if: contains(fromJSON(needs.changes.outputs.electron), 'browser')
+        run: |
           pnpm --filter @legalwork/desktop test:browser-autofill
           pnpm --filter @legalwork/desktop test:preview-security
           pnpm --filter @legalwork/desktop test:browser-workflow
