@@ -24,11 +24,17 @@ export function mergePlan(files, { engineDepsChanged = true, realTests = [] } = 
   const paths = files ?? [];
   const fullEngine = fallback || paths.some(file => !file.endsWith('.md') && (engineImplementation.test(file)
     || packageInput.test(file) && engineDepsChanged));
-  const targets = new Set(fallback ? platforms : []);
+  const targets = new Set(fallback ? platforms : fullEngine ? ['linux'] : []);
   const focused = new Set();
   for (const file of paths) {
     if (file.endsWith('.md')) continue;
-    if (file === 'apps/server/src/skill-package.native.test.ts') targets.add('linux');
+    // The application owns admission and permissions even when the VM image
+    // itself is unchanged. Keep one real transport exercising that interface.
+    if (/^apps\/server\/src\/(?:skill-package\.native\.test|global-tool-permissions|org-policy[^/]*|opencode-plugins\/legalwork-org-policy-guard)\.ts$/.test(file)
+      || /^apps\/desktop\/(?:electron\/runtime\.mjs|scripts\/prepare-sidecar\.mjs)$/.test(file)) targets.add('linux');
+    if (file.startsWith('.github/actions/setup-merge-engine/')) {
+      for (const fixture of realTests.filter(test => test.endsWith('/engine-client.released.test.ts'))) focused.add(fixture);
+    }
     if (sandboxShared.test(file)) {
       const platform = windowsFile.test(file) ? 'win32' : macFile.test(file) ? 'darwin' : linuxFile.test(file) ? 'linux' : null;
       for (const target of platform ? [platform] : platforms) targets.add(target);
@@ -82,7 +88,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const has = pattern => files.some(file => pattern.test(file));
   const native = plan.fullEngine || plan.targets.some(target => target !== 'win32') || plan.focused.length > 0;
   const linuxArm = plan.targets.length === 3 || has(/linux[-_/]arm64|aarch64-linux/);
+  const encodedFiles = JSON.stringify(files);
   const result = {
+    changed_files: Buffer.byteLength(encodedFiles, 'utf8') <= 32768 ? encodedFiles : 'null',
     direct_linux: !plan.fullEngine && !linuxArm && plan.targets.length === 1 && plan.targets[0] === 'linux',
     linux_arm: linuxArm,
     docx: has(/(?:apps\/app\/.*(?:docx|word-addin)|scripts\/docx|\.github\/workflows\/ci-docx|patches\/[^/]*docx)/),
@@ -94,5 +102,5 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     windows_meetings: has(/^apps\/desktop\/.*(?:meeting|recorder|capture-helper)/),
   };
   for (const [name, value] of Object.entries(result)) appendFileSync(process.env.GITHUB_OUTPUT, name + '=' + value + '\n');
-  appendFileSync(process.env.GITHUB_STEP_SUMMARY, '### Merge checks\n\n' + Object.entries(result).map(([k,v]) => '- ' + k + ': ' + v).join('\n') + '\n');
+  appendFileSync(process.env.GITHUB_STEP_SUMMARY, '### Merge checks\n\n' + Object.entries(result).filter(([k]) => k !== 'changed_files').map(([k,v]) => '- ' + k + ': ' + v).join('\n') + '\n');
 }

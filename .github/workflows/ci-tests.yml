@@ -76,8 +76,7 @@ jobs:
       windows_meetings: ${{ github.event_name == 'workflow_dispatch' && inputs.transport_diagnostic && 'false' || steps.plan.outputs.windows_meetings || steps.scope.outputs.windows_meetings }}
       windows_drafts: ${{ github.event_name == 'workflow_dispatch' && inputs.transport_diagnostic && 'false' || steps.plan.outputs.windows_drafts || steps.scope.outputs.windows_drafts }}
       units: ${{ github.event_name == 'workflow_dispatch' && inputs.transport_diagnostic && 'false' || ((github.event_name != 'workflow_dispatch' || inputs.replay_pr) && 'false') || steps.scope.outputs.units }}
-      replay_base: ${{ steps.replay.outputs.base }}
-      replay_head: ${{ steps.replay.outputs.head }}
+      changed_files: ${{ steps.plan.outputs.changed_files }}
       targets: ${{ steps.plan.outputs.targets }}
       full_engine: ${{ steps.plan.outputs.full_engine }}
       focused: ${{ steps.plan.outputs.focused }}
@@ -90,6 +89,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          filter: blob:none
       - name: Resolve the historical comparison for a timing run
         id: replay
         if: inputs.replay_pr != ''
@@ -386,16 +386,10 @@ jobs:
         area: ${{ fromJSON(needs.changes.outputs.areas) }}
     runs-on: ubuntu-latest
     env:
-      EVENT_NAME: ${{ inputs.replay_pr && 'pull_request' || github.event_name }}
-      BASE_SHA: ${{ needs.changes.outputs.replay_base || github.event.merge_group.base_sha || github.event.pull_request.base.sha }}
-      HEAD_SHA: ${{ needs.changes.outputs.replay_head || github.event.merge_group.head_sha || github.event.pull_request.head.sha }}
+      MERGE_CHANGED_FILES: ${{ needs.changes.outputs.changed_files }}
       LEGALWORK_TEST_OPENCODE_BIN: ''
     steps:
       - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-      - if: inputs.replay_pr != ''
-        run: git fetch --no-tags origin "$BASE_SHA" "$HEAD_SHA"
       - uses: actions/setup-node@v6
         with:
           node-version: 24.22.1
