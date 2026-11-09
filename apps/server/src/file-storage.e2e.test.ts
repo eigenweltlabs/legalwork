@@ -148,11 +148,12 @@ test("storage_read_file reads Office and PDF sources without a viewer or sandbox
     expect(rest.source_hash).toBe(first.source_hash);
     const pdfFirst = await read("source.pdf", { max_chars: 24 });
     const pdfRest = await read("source.pdf", { offset: pdfFirst.next_offset });
+    expect(pdfFirst.attached).toBe(false);
     expect(pdfFirst.text + pdfRest.text).toContain("[Page 1]\nClient consent");
     expect(pdfFirst.next_offset).toBe(24);
     expect(pdfRest).not.toHaveProperty("next_offset");
     await plugin.runtime.hook("session", "model.request", { sessionID: "source-reading", agent: "build", kind: "primary", model: { providerID: "fixture", id: "pdf" } });
-    const visual = await plugin.tool.storage_read_file.executeResult({ connection_id: id, path: "source.pdf" }, { directory: temporary, sessionID: "source-reading" });
+    const visual = await plugin.tool.storage_read_file.executeResult({ connection_id: id, path: "source.pdf", attach: true }, { directory: temporary, sessionID: "source-reading" });
     const attachment = typeof visual.content === "string" ? undefined : visual.content?.find(part => part.type === "file");
     expect(attachment?.mime).toBe("application/pdf");
     expect(attachment?.uri).toBe(`data:application/pdf;base64,${dav.files.get("first/source.pdf")!.toString("base64")}`);
