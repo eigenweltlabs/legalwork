@@ -22,12 +22,15 @@ const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query
 const { createLegalworkServerClient } = await import("../../src/app/lib/legalwork-server");
 const { BackOfficePage } = await import("../../src/react-app/domains/back-office/back-office-page");
 const { ProjectReferenceActions } = await import("../../src/react-app/domains/workspace/project-reference-actions");
+const { ProjectProperties } = await import("../../src/react-app/domains/workspace/project-properties");
+const { projectFieldsSchema } = await import("@legalwork/types/workspace");
 const { t, setLocale } = await import("../../src/i18n");
 setLocale("en");
 const store = new BackOfficeStore(await openSqlite(":memory:"));
 const actor = { userId: "owner", model: true, edit: true, finance: true };
 const abc = store.saveRecord("local", actor, { objectId: "clients", revision: 0, values: { name: "ABC GmbH" } });
 const alice = store.saveRecord("local", actor, { objectId: "people", revision: 0, values: { name: "Alice" } });
+const bob = store.saveRecord("local", actor, { objectId: "people", revision: 0, values: { name: "Bob" } });
 let writes = 0;
 const client = {
   ...createLegalworkServerClient({ baseUrl: "http://localhost" }),
@@ -43,10 +46,12 @@ const host = document.createElement("div"); document.body.append(host);
 const root = createRoot(host);
 const initialFields: ProjectField[] = [{ id: "client", label: "Internal note", type: "text", value: "Keep me" },
   { id: "people", label: "Witnesses", labelSource: "custom", type: "backoffice", objectId: "people", multiple: true, value: null }];
-let savedFields = initialFields, projectWrites = 0;
+let savedFields = initialFields, projectWrites = 0, failProjectSave = false;
 function Links() {
   const [fields, setFields] = useState(initialFields);
-  return <ProjectReferenceActions client={client} fields={fields} onSave={async next => { projectWrites++; savedFields = next; setFields(next); }} />;
+  const save = async (next: ProjectField[]) => { if (failProjectSave) throw new Error("Please retry"); projectWrites++; savedFields = next; setFields(next); };
+  return <><ProjectProperties client={client} fields={fields} onSave={async (id, value) => save(projectFieldsSchema.parse(fields.map(field => field.id === id ? { ...field, value } : field)))} />
+    <ProjectReferenceActions client={client} fields={fields} onSave={save} /></>;
 }
 async function render(links = false) {
   await act(async () => { root.render(<QueryClientProvider client={cache}><MemoryRouter initialEntries={["/back-office/matters"]}>{links ? <Links /> : <BackOfficePage client={client} />}</MemoryRouter></QueryClientProvider>); });
@@ -75,6 +80,8 @@ try {
   assert.equal(matter.values.fileNumber, "2026/042");
 
   await render(true);
+  assert.ok(!document.body.textContent?.includes("Witnesses"), "Empty roles are hidden on Home");
+  assert.ok(!document.body.textContent?.includes("Not set"));
   await click("Add Matter");
   await type("Search Matters…", "ABC 042");
   assert.ok(document.body.textContent?.includes("ABC GmbH · Ref. 2026/042"));
@@ -100,6 +107,26 @@ try {
   await key("Search Clients…", "Enter", true);
   assert.equal(savedFields[0].value, "Keep me");
   assert.equal(savedFields.find(field => field.id === "client_2")?.type, "backoffice");
+
+  await click(t("projects.more_fields"));
+  await type(t("projects.more_search"), "Witnesses");
+  await key(t("projects.more_search"), "Enter");
+  await type("Search Witnesses…", "Alice"); await key("Search Witnesses…", "Enter");
+  await type("Search Witnesses…", "Bob"); await key("Search Witnesses…", "Enter");
+  await key("Search Witnesses…", "Enter", true);
+  assert.deepEqual(savedFields.find(field => field.id === "people")?.value, { directoryId: "local:fixture", recordIds: [alice.id, bob.id] });
+  failProjectSave = true;
+  await click(t("projects.remove_reference", { name: "Alice", field: "Witnesses" }));
+  assert.ok(document.querySelector('[role="alert"]')?.textContent?.includes(t("projects.failed")));
+  assert.deepEqual(savedFields.find(field => field.id === "people")?.value, { directoryId: "local:fixture", recordIds: [alice.id, bob.id] }, "Failed unlink retains both references");
+  failProjectSave = false;
+  await click(t("projects.remove_reference", { name: "Alice", field: "Witnesses" }));
+  assert.deepEqual(savedFields.find(field => field.id === "people")?.value, { directoryId: "local:fixture", recordIds: [bob.id] }, "Each remove button unlinks only its own record");
+  assert.deepEqual(savedFields.find(field => field.id === "people_2")?.value, { directoryId: "local:fixture", recordIds: [alice.id] }, "Unlinking a role leaves independent references intact");
+  await click(t("projects.remove_reference", { name: "Bob", field: "Witnesses" }));
+  assert.ok(!document.body.textContent?.includes("Witnesses"), "Last removal hides the empty row");
+  assert.equal(savedFields.find(field => field.id === "people")?.value, null, "The field definition remains");
+  assert.ok(store.records("local", actor, "people").some(record => record.id === bob.id), "Unlinking does not delete the Back Office record");
 
   const model = store.model("local"), object = model.objects.find(object => object.id === "matters"); assert.ok(object);
   store.saveModel("local", actor, { ...model, objects: model.objects.map(item => item.id === "matters" ? { ...item, quickCreateFields: ["subject"] } : item) }, model.revision);

@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { BackOfficeRecordSchema, type BackOfficeValue } from "@legalwork/types/back-office";
-import type { ProjectField } from "@legalwork/types/workspace";
+import { projectFieldLabel, type ProjectField } from "@legalwork/types/workspace";
 import { projectConnectionField, clientsFromProjectMatters } from "../src/react-app/domains/workspace/project-connections";
 
 function record(objectId: string, name: string, values: Record<string, BackOfficeValue> = {}) {
@@ -21,6 +21,9 @@ test("quick links preserve named custom roles, ID collisions and existing select
   expect(projectConnectionField([...fields, people], "people", "Personen")).toBe(people);
   const responsible: ProjectField = { id: "responsible", label: "Responsible", labelSource: "suggested", type: "backoffice", objectId: "people", multiple: true, value: null };
   expect(projectConnectionField([responsible], "people", "People").id).toBe("people");
+  const office = projectConnectionField([], "offices", "Offices");
+  expect(projectFieldLabel(office)).toBe("Offices");
+  expect(projectConnectionField([office], "offices", "Offices")).toBe(office);
 });
 
 test("inherited clients retain source matters, deduplicate and do not cross directories or disclose unavailable records", () => {

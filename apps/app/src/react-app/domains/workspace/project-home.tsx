@@ -169,7 +169,6 @@ export function ProjectHome(props: {
               <ChevronRight className={cn("size-3.5 transition-transform", detailsOpen && "rotate-90")} />
               {t("projects.metadata")}
             </CollapsibleTrigger>
-            <Button size="sm" variant="ghost" className="text-xs text-muted-foreground" disabled={!details.data} onClick={() => setEditMetadata(true)}><Settings2 className="size-3.5" />{t("projects.advanced")}</Button>
           </div>
           <CollapsibleContent>
             <div className="pb-3 pt-2">
@@ -185,7 +184,7 @@ export function ProjectHome(props: {
                   }
                 }} />
               ) : null}
-              {details.data && <ProjectReferenceActions client={client} fields={details.data.fields} onSave={async fields => {
+              {details.data && <ProjectReferenceActions client={client} fields={details.data.fields} onCustomize={() => setEditMetadata(true)} onSave={async fields => {
                 try {
                   const data = await client.updateProjectDetails(workspaceId, { revision: details.data.revision, fields: projectFieldsSchema.parse(fields) });
                   queryClient.setQueryData(["project", workspaceId], data);

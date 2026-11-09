@@ -17,9 +17,10 @@ for (const [key, value] of Object.entries({
 })) Object.defineProperty(globalThis, key, { value, configurable: true });
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
+const { MemoryRouter } = await import("react-router-dom");
 const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
 const { defaultProjectTemplates } = await import("@legalwork/types/workspace");
-const { BackOfficeFieldSchema } = await import("@legalwork/types/back-office");
+const { BackOfficeFieldSchema, BackOfficeObjectSchema } = await import("@legalwork/types/back-office");
 const { createLegalworkServerClient } = await import("../../src/app/lib/legalwork-server");
 const { CreateProjectModal } = await import("../../src/react-app/domains/workspace/create-project-modal");
 const { useProjectDefaultsStore } = await import("../../src/react-app/domains/workspace/project-defaults-store");
@@ -29,13 +30,15 @@ const actor = { userId: "owner", model: true, edit: true, finance: true };
 const model = store.model("local");
 store.saveModel("local", actor, { ...model, objects: model.objects.map(object => object.id === "matters" ? {
   ...object, fields: [...object.fields, BackOfficeFieldSchema.parse({ id: "requiredDetail", label: "Required detail", type: "text", required: true })],
-} : object) }, model.revision);
+} : object).concat(BackOfficeObjectSchema.parse({ id: "offices", label: "Office", plural: "Offices", fields: [{ id: "name", label: "Name", type: "text", required: true }] })) }, model.revision);
+const office = store.saveRecord("local", actor, { objectId: "offices", revision: 0, values: { name: "Vienna Office" } });
 const abc = store.saveRecord("local", actor, { objectId: "clients", revision: 0, values: { name: "ABC GmbH" } });
 const organisation = store.saveRecord("local", actor, { objectId: "companies", revision: 0, values: { name: "Acme Ltd" } });
 const alpha = store.saveRecord("local", actor, { objectId: "matters", revision: 0, values: { name: "Alpha", clients: [abc.id], fileNumber: "2026/042", requiredDetail: "Legal" } });
 const beta = store.saveRecord("local", actor, { objectId: "matters", revision: 0, values: { name: "Beta", requiredDetail: "Legal" } });
 store.saveRecord("local", actor, { objectId: "matters", revision: 0, archived: true, values: { name: "Archived case", requiredDetail: "Legal" } });
 const catalog = { revision: 1, templates: defaultProjectTemplates(), defaultTemplateId: "legal_matter" };
+catalog.templates[0].fields.push({ id: "internal_note", label: "Internal note", labelSource: "custom", type: "text", value: null });
 let recordWrites = 0;
 const client = {
   ...createLegalworkServerClient({ baseUrl: "http://localhost" }),
@@ -57,8 +60,8 @@ const submissions: CreateProjectInput[] = [];
 let closeRequests = 0;
 async function render(open = true, error: string | null = null) {
   await act(async () => {
-    root.render(<QueryClientProvider client={cache}><CreateProjectModal open={open} client={client} submitting={false} error={error}
-      onClose={() => { closeRequests++; }} onPickFolder={async () => null} onConfirm={async input => { submissions.push(input); }} /></QueryClientProvider>);
+    root.render(<QueryClientProvider client={cache}><MemoryRouter><CreateProjectModal open={open} client={client} submitting={false} error={error}
+      onClose={() => { closeRequests++; }} onPickFolder={async () => null} onConfirm={async input => { submissions.push(input); }} /></MemoryRouter></QueryClientProvider>);
   });
   await act(async () => { await new Promise(resolve => setTimeout(resolve, 10)); });
 }
@@ -82,6 +85,10 @@ async function enter(label: string, modifier?: "metaKey" | "ctrlKey") {
 try {
   setLocale("en");
   await render();
+  assert.ok(!document.body.textContent?.includes("Not set"), "Empty template fields are kept out of the form");
+  assert.ok(button(t("projects.more_fields")));
+  assert.ok(button(t("projects.customize_connections")));
+  assert.ok(document.body.textContent?.includes("Template: Legal Matter"), "The active template is visible without expanding Advanced");
   await type(t("projects.name"), "My project draft");
   for (const name of ["Matter", "Client", "Person", "Organisation"]) assert.ok(button(`Add ${name}`));
   assert.equal(document.querySelector('input[aria-label="Search Clients…"]'), null, "Optional pickers start closed");
@@ -163,14 +170,47 @@ try {
   await act(async () => button("Add Organisation").click());
   await type("Search Organisations…", "Acme"); await enter("Search Organisations…");
   await act(async () => input("Search Organisations…").dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
+  await act(async () => button(t("projects.more_fields")).click());
+  await type(t("projects.more_search"), "Internal note");
+  await enter(t("projects.more_search"));
+  await type(t("projects.field_value"), "Preserve this template value");
+  await enter(t("projects.field_value"), "metaKey");
+  assert.ok(document.body.textContent?.includes("Preserve this template value"));
+  await act(async () => button(t("projects.more_fields")).click());
+  await type(t("projects.more_search"), "Offices");
+  await enter(t("projects.more_search"));
+  await type("Search Offices…", "Vienna"); await enter("Search Offices…");
+  await enter("Search Offices…", "metaKey");
+  await act(async () => button(t("projects.more_fields")).click());
+  await act(async () => [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(item => item.textContent?.trim() === t("projects.new_field"))?.click());
+  await type(t("projects.field_name"), "Intake note");
+  await type(t("projects.field_value"), "Waiting for signatures");
+  await enter(t("projects.field_value"), "metaKey");
+  for (const name of ["No template", "Legal Matter"]) {
+    await act(async () => document.querySelector<HTMLButtonElement>('button[aria-label="Metadata template"]')?.click());
+    const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(item => item.textContent?.trim() === name);
+    assert.ok(option, `Missing template ${name}`);
+    await act(async () => option.focus());
+    await act(async () => option.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })));
+    assert.ok(document.body.textContent?.includes(`Template: ${name}`));
+    assert.ok(document.body.textContent?.includes("Waiting for signatures"));
+    assert.ok(document.querySelector('button[aria-label="Remove: New case"]'));
+  }
+  await act(async () => button(t("projects.customize_connections")).click());
+  await act(async () => button(t("projects.save")).click());
+  assert.equal(submissions.length, 0, "Adding fields and saving field settings must not create the project");
+  assert.ok(document.body.textContent?.includes("Preserve this template value"));
+  assert.ok(document.body.textContent?.includes("Vienna Office"));
   await act(async () => button(t("projects.create")).click());
   assert.equal(submissions.length, 1);
-  for (const [objectId, id] of [["clients", abc.id], ["people", person.id], ["companies", organisation.id]]) {
+  for (const [objectId, id] of [["clients", abc.id], ["people", person.id], ["companies", organisation.id], ["offices", office.id]]) {
     const field = submissions[0].projectFields?.find(field => field.type === "backoffice" && field.objectId === objectId);
     assert.deepEqual(field?.value, { directoryId: "local:fixture", recordIds: [id] });
   }
   assert.ok(submissions[0].projectFields?.some(field => field.id === "matter"), "Template fields are preserved with additional links");
-  assert.deepEqual(submissions[0].matters, { directoryId: "local:fixture", recordIds: [beta.id, created.id] });
+  assert.deepEqual(submissions[0].projectFields?.find(field => field.id === "matter")?.value, { directoryId: "local:fixture", recordIds: [beta.id, created.id] });
+  assert.equal(submissions[0].projectFields?.find(field => field.label === "Intake note")?.value, "Waiting for signatures");
+  assert.equal(submissions[0].projectFields?.find(field => field.id === "internal_note")?.value, "Preserve this template value");
   assert.equal(submissions[0].templateId, undefined, "Explicit fields are not combined with templateId");
   await render(true, "Project could not be saved");
   assert.equal(input(t("projects.name")).value, "My project draft");

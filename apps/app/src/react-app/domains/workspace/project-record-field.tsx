@@ -1,14 +1,15 @@
 import { RecordCreationProvider } from "../back-office/record-creation-context";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowUpRight, ChevronDown, X } from "lucide-react";
-import { Button } from "twenty-ui/primitives/input";
+import { Button } from "@/components/ui/button";
 import { Popover } from "twenty-ui/primitives/surfaces";
 import { BackOfficeFieldSchema, isInternalBackOfficeObject } from "@legalwork/types/back-office";
 import { matchesProjectReferenceFilters } from "@legalwork/types/workspace";
 import type { ProjectField, ProjectRecordReference } from "@legalwork/types/workspace";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
+import { projectErrorMessage } from "./project-errors";
 import { t } from "@/i18n";
 import { onSyncPoke } from "@/react-app/kernel/sync-events";
 import "../back-office/back-office.css";
@@ -45,18 +46,28 @@ export function ProjectRecordField({ field, client, onSave }: {
   const ids = field.value?.directoryId === data?.directoryId ? field.value?.recordIds ?? [] : [];
   const records = data?.records ?? [];
   const selectable = object ? records.filter(record => record.objectId === field.objectId && (ids.includes(record.id) || matchesProjectReferenceFilters(record, object, field.filters))) : [];
-  const save = async (value: ProjectRecordReference | null) => { setError(""); await onSave(value); };
+  const [busy, setBusy] = useState(false), saving = useRef(false);
+  const save = async (value: ProjectRecordReference | null) => {
+    if (saving.current) return;
+    saving.current = true; setBusy(true); setError("");
+    try { await onSave(value); } finally { saving.current = false; setBusy(false); }
+  };
   const relation = BackOfficeFieldSchema.parse({ id: "projectReference", label: field.label, type: "relation", target: field.objectId, multiple: field.multiple });
   return <RecordCreationProvider client={client} state={data}><BackOfficeTheme><Popover.Root open={open} onOpenChange={setOpen}><div className="flex min-h-8 min-w-0 flex-wrap items-center gap-1">
     {field.value?.recordIds.map(id => {
       const record = ids.includes(id) ? records.find(record => record.id === id && record.objectId === field.objectId) : null;
       const name = record ? String(record.values.name) : t("projects.reference.unavailable");
-      return <span key={id} className="inline-flex min-w-0 items-center">
-        <Popover.Trigger render={<Button type="button" size="sm" variant="ghost" disabled={!object || !data?.directoryId} aria-label={`${t("projects.edit_value", { name: field.label })}: ${name}`}>{name}</Button>} />
-        {record && <Button type="button" size="sm" variant="ghost" aria-label={t("projects.reference.open_record", { name })} onClick={() => navigate(`/back-office/${encodeURIComponent(record.objectId)}?record=${record.id}`)} startIcon={<ArrowUpRight size={12} />} />}
+      return <span key={id} className="inline-flex max-w-full min-w-0 items-center gap-0.5 rounded-md border bg-muted/30 py-0.5 pl-1 pr-0.5">
+        <Popover.Trigger render={<Button type="button" size="sm" variant="ghost" className="h-6 min-w-0 shrink justify-start px-1.5 text-xs font-normal" disabled={busy || !object || !data?.directoryId} aria-label={`${t("projects.edit_value", { name: field.label })}: ${name}`} title={name}><span className="truncate">{name}</span></Button>} />
+        {record && <Button type="button" size="icon-xs" variant="ghost" className="shrink-0" aria-label={t("projects.reference.open_record", { name })} title={t("projects.reference.open_record", { name })} onClick={() => navigate(`/back-office/${encodeURIComponent(record.objectId)}?record=${record.id}`)}><ArrowUpRight className="size-3" /></Button>}
+        <Button type="button" size="icon-xs" variant="ghost" className="shrink-0" disabled={busy} aria-label={t("projects.remove_reference", { name, field: field.label })} title={t("projects.remove_reference", { name, field: field.label })} onClick={() => {
+          if (!field.value) return;
+          const remaining = field.value.recordIds.filter(recordId => recordId !== id);
+          void save(remaining.length ? { ...field.value, recordIds: remaining } : null).catch(error => setError(projectErrorMessage(error)));
+        }}><X className="size-3" /></Button>
       </span>;
     })}
-      {!field.value?.recordIds.length && <Popover.Trigger render={<Button type="button" size="sm" variant="ghost" disabled={!object || !data?.directoryId} aria-label={t("projects.edit_value", { name: field.label })} endIcon={<ChevronDown size={12} />}>{t("projects.empty_value")}</Button>} />}
+      {!field.value?.recordIds.length && <Popover.Trigger render={<Button type="button" size="sm" variant="ghost" className="h-6 min-w-0 truncate px-1.5 text-xs font-normal" disabled={busy || !object || !data?.directoryId} aria-label={t("projects.edit_value", { name: field.label })}>{t("projects.connections.choose_records")}<ChevronDown className="size-3" /></Button>} />}
       <Popover.Portal><Popover.Positioner align="start" sideOffset={4}>
         <DirectoryEditorPopup>
       <CellEditor key={`${field.id}:${data?.directoryId}:${open}`} field={relation} creationFilters={field.filters} value={field.multiple ? ids : ids[0] ?? null} records={selectable} onCancel={() => setOpen(false)} onSave={async value => {
@@ -66,7 +77,6 @@ export function ProjectRecordField({ field, client, onSave }: {
       }} />
         </DirectoryEditorPopup>
       </Popover.Positioner></Popover.Portal>
-    {field.value && <Button type="button" size="sm" variant="ghost" aria-label={t("projects.clear_value")} onClick={() => { void save(null).catch(error => setError(error.message)); }} startIcon={<X size={12} />} />}
     {(error || directory.error) && <p role="alert" className="text-xs text-destructive">{error || directory.error?.message}</p>}
   </div></Popover.Root></BackOfficeTheme></RecordCreationProvider>;
 }

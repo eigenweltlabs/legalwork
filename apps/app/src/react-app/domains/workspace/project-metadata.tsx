@@ -29,6 +29,7 @@ export function ProjectMetadata(props: {
   client?: LegalworkServerClient | null;
   details: Pick<ProjectDetails, "fields">;
   definitionsOnly?: boolean;
+  showTemplates?: boolean;
   children?: ReactNode;
   saveDisabled?: boolean;
   onSave: (fields: ProjectField[]) => Promise<void>;
@@ -81,7 +82,7 @@ export function ProjectMetadata(props: {
     >
       <fieldset disabled={busy} className="space-y-4">
         {props.children}
-        {!props.definitionsOnly && templates.length > 0 ? <div className="space-y-2 rounded-xl border border-border p-3">
+        {!props.definitionsOnly && props.showTemplates !== false && templates.length > 0 ? <div className="space-y-2 rounded-xl border border-border p-3">
           <div className="text-sm font-medium">{t("projects.templates.apply_title")}</div>
           <div className="flex items-center gap-2">
             <ProjectTemplateSelect value={templateId} onChange={setTemplateId} emptyLabel={t("projects.templates.choose")} />

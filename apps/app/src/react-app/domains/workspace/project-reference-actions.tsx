@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Settings2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { BackOfficeFieldSchema, type BackOfficeValue } from "@legalwork/types/back-office";
 import type { ProjectField } from "@legalwork/types/workspace";
@@ -11,20 +12,24 @@ import { RecordCreationProvider } from "../back-office/record-creation-context";
 import { RecordCreateRelation } from "../back-office/record-create-relation";
 import { ObjectIcon } from "../back-office/object-icon";
 import { projectReferenceObjects, useProjectBackOffice } from "./project-record-field";
-import { clientsFromProjectMatters, projectConnectionField } from "./project-connections";
+import { clientsFromProjectMatters, primaryProjectObjects, projectConnectionField, withProjectField } from "./project-connections";
+import { ProjectMoreFields } from "./project-more-fields";
+import { ProjectFieldDialog } from "./project-field-dialog";
 import { rememberMatter } from "./matter-picker-options";
 import { projectErrorMessage } from "./project-errors";
 
-export function ProjectReferenceActions({ client, fields, onSave }: {
-  client: LegalworkServerClient; fields: ProjectField[]; onSave: (fields: ProjectField[]) => Promise<void>;
+export function ProjectReferenceActions({ client, fields, onSave, onCustomize }: {
+  client: LegalworkServerClient; fields: ProjectField[]; onSave: (fields: ProjectField[]) => Promise<void>; onCustomize?: () => void;
 }) {
   const directory = useProjectBackOffice(client), data = directory.data, navigate = useNavigate();
   const [active, setActive] = useState<string | null>(null), [value, setValue] = useState<BackOfficeValue>([]);
   const [busy, setBusy] = useState(false), [creating, setCreating] = useState(false), [error, setError] = useState("");
   const saving = useRef(false);
+  const [extra, setExtra] = useState<ProjectField | null | undefined>();
   const scope = JSON.stringify([client.baseUrl, data?.directoryId, data?.permissions.userId, data?.permissions.principalKey, data?.permissions.replicaId]);
-  useEffect(() => { setActive(null); setError(""); }, [scope]);
-  const objects = projectReferenceObjects(data).filter(object => ["matters", "clients", "people", "companies"].includes(object.id));
+  useEffect(() => { setActive(null); setExtra(undefined); setError(""); }, [scope]);
+  const allObjects = projectReferenceObjects(data);
+  const objects = allObjects.filter(object => primaryProjectObjects.includes(object.id));
   const inherited = clientsFromProjectMatters(fields, data?.directoryId, data?.records ?? []);
   const selected = Array.isArray(value) ? value.filter(item => typeof item === "string") : typeof value === "string" ? [value] : [];
   const save = async (field: Extract<ProjectField, { type: "backoffice" }>) => {
@@ -32,7 +37,7 @@ export function ProjectReferenceActions({ client, fields, onSave }: {
     saving.current = true; setBusy(true); setError("");
     const next = { ...field, value: { directoryId: data.directoryId, recordIds: selected } };
     try {
-      await onSave(fields.some(item => item.id === field.id) ? fields.map(item => item.id === field.id ? next : item) : [...fields, next]);
+      await onSave(withProjectField(fields, next));
       if (field.objectId === "matters") selected.forEach(id => rememberMatter(scope, id));
       setActive(null);
     } catch (error) { setError(projectErrorMessage(error)); }
@@ -68,7 +73,11 @@ export function ProjectReferenceActions({ client, fields, onSave }: {
           </PopoverContent>
         </Popover>;
       })}
+      <ProjectMoreFields fields={fields} objects={allObjects} primaryIds={objects.map(object => projectConnectionField(fields, object.id, object.plural).id)} disabled={busy}
+        onChoose={setExtra} onNew={() => setExtra(null)} />
+      {onCustomize && <Button type="button" size="sm" variant="ghost" className="text-xs text-muted-foreground" disabled={busy} onClick={onCustomize}><Settings2 className="size-3.5" />{t("projects.customize_connections")}</Button>}
       {directory.error && <p role="alert" className="text-xs text-destructive">{t("projects.connections.unavailable")}</p>}
     </div>
+    {extra !== undefined && <ProjectFieldDialog key={extra?.id ?? "new"} client={client} field={extra ?? undefined} onClose={() => setExtra(undefined)} onSave={field => onSave(withProjectField(fields, field))} />}
   </RecordCreationProvider>;
 }

@@ -1,6 +1,15 @@
 import type { BackOfficeRecord } from "@legalwork/types/back-office";
 import type { ProjectField } from "@legalwork/types/workspace";
 
+export const primaryProjectObjects = ["matters", "clients", "people", "companies"];
+export function hasProjectFieldValue(field: ProjectField) {
+  return field.type === "backoffice" ? Boolean(field.value?.recordIds.length) : field.value !== null && field.value !== "";
+}
+
+export function withProjectField(fields: ProjectField[], field: ProjectField): ProjectField[] {
+  return fields.some(item => item.id === field.id) ? fields.map(item => item.id === field.id ? field : item) : [...fields, field];
+}
+
 export function projectConnectionField(fields: ProjectField[], objectId: string, label: string): Extract<ProjectField, { type: "backoffice" }> {
   const ids: Record<string, string> = { matters: "matter", clients: "client", people: "people", companies: "companies" };
   const base = ids[objectId] ?? "reference";
@@ -10,7 +19,7 @@ export function projectConnectionField(fields: ProjectField[], objectId: string,
   if (existing) return existing;
   let id = base;
   for (let suffix = 2; fields.some(field => field.id === id); suffix++) id = `${base}_${suffix}`;
-  return { id, label, labelSource: "suggested", type: "backoffice", objectId, multiple: true, value: null };
+  return { id, label, labelSource: ids[objectId] ? "suggested" : "custom", type: "backoffice", objectId, multiple: true, value: null };
 }
 
 export function clientsFromProjectMatters(fields: ProjectField[], directoryId: string | undefined, records: BackOfficeRecord[]) {
