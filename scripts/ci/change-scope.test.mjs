@@ -69,6 +69,8 @@ test('selection covers the whole PR/push and includes deleted and renamed depend
     git('mv', 'apps/server/src/approvals.ts', 'README.txt'); git('commit', '-m', 'remove runtime input');
     writeFileSync(path.join(cwd, 'README.md'), 'later docs'); git('add', 'README.md'); git('commit', '-m', 'docs');
     const head = git('rev-parse', 'HEAD');
+    assert.deepEqual(inspect(base, head, 'merge_group'), inspect(base, head, 'push'));
+    assert.equal(inspect(base, head, 'merge_group').ui_mcp, 'false');
     assert.equal(inspect(base, head).sandbox, 'true'); assert.equal(inspect(base, head, 'push').sandbox, 'true');
     git('checkout', 'dev'); writeFileSync(path.join(cwd, 'apps/server/src/new.ts'), 'unrelated base change');
     git('add', 'apps'); git('commit', '-m', 'base advance');

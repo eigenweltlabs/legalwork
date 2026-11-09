@@ -76,7 +76,7 @@ export function changeScope(paths) {
 }
 
 export function eventScope(env = process.env) {
-  if (!['pull_request', 'push'].includes(env.EVENT_NAME) || env.GIT_REF?.startsWith('refs/tags/')) return changeScope(null);
+  if (!['pull_request', 'merge_group', 'push'].includes(env.EVENT_NAME) || env.GIT_REF?.startsWith('refs/tags/')) return changeScope(null);
   // Git failures, deleted branches and unknown SHAs must never hide coverage.
   try { return changeScope(changedPaths(env.BASE_SHA ?? '', env.HEAD_SHA ?? '', env.EVENT_NAME === 'pull_request')); }
   catch (error) { console.warn(`Cannot establish changed files; running all checks: ${error.message}`); return changeScope(null); }
