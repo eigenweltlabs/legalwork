@@ -1,4 +1,4 @@
-import { BackOfficeQueryPageSchema } from "@legalwork/types/views";
+import { BackOfficeQueryPageSchema } from "../views/schema.js";
 import type { Plugin } from "@opencode/plugin";
 import { z } from "zod";
 import { nativeTool, nativeToolSignal } from "./native-tool.js";
