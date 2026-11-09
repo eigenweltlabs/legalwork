@@ -26,6 +26,7 @@ import type {
 } from "@legalwork/types/back-office";
 import {
   BackOfficeRecordSchema,
+  BackOfficeViewSchema,
   defaultBackOfficeValues,
   validateBackOfficeValues,
   isInternalBackOfficeObject,
@@ -258,9 +259,10 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
       );
     }
   };
-  const saveView = async (view: BackOfficeView) => {
-    await request("/views", view);
+  const saveView = async (view: BackOfficeView, expected: BackOfficeView | null) => {
+    const result = z.object({ view: BackOfficeViewSchema }).parse(await request("/views", { ...view, expected }));
     await refresh();
+    return result.view;
   };
   const exportCsv = () => {
     if (!object) return;

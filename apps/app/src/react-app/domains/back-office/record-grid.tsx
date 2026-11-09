@@ -131,7 +131,7 @@ export function RecordGrid({
   ) => Promise<void>;
   onOpen: (record: BackOfficeRecord) => void;
   onCreate: (values?: Record<string, BackOfficeValue>) => void;
-  onSaveView: (view: BackOfficeView) => Promise<void>;
+  onSaveView: (view: BackOfficeView, expected: BackOfficeView | null) => Promise<BackOfficeView>;
   archived: boolean;
   onArchivedChange: (archived: boolean) => void;
 }) {
@@ -166,6 +166,7 @@ export function RecordGrid({
   const [activeViewId, setActiveViewId] = useState<string | null>(
     initialView?.id ?? null,
   );
+  const [viewBase, setViewBase] = useState<BackOfficeView | null>(initialView ?? null);
   const activeView = views.find(
     (view) =>
       view.id === activeViewId && view.objectId === object.id && !view.archived,
@@ -330,8 +331,8 @@ export function RecordGrid({
           editingView?.sortDirection ??
           (sort.direction === "desc" ? "desc" : "asc"),
       };
-      await onSaveView(view);
-      applyView(view);
+      const saved = await onSaveView(view, editingView);
+      applyView(saved);
       setSavingView(false);
     } catch (error) {
       setError(error instanceof Error ? error.message : "Could not save view.");
@@ -361,6 +362,7 @@ export function RecordGrid({
         { replace: true },
       );
     setActiveViewId(view?.id ?? null);
+    setViewBase(view ?? null);
     setLayout(view?.type ?? "table");
     setGroupField(view?.groupField ?? null);
     setDateField(view?.dateField ?? null);
@@ -453,7 +455,7 @@ export function RecordGrid({
       measure={windowed ? rowWindow.measureElement : undefined} template={template}
       fields={visibleFields} records={records} recordById={recordById}
       userId={userId} editable={editable} selected={selectedIds.has(record.id)}
-      editingField={editing?.record === record.id ? editing.field : undefined}
+      editing={editing?.record === record.id ? editing : undefined}
       onEdit={setEditing} onError={setError} onSelect={selectRow} onMove={moveCell}
       onSave={onSave} onOpen={onOpen} />
   );
@@ -612,11 +614,11 @@ export function RecordGrid({
             <Dropdown.Header>
               <Dropdown.Title>Visible fields</Dropdown.Title>
             </Dropdown.Header>
-            {activeView && editable && (
+            {activeView && viewBase && editable && (
               <Dropdown.ActionItem
                 onClick={() =>
                   void onSaveView({
-                    ...activeView,
+                    ...viewBase,
                     columns,
                     widths,
                     query,
@@ -625,7 +627,9 @@ export function RecordGrid({
                     sortField: sort.field,
                     sortDirection: sort.direction === "desc" ? "desc" : "asc",
                     calendarMode,
-                  }).catch((error) => setError(error.message))
+                  }, viewBase)
+                    .then(saved => setViewBase(current => current?.id === saved.id ? saved : current))
+                    .catch((error) => setError(error.message))
                 }
               >
                 {t("back_office.save_view")}
@@ -713,10 +717,10 @@ export function RecordGrid({
           mode={calendarMode}
           onModeChange={(mode) => {
             setCalendarMode(mode);
-            if (activeView)
-              void onSaveView({ ...activeView, calendarMode: mode }).catch(
-                (error) => setError(error.message),
-              );
+            if (viewBase)
+              void onSaveView({ ...viewBase, calendarMode: mode }, viewBase)
+                .then(saved => setViewBase(current => current?.id === saved.id ? saved : current))
+                .catch((error) => setError(error.message));
           }}
         />
       ) : layout === "list" ? (
@@ -1055,7 +1059,7 @@ export function RecordGrid({
               color="danger"
               variant="solid"
               onClick={() =>
-                void onSaveView({ ...deletingView, archived: true })
+                void onSaveView({ ...deletingView, archived: true }, deletingView)
                   .then(() => {
                     if (activeViewId === deletingView.id) applyView();
                     setDeletingView(null);

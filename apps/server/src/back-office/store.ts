@@ -838,32 +838,31 @@ export class BackOfficeStore {
     if (!actor.edit)
       throw new ApiError(403, "back_office_view", "You cannot save views.");
     const patch = z.record(z.string(), z.unknown()).parse(input);
-    const view = BackOfficeViewSchema.parse({
-      ...this.views(scope).find((view) => view.id === patch.id),
-      ...patch,
-    });
-    try {
-      validateBackOfficeView(this.model(scope), view);
-    } catch (error) {
-      throw new ApiError(
-        400,
-        "back_office_view",
-        error instanceof Error ? error.message : "Check the view settings.",
-      );
-    }
-    this.transaction(
+    const expected = patch.expected === undefined ? undefined : BackOfficeViewSchema.nullable().parse(patch.expected);
+    return this.transaction(
       () => {
         this.requireAccount(scope, actor);
+        const existing = this.views(scope).find(view => view.id === patch.id);
+        if (existing && expected === undefined)
+          throw new ApiError(428, "back_office_view_base_required", "Reload this view before saving changes.");
+        if (canonicalBackOfficeAudit(existing ?? null) !== canonicalBackOfficeAudit(expected ?? null))
+          throw new ApiError(409, "back_office_view_conflict", "This view changed elsewhere. Your settings are kept. Reopen the view to load its latest settings before trying again.");
+        const view = BackOfficeViewSchema.parse({ ...existing, ...patch });
+        try {
+          validateBackOfficeView(this.model(scope), view);
+        } catch (error) {
+          throw new ApiError(400, "back_office_view", error instanceof Error ? error.message : "Check the view settings.");
+        }
         this.db.run(
           "INSERT INTO bo_views VALUES(?,?,?) ON CONFLICT(scope,id) DO UPDATE SET data=excluded.data",
           [scope, view.id, JSON.stringify(view)],
         );
         this.enqueue(scope, actor, "view", 0, view);
         this.audit(scope, actor, "view.save", view.id, view);
+        return view;
       },
       { actor, action: "view.save" },
     );
-    return view;
   }
   history(scope: string, actor: BackOfficeActor, id: string) {
     this.requireAccount(scope, actor);

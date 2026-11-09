@@ -7,7 +7,7 @@ import { InlineCellEditor } from "./inline-cell-editor";
 import { RecordChip, ValueDisplay } from "./record-values";
 import { DirectoryEditorPopup } from "./twenty-controls";
 
-export type EditingCell = { record: string; field: string };
+export type EditingCell = { record: string; field: string; base: BackOfficeRecord };
 
 type RowProps = {
   record: BackOfficeRecord;
@@ -21,7 +21,7 @@ type RowProps = {
   editable: boolean;
   userId: string;
   selected: boolean;
-  editingField?: string;
+  editing?: EditingCell;
   onEdit: (cell: EditingCell | null) => void;
   onError: (message: string) => void;
   onSelect: (id: string, checked: boolean) => void;
@@ -32,7 +32,7 @@ type RowProps = {
 
 export const RecordGridRow = memo(function RecordGridRow({
   record, index, top, measure, template, fields, records, recordById, editable, userId,
-  selected, editingField, onEdit, onError, onSelect, onMove, onOpen, onSave,
+  selected, editing, onEdit, onError, onSelect, onMove, onOpen, onSave,
 }: RowProps) {
   const popupId = useId();
   const anchor = useRef<HTMLDivElement>(null);
@@ -52,11 +52,11 @@ export const RecordGridRow = memo(function RecordGridRow({
       {fields.map((field, column) => {
         const canEdit = editable && (field.visibility !== "private" || record.ownerId === userId);
         const inline = field.id !== "name" && ["text", "email", "number", "currency"].includes(field.type);
-        const active = canEdit && editingField === field.id;
+        const active = canEdit && editing?.field === field.id;
         const edit = (cell: HTMLDivElement) => {
           if (!canEdit || active) return;
           anchor.current = cell;
-          onEdit({ record: record.id, field: field.id });
+          onEdit({ record: record.id, field: field.id, base: record });
         };
         return (
           <div key={field.id} role="gridcell" tabIndex={0}
@@ -74,9 +74,9 @@ export const RecordGridRow = memo(function RecordGridRow({
               }
             }}
           >
-            {inline && active ? (
-              <InlineCellEditor field={field} value={record.values[field.id]}
-                onSave={value => onSave(record, { [field.id]: value })}
+            {inline && active && editing ? (
+              <InlineCellEditor field={field} value={editing.base.values[field.id]}
+                onSave={value => onSave(editing.base, { [field.id]: value })}
                 onCancel={() => onEdit(null)} onError={onError} />
             ) : field.id === "name" ? (
               <RecordChip record={record} onOpen={onOpen} />
@@ -84,15 +84,15 @@ export const RecordGridRow = memo(function RecordGridRow({
               <ValueDisplay field={field} value={record.values[field.id]}
                 records={records} recordById={recordById} onOpen={onOpen} />
             )}
-            {active && !inline && (
+            {active && !inline && editing && (
               <Popover.Root open onOpenChange={open => { if (!open) onEdit(null); }}>
                 <Popover.Portal>
                   <Popover.Positioner anchor={anchor} align="start" side="bottom" sideOffset={-32}>
                     <DirectoryEditorPopup id={popupId} finalFocus={anchor}
                       style={{ width: field.type === "date" ? "max-content" : field.type === "select" ? 200 : 260 }}>
-                      <CellEditor key={record.revision} record={record} field={field}
-                        value={record.values[field.id]} records={records}
-                        onCancel={() => onEdit(null)} onSave={value => onSave(record, { [field.id]: value })} />
+                      <CellEditor record={editing.base} field={field}
+                        value={editing.base.values[field.id]} records={records}
+                        onCancel={() => onEdit(null)} onSave={value => onSave(editing.base, { [field.id]: value })} />
                     </DirectoryEditorPopup>
                   </Popover.Positioner>
                 </Popover.Portal>

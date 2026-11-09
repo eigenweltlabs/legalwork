@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import {
   Archive,
   CalendarDays,
@@ -64,18 +64,29 @@ export function RecordDetail({
     archived?: boolean,
   ) => Promise<void>;
 }) {
-  const [edit, setEdit] = useState<string | null>(null),
+  const [edit, setEdit] = useState<{ field: string; base: BackOfficeRecord } | null>(null),
     [error, setError] = useState("");
   const [tab, setTab] = useState<"home" | "history">("home");
   const cancelName = useRef(false);
-  const [name, setName] = useState(String(record.values.name));
-  useEffect(() => setName(String(record.values.name)), [record.values.name]);
-  const saveName = () => {
-    if (name.trim() && name.trim() !== record.values.name)
-      void onSave(record, { name: name.trim() }).catch((error) =>
-        setError(error.message),
-      );
-    else if (!name.trim()) setName(String(record.values.name));
+  const [nameDraft, setNameDraft] = useState<{ base: BackOfficeRecord; text: string } | null>(null);
+  const savingName = useRef(false);
+  const name = nameDraft?.text ?? String(record.values.name);
+  const saveName = async () => {
+    if (!nameDraft || savingName.current) return;
+    if (!nameDraft.text.trim() || nameDraft.text.trim() === nameDraft.base.values.name) {
+      setNameDraft(null);
+      return;
+    }
+    savingName.current = true;
+    setError("");
+    try {
+      await onSave(nameDraft.base, { name: nameDraft.text.trim() });
+      setNameDraft(current => current === nameDraft ? null : current);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Could not save the value.");
+    } finally {
+      savingName.current = false;
+    }
   };
   const date = (value: string) =>
     new Date(value).toLocaleString(undefined, {
@@ -123,15 +134,19 @@ export function RecordDetail({
           disabled={!editable}
           value={name}
           onFocus={(event) => {
+            setNameDraft(current => current ?? { base: record, text: String(record.values.name) });
             if (focusName && name === "Untitled") event.target.select();
           }}
-          onChange={(event) => setName(event.target.value)}
+          onChange={(event) => {
+            const text = event.target.value;
+            setNameDraft(current => ({ base: current?.base ?? record, text }));
+          }}
           onBlur={() => {
             if (cancelName.current) {
               cancelName.current = false;
               return;
             }
-            saveName();
+            void saveName();
           }}
           onKeyDown={(event) => {
             if (event.key === "Enter") {
@@ -140,7 +155,7 @@ export function RecordDetail({
             }
             if (event.key === "Escape") {
               cancelName.current = true;
-              setName(String(record.values.name));
+              setNameDraft(null);
               event.currentTarget.blur();
             }
           }}
@@ -231,8 +246,8 @@ export function RecordDetail({
                   </label>
                   <div className="bo-property-value">
                     <Popover.Root
-                      open={edit === field.id}
-                      onOpenChange={(open) => setEdit(open ? field.id : null)}
+                      open={edit?.field === field.id}
+                      onOpenChange={(open) => setEdit(open ? { field: field.id, base: record } : null)}
                     >
                       <Popover.Trigger
                         render={
@@ -274,17 +289,16 @@ export function RecordDetail({
                                     : 260,
                             }}
                           >
-                            <CellEditor
-                              record={record}
-                              key={record.id + field.id + record.revision}
+                            {edit?.field === field.id && <CellEditor
+                              record={edit.base}
                               field={field}
-                              value={record.values[field.id]}
+                              value={edit.base.values[field.id]}
                               records={records}
                               onCancel={() => setEdit(null)}
                               onSave={(value) =>
-                                onSave(record, { [field.id]: value })
+                                onSave(edit.base, { [field.id]: value })
                               }
-                            />
+                            />}
                           </DirectoryEditorPopup>
                         </Popover.Positioner>
                       </Popover.Portal>

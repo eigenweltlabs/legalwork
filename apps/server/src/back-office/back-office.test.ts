@@ -86,7 +86,8 @@ test("saved views retain all four layouts and validate their grouping and date f
   expect(
     store.saveView("local", owner, {
       id: calendar.id,
-      name: "Older client rename",
+      name: "Partial rename",
+      expected: calendar,
     }),
   ).toMatchObject({ type: "calendar", dateField: "openedOn" });
   expect(() =>
@@ -116,10 +117,30 @@ test("saved views retain all four layouts and validate their grouping and date f
     BackOfficeViewSchema.parse({ ...base, id: crypto.randomUUID() }).type,
   ).toBe("table");
   const view = store.views("local")[1];
-  store.saveView("local", owner, { ...view, name: "Renamed", archived: true });
+  store.saveView("local", owner, { ...view, name: "Renamed", archived: true, expected: view });
   expect(
     store.views("local").find((item) => item.id === view.id),
   ).toMatchObject({ name: "Renamed", archived: true });
+});
+test("stale view edits cannot revert another window's rename or recreate a deleted view", async () => {
+  const store = await database();
+  const original = store.saveView("local", owner, {
+    id: crypto.randomUUID(), objectId: "matters", name: "Original", columns: ["name", "status"],
+  });
+  const renamed = store.saveView("local", owner, { ...original, name: "Renamed", expected: original });
+  const auditBeforeConflict = store.db.all("SELECT * FROM bo_audit");
+  const outboxBeforeConflict = store.db.all("SELECT * FROM bo_outbox");
+  expect(() => store.saveView("local", owner, { ...original, columns: ["name"], expected: original })).toThrow("changed elsewhere");
+  expect(store.views("local").find(view => view.id === original.id)).toEqual(renamed);
+  expect(store.db.all("SELECT * FROM bo_audit")).toEqual(auditBeforeConflict);
+  expect(store.db.all("SELECT * FROM bo_outbox")).toEqual(outboxBeforeConflict);
+  expect(() => store.saveView("local", owner, { ...renamed, name: "Unguarded" })).toThrow("Reload this view");
+  const updated = store.saveView("local", owner, { ...renamed, columns: ["name"], expected: renamed });
+  expect(updated.name).toBe("Renamed");
+  expect(updated.columns).toEqual(["name"]);
+  const missing = { ...updated, id: crypto.randomUUID() };
+  expect(() => store.saveView("local", owner, { ...missing, expected: missing })).toThrow("changed elsewhere");
+  expect(store.views("local")).toEqual([updated]);
 });
 afterEach(() => {
   for (const store of opened.splice(0)) store.close();

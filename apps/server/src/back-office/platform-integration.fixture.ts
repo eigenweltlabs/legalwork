@@ -358,6 +358,7 @@ try {
   );
   a.store.saveView(scope, a.actor, {
     ...savedViews[1],
+    expected: savedViews[1],
     name: "Renamed board",
     archived: true,
   });

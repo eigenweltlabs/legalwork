@@ -30,13 +30,14 @@ export function InlineCellEditor({
       return;
     }
     try {
+      onError("");
       await onSave(parseCellInput(field.type, text, value));
+      onCancel();
     } catch (error) {
+      completed.current = false;
       onError(
         error instanceof Error ? error.message : "Could not save the value.",
       );
-    } finally {
-      onCancel();
     }
   };
   return (

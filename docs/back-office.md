@@ -18,7 +18,9 @@ Project connections use the existing project metadata system. A `backoffice` fie
 
 Local directory identity uses the persistent device identity; shared identity hashes the normalized platform URL and organization, independent of team member. References from another directory remain unresolved, never bound by name. No protected record names or content are copied into metadata. The legacy `projectLinks` storage is retained internally for compatibility, but the separate project/matter linking panels and creation endpoint are removed.
 
-The renderer and native agent tools consume the same validated Back Office routes. The current-project context tool resolves all metadata record fields through current directory permissions. Record, model, view and relationship changes use revision checks and current permissions. Agent-originated writes are attributed in the audit trail.
+The renderer and native agent tools consume the same validated Back Office routes. The current-project context tool resolves all metadata record fields through current directory permissions. Record, model and relationship changes use revision checks and current permissions. Record editors retain their starting record snapshot until saved or cancelled, including when a background refresh arrives. Failed saves retain the draft. Agent-originated writes are attributed in the audit trail.
+
+Updating a saved view through the native `/views` route requires `expected`, the complete view definition read when editing began; creation uses `expected: null` (omitting it is also accepted for a new ID). The native store compares it with the current cached definition within the audited write transaction. Missing update preconditions return 428; changed or removed definitions return 409 without modifying the view, audit history or outbox. View schemas and the platform sync payload are unchanged. This protects windows sharing one native server and detects received team changes; concurrent writes from different offline replicas still require a matching conditional-write contract in the platform service.
 
 ## Team sync
 
