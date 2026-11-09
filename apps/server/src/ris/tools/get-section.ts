@@ -139,7 +139,7 @@ async function fetchByDokumentnummer(
   };
 }
 
-function minimalCitation(app: Applikation, id: string, header?: DocHeader) {
+export function minimalCitation(app: Applikation, id: string, header?: DocHeader) {
   const lean = {
     id,
     citation_label: header ? labelFromHeader(app, id, header) : id,

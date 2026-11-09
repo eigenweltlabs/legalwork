@@ -153,6 +153,8 @@ export interface ServerConfig {
    * focus from it.
    */
   pickDirectory?: ((options: { title?: string; defaultPath?: string; returnFocusTo?: string }) => Promise<string | null>) | null;
+  /** Host-owned, isolated HTML renderer. Never loaded from configuration or accepted through HTTP. */
+  renderHtmlPdf?: (document: { html: string; sourceUrl: string; title: string }, signal: AbortSignal) => Promise<Uint8Array>;
   /** Desktop-owned recorder controls used by browser-hosted Office add-ins. */
   recorder?: RecorderBridge | null;
   /** In-process host confirmation. Never set from client input or persisted config. */

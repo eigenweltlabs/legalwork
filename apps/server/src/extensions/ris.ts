@@ -9,6 +9,7 @@ import { appliedOrgPolicy } from "../org-policy.js";
 import { RisClient, type RisClientOptions } from "../ris/client/ris-client.js";
 import { RisError } from "../ris/infrastructure/errors.js";
 import { risTools } from "../ris/tools.js";
+import { risPdfDownload } from "./ris-pdf.js";
 
 const settingsSchema = z.object({ enabled: z.boolean() }).strict();
 export const risSettingsPath = (config: ServerConfig) => join(config.configPath ? dirname(resolve(config.configPath)) : join(homedir(), ".config", "legalwork"), "ris.json");
@@ -66,9 +67,10 @@ export async function testRisConnection(config: ServerConfig, signal?: AbortSign
   return { ok: result.ok, checkedAt: new Date().toISOString() };
 }
 
-export async function callRisAction(config: ServerConfig, action: string, args: unknown, signal?: AbortSignal) {
+export async function callRisAction(config: ServerConfig, action: string, args: unknown, signal?: AbortSignal, context: Record<string, unknown> = {}) {
   return runRis(config, async client => {
-    const tool = risTools(client).find(value => value.action === action);
+    const savePdf = action === "ris_download_pdf" ? await risPdfDownload(config, context, client.signal) : undefined;
+    const tool = risTools(client, savePdf).find(value => value.action === action);
     if (!tool) throw new ApiError(404, "extension_action_not_found", "RIS action not found.");
     return { ok: true, extensionId: "ris", action, result: await tool.run(args) };
   }, { signal });

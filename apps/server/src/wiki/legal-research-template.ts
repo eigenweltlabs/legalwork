@@ -6,8 +6,8 @@ import type { ResearchLanguage } from "@legalwork/types/legal-research-wiki";
  * deliberately separate from the generic firm/process wiki templates. */
 export function legalResearchWikiFiles(language: ResearchLanguage, country?: string, name = language === "de" ? "Rechtliche Recherche" : "Legal Research") {
   const home = language === "de"
-    ? "Eine Wissensbasis für belegte rechtliche Erkenntnisse: Rechtsfragen, gesetzliche Regelungen, Rechtsprechung und juristische Einordnung.\n\nRecherchen bereiten belegte Erkenntnisse und Primärquellen automatisch vor. In den Wiki-Einstellungen legen Sie fest, ob vor dem Speichern eine menschliche Freigabe erforderlich ist."
-    : "A knowledge base for source-backed legal findings: legal questions, legislation, case law and legal analysis.\n\nResearch automatically prepares supported findings and primary sources. Wiki settings control whether human approval is required before saving.";
+    ? "Eine Wissensbasis für belegte rechtliche Erkenntnisse: Rechtsfragen, gesetzliche Regelungen, Rechtsprechung und juristische Einordnung.\n\nGespeichert werden auf Wunsch dauerhafte Recherchen oder wiederverwendbare Website-Erkenntnisse, die künftige Recherche deutlich verkürzen. Gewöhnliche API-Abfragen bleiben im Chat. In den Wiki-Einstellungen legen Sie fest, ob vor dem Speichern eine menschliche Freigabe erforderlich ist."
+    : "A knowledge base for source-backed legal findings: legal questions, legislation, case law and legal analysis.\n\nSave research when explicitly requested, or preserve reusable website findings that materially speed up future research. Ordinary API lookups remain in chat. Wiki settings control whether human approval is required before saving.";
   const de = language === "de";
   const jurisdictions = de ? "Rechtsordnungen" : "Jurisdictions";
   const areas = de ? "Nach Rechtsgebiet.md" : "By area of law.md";

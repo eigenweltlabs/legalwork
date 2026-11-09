@@ -11,6 +11,7 @@ import { pathToFileURL } from "node:url";
 
 import { createOfficeAddinManager } from "./office-addin-manager.mjs";
 import { createHostApprovalHandler } from "./host-approvals.mjs";
+import { renderRisHtmlPdf } from "./ris-pdf.mjs";
 import { migrateLegacyWindowsOpenCodeConfig } from "./opencode-config-migration.mjs";
 import { downloadOpencodeBinary, opencodeRelease, opencodeReleaseTarget } from "./opencode-release.mjs";
 import { opencodeEngineIdentity, verifyOpencodeForExecution } from "@legalwork/opencode-release/candidate";
@@ -1434,6 +1435,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     };
     const handle = await startEmbeddedServer({
       onListening: publishServerConnection,
+      renderHtmlPdf: renderRisHtmlPdf,
       modelDownloadFetch,
       // Electron's Node TLS uses BoringSSL, whose legacy verifier cannot handle
       // valid IP-name-constrained CAs. Keep verification in our existing Node/OpenSSL runtime.

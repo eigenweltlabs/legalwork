@@ -46,6 +46,8 @@ For state legislation, name the state as well as the law. Different states can s
 
 To research decisions about a law, ask, for example: “Find VwGH decisions about IFG (Informationsfreiheitsgesetz) since 1 September 2025 and combine the results without duplicates.” RIS can list different decisions under the abbreviation and full name, so a search needs to cover both spellings and all result pages within the same court and date range.
 
+To save a source, ask: “Download this RIS decision as a PDF.” In a project chat connected to the LegalWork desktop server, the assistant can save a PDF directly into the project's **Downloads** folder, alongside browser downloads. No browser tab opens. The PDF contains the original RIS HTML content, with source details and page numbers; it is a generated reading copy, not RIS's original or digitally signed PDF. Existing files are kept, with a numbered filename for repeated downloads. For a whole judgment, ask for the full decision text rather than only its legal principle (Rechtssatz). If the document has no readable HTML or the server has no desktop PDF renderer, the assistant reports the unavailable download and retains the original source link.
+
 Results include original RIS source links, retrieval times and version information. Read any version warning. A connection test confirms reachability, not completeness or legal currency. When a request fails, narrow the query or open the original source; a failure does not establish that no relevant law or decision exists. For legislation, distinguish consolidated information from the authentic promulgation. RIS data is attributed to Bundeskanzleramt, Republik Österreich, under CC BY 4.0.
 
 ## Research databases

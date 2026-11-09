@@ -82,6 +82,7 @@ export function buildAboutTool(client: RisClient) {
         },
         notes: [
           "This integration runs on the LegalWork server and reads RIS directly, without a result cache. No RIS account is required. Tools are invoked through legalwork_extension_call with extensionId=ris and the ris_* action name.",
+          "To preserve a RIS source in a project, use ris_download_pdf with the exact document id and applikation from search. It renders the original RIS HTML into the project's Downloads folder without a browser tab or shell command, and returns the saved path and citation. Prefer the full Entscheidungstext (JWT_/JJT_) for judgments. This is a generated reading copy, not RIS's original or digitally signed PDF. Requires a desktop host with PDF rendering. Use the returned relativePath when attaching it to saved research; report an unavailable download without blocking the research.",
           "The default request queue is shared across chats. Prefer targeted applications; broad multi-database queries can take longer. No automatic bulk synchronization runs in the background.",
           "Full-text search (Suchworte) uses German boolean operators: 'und', 'oder', 'nicht'.",
           "Wildcards: one '*' per word, with ≥2 characters on each side.",

@@ -7,14 +7,15 @@ import { buildGetSectionTool } from "./tools/get-section.js";
 import { buildGetRelatedTool } from "./tools/get-related.js";
 import { buildVerifyTool } from "./tools/verify.js";
 import { buildGetHistoryTool } from "./tools/get-history.js";
+import { buildDownloadPdfTool, type SaveRisPdf } from "./tools/download-pdf.js";
 import { RisClient } from "./client/ris-client.js";
 import { RisValidationError } from "./infrastructure/errors.js";
 
 function defineTool<I, O>(action: string, tool: {
   description: string; inputSchema: z.ZodType<I>; outputSchema: z.ZodType<O>;
   handler: (input: I) => Promise<O>;
-}) {
-  return { action, title: `RIS: ${action.replace(/^ris_/, "").replaceAll("_", " ")}`, description: tool.description, writes: false,
+}, writes = false) {
+  return { action, title: `RIS: ${action.replace(/^ris_/, "").replaceAll("_", " ")}`, description: tool.description, writes,
     inputSchema: z.toJSONSchema(tool.inputSchema, { io: "input" }), outputSchema: z.toJSONSchema(tool.outputSchema),
     async run(args: unknown) {
       const parsed = tool.inputSchema.safeParse(args);
@@ -29,11 +30,12 @@ function defineTool<I, O>(action: string, tool: {
   };
 }
 
-export function risTools(client: RisClient) {
+export function risTools(client: RisClient, savePdf?: SaveRisPdf) {
   return [defineTool("ris_about", buildAboutTool(client)), defineTool("ris_list_scopes", buildListScopesTool()),
     defineTool("ris_search", buildSearchTool(client)), defineTool("ris_get_document", buildGetDocumentTool(client)),
     defineTool("ris_get_section", buildGetSectionTool(client)), defineTool("ris_get_related", buildGetRelatedTool(client)),
-    defineTool("ris_verify", buildVerifyTool(client)), defineTool("ris_get_history", buildGetHistoryTool(client))];
+    defineTool("ris_verify", buildVerifyTool(client)), defineTool("ris_get_history", buildGetHistoryTool(client)),
+    defineTool("ris_download_pdf", buildDownloadPdfTool(client, savePdf), true)];
 }
 
 function validateDates(value: unknown) {
