@@ -17,6 +17,9 @@ on:
       focused:
         type: string
         default: '[]'
+      host-checks:
+        type: string
+        default: '[]'
       engine-workers:
         type: number
         default: 2
@@ -107,7 +110,7 @@ jobs:
         uses: ./.github/actions/install-dependencies
 
       - name: Prepare checksum-pinned Node for worker tests
-        if: inputs.server || inputs.desktop || inputs.focused != '[]'
+        if: inputs.server || inputs.desktop || inputs.focused != '[]' || inputs.host-checks != '[]'
         run: node apps/desktop/scripts/prepare-node-runtime.mjs
 
       - name: Build server and native plugins
@@ -170,11 +173,11 @@ jobs:
         run: node scripts/ci/run-engine-tests.mjs
 
       - name: Verify Node development-server history and restart
-        if: inputs.server
+        if: inputs.server || contains(fromJSON(inputs.host-checks), 'dev-node')
         run: node --test apps/server/scripts/dev-node.test.mjs
 
       - name: Verify whole-agent prompt cache contract
-        if: inputs.server
+        if: inputs.server || contains(fromJSON(inputs.host-checks), 'prompt-cache')
         env:
           LEGALWORK_CACHE_CAPTURE: ${{ runner.temp }}/prompt-cache-capture.json
         run: LEGALWORK_TEST_OPENCODE_BIN="$(command -v opencode)" bun test --preload ./apps/server/test-preload.ts apps/server/scripts/prompt-cache-engine.test.ts
@@ -216,7 +219,7 @@ jobs:
           path: ${{ runner.temp }}/browser-workflow.png
 
       - name: Run e2e tests
-        if: inputs.engine-required && (inputs.app || inputs.server)
+        if: inputs.engine-required && (inputs.app || inputs.server || contains(fromJSON(inputs.host-checks), 'app'))
         run: pnpm --filter @legalwork/app test:e2e
       - name: Upload CI operation timings
         if: always()

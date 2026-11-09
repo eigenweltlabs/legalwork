@@ -51,6 +51,16 @@ export function mergePlan(files, { engineDepsChanged = true, realTests = [] } = 
   return { fullEngine, targets: platforms.filter(target => targets.has(target)), focused: [...focused].sort() };
 }
 
+export function hostChecks(files) {
+  const checks = new Set();
+  for (const file of files) {
+    if (/^apps\/app\/scripts\/(?:e2e|session-switch|fs-engine|browser-entry|_util)\.mjs$/.test(file)) checks.add('app');
+    if (file === 'apps/server/scripts/dev-node.test.mjs') checks.add('dev-node');
+    if (file === 'apps/server/scripts/prompt-cache-engine.test.ts') checks.add('prompt-cache');
+  }
+  return [...checks].sort();
+}
+
 export function portableAreas(files) {
   const areas = new Set();
   const add = (...items) => items.forEach(item => areas.add(item));
@@ -88,26 +98,29 @@ export function mergeDiff(env = process.env) {
   const manifests = files.filter(file => packageInput.test(file));
   const delta = manifests.length ? execFileSync('git', ['diff', '--no-ext-diff', '--no-textconv', '--unified=0',
     pr ? base + '...' + head : base + '..' + head, '--', ...manifests], { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 }) : '';
-  return { files, engineDepsChanged: delta.split('\n').some(line => /^[-+][^-+]/.test(line) && engineDependency.test(line)) };
+  const changedLines = delta.split('\n').filter(line => /^[-+][^-+]/.test(line));
+  return { files, engineDepsChanged: changedLines.some(line => engineDependency.test(line)),
+    docxDepsChanged: changedLines.some(line => /@eigenpal\/docx-|prosemirror-|(?:fflate|jszip)@|"(?:fflate|jszip)":/.test(line)) };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const { files, engineDepsChanged } = mergeDiff();
+  const { files, engineDepsChanged, docxDepsChanged } = mergeDiff();
   const realTests = engineTestFiles(path.resolve('apps/server/src')).map(test => path.relative(process.cwd(), test));
   const plan = mergePlan(files, { engineDepsChanged, realTests });
   const has = pattern => files.some(file => pattern.test(file));
-  const native = plan.fullEngine || plan.targets.some(target => target !== 'win32') || plan.focused.length > 0;
+  const host = hostChecks(files);
+  const native = host.length > 0 || plan.fullEngine || plan.targets.some(target => target !== 'win32') || plan.focused.length > 0;
   const linuxArm = plan.targets.length === 3 || has(/linux[-_/]arm64|aarch64-linux/);
   const encodedFiles = JSON.stringify(files);
   const result = {
     changed_files: Buffer.byteLength(encodedFiles, 'utf8') <= 32768 ? encodedFiles : 'null',
     direct_linux: !plan.fullEngine && !linuxArm && plan.targets.length === 1 && plan.targets[0] === 'linux',
     linux_arm: linuxArm,
-    docx: has(/(?:apps\/app\/.*(?:docx|word-addin)|scripts\/docx|\.github\/workflows\/ci-docx|patches\/[^/]*docx)/),
+    docx: docxDepsChanged || has(/(?:apps\/app\/.*(?:docx|word-addin|office-editor-boundary)|scripts\/docx|\.docx$|\.github\/workflows\/ci-docx|patches\/[^/]*docx)/),
     docs: has(/^(?:docs\/user-guide\/|scripts\/(?:gen-core-skills|help-)|apps\/server\/(?:src\/core-skills\.ts|resources\/core-opencode\/))/),
     areas: JSON.stringify(portableJobs(files)), full_engine: plan.fullEngine, engine: native, sandbox: plan.targets.length > 0, targets: JSON.stringify(plan.targets),
-    focused: JSON.stringify(plan.focused),
-    renderer: has(/(?:apps\/desktop\/(?:electron|scripts)\/(?:browser-|preview-security|unsaved-|workflow-editor|shutdown|updater-quit)|apps\/app\/.*(?:unsaved-change|workflow-editor|browser-autofill))/),
+    focused: JSON.stringify(plan.focused), host_checks: JSON.stringify(host),
+    renderer: has(/(?:apps\/desktop\/(?:electron|scripts)\/(?:browser-|ris-pdf|preview-security|unsaved-|workflow-editor|shutdown|updater-quit)|apps\/app\/.*(?:unsaved-change|workflow-editor|browser-autofill))/),
     windows_drafts: has(/(?:apps\/server\/src\/(?:email-drafts|calendar-event-drafts)\/|apps\/desktop\/.*(?:outlook|mail-draft|support-bundle|windows-update)|scripts\/test-drafts|scripts\/release\/windows-signing)/),
     windows_meetings: has(/^apps\/desktop\/.*(?:meeting|recorder|capture-helper)/),
   };

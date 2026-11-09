@@ -4,13 +4,14 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { mergeDiff, mergePlan, portableAreas, portableJobs } from './merge-plan.mjs';
+import { hostChecks, mergeDiff, mergePlan, portableAreas, portableJobs } from './merge-plan.mjs';
 import { lastPublished, alphaTargets } from './alpha-candidate.mjs';
 import { enableDevQueue, queuedRuleset } from './dev-queue-ruleset.mjs';
 
 test('bundled help, ordinary SDK consumers and typed UI are portable; engine policy and shared VM changes use native checks', () => {
   const docs = ['apps/server/src/core-skills.ts', 'docs/user-guide/chat.md'];
   assert.deepEqual(mergePlan(docs), { fullEngine: false, focused: [], targets: [] });
+  assert.deepEqual(hostChecks(['apps/server/scripts/dev-node.test.mjs', 'apps/app/scripts/e2e.mjs']), ['app', 'dev-node']);
   assert.deepEqual(portableJobs(['apps/server/src/routes/files.ts']), ['server']);
   assert.deepEqual(portableJobs(['apps/server/package.json']), ['server-1', 'server-2']);
   assert.deepEqual(portableAreas(docs), []);
@@ -41,11 +42,13 @@ test('queue range includes each PR, tracks deleted paths and reads changed depen
     const diff = (event, head) => JSON.parse(execFileSync(process.execPath, ['--input-type=module', '-e',
       'import { mergeDiff } from ' + JSON.stringify(planModule.href) + '; console.log(JSON.stringify(mergeDiff()))'], { cwd: root,
       env: { ...process.env, EVENT_NAME: event, BASE_SHA: base, HEAD_SHA: head } }));
-    assert.deepEqual(diff('pull_request', pr), { files: ['package.json'], engineDepsChanged: false });
+    assert.deepEqual(diff('pull_request', pr), { files: ['package.json'], engineDepsChanged: false, docxDepsChanged: false });
     const result = diff('merge_group', group);
     assert.deepEqual(result.files, ['apps/server/src/agent-sandbox/permissions.ts', 'package.json']);
     assert.deepEqual(mergePlan(result.files, result).targets, ['linux', 'darwin', 'win32']);
     assert.equal(diff('merge_group', engine).engineDepsChanged, true);
+    put('package.json', '{"@eigenpal/docx-editor-core":"2"}');
+    assert.equal(diff('merge_group', commit()).docxDepsChanged, true);
     assert.throws(() => mergeDiff({ BASE_SHA: '', HEAD_SHA: group }), /Cannot resolve/);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
