@@ -99,15 +99,15 @@ export type UsageControlAction =
   | { action: "paymentDetails" }
   | { action: "paymentSetup" }
   | {
-      action: "topUp" | "quoteTopUp";
+      action: "topUp";
       enableTrialUsage?: boolean;
       operationId: string;
+      /** Total charge confirmed by the admin, including applicable tax. */
       amountCents: number;
       paymentMethodId: string;
-      expectedTotalCents?: number;
     }
   | { action: "cancelTopUp"; operationId: string }
-  | { action: "resumeTopUp"; operationId: string; expectedTotalCents?: number }
+  | { action: "resumeTopUp"; operationId: string }
   | {
       action: "memberChange";
       target: MemberPlanTarget;
@@ -162,7 +162,6 @@ export type BillingPaymentDetails = {
   pendingTopUps: { operationId: string; amountCents: number }[];
 };
 export type TopUpResult =
-  | { status: "requires_confirmation"; operationId: string; amountCents: number; taxCents: number; totalCents: number }
   | {
       status: "paid" | "canceled" | "failed" | "processing";
       operationId: string;

@@ -29,9 +29,11 @@ Open **Account** to sign in, inspect the current firm, plan and usage, and open 
 
 ### Add usage credits
 
-When a chat shows an Eigenwelt usage-limit message, organization administrators can choose **Add credits** if more prepaid funds can resolve the limit. Choose the credit amount, then **Review total** when using a saved card. Review **Usable credits**, **Tax**, and **Total charge** before selecting **Pay & add credits**. Tax is charged separately and does not increase the usable credit balance. For example, €50 of credits with €9.50 tax costs €59.50 and adds €50 to the shared balance.
+When a chat shows an Eigenwelt usage-limit message, organization administrators can choose **Add credits** if more prepaid funds can resolve the limit. Enter the **Payment amount**, review the saved card and total, then choose **Pay & add credits**. The confirmed payment includes any applicable tax calculated by Stripe. Only the amount excluding tax becomes usable credits: for example, a €100 payment with 19% VAT adds €84.03 of credits and records €15.97 tax.
 
-Without a saved card, choose **Continue to payment** to review and pay in Stripe Checkout. You can also choose **Use another payment method or promo code**. Complete any bank verification that is requested. Credit becomes available after payment confirmation is processed; adding funds does not remove a separate personal or organization spending limit. If a tax quote expires, choose **Cancel top-up**, then start again and review the new total. For an uncertain payment result, check or resume the existing top-up before starting another.
+A saved card is charged directly; bank verification may be required. Without a saved card, use the offered payment or card-setup action. **Use another payment method or promo code** opens Stripe Checkout for normal top-ups. Adding credits does not change the subscription or remove separate spending limits. Trial top-ups enable the explicitly requested extra usage only after verified payment, with limits based on usable credits.
+
+For an uncertain result, check or resume the existing top-up before starting another. A pending purchase keeps its original confirmed payment amount. Older LegalWork versions use the same direct-charge flow; their payment amounts also include applicable tax, even though older wording does not explicitly say so.
 
 Firm policies can supply models, connectors or settings and can lock individual controls. A disabled control with a firm-policy note requires an administrator change; replacing a personal key does not override it. Signing into the firm, connecting a personal model provider and signing into file storage are separate operations.
 
