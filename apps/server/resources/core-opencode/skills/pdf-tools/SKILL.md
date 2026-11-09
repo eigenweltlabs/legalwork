@@ -77,24 +77,35 @@ default 140pt). This is a visible signature stamp, not a cryptographic signature
 
 ## Read PDFs and scans
 
-For reading, quoting, summarizing or comparing, call `read` with `filePath`.
+For reading, quoting, summarizing or comparing, call `read` with `path`.
 For connected storage use `storage_read_file`. Neither requires loading this
 skill, opening a viewer, inspecting fields or running a shell command.
 
-- PDF-capable models always receive the original PDF, including scans. The provider
-  handles its embedded text and page images; do not extract text or run OCR first.
-- Other models receive embedded text when available. Only pages without text use
-  the configured OCR service automatically. Images, logos and annotations alone
-  do not trigger OCR.
-- Request `ocr: true` when the user explicitly asks for OCR or relevant visual
-  additions need recognition. Optionally pass `pages: [2, 3]` to limit the work.
-  PDF-capable models still receive the original PDF alongside explicit OCR text.
-- Text results report page coverage, errors and `next_offset`. Follow that offset
-  for more text. `page_sources` identifies which pages used OCR; a document-level
-  `extraction: "ocr"` does not mean every page was OCR'd.
-  A page without embedded text is not an empty document. Report
-  unreadable pages or OCR setup errors; do not repeat the same failed call or
-  claim missing content is absent. Never fabricate content.
+- Choose combinable modes: `text: true` extracts embedded text, `ocr: true`
+  explicitly recognizes pages, and `attach: true` sends PDF pages directly to a
+  PDF-capable model for visual inspection. Ordinary reads default to embedded text
+  only. OCR never runs automatically, and text/OCR never implicitly attach a PDF.
+- `pages: [2, 3]` selects actual source pages; omitted means all pages.
+  OCR processes at most 100 pages per call;
+  attachments must fit 2 MB including base64 overhead. Oversized attachments return
+  recovery instructions without sending PDF bytes: choose fewer pages or text/OCR.
+- `pages_without_embedded_text` and `page_sources` report text-layer coverage.
+  Missing embedded text does not establish a blank page: choose OCR or visual
+  inspection for those pages. Embedded text also does not establish that images,
+  handwriting and annotations were reviewed. Use OCR and/or attachment when needed.
+- Choose a built-in PDF reading mode suited to the task: `text`, `attach` or `ocr`.
+  If the first chosen mode fails or leaves a specific uncertainty relevant to the
+  answer, such as missing page content or garbled, implausible or inconsistent
+  information, use another applicable built-in PDF mode to resolve the affected
+  content. Use shell only if the applicable built-in modes fail, are unavailable,
+  or leave the relevant uncertainty unresolved. Stop once the information is clear
+  and sufficient to answer.
+- `offset` and `limit` (`max_chars` for storage) only paginate returned embedded/OCR
+  text, never PDF pages, OCR work or attachment bytes. Follow `next_offset` with the
+  same pages and modes when `truncated: true`. `complete` describes extraction
+  coverage of selected pages, not whether all text was returned or the entire
+  document reviewed. Report unreadable pages and OCR setup errors; do not repeat an
+  unchanged failed call or claim missing content is absent. Never fabricate content.
 
 The legacy script's `text` subcommand extracts embedded text only. It is not the
 document reader and cannot establish that a scan is unreadable.
