@@ -3,6 +3,16 @@
 import type { CoreManifest } from "./core-bundle.js";
 
 export const LEGACY_CORE_MANIFESTS: Readonly<Record<string, CoreManifest>> = {
+  // Legacy development copies of these packages match the released hashes
+  // below. Recognize only the complete unchanged research packages; retain
+  // all other project files and every edited or extended package.
+  "7cae87135b7adebe6e7e31629b021b67b96e92fc": {
+    version: 1, bundle: "7cae87135b7adebe6e7e31629b021b67b96e92fc",
+    files: {
+      ".opencode/skills/legal-research/SKILL.md": "fcbed225850d7f9af59eef42443750a7f2ce8e248cdc5cf3adad4a3cf6a0face",
+      ".opencode/skills/libra-research/SKILL.md": "2da77516d68c196c33f7be34ba28b8266dfb875c661153559fe37e6844f4b2b8",
+    },
+  },
   "ae633afb5451854c2bb9b93683815608c11195e5": {
     "version": 1,
     "bundle": "ae633afb5451854c2bb9b93683815608c11195e5",

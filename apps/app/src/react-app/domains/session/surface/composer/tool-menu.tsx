@@ -2,6 +2,7 @@ import type { IntegrationSelection } from "./integration-mention";
 import { useQuery } from "@tanstack/react-query";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { installedConnections } from "./installed-connections";
+import { risStatusQuery } from "@/react-app/domains/settings/ris-status";
 import { Fragment, useState } from "react";
 import { ArrowLeft, Blocks, ChevronRight, FolderOpen, Globe, Package, Plug, Settings, Workflow } from "lucide-react";
 import type { ImportedPlugin } from "@/app/lib/extension-imports";
@@ -49,9 +50,10 @@ export function ComposerToolMenu(props: {
   const accounts = useQuery({ queryKey: ["settings", "connector-accounts", props.client?.baseUrl], queryFn: () => props.client!.connectorSavedStatus(), enabled: Boolean(props.client) });
   const storage = useQuery({ queryKey: ["storage-connections", props.workspaceId], queryFn: () => props.client!.storageConnections(props.workspaceId!), enabled: Boolean(props.client && props.workspaceId) });
   const passwords = useQuery({ queryKey: ["browser-passwords", props.client?.baseUrl], queryFn: () => props.client!.listBrowserPasswords(), enabled: Boolean(props.client?.canApprove) });
-  const connections = installedConnections(accounts.data, storage.data?.connections, passwords.data?.items);
-  const accountLoading = accounts.isLoading || storage.isLoading || passwords.isLoading;
-  const accountError = accounts.isError || storage.isError || passwords.isError;
+  const ris = useQuery(risStatusQuery(props.client));
+  const connections = installedConnections(accounts.data, storage.data?.connections, passwords.data?.items, ris.isSuccess ? ris.data : undefined);
+  const accountLoading = accounts.isLoading || storage.isLoading || passwords.isLoading || ris.isLoading;
+  const accountError = accounts.isError || storage.isError || passwords.isError || ris.isError;
   const [pluginId, setPluginId] = useState<string | null>(null);
   const plugins = props.plugins.filter(plugin => plugin.sourceKind === undefined || plugin.sourceKind === "plugin");
   const standaloneConnectors = props.connectors.filter(entry => !importedConnectorPlugin(entry.name, plugins));
@@ -107,7 +109,7 @@ export function ComposerToolMenu(props: {
           {props.section === "workflows" || props.section === "skills" ? skills.length ? <div className="grid min-w-0 grid-cols-1 gap-1">{skills.map(renderSkill)}</div> : empty(props.skillsLoading, props.section === "workflows" ? "composer.no_workflows" : "context_panel.no_skills") : null}
           {props.section === "integrations" && !activePlugin ? <>
             {connections.map(connection => { const Icon = connection.kind === "website" ? Globe : connection.kind === "storage" ? FolderOpen : Plug; return <button key={connection.id} type="button" className={itemClass} onClick={() => props.onSelectIntegration(connection.selection)}>
-              <Icon size={16} className="mt-0.5 shrink-0 text-gray-9" /><div className="min-w-0 flex-1"><div className="flex items-center gap-2"><span className="truncate text-xs font-semibold">{connection.name}</span>{connection.firm ? <span className="shrink-0 rounded-full bg-gray-3 px-2 py-0.5 text-[10px] text-gray-10">{t("catalog.firm_managed")}</span> : null}</div><div className="truncate text-xs text-gray-10">{connection.description}</div>{connection.state ? <div className="mt-1"><ConnectorStatus state={connection.state} /></div> : null}</div>
+              {connection.iconSrc ? <img src={connection.iconSrc} alt="" className="mt-0.5 size-4 shrink-0" /> : <Icon size={16} className="mt-0.5 shrink-0 text-gray-9" />}<div className="min-w-0 flex-1"><div className="flex items-center gap-2"><span className="truncate text-xs font-semibold">{connection.name}</span>{connection.firm ? <span className="shrink-0 rounded-full bg-gray-3 px-2 py-0.5 text-[10px] text-gray-10">{t("catalog.firm_managed")}</span> : null}</div><div className="truncate text-xs text-gray-10">{connection.description}</div>{connection.state ? <div className="mt-1"><ConnectorStatus state={connection.state} /></div> : null}</div>
             </button>; })}
             {accountLoading ? empty(true, "composer.no_integrations") : null}
             {accountError ? <p role="alert" className="px-3 py-2 text-xs text-destructive">{t("composer.integrations_load_failed")}</p> : null}{standaloneConnectors.length ? <div className="grid min-w-0 grid-cols-1 gap-1">{standaloneConnectors.map(renderConnector)}</div> : null}{!standaloneConnectors.length && !plugins.length && !connections.length && !accountLoading && !accountError ? empty(props.connectorsLoading || props.pluginsLoading, "composer.no_integrations") : null}</> : null}

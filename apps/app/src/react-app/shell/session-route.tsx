@@ -186,7 +186,6 @@ import {
   useHiddenTemplateWorkspaceIds,
   useTemplateWorkflowRun,
 } from "@/react-app/domains/settings/state/template-workflow-generation";
-import { useMcpConnectedCount } from "@/react-app/domains/connections/use-mcp-connected-count";
 import { RenameWorkspaceModal } from "@/react-app/domains/workspace/rename-workspace-modal";
 import { useProjectSyncPoller } from "@/react-app/domains/workspace/project-sync-store";
 import { refreshTaskQueries } from "@/react-app/domains/tasks/tasks-queries";
@@ -515,6 +514,7 @@ export function SessionRoute() {
     routeNotFoundMessage,
     endpointForWorkspace,
     refreshRouteState,
+    reconnect,
     loadWorkspaceSessionsInBackground,
     rememberPendingCreatedSession,
     handleRuntimeSessionLoaded,
@@ -893,8 +893,6 @@ export function SessionRoute() {
   }, [selectedSessionId, selectedWorkspaceId, workspaceSessionGroups]);
 
   const workspaceConnectionStateById = workspaceConnectionOverrides;
-
-  const mcpConnectedCount = useMcpConnectedCount(opencodeClient, selectedWorkspaceRoot);
 
   // Recorder: subscribe to recorder events app-wide (the call overlay asks
   // must work even when the Recorder pane is closed) and keep the copilot
@@ -1435,9 +1433,6 @@ export function SessionRoute() {
     sessionId: selectedSessionId,
     workspaceRoot: selectedWorkspaceRoot,
   });
-  const showPreparingStatus =
-    effectiveLoading ||
-    (!canCreateChat && !routeError && !selectedWorkspaceError);
 
   useEffect(() => {
     if (!opencodeClient) {
@@ -2730,7 +2725,7 @@ export function SessionRoute() {
       opencodeBaseUrl={opencodeBaseUrl}
       workspaces={sidebarWorkspaces}
       clientConnected={canCreateChat}
-      legalworkServerStatus={client ? "connected" : "disconnected"}
+      reconnect={{ error: reconnect.error, pending: reconnect.pending, onRetry: reconnect.retry }}
       legalworkServerClient={selectedWorkspaceEndpoint?.client ?? client}
       environmentClient={client}
       wikiWorkspace={activeWiki}
@@ -2744,7 +2739,6 @@ export function SessionRoute() {
       providerConnectedIds={providerConnectedIds}
       providerConnectedCount={usableProviderCount}
       providers={providers}
-      mcpConnectedCount={mcpConnectedCount}
       onOpenSettings={() => handleOpenSettings("/settings/general")}
       onOpenProviderAuth={() => sessionProviderAuthStore.openProviderAuthModal({ returnFocusTarget: "composer" })}
       titlebarControlsHidden={aiPlansScreenVisible}
@@ -3109,7 +3103,6 @@ export function SessionRoute() {
           : undefined
       }
       onArchiveSession={opencodeClient ? handleArchiveSession : undefined}
-      statusBar={{ loading: showPreparingStatus }}
       notFoundMessage={routeNotFoundMessage}
     />
     {viewDeleteRequest && <SessionViewDeleteDialog request={viewDeleteRequest} onClose={() => setViewDeleteRequest(null)} />}

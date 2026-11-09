@@ -336,35 +336,14 @@ jobs:
 
       - name: Verify workflow editing and close/restart decisions in Electron
         if: (runner.os == 'macOS') && (needs.changes.outputs.app == 'true' || needs.changes.outputs.desktop == 'true')
-        env:
-          LEGALWORK_SHUTDOWN_TEST_OUTPUT: ${{ runner.temp }}/unsaved-shutdown
-          LEGALWORK_EDITOR_TEST_OUTPUT: ${{ runner.temp }}/workflow-editor
         run: |
           pnpm --filter @legalwork/desktop test:workflow-editor
           pnpm --filter @legalwork/desktop test:shutdown
           pnpm --filter @legalwork/desktop test:updater-quit
 
-      - name: Upload unsaved-change Electron evidence
-        if: always() && (runner.os == 'macOS') && (needs.changes.outputs.app == 'true' || needs.changes.outputs.desktop == 'true')
-        uses: actions/upload-artifact@v4
-        with:
-          name: unsaved-change-electron-evidence
-          path: |
-            ${{ runner.temp }}/unsaved-shutdown
-            ${{ runner.temp }}/workflow-editor
-
       - name: Verify saved-login suggestions in Electron
         if: (runner.os == 'macOS') && (needs.changes.outputs.app == 'true' || needs.changes.outputs.desktop == 'true')
-        env:
-          LEGALWORK_AUTOFILL_TEST_OUTPUT: ${{ runner.temp }}/browser-autofill
         run: pnpm --filter @legalwork/desktop test:browser-autofill
-
-      - name: Upload browser autofill evidence
-        if: always() && (runner.os == 'macOS') && (needs.changes.outputs.app == 'true' || needs.changes.outputs.desktop == 'true')
-        uses: actions/upload-artifact@v4
-        with:
-          name: browser-autofill-evidence
-          path: ${{ runner.temp }}/browser-autofill
 
       - name: Verify engine source policy, preparation and immutable artifacts
         if: needs.changes.outputs.engine == 'true' || needs.changes.outputs.tooling == 'true'
@@ -514,10 +493,12 @@ jobs:
         if: (runner.os == 'macOS') && (needs.changes.outputs.desktop == 'true')
         run: pnpm --filter @legalwork/desktop test:preview-security
 
+      - name: Verify native RIS PDF rendering and browser download-directory parity
+        if: (runner.os == 'macOS') && (needs.changes.outputs.desktop == 'true')
+        run: pnpm --filter @legalwork/desktop test:ris-pdf
+
       - name: Verify browser batches and project downloads in Electron
         if: (runner.os == 'macOS') && (needs.changes.outputs.desktop == 'true')
-        env:
-          LEGALWORK_BROWSER_TEST_SCREENSHOT: ${{ runner.temp }}/browser-workflow.png
         run: pnpm --filter @legalwork/desktop test:browser-workflow
 
       - name: Verify browser network policy in Electron
@@ -527,13 +508,6 @@ jobs:
       - name: Verify native browser observations in hidden Electron
         if: (runner.os == 'macOS') && (needs.changes.outputs.desktop == 'true')
         run: pnpm --filter @legalwork/desktop test:browser-observation
-
-      - name: Upload browser workflow evidence
-        if: (runner.os == 'macOS') && (needs.changes.outputs.desktop == 'true')
-        uses: actions/upload-artifact@v4
-        with:
-          name: browser-workflow-evidence
-          path: ${{ runner.temp }}/browser-workflow.png
 
       - name: Run e2e tests
         if: needs.changes.outputs.engine == 'true' && (needs.changes.outputs.app == 'true' || needs.changes.outputs.server == 'true')

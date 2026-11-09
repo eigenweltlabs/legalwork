@@ -28,6 +28,7 @@
     "test:browser-network": "pnpm run build:browser && electron scripts/browser-network-regression.mjs",
     "test:browser-observation": "pnpm run build:browser && electron scripts/browser-observation-regression.mjs",
     "test:native": "electron scripts/native-modules-regression.mjs",
+    "test:ris-pdf": "electron scripts/ris-pdf-regression.mjs",
     "test:dictation-paste": "electron scripts/dictation-paste-regression.mjs",
     "test:dictation-recovery": "electron scripts/dictation-hud-regression.mjs --clipboard",
     "test:dictation-hud": "electron scripts/dictation-hud-regression.mjs",

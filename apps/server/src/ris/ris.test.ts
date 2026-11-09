@@ -29,13 +29,15 @@ const searchOutput = z.object({ total: z.number(), count: z.number(), next_offse
   applikations_failed: z.array(z.object({ applikation: z.string() })).optional(), items: z.array(z.object({ ris_citation: z.object({ id: z.string() }) })) });
 
 test("preserves the eight MCP action names and its search, section and citation contract", () => {
-  expect(RIS_ACTIONS.map(value => value.action)).toEqual(["ris_about", "ris_list_scopes", "ris_search", "ris_get_document", "ris_get_section", "ris_get_related", "ris_verify", "ris_get_history"]);
-  expect(JSON.stringify(Object.fromEntries(RIS_ACTIONS.map(value => [value.action, value.inputSchema])))).toBe(JSON.stringify(upstreamSchemas));
+  const reads = RIS_ACTIONS.filter(value => value.action !== "ris_download_pdf");
+  expect(reads.map(value => value.action)).toEqual(["ris_about", "ris_list_scopes", "ris_search", "ris_get_document", "ris_get_section", "ris_get_related", "ris_verify", "ris_get_history"]);
+  expect(JSON.stringify(Object.fromEntries(reads.map(value => [value.action, value.inputSchema])))).toBe(JSON.stringify(upstreamSchemas));
   const search = RIS_ACTIONS.find(value => value.action === "ris_search");
   expect(search?.inputSchema.properties).toHaveProperty("gesetzesnummer");
   expect(search?.inputSchema.properties).toHaveProperty("bulk_acknowledged");
   expect(search?.inputSchema.additionalProperties).toBe(false);
-  expect(RIS_ACTIONS.every(value => value.writes === false && value.outputSchema)).toBe(true);
+  expect(reads.every(value => value.writes === false && value.outputSchema)).toBe(true);
+  expect(RIS_ACTIONS.find(value => value.action === "ris_download_pdf")).toMatchObject({ writes: true, extensionId: "ris" });
 });
 
 test("rejects invalid dates, inverted ranges, unsupported fields and bulk paging before any request", async () => {

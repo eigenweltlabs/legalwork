@@ -36,7 +36,7 @@ function auth(token: string) {
   return { Authorization: `Bearer ${token}` };
 }
 
-function startMockOpencode(input: { directory: string; sessionDirectory?: string; invalidList?: boolean; holdCommand?: Promise<void>; idle?: () => boolean; retry?: () => { type: "retry"; attempt: number; message: string; next: number } | null; commands?: () => Array<{ name: string; template: string }>; promptError?: () => { name: string; data: { message: string } } | undefined; providerId?: string; managedCommands?: () => boolean }) {
+function startMockOpencode(input: { directory: string; sessionDirectory?: string; invalidList?: boolean; holdCommand?: Promise<void>; idle?: () => boolean; retry?: () => { type: "retry"; attempt: number; message: string; next: number } | null; commands?: () => Array<{ name: string; template: string }>; promptOutcome?: () => "failed" | "interrupted" | undefined; providerId?: string; managedCommands?: () => boolean }) {
   const requests: Array<{ pathname: string; search: string; directory: string | null; method: string; body?: unknown }> = [];
   let outcome: string | undefined;
   const messages = () => {
@@ -63,7 +63,7 @@ function startMockOpencode(input: { directory: string; sessionDirectory?: string
     if (pathname === "/api/session/ses_1/prompt") {
       const value = received.body;
       const id = value && typeof value === "object" && "id" in value && typeof value.id === "string" ? value.id : "msg_response";
-      outcome = input.promptError?.() ? "interrupted" : undefined;
+      outcome = input.promptOutcome?.();
       return Response.json({ data: { id, type: "user", text: value && typeof value === "object" && "text" in value ? value.text : "", time: { created: 202 } } });
     }
     if (pathname === "/api/session/ses_1/message") return Response.json({ data: messages(), cursor: {} });
@@ -472,10 +472,31 @@ describe("shared session queue API", () => {
     ]) expect((await fetch(base, { method: "POST", headers, body: JSON.stringify(action) })).status).toBe(404);
     expect(mock.requests.some(request => request.method === "POST" || request.method === "PATCH")).toBe(false);
   });
+  test("sending from the composer after a failed reply admits the follow-up exactly once", async () => {
+    const workspaceRoot = await createWorkspaceRoot();
+    let fail = true;
+    const mock = startMockOpencode({ directory: workspaceRoot, idle: () => true, promptOutcome: () => fail ? "failed" : undefined });
+    const legalwork = await startLegalworkServer({ workspaceRoot, opencodeBaseUrl: `http://127.0.0.1:${mock.server.port}`, readOnly: false });
+    const base = `http://127.0.0.1:${legalwork.server.port}/workspace/ws_1/sessions/ses_1/queue`;
+    const headers = { ...auth(legalwork.token), "Content-Type": "application/json" };
+    const send = (text: string) => fetch(base, { method: "POST", headers, body: JSON.stringify({
+      type: "enqueue", id: crypto.randomUUID(), draft: { mode: "prompt", text, parts: [], attachments: [], editor: { mentions: {}, pasteParts: [] } },
+      execution: { kind: "prompt", text },
+    }) });
+    const read = () => fetch(base, { headers }).then(response => response.json());
+    expect((await send("first")).status).toBe(200);
+    expect(await waitUntil(async () => (await read()).pauseReason === "error")).toBe(true);
+    fail = false;
+    expect((await send("follow-up")).status).toBe(200);
+    expect(await waitUntil(async () => (await read()).completedIds.length === 2)).toBe(true);
+    const prompts = mock.requests.filter(request => request.pathname.endsWith("/prompt"));
+    expect(prompts).toHaveLength(2);
+    expect(prompts.map(request => request.body)).toMatchObject([{ text: "first" }, { text: "follow-up" }]);
+  });
   test("a confirmed aborted prompt completes delivery and follow-ups can resume without resending it", async () => {
     const workspaceRoot = await createWorkspaceRoot();
     let aborted = true;
-    const mock = startMockOpencode({ directory: workspaceRoot, idle: () => true, promptError: () => aborted ? { name: "MessageAbortedError", data: { message: "Stopped by user" } } : undefined });
+    const mock = startMockOpencode({ directory: workspaceRoot, idle: () => true, promptOutcome: () => aborted ? "interrupted" : undefined });
     const legalwork = await startLegalworkServer({ workspaceRoot, opencodeBaseUrl: `http://127.0.0.1:${mock.server.port}`, readOnly: false });
     const base = `http://127.0.0.1:${legalwork.server.port}/workspace/ws_1/sessions/ses_1/queue`;
     const headers = { ...auth(legalwork.token), "Content-Type": "application/json" };

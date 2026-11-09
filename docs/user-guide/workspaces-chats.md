@@ -46,7 +46,9 @@ A background refresh keeps the current chat ready for typing, Run and Dictate. O
 
 If a background project refresh fails, check the affected project in the sidebar for its connection or loading error. These background errors do not add a warning above your conversation. A failed message or agent response still shows its own error in the chat.
 
-In an idle project, wiki or Assistant chat, a normal message appears immediately while LegalWork confirms delivery. Confirmation updates that same message. If sending fails, the local message is removed and your draft remains available to retry. Messages for busy or paused chats remain in the editable queue until delivered.
+In an idle project, wiki or Assistant chat, a normal message appears immediately while LegalWork confirms delivery. Confirmation updates that same message. If sending fails, the local message is removed and your draft remains available to retry.
+
+If the assistant's reply ends in an error and the queue is empty, send your next message as usual. If messages were already waiting when the reply failed, review them above the composer and choose **Resume queue** when you're ready to send them in order.
 
 ### Steer with a queued message
 
@@ -65,6 +67,8 @@ Use a conversation's action menu to rename, pin, archive or delete it. Archiving
 Tool activity stays in one compact row while the assistant works through consecutive actions. The label updates in place, for example **Using browser**, then **Reviewing results…**, with an action count. Brief pauses keep the previous label to avoid flicker. Completed activity remains expandable; select the row to see individual actions. Failed actions and declined permissions remain marked. Scrolling up lets you read earlier messages without status updates pulling you back to the bottom.
 
 When the assistant starts a subagent, its row shows progress and opens the child chat when selected. Results such as review cards, draft emails, calculations and dashboard previews appear directly in the conversation, including when you reopen it. Filed tasks and LegalMemory sources also appear with the assistant's answer.
+
+Chat tabs and the **Sessions** overview show the same indicators as the sidebar: a spinner while the assistant works, a pulsing amber dot when it needs your approval or answer, a red dot after an error, and a blue dot for an unread reply. Select a project's **Sessions** to see these indicators beside its conversations. Browsing the overview keeps unread replies marked; open the chat to read the reply and clear its blue dot. Leaving its tab open in the background does not mark it read.
 
 The command palette searches available navigation/actions. File/document tabs keep artifacts beside chat, and the terminal runs commands on the computer running LegalWork. Click the X on a chat tab once to close its view. The conversation remains in Sessions and can be reopened from there. A tab being open does not establish that its unsaved edits are already on disk. When a tool asks for permission or the assistant presents a question, respond in that control; stopping the response does not undo completed file changes.
 

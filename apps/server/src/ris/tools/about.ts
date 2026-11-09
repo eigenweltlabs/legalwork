@@ -69,6 +69,7 @@ export function buildAboutTool(client: RisClient) {
             "Court filters use the RIS label: for Justiz, gericht='OGH' selects the Oberster Gerichtshof. A spelled-out court name can return zero matches. Read the selected decision and confirm its facts address the research question; a keyword match alone does not establish relevance.",
             "Set applikation (Vfgh / Vwgh / Justiz = OGH + ordinary courts / Bvwg / Lvwg / Dsk = Datenschutzbehörde / …); the corpus-wide fan-out over ~15 tribunals is slow and unranked.",
             "norm=\"§ 3 AsylG 2005\" finds decisions citing a provision; sort_by=\"date_desc\" for recency.",
+            "Unlike title, norm matches the cited spelling without resolving equivalent law names. Always search both the abbreviation and the full law name (for example norm=\"IFG\" and norm=\"Informationsfreiheitsgesetz\") with the same court/date filters. Paginate both searches and merge by ris_citation.id, removing duplicate records while keeping distinct Rechtssätze and decision texts. One spelling alone can miss relevant decisions.",
             "Hits are Rechtssätze (JWR_/JJR_ ids, condensed propositions) or Entscheidungstexte (JWT_/JJT_ ids, full decisions) — the type field says which. Read either via ris_get_section(id=<id from search or a Geschäftszahl>, section_ref='', applikation=<court>, format=\"plain\").",
             "Cite from ris_citation (geschaeftszahl, entscheidungsdatum, gericht) or the fetched document header (incl. ECLI). When resolving via a Geschäftszahl, verify the returned header matches the intended decision.",
           ],
@@ -81,6 +82,7 @@ export function buildAboutTool(client: RisClient) {
         },
         notes: [
           "This integration runs on the LegalWork server and reads RIS directly, without a result cache. No RIS account is required. Tools are invoked through legalwork_extension_call with extensionId=ris and the ris_* action name.",
+          "To preserve a RIS source in a project, use ris_download_pdf with the exact document id and applikation from search. It renders the original RIS HTML into the project's Downloads folder without a browser tab or shell command, and returns the saved path and citation. Prefer the full Entscheidungstext (JWT_/JJT_) for judgments. This is a generated reading copy, not RIS's original or digitally signed PDF. Requires a desktop host with PDF rendering. Use the returned relativePath when attaching it to saved research; report an unavailable download without blocking the research.",
           "The default request queue is shared across chats. Prefer targeted applications; broad multi-database queries can take longer. No automatic bulk synchronization runs in the background.",
           "Full-text search (Suchworte) uses German boolean operators: 'und', 'oder', 'nicht'.",
           "Wildcards: one '*' per word, with ≥2 characters on each side.",

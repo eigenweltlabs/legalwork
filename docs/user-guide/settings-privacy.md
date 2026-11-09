@@ -2,7 +2,7 @@
 
 Open in LegalWork: [Settings](legalwork://app/settings), [Customization](legalwork://app/settings/shell), [Privacy](legalwork://app/settings/preferences).
 
-Open Settings from the app's settings action or native app menu. The overview links to the active sections. The selected workspace matters for folder permissions; many other settings apply globally.
+Open **Settings** using the gear at the bottom left, directly above your account button, or from the native app menu. The gear remains available when the sidebar is collapsed. The overview links to the active sections. The selected workspace matters for folder permissions; many other settings apply globally.
 
 | Section | Purpose |
 | --- | --- |

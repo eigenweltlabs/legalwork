@@ -69,7 +69,7 @@ export async function callExperimentalExtensionAction(
     throw new ApiError(400, "invalid_payload", "Pass action parameters in the args object, not input or top-level fields. Example: {extensionId: 'outlook', action: 'status', args: {}}.", { unexpectedFields: unexpected });
   }
 
-  if (extensionId === "ris") return callRisAction(config, action, args, access.signal);
+  if (extensionId === "ris") return callRisAction(config, action, args, access.signal, context);
 
   if (extensionId === GOOGLE_WORKSPACE_EXTENSION_ID) {
     if ((await appliedOrgPolicy(config, "extensions.builtIn"))?.value["google-workspace"] === false) {

@@ -4,6 +4,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { ImportedPlugin } from "../src/app/lib/extension-imports";
 import { ComposerToolMenu } from "../src/react-app/domains/session/surface/composer/tool-menu";
 import { composerSettingsPath, sessionMainPage, type ComposerToolSection } from "../src/react-app/shell/workspace-routes";
+import { createLegalworkServerClient, type RisIntegrationStatus } from "../src/app/lib/legalwork-server";
+import { risStatusQuery } from "../src/react-app/domains/settings/ris-status";
 
 const connectorName = "github-12345678-plugin-global-github-abcdef";
 const plugin: ImportedPlugin = {
@@ -11,8 +13,8 @@ const plugin: ImportedPlugin = {
   files: [{ configObjectId: "github-connector", objectType: "mcp", title: connectorName, path: `opencode.jsonc#mcp.${connectorName}`, updatedAt: null }],
 };
 const noop = () => {};
-function render(section: ComposerToolSection, overrides: Partial<Parameters<typeof ComposerToolMenu>[0]> = {}) {
-  return renderToStaticMarkup(<QueryClientProvider client={new QueryClient()}><ComposerToolMenu section={section} onSectionChange={noop} onConfigure={noop} onSelectSkill={noop} onSelectPlugin={noop} onSelectIntegration={noop}
+function render(section: ComposerToolSection, overrides: Partial<Parameters<typeof ComposerToolMenu>[0]> = {}, cache = new QueryClient()) {
+  return renderToStaticMarkup(<QueryClientProvider client={cache}><ComposerToolMenu section={section} onSectionChange={noop} onConfigure={noop} onSelectSkill={noop} onSelectPlugin={noop} onSelectIntegration={noop}
     skillsLoading={false} connectorsLoading={false} pluginsLoading={false} skills={[]} connectors={[]} connectorStatuses={{}} plugins={[]} {...overrides} /></QueryClientProvider>);
 }
 
@@ -92,5 +94,57 @@ describe("chat library menu", () => {
     const html = render("integrations", { plugins: [plugin] });
     expect(html).toContain('aria-label="Use Github"');
     expect(html).toContain('aria-label="View Github contents"');
+  });
+});
+
+describe("native RIS in the chat integration menu", () => {
+  const client = createLegalworkServerClient({ baseUrl: "http://127.0.0.1:9999", token: "fixture-client" });
+  const enabled: RisIntegrationStatus = { enabled: true, allowed: true, readOnly: false, source: "https://www.ris.bka.gv.at/", requiresAuthentication: false };
+  function cacheForClient() {
+    const cache = new QueryClient();
+    cache.setQueryData(["settings", "connector-accounts", client.baseUrl], { configured: false, requiresSignIn: false, connectors: [] });
+    return cache;
+  }
+
+  test("shows enabled RIS without an account or MCP and follows the settings cache when toggled or blocked", () => {
+    const cache = cacheForClient();
+    try {
+      for (const state of [enabled, { ...enabled, enabled: false }, enabled, { ...enabled, allowed: false }, { ...enabled, readOnly: true }]) {
+        cache.setQueryData(risStatusQuery(client).queryKey, state);
+        const html = render("integrations", { client }, cache);
+        if (state.enabled && state.allowed) {
+          expect(html).toContain("Austrian RIS");
+          expect(html).toContain('/ext-ris.svg');
+          expect(html).not.toContain("No integrations connected yet.");
+        } else {
+          expect(html).not.toContain("Austrian RIS");
+          expect(html).toContain("No integrations connected yet.");
+        }
+      }
+      expect(render("skills", { client }, cache)).not.toContain("Austrian RIS");
+    } finally { cache.clear(); }
+  });
+
+  test("loads RIS status before declaring the menu empty and never borrows another server's status", () => {
+    const cache = cacheForClient();
+    try {
+      cache.setQueryData(["settings", "ris", "https://other-server.example"], enabled);
+      const html = render("integrations", { client }, cache);
+      expect(html).toContain("Loading…");
+      expect(html).not.toContain("Austrian RIS");
+      expect(html).not.toContain("No integrations connected yet.");
+    } finally { cache.clear(); }
+  });
+
+  test("reports RIS status failures instead of offering a stale enabled integration", async () => {
+    const cache = cacheForClient();
+    try {
+      cache.setQueryData(risStatusQuery(client).queryKey, enabled);
+      await cache.fetchQuery({ ...risStatusQuery(client), staleTime: 0, queryFn: async () => { throw new Error("Server unavailable"); } }).catch(() => {});
+      const html = render("integrations", { client }, cache);
+      expect(html).toContain('role="alert"');
+      expect(html).not.toContain("Austrian RIS");
+      expect(html).not.toContain("No integrations connected yet.");
+    } finally { cache.clear(); }
   });
 });

@@ -78,6 +78,7 @@ export type EmbeddedServerOptions = CliArgs & {
   projectsDirectory?: string;
   /** Native folder-picker hook, forwarded to ServerConfig.pickDirectory. */
   pickDirectory?: ServerConfig["pickDirectory"];
+  renderHtmlPdf?: ServerConfig["renderHtmlPdf"];
   /** Desktop recorder hook, forwarded to Office add-in API routes. */
   recorder?: ServerConfig["recorder"];
 };
@@ -136,6 +137,7 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
   config.engineConfigurationMode = "native-project";
   config.requestHostApproval = options.requestHostApproval;
   config.pickDirectory = options.pickDirectory ?? null;
+  config.renderHtmlPdf = options.renderHtmlPdf;
   if (managedEngine) config.projectsDirectory = options.projectsDirectory || localProjectsDirectory();
   config.recorder = options.recorder ?? null;
   // Pin established project homes before startup readers. Legacy roots are

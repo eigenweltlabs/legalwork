@@ -4,6 +4,7 @@ import { Archive, ArrowUpRight, ChevronDown, GitBranch, MessageSquare, MoreHoriz
 import { matchesSearch } from "@legalwork/types/search";
 import type { WorkspaceSessionGroup } from "@/app/types";
 import { getDisplaySessionTitle } from "@/app/lib/session-title";
+import { SessionInboxIndicators, isSessionActivityStatus } from "@/components/chat/session-inbox-indicators";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "@/components/ui/sonner";
@@ -16,8 +17,14 @@ import { currentLocale, t } from "@/i18n";
 import { isSessionArchived, isStreamingSessionStatus } from "../session/sidebar/utils";
 import { startSessionsDrag } from "../session/sidebar/session-drag";
 import { useSessionManagementStore } from "../session/sidebar/session-management-store";
+import { unreadSession, useSessionInboxStore } from "../session/sidebar/session-inbox-store";
 
 type SessionFilter = "recent" | "pinned" | "archived";
+
+function SessionOverviewIndicators({ sessionId, status }: { sessionId: string; status?: string }) {
+  const unread = useSessionInboxStore(state => unreadSession(state, sessionId));
+  return <SessionInboxIndicators unread={unread} status={status} isStreaming={isStreamingSessionStatus(status)} isActive={isSessionActivityStatus(status) && status !== "idle"} />;
+}
 
 export function ProjectSessionsPage(props: {
   workspaceId: string;
@@ -79,7 +86,6 @@ export function ProjectSessionsPage(props: {
           const title = getDisplaySessionTitle(session.title);
           const pinned = pinnedIds.includes(session.id);
           const archived = isSessionArchived(session);
-          const running = isStreamingSessionStatus(props.statuses?.[session.id]);
           const group = groups?.groups.find(group => group.id === groups.assignments[session.id]);
           const updated = session.time?.updated ?? session.time?.created;
           const selected = selection.ids.includes(session.id);
@@ -87,7 +93,8 @@ export function ProjectSessionsPage(props: {
             <Checkbox className="ml-2" disabled={busy} aria-label={t("project_browser.select_item", { name: title })} checked={selected} onCheckedChange={(_checked, details) => selection.toggle(session.id, details.event instanceof MouseEvent && details.event.shiftKey)} />
             <button draggable={!busy} className="flex min-w-0 flex-1 items-center gap-3 rounded-lg p-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" disabled={busy} onClick={event => { if (event.metaKey || event.ctrlKey || event.shiftKey || selection.ids.length) selection.toggle(session.id, event.shiftKey); else props.onOpen(session.id); }}>
               {session.parentID ? <GitBranch className="size-4 shrink-0 text-muted-foreground" /> : <MessageSquare className="size-4 shrink-0 text-muted-foreground" />}
-              <span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{title}</span><span className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">{updated ? <time dateTime={new Date(updated).toISOString()}>{new Date(updated).toLocaleDateString(currentLocale(), { month: "short", day: "numeric", year: "numeric" })}</time> : null}{group && <span>{group.label}</span>}{session.parentID && <span>{t("project_browser.branch")}</span>}{running && <span className="flex items-center gap-1.5"><span className="size-1.5 rounded-full bg-emerald-500" />{t("project_browser.running")}</span>}</span></span>
+              <span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{title}</span><span className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">{updated ? <time dateTime={new Date(updated).toISOString()}>{new Date(updated).toLocaleDateString(currentLocale(), { month: "short", day: "numeric", year: "numeric" })}</time> : null}{group && <span>{group.label}</span>}{session.parentID && <span>{t("project_browser.branch")}</span>}</span></span>
+              <SessionOverviewIndicators sessionId={session.id} status={props.statuses?.[session.id]} />
               <ArrowUpRight className="hidden size-4 shrink-0 text-muted-foreground @min-[600px]/sessions:block" />
             </button>
             <Button variant="ghost" size="icon-sm" className={cn("shrink-0 text-muted-foreground", !pinned && "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100")} aria-label={t(pinned ? "project_browser.unpin" : "project_browser.pin", { name: title })} aria-pressed={pinned} onClick={() => togglePin(session.id)}><Pin className={cn("size-3.5", pinned && "fill-current")} /></Button>
