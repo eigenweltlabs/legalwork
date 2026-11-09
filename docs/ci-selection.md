@@ -12,7 +12,9 @@ use their existing scopes.
   back to the owning package's portable suite. Shared types select their consumers.
 - A changed real-engine fixture or its matching implementation selects focused
   tests on Linux. The runner prepares the reviewed host engine, verifies its
-  provenance on cache hits and compiles that host on a miss. The full engine suite
+  provenance on cache hits and compiles that host on a miss. Dev warms the
+  Linux host cache when its inputs change so PRs can restore it from their base.
+  Desktop unit tests use the same verified selector. The full engine suite
   runs for changes to distribution, engine lifecycle, transport or pinned SDK inputs.
 - Shared VM and isolation changes select the native matrix. Host-specific edits
   select that platform. Ordinary sandbox service changes use Linux x64.

@@ -421,6 +421,9 @@ jobs:
           pnpm --filter legalwork-server build
           node apps/desktop/scripts/check-plugin-bundles.mjs apps/server/dist/opencode-plugins
           node scripts/ci/affected-tests.mjs server
+      - name: Prepare the reviewed engine selection for desktop runtime fixtures
+        if: matrix.area == 'desktop'
+        uses: ./.github/actions/setup-merge-engine
       - if: matrix.area == 'desktop'
         run: |
           node apps/desktop/scripts/prepare-node-runtime.mjs
