@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { createJSONStorage, persist } from "zustand/middleware";
+import { createJSONStorage, persist, type StateStorage } from "zustand/middleware";
 import type { SessionInboxEntry } from "@legalwork/types/scheduled-tasks";
 import { useSessionManagementStore } from "./session-management-store";
 
@@ -30,7 +30,7 @@ export function runningWorkspace(state: Pick<InboxState, "entries">, workspaceId
   return Object.values(state.entries).some(entry => entry.workspaceId === workspaceId && (entry.status === "busy" || entry.status === "retry"));
 }
 
-export const useSessionInboxStore = create<InboxState & {
+export const createSessionInboxStore = (storage: () => StateStorage = () => localStorage) => create<InboxState & {
   receive: (sessions: SessionInboxEntry[], now?: number) => string[];
   open: (sessionId: string | null, workspaceId?: string | null) => void;
 }>()(persist((set, get) => ({
@@ -70,6 +70,8 @@ export const useSessionInboxStore = create<InboxState & {
     return { openSessionId: sessionId, openWorkspaceId: sessionId ? workspaceId : null, readAt };
   }),
 }), {
-  name: "legalwork.react.sessionInbox", storage: createJSONStorage(() => localStorage),
+  name: "legalwork.react.sessionInbox", storage: createJSONStorage(storage),
   partialize: ({ entries, readAt, pinnedRunIds, trackingStartedAt }) => ({ entries, readAt, pinnedRunIds, trackingStartedAt }),
 }));
+
+export const useSessionInboxStore = createSessionInboxStore();

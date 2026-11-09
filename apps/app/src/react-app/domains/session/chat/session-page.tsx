@@ -31,9 +31,9 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { ArrowLeft, ArrowRight, Columns2, Folder, MessageSquare, PanelsTopLeft, Plus, Settings2, X, Zap } from "lucide-react";
 
 import { t } from "../../../../i18n";
+import { ReconnectNotice, type ReconnectNoticeProps } from "@/components/chat/reconnect-notice";
 import {
   type LegalworkServerClient,
-  type LegalworkServerStatus,
   type LegalworkWorkspaceDirectoryEntry,
   type LegalMemoryTreeFile,
 } from "../../../../app/lib/legalwork-server";
@@ -79,7 +79,6 @@ import {
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
-import { StatusBar, type StatusBarProps } from "./status-bar";
 import { OwDotTicker } from "../../../shell/dot-ticker";
 import { NotificationBell } from "../../../shell/notification-center";
 import { useReactRenderWatchdog } from "../../../shell/react-render-watchdog";
@@ -99,6 +98,7 @@ import type { OpenTargetOptions } from "@/lib/target-provider";
 import { SidePanel } from "../panel/side-panel";
 import { DocumentPane } from "../panel/document-pane";
 import { WorkspaceChat } from "./workspace-chat";
+import { DisconnectedChat } from "./disconnected-chat";
 import { isAssistantConversation } from "./assistant-conversation";
 import { subagentTabLifecycle } from "../panel/subagent-tab-lifecycle";
 import { useSessionActivityStore } from "../status/session-activity-store";
@@ -144,13 +144,6 @@ export type OpenSessionTab = {
   workspaceId: string;
   sessionId: string;
 };
-
-type StatusBarOverrides = Pick<
-  StatusBarProps,
-  | "loading"
-  | "showSettingsButton"
-  | "settingsOpen"
->;
 
 export type SessionPageHistoryControls = {
   canUndo: boolean;
@@ -230,7 +223,6 @@ export type SessionPageProps = {
   opencodeBaseUrl?: string | null;
   workspaces: WorkspaceInfo[];
   clientConnected: boolean;
-  legalworkServerStatus: LegalworkServerStatus;
   legalworkServerClient: LegalworkServerClient | null;
   environmentClient?: LegalworkServerClient | null;
   legalworkServerToken?: string | null;
@@ -243,8 +235,8 @@ export type SessionPageProps = {
   /** Connected providers that can actually serve a model right now. */
   providerConnectedCount?: number;
   providers?: ProviderListItem[];
-  mcpConnectedCount: number;
   onOpenSettings: () => void;
+  reconnect?: Omit<ReconnectNoticeProps, "error"> & { error: string | null };
   sidebar: SessionPageSidebarProps;
   surface?: SessionPageSurfaceProps | null;
   history?: SessionPageHistoryControls | null;
@@ -264,7 +256,6 @@ export type SessionPageProps = {
   questionReplyBusy?: boolean;
   respondQuestion?: (requestID: string, answers: string[][]) => void;
   onOpenInteractionSession?: (sessionId: string) => void;
-  statusBar?: Partial<StatusBarOverrides>;
   notFoundMessage?: string | null;
   onOpenProviderAuth?: () => void;
   onRenameSession?: (sessionId: string, title: string) => Promise<void> | void;
@@ -854,8 +845,8 @@ export function SessionPage(props: SessionPageProps) {
   const previousRouteChat = useRef<string | null>(props.sidebar.activeNav === "wikis" ? `${panelStateSessionId}:${props.selectedSessionId}` : null);
   const closingSubagent = useRef<string | null>(null);
   const selectedSessionTitle = useMemo(
-    () => isAssistantChat(props.selectedSessionId) ? props.sidebar.assistantProfile?.name ?? t("assistant.title") : sessionInfo(props.selectedSessionId)?.title ?? sessionTitleForId(props.sidebar.workspaceSessionGroups, props.selectedSessionId),
-    [props.selectedSessionId, props.sidebar.workspaceSessionGroups, isAssistantChat, sessionInfo, props.sidebar.assistantProfile?.name],
+    () => isAssistantChat(props.selectedSessionId) ? props.sidebar.assistantProfile?.name ?? t("assistant.title") : sessionInfo(props.selectedSessionId)?.title ?? workspacePanel.tabs.find(tab => tab.type === "chat" && tab.sessionId === props.selectedSessionId)?.label ?? sessionTitleForId(props.sidebar.workspaceSessionGroups, props.selectedSessionId),
+    [props.selectedSessionId, props.sidebar.workspaceSessionGroups, isAssistantChat, sessionInfo, props.sidebar.assistantProfile?.name, workspacePanel.tabs],
   );
   useEffect(() => {
     if (!assistantWorkspace) return;
@@ -936,7 +927,8 @@ export function SessionPage(props: SessionPageProps) {
     selectedWorkspaceGroupError ||
     "";
   const showSelectedWorkspaceError = Boolean(selectedWorkspaceErrorMessage);
-  const workspaceErrorNotice = showSelectedWorkspaceError ? (
+  const reconnectNotice = props.reconnect?.error ? <ReconnectNotice error={props.reconnect.error} pending={props.reconnect.pending} onRetry={props.reconnect.onRetry} /> : null;
+  const workspaceErrorNotice = !reconnectNotice && showSelectedWorkspaceError ? (
     <div role="alert" className="mx-6 mt-4 shrink-0 rounded-xl border border-red-7/35 bg-red-1/40 p-4 text-sm text-red-11">
       <p className="whitespace-pre-wrap wrap-anywhere">{selectedWorkspaceErrorMessage}</p>
     </div>
@@ -956,7 +948,7 @@ export function SessionPage(props: SessionPageProps) {
       reactSessionToken &&
       props.surface,
   );
-  const canRenderWorkspace = canRenderReactSurface || Boolean(props.legalworkServerClient && props.runtimeWorkspaceId);
+  const canRenderWorkspace = canRenderReactSurface || Boolean(props.legalworkServerClient && props.runtimeWorkspaceId) || workspacePanel.tabs.length > 0;
   // The chat owns snapshot loading once its endpoint is ready. Background
   // workspace refreshes must not unmount an already-visible conversation.
   const showSessionLoadingState = !canRenderReactSurface &&
@@ -1269,6 +1261,7 @@ export function SessionPage(props: SessionPageProps) {
           projectFilesOpen={!hasMainView && fileSidebar === "files"}
           activeProjectView={props.projectPage ?? (hasMainView ? null : "workspace")}
           onOpenNavWindow={isElectronRuntime() ? openNavWindow : undefined}
+          onOpenSettings={props.onOpenSettings}
           onOpenProjectFiles={workspaceId => {
             void Promise.resolve(props.sidebar.onSelectWorkspace(workspaceId, { navigate: false })).then(ok => { if (ok !== false) navigate(workspaceViewRoute(workspaceId, "files")); });
           }}
@@ -1323,30 +1316,16 @@ export function SessionPage(props: SessionPageProps) {
           onStartResize={startLeftSidebarResize}
         />
         {hasMainView ? (
-          // Top-level pages (Evals / Skills / Integrations): keep the app chrome the
-          // chat has — the draggable top header and the bottom StatusBar (with the
-          // settings gear) — and swap only the center content.
+          // Top-level pages keep the same header and navigation as chats.
           <SidebarInset className="lw-session-workspace min-h-0 overflow-hidden">
             <div className="flex min-h-0 flex-1">
             <ResizablePanelGroup orientation="horizontal" className={cn("lw-workspace-surface min-h-0 flex-1", workflowFocusMode && "!grid !grid-cols-1")}>
               <ResizablePanel id="session-content" minSize={workflowFocusMode ? "0px" : workflowsPage ? "280px" : "360px"} className={cn("min-w-0", workflowFocusMode && "hidden")}>
             <main className="flex h-full min-w-0 flex-1 flex-col overflow-hidden">
+              {reconnectNotice}
               {workspaceErrorNotice}
               {props.legalworkServerClient && props.runtimeWorkspaceId ? <EngineProjectRecovery client={props.legalworkServerClient} workspaceId={props.runtimeWorkspaceId} /> : null}
               <div className={cn("flex min-h-0 flex-1 flex-col overflow-hidden", props.projectPage && "@container/project-page")}>{props.projectPage ? <div ref={setOverviewHost} className="h-full min-h-0" /> : workflowsPage ? <div ref={setWorkflowLibraryHost} className="h-full min-h-0" /> : mainView}</div>
-              {shellConfig.statusBar ? (
-                <StatusBar
-                  clientConnected={props.clientConnected}
-                  legalworkServerStatus={props.legalworkServerStatus}
-                  developerMode={props.developerMode}
-                  settingsOpen={props.statusBar?.settingsOpen ?? false}
-                  onOpenSettings={props.onOpenSettings}
-                  providerConnectedIds={props.providerConnectedIds}
-                  mcpConnectedCount={props.mcpConnectedCount}
-                  loading={props.statusBar?.loading ?? false}
-                  showSettingsButton={props.statusBar?.showSettingsButton}
-                />
-              ) : null}
             </main>
               </ResizablePanel>
               {sidePanelOpen ? (
@@ -1424,6 +1403,7 @@ export function SessionPage(props: SessionPageProps) {
             </> : null}
             <ResizablePanel id="session-content" minSize="360px" className="min-w-0">
               <main className="flex h-full min-w-0 flex-col overflow-hidden border-r border-border">
+                {!canRenderWorkspace && reconnectNotice}
                 {props.legalworkServerClient && props.runtimeWorkspaceId ? <EngineProjectRecovery client={props.legalworkServerClient} workspaceId={props.runtimeWorkspaceId} /> : null}
 
           <ResizablePanelGroup orientation="vertical" className="min-h-0 flex-1 overflow-hidden">
@@ -1522,9 +1502,7 @@ export function SessionPage(props: SessionPageProps) {
                       </div>
                     </div>
                   ) : props.selectedSessionId ? (
-                    <div className="px-6 py-16 text-center text-sm text-dls-secondary">
-                      {t("session.loading_detail")}
-                    </div>
+                    <DisconnectedChat workspaceId={props.selectedWorkspaceId} sessionId={props.selectedSessionId} />
                   ) : (
                     <WelcomeSurface replayKey={props.selectedWorkspaceId}>
                       <TaskSuggestionCards
@@ -1555,20 +1533,6 @@ export function SessionPage(props: SessionPageProps) {
               </>
             ) : null}
           </ResizablePanelGroup>
-
-          {shellConfig.statusBar ? (
-            <StatusBar
-              clientConnected={props.clientConnected}
-              legalworkServerStatus={props.legalworkServerStatus}
-              developerMode={props.developerMode}
-              settingsOpen={props.statusBar?.settingsOpen ?? false}
-              onOpenSettings={props.onOpenSettings}
-              providerConnectedIds={props.providerConnectedIds}
-              mcpConnectedCount={props.mcpConnectedCount}
-              loading={props.statusBar?.loading ?? false}
-              showSettingsButton={props.statusBar?.showSettingsButton}
-            />
-          ) : null}
               </main>
             </ResizablePanel>
           {fileSidebars}
@@ -1621,9 +1585,10 @@ export function SessionPage(props: SessionPageProps) {
             } : undefined}
             key={workspaceScope}
             sessionId={workspaceScope}
+            notice={reconnectNotice}
             controlSessionIds={controlSessionIds}
             client={props.legalworkServerClient}
-            workspaceId={props.runtimeWorkspaceId}
+            workspaceId={props.runtimeWorkspaceId ?? props.selectedWorkspaceId}
             workspaceRoot={props.selectedWorkspaceRoot}
             isRemoteWorkspace={props.surface?.isRemoteWorkspace ?? false}
             projects={props.workspaces.map(workspace => ({ id: workspace.id, name: workspace.displayName || workspace.name || workspace.id }))}
@@ -1644,12 +1609,12 @@ export function SessionPage(props: SessionPageProps) {
                 openSessionTab(props.selectedWorkspaceId, id);
               }
             }}
-            onNewChat={assistantWorkspace ? undefined : pane => { void props.sidebar.onCreateChatInWorkspace(props.selectedWorkspaceId, { paneId: pane }); }}
+            onNewChat={assistantWorkspace || !props.legalworkServerClient || !props.runtimeWorkspaceId ? undefined : pane => { void props.sidebar.onCreateChatInWorkspace(props.selectedWorkspaceId, { paneId: pane }); }}
             onFocusChat={id => openSessionTab(props.selectedWorkspaceId, id)}
             onCloseChat={(id, nextId) => {
               if (id === props.selectedSessionId) navigate(wikiWorkspace ? wikiWorkspaceRoute(props.selectedWorkspaceId, nextId) : workspaceSessionRoute(props.selectedWorkspaceId, nextId) + (nextId ? "" : "?view=workspace"), { replace: true });
             }}
-            renderChat={(sessionId, active) => props.surface ? <WorkspaceChat
+            renderChat={(sessionId, active) => props.surface && props.legalworkServerClient && props.runtimeWorkspaceId && reactSessionBaseUrl && reactSessionToken ? <WorkspaceChat
               {...props.surface!}
               assistantDate={isAssistantChat(sessionId) ? props.sidebar.assistantDay?.date : undefined}
               assistantOnboarding={isAssistantChat(sessionId) ? props.surface.assistantOnboarding : undefined}
@@ -1668,7 +1633,7 @@ export function SessionPage(props: SessionPageProps) {
               realtimeVoiceSupported={active && realtimeVoiceSupported}
               realtimeVoiceActive={active && voiceSidePanelOpen}
               onRealtimeVoiceActiveChange={active => active ? setCurrentSidePanel("voice") : closeVoicePanel()}
-            /> : <div className="p-6 text-muted-foreground">{t("session.loading_detail")}</div>}
+            /> : <DisconnectedChat workspaceId={props.runtimeWorkspaceId ?? props.selectedWorkspaceId} sessionId={sessionId} />}
           />
         </ControlActionScope>
       </DocumentPane>}

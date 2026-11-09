@@ -51,8 +51,6 @@ export type ShellConfig = {
   sidebarBrandName: string;
   /** Optional user-uploaded brand logo (data URL) for the left sidebar. */
   sidebarBrandLogoDataUrl: string;
-  /** Show the bottom status bar (connection status, docs, feedback). */
-  statusBar: boolean;
   /** Show the left sidebar with workspace/session list. */
   sidebar: boolean;
   /** Show the Cloud sign-in button when not signed in. */
@@ -108,7 +106,6 @@ export const DEFAULT_SHELL_CONFIG: ShellConfig = {
   appName: "LegalWork",
   sidebarBrandName: "LegalWork",
   sidebarBrandLogoDataUrl: "",
-  statusBar: true,
   sidebar: true,
   cloudSignin: true,
   welcomePage: true,
