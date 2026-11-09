@@ -483,8 +483,8 @@ jobs:
         if: runner.os == 'Linux'
         working-directory: apps/desktop
         run: |
-          sandbox=/opt/google/chrome/chrome-sandbox
-          test "$(stat -Lc '%u:%a' "$sandbox")" = '0:4755'
+          sandbox="$RUNNER_TEMP/chromium-sandbox"
+          sudo install -o root -g root -m 4755 /opt/google/chrome/chrome-sandbox "$sandbox"
           electron=$(node -p "require('electron')")
           ln -sf "$sandbox" "$(dirname "$electron")/chrome-sandbox"
       - name: Run selected Chromium fixtures
