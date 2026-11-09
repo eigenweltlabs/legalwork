@@ -107,6 +107,10 @@ try {
   await key("Search Clients…", "Enter", true);
   assert.equal(savedFields[0].value, "Keep me");
   assert.equal(savedFields.find(field => field.id === "client_2")?.type, "backoffice");
+  await click("Add Client");
+  await type("Search Clients…", "ABC"); await key("Search Clients…", "Enter");
+  await key("Search Clients…", "Enter", true);
+  assert.ok(!document.body.textContent?.includes("Clients from linked matters"), "Directly linked clients do not get a duplicate inherited section");
 
   await click(t("projects.more_fields"));
   await type(t("projects.more_search"), "Witnesses");
@@ -127,6 +131,8 @@ try {
   assert.ok(!document.body.textContent?.includes("Witnesses"), "Last removal hides the empty row");
   assert.equal(savedFields.find(field => field.id === "people")?.value, null, "The field definition remains");
   assert.ok(store.records("local", actor, "people").some(record => record.id === bob.id), "Unlinking does not delete the Back Office record");
+  await click(t("projects.remove_reference", { name: "ABC GmbH", field: "Clients" }));
+  assert.ok(document.body.textContent?.includes("Clients from linked matters"), "Removing the direct link reveals the remaining matter relationship");
 
   const model = store.model("local"), object = model.objects.find(object => object.id === "matters"); assert.ok(object);
   store.saveModel("local", actor, { ...model, objects: model.objects.map(item => item.id === "matters" ? { ...item, quickCreateFields: ["subject"] } : item) }, model.revision);

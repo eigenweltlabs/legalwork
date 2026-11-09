@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { CalendarDays, Hash, ListFilter, MoreHorizontal, Plus, Type } from "lucide-react";
+import { CalendarDays, ChevronDown, Hash, ListFilter, Plus, Type } from "lucide-react";
 import type { BackOfficeObject } from "@legalwork/types/back-office";
 import type { ProjectField } from "@legalwork/types/workspace";
 import { Button } from "@/components/ui/button";
@@ -23,7 +23,7 @@ export function ProjectMoreFields({ fields, objects, primaryIds, disabled, onCho
   const icons = { text: Type, number: Hash, date: CalendarDays, select: ListFilter };
   const choose = (field: ProjectField) => { setOpen(false); onChoose(field); };
   return <Popover open={open} onOpenChange={value => { setOpen(value); if (!value) setQuery(""); }}>
-    <PopoverTrigger render={<Button type="button" variant="outline" size="sm" disabled={disabled} />}><MoreHorizontal className="size-3.5" />{t("projects.more_fields")}</PopoverTrigger>
+    <PopoverTrigger render={<Button type="button" variant="outline" size="sm" disabled={disabled} />}>{t("projects.more_fields")}<ChevronDown className="size-3.5" /></PopoverTrigger>
     <PopoverContent align="start" className="w-[min(360px,calc(100vw-32px))] p-2" onKeyDown={event => event.stopPropagation()}>
       <Command filter={null} value={query} onValueChange={(value, details) => { if (details.reason !== "item-press") setQuery(value); }}>
         <CommandInput aria-label={t("projects.more_search")} placeholder={t("projects.more_search")} />
@@ -35,7 +35,7 @@ export function ProjectMoreFields({ fields, objects, primaryIds, disabled, onCho
             </CommandItem>;
           })}
           {extraObjects.filter(object => matches(object.plural)).map(object => <CommandItem key={object.id} value={`object:${object.id}`} className="gap-2 rounded-md px-2" disabled={fields.length >= 50 && !fields.some(field => field.id === projectConnectionField(fields, object.id, object.plural).id)} onClick={() => choose(projectConnectionField(fields, object.id, object.plural))}>
-            <ObjectIcon id={object.id} size={14} />{t("projects.connections.add_record", { name: object.label })}
+            <ObjectIcon id={object.id} size={14} />{object.plural}
           </CommandItem>)}
           <CommandItem value="new-project-field" className="gap-2 rounded-md border-t px-2" disabled={fields.length >= 50} onClick={() => { setOpen(false); onNew(); }}><Plus className="size-3.5" />{t("projects.new_field")}</CommandItem>
         </CommandList>

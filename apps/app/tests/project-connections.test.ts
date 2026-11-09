@@ -38,3 +38,17 @@ test("inherited clients retain source matters, deduplicate and do not cross dire
   expect(clientsFromProjectMatters([field], undefined, records)).toEqual([]);
   expect(clientsFromProjectMatters([field], "firm-a", records.map(row => row.id === client.id ? { ...row, archivedAt: "2026-11-09T12:00:00Z" } : row))).toEqual([]);
 });
+
+test("inherited clients omit direct project links but keep additional clients and foreign-directory distinctions", () => {
+  const direct = record("clients", "ABC"), additional = record("clients", "DEF");
+  const matter = record("matters", "Acquisition", { clients: [direct.id, additional.id] });
+  const records = [direct, additional, matter];
+  const source: ProjectField = { id: "matter", label: "Matters", type: "backoffice", objectId: "matters", multiple: true,
+    value: { directoryId: "firm-a", recordIds: [matter.id] } };
+  const assigned: ProjectField = { id: "client", label: "Clients", type: "backoffice", objectId: "clients", multiple: true,
+    value: { directoryId: "firm-a", recordIds: [direct.id] } };
+  expect(clientsFromProjectMatters([source, assigned], "firm-a", records)).toEqual([{ client: additional, matters: [matter] }]);
+  expect(clientsFromProjectMatters([source, { ...assigned, value: { directoryId: "firm-a", recordIds: [direct.id, additional.id] } }], "firm-a", records)).toEqual([]);
+  expect(clientsFromProjectMatters([source, { ...assigned, value: { directoryId: "firm-b", recordIds: [direct.id] } }], "firm-a", records)).toHaveLength(2);
+  expect(clientsFromProjectMatters([source, { ...assigned, value: null }], "firm-a", records)).toHaveLength(2);
+});

@@ -2091,7 +2091,7 @@ export default {
   "projects.create_description": "Keep the documents, tasks and sessions for a project together.",
   "projects.matters.label": "Matters",
   "projects.advanced": "Advanced",
-  "projects.more_fields": "More…",
+  "projects.more_fields": "More",
   "projects.more_search": "Find fields or record types…",
   "projects.new_field": "New project field…",
   "projects.field_value": "Value",

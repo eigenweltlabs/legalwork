@@ -2094,7 +2094,7 @@ const de = {
   "projects.create_description": "Dokumente, Aufgaben und Sessions eines Projekts an einem Ort.",
   "projects.matters.label": "Mandate",
   "projects.advanced": "Erweitert",
-  "projects.more_fields": "Weitere …",
+  "projects.more_fields": "Weitere",
   "projects.more_search": "Felder oder Datensatztypen suchen …",
   "projects.new_field": "Neues Projektfeld …",
   "projects.field_value": "Wert",
