@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, randomUUID, type Hash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { lstat, mkdir, readFile, readdir, readlink, realpath, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -12,11 +12,12 @@ import type { ServerConfig, WorkspaceInfo } from "./types.js";
 import { projectPathKey } from "./workspace-path-match.js";
 import { migrationWork, updateMigrationProgress } from "./migration-progress.js";
 import { copyProjectSupport } from "./project-storage-copy.js";
+import { excludeProjectSupport, projectStorageExclusionsVersion } from "./project-storage-exclusions.js";
 
 export { workspaceContentPath, workspaceFileRoot };
 const folders = [".opencode", ".legalwork"];
 const missing = (error: unknown) => error instanceof Error && "code" in error && error.code === "ENOENT";
-const receiptSchema = z.object({ version: z.literal(1), id: z.string(), source: z.string(), sourceAliases: z.array(z.string()).optional(), fingerprints: z.record(z.string(), z.string()), copiedFingerprints: z.record(z.string(), z.string()).optional(), published: z.boolean().optional(), complete: z.boolean(), referencesComplete: z.boolean().optional(), cleanupComplete: z.boolean().optional() });
+const receiptSchema = z.object({ version: z.literal(1), exclusionsVersion: z.literal(projectStorageExclusionsVersion).optional(), id: z.string(), source: z.string(), sourceAliases: z.array(z.string()).optional(), fingerprints: z.record(z.string(), z.string()), copiedFingerprints: z.record(z.string(), z.string()).optional(), published: z.boolean().optional(), complete: z.boolean(), referencesComplete: z.boolean().optional(), cleanupComplete: z.boolean().optional() });
 const receiptPath = (root: string) => join(root, ".project-storage-migration.json");
 
 /** Independently local project data; never derive this from Documents. */
@@ -38,18 +39,26 @@ export function projectHome(config: Pick<ServerConfig, "projectsDirectory">, id:
   return join(config.projectsDirectory || localProjectsDirectory(), id);
 }
 
-async function fingerprint(root: string, observed?: (bytes: number, files: number) => void): Promise<string> {
+type LinkComparison = { hash: Hash; normalize: (path: string, link: string) => string };
+async function fingerprint(root: string, observed?: (bytes: number, files: number) => void, comparison?: LinkComparison): Promise<string> {
   const hash = createHash("sha256");
+  const update = (data: string | Uint8Array) => { hash.update(data); comparison?.hash.update(data); };
   async function walk(path: string, name: string): Promise<void> {
     const info = await lstat(path);
-    hash.update(JSON.stringify([name, info.mode]));
-    if (info.isSymbolicLink()) { hash.update("link:").update(await readlink(path)); observed?.(0, 1); return; }
+    if (await excludeProjectSupport(path, info)) return;
+    update(JSON.stringify([name, info.mode]));
+    if (info.isSymbolicLink()) {
+      const link = await readlink(path);
+      hash.update("link:").update(link);
+      comparison?.hash.update("link:").update(comparison.normalize(path, link));
+      observed?.(0, 1); return;
+    }
     if (info.isDirectory()) {
-      hash.update("directory:");
+      update("directory:");
       for (const entry of (await readdir(path)).sort()) await walk(join(path, entry), `${name}/${entry}`);
     } else if (info.isFile()) {
-      hash.update(`file:${info.size}:`);
-      for await (const chunk of createReadStream(path)) { hash.update(chunk); observed?.(chunk.length, 0); }
+      update(`file:${info.size}:`);
+      for await (const chunk of createReadStream(path)) { update(chunk); observed?.(chunk.length, 0); }
       observed?.(0, 1);
     } else throw new Error("Project support data contains an unsupported special file; the original was preserved.");
   }
@@ -58,10 +67,10 @@ async function fingerprint(root: string, observed?: (bytes: number, files: numbe
   return hash.digest("hex");
 }
 
-async function observedFingerprint(config: ServerConfig | undefined, root: string, phase: "inspecting" | "verifying" | "backup", total?: number) {
+async function observedFingerprint(config: ServerConfig | undefined, root: string, phase: "inspecting" | "verifying" | "backup", total?: number, comparison?: LinkComparison) {
   let bytes = 0, files = 0;
   const work = migrationWork(config, phase, "bytes", total);
-  const hash = await fingerprint(root, (read, copied) => { bytes += read; files += copied; work.advance(read); });
+  const hash = await fingerprint(root, (read, copied) => { bytes += read; files += copied; work.advance(read); }, comparison);
   work.finish();
   return { hash, bytes, files };
 }
@@ -69,6 +78,7 @@ async function observedFingerprint(config: ServerConfig | undefined, root: strin
 async function relocateSupportLinks(staging: string, source: string, target: string): Promise<void> {
   async function walk(path: string) {
     const info = await lstat(path);
+    if (await excludeProjectSupport(path, info)) return;
     if (info.isSymbolicLink()) {
       const originalPath = join(source, relative(staging, path));
       const destination = resolve(dirname(originalPath), await readlink(path));
@@ -86,6 +96,32 @@ async function saveReceipt(root: string, receipt: z.infer<typeof receiptSchema>)
   const temporary = `${receiptPath(root)}.${randomUUID()}.tmp`;
   try { await writeFile(temporary, JSON.stringify(receipt), { mode: 0o600 }); await rename(temporary, receiptPath(root)); }
   finally { await rm(temporary, { force: true }); }
+}
+
+/** Older unpublished copies have full-tree hashes. Adopt filtered hashes only
+ * after comparing all retained bytes/modes and equivalent relocated links.
+ * Excluded payloads are never read or removed, including in the old copy. */
+async function upgradePreparedReceipt(target: string, receipt: z.infer<typeof receiptSchema>, progress?: ServerConfig) {
+  if (receipt.exclusionsVersion || receipt.complete || receipt.published) return receipt;
+  const fingerprints: Record<string, string> = {}, copiedFingerprints: Record<string, string> = {};
+  for (const folder of folders) {
+    const primary = join(receipt.source, folder);
+    const original = await lstat(primary).then(() => primary, error => { if (missing(error)) return `${primary}.legalwork-migrated`; throw error; });
+    const destination = join(target, folder);
+    const compare = (root: string): LinkComparison => ({ hash: createHash("sha256"), normalize(path, link) {
+      const logicalPath = join(primary, relative(root, path));
+      const resolved = resolve(dirname(logicalPath), link), suffix = relative(target, resolved);
+      return !isAbsolute(suffix) && suffix !== ".." && !suffix.startsWith(`..${sep}`) ? join(receipt.source, suffix) : resolved;
+    } });
+    const sourceComparison = compare(original), targetComparison = compare(destination);
+    const before = await observedFingerprint(progress, original, "verifying", undefined, sourceComparison);
+    const copied = await observedFingerprint(progress, destination, "verifying", before.bytes, targetComparison);
+    if (sourceComparison.hash.digest("hex") !== targetComparison.hash.digest("hex")) throw new Error("Project support data diverged from its prepared migration copy. Both versions were preserved; resolve the conflict before retrying.");
+    fingerprints[folder] = before.hash; copiedFingerprints[folder] = copied.hash;
+  }
+  const upgraded: z.infer<typeof receiptSchema> = { ...receipt, exclusionsVersion: projectStorageExclusionsVersion, fingerprints, copiedFingerprints };
+  await saveReceipt(target, upgraded);
+  return upgraded;
 }
 
 async function verifyPreparedProject(target: string, receipt: z.infer<typeof receiptSchema>, progress?: ServerConfig) {
@@ -126,6 +162,7 @@ export async function prepareLocalProject(config: ServerConfig, workspace: Works
     if (receipt) {
       // A prepared copy is not the active project yet. Another installation or
       // the old app may have changed its source while this process was stopped.
+      receipt = await upgradePreparedReceipt(target, receipt, progress);
       await verifyPreparedProject(target, receipt, progress);
     }
     if (!receipt) {
@@ -158,7 +195,7 @@ export async function prepareLocalProject(config: ServerConfig, workspace: Works
         const copiedFingerprints = Object.fromEntries(await Promise.all(folders.map(async folder => [folder,
           await fingerprint(join(staging, folder), bytes => verifying.advance(bytes))])));
         verifying.finish();
-        receipt = { version: 1, id: workspace.id, source, sourceAliases: [...new Set([source, resolve(workspace.path)])], fingerprints, copiedFingerprints, complete: false };
+        receipt = { version: 1, exclusionsVersion: projectStorageExclusionsVersion, id: workspace.id, source, sourceAliases: [...new Set([source, resolve(workspace.path)])], fingerprints, copiedFingerprints, complete: false };
         await saveReceipt(staging, receipt);
         await rename(staging, target);
       } finally { await rm(staging, { recursive: true, force: true }); }
@@ -175,6 +212,7 @@ export async function recoverLocalProject(config: Pick<ServerConfig, "projectsDi
   catch (error) { if (missing(error)) return; throw error; }
   if (receipt.id !== workspace.id || !isAbsolute(receipt.source) || resolve(receipt.source) === resolve(target)) throw new Error("The saved project home has invalid ownership metadata.");
   if (!receipt.complete && !receipt.published && resolve(workspace.path) !== resolve(target)) return;
+  receipt = await upgradePreparedReceipt(target, receipt);
   await verifyPreparedProject(target, receipt);
   return { ...workspace, path: target, directory: target, contentPath: receipt.source, previousPath: receipt.source };
 }
@@ -303,6 +341,10 @@ async function cleanupLocalProject(workspace: WorkspaceInfo, progress?: ServerCo
   const receipt = receiptSchema.parse(JSON.parse(await readFile(receiptPath(workspace.path), "utf8")));
   if (!receipt.complete || receipt.cleanupComplete) return;
   if (receipt.id !== workspace.id || receipt.source !== workspace.previousPath) throw new Error("Project migration ownership is invalid.");
+  // A published v1 tree can already contain new work. Its original full-tree
+  // hash cannot be converted without reading omitted data; keep that original
+  // recovery tree untouched instead of weakening its ownership/hash guard.
+  if (!receipt.exclusionsVersion) return;
   // An unavailable mount must never be mistaken for an empty project.
   await realpath(receipt.source);
   for (const folder of folders) {

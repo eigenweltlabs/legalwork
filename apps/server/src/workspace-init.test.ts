@@ -1,10 +1,11 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import { mkdtemp, readFile, rm, writeFile, mkdir, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 import { ensureWorkspaceFiles, ensureCoreOpencodeFiles } from "./workspace-init.js";
 import { legalworkExtensionsPreviewPluginPath, legalworkPluginPath } from "./legalwork-extensions-plugin-path.js";
+import * as availability from "./project-availability.js";
 
 async function withWorkspace(fn: (root: string) => Promise<void>) {
   const root = await mkdtemp(join(tmpdir(), "legalwork-workspace-init-"));
@@ -16,6 +17,17 @@ async function withWorkspace(fn: (root: string) => Promise<void>) {
 }
 
 describe("ensureWorkspaceFiles", () => {
+  test("legacy migration initialization avoids pinning the whole support tree", async () => {
+    const pin = spyOn(availability, "keepProjectStateDownloaded").mockResolvedValue();
+    try {
+      await withWorkspace(async root => {
+        await ensureWorkspaceFiles(root, "starter", { skipCloudPin: true });
+        expect(pin).not.toHaveBeenCalled();
+        await ensureWorkspaceFiles(root, "starter");
+        expect(pin).toHaveBeenCalledWith(root);
+      });
+    } finally { pin.mockRestore(); }
+  });
   test("managed projects keep metadata without seeding or overwriting bundled capability copies", async () => {
     await withWorkspace(async root => {
       await ensureWorkspaceFiles(root, "starter");

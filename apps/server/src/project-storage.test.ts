@@ -1,7 +1,8 @@
 import { afterEach, expect, test } from "bun:test";
-import { chmod, mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, utimes, writeFile } from "node:fs/promises";
+import { spawnSync } from "node:child_process";
+import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { completeProjectMigrationProgress, finishLocalProject, localProjectMigrationPending, markLocalProjectPublished, prepareLocalProject, prepareLocalProjects, projectFilePermissionRules, workspaceFileRoot } from "./project-storage.js";
 import { engineProjectStatus, writeNativeProjectProjection } from "./engine-project.js";
 import { readLegalworkWorkspaceConfig } from "./legalwork-workspace-config-store.js";
@@ -32,6 +33,119 @@ async function fixture() {
   };
   return { root, source, config, original: config.workspaces[0]! };
 }
+
+test("migration prunes dependencies and caches before reading them, including recovery backups and progress", async () => {
+  const f = await fixture();
+  const omitted = [
+    ".opencode/node_modules", ".legalwork/scratch/node_modules", ".legalwork/scratch/.pnpm-store",
+    ".legalwork/scratch/python-env", ".legalwork/scratch/.venv", ".legalwork/scratch/venv",
+    ...["__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".turbo", ".parcel-cache", ".vite"].map(name => `.legalwork/scratch/${name}`),
+    ".legalwork/scratch/.npm/_cacache", ".legalwork/scratch/.yarn/cache", ".legalwork/scratch/.next/cache", ".legalwork/scratch/.cache/uv",
+    ...["pip-cache", ".cache/pip"].flatMap(parent => ["http", "http-v2", "wheels", "selfcheck"].map(name => `.legalwork/scratch/${parent}/${name}`)),
+    ...["chrome-profile", "browser-profile/Default"].flatMap(parent => ["Cache", "Code Cache", "GPUCache", "GPUPersistentCache", "ShaderCache", "GrShaderCache", "DawnCache", "DawnGraphiteCache", "GraphiteDawnCache", "component_crx_cache"].map(name => `.legalwork/scratch/${parent}/${name}`)),
+  ];
+  for (const path of omitted) {
+    await mkdir(join(f.source, path), { recursive: true });
+    await writeFile(join(f.source, path, "installed.bin"), Buffer.alloc(8192, 7));
+  }
+  for (const name of ["python-env", ".venv", "venv"]) await writeFile(join(f.source, ".legalwork/scratch", name, "pyvenv.cfg"), "home = old-machine\n");
+  // A traversed FIFO would reject hashing (or block a content read). It must
+  // never be visited, even when checking originals again or making backups.
+  if (process.platform !== "win32") {
+    for (const path of [".opencode/node_modules", ".legalwork/scratch/python-env"]) {
+      expect(spawnSync("mkfifo", [join(f.source, path, "unreadable-payload")]).status).toBe(0);
+    }
+  }
+  const kept = [".opencode/package.json", ".opencode/package-lock.json", ".legalwork/.env", ".legalwork/scratch/script.py", ".legalwork/scratch/requirements.txt", ".legalwork/scratch/poetry.lock",
+    ".legalwork/downloads/file.pdf", ".legalwork/scratch/build/output.pdf", ".legalwork/scratch/dist/output.docx", ".legalwork/scratch/tmp/draft.txt", ".legalwork/scratch/vendor/library.js", ".legalwork/scratch/.git/objects/pack/history.pack",
+    ".legalwork/skills/pdf/assets/vendor/pdf.min.js", ".legalwork/scratch/chrome-profile/Default/Cookies", ".legalwork/scratch/browser-profile/Default/Preferences", ".legalwork/scratch/chrome-profile/Downloads/Cache/document.txt", ".legalwork/scratch/browser-profile/Default/Downloads/GPUCache/document.txt", ".legalwork/scratch/Cache/document.txt", ".legalwork/scratch/files/node_modules"];
+  for (const path of kept) {
+    await mkdir(dirname(join(f.source, path)), { recursive: true });
+    await writeFile(join(f.source, path), `Keep ${path}`);
+  }
+  const snapshots: MigrationProgress[] = [];
+  Object.defineProperty(f.config, "migrationProgress", { get: () => snapshots.at(-1), set: (value: MigrationProgress) => { snapshots.push(value); } });
+  f.config.projectStorageMigrating = true;
+  const local = await prepareLocalProject(f.config, f.original);
+  const copyCounts = snapshots.filter(item => item.phase === "copying" && item.work?.unit === "files" && item.work.completed === item.work.total).map(item => item.work?.total);
+  expect(copyCounts).toEqual([3, kept.length - 2 + 1]);
+  await writeFile(join(f.source, omitted[0]!, "changed.txt"), "Excluded changes do not invalidate the retained copy");
+  expect(await prepareLocalProject(f.config, f.original)).toEqual(local);
+  await finishLocalProject(local, f.config);
+  for (const root of [local.path, join(local.path, ".project-storage-backup")]) {
+    for (const path of omitted) expect(await lstat(join(root, path)).catch(() => null)).toBeNull();
+    for (const path of kept) expect(await readFile(join(root, path), "utf8")).toBe(`Keep ${path}`);
+    expect(await readFile(join(root, ".legalwork/attachments/mail.txt"), "utf8")).toBe("Retained attachment");
+    expect((await readdir(join(root, ".legalwork/scratch/python-env")).catch(() => []))).toEqual([]);
+  }
+  expect(await readFile(join(f.source, ".opencode.legalwork-migrated/node_modules/installed.bin"))).toEqual(Buffer.alloc(8192, 7));
+  expect(await readFile(join(f.source, ".legalwork.legalwork-migrated/scratch/python-env/pyvenv.cfg"), "utf8")).toBe("home = old-machine\n");
+});
+
+test("environment links are omitted without following targets and .env configuration links are retained", async () => {
+  const f = await fixture();
+  const external = join(f.root, "external-environment");
+  await mkdir(external);
+  await writeFile(join(external, "pyvenv.cfg"), "External environment");
+  for (const name of [".venv", "venv", "node_modules"]) await symlink(external, join(f.source, ".legalwork", name), process.platform === "win32" ? "junction" : "dir");
+  await writeFile(join(f.source, "config.env"), "KEY=keep");
+  await symlink("../config.env", join(f.source, ".legalwork", ".env"));
+  const local = await prepareLocalProject(f.config, f.original);
+  for (const name of [".venv", "venv", "node_modules"]) expect(await lstat(join(local.path, ".legalwork", name)).catch(() => null)).toBeNull();
+  expect(await readFile(join(local.path, ".legalwork", ".env"), "utf8")).toBe("KEY=keep");
+  expect(await readFile(join(external, "pyvenv.cfg"), "utf8")).toBe("External environment");
+});
+
+test.each([false, true])("old unpublished copies adopt exclusions only when retained data agrees (divergent: %s)", async divergent => {
+  const f = await fixture();
+  await symlink("../../contract.txt", join(f.source, ".legalwork/attachments/document-link"));
+  await symlink(join(f.source, ".legalwork/attachments/mail.txt"), join(f.source, ".opencode/mail-link"));
+  const local = await prepareLocalProject(f.config, f.original);
+  const path = join(local.path, ".project-storage-migration.json");
+  const receipt = JSON.parse(await readFile(path, "utf8"));
+  delete receipt.exclusionsVersion;
+  // V1 hashes cover dependency bytes too, so cannot serve as the filtered
+  // baseline. Source and owned copy must be compared without those payloads.
+  receipt.fingerprints = { ".opencode": "legacy-full-tree-hash", ".legalwork": "legacy-full-tree-hash" };
+  receipt.copiedFingerprints = receipt.fingerprints;
+  await writeFile(path, JSON.stringify(receipt));
+  for (const root of [f.source, local.path]) {
+    await mkdir(join(root, ".opencode/node_modules"));
+    await writeFile(join(root, ".opencode/node_modules/old-install.txt"), root);
+    if (process.platform !== "win32") expect(spawnSync("mkfifo", [join(root, ".opencode/node_modules/unreadable-payload")]).status).toBe(0);
+  }
+  if (divergent) {
+    await writeFile(join(f.source, ".legalwork/attachments/mail.txt"), "Newer source work");
+    await expect(prepareLocalProject(f.config, f.original)).rejects.toThrow("diverged");
+    expect(JSON.parse(await readFile(path, "utf8")).exclusionsVersion).toBeUndefined();
+    expect(await readFile(join(local.path, ".legalwork/attachments/mail.txt"), "utf8")).toBe("Retained attachment");
+  } else {
+    expect(await prepareLocalProject(f.config, f.original)).toEqual(local);
+    expect(JSON.parse(await readFile(path, "utf8")).exclusionsVersion).toBe(1);
+    expect(await readFile(join(local.path, ".legalwork/attachments/document-link"), "utf8")).toBe("Original document");
+    await finishLocalProject(local);
+    expect(await lstat(join(local.path, ".project-storage-backup/.opencode/node_modules")).catch(() => null)).toBeNull();
+  }
+  expect(await readFile(join(local.path, ".opencode/node_modules/old-install.txt"), "utf8")).toBe(local.path);
+});
+
+test("a published legacy migration keeps its original recovery tree without hashing omitted payloads", async () => {
+  const f = await fixture(), local = await prepareLocalProject(f.config, f.original);
+  const path = join(local.path, ".project-storage-migration.json");
+  const receipt = JSON.parse(await readFile(path, "utf8"));
+  delete receipt.exclusionsVersion;
+  receipt.published = true;
+  await writeFile(path, JSON.stringify(receipt));
+  await mkdir(join(f.source, ".opencode/node_modules"));
+  if (process.platform !== "win32") expect(spawnSync("mkfifo", [join(f.source, ".opencode/node_modules/payload")]).status).toBe(0);
+  await writeFile(join(local.path, ".legalwork/attachments/mail.txt"), "New local work");
+  expect(await prepareLocalProject(f.config, f.original)).toEqual(local);
+  await finishLocalProject(local);
+  expect(await localProjectMigrationPending(local)).toBe(false);
+  expect(await readFile(join(f.source, ".legalwork/attachments/mail.txt"), "utf8")).toBe("Retained attachment");
+  expect(await readFile(join(local.path, ".legalwork/attachments/mail.txt"), "utf8")).toBe("New local work");
+  expect(await stat(join(f.source, ".opencode/node_modules"))).toBeDefined();
+});
 
 test("migration reports completed copy/hash work while retaining file metadata and link ownership", async () => {
   const f = await fixture();

@@ -2,7 +2,7 @@ import { Database } from "bun:sqlite";
 import { z } from "zod";
 import { pathToFileURL } from "node:url";
 import { createEngineClient } from "./engine-client.js";
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -14,6 +14,7 @@ import type { ServerConfig } from "./types.js";
 import { runtimeDbPath } from "./runtime-db.js";
 import { benchmarksDbPath, openBenchmarkStore } from "./benchmarks/store.js";
 import { grantWikiAgentSession, currentWikiAgentSession } from "./wiki/agent-access.js";
+import * as availability from "./project-availability.js";
 
 const binary = process.env.LEGALWORK_TEST_OPENCODE_BIN;
 test.skipIf(!binary)("pinned engine moves existing parent/child chats and scoped permissions without a model turn", async () => {
@@ -146,6 +147,8 @@ test.skipIf(!binary).each([false, true])("managed startup completes V1 migration
   for (const [key, value] of Object.entries(changes)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
   let seed: Awaited<ReturnType<typeof createManagedOpencodeServer>> | undefined;
   let server: Awaited<ReturnType<typeof startEmbeddedServer>> | undefined;
+  const pins: string[] = [];
+  const pin = spyOn(availability, "keepProjectStateDownloaded").mockImplementation(async path => { pins.push(path); });
   try {
     seed = await createManagedOpencodeServer({ bin: binary, cwd: source, timeoutMs: 30_000, env: {
       HOME: join(root, "home"), USERPROFILE: join(root, "home"), XDG_CONFIG_HOME: join(root, "config"), XDG_DATA_HOME: join(root, "data"), XDG_STATE_HOME: join(root, "state"), XDG_CACHE_HOME: join(root, "cache"),
@@ -156,6 +159,11 @@ test.skipIf(!binary).each([false, true])("managed startup completes V1 migration
     await seedClient.session.remove({ sessionID: schemaChat.id });
     await seed.close(); seed = undefined;
     seedLegacyHistory(join(engineRoot, "opencode-engine-v2.db"), source, schemaChat.projectID, broken);
+    for (const path of [".opencode/node_modules", ".legalwork/scratch/work-env"]) {
+      await mkdir(join(source, path), { recursive: true });
+      await writeFile(join(source, path, "installed.txt"), "Omitted installation");
+    }
+    await writeFile(join(source, ".legalwork/scratch/work-env/pyvenv.cfg"), "home = previous-machine\n");
     const chat = { id: "ses_storage_v1" };
     const configPath = join(root, "server.json");
     await writeFile(configPath, JSON.stringify({ workspaces: [{ id: "ws_managed", name: "Matter", path: source, workspaceType: "local" }], authorizedRoots: [source], token: "synthetic", hostToken: "synthetic-host", approval: { mode: "auto", timeoutMs: 1000 } }));
@@ -171,6 +179,13 @@ test.skipIf(!binary).each([false, true])("managed startup completes V1 migration
     }
     server = await startEmbeddedServer(options);
     const workspace = server.config.workspaces[0]!;
+    expect(pins).not.toContain(source);
+    expect(pins).toContain(workspace.path);
+    for (const path of [".opencode/node_modules", ".legalwork/scratch/work-env"]) {
+      expect(await stat(join(workspace.path, path)).catch(() => null)).toBeNull();
+      expect(await stat(join(workspace.path, ".project-storage-backup", path)).catch(() => null)).toBeNull();
+    }
+    expect(await readFile(join(source, ".legalwork.legalwork-migrated/scratch/work-env/pyvenv.cfg"), "utf8")).toContain("previous-machine");
     expect(server.selectedWorkspaceId).toBe(workspace.id);
     expect(workspace.path).toBe(join(root, "local", "ws_managed"));
     expect(workspace.contentPath).toBe(source);
@@ -190,6 +205,7 @@ test.skipIf(!binary).each([false, true])("managed startup completes V1 migration
     expect(response.status).toBe(200);
     expect((await response.json()).content).toBe("Offline attachment");
   } finally {
+    pin.mockRestore();
     await server?.stop(); await seed?.close();
     for (const [key, value] of Object.entries(previous)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
     await rm(root, { recursive: true, force: true });

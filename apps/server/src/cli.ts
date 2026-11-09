@@ -83,7 +83,7 @@ if (!config.readOnly) {
   await retireSharedLegacyReview(globalSkillsDir());
   await ensureBundledWorkflows();
   for (const workspace of config.workspaces) {
-    await ensureWorkspaceFiles(workspace.path, workspace.preset ?? "starter");
+    await ensureWorkspaceFiles(workspace.path, workspace.preset ?? "starter", { skipCloudPin: managedEngine && !workspace.contentPath });
   }
 }
 // Validate saved providers before building engine configuration. Only retired

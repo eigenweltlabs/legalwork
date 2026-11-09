@@ -103,7 +103,7 @@ async function ensureOpencodeConfig(workspaceRoot: string): Promise<boolean> {
   return false;
 }
 
-export async function ensureWorkspaceFiles(workspaceRoot: string, presetInput: string): Promise<EnsureWorkspaceFilesResult> {
+export async function ensureWorkspaceFiles(workspaceRoot: string, presetInput: string, options: { skipCloudPin?: boolean } = {}): Promise<EnsureWorkspaceFilesResult> {
   const preset = normalizePreset(presetInput);
   if (!workspaceRoot.trim()) {
     throw new ApiError(400, "invalid_workspace_path", "workspace path is required");
@@ -118,7 +118,7 @@ export async function ensureWorkspaceFiles(workspaceRoot: string, presetInput: s
   // engine's instance bootstrap throw EEXIST, which 500s every route for this
   // workspace (issue #62).
   const stateDir = await ensureOpencodeStateDir(workspaceRoot);
-  await keepProjectStateDownloaded(workspaceRoot);
+  if (!options.skipCloudPin) await keepProjectStateDownloaded(workspaceRoot);
   if (stateDir.movedTo) {
     console.warn(
       `[workspace-init] ${stateDir.path} was a file, not a folder; moved it to ${stateDir.movedTo} so OpenCode can start.`,

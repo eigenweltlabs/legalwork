@@ -5323,7 +5323,7 @@ async function resolveWorkspace(config: ServerConfig, id: string): Promise<Works
     if (!bootstrap) {
       bootstrap = (async () => {
         await prepareManagedCoreLibrary(config);
-        const ensured = await ensureWorkspaceFiles(resolvedWorkspace, workspace.preset ?? "starter");
+        const ensured = await ensureWorkspaceFiles(resolvedWorkspace, workspace.preset ?? "starter", { skipCloudPin: Boolean(config.projectsDirectory && !workspace.contentPath) });
         const bootstrapReloadReasons = new Set<ReloadReason>(ensured.reloadReasons);
         if (await repairCommands(resolvedWorkspace)) {
           bootstrapReloadReasons.add("commands");
