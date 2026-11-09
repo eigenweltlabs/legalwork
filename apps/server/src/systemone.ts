@@ -1,4 +1,4 @@
-import { EIGENWELT_LEGACY_GATEWAY_URL } from "@legalwork/types/eigenwelt-deployment";
+import { EIGENWELT_LEGACY_GATEWAY_URL } from "./native-shared-values.js";
 import { eigenweltConnectionPlatformUrl } from "./eigenwelt-endpoints.js";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";

@@ -1,5 +1,5 @@
-import { EIGENWELT_BOOTSTRAP_PLATFORM_URL as BOOTSTRAP, EIGENWELT_DEPLOYMENTS } from "@legalwork/types/eigenwelt-deployment";
-export { EIGENWELT_DEPLOYMENTS, type EigenweltDeploymentRegion } from "@legalwork/types/eigenwelt-deployment";
+import { EIGENWELT_BOOTSTRAP_PLATFORM_URL as BOOTSTRAP, EIGENWELT_DEPLOYMENTS } from "./native-shared-values.js";
+export { EIGENWELT_DEPLOYMENTS, type EigenweltDeploymentRegion } from "./native-shared-values.js";
 
 /** Only sign-in discovery and the public catalog use the shared entry point. */
 export function eigenweltPlatformUrl(): string {
