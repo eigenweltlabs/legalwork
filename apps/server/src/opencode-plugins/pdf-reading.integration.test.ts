@@ -5,13 +5,15 @@ import { join } from "node:path";
 import { PDFDocument } from "pdf-lib";
 import { z } from "zod";
 import { PdfReader } from "../pdf-reader.js";
+import { pdfReadOptions } from "../pdf-read-schema.js";
+import { extractPdfText } from "../document-preparation/render.js";
 import { OcrService } from "../ocr/service.js";
 import { nativeMcpEngine } from "../native-mcp-engine.test-support.js";
 import { buildNativePluginFixture } from "./native-plugin-build.test-support.js";
 import { nativeChatResponse } from "./native-domain-engine.test-support.js";
 
 const binary = process.env.LEGALWORK_TEST_OPENCODE_BIN;
-test.skipIf(!binary)("released v2 native read preserves PDF delivery, selective OCR, model changes and read denials", async () => {
+test.skipIf(!binary)("released v2 read and storage reads select PDF pages, require explicit attachments and keep OCR text-only", async () => {
   const ocrPages: number[] = [];
   const reader = new PdfReader({ async serviceSnapshot() { return { fingerprint: "fixture", service: new OcrService([{
     info: { id: "fixture", label: "Fixture", model: "fixture", execution: "local", regions: false, languages: null, warnings: [] },
@@ -19,21 +21,32 @@ test.skipIf(!binary)("released v2 native read preserves PDF delivery, selective 
   }], "fixture") }; } });
   const cases = [
     { file: "large-denied.pdf", pdf: true, expected: "permission", deny: true },
-    { file: "large.pdf", pdf: true, expected: "PDF supplied directly" },
+    { file: "large.pdf", pdf: true, expected: "Native contract marker" },
+    { file: "large.pdf", pdf: true, expected: "pdf_attachment_too_large", attach: true, tooLarge: true },
+    { file: "large.pdf", pdf: true, expected: "PDF supplied directly", attach: true, pages: [1] },
     { file: "large.pdf", pdf: false, expected: "Native contract marker" },
-    { file: "native.pdf", pdf: true, expected: "PDF supplied directly" },
-    { file: "scan.pdf", pdf: true, expected: "PDF supplied directly" },
+    { file: "native.pdf", pdf: true, expected: "Native contract marker" },
+    { file: "native.pdf", pdf: true, expected: "PDF supplied directly", attach: true },
+    { file: "native.pdf", pdf: true, expected: "PDF supplied directly", attach: true, pages: [2] },
+    { file: "scan.pdf", pdf: true, expected: "pages_without_embedded_text", pages: [2] },
+    { file: "scan.pdf", pdf: true, expected: "OCR page 2 marker", ocr: true, pages: [2] },
     { file: "native.pdf", pdf: false, expected: "Native contract marker" },
-    { file: "scan.pdf", pdf: false, expected: "OCR page 2 marker", pages: [2] },
+    { file: "scan.pdf", pdf: false, expected: "pages_without_embedded_text", text: true, pages: [2] },
+    { file: "scan.pdf", pdf: false, expected: "OCR page 2 marker", ocr: true, pages: [2] },
     { file: "native.pdf", pdf: true, expected: "OCR page 1 marker", ocr: true, pages: [1] },
+    { file: "native.pdf", pdf: true, expected: "embedded text", text: true, ocr: true, pages: [1] },
     { file: "denied.pdf", pdf: true, expected: "permission", deny: true },
     { file: "notes.txt", pdf: false, expected: "Ordinary file marker" },
     { file: ".", pdf: false, expected: "notes.txt" },
     { file: ".", pdf: false, expected: "Output truncated", limit: 1 },
     { file: "notes.txt", pdf: false, expected: "Ordinary file marker", offset: 2, limit: 1 },
-    { file: "native.pdf", pdf: true, expected: "PDF supplied directly", storage: true },
+    { file: "native.pdf", pdf: true, expected: "Native contract marker", storage: true },
+    { file: "native.pdf", pdf: true, expected: "PDF supplied directly", storage: true, attach: true, pages: [2] },
+    { file: "large.pdf", pdf: true, expected: "pdf_attachment_too_large", storage: true, attach: true, tooLarge: true },
+    { file: "native.pdf", pdf: true, expected: "OCR page 1 marker", storage: true, ocr: true, pages: [1] },
     { file: "native.pdf", pdf: false, expected: "Native contract marker", storage: true },
-    { file: "scan.pdf", pdf: false, expected: "OCR page 2 marker", pages: [2], storage: true },
+    { file: "scan.pdf", pdf: false, expected: "pages_without_embedded_text", pages: [2], storage: true },
+    { file: "scan.pdf", pdf: false, expected: "OCR page 2 marker", ocr: true, pages: [2], storage: true },
   ];
   let scenario = cases[0]!, directory = "", primaryCalls = 0, sequence = 0, pdfRequests = 0;
   const primaryWires: string[] = [];
@@ -44,7 +57,7 @@ test.skipIf(!binary)("released v2 native read preserves PDF delivery, selective 
     if (url.pathname.endsWith("/checkout")) return Response.json({ localPath: scenario.file, size: 1000, contentType: "application/pdf", version: "original-v1", writable: false });
     if (url.pathname === "/workspace/fixture/pdf/read") {
       pdfRequests++;
-      const input = z.object({ dataBase64: z.string(), ocr: z.boolean().optional(), pages: z.array(z.number()).optional() }).parse(await request.json());
+      const input = pdfReadOptions.extend({ dataBase64: z.string() }).parse(await request.json());
       return Response.json(await reader.read(new Uint8Array(Buffer.from(input.dataBase64, "base64")), input, request.signal));
     }
     const raw = await request.text();
@@ -55,9 +68,12 @@ test.skipIf(!binary)("released v2 native read preserves PDF delivery, selective 
       expect(JSON.stringify(read.function.parameters)).toContain('"ocr"');
       expect(JSON.stringify(read.function.parameters)).toContain('"pages"');
       expect(JSON.stringify(read.function.parameters)).toContain('"path"');
+      expect(JSON.stringify(read.function.parameters)).toContain('"attach"');
+      expect(JSON.stringify(read.function.parameters)).toContain('"text"');
     }
     return nativeChatResponse(read && primaryCalls++ === 0 ? { name: scenario.storage ? "storage_read_file" : "read", input: { path: scenario.storage ? scenario.file : join(directory, scenario.file),
       ...(scenario.storage ? { connection_id: "one" } : {}),
+      ...(scenario.attach ? { attach: true } : {}), ...(scenario.text ? { text: true } : {}),
       ...(scenario.ocr ? { ocr: true } : {}), ...(scenario.pages ? { pages: scenario.pages } : {}),
       ...(scenario.offset ? { offset: scenario.offset } : {}), ...(scenario.limit ? { limit: scenario.limit } : {}),
       ...(scenario.file.endsWith(".pdf") ? { offset: 0, ...(scenario.storage ? { max_chars: 80000 } : { limit: 80000 }) } : {}) } } : undefined, sequence++);
@@ -68,7 +84,8 @@ test.skipIf(!binary)("released v2 native read preserves PDF delivery, selective 
   try {
     engine = await nativeMcpEngine(async root => {
       directory = join(root, "project");
-      const native = await PDFDocument.create(); native.addPage().drawText("Native contract marker"); const bytes = await native.save();
+      const native = await PDFDocument.create(); native.addPage().drawText("Native contract marker");
+      native.addPage().drawText("Second page marker"); const bytes = await native.save();
       const scan = await PDFDocument.create(); scan.addPage(); scan.addPage();
       const large = Buffer.concat([bytes, Buffer.alloc(21 * 1024 * 1024, 32)]);
       await writeFile(join(directory, "large.pdf"), large); await writeFile(join(directory, "large-denied.pdf"), large);
@@ -119,20 +136,35 @@ export default Plugin.define({id:'pdf-fixture',async setup(ctx){
         }
       }
       const attachments = tool.state.content.filter(part => part.type === "file");
-      expect(attachments.length, scenario.file).toBe(scenario.pdf ? 1 : 0);
-      if (scenario.pdf) {
+      const attached = scenario.attach === true && !scenario.tooLarge;
+      expect(attachments.length, JSON.stringify(scenario)).toBe(attached ? 1 : 0);
+      if (attached) {
         const original = originals.get(scenario.file); if (!original) throw new Error("Missing original PDF");
         const actual = Buffer.from(attachments[0]!.uri.slice("data:application/pdf;base64,".length), "base64");
-        expect(actual.byteLength).toBe(original.byteLength);
-        expect(createHash("sha256").update(actual).digest("hex")).toBe(createHash("sha256").update(original).digest("hex"));
+        if (scenario.pages) {
+          const parsed = await extractPdfText(new Uint8Array(actual), new AbortController().signal);
+          expect(parsed.pageCount).toBe(scenario.pages.length);
+          const expected = scenario.pages.includes(2) ? "Second page marker" : "Native contract marker";
+          expect(parsed.pages.map(page => page.text).join("\n")).toContain(expected);
+          if (!scenario.pages.includes(1)) expect(parsed.pages.map(page => page.text).join("\n")).not.toContain("Native contract marker");
+        } else {
+          expect(actual.byteLength).toBe(original.byteLength);
+          expect(createHash("sha256").update(actual).digest("hex")).toBe(createHash("sha256").update(original).digest("hex"));
+        }
       }
-      if (!scenario.pdf && scenario.file.endsWith(".pdf")) expect(JSON.stringify(tool.state)).toContain("page_sources");
-      if (scenario.pdf && !scenario.ocr || scenario.file === "notes.txt") { expect(pdfRequests).toBe(before); expect(ocrPages).toHaveLength(previousOcr); }
-      // The next model turn receives the same result; full PDF bytes survive native transport.
+      if (scenario.file.endsWith(".pdf") && !scenario.attach) expect(JSON.stringify(tool.state)).toContain("page_sources");
+      if (scenario.attach || !scenario.file.endsWith(".pdf")) { expect(pdfRequests).toBe(before); expect(ocrPages).toHaveLength(previousOcr); }
+      if (!scenario.ocr) expect(ocrPages).toHaveLength(previousOcr);
+      if (scenario.file === "scan.pdf" && !scenario.ocr) {
+        const output = z.object({ pages_without_embedded_text: z.array(z.number()), complete: z.boolean(), ocr_requested: z.boolean() })
+          .parse(JSON.parse(tool.state.content.flatMap(part => part.type === "text" ? [part.text] : []).join("\n")));
+        expect(output).toMatchObject({ pages_without_embedded_text: [2], complete: false, ocr_requested: false });
+      }
+      // Verify what the next model request actually receives, including the absence of implicit PDF bytes.
       expect(primaryWires).toHaveLength(2);
-      expect(primaryWires[1]!.includes("JVBERi0"), scenario.file).toBe(scenario.pdf);
+      expect(primaryWires[1]!.includes("JVBERi0"), JSON.stringify(scenario)).toBe(attached);
     }
-    expect(ocrPages).toEqual([2, 1]);
+    expect(ocrPages).toContain(1); expect(ocrPages).toContain(2);
   } finally {
     await engine?.close(); fixture.stop(true);
     if (previousUrl === undefined) delete process.env.LEGALWORK_SERVER_URL; else process.env.LEGALWORK_SERVER_URL = previousUrl;
