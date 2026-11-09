@@ -80,7 +80,7 @@ try {
   assert.equal(matter.values.fileNumber, "2026/042");
 
   await render(true);
-  assert.ok(!document.body.textContent?.includes("Witnesses"), "Empty roles are hidden on Home");
+  assert.ok(document.body.textContent?.includes("Witnesses"), "Intentional empty roles remain visible on Home");
   assert.ok(!document.body.textContent?.includes("Not set"));
   await click("Add Matter");
   await type("Search Matters…", "ABC 042");
@@ -112,9 +112,7 @@ try {
   await key("Search Clients…", "Enter", true);
   assert.ok(!document.body.textContent?.includes("Clients from linked matters"), "Directly linked clients do not get a duplicate inherited section");
 
-  await click(t("projects.more_fields"));
-  await type(t("projects.more_search"), "Witnesses");
-  await key(t("projects.more_search"), "Enter");
+  await click(t("projects.edit_value", { name: "Witnesses" }));
   await type("Search Witnesses…", "Alice"); await key("Search Witnesses…", "Enter");
   await type("Search Witnesses…", "Bob"); await key("Search Witnesses…", "Enter");
   await key("Search Witnesses…", "Enter", true);
@@ -128,7 +126,7 @@ try {
   assert.deepEqual(savedFields.find(field => field.id === "people")?.value, { directoryId: "local:fixture", recordIds: [bob.id] }, "Each remove button unlinks only its own record");
   assert.deepEqual(savedFields.find(field => field.id === "people_2")?.value, { directoryId: "local:fixture", recordIds: [alice.id] }, "Unlinking a role leaves independent references intact");
   await click(t("projects.remove_reference", { name: "Bob", field: "Witnesses" }));
-  assert.ok(!document.body.textContent?.includes("Witnesses"), "Last removal hides the empty row");
+  assert.ok(document.body.textContent?.includes("Witnesses"), "Clearing an intentional role keeps it visible for reuse");
   assert.equal(savedFields.find(field => field.id === "people")?.value, null, "The field definition remains");
   assert.ok(store.records("local", actor, "people").some(record => record.id === bob.id), "Unlinking does not delete the Back Office record");
   await click(t("projects.remove_reference", { name: "ABC GmbH", field: "Clients" }));

@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { BackOfficeRecordSchema, type BackOfficeValue } from "@legalwork/types/back-office";
 import { projectFieldLabel, type ProjectField } from "@legalwork/types/workspace";
-import { projectConnectionField, clientsFromProjectMatters } from "../src/react-app/domains/workspace/project-connections";
+import { projectConnectionField, clientsFromProjectMatters, showProjectField } from "../src/react-app/domains/workspace/project-connections";
 
 function record(objectId: string, name: string, values: Record<string, BackOfficeValue> = {}) {
   return BackOfficeRecordSchema.parse({ id: crypto.randomUUID(), objectId, values: { name, ...values }, revision: 1, schemaRevision: 1,
@@ -51,4 +51,14 @@ test("inherited clients omit direct project links but keep additional clients an
   expect(clientsFromProjectMatters([source, { ...assigned, value: { directoryId: "firm-a", recordIds: [direct.id, additional.id] } }], "firm-a", records)).toEqual([]);
   expect(clientsFromProjectMatters([source, { ...assigned, value: { directoryId: "firm-b", recordIds: [direct.id] } }], "firm-a", records)).toHaveLength(2);
   expect(clientsFromProjectMatters([source, { ...assigned, value: null }], "firm-a", records)).toHaveLength(2);
+});
+
+
+test("intentional empty fields remain visible while redundant standard links stay compact", () => {
+  const matter: ProjectField = { id: "matter", label: "Matters", labelSource: "suggested", type: "backoffice", objectId: "matters", multiple: true, value: null };
+  expect(showProjectField(matter)).toBe(false);
+  expect(showProjectField({ ...matter, id: "approved_matter", label: "Approved matter", labelSource: "custom" })).toBe(true);
+  expect(showProjectField({ id: "status", label: "Status", labelSource: "suggested", type: "text", value: null })).toBe(true);
+  expect(showProjectField({ id: "budget", label: "Budget", labelSource: "custom", type: "number", value: 0 })).toBe(true);
+  expect(projectConnectionField([{ ...matter, labelSource: "custom" }], "matters", "Matters").id).toBe("matter_2");
 });

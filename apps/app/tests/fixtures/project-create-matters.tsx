@@ -170,15 +170,14 @@ try {
   await act(async () => button("Add Organisation").click());
   await type("Search Organisations…", "Acme"); await enter("Search Organisations…");
   await act(async () => input("Search Organisations…").dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
-  await act(async () => button(t("projects.more_fields")).click());
-  await type(t("projects.more_search"), "Internal note");
-  await enter(t("projects.more_search"));
-  await type(t("projects.field_value"), "Preserve this template value");
-  await enter(t("projects.field_value"), "metaKey");
+  await act(async () => document.querySelector<HTMLButtonElement>('button[aria-label="Edit Internal note"]')?.click());
+  await type("Internal note", "Preserve this template value");
+  await enter("Internal note");
   assert.ok(document.body.textContent?.includes("Preserve this template value"));
   await act(async () => button(t("projects.more_fields")).click());
   await type(t("projects.more_search"), "Offices");
   await enter(t("projects.more_search"));
+  await act(async () => document.querySelector<HTMLButtonElement>('button[aria-label="Edit Offices"]')?.click());
   await type("Search Offices…", "Vienna"); await enter("Search Offices…");
   await enter("Search Offices…", "metaKey");
   await act(async () => button(t("projects.more_fields")).click());
@@ -233,6 +232,17 @@ try {
   assert.equal(submissions[1].projectFields, undefined, "Unselected options add no empty fields");
   assert.equal(submissions[1].templateId, "legal_matter");
   assert.equal(document.querySelector('button[aria-label="Remove: ABC GmbH"]'), null);
+  await render(false);
+  setLocale("en");
+  const limitedFields = Array.from({ length: 49 }, (_, index) => ({ id: `custom_${index}`, label: `Custom ${index}`, type: "text", value: null }));
+  const { projectFieldsSchema } = await import("@legalwork/types/workspace");
+  catalog.templates[0].fields = projectFieldsSchema.parse([...limitedFields, { id: "approved_matter", label: "Approved matter", labelSource: "custom", type: "backoffice", objectId: "matters", multiple: false, value: null }]);
+  useProjectDefaultsStore.setState({ templates: [...catalog.templates] });
+  await render();
+  assert.ok(document.body.textContent?.includes("Approved matter"), "A named matter role remains visible rather than becoming the generic Add Matter field");
+  assert.ok(document.querySelector('button[aria-label="Edit Approved matter"]'));
+  assert.equal(button("Add Matter").disabled, true, "A missing generic matter field cannot exceed the 50-field limit");
+  assert.equal(button("Add Client").disabled, true);
   console.log("Project matter flow passed");
 } finally {
   await act(async () => root.unmount());

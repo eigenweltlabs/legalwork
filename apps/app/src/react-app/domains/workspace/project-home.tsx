@@ -1,7 +1,7 @@
-import { projectFieldsSchema } from "@legalwork/types/workspace";
+import { projectFieldsSchema, type ProjectDetails } from "@legalwork/types/workspace";
 import { ProjectRemoteFolders } from "./project-remote-folders";
 import { useProjectPersonalisation } from "./project-personalisation-modal";
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import type { AudioRecordingMeta } from "@legalwork/types/audio";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight, MessageSquare, Mic, Pin, Plus, RefreshCw, Settings2, Square, SquareCheck, SquarePen, Star, StickyNote, WandSparkles } from "lucide-react";
@@ -72,7 +72,8 @@ export function ProjectHome(props: {
   const [deleting, setDeleting] = useState(false);
   const [taskOpen, setTaskOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(true);
-  const [editMetadata, setEditMetadata] = useState(false);
+  const [editMetadata, setEditMetadata] = useState<ProjectDetails | null>(null);
+  useEffect(() => { setEditMetadata(null); }, [workspaceId, client.baseUrl]);
   const [sessionStarting, setSessionStarting] = useState(false);
   const newSession = async (shareRecording: boolean) => {
     if (sessionStarting) return;
@@ -173,23 +174,23 @@ export function ProjectHome(props: {
           <CollapsibleContent>
             <div className="pb-3 pt-2">
               {details.isPending ? <Notice>{t("projects.loading")}</Notice> : details.error ? <Notice error>{t("projects.failed")}</Notice> : details.data?.fields.length ? (
-                <ProjectProperties client={client} className="grid gap-x-10 space-y-0 @min-[640px]/project-page:grid-cols-2" fields={details.data.fields} onSave={async (id, value) => {
+                <ProjectProperties key={workspaceId} client={client} className="grid gap-x-10 space-y-0 @min-[640px]/project-page:grid-cols-2" fields={details.data.fields} onSave={async (id, value) => {
                   if (!details.data) return;
                   try {
                     const data = await client.updateProjectDetails(workspaceId, { revision: details.data.revision, fields: projectFieldsSchema.parse(details.data.fields.map((field) => field.id === id ? { ...field, value } : field)) });
                     queryClient.setQueryData(["project", workspaceId], data);
                   } catch (error) {
-                    void details.refetch();
+                    await details.refetch();
                     throw error;
                   }
                 }} />
               ) : null}
-              {details.data && <ProjectReferenceActions client={client} fields={details.data.fields} onCustomize={() => setEditMetadata(true)} onSave={async fields => {
+              {details.data && <ProjectReferenceActions key={workspaceId} client={client} fields={details.data.fields} onCustomize={() => setEditMetadata(details.data ?? null)} onSave={async fields => {
                 try {
                   const data = await client.updateProjectDetails(workspaceId, { revision: details.data.revision, fields: projectFieldsSchema.parse(fields) });
                   queryClient.setQueryData(["project", workspaceId], data);
                 } catch (error) {
-                  void details.refetch();
+                  await details.refetch();
                   throw error;
                 }
               }} />}
@@ -198,7 +199,7 @@ export function ProjectHome(props: {
         </Collapsible>
         </ContextMenuTrigger>
         <ContextMenuContent>
-          <ContextMenuItem disabled={!details.data} onClick={() => setEditMetadata(true)}><Settings2 />{t("projects.customize_connections")}</ContextMenuItem>
+          <ContextMenuItem disabled={!details.data} onClick={() => setEditMetadata(details.data ?? null)}><Settings2 />{t("projects.customize_connections")}</ContextMenuItem>
           <ContextMenuItem onClick={() => setDetailsOpen(!detailsOpen)}><ChevronDown />{t(detailsOpen ? "projects.collapse_details" : "projects.expand_details")}</ContextMenuItem>
           <ContextMenuItem disabled={details.isFetching} onClick={() => { void details.refetch(); }}><RefreshCw />{t("common.refresh")}</ContextMenuItem>
         </ContextMenuContent>
@@ -265,18 +266,19 @@ export function ProjectHome(props: {
         </AlertDialogContent>
       </AlertDialog>
       {taskOpen ? <ProjectTaskDialog client={client} workspaceId={workspaceId} onClose={() => setTaskOpen(false)} /> : null}
-      <Dialog open={editMetadata} onOpenChange={setEditMetadata}>
+      <Dialog open={editMetadata !== null} onOpenChange={open => { if (!open) setEditMetadata(null); }}>
         <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
           <DialogHeader><DialogTitle>{t("projects.customize_connections")}</DialogTitle><DialogDescription>{t("projects.customize_connections_hint")}</DialogDescription></DialogHeader>
-          {details.data ? <ProjectMetadata client={client} details={details.data} onCancel={() => setEditMetadata(false)} onReload={async () => {
+          {editMetadata ? <ProjectMetadata client={client} details={editMetadata} onCancel={() => setEditMetadata(null)} onReload={async () => {
             const data = await client.getProjectDetails(workspaceId);
             queryClient.setQueryData(["project", workspaceId], data);
-            return withInitialProjectFields(data, savedDefaults);
+            const next = withInitialProjectFields(data, savedDefaults);
+            setEditMetadata(next);
+            return next;
           }} onSave={async (fields) => {
-            if (!details.data) return;
-            const data = await client.updateProjectDetails(workspaceId, { revision: details.data.revision, fields });
+            const data = await client.updateProjectDetails(workspaceId, { revision: editMetadata.revision, fields });
             queryClient.setQueryData(["project", workspaceId], data);
-            setEditMetadata(false);
+            setEditMetadata(null);
           }} /> : null}
         </DialogContent>
       </Dialog>

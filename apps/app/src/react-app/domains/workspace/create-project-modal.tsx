@@ -2,14 +2,14 @@ import { RemoteFolderPicker, useRemoteFolderSources, type SelectedRemoteFolder }
 import { applyProjectTemplate, localizedTemplateFields, useProjectDefaultsStore } from "./project-defaults-store";
 import { useProjectTemplateCatalog } from "./project-template-catalog";
 import { ProjectTemplateSelect } from "./project-template-select";
-import { projectFieldsSchema, projectMatterField, type ProjectField, type ProjectRecordReference, type RemoteFolderSelection } from "@legalwork/types/workspace";
+import { projectFieldsSchema, type ProjectField, type ProjectRecordReference, type RemoteFolderSelection } from "@legalwork/types/workspace";
 import { ProjectCreationRecordPicker } from "./project-creation-record-picker";
 import { projectReferenceObjects, useProjectBackOffice } from "./project-record-field";
 import { ProjectMoreFields } from "./project-more-fields";
 import { ProjectFieldDialog } from "./project-field-dialog";
 import { ProjectProperties } from "./project-properties";
 import { ProjectMetadata } from "./project-metadata";
-import { hasProjectFieldValue, primaryProjectObjects, withProjectField, projectConnectionField } from "./project-connections";
+import { primaryProjectObjects, withProjectField, projectConnectionField } from "./project-connections";
 import { backOfficeObjectLabel } from "../back-office/labels";
 import { projectErrorMessage } from "./project-errors";
 import { useCallback, useEffect, useState } from "react";
@@ -75,9 +75,7 @@ export function CreateProjectModal(props: {
   const templateFields = localizedTemplateFields(selectedTemplate?.fields ?? []);
   const fields = editedFields ?? templateFields;
   const objects = projectReferenceObjects(directory.data);
-  const connectionFields = primaryProjectObjects.map(objectId => objectId === "matters"
-    ? projectMatterField(fields, currentLocale())
-    : projectConnectionField(fields, objectId, objects.find(object => object.id === objectId)?.plural ?? backOfficeObjectLabel(objectId)));
+  const connectionFields = primaryProjectObjects.map(objectId => projectConnectionField(fields, objectId, objects.find(object => object.id === objectId)?.plural ?? backOfficeObjectLabel(objectId)));
   const setField = (field: ProjectField) => setEditedFields(current => withProjectField(current ?? fields, field));
   const changeTemplate = (id: string | null) => {
     const template = templates.find(item => item.id === id) ?? { id: "none", name: "", fields: [] };
@@ -167,15 +165,15 @@ export function CreateProjectModal(props: {
             <div className="flex flex-wrap items-start gap-2">
               {connectionFields.map(field => <ProjectCreationRecordPicker key={`${templateId}:${field.objectId}`} client={props.client} state={directory.data}
                 field={field}
-                disabled={props.submitting || !catalog.ready} onCreatingChange={onCreatingChange}
+                disabled={props.submitting || !catalog.ready || (fields.length >= 50 && !fields.some(item => item.id === field.id))} onCreatingChange={onCreatingChange}
                 onChange={value => {
                   if (!value && field.labelSource === "suggested" && !templateFields.some(item => item.id === field.id)) setEditedFields(current => (current ?? fields).filter(item => item.id !== field.id));
                   else setField({ ...field, value });
                 }} />)}
-              <ProjectMoreFields fields={fields} objects={objects} primaryIds={connectionFields.map(field => field.id)} disabled={props.submitting || !catalog.ready} onChoose={setExtra} onNew={() => setExtra(null)} />
+              <ProjectMoreFields fields={fields} objects={objects} disabled={props.submitting || !catalog.ready} onChoose={setExtra} onNew={() => setExtra(null)} />
               <Button type="button" variant="ghost" size="sm" className="text-xs text-muted-foreground" disabled={props.submitting || !catalog.ready} onClick={() => setCustomizing(true)}><Settings2 className="size-3.5" />{t("projects.customize_connections")}</Button>
             </div>
-            <ProjectProperties client={props.client} fields={fields.filter(field => hasProjectFieldValue(field) && !connectionFields.some(primary => primary.id === field.id))} onSave={async (id, value) => {
+            <ProjectProperties client={props.client} fields={fields.filter(field => !connectionFields.some(primary => primary.id === field.id))} onSave={async (id, value) => {
               setEditedFields(current => projectFieldsSchema.parse((current ?? fields).map(field => field.id === id ? { ...field, value } : field)));
             }} />
             {directory.error && <p role="alert" className="text-xs text-destructive">{t("projects.connections.unavailable")}</p>}

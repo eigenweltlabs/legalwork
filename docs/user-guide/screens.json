@@ -41,6 +41,11 @@
   ],
   "panels": [
     {
+      "id": "project-field-editor",
+      "guide": "projects-sharing.md",
+      "source": "apps/app/src/react-app/domains/workspace/project-field-editor.tsx"
+    },
+    {
       "id": "project-more-fields",
       "guide": "projects-sharing.md",
       "source": "apps/app/src/react-app/domains/workspace/project-more-fields.tsx"
