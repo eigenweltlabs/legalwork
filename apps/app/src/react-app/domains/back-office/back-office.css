@@ -774,12 +774,6 @@
   max-width: 100%;
 }
 
-.bo-create-actions kbd {
-  margin-left: 6px;
-  font: inherit;
-  opacity: 0.65;
-}
-
 .bo-create-actions {
   justify-content: flex-end;
   border-top: 1px solid var(--bo-border);

@@ -98,7 +98,7 @@ export function RecordCreateForm({ object, name, filters, persistenceNotice, ini
       {fields.some(field => !primary(field)) && <Button type="button" size="sm" variant="ghost" disabled={busy} aria-expanded={more} onClick={() => setMore(!more)}>{t("back_office.create.more_details")}<ChevronDown size={13} style={{ transform: more ? "rotate(180deg)" : undefined }} /></Button>}
       {persistenceNotice && <p className="bo-muted">{persistenceNotice}</p>}
       {error && <p className="bo-error" role="alert">{error}</p>}
-      <div className="bo-create-actions"><Button type="button" size="sm" variant="ghost" disabled={busy} onClick={onCancel}>{t("projects.cancel")}</Button><Button type="button" size="sm" variant="solid" color="neutral" disabled={busy || !String(draft.values.name ?? "").trim()} startIcon={<Plus size={14} />} aria-label={createLabel} aria-keyshortcuts={isMacPlatform() ? "Meta+Enter" : "Control+Enter"} onClick={() => void save()}>{busy ? t("projects.saving") : createLabel}<kbd aria-hidden="true">{isMacPlatform() ? "⌘↵" : "Ctrl+↵"}</kbd></Button></div>
+      <div className="bo-create-actions"><Button type="button" size="sm" variant="ghost" disabled={busy} onClick={onCancel}>{t("projects.cancel")}</Button><Button type="button" size="sm" variant="solid" color="neutral" disabled={busy || !String(draft.values.name ?? "").trim()} startIcon={<Plus size={14} />} aria-label={createLabel} aria-keyshortcuts={isMacPlatform() ? "Meta+Enter" : "Control+Enter"} onClick={() => void save()}>{busy ? t("projects.saving") : createLabel}</Button></div>
     </div>
   </RecordFilesProvider>;
 }

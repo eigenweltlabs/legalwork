@@ -68,7 +68,7 @@ export function ProjectReferenceActions({ client, fields, onSave, onCustomize }:
             {error && <p role="alert" className="p-2 text-xs text-destructive">{error}</p>}
             {!creating && <div className="mt-2 flex items-center justify-end gap-2 border-t pt-2">
               <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={() => setActive(null)}>{t("projects.cancel")}</Button>
-              <Button type="button" size="sm" disabled={busy || !selected.length} onClick={() => void save(field)}>{t("projects.connections.link")}<kbd className="ml-2 text-xs opacity-70">{isMacPlatform() ? "⌘↵" : "Ctrl+↵"}</kbd></Button>
+              <Button type="button" size="sm" disabled={busy || !selected.length} aria-keyshortcuts={isMacPlatform() ? "Meta+Enter" : "Control+Enter"} onClick={() => void save(field)}>{t("projects.connections.link")}</Button>
             </div>}
           </PopoverContent>
         </Popover>;

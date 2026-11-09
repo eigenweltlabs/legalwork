@@ -53,7 +53,7 @@ export function ProjectFieldDialog({ client, field, onSave, onClose }: {
           : <label className="space-y-1 text-sm">{t("projects.field_value")}<Input autoFocus={Boolean(field)} aria-label={t("projects.field_value")} type={draft.type} step="any" value={draft.value === null ? "" : String(draft.value)} disabled={busy} onChange={event => setDraft({ ...draft, value: event.target.value === "" ? null : draft.type === "number" ? Number(event.target.value) : event.target.value })} /></label>}
       </RecordCreationProvider>
       {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
-      {!creating && <DialogFooter><Button type="button" variant="ghost" disabled={busy} onClick={onClose}>{t("projects.cancel")}</Button><Button type="button" disabled={busy || !draft.label.trim() || !hasProjectFieldValue(draft)} onClick={() => void save()}>{t(busy ? "projects.saving" : draft.type === "backoffice" ? "projects.connections.link" : "projects.save")}<kbd className="ml-2 text-xs opacity-70">{isMacPlatform() ? "⌘↵" : "Ctrl+↵"}</kbd></Button></DialogFooter>}
+      {!creating && <DialogFooter><Button type="button" variant="ghost" disabled={busy} onClick={onClose}>{t("projects.cancel")}</Button><Button type="button" disabled={busy || !draft.label.trim() || !hasProjectFieldValue(draft)} aria-keyshortcuts={isMacPlatform() ? "Meta+Enter" : "Control+Enter"} onClick={() => void save()}>{t(busy ? "projects.saving" : draft.type === "backoffice" ? "projects.connections.link" : "projects.save")}</Button></DialogFooter>}
     </DialogContent>
   </Dialog>;
 }
