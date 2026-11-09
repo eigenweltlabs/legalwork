@@ -66,6 +66,8 @@ Tool activity stays in one compact row while the assistant works through consecu
 
 When the assistant starts a subagent, its row shows progress and opens the child chat when selected. Results such as review cards, draft emails, calculations and dashboard previews appear directly in the conversation, including when you reopen it. Filed tasks and LegalMemory sources also appear with the assistant's answer.
 
+Chat tabs and the **Sessions** overview show the same indicators as the sidebar: a spinner while the assistant works, a pulsing amber dot when it needs your approval or answer, a red dot after an error, and a blue dot for an unread reply. Select a project's **Sessions** to see these indicators beside its conversations. Browsing the overview keeps unread replies marked; open the chat to read the reply and clear its blue dot. Leaving its tab open in the background does not mark it read.
+
 The command palette searches available navigation/actions. File/document tabs keep artifacts beside chat, and the terminal runs commands on the computer running LegalWork. Click the X on a chat tab once to close its view. The conversation remains in Sessions and can be reopened from there. A tab being open does not establish that its unsaved edits are already on disk. When a tool asks for permission or the assistant presents a question, respond in that control; stopping the response does not undo completed file changes.
 
 When asking what was said previously, name the chat or topic and let the assistant read the returned transcript. A chat transcript is a record of that discussion, not independent evidence about a matter. For current matter facts, use the connected source documents.

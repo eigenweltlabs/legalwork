@@ -11,6 +11,8 @@ import { isProjectRemoving, retainRemovingProjects, useProjectRemoving } from "@
 import { usePanelTabStore } from "../domains/session/panel/panel-tab-store";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
+import { useStore } from "zustand";
+import { createLocalReconnectRecovery } from "./local-reconnect-recovery";
 
 import { publishInspectorSlice, recordInspectorEvent } from "@/app/lib/app-inspector";
 import {
@@ -93,6 +95,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
   const [errorsByWorkspaceId, setErrorsByWorkspaceId] = useState<Record<string, string | null>>({});
   const [workspaceConnectionOverrides, setWorkspaceConnectionOverrides] = useState<Record<string, WorkspaceConnectionState>>({});
   const [routeError, setRouteError] = useState<string | null>(null);
+  const refreshConnectionError = useRef<string | null>(null);
   const [legacySelectedWorkspaceId, setLegacySelectedWorkspaceId] = useState<string>(() => readActiveWorkspaceId() ?? "");
   // An explicit route may point at a wiki just created on the server. Never
   // borrow another workspace's tabs, connection or agent directory while loading it.
@@ -342,6 +345,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
       if (!isCurrent()) return;
       callbacksRef.current.onHostInfo(hostInfo);
       if (!normalizedBaseUrl || !resolvedToken) {
+        refreshConnectionError.current = t("session.reconnect_failed");
         hasLoadedServerWorkspacesRef.current = false;
         setHasLoadedServerWorkspaces(false);
         // Keep `localServerRef` in lockstep with the disconnected state.
@@ -382,6 +386,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
       clientConnectionRef.current = { key: connectionKey, client: legalworkClient };
       const list = await legalworkClient.listWorkspaces();
       if (!isCurrent()) return;
+      refreshConnectionError.current = null;
       // Restore saved dashboard tabs to the current desktop port before
       // exposing the new client. Only server-confirmed local owners can move.
       if (isDesktopRuntime()) usePanelTabStore.getState().reconnectLocalTabs(normalizedBaseUrl, [], list.items.map(workspace => workspace.id));
@@ -486,6 +491,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
         preservedWorkspaceCount: desktopWorkspaces.length,
       });
       setRouteError(message);
+      refreshConnectionError.current = message;
       if (!hasLoadedServerWorkspacesRef.current && desktopWorkspaces.length > 0) {
         const orderedDesktopWorkspaces = orderRouteWorkspaces(desktopWorkspaces, workspaceOrderIdsRef.current);
         workspacesRef.current = orderedDesktopWorkspaces;
@@ -505,6 +511,17 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
     }
   }, [loadWorkspaceSessionsInBackground, markBootRouteReady]);
   const refreshRouteState = useMemo(() => createCoalescedRefresh(refreshOnce), [refreshOnce]);
+  const reconnectRecovery = useMemo(() => createLocalReconnectRecovery(async () => {
+    const workspace = workspacesRef.current.find(item => item.id === selectedWorkspaceId);
+    const info = await ensureDesktopLocalLegalworkConnection({ route: "session", workspace, allWorkspaces: workspacesRef.current });
+    if (!info) throw new Error(t("session.reconnect_failed"));
+    await refreshRouteState();
+    if (refreshConnectionError.current) throw new Error(refreshConnectionError.current);
+  }), [selectedWorkspaceId, refreshRouteState]);
+  const reconnect = useStore(reconnectRecovery);
+  useEffect(() => {
+    if (client) reconnectRecovery.getState().clear();
+  }, [client, reconnectRecovery]);
 
   // Changing the URL selects a known project without rerunning desktop boot,
   // reconnecting the server, or reloading every project's sessions.
@@ -717,15 +734,8 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
     if (!workspaceId || reconnectAttemptedWorkspaceIdRef.current === workspaceId) return;
     reconnectAttemptedWorkspaceIdRef.current = workspaceId;
 
-    void ensureDesktopLocalLegalworkConnection({
-      route: "session",
-      workspace: selectedWorkspace,
-      allWorkspaces: workspaces,
-    }).catch((error) => {
-      const message = error instanceof Error ? error.message : describeRouteError(error);
-      setRouteError(message);
-    });
-  }, [client, loading, selectedWorkspace, workspaces]);
+    void reconnectRecovery.getState().retry();
+  }, [client, loading, selectedWorkspace, workspaces, reconnectRecovery]);
 
   const selectedWorkspaceRoot = selectedWorkspace?.path?.trim() || "";
   // Single source of truth for the selected workspace's server URL/token/id.
@@ -743,7 +753,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
       (sessionsByWorkspaceId[selectedWorkspaceId] ?? []).some((session) => session?.id === selectedSessionId),
   );
   const routeNotFoundMessage = (() => {
-    if (loading || selectedWorkspaceRemoving) return null;
+    if (loading || selectedWorkspaceRemoving || !client) return null;
     if (routeWorkspaceId && !selectedWorkspace) {
       return t("workspace.not_found");
     }
@@ -809,6 +819,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
     routeNotFoundMessage,
     endpointForWorkspace,
     refreshRouteState,
+    reconnect,
     loadWorkspaceSessionsInBackground,
     rememberPendingCreatedSession,
     handleRuntimeSessionLoaded,
