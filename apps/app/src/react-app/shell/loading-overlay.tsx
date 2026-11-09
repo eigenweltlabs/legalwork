@@ -88,7 +88,7 @@ export function LoadingOverlay({ startup = { status: "ready" } }: { startup?: En
     setUpdatesOpen(true);
   };
 
-  if (!visible && startup.status === "ready") return null;
+  if (!visible && startup.status === "ready" && !updatesOpen) return null;
 
   const fading = startup.status === "ready" && routeReady && (phase === "ready" || phase === "idle");
 
@@ -111,32 +111,32 @@ export function LoadingOverlay({ startup = { status: "ready" } }: { startup?: En
         {error ? (
           <div className="flex flex-col items-center gap-3 text-[12px] leading-5 text-red-11">
             <div>{error}</div>
-            {isDesktopRuntime() ? (
-              <>
-                <Button variant="outline" size="sm" className="absolute bottom-6 right-6" onClick={openUpdates}>
-                  {t("ai_plans.check_updates")}
-                </Button>
-                <CollectLogsButton />
-                <Dialog open={updatesOpen} onOpenChange={setUpdatesOpen}>
-                  {/* Keep the updater and its menus above the boot overlay. */}
-                  <DialogContent
-                    className="flex max-h-[calc(100vh-2rem)] min-h-0 flex-col gap-0 bg-background p-0 sm:max-w-2xl"
-                    portalClassName="relative z-[1001]"
-                  >
-                    <DialogHeader className="px-6 pb-1 pt-6">
-                      <DialogTitle>{t("settings.tab_updates")}</DialogTitle>
-                      <DialogDescription>{t("settings.tab_description_updates")}</DialogDescription>
-                    </DialogHeader>
-                    {updatesOpen ? (
-                      <div className="flex min-h-0 flex-1 flex-col">
-                        <SettingsSurface embedded singleView initialPath="updates" />
-                      </div>
-                    ) : null}
-                  </DialogContent>
-                </Dialog>
-              </>
-            ) : null}
+            {isDesktopRuntime() ? <CollectLogsButton /> : null}
           </div>
+        ) : null}
+        {isDesktopRuntime() ? (
+          <>
+            <Button variant="outline" size="sm" className="absolute bottom-6 right-6" onClick={openUpdates}>
+              {t("ai_plans.check_updates")}
+            </Button>
+            <Dialog open={updatesOpen} onOpenChange={setUpdatesOpen}>
+              {/* Keep the updater and its menus above the boot overlay. */}
+              <DialogContent
+                className="flex max-h-[calc(100vh-2rem)] min-h-0 flex-col gap-0 bg-background p-0 sm:max-w-2xl"
+                portalClassName="relative z-[1001]"
+              >
+                <DialogHeader className="px-6 pb-1 pt-6">
+                  <DialogTitle>{t("settings.tab_updates")}</DialogTitle>
+                  <DialogDescription>{t("settings.tab_description_updates")}</DialogDescription>
+                </DialogHeader>
+                {updatesOpen ? (
+                  <div className="flex min-h-0 flex-1 flex-col">
+                    <SettingsSurface embedded singleView initialPath="updates" />
+                  </div>
+                ) : null}
+              </DialogContent>
+            </Dialog>
+          </>
         ) : null}
       </div>
     </div>
