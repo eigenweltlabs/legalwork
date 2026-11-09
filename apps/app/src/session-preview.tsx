@@ -93,7 +93,7 @@ const topUpPreview = previewParams.get("topup") ?? (trialPreview ? "success" : n
 const intentPreview = requestTooLarge ? "request" : fundedTrialPreview ? "personal" : previewParams.get("intent");
 let topUpPending: { operationId: string; amountCents: number } | null = null;
 let topUpReadyAt = 0;
-let topUpCreditCents = 0;
+let topUpQuote: { status: "requires_confirmation"; operationId: string; amountCents: number; taxCents: number; totalCents: number } | null = null;
 let failNextUsageRead = false;
 let hostedUpgrade: { plan: "plus" | "pro"; readyAt: number } | null = null;
 if (upgradePreview) limitFixture.usage.me.blockedReason = "wallet_empty";
@@ -669,24 +669,44 @@ const fixtureClient: LegalworkServerClient = {
     if (action.action === "paymentDetails") {
       if (topUpPending && Date.now() >= topUpReadyAt) {
         const me = { ...limitFixture.usage.me,
-          extraRemainingCents: topUpPreview === "blocked" ? 0 : topUpCreditCents,
+          extraRemainingCents: topUpPreview === "blocked" ? 0 : topUpPending.amountCents,
           blockedReason: topUpPreview === "blocked" ? "member_limit" : null,
         };
-        limitFixture.usage = { ...limitFixture.usage, me: { ...me, extraLimitCents: topUpCreditCents }, members: [me], extraEnabled: true, walletCents: topUpCreditCents };
+        limitFixture.usage = { ...limitFixture.usage, me: { ...me, extraLimitCents: topUpPending.amountCents }, members: [me], extraEnabled: true, walletCents: topUpPending.amountCents };
         topUpPending = null;
       }
       return {
         card: { id: "visual-card", brand: "visa", last4: "4242", expMonth: 9, expYear: 2027 },
-        pendingTopUps: topUpPending ? [topUpPending] : [],
+        pendingTopUps: topUpPending ? [topUpPending] : topUpQuote ? [topUpQuote] : [],
       };
     }
     // Explicit dev-only simulation. No payment service, account, or credentials are used.
     if (action.action === "topUp" && topUpPreview) {
-      topUpPending = { operationId: action.operationId, amountCents: action.amountCents };
-      topUpCreditCents = previewParams.has("inclusive-tax") ? Math.round(action.amountCents / 1.19) : action.amountCents;
+      topUpPending = { operationId: action.operationId, amountCents: Math.round(action.amountCents / 1.19) };
+      topUpReadyAt = Date.now();
+      return { status: "paid", operationId: action.operationId };
+    }
+    if (action.action === "quoteTopUp" && topUpPreview) {
+      const taxCents = Math.round(action.amountCents * 0.19);
+      topUpQuote = { status: "requires_confirmation", operationId: action.operationId,
+        amountCents: action.amountCents, taxCents, totalCents: action.amountCents + taxCents };
+      return topUpQuote;
+    }
+    if (action.action === "resumeTopUp" && topUpQuote) {
+      if (action.expectedTotalCents === undefined) {
+        if (!action.preview) throw new Error("top_up_confirmation_required");
+        return topUpQuote;
+      }
+      if (action.expectedTotalCents !== topUpQuote.totalCents) throw new Error("top_up_amount_changed");
+      topUpPending = { operationId: topUpQuote.operationId, amountCents: topUpQuote.amountCents };
+      topUpQuote = null;
       topUpReadyAt = Date.now() + (topUpPreview === "delayed" ? 10_000 : 0);
       failNextUsageRead = topUpPreview === "refresh-failed";
       return { status: "paid", operationId: action.operationId };
+    }
+    if (action.action === "cancelTopUp" && topUpQuote) {
+      topUpQuote = null;
+      return { status: "canceled", operationId: action.operationId };
     }
     if (action.action === "memberChange" && action.preview) return {
       quoteId: "visual-quote", amountCents: 1500, recurringAmountCents: 12800, billingInterval: "month",

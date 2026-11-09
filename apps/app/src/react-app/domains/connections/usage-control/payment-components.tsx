@@ -18,6 +18,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import type { Run, Text, UsageTextKey, UsageTransport } from "./transport";
+import { parseTopUpResult } from "./top-up-result";
 import { usageBlockMessageKey } from "./usage-block";
 import { CHECKING_TOP_UP, checkConfirmedTopUp, type TopUpRecovery } from "./usage-recovery";
 import type { UsageLimitDetails } from "@legalwork/types/provider-usage-limit";
@@ -62,26 +63,6 @@ const detailsSchema = {
         return { operationId: item.operationId, amountCents: item.amountCents };
       }),
     };
-  },
-};
-const resultSchema = {
-  parse(value: unknown): TopUpResult {
-    if (!record(value) || typeof value.operationId !== "string")
-      throw new Error("response");
-    if (
-      value.status === "paid" ||
-      value.status === "canceled" ||
-      value.status === "failed" ||
-      value.status === "processing"
-    )
-      return { status: value.status, operationId: value.operationId };
-    if (value.status === "requires_action" && typeof value.url === "string")
-      return {
-        status: value.status,
-        operationId: value.operationId,
-        url: value.url,
-      };
-    throw new Error("response");
   },
 };
 const money = (cents: number) =>
@@ -257,7 +238,7 @@ function TopUpForm({ t, run, busy, transport, onPaid, trialUsage }: Props & { on
     setError("");
     setSubmitted(true);
     try {
-      const next = resultSchema.parse(await run(action));
+      const next = parseTopUpResult(await run(action));
       setResult(next);
       if (next.status === "paid") return;
       if (next.status === "canceled") {
@@ -270,6 +251,8 @@ function TopUpForm({ t, run, busy, transport, onPaid, trialUsage }: Props & { on
         t(
           err instanceof Error && err.message.includes("payment_method_changed")
             ? "limits.payment_changed"
+            : err instanceof Error && err.message.includes("top_up_quote_expired")
+            ? "limits.topup_quote_expired"
             : "limits.topup_retry_hint",
         ),
       );
@@ -280,6 +263,24 @@ function TopUpForm({ t, run, busy, transport, onPaid, trialUsage }: Props & { on
   if (result?.status === "paid")
     return (
       <p role="status" className="text-sm text-muted-foreground">{t("limits.topup_paid")}</p>
+    );
+  if (result?.status === "requires_confirmation")
+    return (
+      <div className="space-y-4">
+        <dl className="grid grid-cols-2 gap-3 rounded-xl border p-4 text-sm">
+          <dt>{t("limits.usable_credits")}</dt><dd className="text-right">{money(result.amountCents)}</dd>
+          <dt>{t("limits.tax")}</dt><dd className="text-right">{money(result.taxCents)}</dd>
+          <dt className="font-semibold">{t("limits.total_charge")}</dt><dd className="text-right font-semibold">{money(result.totalCents)}</dd>
+        </dl>
+        {details?.card && <CardLabel card={details.card} t={t} />}
+        <Button className="w-full" disabled={busy} onClick={() => void execute({
+          action: "resumeTopUp", operationId: result.operationId, expectedTotalCents: result.totalCents,
+        })}>{t("limits.confirm_topup")} · {money(result.totalCents)}</Button>
+        <Button className="w-full" variant="outline" disabled={busy} onClick={() => void execute({
+          action: "cancelTopUp", operationId: result.operationId,
+        })}>{t("limits.cancel_topup")}</Button>
+        {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+      </div>
     );
   if (result?.status === "failed" || result?.status === "processing")
     return (
@@ -299,7 +300,7 @@ function TopUpForm({ t, run, busy, transport, onPaid, trialUsage }: Props & { on
           className="w-full"
           onClick={() =>
             void execute({
-              action: "resumeTopUp",
+              action: "resumeTopUp", preview: true,
               operationId: result.operationId,
             })
           }
@@ -351,7 +352,7 @@ function TopUpForm({ t, run, busy, transport, onPaid, trialUsage }: Props & { on
           disabled={busy}
           onClick={() =>
             void execute({
-              action: "resumeTopUp",
+              action: "resumeTopUp", preview: true,
               operationId: result.operationId,
             })
           }
@@ -394,7 +395,7 @@ function TopUpForm({ t, run, busy, transport, onPaid, trialUsage }: Props & { on
               className="w-full"
               onClick={() =>
                 void execute({
-                  action: "resumeTopUp",
+                  action: "resumeTopUp", preview: true,
                   operationId: pending.operationId,
                 })
               }
@@ -443,7 +444,7 @@ function TopUpForm({ t, run, busy, transport, onPaid, trialUsage }: Props & { on
         }
         if (details.card)
           void execute({
-            action: "topUp",
+            action: "quoteTopUp",
             enableTrialUsage: trialUsage || undefined,
             operationId,
             amountCents,
@@ -516,7 +517,7 @@ function TopUpForm({ t, run, busy, transport, onPaid, trialUsage }: Props & { on
       >
         <CreditCard />
         {!details || details.card
-          ? t("limits.confirm_topup")
+          ? t("limits.review_topup")
           : t(trialUsage ? "limits.change_card" : "limits.continue_checkout")}
         {(!details || details.card) &&
           ` · ${money(Math.round(Number(value.replace(",", ".")) * 100) || 0)}`}
