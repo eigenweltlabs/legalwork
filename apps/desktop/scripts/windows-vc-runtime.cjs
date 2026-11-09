@@ -1,6 +1,9 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { createHash } = require("node:crypto");
+/** @typedef {{ url: string, sha256: string, files: Record<string, string> }} RuntimeTarget */
+// Pins can describe a single target; do not infer a requirement for both architectures from the bundled JSON.
+/** @type {{ packageVersion: string, directoryVersion: string, targets: Record<string, RuntimeTarget> }} */
 const defaults = require("../build/windows-vc-runtime.json");
 
 const sha256 = bytes => createHash("sha256").update(bytes).digest("hex");
