@@ -22,8 +22,8 @@ use their existing scopes.
   select that platform. Service and policy consumers run against the shipped engine and a real Linux
   x64 VM. Changes to boot, transport, filesystem or network enforcement also
   run the native sandbox battery.
-- Chromium PDF and browser fixtures run under Linux Electron with a virtual
-  display. Quit and window lifecycle fixtures use a native macOS session.
+- PDF rendering and password autofill run under Linux Electron with a virtual
+  display. Browser panel capture, quit and window lifecycle fixtures use a native macOS session.
 - Every candidate checks that desktop declares the server's shipped runtime
   dependencies. CI also verifies bundled plugins after building the server.
   Signed installers run on alpha and release. An explicit package acceptance

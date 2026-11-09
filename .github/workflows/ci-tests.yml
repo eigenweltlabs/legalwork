@@ -404,7 +404,7 @@ jobs:
           bun-version: 1.4.4
       - uses: ./.github/actions/install-dependencies
         with:
-          filter: ${{ (matrix.area == 'app' || startsWith(matrix.area, 'server')) && fromJSON('"@legalwork/app...\nlegalwork-server..."') || matrix.area == 'openui' && '@legalwork/app...' || '' }}
+          filter: ${{ (matrix.area == 'app' || matrix.area == 'openui' || startsWith(matrix.area, 'server')) && fromJSON('"@legalwork/app...\nlegalwork-server..."') || '' }}
       - name: Reserve sign-in ports for server fixtures
         if: startsWith(matrix.area, 'server')
         run: |
@@ -453,9 +453,8 @@ jobs:
       always() && !cancelled() && needs.changes.result == 'success' && needs.changes.outputs.electron != '' &&
       needs.changes.outputs.electron != '[]' && (needs.pr-renderer.result == 'success' ||
       (needs.pr-renderer.result == 'skipped' && needs.changes.outputs.renderer == 'false'))
-    # Quit and window lifecycle probes need the native Mac session. Chromium
-    # PDF and browser fixtures can use a virtual display on the Linux pool.
-    runs-on: ${{ needs.changes.outputs.renderer == 'true' && 'macos-15' || 'ubuntu-latest' }}
+    # Native window lifecycle and hidden WebContents capture require a Mac session.
+    runs-on: ${{ (needs.changes.outputs.renderer == 'true' || contains(fromJSON(needs.changes.outputs.electron), 'browser')) && 'macos-15' || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
@@ -493,10 +492,11 @@ jobs:
           fs.symlinkSync(process.argv[2], helper);
           NODE
       - name: Run selected Chromium fixtures
-        if: contains(fromJSON(needs.changes.outputs.electron), 'ris') || contains(fromJSON(needs.changes.outputs.electron), 'browser')
+        if: needs.changes.outputs.electron != '["renderer"]'
         env:
           RIS: ${{ contains(fromJSON(needs.changes.outputs.electron), 'ris') }}
           BROWSER: ${{ contains(fromJSON(needs.changes.outputs.electron), 'browser') }}
+          AUTOFILL: ${{ contains(fromJSON(needs.changes.outputs.electron), 'autofill') }}
         run: |
           display=()
           if [[ "$RUNNER_OS" == Linux ]]; then display=(xvfb-run -a); fi
@@ -504,8 +504,11 @@ jobs:
             pnpm --filter legalwork-server build
             "${display[@]}" pnpm --filter @legalwork/desktop test:ris-pdf
           fi
+          if [[ "$AUTOFILL" == true || "$BROWSER" == true ]]; then
+            "${display[@]}" pnpm --filter @legalwork/desktop test:browser-autofill
+          fi
           if [[ "$BROWSER" == true ]]; then
-            for suite in browser-autofill preview-security browser-workflow browser-network browser-observation; do
+            for suite in preview-security browser-workflow browser-network browser-observation; do
               "${display[@]}" pnpm --filter @legalwork/desktop "test:$suite"
             done
           fi

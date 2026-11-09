@@ -16,7 +16,8 @@ test('bundled help, ordinary SDK consumers and typed UI are portable; engine pol
     assert.equal(mergePlan(['apps/server/src/' + input, 'apps/server/src/agent-sandbox/service.ts']).runtimeSuite, true);
   }
   assert.deepEqual(electronChecks(['apps/desktop/scripts/ris-pdf-regression.mjs']), ['ris']);
-  assert.deepEqual(electronChecks(['apps/desktop/electron/browser-autofill.mjs']), ['browser']);
+  assert.deepEqual(electronChecks(['apps/desktop/electron/browser-autofill.mjs']), ['autofill']);
+  assert.deepEqual(electronChecks(['apps/desktop/electron/browser-panel.mjs', 'apps/desktop/scripts/browser-autofill-regression.mjs']), ['browser']);
   assert.deepEqual(electronChecks(['apps/app/tests/fixtures/workflow-editor-dirty.tsx']), ['renderer']);
   assert.deepEqual(hostChecks(['apps/server/scripts/dev-node.test.mjs', 'apps/app/scripts/e2e.mjs']), ['app', 'dev-node']);
   assert.deepEqual(portableJobs(['apps/server/src/routes/files.ts']), ['server']);
