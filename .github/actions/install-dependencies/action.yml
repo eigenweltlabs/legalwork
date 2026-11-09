@@ -7,6 +7,9 @@ inputs:
   cache:
     default: 'true'
     description: Restore and save the selected store; false permits a fresh-install comparison
+  save-cache:
+    default: 'true'
+    description: Upload a newly populated store when this job is a cache producer
   filter:
     default: ''
     description: Optional pnpm workspace dependency filters, one per line
@@ -46,7 +49,7 @@ runs:
         if [ "$IGNORE_SCRIPTS" = true ]; then args+=(--ignore-scripts); fi
         pnpm "${args[@]}"
     - uses: actions/cache/save@v4
-      if: inputs.cache == 'true' && steps.cache.outputs.cache-hit != 'true'
+      if: inputs.cache == 'true' && inputs.save-cache == 'true' && steps.cache.outputs.cache-hit != 'true'
       with:
         path: ${{ steps.store.outputs.path }}
         key: ${{ steps.cache.outputs.cache-primary-key }}

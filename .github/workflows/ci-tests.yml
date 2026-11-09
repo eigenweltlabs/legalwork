@@ -467,6 +467,10 @@ jobs:
         with:
           bun-version: 1.4.4
       - uses: ./.github/actions/install-dependencies
+        with:
+          # An uncached store can take minutes to upload. Base-branch alpha and
+          # native build jobs already publish the same verified lockfile store.
+          save-cache: 'false'
       - uses: actions/download-artifact@v4
         if: needs.changes.outputs.renderer == 'true'
         with:
