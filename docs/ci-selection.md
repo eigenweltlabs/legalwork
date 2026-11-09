@@ -142,3 +142,5 @@ node --test scripts/ci/{merge-gate,workflow-selection,change-scope,deploy-benchm
 node scripts/ci/replay-merge-plan.mjs
 actionlint -shellcheck= -pyflakes=
 ```
+
+Queue validation candidate.
