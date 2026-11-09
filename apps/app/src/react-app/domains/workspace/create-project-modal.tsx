@@ -1,12 +1,14 @@
 import { RemoteFolderPicker, useRemoteFolderSources, type SelectedRemoteFolder } from "./remote-folder-picker";
-import { projectFieldLabel, useProjectDefaultsStore } from "./project-defaults-store";
+import { useProjectDefaultsStore } from "./project-defaults-store";
 import { useProjectTemplateCatalog } from "./project-template-catalog";
 import { ProjectTemplateSelect } from "./project-template-select";
-import { projectMatterField, type ProjectRecordReference, type RemoteFolderSelection } from "@legalwork/types/workspace";
-import { ProjectMatterPicker } from "./project-matter-picker";
-import { ObjectIcon } from "../back-office/object-icon";
+import { projectMatterField, type ProjectField, type ProjectRecordReference, type RemoteFolderSelection } from "@legalwork/types/workspace";
+import { ProjectCreationRecordPicker } from "./project-creation-record-picker";
+import { projectReferenceObjects, useProjectBackOffice } from "./project-record-field";
+import { projectConnectionField } from "./project-connections";
+import { backOfficeObjectLabel } from "../back-office/labels";
 import { projectErrorMessage } from "./project-errors";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { isDesktopRuntime } from "@/app/lib/runtime-env";
 import { folderNameFromPath } from "@/react-app/shell/route-workspaces";
 import { Cloud, Folder, FolderPlus, X } from "lucide-react";
@@ -28,7 +30,8 @@ import { currentLocale, t } from "@/i18n";
 
 export type CreateProjectInput = {
   name: string;
-  templateId: string | null;
+  templateId?: string | null;
+  projectFields?: ProjectField[];
   templateLanguage: "en" | "de";
   matters?: ProjectRecordReference;
   remoteFolders?: RemoteFolderSelection[];
@@ -47,6 +50,7 @@ export function CreateProjectModal(props: {
   onConfirm: (input: CreateProjectInput) => Promise<void>;
 }) {
   const catalog = useProjectTemplateCatalog(props.client, props.open);
+  const directory = useProjectBackOffice(props.open ? props.client : null);
   const defaultTemplateId = useProjectDefaultsStore((state) => state.defaultTemplateId);
   const [selection, setTemplateId] = useState<string | null | undefined>();
   const templateId = selection === undefined ? defaultTemplateId : selection;
@@ -58,7 +62,16 @@ export function CreateProjectModal(props: {
   const [remotePicker, setRemotePicker] = useState(false);
   const [name, setName] = useState("");
   const [matters, setMatters] = useState<ProjectRecordReference | null>(null);
-  const [creatingMatter, setCreatingMatter] = useState(false);
+  const [links, setLinks] = useState<Record<string, ProjectRecordReference | null>>({});
+  const [creatingRecord, setCreatingRecord] = useState<string | null>(null);
+  const onCreatingChange = useCallback((objectId: string, creating: boolean) => {
+    setCreatingRecord(current => creating ? objectId : current === objectId ? null : current);
+  }, []);
+  const templateFields = selectedTemplate?.fields ?? [];
+  const objects = projectReferenceObjects(directory.data);
+  const connectionFields = ["matters", "clients", "people", "companies"].map(objectId => objectId === "matters"
+    ? projectMatterField(templateFields, currentLocale())
+    : projectConnectionField(templateFields, objectId, objects.find(object => object.id === objectId)?.plural ?? backOfficeObjectLabel(objectId)));
   const [showFolderInput, setShowFolderInput] = useState(false);
   const [folder, setFolder] = useState("");
   const [picking, setPicking] = useState(false);
@@ -67,6 +80,8 @@ export function CreateProjectModal(props: {
     if (props.open) {
       setName("");
       setMatters(null);
+      setLinks({});
+      setCreatingRecord(null);
       setTemplateId(undefined);
       setRemoteFolders([]); setInitializeFromFolders(false); setRemotePicker(false);
       setShowFolderInput(false);
@@ -116,10 +131,14 @@ export function CreateProjectModal(props: {
           onSubmit={(event) => {
             if (event.target !== event.currentTarget) return;
             event.preventDefault();
-            if (!catalog.ready || props.submitting || creatingMatter) return;
+            if (!catalog.ready || props.submitting || creatingRecord) return;
+            const selectedLinks = connectionFields.flatMap(field => field.objectId !== "matters" && links[field.objectId]
+              ? [{ ...field, value: links[field.objectId] }] : []);
+            const projectFields = [...templateFields.map(field => selectedLinks.find(link => link.id === field.id) ?? field),
+              ...selectedLinks.filter(link => !templateFields.some(field => field.id === link.id))];
             void props.onConfirm({
               name: (name.trim() || (folder.trim() ? folderNameFromPath(folder.trim()) : remoteFolders[0]?.name) || "Project").slice(0, 120),
-              templateId,
+              ...(selectedLinks.length ? { projectFields } : { templateId }),
               templateLanguage: currentLocale(),
               ...(matters ? { matters } : {}),
               initializeFromFolders: setup,
@@ -134,16 +153,19 @@ export function CreateProjectModal(props: {
             <InputGroupInput autoFocus required={!setup} maxLength={120} aria-label={t("projects.name")} placeholder={t(setup ? "projects.setup.name_placeholder" : "projects.name")} value={name} disabled={props.submitting} className="h-full px-4 text-base" onChange={(event) => setName(event.target.value)} />
           </InputGroup>
           {props.open && <div className="space-y-2">
-            <div className="flex items-center gap-2 text-sm font-medium"><ObjectIcon id="matters" />{t("projects.matters.label")}</div>
-            <ProjectMatterPicker key={templateId ?? "no-template"} client={props.client}
-              field={{ ...projectMatterField(selectedTemplate?.fields ?? [], currentLocale()), value: matters }}
-              disabled={props.submitting || !catalog.ready} onChange={setMatters} onCreatingChange={setCreatingMatter} />
+            <p className="text-xs text-muted-foreground">{t("projects.connections.optional")}</p>
+            <div className="flex flex-wrap items-start gap-2">
+              {connectionFields.map(field => <ProjectCreationRecordPicker key={`${templateId}:${field.objectId}`} client={props.client} state={directory.data}
+                field={{ ...field, value: field.objectId === "matters" ? matters : links[field.objectId] ?? null }}
+                disabled={props.submitting || !catalog.ready} onCreatingChange={onCreatingChange}
+                onChange={value => field.objectId === "matters" ? setMatters(value) : setLinks(current => ({ ...current, [field.objectId]: value }))} />)}
+            </div>
+            {directory.error && <p role="alert" className="text-xs text-destructive">{t("projects.connections.unavailable")}</p>}
           </div>}
           <details className="space-y-2">
             <summary className="cursor-pointer text-xs text-muted-foreground">{t("projects.advanced")}</summary>
             <div className="text-sm font-medium">{t("projects.templates.template")}</div>
             <ProjectTemplateSelect value={templateId} onChange={setTemplateId} disabled={props.submitting || !catalog.ready} />
-            <p className="text-xs text-muted-foreground">{selectedTemplate?.fields.length ? selectedTemplate.fields.map((field) => projectFieldLabel(field)).join(", ") : t("projects.templates.none_hint")}</p>
           </details>
           <fieldset disabled={props.submitting || picking} className="space-y-3">
             <legend className="mb-3 text-sm font-medium">{t("projects.source_folders")}</legend>
@@ -192,7 +214,7 @@ export function CreateProjectModal(props: {
             <Button
               type="submit"
               disabled={
-                props.submitting || picking || creatingMatter || !catalog.ready ||
+                props.submitting || picking || Boolean(creatingRecord) || !catalog.ready ||
                 (!setup && !name.trim()) ||
                 !props.client
               }

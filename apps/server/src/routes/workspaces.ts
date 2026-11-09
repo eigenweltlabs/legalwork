@@ -339,8 +339,9 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
     const name = typeof body.name === "string" && body.name.trim() ? body.name.trim() : basename(folderPath || "Workspace");
     const preset = typeof body.preset === "string" && body.preset.trim() ? body.preset.trim() : "starter";
 
-    if (body.matters !== undefined && folderPath && (await readProjectDetails(folderPath)).revision > 0)
-      throw new ApiError(409, "project_already_initialized", "This folder already has project details. Open its Project Home to change its matters, or choose a new folder.");
+    const hasRecordLinks = projectFields.some(field => field.type === "backoffice" && field.value?.recordIds.length);
+    if ((body.matters !== undefined || hasRecordLinks) && folderPath && (await readProjectDetails(folderPath)).revision > 0)
+      throw new ApiError(409, "project_already_initialized", "This folder already has project details. Open its Project Home to change its linked records, or choose a new folder.");
 
     let newProjectId: string | undefined;
     if (body.folderMode === "default") {

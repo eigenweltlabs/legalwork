@@ -12,42 +12,48 @@ import { creatableRecordObject } from "../back-office/record-creation-values";
 import { displayBackOfficeObject } from "../back-office/labels";
 import { BackOfficeTheme } from "../back-office/twenty-controls";
 import { ObjectIcon } from "../back-office/object-icon";
-import { useProjectBackOffice } from "./project-record-field";
+import type { BackOfficeState } from "../back-office/api";
 import { matterPickerOptions, recentMatterIds, rememberMatter } from "./matter-picker-options";
 
-export function ProjectMatterPicker({ client, field, disabled, onChange, onCreatingChange }: {
+export function ProjectCreationRecordPicker({ client, state, field, disabled, onChange, onCreatingChange }: {
   client: LegalworkServerClient | null;
+  state?: BackOfficeState;
   field: Extract<ProjectField, { type: "backoffice" }>;
   disabled: boolean;
   onChange: (value: ProjectRecordReference | null) => void;
-  onCreatingChange: (creating: boolean) => void;
+  onCreatingChange: (objectId: string, creating: boolean) => void;
 }) {
-  const directory = useProjectBackOffice(client);
-  const data = directory.data;
+  const data = state;
   const [open, setOpen] = useState(false), [query, setQuery] = useState(""), [creating, setCreating] = useState(false);
   const [recent, setRecent] = useState<{ scope: string; ids: string[] }>({ scope: "", ids: [] });
   const scope = JSON.stringify([client?.baseUrl, data?.directoryId, data?.permissions.userId, data?.permissions.principalKey, data?.permissions.replicaId]);
   useEffect(() => {
-    onCreatingChange(open && creating);
-    return () => onCreatingChange(false);
-  }, [open, creating, onCreatingChange]);
-  const object = data?.model.objects.find(object => object.id === "matters" && !object.archived);
-  const creatable = creatableRecordObject(data, "matters");
-  const records = data?.records.filter(record => record.objectId === "matters" && !record.archivedAt) ?? [];
+    onCreatingChange(field.objectId, open && creating);
+    return () => onCreatingChange(field.objectId, false);
+  }, [field.objectId, open, creating, onCreatingChange]);
+  const object = data?.model.objects.find(object => object.id === field.objectId && !object.archived);
+  const creatable = creatableRecordObject(data, field.objectId);
+  const records = data?.records.filter(record => record.objectId === field.objectId && !record.archivedAt) ?? [];
   const selected = field.value?.recordIds ?? [];
   const currentDirectory = field.value === null || field.value.directoryId === data?.directoryId;
-  const matches = object ? matterPickerOptions(data?.records ?? [], query, recent.scope === scope ? recent.ids : [])
-    .filter(({ record }) => matchesProjectReferenceFilters(record, object, field.filters)) : [];
+  const isMatter = field.objectId === "matters";
+  const label = object ? displayBackOfficeObject(object).label : field.label;
+  const searchLabel = isMatter ? t("projects.matters.search") : t("back_office.create.search", { name: object ? displayBackOfficeObject(object).plural : field.label });
+  const options = isMatter ? matterPickerOptions(data?.records ?? [], query, recent.scope === scope ? recent.ids : [])
+    : records.filter(record => String(record.values.name).toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()))
+      .sort((a, b) => String(a.values.name).localeCompare(String(b.values.name)))
+      .map(record => ({ record, clientNames: [], reference: "" }));
+  const matches = object ? options.filter(({ record }) => matchesProjectReferenceFilters(record, object, field.filters)) : [];
   const setSelection = (ids: string[]) => {
     if (data?.directoryId) onChange(ids.length ? { directoryId: data.directoryId, recordIds: ids } : null);
   };
   return <RecordCreationProvider client={client} state={data}>
-    <div className="space-y-2">
+    <div className={selected.length ? "w-full space-y-2" : "space-y-2"}>
       <div className="flex flex-wrap items-center gap-1.5">
         {selected.map(id => {
           const name = currentDirectory ? records.find(record => record.id === id)?.values.name : undefined;
           return <span key={id} className="inline-flex max-w-full items-center gap-1 rounded-md border bg-muted/30 py-1 pl-2 text-xs">
-            <ObjectIcon id="matters" className="size-3.5 shrink-0 text-muted-foreground" />
+            <ObjectIcon id={field.objectId} className="size-3.5 shrink-0 text-muted-foreground" />
             <span className="truncate">{String(name ?? t("projects.reference.unavailable"))}</span>
             <Button type="button" variant="ghost" size="icon-sm" className="size-5 shrink-0" disabled={disabled}
               aria-label={`${t("common.remove")}: ${name ?? t("projects.reference.unavailable")}`}
@@ -56,26 +62,26 @@ export function ProjectMatterPicker({ client, field, disabled, onChange, onCreat
         })}
         <Popover open={open && !disabled} onOpenChange={value => { setOpen(value); if (value) setRecent({ scope, ids: recentMatterIds(scope) }); else { setQuery(""); setCreating(false); } }}>
           <PopoverTrigger render={<Button type="button" size="sm" variant="outline" disabled={disabled || !object || !data?.directoryId} />}>
-            <Plus className="size-3.5" />{t(directory.isPending ? "common.loading" : "projects.matters.choose")}
+            <ObjectIcon id={field.objectId} className="size-3.5" />{t("projects.connections.add_record", { name: label })}
           </PopoverTrigger>
           <PopoverContent align="start" className="w-[min(400px,calc(100vw-32px))] max-h-[min(540px,70vh)] overflow-y-auto p-2" onKeyDown={event => event.stopPropagation()}>
             {creating && creatable ? <BackOfficeTheme>
-              <RecordCreateForm object={displayBackOfficeObject(creatable)} name={query.trim()} filters={field.filters} persistenceNotice={t("projects.matters.saved_separately")}
+              <RecordCreateForm object={displayBackOfficeObject(creatable)} name={query.trim()} filters={field.filters} persistenceNotice={t(isMatter ? "projects.matters.saved_separately" : "projects.connections.saved_separately")}
                 onCancel={() => setCreating(false)} onCreated={async record => {
-                  rememberMatter(scope, record.id);
+                  if (isMatter) rememberMatter(scope, record.id);
                   setSelection(field.multiple && currentDirectory ? [...selected.filter(id => id !== record.id), record.id] : [record.id]);
                   setCreating(false); setOpen(false); setQuery("");
                 }} />
             </BackOfficeTheme> : <Command filter={null} value={query} onValueChange={(value, details) => { if (details.reason !== "item-press") setQuery(value); }}>
-              <CommandInput aria-label={t("projects.matters.search")} placeholder={t("projects.matters.search")} />
+              <CommandInput aria-label={searchLabel} placeholder={searchLabel} />
               <CommandList className="max-h-64 overflow-y-auto">
                 {matches.map(({ record, clientNames, reference }) => <CommandItem key={record.id} value={record.id} onClick={() => {
                   const ids = currentDirectory ? selected : [];
-                  if (!ids.includes(record.id)) rememberMatter(scope, record.id);
+                  if (!ids.includes(record.id) && isMatter) rememberMatter(scope, record.id);
                   setSelection(ids.includes(record.id) ? ids.filter(id => id !== record.id) : field.multiple ? [...ids, record.id] : [record.id]);
                   if (!field.multiple) setOpen(false);
                 }} className="gap-2 rounded-md px-2">
-                  <ObjectIcon id="matters" className="size-3.5 shrink-0 text-muted-foreground" />
+                  <ObjectIcon id={field.objectId} className="size-3.5 shrink-0 text-muted-foreground" />
                   <span className="min-w-0 flex-1">
                     <span className="block truncate">{String(record.values.name)}</span>
                     {(clientNames.length > 0 || reference) && <span className="block truncate text-xs text-muted-foreground" title={[clientNames.join(", "), reference && t("projects.matters.reference", { reference })].filter(Boolean).join(" · ")}>
@@ -85,15 +91,14 @@ export function ProjectMatterPicker({ client, field, disabled, onChange, onCreat
                   {currentDirectory && selected.includes(record.id) && <Check className="size-4 shrink-0" />}
                 </CommandItem>)}
                 {!matches.length && <p className="px-2 py-3 text-sm text-muted-foreground">{t("projects.matters.no_matches")}</p>}
-                {creatable && <CommandItem value="create-matter" onClick={() => setCreating(true)} className="gap-2 rounded-md border-t px-2">
-                  <Plus className="size-4" />{t("projects.matters.create")}
+                {creatable && <CommandItem value="create-project-record" onClick={() => setCreating(true)} className="gap-2 rounded-md border-t px-2">
+                  <Plus className="size-4" />{t(isMatter ? "projects.matters.create" : "back_office.create.title", { name: label })}
                 </CommandItem>}
               </CommandList>
             </Command>}
           </PopoverContent>
         </Popover>
       </div>
-      {directory.error && <p role="alert" className="text-xs text-destructive">{t("projects.matters.unavailable")}</p>}
     </div>
   </RecordCreationProvider>;
 }

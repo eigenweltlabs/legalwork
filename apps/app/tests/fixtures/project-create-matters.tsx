@@ -31,6 +31,7 @@ store.saveModel("local", actor, { ...model, objects: model.objects.map(object =>
   ...object, fields: [...object.fields, BackOfficeFieldSchema.parse({ id: "requiredDetail", label: "Required detail", type: "text", required: true })],
 } : object) }, model.revision);
 const abc = store.saveRecord("local", actor, { objectId: "clients", revision: 0, values: { name: "ABC GmbH" } });
+const organisation = store.saveRecord("local", actor, { objectId: "companies", revision: 0, values: { name: "Acme Ltd" } });
 const alpha = store.saveRecord("local", actor, { objectId: "matters", revision: 0, values: { name: "Alpha", clients: [abc.id], fileNumber: "2026/042", requiredDetail: "Legal" } });
 const beta = store.saveRecord("local", actor, { objectId: "matters", revision: 0, values: { name: "Beta", requiredDetail: "Legal" } });
 store.saveRecord("local", actor, { objectId: "matters", revision: 0, archived: true, values: { name: "Archived case", requiredDetail: "Legal" } });
@@ -82,8 +83,10 @@ try {
   setLocale("en");
   await render();
   await type(t("projects.name"), "My project draft");
-  assert.equal(button(t("projects.matters.choose")).disabled, false);
-  await act(async () => button(t("projects.matters.choose")).click());
+  for (const name of ["Matter", "Client", "Person", "Organisation"]) assert.ok(button(`Add ${name}`));
+  assert.equal(document.querySelector('input[aria-label="Search Clients…"]'), null, "Optional pickers start closed");
+  assert.equal(button(t("projects.connections.add_record", { name: t("back_office.matters.singular") })).disabled, false);
+  await act(async () => button(t("projects.connections.add_record", { name: t("back_office.matters.singular") })).click());
   assert.ok(!document.body.textContent?.includes("Archived case"));
   await type(t("projects.matters.search"), "ABC");
   assert.ok(document.body.textContent?.includes("ABC GmbH · Ref. 2026/042"));
@@ -98,7 +101,7 @@ try {
   await act(async () => input(t("projects.matters.search")).dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
   assert.equal(closeRequests, 0, "Escape closes the picker, not the project dialog");
   await act(async () => document.querySelector<HTMLButtonElement>('button[aria-label="Remove: Alpha"]')?.click());
-  await act(async () => button(t("projects.matters.choose")).click());
+  await act(async () => button(t("projects.connections.add_record", { name: t("back_office.matters.singular") })).click());
   assert.ok(document.querySelector('[role="option"]')?.textContent?.includes("Beta"), "Recently selected matter precedes alphabetical matches on reopening");
   await type(t("projects.matters.search"), "New case");
   await enter(t("projects.matters.search"));
@@ -148,10 +151,27 @@ try {
   assert.equal(created.values.fileNumber, "2026/043");
   assert.equal(created.values.subject, "Keep this optional description");
   assert.ok(document.querySelector('button[aria-label="Remove: New case"]'));
+  await act(async () => button("Add Client").click());
+  await type("Search Clients…", "ABC"); await enter("Search Clients…");
+  await act(async () => input("Search Clients…").dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
+  await act(async () => button("Add Person").click());
+  await type("Search People…", "New colleague"); await enter("Search People…");
+  assert.equal(button(t("projects.create")).disabled, true);
+  await enter("Person name", "metaKey");
+  assert.equal(submissions.length, 0, "Creating a direct person link must not submit the project");
+  const person = store.records("local", actor, "people").find(record => record.values.name === "New colleague"); assert.ok(person);
+  await act(async () => button("Add Organisation").click());
+  await type("Search Organisations…", "Acme"); await enter("Search Organisations…");
+  await act(async () => input("Search Organisations…").dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
   await act(async () => button(t("projects.create")).click());
   assert.equal(submissions.length, 1);
+  for (const [objectId, id] of [["clients", abc.id], ["people", person.id], ["companies", organisation.id]]) {
+    const field = submissions[0].projectFields?.find(field => field.type === "backoffice" && field.objectId === objectId);
+    assert.deepEqual(field?.value, { directoryId: "local:fixture", recordIds: [id] });
+  }
+  assert.ok(submissions[0].projectFields?.some(field => field.id === "matter"), "Template fields are preserved with additional links");
   assert.deepEqual(submissions[0].matters, { directoryId: "local:fixture", recordIds: [beta.id, created.id] });
-  assert.equal(submissions[0].templateId, "legal_matter");
+  assert.equal(submissions[0].templateId, undefined, "Explicit fields are not combined with templateId");
   await render(true, "Project could not be saved");
   assert.equal(input(t("projects.name")).value, "My project draft");
   assert.ok(document.querySelector('button[aria-label="Remove: New case"]'));
@@ -161,8 +181,8 @@ try {
   await render();
   assert.equal(input(t("projects.name")).value, "");
   assert.equal(document.querySelector('button[aria-label="Remove: New case"]'), null);
-  assert.ok(button("Mandate auswählen"));
-  await act(async () => button(t("projects.matters.choose")).click());
+  assert.ok(button(t("projects.connections.add_record", { name: t("back_office.matters.singular") })));
+  await act(async () => button(t("projects.connections.add_record", { name: t("back_office.matters.singular") })).click());
   assert.ok(document.querySelector('[role="option"]')?.textContent?.includes("New case"), "Recents survive reopening the project dialog");
   await type(t("projects.matters.search"), "ABC 2026/043");
   assert.ok(document.body.textContent?.includes("ABC GmbH, New client · AZ 2026/043"));
@@ -170,6 +190,9 @@ try {
   await type(t("projects.name"), "Ohne Mandat");
   await act(async () => button(t("projects.create")).click());
   assert.equal(submissions[1].matters, undefined);
+  assert.equal(submissions[1].projectFields, undefined, "Unselected options add no empty fields");
+  assert.equal(submissions[1].templateId, "legal_matter");
+  assert.equal(document.querySelector('button[aria-label="Remove: ABC GmbH"]'), null);
   console.log("Project matter flow passed");
 } finally {
   await act(async () => root.unmount());
