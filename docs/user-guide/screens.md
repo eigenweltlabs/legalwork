@@ -10,6 +10,7 @@ Use this map when you know what you want to do but not where to start. The assis
 | Save logins for the in-app browser | Save your own logins for legal research websites so you and your agent can use them | [Research databases](integrations.md#research-databases) |
 | Home / New Chat | Start an assistant conversation, attach inputs and choose a model | [Chats](workspaces-chats.md) |
 | Chat and document tabs, View > Select Tab | Continue work, switch tabs with Cmd/Ctrl+1–9, respond to approvals, inspect files and use the terminal | [Chats](workspaces-chats.md), [Files](files-documents.md) |
+| Shield icon in the top-right of a chat | Choose the chat's sandbox and network settings, restore inheritance or retry a status check | [Sandboxing](settings-privacy.md#sandboxing) |
 | Message queue above the composer | Edit or reorder pending messages; use Steer to send one at the next step without stopping the current work | [Steer with a queued message](workspaces-chats.md#steer-with-a-queued-message) |
 | Sign-in details needed card | Save a missing website login directly in chat and let the browser task continue | [Browser passwords](settings-privacy.md#browser-passwords) |
 | Manage saved login | Edit an existing account and use Add URL to manage its starting pages and sign-in websites | [Saved login URLs](integrations.md#add-urls-to-an-existing-login) |

@@ -8,6 +8,8 @@ After an engine upgrade, LegalWork copies your saved chat history into the new e
 
 The migration screen shows the current stage, project and completed work. Counts can change units when LegalWork moves from checking files to copying data or relocating saved chats. The bar measures that stage, so a completed bar can be followed by another stage. Keep the app open until migration finishes and your projects open. A bar without a percentage means LegalWork is still finding the total; the completed-work counter can continue to increase. If migration fails, restart the app to resume and collect logs if the same error returns.
 
+When moving a project's hidden support folders to local storage, LegalWork skips installed Node dependencies (`node_modules`), Python virtual environments identified by `pyvenv.cfg`, and known Python, package-manager, build and browser caches. These skipped contents are also excluded from migration checks, progress totals and the new local recovery backup. Your original folders remain preserved. Documents, scripts, package manifests and lockfiles, `.env` configuration files, browser settings and bundled skill libraries are kept. LegalWork does not export installed packages or rebuild environments. If an agent later needs a missing dependency, it can install it while doing that task; this is not an automatic migration step. Dependencies already copied by an earlier migration attempt are left in place.
+
 LegalWork also upgrades older saved connector settings during startup and retries settings that an earlier upgrade could not import. It preserves the original settings, credentials and permission rules. If startup still reports invalid settings, keep your profile intact and export diagnostics instead of deleting the saved connectors.
 
 | Symptom | What to check |
@@ -47,6 +49,8 @@ Configuration changes can require an engine reload. Use the reload prompt when o
 ## Updates
 
 Open **Settings > Updates** to see the current version, release channel and last check. Use the available check, download and install/restart controls. Background checking and automatic-download preferences are separate. A check reporting an error or unsupported runtime does not mean the app is up to date. Active work can block or warn before restart. Browser/development/package-manager environments may not support the same updater as an installed desktop build.
+
+If the desktop app is stuck on its startup or migration screen, click **Check for updates** in the bottom-right corner. It opens the same Updates controls without waiting for the workspace to finish loading. The controls stay open if startup finishes while you are using them. The startup error screen also offers this button and **Collect logs for support**. During an active migration, keep LegalWork open until it finishes; the update controls retain the normal installation and restart checks.
 
 On Windows, verifying a downloaded update can take a minute or two. Keep LegalWork open while it prepares the installer. If an older version repeatedly reports a signature-check command error, quit LegalWork and run the matching official installer from the LegalWork download page. This retains your existing app profile; you do not need to uninstall the app or delete its settings.
 

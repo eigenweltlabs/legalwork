@@ -121,7 +121,7 @@ function waitForServerReady(child: ChildProcess, timeoutMs: number, parentLease 
       child.stdout?.off("data", onStdout);
       child.stderr?.off("data", onStderr);
       child.off("error", fail);
-      child.off("exit", onExit);
+      child.off("close", onClose);
     };
     const done = (value: string) => {
       if (settled) return;
@@ -137,6 +137,7 @@ function waitForServerReady(child: ChildProcess, timeoutMs: number, parentLease 
     };
     const onStdout = (chunk: Buffer) => {
       output += chunk.toString();
+      if (child.exitCode !== null || child.signalCode !== null) return;
       for (const line of output.split("\n")) {
         if (parentLease) {
           let info: unknown;
@@ -155,7 +156,9 @@ function waitForServerReady(child: ChildProcess, timeoutMs: number, parentLease 
     const onStderr = (chunk: Buffer) => {
       output += chunk.toString();
     };
-    const onExit = (code: number | null) =>
+    // Process exit can precede the last stderr data event. Close follows
+    // stdio draining, so failure diagnostics and DB-lock retries keep it.
+    const onClose = (code: number | null) =>
       fail(new Error(`OpenCode server exited with code ${code}${output.trim() ? `\n${output}` : ""}`));
     const timeout = setTimeout(
       () => fail(new Error(`Timeout waiting for OpenCode server after ${timeoutMs}ms${output.trim() ? `\n${output}` : ""}`)),
@@ -164,7 +167,7 @@ function waitForServerReady(child: ChildProcess, timeoutMs: number, parentLease 
     child.stdout?.on("data", onStdout);
     child.stderr?.on("data", onStderr);
     child.once("error", fail);
-    child.once("exit", onExit);
+    child.once("close", onClose);
   });
 }
 

@@ -138,9 +138,10 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
   config.pickDirectory = options.pickDirectory ?? null;
   if (managedEngine) config.projectsDirectory = options.projectsDirectory || localProjectsDirectory();
   config.recorder = options.recorder ?? null;
-  // Request pins before any startup reader can hydrate project configuration.
-  // This also covers existing projects; new folders are pinned at creation.
-  if (!config.readOnly) await Promise.all(config.workspaces.map(workspace => keepProjectStateDownloaded(workspace.path)));
+  // Pin established project homes before startup readers. Legacy roots are
+  // selectively read during migration: pinning their whole cloud tree here
+  // would also download every omitted dependency/cache.
+  if (!config.readOnly) await Promise.all(config.workspaces.filter(workspace => !managedEngine || workspace.contentPath).map(workspace => keepProjectStateDownloaded(workspace.path)));
 
   // Spawn managed OpenCode if requested and no explicit base URL was provided.
   const managed: {
@@ -177,7 +178,7 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
     for (const workspace of config.workspaces) {
       // A disconnected cloud project must not prevent the shared server from
       // starting. Its requests retry initialization and return the real error.
-      await ensureWorkspaceFiles(workspace.path, workspace.preset ?? "starter").catch((error: unknown) => {
+      await ensureWorkspaceFiles(workspace.path, workspace.preset ?? "starter", { skipCloudPin: managedEngine && !workspace.contentPath }).catch((error: unknown) => {
         console.warn(`[workspace-init] ${workspace.path}: ${error instanceof Error ? error.message : String(error)}`);
       });
     }
