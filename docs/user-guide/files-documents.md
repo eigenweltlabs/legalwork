@@ -8,6 +8,8 @@ Give an exact filename or attach the document when several copies exist. "This d
 
 File cards in chat show the filename without its folder path. Select a card to open the referenced file.
 
+When preparing an email draft, the assistant can attach a document from the connected project folder or an attachment already retained locally. The draft and its saved attachment bytes remain in the project's local support folder; saving a draft does not move the original document.
+
 When you send a message with a document from Memory Drive, the composer clears immediately. The outgoing message shows **Preparing attachments…** while LegalWork saves the document for the chat. If preparation or submission fails, your message and its attachments return to the composer so you can retry. Anything you typed meanwhile is kept separately and returns after you send or clear the restored draft.
 
 ## Supported work
@@ -47,6 +49,8 @@ For a document open in Microsoft Word with the add-in connected, use the live Wo
 Ask to annotate, fill a form, stamp a signature or read a PDF; the assistant can load `pdf-tools`. The `/annotate`, `/fill-form`, `/sign` and `/open` commands are additional entry points where available. PDF actions normally produce `.annotated.pdf`, `.filled.pdf` or `.signed.pdf` copies beside the source. A signature stamp is a visual mark, not a promise of a cryptographic signature. A scanned page without a text layer may need OCR; an empty extraction is not evidence that the page is blank.
 
 ## Saving and source files
+
+Memory Drive’s project files come from the connected document folder, or the local `files` folder for a project created without a chosen folder. Saved chat attachments and connected-storage working copies live in the project’s local `.legalwork` folder. File links and editors select the corresponding location automatically. Saving a working copy does not move your source documents.
 
 Check the returned output path and open the saved file. Local editor saves update workspace files or working copies. A connected-storage working copy requires **Save to [connection]** to publish changes back; automatic local saving does not publish it. See [Connected storage](connected-storage.md). Files created for a task can also be attached back to that task so they are discoverable from the work list.
 

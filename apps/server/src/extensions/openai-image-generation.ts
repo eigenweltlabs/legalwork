@@ -1,3 +1,4 @@
+import { workspaceContentPath } from "../project-storage-paths.js";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, resolve, sep } from "node:path";
 
@@ -163,7 +164,7 @@ async function generateOpenAiImageArtifact(config: ServerConfig, env: EnvService
   const workspace = workspaceForContext(config, context);
   const fileName = `${slugifyImageArtifactName(readStringField(args, "filename") || prompt)}.png`;
   const relativePath = `artifacts/${fileName}`;
-  const outputPath = resolveSafeChildPath(workspace.path, relativePath);
+  const outputPath = resolveSafeChildPath(workspaceContentPath(workspace), relativePath);
   const payload = await fetchOpenAiImage({ apiKey, prompt });
   const bytes = imageDataFromPayload(payload);
 

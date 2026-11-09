@@ -1,13 +1,14 @@
 import { mkdir, stat } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { ApiError } from "./errors.js";
-import { createDefaultProjectFolder, defaultProjectRoot, parseProjectFieldDefaults } from "./project-store.js";
-import { registerLocalProject } from "./routes/workspaces.js";
+import { parseProjectFieldDefaults } from "./project-store.js";
+import { createLocalProjectFolder, registerLocalProject } from "./routes/workspaces.js";
 import { openSqlite, type SqliteHandle } from "./runtime-db.js";
 import type { ServerConfig, WorkspaceInfo } from "./types.js";
 import { AssistantProfileSchema, DEFAULT_ASSISTANT_PROFILE, AssistantResourceSchema, AssistantSettingsSchema, DEFAULT_ASSISTANT_SETTINGS } from "./assistant-schema.js";
 import type { AssistantAvatarIcon, AssistantOnboardingState, AssistantProfile, AssistantSettings, AssistantResource } from "@legalwork/types/main-assistant";
 import { hasAssistantInteraction } from "./assistant-onboarding.js";
+import { projectChatMigrationPending } from "./project-storage.js";
 
 export const MAIN_ASSISTANT_PRESET = "main-assistant";
 export const isMainAssistant = (workspace: { preset?: string }) => workspace.preset === MAIN_ASSISTANT_PRESET;
@@ -178,8 +179,8 @@ export class MainAssistant {
       return existing;
     }
     if (this.config.readOnly) throw new ApiError(403, "read_only", "The main assistant requires a writable server.");
-    const folderPath = await createDefaultProjectFolder("Assistant", defaultProjectRoot(this.config.projectsDirectory));
-    const { workspace } = await registerLocalProject(this.config, { folderPath, name: "Assistant", preset: MAIN_ASSISTANT_PRESET, position: "last" });
+    const folder = await createLocalProjectFolder(this.config, "Assistant");
+    const { workspace } = await registerLocalProject(this.config, { ...folder, name: "Assistant", preset: MAIN_ASSISTANT_PRESET, position: "last" });
     this.changed();
     return workspace;
   }
@@ -200,6 +201,7 @@ export class MainAssistant {
   private async ensureDay() {
     if (this.config.readOnly) throw new ApiError(403, "read_only", "The main assistant requires a writable server.");
     const workspace = await this.workspace();
+    if (await projectChatMigrationPending(this.config, workspace)) throw new ApiError(503, "project_storage_migrating", "The Assistant's saved chats are moving to local storage. Keep this conversation; it will be available when migration finishes.");
     const date = assistantDate(this.now());
     const engine = this.engine(workspace);
     const row = this.db.get("SELECT session_id FROM assistant_days WHERE workspace_id = ? AND date = ?", [workspace.id, date]);

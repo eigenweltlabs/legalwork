@@ -168,3 +168,23 @@ test("native rejection pauses once and retry limits survive restart", async () =
     expect(queue.list(target)).toEqual([]); expect(attempts).toBe(4);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+test("migration holds both queued delivery and receipt checks without consuming retries", async () => {
+  const root = await mkdtemp(join(tmpdir(), "assistant-queue-migration-"));
+  let available = true, busy = true, reads = 0, sent = 0;
+  const queue = await AssistantSessionQueue.open(join(root, "runtime.sqlite"), {
+    available: async () => available,
+    inspect: async () => { reads++; return { busy, pending: false, interrupted: false }; },
+    hasMessage: async () => { reads++; return false; },
+    send: async () => { sent++; return { accepted: true }; }, abort: async () => {},
+  });
+  try {
+    const entry = await queue.submit(target, "Keep the follow-up", authority);
+    available = false; busy = false; const before = reads;
+    for (let index = 0; index < 4; index++) await queue.tick();
+    expect(reads).toBe(before); expect(sent).toBe(0);
+    expect(queue.list(target)[0]).toMatchObject({ id: entry.id, state: "queued", failures: 0 });
+    available = true; await queue.tick();
+    expect(sent).toBe(1); expect(queue.list(target)).toEqual([]);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});

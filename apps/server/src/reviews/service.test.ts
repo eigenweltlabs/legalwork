@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
-import { mkdtemp, mkdir, writeFile, readFile, readdir, rm, symlink } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, readFile, readdir, realpath, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Actor, WorkspaceInfo } from "../types.js";
@@ -38,7 +38,7 @@ const caps: ReviewCapabilities = { settings: { mode: "mixed", jev: { providerId:
   { backend: "llm", providerId: "firm", model: "chat", name: "Chat", providerName: "Firm" },
 ] };
 async function fixture(options: { capabilities?: ReviewCapabilities; scheduler?: ReviewScheduler; beforeExecute?: (review: SavedReview, column: ReviewColumn, evidence: ReviewEvidence, signal: AbortSignal) => Promise<void> } = {}) {
-  const root = await mkdtemp(join(tmpdir(), "saved-review-")); roots.push(root);
+  const root = await realpath(await mkdtemp(join(tmpdir(), "saved-review-"))); roots.push(root);
   const workspace: WorkspaceInfo = { id: "test", name: "Test", path: root, preset: "starter", workspaceType: "local" };
   await writeFile(join(root, "contract.md"), "Assignment is permitted with consent.");
   const calls: Array<{ column: ReviewColumn; mode: string }> = [];
@@ -371,10 +371,18 @@ test("a restart marks persisted running cells interrupted rather than claiming s
   await new ReviewStore(f.root).update(review.id, value => { value.status = "running"; value.cells[0].status = "running"; });
   const recovered = await f.service.get(f.workspace, review.id); expect(recovered.status).toBe("interrupted"); expect(recovered.cells[0].status).toBe("pending");
 });
-test("source selection cannot escape a project through a symlink or absolute path", async () => {
+test("source selection keeps absolute engine identity and rejects outside symlinks and absolute paths", async () => {
   const f = await fixture(), outside = await mkdtemp(join(tmpdir(), "outside-review-")); roots.push(outside);
   await writeFile(join(outside, "secret.txt"), "private"); await symlink(join(outside, "secret.txt"), join(f.root, "link.txt"));
-  for (const file of ["link.txt", join(outside, "secret.txt")]) await expect(f.service.create(f.workspace, { requestId: randomUUID(), name: "No", files: [file], columns: [column] })).rejects.toThrow("inside this project");
+  for (const { file, code } of [{ file: "link.txt", code: "review_source" }, { file: join(outside, "secret.txt"), code: "file_access_denied" }])
+    await expect(f.service.create(f.workspace, { requestId: randomUUID(), name: "No", files: [file], columns: [column] })).rejects.toMatchObject({ code });
+  const contentPath = join(f.root, "files"); await mkdir(contentPath); await writeFile(join(contentPath, "contract.md"), "Different content document");
+  f.workspace.contentPath = contentPath;
+  const source = await realpath(join(f.root, "contract.md"));
+  const review = await f.service.create(f.workspace, { requestId: randomUUID(), name: "Engine attachment", files: [source], columns: [column] });
+  expect(review.documents[0]?.path).toBe(source);
+  await f.service.start(f.workspace, review.id, { revision: review.revision }, actor);
+  expect((await settled(f.service, f.workspace, review.id)).status).toBe("complete");
 });
 
 test("a multi-document review pins one OCR configuration even when defaults change mid-run", async () => {

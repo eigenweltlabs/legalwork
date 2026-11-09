@@ -17,7 +17,7 @@ export async function resolveDocumentProject(sessionId: string): Promise<Documen
     return [(async () => {
       const { item } = await endpoint.client.getSession(endpoint.workspaceId, sessionId);
       if (!endpoint.isRemote && normalizeDirectoryPath(item.directory) !== normalizeDirectoryPath(workspace.path || "")) throw new Error("Different project");
-      return { projectId: workspace.id, workspaceId: endpoint.workspaceId, workspaceRoot: workspace.path || "", client: endpoint.client, isRemoteWorkspace: endpoint.isRemote };
+      return { projectId: workspace.id, workspaceId: endpoint.workspaceId, workspaceRoot: workspace.path || "", contentRoot: workspace.contentPath || workspace.path || "", client: endpoint.client, isRemoteWorkspace: endpoint.isRemote };
     })()];
   });
   try { return await Promise.any(candidates); }

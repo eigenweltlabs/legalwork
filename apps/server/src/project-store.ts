@@ -15,6 +15,7 @@ import type { ProjectDetails, ProjectRemote } from "@legalwork/types/workspace";
 import { projectRemoteSchema, projectFieldsSchema } from "./project-schema.js";
 import { ApiError } from "./errors.js";
 import { MAX_CUSTOM_INSTRUCTIONS_LENGTH } from "./runtime-opencode-config-store.js";
+import { keepProjectStateDownloaded } from "./project-availability.js";
 
 export function parseProjectFields(input: unknown) {
   const parsed = projectFieldsSchema.safeParse(input);
@@ -61,7 +62,10 @@ async function metadataPath(root: string, create: boolean) {
     );
   }
   const directory = join(root, ".legalwork");
-  if (create) await mkdir(directory, { recursive: true });
+  if (create) {
+    await mkdir(directory, { recursive: true });
+    await keepProjectStateDownloaded(root);
+  }
   try {
     if ((await lstat(directory)).isSymbolicLink())
       throw new ApiError(

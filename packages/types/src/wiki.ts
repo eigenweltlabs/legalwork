@@ -56,6 +56,8 @@ export type WikiRegistration = {
   sync: WikiSyncSettings | null;
 };
 export type WikiVault = WikiRegistration & {
+  /** Native chat location; root remains the portable wiki content directory. */
+  engineDirectory?: string;
   /** True when files use this host's default managed wiki folder. */
   isDefaultLocation?: boolean;
   writable: boolean;

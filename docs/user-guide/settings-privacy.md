@@ -2,7 +2,7 @@
 
 Open in LegalWork: [Settings](legalwork://app/settings), [Customization](legalwork://app/settings/shell), [Privacy](legalwork://app/settings/preferences).
 
-Open Settings from the app's settings action or native app menu. The overview links to the active sections. The selected workspace matters for folder permissions; many other settings apply globally.
+Open **Settings** using the gear at the bottom left, directly above your account button, or from the native app menu. The gear remains available when the sidebar is collapsed. The overview links to the active sections. The selected workspace matters for folder permissions; many other settings apply globally.
 
 | Section | Purpose |
 | --- | --- |
@@ -76,6 +76,10 @@ In **Tool Permissions**, inspect the displayed rule for the operation before cha
 ## Sandboxing
 
 During onboarding, the **Sandboxing** switch appears below the tool approval switches and is off by default. Turn it on to run commands inside a protected environment. **Sandbox network traffic** appears only while sandboxing is on; use it to control internet access for commands, page reads and web searches. Model connections, connected apps and browser tools keep their own permissions. Manage sandbox settings, status and recovery in **Settings > Tool Permissions**. Firm policy can restrict these settings.
+
+To change one chat, open the **shield icon** in the top-right corner of the conversation. Choose **Use application default**, **Sandbox on**, or **Sandbox off**. With sandboxing on, open the network submenu to allow, block, or approve network traffic. The choice applies to that chat and its child agents; other chats keep their own settings. Choose **Use application default** to remove the chat override. Changing the chat's settings stops its running commands. An enforced firm policy hides this menu; view the managed setting in **Settings > Tool Permissions**.
+
+If the chat's protection status cannot be checked, the shield remains available without adding an error above the conversation. Open its menu and choose **Check again** to retry. Until the check succeeds, protection choices are unavailable. If saved settings need recovery, follow the instructions in the menu or open **Settings > Tool Permissions**.
 
 If the app reports that sandboxing is unavailable, commands remain blocked while sandboxing is on. This indicates a runtime problem, not a missing network permission.
 

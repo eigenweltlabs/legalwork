@@ -45,7 +45,7 @@ export function registerEmailDraftRoutes(options: {
     const previous = method === "PUT" ? { id: z.uuid().parse(ctx.params.draft), revision: z.uuid().parse(body.revision) } : undefined;
     const paths = previous ? await draftPaths(workspace.path, previous.id) : null;
     await options.requireApproval(ctx, { workspaceId: workspace.id, action: "workspace.file.write", summary: "Save email draft", paths: paths ? [paths.artifact, paths.metadata] : [workspace.path + "/.legalwork/email-drafts"] });
-    const draft = await saveEmailDraft(workspace.path, workspace.id, input, previous, target);
+    const draft = await saveEmailDraft(workspace.path, workspace.id, input, previous, target, workspace.contentPath || workspace.path);
     await recordAudit(workspace.path, { id: draft.revision, workspaceId: workspace.id, actor: ctx.actor ?? { type: "remote" }, action: "workspace.file.write", target: draft.path, summary: "Saved email draft", timestamp: draft.updatedAt });
     return { draft };
   });

@@ -2,7 +2,7 @@ import { parseIntegrationMention, type IntegrationSelection } from "./integratio
 import { decodeComposerMentionValue } from "./mention-encoding";
 
 function isSelection(value: unknown): value is IntegrationSelection {
-  return Boolean(value && typeof value === "object" && "kind" in value && typeof value.kind === "string" && ["mcp", "account", "storage", "website"].includes(value.kind) && "id" in value && typeof value.id === "string" && value.id.trim() && "label" in value && typeof value.label === "string" && value.label.trim());
+  return Boolean(value && typeof value === "object" && "kind" in value && typeof value.kind === "string" && ["mcp", "account", "storage", "website", "extension"].includes(value.kind) && "id" in value && typeof value.id === "string" && value.id.trim() && "label" in value && typeof value.label === "string" && value.label.trim());
 }
 
 export function integrationReferencesFromDraft(text: string): IntegrationSelection[] {

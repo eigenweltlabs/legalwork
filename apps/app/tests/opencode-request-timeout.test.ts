@@ -37,7 +37,7 @@ test("direct engine recovery allows OneDrive hydration without slowing ordinary 
   expect(resolveRequestTimeoutMs("http://localhost:5421/api/info", 10_000)).toBe(10_000);
 });
 
-test("cold provider and session reads survive the former deadlines without retrying", async () => {
+test("cold provider, session and Assistant requests survive the former deadlines without retrying", async () => {
   jest.useFakeTimers();
   const paths: string[] = [];
   let requestsReady = () => {};
@@ -46,9 +46,10 @@ test("cold provider and session reads survive the former deadlines without retry
     const path = new URL(request.url).pathname;
     paths.push(path);
     const delay = new Promise(resolve => setTimeout(resolve, 13_000));
-    if (paths.length === 2) requestsReady();
+    if (paths.length === 3) requestsReady();
     await delay;
-    return Response.json(path.endsWith("/sessions") ? { items: [] } : {location:{directory:"/fixture"},data:[]});
+    return Response.json(path === "/assistant/current" ? { day: { sessionId: "daily-chat" } }
+      : path.endsWith("/sessions") ? { items: [] } : {location:{directory:"/fixture"},data:[]});
   } });
   try {
     const engine = createClient(String(server.url));
@@ -56,14 +57,16 @@ test("cold provider and session reads survive the former deadlines without retry
     const result = Promise.all([
       engine.provider.list(),
       api.listSessions("ws_cold"),
+      api.mainAssistantCurrent(),
     ]);
     void result.catch(() => {});
     await ready;
     jest.advanceTimersByTime(13_000);
-    const [providers, sessions] = await result;
+    const [providers, sessions, assistant] = await result;
     expect(providers.data).toEqual([]);
     expect(sessions.items).toEqual([]);
-    expect(paths.sort()).toEqual(["/api/provider", "/workspace/ws_cold/sessions"]);
+    expect(assistant.day.sessionId).toBe("daily-chat");
+    expect(paths.sort()).toEqual(["/api/provider", "/assistant/current", "/workspace/ws_cold/sessions"]);
   } finally {
     server.stop(true);
   }

@@ -154,10 +154,11 @@ async function walkSkillFiles(root: string, dir: string, out: string[]): Promise
  * Rejects a folder whose JSON payload would exceed 20 MiB.
  */
 export async function serializeWorkflowSkill(
-  workspaceRoot: string,
+  workspaceRoot: import("./skills.js").SkillWorkspace,
   skillName: string,
+  coreRoot?: string,
 ): Promise<{ files: EigenweltHubFile[] }> {
-  const skillDir = await resolveSkillDir(workspaceRoot, skillName);
+  const skillDir = await resolveSkillDir(workspaceRoot, skillName, coreRoot);
   const relPaths: string[] = [];
   await walkSkillFiles(skillDir, skillDir, relPaths);
   relPaths.sort((a, b) => a.localeCompare(b));

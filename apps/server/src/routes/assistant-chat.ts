@@ -1,6 +1,8 @@
 import { AssistantSaveReportSchema, StoredViewSchema } from "../views/schema.js";
 import { saveAssistantReport } from "../assistant-reports.js";
-import { relative, resolve } from "node:path";
+import { workspaceFileRoot } from "../project-storage.js";
+import { resolveWorkspaceFile } from "../project-storage-paths.js";
+import { resolve } from "node:path";
 import { readFile, realpath, stat } from "node:fs/promises";
 import { z } from "zod";
 import { AssistantReactionEmojiSchema, AssistantShareFileSchema } from "../assistant-schema.js";
@@ -42,13 +44,13 @@ export function registerAssistantChatRoutes(options: Parameters<typeof registerM
     const { workspace } = await source(parsed.data);
     const project = parsed.data.projectId ? await options.resolveWorkspace(config, parsed.data.projectId) : workspace;
 
-    const root = await realpath(project.path);
+    const root = await realpath(workspaceFileRoot(project, parsed.data.path));
     const path = await resolveWithinRoot(root, parsed.data.path);
     const info = await stat(path).catch(() => null);
     if (!info?.isFile()) throw new ApiError(404, "assistant_file", "This file does not exist. Save it before sharing it.");
     const view = /\.view\.json$/i.test(path) && info.size <= 2 * 1024 * 1024
       ? StoredViewSchema.safeParse(await readFile(path, "utf8").then(JSON.parse).catch(() => null)) : null;
-    return jsonResponse({ ok: true, file: { ...(view?.success ? { documentType: view.data.mode } : {}), path: relative(root, path).split("\\").join("/"), title: parsed.data.title, description: parsed.data.description, size: info.size,
+    return jsonResponse({ ok: true, file: { ...(view?.success ? { documentType: view.data.mode } : {}), path: resolveWorkspaceFile(project, path).reference, title: parsed.data.title, description: parsed.data.description, size: info.size,
       ...(project.id !== workspace.id ? { source: { workspaceId: project.id, workspaceRoot: root, projectName: project.displayName || project.name } } : {}),
     } });
   });

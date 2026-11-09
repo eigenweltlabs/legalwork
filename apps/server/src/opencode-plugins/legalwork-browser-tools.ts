@@ -7,7 +7,8 @@ import { randomUUID } from "node:crypto";
 import { canonicalFilePath } from "../file-write-lock.js";
 import { uiBridgeRequest } from "../inapp-document-bridge.js";
 import { connectedWebsiteSchema, websiteConnectionUrl } from "../native-shared-values.js";
-import { resolveWorkspaceId, serverToken, serverUrl, workspaceToolHeaders } from "./office-plugin-shared.js";
+import { resolveWorkspaceId, resolveWorkspaceInfo, serverToken, serverUrl, workspaceToolHeaders } from "./office-plugin-shared.js";
+import { resolveWorkspaceFile } from "../project-storage-paths.js";
 import { nativeToolAbortSignal, nativeToolSignal } from "./native-tool.js";
 import { requireBrowserNetwork } from "./browser-network-policy.js";
 import type { OpenCodeContext } from "./office-plugin-shared.js";
@@ -102,13 +103,23 @@ async function publishArtifact(path: string, bytes: Uint8Array, signal?: AbortSi
   } finally { await rm(temporary, { force: true }); }
 }
 async function receiveDownloads(capability: string, files: z.infer<typeof downloadList>["downloads"], context: OpenCodeContext) {
+  let contentRoot: string | undefined;
   for (const file of files) {
     if (!file.transferRequired || file.state !== "completed") continue;
     const key = JSON.stringify([context.sessionID, capability, file.id]);
     let saved = transferredDownloads.get(key);
     if (!saved) {
       if (!context.directory || !context.ask) throw new Error("Downloads require this project's native file permissions.");
-      const root = await canonicalFilePath(context.directory);
+      if (!contentRoot) {
+        const workspaceID = await resolveWorkspaceId(context, { requireDirectory: true });
+        const response = await fetch(`${serverUrl()}/workspaces`, { headers: await workspaceToolHeaders(context), signal: context.abort });
+        if (!response.ok) throw new Error("The download's registered project could not be resolved.");
+        const { items } = z.object({ items: z.array(z.object({ id: z.string(), path: z.string(), contentPath: z.string().nullable().optional() })) }).parse(await response.json());
+        const workspace = items.find(item => item.id === workspaceID);
+        if (!workspace) throw new Error("The download's project is no longer registered.");
+        contentRoot = await canonicalFilePath(workspace.contentPath || workspace.path);
+      }
+      const root = contentRoot;
       const name = basename(file.name).replace(/[\\/\x00-\x1f]/g, "_");
       const path = await canonicalFilePath(resolve(root, "Downloads", `${file.id}-${name}`));
       const inside = relative(root, path);
@@ -210,10 +221,11 @@ export const legalworkBrowserTools = {
       const args = z.object({ browser_url: browserUrl, selector: z.string().min(1).max(2000), paths: z.array(z.string().min(1)).min(1) }).parse(rawArgs);
       await requireBrowserNetwork(context);
       if (!context.directory || !context.ask) throw new Error("Uploads require the calling session's native file permissions.");
+      const workspace = await resolveWorkspaceInfo(context, { requireDirectory: true });
       const files = [];
       for (const source of args.paths) {
         context.abort?.throwIfAborted();
-        const path = await canonicalFilePath(resolve(context.directory, source));
+        const path = await canonicalFilePath(isAbsolute(source) ? source : resolveWorkspaceFile(workspace, source).path);
         await context.ask({ permission: "read", patterns: [path], always: [path], metadata: { browserUpload: true } });
         const data = await readFile(path, { signal: context.abort });
         files.push({ name: basename(path), data: data.toString("base64") });
@@ -228,7 +240,9 @@ export const legalworkBrowserTools = {
       const args = z.object({ browser_url: browserUrl, output_path: z.string().optional(), full_page: z.boolean().optional(), format: z.enum(["png", "jpeg", "webp"]).default("png"), quality: z.number().int().min(1).max(100).optional() }).parse(rawArgs);
       await requireBrowserNetwork(context);
       if (!context.directory || !context.ask) throw new Error("Captures require the calling session's native file permissions.");
-      const root = await canonicalFilePath(context.directory), path = await canonicalFilePath(resolve(root, args.output_path ?? `reports/browser/${randomUUID()}.${args.format}`));
+      const workspace = await resolveWorkspaceInfo(context, { requireDirectory: true });
+      const destination = resolveWorkspaceFile(workspace, args.output_path ?? `reports/browser/${randomUUID()}.${args.format}`);
+      const root = await canonicalFilePath(destination.root), path = await canonicalFilePath(destination.path);
       const inside = relative(root, path);
       if (isAbsolute(inside) || inside === ".." || inside.startsWith(`..${sep}`)) throw new Error("Save browser captures inside the calling project.");
       await context.ask({ permission: "edit", patterns: [path], always: [path], metadata: { browserCapture: true } });
@@ -236,7 +250,7 @@ export const legalworkBrowserTools = {
       context.abort?.throwIfAborted();
       const bytes = completeBytes(image.data);
       await publishArtifact(path, bytes, context.abort);
-      return JSON.stringify({ path: inside.split(sep).join("/"), mime: image.mime, bytes: bytes.length });
+      return JSON.stringify({ path: destination.reference, mime: image.mime, bytes: bytes.length });
     },
   },
   legalwork_browser_batch: {

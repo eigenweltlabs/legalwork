@@ -53,6 +53,13 @@ export function currentWikiAgentSession(config: ServerConfig, sessionId: string)
   return runtime(config).sessions.get(sessionId);
 }
 
+/** The native move was verified by storage recovery. Change only placement;
+ * persisted authority is relocated in the same recovery, never re-granted. */
+export function relocateWikiAgentSession(config: ServerConfig, sessionId: string, from: string, to: string): void {
+  const access = runtime(config), origin = access.sessions.get(sessionId);
+  if (origin?.directory === from) access.sessions.set(sessionId, { ...origin, directory: to });
+}
+
 /** Only the managed engine receives this ephemeral, narrow credential. */
 export async function ensureWikiAgentToken(config: ServerConfig): Promise<string> {
   return runtime(config).token;

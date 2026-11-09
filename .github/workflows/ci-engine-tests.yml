@@ -171,6 +171,10 @@ jobs:
         if: (runner.os == 'macOS') && (inputs.desktop)
         run: pnpm --filter @legalwork/desktop test:preview-security
 
+      - name: Verify native RIS PDF rendering and browser download-directory parity
+        if: (runner.os == 'macOS') && (inputs.desktop)
+        run: pnpm --filter @legalwork/desktop test:ris-pdf
+
       - name: Verify browser batches and project downloads in Electron
         if: (runner.os == 'macOS') && (inputs.desktop)
         env:

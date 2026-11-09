@@ -1,3 +1,4 @@
+import { workspaceContentPath } from "./project-storage.js";
 import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { join } from "node:path";
@@ -8,11 +9,11 @@ import { withFileWriteLock } from "./file-write-lock.js";
 import { ViewRepository, workspaceViewFiles } from "./views/repository.js";
 
 /** Same key means the same file, even after a lost response or simultaneous retry. */
-export async function saveAssistantReport(workspace: { id: string; path: string }, raw: z.infer<typeof AssistantSaveReportSchema>) {
+export async function saveAssistantReport(workspace: { id: string; path: string; contentPath?: string }, raw: z.infer<typeof AssistantSaveReportSchema>) {
   const { key, input, baseRevision } = AssistantSaveReportSchema.parse(raw);
   const hash = createHash("sha256").update(JSON.stringify([workspace.id, key])).digest("hex");
   const id = `${hash.slice(0, 8)}-${hash.slice(8, 12)}-5${hash.slice(13, 16)}-a${hash.slice(17, 20)}-${hash.slice(20, 32)}`;
-  const repository = new ViewRepository({ kind: "workspace", id: workspace.id }, workspaceViewFiles(workspace.path));
+  const repository = new ViewRepository({ kind: "workspace", id: workspace.id }, workspaceViewFiles(workspaceContentPath(workspace)));
   return withFileWriteLock(join(workspace.path, ".legalwork", `assistant-report-${id}`), async () => {
     const current = await repository.read(id).catch(error => {
       if (error instanceof ApiError && error.status === 404) return null;

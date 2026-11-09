@@ -9,6 +9,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Download, ExternalLink, FolderOpen, X } from "lucide-react";
 import { LegalworkServerError, type LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { openDesktopPath, openDesktopUrl, revealDesktopItemInDir } from "@/app/lib/desktop";
+import { resolveLocalFilePath } from "@/app/lib/local-file-path.impl.js";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/sonner";
 import { ArtifactFrame } from "./artifact-frame";
@@ -335,7 +336,7 @@ function ArtifactMarkdownContent({ sessionId, client, workspaceId, workspaceRoot
     const anchor = document.createElement("a"); anchor.href = url; anchor.download = target.name; anchor.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
-  const absolutePath = `${workspaceRoot.replace(/\/$/, "")}/${target.value}`;
+  const absolutePath = resolveLocalFilePath(workspaceRoot, target.value);
   const runFileAction = async (action: () => Promise<unknown>) => {
     try { await action(); } catch (error) { toast.error(error instanceof Error ? error.message : t("markdown.open_file_failed")); }
   };

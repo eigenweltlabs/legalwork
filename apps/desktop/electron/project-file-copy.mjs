@@ -7,13 +7,13 @@ import path from "node:path";
  * @param {string} workspaceId
  * Accept only the fields needed for a local path; a stale legacy record must
  * still be rejected before a renderer request can reach the filesystem.
- * @param {Array<{ id: string; path: string; workspaceType?: string }>} desktopWorkspaces
+ * @param {Array<{ id: string; path: string; contentPath?: string | null; workspaceType?: string }>} desktopWorkspaces
  * @param {Pick<import("@legalwork/types/desktop-ipc").LegalworkServerInfo, "running" | "baseUrl" | "ownerToken" | "clientToken">} server
  */
-export async function resolveProjectFolder(workspaceId, desktopWorkspaces, server) {
+export async function resolveProjectFolder(workspaceId, desktopWorkspaces, server, role = "content") {
   const desktop = desktopWorkspaces.find((entry) => entry.id === workspaceId);
   if (desktop) {
-    if (desktop.workspaceType !== "remote" && desktop.path) return desktop.path;
+    if (desktop.workspaceType !== "remote" && desktop.path) return role === "engine" ? desktop.path : desktop.contentPath || desktop.path;
     throw new Error("Local project not found");
   }
   const token = server.ownerToken || server.clientToken;
@@ -28,7 +28,7 @@ export async function resolveProjectFolder(workspaceId, desktopWorkspaces, serve
     ? list.items.find((entry) => entry?.id === workspaceId && entry.workspaceType === "local")
     : null;
   if (typeof workspace?.path !== "string" || !path.isAbsolute(workspace.path)) throw new Error("Local project not found");
-  return workspace.path;
+  return role === "engine" ? workspace.path : workspace.contentPath || workspace.path;
 }
 
 /** Copy files and folders recursively into a registered project without replacing existing files.

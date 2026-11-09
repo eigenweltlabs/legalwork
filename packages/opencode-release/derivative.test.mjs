@@ -233,7 +233,7 @@ test("normal host selection independently verifies its compiled manifest without
       manifestContent: await readFile(manifestPath, "utf8"), manifestSha256: distribution.manifestSha256 });
     await rm(manifestPath);
     const entry = path.join(library, "host.mjs");
-    await writeFile(entry, `import{expectedOpencodeVersion,expectedOpencodeServiceFilename}from'./candidate.mjs';const binary=${JSON.stringify(installed.candidateBuild.path)};console.log(JSON.stringify({version:await expectedOpencodeVersion(binary),service:await expectedOpencodeServiceFilename(binary)}));`);
+    await writeFile(entry, `import{opencodeEngineIdentity,verifyOpencodeForExecution}from'./candidate.mjs';const binary=${JSON.stringify(installed.candidateBuild.path)};const identity=await opencodeEngineIdentity(binary);console.log(JSON.stringify({version:await verifyOpencodeForExecution(binary),service:identity.serviceFilename}));`);
     const valid = spawnSync(process.execPath, [entry], { encoding: "utf8" });
     assert.equal(valid.status, 0, valid.stderr);
     assert.deepEqual(JSON.parse(valid.stdout), { version: recipe.version, service: "service-legalwork.json" });

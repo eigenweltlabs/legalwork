@@ -5,6 +5,7 @@ import { ApiError } from "./errors.js";
 import type { MainAssistant } from "./main-assistant.js";
 import { isMainAssistant } from "./main-assistant.js";
 import type { ServerConfig } from "./types.js";
+import { workspaceContentPath } from "./project-storage-paths.js";
 
 const inside = (root: string, path: string) => {
   const child = relative(root, path);
@@ -39,7 +40,8 @@ export async function assertAssistantToolAccess(config: ServerConfig, assistant:
     }
   };
   const actual = await canonical(path);
-  const projects = await Promise.all(config.workspaces.map(async project => ({ project, root: await canonical(project.path) })));
+  const projects = await Promise.all(config.workspaces.flatMap(project => [...new Set([project.path, workspaceContentPath(project)])]
+    .map(async root => ({ project, root: await canonical(root) }))));
   // A forbidden nested project wins over its accessible parent.
   const matching = projects.filter(item => inside(item.root, actual)).sort((a, b) => b.root.length - a.root.length);
   if (matching.length) { assistant.assertProjectAccess(matching[0]!.project.id); return; }

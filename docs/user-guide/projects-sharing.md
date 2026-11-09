@@ -8,6 +8,12 @@ A project is the working context for a matter or other body of work: its files, 
 
 Open **Projects** and use the create action. Choose the name, an existing local folder or the offered project location, and optionally link folders from connected storage. Remote folder choices appear only when storage is connected.
 
+LegalWork keeps its engine files and project state in its own local application-data folder. When you choose an existing document folder, your documents stay there. For a project without a chosen folder, LegalWork creates a local **files** folder for its documents. Downloads, saved recordings and exported images go to the project's document folder; temporary processing files stay in local project storage.
+
+Upgrading moves the existing `.opencode` and `.legalwork` folders, including saved project data, attachments and wiki references. Saved chats keep their identities. Wait for migration to finish before running a chat or scheduled task. If you remove a local project from the project list and later add the same document folder, LegalWork reconnects its retained local project data. A disconnected document drive still needs to be reconnected to open or save the documents on it.
+
+During migration, the startup screen shows the current stage and project, with actual file, byte or chat counts. The progress bar measures the current stage; it is not an estimate of time remaining. While LegalWork is still finding the total, the bar shows activity and the amount already processed. Keep LegalWork open until migration finishes. If migration reports an error, restart LegalWork to resume; do not delete its data or recovery copies. An unavailable document folder remains pending until it is reconnected.
+
 **Set up from existing files**, when selected, starts an assistant chat to inspect the chosen material and establish the project. It can fill supported project details, identify concrete tasks and add useful source notes. Leave it off to create/link the project without starting that work. Review any extracted details and dates against their sources.
 
 On **Project Home**, edit matter details inline. Enter or leaving a text field saves; Escape cancels. Use the field-settings control to add or change text, number, date or selection fields. **Save to defaults** makes a field definition available to future projects without copying its current matter value. **Settings > Customization > Projects** controls the starting schema; existing saved project schemas keep their own definitions.
@@ -41,7 +47,13 @@ Only the owner changes the audience and sharing scope. Members can edit shared p
 
 To stop sharing, the owner removes every person and the whole-firm audience, then saves. Read the confirmation: the owner's local project remains, while members lose the shared copy subject to the app's handling of unsent edits and pre-existing folders. Leaving a project is different from deleting source documents in connected storage.
 
+Removing a downloaded shared copy removes its LegalWork-created document folder and local project data. A folder you connected yourself remains yours. If the downloaded document folder is unavailable, reconnect it and retry removal; LegalWork keeps the project while cleanup is pending.
+
 ## Offline work and conflicting changes
+
+For projects in cloud-synced folders, LegalWork requests **Keep Downloaded** for the hidden `.opencode` and `.legalwork` folders when the storage client supports it. These contain project configuration, project details and custom capability files. The request covers existing files; new files inherit the folder's offline setting. Documents outside these two folders keep their current storage settings. Files still sync between devices, and the initial download or updates from another device can take time.
+
+If project setup still waits for cloud files, open the project's folder in Finder or File Explorer and check both folders in the storage client's menu. On Mac, press **Command–Shift–.** to show hidden folders, then choose **Keep Downloaded**, **Always keep on this device**, or the provider's offline action. On Windows, right-click each folder and choose **Always keep on this device** where offered. Google Drive uses **Offline access > Available offline**. The storage client must be connected, and the computer needs enough disk space. Older clients and streaming drives may require this manual step.
 
 Offline edits remain pending until the service accepts them. A missing folder pauses sync instead of treating all its documents as deleted. Sync errors or an older firm service can leave changes pending; inspect the Home banner rather than assuming sharing succeeded.
 

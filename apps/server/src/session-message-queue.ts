@@ -134,6 +134,16 @@ export class SessionMessageQueue {
     try { return await operation; } finally { if (this.writes.get(key) === operation) this.writes.delete(key); }
   }
   async act(workspaceId: string, sessionId: string, action: QueueAction) {
+    const resumeOnSend = action.type === "enqueue" && !action.editToken && action.resumeStopped !== false;
+    if (resumeOnSend) {
+      await this.ready;
+      const queue = this.states.get(keyOf(workspaceId, sessionId));
+      const previous = queue?.entries[0];
+      // The chat can show the terminal reply before the queue's next poll.
+      if (queue?.entries.length === 1 && !queue.paused && previous?.status === "accepted" && previous.id !== action.id) {
+        await this.settleAccepted(workspaceId, sessionId, previous);
+      }
+    }
     const result = await this.change(workspaceId, sessionId, queue => {
       if (action.type !== "steer" && "revision" in action && action.revision !== queue.revision) throw conflict();
       const now = Date.now();
@@ -153,11 +163,13 @@ export class SessionMessageQueue {
         } else {
           if (action.editToken) throw conflict();
           if (queue.entries.length >= 100) throw new ApiError(400, "queue_full", "The queue is full.");
-          queue.entries.push({ id: action.id, draft: action.draft, execution: action.execution, status: "queued", contentRevision: queue.revision + 1 });
-          if (action.resumeStopped !== false && queue.paused && queue.pauseReason === "stop" && !queue.entries.some(item => item.status === "uncertain")) {
+          const resumeAfterError = queue.pauseReason === "error" && queue.entries.length === 0;
+          const resumeAfterStop = queue.pauseReason === "stop" && !queue.entries.some(item => item.status === "uncertain");
+          if (resumeOnSend && queue.paused && (resumeAfterError || resumeAfterStop)) {
             queue.paused = false; delete queue.pauseReason;
             queue.resumeRevision = queue.revision + 1;
           }
+          queue.entries.push({ id: action.id, draft: action.draft, execution: action.execution, status: "queued", contentRevision: queue.revision + 1 });
         }
       } else if (action.type === "steer") {
         if (queue.completedIds.includes(action.id)) return;
@@ -243,18 +255,7 @@ export class SessionMessageQueue {
         }
       }
       for (const entry of (this.states.get(key) ?? queue).entries.filter(entry => entry.status === "accepted")) {
-        const outcome = await this.transport.settled?.(queue.workspaceId, queue.sessionId, entry).catch(() => undefined);
-        if (outcome === undefined) continue;
-        await this.change(queue.workspaceId, queue.sessionId, current => {
-          const latest = current.entries.find(item => item.id === entry.id);
-          if (!latest || latest.status !== "accepted" || latest.delivery !== entry.delivery) return;
-          current.entries = current.entries.filter(item => item.id !== entry.id);
-          current.completedIds = [...current.completedIds, entry.id].slice(-500);
-          if (entry.delivery !== "steer" && outcome.pause && (current.resumeRevision ?? 0) <= (entry.dispatchRevision ?? current.revision)) {
-            current.paused = true;
-            current.pauseReason = outcome.reason ?? "error";
-          }
-        });
+        await this.settleAccepted(queue.workspaceId, queue.sessionId, entry);
       }
       if (queue.entries.some(entry => entry.edit && entry.edit.expires <= Date.now())) {
         await this.change(queue.workspaceId, queue.sessionId, current => {
@@ -263,6 +264,20 @@ export class SessionMessageQueue {
       }
       void this.start(this.states.get(key) ?? queue).catch(() => {});
     }
+  }
+  private async settleAccepted(workspaceId: string, sessionId: string, entry: QueueEntry) {
+    const outcome = await this.transport.settled?.(workspaceId, sessionId, entry).catch(() => undefined);
+    if (outcome === undefined) return;
+    await this.change(workspaceId, sessionId, queue => {
+      const latest = queue.entries.find(item => item.id === entry.id);
+      if (!latest || latest.status !== "accepted" || latest.delivery !== entry.delivery) return;
+      queue.entries = queue.entries.filter(item => item.id !== entry.id);
+      queue.completedIds = [...queue.completedIds, entry.id].slice(-500);
+      if (!queue.paused && entry.delivery !== "steer" && outcome.pause && (queue.resumeRevision ?? 0) <= (entry.dispatchRevision ?? queue.revision)) {
+        queue.paused = true;
+        queue.pauseReason = outcome.reason ?? "error";
+      }
+    });
   }
   private start(queue: SessionQueue): Promise<void> {
     const key = keyOf(queue.workspaceId, queue.sessionId);
@@ -318,7 +333,7 @@ export class SessionMessageQueue {
         }
         queue.entries = queue.entries.filter(entry => entry.id !== sent.id);
         queue.completedIds = [...queue.completedIds, sent.id].slice(-500);
-        if (sent.delivery !== "steer" && result?.pause && (queue.resumeRevision ?? 0) <= dispatchRevision) {
+        if (!queue.paused && sent.delivery !== "steer" && result?.pause && (queue.resumeRevision ?? 0) <= dispatchRevision) {
           queue.paused = true; queue.pauseReason = result.reason ?? "error";
         }
       });

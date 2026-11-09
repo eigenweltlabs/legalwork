@@ -10,6 +10,7 @@ import { requireWikiProjectAccess, wikiProjectAccessRevision, wikiProjectGrants 
 import { applyGlobalToolPermissions, readGlobalToolPermissions, readRuntimeOpencodeConfig, runtimeExternalDirectory } from "./runtime-opencode-config-store.js";
 import { orgPolicyPermissions } from "./org-policy-engine.js";
 import { projectPermissionEffect } from "./project-permission-approvals.js";
+import { workspaceContentPath } from "./project-storage-paths.js";
 
 // Grants are scoped to the authenticated chat generation, project root and current
 // permissions. They disappear on restart and cannot outlive an access downgrade.
@@ -34,7 +35,7 @@ export async function recordingAccess(config: ServerConfig, request: Request, ap
     if (agent.scheduledProjects !== undefined || !meta.projectIds?.length) return;
     const projects = (await Promise.all(config.workspaces.map(async workspace => {
       const root = await realpath(workspace.directory || workspace.path).catch(() => null);
-      return root ? [{ ...workspace, root }] : [];
+      return root ? [{ ...workspace, root, contentRoot: workspaceContentPath(workspace) }] : [];
     }))).flat();
     const own = projects.filter(project => within(project.root, agent.directory)).sort((a, b) => b.root.length - a.root.length)[0];
     if (!own) throw new ApiError(403, "recording_project_unknown", "This chat's project is unavailable.");
@@ -56,21 +57,21 @@ export async function recordingAccess(config: ServerConfig, request: Request, ap
       return projectPermissionEffect({ permissions: rules.permission, projectPermissionApprovals: rules.projectPermissionApprovals },
         "external_directory", [resource], permissionAction(rules.external, "external_directory", resource, "ask"));
     };
-    const candidates = targets.filter(target => folderEffect(target.root) !== "deny");
+    const candidates = targets.filter(target => folderEffect(target.contentRoot) !== "deny");
     for (const target of candidates) {
       const existing = wikiProjectGrants(config, agent.sessionId).find(grant => grant.projectId === target.id);
       if (existing && await requireWikiProjectAccess(config, agent.sessionId, target.id, existing.wikiId, agent.generation, "owner").then(() => true, () => false)) return;
-      if (folderEffect(target.root) === "allow") return;
+      if (folderEffect(target.contentRoot) === "allow") return;
     }
     const target = candidates[0];
     if (!target) throw new ApiError(403, "recording_permission_denied", "Access to the recording's project is blocked by your folder permissions.");
-    const key = JSON.stringify([agent.sessionId, agent.generation, own.id, own.root, target.id, target.root, rules]);
+    const key = JSON.stringify([agent.sessionId, agent.generation, own.id, own.root, target.id, target.contentRoot, rules]);
     let granted = approvalsByConfig.get(config);
     if (!granted) { granted = new Set(); approvalsByConfig.set(config, granted); }
     if (granted.has(key)) return;
     const decision = await approvals.requestApproval({ action: "recordings.project.read", workspaceId: own.id,
       actor: agent.actor, sessionID: agent.sessionId, summary: `Allow this chat to read recordings in ${target.displayName || target.name}?`,
-      paths: [target.root], description: `Read-only access to this project's recording transcripts and speaker names, starting with “${meta.title}”. This approval applies to this chat, expires on restart, and does not grant access to other project files.`,
+      paths: [target.contentRoot], description: `Read-only access to this project's recording transcripts and speaker names, starting with “${meta.title}”. This approval applies to this chat, expires on restart, and does not grant access to other project files.`,
     }, request.signal, true);
     if (!decision.allowed) throw new ApiError(403, "recording_access_denied", "Project recording access was not approved. Do not retry without a new user request.");
     await check();

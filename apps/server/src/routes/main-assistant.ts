@@ -1,3 +1,4 @@
+import { workspaceContentPath } from "../project-storage.js";
 import { registerAssistantChatRoutes } from "./assistant-chat.js";
 import { registerAssistantSessionRoutes } from "./assistant-sessions.js";
 import type { AssistantSessionQueue } from "../assistant-session-queue.js";
@@ -6,9 +7,9 @@ import { z } from "zod";
 import type { createAssistantEngineClient } from "../assistant-engine.js";
 import { ApiError } from "../errors.js";
 import { isMainAssistant, type MainAssistant } from "../main-assistant.js";
-import { createDefaultProjectFolder, defaultProjectRoot, readProjectDetails } from "../project-store.js";
+import { readProjectDetails } from "../project-store.js";
 import type { ApprovalRequest, ServerConfig, TokenScope, WorkspaceInfo } from "../types.js";
-import { registerLocalProject } from "./workspaces.js";
+import { registerLocalProject, createLocalProjectFolder } from "./workspaces.js";
 import { addRoute, matchRoute, type RequestContext, type Route } from "./registry.js";
 import { AssistantAvatarIconSchema, AssistantProfileSchema, AssistantSettingsSchema } from "../assistant-schema.js";
 import { assistantSettingsCatalog, createAssistantSettingsContext } from "../assistant-settings.js";
@@ -66,7 +67,7 @@ export function registerMainAssistantRoutes(options: {
   registerAssistantSessionRoutes(options);
   const accessible = (id: string) => options.resolveWorkspace(config, id);
   const write = (ctx: RequestContext) => { options.ensureWritable(config); options.requireClientScope(ctx, "collaborator"); };
-  const summary = (workspace: WorkspaceInfo) => ({ id: workspace.id, name: (isMainAssistant(workspace) ? assistant.profile().name : null) ?? (workspace.displayName || workspace.name), path: workspace.path, preset: workspace.preset, workspaceType: workspace.workspaceType });
+  const summary = (workspace: WorkspaceInfo) => ({ id: workspace.id, name: (isMainAssistant(workspace) ? assistant.profile().name : null) ?? (workspace.displayName || workspace.name), path: workspace.path, contentPath: workspaceContentPath(workspace), preset: workspace.preset, workspaceType: workspace.workspaceType });
   const settingsContext = createAssistantSettingsContext(config, assistant);
   addRoute(routes, "POST", "/assistant/tool-access", "client", async ctx => {
     options.requireClientScope(ctx, "viewer");
@@ -251,8 +252,8 @@ export function registerMainAssistantRoutes(options: {
     if (access.mode === "none" || access.mode === "include") throw new ApiError(403, "assistant_project_access_denied", "Allow access to new projects in Settings → Assistant before creating a project.");
     const parsed = z.object({ name: z.string().trim().min(1).max(120) }).safeParse(await options.readJsonBodyLimited(ctx.request, 2000));
     if (!parsed.success) throw new ApiError(400, "project_name", "A project name is required.");
-    const folderPath = await createDefaultProjectFolder(parsed.data.name, defaultProjectRoot(config.projectsDirectory));
-    const { workspace } = await registerLocalProject(config, { folderPath, name: parsed.data.name, preset: "starter", position: "last", projectFields: assistant.projectDefaults() });
+    const folder = await createLocalProjectFolder(config, parsed.data.name);
+    const { workspace } = await registerLocalProject(config, { ...folder, name: parsed.data.name, preset: "starter", position: "last", projectFields: assistant.projectDefaults() });
     options.changed();
     return jsonResponse({ project: summary(workspace), details: await readProjectDetails(workspace.path) }, 201);
   });
@@ -273,13 +274,13 @@ export function registerMainAssistantRoutes(options: {
     const previous = await options.client(source).session.messages({ sessionID: input.sourceSessionId, limit: 1 }, { signal: AbortSignal.timeout(10000) });
     const last = previous.data?.at(-1)?.info;
     const model = input.model ?? (last?.role === "assistant" ? { providerID: last.providerID, modelID: last.modelID } : last?.model);
-    const files = await copyAssistantFiles(source.path, workspace.path, input.files ?? [], paths => options.requireApproval(ctx, {
+    const files = await copyAssistantFiles(source.path, workspaceContentPath(workspace), input.files ?? [], paths => options.requireApproval(ctx, {
       workspaceId: workspace.id, action: "workspace.file.write", summary: `Copy ${paths.length} attached files into ${workspace.displayName || workspace.name}`,
-      paths: paths.map(path => join(workspace.path, path)),
-    }));
+      paths: paths.map(path => join(workspaceContentPath(workspace), path)),
+    }), workspaceContentPath(source));
     for (const file of files) await recordAudit(workspace.path, {
       id: shortId(), workspaceId: workspace.id, actor: ctx.actor ?? { type: "remote" }, action: "workspace.file.write",
-      target: join(workspace.path, file.path), summary: `Copied from ${source.id}: ${file.sourcePath}`, timestamp: Date.now(),
+      target: join(workspaceContentPath(workspace), file.path), summary: `Copied from ${source.id}: ${file.sourcePath}`, timestamp: Date.now(),
     });
     // Metadata capture must not depend on the coordinator remembering a setup flag.
     const setupContext = `\n\n${input.initializeProject ? "This is a newly created project. " : ""}First use legalwork_project_get_details to discover its configured metadata fields and existing values. Read the provided source files and established client/perspective in the task. Fill missing source-supported client and matter metadata with legalwork_project_set_metadata using exact field IDs, types, options and the latest revision. Preserve existing values and leave uncertain fields empty. Cite the evidence in your result; do not invent a client relationship or legal deadline. Do not delay the requested work for optional unknown metadata. Then carry out the user's task below.`;

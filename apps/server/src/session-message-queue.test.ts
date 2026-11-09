@@ -388,6 +388,47 @@ test("native acceptance survives restart, blocks edits and pauses follow-ups on 
   expect(failed.paused).toBe(true);
   expect(failed.entries.map(entry => entry.id)).toEqual([second.id]);
   expect(sent).toEqual([first.id]);
+  const third = message("another follow-up");
+  const waiting = await restored.act("w", "s", third);
+  expect(waiting.paused).toBe(true);
+  expect(waiting.entries.map(entry => entry.id)).toEqual([second.id, third.id]);
+});
+
+test.each(["before", "after"])("a fresh send after a failed reply starts once, %s the queue polls the outcome", async timing => {
+  const first = message("first"), followUp = message("try this instead");
+  const sent: string[] = [];
+  const { queue } = await setup({
+    idle: async () => true,
+    send: async (_workspace, _session, entry) => { sent.push(entry.id); return { accepted: true }; },
+    settled: async (_workspace, _session, entry) => ({ pause: entry.id === first.id, reason: "error" }),
+  });
+  await queue.act("w", "s", first);
+  await until(async () => (await queue.read("w", "s")).entries[0]?.status === "accepted");
+  if (timing === "after") await queue.tick();
+
+  const state = await queue.act("w", "s", followUp);
+  expect(state.paused).toBe(false);
+  expect(state.completedIds).toContain(first.id);
+  expect(sent).toEqual([first.id, followUp.id]);
+  await until(async () => { await queue.tick(); return (await queue.read("w", "s")).entries.length === 0; });
+  await queue.act("w", "s", followUp);
+  expect(sent).toEqual([first.id, followUp.id]);
+});
+
+test.each(["scheduled send", "manual pause"])("an empty queue stays paused after a reply error with a %s", async scenario => {
+  const first = message(), followUp = message("follow-up");
+  const { queue } = await setup({
+    idle: async () => true,
+    send: async () => ({ accepted: true }),
+    settled: async () => ({ pause: true, reason: "error" }),
+  });
+  await queue.act("w", "s", first);
+  await until(async () => (await queue.read("w", "s")).entries[0]?.status === "accepted");
+  if (scenario === "manual pause") await queue.act("w", "s", { type: "pause", paused: true });
+  await queue.tick();
+  const waiting = await queue.act("w", "s", { ...followUp, resumeStopped: scenario !== "scheduled send" });
+  expect(waiting.paused).toBe(true);
+  expect(waiting.entries.map(entry => [entry.id, entry.status])).toEqual([[followUp.id, "queued"]]);
 });
 
 test("an uncertain dispatch reconciles to native acceptance without sending twice", async () => {

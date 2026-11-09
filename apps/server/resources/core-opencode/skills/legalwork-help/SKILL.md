@@ -14,13 +14,14 @@ For an ordinary how-to question, read the matching page with `legalwork_skill_re
 | Question | Read |
 | --- | --- |
 | Personal Assistant, proactive updates, scratchpad, morning briefings, daily chats or custom instructions | [assistant.md](references/assistant.md) |
+| Austrian RIS, Austrian laws or decisions, enabling or testing the public RIS integration | [integrations.md](references/integrations.md#austrian-ris) |
 | Gmail or Outlook email, direct Microsoft sign-in, or an OAuth app override | [email.md](references/email.md) |
 | Workflows, Review prompts, Skills tab, create/run workflows or install skills | [skills-workflows.md](references/skills-workflows.md) |
 | Calendar, deadlines, reminders or subscriptions | [calendar.md](references/calendar.md) |
 | Transcription models, recording setup, dictation shortcut, meeting detection or Meeting Summarisation | [recorder-settings.md](references/recorder-settings.md) |
 | Record, import, edit or summarize a transcript; speaker names; Voice Mode | [audio.md](references/audio.md) |
 | Projects, matter details, linked folders or sharing | [projects-sharing.md](references/projects-sharing.md) |
-| Chats, history, folders or remote workers | [workspaces-chats.md](references/workspaces-chats.md) |
+| Chats, history, workspace tabs, keyboard shortcuts, folders or remote workers | [workspaces-chats.md](references/workspaces-chats.md) |
 | Model providers, Fusion, OCR or JEV | [models-fusion.md](references/models-fusion.md) |
 | Tabular Review or review prompt sets | [reviews.md](references/reviews.md) |
 | Schedules that run the assistant | [scheduled-tasks.md](references/scheduled-tasks.md) |
@@ -34,6 +35,7 @@ For an ordinary how-to question, read the matching page with `legalwork_skill_re
 | Evaluations | [evaluations.md](references/evaluations.md) |
 | Word, Excel or PowerPoint add-ins | [office-addins.md](references/office-addins.md) |
 | Browser passwords, inline sign-in card, automatic password filling, account, language, appearance, permissions, secrets or privacy | [settings-privacy.md](references/settings-privacy.md) |
+| Chat shield icon, sandbox on/off, network settings or application-default inheritance | [settings-privacy.md](references/settings-privacy.md#sandboxing) |
 | Setup | [getting-started.md](references/getting-started.md) |
 | Errors, updates or recovery | [troubleshooting.md](references/troubleshooting.md) |
 

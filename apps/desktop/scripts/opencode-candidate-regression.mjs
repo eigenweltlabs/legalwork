@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, realpathSync } from "node:fs";
-import { rm } from "node:fs/promises";
+import { mkdirSync, mkdtempSync, realpathSync, symlinkSync } from "node:fs";
+import fs, { rm } from "node:fs/promises";
+import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -24,6 +25,7 @@ Object.assign(process.env, {
   LEGALWORK_RUNTIME_DB: path.join(root, "private", "runtime.sqlite"), LEGALWORK_TOKEN_STORE: path.join(root, "private", "tokens.json"),
   LEGALWORK_STORAGE_STORE: path.join(root, "private", "storage.json"), LEGALWORK_ENV_STORE: path.join(root, "private", "env.json"),
   LEGALWORK_DATA_DIR: path.join(root, "private", "orchestrator"),
+  LEGALWORK_PROJECT_DATA_DIR: path.join(root, "projects"),
   OPENCODE_CONFIG: "", OPENCODE_CONFIG_CONTENT: "", OPENCODE_DISABLE_MODELS_FETCH: "1", OPENCODE_DISABLE_CLAUDE_CODE: "1",
 });
 app.setPath("home", path.join(root, "home"));
@@ -33,20 +35,30 @@ app.whenReady().then(async () => {
 app.hide();
 let runtime, failed = false;
 const pids = new Set();
+const readFile = fs.readFile;
+let provenanceReads = 0;
+fs.readFile = async (file, ...args) => {
+  if (String(file) === path.join(directory, "provenance.json")) provenanceReads++;
+  return readFile(file, ...args);
+};
+syncBuiltinESMExports();
 try {
   const candidate = await verifyOpencodeCandidate({ directory, provenanceSha256 });
   console.log("Candidate identity verified in the real Electron host.");
   const { createRuntimeManager } = await import("../electron/runtime.mjs");
   const { OpenCode } = await import("@opencode/client");
   const desktopRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-  const workspace = path.join(root, "matter");
+  const content = path.join(root, "matter"), workspace = path.join(root, "selected-matter");
+  symlinkSync(content, workspace, process.platform === "win32" ? "junction" : "dir");
   // A serialized lookalike cannot cross the capability boundary, even frozen.
   const forged = createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths: () => [workspace], opencodeCandidateBuild: Object.freeze({ ...candidate }) });
   await assert.rejects(forged.engineStart(workspace, { opencodeBinPath: candidate.path }), /unknown or mutable candidate/);
   await forged.dispose();
   runtime = createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths: () => [workspace], opencodeCandidateBuild: candidate });
   for (let cycle = 0; cycle < 2; cycle++) {
+    const beforeStart = provenanceReads;
     const engine = await runtime.engineStart(workspace, { opencodeBinPath: candidate.path });
+    assert.equal(provenanceReads - beforeStart, 1, "startup must verify the executable exactly once");
     assert.equal(engine.running, true);
     const server = await runtime.legalworkServerInfo();
     assert.equal(server.running, true);
@@ -60,23 +72,31 @@ try {
     pids.add(info.pid);
     assert.equal((await fetch(`${server.baseUrl}/health`)).status, 200);
     const workspaces = await (await fetch(`${server.baseUrl}/workspaces`, { headers })).json();
-    const selected = workspaces.items.find(item => item.path === workspace);
+    const selected = workspaces.items.find(item => item.contentPath === content);
     assert.ok(selected);
+    assert.equal(selected.path, realpathSync(path.join(root, "projects", selected.id)));
+    assert.equal(selected.opencode?.directory, selected.path);
+    assert.ok(engine.baseUrl, "A healthy engine must publish its private connection after alias relocation");
+    assert.equal(engine.projectDir, selected.path);
     const projectUrl = `${server.baseUrl}/workspace/${selected.id}/engine-project`;
     const status = await (await fetch(projectUrl, { headers })).json();
-    assert.equal(status.state, "ready");
+    assert.equal(status.state, "ready", JSON.stringify({ cycle, status }));
     assert.equal(status.required, false);
-    const location = { directory: workspace };
+    const location = { directory: selected.path };
     await client.model.list({ location });
     const plugins = (await client.plugin.list({ location })).data;
     assert.deepEqual(plugins.filter(plugin => plugin.state.status === "failed"), []);
     for (const id of ["legalwork.project-admission", "legalwork.product-scope", "legalwork.commands", "legalwork.legalmemory-access"]) {
       assert.equal(plugins.find(plugin => plugin.id === id)?.state.status, "active", id);
     }
+    const beforeReuse = provenanceReads;
     const repeated = await runtime.engineStart(workspace, { opencodeBinPath: candidate.path });
     assert.equal(repeated.pid, info.pid);
+    assert.equal(provenanceReads, beforeReuse, "reusing a live engine must not reread its executable");
     if (cycle === 0) {
+      const beforeRestart = provenanceReads;
       const restarted = await runtime.engineRestart();
+      assert.equal(provenanceReads - beforeRestart, 1, "restart must freshly verify the executable exactly once");
       assert.equal(restarted.running, true);
       assert.notEqual(restarted.pid, info.pid);
       assert.equal(pids.has(restarted.pid), false);
@@ -90,6 +110,7 @@ try {
       } }).server.info();
       assert.equal(nextInfo.pid, restarted.pid);
       assert.equal(nextInfo.version, candidate.version);
+      assert.equal((await runtime.engineStart(workspace, { opencodeBinPath: candidate.path })).pid, restarted.pid, "The original selection must reuse its project after restart");
     }
     await runtime.engineStop();
     assert.throws(() => process.kill(info.pid, 0), /ESRCH/);
@@ -99,6 +120,8 @@ try {
 } catch (error) {
   failed = true; console.error(error);
 } finally {
+  fs.readFile = readFile;
+  syncBuiltinESMExports();
   await runtime?.dispose();
   for (const pid of pids) {
     try { process.kill(pid, 0); failed = true; console.error(`Owned candidate process ${pid} remained after runtime disposal.`); }

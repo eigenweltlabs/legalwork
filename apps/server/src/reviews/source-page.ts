@@ -14,12 +14,12 @@ async function preparedEvidence(workspace: string, preparationPath: string, hash
   const root = await realpath(workspace), path = await realpath(resolve(root, preparationPath));
   if (!within(root, path) || (await stat(path)).size > 128 * 1024 * 1024) throw new ApiError(403, "review_path", "Invalid document evidence.");
   const prepared = preparedSchema.parse(JSON.parse(await readFile(path, "utf8")));
-  if (prepared.sourceSha256 !== hash || await realpath(prepared.fileAbs) !== source) throw new ApiError(409, "review_source_changed", "The evidence no longer matches this document.");
+  if (prepared.sourceSha256 !== hash || (await realpath(prepared.fileAbs).catch(() => resolve(prepared.fileAbs)) !== source && !(/^(?:\.legalwork|\.opencode)\//.test(prepared.file) && resolve(root, prepared.file) === source))) throw new ApiError(409, "review_source_changed", "The evidence no longer matches this document.");
   return prepared;
 }
 
 /** Locate the saved quotation on the unchanged original page, including old results. */
-export async function reviewSourcePage(workspace: string, file: string, result: Pick<ReviewResult, "sourceHash" | "preparationPath" | "citations">, citationIndex: number, signal: AbortSignal, requestedPage?: number): Promise<ReviewSourcePage> {
+export async function reviewSourcePage(workspace: string, file: string, result: Pick<ReviewResult, "sourceHash" | "preparationPath" | "citations">, citationIndex: number, signal: AbortSignal, requestedPage?: number, supportRoot = workspace): Promise<ReviewSourcePage> {
   const citation = result.citations[citationIndex];
   if (!citation?.page || !/\.(pdf|png|jpe?g|webp)$/i.test(file)) throw new ApiError(400, "review_citation", "This citation has no page preview.");
   if (requestedPage !== undefined && (!Number.isInteger(requestedPage) || requestedPage < 1)) throw new ApiError(400, "review_citation", "Invalid source page.");
@@ -29,7 +29,7 @@ export async function reviewSourcePage(workspace: string, file: string, result: 
   let prepared: PreparedDocument | undefined;
   let ocrVerified = false;
   if (result.preparationPath) {
-    prepared = await preparedEvidence(workspace, result.preparationPath, hash, source.absolute);
+    prepared = await preparedEvidence(supportRoot, result.preparationPath, hash, source.absolute);
     const page = prepared.pages.find(page => page.page === citation.page);
     if (citation.source !== "native" && citation.regionIds?.length) {
       const selected = citation.regionIds.map(id => page?.ocr?.regions[id]);
@@ -70,9 +70,9 @@ export async function reviewSourcePage(workspace: string, file: string, result: 
 }
 
 /** A page of the document as recognized for the review. Without a page, opens the first page that needs review. */
-export async function reviewRecognitionPage(workspace: string, file: string, preparationPath: string, signal: AbortSignal, requestedPage?: number): Promise<ReviewRecognitionPage> {
+export async function reviewRecognitionPage(workspace: string, file: string, preparationPath: string, signal: AbortSignal, requestedPage?: number, contentRoot = workspace): Promise<ReviewRecognitionPage> {
   if (!/\.(pdf|png|jpe?g|webp)$/i.test(file)) throw new ApiError(400, "review_recognition", "Only PDF and image documents are recognized.");
-  const { source, bytes, hash } = await sourceHash(workspace, file);
+  const { source, bytes, hash } = await sourceHash(contentRoot, file);
   const prepared = await preparedEvidence(workspace, preparationPath, hash, source.absolute);
   const document = await openDocument(bytes, /\.pdf$/i.test(file) ? "pdf" : "image");
   try {

@@ -48,16 +48,18 @@ test("proposal folders and files cannot be redirected through symlinks", async (
 });
 
 test("source snapshots survive original edits and removal, and changing destination updates portable links", async () => {
-  const { root, store } = await fixture();
+  const { root } = await fixture();
+  const content = join(root, "connected-documents"); await mkdir(content);
+  const store = new WikiSuggestions(root, "project", content);
   const original = Buffer.from("%PDF-1.4\nOriginal judgment\n");
-  await writeFile(join(root, "judgment.pdf"), original);
+  await writeFile(join(content, "judgment.pdf"), original);
   const draft = await store.create({ ...input, attachments: [{ sourcePath: "judgment.pdf", name: "Court (2026).pdf" }] }, null);
   expect(draft.attachments).toHaveLength(1);
   expect(await readFile(join(root, draft.attachments[0]!.filePath))).toEqual(original);
   expect(draft.content).toContain(`Sources/${draft.id}/Court%20%282026%29.pdf`);
-  await writeFile(join(root, "judgment.pdf"), "Changed download");
+  await writeFile(join(content, "judgment.pdf"), "Changed download");
   const moved = await store.update(draft.id, draft.revision, { ...draft, destination: { ...draft.destination, path: "EU/Privacy/Finding.md" } });
-  await rm(join(root, "judgment.pdf"));
+  await rm(join(content, "judgment.pdf"));
   expect(moved.content).toContain(`../../Sources/${draft.id}/Court%20%282026%29.pdf`);
   expect((moved.content.match(/## Source files/g) ?? [])).toHaveLength(1);
   expect((await store.attachment(moved, 0)).data).toEqual(original);

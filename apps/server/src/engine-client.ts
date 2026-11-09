@@ -1,3 +1,5 @@
+import { relative, resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { OpenCode, type OpenCodeClient, type SessionInfo, type SessionListInput, type SessionMessageInfo } from "@opencode/client";
 import { canonicalFilePath } from "./file-write-lock.js";
 import { sameProjectDirectory } from "./workspace-path-match.js";
@@ -10,6 +12,23 @@ import { assertEngineProjectReady } from "./engine-project.js";
 import { recoverSessionMcp } from "./workspace-mcp-recovery.js";
 import { ensureLegacySessionPermissions } from "./session-history-permissions.js";
 
+/** Cancel this caller's wait without cancelling another caller's publication. */
+function abortableAdmission<T>(operation: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+  signal?.throwIfAborted();
+  if (!signal) return operation();
+  return new Promise((resolve, reject) => {
+    const abort = () => reject(signal.reason);
+    signal.addEventListener("abort", abort, { once: true });
+    void Promise.resolve().then(operation).then(value => {
+      signal.removeEventListener("abort", abort);
+      resolve(value);
+    }, error => {
+      signal.removeEventListener("abort", abort);
+      reject(error);
+    });
+  });
+}
+
 /** The native v2 client returns domain values directly and throws on failure.
  * Location is explicit on location-scoped operations; a session routes through
  * its saved location. Never change a process-global default for another project. */
@@ -20,21 +39,35 @@ export function createEngineClient(config: ServerConfig, workspace: WorkspaceInf
     fetch: Object.assign(async (request: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
       const url = new URL(typeof request === "string" ? request : request instanceof URL ? request.href : request.url);
       const method = (init?.method ?? (request instanceof Request ? request.method : "GET")).toUpperCase();
+      const signal = init?.signal ?? (request instanceof Request ? request.signal : undefined) ?? undefined;
       const passive = method === "GET" && (url.pathname === "/api/info" || url.pathname === "/api/event" || /^\/api\/session\/[^/]+$/.test(url.pathname))
         || method === "POST" && (/^\/api\/session\/[^/]+\/interrupt$/.test(url.pathname) || /\/legalwork\.commands\/cancel$/.test(url.pathname));
       if (!passive) {
-        await awaitRegisteredEngineProjects(config);
-        await assertEngineProjectReady(config, workspace);
+        await abortableAdmission(() => awaitRegisteredEngineProjects(config), signal);
+        await abortableAdmission(() => assertEngineProjectReady(config, workspace), signal);
       }
       assertManagedHistoryReadable(config, method, url.pathname);
       let response: Response;
       const sessionID = method === "POST" ? url.pathname.match(/^\/api\/session\/([^/]+)\/(?:prompt|command|synthetic|shell|compact|fork|generate)$/)?.[1] : undefined;
       const perform = async () => {
-        const result = await fetch(request, init);
+        // Editable queues and restored drafts retain their original source URI.
+        // Translate only relocated support files at delivery; saved history and
+        // already-admitted native inbox items retain their immutable payloads.
+        let forwarded = init;
+        if (workspace.previousPath && method === "POST" && /\/(?:prompt|command)$/.test(url.pathname) && typeof init?.body === "string") {
+          const payload: unknown = JSON.parse(init.body);
+          if (payload && typeof payload === "object" && "files" in payload && Array.isArray(payload.files)) {
+            for (const file of payload.files) if (file && typeof file === "object" && typeof file.uri === "string" && file.uri.startsWith("file:")) {
+              const suffix = relative(workspace.previousPath, fileURLToPath(file.uri));
+              if (/^(?:\.opencode|\.legalwork)(?:[\\/]|$)/.test(suffix)) file.uri = pathToFileURL(resolve(workspace.path, suffix)).href;
+            }
+            forwarded = { ...init, body: JSON.stringify(payload) };
+          }
+        }
+        const result = await fetch(request, forwarded);
         await config.observeManagedEngineResponse?.({ method, path: url.pathname, directory: url.searchParams.get("location[directory]") || workspaceEngineLocation(workspace).directory }, result);
         return result;
       };
-      const signal = init?.signal ?? (request instanceof Request ? request.signal : undefined);
       try {
         if (sessionID) await ensureLegacySessionPermissions(config, workspace, client, sessionID);
         if (sessionID && /\/(?:prompt|command)$/.test(url.pathname)) {
@@ -85,12 +118,13 @@ export async function getWorkspaceEngineSessionOrNull(client: OpenCodeClient, wo
 
 /** Native lists are paginated. An omitted application limit means all pages,
  * not the engine's first page. A supplied UI page size never caps model context. */
-export async function listEngineSessions(client: OpenCodeClient, input: SessionListInput = {}): Promise<SessionInfo[]> {
+export async function listEngineSessions(client: OpenCodeClient, input: SessionListInput = {}, options?: Parameters<OpenCodeClient["session"]["list"]>[1]): Promise<SessionInfo[]> {
   const result: SessionInfo[] = [];
   const seen = new Set<string>();
   let cursor = input.cursor;
   do {
-    const page = await client.session.list({ ...(cursor ? { cursor } : input), ...(input.limit === undefined ? {} : { limit: input.limit - result.length }) });
+    options?.signal?.throwIfAborted();
+    const page = await client.session.list({ ...(cursor ? { cursor } : input), ...(input.limit === undefined ? {} : { limit: input.limit - result.length }) }, options);
     result.push(...page.data);
     if (input.limit !== undefined && result.length >= input.limit) break;
     cursor = page.cursor.next ?? undefined;

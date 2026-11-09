@@ -8,8 +8,9 @@ import { encodeComposerMentionValue } from "../src/react-app/domains/session/sur
 import { installedConnections } from "../src/react-app/domains/session/surface/composer/installed-connections";
 import { integrationMessageMetadata, splitIntegrationMessage } from "../src/react-app/domains/session/surface/composer/integration-message";
 import { nativePrompt, systemReminderPart } from "../src/app/lib/system-reminder";
+import { currentLocale, setLocale } from "../src/i18n";
 
-const kinds: IntegrationSelection["kind"][] = ["mcp", "account", "storage", "website"];
+const kinds: IntegrationSelection["kind"][] = ["mcp", "account", "storage", "website", "extension"];
 for (const kind of kinds) test(`${kind} chip preserves identity through draft restoration, sending and durable queue editing`, () => {
   const selection = { kind, id: "connection /%:id", label: "My files & research [DE] @work" };
   const value = createIntegrationMention(selection);
@@ -54,4 +55,21 @@ test("installed accounts, named storage and website logins are all offered witho
   expect(items.map(item => item.selection.id).sort()).toEqual(["firm", "gmail", "login", "s3"]);
   expect(items.find(item => item.selection.id === "firm")?.firm).toBe(true);
   for (const secret of ["secret-bucket", "private-user", "secretAccessKey"]) expect(JSON.stringify(items)).not.toContain(secret);
+});
+
+test("selecting RIS uses native extension actions and keeps its localized chip on sent messages", () => {
+  const previous = currentLocale();
+  try {
+    setLocale("de");
+    const [ris] = installedConnections(undefined, [], [], { enabled: true, allowed: true, readOnly: true, source: "https://www.ris.bka.gv.at/", requiresAuthentication: false });
+    expect(ris.selection).toEqual({ kind: "extension", id: "ris", label: "Österreichisches RIS" });
+    const draft = buildComposerDraft(`Research @${encodeComposerMentionValue(createIntegrationMention(ris.selection))}`, [], {}, []);
+    expect(draft.resolvedText).toBe("Research @Österreichisches RIS");
+    expect(draft.modelContext).toContain("legalwork_extension_list_actions");
+    expect(draft.modelContext).toContain("legalwork_extension_call");
+    expect(draft.modelContext).toContain("ris_about");
+    expect(draft.modelContext).not.toContain("MCP server");
+    const sent = nativePrompt({ sessionID: "chat", parts: draft.parts, draft });
+    expect(integrationMessageMetadata(sent.metadata.legalworkPrompt).integrations).toEqual([ris.selection]);
+  } finally { setLocale(previous); }
 });

@@ -47,6 +47,8 @@ Fusion is intended for substantial work; ordinary follow-ups may stay with the m
 
 When upgrading from v1, LegalWork transfers saved provider logins and API keys into its current connection store, including when it creates a new chat database. Existing connections are kept, and disconnecting an imported account prevents it from being imported again on restart. An expired or revoked credential still needs to be renewed in **Settings > AI Providers**.
 
+Saved **Azure Cognitive Services** and **Google Vertex Anthropic** connections transfer to **Azure** and **Google Vertex**, including their separately saved keys and sign-ins. If you saved connections under both the older and current names, LegalWork keeps the connection under the current name.
+
 An authentication error belongs to the provider selected for that request. A custom provider rejecting its API key does not require you to sign into your Eigenwelt account again.
 
 Requests are sent to the model provider you select. Connecting a local model can keep model inference local, but connected services and other tools can still make network requests. Account access, subscription entitlements and provider credentials are separate sources of availability. **Settings > Account** shows the signed-in firm's plan and usage; external provider billing is governed by that provider.

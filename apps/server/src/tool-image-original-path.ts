@@ -1,5 +1,12 @@
 import { isAbsolute, resolve, win32 } from "node:path";
 import { ApiError } from "./errors.js";
+import { resolveWorkspaceFile, type WorkspaceRoots } from "./project-storage-paths.js";
+
+export function originalImageExportLocation(workspace: WorkspaceRoots, path: string) {
+  // Validate the public relative destination before selecting its owned root.
+  originalImageExportPath(workspace.path, path);
+  return resolveWorkspaceFile(workspace, path);
+}
 
 export function originalImageExportPath(directory: string, path: string) {
   const parts = path.replace(/\\/g, "/").split("/");

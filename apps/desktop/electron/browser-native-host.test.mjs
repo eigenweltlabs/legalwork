@@ -3,6 +3,13 @@ import { EventEmitter } from "node:events";
 import test from "node:test";
 import { createBrowserCaptureQueue } from "./browser-capture-queue.mjs";
 import { createOwnedBrowserCapture } from "./browser-native-host.mjs";
+import { mkdtemp, mkdir, realpath, rm, stat } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
+import { resolveBrowserProject } from "./browser-project.mjs";
+import { reserveDownload } from "./browser-downloads.mjs";
+import { fileURLWithin } from "./browser-native/runtime/policy.mjs";
 
 function deferred() {
   /** @type {() => void} */
@@ -71,4 +78,25 @@ test("native capture receives the queue signal and reauthorizes a queued owner",
   await denied;
   assert.equal(checks, 2);
   assert.equal(dispatches, 1);
+});
+
+test("local browser ownership survives offline content; downloads require its existing root and file access stays scoped", async t => {
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "browser-offline-content-"))); t.after(() => rm(root, { recursive: true, force: true }));
+  const engine = path.join(root, "engine"), content = path.join(root, "content"); await mkdir(engine);
+  const state = { selectedId: "matter", workspaces: [{ id: "matter", workspaceType: "local", path: engine, contentPath: content }] };
+  const context = { workspaceId: "matter" }, server = { running: false };
+  assert.equal(await resolveBrowserProject(context, state, server, "", "engine"), engine);
+  assert.equal(await resolveBrowserProject(context, state, server, ""), content);
+  assert.throws(() => reserveDownload(content, "contract.pdf"), /ENOENT/);
+  assert.equal(await stat(content).catch(() => null), null);
+  await mkdir(content);
+  const saved = reserveDownload(content, "contract.pdf");
+  assert.equal(saved.path, path.join(content, "Downloads", "contract.pdf"));
+  const html = pathToFileURL(path.join(content, "document.html")).href;
+  assert.equal(fileURLWithin(html, [engine, content]), true);
+  assert.equal(fileURLWithin(html, [engine]), false);
+  assert.equal(fileURLWithin(html, []), false);
+  assert.equal(fileURLWithin(pathToFileURL(path.join(root, "other", "document.html")).href, [engine, content]), false);
+  assert.equal(fileURLWithin("file://server/share/matter/document.html", ["\\\\server\\share\\matter"]), true);
+  assert.equal(fileURLWithin("file://other/share/matter/document.html", ["\\\\server\\share\\matter"]), false);
 });

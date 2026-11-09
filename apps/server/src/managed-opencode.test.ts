@@ -25,7 +25,7 @@ if (process.env.LEGALWORK_MANAGED_EXECUTABLE_FIXTURE !== "1") {
       const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
       const output = stdout + stderr;
       expect(code, output).toBe(0);
-      expect(output).toContain("15 pass");
+      expect(output).toContain("17 pass");
       expect(output).toContain("0 fail");
     } finally {
       clearTimeout(timeout);
@@ -109,6 +109,31 @@ test("a corrupt first PATH executable is rejected without executing it or search
     env: { PATH: [first, dirname(bin), dirname(process.execPath)].join(delimiter), FAKE_OPENCODE_COUNTER: counter },
   })).rejects.toThrow(/requested engine path/);
   expect(existsSync(marker)).toBe(false); expect(existsSync(counter)).toBe(false);
+});
+
+test("an executable changed during startup preparation is rejected before spawn", async () => {
+  const { bin, counter, candidateBuild } = await fakeBin();
+  await expect(createManagedOpencodeServer({ bin, candidateBuild, cwd: dir!,
+    beforeSpawn: async () => { writeFileSync(bin, `${readFileSync(bin, "utf8")}\n// changed during preparation\n`); },
+    env: { FAKE_OPENCODE_COUNTER: counter },
+  })).rejects.toThrow(/binary changed/);
+  expect(existsSync(counter)).toBe(false);
+});
+
+test("a lock retry rejects an executable changed since the previous attempt", async () => {
+  dir = mkdtempSync(join(tmpdir(), "managed-opencode-"));
+  const counter = join(dir, "counter");
+  const { bin, candidateBuild } = await verifiedTestEngine(dir, () => `#!${process.execPath}
+const fs = require("node:fs");
+fs.writeFileSync(process.env.FAKE_OPENCODE_COUNTER, "1");
+fs.appendFileSync(process.argv[1], "\\n// changed after first launch\\n");
+process.stderr.write("database is locked\\n");
+process.exit(1);
+`);
+  await expect(createManagedOpencodeServer({ bin, candidateBuild, cwd: dir!,
+    env: { FAKE_OPENCODE_COUNTER: counter },
+  })).rejects.toThrow(/binary changed/);
+  expect(readFileSync(counter, "utf8")).toBe("1");
 });
 
 for (const relative of [false, true]) test(relative ? "an explicit relative engine path resolves against the intended child cwd" : "a relative PATH entry resolves against the intended child cwd", async () => {
@@ -198,7 +223,7 @@ const fs = require("node:fs");
 const counter = process.env.FAKE_OPENCODE_COUNTER;
 let n = 0; try { n = Number(fs.readFileSync(counter, "utf8")) || 0; } catch {}
 fs.writeFileSync(counter, String(n + 1));
-process.stderr.write("Error: config parse failed\\n");
+fs.writeSync(2, "Error: config parse failed\\n");
 process.exit(1);
 `);
   // Process exit can precede delivery of the final stderr bytes. Hold the pipe
