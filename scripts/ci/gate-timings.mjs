@@ -3,6 +3,7 @@
 import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { signedJobs } from './alpha-candidate.mjs';
+import cohort from './fixtures/merge-replay-50.json' with { type: 'json' };
 
 export function gateTiming(run, jobs) {
   const elapsed = steps => Math.ceil((Math.max(...steps.map(step => Date.parse(step.completed_at))) - Date.parse(run.created_at)) / 1000);
@@ -31,6 +32,27 @@ export function recoveredSteps(first, latest) {
       .map(step => ({ job: job.name, step: step.name })));
 }
 
+// Each revision gets its own denominator. A second dispatch of a slow or red
+// sample cannot replace the first observation for the same revision.
+export function replayScores(rows, cases = cohort) {
+  const scores = {};
+  const replays = rows.filter(row => row.kind === 'replay').sort((a, b) => Number(a.id) - Number(b.id));
+  for (const head of new Set(replays.map(row => row.head))) {
+    const first = new Map();
+    for (const row of replays.filter(row => row.head === head)) if (!first.has(row.pr)) first.set(row.pr, row);
+    const score = { total: cases.length, withinFiveMinutes: 0, late: [], failed: [], unmeasured: [] };
+    for (const { number } of cases) {
+      const row = first.get(number);
+      if (!row) score.unmeasured.push(number);
+      else if (row.seconds === null) score.failed.push(number);
+      else if (row.seconds > 300) score.late.push(number);
+      else score.withinFiveMinutes++;
+    }
+    scores[head] = score;
+  }
+  return scores;
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const ids = process.argv.slice(2);
   if (!ids.length || ids.some(id => !/^\d+$/.test(id)) || new Set(ids).size !== ids.length) throw Error('Pass unique Actions run IDs');
@@ -47,7 +69,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     };
     const jobs = jobsFor('runs/' + id);
     const recovered = run.run_attempt > 1 ? recoveredSteps(jobsFor('runs/' + id + '/attempts/1'), jobs) : [];
-    return { id, head: run.head_sha, attempt: run.run_attempt, recovered, ...gateTiming(run, jobs) };
+    const timing = gateTiming(run, jobs);
+    const pr = timing?.kind === 'replay' ? Number(run.display_title.match(/^Merge gate replay #(\d+)$/)?.[1]) : run.pull_requests?.[0]?.number;
+    return { id, head: run.head_sha, pr, attempt: run.run_attempt, recovered, ...timing };
   });
   const summary = {};
   for (const row of rows.filter(row => row.kind)) {
@@ -56,5 +80,5 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     bucket.total++;
     if (row.seconds !== null && row.seconds <= target) bucket.withinTarget++;
   }
-  console.log(JSON.stringify({ rows, summary }, null, 2));
+  console.log(JSON.stringify({ rows, summary, cohorts: replayScores(rows) }, null, 2));
 }

@@ -126,3 +126,12 @@ test('report only failed steps that passed on a rerun of the same run', async ()
   assert.deepEqual(recoveredSteps([red], [red]), []);
   assert.deepEqual(recoveredSteps([red], [{ name: red.name, conclusion: 'success' }]), [{ job: red.name, step: 'Run fixtures' }]);
 });
+
+test('hosted cohort scores use the first observation per PR on a single revision and keep the denominator', async () => {
+  const { replayScores } = await import('./gate-timings.mjs');
+  const row = (id, pr, head, seconds) => ({ id, pr, head, seconds, kind: 'replay' });
+  const scores = replayScores([row(4, 1, 'a', 100), row(2, 2, 'a', null), row(1, 1, 'a', 310), row(3, 1, 'b', 300)],
+    [1, 2, 3].map(number => ({ number })));
+  assert.deepEqual(scores.a, { total: 3, withinFiveMinutes: 0, late: [1], failed: [2], unmeasured: [3] });
+  assert.deepEqual(scores.b, { total: 3, withinFiveMinutes: 1, late: [], failed: [], unmeasured: [2, 3] });
+});

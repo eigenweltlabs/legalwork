@@ -57,7 +57,9 @@ missing PR head, fetch `refs/pull/NUMBER/head` or the pinned commit. The replay
 counts full-suite selections. It does not measure hosted execution times.
 
 `node scripts/ci/gate-timings.mjs RUN_ID ...` reads Actions job timestamps.
-Supply the run IDs for the chosen cohort, including failures. PR
+Supply the run IDs for the chosen cohort, including failures. Replay scores
+use the first observation for each PR and keep all 50 in the denominator.
+Different candidate revisions have separate scores. PR
 and queue times include scheduling and wait for both required gates. A rerun that
 recovers lists the original failing job and step for flake investigation. A warm
 alpha needs an exact production-engine cache hit and all three signed outputs.
