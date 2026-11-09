@@ -401,7 +401,7 @@ jobs:
           bun-version: 1.4.4
       - uses: ./.github/actions/install-dependencies
         with:
-          filter: ${{ matrix.area == 'app' && fromJSON('"@legalwork/app...\nlegalwork-server..."') || matrix.area == 'openui' && '@legalwork/app...' || matrix.area == 'server' && 'legalwork-server...' || '' }}
+          filter: ${{ (matrix.area == 'app' || matrix.area == 'server') && fromJSON('"@legalwork/app...\nlegalwork-server..."') || matrix.area == 'openui' && '@legalwork/app...' || '' }}
       - name: Reserve sign-in ports for server fixtures
         if: matrix.area == 'server'
         run: |
@@ -424,6 +424,7 @@ jobs:
       - if: matrix.area == 'desktop'
         run: |
           node apps/desktop/scripts/prepare-node-runtime.mjs
+          pnpm --filter legalwork-server build
           pnpm --filter @legalwork/desktop typecheck:electron
           pnpm --filter @legalwork/desktop test
       - if: matrix.area == 'orchestrator'

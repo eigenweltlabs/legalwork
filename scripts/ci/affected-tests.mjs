@@ -6,7 +6,7 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { mergeDiff } from './merge-plan.mjs';
-import { runTests, serialServerTestFiles } from './run-tests.mjs';
+import { runTests } from './run-tests.mjs';
 import { standaloneEngineTestFiles, sandboxRuntimeTestFiles } from './sandbox-test-files.mjs';
 
 export function affectedTests(area, changed, root = process.cwd()) {
@@ -66,8 +66,5 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const changed = process.env.MERGE_CHANGED_FILES === undefined ? mergeDiff().files : JSON.parse(process.env.MERGE_CHANGED_FILES);
   const tests = changed === null ? null : affectedTests(area, changed);
   console.log(tests ? 'Affected tests:\n' + tests.join('\n') : 'Running the package portable suite');
-  if (area === 'server' && tests?.some(file => serialServerTestFiles.some(serial => file.endsWith('/' + serial)))) {
-    process.env.LEGALWORK_TEST_WORKERS = '1';
-  }
   process.exitCode = runTests(area, tests ?? []);
 }

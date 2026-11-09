@@ -165,7 +165,8 @@ test('engine-only warm-up cannot masquerade as a full cache-hit alpha benchmark 
   assert.equal(run({ SIGNING_TEST: 'true', REQUIRE_ENGINE_CACHE: 'true' }), 0);
   for (const name of ['sandbox-runtime', 'portable-version']) assert.match(alpha.jobs[name].if, /github.event_name == 'workflow_dispatch' && inputs.warm_engine_cache/);
   for (const name of ['publish-alpha-macos-aarch64', 'publish-alpha-windows']) {
-    assert.ok(alpha.jobs[name].needs.includes('sandbox-runtime') && alpha.jobs[name].needs.includes('portable-version'));
+    assert.ok(alpha.jobs[name].needs.includes('portable-version'));
+    assert.equal(alpha.jobs[name].needs.includes('sandbox-runtime'), name === 'publish-alpha-windows');
   }
   assert.match(alpha.jobs['opencode-engine'].with['require-production-cache-hit'], /inputs.require_engine_cache/);
 });

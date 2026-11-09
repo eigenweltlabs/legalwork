@@ -78,4 +78,6 @@ test('startup API fixtures get a fresh isolated worker without changing deadline
   assert.ok(!startup.some(arg => arg.startsWith('--path-ignore-patterns')));
   assert.ok(!startup.includes('--timeout')); // Retain the original five-second Bun default.
   assert.deepEqual(testGroups('server', groups[1]), [groups[1]]);
+  const ordinary = '/workspace/apps/server/src/workspace.e2e.test.ts';
+  assert.deepEqual(testGroups('server', [...groups[1], ordinary]), [[ordinary], groups[1]]);
 });

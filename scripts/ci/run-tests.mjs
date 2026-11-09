@@ -32,8 +32,15 @@ export function testArguments(suite, files = [], workers = suite === 'sandbox' ?
     ...(files.length ? files : [suite === 'app' ? 'tests/' : 'src/'])];
 }
 
+const isSerialServerTest = file => serialServerTestFiles.some(name => file.replaceAll('\\', '/').endsWith('/' + name));
+
 export function testGroups(suite, files) {
   if (suite === 'server' && files.length === 0) return [[], serialServerTestFiles.map(file => path.join(root, 'apps/server/src', file))];
+  if (suite === 'server') {
+    const serial = files.filter(isSerialServerTest);
+    const parallel = files.filter(file => !isSerialServerTest(file));
+    return [parallel, serial].filter(group => group.length);
+  }
   if (suite !== 'sandbox') return [files];
   const isTransport = file => file.replaceAll('\\', '/').endsWith('/' + sandboxTransportTestFile);
   const transport = files.filter(isTransport), remaining = files.filter(file => !isTransport(file));
@@ -49,8 +56,8 @@ export function runTests(suite, files = []) {
   const groups = testGroups(suite, files), serialStartup = suite === 'server' && files.length === 0;
   if (serialStartup) for (const file of groups[1]) assert.ok(lstatSync(file).isFile(), `Missing startup fixture: ${file}`);
   let status = 0;
-  for (const [index, group] of groups.entries()) {
-    const groupWorkers = serialStartup && index === 1 ? 1 : workers;
+  for (const group of groups) {
+    const groupWorkers = suite === 'server' && group.some(isSerialServerTest) ? 1 : workers;
     const result = spawnSync(process.env.LEGALWORK_TEST_BUN_BIN || 'bun', testArguments(suite, group, groupWorkers), {
       cwd: ['engine', 'sandbox'].includes(suite) ? root : path.join(root, 'apps', suite === 'app' ? 'app' : 'server'),
       env: { ...process.env, LEGALWORK_TEST_PREPARED: '1' }, stdio: 'inherit', windowsHide: true,
