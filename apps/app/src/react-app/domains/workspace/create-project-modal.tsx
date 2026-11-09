@@ -2,7 +2,8 @@ import { RemoteFolderPicker, useRemoteFolderSources, type SelectedRemoteFolder }
 import { projectFieldLabel, useProjectDefaultsStore } from "./project-defaults-store";
 import { useProjectTemplateCatalog } from "./project-template-catalog";
 import { ProjectTemplateSelect } from "./project-template-select";
-import type { RemoteFolderSelection } from "@legalwork/types/workspace";
+import { projectMatterField, type ProjectRecordReference, type RemoteFolderSelection } from "@legalwork/types/workspace";
+import { ProjectMatterPicker } from "./project-matter-picker";
 import { projectErrorMessage } from "./project-errors";
 import { useEffect, useState } from "react";
 import { isDesktopRuntime } from "@/app/lib/runtime-env";
@@ -28,6 +29,7 @@ export type CreateProjectInput = {
   name: string;
   templateId: string | null;
   templateLanguage: "en" | "de";
+  matters?: ProjectRecordReference;
   remoteFolders?: RemoteFolderSelection[];
   initializeFromFolders?: boolean;
   folderMode: "default" | "selected";
@@ -54,6 +56,8 @@ export function CreateProjectModal(props: {
   const [initializeFromFolders, setInitializeFromFolders] = useState(false);
   const [remotePicker, setRemotePicker] = useState(false);
   const [name, setName] = useState("");
+  const [matters, setMatters] = useState<ProjectRecordReference | null>(null);
+  const [creatingMatter, setCreatingMatter] = useState(false);
   const [showFolderInput, setShowFolderInput] = useState(false);
   const [folder, setFolder] = useState("");
   const [picking, setPicking] = useState(false);
@@ -61,6 +65,7 @@ export function CreateProjectModal(props: {
   useEffect(() => {
     if (props.open) {
       setName("");
+      setMatters(null);
       setTemplateId(undefined);
       setRemoteFolders([]); setInitializeFromFolders(false); setRemotePicker(false);
       setShowFolderInput(false);
@@ -108,12 +113,14 @@ export function CreateProjectModal(props: {
         <form
           className="space-y-5"
           onSubmit={(event) => {
+            if (event.target !== event.currentTarget) return;
             event.preventDefault();
-            if (!catalog.ready || props.submitting) return;
+            if (!catalog.ready || props.submitting || creatingMatter) return;
             void props.onConfirm({
               name: (name.trim() || (folder.trim() ? folderNameFromPath(folder.trim()) : remoteFolders[0]?.name) || "Project").slice(0, 120),
               templateId,
               templateLanguage: currentLocale(),
+              ...(matters ? { matters } : {}),
               initializeFromFolders: setup,
               remoteFolders: remoteFolders.map(({ sourceWorkspaceId, connectionId, path }) => ({ sourceWorkspaceId, connectionId, path })),
               folderMode: folder.trim() ? "selected" : "default",
@@ -130,6 +137,12 @@ export function CreateProjectModal(props: {
             <ProjectTemplateSelect value={templateId} onChange={setTemplateId} disabled={props.submitting || !catalog.ready} />
             <p className="text-xs text-muted-foreground">{selectedTemplate?.fields.length ? selectedTemplate.fields.map((field) => projectFieldLabel(field)).join(", ") : t("projects.templates.none_hint")}</p>
           </div>
+          {props.open && <div className="space-y-2">
+            <div className="text-sm font-medium">{t("projects.matters.label")}</div>
+            <ProjectMatterPicker key={templateId ?? "no-template"} client={props.client}
+              field={{ ...projectMatterField(selectedTemplate?.fields ?? [], currentLocale()), value: matters }}
+              disabled={props.submitting || !catalog.ready} onChange={setMatters} onCreatingChange={setCreatingMatter} />
+          </div>}
           <fieldset disabled={props.submitting || picking} className="space-y-3">
             <legend className="mb-3 text-sm font-medium">{t("projects.source_folders")}</legend>
             <div className="flex min-h-36 flex-col justify-center gap-4 rounded-xl border border-border p-5">
@@ -177,7 +190,7 @@ export function CreateProjectModal(props: {
             <Button
               type="submit"
               disabled={
-                props.submitting || picking || !catalog.ready ||
+                props.submitting || picking || creatingMatter || !catalog.ready ||
                 (!setup && !name.trim()) ||
                 !props.client
               }

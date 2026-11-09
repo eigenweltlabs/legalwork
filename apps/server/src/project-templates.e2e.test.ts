@@ -11,6 +11,7 @@ import { projectTemplateCatalogSchema } from "./project-schema.js";
 import { readProjectDetails } from "./project-store.js";
 import { readProjectTemplates, localizeProjectTemplates } from "./project-templates.js";
 import LegalWorkProjectToolsDefinition from "./opencode-plugins/legalwork-project-tools.js";
+import { z, BackOfficeRecordSchema } from "./back-office/schema.js";
 
 test("humans and agents create projects from the same edited catalog, with custom fields or no template", async () => {
   const root = await mkdtemp(join(tmpdir(), "legalwork-template-api-"));
@@ -67,6 +68,33 @@ test("humans and agents create projects from the same edited catalog, with custo
     expect(humanResponse.status).toBe(201);
     const human: { activeId: string } = await humanResponse.json();
     expect((await details(human.activeId)).fields).toEqual(original.fields);
+    const directory = z.object({ directoryId: z.string() }).parse(await (await request("/back-office?schema=1")).json());
+    const matterRecords = [];
+    for (const name of ["First matter", "Second matter"]) {
+      const response = await request("/back-office/records", { objectId: "matters", revision: 0, values: { name, status: "Active" } });
+      expect(response.status).toBe(200);
+      matterRecords.push(z.object({ record: BackOfficeRecordSchema }).parse(await response.json()).record);
+    }
+    const matters = { directoryId: directory.directoryId, recordIds: matterRecords.map(record => record.id) };
+    for (const templateId of ["legal_matter", "company", null]) {
+      const response = await request("/workspaces/local", { name: "Project with matters", folderMode: "default", templateId, matters });
+      expect(response.status).toBe(201);
+      const created = z.object({ activeId: z.string() }).parse(await response.json());
+      const fields = (await details(created.activeId)).fields;
+      expect(fields.filter(field => field.type === "backoffice" && field.objectId === "matters")).toHaveLength(1);
+      expect(fields.find(field => field.type === "backoffice" && field.objectId === "matters")?.value).toEqual(matters);
+      if (templateId === "company") expect(fields.slice(0, original.fields.length)).toEqual(original.fields);
+    }
+    const beforeInvalidMatters = await readdir(config.projectsDirectory!);
+    expect((await request("/workspaces/local", { name: "Foreign directory", folderMode: "default", matters: { ...matters, directoryId: "local:other" } })).status).toBe(409);
+    expect((await request("/workspaces/local", { name: "Missing matter", folderMode: "default", matters: { ...matters, recordIds: [crypto.randomUUID()] } })).status).toBe(400);
+    const existingWorkspace = config.workspaces.find(workspace => workspace.id === human.activeId)!;
+    expect((await request("/workspaces/local", { name: "Existing project", folderPath: existingWorkspace.path, matters })).status).toBe(409);
+    expect(await details(human.activeId)).toEqual(original);
+    const record = matterRecords[1];
+    expect((await request("/back-office/records", { id: record.id, objectId: record.objectId, revision: record.revision, values: {}, archived: true })).status).toBe(200);
+    expect((await request("/workspaces/local", { name: "Archived matter", folderMode: "default", matters })).status).toBe(400);
+    expect(await readdir(config.projectsDirectory!)).toEqual(beforeInvalidMatters);
     // Selection omitted uses the saved default; explicit null is a saved, empty schema.
     const byDefault: { activeId: string } = JSON.parse(await plugin.tool.legalwork_project_create.execute({ name: "Default" }));
     expect((await details(byDefault.activeId)).fields).toEqual(original.fields);

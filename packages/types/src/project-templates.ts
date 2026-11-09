@@ -222,6 +222,22 @@ export const projectFieldSchema = z.discriminatedUnion("type", [standardProjectF
 export const projectFieldValueSchema = z.union([z.string().max(4000), z.number().finite(), projectRecordReferenceSchema, z.null()]);
 export type ProjectField = z.infer<typeof projectFieldSchema>;
 export type ProjectRecordReference = z.infer<typeof projectRecordReferenceSchema>;
+
+/** Reuse the template's matter field, preserving its selection rules and cardinality. */
+export function projectMatterField(fields: ProjectField[], locale: Locale = "en"): Extract<ProjectField, { type: "backoffice" }> {
+  const existing = fields.find((field): field is Extract<ProjectField, { type: "backoffice" }> => field.type === "backoffice" && field.objectId === "matters");
+  if (existing) return existing;
+  let id = "matter";
+  for (let suffix = 2; fields.some(field => field.id === id); suffix++) id = `matter_${suffix}`;
+  return { id, label: t("projects.schema.matter", locale), labelSource: id === "matter" ? "suggested" : "custom", type: "backoffice", objectId: "matters", multiple: true, value: null };
+}
+
+export function withProjectMatters(fields: ProjectField[], value: ProjectRecordReference, locale: Locale = "en"): ProjectField[] {
+  const field = projectMatterField(fields, locale);
+  return fields.some(existing => existing.id === field.id)
+    ? fields.map(existing => existing.id === field.id ? { ...field, value } : existing)
+    : [...fields, { ...field, value }];
+}
 export const projectFieldsSchema = z
   .array(projectFieldSchema)
   .max(50)
