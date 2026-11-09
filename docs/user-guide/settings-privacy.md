@@ -27,6 +27,12 @@ Open **Settings** using the gear at the bottom left, directly above your account
 
 Open **Account** to sign in, inspect the current firm, plan and usage, and open the available account/billing management action. A saved account can be reconnecting rather than fully disconnected. Use the displayed error and refresh controls before entering credentials again. If sign-out reports unsent project changes, resolve them first.
 
+### Add usage credits
+
+When a chat shows an Eigenwelt usage-limit message, organization administrators can choose **Add credits** if more prepaid funds can resolve the limit. Choose the credit amount, then **Review total** when using a saved card. Review **Usable credits**, **Tax**, and **Total charge** before selecting **Pay & add credits**. Tax is charged separately and does not increase the usable credit balance. For example, €50 of credits with €9.50 tax costs €59.50 and adds €50 to the shared balance.
+
+Without a saved card, choose **Continue to payment** to review and pay in Stripe Checkout. You can also choose **Use another payment method or promo code**. Complete any bank verification that is requested. Credit becomes available after payment confirmation is processed; adding funds does not remove a separate personal or organization spending limit. If a tax quote expires, choose **Cancel top-up**, then start again and review the new total. For an uncertain payment result, check or resume the existing top-up before starting another.
+
 Firm policies can supply models, connectors or settings and can lock individual controls. A disabled control with a firm-policy note requires an administrator change; replacing a personal key does not override it. Signing into the firm, connecting a personal model provider and signing into file storage are separate operations.
 
 If your firm allows a provider that uses your own API key or sign-in, complete that connection in **Settings > AI Providers** before using its models. Being added by your administrator does not connect you. If your firm supplies the key, its models become available when that key is available; ask your administrator if it is missing.

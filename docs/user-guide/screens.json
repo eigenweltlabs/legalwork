@@ -4,6 +4,11 @@
   "note": "Source-defined routes and visible settings for the build that bundles this file. Runtime, platform, account and permissions can restrict them.",
   "dialogs": [
     {
+      "id": "usage-top-up",
+      "guide": "settings-privacy.md",
+      "source": "apps/app/src/react-app/domains/connections/usage-control/payment-components.tsx"
+    },
+    {
       "id": "ris-integration",
       "guide": "integrations.md",
       "source": "apps/app/src/react-app/domains/settings/ris-config.tsx"
