@@ -221,7 +221,7 @@ const fs = require("node:fs");
 const counter = process.env.FAKE_OPENCODE_COUNTER;
 let n = 0; try { n = Number(fs.readFileSync(counter, "utf8")) || 0; } catch {}
 fs.writeFileSync(counter, String(n + 1));
-process.stderr.write("Error: config parse failed\\n");
+fs.writeSync(2, "Error: config parse failed\\n");
 process.exit(1);
 `);
   await expect(

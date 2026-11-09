@@ -25,3 +25,9 @@ Validated on macOS arm64 with Bun 1.4.4 and the existing verified development en
 - `bun test --preload ./apps/server/test-preload.ts ./apps/server/src`: **3,402 passed, 189 skipped, 9 failed**. Two failures were a missing generated local Node fixture; after supplying the existing cached runtime, all 14 native-config-state cases passed. The remaining seven failures also reproduce on unchanged base content (tree identical to `2c13bc54b`): Assistant HTTP provisioning, Assistant scheduled research, sandbox settings HTTP, scheduled-task HTTP, calendar HTTP, email-draft HTTP and raw HTTP sandbox routes. Those failures are outside this change; the full suite is not green.
 
 The production profile was inspected only through metadata in the investigation. Development and validation used isolated synthetic projects and databases.
+
+## Combined PR CI follow-up
+
+The macOS server job failed because an immediate engine startup failure lost its stderr message. Startup was rejecting on the process `exit` event and removing stream listeners before stdio was guaranteed to drain. Wait for `close` when reporting that failure, keep the existing startup watchdog, and do not accept a late readiness announcement from an exited process. The immediate-exit fixture must write its diagnostic synchronously so its own exit cannot truncate it. Keep the existing assertion that a configuration failure is reported and is not retried.
+
+Validated with the existing isolated managed-engine suite (all 17 inner lifecycle/identity cases), all 32 storage/native migration cases, server typecheck and whitespace checks. No new test suite or relaxed assertion was introduced.
