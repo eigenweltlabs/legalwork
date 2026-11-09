@@ -16,7 +16,10 @@ export type OcrSettingsView = {
   autoDownloadLocked?: boolean;
   readOnly: boolean;
   installerAvailable: boolean;
-  installation: { engineId: string; stage: "runtime" | "dependencies" | "models" | "checking" | "complete" | "failed" | "cancelled" } | null;
+  installation: { engineId: string; stage: "runtime" | "dependencies" | "models" | "checking" | "complete" | "failed" | "cancelled";
+    /** Current file transfer; omitted for setup stages and older servers. */
+    download?: { received: number; total: number };
+  } | null;
   /** Absent on older servers. Layout is shared by all OCR providers, not a selectable OCR engine. */
   layout?: { model: string; bytes: number; status: "ready" | "not-installed" };
   engines: Array<{
@@ -28,6 +31,8 @@ export type OcrSettingsView = {
     endpoint?: string;
     languages: string[] | null;
     keyConfigured: boolean;
+    /** Maximum download for the engine itself; shared models may already exist. */
+    downloadBytes?: number;
     /** One of the firm's engines: whose key it uses. Older servers omit it. */
     firmKey?: "firm" | "member";
     status: "ready" | "not-installed" | "unsupported" | "missing-key";

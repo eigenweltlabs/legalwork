@@ -55,3 +55,22 @@ test("corruption, over-limit streams and cancellation cannot publish a model", a
     expect(await readdir(root)).toEqual([]);
   } finally { download.mockRestore(); }
 });
+
+test("file transfer reports byte progress and mid-transfer cancellation keeps no partial model", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ocr-progress-")); roots.push(root);
+  const events: number[] = [];
+  const transport = async () => new Response(new ReadableStream<Uint8Array>({
+    start(controller) { controller.enqueue(bytes.subarray(0, 5)); controller.enqueue(bytes.subarray(5)); controller.close(); },
+  }));
+  const path = join(root, asset.name);
+  await downloadModelAsset(asset, path, new AbortController().signal, transport, (received, total) => {
+    expect(total).toBe(bytes.length); events.push(received);
+  });
+  expect(events).toEqual([0, 5, bytes.length]);
+  await rm(path);
+  const controller = new AbortController();
+  await expect(downloadModelAsset(asset, path, controller.signal, transport, received => {
+    if (received > 0) controller.abort();
+  })).rejects.toThrow();
+  expect(await readdir(root)).toEqual([]);
+});
