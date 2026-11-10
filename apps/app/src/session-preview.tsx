@@ -687,6 +687,7 @@ const fixtureClient: LegalworkServerClient = {
       return { status: "paid", operationId: action.operationId };
     }
     if (action.action === "quoteTopUp" && topUpPreview) {
+      if (topUpPending) return { status: "paid", operationId: topUpPending.operationId };
       const taxCents = Math.round(action.amountCents * 0.19);
       topUpQuote = { status: "requires_confirmation", operationId: action.operationId,
         amountCents: action.amountCents, taxCents, totalCents: action.amountCents + taxCents };
