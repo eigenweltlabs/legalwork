@@ -2313,6 +2313,12 @@ export function SessionRoute() {
     [opencodeClient, refreshRouteState, sessionTarget, loadWorkspaceSessionsInBackground],
   );
 
+  const showCreatedWorkspace = useCallback((workspace: WorkspaceInfo) => {
+    const next = [mapDesktopWorkspace(workspace), ...workspacesRef.current.filter(item => item.id !== workspace.id)];
+    workspacesRef.current = next;
+    setWorkspaces(next);
+  }, [workspacesRef, setWorkspaces]);
+
   const handleCreateWorkspace = useCallback(async (preset: WorkspacePreset, folder: string | null) => {
     if (!folder) return;
     setCreateWorkspaceBusy(true);
@@ -2343,7 +2349,7 @@ export function SessionRoute() {
       setCreateWorkspaceOpen(false);
       // Mark onboarding complete so the /welcome redirect never fires again.
       local.setPrefs((prev) => ({ ...prev, hasCompletedOnboarding: true }));
-      await refreshRouteState();
+      if (targetWorkspace) showCreatedWorkspace(targetWorkspace);
       if (targetWorkspaceId) {
         const workspacePath = targetWorkspace?.path?.trim() || folder;
         const session = createdOnServer && baseUrl && token
@@ -2381,7 +2387,7 @@ export function SessionRoute() {
     } finally {
       setCreateWorkspaceBusy(false);
     }
-  }, [baseUrl, client, hostToken, local, navigateToWorkspaceSession, refreshRouteState, rememberPendingCreatedSession, token]);
+  }, [baseUrl, client, hostToken, local, navigateToWorkspaceSession, showCreatedWorkspace, rememberPendingCreatedSession, token]);
 
   const handleCreateProject = async (input: CreateProjectInput) => {
     if (!client || createWorkspaceBusy) return;
@@ -2390,7 +2396,8 @@ export function SessionRoute() {
     try {
       const list = await client.createLocalWorkspace({ ...input, preset: "starter" });
       const id = resolveWorkspaceListSelectedId(list);
-      if (!id) throw new Error(t("session_route.create_server_unavailable"));
+      const created = list.workspaces.find(workspace => workspace.id === id);
+      if (!created || !id) throw new Error(t("session_route.create_server_unavailable"));
       setLegacySelectedWorkspaceId(id);
       writeActiveWorkspaceId(id);
       if (isDesktopRuntime()) {
@@ -2398,7 +2405,7 @@ export function SessionRoute() {
         await workspaceSetRuntimeActive(id).catch(() => undefined);
       }
       local.setPrefs((prev) => ({ ...prev, hasCompletedOnboarding: true }));
-      await refreshRouteState();
+      showCreatedWorkspace(created);
       setCreateWorkspaceOpen(false);
       if (selectCreatedProjectForHome && !input.initializeFromFolders) {
         setHomeProjectId(id);
@@ -2410,7 +2417,7 @@ export function SessionRoute() {
       if (input.initializeFromFolders) {
         try {
           if (!baseUrl || !token) throw new Error(t("session_route.create_server_unavailable"));
-          const workspacePath = list.workspaces.find((workspace) => workspace.id === id)?.path;
+          const workspacePath = created.path;
           const firstClient = createClient(`${(buildLegalworkWorkspaceBaseUrl(baseUrl, id) ?? baseUrl).replace(/\/+$/, "")}/opencode`, workspacePath, { token, hostToken, mode: "legalwork" });
           const session = unwrap(await createSessionView(firstClient,{ directory: workspacePath }));
           rememberPendingCreatedSession(id, session.id);

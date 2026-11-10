@@ -871,8 +871,8 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
   );
   const restartReloadWatchers = () => {
     if (!backgroundStarted) return;
-    watcherHandle?.close();
-    watcherHandle = startReloadWatchers({ config, reloadEvents, logger });
+    if (watcherHandle) watcherHandle.syncWorkspaces();
+    else watcherHandle = startReloadWatchers({ config, reloadEvents, logger });
   };
   // Register change handlers now; background writers start after engine and
   // project-storage initialization have completed.

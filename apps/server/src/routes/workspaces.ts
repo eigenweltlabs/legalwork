@@ -92,7 +92,7 @@ function serializeWorkspaceConfigEntry(workspace: WorkspaceInfo): Record<string,
   };
 }
 
-export async function persistServerWorkspaceState(config: ServerConfig): Promise<boolean> {
+export async function persistServerWorkspaceState(config: ServerConfig, published = config.workspaces): Promise<boolean> {
   const configPath = config.configPath?.trim() ?? "";
   if (!configPath) return false;
 
@@ -112,7 +112,7 @@ export async function persistServerWorkspaceState(config: ServerConfig): Promise
     try {
       await writeFile(tmpPath, `${JSON.stringify(next, null, 2)}\n`, "utf8");
       await rename(tmpPath, configPath);
-      for (const workspace of config.workspaces) await markLocalProjectPublished(workspace);
+      for (const workspace of published) await markLocalProjectPublished(workspace);
       return true;
     } finally {
       try {
@@ -142,13 +142,13 @@ export async function registerLocalProject(
 ): Promise<{ workspace: WorkspaceInfo; persisted: boolean }> {
   if (config.projectStorageMigrating) throw new ApiError(503, "project_storage_migrating", "Project storage is being upgraded. Retry when startup finishes.");
   const workspacePath = await canonicalFilePath(resolve(input.folderPath));
-  await assertProjectFolderIndependent(workspacePath, await new WikiStore(config).list());
+  await assertProjectFolderIndependent(workspacePath, await new WikiStore(config).list({ registrationsOnly: true }));
   await ensureDir(workspacePath);
   await prepareManagedCoreLibrary(config);
 
 
   const existing = config.workspaces.find(entry => resolve(workspaceContentPath(entry)) === workspacePath);
-  const retainedId = !existing && !input.id ? await localProjectIdForContent(config, workspacePath) : undefined;
+  const retainedId = !existing && !input.id ? await localProjectIdForContent(config, workspacePath, config.workspaces.map(item => item.id)) : undefined;
   let workspace: WorkspaceInfo = {
     id: existing?.id || input.id || retainedId || (config.projectsDirectory ? `ws_${randomUUID().replaceAll("-", "")}` : workspaceIdForPath(workspacePath)),
     name: input.name,
@@ -168,7 +168,7 @@ export async function registerLocalProject(
   if (!config.authorizedRoots.some((root) => resolve(root) === workspace.path)) {
     config.authorizedRoots = [...config.authorizedRoots, workspace.path];
   }
-  const persisted = await commitRegisteredEngineProjects(config, () => persistServerWorkspaceState(config));
+  const persisted = await commitRegisteredEngineProjects(config, () => persistServerWorkspaceState(config, [workspace]), workspace);
   return { workspace, persisted };
 }
 
@@ -431,7 +431,7 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
       workspace,
       ...config.workspaces.filter((entry) => entry.id !== workspace.id),
     ];
-    const persisted = persist ? await persistServerWorkspaceState(config) : false;
+    const persisted = persist ? await persistServerWorkspaceState(config, []) : false;
     await recordAudit(workspace.path, {
       id: shortId(),
       workspaceId: workspace.id,

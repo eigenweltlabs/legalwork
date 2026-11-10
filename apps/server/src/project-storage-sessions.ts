@@ -2,11 +2,10 @@ import type { OpenCodeClient, SessionInfo } from "@opencode/client";
 import { isAbsolute, join, relative, sep } from "node:path";
 import { finishLocalProject, localProjectMigrationPending, localProjectReferenceRoots } from "./project-storage.js";
 import { restoreLegacySessionPermissions } from "./session-history-permissions.js";
-import { sameProjectDirectory } from "./workspace-path-match.js";
-import { projectPathKey } from "./workspace-path-match.js";
+import { pathKeyWithin, projectPathKey, sameProjectDirectory } from "./workspace-path-match.js";
 import { relocateProjectState, type SessionRelocation } from "./project-storage-state.js";
 import { openBenchmarkStore } from "./benchmarks/store.js";
-import { writeLegalworkRuntimeConfigFile } from "./legalwork-runtime-config.js";
+import { publishRuntimeConfigChanges } from "./legalwork-runtime-config.js";
 import type { ServerConfig, WorkspaceInfo } from "./types.js";
 import type { WorkspaceRoots } from "./project-storage-paths.js";
 import { resolveWorkspaceOpencodeConnection } from "./opencode-connection.js";
@@ -89,23 +88,31 @@ async function listSessions(client: OpenCodeClient, config?: ServerConfig) {
 /** Run in plain-serve recovery before interrupted work can resume. Use the
  * native move API, never a model turn or a private database schema rewrite. */
 const migrations = new WeakMap<ServerConfig, Promise<void>>();
-export async function migrateLocalProjectSessions(config: ServerConfig, client: OpenCodeClient): Promise<void> {
+export async function migrateLocalProjectSessions(config: ServerConfig, client: OpenCodeClient, target?: WorkspaceInfo): Promise<void> {
   if (config.readOnly) return;
   const previous = migrations.get(config);
-  const current = (async () => { await previous?.catch(() => {}); await moveSessions(config, client); })();
+  const current = (async () => { await previous?.catch(() => {}); await moveSessions(config, client, target); })();
   migrations.set(config, current);
   try { await current; } finally { if (migrations.get(config) === current) migrations.delete(config); }
 }
-async function moveSessions(config: ServerConfig, client: OpenCodeClient): Promise<void> {
-  if (!await projectSessionMovesPending(config)) return;
+async function moveSessions(config: ServerConfig, client: OpenCodeClient, target?: WorkspaceInfo): Promise<void> {
+  const pending: Array<{ workspace: WorkspaceInfo; source: string }> = [];
+  for (const workspace of target ? [target] : config.workspaces) {
+    if (workspace.previousPath && await localProjectMigrationPending(workspace)) pending.push({ workspace, source: workspace.previousPath });
+  }
+  if (!pending.length) return;
   // Startup owns this screen. Later recovery retries must not leave the
   // server reporting a new startup migration after the app is already open.
   const progress = config.migrationProgress?.status === "running" ? config : undefined;
   const { relocateProjectImports } = await import("./project-storage-imports.js");
   if (progress) updateMigrationProgress(progress, { status: "running", project: undefined });
   const sessions = await listSessions(client, progress);
-  const pending: Array<{ workspace: WorkspaceInfo; source: string }> = [];
-  for (const workspace of config.workspaces) if (workspace.previousPath && await localProjectMigrationPending(workspace)) pending.push({ workspace, source: workspace.previousPath });
+  // Native history is one index. Resolve legacy folder aliases only for
+  // unclaimed locations, never against a different registered project's files.
+  const otherRoots = target ? config.workspaces.filter(item => item.id !== target.id)
+    .flatMap(item => [item.path, item.directory, item.contentPath, item.previousPath])
+    .filter((path): path is string => !!path).map(path => projectPathKey(path)) : [];
+  const mayBeAlias = (directory: string) => !otherRoots.some(root => pathKeyWithin(root, projectPathKey(directory)));
   for (const [index, { workspace: registered, source: originalDirectory }] of pending.entries()) {
     if (progress) updateMigrationProgress(progress, { status: "running", phase: "chats", work: undefined,
       project: { name: registered.name, index: index + 1, total: pending.length } });
@@ -114,7 +121,7 @@ async function moveSessions(config: ServerConfig, client: OpenCodeClient): Promi
     const verified: SessionRelocation[] = [];
     for (const session of sessions) {
       let target = relocatedProjectDirectory(workspace, session.location.directory);
-      if (target === session.location.directory && await sameProjectDirectory(session.location.directory, originalDirectory)) target = workspace.path;
+      if (target === session.location.directory && mayBeAlias(session.location.directory) && await sameProjectDirectory(session.location.directory, originalDirectory)) target = workspace.path;
       if (target !== session.location.directory) moving.push({ session, from: session.location.directory, target });
       else {
         const from = previousProjectDirectory(workspace, session.location.directory);
@@ -144,12 +151,11 @@ async function moveSessions(config: ServerConfig, client: OpenCodeClient): Promi
       relocating.advance(1);
     }
     relocating.finish();
-    for (const session of await listSessions(client)) if (relocatedProjectDirectory(workspace, session.location.directory) !== session.location.directory || await sameProjectDirectory(session.location.directory, originalDirectory)) throw new Error("Native chats remain in the original project. Migration will resume on the next startup.");
+    for (const session of await listSessions(client)) if (relocatedProjectDirectory(workspace, session.location.directory) !== session.location.directory || (mayBeAlias(session.location.directory) && await sameProjectDirectory(session.location.directory, originalDirectory))) throw new Error("Native chats remain in the original project. Migration will resume on the next startup.");
     if (progress) updateMigrationProgress(progress, { phase: "references", work: undefined });
     await relocateProjectState(config, workspace, verified);
     (await openBenchmarkStore(config)).relocateProjectDirectories(workspace.id, directory => relocatedProjectDirectory(workspace, directory));
-    await relocateProjectImports(config, workspace);
-    await writeLegalworkRuntimeConfigFile(config, workspace.id);
+    await publishRuntimeConfigChanges(config, workspace.id, () => relocateProjectImports(config, workspace), target);
     await finishLocalProject(workspace, progress);
   }
   if (progress) updateMigrationProgress(progress, { phase: "finishing", project: undefined, work: undefined });

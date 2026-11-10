@@ -178,7 +178,7 @@ export interface ServerConfig {
   projectStorageMigrating?: boolean;
   /** Host-generated progress; never loaded from saved project configuration. */
   migrationProgress?: MigrationProgress;
-  migrateProjectStorageSessions?: () => Promise<void>;
+  migrateProjectStorageSessions?: (workspace?: WorkspaceInfo) => Promise<void>;
   managedEngineRecoveryState?: () => { mode: "service" | "recovery" | "promoting"; heldSessions: Array<{ id: string; directory: string }>; error?: { code: string; message: string } };
   retryManagedEngineRecovery?: () => Promise<void>;
   /** Host-owned catalog lifecycle. False defers while work or sign-in is active. */
