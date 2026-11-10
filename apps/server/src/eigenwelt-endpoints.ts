@@ -14,11 +14,17 @@ export function validateEigenweltPlatformUrl(value: string): string {
     throw new Error("Invalid Eigenwelt platform URL.");
   }
   const normalized = candidate.toString().replace(/\/+$/, "");
-  // An explicit installation override remains isolated from production.
+  // Custom installations stay isolated. Regional discovery during development
+  // requires both explicit dev flags and a fixed regional bootstrap origin.
   const configured = eigenweltPlatformUrl();
-  const allowed = configured === BOOTSTRAP
-    ? [BOOTSTRAP, EIGENWELT_DEPLOYMENTS.eu.platform, EIGENWELT_DEPLOYMENTS.us.platform]
-    : [configured];
+  const regionalDevelopment = process.env.LEGALWORK_DEV_MODE === "1" &&
+    process.env.LEGALWORK_DEV_REGIONAL_ROUTING === "1" &&
+    (configured === EIGENWELT_DEPLOYMENTS.eu.platform || configured === EIGENWELT_DEPLOYMENTS.us.platform);
+  const allowed = regionalDevelopment
+    ? [EIGENWELT_DEPLOYMENTS.eu.platform, EIGENWELT_DEPLOYMENTS.us.platform]
+    : configured === BOOTSTRAP
+      ? [BOOTSTRAP, EIGENWELT_DEPLOYMENTS.eu.platform, EIGENWELT_DEPLOYMENTS.us.platform]
+      : [configured];
   if (!allowed.includes(normalized)) {
     throw new Error("The Eigenwelt platform URL does not match this LegalWork installation.");
   }
