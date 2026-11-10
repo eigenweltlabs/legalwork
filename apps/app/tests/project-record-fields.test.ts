@@ -90,3 +90,19 @@ test("an untouched matter-only preset upgrades once and an explicit quick action
   const customized = { ...catalog, templates: [{ ...previous, fields: previous.fields.map(field => ({ ...field, quickAction: false })) }] };
   expect(upgradeProjectTemplateReferences(customized)).toEqual(customized);
 });
+
+test("older starter templates gain their role-specific shortcuts while a firm's opt-out survives", () => {
+  const templates = defaultProjectTemplates("de").filter(template => template.id !== "legal_matter");
+  const previous = templates.map(template => ({ ...template, fields: template.fields.map(field =>
+    field.type === "backoffice" ? { ...field, quickAction: undefined } : field) }));
+  const catalog = { revision: 3, defaultTemplateId: "internal", templates: previous };
+  const shortcuts = (template: typeof templates[number]) => template.fields.flatMap(field =>
+    field.type === "backoffice" && field.quickAction ? [field.id] : []);
+  const expected = { internal: ["project_owner"], contracts: ["counterparty", "project_owner"], research: ["project_owner"] };
+  for (const starters of [templates, upgradeProjectTemplateReferences(catalog).templates]) {
+    expect(Object.fromEntries(starters.map(template => [template.id, shortcuts(template)]))).toEqual(expected);
+  }
+  const optedOut = { ...catalog, templates: previous.map(template => ({ ...template, fields: template.fields.map(field =>
+    field.id === "project_owner" ? { ...field, quickAction: false } : field) })) };
+  expect(upgradeProjectTemplateReferences(optedOut)).toEqual(optedOut);
+});

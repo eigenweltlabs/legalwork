@@ -146,12 +146,15 @@ export function defaultProjectTemplates(locale: Locale = "en"): ProjectMetadataT
     ...(id === "status" ? { options: [t("projects.schema.status_open", locale), t("projects.schema.status_active", locale), t("projects.schema.status_waiting", locale), t("projects.schema.status_closed", locale)] } : {}),
     ...(id === "priority" ? { options: [t("projects.schema.priority_low", locale), t("projects.schema.priority_normal", locale), t("projects.schema.priority_high", locale)] } : {}),
   });
-  const reference = (id: string, objectId: string): ProjectField => ({ id, label: labels[id], labelSource: "suggested", type: "backoffice", objectId, multiple: true, ...(objectId === "people" ? { filters: internalPeopleFilters() } : {}), value: null });
+  const quickReference = (id: string, objectId: string): ProjectField => ({
+    id, label: labels[id], labelSource: "suggested", type: "backoffice", objectId, multiple: true, quickAction: true,
+    ...(objectId === "people" ? { filters: internalPeopleFilters() } : {}), value: null,
+  });
   const schemas: Record<string, ProjectField[]> = {
     legal_matter: defaultAkteFields(locale),
-    internal: [field("objective"), reference("project_owner", "people"), field("department"), field("status", "select"), field("priority", "select"), field("target_date", "date")],
-    contracts: [reference("counterparty", "companies"), field("contract_type"), field("reference"), reference("project_owner", "people"), field("status", "select"), field("effective_date", "date"), field("renewal_date", "date"), field("contract_value", "number"), field("currency")],
-    research: [field("research_question"), reference("project_owner", "people"), field("practice_area"), field("jurisdiction"), field("deliverable"), field("status", "select"), field("target_date", "date")],
+    internal: [field("objective"), quickReference("project_owner", "people"), field("department"), field("status", "select"), field("priority", "select"), field("target_date", "date")],
+    contracts: [quickReference("counterparty", "companies"), field("contract_type"), field("reference"), quickReference("project_owner", "people"), field("status", "select"), field("effective_date", "date"), field("renewal_date", "date"), field("contract_value", "number"), field("currency")],
+    research: [field("research_question"), quickReference("project_owner", "people"), field("practice_area"), field("jurisdiction"), field("deliverable"), field("status", "select"), field("target_date", "date")],
   };
   const names = suggestedTemplateNames(locale);
   return Object.entries(schemas).map(([id, fields]) => ({ id, name: names[id], nameSource: "suggested", fields }));
