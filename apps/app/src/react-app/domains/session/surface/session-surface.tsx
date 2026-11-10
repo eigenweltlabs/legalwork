@@ -828,7 +828,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
     queryKey: snapshotQueryKey,
     queryFn: async () => {
       const startedAt = Date.now();
-      const snapshot = (await props.client.getSessionSnapshot(props.workspaceId, props.sessionId, fullHistorySession.current === props.sessionId ? undefined : { limit: 140 })).item;
+      const snapshot = (await props.client.getSessionSnapshot(props.workspaceId, props.sessionId, { fileReferences: true, ...(fullHistorySession.current === props.sessionId ? {} : { limit: 140 }) })).item;
       seedTodoState(props.workspaceId, props.sessionId, snapshot.todos, startedAt);
       return snapshot;
     },

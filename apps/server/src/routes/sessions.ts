@@ -98,8 +98,8 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
       // verified managed adapter, which applies normal sandbox permissions.
     }
   }
-  async function queueClient(workspace: WorkspaceInfo, sessionID: string, allowUnresolved=false) {
-    const client = createEngineClient(config, workspace);
+  async function queueClient(workspace: WorkspaceInfo, sessionID: string, allowUnresolved=false, fileReferences=false) {
+    const client = createEngineClient(config, workspace, { fileReferences });
     if(allowUnresolved)await prepareSessionHistoryUndo(config,workspace,client,await getWorkspaceEngineSession(client,workspace,sessionID));
     else await assertSessionHistoryReady(config,workspace,client,sessionID);
     return client;
@@ -191,8 +191,8 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
     const client=createEngineClient(config,workspace);
     return buildSession((await prepareSessionHistoryUndo(config,workspace,client,await getWorkspaceEngineSession(client,workspace,sessionID))).session);
   }
-  async function readWorkspaceSessionMessages(workspace: WorkspaceInfo, sessionID: string, input: { limit?: number }) {
-    const client = await queueClient(workspace, sessionID,true);
+  async function readWorkspaceSessionMessages(workspace: WorkspaceInfo, sessionID: string, input: { limit?: number; fileReferences?: boolean }) {
+    const client = await queueClient(workspace, sessionID, true, input.fileReferences);
     const messages = await listEngineMessages(client, sessionID, { ...input, order: "desc" });
     return buildSessionMessages(await applySessionUsageLimits(config, workspace.id, sessionID, messages.reverse()));
   }
@@ -202,7 +202,7 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
     let cursor: string | undefined;
     const seen = new Set<string>();
     do {
-      const page = await client.message.list({ sessionID, ...(cursor ? { cursor } : { type: "assistant", order: "desc" }) });
+      const page = await client.message.list({ sessionID, type: "assistant", ...(cursor ? { cursor } : { order: "desc" }) });
       const todos = sessionTodos([...page.data].reverse());
       if (todos !== undefined) return todos;
       cursor = page.cursor.next ?? undefined;
@@ -211,8 +211,8 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
     } while (cursor);
     return [];
   }
-  async function readWorkspaceSessionSnapshot(workspace: WorkspaceInfo, sessionID: string, input: { limit?: number }) {
-    const client = await queueClient(workspace, sessionID,true);
+  async function readWorkspaceSessionSnapshot(workspace: WorkspaceInfo, sessionID: string, input: { limit?: number; fileReferences?: boolean }) {
+    const client = await queueClient(workspace, sessionID, true, input.fileReferences);
     const [session, messages, todos, active] = await Promise.all([
       getWorkspaceEngineSession(client, workspace, sessionID),
       readWorkspaceSessionMessages(workspace, sessionID, input), readTodos(client, sessionID), client.session.active(),
@@ -420,6 +420,7 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
     }
     const items = await readWorkspaceSessionMessages(workspace, sessionId, {
       limit: parseOptionalPositiveInteger(ctx.url.searchParams.get("limit"), "limit"),
+      fileReferences: ctx.url.searchParams.get("files") === "references",
     });
     const session = await readWorkspaceSession(workspace, sessionId);
     return jsonResponse({ items, historyProvenance: await readSessionHistoryProvenance(config, workspace, session, items) });
@@ -433,6 +434,7 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
     }
     const item = await readWorkspaceSessionSnapshot(workspace, sessionId, {
       limit: parseOptionalPositiveInteger(ctx.url.searchParams.get("limit"), "limit"),
+      fileReferences: ctx.url.searchParams.get("files") === "references",
     });
     return jsonResponse({ item });
   });

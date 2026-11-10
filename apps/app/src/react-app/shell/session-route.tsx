@@ -616,7 +616,7 @@ export function SessionRoute() {
     if (!client || !current || (location.pathname !== "/home" && !isSessionIndexRoute(location.pathname))) return;
     void getReactQueryClient().prefetchQuery({
       queryKey: snapshotKey(current.workspace.id, current.day.sessionId),
-      queryFn: async () => (await client.getSessionSnapshot(current.workspace.id, current.day.sessionId, { limit: 140 })).item,
+      queryFn: async () => (await client.getSessionSnapshot(current.workspace.id, current.day.sessionId, { limit: 140, fileReferences: true })).item,
       staleTime: 30_000,
     });
   }, [client, assistant.data, location.pathname]);

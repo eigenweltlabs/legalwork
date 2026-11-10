@@ -5,6 +5,7 @@ import { join } from "node:path";
 
 import { startServer } from "./server.js";
 import { openSqlite } from "./runtime-db.js";
+import type { SessionMessageInfo } from "@opencode/client";
 import type { ServerConfig } from "./types.js";
 
 type Served = {
@@ -36,7 +37,7 @@ function auth(token: string) {
   return { Authorization: `Bearer ${token}` };
 }
 
-function startMockOpencode(input: { directory: string; sessionDirectory?: string; invalidList?: boolean; holdCommand?: Promise<void>; idle?: () => boolean; retry?: () => { type: "retry"; attempt: number; message: string; next: number } | null; commands?: () => Array<{ name: string; template: string }>; promptOutcome?: () => "failed" | "interrupted" | undefined; providerId?: string; managedCommands?: () => boolean }) {
+function startMockOpencode(input: { messagePage?: (url: URL) => { data: SessionMessageInfo[]; cursor: { next?: string } }; directory: string; sessionDirectory?: string; invalidList?: boolean; holdCommand?: Promise<void>; idle?: () => boolean; retry?: () => { type: "retry"; attempt: number; message: string; next: number } | null; commands?: () => Array<{ name: string; template: string }>; promptOutcome?: () => "failed" | "interrupted" | undefined; providerId?: string; managedCommands?: () => boolean }) {
   const requests: Array<{ pathname: string; search: string; directory: string | null; method: string; body?: unknown }> = [];
   let outcome: string | undefined;
   const messages = () => {
@@ -66,7 +67,7 @@ function startMockOpencode(input: { directory: string; sessionDirectory?: string
       outcome = input.promptOutcome?.();
       return Response.json({ data: { id, type: "user", text: value && typeof value === "object" && "text" in value ? value.text : "", time: { created: 202 } } });
     }
-    if (pathname === "/api/session/ses_1/message") return Response.json({ data: messages(), cursor: {} });
+    if (pathname === "/api/session/ses_1/message") return Response.json(input.messagePage?.(url) ?? { data: messages(), cursor: {} });
     if (pathname === "/api/session/ses_1/message/msg_1") return Response.json({ data: messages()[0] });
     if (pathname === "/api/session/ses_1/command") { await input.holdCommand; return new Response(null, { status: 204 }); }
     return Response.json({ code: "not_found", message: "Not found" }, { status: 404 });
@@ -179,6 +180,45 @@ describe("workspace session read APIs", () => {
     expect(messages.items[0].error).toEqual(snapshot.item.messages[0].error);
     const wrongTurn = await fetch(`${base}/usage-limit`, { method: "POST", headers: { ...auth(legalwork.token), "Content-Type": "application/json" }, body: JSON.stringify({ messageId: "does-not-exist" }) });
     expect(wrongTurn.status).not.toBe(200);
+  });
+
+  test("display snapshots share file references with every checklist page while complete reads stay unchanged", async () => {
+    const workspaceRoot = await createWorkspaceRoot();
+    const data = "data:application/pdf;base64," + "A".repeat(1_000_000);
+    const todos = [{ content: "Finish review", status: "in_progress", priority: "high" }];
+    const message = (id: string, checklist: boolean, uri: string): SessionMessageInfo => ({
+      id, type: "assistant", agent: "legalwork", model: { providerID: "fixture", id: "fixture" },
+      time: { created: 200, completed: 201 }, content: [{ type: "tool", id: "call_" + id,
+        name: checklist ? "todowrite" : "read", time: { created: 200, ran: 200, completed: 201 },
+        state: { status: "completed", input: { path: "/project/large.pdf" },
+          content: [{ type: "file", mime: "application/pdf", name: "/project/large.pdf", uri }],
+          metadata: checklist ? { todos } : {} } }],
+    });
+    const mock = startMockOpencode({ directory: workspaceRoot, messagePage: (url) => {
+      const checklist = url.searchParams.has("cursor");
+      const uri = url.searchParams.get("files") === "references" ? "file:///project/large.pdf" : data;
+      return { data: [message(checklist ? "msg_old" : "msg_new", checklist, uri)],
+        cursor: url.searchParams.get("type") === "assistant" && !checklist ? { next: "older-todos" } : {} };
+    } });
+    const legalwork = await startLegalworkServer({ workspaceRoot, opencodeBaseUrl: `http://127.0.0.1:${mock.server.port}` });
+    const base = `http://127.0.0.1:${legalwork.server.port}/workspace/ws_1/sessions/ses_1`;
+    const headers = auth(legalwork.token);
+    const response = await fetch(`${base}/snapshot?limit=1&files=references`, { headers });
+    expect(response.status).toBe(200);
+    const text = await response.text();
+    expect(text.length).toBeLessThan(3000);
+    expect(JSON.parse(text).item.todos).toEqual(todos);
+    const pages = mock.requests.filter(request => request.pathname.endsWith("/message"));
+    expect(pages).toHaveLength(3);
+    expect(pages.every(request => new URLSearchParams(request.search).get("files") === "references")).toBe(true);
+    const older = pages.find(request => new URLSearchParams(request.search).has("cursor"));
+    expect(new URLSearchParams(older?.search).get("type")).toBe("assistant");
+    expect(new URLSearchParams(older?.search).has("order")).toBe(false);
+    const complete = await fetch(`${base}/messages?limit=1`, { headers }).then(response => response.json());
+    expect(complete.items[0].content[0].state.content[0].uri).toBe(data);
+    const snapshot = await fetch(`${base}/snapshot?limit=1`, { headers }).then(response => response.json());
+    expect(snapshot.item.messages[0].content[0].state.content[0].uri).toBe(data);
+    expect(snapshot.item.todos).toEqual(todos);
   });
 
   test("lists sessions and returns session details, messages, and snapshot", async () => {
