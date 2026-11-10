@@ -33,10 +33,10 @@ function inputs(area, root, ref) {
   return { files, text };
 }
 
-export function testDependencies(area, { root = process.cwd(), ref } = {}) {
+export function testDependencies(area, { root = process.cwd(), ref, runtimeOnly = false } = {}) {
   const require = createRequire(import.meta.url);
   const ts = require(require.resolve('typescript', { paths: ['server', 'app'].map(name => fileURLToPath(new URL(`../../apps/${name}/`, import.meta.url))) }));
-  const { files, text } = inputs(area, root, ref), known = new Set(files), parents = new Map();
+  const { files, text } = inputs(area, root, ref), known = new Set(files), parents = new Map(), imports = new Map(), literals = new Map();
   const relative = absolute => path.relative(root, absolute).split(path.sep).join('/');
   const directories = new Set(['.']);
   for (const file of files) for (let dir = path.posix.dirname(file); dir !== '.'; dir = path.posix.dirname(dir)) directories.add(dir);
@@ -65,21 +65,38 @@ export function testDependencies(area, { root = process.cwd(), ref } = {}) {
     directoryExists: dir => directories.has(relative(dir) || '.'), realpath: file => file,
     getCurrentDirectory: () => root, useCaseSensitiveFileNames: true };
   const cache = ts.createModuleResolutionCache(root, file => file, options);
-  const add = (dependency, importer) => {
+  const add = (dependency, importer, literal = false) => {
     if (!known.has(dependency)) return;
     if (!parents.has(dependency)) parents.set(dependency, new Set());
     parents.get(dependency).add(importer);
+    if (literal && (isTestFile(importer) || importer.includes('.test-support.'))) {
+      if (!literals.has(dependency)) literals.set(dependency,new Set());
+      literals.get(dependency).add(importer);
+    }
   };
   for (const [file, source] of text) {
     if (!sourceFile.test(file)) continue;
-    if (file.startsWith(`apps/${area}/`)) {
+    if (!runtimeOnly && file.startsWith(`apps/${area}/`)) {
       add(configFile, file);
       add(`apps/${area}/package.json`, file);
     }
+    const ast = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
+    const isErased = node =>
+      ts.isImportDeclaration(node) && (node.importClause?.isTypeOnly
+        || node.importClause?.namedBindings && ts.isNamedImports(node.importClause.namedBindings)
+          && !node.importClause.name && node.importClause.namedBindings.elements.length > 0
+          && node.importClause.namedBindings.elements.every(element => element.isTypeOnly))
+      || ts.isExportDeclaration(node) && (node.isTypeOnly || node.exportClause && ts.isNamedExports(node.exportClause)
+        && node.exportClause.elements.length > 0 && node.exportClause.elements.every(element=>element.isTypeOnly));
+    const erased = new Set(ast.statements.filter(isErased).map(node => node.moduleSpecifier?.text));
+    for(const node of ast.statements) if(node.moduleSpecifier && !isErased(node))erased.delete(node.moduleSpecifier.text);
     for (const imported of ts.preProcessFile(source, true, true).importedFiles) {
+      if (runtimeOnly && erased.has(imported.fileName)) continue;
+      if (!imports.has(imported.fileName)) imports.set(imported.fileName, new Set());
+      imports.get(imported.fileName).add(file);
       const resolved = ts.resolveModuleName(imported.fileName, path.join(root, file), options, host, cache).resolvedModule;
       if (resolved) add(relative(resolved.resolvedFileName), file);
-      for (const [name, manifest] of manifests) if (imported.fileName === name || imported.fileName.startsWith(name + '/')) add(manifest, file);
+      if (!runtimeOnly) for (const [name, manifest] of manifests) if (imported.fileName === name || imported.fileName.startsWith(name + '/')) add(manifest, file);
     }
     // Native tests often load compiled plugins or fixtures by URL rather than
     // importing them. Include those literal runtime inputs in the same graph.
@@ -90,20 +107,23 @@ export function testDependencies(area, { root = process.cwd(), ref } = {}) {
           const name = node.arguments[0].text;
           if (name.startsWith('.')) {
             const target = path.posix.normalize(path.posix.join(path.posix.dirname(file), name));
-            if (known.has(target)) add(target, file);
+            if (known.has(target)) add(target, file, true);
             else {
               const resolved = ts.resolveModuleName(name, path.join(root, file), options, host, cache).resolvedModule;
-              if (resolved) add(relative(resolved.resolvedFileName), file);
+              if (resolved) add(relative(resolved.resolvedFileName), file, true);
             }
           }
         }
         ts.forEachChild(node, visit);
       };
-      visit(ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true));
+      visit(ast);
     }
   }
   const tests = files.filter(isTestFile);
-  return { files: known, sources: text, tests, affected(changed) {
+  return { files: known, sources: text, tests, imports,
+    fixtureReaders: changed => [...new Set(changed.flatMap(file=>[...literals.get(file)??[]]))],
+    directTests: changed => [...new Set(changed.flatMap(file => [...parents.get(file) ?? []].filter(isTestFile)))].sort(),
+    affected(changed) {
     const result = new Set();
     for (const input of changed) {
       const reachable = new Set([input]);

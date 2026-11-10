@@ -27,7 +27,7 @@ export function mergePlan(files, { engineDepsChanged = true, realTests = [], aff
   const fallback = files === null || files.some(file => /^(?:apps|packages)\//.test(file) && !knownWorkspace.test(file));
   const paths = files ?? [];
   const fullEngine = fallback || engineInputsUnknown || paths.some(file => !file.endsWith('.md') && (engineImplementation.test(file)
-    || /^scripts\/ci\/(?:test-dependencies|affected-tests)\.mjs$/.test(file)
+    || /^scripts\/ci\/(?:test-dependencies|affected-tests|engine-test-contracts|engine-inputs)\.mjs$/.test(file)
     || packageInput.test(file) && engineDepsChanged));
   const targets = new Set(fallback ? platforms : fullEngine ? ['linux'] : []);
   const focused = new Set(affectedEngineTests);
@@ -126,7 +126,7 @@ export function mergeDiff(env = process.env) {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const { files, engineDepsChanged, docxDepsChanged } = mergeDiff();
-  const selection = changeScope(files).server && files.some(file => isTestInput('server', file)) ? engineTestSelection(files)
+  const selection = changeScope(files).server && files.some(file => isTestInput('server', file)) ? engineTestSelection(files, {base:process.env.BASE_SHA})
     : { realTests: engineTestFiles(path.resolve('apps/server/src')).map(test => path.relative(process.cwd(), test)) };
   const plan = mergePlan(files, { engineDepsChanged, ...selection });
   const has = pattern => files.some(file => pattern.test(file));

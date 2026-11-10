@@ -64,8 +64,10 @@ skipped check. Pure presentation changes need only the successful unit matrix.
 
 `scripts/ci/run-engine-tests.mjs` collects server tests declaring the real-engine
 fixture variable directly or through an imported helper. It uses the same
-source/input graph as portable affected-test selection, so a test's filename
-does not need to match an indirectly changed implementation. It refuses to run
+runtime import graph for discovery, including imported fixture helpers.
+Selection uses the owned native contracts in `engine-test-contracts.mjs`, so
+ordinary server imports do not select unrelated native fixtures. Portable
+affected-test selection keeps the complete dependency graph. It refuses to run
 without the verified engine. Desktop runtime tests import the generated engine selection and therefore stay
 in the engine integration job too. These tests, browser/e2e checks and prompt-cache
 acceptance remain behind engine setup. The final selected-check summary also

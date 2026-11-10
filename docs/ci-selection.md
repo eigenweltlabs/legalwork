@@ -12,19 +12,32 @@ use their existing scopes.
   back to the owning package's portable suite. Shared types select their consumers. Broad server changes use Bun’s
   deterministic two-runner sharding. Each selected file runs once, including
   the isolated startup fixtures.
-- Changed inputs select affected real-engine fixtures on Linux. Portable and
-  engine selection share `test-dependencies.mjs`:
-  transitive imports, workspace exports, aliases and literal `new URL(...,
-  import.meta.url)` inputs connect changed files to their tests. Engine fixtures
-  also inherit their engine requirement from imported test helpers. Unknown or
-  deleted engine inputs retain the full engine gate. The planning job installs
-  the frozen server dependency closure without lifecycle scripts when server
-  inputs need analysis; presentation-only changes retain the lightweight path.
-  The runner prepares the reviewed host engine, verifies its
-  provenance on cache hits and compiles that host on a miss. Dev warms the
-  Linux host cache when its inputs change so PRs can restore it from their base.
-  Desktop unit tests use the same verified selector. The full engine suite
-  runs for changes to distribution, engine lifecycle, transport or pinned SDK inputs.
+- Engine test discovery follows runtime imports and fixture helpers, including
+  URL-loaded inputs. Type-only imports do not declare an engine requirement.
+  Native relevance uses the reviewed component contracts in
+  `scripts/ci/engine-test-contracts.mjs`, direct runtime subjects and explicit
+  fixture inputs. Ordinary routes and shared type barrels use portable checks;
+  their native API and schema contracts are listed explicitly. Loading an
+  unrelated route through a complete server fixture does not select that
+  fixture. Configuration/reload, credentials, models, permissions, native
+  plugins and project/session recovery retain their own native acceptance tests.
+- When adding a native fixture or changing the dependencies of its contract,
+  update the owned inputs and fixtures in that file. A tooling test requires
+  every discovered native fixture to belong to a declared contract. New
+  unclassified production consumers of the native SDK fail open to the full
+  engine gate. This is a maintained contract map, not proof that arbitrary
+  runtime dependencies can be inferred from imports alone.
+- Package licenses, publication file lists and unused new exports do not change
+  existing engine contracts. Existing export-resolution changes select their
+  consumers. Patches select their owning package's consumers, so desktop updater
+  and renderer-editor patches retain their desktop/editor checks. Deleted
+  inputs consult the base graph. Unknown inputs, server runtime dependency
+  changes and server compiler settings retain broad native verification.
+  The planning job installs the frozen server dependency closure without
+  lifecycle scripts for analysis. Presentation-only changes keep the lightweight
+  path. Focused checks use the reviewed Linux host engine and four workers.
+  Provenance is verified on cache hits; a miss compiles the matching engine.
+  Engine distribution, lifecycle and transport changes retain the full suite.
 - Shared VM and isolation changes select the native matrix. Host-specific edits
   select that platform. Service and policy consumers run against the shipped engine and a real Linux
   x64 VM. Changes to boot, transport, filesystem or network enforcement also

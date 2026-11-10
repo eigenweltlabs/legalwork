@@ -17,12 +17,14 @@ const rows = cases.map(({ number, base, head }) => {
   const realTests = grep.stdout.split('\0').map(file => file.slice(head.length + 1))
     .filter(file => /\.(?:test|spec)\.[cm]?[jt]sx?$/.test(file) && !standalone.has(file));
   const dependencyAnalysis = changeScope(files).server && files.some(file => isTestInput('server', file));
-  const selection = dependencyAnalysis ? engineTestSelection(files, { ref: head }) : { realTests };
+  const selection = dependencyAnalysis ? engineTestSelection(files, { base, ref: head }) : { realTests };
   const { fullEngine, targets, focused } = mergePlan(files, { engineDepsChanged, ...selection });
+  const nativeCount = fullEngine && !dependencyAnalysis ? engineTestSelection([],{ref:head}).realTests.length : selection.realTests.length;
   const host = hostChecks(files);
   return { number, base, head, areas: portableAreas(files), fullEngine, targets, focused,
     engine: fullEngine || targets.some(target => target !== 'win32') || focused.length > 0 || host.length > 0,
-    hostChecks: host, realTests: selection.realTests.length, dependencyAnalysis, unknownInputs: selection.engineInputsUnknown ?? false };
+    hostChecks: host, realTests: nativeCount, dependencyAnalysis, unknownInputs: selection.engineInputsUnknown ?? false,
+    unknownEngineInputs:selection.unknownEngineInputs??[] };
 });
 console.log(JSON.stringify({ count: rows.length, fullEngine: rows.filter(pr => pr.fullEngine).length,
   engine: rows.filter(pr => pr.engine).length, fullSandbox: rows.filter(pr => pr.targets.length === 3).length, rows }, null, 2));
