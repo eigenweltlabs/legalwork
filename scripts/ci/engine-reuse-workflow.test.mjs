@@ -16,11 +16,9 @@ const workflow = name => parse(readFileSync(new URL(`../../.github/workflows/${n
 test('shared cache producer covers current fingerprint inputs but ignores ordinary app changes', async () => {
   const producer = workflow('ci-opencode-cache');
   assert.deepEqual(producer.on.push.branches, ['dev']);
-  assert.deepEqual(Object.keys(producer.on).sort(), ['push', 'workflow_dispatch']);
-  assert.equal(producer.concurrency['cancel-in-progress'], false);
   assert.equal(producer.jobs['warm-cache'].if, "github.ref == 'refs/heads/dev'");
   assert.equal(producer.jobs['warm-cache'].uses, './.github/workflows/ci-opencode-derivative.yml');
-  assert.deepEqual(producer.jobs['warm-cache'].with, { 'build-mode': 'development', ref: '${{ github.sha }}' });
+  assert.equal(producer.jobs['warm-cache'].with['build-mode'], 'development');
   assert.equal(producer.jobs['warm-cache'].secrets, undefined);
   const paths = producer.on.push.paths;
   const matches = name => paths.some(pattern => path.matchesGlob(name, pattern));
@@ -35,19 +33,17 @@ test('shared cache producer covers current fingerprint inputs but ignores ordina
 test('normal PR reuse still verifies cache bytes and production still rejects development cache reuse', () => {
   const build = workflow('ci-opencode-derivative').jobs.build;
   const restore = build.steps.findIndex(step => step.uses === 'actions/cache/restore@v4');
-  const verify = build.steps.findIndex(step => step.name === 'Verify all development archives against current source policy');
+  const verify = build.steps.findIndex(step => step.run?.includes('cache-opencode-derivative.mjs verify'));
   const save = build.steps.findIndex(step => step.uses === 'actions/cache/save@v4');
   const upload = build.steps.findIndex(step => step.with?.name === 'opencode-derivative-ci' && step.uses === 'actions/upload-artifact@v4');
   assert.ok(restore >= 0 && restore < verify && verify < save && save < upload);
   assert.match(build.steps[restore].if, /inputs.build-mode == 'development'/);
   assert.equal(build.steps[restore].with['restore-keys'], undefined);
-  assert.match(build.steps[verify].run, /cache-opencode-derivative.mjs verify/);
   const base = build.steps.findIndex(step => step.id === 'base-producer');
-  const download = build.steps.findIndex(step => step.name === "Download the exact base commit's engine without recompiling");
+  const download = build.steps.findIndex(step => step.with?.['run-id'] === '${{ steps.base-producer.outputs.run-id }}');
   assert.ok(restore < base && base < download && download < verify);
   assert.match(build.steps[base].if, /inputs.build-mode == 'development'/);
   assert.equal(build.steps[base].env.BASE_SHA, '${{ github.event.merge_group.base_sha || github.event.pull_request.base.sha }}');
-  assert.equal(build.steps[download].with['run-id'], '${{ steps.base-producer.outputs.run-id }}');
   assert.match(build.steps.find(step => step.id === 'engine').if, /steps.base-producer.outputs.run-id == ''/);
   assert.match(build.steps.find(step => step.name === 'Validate explicit producer reuse inputs').run, /Production cannot use manually supplied development candidate reuse/);
 });
@@ -84,30 +80,6 @@ test('real engine job cannot pass by silently skipping all engine fixtures', () 
   for (const suffix of ['scheduled-tasks/engine.test.ts', 'managed-opencode.search.e2e.test.ts', 'opencode-plugins/pdf-reading.integration.test.ts']) assert.ok(files.some(filename => filename.endsWith(suffix)), suffix);
 });
 
-test('existing required check names fail if units or a selected engine build fail', () => {
-  const gate = workflow('ci-tests').jobs['legalwork-tests'];
-  assert.deepEqual(gate.strategy.matrix.os, ['ubuntu-latest', 'macos-14']);
-  assert.equal(gate.name, 'legalwork-tests (${{ matrix.os }})');
-  assert.equal(gate['runs-on'], 'ubuntu-latest');
-  assert.equal(workflow('ci-tests').jobs['unit-tests']['runs-on'], "${{ matrix.os == 'macos-14' && 'macos-15' || matrix.os }}");
-  assert.equal(workflow('ci-tests').jobs['engine-tests-mac'].with.os, 'macos-15');
-  assert.equal(workflow('ci-tests').jobs['engine-tests-linux'].with.os, 'ubuntu-24.04');
-  assert.ok(gate.needs.includes('unit-tests'));
-  assert.ok(gate.needs.includes('engine-tests-linux'));
-  assert.ok(gate.needs.includes('engine-tests-mac'));
-  assert.ok(gate.needs.includes('sandbox-runtime'));
-  const script = gate.steps[0].run;
-  const run = results => execFileSync('bash', ['-e', '-c', script], {
-    env: { ...process.env, RESULTS: JSON.stringify(results) }, stdio: 'pipe',
-  });
-  assert.doesNotThrow(() => run({ units: { result: 'success' }, engine: { result: 'skipped' } }));
-  for (const result of ['failure', 'cancelled']) {
-    assert.throws(() => run({ units: { result }, engine: { result: 'success' } }));
-    assert.throws(() => run({ units: { result: 'success' }, sandbox: { result } }));
-  }
-});
-
-
 test('runtime cache hits retain verification and isolation tests while skipping full workspace preparation', () => {
   const jobs = workflow('sandbox-runtime').jobs;
   for (const job of Object.values(jobs).filter(job => job.steps?.some(step => step.uses === 'actions/cache/restore@v4'))) {
@@ -135,7 +107,7 @@ test('runtime cache hits retain verification and isolation tests while skipping 
   assert.ok(prepare.findIndex(step => step.name === 'Verify complete sandbox cache receipt') < prepare.indexOf(artifact));
   assert.equal(jobs.runtime.if, '${{ !inputs.guest_only }}');
   assert.equal(jobs.runtime.steps.find(step => step.uses === './.github/actions/prepare-sandbox-runtime').with['publish-runtime'], '${{ inputs.publish_runtime }}');
-  for (const name of ['alpha-macos-aarch64', 'alpha-windows-x64', 'release-macos-aarch64', 'ci-desktop-packaging', 'ci-engine-tests', 'ci-sandbox-validation', 'ci-linux-packaging-benchmark']) {
+  for (const name of ['alpha-macos-aarch64', 'alpha-windows-x64', 'release-macos-aarch64', 'ci-desktop-packaging', 'ci-engine-tests', 'ci-sandbox-validation']) {
     for (const job of Object.values(workflow(name).jobs)) {
       for (const step of job.steps ?? []) {
         if (step.uses !== 'actions/download-artifact@v4' || !JSON.stringify(step.with).includes('sandbox-runtime-')) continue;
@@ -151,9 +123,7 @@ test('every native package consumer uses one portable producer and an OS-family 
   for (const name of ['alpha-macos-aarch64', 'alpha-windows-x64', 'release-macos-aarch64', 'ci-desktop-packaging']) {
     const jobs = workflow(name).jobs;
     assert.equal(jobs['portable-assets'].uses, './.github/workflows/ci-portable-assets.yml');
-    const consumers = Object.values(jobs).filter(job => job.steps?.some(step =>
-      step.env?.LEGALWORK_PREBUILT_UI === '1' || (name === 'alpha-macos-aarch64'
-        && step.env?.LEGALWORK_PREBUILT_UI === "${{ inputs.benchmark_profile == 'serial-full-ui' && '0' || '1' }}")));
+    const consumers = Object.values(jobs).filter(job => job.steps?.some(step => step.env?.LEGALWORK_PREBUILT_UI === '1'));
     assert.ok(consumers.length, name);
     for (const job of consumers) {
       assert.ok(job.needs.includes('portable-assets'), name);

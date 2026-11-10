@@ -142,5 +142,4 @@ and runner queues. Do not substitute native consumer duration or add overlapping
 stage durations. Release creation, release asset upload and publication stay
 disabled in these benchmark modes; signing and packaged startup still run.
 
-See [CI and execution efficiency](ci-efficiency.md) for scheduling, runtime
-caches, portable builds and the reproducible benchmark command.
+[CI selection and rollout](ci-selection.md) covers merge checks, queue activation and production alpha timing.

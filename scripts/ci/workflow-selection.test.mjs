@@ -39,7 +39,6 @@ test('unit jobs start independently while integration jobs require the verified 
   for (const engine of ['failure', 'cancelled', 'skipped']) assert.equal(condition(engineJob.if, session, { engine }), true);
   assert.equal(condition(engineJob.if, session, { engine: 'success' }), true);
   assert.equal(condition(e2e.if, session, { inputs: { app: true, server: true, 'engine-required': true } }), true);
-  assert.ok(main.jobs['ci-result'].needs.includes('unit-tests'));
   assert.ok(!engineJob.needs.includes('unit-tests'));
   assert.ok(main.jobs['legalwork-tests'].needs.includes('unit-tests'));
   assert.ok(main.jobs['legalwork-tests'].needs.includes('engine-tests-mac'));
@@ -77,10 +76,22 @@ test('documentation and focused manual acceptance do not accidentally launch ful
 });
 
 test('failed prerequisites cannot become successful selected-check summaries', () => {
+  const gate = main.jobs['legalwork-tests'];
+  assert.equal(gate.name, 'legalwork-tests (${{ matrix.os }})');
+  assert.deepEqual(gate.strategy.matrix.os, ['ubuntu-latest', 'macos-14']);
+  assert.equal(gate.if, 'always()');
+  assert.deepEqual([...gate.needs].sort(), Object.keys(main.jobs).filter(key => !['ci-result', 'legalwork-tests'].includes(key)).sort());
   const summary = main.jobs['ci-result'];
   assert.equal(summary.if, 'always()');
-  assert.deepEqual([...summary.needs].sort(), Object.keys(main.jobs).filter(key => key !== 'ci-result').sort());
-  const script = summary.steps[0].run;
+  assert.equal(summary.needs, 'legalwork-tests');
+  const step = summary.steps[0];
+  assert.equal(step.env.REQUIRED_RESULT, '${{ needs.legalwork-tests.result }}');
+  for (const result of ['success', 'failure', 'cancelled', 'skipped']) {
+    const check = () => execFileSync('bash', ['-c', step.run], { env: { REQUIRED_RESULT: result } });
+    if (result === 'success') assert.doesNotThrow(check);
+    else assert.throws(check);
+  }
+  const script = gate.steps[0].run;
   const run = results => execFileSync('bash', ['-c', script], { env: { ...process.env, RESULTS: JSON.stringify(results) }, stdio: 'pipe' });
   assert.doesNotThrow(() => run({ build: { result: 'success' }, unrelated: { result: 'skipped' } }));
   assert.throws(() => run({ build: { result: 'failure' }, dependent: { result: 'skipped' } }));
@@ -141,7 +152,6 @@ test('PR targets prepare and validate their own native bytes without a global ho
     assert.ok(body.steps.some(step => step.uses === './.github/actions/prepare-sandbox-runtime'), id);
     assert.ok(body.steps.some(step => step.uses === './.github/actions/test-sandbox-runtime'), id);
     assert.ok(body.steps.some(step => step.name === 'Unpack exact same-run runtime'), id);
-    for (const gate of ['legalwork-tests', 'ci-result']) assert.ok(main.jobs[gate].needs.includes(id));
   }
   assert.deepEqual(targets.sort(), ['darwin-arm64', 'darwin-x64', 'linux-arm64', 'linux-x64', 'win32-arm64', 'win32-x64']);
   const native = workflow('ci-sandbox-validation');
@@ -182,7 +192,6 @@ test('cold engine-host runtime preparation overlaps compilation and failures gat
     assert.ok(engine.needs.includes(name));
     assert.match(engine.with['runtime-artifact'], new RegExp('needs\\.' + name + "\\.result == 'success'"));
     assert.equal(condition(engine.if, changeScope(null), { engine: 'success', guest: 'failure' }), false);
-    for (const gate of ['legalwork-tests', 'ci-result']) assert.ok(main.jobs[gate].needs.includes(name));
   }
   assert.equal(main.jobs['engine-runtime-mac'], undefined);
   assert.equal(main.jobs['engine-tests-mac'].with['runtime-artifact'], "${{ needs.sandbox-runtime.result == 'success' }}");
@@ -222,33 +231,21 @@ printf '%s' "$2" > "$ARCHIVE_TRACE"
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test('transport profiling is an exclusive manual mode and cannot suppress PR checks', () => {
+test('PR and queue routing use the selected scope while manual acceptance retains full units', () => {
   const outputs = main.jobs.changes.outputs;
   const scope = { outputs: Object.fromEntries(Object.keys(outputs).map(key => [key, 'true'])) };
-  const historic = ['app', 'server', 'desktop', 'tooling', 'docs', 'engine', 'sandbox', 'windows_meetings', 'windows_drafts', 'units'];
-  for (const key of historic) {
-    const evaluate = (event, diagnostic, plan = {}) => Function('github', 'inputs', 'steps', `return ${outputs[key].slice(3, -2)};`)(
-      { event_name: event }, { transport_diagnostic: diagnostic }, { scope, plan: { outputs: plan } });
-    assert.equal(evaluate('workflow_dispatch', true), 'false');
-    assert.equal(evaluate('workflow_dispatch', false), 'true');
-    for (const event of ['pull_request', 'merge_group']) {
-      assert.equal(evaluate(event, true), key === 'units' ? 'false' : 'true');
-      if (['engine', 'sandbox', 'docs', 'windows_meetings', 'windows_drafts'].includes(key))
-        assert.equal(evaluate(event, false, { [key]: 'false' }), 'false');
+  const selected = (key, event, plan = {}, inputs = {}) => Function('github', 'inputs', 'steps', `return ${outputs[key].slice(3, -2)};`)(
+    { event_name: event }, inputs, { scope, plan: { outputs: plan } });
+  assert.equal(selected('units', 'workflow_dispatch'), 'true');
+  assert.equal(selected('units', 'workflow_dispatch', {}, { replay_pr: '418' }), 'false');
+  for (const event of ['pull_request', 'merge_group']) {
+    assert.equal(selected('units', event), 'false');
+    for (const key of ['engine', 'sandbox', 'docs', 'windows_meetings', 'windows_drafts']) {
+      assert.equal(selected(key, event, { [key]: 'false' }), 'false');
+      assert.equal(selected(key, event, { [key]: 'true' }), 'true');
     }
   }
-  const diagnostic = main.jobs['transport-diagnostic'];
-  assert.equal(condition(diagnostic.if, changeScope(null)), false);
-  assert.equal(condition(diagnostic.if, changeScope(null), { event: 'workflow_dispatch', inputs: { transport_diagnostic: true } }), true);
-  assert.equal(diagnostic['runs-on'], 'macos-15-intel');
-  for (const gate of ['ci-result', 'legalwork-tests']) assert.ok(main.jobs[gate].needs.includes('transport-diagnostic'));
-  const guard = main.jobs.changes.steps.find(step => step.name === 'Reject contradictory production package inputs').run;
-  const environment = { TRANSPORT_ONLY: 'true', PRODUCTION_ENGINE: 'false', PACKAGE_DESKTOP: 'false', SIGNING_ONLY: 'false', UNIT_ONLY: 'false', WINDOWS_ONLY: 'false', NATIVE_SOURCE_ONLY: 'false', REUSE_RUN: '', REUSE_PIN: '' };
-  const execute = extra => execFileSync('bash', ['-e', '-c', guard], { env: { ...process.env, ...environment, ...extra }, stdio: 'pipe' });
-  assert.doesNotThrow(() => execute({}));
-  for (const name of ['PRODUCTION_ENGINE', 'PACKAGE_DESKTOP', 'SIGNING_ONLY', 'UNIT_ONLY', 'WINDOWS_ONLY', 'NATIVE_SOURCE_ONLY', 'REUSE_RUN', 'REUSE_PIN']) assert.throws(() => execute({ [name]: 'true' }));
 });
-
 
 test('development artifact recovery changes select real engine verification', () => {
   assert.equal(changeScope(['scripts/ci/recover-opencode-artifact.mjs']).engine, true);

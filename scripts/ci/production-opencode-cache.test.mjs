@@ -155,16 +155,20 @@ test('a valid development distribution cannot become a production cache hit', { 
 
 test('engine-only warm-up cannot masquerade as a full cache-hit alpha benchmark or publish releases', () => {
   const alpha = workflow('alpha-macos-aarch64'), guard = alpha.jobs.changes.steps.find(step => step.name === 'Require benchmark inputs to be nonpublishing');
-  const run = env => spawnSync('bash', ['-e', '-c', guard.run], { env: { ...process.env, PROFILE: 'optimized', VERSION: '', LINUX_BENCHMARK: 'false',
+  const run = env => spawnSync('bash', ['-e', '-c', guard.run], { env: { ...process.env,
     WARM_ENGINE_CACHE: 'false', REQUIRE_ENGINE_CACHE: 'false', ...env } }).status;
+  assert.equal(run({ SIGNING_TEST: 'false' }), 0);
   assert.equal(run({ SIGNING_TEST: 'false', WARM_ENGINE_CACHE: 'true' }), 1);
   assert.equal(run({ SIGNING_TEST: 'false', REQUIRE_ENGINE_CACHE: 'true' }), 1);
   assert.equal(run({ SIGNING_TEST: 'true', WARM_ENGINE_CACHE: 'true', REQUIRE_ENGINE_CACHE: 'true' }), 1);
-  assert.equal(run({ SIGNING_TEST: 'true', REQUIRE_ENGINE_CACHE: 'true', PROFILE: 'serial-full-ui' }), 1);
   assert.equal(run({ SIGNING_TEST: 'true', WARM_ENGINE_CACHE: 'true' }), 0);
   assert.equal(run({ SIGNING_TEST: 'true', REQUIRE_ENGINE_CACHE: 'true' }), 0);
   for (const name of ['sandbox-runtime', 'portable-version']) assert.match(alpha.jobs[name].if, /github.event_name == 'workflow_dispatch' && inputs.warm_engine_cache/);
   for (const name of ['publish-alpha-macos-aarch64', 'publish-alpha-windows']) {
+    const steps = alpha.jobs[name].steps;
+    const releaseWrites = steps.filter(step => /gh release (create|upload|edit)/.test(step.run));
+    assert.ok(releaseWrites.length > 0, name);
+    for (const step of releaseWrites) assert.match(step.if, /!inputs.signing_test/);
     assert.ok(alpha.jobs[name].needs.includes('portable-version'));
     assert.equal(alpha.jobs[name].needs.includes('sandbox-runtime'), name === 'publish-alpha-windows');
   }

@@ -131,6 +131,12 @@ Storage migration and remembered-permission tests now run inside those package
 jobs rather than in six duplicate jobs. Native cold-source-build acceptance
 deliberately bypasses build reuse, because a fresh build is what it tests.
 
+Alpha and release build the renderer and Office assets once for their native packagers.
+The Windows installer uses compression level 5 and the Linux release tarball uses
+gzip level 6. The original payload comparisons are recorded in the
+[Windows run](https://github.com/eigenweltlabs/legalwork/actions/runs/42255869886)
+and the [Linux run](https://github.com/eigenweltlabs/legalwork/actions/runs/41859349170).
+
 Stable releases remain explicit tag/manual operations with the existing signing,
 packaging and verification. A release without desktop packages skips preparing
 the desktop sandbox. No release is triggered by this CI change.
@@ -150,7 +156,7 @@ unchanged engine inputs while those tests still run against the current app.
 Validate changes to merge routing with
 
 ```sh
-node --test scripts/ci/{merge-gate,workflow-selection,change-scope,deploy-benchmark-workflow,engine-reuse-workflow}.test.mjs
+node --test scripts/ci/{merge-gate,workflow-selection,change-scope,production-opencode-cache,engine-reuse-workflow}.test.mjs
 node scripts/ci/replay-merge-plan.mjs
 actionlint -shellcheck= -pyflakes=
 ```

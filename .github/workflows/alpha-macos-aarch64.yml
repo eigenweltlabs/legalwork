@@ -12,20 +12,7 @@ on:
         type: boolean
         default: false
       signing_test:
-        description: Validate Azure signing without publishing
-        type: boolean
-        default: false
-      benchmark_profile:
-        description: Controlled nonpublishing comparison on the same source
-        type: choice
-        options: [optimized, serial-full-ui]
-        default: optimized
-      benchmark_version:
-        description: Optional identical prerelease version for both nonpublishing samples
-        type: string
-        default: ''
-      linux_benchmark:
-        description: Compare Linux archive compression on identical packaged bytes without publishing
+        description: Build and verify signed Mac and Windows artifacts without publishing
         type: boolean
         default: false
       warm_engine_cache:
@@ -67,18 +54,15 @@ jobs:
         if: github.event_name == 'workflow_dispatch'
         env:
           SIGNING_TEST: ${{ inputs.signing_test }}
-          PROFILE: ${{ inputs.benchmark_profile }}
-          VERSION: ${{ inputs.benchmark_version }}
-          LINUX_BENCHMARK: ${{ inputs.linux_benchmark }}
           WARM_ENGINE_CACHE: ${{ inputs.warm_engine_cache }}
           REQUIRE_ENGINE_CACHE: ${{ inputs.require_engine_cache }}
         run: |
-          if { [ "$PROFILE" = serial-full-ui ] || [ -n "$VERSION" ] || [ "$LINUX_BENCHMARK" = true ] || [ "$WARM_ENGINE_CACHE" = true ] || [ "$REQUIRE_ENGINE_CACHE" = true ]; } && [ "$SIGNING_TEST" != true ]; then
-            echo 'Benchmark profiles and versions require signing_test; publishing must be disabled.' >&2
+          if { [ "$WARM_ENGINE_CACHE" = true ] || [ "$REQUIRE_ENGINE_CACHE" = true ]; } && [ "$SIGNING_TEST" != true ]; then
+            echo 'Cache diagnostics require signing_test.' >&2
             exit 1
           fi
-          if [ "$REQUIRE_ENGINE_CACHE" = true ] && { [ "$PROFILE" = serial-full-ui ] || [ "$WARM_ENGINE_CACHE" = true ]; }; then
-            echo 'A full cache-hit benchmark cannot select a cold profile or engine-only warm-up.' >&2
+          if [ "$REQUIRE_ENGINE_CACHE" = true ] && [ "$WARM_ENGINE_CACHE" = true ]; then
+            echo 'Choose either cache warm-up or a full cache-hit build.' >&2
             exit 1
           fi
   opencode-engine:
@@ -91,8 +75,6 @@ jobs:
     with:
       build-mode: production
       ref: ${{ github.sha }}
-      build-workers: ${{ inputs.benchmark_profile == 'serial-full-ui' && 1 || 2 }}
-      force-production-rebuild: ${{ inputs.benchmark_profile == 'serial-full-ui' }}
       require-production-cache-hit: ${{ github.event_name == 'workflow_dispatch' && inputs.require_engine_cache || false }}
     secrets:
       APPLE_CODESIGN_CERT_P12_BASE64: ${{ secrets.APPLE_CODESIGN_CERT_P12_BASE64 }}
@@ -102,7 +84,7 @@ jobs:
     if: needs.changes.outputs.alpha == 'true' && !(github.event_name == 'workflow_dispatch' && inputs.warm_engine_cache)
     uses: ./.github/workflows/sandbox-runtime.yml
     with:
-      targets: ${{ inputs.linux_benchmark && 'win32-x64,win32-arm64,linux-x64,linux-arm64' || 'win32-x64,win32-arm64' }}
+      targets: win32-x64,win32-arm64
       run_tests: ${{ github.event_name == 'workflow_dispatch' && inputs.sandbox_tests || false }}
   publish-alpha-macos-aarch64:
     # The Mac packages its own native runtime. The shared runtime job prepares Windows.
@@ -161,11 +143,10 @@ jobs:
       - name: Install dependencies
         uses: ./.github/actions/install-dependencies
         with:
-          cache: ${{ runner.os != 'Windows' || runner.arch != 'ARM64' || inputs.benchmark_profile == 'serial-full-ui' }}
           filter: |
-            ${{ inputs.benchmark_profile == 'serial-full-ui' && '*' || '@legalwork/desktop...' }}
-            ${{ inputs.benchmark_profile == 'serial-full-ui' && '' || 'legalwork-orchestrator...' }}
-            ${{ inputs.benchmark_profile == 'serial-full-ui' && '' || '@legalwork/actaport-mcp...' }}
+            @legalwork/desktop...
+            legalwork-orchestrator...
+            @legalwork/actaport-mcp...
 
       - name: Resolve alpha version
         id: alpha-version
@@ -229,7 +210,7 @@ jobs:
           # since the editors and media viewers joined it; the 7 GB runner has
           # room for this.
           NODE_OPTIONS: --max-old-space-size=6144
-          LEGALWORK_PREBUILT_UI: ${{ inputs.benchmark_profile == 'serial-full-ui' && '0' || '1' }}
+          LEGALWORK_PREBUILT_UI: '1'
         run: pnpm --filter @legalwork/desktop build:electron:production
 
       - name: Package Electron alpha (macOS, signed + notarized)
@@ -438,11 +419,11 @@ jobs:
       - name: Install dependencies
         uses: ./.github/actions/install-dependencies
         with:
-          cache: ${{ runner.os != 'Windows' || runner.arch != 'ARM64' || inputs.benchmark_profile == 'serial-full-ui' }}
+          cache: ${{ runner.arch != 'ARM64' }}
           filter: |
-            ${{ inputs.benchmark_profile == 'serial-full-ui' && '*' || '@legalwork/desktop...' }}
-            ${{ inputs.benchmark_profile == 'serial-full-ui' && '' || 'legalwork-orchestrator...' }}
-            ${{ inputs.benchmark_profile == 'serial-full-ui' && '' || '@legalwork/actaport-mcp...' }}
+            @legalwork/desktop...
+            legalwork-orchestrator...
+            @legalwork/actaport-mcp...
 
       - uses: ./.github/actions/prepare-electron-native
 
@@ -498,7 +479,7 @@ jobs:
           TARGET: ${{ matrix.target }}
           # The renderer bundle (vite build) peaks above Node's default heap.
           NODE_OPTIONS: --max-old-space-size=6144
-          LEGALWORK_PREBUILT_UI: ${{ inputs.benchmark_profile == 'serial-full-ui' && '0' || '1' }}
+          LEGALWORK_PREBUILT_UI: '1'
         run: pnpm --filter @legalwork/desktop build:electron:production
 
       # Authenticate after the long build so the Azure CLI token is fresh.
@@ -654,15 +635,7 @@ jobs:
           fetch-depth: 0
       - id: version
         shell: bash
-        env:
-          BENCHMARK_VERSION: ${{ inputs.benchmark_version }}
         run: |
-          if [ -n "$BENCHMARK_VERSION" ]; then
-            [[ "$BENCHMARK_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+-alpha\.[0-9]+\.g[0-9a-f]{7}$ ]]
-            [[ "$BENCHMARK_VERSION" == *".g${GITHUB_SHA:0:7}" ]]
-            echo "version=$BENCHMARK_VERSION" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
           tag=$(git describe --tags --match 'v*' --abbrev=0)
           base="${tag#v}"
           base="${base%%[-+]*}"
@@ -675,12 +648,3 @@ jobs:
     with:
       ref: ${{ github.sha }}
       version: ${{ needs.portable-version.outputs.version }}
-
-  linux-packaging-benchmark:
-    needs: [ sandbox-runtime, opencode-engine, portable-version, portable-assets ]
-    if: github.event_name == 'workflow_dispatch' && inputs.signing_test && inputs.linux_benchmark
-    uses: ./.github/workflows/ci-linux-packaging-benchmark.yml
-    with:
-      version: ${{ needs.portable-version.outputs.version }}
-      manifest-sha256: ${{ needs.opencode-engine.outputs.manifest-sha256 }}
-      artifact-run-id: ${{ needs.opencode-engine.outputs.artifact-run-id }}
