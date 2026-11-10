@@ -1,0 +1,88 @@
+name: Diagnose native permission suite
+on:
+  push:
+    branches: [codex/pr370-native-permission-diagnosis]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  compare:
+    name: Compare (${{ matrix.mode }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [isolated, legacy54, expanded72]
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: c11d294ed0b5771219f1ad626f66161da4176d8c
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24.22.1
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.4.0
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - uses: actions/download-artifact@v4
+        with:
+          name: opencode-derivative-ci-Linux
+          path: ${{ runner.temp }}/opencode-derivative
+          run-id: 42817300524
+          github-token: ${{ github.token }}
+      - uses: ./.github/actions/setup-opencode
+        with:
+          archive-directory: ${{ runner.temp }}/opencode-derivative/archives
+          manifest-sha256: 337b9cd96b262b239349b6b44bb1f5048bfbe5a6d50c3079716211c6b847f553
+          archive-family: 'true'
+      - uses: ./.github/actions/install-dependencies
+      - run: node apps/desktop/scripts/prepare-node-runtime.mjs
+      - run: pnpm --filter legalwork-server build
+      - name: Add timing checkpoints without changing assertions or deadlines
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('apps/server/src/managed-file-permissions.released.test.ts')
+          s=p.read_text()
+          anchor='async git => {\n'
+          assert s.count(anchor)==1
+          s=s.replace(anchor, anchor+'  const diagnosticStart=performance.now();\n  const mark=(stage: string)=>console.log("PERMISSION_DIAGNOSTIC",JSON.stringify({git,stage,elapsedMs:Math.round(performance.now()-diagnosticStart)}));\n  mark("start");\n')
+          replacements={
+            '    server = await startServer(config);':'    mark("server-starting");\n    server = await startServer(config);\n    mark("server-ready");',
+            '    engine = await start();':'    mark("engine-starting");\n    engine = await start();\n    mark("engine-ready");',
+            '    let client = await connect();':'    let client = await connect();\n    mark("locations-ready");',
+            '    for (const agent of ["legalwork", "explore", "helper"]) {':'    mark("basic-file-permissions");\n    for (const agent of ["legalwork", "explore", "helper"]) {\n      mark("read-agent-"+agent);',
+            '    const updatingSession = await client.session.create':'    mark("live-settings-update");\n    const updatingSession = await client.session.create',
+            '    const approved = await client.session.create':'    mark("folder-approval-flows");\n    const approved = await client.session.create',
+            '    const shadowed = join(root, "shadowed");':'    mark("remembered-permissions");\n    const shadowed = join(root, "shadowed");',
+            '    const action = "fixture.review", resource = "matter-record-17";':'    mark("generic-permissions");\n    const action = "fixture.review", resource = "matter-record-17";',
+            '    const familyResource = "family-record";':'    mark("permission-families");\n    const familyResource = "family-record";',
+            '    const oldSaved = await prepareNativeSavedApprovalMigration':'    mark("saved-approval-migration");\n    const oldSaved = await prepareNativeSavedApprovalMigration',
+            '    await engine?.close(); await server?.stop();':'    mark("cleanup-start");\n    await engine?.close(); await server?.stop();',
+            '    await rm(root, { recursive: true, force: true });':'    await rm(root, { recursive: true, force: true });\n    mark("cleanup-complete");',
+          }
+          for old,new in replacements.items():
+            assert old in s,old
+            s=s.replace(old,new)
+          p.write_text(s)
+          PY
+      - name: Execute the controlled native suite
+        env:
+          DIAGNOSTIC_MODE: ${{ matrix.mode }}
+          LEGALWORK_TEST_WORKERS: ${{ matrix.mode == 'isolated' && '1' || '4' }}
+        run: |
+          export LEGALWORK_TEST_OPENCODE_BIN="$(command -v opencode)"
+          node --input-type=module <<'JS'
+          import path from 'node:path';
+          import { engineTestFiles, engineTestSelection } from './scripts/ci/run-engine-tests.mjs';
+          import { runTests } from './scripts/ci/run-tests.mjs';
+          const mode=process.env.DIAGNOSTIC_MODE;
+          const files=mode==='isolated' ? ['apps/server/src/managed-file-permissions.released.test.ts']
+            : mode==='legacy54' ? engineTestFiles(path.resolve('apps/server/src'))
+            : engineTestSelection([]).realTests;
+          console.log(JSON.stringify({mode,files:files.length,workers:process.env.LEGALWORK_TEST_WORKERS,sha:process.env.GITHUB_SHA}));
+          process.exitCode=runTests('engine',files);
+          JS
