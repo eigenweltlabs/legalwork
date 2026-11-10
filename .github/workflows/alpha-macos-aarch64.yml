@@ -173,11 +173,12 @@ jobs:
           pnpm install --lockfile-only --no-frozen-lockfile
 
       # Prepare on the packaging host to avoid allocating a second Mac runner.
-      # Windows prerequisites contain only Windows (and optional Linux).
+      # Only a cold miss waits for the parallel ARM64 guest upload.
       - uses: ./.github/actions/prepare-sandbox-runtime
         with:
           arch: arm64
           qemu: aarch64
+          wait-for-guest: 'true'
       - name: Prepare checksum-pinned Node for worker tests
         if: github.event_name == 'workflow_dispatch' && inputs.sandbox_tests
         run: node apps/desktop/scripts/prepare-node-runtime.mjs

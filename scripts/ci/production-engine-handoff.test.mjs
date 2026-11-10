@@ -69,9 +69,25 @@ test('Mac packaging owns its native preparation while Windows cannot wait for a 
   assert.ok(!jobs['sandbox-runtime'].with.targets.includes('darwin'));
   const mac = jobs['publish-alpha-macos-aarch64'];
   const prepare = mac.steps.find(step => step.uses === './.github/actions/prepare-sandbox-runtime');
-  assert.deepEqual(prepare.with, { arch: 'arm64', qemu: 'aarch64' });
+  assert.deepEqual(prepare.with, { arch: 'arm64', qemu: 'aarch64', 'wait-for-guest': 'true' });
   assert.ok(mac.steps.indexOf(prepare) < mac.steps.findIndex(step => step.name === 'Build Electron alpha app'));
   assert.ok(!mac.steps.some(step => step.with?.pattern?.includes('sandbox-runtime')));
   assert.equal(mac.steps.find(step => step.uses === './.github/actions/test-sandbox-runtime').if,
     "github.event_name == 'workflow_dispatch' && inputs.sandbox_tests");
+});
+
+test('Mac cold runtime waits for its same-run guest without blocking cache hits on Windows jobs', () => {
+  const mac = workflow('alpha-macos-aarch64').jobs['publish-alpha-macos-aarch64'];
+  assert.ok(!mac.needs.includes('sandbox-runtime'), 'Warm Mac packaging must remain independent of Windows builds');
+  const prepare = mac.steps.find(step => step.uses === './.github/actions/prepare-sandbox-runtime');
+  assert.equal(prepare.with['wait-for-guest'], 'true');
+  const action = parse(readFileSync(new URL('../../.github/actions/prepare-sandbox-runtime/action.yml', import.meta.url), 'utf8'));
+  assert.equal(action.inputs['wait-for-guest'].default, 'false');
+  const steps = action.runs.steps;
+  const recover = steps.findIndex(step => step.run?.includes('recover-sandbox-runtime.mjs restore'));
+  const wait = steps.findIndex(step => step.run?.includes('recover-sandbox-runtime.mjs wait-for-guest'));
+  const download = steps.findIndex(step => step.uses === 'actions/download-artifact@v4');
+  assert.ok(recover >= 0 && recover < wait && wait < download, 'Cold guest download must wait after attempting runtime recovery');
+  assert.equal(steps[wait].if, "inputs.wait-for-guest == 'true' && inputs.local-guest != 'true' && steps.runtime-cache.outputs.cache-hit != 'true' && steps.runtime-recovery.outputs.artifact-id == ''");
+  assert.equal(steps[wait].env.GH_TOKEN, '${{ github.token }}');
 });

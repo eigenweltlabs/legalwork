@@ -5,7 +5,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { findRuntimeRecovery, restoreRuntimeArtifact, runtimeProducerProof } from './recover-sandbox-runtime.mjs';
+import { findRuntimeRecovery, restoreRuntimeArtifact, runtimeProducerProof, waitForGuestArtifact } from './recover-sandbox-runtime.mjs';
 import { verifyRuntimeCache } from './cache-sandbox-runtime.mjs';
 
 const key = 'sandbox-runtime-v2-darwin-arm64-' + 'a'.repeat(64), pin = 'b'.repeat(64);
@@ -17,6 +17,41 @@ const run = { id: 42, status: 'completed', event: 'workflow_dispatch', path: '.g
 const job = { id: 7, status: 'completed', conclusion: 'success',
   steps: [{ name: 'Run ./.github/actions/prepare-sandbox-runtime', conclusion: 'success' }] };
 const log = `2026-11-05T12:00:00Z ${key}\n2026-11-05T12:01:00Z SHA256 digest of uploaded artifact zip is ${pin}\n2026-11-05T12:01:01Z Artifact ${artifact.name} has been successfully uploaded! Final size is 100 bytes. Artifact ID is 8\n`;
+
+test('cold runtime waits for the exact current-run guest when its parallel producer uploads later', async () => {
+  const guest = { id: 12, name: 'sandbox-guest-arm64', expired: false };
+  let elapsed = 0, reads = 0;
+  const waits = [];
+  const result = await waitForGuestArtifact({ repository: context.repository, currentRun: '99', arch: 'arm64' }, endpoint => {
+    const url = new URL(endpoint, 'https://api.github.com/');
+    assert.equal(url.pathname, '/repos/eigenweltlabs/legalwork/actions/runs/99/artifacts');
+    assert.equal(url.searchParams.get('name'), guest.name);
+    reads++;
+    return JSON.stringify({ artifacts: reads < 3 ? [{ ...guest, expired: true }, { ...guest, name: 'sandbox-guest-x64' }] : [guest] });
+  }, { now: () => elapsed, sleep: async ms => { waits.push(ms); elapsed += ms; } });
+  assert.deepEqual(result, guest);
+  assert.equal(reads, 3);
+  assert.deepEqual(waits, [10_000, 10_000]);
+});
+
+test('an already uploaded guest proceeds immediately without waiting for other jobs', async () => {
+  const guest = { id: 12, name: 'sandbox-guest-x64', expired: false };
+  assert.deepEqual(await waitForGuestArtifact({ repository: context.repository, currentRun: '99', arch: 'x64' },
+    () => JSON.stringify({ artifacts: [guest] }), { sleep: async () => { assert.fail('The guest is already available'); } }), guest);
+});
+
+test('a missing guest has a bounded deadline and API failures are not swallowed', async () => {
+  let elapsed = 0;
+  const waits = [];
+  const input = { repository: context.repository, currentRun: '99', arch: 'arm64', timeoutMs: 25, intervalMs: 10 };
+  const timers = { now: () => elapsed, sleep: async ms => { waits.push(ms); elapsed += ms; } };
+  await assert.rejects(waitForGuestArtifact(input, () => JSON.stringify({ artifacts: [] }), timers),
+    /Timed out waiting for sandbox-guest-arm64.*run 99/);
+  assert.equal(elapsed, 25);
+  assert.deepEqual(waits, [10, 10, 5]);
+  await assert.rejects(waitForGuestArtifact(input, () => { throw new Error('API access denied'); },
+    { sleep: async () => { assert.fail('API errors must fail immediately'); } }), /API access denied/);
+});
 
 test('native artifact recovery binds the exact key, artifact ID and independent upload digest', () => {
   assert.equal(runtimeProducerProof(log, key, artifact), pin);

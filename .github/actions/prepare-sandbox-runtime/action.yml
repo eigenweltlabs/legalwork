@@ -16,6 +16,9 @@ inputs:
   local-guest:
     default: 'false'
     description: Build the guest locally on a native Linux test host after a verified runtime cache miss
+  wait-for-guest:
+    default: 'false'
+    description: Wait up to twenty minutes for a parallel same-run guest producer after runtime reuse misses
   retain-fresh-build:
     default: 'false'
     description: Retain an exact-key archive after a cold build in the base branch cache warmer
@@ -53,6 +56,12 @@ runs:
         RECOVERY_ARTIFACT_ID: ${{ steps.runtime-recovery.outputs.artifact-id }}
         RECOVERY_DIGEST: ${{ steps.runtime-recovery.outputs.digest }}
       run: node scripts/ci/recover-sandbox-runtime.mjs restore ${{ inputs.arch }}
+    - name: Wait for the parallel guest producer after a cold runtime miss
+      if: inputs.wait-for-guest == 'true' && inputs.local-guest != 'true' && steps.runtime-cache.outputs.cache-hit != 'true' && steps.runtime-recovery.outputs.artifact-id == ''
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: node scripts/ci/recover-sandbox-runtime.mjs wait-for-guest ${{ inputs.arch }}
     - uses: actions/download-artifact@v4
       with:
         name: sandbox-guest-${{ inputs.arch }}
