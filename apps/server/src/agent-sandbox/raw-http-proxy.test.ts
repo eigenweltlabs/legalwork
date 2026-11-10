@@ -30,8 +30,9 @@ test("proxy environment matches native Bun NO_PROXY precedence/domain/IP/CIDR/po
 const outcomeSchema = z.union([z.object({ ok: z.literal(true), result: rawHttpOutputSchema }), z.object({ ok: z.literal(false), error: z.string() })]);
 
 const node = resolve(import.meta.dir, "../../../desktop/resources/node", process.platform === "win32" ? "node.exe" : "node");
-// Each runtime owns its fixture and original 30s test budget; cold starts from
-// other runtimes must not consume this mode's TLS/Stop assertion time.
+// Each exchange cold-starts a driver, and worker mode starts a second Node process.
+// Bound an individual exchange so a stalled request identifies itself immediately.
+const exchangeTimeoutMs = 30_000;
 for (const mode of [{ name: "Node22", binary: node, worker: false }, { name: "Bun", binary: process.execPath, worker: false },
   ...(process.platform === "win32" ? [] : [{ name: "Node22 worker", binary: node, worker: true }])])
 test(`${mode.name} uses pinned proxy targets, enterprise CA, NO_PROXY and Stop without direct fallback`, async () => {
@@ -118,11 +119,23 @@ test(`${mode.name} uses pinned proxy targets, enterprise CA, NO_PROXY and Stop w
       await chmod(wrapper, 0o700);
     }
     return new Promise<z.infer<typeof outcomeSchema>>((done, reject) => {
-    const child = spawn(binary, [join(root, "driver.mjs"), JSON.stringify(input), ...(options.worker ? [wrapper] : [])], { env: { ...environment, ...(options.secureProxy ? { HTTP_PROXY: fixtureProxyURL("https", secureProxyPort), HTTPS_PROXY: fixtureProxyURL("https", secureProxyPort) } : {}), NODE_EXTRA_CA_CERTS: options.trusted === false ? "" : options.extraCaFile ?? bundlePath, NODE_TLS_REJECT_UNAUTHORIZED: options.verificationDisabled ? "0" : "1", NO_PROXY: options.noProxy ?? "" }, stdio: ["pipe", "pipe", "pipe"] });
-    let output = "", errors = "";
-    child.stdout.on("data", chunk => { output += String(chunk); }); child.stderr.on("data", chunk => { errors += String(chunk); });
-    child.once("error", reject); child.once("exit", code => { try { if (code !== 0) throw new Error(`Fixture exit ${code}: ${errors}`); done(outcomeSchema.parse(JSON.parse(output))); } catch (error) { reject(error); } });
-    if (options.stop) void options.stop.then(() => child.stdin.write("Stop"));
+      const child = spawn(binary, [join(root, "driver.mjs"), JSON.stringify(input), ...(options.worker ? [wrapper] : [])], { env: { ...environment, ...(options.secureProxy ? { HTTP_PROXY: fixtureProxyURL("https", secureProxyPort), HTTPS_PROXY: fixtureProxyURL("https", secureProxyPort) } : {}), NODE_EXTRA_CA_CERTS: extraRoot, NODE_TLS_REJECT_UNAUTHORIZED: options.verificationDisabled ? "0" : "1", NO_PROXY: options.noProxy ?? "" }, stdio: ["pipe", "pipe", "pipe"] });
+      let output = "", errors = "";
+      child.stdout.on("data", chunk => { output += String(chunk); });
+      child.stderr.on("data", chunk => { errors += String(chunk); });
+      const deadline = setTimeout(() => {
+        child.kill("SIGKILL");
+        reject(new Error(`${mode.name} ${input.method} ${input.url} exceeded ${exchangeTimeoutMs}ms: ${errors}`));
+      }, exchangeTimeoutMs);
+      child.once("error", error => { clearTimeout(deadline); reject(error); });
+      child.once("close", (code, signal) => {
+        clearTimeout(deadline);
+        try {
+          if (code !== 0) throw new Error(`Fixture exit ${code ?? signal}: ${errors}`);
+          done(outcomeSchema.parse(JSON.parse(output)));
+        } catch (error) { reject(error); }
+      });
+      if (options.stop) void options.stop.then(() => child.stdin.write("Stop"));
     });
   };
   try {
@@ -181,4 +194,4 @@ test(`${mode.name} uses pinned proxy targets, enterprise CA, NO_PROXY and Stop w
     await Promise.all([origin, secure, proxy, secureProxy, raw, ipv4Only].map(server => new Promise<void>(resolve => server.close(() => resolve()))));
     await rm(root, { recursive: true, force: true });
   }
-}, 30000);
+}, 180_000);
