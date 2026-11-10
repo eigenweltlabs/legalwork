@@ -46,6 +46,8 @@ For a document open in Microsoft Word with the add-in connected, use the live Wo
 
 ## PDF actions
 
+Reopening a chat shows previously read PDFs as file cards. Choose a card to open the original document; large PDFs on a network drive are loaded when you open them, rather than being copied into the chat history response. The original file must still be available at its saved location.
+
 Ask the assistant to read a PDF, optionally specifying pages, such as "Read pages 2 and 3." It normally extracts embedded text only. OCR never starts automatically: the result identifies pages without embedded text so the assistant can choose recognition or visual inspection. A page without embedded text may be a scan, an image or a blank page; an empty extraction does not establish that it is blank. You can ask for OCR of particular pages, or both embedded text and OCR. OCR is useful for scans, handwriting and visual additions that embedded text misses. Configure recognition under **Settings > AI Providers > Document recognition providers (OCR)**. OCR failures must be resolved or reported.
 
 Long text results are read in portions, normally 16,000 characters and at most 80,000 per portion. The assistant can continue from the returned position. These text positions and character limits apply to extracted and recognized text only; they do not select PDF pages or reduce recognition work. Extraction is limited to 2 million characters per request; selecting fewer pages reduces the work. A result can have successful extraction across the requested pages while returning only a portion of the text. The assistant must continue reading before claiming to have reviewed all of it.

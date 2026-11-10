@@ -2241,8 +2241,9 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         `/workspace/${encodeURIComponent(workspaceId)}/sessions/${encodeURIComponent(sessionId)}`,
         { token, hostToken, timeoutMs: timeouts.sessionRead },
       ).then(result=>({item:projectSession(result.item)})),
-    getSessionMessages: (workspaceId: string, sessionId: string, options?: { limit?: number }) => {
+    getSessionMessages: (workspaceId: string, sessionId: string, options?: { limit?: number; fileReferences?: boolean }) => {
       const query = new URLSearchParams();
+      if (options?.fileReferences) query.set("files", "references");
       if (typeof options?.limit === "number") query.set("limit", String(options.limit));
       const suffix = query.size ? `?${query.toString()}` : "";
       return requestJson<{ items: SessionMessageInfo[]; historyProvenance?:SessionHistoryProvenance }>(
@@ -2255,8 +2256,9 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
       requestJson<{ ok: boolean }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/sessions/${encodeURIComponent(sessionId)}/usage-limit`, {
         token, hostToken, method: "POST", body: { messageId, ...(limit ? { limit } : {}) },
       }),
-    getSessionSnapshot: (workspaceId: string, sessionId: string, options?: { limit?: number }) => {
+    getSessionSnapshot: (workspaceId: string, sessionId: string, options?: { limit?: number; fileReferences?: boolean }) => {
       const query = new URLSearchParams();
+      if (options?.fileReferences) query.set("files", "references");
       if (typeof options?.limit === "number") query.set("limit", String(options.limit));
       const suffix = query.size ? `?${query.toString()}` : "";
       return requestJson<{ item: NativeSessionSnapshot }>(
