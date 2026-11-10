@@ -39,6 +39,11 @@ const beta = store.saveRecord("local", actor, { objectId: "matters", revision: 0
 store.saveRecord("local", actor, { objectId: "matters", revision: 0, archived: true, values: { name: "Archived case", requiredDetail: "Legal" } });
 const catalog = { revision: 1, templates: defaultProjectTemplates(), defaultTemplateId: "legal_matter" };
 catalog.templates[0].fields.push({ id: "internal_note", label: "Internal note", labelSource: "custom", type: "text", value: null });
+catalog.templates[0].fields.push(
+  { id: "lead", label: "Lead", type: "backoffice", objectId: "people", multiple: false, quickAction: true, value: null },
+  { id: "supplier", label: "Supplier", type: "backoffice", objectId: "companies", multiple: true, quickAction: true, value: null },
+  { id: "venue", label: "Offices", type: "backoffice", objectId: "offices", multiple: true, value: null },
+);
 let recordWrites = 0;
 const client = {
   ...createLegalworkServerClient({ baseUrl: "http://localhost" }),
@@ -86,11 +91,12 @@ try {
   setLocale("en");
   await render();
   assert.ok(!document.body.textContent?.includes("Not set"), "Empty template fields are kept out of the form");
-  assert.ok(button(t("projects.more_fields")));
+  assert.ok(!document.body.textContent?.includes("Add Person"));
+  assert.ok(!document.body.textContent?.includes("Add Organisation"));
   assert.ok(button(t("projects.customize_connections")));
   assert.ok(document.body.textContent?.includes("Template: Legal Matter"), "The active template is visible without expanding Advanced");
   await type(t("projects.name"), "My project draft");
-  for (const name of ["Matter", "Client", "Person", "Organisation"]) assert.ok(button(`Add ${name}`));
+  for (const name of ["Matter", "Client", "Lead", "Supplier"]) assert.ok(button(`Add ${name}`));
   assert.equal(document.querySelector('input[aria-label="Search Clients…"]'), null, "Optional pickers start closed");
   assert.equal(button(t("projects.connections.add_record", { name: t("back_office.matters.singular") })).disabled, false);
   await act(async () => button(t("projects.connections.add_record", { name: t("back_office.matters.singular") })).click());
@@ -161,30 +167,34 @@ try {
   await act(async () => button("Add Client").click());
   await type("Search Clients…", "ABC"); await enter("Search Clients…");
   await act(async () => input("Search Clients…").dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
-  await act(async () => button("Add Person").click());
+  await act(async () => button("Add Lead").click());
   await type("Search People…", "New colleague"); await enter("Search People…");
   assert.equal(button(t("projects.create")).disabled, true);
   await enter("Person name", "metaKey");
   assert.equal(submissions.length, 0, "Creating a direct person link must not submit the project");
   const person = store.records("local", actor, "people").find(record => record.values.name === "New colleague"); assert.ok(person);
-  await act(async () => button("Add Organisation").click());
+  await act(async () => button("Add Supplier").click());
   await type("Search Organisations…", "Acme"); await enter("Search Organisations…");
   await act(async () => input("Search Organisations…").dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
   await act(async () => document.querySelector<HTMLButtonElement>('button[aria-label="Edit Internal note"]')?.click());
   await type("Internal note", "Preserve this template value");
   await enter("Internal note");
   assert.ok(document.body.textContent?.includes("Preserve this template value"));
-  await act(async () => button(t("projects.more_fields")).click());
-  await type(t("projects.more_search"), "Offices");
-  await enter(t("projects.more_search"));
   await act(async () => document.querySelector<HTMLButtonElement>('button[aria-label="Edit Offices"]')?.click());
   await type("Search Offices…", "Vienna"); await enter("Search Offices…");
   await enter("Search Offices…", "metaKey");
-  await act(async () => button(t("projects.more_fields")).click());
-  await act(async () => [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(item => item.textContent?.trim() === t("projects.new_field"))?.click());
-  await type(t("projects.field_name"), "Intake note");
-  await type(t("projects.field_value"), "Waiting for signatures");
-  await enter(t("projects.field_value"), "metaKey");
+  await act(async () => button(t("projects.customize_connections")).click());
+  await act(async () => button(t("projects.add_field")).click());
+  const newField = document.querySelectorAll<HTMLInputElement>(`input[aria-label="${t("projects.field_name")}"]`);
+  await act(async () => {
+    const el = newField[newField.length - 1];
+    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set?.call(el, "Intake note");
+    el.dispatchEvent(new window.Event("input", { bubbles: true }));
+  });
+  await act(async () => button(t("projects.save")).click());
+  await act(async () => document.querySelector<HTMLButtonElement>('button[aria-label="Edit Intake note"]')?.click());
+  await type("Intake note", "Waiting for signatures");
+  await enter("Intake note");
   for (const name of ["No template", "Legal Matter"]) {
     await act(async () => document.querySelector<HTMLButtonElement>('button[aria-label="Metadata template"]')?.click());
     const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(item => item.textContent?.trim() === name);
@@ -193,7 +203,8 @@ try {
     await act(async () => option.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })));
     assert.ok(document.body.textContent?.includes(`Template: ${name}`));
     assert.ok(document.body.textContent?.includes("Waiting for signatures"));
-    assert.ok(document.querySelector('button[aria-label="Remove: New case"]'));
+    assert.ok(document.body.textContent?.includes("New case"));
+    assert.equal([...document.querySelectorAll("button")].some(item => item.textContent?.trim() === "Add Matter"), name === "Legal Matter");
   }
   await act(async () => button(t("projects.customize_connections")).click());
   await act(async () => button(t("projects.save")).click());
@@ -241,8 +252,7 @@ try {
   await render();
   assert.ok(document.body.textContent?.includes("Approved matter"), "A named matter role remains visible rather than becoming the generic Add Matter field");
   assert.ok(document.querySelector('button[aria-label="Edit Approved matter"]'));
-  assert.equal(button("Add Matter").disabled, true, "A missing generic matter field cannot exceed the 50-field limit");
-  assert.equal(button("Add Client").disabled, true);
+  assert.ok(![...document.querySelectorAll("button")].some(item => ["Add Matter", "Add Client"].includes(item.textContent?.trim() ?? "")));
   console.log("Project matter flow passed");
 } finally {
   await act(async () => root.unmount());

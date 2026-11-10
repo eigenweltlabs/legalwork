@@ -85,6 +85,8 @@ export function ProjectFieldEditor({ field, state, disabled = false, definitions
       <summary className="cursor-pointer text-xs text-muted-foreground">{t("projects.field_selection_settings")}</summary>
       <div className="mt-3 space-y-3">
         <p className="text-xs text-muted-foreground">{t("projects.reference.label_hint", { source: object?.plural ?? field.objectId })}</p>
+        <label className="flex items-center gap-2 text-xs"><Checkbox disabled={disabled} checked={field.quickAction === true}
+          onCheckedChange={checked => onChange({ ...field, quickAction: checked === true })} />{t("projects.field_quick_action")}</label>
         <label className="flex items-center gap-2 text-xs"><Checkbox disabled={disabled} checked={field.multiple} onCheckedChange={checked => {
           const clear = !checked && (field.value?.recordIds.length ?? 0) > 1;
           if (clear) toast.info(t("projects.value_overwrite_notice", { name: label }));

@@ -20,8 +20,8 @@ Use this map when you know what you want to do but not where to start. The assis
 | Back Office > Data model > object > Settings | Choose which fields appear immediately in short creation forms | [Short forms](back-office.md#choose-the-fields-in-short-forms) |
 | Back Office > record > History | Inspect changes, compare previous values, check attribution and download signed history | [Back Office history](back-office.md#history-and-verification) |
 | Project Home | Link matters, clients, people or organisations directly; see clients via linked matters, notes and upcoming deadlines | [Projects](projects-sharing.md) |
-| Project Home / Create project > More | Link additional record types or create a field with an optional initial value | [Projects](projects-sharing.md) |
-| Project Home / Create project > Customize fields | Edit field names, types and contents together; configure record roles, selection rules and templates | [Projects](projects-sharing.md) |
+| Create project > Template | Choose which quick actions and project details are available | [Projects](projects-sharing.md) |
+| Project Home / Create project > Customize fields | Edit field names, types and values, choose quick actions, and configure record selection rules | [Projects](projects-sharing.md) |
 | Project Files | Local files and linked storage, with import and document panels | [Files](files-documents.md), [Storage](connected-storage.md) |
 | Project Chats | Conversations belonging to one project | [Chats](workspaces-chats.md) |
 | Tasks / Inbox and Project Tasks | Work with an owner, status, due date and attachments | [Tasks](tasks-intake.md) |

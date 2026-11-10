@@ -13,6 +13,9 @@ import { t } from "@/i18n";
 import { onSyncPoke } from "@/react-app/kernel/sync-events";
 import "../back-office/back-office.css";
 import { loadBackOfficeState, type BackOfficeState } from "../back-office/api";
+import { rememberMatter } from "./matter-picker-options";
+import { projectQuickActionLabel } from "./project-connections";
+import { ObjectIcon } from "../back-office/object-icon";
 import { projectFieldLabel } from "./project-defaults-store";
 import { RecordCreateRelation } from "../back-office/record-create-relation";
 import { displayBackOfficeObject } from "../back-office/labels";
@@ -55,7 +58,13 @@ export function ProjectRecordField({ field, client, onSave }: {
   const save = async (value: ProjectRecordReference | null, persist: SaveReference, close = false) => {
     if (saving.current) return;
     saving.current = true; setBusy(true); setError("");
-    try { await persist(value); if (close) setEdit(null); }
+    try {
+      await persist(value);
+      if (close) {
+        if (edit?.field.objectId === "matters") value?.recordIds.forEach(id => rememberMatter(scope, id));
+        setEdit(null);
+      }
+    }
     catch (error) { setConflict(error instanceof LegalworkServerError && error.code === "project_changed"); setError(projectErrorMessage(error)); }
     finally { saving.current = false; setBusy(false); }
   };
@@ -82,7 +91,9 @@ export function ProjectRecordField({ field, client, onSave }: {
             }}><X className="size-3" /></Button>
           </span>;
         })}
-        {!field.value?.recordIds.length && <PopoverTrigger render={<Button type="button" size="sm" variant="ghost" className="h-6 min-w-0 truncate px-1.5 text-xs font-normal" disabled={busy || !object || !data?.directoryId} aria-label={t("projects.edit_value", { name: label })}>{t("projects.connections.choose_records")}<ChevronDown className="size-3" /></Button>} />}
+        {!field.value && <PopoverTrigger render={field.quickAction
+          ? <Button type="button" size="sm" variant="outline" disabled={busy || !object || !data?.directoryId}><ObjectIcon id={field.objectId} size={14} />{projectQuickActionLabel(field)}</Button>
+          : <Button type="button" size="sm" variant="ghost" className="h-6 min-w-0 truncate px-1.5 text-xs font-normal" disabled={busy || !object || !data?.directoryId} aria-label={t("projects.edit_value", { name: label })}>{t("projects.connections.choose_records")}<ChevronDown className="size-3" /></Button>} />}
         {!edit && error && <p role="alert" className="text-xs text-destructive">{error}</p>}
       </div>
       <PopoverContent align="start" className="w-[min(400px,calc(100vw-32px))] max-h-[70vh] overflow-y-auto p-2">

@@ -70,13 +70,23 @@ test("untouched starter templates upgrade to reference fields while custom schem
   expect(applyProjectTemplate([{ ...client, value: null }], current[0])).toEqual(current[0].fields);
 });
 
-test("the legal starter links matters only while contract counterparties remain organisation references", () => {
+test("the legal starter offers optional matter and client links while contract counterparties remain organisation references", () => {
   const templates = defaultProjectTemplates(), legal = templates.find(template => template.id === "legal_matter")!;
-  expect(legal.fields.map(field => field.id)).toEqual(["matter"]);
+  expect(legal.fields.map(field => field.id)).toEqual(["matter", "client"]);
   expect(templates.find(template => template.id === "contracts")?.fields.find(field => field.id === "counterparty")).toMatchObject({ type: "backoffice", objectId: "companies" });
   const previous = { ...legal, fields: projectFieldsSchema.parse(legacyLegalMatter).map((field): ProjectField => ["court", "opposing_party"].includes(field.id) ? { id: field.id, label: field.label, labelSource: field.labelSource, type: "text", value: null } : field) };
   const catalog = { revision: 7, defaultTemplateId: legal.id, templates: [previous] };
   expect(upgradeProjectTemplateReferences(catalog).templates[0]).toEqual(legal);
   const custom = { ...catalog, templates: [{ ...previous, nameSource: "custom" satisfies "custom" }] };
   expect(upgradeProjectTemplateReferences(custom)).toEqual(custom);
+});
+
+test("an untouched matter-only preset upgrades once and an explicit quick action preference survives reload", () => {
+  const [legal] = defaultProjectTemplates("de");
+  const previous = { ...legal, fields: legal.fields.slice(0, 1).map(field => ({ ...field, quickAction: undefined })) };
+  const catalog = { revision: 5, defaultTemplateId: legal.id, templates: [previous] };
+  expect(upgradeProjectTemplateReferences(catalog).templates[0].fields.map(field => [field.id, field.type === "backoffice" && field.quickAction]))
+    .toEqual([["matter", true], ["client", true]]);
+  const customized = { ...catalog, templates: [{ ...previous, fields: previous.fields.map(field => ({ ...field, quickAction: false })) }] };
+  expect(upgradeProjectTemplateReferences(customized)).toEqual(customized);
 });

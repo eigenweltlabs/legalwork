@@ -17,7 +17,7 @@ import { toast } from "@/components/ui/sonner";
 import { SectionHeading, Surface } from "@/react-app/design-system/surface";
 import { cn } from "@/lib/utils";
 import { ProjectProperties } from "./project-properties";
-import { ProjectReferenceActions } from "./project-reference-actions";
+import { ProjectMatterClients } from "./project-matter-clients";
 import { ProjectName } from "./project-name";
 import { ProjectMetadata } from "./project-metadata";
 import { ProjectNoteDialog } from "./project-note-dialog";
@@ -170,6 +170,9 @@ export function ProjectHome(props: {
               <ChevronRight className={cn("size-3.5 transition-transform", detailsOpen && "rotate-90")} />
               {t("projects.metadata")}
             </CollapsibleTrigger>
+            <Button type="button" variant="ghost" size="sm" className="text-xs text-muted-foreground" disabled={!details.data} onClick={() => setEditMetadata(details.data ?? null)}>
+              <Settings2 className="size-3.5" />{t("projects.customize_connections")}
+            </Button>
           </div>
           <CollapsibleContent>
             <div className="pb-3 pt-2">
@@ -185,15 +188,7 @@ export function ProjectHome(props: {
                   }
                 }} />
               ) : null}
-              {details.data && <ProjectReferenceActions key={workspaceId} client={client} fields={details.data.fields} onCustomize={() => setEditMetadata(details.data ?? null)} onSave={async fields => {
-                try {
-                  const data = await client.updateProjectDetails(workspaceId, { revision: details.data.revision, fields: projectFieldsSchema.parse(fields) });
-                  queryClient.setQueryData(["project", workspaceId], data);
-                } catch (error) {
-                  await details.refetch();
-                  throw error;
-                }
-              }} />}
+              {details.data && <ProjectMatterClients client={client} fields={details.data.fields} />}
             </div>
           </CollapsibleContent>
         </Collapsible>

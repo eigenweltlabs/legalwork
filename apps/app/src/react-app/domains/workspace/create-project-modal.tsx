@@ -4,18 +4,15 @@ import { useProjectTemplateCatalog } from "./project-template-catalog";
 import { ProjectTemplateSelect } from "./project-template-select";
 import { projectFieldsSchema, type ProjectField, type ProjectRecordReference, type RemoteFolderSelection } from "@legalwork/types/workspace";
 import { ProjectCreationRecordPicker } from "./project-creation-record-picker";
-import { projectReferenceObjects, useProjectBackOffice } from "./project-record-field";
-import { ProjectMoreFields } from "./project-more-fields";
-import { ProjectFieldDialog } from "./project-field-dialog";
+import { useProjectBackOffice } from "./project-record-field";
 import { ProjectProperties } from "./project-properties";
 import { ProjectMetadata } from "./project-metadata";
-import { primaryProjectObjects, withProjectField, projectConnectionField } from "./project-connections";
-import { backOfficeObjectLabel } from "../back-office/labels";
+import { isProjectQuickAction } from "./project-connections";
 import { projectErrorMessage } from "./project-errors";
 import { useCallback, useEffect, useState } from "react";
 import { isDesktopRuntime } from "@/app/lib/runtime-env";
 import { folderNameFromPath } from "@/react-app/shell/route-workspaces";
-import { Cloud, Folder, FolderPlus, Settings2, X } from "lucide-react";
+import { ChevronRight, Cloud, Folder, FolderPlus, Settings2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -66,17 +63,17 @@ export function CreateProjectModal(props: {
   const [remotePicker, setRemotePicker] = useState(false);
   const [name, setName] = useState("");
   const [editedFields, setEditedFields] = useState<ProjectField[] | null>(null);
-  const [extra, setExtra] = useState<ProjectField | null | undefined>();
   const [customizing, setCustomizing] = useState(false);
   const [creatingRecord, setCreatingRecord] = useState<string | null>(null);
-  const onCreatingChange = useCallback((objectId: string, creating: boolean) => {
-    setCreatingRecord(current => creating ? objectId : current === objectId ? null : current);
+  const onCreatingChange = useCallback((fieldId: string, creating: boolean) => {
+    setCreatingRecord(current => creating ? fieldId : current === fieldId ? null : current);
   }, []);
   const templateFields = localizedTemplateFields(selectedTemplate?.fields ?? []);
   const fields = editedFields ?? templateFields;
-  const objects = projectReferenceObjects(directory.data);
-  const connectionFields = primaryProjectObjects.map(objectId => projectConnectionField(fields, objectId, objects.find(object => object.id === objectId)?.plural ?? backOfficeObjectLabel(objectId)));
-  const setField = (field: ProjectField) => setEditedFields(current => withProjectField(current ?? fields, field));
+  const quickFields = fields.filter(isProjectQuickAction);
+  const detailFields = fields.filter(field => !isProjectQuickAction(field));
+  const setValue = (id: string, value: ProjectField["value"]) =>
+    setEditedFields(current => projectFieldsSchema.parse((current ?? fields).map(field => field.id === id ? { ...field, value } : field)));
   const changeTemplate = (id: string | null) => {
     const template = templates.find(item => item.id === id) ?? { id: "none", name: "", fields: [] };
     const next = applyProjectTemplate(fields, template);
@@ -92,7 +89,6 @@ export function CreateProjectModal(props: {
     if (props.open) {
       setName("");
       setEditedFields(null);
-      setExtra(undefined);
       setCustomizing(false);
       setCreatingRecord(null);
       setTemplateId(undefined);
@@ -160,25 +156,24 @@ export function CreateProjectModal(props: {
             <InputGroupAddon className="h-full border-r border-border px-4 text-foreground"><Folder className="size-5" /></InputGroupAddon>
             <InputGroupInput autoFocus required={!setup} maxLength={120} aria-label={t("projects.name")} placeholder={t(setup ? "projects.setup.name_placeholder" : "projects.name")} value={name} disabled={props.submitting} className="h-full px-4 text-base" onChange={(event) => setName(event.target.value)} />
           </InputGroup>
-          {props.open && <div className="space-y-2">
-            <p className="text-xs text-muted-foreground">{t("projects.connections.optional")}</p>
-            <div className="flex flex-wrap items-start gap-2">
-              {connectionFields.map(field => <ProjectCreationRecordPicker key={`${templateId}:${field.objectId}`} client={props.client} state={directory.data}
-                field={field}
-                disabled={props.submitting || !catalog.ready || (fields.length >= 50 && !fields.some(item => item.id === field.id))} onCreatingChange={onCreatingChange}
-                onChange={value => {
-                  if (!value && field.labelSource === "suggested" && !templateFields.some(item => item.id === field.id)) setEditedFields(current => (current ?? fields).filter(item => item.id !== field.id));
-                  else setField({ ...field, value });
-                }} />)}
-              <ProjectMoreFields fields={fields} objects={objects} disabled={props.submitting || !catalog.ready} onChoose={setExtra} onNew={() => setExtra(null)} />
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-x-3">
+              <ProjectTemplateSelect compact value={templateId} onChange={changeTemplate} disabled={props.submitting || !catalog.ready} />
               <Button type="button" variant="ghost" size="sm" className="text-xs text-muted-foreground" disabled={props.submitting || !catalog.ready} onClick={() => setCustomizing(true)}><Settings2 className="size-3.5" />{t("projects.customize_connections")}</Button>
             </div>
-            <ProjectProperties client={props.client} fields={fields.filter(field => !connectionFields.some(primary => primary.id === field.id))} onSave={async (id, value) => {
-              setEditedFields(current => projectFieldsSchema.parse((current ?? fields).map(field => field.id === id ? { ...field, value } : field)));
-            }} />
-            {directory.error && <p role="alert" className="text-xs text-destructive">{t("projects.connections.unavailable")}</p>}
-          </div>}
-          <ProjectTemplateSelect compact value={templateId} onChange={changeTemplate} disabled={props.submitting || !catalog.ready} />
+            {props.open && quickFields.length > 0 && <div className="flex flex-wrap items-start gap-2">
+              {quickFields.map(field => <ProjectCreationRecordPicker key={`${templateId}:${field.id}`} client={props.client} state={directory.data}
+                field={field} disabled={props.submitting || !catalog.ready} onCreatingChange={onCreatingChange}
+                onChange={value => setValue(field.id, value)} />)}
+            </div>}
+            {detailFields.length > 0 && <details key={templateId} className="group">
+              <summary className="flex w-fit cursor-pointer list-none items-center gap-1.5 rounded-md py-1 text-sm text-muted-foreground [&::-webkit-details-marker]:hidden">
+                <ChevronRight aria-hidden className="size-3.5 group-open:rotate-90" />{t("projects.metadata")} ({detailFields.length})
+              </summary>
+              <ProjectProperties client={props.client} fields={detailFields} onSave={async (id, value) => setValue(id, value)} />
+            </details>}
+            {directory.error && fields.some(field => field.type === "backoffice") && <p role="alert" className="text-xs text-destructive">{t("projects.connections.unavailable")}</p>}
+          </div>
           <fieldset disabled={props.submitting || picking} className="space-y-3">
             <legend className="mb-3 text-sm font-medium">{t("projects.source_folders")}</legend>
             <div className="flex min-h-36 flex-col justify-center gap-4 rounded-xl border border-border p-5">
@@ -237,7 +232,6 @@ export function CreateProjectModal(props: {
         </form>
       </DialogContent>
     </Dialog>
-    {props.open && extra !== undefined && <ProjectFieldDialog key={extra?.id ?? "new"} client={props.client} field={extra ?? undefined} onClose={() => setExtra(undefined)} onSave={async field => { setField(field); }} />}
     {props.open && customizing && <Dialog open onOpenChange={setCustomizing}>
       <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl"><DialogHeader><DialogTitle>{t("projects.customize_connections")}</DialogTitle><DialogDescription>{t("projects.customize_connections_hint")}</DialogDescription></DialogHeader>
         <ProjectMetadata client={props.client} details={{ fields }} showTemplates={false} onCancel={() => setCustomizing(false)} onSave={async next => { setEditedFields(next); setCustomizing(false); }} />

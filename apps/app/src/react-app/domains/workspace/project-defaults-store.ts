@@ -25,8 +25,16 @@ export function applyProjectTemplate(fields: ProjectField[], template: ProjectMe
   const selected = new Set(template.fields.map((field) => field.id));
   const existing = new Map(fields.map((field) => [field.id, field]));
   return [
-    ...localizedTemplateFields(template.fields).map((field) => (existing.get(field.id)?.value === null && existing.get(field.id)?.labelSource === "suggested" && field.type === "backoffice" ? field : existing.get(field.id) ?? field)),
-    ...fields.filter((field) => !selected.has(field.id) && (field.value !== null && field.value !== "" || field.labelSource !== "suggested")),
+    ...localizedTemplateFields(template.fields).map(field => {
+      const old = existing.get(field.id);
+      if (!old || (old.value === null && old.labelSource === "suggested" && field.type === "backoffice")) return field;
+      if (old.type === "backoffice" && field.type === "backoffice" && old.objectId === field.objectId) {
+        if (field.multiple || (old.value?.recordIds.length ?? 0) <= 1) return { ...field, value: old.value };
+      }
+      return old.type === "backoffice" && old.quickAction ? { ...old, quickAction: false } : old;
+    }),
+    ...fields.filter(field => !selected.has(field.id) && (field.value !== null && field.value !== "" || field.labelSource !== "suggested"))
+      .map(field => field.type === "backoffice" && field.quickAction ? { ...field, quickAction: false } : field),
   ];
 }
 

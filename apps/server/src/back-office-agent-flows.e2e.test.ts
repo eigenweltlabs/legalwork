@@ -74,7 +74,7 @@ test("Assistant and ordinary chats discover CRM models, create/reuse records and
     const foreign = JSON.parse(await assistant.tool.legalwork_assistant_project_set_metadata.execute({ projectId: created.project.id, revision: created.details.revision, values: { matter: { directoryId: "local:foreign", recordIds: [matter.id] } } }));
     expect(foreign.error).toContain("409");
     const fields = created.details.fields;
-    expect(fields.map(field => field.id)).toEqual(["matter"]);
+    expect(fields.map(field => field.id)).toEqual(["matter", "client"]);
     const matterField = fields.find(field => field.type === "backoffice" && field.objectId === "matters")!;
     const linked = detailsSchema.parse(JSON.parse(await assistant.tool.legalwork_assistant_project_set_metadata.execute({ projectId: created.project.id, revision: created.details.revision, values: {
       [matterField.id]: { directoryId: eligible.directoryId, recordIds: [matter.id] },

@@ -94,7 +94,10 @@ export const internalPeopleFilters = () => projectReferenceFiltersSchema.parse({
 ] });
 
 export function defaultAkteFields(locale: Locale = "en"): ProjectField[] {
-  return [{ id: "matter", labelSource: "suggested", label: t("projects.schema.matter", locale), type: "backoffice", objectId: "matters", multiple: true, value: null }];
+  return [
+    { id: "matter", labelSource: "suggested", label: t("projects.schema.matter", locale), type: "backoffice", objectId: "matters", multiple: true, quickAction: true, value: null },
+    { id: "client", labelSource: "suggested", label: t("projects.schema.client", locale), type: "backoffice", objectId: "clients", multiple: true, quickAction: true, value: null },
+  ];
 }
 
 /** Exact pre-normalization preset, used only to recognize untouched saved templates. */
@@ -211,6 +214,7 @@ const backOfficeProjectFieldSchema = z.object({
   type: z.literal("backoffice"),
   objectId: z.string().min(1).max(100).regex(/^[a-zA-Z][a-zA-Z0-9_-]*$/),
   multiple: z.boolean().default(true),
+  quickAction: z.boolean().optional(),
   filters: projectReferenceFiltersSchema.nullable().optional(),
   value: projectRecordReferenceSchema.nullable(),
   options: z.array(z.string()).max(0).optional(),
@@ -269,6 +273,8 @@ export function upgradeProjectTemplateReferences(catalog: ProjectTemplateCatalog
   return { ...catalog, templates: catalog.templates.map(template => {
     const current = defaults.find(item => item.id === template.id);
     if (!current || template.nameSource !== "suggested") return template;
+    // A saved setting (including false) marks a user choice.
+    if (template.fields.some(field => field.type === "backoffice" && field.quickAction !== undefined)) return template;
     const previous = template.id === "legal_matter" ? legacyLegalMatterFields() : current.fields;
     const legacy = previous.filter(field => field.id !== "matter").map((field): ProjectField => field.type === "backoffice"
       ? { id: field.id, label: field.label, labelSource: field.labelSource, type: "text", value: null } : field);
@@ -277,7 +283,8 @@ export function upgradeProjectTemplateReferences(catalog: ProjectTemplateCatalog
       ? { id: field.id, label: field.label, labelSource: field.labelSource, type: "text", value: null } : field);
     const signature = (fields: ProjectField[]) => JSON.stringify(fields.map(field => [field.id, field.label, field.labelSource, field.type, field.options ?? null, ...(field.type === "backoffice" ? [field.objectId, field.multiple, field.filters ?? null] : [])]));
     const previousUnfiltered = previous.map((field): ProjectField => field.type === "backoffice" ? { ...field, filters: undefined } : field);
-    if (![previous, legacy, previousReferences, previousUnfiltered, previousReferences.map((field): ProjectField => field.type === "backoffice" ? { ...field, filters: undefined } : field)].some(fields => signature(normalized) === signature(fields))) return template;
+    const matterOnly = template.id === "legal_matter" ? [previous.filter(field => field.id === "matter")] : [];
+    if (![...matterOnly, previous, legacy, previousReferences, previousUnfiltered, previousReferences.map((field): ProjectField => field.type === "backoffice" ? { ...field, filters: undefined } : field)].some(fields => signature(normalized) === signature(fields))) return template;
     return { ...template, fields: current.fields };
   }) };
 }

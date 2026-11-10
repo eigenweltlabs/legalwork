@@ -12,7 +12,9 @@ import { creatableRecordObject } from "../back-office/record-creation-values";
 import { displayBackOfficeObject } from "../back-office/labels";
 import { BackOfficeTheme } from "../back-office/twenty-controls";
 import { ObjectIcon } from "../back-office/object-icon";
+import { projectReferenceObjects } from "./project-record-field";
 import type { BackOfficeState } from "../back-office/api";
+import { projectQuickActionLabel } from "./project-connections";
 import { matterPickerOptions, recentMatterIds, rememberMatter } from "./matter-picker-options";
 
 export function ProjectCreationRecordPicker({ client, state, field, disabled, onChange, onCreatingChange }: {
@@ -21,24 +23,24 @@ export function ProjectCreationRecordPicker({ client, state, field, disabled, on
   field: Extract<ProjectField, { type: "backoffice" }>;
   disabled: boolean;
   onChange: (value: ProjectRecordReference | null) => void;
-  onCreatingChange: (objectId: string, creating: boolean) => void;
+  onCreatingChange: (fieldId: string, creating: boolean) => void;
 }) {
   const data = state;
   const [open, setOpen] = useState(false), [query, setQuery] = useState(""), [creating, setCreating] = useState(false);
   const [recent, setRecent] = useState<{ scope: string; ids: string[] }>({ scope: "", ids: [] });
   const scope = JSON.stringify([client?.baseUrl, data?.directoryId, data?.permissions.userId, data?.permissions.principalKey, data?.permissions.replicaId]);
   useEffect(() => {
-    onCreatingChange(field.objectId, open && creating);
-    return () => onCreatingChange(field.objectId, false);
-  }, [field.objectId, open, creating, onCreatingChange]);
-  const object = data?.model.objects.find(object => object.id === field.objectId && !object.archived);
+    onCreatingChange(field.id, open && creating);
+    return () => onCreatingChange(field.id, false);
+  }, [field.id, open, creating, onCreatingChange]);
+  const object = projectReferenceObjects(data).find(object => object.id === field.objectId);
   const creatable = creatableRecordObject(data, field.objectId);
   const records = data?.records.filter(record => record.objectId === field.objectId && !record.archivedAt) ?? [];
   const selected = field.value?.recordIds ?? [];
   const currentDirectory = field.value === null || field.value.directoryId === data?.directoryId;
   const isMatter = field.objectId === "matters";
-  const label = object ? displayBackOfficeObject(object).label : field.label;
-  const searchLabel = isMatter ? t("projects.matters.search") : t("back_office.create.search", { name: object ? displayBackOfficeObject(object).plural : field.label });
+  const label = object?.label ?? field.label;
+  const searchLabel = isMatter ? t("projects.matters.search") : t("back_office.create.search", { name: object?.plural ?? field.label });
   const options = isMatter ? matterPickerOptions(data?.records ?? [], query, recent.scope === scope ? recent.ids : [])
     : records.filter(record => String(record.values.name).toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()))
       .sort((a, b) => String(a.values.name).localeCompare(String(b.values.name)))
@@ -61,8 +63,8 @@ export function ProjectCreationRecordPicker({ client, state, field, disabled, on
           </span>;
         })}
         <Popover open={open && !disabled} onOpenChange={value => { setOpen(value); if (value) setRecent({ scope, ids: recentMatterIds(scope) }); else { setQuery(""); setCreating(false); } }}>
-          <PopoverTrigger render={<Button type="button" size="sm" variant="outline" disabled={disabled || !object || !data?.directoryId} />}>
-            <ObjectIcon id={field.objectId} className="size-3.5" />{t("projects.connections.add_record", { name: label })}
+          <PopoverTrigger render={<Button type="button" size="sm" variant="outline" disabled={disabled || !object || !data?.directoryId || !currentDirectory} />}>
+            <ObjectIcon id={field.objectId} className="size-3.5" />{projectQuickActionLabel(field)}
           </PopoverTrigger>
           <PopoverContent align="start" className="w-[min(400px,calc(100vw-32px))] max-h-[min(540px,70vh)] overflow-y-auto p-2" onKeyDown={event => event.stopPropagation()}>
             {creating && creatable ? <BackOfficeTheme>

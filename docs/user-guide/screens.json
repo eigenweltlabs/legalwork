@@ -4,11 +4,6 @@
   "note": "Source-defined routes and visible settings for the build that bundles this file. Runtime, platform, account and permissions can restrict them.",
   "dialogs": [
     {
-      "id": "project-field-value",
-      "guide": "projects-sharing.md",
-      "source": "apps/app/src/react-app/domains/workspace/project-field-dialog.tsx"
-    },
-    {
       "id": "project-creation",
       "guide": "projects-sharing.md",
       "source": "apps/app/src/react-app/domains/workspace/create-project-modal.tsx"
@@ -46,11 +41,6 @@
       "source": "apps/app/src/react-app/domains/workspace/project-field-editor.tsx"
     },
     {
-      "id": "project-more-fields",
-      "guide": "projects-sharing.md",
-      "source": "apps/app/src/react-app/domains/workspace/project-more-fields.tsx"
-    },
-    {
       "id": "back-office-history",
       "guide": "back-office.md",
       "source": "apps/app/src/react-app/domains/back-office/history-panel.tsx"
@@ -68,7 +58,7 @@
     {
       "id": "project-record-links",
       "guide": "projects-sharing.md",
-      "source": "apps/app/src/react-app/domains/workspace/project-reference-actions.tsx"
+      "source": "apps/app/src/react-app/domains/workspace/project-record-field.tsx"
     },
     {
       "id": "project-field-settings",

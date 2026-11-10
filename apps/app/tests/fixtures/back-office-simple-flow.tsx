@@ -21,7 +21,7 @@ const { MemoryRouter } = await import("react-router-dom");
 const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
 const { createLegalworkServerClient } = await import("../../src/app/lib/legalwork-server");
 const { BackOfficePage } = await import("../../src/react-app/domains/back-office/back-office-page");
-const { ProjectReferenceActions } = await import("../../src/react-app/domains/workspace/project-reference-actions");
+const { ProjectMatterClients } = await import("../../src/react-app/domains/workspace/project-matter-clients");
 const { ProjectProperties } = await import("../../src/react-app/domains/workspace/project-properties");
 const { projectFieldsSchema } = await import("@legalwork/types/workspace");
 const { t, setLocale } = await import("../../src/i18n");
@@ -45,13 +45,16 @@ const cache = new QueryClient({ defaultOptions: { queries: { retry: false } } })
 const host = document.createElement("div"); document.body.append(host);
 const root = createRoot(host);
 const initialFields: ProjectField[] = [{ id: "client", label: "Internal note", type: "text", value: "Keep me" },
-  { id: "people", label: "Witnesses", labelSource: "custom", type: "backoffice", objectId: "people", multiple: true, value: null }];
+  { id: "people", label: "Witnesses", labelSource: "custom", type: "backoffice", objectId: "people", multiple: true, value: null },
+  { id: "matter", label: "Matters", labelSource: "suggested", type: "backoffice", objectId: "matters", multiple: true, quickAction: true, value: null },
+  { id: "lead", label: "Lead", type: "backoffice", objectId: "people", multiple: true, quickAction: true, value: null },
+  { id: "direct_client", label: "Client", type: "backoffice", objectId: "clients", multiple: true, quickAction: true, value: null }];
 let savedFields = initialFields, projectWrites = 0, failProjectSave = false;
 function Links() {
   const [fields, setFields] = useState(initialFields);
   const save = async (next: ProjectField[]) => { if (failProjectSave) throw new Error("Please retry"); projectWrites++; savedFields = next; setFields(next); };
   return <><ProjectProperties client={client} fields={fields} onSave={async (id, value) => save(projectFieldsSchema.parse(fields.map(field => field.id === id ? { ...field, value } : field)))} />
-    <ProjectReferenceActions client={client} fields={fields} onSave={save} /></>;
+    <ProjectMatterClients client={client} fields={fields} /></>;
 }
 async function render(links = false) {
   await act(async () => { root.render(<QueryClientProvider client={cache}><MemoryRouter initialEntries={["/back-office/matters"]}>{links ? <Links /> : <BackOfficePage client={client} />}</MemoryRouter></QueryClientProvider>); });
@@ -91,25 +94,25 @@ try {
   assert.equal(savedFields[0].value, "Keep me");
   assert.ok(document.body.textContent?.includes("Clients from linked matters"));
   assert.ok(document.body.textContent?.includes("via Acquisition"));
-  assert.equal(savedFields.filter(field => field.type === "backoffice" && field.objectId === "clients").length, 0, "Inherited clients are displayed, not copied into project data");
-  await click("Add Person");
-  await type("Search People…", "Alice");
-  await key("Search People…", "Enter");
-  await key("Search People…", "Enter", true);
+  assert.equal(savedFields.filter(field => field.type === "backoffice" && field.objectId === "clients" && field.value !== null).length, 0, "Inherited clients are displayed, not copied into project data");
+  await click("Add Lead");
+  await type("Search Lead…", "Alice");
+  await key("Search Lead…", "Enter");
+  await key("Search Lead…", "Enter", true);
   assert.equal(savedFields.find(field => field.id === "people")?.value, null, "Named role remains unchanged");
-  assert.deepEqual(savedFields.find(field => field.id === "people_2")?.value, { directoryId: "local:fixture", recordIds: [alice.id] });
+  assert.deepEqual(savedFields.find(field => field.id === "lead")?.value, { directoryId: "local:fixture", recordIds: [alice.id] });
   await click("Add Client");
-  await type("Search Clients…", "New client");
-  await key("Search Clients…", "Enter");
-  assert.ok(!document.body.textContent?.includes(t("projects.connections.link")), "Outer action is hidden during nested creation");
+  await type("Search Client…", "New client");
+  await key("Search Client…", "Enter");
+  assert.ok(![...document.querySelectorAll("button")].some(item => item.textContent?.trim() === t("projects.save")), "Outer action is hidden during nested creation");
   await key("Client name", "Enter", true);
   assert.equal(writes, 2);
-  await key("Search Clients…", "Enter", true);
+  await key("Search Client…", "Enter", true);
   assert.equal(savedFields[0].value, "Keep me");
-  assert.equal(savedFields.find(field => field.id === "client_2")?.type, "backoffice");
-  await click("Add Client");
-  await type("Search Clients…", "ABC"); await key("Search Clients…", "Enter");
-  await key("Search Clients…", "Enter", true);
+  assert.equal(savedFields.find(field => field.id === "direct_client")?.type, "backoffice");
+  await click("Edit Client: New client");
+  await type("Search Client…", "ABC"); await key("Search Client…", "Enter");
+  await key("Search Client…", "Enter", true);
   assert.ok(!document.body.textContent?.includes("Clients from linked matters"), "Directly linked clients do not get a duplicate inherited section");
 
   await click(t("projects.edit_value", { name: "Witnesses" }));
@@ -124,12 +127,12 @@ try {
   failProjectSave = false;
   await click(t("projects.remove_reference", { name: "Alice", field: "Witnesses" }));
   assert.deepEqual(savedFields.find(field => field.id === "people")?.value, { directoryId: "local:fixture", recordIds: [bob.id] }, "Each remove button unlinks only its own record");
-  assert.deepEqual(savedFields.find(field => field.id === "people_2")?.value, { directoryId: "local:fixture", recordIds: [alice.id] }, "Unlinking a role leaves independent references intact");
+  assert.deepEqual(savedFields.find(field => field.id === "lead")?.value, { directoryId: "local:fixture", recordIds: [alice.id] }, "Unlinking a role leaves independent references intact");
   await click(t("projects.remove_reference", { name: "Bob", field: "Witnesses" }));
   assert.ok(document.body.textContent?.includes("Witnesses"), "Clearing an intentional role keeps it visible for reuse");
   assert.equal(savedFields.find(field => field.id === "people")?.value, null, "The field definition remains");
   assert.ok(store.records("local", actor, "people").some(record => record.id === bob.id), "Unlinking does not delete the Back Office record");
-  await click(t("projects.remove_reference", { name: "ABC GmbH", field: "Clients" }));
+  await click(t("projects.remove_reference", { name: "ABC GmbH", field: "Client" }));
   assert.ok(document.body.textContent?.includes("Clients from linked matters"), "Removing the direct link reveals the remaining matter relationship");
 
   const model = store.model("local"), object = model.objects.find(object => object.id === "matters"); assert.ok(object);

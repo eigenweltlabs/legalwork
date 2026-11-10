@@ -38,6 +38,6 @@ test("generic filters support custom object fields, typed comparisons and unavai
 test("project-owner filters remain on non-matter templates without duplicating matter responsibilities", () => {
   const templates = defaultProjectTemplates();
   const legal = templates.find(template => template.id === "legal_matter")!;
-  expect(legal.fields.map(field => field.id)).toEqual(["matter"]);
+  expect(legal.fields.map(field => field.id)).toEqual(["matter", "client"]);
   for (const template of templates.filter(template => template.id !== "legal_matter")) expect(template.fields.find(field => field.id === "project_owner")).toMatchObject({ filters: internalPeopleFilters() });
 });

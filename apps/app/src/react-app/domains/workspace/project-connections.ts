@@ -1,34 +1,17 @@
+import { t } from "@/i18n";
+import { projectFieldLabel } from "./project-defaults-store";
 import type { BackOfficeRecord } from "@legalwork/types/back-office";
 import type { ProjectField } from "@legalwork/types/workspace";
 
-export const primaryProjectObjects = ["matters", "clients", "people", "companies"];
-const standardProjectIds: Record<string, string> = { matters: "matter", clients: "client", people: "people", companies: "companies" };
-export function isStandardProjectLink(field: ProjectField) {
-  if (field.type !== "backoffice" || field.labelSource !== "suggested") return false;
-  const base = standardProjectIds[field.objectId];
-  return Boolean(base && new RegExp(`^${base}(_\\d+)?$`).test(field.id));
-}
-export function showProjectField(field: ProjectField) {
-  return hasProjectFieldValue(field) || !isStandardProjectLink(field);
-}
-export function hasProjectFieldValue(field: ProjectField) {
-  return field.type === "backoffice" ? Boolean(field.value?.recordIds.length) : field.value !== null && field.value !== "";
+type ReferenceField = Extract<ProjectField, { type: "backoffice" }>;
+export function isProjectQuickAction(field: ProjectField): field is ReferenceField & { quickAction: true } {
+  return field.type === "backoffice" && field.quickAction === true;
 }
 
-export function withProjectField(fields: ProjectField[], field: ProjectField): ProjectField[] {
-  return fields.some(item => item.id === field.id) ? fields.map(item => item.id === field.id ? field : item) : [...fields, field];
-}
-
-export function projectConnectionField(fields: ProjectField[], objectId: string, label: string): Extract<ProjectField, { type: "backoffice" }> {
-  const ids = standardProjectIds;
-  const base = ids[objectId] ?? "reference";
-  const standardId = new RegExp(`^${base}(_\\d+)?$`);
-  const existing = fields.find((field): field is Extract<ProjectField, { type: "backoffice" }> =>
-    field.type === "backoffice" && field.objectId === objectId && ((field.labelSource === "suggested" && standardId.test(field.id)) || ((!ids[objectId] || field.labelSource !== "custom") && field.label === label)));
-  if (existing) return existing;
-  let id = base;
-  for (let suffix = 2; fields.some(field => field.id === id); suffix++) id = `${base}_${suffix}`;
-  return { id, label, labelSource: ids[objectId] ? "suggested" : "custom", type: "backoffice", objectId, multiple: true, value: null };
+export function projectQuickActionLabel(field: ReferenceField) {
+  const name = field.labelSource === "suggested" && field.id === "matter" && field.objectId === "matters"
+    ? t("back_office.matters.singular") : projectFieldLabel(field);
+  return t("projects.connections.add_record", { name });
 }
 
 export function clientsFromProjectMatters(fields: ProjectField[], directoryId: string | undefined, records: BackOfficeRecord[]) {
