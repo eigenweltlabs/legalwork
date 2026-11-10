@@ -114,10 +114,40 @@ test('timings count failed gates and require signed availability on all three pl
   const success = name => ({ name, conclusion: 'success', completed_at: end });
   const builds = alphaTargets.map((target, i) => ({ name: 'Build + Publish alpha (' + target + ')', conclusion: 'success',
     steps: [success(i ? 'Verify signed Windows artifacts' : 'Package Electron alpha (macOS, signed + notarized)'), success('Publish complete alpha')] }));
-  const producer = { steps: [success('Download the independently pinned production engine cache')] };
-  assert.equal(gateTiming({ ...run, event: 'push' }, builds), null);
-  assert.deepEqual(gateTiming({ ...run, event: 'push' }, [...builds, producer]), { kind: 'warm-alpha', seconds: 299 });
-  assert.equal(gateTiming({ ...run, event: 'push' }, [...builds.slice(1), producer]).seconds, null);
+  const producer = { name: 'opencode-engine / build', steps: [success('Download the independently pinned production engine cache')] };
+  const alpha = { ...run, event: 'push', head_branch: 'dev', path: '.github/workflows/alpha-macos-aarch64.yml' };
+  assert.equal(gateTiming(alpha, builds), null);
+  assert.deepEqual(gateTiming(alpha, [...builds, producer]), { kind: 'warm-alpha', seconds: 299 });
+  assert.equal(gateTiming(alpha, [...builds.slice(1), producer]).seconds, null);
+  const skipped = builds.map(job => ({ name: job.name, conclusion: 'skipped' }));
+  assert.deepEqual(gateTiming(alpha, [...skipped, producer]), { kind: 'warm-alpha', seconds: null });
+  assert.equal(gateTiming({ ...alpha, path: '.github/workflows/release-macos-aarch64.yml' }, [...builds, producer]), null);
+  const manual = { ...alpha, event: 'workflow_dispatch' };
+  assert.equal(gateTiming(manual, [...skipped, producer, { name: 'portable-version', conclusion: 'skipped' }]), null);
+  assert.deepEqual(gateTiming(manual, [...skipped, producer, { name: 'portable-version', conclusion: 'failure' }]), { kind: 'warm-benchmark', seconds: null });
+  const uploads = builds.map((job, i) => ({ ...job, steps: [job.steps[0], success(i ? 'Upload signed Windows test artifacts' : 'Upload signed Mac test artifacts')] }));
+  assert.equal(gateTiming(manual, [...uploads, producer]).seconds, 299);
+  assert.equal(gateTiming(alpha, [...uploads, producer]).seconds, null);
+  const brokenDownload = { ...producer, steps: [{ ...producer.steps[0], conclusion: 'failure' }] };
+  assert.equal(gateTiming(alpha, [...skipped, brokenDownload]).seconds, null);
+});
+
+test('alpha rollout timings include every completed dev push since rollout', async () => {
+  const { alphaRunsSince } = await import('./gate-timings.mjs');
+  const since = '2026-11-10T12:00:00Z';
+  const runs = Array.from({ length: 101 }, (_, id) => ({ id, conclusion: id === 100 ? 'failure' : 'success' }));
+  const selected = alphaRunsSince(since, endpoint => {
+    const url = new URL(endpoint, 'https://api.github.com/');
+    assert.equal(url.pathname, '/workflows/alpha-macos-aarch64.yml/runs');
+    for (const [key, value] of Object.entries({ branch: 'dev', event: 'push', status: 'completed', created: '>=' + since }))
+      assert.equal(url.searchParams.get(key), value);
+    const offset = (Number(url.searchParams.get('page')) - 1) * 100;
+    return { total_count: runs.length, workflow_runs: runs.slice(offset, offset + 100) };
+  });
+  assert.deepEqual(selected, runs);
+  assert.throws(() => alphaRunsSince(since, () => ({ total_count: 1001, workflow_runs: [] })), /1,000/);
+  assert.throws(() => alphaRunsSince(since, () => ({ total_count: 2, workflow_runs: [runs[0], runs[0]] })), /changed/);
+  assert.throws(() => alphaRunsSince('yesterday'), /UTC/);
 });
 
 test('report only failed steps that passed on a rerun of the same run', async () => {

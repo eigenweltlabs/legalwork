@@ -69,6 +69,18 @@ The report separates nonpublishing benchmarks. A failed or incomplete measured
 run misses its threshold. A benchmark from before Mac artifact retention has no
 combined availability timestamp. Scheduled-out candidates are outside the alpha cohort.
 
+After rollout, measure every completed `dev` push since #370 landed:
+
+```sh
+node scripts/ci/gate-timings.mjs --alpha-since "$(gh pr view 370 --json mergedAt --jq .mergedAt)"
+```
+
+The `warm-alpha` summary includes candidates that attempted to download the
+selected production cache. A failed download, a packaging
+prerequisite failure or a missing publication counts as a miss. The target is
+at least 90% of that cohort with all three signed builds published within 1,800
+seconds of run creation. A total of zero means there is no measurement yet.
+
 To measure actual hosted time before rollout, manually dispatch **LegalWork Tests**
 on the candidate branch with only `replay_pr` set to a number in the cohort.
 This runs the regular gate using that PR’s historical diff against the current

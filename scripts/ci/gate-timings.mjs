@@ -12,15 +12,21 @@ export function gateTiming(run, jobs) {
     const required = ['ubuntu-latest', 'macos-14'].map(os => jobs.find(job => job.name === 'legalwork-tests (' + os + ')'));
     return { kind: replay ? 'replay' : run.event, seconds: required.every(job => job?.conclusion === 'success') ? elapsed(required) : null };
   }
+  const production = run.event === 'push' && run.head_branch === 'dev';
+  if (run.path !== '.github/workflows/alpha-macos-aarch64.yml' || (!production && run.event !== 'workflow_dispatch')) return null;
+  const download = jobs.find(job => job.name === 'opencode-engine / build')?.steps?.find(
+    step => step.name === 'Download the independently pinned production engine cache');
+  if (!download || !['success', 'failure', 'cancelled', 'timed_out'].includes(download.conclusion)) return null;
   const packages = signedJobs(jobs);
-  if (!packages.some(job => job && job.conclusion !== 'skipped') || !jobs.some(job => job.steps?.some(
-    step => step.name === 'Download the independently pinned production engine cache' && step.conclusion === 'success'))) return null;
+  // An engine-only dispatch skips version selection and every packaging job by design.
+  if (!production && ![...packages, jobs.find(job => job.name === 'portable-version')]
+    .some(job => job && job.conclusion !== 'skipped')) return null;
   const signed = packages.map((job, index) => {
     const passed = name => job?.steps?.find(step => step.name === name && step.conclusion === 'success');
     if (!passed(index ? 'Verify signed Windows artifacts' : 'Package Electron alpha (macOS, signed + notarized)')) return undefined;
-    return passed('Publish complete alpha') || passed(index ? 'Upload signed Windows test artifacts' : 'Upload signed Mac test artifacts');
+    return passed('Publish complete alpha') || (!production && passed(index ? 'Upload signed Windows test artifacts' : 'Upload signed Mac test artifacts'));
   });
-  return { kind: run.event === 'push' ? 'warm-alpha' : 'warm-benchmark', seconds: signed.every(Boolean) ? elapsed(signed) : null };
+  return { kind: production ? 'warm-alpha' : 'warm-benchmark', seconds: signed.every(Boolean) ? elapsed(signed) : null };
 }
 
 // A red step that goes green on a rerun of the identical commit is a triage
@@ -53,12 +59,32 @@ export function replayScores(rows, cases = cohort) {
   return scores;
 }
 
+export function alphaRunsSince(since, api) {
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(since) || !Number.isFinite(Date.parse(since)))
+    throw Error('Use a UTC rollout timestamp such as 2026-11-10T12:00:00Z');
+  const query = new URLSearchParams({ branch: 'dev', event: 'push', status: 'completed', created: '>=' + since, per_page: '100' });
+  const runs = [];
+  for (let page = 1; ; page++) {
+    const batch = api('workflows/alpha-macos-aarch64.yml/runs?' + query + '&page=' + page);
+    if (batch.total_count > 1000) throw Error('More than 1,000 matching runs. Choose a later start for an uncapped measurement.');
+    runs.push(...batch.workflow_runs);
+    if (page * 100 >= batch.total_count) {
+      if (new Set(runs.map(run => run.id)).size !== batch.total_count || runs.length !== batch.total_count)
+        throw Error('The run list changed during pagination. Measure the cohort again.');
+      return runs;
+    }
+  }
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const ids = process.argv.slice(2);
-  if (!ids.length || ids.some(id => !/^\d+$/.test(id)) || new Set(ids).size !== ids.length) throw Error('Pass unique Actions run IDs');
+  const args = process.argv.slice(2);
   const api = endpoint => JSON.parse(execFileSync('gh', ['api', 'repos/{owner}/{repo}/actions/' + endpoint], { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 }));
-  const rows = ids.map(id => {
-    const run = api('runs/' + id);
+  const alphaSince = args.length === 2 && args[0] === '--alpha-since';
+  if (!alphaSince && (!args.length || args.some(id => !/^\d+$/.test(id)) || new Set(args).size !== args.length))
+    throw Error('Pass unique Actions run IDs or --alpha-since UTC_TIMESTAMP');
+  const runs = alphaSince ? alphaRunsSince(args[1], api) : args.map(id => api('runs/' + id));
+  const rows = runs.map(run => {
+    const id = String(run.id);
     const jobsFor = prefix => {
       const jobs = [];
       for (let page = 1; ; page++) {
@@ -73,7 +99,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     const pr = timing?.kind === 'replay' ? Number(run.display_title.match(/^Merge gate replay #(\d+)$/)?.[1]) : run.pull_requests?.[0]?.number;
     return { id, head: run.head_sha, pr, attempt: run.run_attempt, recovered, ...timing };
   });
-  const summary = {};
+  const summary = alphaSince ? { 'warm-alpha': { targetSeconds: 1800, total: 0, withinTarget: 0 } } : {};
   for (const row of rows.filter(row => row.kind)) {
     const target = row.kind.startsWith('warm') ? 1800 : 300;
     const bucket = summary[row.kind] ??= { targetSeconds: target, total: 0, withinTarget: 0 };
