@@ -1,5 +1,7 @@
 # Engine and capability acceptance status
 
+History-loading follow-up, 10 November: derivative `2.1.4-legalwork.http-policy.6` adds an opt-in display representation for source-backed PDFs in completed read-tool history. Both chat snapshots and their checklist scan use it; canonical history, single-message reads and model context remain complete. Images and inline-only PDFs retain their data. The [source receipt](patches/opencode-2.1.4-history-file-references.receipt.json) records 218 passing source regressions and both native type checks. Actual Windows app acceptance is recorded with the history-loading PR. Earlier checkpoints below describe their own snapshots.
+
 Project-storage follow-up, 8 November: the reviewed derivative is now
 `2.1.4-legalwork.http-policy.5`, still based on the frozen OpenCode 2.1.4 commit
 and dependency graph. A separate native `session.relocate` endpoint changes an

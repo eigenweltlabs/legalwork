@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "kind": "source-build",
-  "version": "2.1.4-legalwork.http-policy.5",
+  "version": "2.1.4-legalwork.http-policy.6",
   "baseVersion": "2.1.4",
   "productionMacSigner": {
     "mode": "developer-id",

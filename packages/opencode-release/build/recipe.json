@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "kind": "legalwork-patched-source-build",
   "baseVersion": "2.1.4",
-  "version": "2.1.4-legalwork.http-policy.5",
+  "version": "2.1.4-legalwork.http-policy.6",
   "channel": "legalwork",
   "upstream": {
     "repository": "https://github.com/anomalyco/opencode.git",
@@ -72,8 +72,8 @@
   ],
   "inputs": {
     "patch": {
-      "path": "docs/patches/opencode-2.1.4-project-relocation.patch",
-      "sha256": "dd6a34e338b40428cdccd7d7a761df84e9267d9945171c11b097858a24043396"
+      "path": "docs/patches/opencode-2.1.4-history-file-references.patch",
+      "sha256": "75cc4c142ca62ae82999f235a91506164e0bd3bd5503a9e98ddf82e2854652c2"
     },
     "lockfile": {
       "upstreamPath": "bun.lock",
@@ -84,15 +84,15 @@
       "sha256": "1767628e91b25f3b730c39edf67069a4575ff2d5509b0e494fa95ec6b693e246"
     },
     "testReceipt": {
-      "path": "docs/patches/opencode-2.1.4-project-relocation.receipt.json",
-      "sha256": "c07e9db134d25ca626a8a1c1d08e1462674d45a2c6b7452ed646000bdd7f0f7e"
+      "path": "docs/patches/opencode-2.1.4-history-file-references.receipt.json",
+      "sha256": "9d82b599f3cb63dc6d76eb9b3440b3543d57586250c9934a94a4242feb2db45d"
     }
   },
   "buildStatus": "tested-source-lock",
   "testEvidence": {
-    "receiptSha256": "c07e9db134d25ca626a8a1c1d08e1462674d45a2c6b7452ed646000bdd7f0f7e",
+    "receiptSha256": "9d82b599f3cb63dc6d76eb9b3440b3543d57586250c9934a94a4242feb2db45d",
     "lockfileSha256": "47359ba0731b02d14b9a93a6b71b2db104cf9b9716ab0b6371fe96f02c6d71b2",
-    "patchSha256": "dd6a34e338b40428cdccd7d7a761df84e9267d9945171c11b097858a24043396",
+    "patchSha256": "75cc4c142ca62ae82999f235a91506164e0bd3bd5503a9e98ddf82e2854652c2",
     "bun": "1.4.4",
     "migrationTestsPassed": 38,
     "migrationTestsFailed": 0,
@@ -100,6 +100,8 @@
     "priorHttpPatchUnchanged": true,
     "relocationSourceTestsPassed": 183,
     "relocationSourceTestsFailed": 0,
-    "serverTypecheckPassed": true
+    "serverTypecheckPassed": true,
+    "historySourceTestsPassed": 218,
+    "historySourceTestsFailed": 0
   }
 }
