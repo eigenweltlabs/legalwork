@@ -16,7 +16,7 @@ import { ProjectFieldEditor } from "./project-field-editor";
 export function ProjectMetadata(props: {
   client?: LegalworkServerClient | null;
   details: Pick<ProjectDetails, "fields">;
-  definitionsOnly?: boolean;
+  isTemplate?: boolean;
   showTemplates?: boolean;
   children?: ReactNode;
   saveDisabled?: boolean;
@@ -27,17 +27,16 @@ export function ProjectMetadata(props: {
   const directory = useProjectBackOffice(props.client);
   const templates = useProjectDefaultsStore((state) => state.templates);
   const [templateId, setTemplateId] = useState<string | null>(null);
-  const [fields, setFields] = useState(() => props.definitionsOnly ? localizedTemplateFields(props.details.fields) : localizedProjectFields(props.details.fields));
+  const [fields, setFields] = useState(() => props.isTemplate ? localizedTemplateFields(props.details.fields) : localizedProjectFields(props.details.fields));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [conflict, setConflict] = useState(false);
   const saving = useRef(false);
-  const [creating, setCreating] = useState(false);
   const [generation, setGeneration] = useState(0);
   const [newFieldId, setNewFieldId] = useState<string | null>(null);
   const replace = (next: ProjectField) => setFields(current => current.map(field => field.id === next.id ? next : field));
   const save = async () => {
-    if (saving.current || creating || conflict || props.saveDisabled) return;
+    if (saving.current || conflict || props.saveDisabled) return;
     if (fields.some((field) => !field.label.trim())) { setError(t("projects.field_name_required")); return; }
     if (fields.some((field) => field.type === "select" && field.value !== null && field.value !== "" && !field.options?.includes(String(field.value)))) {
       setError(t("projects.options_value_missing"));
@@ -71,7 +70,7 @@ export function ProjectMetadata(props: {
     >
       <fieldset disabled={busy} className="space-y-4">
         {props.children}
-        {!props.definitionsOnly && props.showTemplates !== false && templates.length > 0 ? <div className="space-y-2 rounded-xl border border-border p-3">
+        {!props.isTemplate && props.showTemplates !== false && templates.length > 0 ? <div className="space-y-2 rounded-xl border border-border p-3">
           <div className="text-sm font-medium">{t("projects.templates.apply_title")}</div>
           <div className="flex items-center gap-2">
             <ProjectTemplateSelect value={templateId} onChange={setTemplateId} emptyLabel={t("projects.templates.choose")} />
@@ -87,15 +86,15 @@ export function ProjectMetadata(props: {
           <p className="text-xs text-muted-foreground">{t("projects.templates.apply_hint")}</p>
         </div> : null}
         {fields.map(field => <div key={field.id} className="rounded-xl border border-border p-4">
-          <ProjectFieldEditor key={`${field.id}:${generation}`} field={field} state={directory.data} disabled={busy} definitionsOnly={props.definitionsOnly} autoFocus={newFieldId === field.id}
-            onChange={next => { replace(next); setError(null); }} onCreatingChange={setCreating} onSubmit={() => void save()}
-            action={<Button type="button" variant="ghost" size="icon" disabled={busy || creating} aria-label={t("projects.remove_field", { name: field.label })}
+          <ProjectFieldEditor key={`${field.id}:${generation}`} field={field} state={directory.data} disabled={busy} autoFocus={newFieldId === field.id}
+            onChange={next => { replace(next); setError(null); }}
+            action={<Button type="button" variant="ghost" size="icon" disabled={busy} aria-label={t("projects.remove_field", { name: field.label })}
               onClick={() => setFields(current => current.filter(item => item.id !== field.id))}><Trash2 className="size-4" /></Button>} />
         </div>)}
         <Button
           type="button"
           variant="outline"
-          disabled={creating || fields.length >= 50}
+          disabled={fields.length >= 50}
           onClick={() => {
             const id = crypto.randomUUID(); setNewFieldId(id);
             setFields(current => [...current, { id, labelSource: "custom", label: "", type: "text", value: null }]);
@@ -117,7 +116,7 @@ export function ProjectMetadata(props: {
           setBusy(true);
           try {
             const latest = await props.onReload();
-            setFields(props.definitionsOnly ? localizedTemplateFields(latest.fields) : localizedProjectFields(latest.fields));
+            setFields(props.isTemplate ? localizedTemplateFields(latest.fields) : localizedProjectFields(latest.fields));
             setGeneration(value => value + 1);
             setConflict(false);
             setError(null);
@@ -129,12 +128,12 @@ export function ProjectMetadata(props: {
         <Button
           type="button"
           variant="ghost"
-          disabled={busy || creating}
+          disabled={busy}
           onClick={props.onCancel}
         >
           {t("projects.cancel")}
         </Button>
-        <Button type="submit" disabled={busy || creating || conflict || props.saveDisabled}>
+        <Button type="submit" disabled={busy || conflict || props.saveDisabled}>
           {busy ? t("projects.saving") : t("projects.save")}
         </Button>
       </div>

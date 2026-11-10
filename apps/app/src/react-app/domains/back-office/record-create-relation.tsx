@@ -1,11 +1,10 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Check, ChevronDown, Plus, X } from "lucide-react";
 import type { BackOfficeField, BackOfficeValue } from "@legalwork/types/back-office";
 import { Button } from "@/components/ui/button";
 import { Command, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { t } from "@/i18n";
-import { matchesProjectReferenceFilters, type ProjectReferenceFilters } from "@legalwork/types/workspace";
 import { useRecordCreation } from "./record-creation-context";
 import { creatableRecordObject, relationPickerOptions } from "./record-creation-values";
 import { displayBackOfficeObject } from "./labels";
@@ -13,16 +12,14 @@ import { ObjectIcon } from "./object-icon";
 import { RecordCreateForm } from "./record-create-form";
 import { BackOfficeTheme } from "./twenty-controls";
 
-export function RecordCreateRelation({ field, value, disabled, creationFilters, onCreatingChange, onChange, onSubmit }: {
+export function RecordCreateRelation({ field, value, disabled, onChange, onSubmit }: {
   field: BackOfficeField; value: BackOfficeValue | undefined; disabled: boolean;
-  creationFilters?: ProjectReferenceFilters | null; onCreatingChange?: (creating: boolean) => void;
   onChange: (value: BackOfficeValue) => void; onSubmit: () => void;
 }) {
   const creation = useRecordCreation();
   const [open, setOpen] = useState(false), [query, setQuery] = useState(""), [creating, setCreating] = useState(false);
-  useEffect(() => { onCreatingChange?.(creating); return () => onCreatingChange?.(false); }, [creating, onCreatingChange]);
   const object = creation?.state.model.objects.find(object => object.id === field.target);
-  const records = creation?.state.records.filter(record => record.objectId === field.target && !record.archivedAt && Boolean(object && matchesProjectReferenceFilters(record, object, creationFilters))) ?? [];
+  const records = creation?.state.records.filter(record => record.objectId === object?.id && !record.archivedAt) ?? [];
   const target = creatableRecordObject(creation?.state, field.target);
   const selected = Array.isArray(value) ? value.filter(item => typeof item === "string") : typeof value === "string" ? [value] : [];
   const setSelection = (ids: string[]) => onChange(field.multiple ? ids : ids[0] ?? null);
@@ -39,7 +36,7 @@ export function RecordCreateRelation({ field, value, disabled, creationFilters, 
           }
           event.stopPropagation();
         }}>
-        {creating && target ? <BackOfficeTheme><RecordCreateForm object={displayBackOfficeObject(target)} name={query.trim()} filters={creationFilters} persistenceNotice={t("back_office.create.persistence_notice")} onCancel={() => setCreating(false)} onCreated={async record => {
+        {creating && target ? <BackOfficeTheme><RecordCreateForm object={displayBackOfficeObject(target)} name={query.trim()} persistenceNotice={t("back_office.create.persistence_notice")} onCancel={() => setCreating(false)} onCreated={async record => {
           setSelection(field.multiple ? [...selected.filter(id => id !== record.id), record.id] : [record.id]);
           setOpen(false); setCreating(false); setQuery("");
         }} /></BackOfficeTheme> : <Command filter={null} value={query} onValueChange={(next, details) => { if (details.reason !== "item-press") setQuery(next); }}>

@@ -1,5 +1,4 @@
 import { useId, useState, type ReactNode } from "react";
-import { BackOfficeFieldSchema } from "@legalwork/types/back-office";
 import type { ProjectField } from "@legalwork/types/workspace";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -8,24 +7,20 @@ import { toast } from "@/components/ui/sonner";
 import { t } from "@/i18n";
 import type { BackOfficeState } from "../back-office/api";
 import { ObjectIcon } from "../back-office/object-icon";
-import { RecordCreateRelation } from "../back-office/record-create-relation";
 import { projectReferenceObjects } from "./project-record-field";
 import { projectFieldLabel } from "./project-defaults-store";
 import { changeProjectFieldType, parseProjectOptions } from "./project-field-editing";
 import { ProjectReferenceFilterEditor } from "./project-reference-filter-editor";
 
-/** The same name, type and content controls for project creation, Home and field settings. */
-export function ProjectFieldEditor({ field, state, disabled = false, definitionsOnly = false, autoFocus, action, onChange, onCreatingChange, onSubmit }: {
-  field: ProjectField; state?: BackOfficeState; disabled?: boolean; definitionsOnly?: boolean;
+export function ProjectFieldEditor({ field, state, disabled = false, autoFocus, action, onChange }: {
+  field: ProjectField; state?: BackOfficeState; disabled?: boolean;
   autoFocus?: boolean; action?: ReactNode; onChange: (field: ProjectField) => void;
-  onCreatingChange?: (creating: boolean) => void; onSubmit: () => void;
 }) {
   const id = useId(), objects = projectReferenceObjects(state);
   const object = field.type === "backoffice" ? objects.find(item => item.id === field.objectId) : undefined;
   const [optionDraft, setOptionDraft] = useState<string | null>(null);
   const types = { text: t("projects.type_text"), number: t("projects.type_number"), date: t("projects.type_date"), select: t("projects.type_select") };
   const label = projectFieldLabel(field);
-  const foreignDirectory = field.type === "backoffice" && Boolean(field.value && field.value.directoryId !== state?.directoryId);
   return <div className="space-y-4">
     <div className="flex items-start gap-2">
       <div className="grid min-w-0 flex-1 gap-3 sm:grid-cols-[minmax(0,1fr)_160px]">
@@ -63,24 +58,6 @@ export function ProjectFieldEditor({ field, state, disabled = false, definitions
       <Input aria-label={t("projects.options")} placeholder={t("projects.options")} disabled={disabled}
         value={optionDraft ?? field.options?.join(", ") ?? ""} onChange={event => { setOptionDraft(event.target.value); onChange({ ...field, options: parseProjectOptions(event.target.value) }); }} />
     </label>}
-    {!definitionsOnly && <div className="space-y-1.5">
-      <label className="block text-xs text-muted-foreground" htmlFor={field.type === "backoffice" ? undefined : `${id}-content`}>{t("projects.field_value")}</label>
-      {field.type === "backoffice" ? <>
-        <RecordCreateRelation field={BackOfficeFieldSchema.parse({ id: "projectReference", label: label || object?.plural || t("projects.reference.type"), type: "relation", target: field.objectId, multiple: field.multiple })}
-          value={foreignDirectory ? [] : field.value?.recordIds ?? []} creationFilters={field.filters} disabled={disabled || !object || !state?.directoryId || foreignDirectory}
-          onCreatingChange={onCreatingChange} onSubmit={onSubmit} onChange={value => {
-            if (!state?.directoryId) return;
-            const recordIds = Array.isArray(value) ? value.filter(item => typeof item === "string") : typeof value === "string" ? [value] : [];
-            onChange({ ...field, value: recordIds.length ? { directoryId: state.directoryId, recordIds } : null });
-          }} />
-        {foreignDirectory && <p className="text-xs text-muted-foreground">{t("projects.reference.foreign_directory")}</p>}
-      </> : field.type === "select" ? <Select disabled={disabled} value={typeof field.value === "string" ? field.value : ""} onValueChange={value => onChange({ ...field, value: value || null })}>
-        <SelectTrigger id={`${id}-content`} aria-label={t("projects.field_value")}><SelectValue placeholder={t("projects.choose_value")} /></SelectTrigger>
-        <SelectContent><SelectItem value="">{t("projects.empty_value")}</SelectItem>{field.options?.map(option => <SelectItem key={option} value={option}>{option}</SelectItem>)}</SelectContent>
-      </Select> : <Input id={`${id}-content`} aria-label={t("projects.field_value")} type={field.type} step="any" maxLength={4000} disabled={disabled}
-        value={field.value === null ? "" : String(field.value)} onChange={event => onChange({ ...field, value: event.target.value === "" ? null : field.type === "number" ? Number(event.target.value) : event.target.value })} />}
-      <p className="text-xs text-muted-foreground">{t("projects.field_content_hint")}</p>
-    </div>}
     {field.type === "backoffice" && <details className="rounded-md border px-3 py-2">
       <summary className="cursor-pointer text-xs text-muted-foreground">{t("projects.field_selection_settings")}</summary>
       <div className="mt-3 space-y-3">

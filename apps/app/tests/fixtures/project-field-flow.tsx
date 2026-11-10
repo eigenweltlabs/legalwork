@@ -85,43 +85,25 @@ try {
   const empty = lastSave()[0];
   assert.equal(empty.label, "Research note"); assert.equal(empty.type, "text"); assert.equal(empty.value, null);
 
-  await render(<ProjectMetadata client={client} details={{ fields: [empty] }} showTemplates={false} onSave={save} onCancel={close} />);
-  await type(t("projects.field_value"), "Check the governing-law clause");
-  await click(t("projects.save"));
-  assert.deepEqual(lastSave(), [{ ...empty, value: "Check the governing-law clause" }], "Customize fills content without changing the field definition or ID");
-
   const reference: ProjectField = { id: "11111111-1111-4111-8111-111111111111", label: "Witnesses", labelSource: "custom",
     type: "backoffice", objectId: "people", multiple: true, value: null };
-  await render(<ProjectMetadata client={client} details={{ fields: [reference] }} showTemplates={false} onSave={save} onCancel={close} />);
+  const linked = { ...reference, value: { directoryId: "local:field-fixture", recordIds: [alice.id] } };
+  const populated: ProjectField[] = [
+    linked, { ...empty, value: "Check the governing-law clause" },
+    { id: "budget", label: "Budget", labelSource: "custom", type: "number", value: 0 },
+    { id: "due", label: "Due date", labelSource: "custom", type: "date", value: "2026-12-15" },
+    { id: "stage", label: "Stage", labelSource: "custom", type: "select", options: ["Draft", "Approved"], value: "Approved" },
+  ];
+  await render(<ProjectMetadata client={client} details={{ fields: populated }} showTemplates={false} onSave={save} onCancel={close} />);
+  await type(t("projects.field_name"), "Expert witnesses");
+  await type(t("projects.options"), "Draft, Approved, Closed");
   await click(t("projects.save"));
-  assert.deepEqual(lastSave(), [reference], "An optional reference can remain empty without generating an invalid empty record list");
-  await render(<ProjectMetadata client={client} details={{ fields: [reference] }} showTemplates={false} onSave={save} onCancel={close} />);
-  await click(t("projects.edit_value", { name: reference.label }));
-  const search = t("back_office.create.search", { name: reference.label });
-  await type(search, "Alice"); await key(search, "Enter"); await key(search, "Escape");
-  await click(t("projects.save"));
-  assert.deepEqual(lastSave(), [{ ...reference, value: { directoryId: "local:field-fixture", recordIds: [alice.id] } }],
-    "A digit-leading UUID remains a valid project identity when adapting to the record picker");
-  assert.equal(recordWrites, 0, "Linking an existing record does not create another record");
-
-  for (const [field, content, expected] of [
-    [{ id: "budget", label: "Budget", labelSource: "custom", type: "number", value: null }, "1250.5", 1250.5],
-    [{ id: "due", label: "Due date", labelSource: "custom", type: "date", value: null }, "2026-12-15", "2026-12-15"],
-  ] satisfies [ProjectField, string, string | number][]) {
-    await render(<ProjectMetadata client={client} details={{ fields: [field] }} showTemplates={false} onSave={save} onCancel={close} />);
-    await type(t("projects.field_value"), content); await click(t("projects.save"));
-    assert.deepEqual(lastSave(), [{ ...field, value: expected }]);
-  }
+  assert.deepEqual(lastSave(), [
+    { ...linked, label: "Expert witnesses" }, ...populated.slice(1, -1), { ...populated[4], options: ["Draft", "Approved", "Closed"] },
+  ], "Editing field definitions preserves every project value and the original record IDs");
+  assert.equal(recordWrites, 0);
 
   const choice: ProjectField = { id: "stage", label: "Stage", labelSource: "custom", type: "select", options: ["Draft", "Approved"], value: null };
-  await render(<ProjectMetadata client={client} details={{ fields: [choice] }} showTemplates={false} onSave={save} onCancel={close} />);
-  await click(t("projects.field_value"));
-  const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(item => item.textContent?.trim() === "Approved");
-  assert.ok(option, "Select field content offers the configured choices");
-  await act(async () => option.focus());
-  await act(async () => option.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })));
-  await click(t("projects.save")); assert.deepEqual(lastSave(), [{ ...choice, value: "Approved" }]);
-
   const remoteChoice = { ...choice, options: ["Remote choice"] };
   await render(<ProjectMetadata client={client} details={{ fields: [choice] }} showTemplates={false}
     onSave={async () => { throw new LegalworkServerError(409, "project_changed", "Changed elsewhere"); }}
@@ -130,9 +112,7 @@ try {
   await click(t("projects.reload_fields"));
   assert.equal(input(t("projects.options")).value, "Remote choice", "Explicit reload resets the option input as well as the underlying field definition");
 
-  await render(<ProjectMetadata client={client} details={{ fields: [{ ...empty, value: "Project-specific content" }] }} definitionsOnly onSave={save} onCancel={close} />);
-  assert.equal([...document.querySelectorAll("[aria-label]")].some(item => item.getAttribute("aria-label") === t("projects.field_value")), false,
-    "Template editing defines fields without presenting project-specific content");
+  await render(<ProjectMetadata client={client} details={{ fields: [{ ...empty, value: "Project-specific content" }] }} isTemplate onSave={save} onCancel={close} />);
   await click(t("projects.save")); assert.deepEqual(lastSave(), [empty], "Template definitions do not inherit project content");
 
   const primary: ProjectField = { id: "matter", label: "Matters", labelSource: "suggested", type: "backoffice", objectId: "matters", multiple: true, quickAction: true, value: null };
@@ -147,7 +127,7 @@ try {
   assert.deepEqual(values, [{ id: empty.id, value: "Filled from Home" }]);
 
   const quickRole = { ...reference, quickAction: true };
-  await render(<ProjectMetadata client={client} details={{ fields: [reference] }} definitionsOnly onSave={save} onCancel={close} />);
+  await render(<ProjectMetadata client={client} details={{ fields: [reference] }} isTemplate onSave={save} onCancel={close} />);
   const toggle = [...document.querySelectorAll("label")].find(label => label.textContent?.includes(t("projects.field_quick_action")))?.querySelector<HTMLInputElement>('input[type="checkbox"]');
   assert.ok(toggle); await act(async () => toggle.click()); await click(t("projects.save"));
   assert.deepEqual(lastSave(), [quickRole]);
