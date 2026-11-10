@@ -1252,6 +1252,7 @@ const de = {
     "limits.no_card_checkout": "Laden Sie Guthaben über Stripe Checkout auf. Unter Zahlungsmethode können Sie eine Karte für künftige Aufladungen speichern.",
     "limits.confirm_topup": "Bezahlen und Guthaben aufladen",
     "limits.topup_quote_expired": "Die Steuerberechnung ist abgelaufen. Brechen Sie diese Aufladung ab und prüfen Sie einen neuen Gesamtbetrag.",
+    "limits.topup_trial_owner_required": "Diese Testphasen-Aufladung wurde von einer anderen Admin-Person gestartet. Bitten Sie sie, die Zahlung abzuschließen, oder brechen Sie die Aufladung ab und starten Sie eine eigene.",
     "limits.total_charge": "Zahlungsbetrag",
     "limits.tax": "Steuer",
     "limits.usable_credits": "Nutzbares Guthaben",

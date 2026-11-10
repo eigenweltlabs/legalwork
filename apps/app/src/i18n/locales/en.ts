@@ -1247,6 +1247,7 @@ export default {
     "limits.no_card_checkout": "Add credits using Stripe Checkout. You can save a card for future top-ups in Payment method.",
     "limits.confirm_topup": "Pay & add credits",
     "limits.topup_quote_expired": "This tax quote expired. Cancel this top-up and review a new total.",
+    "limits.topup_trial_owner_required": "This trial top-up was started by another admin. Ask them to finish it, or cancel it and start your own.",
     "limits.total_charge": "Total charge",
     "limits.tax": "Tax",
     "limits.usable_credits": "Usable credits",

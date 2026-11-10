@@ -68,6 +68,8 @@ export type TrialSubscriptionResult = TrialSubscriptionQuote |
   { status: "paid" | "processing" | "canceled"; quoteId: string } |
   { status: "requires_payment"; quoteId: string; url: string };
 export type UsageControlView = {
+  /** Admin-only unfinished purchases; older clients may ignore this field. */
+  pendingTopUps?: BillingPaymentDetails["pendingTopUps"];
   trial?: { endsAt: string } | null;
   invitations?: {
     id: string;

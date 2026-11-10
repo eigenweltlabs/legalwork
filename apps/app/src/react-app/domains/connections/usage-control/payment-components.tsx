@@ -253,6 +253,8 @@ function TopUpForm({ t, run, busy, transport, onPaid, trialUsage }: Props & { on
             ? "limits.payment_changed"
             : err instanceof Error && err.message.includes("top_up_quote_expired")
             ? "limits.topup_quote_expired"
+            : err instanceof Error && err.message.includes("top_up_trial_owner_required")
+            ? "limits.topup_trial_owner_required"
             : "limits.topup_retry_hint",
         ),
       );
