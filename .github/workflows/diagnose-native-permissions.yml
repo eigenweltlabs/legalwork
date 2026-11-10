@@ -1,4 +1,4 @@
-name: Diagnose native permission suite
+name: Verify native permission isolation
 on:
   push:
     branches: [codex/pr370-native-permission-diagnosis]
@@ -7,17 +7,18 @@ permissions:
   actions: read
 jobs:
   compare:
-    name: Compare (${{ matrix.mode }})
+    name: Verify fixed (${{ matrix.mode }}, replica ${{ matrix.replica }})
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        mode: [isolated, legacy54, expanded72]
+        mode: [expanded72]
+        replica: [1, 2]
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: c11d294ed0b5771219f1ad626f66161da4176d8c
+          ref: d6d094eacf4fd83afe54982364e1f3b9f78eb685
       - uses: actions/setup-node@v6
         with:
           node-version: 24.22.1
