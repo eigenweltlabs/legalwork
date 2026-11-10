@@ -36,6 +36,9 @@ use their existing scopes.
   The planning job installs the frozen server dependency closure without
   lifecycle scripts for analysis. Presentation-only changes keep the lightweight
   path. Focused checks use the reviewed Linux host engine and four workers.
+  The repeated native file-permission flow runs first in its own process with
+  one worker. Other native files retain their configured parallelism; all case
+  assertions and deadlines stay unchanged.
   Provenance is verified on cache hits; a miss compiles the matching engine.
   Engine distribution, lifecycle and transport changes retain the full suite.
 - Shared VM and isolation changes select the native matrix. Host-specific edits

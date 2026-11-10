@@ -83,3 +83,39 @@ test('startup API fixtures get a fresh isolated worker without changing deadline
   const ordinary = '/workspace/apps/server/src/workspace.e2e.test.ts';
   assert.deepEqual(testGroups('server', [...groups[1], ordinary]), [[ordinary], groups[1]]);
 });
+
+test('native permission flows run alone before the remaining parallel native files', () => {
+  const permission='/fixture/src/managed-file-permissions.released.test.ts';
+  const ordinary=['/fixture/src/engine-client.released.test.ts','/fixture/src/provider-selection.released.test.ts'];
+  const selected=[ordinary[0],permission,ordinary[1]];
+  const groups=testGroups('engine',selected);
+  assert.deepEqual(groups,[[permission],ordinary]);
+  assert.deepEqual(groups.flat().sort(),selected.sort());
+  assert.ok(!testArguments('engine',groups[0],1).some(arg=>arg.startsWith('--parallel')));
+  assert.ok(testArguments('engine',groups[1],4).includes('--parallel=4'));
+  assert.deepEqual(testGroups('engine',[permission]),[[permission]]);
+  assert.deepEqual(testGroups('engine',ordinary),[ordinary]);
+});
+
+test('a failed isolated native permission worker still executes all other selected native tests', {skip:process.platform==='win32'}, () => {
+  const directory=mkdtempSync(path.join(tmpdir(),'native-permission-worker-'));
+  const executable=path.join(directory,'fake-bun'),calls=path.join(directory,'calls.jsonl');
+  writeFileSync(executable,`#!${process.execPath}
+const fs=require('node:fs');const args=process.argv.slice(2);fs.appendFileSync(${JSON.stringify(calls)},JSON.stringify(args)+'\\n');process.exit(args.some(arg=>arg.endsWith('managed-file-permissions.released.test.ts'))?7:0);
+`,{mode:0o755});
+  try {
+    const permission='/fixture/src/managed-file-permissions.released.test.ts';
+    const ordinary='/fixture/src/engine-client.released.test.ts';
+    const exercise=path.join(directory,'exercise.mjs');
+    writeFileSync(exercise,`import {runTests} from ${JSON.stringify(new URL('./run-tests.mjs',import.meta.url).href)};process.exitCode=runTests('engine',${JSON.stringify([ordinary,permission])});`);
+    const result=spawnSync(process.execPath,[exercise],{encoding:'utf8',env:{...process.env,LEGALWORK_TEST_WORKERS:'4',
+      LEGALWORK_TEST_BUN_BIN:executable,LEGALWORK_CI_TIMINGS:path.join(directory,'timings.jsonl')}});
+    assert.equal(result.status,7,result.stderr);
+    const executed=readFileSync(calls,'utf8').trim().split('\n').map(line=>JSON.parse(line));
+    assert.equal(executed.length,2);
+    assert.equal(executed[0].at(-1),permission);
+    assert.ok(!executed[0].some(arg=>arg.startsWith('--parallel')));
+    assert.equal(executed[1].at(-1),ordinary);
+    assert.ok(executed[1].includes('--parallel=4'));
+  } finally {rmSync(directory,{recursive:true,force:true});}
+});

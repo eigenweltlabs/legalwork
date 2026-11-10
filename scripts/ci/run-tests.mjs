@@ -18,6 +18,10 @@ export function testWorkers(value = process.env.LEGALWORK_TEST_WORKERS) {
 }
 
 export const serialServerTestFiles = ['wiki/file-access-policy.e2e.test.ts', 'wikis-team.e2e.test.ts'];
+// This acceptance flow repeatedly restarts the real engine and republishes
+// permissions. Competing engine workers push its unchanged 60s case deadline
+// over the limit, after which unfinished cleanup can disrupt the next case.
+export const serialEngineTestFiles = ['managed-file-permissions.released.test.ts'];
 
 export function testArguments(suite, files = [], workers = suite === 'sandbox' ? 1 : testWorkers(), shard = '') {
   assert.ok(['app', 'server', 'engine', 'sandbox'].includes(suite), 'Unknown test suite');
@@ -34,8 +38,12 @@ export function testArguments(suite, files = [], workers = suite === 'sandbox' ?
 }
 
 const isSerialServerTest = file => serialServerTestFiles.some(name => file.replaceAll('\\', '/').endsWith('/' + name));
+const isSerialEngineTest = file => serialEngineTestFiles.some(name => file.replaceAll('\\', '/').endsWith('/' + name));
 
 export function testGroups(suite, files) {
+  if (suite === 'engine' && files.some(isSerialEngineTest)) {
+    return [files.filter(isSerialEngineTest), files.filter(file => !isSerialEngineTest(file))].filter(group => group.length);
+  }
   if (suite === 'server' && files.length === 0) return [[], serialServerTestFiles.map(file => path.join(root, 'apps/server/src', file))];
   if (suite === 'server') {
     const serial = files.filter(isSerialServerTest);
@@ -58,7 +66,8 @@ export function runTests(suite, files = [], shard = '') {
   if (serialStartup) for (const file of groups[1]) assert.ok(lstatSync(file).isFile(), `Missing startup fixture: ${file}`);
   let status = 0;
   for (const group of groups) {
-    const groupWorkers = suite === 'server' && group.some(isSerialServerTest) ? 1 : workers;
+    const groupWorkers = (suite === 'server' && group.some(isSerialServerTest)
+      || suite === 'engine' && group.some(isSerialEngineTest)) ? 1 : workers;
     const result = spawnSync(process.env.LEGALWORK_TEST_BUN_BIN || 'bun', testArguments(suite, group, groupWorkers, shard), {
       cwd: ['engine', 'sandbox'].includes(suite) ? root : path.join(root, 'apps', suite === 'app' ? 'app' : 'server'),
       env: { ...process.env, LEGALWORK_TEST_PREPARED: '1' }, stdio: 'inherit', windowsHide: true,
