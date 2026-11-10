@@ -3,8 +3,6 @@ name: Alpha Channel (Windows x64 + ARM64)
 # Each dev merge affecting the app builds an alpha. Required PR checks
 # already ran before merge; packaging does not rerun the sandbox suite.
 on:
-  push:
-    branches: [dev]
   workflow_dispatch:
     inputs:
       sandbox_tests:
@@ -21,7 +19,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: alpha-windows-x64-${{ github.sha }}-${{ inputs.signing_test }}
+  group: legalwork-alpha-windows-diagnostic
   cancel-in-progress: false
 
 jobs:
@@ -56,7 +54,7 @@ jobs:
       targets: win32-x64,win32-arm64
       run_tests: ${{ github.event_name == 'workflow_dispatch' && inputs.sandbox_tests || false }}
   publish-alpha-windows:
-    needs: [sandbox-runtime, opencode-engine]
+    needs: [ sandbox-runtime, opencode-engine, portable-assets, portable-version ]
     environment: windows-signing
     permissions:
       actions: read
@@ -107,10 +105,12 @@ jobs:
         with:
           node-version: 24.22.1
 
-      - name: Download the same-run source-built engine
+      - name: Download the verified source-built engine
         uses: actions/download-artifact@v4
         with:
-          name: opencode-derivative-ci
+          name: opencode-derivative-ci-${{ runner.os }}
+          run-id: ${{ needs.opencode-engine.outputs.artifact-run-id }}
+          github-token: ${{ github.token }}
           path: ${{ runner.temp }}/opencode-derivative
       - name: Verify and prepare the production engine
         uses: ./.github/actions/setup-opencode
@@ -118,71 +118,39 @@ jobs:
           build-mode: production
           archive-directory: ${{ runner.temp }}/opencode-derivative/archives
           manifest-sha256: ${{ needs.opencode-engine.outputs.manifest-sha256 }}
-
+          archive-family: "true"
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.4
 
-      - name: Get pnpm store path
-        id: pnpm-store
-        shell: bash
-        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
-
-      - name: Cache pnpm store
-        uses: actions/cache@v5
-        continue-on-error: true
-        with:
-          path: ${{ steps.pnpm-store.outputs.path }}
-          key: ${{ runner.os }}-${{ runner.arch }}-electron-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-electron-pnpm-
-
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        uses: ./.github/actions/install-dependencies
+        with:
+          cache: ${{ runner.os != 'Windows' || runner.arch != 'ARM64' }}
+          filter: |
+            @legalwork/desktop...
+            legalwork-orchestrator...
+            @legalwork/actaport-mcp...
+
+      - uses: ./.github/actions/prepare-electron-native
+
+      - uses: ./.github/actions/prepare-windows-arm64-speech
+        if: runner.arch == 'ARM64'
 
       - name: Resolve alpha version
         id: alpha-version
         shell: bash
         env:
-          GITHUB_RUN_NUMBER: ${{ github.run_number }}
-          GITHUB_SHA: ${{ github.sha }}
+          ALPHA_VERSION: ${{ needs.portable-version.outputs.version }}
         run: |
           set -euo pipefail
-          # The latest v* tag reachable from this commit is the version source
-          # of truth (package.json only carries a 0.0.0 placeholder). Alpha
-          # builds advertise the *next* patch version so semver comparison
-          # makes the alpha newer than the current stable. Once that stable
-          # ships, its semver beats the alpha prerelease tag and alpha users
-          # cleanly migrate forward.
-          latest_tag="$(git describe --tags --match 'v*' --abbrev=0 2>/dev/null || echo v0.0.0)"
-          base="${latest_tag#v}"
-          base="${base%%[-+]*}"
-          if [[ ! "$base" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "Unsupported release tag: $latest_tag" >&2
-            exit 1
-          fi
-          IFS=. read -r major minor patch <<<"$base"
-          next_patch=$((patch + 1))
-          run="${GITHUB_RUN_NUMBER:-0}"
+          base="${ALPHA_VERSION%%-alpha.*}"
           sha="${GITHUB_SHA:0:7}"
-          sha="${sha:-local}"
-          echo "Latest release tag: $latest_tag -> alpha base ${major}.${minor}.${next_patch}"
-          # The commit sha rides in the prerelease part (…-alpha.<run>.g<sha>),
-          # not as +<sha> build metadata: pnpm refuses to workspace-link the
-          # exact-pinned internal deps (legalwork-server) when
-          # the stamped version carries build metadata, and falls back to the
-          # public npm registry (404 / name-squatted package). The "g" prefix
-          # (git describe's convention) keeps the identifier valid semver: a
-          # sha made of digits only with a leading zero, such as 0904434, is
-          # not a legal numeric prerelease identifier, and pnpm then cannot
-          # match the workspace package either and falls back the same way.
-          {
-            echo "alpha_version=${major}.${minor}.${next_patch}-alpha.${run}.g${sha}"
-            echo "base_version=${major}.${minor}.${next_patch}"
-            echo "release_tag=alpha-windows-${ALPHA_ARCH}-v${major}.${minor}.${next_patch}-alpha.${run}-${sha}"
-          } >> "$GITHUB_OUTPUT"
+          echo "alpha_version=$ALPHA_VERSION" >> "$GITHUB_OUTPUT"
+          echo "base_version=$base" >> "$GITHUB_OUTPUT"
+          echo "release_tag=alpha-windows-${ALPHA_ARCH}-v${base}-alpha.${GITHUB_RUN_NUMBER}-${sha}" >> "$GITHUB_OUTPUT"
 
       - name: Stamp alpha version
         shell: bash
@@ -197,7 +165,8 @@ jobs:
 
       - uses: actions/download-artifact@v4
         with:
-          name: sandbox-runtime-win32-${{ matrix.arch }}
+          pattern: sandbox-runtime-v2-win32-${{ matrix.arch }}-*
+          merge-multiple: true
           path: ${{ runner.temp }}/sandbox-runtime
       - name: Unpack protected runtime
         shell: bash
@@ -205,6 +174,11 @@ jobs:
           mkdir -p apps/server/resources/agent-sandbox/runtime
           archive="$(cygpath -u "$RUNNER_TEMP/sandbox-runtime/sandbox-runtime.tgz")"
           tar -xzf "$archive" -C apps/server/resources/agent-sandbox/runtime
+      - name: Download verified portable desktop assets
+        uses: actions/download-artifact@v4
+        with:
+          name: portable-desktop-assets
+          path: apps/app
 
       - name: Build Electron alpha app
         shell: bash
@@ -214,9 +188,17 @@ jobs:
           TARGET: ${{ matrix.target }}
           # The renderer bundle (vite build) peaks above Node's default heap.
           NODE_OPTIONS: --max-old-space-size=6144
+          LEGALWORK_PREBUILT_UI: "1"
         run: pnpm --filter @legalwork/desktop build:electron:production
 
       # Authenticate after the long build so the Azure CLI token is fresh.
+      - name: Retain verified native packaging outputs
+        uses: ./.github/actions/retain-native-packaging
+
+      - name: Prepare and verify Windows signing tools
+        shell: pwsh
+        run: ./scripts/release/prepare-windows-signing.ps1
+
       - name: Sign in to Azure signing
         uses: azure/login@v2
         with:
@@ -225,6 +207,9 @@ jobs:
           allow-no-subscriptions: true
 
       - name: Package Electron alpha (Windows)
+        env:
+          # Paired native payload benchmarks preserve every file and NSIS decoding.
+          ELECTRON_BUILDER_COMPRESSION_LEVEL: '5'
         shell: bash
         run: |
           set -euo pipefail
@@ -330,3 +315,36 @@ jobs:
             apps/desktop/dist-electron/${{ matrix.manifest }}
           if-no-files-found: error
           retention-days: 7
+      - name: Upload CI operation timings
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-timings-${{ github.job }}-${{ runner.os }}-${{ runner.arch }}
+          path: ${{ runner.temp }}/ci-spans.jsonl
+          if-no-files-found: ignore
+          retention-days: 7
+  portable-version:
+    needs: changes
+    if: needs.changes.outputs.alpha == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - id: version
+        shell: bash
+        run: |
+          tag=$(git describe --tags --match 'v*' --abbrev=0)
+          base="${tag#v}"
+          base="${base%%[-+]*}"
+          [[ "$base" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          IFS=. read -r major minor patch <<< "$base"
+          echo "version=${major}.${minor}.$((patch+1))-alpha.${GITHUB_RUN_NUMBER}.g${GITHUB_SHA:0:7}" >> "$GITHUB_OUTPUT"
+  portable-assets:
+    needs: portable-version
+    uses: ./.github/workflows/ci-portable-assets.yml
+    with:
+      ref: ${{ github.sha }}
+      version: ${{ needs.portable-version.outputs.version }}

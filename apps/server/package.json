@@ -8,7 +8,7 @@
   },
   "scripts": {
     "dev": "node ../../packages/opencode-release/prepare.mjs --mode development --dev-mode --with-engine-binary --run pnpm run dev:prepared",
-    "test": "bun test src",
+    "test": "node ../../scripts/ci/run-tests.mjs server",
     "test:dev-node": "pnpm build && node --test scripts/dev-node.test.mjs",
     "test:reasoning": "bun scripts/reasoning-smoke.ts",
     "test:artifacts": "bun test src/artifact-files.e2e.test.ts src/workspace-init.test.ts src/server.normalizeWorkspaceRelativePath.test.ts",

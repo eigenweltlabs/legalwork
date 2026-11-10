@@ -22,7 +22,12 @@ LegalWork is a practical control surface for agentic work:
 
 ## Pull Request Expectations (Fast Merge)
 
-If you open a PR, you must run tests and report what you ran (commands + result).
+While developing, run the test that exercises the behavior you changed. Run
+the relevant checks on the finished change before opening a PR and report the
+commands and results. Reuse those results across commits that leave the tested
+inputs unchanged. The merge gate owns platform matrices and package builds.
+For a server runtime dependency change, also run
+`node apps/desktop/scripts/check-server-deps.mjs`.
 
 To maximize merge speed, include evidence of the end-to-end flow, subject to the screenshot and recording privacy rules below:
 

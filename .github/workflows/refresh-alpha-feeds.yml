@@ -2,10 +2,12 @@ name: Refresh alpha update feeds
 
 on:
   release:
-    types: [published, edited, unpublished, deleted]
+    types: [ published, edited, unpublished, deleted ]
   workflow_run:
-    workflows: ["Alpha Channel (macOS arm64)", "Alpha Channel (Windows x64 + ARM64)"]
-    types: [completed]
+    workflows:
+      - Alpha Channel (macOS + Windows)
+      - Alpha Channel (Windows x64 + ARM64)
+    types: [ completed ]
   workflow_dispatch:
 
 permissions:

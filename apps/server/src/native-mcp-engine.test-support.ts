@@ -1,6 +1,7 @@
+import { nativeFixtureDirectory, removeNativeFixtureDirectory } from "./native-fixture-directory.test-support.js";
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readdir, realpath, rm } from "node:fs/promises";
+import { mkdir, readdir, realpath } from "node:fs/promises";
 import { isAbsolute, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
@@ -28,7 +29,7 @@ export async function nativeOAuthProvider(environment: Record<string, string> = 
 
 export async function nativeMcpEngine(configuration: Record<string, unknown> | ((root: string) => Promise<Record<string, unknown>>), parentOwnedRoot?: string) {
   if (!nativeMcpBinary) throw new Error("Released OpenCode binary is required");
-  const root = await realpath(parentOwnedRoot ?? await mkdtemp(join(tmpdir(), "legalwork-native-mcp-")));
+  const root = await realpath(parentOwnedRoot ?? await nativeFixtureDirectory(join(tmpdir(), "legalwork-native-mcp-")));
   for (const name of ["home", "config", "data", "cache", "state", "project", "other"]) await mkdir(join(root, name));
   const directory = join(root, "project"), other = join(root, "other");
   const prepared = typeof configuration === "function" ? await configuration(root) : configuration;
@@ -49,7 +50,7 @@ export async function nativeMcpEngine(configuration: Record<string, unknown> | (
       await engine.close();
       // An external fixture owner removes its root after this process exits.
       if (parentOwnedRoot !== undefined) return;
-      try { await rm(root, { recursive: true, force: true }); }
+      try { await removeNativeFixtureDirectory(root); }
       catch (error) {
         // Observe the original cleanup failure without retrying or masking it.
         try {

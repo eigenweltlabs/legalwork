@@ -48,7 +48,11 @@ export function changeScope(paths) {
     if (/^scripts\/i18n/.test(file)) { enable('i18n', 'tooling'); continue; }
     if (/^scripts\/(ci|release)\//.test(file)) {
       enable('tooling');
-      if (/^scripts\/ci\/(build-opencode|reuse-opencode|cache-opencode|mac-engine)/.test(file)) enable('engine');
+      if (/^scripts\/ci\/production-engine-handoff/.test(file)) enable('engine', 'alpha');
+      if (/^scripts\/ci\/(native-package-artifacts|extract-native-package-cache)/.test(file)) enable('desktop', 'sandbox', 'alpha');
+      if (/^scripts\/ci\/(cache-sandbox-runtime|recover-sandbox-runtime|extract-runtime-artifact)/.test(file)) enable('server', 'desktop', 'sandbox', 'alpha');
+      if (/^scripts\/ci\/(dependency-store|portable-assets|run-tests|run-engine-tests|run-sandbox-tests|sandbox-test-files|test-dependencies|affected-tests|engine-test-contracts|engine-inputs|timing)/.test(file)) enable('app', 'server', 'desktop', 'alpha');
+      if (/^scripts\/ci\/(build-opencode|reuse-opencode|cache-opencode|recover-opencode|production-opencode|mac-engine)/.test(file)) enable('engine');
       continue;
     }
     if (/^scripts\/sandbox\//.test(file)) { enable('server', 'desktop', 'sandbox', 'alpha'); continue; }
@@ -59,7 +63,7 @@ export function changeScope(paths) {
       if (/ci-docx\.yml$/.test(file)) enable('docx');
       if (/ci-legalwork-ui-mcp\.yml$/.test(file)) enable('ui_mcp');
       if (/alpha-|release-macos/.test(file)) enable('alpha');
-      if (/ci-tests|ci-desktop|ci-opencode|ci-windows-opencode|sandbox-runtime|setup-opencode|mac-engine-signing/.test(file)) {
+      if (/ci-tests|ci-engine-tests|ci-prepare-engine-runtime|ci-sandbox-validation|prepare-sandbox-runtime|prepare-electron-native|prepare-windows-arm64-speech|recover-native-package|retain-native-packaging|ci-desktop|ci-portable-assets|install-dependencies|ci-opencode|ci-windows-opencode|sandbox-runtime|test-sandbox-runtime|setup-opencode|mac-engine-signing/.test(file)) {
         enable('app', 'server', 'desktop', 'sandbox');
       }
       if (/ci-tests\.yml$/.test(file)) enable('windows_meetings', 'windows_drafts', 'docs');
@@ -76,7 +80,7 @@ export function changeScope(paths) {
 }
 
 export function eventScope(env = process.env) {
-  if (!['pull_request', 'push'].includes(env.EVENT_NAME) || env.GIT_REF?.startsWith('refs/tags/')) return changeScope(null);
+  if (!['pull_request', 'merge_group', 'push'].includes(env.EVENT_NAME) || env.GIT_REF?.startsWith('refs/tags/')) return changeScope(null);
   // Git failures, deleted branches and unknown SHAs must never hide coverage.
   try { return changeScope(changedPaths(env.BASE_SHA ?? '', env.HEAD_SHA ?? '', env.EVENT_NAME === 'pull_request')); }
   catch (error) { console.warn(`Cannot establish changed files; running all checks: ${error.message}`); return changeScope(null); }

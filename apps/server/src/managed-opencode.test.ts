@@ -1,4 +1,6 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, spyOn, test } from "bun:test";
+import * as childProcess from "node:child_process";
+import { EventEmitter } from "node:events";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -224,10 +226,26 @@ fs.writeFileSync(counter, String(n + 1));
 fs.writeSync(2, "Error: config parse failed\\n");
 process.exit(1);
 `);
-  await expect(
-    createManagedOpencodeServer({ bin, candidateBuild, cwd: dir, env: { FAKE_OPENCODE_COUNTER: counter } }),
-  ).rejects.toThrow(/config parse failed/);
-  expect(Number(readFileSync(counter, "utf8"))).toBe(1); // exactly one attempt
+  // Process exit can precede delivery of the final stderr bytes. Hold the pipe
+  // until exit to exercise that ordering without depending on runner load.
+  const resolvedBin = await realpath(bin);
+  const emit = EventEmitter.prototype.emit;
+  let delayed = false;
+  const emitSpy = spyOn(EventEmitter.prototype, "emit").mockImplementation(function (this: EventEmitter, event: string | symbol, ...args: unknown[]) {
+    if (this instanceof childProcess.ChildProcess && event === "spawn" && this.spawnfile === resolvedBin) {
+      delayed = true;
+      this.stderr?.pause();
+      this.once("exit", () => { setTimeout(() => this.stderr?.resume(), 0); });
+    }
+    return emit.call(this, event, ...args);
+  });
+  try {
+    await expect(
+      createManagedOpencodeServer({ bin, candidateBuild, cwd: dir, env: { FAKE_OPENCODE_COUNTER: counter } }),
+    ).rejects.toThrow(/config parse failed/);
+    expect(delayed).toBe(true);
+    expect(Number(readFileSync(counter, "utf8"))).toBe(1); // exactly one attempt
+  } finally { emitSpy.mockRestore(); }
 }, 20000);
 
 test("a successful HTTP status with a non-API body cannot mark the engine ready", async () => {

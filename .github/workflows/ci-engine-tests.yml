@@ -1,0 +1,238 @@
+name: Native engine integration
+on:
+  workflow_call:
+    inputs:
+      os:
+        type: string
+        required: true
+      arch:
+        type: string
+        required: true
+      local-linux-runtime:
+        type: boolean
+        default: false
+      protected-only:
+        type: boolean
+        default: false
+      host-only:
+        type: boolean
+        default: false
+      focused:
+        type: string
+        default: '[]'
+      host-checks:
+        type: string
+        default: '[]'
+      engine-workers:
+        type: number
+        default: 2
+      engine-required:
+        type: boolean
+        required: true
+      engine-result:
+        type: string
+        required: true
+      manifest-sha256:
+        type: string
+        required: true
+      app:
+        type: boolean
+        required: true
+      server:
+        type: boolean
+        required: true
+      desktop:
+        type: boolean
+        required: true
+      runtime-required:
+        type: boolean
+        required: true
+      runtime-artifact:
+        type: boolean
+        default: false
+      production-engine:
+        type: boolean
+        default: false
+permissions:
+  contents: read
+  actions: read
+jobs:
+  tests:
+    runs-on: ${{ inputs.os }}
+    timeout-minutes: 90
+    env:
+      LEGALWORK_TEST_WORKERS: '2'
+    steps:
+      - name: Require the selected engine check
+        env:
+          ENGINE_REQUIRED: ${{ inputs.engine-required && !inputs.host-only }}
+          ENGINE_RESULT: ${{ inputs.engine-result }}
+        shell: bash
+        run: |
+          if [ "$ENGINE_REQUIRED" = true ]; then test "$ENGINE_RESULT" = success; fi
+
+      - name: Checkout
+        if: inputs.engine-required
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        if: inputs.engine-required
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.22.1
+
+      - name: Setup pnpm
+        if: inputs.engine-required
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.4.0
+
+      - uses: actions/download-artifact@v4
+        if: inputs.engine-result == 'success'
+        with:
+          name: opencode-derivative-ci-${{ runner.os }}
+          path: ${{ runner.temp }}/opencode-derivative
+      - uses: ./.github/actions/setup-merge-engine
+        if: inputs.host-only
+      - uses: ./.github/actions/setup-opencode
+        if: inputs.engine-required && !inputs.host-only
+        with:
+          archive-directory: ${{ inputs.engine-result == 'success' && format('{0}/opencode-derivative/archives', runner.temp) || '' }}
+          manifest-sha256: ${{ inputs.manifest-sha256 }}
+          build-mode: ${{ inputs.production-engine && 'production' || 'development' }}
+          archive-family: "true"
+
+      - name: Setup Bun
+        if: inputs.engine-required
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+
+      - name: Install dependencies
+        if: inputs.engine-required
+        uses: ./.github/actions/install-dependencies
+
+      - name: Prepare checksum-pinned Node for worker tests
+        if: inputs.engine-required
+        run: node apps/desktop/scripts/prepare-node-runtime.mjs
+
+      - name: Build server and native plugins
+        if: inputs.engine-required
+        run: pnpm --filter legalwork-server build
+
+      - uses: ./.github/actions/prepare-sandbox-runtime
+        if: inputs.runtime-required && !inputs.runtime-artifact
+        with:
+          arch: ${{ inputs.arch }}
+          qemu: ${{ inputs.arch == 'arm64' && 'aarch64' || 'x86_64' }}
+          local-guest: ${{ inputs.local-linux-runtime }}
+          publish-runtime: ${{ !inputs.local-linux-runtime }}
+
+      - uses: actions/download-artifact@v4
+        if: inputs.runtime-required && inputs.runtime-artifact
+        with:
+          pattern: sandbox-runtime-v2-${{ runner.os == 'macOS' && 'darwin-arm64' || 'linux-x64' }}-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/sandbox-runtime
+      - name: Unpack exact same-run runtime
+        if: inputs.runtime-required && inputs.runtime-artifact
+        run: |
+          mkdir -p apps/server/resources/agent-sandbox/runtime
+          tar -xzf "$RUNNER_TEMP/sandbox-runtime/sandbox-runtime.tgz" -C apps/server/resources/agent-sandbox/runtime
+      - name: Verify the protected engine fixture's native runtime
+        if: inputs.runtime-required && inputs.protected-only
+        run: node scripts/sandbox/verify-runtime.mjs
+      - uses: ./.github/actions/test-sandbox-runtime
+        if: inputs.runtime-required && !inputs.protected-only
+      - name: Verify the shipped engine uses protected execution
+        if: inputs.runtime-required
+        env:
+          LEGALWORK_SANDBOX_INTEGRATION: '1'
+        run: LEGALWORK_TEST_OPENCODE_BIN="$(command -v opencode)" bun test --preload ./apps/server/test-preload.ts --timeout 180000 apps/server/src/agent-sandbox/engine.integration.test.ts
+
+      # The full server engine suite discovers this case. Preserve its earlier
+      # coverage for runtime-only changes that do not select that full suite.
+      - name: Verify workflow resources with the shipped engine
+        if: inputs.server == false && inputs.runtime-required
+        run: LEGALWORK_TEST_OPENCODE_BIN="$(command -v opencode)" bun test --preload ./apps/server/test-preload.ts --timeout 180000 apps/server/src/opencode-plugins/legalwork-skill-resources.integration.test.ts
+
+      - name: Run desktop unit tests
+        if: inputs.desktop
+        run: pnpm --filter @legalwork/desktop test
+
+      - name: Verify released engine authentication, native plugin modules, and shutdown
+        if: inputs.engine-required && !inputs.host-only
+        run: |
+          node --test apps/desktop/electron/opencode-release.test.mjs
+          bun test --preload ./apps/server/test-preload.ts apps/server/src/managed-opencode.released.test.ts
+
+      - name: Run affected native engine fixtures
+        if: inputs.server == false && inputs.focused != '[]'
+        env:
+          LEGALWORK_TEST_WORKERS: ${{ inputs.engine-workers }}
+          ENGINE_TEST_FILES: ${{ inputs.focused }}
+        run: LEGALWORK_TEST_OPENCODE_BIN="$(command -v opencode)" node --input-type=module -e 'import { runTests } from "./scripts/ci/run-tests.mjs"; process.exitCode = runTests("engine", JSON.parse(process.env.ENGINE_TEST_FILES));'
+
+      - name: Run server engine integration tests
+        env:
+          LEGALWORK_TEST_WORKERS: ${{ inputs.engine-workers }}
+        if: inputs.server
+        run: node scripts/ci/run-engine-tests.mjs
+
+      - name: Verify Node development-server history and restart
+        if: inputs.server || contains(fromJSON(inputs.host-checks), 'dev-node')
+        run: node --test apps/server/scripts/dev-node.test.mjs
+
+      - name: Verify whole-agent prompt cache contract
+        if: inputs.server || contains(fromJSON(inputs.host-checks), 'prompt-cache')
+        env:
+          LEGALWORK_CACHE_CAPTURE: ${{ runner.temp }}/prompt-cache-capture.json
+        run: LEGALWORK_TEST_OPENCODE_BIN="$(command -v opencode)" bun test --preload ./apps/server/test-preload.ts apps/server/scripts/prompt-cache-engine.test.ts
+
+      - name: Upload synthetic prompt cache evidence
+        if: (always()) && (inputs.server)
+        uses: actions/upload-artifact@v4
+        with:
+          name: prompt-cache-${{ runner.os }}
+          path: ${{ runner.temp }}/prompt-cache-capture.json
+
+      - name: Verify HTML preview isolation in Electron
+        if: (runner.os == 'macOS') && (inputs.desktop)
+        run: pnpm --filter @legalwork/desktop test:preview-security
+
+      - name: Verify native RIS PDF rendering and browser download-directory parity
+        if: (runner.os == 'macOS') && (inputs.desktop)
+        run: pnpm --filter @legalwork/desktop test:ris-pdf
+
+      - name: Verify browser batches and project downloads in Electron
+        if: (runner.os == 'macOS') && (inputs.desktop)
+        env:
+          LEGALWORK_BROWSER_TEST_SCREENSHOT: ${{ runner.temp }}/browser-workflow.png
+        run: pnpm --filter @legalwork/desktop test:browser-workflow
+
+      - name: Verify browser network policy in Electron
+        if: (runner.os == 'macOS') && (inputs.desktop)
+        run: pnpm --filter @legalwork/desktop test:browser-network
+
+      - name: Verify native browser observations in hidden Electron
+        if: (runner.os == 'macOS') && (inputs.desktop)
+        run: pnpm --filter @legalwork/desktop test:browser-observation
+
+      - name: Upload browser workflow evidence
+        if: (runner.os == 'macOS') && (inputs.desktop)
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-workflow-evidence
+          path: ${{ runner.temp }}/browser-workflow.png
+
+      - name: Run e2e tests
+        if: inputs.engine-required && (inputs.app || inputs.server || contains(fromJSON(inputs.host-checks), 'app'))
+        run: pnpm --filter @legalwork/app test:e2e
+      - name: Upload CI operation timings
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-timings-${{ github.job }}-${{ runner.os }}-${{ runner.arch }}
+          path: ${{ runner.temp }}/ci-spans.jsonl
+          if-no-files-found: ignore
+          retention-days: 7

@@ -2,11 +2,9 @@ name: legalwork-ui-mcp
 
 on:
   push:
-    branches: [dev]
+    branches: [ dev ]
     tags:
       - "legalwork-ui-mcp-v*"
-  pull_request:
-    branches: [dev, codex/projects-akte-workspace, codex/opencode-v2-migration]
 
 permissions:
   contents: read
@@ -45,14 +43,7 @@ jobs:
           node-version: 24.22.1
           registry-url: https://registry.npmjs.org
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 11.4.0
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile --ignore-scripts
-
+      # Syntax checking and packing this single-file package need no dependency installation.
       - name: Syntax check
         run: node --check index.mjs
 
@@ -82,14 +73,7 @@ jobs:
           node-version: 24.22.1
           registry-url: https://registry.npmjs.org
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 11.4.0
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile --ignore-scripts
-
+      # Syntax checking and packing this single-file package need no dependency installation.
       - name: Syntax check
         run: node --check index.mjs
 

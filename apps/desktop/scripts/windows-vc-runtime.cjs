@@ -26,7 +26,8 @@ function assertWindowsVcRuntime(directory, arch, pin = defaults) {
 
 /** Only retail CRT members enter the app; never extract debug DLLs or arbitrary ZIP paths. */
 function extractWindowsVcRuntime(bytes, arch, pin = defaults) {
-  const { unzipSync } = require("fflate");
+  // Windows sandbox checks install the server workspace and share this worker.
+  const { unzipSync } = require(require.resolve("fflate", { paths: [__dirname, path.resolve(__dirname, "../../server")] }));
   const target = targetFor(arch, pin);
   if (sha256(bytes) !== target.sha256) throw new Error(`Windows ${arch} VC++ archive checksum mismatch`);
   const prefix = `Contents/VC/Redist/MSVC/${pin.directoryVersion}/${arch}/Microsoft.VC143.CRT/`;

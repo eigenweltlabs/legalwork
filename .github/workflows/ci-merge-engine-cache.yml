@@ -1,0 +1,20 @@
+name: Warm Linux merge engine
+on:
+  push:
+    branches: [dev]
+    paths:
+      - .github/workflows/ci-merge-engine-cache.yml
+      - .github/actions/setup-merge-engine/**
+      - .github/actions/setup-opencode/**
+      - packages/opencode-release/**
+permissions:
+  contents: read
+jobs:
+  warm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24.22.1
+      - uses: ./.github/actions/setup-merge-engine

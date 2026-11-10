@@ -21,6 +21,7 @@ function signingFixture(failures = {}) {
         },
       };
       if (name === "node:timers/promises") return { setTimeout: async (ms) => { delays.push(ms); } };
+      if (name === '../../../scripts/ci/timing.cjs') return { recordSpan() {} };
       return require(name);
     },
     process: { env: {
@@ -71,4 +72,5 @@ test("successful notarization still staples and validates without waiting", asyn
     ["xcrun", "stapler", "staple"], ["xcrun", "stapler", "validate"],
   ]);
   assert.deepEqual(fixture.delays, []);
+  assert.deepEqual(fixture.calls[0].slice(1, 6), ['-c', '-k', '--keepParent', '--zlibCompressionLevel', '1']);
 });
