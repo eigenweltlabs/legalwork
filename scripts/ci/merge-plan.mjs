@@ -6,7 +6,8 @@ import { appendFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { changeScope } from './change-scope.mjs';
 import { changedPaths } from './sandbox-changes.mjs';
-import { engineTestFiles } from './run-engine-tests.mjs';
+import { engineTestFiles, engineTestSelection } from './run-engine-tests.mjs';
+import { isTestInput } from './test-dependencies.mjs';
 
 const platforms = ['linux', 'darwin', 'win32'];
 const engineImplementation = /^(?:packages\/opencode-release\/|(?:docs\/)?patches\/[^/]*opencode|scripts\/ci\/(?:[^/]*(?:opencode|mac-engine|engine-reuse|engine-tests|production-engine)[^/]*)|\.github\/(?:workflows\/ci-(?:opencode|engine-tests)|actions\/setup-opencode\/)|apps\/server\/src\/(?:managed-opencode|engine-client|opencode-(?:connection|engine|proxy|client))(?:[./-]|$))/;
@@ -21,14 +22,15 @@ const windowsFile = /windows|win32|\.ps1$|mingw|^scripts\/sandbox\/pe-imports/;
 const macFile = /macos|darwin|entitlements\.plist$/;
 const linuxFile = /linux/;
 
-export function mergePlan(files, { engineDepsChanged = true, realTests = [] } = {}) {
+export function mergePlan(files, { engineDepsChanged = true, realTests = [], affectedEngineTests = [], engineInputsUnknown = false } = {}) {
   const knownWorkspace = /^(?:apps\/(?:app|server|desktop|orchestrator)|packages\/(?:actaport-mcp|legalwork-ui-mcp|openui|types|ui|opencode-release))\//;
   const fallback = files === null || files.some(file => /^(?:apps|packages)\//.test(file) && !knownWorkspace.test(file));
   const paths = files ?? [];
-  const fullEngine = fallback || paths.some(file => !file.endsWith('.md') && (engineImplementation.test(file)
+  const fullEngine = fallback || engineInputsUnknown || paths.some(file => !file.endsWith('.md') && (engineImplementation.test(file)
+    || /^scripts\/ci\/(?:test-dependencies|affected-tests)\.mjs$/.test(file)
     || packageInput.test(file) && engineDepsChanged));
   const targets = new Set(fallback ? platforms : fullEngine ? ['linux'] : []);
-  const focused = new Set();
+  const focused = new Set(affectedEngineTests);
   let runtimeSuite = fullEngine;
   for (const file of paths) {
     if (file.endsWith('.md')) continue;
@@ -124,8 +126,9 @@ export function mergeDiff(env = process.env) {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const { files, engineDepsChanged, docxDepsChanged } = mergeDiff();
-  const realTests = engineTestFiles(path.resolve('apps/server/src')).map(test => path.relative(process.cwd(), test));
-  const plan = mergePlan(files, { engineDepsChanged, realTests });
+  const selection = changeScope(files).server && files.some(file => isTestInput('server', file)) ? engineTestSelection(files)
+    : { realTests: engineTestFiles(path.resolve('apps/server/src')).map(test => path.relative(process.cwd(), test)) };
+  const plan = mergePlan(files, { engineDepsChanged, ...selection });
   const has = pattern => files.some(file => pattern.test(file));
   const host = hostChecks(files);
   const electron = electronChecks(files);

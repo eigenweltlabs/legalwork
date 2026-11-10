@@ -12,8 +12,15 @@ use their existing scopes.
   back to the owning package's portable suite. Shared types select their consumers. Broad server changes use Bun’s
   deterministic two-runner sharding. Each selected file runs once, including
   the isolated startup fixtures.
-- A changed real-engine fixture or its matching implementation selects focused
-  tests on Linux. The runner prepares the reviewed host engine, verifies its
+- Changed inputs select affected real-engine fixtures on Linux. Portable and
+  engine selection share `test-dependencies.mjs`:
+  transitive imports, workspace exports, aliases and literal `new URL(...,
+  import.meta.url)` inputs connect changed files to their tests. Engine fixtures
+  also inherit their engine requirement from imported test helpers. Unknown or
+  deleted engine inputs retain the full engine gate. The planning job installs
+  the frozen server dependency closure without lifecycle scripts when server
+  inputs need analysis; presentation-only changes retain the lightweight path.
+  The runner prepares the reviewed host engine, verifies its
   provenance on cache hits and compiles that host on a miss. Dev warms the
   Linux host cache when its inputs change so PRs can restore it from their base.
   Desktop unit tests use the same verified selector. The full engine suite
@@ -56,7 +63,12 @@ a resolution.
 `node scripts/ci/replay-merge-plan.mjs` replays the 50 pinned GitHub base/head
 pairs from all authors. Run in a checkout with both revisions available. For a
 missing PR head, fetch `refs/pull/NUMBER/head` or the pinned commit. The replay
-counts full-suite selections. It does not measure hosted execution times.
+reads each PR head's source and manifests directly from Git, so later changes
+to the checkout cannot invent historical import relationships. It reports any
+engine selection separately from full engine and sandbox suite selections.
+It does not measure hosted execution times. Computed runtime paths and external
+services still require their existing broad input scopes; import analysis alone
+does not establish equivalent regression detection.
 
 `node scripts/ci/gate-timings.mjs RUN_ID ...` reads Actions job timestamps.
 Supply the run IDs for the chosen cohort, including failures. Replay scores

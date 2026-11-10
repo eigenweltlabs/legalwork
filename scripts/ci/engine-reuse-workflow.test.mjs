@@ -69,6 +69,8 @@ test('real engine job cannot pass by silently skipping all engine fixtures', () 
   const integration = workflow('ci-engine-tests').jobs.tests;
   for (const name of ['engine-tests-linux', 'engine-tests-mac']) assert.match(workflow('ci-tests').jobs[name].if, /needs.changes.outputs.engine == 'true'/);
   const serverTests = integration.steps.find(step => step.name === 'Run server engine integration tests');
+  assert.equal(integration.steps.find(step => step.name === 'Run affected native engine fixtures').env.LEGALWORK_TEST_WORKERS,
+    '${{ inputs.engine-workers }}');
   assert.equal(serverTests.if, 'inputs.server');
   assert.match(serverTests.run, /run-engine-tests.mjs/);
   const files = engineTestFiles(fileURLToPath(new URL('../../apps/server/src', import.meta.url)));
@@ -78,6 +80,11 @@ test('real engine job cannot pass by silently skipping all engine fixtures', () 
   }
   assert.ok(files.some(filename => filename.endsWith('/opencode-plugins/legalwork-skill-resources.integration.test.ts')));
   for (const suffix of ['scheduled-tasks/engine.test.ts', 'managed-opencode.search.e2e.test.ts', 'opencode-plugins/pdf-reading.integration.test.ts']) assert.ok(files.some(filename => filename.endsWith(suffix)), suffix);
+  const planner = workflow('ci-tests').jobs.changes.steps;
+  const prepare = planner.findIndex(step => step.name === 'Prepare the shared dependency analyzer');
+  assert.ok(planner.findIndex(step => step.id === 'scope') < prepare && prepare < planner.findIndex(step => step.id === 'plan'));
+  assert.equal(planner[prepare].if, "steps.scope.outputs.server == 'true'");
+  assert.deepEqual(planner[prepare].with, { 'ignore-scripts': 'true', filter: 'legalwork-server...' });
 });
 
 test('runtime cache hits retain verification and isolation tests while skipping full workspace preparation', () => {

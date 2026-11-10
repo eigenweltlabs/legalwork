@@ -169,6 +169,7 @@ jobs:
       - name: Run affected native engine fixtures
         if: inputs.server == false && inputs.focused != '[]'
         env:
+          LEGALWORK_TEST_WORKERS: ${{ inputs.engine-workers }}
           ENGINE_TEST_FILES: ${{ inputs.focused }}
         run: LEGALWORK_TEST_OPENCODE_BIN="$(command -v opencode)" node --input-type=module -e 'import { runTests } from "./scripts/ci/run-tests.mjs"; process.exitCode = runTests("engine", JSON.parse(process.env.ENGINE_TEST_FILES));'
 
