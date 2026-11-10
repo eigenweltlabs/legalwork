@@ -22,7 +22,7 @@ During migration, the startup screen shows the current stage and project, with a
 
 **Set up from existing files**, when selected, starts an assistant chat to inspect the chosen material and establish the project. It can fill supported project details, identify concrete tasks and add useful source notes. Leave it off to create/link the project without starting that work. Review any extracted details and dates against their sources.
 
-On **Project Home**, open **Project details**. An empty record field with a quick action shows its **Add** button. Choose or create a record and select **Save changes**. Click a filled field’s record name to update its selection. Clients from linked matters appear with **via [matter name]** unless already linked directly.
+On **Project Home**, open **Project details**. Click **Not set** beside a record field or click a linked record’s name to open its dropdown. Search for a record or choose **Create** to add one. A single selection saves immediately. For a field that allows several records, choose them and click **Apply**. Clients from linked matters appear with **via [matter name]** unless already linked directly.
 
 In **Customize fields**, choose **Add field**, enter its **Field name** and choose its **Field type**. Enter its **Content** now or later. For a selection field, enter its comma-separated options first. For a record field, choose the Back Office object and select or create a record.
 

@@ -6,17 +6,16 @@ import { Command, CommandInput, CommandItem, CommandList } from "@/components/ui
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { t } from "@/i18n";
 import { matchesProjectReferenceFilters, type ProjectReferenceFilters } from "@legalwork/types/workspace";
-import { matterPickerOptions, recentMatterIds } from "../workspace/matter-picker-options";
 import { useRecordCreation } from "./record-creation-context";
-import { creatableRecordObject } from "./record-creation-values";
+import { creatableRecordObject, relationPickerOptions } from "./record-creation-values";
 import { displayBackOfficeObject } from "./labels";
 import { ObjectIcon } from "./object-icon";
 import { RecordCreateForm } from "./record-create-form";
 import { BackOfficeTheme } from "./twenty-controls";
 
-export function RecordCreateRelation({ field, value, disabled, inline = false, creationFilters, onCreatingChange, onChange, onSubmit }: {
+export function RecordCreateRelation({ field, value, disabled, creationFilters, onCreatingChange, onChange, onSubmit }: {
   field: BackOfficeField; value: BackOfficeValue | undefined; disabled: boolean;
-  inline?: boolean; creationFilters?: ProjectReferenceFilters | null; onCreatingChange?: (creating: boolean) => void;
+  creationFilters?: ProjectReferenceFilters | null; onCreatingChange?: (creating: boolean) => void;
   onChange: (value: BackOfficeValue) => void; onSubmit: () => void;
 }) {
   const creation = useRecordCreation();
@@ -25,14 +24,10 @@ export function RecordCreateRelation({ field, value, disabled, inline = false, c
   const object = creation?.state.model.objects.find(object => object.id === field.target);
   const records = creation?.state.records.filter(record => record.objectId === field.target && !record.archivedAt && Boolean(object && matchesProjectReferenceFilters(record, object, creationFilters))) ?? [];
   const target = creatableRecordObject(creation?.state, field.target);
-  const recordIds = new Set(records.map(record => record.id));
   const selected = Array.isArray(value) ? value.filter(item => typeof item === "string") : typeof value === "string" ? [value] : [];
   const setSelection = (ids: string[]) => onChange(field.multiple ? ids : ids[0] ?? null);
   const scope = JSON.stringify([creation?.client.baseUrl, creation?.state.directoryId, creation?.state.permissions.userId, creation?.state.permissions.principalKey, creation?.state.permissions.replicaId]);
-  const options = field.target === "matters"
-    ? matterPickerOptions(creation?.state.records ?? [], query, recentMatterIds(scope)).filter(item => recordIds.has(item.record.id))
-      .map(({ record, clientNames, reference }) => ({ record, subtitle: [clientNames.join(", "), reference && t("projects.matters.reference", { reference })].filter(Boolean).join(" · ") }))
-    : records.filter(record => String(record.values.name).toLocaleLowerCase().includes(query.trim().toLocaleLowerCase())).map(record => ({ record, subtitle: "" }));
+  const options = relationPickerOptions(records, query, field.target === "matters" ? scope : undefined, creation?.state.records);
   const content =
     <div className="w-full" onKeyDownCapture={event => {
           if (!creating && event.key === "Enter" && (event.metaKey || event.ctrlKey) && !event.nativeEvent.isComposing) {
@@ -40,7 +35,6 @@ export function RecordCreateRelation({ field, value, disabled, inline = false, c
           }
         }} onKeyDown={event => {
           if (event.key === "Escape") {
-            if (inline) return;
             event.preventDefault(); setOpen(false); setQuery("");
           }
           event.stopPropagation();
@@ -63,7 +57,6 @@ export function RecordCreateRelation({ field, value, disabled, inline = false, c
           </CommandList>
         </Command>}
       </div>;
-  if (inline) return content;
   return <div className="bo-create-relation">
     {selected.map(id => <span className="inline-flex min-w-0 items-center gap-1 rounded border px-1.5 py-0.5 text-xs" key={id}>
       <ObjectIcon id={field.target ?? ""} size={13} />

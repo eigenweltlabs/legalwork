@@ -90,7 +90,8 @@ async function enter(label: string, modifier?: "metaKey" | "ctrlKey") {
 try {
   setLocale("en");
   await render();
-  assert.ok(!document.body.textContent?.includes("Not set"), "Empty template fields are kept out of the form");
+  const officesTrigger = document.querySelector('button[aria-label="Edit Offices"]');
+  assert.ok(officesTrigger?.closest("details:not([open])"), "Optional template fields start inside collapsed project details");
   assert.ok(!document.body.textContent?.includes("Add Person"));
   assert.ok(!document.body.textContent?.includes("Add Organisation"));
   assert.ok(button(t("projects.customize_connections")));

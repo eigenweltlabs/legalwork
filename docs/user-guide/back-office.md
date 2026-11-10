@@ -40,7 +40,7 @@ Drag a Kanban card onto another stage to update its grouping field. The card mov
 
 The default **Legal Matter** template has optional **Matters** and **Client** links. Matter number, status, practice area and matter clients live on the linked matter. Use **Client** for a direct project assignment. Untouched starter templates update for future projects. Saved project values and customized templates are preserved.
 
-On **Project Home > Project details**, choose the field’s **Add** button or its current record, select or create records, then choose **Save changes**. Clients of linked matters appear with **via [matter name]**. Several projects can link the same record.
+On **Project Home > Project details**, click **Not set** or the current record name to open the same searchable dropdown as the Back Office table. Choose a record or create one there. A single selection saves immediately. For multiple records, choose **Apply**. Clients of linked matters appear with **via [matter name]**. Several projects can link the same record.
 
 Choose **Customize fields > Add field** for a custom role or field. A People field named Witnesses selects People records. Under **Selection settings**, set the selection rules, allow multiple records, or enable **Show as a quick action**. Each shortcut fills that specific field. The arrow beside a linked record opens it in Back Office. Its × removes the project link.
 

@@ -3,10 +3,10 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowUpRight, ChevronDown, X } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { BackOfficeFieldSchema, isInternalBackOfficeObject, type BackOfficeValue } from "@legalwork/types/back-office";
-import type { ProjectField, ProjectRecordReference } from "@legalwork/types/workspace";
+import { Button } from "twenty-ui/primitives/input";
+import { Popover } from "twenty-ui/primitives/surfaces";
+import { BackOfficeFieldSchema, isInternalBackOfficeObject } from "@legalwork/types/back-office";
+import { matchesProjectReferenceFilters, type ProjectField, type ProjectRecordReference } from "@legalwork/types/workspace";
 import { LegalworkServerError, type LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { projectErrorMessage } from "./project-errors";
 import { t } from "@/i18n";
@@ -14,10 +14,9 @@ import { onSyncPoke } from "@/react-app/kernel/sync-events";
 import "../back-office/back-office.css";
 import { loadBackOfficeState, type BackOfficeState } from "../back-office/api";
 import { rememberMatter } from "./matter-picker-options";
-import { projectQuickActionLabel } from "./project-connections";
-import { ObjectIcon } from "../back-office/object-icon";
+import { BackOfficeTheme, DirectoryEditorPopup } from "../back-office/twenty-controls";
 import { projectFieldLabel } from "./project-defaults-store";
-import { RecordCreateRelation } from "../back-office/record-create-relation";
+import { CellEditor } from "../back-office/cell-editor";
 import { displayBackOfficeObject } from "../back-office/labels";
 
 export function useProjectBackOffice(client?: LegalworkServerClient | null) {
@@ -45,64 +44,66 @@ export function ProjectRecordField({ field, client, onSave }: {
 }) {
   const directory = useProjectBackOffice(client), navigate = useNavigate();
   const data = directory.data, object = projectReferenceObjects(data).find(object => object.id === field.objectId);
-  const [edit, setEdit] = useState<{ field: RecordField; value: BackOfficeValue; onSave: SaveReference; directoryId: string } | null>(null);
-  const [error, setError] = useState(""), [busy, setBusy] = useState(false), [creating, setCreating] = useState(false), [conflict, setConflict] = useState(false);
+  const [edit, setEdit] = useState<{ field: RecordField; directoryId: string; onSave: SaveReference; version: number } | null>(null);
+  const [error, setError] = useState(""), [busy, setBusy] = useState(false), [conflict, setConflict] = useState(false);
   const saving = useRef(false);
   const scope = JSON.stringify([client?.baseUrl, data?.directoryId, data?.permissions.userId, data?.permissions.principalKey, data?.permissions.replicaId]);
   useEffect(() => { setEdit(null); setError(""); setConflict(false); }, [scope]);
+  const foreign = Boolean(field.value && field.value.directoryId !== data?.directoryId);
   const begin = () => {
-    if (!data?.directoryId) return;
-    setEdit({ field, value: field.value?.directoryId === data.directoryId ? field.value.recordIds : [], onSave, directoryId: data.directoryId });
+    if (!object || !data?.directoryId || foreign) return;
+    const directoryId = data.directoryId;
+    setEdit(current => ({ field, directoryId, onSave, version: (current?.version ?? 0) + 1 }));
     setError(""); setConflict(false);
   };
-  const save = async (value: ProjectRecordReference | null, persist: SaveReference, close = false) => {
-    if (saving.current) return;
+  const persist = async (save: SaveReference, value: ProjectRecordReference | null) => {
     saving.current = true; setBusy(true); setError("");
-    try {
-      await persist(value);
-      if (close) {
-        if (edit?.field.objectId === "matters") value?.recordIds.forEach(id => rememberMatter(scope, id));
-        setEdit(null);
-      }
-    }
-    catch (error) { setConflict(error instanceof LegalworkServerError && error.code === "project_changed"); setError(projectErrorMessage(error)); }
+    try { await save(value); }
     finally { saving.current = false; setBusy(false); }
   };
-  const apply = () => {
-    if (!edit || creating || conflict) return;
-    const ids = Array.isArray(edit.value) ? edit.value.filter(item => typeof item === "string") : typeof edit.value === "string" ? [edit.value] : [];
-    void save(ids.length ? { directoryId: edit.directoryId, recordIds: ids } : null, edit.onSave, true);
-  };
   const records = data?.records ?? [], label = projectFieldLabel(field);
-  const foreign = Boolean(field.value && field.value.directoryId !== data?.directoryId);
-  return <RecordCreationProvider client={client} state={data}>
-    <Popover open={edit !== null} onOpenChange={open => { if (saving.current) return; if (open) begin(); else setEdit(null); }}>
+  const canEdit = !busy && !foreign && Boolean(object && data?.directoryId);
+  const selected = edit?.field.value?.recordIds ?? [];
+  const selectable = edit && object ? records.filter(record => record.objectId === edit.field.objectId &&
+    (selected.includes(record.id) || matchesProjectReferenceFilters(record, object, edit.field.filters))) : [];
+  return <RecordCreationProvider client={client} state={data}><BackOfficeTheme>
+    <Popover.Root open={edit !== null} onOpenChange={open => { if (!saving.current) { if (open) begin(); else setEdit(null); } }}>
       <div className="flex min-h-8 min-w-0 flex-wrap items-center gap-1">
         {field.value?.recordIds.map(id => {
           const record = !foreign ? records.find(record => record.id === id && record.objectId === field.objectId) : undefined;
           const name = record ? String(record.values.name) : t("projects.reference.unavailable");
-          return <span key={id} className="inline-flex max-w-full min-w-0 items-center gap-0.5 rounded-md border bg-muted/30 py-0.5 pl-1 pr-0.5">
-            <PopoverTrigger render={<Button type="button" size="sm" variant="ghost" className="h-6 min-w-0 shrink justify-start px-1.5 text-xs font-normal" disabled={busy || foreign || !object || !data?.directoryId} aria-label={`${t("projects.edit_value", { name: label })}: ${name}`} title={name}><span className="truncate">{name}</span></Button>} />
-            {record && <Button type="button" size="icon-xs" variant="ghost" className="shrink-0" aria-label={t("projects.reference.open_record", { name })} title={t("projects.reference.open_record", { name })} onClick={() => navigate(`/back-office/${encodeURIComponent(record.objectId)}?record=${record.id}`)}><ArrowUpRight className="size-3" /></Button>}
-            <Button type="button" size="icon-xs" variant="ghost" className="shrink-0" disabled={busy} aria-label={t("projects.remove_reference", { name, field: label })} title={t("projects.remove_reference", { name, field: label })} onClick={() => {
-              if (!field.value) return;
+          return <span key={id} className="inline-flex max-w-full min-w-0 items-center">
+            <Popover.Trigger render={<Button type="button" size="sm" variant="ghost" disabled={!canEdit} title={name} aria-label={`${t("projects.edit_value", { name: label })}: ${name}`} endIcon={<ChevronDown size={12} />}><span className="truncate">{name}</span></Button>} />
+            {record && <Button type="button" size="sm" variant="ghost" aria-label={t("projects.reference.open_record", { name })} onClick={() => navigate(`/back-office/${encodeURIComponent(record.objectId)}?record=${record.id}`)} startIcon={<ArrowUpRight size={12} />} />}
+            <Button type="button" size="sm" variant="ghost" disabled={busy} aria-label={t("projects.remove_reference", { name, field: label })} onClick={() => {
+              if (saving.current || !field.value) return;
               const remaining = field.value.recordIds.filter(recordId => recordId !== id);
-              void save(remaining.length ? { ...field.value, recordIds: remaining } : null, onSave);
-            }}><X className="size-3" /></Button>
+              void persist(onSave, remaining.length ? { ...field.value, recordIds: remaining } : null).catch(reason => setError(projectErrorMessage(reason)));
+            }} startIcon={<X size={12} />} />
           </span>;
         })}
-        {!field.value && <PopoverTrigger render={field.quickAction
-          ? <Button type="button" size="sm" variant="outline" disabled={busy || !object || !data?.directoryId}><ObjectIcon id={field.objectId} size={14} />{projectQuickActionLabel(field)}</Button>
-          : <Button type="button" size="sm" variant="ghost" className="h-6 min-w-0 truncate px-1.5 text-xs font-normal" disabled={busy || !object || !data?.directoryId} aria-label={t("projects.edit_value", { name: label })}>{t("projects.connections.choose_records")}<ChevronDown className="size-3" /></Button>} />}
-        {!edit && error && <p role="alert" className="text-xs text-destructive">{error}</p>}
+        {!field.value?.recordIds.length && <Popover.Trigger render={<Button type="button" size="sm" variant="ghost" disabled={!canEdit} aria-label={t("projects.edit_value", { name: label })} endIcon={<ChevronDown size={12} />}>{t("projects.empty_value")}</Button>} />}
+        {error && <p role="alert" className="text-xs text-destructive">{error}</p>}
       </div>
-      <PopoverContent align="start" className="w-[min(400px,calc(100vw-32px))] max-h-[70vh] overflow-y-auto p-2">
-        {edit && <RecordCreateRelation inline field={BackOfficeFieldSchema.parse({ id: "projectReference", label: projectFieldLabel(edit.field), type: "relation", target: edit.field.objectId, multiple: edit.field.multiple })}
-          value={edit.value} creationFilters={edit.field.filters} disabled={busy} onChange={value => setEdit(current => current ? { ...current, value } : null)} onCreatingChange={setCreating} onSubmit={apply} />}
-        {error && <p role="alert" className="p-2 text-xs text-destructive">{error}</p>}
-        {conflict && <Button type="button" variant="outline" size="sm" onClick={begin}>{t("projects.reload_fields")}</Button>}
-        {!creating && <div className="mt-2 flex justify-end gap-2 border-t pt-2"><Button type="button" variant="ghost" size="sm" disabled={busy} onClick={() => setEdit(null)}>{t("projects.cancel")}</Button><Button type="button" size="sm" disabled={busy || conflict} onClick={apply}>{t("projects.save")}</Button></div>}
-      </PopoverContent>
-    </Popover>
-  </RecordCreationProvider>;
+      {edit && <Popover.Portal><Popover.Positioner align="start" sideOffset={4}><DirectoryEditorPopup>
+        <fieldset disabled={conflict} className="min-w-0"><CellEditor key={edit.version}
+          field={BackOfficeFieldSchema.parse({ id: "projectReference", label: projectFieldLabel(edit.field), type: "relation", target: edit.field.objectId, multiple: edit.field.multiple })}
+          value={edit.field.multiple ? selected : selected[0] ?? null} records={selectable} creationFilters={edit.field.filters}
+          projectScope={scope}
+          onCancel={() => { if (!saving.current) setEdit(null); }}
+          onSave={async value => {
+            if (saving.current || edit.directoryId !== data?.directoryId) throw new Error(t("projects.matters.selection_changed"));
+            const ids = Array.isArray(value) ? value.filter(item => typeof item === "string") : typeof value === "string" ? [value] : [];
+            try { await persist(edit.onSave, ids.length ? { directoryId: edit.directoryId, recordIds: ids } : null); }
+            catch (reason) {
+              if (reason instanceof LegalworkServerError && reason.code === "project_changed") setConflict(true);
+              throw new Error(projectErrorMessage(reason));
+            }
+            if (edit.field.objectId === "matters") ids.forEach(id => rememberMatter(scope, id));
+          }}
+        /></fieldset>
+        {conflict && <Button type="button" size="sm" variant="ghost" onClick={begin}>{t("projects.reload_fields")}</Button>}
+      </DirectoryEditorPopup></Popover.Positioner></Popover.Portal>}
+    </Popover.Root>
+  </BackOfficeTheme></RecordCreationProvider>;
 }

@@ -19,8 +19,8 @@ export function rememberMatter(scope: string, id: string) {
   catch { /* Selection still works when local preferences cannot be saved. */ }
 }
 
-export function matterPickerOptions(records: BackOfficeRecord[], query: string, recentIds: string[]) {
-  const clients = new Map(records.filter(record => record.objectId === "clients" && !record.archivedAt).map(record => [record.id, record]));
+export function matterPickerOptions(records: BackOfficeRecord[], query: string, recentIds: string[], clientRecords = records) {
+  const clients = new Map(clientRecords.filter(record => record.objectId === "clients" && !record.archivedAt).map(record => [record.id, record]));
   const recent = new Map(recentIds.map((id, index) => [id, index]));
   const words = query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
   return records.filter(record => record.objectId === "matters" && !record.archivedAt).map(record => {

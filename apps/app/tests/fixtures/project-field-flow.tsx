@@ -140,7 +140,8 @@ try {
   await render(<ProjectProperties client={client} fields={[empty, reference, primary]} onSave={async (id, value) => { values.push({ id, value }); }} />);
   assert.ok(document.body.textContent?.includes(empty.label), "An intentionally empty custom field remains visible");
   assert.ok(document.body.textContent?.includes(reference.label), "An intentionally empty reference role remains visible");
-  assert.ok(button("Add Matter"));
+  assert.equal(button("Edit Matters").textContent?.trim(), t("projects.empty_value"));
+  assert.ok(![...document.querySelectorAll("button")].some(item => item.textContent?.trim() === "Add Matter"));
   await click(t("projects.edit_value", { name: empty.label }));
   await type(empty.label, "Filled from Home"); await key(empty.label, "Enter");
   assert.deepEqual(values, [{ id: empty.id, value: "Filled from Home" }]);
@@ -154,17 +155,27 @@ try {
   await render(<ProjectProperties client={client} fields={[quickRole]} onSave={async (_id, value) => {
     oldValues.push(value); throw new LegalworkServerError(409, "project_changed", "Changed elsewhere");
   }} />);
-  await click("Add Witnesses");
+  await click("Edit Witnesses");
   const peopleSearch = t("back_office.create.search", { name: reference.label });
   await type(peopleSearch, "Alice"); await key(peopleSearch, "Enter");
   await render(<ProjectProperties client={client} fields={[quickRole]} onSave={async (_id, value) => { freshValues.push(value); }} />, true);
-  await click(t("projects.save"));
-  assert.equal(oldValues.length, 1, "An open quick action retains the starting revision");
+  await click("Apply");
+  assert.equal(oldValues.length, 1, "An open field selector retains the starting revision");
   assert.equal(freshValues.length, 0);
-  assert.equal(button(t("projects.save")).disabled, true);
+  assert.ok(button("Apply").closest("fieldset:disabled"), "The stale selection cannot be applied twice");
   await click(t("projects.reload_fields"));
   await type(peopleSearch, "Alice"); await key(peopleSearch, "Enter");
-  await click(t("projects.save"));
+  await click("Apply");
   assert.deepEqual(freshValues, [{ directoryId: "local:field-fixture", recordIds: [alice.id] }]);
+  const single = { ...quickRole, multiple: false };
+  await render(<ProjectProperties client={client} fields={[single]} onSave={async (_id, value) => { freshValues.push(value); }} />);
+  await click("Edit Witnesses");
+  await type(peopleSearch, "Alice");
+  const candidate = document.querySelector<HTMLButtonElement>('.bo-choices [role="option"]');
+  assert.ok(candidate?.textContent?.includes("Alice"));
+  await act(async () => candidate!.click());
+  assert.equal(freshValues.length, 2, "A single selection saves directly from the dropdown");
+  assert.deepEqual(freshValues[1], { directoryId: "local:field-fixture", recordIds: [alice.id] });
+  assert.equal(document.querySelector(".bo-editor-popup"), null);
   console.log("Project field flow passed");
 } finally { await act(async () => root.unmount()); cache.clear(); store.close(); await window.happyDOM.close(); }

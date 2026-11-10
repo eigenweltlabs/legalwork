@@ -84,8 +84,8 @@ try {
 
   await render(true);
   assert.ok(document.body.textContent?.includes("Witnesses"), "Intentional empty roles remain visible on Home");
-  assert.ok(!document.body.textContent?.includes("Not set"));
-  await click("Add Matter");
+  assert.equal(button("Edit Client").textContent?.trim(), t("projects.empty_value"));
+  await click("Edit Matters");
   await type("Search Matters…", "ABC 042");
   assert.ok(document.body.textContent?.includes("ABC GmbH · Ref. 2026/042"));
   await key("Search Matters…", "Enter");
@@ -95,16 +95,16 @@ try {
   assert.ok(document.body.textContent?.includes("Clients from linked matters"));
   assert.ok(document.body.textContent?.includes("via Acquisition"));
   assert.equal(savedFields.filter(field => field.type === "backoffice" && field.objectId === "clients" && field.value !== null).length, 0, "Inherited clients are displayed, not copied into project data");
-  await click("Add Lead");
+  await click("Edit Lead");
   await type("Search Lead…", "Alice");
   await key("Search Lead…", "Enter");
   await key("Search Lead…", "Enter", true);
   assert.equal(savedFields.find(field => field.id === "people")?.value, null, "Named role remains unchanged");
   assert.deepEqual(savedFields.find(field => field.id === "lead")?.value, { directoryId: "local:fixture", recordIds: [alice.id] });
-  await click("Add Client");
+  await click("Edit Client");
   await type("Search Client…", "New client");
   await key("Search Client…", "Enter");
-  assert.ok(![...document.querySelectorAll("button")].some(item => item.textContent?.trim() === t("projects.save")), "Outer action is hidden during nested creation");
+  assert.ok(![...document.querySelectorAll("button")].some(item => item.textContent?.trim() === "Apply"), "Outer action is hidden during nested creation");
   await key("Client name", "Enter", true);
   assert.equal(writes, 2);
   await key("Search Client…", "Enter", true);

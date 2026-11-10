@@ -13,7 +13,7 @@ import type {
 } from "@legalwork/types/back-office";
 import { DirectorySelect } from "./twenty-controls";
 import { useRecordCreation } from "./record-creation-context";
-import { creatableRecordObject } from "./record-creation-values";
+import { creatableRecordObject, relationPickerOptions } from "./record-creation-values";
 import { RecordCreateForm } from "./record-create-form";
 import { displayBackOfficeObject } from "./labels";
 import type { ProjectReferenceFilters } from "@legalwork/types/workspace";
@@ -31,6 +31,7 @@ export function CellEditor({
   onSave,
   onCancel,
   creationFilters,
+  projectScope,
 }: {
   field: BackOfficeField;
   record?: BackOfficeRecord;
@@ -39,6 +40,7 @@ export function CellEditor({
   onSave: (value: BackOfficeValue) => Promise<void>;
   onCancel: () => void;
   creationFilters?: ProjectReferenceFilters | null;
+  projectScope?: string;
 }) {
   const creation = useRecordCreation();
   const target = field.type === "relation" ? creatableRecordObject(creation?.state, field.target) : undefined;
@@ -73,27 +75,31 @@ export function CellEditor({
       setSaving(false);
     }
   };
-  const options =
-    field.type === "relation"
-      ? [...new Map([...created, ...records].map(record => [record.id, record])).values()]
-          .filter(
-            (record) => record.objectId === field.target && !record.archivedAt,
-          )
-          .sort((a, b) => {
-            const left = selected.indexOf(a.id), right = selected.indexOf(b.id);
-            return (left < 0 ? selected.length : left) - (right < 0 ? selected.length : right);
-          })
-          .map((record) => ({
-            id: record.id,
-            label: String(record.values.name ?? ""),
-          }))
-      : field.options.map((option) => ({ id: option, label: option }));
+  const search = query.trim().toLocaleLowerCase();
+  const matchesName = (name: string) => name.toLocaleLowerCase().includes(search);
+  let options: { id: string; label: string; subtitle?: string }[];
+  if (field.type === "relation") {
+    const available = [...new Map([...created, ...records].map(item => [item.id, item])).values()]
+      .filter(item => item.objectId === field.target && !item.archivedAt);
+    options = relationPickerOptions(available, query, field.target === "matters" ? projectScope : undefined, creation?.state.records)
+      .map(({ record, subtitle }) => ({ id: record.id, label: String(record.values.name ?? ""), subtitle }))
+      .sort((a, b) => {
+        const left = selected.indexOf(a.id), right = selected.indexOf(b.id);
+        return (left < 0 ? selected.length : left) - (right < 0 ? selected.length : right);
+      });
+  } else {
+    options = field.options.filter(matchesName).map(option => ({ id: option, label: option }));
+  }
   const multiple = field.multiple || field.type === "multiselect";
   const isChoices =
     field.type === "relation" ||
     field.type === "select" ||
     (field.type === "multiselect" && field.options.length > 0);
-  if (creating && target) return <RecordCreateForm object={displayBackOfficeObject(target)} name={query.trim()} filters={creationFilters} onCancel={() => setCreating(false)} onCreated={async record => {
+  const choose = (id: string) => {
+    if (multiple) setSelected(current => current.includes(id) ? current.filter(item => item !== id) : [...current, id]);
+    else void save(id);
+  };
+  if (creating && target) return <RecordCreateForm object={displayBackOfficeObject(target)} name={query.trim()} filters={creationFilters} persistenceNotice={projectScope ? t("back_office.create.persistence_notice") : undefined} onCancel={() => setCreating(false)} onCreated={async record => {
     setCreated(current => [record, ...current]);
     setQuery(""); setCreating(false);
     if (multiple) setSelected(current => [record.id, ...current.filter(id => id !== record.id)]);
@@ -115,6 +121,19 @@ export function CellEditor({
       aria-label={`Edit ${field.label}`}
       onKeyDown={(event) => {
         if (event.key === "Escape") onCancel();
+        if (projectScope && multiple && event.key === "Enter" && (event.ctrlKey || event.metaKey) && !event.nativeEvent.isComposing) {
+          event.preventDefault();
+          if (!event.repeat && !saving) void save(selected);
+        }
+        if (projectScope && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
+          const choices = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="option"], .bo-create-option')];
+          const index = choices.indexOf(event.target as HTMLButtonElement);
+          if (choices.length) {
+            event.preventDefault();
+            const next = event.key === "ArrowDown" ? index + 1 : (index < 0 ? -1 : index - 1);
+            choices.at(next % choices.length)?.focus();
+          }
+        }
         event.stopPropagation();
       }}
     >
@@ -154,10 +173,17 @@ export function CellEditor({
                 ref={focusEditorInput}
                 size="sm"
                 variant="plain"
-                aria-label={`Search ${field.label}`}
+                aria-label={projectScope ? t("back_office.create.search", { name: field.label }) : `Search ${field.label}`}
                 placeholder="Search…"
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
+                onKeyDown={event => {
+                  if (!projectScope || event.key !== "Enter" || event.ctrlKey || event.metaKey || event.nativeEvent.isComposing) return;
+                  event.preventDefault();
+                  if (event.repeat || saving) return;
+                  if (options.length) choose(options[0].id);
+                  else if (target) setCreating(true);
+                }}
               />
             </div>
             <div className="bo-choices">
@@ -172,15 +198,7 @@ export function CellEditor({
                 </ListItem>
               )}
 
-              {options
-                .filter(
-                  (option) =>
-                    !query ||
-                    option.label
-                      .toLocaleLowerCase()
-                      .includes(query.toLocaleLowerCase()),
-                )
-                .map((option) => (
+              {options.map((option) => (
                   <ListItem
                     key={option.id}
                     render={<button type="button" disabled={saving} />}
@@ -197,17 +215,12 @@ export function CellEditor({
                         />
                       ) : undefined
                     }
-                    onClick={() => {
-                      if (multiple)
-                        setSelected((current) =>
-                          current.includes(option.id)
-                            ? current.filter((id) => id !== option.id)
-                            : [...current, option.id],
-                        );
-                      else void save(option.id);
-                    }}
+                    onClick={() => choose(option.id)}
                   >
-                    {option.label}
+                    {option.subtitle ? <span className="block min-w-0">
+                      <span className="block truncate">{option.label}</span>
+                      <small className="bo-muted block truncate" title={option.subtitle}>{option.subtitle}</small>
+                    </span> : option.label}
                   </ListItem>
                 ))}
               {!options.length && (
