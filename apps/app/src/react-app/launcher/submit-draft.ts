@@ -1,4 +1,4 @@
-import type { AssistantSubmitInput } from "@legalwork/types/launcher";
+import type { AssistantSubmitInput, LauncherOutputIntent } from "@legalwork/types/launcher";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { DraftCoordinator } from "./draft-coordinator";
 import { createSubmissionIdentity } from "./submission-identity";
@@ -8,7 +8,8 @@ export async function submitAssistantDraft(options: {
   client: Pick<LegalworkServerClient, "submitAssistantMessage">;
   drafts: DraftCoordinator; conversationId: string; owner: string;
   input: Omit<AssistantSubmitInput, "requestId" | "messageId">; retry?: boolean;
-  beforeSend?: (input: AssistantSubmitInput) => Promise<void>;
+  outputIntent?: Pick<LauncherOutputIntent, "output" | "originId">;
+  beforeSend?: (input: AssistantSubmitInput, outputIntent?: Pick<LauncherOutputIntent, "output" | "originId">) => Promise<void>;
   identity?: { requestId: string; messageId: string };
   preserveDraft?: boolean;
 }) {
@@ -24,10 +25,11 @@ export async function submitAssistantDraft(options: {
     const candidate = retrying && pending?.input ? pending.input : options.input;
     const input = reuse && pending?.input ? pending.input : { ...candidate, ...(options.identity ?? createSubmissionIdentity()) };
     const draftSnapshot = retrying ? pending?.draftSnapshot : options.preserveDraft ? undefined : { text: draft.text, context: draft.context };
-    const operation = { requestId: input.requestId, messageId: input.messageId, input, draftSnapshot };
+    const outputIntent = retrying ? pending?.outputIntent : options.outputIntent;
+    const operation = { requestId: input.requestId, messageId: input.messageId, input, draftSnapshot, ...(outputIntent ? { outputIntent } : {}) };
     await drafts.update(conversationId, owner, { submission: { ...operation, state: "sending" } });
     // Record automatic output before dispatch, using the exact frozen identity.
-    try { await options.beforeSend?.(input); }
+    try { await options.beforeSend?.(input, outputIntent); }
     catch (error) {
       // A failed local preparation must not turn an already dispatched retry
       // into a new identity: its earlier delivery may still have succeeded.

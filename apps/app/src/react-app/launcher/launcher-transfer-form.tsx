@@ -4,10 +4,10 @@ import { Button } from "@/components/ui/button";
 import { LauncherFolderPicker } from "./launcher-folder-picker";
 import { t } from "@/i18n";
 import { useLauncherShell } from "./launcher-shell";
-import { LauncherForm, LauncherSubmitHint } from "./launcher-form";
+import { LauncherForm, LauncherSubmitHint, type LauncherFormState } from "./launcher-form";
 
 export type LauncherTransfer = { items: LauncherSearchResult[]; workspaceId: string; folder: string; mode: "copy" | "move" };
-export function LauncherTransferForm({ transfer, onClose }: { transfer: LauncherTransfer; onClose: () => void }) {
+export function LauncherTransferForm({ transfer, onClose, onFormStateChange }: { transfer: LauncherTransfer; onClose: () => void; onFormStateChange?: (state: LauncherFormState) => void }) {
   const { client, workspaces } = useLauncherShell();
   const [folder, setFolder] = useState(transfer.folder);
   const [remaining, setRemaining] = useState(transfer.items);
@@ -28,7 +28,7 @@ export function LauncherTransferForm({ transfer, onClose }: { transfer: Launcher
     } catch (error) { setError(error instanceof Error ? error.message : String(error)); }
     finally { running.current = false; setBusy(false); }
   };
-  return <LauncherForm title={t(transfer.mode === "copy" ? "launcher.result_action.copy-to-project" : "launcher.result_action.move-to-project")} busy={busy} onClose={onClose} onSubmit={() => void submit()}>
+  return <LauncherForm title={t(transfer.mode === "copy" ? "launcher.result_action.copy-to-project" : "launcher.result_action.move-to-project")} busy={busy} onStateChange={onFormStateChange} onClose={onClose} onSubmit={() => void submit()}>
     <p>{project?.displayName || project?.name} · {remaining.length} {t("launcher.kind.files")}</p>
     <LauncherFolderPicker workspaceId={transfer.workspaceId} value={folder} onChange={setFolder} autoFocus disabled={busy} />
     {error && <p role="alert" className="text-destructive text-sm">{error}</p>}

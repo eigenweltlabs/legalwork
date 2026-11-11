@@ -228,11 +228,24 @@ choose a project with **Up/Down** and **Enter**, or cancel with **Esc**.
 Files from added search folders are copied into the chosen chat's project.
 These actions do not reuse an existing project chat. General Assistant access
 still requires an eligible Eigenwelt plan; project chats can use your configured
-provider/API key just as they do in the main app.
+provider/API key just as they do in the main app. **Ask About This** in the
+optional Raycast extension follows the same project-chat flow and opens the
+exact file you selected, including when several projects have files with the
+same name.
 
 Files open in their normal document view; the mini-bar has no separate file
 preview or **Copy path** action. **Copy to Clipboard** still copies local files
-for pasting into another application.
+for pasting into another application. You can also drag a local file or folder
+from search results, recent items or a project's file list into Finder or another
+application. To drag several files together, select them first and drag one of
+the selected rows. Up to 100 files or folders can be dragged together. The
+originals stay in their project when you copy them into Finder. This needs the
+local desktop app; unavailable or deleted files cannot be dragged.
+
+Inside a project's files or tasks, **New document** and **New task** use the
+project you are browsing. Creating a document inside a folder starts with that
+folder selected. In the folder chooser, **Command/Ctrl+Enter** chooses the
+highlighted folder directly; **Enter** opens it so you can browse its children.
 
 Search and project navigation load independently of the general Assistant.
 Your saved conversations remain readable if your Assistant subscription ends;
@@ -256,7 +269,19 @@ has been moved. Shortcut, remembered position, additional folders, category
 aliases and saved quick actions are configured in **Settings > Assistant
 launcher**. Quick actions can copy or insert their answer; pending outputs are
 recovered after a restart, with uncertain pastes retained for review instead
-of being repeated automatically.
+of being repeated automatically. In a quick action, choose **Show result**,
+**Copy result**, or **Insert into origin app**. If you select **A chosen project**,
+choose its destination from the project list before saving. Older actions with
+an unsupported output ask you to edit that choice before they run.
+If an action needs more information, a small form asks only for the missing
+text, files or destination project. Fill it in and choose **Run**. **Cancel**
+returns to your unchanged draft. Files are uploaded only when you choose
+**Run**, and the action keeps any existing draft in its destination chat.
+
+While a document, task or file transfer is saving, its form keeps control until
+the operation finishes. Hiding the mini-bar keeps an in-flight form available
+when you reopen it. A failed task creation can be retried without creating a
+second copy of the same task.
 The latest finished answer has one **Copy reply** button. **Save as document…**
 opens the document form so you can choose its project, folder and name. Older
 answers retain their individual copy buttons. **Project-bound chat session**

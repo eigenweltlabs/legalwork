@@ -1,14 +1,14 @@
 import { existingLauncherFiles } from "../launcher-file-visibility.js";
 import { createLauncherDocument } from "../launcher-document.js";
 import { browseLauncherDirectory } from "../launcher-browse.js";
-import { constants as fsConstants } from "node:fs";
-import { copyFile, readFile, realpath, stat, unlink, writeFile } from "node:fs/promises";
+import { readFile, realpath, stat, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { searchFolderFiles } from "../launcher-folder-search.js";
 import { basename, extname, relative, resolve, sep } from "node:path";
 import { recordAudit } from "../audit.js";
 import { shortId } from "../utils.js";
 import { launcherDestination } from "../launcher-file-destination.js";
+import { copyLauncherTransferFile } from "../launcher-file-source.js";
 import { z } from "zod";
 import { AssistantContextItemSchema, AssistantWorkStatusSchema, LAUNCHER_SEARCH_KINDS, LauncherFileTransferInputSchema, LauncherFileSourceKindSchema, LauncherSortSchema, compareLauncherResults, LauncherInvocationSchema, LauncherInvocationSourceSchema, LauncherSearchKindSchema, LauncherSearchResultSchema, QuickActionInputSchema } from "@legalwork/types/launcher";
 import { ApiError } from "../errors.js";
@@ -181,7 +181,8 @@ export function registerLauncherRoutes(options: Parameters<typeof registerMainAs
     const relativePath = normalizeWorkspaceRelativePath(input.path, { allowSubdirs: true });
     const sourceRoot = await realpath(source.path), sourceFile = await realpath(resolve(sourceRoot, relativePath)).catch(() => null);
     if (!sourceFile || (sourceFile !== sourceRoot && !sourceFile.startsWith(sourceRoot + sep))) throw new ApiError(400, "invalid_path", "The file is outside this project.");
-    if (!(await stat(sourceFile).catch(() => null))?.isFile()) throw new ApiError(404, "file_not_found", "File not found");
+    const sourceInfo = await stat(sourceFile).catch(() => null);
+    if (!sourceInfo?.isFile()) throw new ApiError(404, "file_not_found", "File not found");
     const folder = input.folder ? normalizeWorkspaceRelativePath(input.folder, { allowSubdirs: true }) : "";
     const targetRoot = await realpath(target.path), destination = resolve(targetRoot, folder, basename(sourceFile));
     await launcherDestination(targetRoot, folder);
@@ -190,9 +191,7 @@ export function registerLauncherRoutes(options: Parameters<typeof registerMainAs
     const destinationPath = relative(targetRoot, destination).split("\\").join("/");
     await options.requireApproval(ctx, { workspaceId: target.id, action: "workspace.file.write", summary: `${input.mode === "move" ? "Move" : "Copy"} ${relativePath} from ${projectName(source)} to ${projectName(target)}`, paths: [destination, ...(input.mode === "move" ? [sourceFile] : [])] });
     await launcherDestination(targetRoot, folder, true);
-    // Exclusive creation also protects Move from overwriting a file created while approval was pending.
-    await copyFile(sourceFile, destination, fsConstants.COPYFILE_EXCL);
-    if (input.mode === "move") await unlink(sourceFile);
+    await copyLauncherTransferFile({ rootPath: source.path, root: sourceRoot, relativePath, path: sourceFile, info: sourceInfo }, destination, input.mode === "move");
     const actor = ctx.actor ?? { type: "remote" as const };
     await recordAudit(target.path, { id: shortId(), workspaceId: target.id, actor, action: "workspace.file.write", target: destination, summary: `${input.mode === "move" ? "Moved" : "Copied"} ${relativePath} from ${projectName(source)}`, timestamp: Date.now() });
     if (input.mode === "move") await recordAudit(source.path, { id: shortId(), workspaceId: source.id, actor, action: "workspace.file.write", target: sourceFile, summary: `Moved ${relativePath} to ${projectName(target)}`, timestamp: Date.now() });
@@ -203,7 +202,7 @@ export function registerLauncherRoutes(options: Parameters<typeof registerMainAs
   // Previews read what the result points at; nothing here reaches a model.
   addRoute(routes, "GET", "/launcher/preview", "client", async ctx => {
     read(ctx);
-    const input = parse(z.object({ kind: LauncherSearchKindSchema, LauncherSearchResultSchema, id: z.string().min(1).max(4096), workspaceId: z.string().max(200).optional(), folderId: z.string().max(100).optional() }), Object.fromEntries(ctx.url.searchParams), "launcher_preview", "Name the result to preview.");
+    const input = parse(z.object({ kind: LauncherSearchKindSchema, id: z.string().min(1).max(4096), workspaceId: z.string().max(200).optional(), folderId: z.string().max(100).optional() }), Object.fromEntries(ctx.url.searchParams), "launcher_preview", "Name the result to preview.");
     const signal = AbortSignal.any([ctx.request.signal, AbortSignal.timeout(15_000)]);
     const workspaceOf = async () => { if (!input.workspaceId) throw new ApiError(400, "launcher_preview", "This preview needs a project."); return options.resolveWorkspace(config, input.workspaceId); };
     const size = (bytes: number) => bytes >= 1_048_576 ? `${(bytes / 1_048_576).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
@@ -230,23 +229,22 @@ export function registerLauncherRoutes(options: Parameters<typeof registerMainAs
     if (input.kind === "chats") {
       const workspace = await workspaceOf();
       const client = options.client(workspace);
-      const [session, messages] = await Promise.all([
-        client.session.get({ sessionID: input.id }, { throwOnError: true, signal }),
-        client.session.messages({ sessionID: input.id, limit: 12 }, { throwOnError: true, signal }),
-      ]);
+      const session = await client.session.get({ sessionID: input.id }, { throwOnError: true, signal });
+      if (!session.data || session.data.time.archived || resolve(session.data.directory) !== resolve(workspace.path)) throw new ApiError(404, "session_not_found", "This chat is no longer available in this project.");
+      const messages = await client.session.messages({ sessionID: input.id, limit: 12 }, { throwOnError: true, signal });
       const turns = (messages.data ?? []).map(message => ({ role: message.info.role, time: message.info.time.created, text: message.parts.flatMap(part => part.type === "text" && !part.synthetic && !part.ignored ? [part.text] : []).join("\n") }));
       return jsonResponse(assemblePreview({ kind: "chats", id: input.id, title: session.data?.title ?? input.id, meta: [projectName(workspace)], updatedAt: session.data?.time.updated ?? null }, messagesPreview(turns), "messages"));
     }
     if (input.kind === "tasks") {
       const task = (await taskStore(config)).getTask(input.id);
-      if (!task) throw new ApiError(404, "task_not_found", "This task no longer exists.");
+      if (!task || task.deletedAt) throw new ApiError(404, "task_not_found", "This task no longer exists.");
       const meta = [task.status, task.dueDate ? `Due ${task.dueDate.slice(0, 10)}` : null, task.assigneeName, ...task.tags].filter((value): value is string => Boolean(value));
       return jsonResponse(assemblePreview({ kind: "tasks", id: task.id, title: task.title, meta, updatedAt: Date.parse(task.updatedAt) || null }, clampPreview(task.description), "metadata"));
     }
     const readRecording = config.recorder?.readRecording ?? config.recorder?.library?.read;
     if (!readRecording) throw new ApiError(404, "recording_unavailable", "The recording library is only available in the desktop app.");
     const detail = await readRecording(input.id);
-    if (!detail) throw new ApiError(404, "recording_not_found", "This recording no longer exists.");
+    if (!detail || detail.meta.ephemeral) throw new ApiError(404, "recording_not_found", "This recording no longer exists.");
     const meta = [new Date(detail.meta.createdAt).toLocaleString("en-GB"), `${Math.round(detail.meta.durationMs / 60_000)} min`, detail.meta.status].filter((value): value is string => Boolean(value));
     return jsonResponse(assemblePreview({ kind: "recordings", id: detail.meta.id, title: detail.meta.title, meta, updatedAt: detail.meta.createdAt }, clampPreview(detail.segments.map(segment => segment.text).join("\n")), "transcript"));
   });

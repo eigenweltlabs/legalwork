@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import type { LauncherSearchResult } from "@legalwork/types/launcher";
 import type { LegalworkServerClient } from "../src/app/lib/legalwork-server";
-import { canCopyLauncherResult, copyLauncherText, launcherClipboardText, launcherLocalPaths } from "../src/react-app/launcher/launcher-clipboard";
+import { canCopyLauncherResult, copyLauncherText, isDesktopLauncherServer, launcherClipboardText, launcherLocalPaths } from "../src/react-app/launcher/launcher-clipboard";
 
 const item = (kind: LauncherSearchResult["kind"]): LauncherSearchResult => ({ id: "one", kind, workspaceId: "w", sourceId: "w", title: "Title", updatedAt: 0, match: "recent", score: 1, actions: ["open"] });
 const unused = async () => { throw new Error("Unexpected call"); };
@@ -83,4 +83,13 @@ test("panel text copying uses the desktop bridge even when browser clipboard per
     if (previousNavigator) Object.defineProperty(globalThis, "navigator", previousNavigator);
     else Reflect.deleteProperty(globalThis, "navigator");
   }
+});
+
+
+test("native paths belong only to the exact running desktop server, not another loopback service", () => {
+  const runtime = { running: true, baseUrl: "http://127.0.0.1:4123" };
+  expect(isDesktopLauncherServer("http://127.0.0.1:4123/", runtime)).toBe(true);
+  for (const url of ["http://127.0.0.1:4999", "http://localhost:4123", "http://127.0.0.1:4123/remote", "https://remote.example", "invalid"]) expect(isDesktopLauncherServer(url, runtime)).toBe(false);
+  expect(isDesktopLauncherServer(runtime.baseUrl, { ...runtime, running: false })).toBe(false);
+  expect(isDesktopLauncherServer(runtime.baseUrl, undefined)).toBe(false);
 });

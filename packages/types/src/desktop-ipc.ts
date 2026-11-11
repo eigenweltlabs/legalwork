@@ -842,6 +842,8 @@ export type DesktopCommandMap = {
   launcherOriginInsert: { args: [originId: string, text: string]; result: LauncherInsertResult };
   launcherClipboardRead: { args: []; result: { text: string; capturedAt: number } };
   launcherClipboardWrite: { args: [text: string]; result: void };
+  launcherFilesPrepareDrag: { args: [serverUrl: string, files: { path: string; root: string }[]]; result: { path: string; token: string }[] };
+  launcherFilesStartDrag: { args: [tokens: string[]]; result: void };
   launcherClipboardCopyFiles: { args: [serverUrl: string, paths: string[]]; result: void };
   launcherCaptureWindow: { args: []; result: LauncherCaptureResult };
   launcherCaptureRegion: { args: []; result: LauncherCaptureResult };

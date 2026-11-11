@@ -7,12 +7,12 @@ import { t } from "@/i18n";
 import { useLauncherShell } from "./launcher-shell";
 import { launcherFileRoute } from "./launcher-handoff";
 import type { LegalworkTask } from "@/app/lib/legalwork-server";
-import { LauncherForm, LauncherSubmitHint } from "./launcher-form";
+import { LauncherForm, LauncherSubmitHint, type LauncherFormState } from "./launcher-form";
 import { LauncherSelect } from "./launcher-select";
 import { LauncherFolderPicker, launcherFolderLabel } from "./launcher-folder-picker";
 
 export type LauncherCreate = { kind: "document" | "excerpt" | "task" | "attach"; workspaceId: string; folder: string; name: string; text: string; context: AssistantContextItem[] };
-export function LauncherCreateForm({ initial, onClose, onAttach, onDraft, onTaskCreated }: { initial: LauncherCreate; onClose: () => void;
+export function LauncherCreateForm({ initial, onClose, onAttach, onDraft, onTaskCreated, onFormStateChange }: { initial: LauncherCreate; onClose: () => void; onFormStateChange?: (state: LauncherFormState) => void;
   onAttach: (workspaceId: string, sessionId: string | undefined, items: AssistantContextItem[]) => Promise<void>;
   onDraft: (workspaceId: string, folder: string, name: string, format: string, instructions: string) => Promise<void>;
   onTaskCreated: (task: LegalworkTask, workspaceId: string) => void;
@@ -39,7 +39,7 @@ export function LauncherCreateForm({ initial, onClose, onAttach, onDraft, onTask
       if (initial.kind === "document" || initial.kind === "excerpt") await client.listWorkspaceDirectory(workspaceId, folder);
       if (initial.kind === "attach") await onAttach(workspaceId, sessionId || undefined, initial.context);
       else if (initial.kind === "task") {
-        const result = await client.createTask(workspaceId, { title: name, description: text, projectId: workspaceId });
+        const result = await client.createTask(workspaceId, { id: operation.current.id, title: name, description: text, projectId: workspaceId });
         onTaskCreated(result.task, workspaceId);
       } else if (draft) await onDraft(workspaceId, folder, name, format, text);
       else {
@@ -53,7 +53,7 @@ export function LauncherCreateForm({ initial, onClose, onAttach, onDraft, onTask
     } catch (error) { setError(error instanceof Error ? error.message : String(error)); }
     finally { saving.current = false; setBusy(false); }
   };
-  return <LauncherForm title={t(`launcher.flow.create_${initial.kind}`)} busy={busy} onClose={onClose} onSubmit={() => void submit()}>
+  return <LauncherForm title={t(`launcher.flow.create_${initial.kind}`)} busy={busy} onStateChange={onFormStateChange} onClose={onClose} onSubmit={() => void submit()}>
     <fieldset disabled={busy} className="contents">
       {initial.kind !== "attach" && <label>{t(initial.kind === "task" ? "tasks.field_title" : "launcher.flow.name")}<Input value={name} autoFocus maxLength={200} required onChange={event => setName(event.target.value)} /></label>}
       <LauncherSelect label={t("launcher.flow.project")} value={workspaceId} autoFocus={initial.kind === "attach" && !initial.workspaceId} required disabled={busy} placeholder={t("launcher.flow.choose_project")}

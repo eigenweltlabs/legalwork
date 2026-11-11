@@ -8,7 +8,7 @@ import { isMacPlatform } from "@/app/utils";
 import type { LegalworkTaskPatch, LegalworkTaskStatus } from "@/app/lib/legalwork-server";
 import { t } from "@/i18n";
 import { useLauncherShell } from "./launcher-shell";
-import { LauncherForm, LauncherSubmitHint } from "./launcher-form";
+import { LauncherForm, LauncherSubmitHint, type LauncherFormState } from "./launcher-form";
 import { handleLauncherFocusKey } from "./launcher-focus";
 import { isComposingKeyEvent, isLauncherConfirmKey } from "./launcher-keyboard";
 import { matchesLauncherFileFilter, namedFileTypeFilter } from "./launcher-typed-filters";
@@ -42,7 +42,7 @@ export function useLauncherDetailItems(detail: LauncherDetail | null, query: str
   });
 }
 
-export function LauncherTaskDetail({ result, onOpenChat, onOpenApp, onUpdated }: { result: LauncherSearchResult; onUpdated: (result: LauncherSearchResult) => void; onOpenChat: (sessionId: string, workspaceId: string) => void; onOpenApp: () => void }) {
+export function LauncherTaskDetail({ result, onOpenChat, onOpenApp, onUpdated, onFormStateChange }: { result: LauncherSearchResult; onUpdated: (result: LauncherSearchResult) => void; onOpenChat: (sessionId: string, workspaceId: string) => void; onOpenApp: () => void; onFormStateChange?: (state: LauncherFormState) => void }) {
   const { client, assistant, workspaces } = useLauncherShell();
   const workspaceId = result.workspaceId ?? assistant?.workspaceId ?? workspaces[0]?.id;
   const task = useQuery({ queryKey: ["launcher-task", client.baseUrl, workspaceId, result.id], enabled: Boolean(workspaceId), queryFn: () => client.getTask(workspaceId ?? "", result.id) });
@@ -68,7 +68,7 @@ export function LauncherTaskDetail({ result, onOpenChat, onOpenApp, onUpdated }:
   const item = task.data?.task;
   const changeStatus = () => { if (item) void update({ status: item.status === "done" ? "open" : "done" }); };
   const statuses: LegalworkTaskStatus[] = ["open", "in_progress", "done", "cancelled"];
-  if (editing) return <LauncherForm title={t("tasks.edit")} busy={busy} onClose={closeEditor} onSubmit={() => { if (editing.title.trim()) void update({ ...editing, title: editing.title.trim(), dueDate: item && editing.dueDate === item.dueDate?.slice(0, 10) ? item.dueDate : editing.dueDate || null }); }}>
+  if (editing) return <LauncherForm title={t("tasks.edit")} busy={busy} onStateChange={onFormStateChange} onClose={closeEditor} onSubmit={() => { if (editing.title.trim()) void update({ ...editing, title: editing.title.trim(), dueDate: item && editing.dueDate === item.dueDate?.slice(0, 10) ? item.dueDate : editing.dueDate || null }); }}>
     <fieldset disabled={busy} className="contents">
       <label>{t("tasks.field_title")}<Input autoFocus required maxLength={200} value={editing.title} onChange={event => setEditing({ ...editing, title: event.target.value })} /></label>
       <div className="launcher-form-row">

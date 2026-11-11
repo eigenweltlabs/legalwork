@@ -1,9 +1,15 @@
 import { expect, test } from "bun:test";
 import type { AssistantConversation, AssistantExecutionTarget } from "@legalwork/types/launcher";
-import { resultChatProject, startLauncherResultChat } from "../src/react-app/launcher/launcher-result-chat";
+import { conversationTarget, resultChatProject, startLauncherResultChat } from "../src/react-app/launcher/launcher-result-chat";
 
 const projects = [{ id: "a" }, { id: "b" }, { id: "wiki", preset: "wiki" }, { id: "assistant", preset: "main-assistant" }];
 const conversation = (workspaceId: string, id: string): AssistantConversation => ({ id, workspaceId, sessionId: `session_${id}`, title: "Contract", kind: "conversation", date: null, createdAt: 0, updatedAt: 0, pinned: false, archivedAt: null, origin: "panel" });
+
+test("resuming a BYOK project chat remains project-bound without a general Assistant", () => {
+  expect(conversationTarget({ workspaceId: "a", origin: "project:bind_session" }, undefined, { kind: "assistant" })).toEqual({ kind: "project", workspaceId: "a" });
+  expect(conversationTarget({ workspaceId: "assistant", origin: "panel" }, undefined, { kind: "assistant" })).toEqual({ kind: "assistant" });
+  expect(conversationTarget({ workspaceId: "a" }, "assistant", { kind: "assistant" })).toEqual({ kind: "project", workspaceId: "a" });
+});
 
 test("project chat uses the source project, falling back only to a valid current project", () => {
   expect(resultChatProject([{ workspaceId: "a" }], projects, "b")).toBe("a");

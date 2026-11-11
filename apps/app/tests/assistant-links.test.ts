@@ -13,3 +13,17 @@ test("assistant deep links carry only identifiers and reject unknown actions", (
   expect(parseAssistantDeepLink(built)).toMatchObject({ id: "inv_2", action: "quick-action", actionId: "quick-action:qa_1", contextId: "ctx_1" });
   expect(parseAssistantDeepLink("legalwork://assistant/open")?.id).toMatch(/^link_/);
 });
+
+test("exact result links preserve source identity and reject malformed payloads", () => {
+  const result = { kind: "files", id: "Agreements/Contract.docx", workspaceId: "matter-2", sourceId: "local:matter-2", path: "Agreements/Contract.docx" } satisfies NonNullable<Parameters<typeof buildAssistantDeepLink>[0]["result"]>;
+  const link = buildAssistantDeepLink({ id: "exact-result", action: "open", result });
+  expect(parseAssistantDeepLink(link)?.result).toEqual(result);
+  expect(parseAssistantDeepLink("legalwork://assistant/open?result=broken")).toBeNull();
+  expect(parseAssistantDeepLink(`legalwork://assistant/open?result=${encodeURIComponent(JSON.stringify({ ...result, route: "/settings" }))}`)).toBeNull();
+  expect(parseAssistantDeepLink(`legalwork://assistant/open?result=${encodeURIComponent(JSON.stringify({ ...result, workspaceId: 42 }))}`)).toBeNull();
+  for (const resultAction of ["chat-with-assistant", "ask", "summarize"] satisfies NonNullable<Parameters<typeof buildAssistantDeepLink>[0]["resultAction"]>[]) {
+    expect(parseAssistantDeepLink(buildAssistantDeepLink({ id: "exact-action", action: "open", result, resultAction }))).toMatchObject({ result, resultAction });
+  }
+  expect(parseAssistantDeepLink(`${link}&resultAction=move-to-project`)).toBeNull();
+  expect(parseAssistantDeepLink("legalwork://assistant/open?resultAction=ask")).toBeNull();
+});

@@ -1,7 +1,7 @@
 import { trackLegalMemoryInterfaceRead } from "./legalmemory-interface-activity";
 import { LegalMemoryPermissionsSchema, type LegalMemoryPermissionReply } from "@legalwork/types/legalmemory";
 import type { CalendarEventDraft } from "@legalwork/types/calendar-event-draft";
-import type { LauncherSort, LauncherFileSourceKind, LauncherSearchResult, LauncherSearchFolder, LauncherFileTransferInput, LauncherPreview, AssistantContextItem, AssistantConversation, AssistantConversationPage, AssistantExecutionTarget, AssistantSubmission, AssistantSubmitInput, AssistantWorkItem, AssistantWorkStatus, LauncherCatalogEntry, LauncherInvocation, LauncherSearchKind, LauncherSearchResponse, LauncherStagedContext, QuickAction, QuickActionInput } from "@legalwork/types/launcher";
+import type { LauncherSort, LauncherFileSourceKind, LauncherSearchResult, LauncherSearchFolder, LauncherFileTransferInput, LauncherPreview, AssistantContextItem, AssistantConversation, AssistantConversationPage, AssistantExecutionTarget, AssistantOutput, AssistantSubmission, AssistantSubmitInput, AssistantWorkItem, AssistantWorkStatus, LauncherCatalogEntry, LauncherInvocation, LauncherSearchKind, LauncherSearchResponse, LauncherStagedContext, QuickAction, QuickActionInput } from "@legalwork/types/launcher";
 import type { EmailDraft } from "@legalwork/types/email-draft";
 import type { ConnectorWriteSetting, ConnectorCloudAccess } from "@legalwork/types/connectors";
 import type { PluginCreateOptions, PluginCreateRequest, PluginImportCandidate, PluginImportPreview, PluginImportProvider, PluginImportRequest, PluginImportUpdate } from "@legalwork/types/plugin-import";
@@ -463,6 +463,8 @@ export type LegalworkTaskListParams = {
 };
 
 export type LegalworkTaskCreate = {
+  /** Reuse an ID when retrying an ambiguous create response. */
+  id?: string;
   projectId?: string | null;
   title: string;
   description?: string;
@@ -2872,6 +2874,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     submitAssistantMessage: (conversationId: string, input: AssistantSubmitInput) => requestJson<{ submission: AssistantSubmission; conversation: AssistantConversation }>(baseUrl, `/assistant/conversations/${encodeURIComponent(conversationId)}/messages`, { token, hostToken, method: "POST", body: input, timeoutMs: 45_000 }),
     assistantConversationForSession: (sessionId: string) => requestJson<{ conversation: AssistantConversation | null }>(baseUrl, `/assistant/conversation-for-session/${encodeURIComponent(sessionId)}`, { token, hostToken }),
     assistantSubmission: (requestId: string) => requestJson<{ submission: AssistantSubmission }>(baseUrl, `/assistant/submissions/${encodeURIComponent(requestId)}`, { token, hostToken }),
+    assistantSubmissionOutput: (requestId: string) => requestJson<AssistantOutput>(baseUrl, `/assistant/submissions/${encodeURIComponent(requestId)}/output`, { token, hostToken }),
     assistantConversationAttention: (id: string) => requestJson<{ items: AssistantAttentionItem[] }>(baseUrl, `/assistant/conversations/${encodeURIComponent(id)}/attention`, { token, hostToken }),
     replyAssistantConversationAttention: (id: string, reply: AssistantAttentionReply) => requestJson<{ ok: boolean }>(baseUrl, `/assistant/conversations/${encodeURIComponent(id)}/attention/reply`, { token, hostToken, method: "POST", body: reply }),
     assistantAttentionAll: async (cursor?: string) => {

@@ -34,3 +34,12 @@ test("pairing writes a private credential file while enabled and removes it when
     await assert.rejects(stat(file));
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
+
+test("development pairing launches the development app that owns the staged context", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "raycast-dev-pairing-"));
+  try {
+    const pairing = new RaycastPairing({ userDataDir: dir, scheme: "legalwork-dev", serverInfo: async () => ({ running: true, baseUrl: "http://127.0.0.1:4123", clientToken: "client", ownerToken: null }) });
+    await pairing.enable();
+    assert.equal(JSON.parse(await readFile(path.join(dir, PAIRING_FILE), "utf8")).scheme, "legalwork-dev");
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});

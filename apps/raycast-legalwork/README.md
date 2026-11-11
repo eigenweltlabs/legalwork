@@ -12,9 +12,13 @@ An optional entry point into the same LegalWork Assistant: the panel, files, act
 
 - **Open LegalWork Assistant**: resume the current conversation, or pass a question.
 - **Ask LegalWork with Selection**: stages the front app's selection and opens the Assistant with it attached.
-- **Search LegalWork**: files, projects, chats, tasks and recordings with per-source coverage; open a result in LegalWork.
+- **Search LegalWork**: files, projects, chats, tasks and recordings with per-source coverage. Open the exact result in LegalWork. For local project, Wiki and search-folder files, **Open** uses the default app; **Show in Finder** locates the source and **Copy File** puts the actual file on the clipboard. For files, tasks and recordings, **Chat with Assistant** attaches the item to your general Assistant's current draft; **Ask About This** starts a fresh project chat with the item attached and waits for your question. **Summarize**, available for files, starts a fresh project chat and sends the summary request. Wiki and search-folder items ask you to choose a project when there is no current project. Files from added folders are copied only after you choose the destination. Project chats can use your own AI provider; Chat with Assistant uses the Assistant plan.
 - **Run LegalWork Quick Action**: saved quick actions on the selection or clipboard.
-- **LegalWork Work**: delegated work and what needs your decision.
+- **LegalWork Work**: delegated work and what needs your decision. **Open in LegalWork** opens the selected job's chat; **Open Origin Conversation** returns to the conversation that delegated it.
+
+Use **Refresh Search**, **Refresh Work** or **Refresh Actions** after changing a source or restarting LegalWork. Unavailable sources and failed requests are shown explicitly.
+
+The Raycast extension uses the published Raycast List API, which does not expose a custom native drag-out handler. Use **Copy File** and paste into Finder or another app, or drag the result from LegalWork's own Assistant mini-bar. The extension does not provide multi-selection or incoming file drops.
 
 A cold start is an ordinary launch URL; LegalWork queues the invocation and delivers it to the panel once it is ready. Repeated delivery of the same invocation does nothing twice.
 

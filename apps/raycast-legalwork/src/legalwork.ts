@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 import type { AssistantContextItem, LauncherSearchResult } from "@legalwork/types/launcher";
+import { canonicalResultFile } from "./result-files";
 
 /**
  * Transport contract shared with the desktop app:
@@ -31,13 +32,18 @@ export async function readPairing(): Promise<Pairing | null> {
   for (const candidate of pairingCandidates()) {
     try {
       const parsed = JSON.parse(await readFile(candidate, "utf8"));
-      if (parsed?.enabled === true && typeof parsed.serverUrl === "string" && typeof parsed.token === "string") return { serverUrl: parsed.serverUrl.replace(/\/+$/, ""), token: parsed.token, scheme: typeof parsed.scheme === "string" ? parsed.scheme : "legalwork" };
+      if (parsed?.enabled === true && typeof parsed.serverUrl === "string" && typeof parsed.token === "string" && parsed.token) {
+        const url = new URL(parsed.serverUrl);
+        if (!["http:", "https:"].includes(url.protocol) || !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname) || url.username || url.password || url.search || url.hash) continue;
+        return { serverUrl: url.href.replace(/\/+$/, ""), token: parsed.token, scheme: parsed.scheme === "legalwork-dev" ? "legalwork-dev" : "legalwork" };
+      }
     } catch { /* try the next profile */ }
   }
   return null;
 }
 export async function request<T>(pairing: Pairing, route: string, init: { method?: string; body?: unknown; signal?: AbortSignal } = {}): Promise<T> {
-  const response = await fetch(`${pairing.serverUrl}${route}`, { method: init.method ?? "GET", headers: { Authorization: `Bearer ${pairing.token}`, "Content-Type": "application/json" }, body: init.body === undefined ? undefined : JSON.stringify(init.body), signal: init.signal ?? AbortSignal.timeout(20_000) });
+  const timeout = AbortSignal.timeout(20_000);
+  const response = await fetch(`${pairing.serverUrl}${route}`, { method: init.method ?? "GET", headers: { Authorization: `Bearer ${pairing.token}`, "Content-Type": "application/json" }, body: init.body === undefined ? undefined : JSON.stringify(init.body), signal: init.signal ? AbortSignal.any([init.signal, timeout]) : timeout, redirect: "error" });
   const text = await response.text();
   const json = text ? JSON.parse(text) : null;
   if (!response.ok) throw new Error(typeof json?.message === "string" ? json.message : `LegalWork request failed (${response.status})`);
@@ -51,8 +57,8 @@ export function assistantLink(scheme: string, action: string, params: Record<str
   return url.toString();
 }
 /** Cold start is an ordinary launch URL; the app shows its own progress and delivers the invocation when the panel is ready. */
-export async function launch(action: string, params: Record<string, string | undefined> = {}) {
-  const pairing = await readPairing();
+export async function launch(action: string, params: Record<string, string | undefined> = {}, paired?: Pairing) {
+  const pairing = paired ?? await readPairing();
   await open(assistantLink(pairing?.scheme ?? "legalwork", action, params));
 }
 export async function stageSelection(pairing: Pairing): Promise<{ id: string } | null> {
@@ -62,12 +68,22 @@ export async function stageSelection(pairing: Pairing): Promise<{ id: string } |
   const item: ContextItem = { id: `sel_${Date.now().toString(36)}`, type: "selection", text: text.slice(0, 200_000), sourceApp: null, sourceWindow: null, capturedAt: Date.now() };
   return request<{ id: string }>(pairing, "/launcher/context", { method: "POST", body: { items: [item], source: "raycast", ttlMs: 5 * 60_000 } });
 }
-/** A file result travels as a staged file reference, never as content and never in the URL. */
-export async function stageFile(pairing: Pairing, item: SearchResult): Promise<{ id: string } | null> {
-  if (item.kind !== "files" || !item.path) return null;
-  const file: ContextItem = item.folderId ? (await request<{ item: ContextItem }>(pairing, `/launcher/folders/${encodeURIComponent(item.folderId)}/attach`, { method: "POST", body: { path: item.path } })).item
-    : { id: `file_${Date.now().toString(36)}`, type: "file", workspaceId: item.workspaceId, path: item.path, name: item.title, revision: item.revision ?? null, sourceLabel: item.subtitle ?? null };
-  return request<{ id: string }>(pairing, "/launcher/context", { method: "POST", body: { items: [file], source: "raycast", ttlMs: 5 * 60_000 } });
+/** Pairing is local-only. Both the server and filesystem must still recognize the selected source. */
+export async function localResultPath(pairing: Pairing, item: SearchResult): Promise<string> {
+  if (item.kind !== "files" || !item.folderId && !item.workspaceId) throw new Error("This result is not a local file.");
+  const { excerpt: _excerpt, sources: _sources, ...reference } = item;
+  const visible = await request<{ items: SearchResult[] }>(pairing, "/launcher/files/visible", { method: "POST", body: { items: [reference] } });
+  if (!visible.items.some(found => found.kind === item.kind && found.id === item.id && found.sourceId === item.sourceId)) throw new Error("This file or its source is no longer available. Search again.");
+  let root: string | undefined;
+  if (item.folderId) {
+    const response = await request<{ folders: { id: string; path: string }[] }>(pairing, "/launcher/folders");
+    root = response.folders.find(folder => folder.id === item.folderId)?.path;
+  } else {
+    const response = await request<{ items?: { id: string; path: string }[]; workspaces?: { id: string; path: string }[] }>(pairing, "/workspaces");
+    root = (response.items ?? response.workspaces ?? []).find(workspace => workspace.id === item.workspaceId)?.path;
+  }
+  if (!root) throw new Error("The file's source is no longer available.");
+  return canonicalResultFile(root, item.path ?? item.id, item.fileType === "folder");
 }
 export async function requirePairing(): Promise<Pairing | null> {
   const pairing = await readPairing();

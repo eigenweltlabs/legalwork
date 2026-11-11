@@ -1,13 +1,21 @@
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { LauncherSearchResult } from "@legalwork/types/launcher";
-import { primaryResultAction, launcherActionSelection, resultActionMenu } from "../src/react-app/launcher/action-catalog";
+import { primaryResultAction, launcherActionSelection, resultActionMenu, supportsQuickActionOutput } from "../src/react-app/launcher/action-catalog";
 import { LauncherActionMenu, LauncherResultList, launcherExtraActions } from "../src/react-app/launcher/launcher-results";
 import { assistantAvatarImages } from "../src/react-app/domains/session/sidebar/assistant-avatar-assets";
 import { resultKey } from "../src/react-app/launcher/launcher-search-session";
 
 const file: LauncherSearchResult = { id: "contract.pdf", kind: "files", workspaceId: "project", sourceId: "local:project", title: "Contract", path: "contract.pdf", fileType: "pdf", updatedAt: 0, score: 1, match: "recent", actions: ["open", "attach", "compare", "pin", "copy-path"] };
 const noop = () => {};
+
+test("legacy document/open output policies are rejected instead of silently sending a display-only action", () => {
+  expect(supportsQuickActionOutput("preview")).toBe(true);
+  expect(supportsQuickActionOutput("copy")).toBe(true);
+  expect(supportsQuickActionOutput("insert")).toBe(true);
+  expect(supportsQuickActionOutput("save")).toBe(false);
+  expect(supportsQuickActionOutput("open")).toBe(false);
+});
 
 test("file actions match across search, directory browsing and legacy recent metadata", () => {
   const expected = ["chat-with-assistant", "ask", "summarize", "copy-to-project", "move-to-project"];

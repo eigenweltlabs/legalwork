@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { LauncherFoldersSection } from "./launcher-folders-section";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Keyboard, Loader2, Plus, Trash2 } from "lucide-react";
@@ -14,6 +14,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { t } from "@/i18n";
 import { dictationAcceleratorFromEvent, formatDictationShortcut } from "../../recorder/dictation-shortcut";
 import { launcherAliasCollisions, normalizeLauncherAliases } from "../../../launcher/launcher-query";
+import { QUICK_ACTION_OUTPUTS, supportsQuickActionOutput } from "../../../launcher/action-catalog";
 import { LayoutSectionItem, LayoutSectionItemDescription, LayoutSectionItemHeader, LayoutSectionItemHeaderActions, LayoutSectionItemTitle, LayoutStack } from "../settings-layout";
 
 const ACTION_SHORTCUT_IDS = ["app.search-files", "app.ask", "app.speak", "app.capture-region", "app.add-selection"] as const;
@@ -88,41 +89,51 @@ export function LauncherSettingsView({ client }: { client: LegalworkServerClient
 function QuickActionsSection({ client, platform, shortcuts }: { client: LegalworkServerClient; platform: LauncherDesktopStatus["platform"]; shortcuts: { current: Record<string, string>; apply: (next: Record<string, string>) => Promise<void> } | null }) {
   const cache = useQueryClient();
   const actions = useQuery({ queryKey: ["quick-actions", client.baseUrl], queryFn: () => client.quickActions() });
+  const workspaces = useQuery({ queryKey: ["quick-action-projects", client.baseUrl], queryFn: () => client.listWorkspaces() });
+  const projects = (workspaces.data?.items ?? workspaces.data?.workspaces ?? []).filter(project => project.preset !== "wiki" && project.preset !== "main-assistant");
   const [editing, setEditing] = useState<{ id: string | null; draft: QuickActionInput } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const running = useRef(false);
   const refresh = () => Promise.all([actions.refetch(), cache.invalidateQueries({ queryKey: ["launcher-catalog"] })]);
   const save = async () => {
-    if (!editing) return;
-    setBusy(true); setError(null);
+    if (!editing || running.current) return;
+    if (!supportsQuickActionOutput(editing.draft.output)) { setError(t("launcher.settings.output_unsupported")); return; }
+    if (editing.draft.target === "project" && !projects.some(project => project.id === editing.draft.projectId)) { setError(t("launcher.flow.choose_project")); return; }
+    running.current = true; setBusy(true); setError(null);
     try {
       const input: QuickActionInput = { ...editing.draft, name: editing.draft.name.trim(), alias: editing.draft.alias.trim().toLowerCase(), prompt: editing.draft.prompt.trim() };
       const { action } = editing.id ? await client.updateQuickAction(editing.id, input) : await client.createQuickAction(input);
+      // Native registration can fail after the server save. Retrying must update this action.
+      setEditing(current => current ? { ...current, id: action.id } : current);
       // The saved shortcut is a desktop registration too; the registry reports conflicts.
       if (shortcuts) { const next = { ...shortcuts.current }; if (action.shortcut) next[`quick-action:${action.id}`] = action.shortcut; else delete next[`quick-action:${action.id}`]; await shortcuts.apply(next); }
-      setEditing(null);
       await refresh();
+      setEditing(null);
     } catch (failure) { setError(failure instanceof Error ? failure.message : String(failure)); }
-    finally { setBusy(false); }
+    finally { running.current = false; setBusy(false); }
   };
   const remove = async (action: QuickAction) => {
-    setBusy(true);
+    if (running.current) return;
+    running.current = true; setBusy(true); setError(null);
     try {
       await client.deleteQuickAction(action.id);
       if (shortcuts && `quick-action:${action.id}` in shortcuts.current) { const next = { ...shortcuts.current }; delete next[`quick-action:${action.id}`]; await shortcuts.apply(next); }
       await refresh();
-    } finally { setBusy(false); }
+    } catch (failure) { setError(failure instanceof Error ? failure.message : String(failure)); }
+    finally { running.current = false; setBusy(false); }
   };
   return <LayoutSectionItem>
     <LayoutSectionItemHeader><div><LayoutSectionItemTitle>{t("launcher.settings.quick_actions")}</LayoutSectionItemTitle><LayoutSectionItemDescription>{t("launcher.settings.quick_actions_hint")}</LayoutSectionItemDescription></div>
-      <LayoutSectionItemHeaderActions><Button variant="outline" size="sm" disabled={busy || editing !== null} onClick={() => setEditing({ id: null, draft: { ...emptyAction } })}><Plus className="size-4" />{t("launcher.settings.quick_action_new")}</Button></LayoutSectionItemHeaderActions></LayoutSectionItemHeader>
+      <LayoutSectionItemHeaderActions><Button variant="outline" size="sm" disabled={busy || editing !== null} onClick={() => { setError(null); setEditing({ id: null, draft: { ...emptyAction } }); }}><Plus className="size-4" />{t("launcher.settings.quick_action_new")}</Button></LayoutSectionItemHeaderActions></LayoutSectionItemHeader>
     {actions.isPending && <Loader2 className="size-4 animate-spin motion-reduce:animate-none" />}
     {actions.data && !actions.data.actions.length && !editing && <p className="text-sm text-subtext">{t("launcher.settings.quick_actions_empty")}</p>}
     {actions.data?.actions.map(action => <div key={action.id} className="flex flex-col gap-2 border-t border-subtle pt-3 sm:flex-row sm:items-center sm:justify-between">
       <div className="min-w-0"><div className="text-sm font-medium">{action.name}{action.favorite ? " ★" : ""}{action.alias ? <span className="ml-2 font-mono text-xs text-subtext">{action.alias}</span> : null}</div><div className="truncate text-xs text-subtext">{[action.requires.map(input => t(`launcher.input.${input}`)).join(", "), t(`launcher.settings.output.${action.output}`), action.shortcut ? formatDictationShortcut(action.shortcut, platform) : null].filter(Boolean).join(" · ")}</div></div>
-      <div className="flex gap-1"><Button variant="ghost" size="sm" disabled={busy} onClick={() => { const { id, createdAt: _c, updatedAt: _u, usedAt: _a, uses: _n, ...draft } = action; setEditing({ id, draft }); }}>{t("common.edit")}</Button><Button variant="ghost" size="icon-sm" aria-label={t("launcher.settings.quick_action_delete")} disabled={busy} onClick={() => void remove(action)}><Trash2 className="size-4" /></Button></div>
+      <div className="flex gap-1"><Button variant="ghost" size="sm" disabled={busy} onClick={() => { const { id, createdAt: _c, updatedAt: _u, usedAt: _a, uses: _n, ...draft } = action; setError(null); setEditing({ id, draft }); }}>{t("common.edit")}</Button><Button variant="ghost" size="icon-sm" aria-label={t("launcher.settings.quick_action_delete")} disabled={busy} onClick={() => void remove(action)}><Trash2 className="size-4" /></Button></div>
     </div>)}
     {editing && <form className="space-y-3 border-t border-subtle pt-4" onSubmit={event => { event.preventDefault(); void save(); }}>
+      <fieldset disabled={busy} className="space-y-3">
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="flex flex-col gap-1 text-xs font-medium text-ink">{t("launcher.settings.quick_action_name")}<Input required value={editing.draft.name} maxLength={80} onChange={event => setEditing({ ...editing, draft: { ...editing.draft, name: event.target.value } })} /></label>
         <label className="flex flex-col gap-1 text-xs font-medium text-ink">{t("launcher.settings.quick_action_alias")}<Input value={editing.draft.alias} maxLength={24} className="font-mono" pattern="[a-z0-9-]*" onChange={event => setEditing({ ...editing, draft: { ...editing.draft, alias: event.target.value } })} /></label>
@@ -130,15 +141,20 @@ function QuickActionsSection({ client, platform, shortcuts }: { client: Legalwor
       <label className="flex flex-col gap-1 text-xs font-medium text-ink">{t("launcher.settings.quick_action_prompt")}<Textarea required value={editing.draft.prompt} maxLength={8000} rows={4} onChange={event => setEditing({ ...editing, draft: { ...editing.draft, prompt: event.target.value } })} /><span className="font-normal text-subtext">{t("launcher.settings.quick_action_prompt_hint")}</span></label>
       <div className="grid gap-3 sm:grid-cols-3">
         <fieldset className="flex flex-col gap-1 text-xs font-medium text-ink"><legend>{t("launcher.settings.quick_action_requires")}</legend>{(["selection", "clipboard", "files", "arguments"] as const).map(input => <label key={input} className="flex items-center gap-2 font-normal"><input type="checkbox" checked={editing.draft.requires.includes(input)} onChange={event => setEditing({ ...editing, draft: { ...editing.draft, requires: event.target.checked ? [...editing.draft.requires, input] : editing.draft.requires.filter(item => item !== input) } })} />{t(`launcher.input.${input}`)}</label>)}</fieldset>
-        <label className="flex flex-col gap-1 text-xs font-medium text-ink">{t("launcher.settings.quick_action_output")}<select className="rounded-md border border-border bg-transparent px-2 py-1 text-sm font-normal" value={editing.draft.output} onChange={event => setEditing({ ...editing, draft: { ...editing.draft, output: event.target.value as QuickActionInput["output"] } })}>{(["preview", "copy", "save", "insert", "open"] as const).map(output => <option key={output} value={output}>{t(`launcher.settings.output.${output}`)}</option>)}</select></label>
-        <label className="flex flex-col gap-1 text-xs font-medium text-ink">{t("launcher.settings.quick_action_target")}<select className="rounded-md border border-border bg-transparent px-2 py-1 text-sm font-normal" value={editing.draft.target} onChange={event => setEditing({ ...editing, draft: { ...editing.draft, target: event.target.value === "project" || event.target.value === "none" ? event.target.value : "assistant" } })}>{(["assistant", "project", "none"] as const).map(target => <option key={target} value={target}>{t(`launcher.settings.target.${target}`)}</option>)}</select></label>
+        <label className="flex flex-col gap-1 text-xs font-medium text-ink">{t("launcher.settings.quick_action_output")}<select className="rounded-md border border-border bg-transparent px-2 py-1 text-sm font-normal" value={editing.draft.output} onChange={event => { const output = QUICK_ACTION_OUTPUTS.find(value => value === event.target.value); if (output) setEditing({ ...editing, draft: { ...editing.draft, output } }); }}>{!supportsQuickActionOutput(editing.draft.output) && <option value={editing.draft.output} disabled>{t(`launcher.settings.output.${editing.draft.output}`)}</option>}{QUICK_ACTION_OUTPUTS.map(output => <option key={output} value={output}>{t(`launcher.settings.output.${output}`)}</option>)}</select></label>
+        <label className="flex flex-col gap-1 text-xs font-medium text-ink">{t("launcher.settings.quick_action_target")}<select className="rounded-md border border-border bg-transparent px-2 py-1 text-sm font-normal" value={editing.draft.target} onChange={event => setEditing({ ...editing, draft: { ...editing.draft, target: event.target.value === "project" || event.target.value === "none" ? event.target.value : "assistant", projectId: event.target.value === "project" ? editing.draft.projectId : null } })}>{(["assistant", "project", "none"] as const).map(target => <option key={target} value={target}>{t(`launcher.settings.target.${target}`)}</option>)}</select></label>
       </div>
+      {!supportsQuickActionOutput(editing.draft.output) && <p role="alert" className="text-sm text-destructive">{t("launcher.settings.output_unsupported")}</p>}
+      {editing.draft.target === "project" && <label className="flex flex-col gap-1 text-xs font-medium text-ink">{t("launcher.flow.project")}<select required disabled={workspaces.isPending || workspaces.isError} className="rounded-md border border-border bg-transparent px-2 py-1 text-sm font-normal" value={editing.draft.projectId ?? ""} onChange={event => setEditing({ ...editing, draft: { ...editing.draft, projectId: event.target.value || null } })}>
+        <option value="">{t("launcher.flow.choose_project")}</option>{projects.map(project => <option key={project.id} value={project.id}>{project.displayName || project.name}</option>)}
+      </select>{workspaces.isError && <span role="alert" className="text-destructive">{t("launcher.settings.unavailable")}</span>}</label>}
       <div className="flex flex-wrap items-center gap-4">
         <label className="flex items-center gap-2 text-sm"><Switch checked={editing.draft.favorite} onCheckedChange={checked => setEditing({ ...editing, draft: { ...editing.draft, favorite: checked } })} />{t("launcher.settings.quick_action_favorite")}</label>
         <span className="text-sm">{t("launcher.settings.quick_action_shortcut")}</span><ShortcutCapture value={editing.draft.shortcut} platform={platform} onChange={accelerator => setEditing({ ...editing, draft: { ...editing.draft, shortcut: accelerator } })} onClear={() => setEditing({ ...editing, draft: { ...editing.draft, shortcut: null } })} />
       </div>
-      {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
-      <div className="flex gap-2"><Button type="submit" disabled={busy || !editing.draft.name.trim() || !editing.draft.prompt.trim()}>{t("common.save")}</Button><Button type="button" variant="ghost" onClick={() => setEditing(null)}>{t("common.cancel")}</Button></div>
+      <div className="flex gap-2"><Button type="submit" disabled={busy || !editing.draft.name.trim() || !editing.draft.prompt.trim() || !supportsQuickActionOutput(editing.draft.output) || editing.draft.target === "project" && !projects.some(project => project.id === editing.draft.projectId)}>{t("common.save")}</Button><Button type="button" variant="ghost" onClick={() => { setEditing(null); setError(null); }}>{t("common.cancel")}</Button></div>
+      </fieldset>
     </form>}
+    {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
   </LayoutSectionItem>;
 }

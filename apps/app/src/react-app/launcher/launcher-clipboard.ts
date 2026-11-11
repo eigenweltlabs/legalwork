@@ -5,6 +5,13 @@ import { t } from "@/i18n";
 import { launcherClipboardWrite } from "@/app/lib/desktop";
 import { isDesktopRuntime } from "@/app/utils";
 
+/** A loopback URL can be a forwarded remote server; only this desktop's runtime owns local paths. */
+export function isDesktopLauncherServer(serverUrl: string, runtime: { running: boolean; baseUrl: string | null } | undefined) {
+  if (!runtime?.running || !runtime.baseUrl) return false;
+  try { return new URL(serverUrl).href.replace(/\/$/, "") === new URL(runtime.baseUrl).href.replace(/\/$/, ""); }
+  catch { return false; }
+}
+
 /** The desktop panel uses native clipboard access, independent of browser focus/permissions. */
 export async function copyLauncherText(text: string) {
   if (isDesktopRuntime()) await launcherClipboardWrite(text);

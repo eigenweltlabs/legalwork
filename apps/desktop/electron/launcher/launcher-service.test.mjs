@@ -231,3 +231,17 @@ test("file choosers and dictation hold the panel open, voice destinations never 
     assert.equal(window.ensured, 1);
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
+
+test("exact result links retain identity without accepting arbitrary routes or malformed metadata", () => {
+  const result = { kind: "files", id: "Agreement.docx", path: "Agreement.docx", workspaceId: "matter", sourceId: "local:matter" };
+  const link = value => `legalwork://assistant/open?result=${encodeURIComponent(JSON.stringify(value))}`;
+  assert.deepEqual(parseAssistantLink(link(result))?.result, result);
+  for (const resultAction of ["chat-with-assistant", "ask", "summarize"]) {
+    assert.equal(parseAssistantLink(`${link(result)}&resultAction=${resultAction}`)?.resultAction, resultAction);
+  }
+  assert.equal(parseAssistantLink(`${link(result)}&resultAction=move-to-project`), null);
+  assert.equal(parseAssistantLink("legalwork://assistant/open?resultAction=ask"), null);
+  for (const value of [null, [], { ...result, kind: "unknown" }, { ...result, workspaceId: 2 }, { ...result, route: "/settings" }, { ...result, id: "x".repeat(4097) }]) {
+    assert.equal(parseAssistantLink(link(value)), null);
+  }
+});

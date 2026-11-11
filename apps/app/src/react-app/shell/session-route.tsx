@@ -26,6 +26,7 @@ import { assistantShellQueryKey, localAssistantDate, resolveAssistantConversatio
 import { useHomeDraftSync, flushHomeDraft } from "@/react-app/launcher/home-draft-sync";
 import { sharedDraftCoordinator, windowOwnerId } from "@/react-app/launcher/launcher-route";
 import { submitAssistantDraft } from "@/react-app/launcher/submit-draft";
+import { rememberLauncherSubmissionOutput } from "@/react-app/launcher/submission-output";
 import { LauncherDialog } from "@/react-app/launcher/launcher-dialog";
 import { carryAssistantDraft } from "@/react-app/domains/session/surface/composer-state-store";
 import { hasAssistantSubscription } from "@legalwork/types/main-assistant";
@@ -1662,6 +1663,7 @@ export function SessionRoute() {
           if (context) parts.push(systemReminderPart(context));
           const queueIdentity = options?.queue ? options.queue.editToken ?? options.queue.id : null;
           const submission = await submitAssistantDraft({ client, drafts, owner: windowOwnerId("home"), conversationId: assistantConversationId,
+            beforeSend: rememberLauncherSubmissionOutput(client.baseUrl, assistantConversationId),
             identity: queueIdentity ? { requestId: `req_queue_${queueIdentity}`, messageId: `msg_${queueIdentity.replaceAll("-", "")}` } : undefined, input: {
             text, parts, queue: options?.queue, command: draft.command, model: sendModel, variant: sendVariant ?? undefined, agent: selectedAgent ?? undefined,
             context: { items: shared.context, target: shared.target, searchScope: shared.searchScope, capturedAt: Date.now() },
@@ -2499,6 +2501,7 @@ export function SessionRoute() {
             if (!drafts.owns(homeConversationId, owner)) await drafts.claim(homeConversationId, owner);
             const shared = drafts.get(homeConversationId);
             const submission = await submitAssistantDraft({ client, drafts, owner, conversationId: homeConversationId,
+              beforeSend: rememberLauncherSubmissionOutput(client.baseUrl, homeConversationId),
               identity: { requestId: `req_home_${message.id}`, messageId: message.id }, input: {
                 text: prompt, model, agent: selectedAgent ?? undefined, variant: modelVariantValue ?? undefined,
                 parts: [{ type: "text", text: prompt }, ...(turnContext ? [systemReminderPart(turnContext)] : [])],

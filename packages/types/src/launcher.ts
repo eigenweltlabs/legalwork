@@ -170,13 +170,24 @@ export type LauncherCatalogEntry = z.infer<typeof LauncherCatalogEntrySchema>;
 export const LauncherInvocationActionSchema = z.enum(["open", "search", "files", "projects", "chats", "tasks", "recordings", "ask", "speak", "dictate", "record", "capture-region", "capture-window", "quick-action", "work", "new-conversation", "resume"]);
 export type LauncherInvocationAction = z.infer<typeof LauncherInvocationActionSchema>;
 export const LauncherInvocationSourceSchema = z.enum(["shortcut", "hud", "home", "raycast", "deep-link", "tray", "test"]);
+/** Exact result identity from an external launcher; resolve it again before opening. */
+export const LauncherResultReferenceSchema = z.object({
+  kind: LauncherSearchKindSchema, id: z.string().min(1).max(4096), workspaceId: z.string().min(1).max(200).nullable(),
+  sourceId: z.string().min(1).max(300), folderId: z.string().min(1).max(100).optional(), sessionId: z.string().min(1).max(200).optional(),
+  path: z.string().max(4096).optional(), fileType: z.literal("folder").optional(),
+}).strict().refine(value => (value.kind === "files" || value.path === undefined && value.folderId === undefined && value.fileType === undefined)
+  && (value.kind === "chats" || value.sessionId === undefined), "Result metadata does not match its category.");
+export type LauncherResultReference = z.infer<typeof LauncherResultReferenceSchema>;
+export const LauncherInvocationResultActionSchema = z.enum(["open", "chat-with-assistant", "ask", "summarize"]);
 /** Snapshot of the focused workpane, captured before the launcher takes focus. */
 export const LauncherInvocationSchema = z.object({
   id: z.string().min(1).max(100), action: LauncherInvocationActionSchema, query: z.string().max(2000).optional(), conversationId: z.string().max(100).optional(),
   projectId: z.string().max(200).optional(), actionId: z.string().max(200).optional(), contextId: z.string().max(100).optional(), source: LauncherInvocationSourceSchema,
   workspaceContext: LauncherWorkspaceContextSchema.optional(),
+  result: LauncherResultReferenceSchema.optional(),
+  resultAction: LauncherInvocationResultActionSchema.optional(),
   captureSelection: z.literal(true).optional(),
-});
+}).refine(value => !value.resultAction || Boolean(value.result), "A result action requires an exact result reference.");
 export type LauncherInvocation = z.infer<typeof LauncherInvocationSchema>;
 export const LauncherStagedContextSchema = z.object({ id: z.string(), items: z.array(AssistantContextItemSchema).max(20), source: LauncherInvocationSourceSchema, createdAt: z.number(), expiresAt: z.number() });
 export type LauncherStagedContext = z.infer<typeof LauncherStagedContextSchema>;
@@ -223,7 +234,7 @@ export type LauncherCaptureResult = z.infer<typeof LauncherCaptureResultSchema>;
 export const LauncherDraftSchema = z.object({
   conversationId: z.string(), revision: z.number(), text: z.string(), context: z.array(AssistantContextItemSchema), target: AssistantExecutionTargetSchema,
   searchScope: z.string().nullable(), pendingTranscription: z.string().nullable(), model: z.object({ providerID: z.string(), modelID: z.string() }).nullable(), variant: z.string().nullable(),
-  submission: z.object({ requestId: z.string(), messageId: z.string(), state: z.string(), input: AssistantSubmitInputSchema.optional(), draftSnapshot: z.object({ text: z.string(), context: z.array(AssistantContextItemSchema) }).optional() }).nullable(), updatedAt: z.number(),
+  submission: z.object({ requestId: z.string(), messageId: z.string(), state: z.string(), input: AssistantSubmitInputSchema.optional(), outputIntent: z.object({ output: z.enum(["copy", "insert"]), originId: z.string().nullable() }).optional(), draftSnapshot: z.object({ text: z.string(), context: z.array(AssistantContextItemSchema) }).optional() }).nullable(), updatedAt: z.number(),
   composer: z.object({ mentions: z.record(z.string(), z.enum(["agent", "file", "memory", "upload", "storage", "app", "task", "review", "calendar", "plugin", "integration"])), pasteParts: z.array(z.object({ id: z.string(), label: z.string(), text: z.string(), lines: z.number() })) }).optional(),
 });
 export type LauncherDraft = z.infer<typeof LauncherDraftSchema>;

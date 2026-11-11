@@ -5,12 +5,15 @@ import { handleLauncherFocusKey, launcherControls } from "./launcher-focus";
 import { isComposingKeyEvent, isLauncherConfirmKey } from "./launcher-keyboard";
 
 /** A temporary editor owns its keyboard focus until Save or Back returns to the list. */
-export function LauncherForm({ title, busy, onClose, onSubmit, children }: {
-  title: string; busy: boolean; onClose: () => void; onSubmit: () => void; children: ReactNode;
+export type LauncherFormState = { active: boolean; busy: boolean };
+export function LauncherForm({ title, busy, onClose, onSubmit, children, onStateChange }: {
+  title: string; busy: boolean; onClose: () => void; onSubmit: () => void; children: ReactNode; onStateChange?: (state: LauncherFormState) => void;
 }) {
   const form = useRef<HTMLFormElement>(null);
   const lastControl = useRef<HTMLElement | null>(null);
   const wasBusy = useRef(false);
+  useLayoutEffect(() => { onStateChange?.({ active: true, busy }); }, [busy, onStateChange]);
+  useLayoutEffect(() => () => { onStateChange?.({ active: false, busy: false }); }, [onStateChange]);
   useLayoutEffect(() => {
     if (busy) form.current?.focus();
     else if (wasBusy.current) (lastControl.current ?? launcherControls(form.current)[0])?.focus();

@@ -31,6 +31,34 @@ test("final completed text has the same stable ID as its earlier closed bubble a
   expect(channelLiveEvents([message],"human")).toEqual(first);
   message.info.summary=true;expect(channelLiveEvents([message],"human")).toEqual([]);
 });
+test("Code Mode reactions require recorded completed calls, target the human turn and keep distinct stable keys", () => {
+  const part = tool("execute", "execute", { ok: true, reaction: { messageId: "human", emoji: "👀" } });
+  if (part.type !== "tool" || part.state.status !== "completed") throw new Error("Invalid fixture");
+  const message = { info: info("reply"), parts: [part] };
+  expect(channelLiveEvents([message], "human")).toEqual([]);
+  const reactions = [
+    { status: "completed", messageId: "human", emoji: "👀" },
+    { status: "completed", messageId: "other-human", emoji: "👍" },
+    { status: "completed", messageId: "human", emoji: "👍" },
+    { status: "error", messageId: "human", emoji: "👀" },
+  ];
+  part.state.metadata = {
+    toolCalls: reactions.map(({ status }) => ({ tool: "legalwork_assistant_react", status })),
+    legalworkToolResults: reactions.flatMap(({ messageId, emoji }, index) => [
+      ...(index === 2 ? [{ tool: "legalwork_assistant_react", output: { ok: true, reaction: { messageId: "human", emoji: "invalid" } } }] : []),
+      { tool: "legalwork_assistant_react", output: { ok: true, reaction: { messageId, emoji } } },
+    ]),
+  };
+  const events = channelLiveEvents([message], "human");
+  expect(events.map(row => row.event)).toEqual([
+    { type: "reaction.changed", messageId: "human", emoji: "👀" },
+    { type: "reaction.changed", messageId: "human", emoji: "👍" },
+  ]);
+  expect(new Set(events.map(row => row.key)).size).toBe(2);
+  expect(channelLiveEvents([message], "human")).toEqual(events);
+  part.state = { status: "running", input: {}, metadata: part.state.metadata, time: { start: 1 } };
+  expect(channelLiveEvents([message], "human")).toEqual([]);
+});
 test("model-only app-state reminders do not hide a valid reaction or leak into its event", () => {
   const part=tool("react","legalwork_assistant_react",{ok:true,reaction:{messageId:"human",emoji:"👀"}});
   if(part.type!=="tool" || part.state.status!=="completed") throw new Error("Invalid fixture");

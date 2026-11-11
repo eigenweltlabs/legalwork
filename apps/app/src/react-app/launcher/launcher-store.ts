@@ -8,7 +8,7 @@ import { persistentContext } from "./launcher-context-lifecycle";
 export type LauncherView = "idle" | "results" | "commands" | "conversation" | "work" | "detail" | "hidden";
 export type LauncherOverlay = { kind: "actions"; resultKey: string } | { kind: "navigation-actions"; id: string } | { kind: "context-menu" } | { kind: "sort" } | null;
 export type ProjectScope = { id: string; name: string };
-export type LauncherConversationBinding = { conversationId: string; sessionId: string; workspaceId: string; title: string; archived: boolean; pinned: boolean };
+export type LauncherConversationBinding = { conversationId: string; sessionId: string; workspaceId: string; title: string; archived: boolean; pinned: boolean; origin?: string | null };
 export type StagedPreview = { id: string; dataUrl: string };
 
 export type LauncherState = {
@@ -45,6 +45,8 @@ export type LauncherState = {
   /** The next invocation to apply, delivered by the desktop or a deep link. */
   invocation: LauncherInvocation | null;
   visible: boolean;
+  /** Keep an in-flight form mounted if the user explicitly hides the native panel. */
+  formBusy: boolean;
   setInvocation: (invocation: LauncherInvocation | null) => void;
   setVisible: (visible: boolean) => void;
   setInput: (input: string) => void;
@@ -78,7 +80,7 @@ const initial = {
   workspaceContext: null as LauncherWorkspaceContext | null,
   view: "idle" as LauncherView, input: "", category: null, fileFilter: { types: null, modifiedAfter: null, sourceKind: null } as LauncherFileFilter, scope: null, target: { kind: "assistant" } as AssistantExecutionTarget, results: [], sources: [], searchPending: false, searchError: null, catalog: [],
   selection: { id: null, source: "auto" } as LauncherSelection, multiSelect: new Set<string>(), overlay: null as LauncherOverlay, context: [], previews: [], conversation: null, origin: null, pinned: false, positionMoved: false, attentionCount: 0, approval: null as LauncherApprovalRequest | null, voice: null as LauncherVoiceState | null, notice: null,
-  invocation: null as LauncherInvocation | null, visible: true,
+  invocation: null as LauncherInvocation | null, visible: true, formBusy: false,
 };
 
 export const useLauncherStore = create<LauncherState>((set) => ({
@@ -107,7 +109,7 @@ export const useLauncherStore = create<LauncherState>((set) => ({
   replaceContext: context => set({ context }),
   bindConversation: conversation => set(state => ({
     ...(state.conversation?.conversationId !== conversation?.id ? { input: "", context: [], previews: [], target: { kind: "assistant" }, scope: null } : {}),
-    conversation: conversation ? { conversationId: conversation.id, sessionId: conversation.sessionId, workspaceId: conversation.workspaceId, title: conversation.title, archived: conversation.archivedAt !== null, pinned: conversation.pinned } : null,
+    conversation: conversation ? { conversationId: conversation.id, sessionId: conversation.sessionId, workspaceId: conversation.workspaceId, title: conversation.title, archived: conversation.archivedAt !== null, pinned: conversation.pinned, origin: conversation.origin } : null,
   })),
   setOrigin: origin => set({ origin }),
   setPinned: pinned => set({ pinned }),
@@ -118,6 +120,7 @@ export const useLauncherStore = create<LauncherState>((set) => ({
   notify: notice => set({ notice }),
   // Dismissal keeps drafts and deliberate attachments. Captured selections always expire.
   reset: () => set(state => {
+    if (state.formBusy) return { ...state, context: persistentContext(state.context), overlay: null };
     const keepDraft = state.view === "conversation";
     return { ...state, detail: null, workspaceContext: state.workspaceContext ? { ...state.workspaceContext, selection: undefined } : null, view: keepDraft ? "conversation" : "idle", input: keepDraft ? state.input : "", scope: keepDraft ? state.scope : null, target: keepDraft ? state.target : { kind: "assistant" }, category: keepDraft ? state.category : null, fileFilter: keepDraft ? state.fileFilter : { types: null, modifiedAfter: null, sourceKind: null }, context: persistentContext(state.context).filter(item => keepDraft || item.type !== "clipboard"), results: [], sources: [], searchPending: false, searchError: null, selection: { id: null, source: "auto" }, multiSelect: new Set(), overlay: null, notice: null };
   }),

@@ -156,8 +156,8 @@ export function LauncherRoute() {
     client, assistant, workspaces, drafts, owner, surface: "panel", conversationId: null, desktop,
     openInApp: route => { if (desktop) void launcherWindowControl("expand", { route }); else navigate(route); },
     dismiss: () => { if (desktop) void launcherWindowControl("hide"); else navigate("/home"); },
-    refresh, bootstrapError,
-  } : null, [client, assistant, workspaces, drafts, owner, desktop, navigate, refresh, bootstrapError]);
+    refresh, bootstrapError, workspacesPending: workspaceQuery.isPending,
+  } : null, [client, assistant, workspaces, drafts, owner, desktop, navigate, refresh, bootstrapError, workspaceQuery.isPending]);
   if (!shell) return <div className="launcher-root" data-surface="panel"><div className="launcher-panel"><div className="launcher-empty"><Loader2 className="mx-auto mb-2 size-5 animate-spin motion-reduce:animate-none" />{error ?? t("launcher.connecting")}</div></div></div>;
   return <LauncherShellContext.Provider value={shell}><LauncherPanel /></LauncherShellContext.Provider>;
 }

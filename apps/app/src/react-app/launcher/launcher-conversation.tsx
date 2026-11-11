@@ -64,8 +64,8 @@ export function AttentionCards({ items, busy, onReply, onOpen }: { items: Assist
   </article>)}</>;
 }
 
-export type PendingOutput = { messageId: string; output: "copy" | "insert"; originId: string | null };
-export function LauncherConversation({ conversation, submission, pendingOutput, onRetry, onOutputApplied, onArchived, onSave, onOpenApp }: { conversation: LauncherConversationBinding; onOpenApp: () => void; submission: { requestId: string; state: string; error?: string | null } | null; pendingOutput: PendingOutput | null; onRetry: () => void; onOutputApplied: () => void; onArchived: () => void; onSave: (text: string) => void }) {
+export type PendingOutput = { requestId: string; messageId: string; output: "copy" | "insert"; originId: string | null };
+export function LauncherConversation({ conversation, submission, pendingOutput, onRetry, onOutputApplied, onArchived, onSave, onOpenApp, handoffBusy = false }: { conversation: LauncherConversationBinding; onOpenApp: () => void; handoffBusy?: boolean; submission: { requestId: string; state: string; error?: string | null } | null; pendingOutput: PendingOutput | null; onRetry: () => void; onOutputApplied: () => void; onArchived: () => void; onSave: (text: string) => void }) {
   const { client, assistant, desktop, openInApp } = useLauncherShell();
   const cache = useQueryClient();
   const notify = useLauncherStore(state => state.notify);
@@ -79,6 +79,8 @@ export function LauncherConversation({ conversation, submission, pendingOutput, 
   const snapshot = useQuery({ queryKey: ["launcher-snapshot", client.baseUrl, conversation.workspaceId, conversation.sessionId], queryFn: () => client.getSessionSnapshot(conversation.workspaceId, conversation.sessionId, { limit: 40 }), refetchInterval: visible ? 2500 : false, refetchOnWindowFocus: true });
   const own = useQuery({ queryKey: ["launcher-attention-own", client.baseUrl, conversation.conversationId], queryFn: () => client.assistantConversationAttention(conversation.conversationId), refetchInterval: visible ? 4000 : false });
   const delegated = useQuery({ queryKey: ["launcher-attention-delegated", client.baseUrl], queryFn: () => client.assistantAttentionAll(), refetchInterval: visible ? 5000 : false });
+  // The server resolves this exact request across history pages and later turns.
+  const automaticOutput = useQuery({ queryKey: ["launcher-request-output", client.baseUrl, pendingOutput?.requestId], queryFn: () => client.assistantSubmissionOutput(pendingOutput?.requestId ?? ""), enabled: Boolean(pendingOutput), refetchInterval: query => query.state.data && query.state.data.state !== "pending" ? false : 2500 });
   useEffect(() => onSyncPoke(poke => { if (poke.sessions || poke.approvals || poke.resync) { void snapshot.refetch(); void own.refetch(); void delegated.refetch(); } }), [snapshot, own, delegated]);
   const messages = useMemo(() => snapshot.data ? snapshotToUIMessages(snapshot.data.item) : [], [snapshot.data]);
   const status = snapshot.data?.item.status.type === "busy" ? "streaming" : snapshot.data?.item.status.type === "retry" ? "retrying" : "ready";
@@ -119,22 +121,17 @@ export function LauncherConversation({ conversation, submission, pendingOutput, 
     } catch { notify({ tone: "error", text: t("launcher.notice.copy_failed") }); }
   };
   useEffect(() => {
-    if (!pendingOutput || status !== "ready") return;
-    const messages = snapshot.data?.item.messages ?? [];
-    const start = messages.findIndex(message => message.info.id === pendingOutput.messageId);
-    if (start < 0) return;
-    const nextUser = messages.findIndex((message, index) => index > start && message.info.role === "user");
-    const answer = messages.slice(start + 1, nextUser < 0 ? undefined : nextUser).findLast(message => message.info.role === "assistant" && !message.info.summary);
-    if (answer?.info.role !== "assistant" || !answer.info.time.completed || answer.info.error || answer.info.finish !== "stop") return;
-    const text = answer.parts.flatMap(part => part.type === "text" && !part.synthetic && !part.ignored ? [part.text] : []).join("\n").trim();
-    if (!text) return;
+    const answer = automaticOutput.data;
+    if (!pendingOutput || !answer || answer.requestId !== pendingOutput.requestId || answer.messageId !== pendingOutput.messageId || answer.state === "pending") return;
     // Consume this automatic attempt once. A failed delivery offers manual Copy
     // or Insert again, without replaying a paste as snapshots keep arriving.
     onOutputApplied();
-    void (pendingOutput.output === "copy" ? copyReply(text) : insertReply(text, pendingOutput.originId));
+    if (answer.state === "failed") { notify({ tone: "error", text: answer.error }); return; }
+    void (pendingOutput.output === "copy" ? copyReply(answer.text) : insertReply(answer.text, pendingOutput.originId));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pendingOutput, snapshot.data, status]);
+  }, [pendingOutput, automaticOutput.data]);
   const archive = async () => {
+    if (handoffBusy) return;
     try { await client.patchAssistantConversation(conversation.conversationId, { archived: true }); void cache.invalidateQueries({ queryKey: ["launcher-conversations"] }); notify({ tone: "info", text: t("launcher.conversation.archived") }); onArchived(); }
     catch (error) { notify({ tone: "error", text: error instanceof Error ? error.message : String(error) }); }
   };
@@ -151,8 +148,8 @@ export function LauncherConversation({ conversation, submission, pendingOutput, 
   };
   return <div ref={rootRef} className="launcher-conversation lw-session-typography">
     <div className="launcher-conversation-head"><span className="truncate">{conversation.title}</span>
-      <Button size="sm" variant="ghost" onClick={onOpenApp}>{t("launcher.result_action.open-in-app")}</Button>
-      <Button size="icon-sm" variant="ghost" aria-label={t("launcher.conversation.archive")} title={t("launcher.conversation.archive")} onClick={() => void archive()}><Archive className="size-3.5" /></Button>
+      <Button size="sm" variant="ghost" disabled={handoffBusy} onClick={onOpenApp}>{t("launcher.result_action.open-in-app")}</Button>
+      <Button size="icon-sm" variant="ghost" disabled={handoffBusy} aria-label={t("launcher.conversation.archive")} title={t("launcher.conversation.archive")} onClick={() => void archive()}><Archive className="size-3.5" /></Button>
     </div>
     <AttentionCards items={attention} busy={busy} onReply={reply} onOpen={item => openInApp(workspaceSessionRoute(item.workspaceId, item.sessionId))} />
     {snapshot.isError && <p role="alert" className="launcher-status"><AlertTriangle className="size-3.5" />{t("launcher.conversation.unavailable")} <button className="underline" onClick={() => void snapshot.refetch()}>{t("assistant.attention_retry")}</button></p>}

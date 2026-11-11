@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import type { AssistantConversation, AssistantSubmitInput, AssistantSubmission } from "@legalwork/types/launcher";
+import { LauncherDraftFileSchema, type AssistantConversation, type AssistantSubmitInput, type AssistantSubmission, type LauncherOutputIntent } from "@legalwork/types/launcher";
 import { DraftCoordinator, EMPTY_DRAFT_FILE } from "../src/react-app/launcher/draft-coordinator";
 import { submitAssistantDraft } from "../src/react-app/launcher/submit-draft";
 import { useLauncherStore } from "../src/react-app/launcher/launcher-store";
@@ -108,4 +108,43 @@ test("a failed output registration during retry preserves the uncertain send ide
   await expect(submitAssistantDraft({ client, drafts, owner: "panel", conversationId: "one", retry: true, input: { text: "Changed" }, beforeSend: async () => { throw new Error("registration unavailable"); } })).rejects.toThrow();
   expect(drafts.get("one").submission).toEqual(original);
   expect(sends).toBe(1);
+});
+
+test("a failed quick action retries after restart with a new identity and the same output destination", async () => {
+  let file = structuredClone(EMPTY_DRAFT_FILE);
+  const storage = { read: async () => LauncherDraftFileSchema.parse(structuredClone(file)), write: async (next: typeof file, version: number) => { if (file.version !== version) return false; file = structuredClone(next); return true; } };
+  const panel = new DraftCoordinator(storage);
+  await panel.claim("one", "panel");
+  const sent: AssistantSubmitInput[] = [], outputs: LauncherOutputIntent[] = [];
+  const remember = async (input: AssistantSubmitInput, intent?: Pick<LauncherOutputIntent, "output" | "originId">) => {
+    if (intent) outputs.push({ ...intent, requestId: input.requestId, messageId: input.messageId, conversationId: "one" });
+  };
+  const client = { submitAssistantMessage: async (_id: string, input: AssistantSubmitInput) => {
+    sent.push(input);
+    expect(outputs.at(-1)?.requestId).toBe(input.requestId);
+    const submission: AssistantSubmission = { ...input, conversationId: "one", workspaceId: "assistant", sessionId: "session", state: sent.length === 1 ? "failed" : "accepted", target: { kind: "assistant" }, preview: input.text, createdAt: 1, updatedAt: 1, error: null };
+    return { conversation, submission };
+  } };
+  await submitAssistantDraft({ client, drafts: panel, owner: "panel", conversationId: "one", input: { text: "Rewrite selection" }, outputIntent: { output: "insert", originId: "original-editor" }, beforeSend: remember });
+  const reopened = new DraftCoordinator(storage);
+  await reopened.claim("one", "home");
+  await submitAssistantDraft({ client, drafts: reopened, owner: "home", conversationId: "one", retry: true, input: { text: "Different draft" }, beforeSend: remember });
+  expect(sent[1].requestId).not.toBe(sent[0].requestId);
+  expect(sent[1].text).toBe("Rewrite selection");
+  expect(outputs).toHaveLength(2);
+  expect(outputs[1]).toMatchObject({ requestId: sent[1].requestId, messageId: sent[1].messageId, output: "insert", originId: "original-editor" });
+});
+
+test("retrying a local output preparation failure cannot silently omit the output policy", async () => {
+  let file = structuredClone(EMPTY_DRAFT_FILE);
+  const drafts = new DraftCoordinator({ read: async () => LauncherDraftFileSchema.parse(file), write: async (next, version) => { if (file.version !== version) return false; file = structuredClone(next); return true; } });
+  await drafts.claim("one", "panel");
+  let remembered: Pick<LauncherOutputIntent, "output" | "originId"> | undefined;
+  const client = { submitAssistantMessage: async (_id: string, input: AssistantSubmitInput) => {
+    expect(remembered).toEqual({ output: "copy", originId: null });
+    const submission: AssistantSubmission = { ...input, conversationId: "one", workspaceId: "assistant", sessionId: "session", state: "accepted", target: { kind: "assistant" }, preview: input.text, createdAt: 1, updatedAt: 1, error: null };
+    return { conversation, submission };
+  } };
+  await expect(submitAssistantDraft({ client, drafts, owner: "panel", conversationId: "one", input: { text: "Copy answer" }, outputIntent: { output: "copy", originId: null }, beforeSend: async () => { throw new Error("disk full"); } })).rejects.toThrow("disk full");
+  await submitAssistantDraft({ client, drafts, owner: "panel", conversationId: "one", retry: true, input: { text: "Copy answer" }, beforeSend: async (_input, intent) => { remembered = intent; } });
 });

@@ -9,10 +9,11 @@ export const PAIRING_FILE = "launcher-pairing.json";
  * user account. Nothing goes into URLs; Raycast reads the file on each call.
  */
 export class RaycastPairing {
-  /** @param {{ userDataDir: string, serverInfo: () => Promise<{ running: boolean, baseUrl: string | null, clientToken: string | null, ownerToken: string | null, hostToken?: string | null }> }} options */
+  /** @param {{ userDataDir: string, scheme?: string, serverInfo: () => Promise<{ running: boolean, baseUrl: string | null, clientToken: string | null, ownerToken: string | null, hostToken?: string | null }> }} options */
   constructor(options) {
     this.path = path.join(options.userDataDir, PAIRING_FILE);
     this.serverInfo = options.serverInfo;
+    this.scheme = options.scheme === "legalwork-dev" ? "legalwork-dev" : "legalwork";
     this.enabled = false;
   }
   async load() {
@@ -27,7 +28,7 @@ export class RaycastPairing {
     const info = await this.serverInfo().catch(() => null);
     // Only the collaborator-scoped client token leaves the app; the owner token never reaches another process.
     if (!info?.running || !info.baseUrl || !info.clientToken) return this.status();
-    const payload = { enabled: true, version: 1, serverUrl: info.baseUrl, token: info.clientToken, scheme: "legalwork", updatedAt: Date.now() };
+    const payload = { enabled: true, version: 1, serverUrl: info.baseUrl, token: info.clientToken, scheme: this.scheme, updatedAt: Date.now() };
     const temporary = `${this.path}.${process.pid}.tmp`;
     await writeFile(temporary, `${JSON.stringify(payload, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
     await chmod(temporary, 0o600).catch(() => {});

@@ -2,6 +2,12 @@ import type { AssistantConversation, AssistantExecutionTarget, LauncherSearchRes
 
 export type ResultChatAction = "chat-with-assistant" | "ask" | "summarize" | "compare";
 
+/** A registered project chat stays project-bound even before Assistant bootstrap completes. */
+export function conversationTarget(conversation: { workspaceId: string; origin?: string | null }, assistantWorkspaceId: string | undefined, fallback: AssistantExecutionTarget): AssistantExecutionTarget {
+  return conversation.origin?.startsWith("project:") || assistantWorkspaceId && conversation.workspaceId !== assistantWorkspaceId
+    ? { kind: "project", workspaceId: conversation.workspaceId } : fallback;
+}
+
 /** Use the item's own project; external/wiki context needs a current project or an explicit choice. */
 export function resultChatProject(items: Pick<LauncherSearchResult, "workspaceId">[], projects: { id: string; preset?: string }[], currentProjectId?: string) {
   const ids = new Set(projects.filter(project => project.preset !== "wiki" && project.preset !== "main-assistant").map(project => project.id));

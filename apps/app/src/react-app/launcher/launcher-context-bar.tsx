@@ -4,7 +4,7 @@ import { contextItemDetail, contextItemLabel } from "./context-capture";
 import { useLauncherStore } from "./launcher-store";
 
 /** Staged context with visible provenance; every item is removable before sending. */
-export function LauncherContextBar() {
+export function LauncherContextBar({ readOnly = false }: { readOnly?: boolean }) {
   const context = useLauncherStore(state => state.context);
   const previews = useLauncherStore(state => state.previews);
   const removeContext = useLauncherStore(state => state.removeContext);
@@ -17,7 +17,7 @@ export function LauncherContextBar() {
         {item.type === "task" && <ListChecks aria-hidden className="size-3.5 shrink-0" />}
         <span>{contextItemLabel(item)}</span>
         {item.type !== "selection" && <span className="launcher-context-detail">{contextItemDetail(item)}</span>}
-        <button type="button" aria-label={t("launcher.context.remove", { name: contextItemLabel(item) })} onClick={() => removeContext(item.id)}><X className="size-3.5" /></button>
+        <button type="button" disabled={readOnly} aria-label={t("launcher.context.remove", { name: contextItemLabel(item) })} onClick={() => removeContext(item.id)}><X className="size-3.5" /></button>
       </span>;
     })}
   </div>;

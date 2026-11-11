@@ -3,6 +3,7 @@ import type { Message, Part } from "./assistant-engine.js";
 import { AssistantReactionResultSchema } from "./assistant-schema.js";
 import { ChannelLiveEvent } from "./channel-runtime.js";
 import { z } from "zod";
+import { codeModeWidgetResults } from "./native-shared-values.js";
 
 /** App-state reminders are model history, never part of a public tool result. */
 export function channelToolOutput(output: string): unknown {
@@ -24,10 +25,17 @@ export function channelLiveEvents(messages: { info: Message; parts: Part[] }[], 
         const event = ChannelLiveEvent.safeParse({ key, event: { type: "message.created", text: part.text.trim() } });
         if (event.success) events.push(event.data);
       }
-      if (part.type !== "tool" || part.tool !== "legalwork_assistant_react" || part.state.status !== "completed") continue;
+      if (part.type !== "tool" || part.state.status !== "completed") continue;
       try {
-        const output = AssistantReactionResultSchema.parse(channelToolOutput(part.state.output));
-        if (output.reaction.messageId === messageId) events.push({ key, event: { type: "reaction.changed", ...output.reaction } });
+        const outputs = part.tool === "execute"
+          ? codeModeWidgetResults(part.callID, part.state.metadata, part.state.output).filter(result => result.tool === "legalwork_assistant_react").map(result => result.output)
+          : part.tool === "legalwork_assistant_react" ? [channelToolOutput(part.state.output)] : [];
+        for (const [index, value] of outputs.entries()) {
+          const output = AssistantReactionResultSchema.safeParse(value);
+          if (!output.success) continue;
+          const reactionKey = part.tool === "execute" ? createHash("sha256").update(JSON.stringify([message.info.id, part.id, index])).digest("hex") : key;
+          if (output.data.reaction.messageId === messageId) events.push({ key: reactionKey, event: { type: "reaction.changed", ...output.data.reaction } });
+        }
       } catch { /* Arbitrary tool outputs and invalid references remain private. */ }
     }
   }

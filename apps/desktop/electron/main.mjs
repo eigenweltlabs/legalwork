@@ -46,6 +46,7 @@ import { LauncherWindow } from "./launcher/launcher-window.mjs";
 import { LauncherOutputQueue } from "./launcher/output-queue.mjs";
 import { OriginService, execHelper } from "./launcher/origin-service.mjs";
 import { copyFilesToClipboard } from "./launcher/file-clipboard.mjs";
+import { LauncherFileDrag } from "./launcher/file-drag.mjs";
 import { ScreenCapture } from "./launcher/screen-capture.mjs";
 import { RaycastPairing } from "./launcher/raycast-pairing.mjs";
 import { pinWindowsProcessQoS } from "./windows-qos.mjs";
@@ -945,6 +946,7 @@ const launcherWindow = new LauncherWindow({
     });
   },
 });
+const launcherFileDrag = new LauncherFileDrag({ icon: file => app.getFileIcon(file, { size: "normal" }) });
 const originService = new OriginService({
   helperPath: resolveKeyMonitorPath(app), exec: execHelper, clipboard,
   pasteText: text => systemDictation.pasteText(text),
@@ -965,7 +967,7 @@ const launcherOutputs = new LauncherOutputQueue({
     return response.json();
   },
 });
-const raycastPairing = new RaycastPairing({ userDataDir: app.getPath("userData"), serverInfo: () => runtimeManager.legalworkServerInfo() });
+const raycastPairing = new RaycastPairing({ userDataDir: app.getPath("userData"), scheme: DESKTOP_PROTOCOL_SCHEME, serverInfo: () => runtimeManager.legalworkServerInfo() });
 /** @type {Map<number, import("@legalwork/types/launcher").LauncherWorkspaceContext>} */
 const launcherWorkspaceContexts = new Map();
 const launcherService = new LauncherService({
@@ -2858,6 +2860,14 @@ const desktopCommandHandlers = {
       const info = assertLegalworkServerReady(await runtimeManager.legalworkServerInfo());
       if (new URL(serverUrl).href.replace(/\/$/, "") !== new URL(info.baseUrl).href.replace(/\/$/, "")) throw new Error("Only files on this desktop can be copied to the clipboard.");
       await copyFilesToClipboard(paths, clipboard);
+  },
+  "launcherFilesPrepareDrag": async (event, serverUrl, paths) => {
+      const info = assertLegalworkServerReady(await runtimeManager.legalworkServerInfo());
+      if (new URL(serverUrl).href.replace(/\/$/, "") !== new URL(info.baseUrl).href.replace(/\/$/, "")) throw new Error("Only files on this desktop can be dragged out.");
+      return launcherFileDrag.prepare(event.sender.id, paths);
+  },
+  "launcherFilesStartDrag": async (event, tokens) => {
+      launcherFileDrag.start(event.sender, tokens);
   },
   "launcherCaptureWindow": async (event, ...args) => {
       return screenCapture.captureWindow();

@@ -49,7 +49,8 @@ export function LauncherFolderPicker({ workspaceId, value, onChange, disabled, a
         onKeyDown={event => {
           event.stopPropagation();
           if (isComposingKeyEvent(event)) return;
-          if (isLauncherConfirmKey(event, isMacPlatform())) { event.preventDefault(); if (!event.repeat) confirm(); return; }
+          if (event.key === "Enter" && event.repeat) { event.preventDefault(); return; }
+          if (isLauncherConfirmKey(event, isMacPlatform())) { event.preventDefault(); confirm(); return; }
           if (event.key === "Escape") { event.preventDefault(); setOpen(false); return; }
           if ((event.key === "ArrowLeft" || event.key === "Backspace") && path && (event.target !== input.current || !query)) { event.preventDefault(); up(); return; }
           if (event.key === "Enter" && event.target === input.current) {

@@ -147,3 +147,6 @@ html.launcher-window, html.launcher-window body, html.launcher-window #root { ba
 .launcher-detail-content { outline: none; }
 .launcher-detail-content button:focus-visible, .launcher-open-choice button:focus-visible,
 .launcher-work-actions button:focus-visible { outline: 2px solid var(--lw-text-secondary); outline-offset: 2px; }
+
+.launcher-row[draggable="true"] { cursor: grab; }
+.launcher-row[draggable="true"]:active { cursor: grabbing; }

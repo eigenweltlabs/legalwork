@@ -18,6 +18,7 @@ export type LauncherShellValue = {
   dismiss: () => void;
   refresh: () => Promise<void>;
   bootstrapError?: string | null;
+  workspacesPending?: boolean;
 };
 export const LauncherShellContext = createContext<LauncherShellValue | null>(null);
 export function useLauncherShell() {

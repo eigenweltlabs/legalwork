@@ -61,3 +61,19 @@ test("file sources combine with other filters, clear on category change and rese
   store.reset();
   expect(useLauncherStore.getState().fileFilter).toEqual({ sourceKind: null, types: null, modifiedAfter: null });
 });
+
+test("explicit hide preserves an in-flight task editor, then ordinary dismissal resets again", () => {
+  const store = useLauncherStore.getState();
+  const detail = { result: { id: "task-saving", kind: "tasks", workspaceId: "matter", sourceId: "tasks", title: "Saving", updatedAt: 1, score: 0, match: "recent", actions: ["open"] } } satisfies NonNullable<ReturnType<typeof useLauncherStore.getState>["detail"]>;
+  useLauncherStore.setState({ view: "detail", detail, input: "", formBusy: true, notice: { tone: "error", text: "Save is still pending" } });
+  store.setVisible(false);
+  store.reset();
+  expect(useLauncherStore.getState()).toMatchObject({ visible: false, view: "detail", detail, formBusy: true, notice: { text: "Save is still pending" } });
+  useLauncherStore.setState({ formBusy: false });
+  store.setVisible(true);
+  expect(useLauncherStore.getState().detail).toEqual(detail);
+  store.setVisible(false);
+  store.reset();
+  expect(useLauncherStore.getState()).toMatchObject({ view: "idle", detail: null, formBusy: false, notice: null });
+  store.setVisible(true);
+});

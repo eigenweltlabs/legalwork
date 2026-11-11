@@ -1,7 +1,7 @@
 import { AssistantAvatar } from "@/react-app/domains/session/sidebar/assistant-appearance";
 import type { AssistantIcon } from "@legalwork/types/main-assistant";
 import { LauncherResultOrigin } from "./launcher-result-origin";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type DragEvent } from "react";
 import { CheckSquare, ChevronRight, File, FileText, Folder, Image, ListTodo, Mail, MessageSquare, Mic, Presentation, Sheet, Square } from "lucide-react";
 import type { LauncherResultAction, LauncherSearchResult, LauncherSourceState } from "@legalwork/types/launcher";
 import { formatRelativeTime } from "@/app/utils";
@@ -53,6 +53,7 @@ export function actionLabel(action: LauncherResultAction | "run" | "open-convers
 
 export function LauncherResultList(props: {
   items: LauncherSearchResult[]; sources: LauncherSourceState[]; query: string; selectedKey: string | null; multiSelect: Set<string>; pins: Set<string>; pending: boolean; hideEmpty?: boolean;
+  canDrag?: (result: LauncherSearchResult) => boolean; onDragStart?: (event: DragEvent<HTMLElement>, result: LauncherSearchResult) => void;
   onSelect: (key: string) => void; onRun: (result: LauncherSearchResult, action: LauncherResultAction) => void; onToggleMulti: (key: string) => void; onOpenActions: (key: string) => void;
 }) {
   const groups = RESULT_KIND_ORDER.map(kind => ({ kind, items: props.items.filter(item => item.kind === kind), sources: props.sources.filter(source => source.kind === kind) })).filter(group => group.items.length);
@@ -66,7 +67,7 @@ export function LauncherResultList(props: {
         const primary = primaryResultAction(item);
         const multi = props.multiSelect.has(key);
         const details = [item.path && item.path !== item.title ? item.path : null, item.completed ? t("tasks.status_done") : item.status, item.updatedAt ? formatRelativeTime(item.updatedAt) : null].filter(Boolean).join(" · ");
-        return <div key={key} id={optionId(key)} data-launcher-item role="option" aria-selected={props.selectedKey === key} data-key={key} data-selected={props.selectedKey === key} data-multi={multi} className="launcher-row"
+        return <div key={key} id={optionId(key)} data-launcher-item role="option" aria-selected={props.selectedKey === key} data-key={key} data-selected={props.selectedKey === key} data-multi={multi} className="launcher-row" draggable={props.canDrag?.(item) ?? false} onDragStart={event => props.onDragStart?.(event, item)}
           onMouseMove={() => props.onSelect(key)} onClick={event => { if ((event.metaKey || event.ctrlKey) && item.kind === "files" && item.fileType !== "folder") props.onToggleMulti(key); else props.onRun(item, primary); }} onContextMenu={event => { event.preventDefault(); props.onSelect(key); props.onOpenActions(key); }}>
           <span className="launcher-row-icon" onClick={event => { if (item.kind === "files" && item.fileType !== "folder") { event.stopPropagation(); props.onToggleMulti(key); } }} aria-hidden="true">{item.kind === "files" && item.fileType !== "folder" ? multi ? <CheckSquare className="size-4" /> : props.multiSelect.size ? <Square className="size-4" /> : <Icon className="size-4" /> : <Icon className="size-4" />}</span>
           <div className="launcher-row-main">

@@ -3,6 +3,12 @@ import { launcherResultActions } from "@legalwork/types/launcher";
 import type { LauncherCatalogEntry, LauncherInvocationAction, LauncherSearchResult } from "@legalwork/types/launcher";
 import { t } from "@/i18n";
 
+/** Only these output policies have a delivery path in the launcher. */
+export const QUICK_ACTION_OUTPUTS = ["preview", "copy", "insert"] as const;
+export function supportsQuickActionOutput(output: LauncherCatalogEntry["outputs"][number]) {
+  return QUICK_ACTION_OUTPUTS.some(supported => supported === output);
+}
+
 /** App actions live beside engine commands and saved quick actions in one catalog with one dispatcher. */
 export type AppActionId = "app.new-conversation" | "app.resume" | "app.search-files" | "app.search-projects" | "app.search-chats" | "app.search-tasks" | "app.search-recordings" | "app.ask" | "app.speak" | "app.dictate" | "app.record" | "app.capture-region" | "app.capture-window" | "app.add-selection" | "app.paste-clipboard" | "app.attach-file" | "app.show-work" | "app.open-home" | "app.open-settings" | "app.new-project";
 const APP_ACTIONS: { id: AppActionId; kind: LauncherCatalogEntry["kind"]; invocation: LauncherInvocationAction | null; aliases: string[]; desktopOnly?: boolean }[] = [
