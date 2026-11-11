@@ -40,6 +40,27 @@ test("local patch and receipt are digest-verified without downloading upstream s
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
+test("pinned local inputs retain their exact bytes in a Windows-style checkout", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "legalwork-candidate-checkout-"));
+  const git = (...args) => promisify(execFile)("git", ["-c", "core.autocrlf=true", "-c", "core.eol=crlf", ...args], { cwd: root });
+  const pins = Object.values(recipe.inputs).filter(pin => pin.path);
+  try {
+    await git("init");
+    await writeFile(path.join(root, ".gitattributes"), await readFile(path.join(repository, ".gitattributes")));
+    await writeFile(path.join(root, "control.txt"), "Windows checkout\n");
+    for (const pin of pins) {
+      const target = path.join(root, pin.path);
+      await mkdir(path.dirname(target), { recursive: true });
+      await writeFile(target, await readFile(path.join(repository, pin.path)));
+    }
+    await git("add", ".");
+    for (const filename of ["control.txt", ...pins.map(pin => pin.path)]) await rm(path.join(root, filename));
+    await git("checkout-index", "-f", "-a");
+    assert.equal(await readFile(path.join(root, "control.txt"), "utf8"), "Windows checkout\r\n", "control must exercise real CRLF checkout conversion");
+    await verifyInputs(recipe, root);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 test("upstream commit and both frozen dependency files must match before use", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "legalwork-upstream-inputs-"));
   const git = (...args) => promisify(execFile)("git", args, { cwd: root });
