@@ -6,6 +6,7 @@
     "dev": "node scripts/dev.mjs",
     "dev:electron": "LEGALWORK_DEV_MODE=1 pnpm --filter @legalwork/desktop dev:electron",
     "dev:electron:regions": "node scripts/dev-electron-regions.mjs",
+    "dev:electron:onboarding": "node scripts/dev-electron-regions.mjs --onboarding",
     "dev:electron:two": "LEGALWORK_DEV_MODE=1 node scripts/dev-two-electron-demo.mjs",
     "demo:electron": "LEGALWORK_DEV_MODE=1 node scripts/dev-two-electron-demo.mjs --reset",
     "demo:reset": "node scripts/dev-two-electron-demo.mjs --reset-only",

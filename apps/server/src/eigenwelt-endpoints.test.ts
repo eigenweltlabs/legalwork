@@ -51,6 +51,13 @@ describe("regional Eigenwelt routing", () => {
     process.env.LEGALWORK_DEV_MODE = "0";
     expect(eigenweltCallbackPlatform("state", "state.us")).toBeNull();
     process.env.LEGALWORK_DEV_MODE = "1";
+    process.env.EIGENWELT_PLATFORM_URL = "http://127.0.0.1:3006";
+    expect(eigenweltCallbackPlatform("state", "state.eu")).toBe("https://eu.platform.eigenweltlabs.com");
+    expect(eigenweltCallbackPlatform("state", "state.us")).toBe("https://us.platform.eigenweltlabs.com");
+    expect(() => validateEigenweltPlatformUrl("https://platform.eigenweltlabs.com")).toThrow();
+    process.env.LEGALWORK_DEV_MODE = "0";
+    expect(eigenweltCallbackPlatform("state", "state.us")).toBeNull();
+    process.env.LEGALWORK_DEV_MODE = "1";
     process.env.EIGENWELT_PLATFORM_URL = "http://127.0.0.1:9876";
     expect(eigenweltCallbackPlatform("state", "state.eu")).toBeNull();
   });

@@ -1,5 +1,33 @@
 # Regional Electron validation
 
+## New-account onboarding
+
+Run `pnpm dev:electron:onboarding` with the isolated neutral coordinator running
+at `http://127.0.0.1:3006`. This opens **LegalWork Onboarding** on port
+5187. Every launch creates a new profile under
+`~/.legalwork/onboarding-validation/`, with no saved Eigenwelt account or region.
+
+Create your first project, skip optional Office/recording setup, and choose
+**Sign in**. In the browser, choose **Create an account**, create a new development
+account and firm, then choose the infrastructure region **Europe** or
+**United States**. Continue through the plan's Stripe **test-mode** checkout and
+the model-selection step. Choose **Connect** to return to LegalWork, then start
+a chat. The neutral coordinator provisions the chosen real regional validation
+platform; it does not use the production bootstrap or alter production routing.
+
+Use a different new account/firm for the second region, since a firm's region is
+chosen once. A fresh Electron profile does not clear the browser's login; sign
+out of the browser's test account before repeating signup with another account.
+Clerk test addresses containing `+clerk_test` use verification code
+`424242`. Stripe's test card is `4242 4242 4242 4242`, with a future expiry and any
+three-digit CVC. Use synthetic names, addresses, documents and prompts.
+
+The neutral coordinator has its own local database and development Clerk/Stripe
+credentials. Regional provisioning secrets stay in a private environment file.
+The regional platforms still enforce their assigned home for every account.
+
+## Existing test firms
+
 Run `pnpm dev:electron:regions` from the regional deployment worktree. This starts
 **LegalWork Regions** on port 5186 with its own Electron profile and local data
 under `~/.legalwork/regional-validation/`. It does not reuse the installed app's

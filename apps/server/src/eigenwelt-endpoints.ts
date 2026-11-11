@@ -15,13 +15,14 @@ export function validateEigenweltPlatformUrl(value: string): string {
   }
   const normalized = candidate.toString().replace(/\/+$/, "");
   // Custom installations stay isolated. Regional discovery during development
-  // requires both explicit dev flags and a fixed regional bootstrap origin.
+  // requires both explicit dev flags and an approved test entry point.
   const configured = eigenweltPlatformUrl();
   const regionalDevelopment = process.env.LEGALWORK_DEV_MODE === "1" &&
     process.env.LEGALWORK_DEV_REGIONAL_ROUTING === "1" &&
-    (configured === EIGENWELT_DEPLOYMENTS.eu.platform || configured === EIGENWELT_DEPLOYMENTS.us.platform);
+    [EIGENWELT_DEPLOYMENTS.eu.platform, EIGENWELT_DEPLOYMENTS.us.platform,
+      "http://127.0.0.1:3006"].includes(configured);
   const allowed = regionalDevelopment
-    ? [EIGENWELT_DEPLOYMENTS.eu.platform, EIGENWELT_DEPLOYMENTS.us.platform]
+    ? [configured, EIGENWELT_DEPLOYMENTS.eu.platform, EIGENWELT_DEPLOYMENTS.us.platform]
     : configured === BOOTSTRAP
       ? [BOOTSTRAP, EIGENWELT_DEPLOYMENTS.eu.platform, EIGENWELT_DEPLOYMENTS.us.platform]
       : [configured];
