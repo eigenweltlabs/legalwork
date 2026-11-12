@@ -57,6 +57,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import type {
   LegalworkTask,
   LegalworkTaskAttachment,
+  LegalworkServerClient,
   LegalworkTaskConflictChoice,
   LegalworkTaskMember,
   LegalworkTaskNote,
@@ -86,6 +87,7 @@ import { AssigneeMark, PriorityMark, StatusGlyph, SyncMark } from "./task-glyphs
 import { taskOriginLabel } from "./task-list";
 import { readTaskSubmission } from "./task-submission";
 import { DueDateChip, PropertyChip, type PropertyChipItem } from "./task-property-chip";
+import { NativeRecordLinks } from "../back-office/native-record-links";
 import { TaskTagInput } from "./task-tag-input";
 
 /** The "unassigned" choice needs a non-empty Select value of its own. */
@@ -178,6 +180,7 @@ function Fact(props: { label: string; children: ReactNode }) {
 }
 
 export type TaskDetailProps = {
+  client?: LegalworkServerClient | null;
   draftKey?: string;
   draft?: TaskDraft;
   onDirtyChange?: (dirty: boolean) => void;
@@ -652,6 +655,7 @@ export function TaskDetail(props: TaskDetailProps) {
                       if (next !== undefined && next !== task.priority) void patch({ priority: next }, t("tasks.update_failed"));
                     }}
                   />
+                  {props.client && !inTrash && <NativeRecordLinks client={props.client} kind="task" sourceId={task.id} disabled={locked} />}
                   {props.projects ? <PropertyChip label={t("projects.project")} value={task.projectId ?? "__none__"}
                     items={[{ value: "__none__", label: t("projects.no_project"), leading: <FolderOpen className="size-3.5" /> }, ...props.projects.map((project) => ({ value: project.id, label: project.name, leading: <FolderOpen className="size-3.5" /> }))]}
                     disabled={locked} onChange={(value) => void patch({ projectId: value === "__none__" ? null : value }, t("tasks.update_failed"))} /> : null}

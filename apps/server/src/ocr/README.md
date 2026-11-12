@@ -132,14 +132,26 @@ platforms' ONNX binaries. ONNX Runtime 1.23.2 is pinned because later npm releas
 omit Intel macOS binaries. The target binding is required at packaging time.
 Measured on macOS ARM64: approximately 39 MB additional installed libraries (11 MB as a gzip
 archive), reusing existing Canvas and Node; the final installer delta depends on
-its compression. Windows/Linux sizes and native execution require separate checks.
+its compression. Windows x64 native verification and architecture-specific CRT
+sizes are recorded in `docs/evidence/windows-ocr-runtime/`; Linux native execution
+requires separate checks.
 
 The optional higher-quality model needs no Python either. Its explicit setup downloads
 Paddle's official `PaddlePaddle/PaddleOCR-VL-1.6-GGUF` release (Apache-2.0, about 1.8 GB)
-and an official llama.cpp build (MIT, `b11234`, about 12 MB), both revision-pinned and
-checksum-verified, streamed to disk and published atomically. Only a macOS Apple Silicon
-build is pinned so far; other platforms report the model as unsupported. Installations
+and an official llama.cpp build (MIT, `b11234`, about 12 MB on Apple Silicon and
+33 MB on Windows x64), both revision-pinned and checksum-verified, streamed to disk
+and published atomically. Windows uses the Vulkan build with CPU backends; the exact
+Microsoft CRT shipped for ONNX is copied beside `llama-server.exe` during explicit
+setup and refreshed from the app's bundled files on launch after an app update,
+with no system installation or global PATH changes. Windows ARM64 and other
+platforms report this model as unsupported. Installations
 from the earlier Python/MLX runtime are prepared again; their files are not reused.
+
+The quality model is never installed by startup/automatic downloads. Its runtime
+archive and two GGUF files download only through the explicit model-install endpoint.
+Settings expose the maximum engine download size and current-file byte progress;
+shared small/layout assets are reused. Cancelling deletes the incomplete file and
+retains verified completed assets. Downloading does not select a new default engine.
 
 `llama-server` starts on the first page of a job, keeps the model loaded, and stops when
 the job ends or after two idle minutes. It listens on 127.0.0.1 behind a per-run API key,
@@ -170,9 +182,9 @@ uv pip install --python /application-data/ocr/venv/bin/python -r resources/ocr/r
 /application-data/ocr/venv/bin/python resources/ocr/prepare.py --model pp-ocrv6-small --model-dir /application-data/ocr/models
 ```
 
-Use the equivalent `Scripts/python.exe` path on Windows. The fast adapter uses
-ONNX Runtime CPU with four threads. This implementation was exercised on macOS
-Apple Silicon; Windows/Linux packaging and hardware testing remain separate work.
+Use the equivalent `Scripts/python.exe` path on Windows. The Python fast adapter
+uses ONNX Runtime CPU with four threads. That embedding path was exercised on
+macOS Apple Silicon; the desktop uses the separately verified native worker above.
 
 Setup pins detector/recognizer snapshot revisions. Model manifests reference the
 Hugging Face cache, so that cache must remain installed. The fast dictionary and

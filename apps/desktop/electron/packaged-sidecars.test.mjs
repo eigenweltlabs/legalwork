@@ -4,6 +4,7 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
+import { createHash } from "node:crypto";
 import { opencodeReleaseTarget } from "@legalwork/opencode-release";
 import { officialFixtureSelection, writeFixtureDerivativeDistribution, writeFixtureReleaseLibrary } from "../../../packages/opencode-release/test-fixture.mjs";
 
@@ -40,9 +41,21 @@ async function fixture(platform, arch, kind, run) {
     await writeFixtureReleaseLibrary(join(root, "node_modules", "@legalwork", "opencode-release"), selection);
     await symlink(dirname(require.resolve("electron-builder/package.json")), join(root, "node_modules", "electron-builder"), "junction");
     await mkdir(join(root, "scripts"));
-    for (const name of ["electron-after-pack.cjs", "packaged-ocr.cjs", "packaged-opencode-sdk.cjs"]) {
+    for (const name of ["electron-after-pack.cjs", "packaged-ocr.cjs", "packaged-opencode-sdk.cjs", "windows-vc-runtime.cjs"]) {
       await copyFile(new URL(`../scripts/${name}`, import.meta.url), join(root, "scripts", name));
     }
+    const vcPin = JSON.parse(await readFile(new URL("../build/windows-vc-runtime.json", import.meta.url), "utf8"));
+    await mkdir(join(root, "build"));
+    if (platform === "win32") {
+      const crt = join(modules, "onnxruntime-node/bin/napi-v6", platform, arch);
+      await mkdir(crt, { recursive: true });
+      for (const name of Object.keys(vcPin.targets[arch].files)) {
+        const bytes = Buffer.from(`${arch}:${name}`);
+        await writeFile(join(crt, name), bytes);
+        vcPin.targets[arch].files[name] = createHash("sha256").update(bytes).digest("hex");
+      }
+    }
+    await writeFile(join(root, "build", "windows-vc-runtime.json"), JSON.stringify(vcPin));
     const afterPack = require(join(root, "scripts", "electron-after-pack.cjs"));
     for (const name of ["onnxruntime-node", "onnxruntime-common", "@napi-rs/canvas", "paddleocr", "image-size"]) {
       const directory = join(modules, name);
@@ -54,7 +67,7 @@ async function fixture(platform, arch, kind, run) {
     await mkdir(binding, { recursive: true });
     await writeFile(join(binding, "onnxruntime_binding.node"), "fixture");
     for (const directory of ["ocr", "node", "opencode-sdk", "sidecars"]) await mkdir(join(resources, directory), { recursive: true });
-    for (const name of ["native-worker.cjs", "layout-worker.cjs"]) await writeFile(join(resources, "ocr", name), "fixture");
+    for (const name of ["native-worker.cjs", "layout-worker.cjs", "llama-launcher.cjs"]) await writeFile(join(resources, "ocr", name), "fixture");
     await writeFile(join(resources, "node", platform === "win32" ? "node.exe" : "node"), "fixture");
     await writeFile(join(resources, "opencode-sdk", "package.json"), JSON.stringify({ opencode: { version: "2.1.4", runtime: "released-cli", providedModules: ["@opencode/plugin", "effect"] } }));
     await run({ resources, engineDirectory, selection, afterPack, context: { appOutDir: root, electronPlatformName: platform, packager: { appInfo: { productFilename: "LegalWork" } } } });

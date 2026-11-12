@@ -140,11 +140,13 @@ test("PDF fallback accepts scoped agent credentials only in their own project", 
   owner.config.authorizedRoots.push(...projects.map(project => project.path));
   const server = await host(owner.config);
   const project = projects[0]!;
-  await grantWikiAgentSession(owner.config, { sessionId: "pdf-agent", directory: project.path, scope: "collaborator" });
+  await grantWikiAgentSession(owner.config, { sessionId: "pdf-agent", workspaceId: project.id, directory: project.path, scope: "collaborator" });
   const pdf = await PDFDocument.create(); pdf.addPage().drawText("Scoped PDF marker");
   const body = JSON.stringify({ dataBase64: Buffer.from(await pdf.save()).toString("base64") });
   const headers = { "content-type": "application/json", "x-legalwork-wiki-agent-token": await ensureWikiAgentToken(owner.config),
     "x-legalwork-wiki-agent-session": "pdf-agent", "x-legalwork-wiki-agent-directory": encodeURIComponent(project.path) };
+  const current = await fetch(`${server.url}/agent/file-workspace`, { headers });
+  expect(await current.json()).toEqual({ workspaceId: project.id, wiki: null });
   const own = await fetch(`${server.url}/workspace/${project.id}/pdf/read`, { method: "POST", headers, body });
   expect(own.status).toBe(200);
   expect(await own.text()).toContain("Scoped PDF marker");
@@ -175,6 +177,8 @@ test("private wiki setup can discover its own connected storage and execution se
   await expect(resolveWorkspaceId(context, { requireDirectory: true })).rejects.toThrow("Workspace lookup failed");
   expect((await server.request(`/workspace/${wiki.workspaceId}/sessions/${context.sessionID}/queue`, "POST", { type: "pause", paused: true })).status).toBe(200);
   expect(await resolveWorkspaceId(context, { requireDirectory: true })).toBe(wiki.workspaceId);
+  const current = await fetch(`${server.url}/agent/file-workspace`, { headers: await workspaceToolHeaders(context) });
+  expect(await current.json()).toMatchObject({ workspaceId: wiki.workspaceId, wiki: { root: wiki.root } });
   const storage = await LegalWorkStorageTools();
   const listed = parseToolJson(await storage.tool.storage_list_connections.execute({}, context));
   expect(listed).toHaveProperty("connections");

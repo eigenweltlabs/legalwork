@@ -1,4 +1,4 @@
-import { projectRemoteSchema } from "./project-schema.js";
+import { projectFieldSchema, projectRemoteSchema } from "./project-schema.js";
 import { dirname } from "node:path";
 import type { ProjectSyncConflict, ProjectSyncSettings, ProjectSyncSkipped } from "@legalwork/types/workspace";
 import { z } from "zod";
@@ -179,14 +179,7 @@ export const projectSyncSettingsSchema = z.object({
   scope: scopeSchema,
 });
 
-const fieldSchema = z.object({
-  id: z.string(),
-  label: z.string(),
-  labelSource: z.enum(["suggested", "custom"]).optional(),
-  type: z.enum(["text", "number", "date", "select"]),
-  value: z.union([z.string(), z.number(), z.null()]),
-  options: z.array(z.string()).optional(),
-});
+const fieldSchema = projectFieldSchema;
 
 const fieldChangeSchema = z.object({ id: z.string(), field: fieldSchema.nullable() });
 export type FieldChange = z.infer<typeof fieldChangeSchema>;

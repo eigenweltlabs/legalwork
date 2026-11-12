@@ -17,6 +17,19 @@ afterEach(async () => { await rm(root, { recursive: true, force: true }); });
 const policy = (directory = project) => buildWikiFilePolicy([{ root: own }, { root: external }], directory, [runtime]);
 
 describe("Wiki filesystem boundaries", () => {
+  test("a registered wiki below a replaced folder preserves the other wiki boundaries", async () => {
+    const replaced = join(root, "replaced-folder");
+    await writeFile(replaced, "This path is now a file.");
+    const stale = join(replaced, "old-wiki");
+    const rules = await buildWikiFilePolicy([{ root: stale }, { root: external }], project, [runtime]);
+    expect(rules.protectedRoots).toContain(stale);
+    expect(rules.protectedRoots).toContain(external);
+    const mounts = await wikiSafeSandboxMounts(rules, [{ source: project, target: "/workspace", writable: true }]);
+    expect(mounts[0].writable).toBe(true);
+    await expect(wikiSafeSandboxMounts(rules, [{ source: external, target: "/external", writable: true }]))
+      .resolves.toEqual([{ source: external, target: "/external", writable: false }]);
+  });
+
   test("external wiki mounts become read-only and writable ancestor mounts fail closed", async () => {
     const rules = await policy();
     const alias = join(root, "alias"); await symlink(external, alias);

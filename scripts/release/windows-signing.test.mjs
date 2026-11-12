@@ -1,6 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
@@ -35,12 +37,14 @@ test("Azure overlay is valid for the installed packager and preserves the NSIS a
 test("both Windows architectures must sign and verify before uploading alpha or stable assets", () => {
   const stable = workflow("release-macos-aarch64");
   const alpha = workflow("alpha-windows-x64");
-  const jobs = [stable.jobs["publish-electron-windows"], alpha.jobs["publish-alpha-windows"]];
+  const combined = workflow("alpha-macos-aarch64");
+  const jobs = [stable.jobs["publish-electron-windows"], alpha.jobs["publish-alpha-windows"], combined.jobs["publish-alpha-windows"]];
   for (const job of jobs) {
     assert.equal(job.environment, "windows-signing");
     assert.equal(job.permissions["id-token"], "write");
     assert.equal(job.strategy.matrix.include.length, 2);
     const login = job.steps.findIndex((step) => step.uses === "azure/login@v2");
+    const tools = job.steps.findIndex((step) => step.run?.includes("prepare-windows-signing.ps1"));
     const build = job.steps.findIndex((step) => step.run?.includes("build:electron"));
     const packageIndex = job.steps.findIndex((step) => step.run?.includes("exec electron-builder"));
     const verify = job.steps.findIndex((step) => step.name === "Verify signed Windows artifacts");
@@ -51,6 +55,8 @@ test("both Windows architectures must sign and verify before uploading alpha or 
     assert.equal(job.steps[engine].with["manifest-sha256"], "${{ needs.opencode-engine.outputs.manifest-sha256 }}");
     assert.match(job.steps[build].run, /build:electron:production/);
     assert.ok(build < login && login < packageIndex && packageIndex < verify);
+    assert.ok(build < tools && tools < login, "Verify signing tools before refreshing Azure credentials");
+    assert.equal(job.steps[tools].shell, "pwsh");
     assert.match(job.steps[packageIndex].run, /--config electron-builder\.azure\.yml/);
     assert.equal(job.steps[verify].if, undefined);
     assert.equal(job.steps[verify]["continue-on-error"], undefined);
@@ -83,6 +89,54 @@ test("signing smoke test uses the production signature checks and cannot publish
 
 const pwsh = process.env.PWSH_PATH || "pwsh";
 const hasPowerShell = spawnSync(pwsh, ["-NoProfile", "-NonInteractive", "-Command", "exit 0"]).status === 0;
+const prepareSigning = fileURLToPath(new URL("./prepare-windows-signing.ps1", import.meta.url));
+for (const scenario of ["cold", "warm", "transient-install", "missing-command", "repair-existing"]) {
+  test(`Signing module preparation: ${scenario}`, { skip: !hasPowerShell && process.platform !== "win32" }, () => {
+    const directory = mkdtempSync(path.join(os.tmpdir(), "signing-module-test-"));
+    try {
+      const module = path.join(directory, "TrustedSigning", "0.5.8");
+      mkdirSync(module, { recursive: true });
+      const fixture = path.join(directory, "exercise.ps1");
+      writeFileSync(fixture, `
+$ErrorActionPreference = 'Stop'
+$env:PSModulePath = $env:SIGNING_TEST_DIRECTORY + [IO.Path]::PathSeparator + (Join-Path $PSHOME 'Modules')
+$scenario = $env:SIGNING_TEST_SCENARIO
+$global:installs = 0
+$module = Join-Path $env:SIGNING_TEST_DIRECTORY 'TrustedSigning/0.5.8'
+function Write-TestModule([bool]$valid) {
+  $body = if ($valid) { 'function Invoke-TrustedSigning {}' } else { 'function Other-Command {}' }
+  Set-Content (Join-Path $module 'TrustedSigning.psm1') $body
+  New-ModuleManifest -Path (Join-Path $module 'TrustedSigning.psd1') -RootModule TrustedSigning.psm1 -ModuleVersion 0.5.8 -FunctionsToExport '*' -ErrorAction Stop
+}
+function Install-Module {
+  [CmdletBinding()]
+  param($Name, $RequiredVersion, $Repository, $Scope, [switch]$Force)
+  if ($Name -ne 'TrustedSigning' -or $RequiredVersion -ne '0.5.8' -or $Repository -ne 'PSGallery' -or $Scope -ne 'CurrentUser' -or -not $Force) { throw 'Unexpected installation arguments' }
+  $global:installs++
+  if ($scenario -eq 'transient-install' -and $global:installs -eq 1) { Write-Error 'Simulated module download failure' }
+  Write-TestModule ($scenario -ne 'missing-command')
+}
+if ($scenario -in @('warm', 'repair-existing')) { Write-TestModule ($scenario -eq 'warm') }
+$failure = $null
+try { . $env:SIGNING_TEST_SCRIPT -RetryDelaySeconds 0 } catch { $failure = $_ }
+if ($scenario -eq 'missing-command') {
+  if (-not $failure -or $failure.Exception.Message -ne 'TrustedSigning is unavailable to a fresh signing process') { throw 'Accepted a module without the signing command or failed for an unrelated reason' }
+  Write-Host 'Rejected an installer that returns success without the signing command.'
+} elseif ($failure) { throw $failure }
+$expected = switch ($scenario) { 'warm' { 0 } 'transient-install' { 2 } 'missing-command' { 3 } default { 1 } }
+if ($global:installs -ne $expected) { throw "Unexpected installation count: $global:installs expected $expected" }
+Write-Host "PASS: $scenario"
+`);
+      const result = spawnSync(pwsh, ["-NoProfile", "-NonInteractive", "-File", fixture], {
+        encoding: "utf8",
+        env: { ...process.env, PSModulePath: directory + path.delimiter + (process.env.PSModulePath || ""),
+          SIGNING_TEST_DIRECTORY: directory, SIGNING_TEST_SCENARIO: scenario, SIGNING_TEST_SCRIPT: prepareSigning },
+      });
+      assert.equal(result.status, 0, result.stdout + result.stderr);
+      assert.ok(result.stdout.includes(`PASS: ${scenario}`), result.stdout + result.stderr);
+    } finally { rmSync(directory, { recursive: true, force: true }); }
+  });
+}
 const fixture = fileURLToPath(new URL("./windows-signature-test.ps1", import.meta.url));
 const cases = [
   ["valid", null],

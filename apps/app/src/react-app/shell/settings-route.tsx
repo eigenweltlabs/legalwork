@@ -1859,7 +1859,12 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         await workspaceSetRuntimeActive(createdId).catch(() => undefined);
       }
       setCreateWorkspaceOpen(false);
-      await refreshRouteState();
+      const created = list.workspaces.find(workspace => workspace.id === createdId);
+      if (created) {
+        workspacesRef.current = [mapDesktopWorkspace(created), ...workspacesRef.current.filter(item => item.id !== createdId)];
+        setWorkspaces(workspacesRef.current);
+        setLegacySelectedWorkspaceId(createdId);
+      }
     } catch (error) {
       setCreateWorkspaceError(describeWorkspaceCreateError(error));
     } finally {

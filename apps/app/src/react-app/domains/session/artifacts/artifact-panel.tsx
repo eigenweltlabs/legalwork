@@ -290,14 +290,17 @@ export function ArtifactPanelView({ loadFile, sourcePage, localReadOnly = false,
     gcTime: 5 * 60 * 1000,
   });
 
+  const artifactQueryKey = ["artifact-panel", workspaceId, target.id, client.baseUrl, runtimeEntry?.generation] as const;
   const { data, error, isError, isLoading, refetch } = useQuery<ArtifactQueryState>({
-    queryKey: ["artifact-panel", workspaceId, target.id, client.baseUrl, runtimeEntry?.generation] as const,
+    queryKey: artifactQueryKey,
     queryFn: async () => {
+      const cached = queryClient.getQueryData<ArtifactQueryState>(artifactQueryKey);
+      const previous = cached?.kind === "binary" ? cached : undefined;
       if (loadFile) {
         const result = await loadFile();
         return isTextContent(target)
           ? { kind: "text", data: new TextDecoder().decode(result.data), updatedAt: null }
-          : { kind: "binary", ...result, updatedAt: null, revision: nextBinaryRevision(null) };
+          : { kind: "binary", ...result, data: retainBinaryContent(previous?.data, result.data), updatedAt: null, revision: nextBinaryRevision(null) };
       }
       if (target.kind === "url") {
         throw new Error(t("artifact.urls_open_in_browser"));
@@ -312,8 +315,7 @@ export function ArtifactPanelView({ loadFile, sourcePage, localReadOnly = false,
         return { kind: "text", data: result.content, updatedAt: result.updatedAt ?? null };
       }
 
-      const previous = queryClient.getQueryData<ArtifactQueryState>(["artifact-panel", workspaceId, target.id, client.baseUrl]);
-      if ((localReadOnly || reader.current) && previous?.kind === "binary") {
+      if (previous?.downloadedUpdatedAt != null && (target.preview === "pdf" || localReadOnly || reader.current)) {
         // Older servers without stat/version metadata retain the download path.
         const stat = await client.statWorkspaceFile(workspaceId, target.value).catch(() => null);
         if (stat && binaryMatchesStat(previous, stat)) return previous;
@@ -323,7 +325,7 @@ export function ArtifactPanelView({ loadFile, sourcePage, localReadOnly = false,
 
       return {
         kind: "binary",
-        data: retainBinaryContent(previous?.kind === "binary" ? previous.data : undefined, result.data),
+        data: retainBinaryContent(previous?.data, result.data),
         contentType: result.contentType,
         downloadedUpdatedAt: result.updatedAt,
         updatedAt,
@@ -462,7 +464,7 @@ export function ArtifactPanelView({ loadFile, sourcePage, localReadOnly = false,
       if (savedDocx) { snapshotRef.current = savedDocx; setDocumentSnapshot(savedDocx); }
       access.saved();
       queryClient.setQueryData<ArtifactQueryState>(
-        ["artifact-panel", workspaceId, target.id, client.baseUrl, runtimeEntry?.generation] as const,
+        artifactQueryKey,
         input.kind === "text"
           ? { kind: "text", data: result.content ?? input.data, updatedAt: result.updatedAt ?? null }
           : savedDocx ? publishedDocxSnapshot(savedDocx, nextBinaryRevision(result.updatedAt ?? null)) : {
@@ -522,7 +524,7 @@ export function ArtifactPanelView({ loadFile, sourcePage, localReadOnly = false,
       buffer = current;
       contentType = isOfficeEditor ? (data?.kind === "binary" ? data.contentType : null) : "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
     } else {
-      const result = await client.downloadWorkspaceFile(workspaceId, target.value);
+      const result = await (loadFile ? loadFile() : client.downloadWorkspaceFile(workspaceId, target.value));
       buffer = result.data;
       contentType = result.contentType;
     }

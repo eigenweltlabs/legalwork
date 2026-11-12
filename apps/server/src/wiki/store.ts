@@ -158,12 +158,13 @@ export class WikiStore {
     for (const root of [wiki.root, workspace.path]) if (!this.config.authorizedRoots.includes(root)) { this.config.authorizedRoots.push(root); changed = true; }
     return changed;
   }
-  async list(options: { publish?: boolean } = {}): Promise<WikiRegistration[]> {
+  async list(options: { publish?: boolean; registrationsOnly?: boolean } = {}): Promise<WikiRegistration[]> {
     try {
       const content = await readFile(this.path, "utf8");
       const { data, warning } = markdownData(content);
       if (warning) throw new Error(warning);
       const items = z.array(registrationSchema).parse(data.wikis ?? []);
+      if (options.registrationsOnly) return items;
       await assertWikiFoldersIndependent(items, this.config.workspaces);
       let changed = false;
       for (const wiki of items) changed = await this.registerWorkspace(wiki) || changed;

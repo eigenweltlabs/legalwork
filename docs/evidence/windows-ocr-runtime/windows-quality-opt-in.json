@@ -1,0 +1,119 @@
+{
+  "date": "2026-11-09",
+  "testHost": "Windows Server 2022 Desktop Experience x64",
+  "machineType": "e2-standard-4 (4 vCPU, 16 GB RAM, no GPU)",
+  "nodeVersion": "v22.23.4",
+  "execution": "Current branch OcrManager/OcrRuntime bundled for Node, with staged packaged native modules and workers",
+  "profile": "Isolated synthetic test profile; installed app and user OCR profile not changed",
+  "runtimePin": "Microsoft Visual C++ 14.44.35211.0; archive/file hashes and Microsoft Authenticode signatures verified",
+  "qualityDownloadBytes": 1850598273,
+  "cachedBeforeSuccessfulRun": [
+    "Verified llama.cpp b11234 runtime",
+    "Verified main GGUF",
+    "Small text and shared layout assets"
+  ],
+  "cancellationTarget": "Vision projector GGUF; runtime and completed main GGUF reused",
+  "offlineMethod": "Model download transport throws on every request; local inference HTTP remains available",
+  "runtimeFileCount": 56,
+  "runtimeInstalledBytesIncludingCrt": 95213357,
+  "results": {
+    "startup": {
+      "smallReady": true,
+      "layoutReady": true,
+      "qualityRequests": 0,
+      "default": "local-fast"
+    },
+    "cancellation": {
+      "stage": "cancelled",
+      "cancelledBytes": 158053,
+      "partialFilesRemoved": true
+    },
+    "restartAfterCancel": {
+      "downloads": 0,
+      "qualityReady": false
+    },
+    "installation": {
+      "seconds": 57.682,
+      "stage": "complete",
+      "defaultPreserved": true,
+      "verifiedRuntimeReusedOnRetry": true
+    },
+    "recognition": {
+      "seconds": 35.91,
+      "text": "Agreement: The payment is due on Friday.\nVertrag: Die Zahlung ist am Freitag fällig.\nReference 12345 - English and German."
+    },
+    "selectedQualityMissing": {
+      "downloads": 0,
+      "default": "local-quality"
+    },
+    "offlineReuse": {
+      "ok": true
+    },
+    "runtimeFiles": [
+      {
+        "name": "msvcp140.dll",
+        "systemInstalled": false,
+        "appLocal": true
+      },
+      {
+        "name": "msvcp140_1.dll",
+        "systemInstalled": false,
+        "appLocal": true
+      },
+      {
+        "name": "vcruntime140.dll",
+        "systemInstalled": false,
+        "appLocal": true
+      },
+      {
+        "name": "vcruntime140_1.dll",
+        "systemInstalled": false,
+        "appLocal": true
+      }
+    ],
+    "requests": [
+      {
+        "phase": "cancel-quality",
+        "url": "https://huggingface.co/PaddlePaddle/PaddleOCR-VL-1.6-GGUF/resolve/511b09642bb324401f15f97cc23bc67e8f0a291d/PaddleOCR-VL-1.6-GGUF-mmproj.gguf"
+      },
+      {
+        "phase": "retry-quality",
+        "url": "https://huggingface.co/PaddlePaddle/PaddleOCR-VL-1.6-GGUF/resolve/511b09642bb324401f15f97cc23bc67e8f0a291d/PaddleOCR-VL-1.6-GGUF-mmproj.gguf"
+      }
+    ],
+    "outcome": "pass"
+  },
+  "limitations": [
+    "No signed installer test",
+    "No Windows 11 test",
+    "No real GPU test",
+    "Quality OCR unsupported on Windows ARM64",
+    "Synthetic sample only; not an accuracy benchmark"
+  ],
+  "cleanup": {
+    "temporaryRootRemoved": true,
+    "installedWorkerSha256": "e7788151a031ec0fd64af52bbaee09782d781fba171ed8e1f107a1d2358eca25",
+    "systemDlls": [
+      {
+        "exists": false,
+        "name": "msvcp140.dll"
+      },
+      {
+        "exists": false,
+        "name": "msvcp140_1.dll"
+      },
+      {
+        "exists": false,
+        "name": "vcruntime140.dll"
+      },
+      {
+        "exists": false,
+        "name": "vcruntime140_1.dll"
+      }
+    ],
+    "outcome": "pass",
+    "ownedNativeProcessesRemaining": 0,
+    "installedWorkerUnchanged": true,
+    "temporaryTaskRemoved": true
+  }
+}

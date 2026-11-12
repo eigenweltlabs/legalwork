@@ -3,6 +3,7 @@ import type { OcrApiType, OcrSettingsView } from "@legalwork/types/ocr";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
+import { Progress } from "@/components/ui/progress";
 import { TextInput } from "../../../design-system/text-input";
 import { ScanText, Monitor } from "lucide-react";
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
@@ -10,7 +11,7 @@ import { ProviderActionsMenu } from "../provider-actions-menu";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { t } from "@/i18n";
+import { currentLocale, t } from "@/i18n";
 import { ConfirmModal } from "../../../design-system/modals/confirm-modal";
 import { SettingsNotice, SettingsStatusBadge } from "../settings-section";
 import {
@@ -52,6 +53,19 @@ const ocrInstallLabel = (stage: NonNullable<OcrSettingsView["installation"]>["st
 const activeInstall = (settings: OcrSettingsView | null) => Boolean(settings?.installation && !["complete", "failed", "cancelled"].includes(settings.installation.stage));
 const engineLabel = (engine: Engine) => engine.kind === "local"
   ? t(engine.model === "pp-ocrv6-small" ? "ocr.fast" : "ocr.quality") : engine.label;
+
+function downloadSize(bytes: number) {
+  const gigabytes = bytes >= 1_000_000_000;
+  return new Intl.NumberFormat(currentLocale(), { style: "unit", unit: gigabytes ? "gigabyte" : "megabyte", maximumFractionDigits: 2 })
+    .format(bytes / (gigabytes ? 1_000_000_000 : 1_000_000));
+}
+
+export function OcrDownloadProgress({ download }: { download: { received: number; total: number } }) {
+  return <div className="mt-2 space-y-1 text-xs text-dls-secondary">
+    <p>{t("ocr.download_progress", undefined, { received: downloadSize(download.received), total: downloadSize(download.total) })}</p>
+    <Progress value={download.received / download.total * 100} aria-label={t("ocr.install_models")} />
+  </div>;
+}
 
 export function OcrSettingsSection({ client }: { client: Pick<LegalworkServerClient, "getOcrSettings" | "setOcrAutoDownload" | "testOcrEngine" | "saveOcrServer" | "setDefaultOcrEngine" | "installOcrEngine" | "cancelOcrInstall" | "removeOcrServer" | "setOcrMemberKey"> | null }) {
   const formId = useId();
@@ -163,6 +177,7 @@ export function OcrSettingsSection({ client }: { client: Pick<LegalworkServerCli
           </div>
           <p className="text-xs text-dls-secondary">{ocrStatusLabel(engine.status)}</p>
           {engine.kind === "local" ? <p className="mt-1 text-xs text-dls-secondary">{t(engine.model === "pp-ocrv6-small" ? "ocr.fast_description" : "ocr.quality_description")}</p> : null}
+          {engine.kind === "local" && engine.status === "not-installed" && engine.downloadBytes !== undefined ? <p className="mt-1 text-xs text-dls-secondary">{t("ocr.download_size", undefined, { size: downloadSize(engine.downloadBytes) })}</p> : null}
         </div>
         <ProviderActionsMenu name={engine.kind === "local" ? engineLabel(engine) : engine.model} disabled={disabled}>
           {!selected && !defaultLocked && !engine.firmKey ? <DropdownMenuItem disabled={engine.status !== "ready" || (engine.kind === "local" && installing)} onClick={() => client && void changeOrgPolicySetting("ai.ocr.defaultEngine", () => update(() => client.setDefaultOcrEngine(engine.id)))}>{t("ocr.use_default")}</DropdownMenuItem> : null}
@@ -249,7 +264,9 @@ export function OcrSettingsSection({ client }: { client: Pick<LegalworkServerCli
       {keyFor && client ? <MemberKeyDialog name={keyFor.label} onClose={() => setKeyFor(null)} onSave={(key) => update(() => client.setOcrMemberKey(keyFor.id, key))} /> : null}
       {settings?.installation && (installStage !== "complete" || showInstallSuccess) ? <SettingsNotice tone={settings.installation.stage === "failed" ? "error" : "neutral"}>
         <div role="status" className="flex items-center justify-between gap-3">
-          <span>{settings.installation.engineId === "local-layout" ? `${t("ocr.layout")}: ` : ""}{ocrInstallLabel(settings.installation.stage)}</span>
+          <div className="min-w-0 flex-1"><span>{settings.installation.engineId === "local-layout" ? `${t("ocr.layout")}: ` : ""}{ocrInstallLabel(settings.installation.stage)}</span>
+            {installing && settings.installation.download && settings.installation.download.total > 0 ? <OcrDownloadProgress download={settings.installation.download} /> : null}
+          </div>
           {installing ? <Button variant="outline" disabled={disabled} onClick={() => client && void update(() => client.cancelOcrInstall())}>{t("ocr.cancel")}</Button> : null}
         </div>
       </SettingsNotice> : null}

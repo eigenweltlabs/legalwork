@@ -1,0 +1,115 @@
+name: Prepare a verified native sandbox archive
+description: Restore or build exact native bytes and retain the same-run archive
+inputs:
+  arch:
+    required: true
+    description: Native CPU architecture
+  qemu:
+    required: true
+    description: QEMU target architecture
+  msystem:
+    default: ''
+    description: Windows MSYS environment
+  prefix:
+    default: ''
+    description: Windows package prefix
+  local-guest:
+    default: 'false'
+    description: Build the guest locally on a native Linux test host after a verified runtime cache miss
+  wait-for-guest:
+    default: 'false'
+    description: Wait up to twenty minutes for a parallel same-run guest producer after runtime reuse misses
+  retain-fresh-build:
+    default: 'false'
+    description: Retain an exact-key archive after a cold build in the base branch cache warmer
+  publish-runtime:
+    default: 'true'
+    description: Retain the prepared archive for same-run consumers
+runs:
+  using: composite
+  steps:
+    - name: Identify exact sandbox build inputs
+      shell: bash
+      id: runtime-key
+      run: node scripts/ci/cache-sandbox-runtime.mjs key runtime ${{ inputs.arch }}
+    - uses: actions/cache/restore@v4
+      id: runtime-cache
+      with:
+        path: apps/server/resources/agent-sandbox/runtime
+        key: ${{ steps.runtime-key.outputs.key }}
+    - name: Verify restored sandbox bytes
+      shell: bash
+      if: steps.runtime-cache.outputs.cache-hit == 'true'
+      run: node scripts/ci/cache-sandbox-runtime.mjs verify runtime ${{ inputs.arch }}
+    - name: Find an exact retained native producer after cache eviction
+      if: steps.runtime-cache.outputs.cache-hit != 'true'
+      id: runtime-recovery
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: node scripts/ci/recover-sandbox-runtime.mjs find ${{ inputs.arch }}
+    - name: Recover the independently pinned native runtime archive
+      if: steps.runtime-recovery.outputs.artifact-id != ''
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        RECOVERY_ARTIFACT_ID: ${{ steps.runtime-recovery.outputs.artifact-id }}
+        RECOVERY_DIGEST: ${{ steps.runtime-recovery.outputs.digest }}
+      run: node scripts/ci/recover-sandbox-runtime.mjs restore ${{ inputs.arch }}
+    - name: Wait for the parallel guest producer after a cold runtime miss
+      if: inputs.wait-for-guest == 'true' && inputs.local-guest != 'true' && steps.runtime-cache.outputs.cache-hit != 'true' && steps.runtime-recovery.outputs.artifact-id == ''
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: node scripts/ci/recover-sandbox-runtime.mjs wait-for-guest ${{ inputs.arch }}
+    - uses: actions/download-artifact@v4
+      with:
+        name: sandbox-guest-${{ inputs.arch }}
+        path: apps/server/resources/agent-sandbox/runtime/
+      if: inputs.local-guest != 'true' && steps.runtime-cache.outputs.cache-hit != 'true' && steps.runtime-recovery.outputs.artifact-id == ''
+    - name: Build guest on the Linux test host after a cold miss
+      if: inputs.local-guest == 'true' && steps.runtime-cache.outputs.cache-hit != 'true' && steps.runtime-recovery.outputs.artifact-id == ''
+      shell: bash
+      env:
+        ARCH: ${{ inputs.arch }}
+      run: |
+        test "$RUNNER_OS" = Linux
+        node scripts/sandbox/build-guest.mjs "$ARCH"
+    - uses: ./.github/actions/build-sandbox-runtime
+      if: steps.runtime-cache.outputs.cache-hit != 'true' && steps.runtime-recovery.outputs.artifact-id == ''
+      with:
+        qemu: ${{ inputs.qemu }}
+        msystem: ${{ inputs.msystem }}
+        prefix: ${{ inputs.prefix }}
+    - name: Seal newly built sandbox bytes
+      shell: bash
+      if: steps.runtime-cache.outputs.cache-hit != 'true' && steps.runtime-recovery.outputs.artifact-id == ''
+      run: node scripts/ci/cache-sandbox-runtime.mjs seal runtime ${{ inputs.arch }}
+    - name: Verify complete sandbox cache receipt
+      shell: bash
+      run: node scripts/ci/cache-sandbox-runtime.mjs verify runtime ${{ inputs.arch }}
+    - name: Verify native runtime before reuse or shipping
+      shell: bash
+      run: |
+        node scripts/sandbox/verify-runtime.mjs
+        node -e 'const {spawnSync}=require("node:child_process"),p=require("node:path");const arch=process.arch==="arm64"?"aarch64":"x86_64";const r=spawnSync(p.resolve("apps/server/resources/agent-sandbox/runtime/qemu-system-"+arch+(process.platform==="win32"?".exe":"")),["--version"],{stdio:"inherit"});process.exit(r.status??1)'
+    # GitHub scopes PR saves to their merge ref; only the dev warmer seeds dev.
+    - uses: actions/cache/save@v4
+      if: steps.runtime-cache.outputs.cache-hit != 'true'
+      with:
+        path: apps/server/resources/agent-sandbox/runtime
+        key: ${{ steps.runtime-key.outputs.key }}
+    - name: Keep cache receipts out of shipped runtimes
+      shell: bash
+      run: node -e 'require("node:fs").unlinkSync("apps/server/resources/agent-sandbox/runtime/.ci-cache-receipt.json")'
+    # Preserve the built runtime before validation so manual package diagnostics
+    # can run independently. Uploading it does not certify that tests passed.
+    - name: Preserve executable modes in runtime artifact
+      if: inputs.publish-runtime == 'true' || (inputs.retain-fresh-build == 'true' && steps.runtime-cache.outputs.cache-hit != 'true' && steps.runtime-recovery.outputs.artifact-id == '')
+      shell: bash
+      run: tar -czf sandbox-runtime.tgz -C apps/server/resources/agent-sandbox/runtime .
+    - uses: actions/upload-artifact@v4
+      if: inputs.publish-runtime == 'true' || (inputs.retain-fresh-build == 'true' && steps.runtime-cache.outputs.cache-hit != 'true' && steps.runtime-recovery.outputs.artifact-id == '')
+      with:
+        name: ${{ steps.runtime-key.outputs.key }}
+        path: sandbox-runtime.tgz

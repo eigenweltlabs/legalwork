@@ -8,17 +8,21 @@ import { parse } from "yaml";
 
 const modelRoot = process.env.LEGALWORK_OCR_NATIVE_SMOKE_ROOT;
 if (!modelRoot) throw new Error("Set LEGALWORK_OCR_NATIVE_SMOKE_ROOT to a prepared OCR directory");
-const node = resolve("resources/node", process.platform === "win32" ? "node.exe" : "node");
-await access(node); // Run scripts/prepare-node-runtime.mjs first.
+const nodeResources = resolve("resources/node");
+const nodeName = process.platform === "win32" ? "node.exe" : "node";
+await access(join(nodeResources, nodeName)); // Run scripts/prepare-node-runtime.mjs first.
 const require = createRequire(import.meta.url);
 const builderRequire = createRequire(require.resolve("electron-builder"));
 const libRequire = createRequire(builderRequire.resolve("app-builder-lib"));
 const { createPackageWithOptions } = libRequire("@electron/asar");
+const { FileMatcher, copyFiles } = libRequire("app-builder-lib/out/fileMatcher.js");
 const { pruneOcrRuntime } = require("./packaged-ocr.cjs");
 const root = await mkdtemp(join(tmpdir(), "legalwork-ocr-packaged-"));
 const stage = join(root, "stage"), resources = join(root, "Resources"), modules = join(stage, "node_modules");
 await mkdir(modules, { recursive: true });
 await mkdir(resources);
+await cp(nodeResources, join(resources, "node"), { recursive: true, filter: file => !file.endsWith(".dll") });
+const node = join(resources, "node", nodeName);
 const nativeCanvas = process.platform === "win32" ? `@napi-rs/canvas-win32-${process.arch}-msvc`
   : process.platform === "linux" ? `@napi-rs/canvas-linux-${process.arch}-gnu` : `@napi-rs/canvas-darwin-${process.arch}`;
 const additions = ["onnxruntime-node", "onnxruntime-common", "paddleocr", "image-size"];
@@ -36,16 +40,22 @@ const builderConfig = parse(await readFile("electron-builder.yml", "utf8"));
 const unpackDirectories = builderConfig.asarUnpack.map(pattern => pattern.replace(/\/\*\*$/, ""));
 await createPackageWithOptions(stage, join(resources, "app.asar"), { unpackDir: `{${unpackDirectories.join(",")}}` });
 await cp(resolve("../server/resources/ocr"), join(resources, "ocr"), { recursive: true });
+if (process.platform === "win32") {
+  const crt = builderConfig.win.extraResources.find(entry => entry.from === "resources/node");
+  if (!crt) throw new Error("Missing Windows CRT packaging rule");
+  await copyFiles([new FileMatcher(nodeResources, join(resources, crt.to), value => value.replaceAll("${arch}", process.arch), crt.filter)]);
+}
 pruneOcrRuntime(resources, process.platform, process.arch);
 const unpacked = join(resources, "app.asar.unpacked/node_modules");
 const image = await readFile(resolve("../server/resources/ocr/test-page.png"));
 const result = spawnSync(node, [join(resources, "ocr/native-worker.cjs"), "--model-dir", join(modelRoot, "models")], {
-  input: JSON.stringify({ width: 1000, height: 260, image: image.toString("base64") }),
+  input: JSON.stringify({ id: 1, width: 1000, height: 260, image: image.toString("base64") }) + "\n",
   encoding: "utf8", cwd: root, env: { NODE_PATH: unpacked, PATH: "", HOME: root, ...(process.env.SYSTEMROOT ? { SYSTEMROOT: process.env.SYSTEMROOT } : {}) }, timeout: 120000,
 });
 if (result.error) throw result.error;
 if (result.status !== 0) throw new Error(result.stderr);
-const output = JSON.parse(result.stdout);
+const output = JSON.parse(result.stdout).result;
+if (!output) throw new Error("OCR worker did not return a result");
 if (!output.text.includes("Agreement") || !output.text.includes("fällig")) throw new Error("Recognition mismatch");
 async function size(directory) {
   const info = await stat(directory);

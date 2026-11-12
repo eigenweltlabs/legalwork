@@ -1,4 +1,4 @@
-import { describe, expect, jest, test } from "bun:test";
+import { describe, expect, jest, spyOn, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,6 +7,7 @@ import { ReloadEventStore } from "./events.js";
 import { startReloadWatchers } from "./reload-watcher.js";
 import type { ServerConfig, WorkspaceInfo } from "./types.js";
 import { ensureWorkspaceFiles } from "./workspace-init.js";
+import * as fingerprints from "./reload-fingerprint.js";
 
 async function withWorkspace(fn: (root: string) => Promise<void>) {
   const root = await mkdtemp(join(tmpdir(), "legalwork-reload-watcher-"));
@@ -60,6 +61,30 @@ async function waitForEvent(store: ReloadEventStore, workspaceId: string) {
 }
 
 describe("reload watcher fingerprints", () => {
+  test("an explicit refresh waits for the initial baseline before accepting later changes", async () => {
+    await withWorkspace(async (root) => {
+      const { config, workspace } = buildConfig(root);
+      const initialStarted = Promise.withResolvers<void>();
+      const releaseInitial = Promise.withResolvers<void>();
+      let first = true;
+      const compute = spyOn(fingerprints, "computeReloadFingerprint").mockImplementation(async (_root, reason) => {
+        if (first) { first = false; initialStarted.resolve(); await releaseInitial.promise; }
+        return reason;
+      });
+      const watcher = startReloadWatchers({ config, reloadEvents: new ReloadEventStore(), debounceMs: 30 });
+      let refreshed = false;
+      const ready = watcher.refreshWorkspace(workspace.id).then(() => { refreshed = true; });
+      try {
+        await initialStarted.promise;
+        await sleep(0); // Drain the unblocked explicit scan while the first scan is held.
+        expect(refreshed).toBe(false);
+        releaseInitial.resolve();
+        await ready;
+        expect(refreshed).toBe(true);
+      } finally { releaseInitial.resolve(); await ready; watcher.close(); compute.mockRestore(); }
+    });
+  });
+
   test("does not emit when a watched file is rewritten with identical content", async () => {
     await withWorkspace(async (root) => {
       const { config, workspace } = buildConfig(root);

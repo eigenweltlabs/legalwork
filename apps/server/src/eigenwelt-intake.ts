@@ -251,7 +251,7 @@ export async function intakeFetch(
       "The Eigenwelt intake service redirected the request instead of answering it.",
     );
   }
-  if (!response.ok) throw await intakeFailure(response);
+  if (!response.ok) throw await intakeFailure(response, path);
   return response;
 }
 
@@ -303,7 +303,7 @@ function errorFrom(text: string): { code: string; message: string } {
   return { code: "", message: text.trim().slice(0, 500) };
 }
 
-async function intakeFailure(response: Response): Promise<ApiError> {
+async function intakeFailure(response: Response, path: string): Promise<ApiError> {
   let text = "";
   try {
     text = await response.text();
@@ -340,6 +340,8 @@ async function intakeFailure(response: Response): Promise<ApiError> {
     case 429:
       return new ApiError(429, "intake_rate_limited", message || "Too many intake requests. Please try again shortly.");
     default:
+      if (path === "/api/back-office" || path.startsWith("/api/back-office/"))
+        return new ApiError(502, "back_office_sync_failed", `Back Office could not sync with the firm (HTTP ${response.status}).`);
       return new ApiError(502, "intake_request_failed", message || `The intake request failed (HTTP ${response.status}).`);
   }
 }

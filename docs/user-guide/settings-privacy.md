@@ -27,6 +27,16 @@ Open **Settings** using the gear at the bottom left, directly above your account
 
 Open **Account** to sign in, inspect the current firm, plan and usage, and open the available account/billing management action. A saved account can be reconnecting rather than fully disconnected. Use the displayed error and refresh controls before entering credentials again. If sign-out reports unsent project changes, resolve them first.
 
+### Add usage credits
+
+When a chat shows an Eigenwelt usage-limit message, organization administrators can choose **Add credits** if more prepaid funds can resolve the limit. Enter the amount of usable credits, then choose **Review total** for a saved card. Review **Usable credits**, **Tax**, and **Total charge** before selecting **Pay & add credits**. Stripe calculates applicable tax and adds it on top: for example, €100 of credits with 19% VAT costs €119 and adds €100 to the shared balance. Choose **Change amount** to edit the amount before paying.
+
+Closing the dialog before confirming payment leaves your balance unchanged. The next top-up starts with a fresh amount and automatically replaces the earlier unconfirmed price. If a payment was already submitted, the app checks that payment first and shows its progress rather than charging you again. Use **Check payment status** while it is processing. If the card is declined, choose **Try again** to make a fresh attempt or select another payment method.
+
+The saved card is charged directly after confirmation; complete any bank verification that is requested. Without a saved card, use the offered payment or card-setup action. **Use another payment method or promo code** opens Stripe Checkout for normal top-ups. Adding credits does not change the subscription or remove separate spending limits. Trial top-ups enable the explicitly requested extra usage only after verified payment, with limits based on usable credits.
+
+If a price expires, review the amount again. Older LegalWork versions still charge saved cards directly, but treat the amount they confirm as the total including tax: a €100 payment with 19% VAT adds €84.03 of credits. Update LegalWork to select the usable credit amount and review tax added on top. A payment already submitted keeps its original agreed amounts.
+
 Firm policies can supply models, connectors or settings and can lock individual controls. A disabled control with a firm-policy note requires an administrator change; replacing a personal key does not override it. Signing into the firm, connecting a personal model provider and signing into file storage are separate operations.
 
 If your firm allows a provider that uses your own API key or sign-in, complete that connection in **Settings > AI Providers** before using its models. Being added by your administrator does not connect you. If your firm supplies the key, its models become available when that key is available; ask your administrator if it is missing.

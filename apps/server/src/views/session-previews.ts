@@ -38,7 +38,8 @@ export function sessionViewPreviews(messages: unknown): SessionViewPreview[] {
       else if (state.metadata?.truncated === true) result.push({ callId, title: "Dashboard preview (content unavailable)" });
     }
   }
-  return result;
+  const replaced = new Set(result.flatMap(item => item.preview?.replacesCallId ? [item.preview.replacesCallId] : []));
+  return result.filter(item => !replaced.has(item.callId));
 }
 function canonical(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;

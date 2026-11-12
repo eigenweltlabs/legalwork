@@ -1,4 +1,4 @@
-import { StoredViewSchema, viewCopyInput, type ViewSummary, type ViewRecord, type ViewInput } from "@legalwork/types/views";
+import { isBackOfficeQuery, type ViewQuery, type ViewOwner, StoredViewSchema, viewCopyInput, type ViewSummary, type ViewRecord, type ViewInput } from "@legalwork/types/views";
 import { LegalworkServerError, type LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { viewInput } from "./view-save";
 
@@ -8,12 +8,21 @@ export async function renameView(client: Pick<LegalworkServerClient, "readView" 
   return client.updateView(view.owner, view.id, { baseRevision: view.revision, input: { ...viewInput(current), title: title.trim() } });
 }
 
-export async function snapshotView(client: Pick<LegalworkServerClient, "queryWiki" | "baseUrl">, view: ViewRecord): Promise<ViewInput> {
+type ViewQueryClient = Pick<LegalworkServerClient, "queryWiki" | "baseUrl"> & Partial<Pick<LegalworkServerClient, "queryBackOffice">>;
+export function resolveViewBinding(client: ViewQueryClient, owner: ViewOwner, query: ViewQuery) {
+  if (isBackOfficeQuery(query)) {
+    if (!client.queryBackOffice) throw new Error("This server does not support Back Office dashboard data.");
+    return client.queryBackOffice(query);
+  }
+  if (owner.kind !== "wiki") throw new Error("This dashboard's original wiki is unavailable.");
+  return client.queryWiki(owner.id, query);
+}
+
+export async function snapshotView(client: ViewQueryClient, view: ViewRecord): Promise<ViewInput> {
   const datasets = { ...view.datasets };
   for (const [name, query] of Object.entries(view.queries)) {
     if (view.mode === "report") continue;
-    if (view.owner.kind !== "wiki") throw new Error("This dashboard's original wiki is unavailable. Export a snapshot from its source wiki.");
-    datasets[name] = { ...await client.queryWiki(view.owner.id, query), sourceOwner: view.owner, sourceServerUrl: client.baseUrl };
+    datasets[name] = { ...await resolveViewBinding(client, view.owner, query), sourceOwner: view.owner, sourceServerUrl: client.baseUrl };
   }
   return viewCopyInput({ ...viewInput(view), datasets }, { owner: view.owner, serverUrl: client.baseUrl });
 }

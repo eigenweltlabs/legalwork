@@ -1,4 +1,8 @@
 import { workspaceContentPath, workspaceFileRoot } from "./project-storage.js";
+import { signOutBackOffice } from "./back-office/sync.js";
+import { scheduleBackOfficeSync, cancelScheduledBackOfficeSync } from "./back-office/sync.js";
+import { prepareFormLinks } from "./back-office/native-links.js";
+import { registerBackOfficeRoutes } from "./back-office/routes.js";
 import { assistantRouteRequiresSubscription, requireAssistantSubscription, requireAssistantWorkspaceSubscription } from "./assistant-subscription.js";
 import { createAssistantRuntime } from "./assistant-runtime.js";
 import { registerBrowserConnectionRoutes } from "./routes/browser-passwords.js";
@@ -869,14 +873,15 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
   );
   const restartReloadWatchers = () => {
     if (!backgroundStarted) return;
-    watcherHandle?.close();
-    watcherHandle = startReloadWatchers({ config, reloadEvents, logger });
+    if (watcherHandle) watcherHandle.syncWorkspaces();
+    else watcherHandle = startReloadWatchers({ config, reloadEvents, logger });
   };
   // Register change handlers now; background writers start after engine and
   // project-storage initialization have completed.
   configureProjectSync(config, { onWorkspacesChanged: () => restartReloadWatchers() });
   const stopOrgPolicy = onOrgPolicyChange(config, (scopes) => {
     if (scopes.has("engine")) applyOrgPolicyToEngines(config);
+    if (scopes.has("server")) scheduleBackOfficeSync(config);
   });
   // The firm's Knowledge Hub likewise: what it installs for everyone, and what
   // the member added, follows the platform; connectors and skills reload the engines.
@@ -949,7 +954,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
         throw new ApiError(409, "schedule_chat_permissions", "This chat has broader saved permissions. Choose a new chat for each run to use project-only access.");
       // The server records the schedule editor's authority. A collaborator edit
       // downgrades it; old schedules default to shared-wiki access.
-      await grantWikiAgentSession(config, { sessionId, directory: session.location.directory, scope: task.wikiScope,
+      await grantWikiAgentSession(config, { sessionId, workspaceId: workspace.id, directory: session.location.directory, scope: task.wikiScope,
         scheduledProjects: task.projectAccess === "all" ? "all" : [workspace.id] });
       });
       const queue = registeredMessageQueue(config);
@@ -1026,7 +1031,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
       const startedAt = Date.now();
       // One authorization snapshot per request, without retaining permissions across requests.
       let registrations: ReturnType<WikiStore["list"]> | undefined;
-      const readWikis = () => registrations ??= wikiStore.list();
+      const readWikis = () => registrations ??= wikiStore.list({ registrationsOnly: /^\/workspace\/[^/]+\/pdf\/read$/.test(url.pathname) });
       let authMode: AuthMode = "none";
       let proxyService: "opencode" | undefined;
       let proxyBaseUrl: string | undefined;
@@ -1178,6 +1183,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
           request,
           url,
           params: route.params,
+          agentAccess,
           config,
           approvals,
           reloadEvents,
@@ -1285,6 +1291,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
       preparation.stop();
       ocr.stop();
       stopOrgPolicy();
+      cancelScheduledBackOfficeSync(config);
       stopFirmHub();
       await wikiSync.stop();
       await wikiStore.close();
@@ -1520,7 +1527,7 @@ async function forwardOpencodeRequest(input: NativeProxyInput) {
     // The managed adapter routes template and argument expansion through the
     // chat's sandbox; the native configured-command loader must stay disabled.
   }
-  if (sessionID && method === "POST" && /\/(?:prompt|command|synthetic|fork)$/.test(path) && actor.scope) await grantWikiAgentSession(input.config, { sessionId: sessionID, directory, scope: actor.scope });
+  if (sessionID && method === "POST" && /\/(?:prompt|command|synthetic|fork)$/.test(path) && actor.scope) await grantWikiAgentSession(input.config, { sessionId: sessionID, workspaceId: workspace.id, directory, scope: actor.scope });
   const headers = new Headers(input.request.headers);
   for (const header of ["authorization", "x-legalwork-host-token", "x-legalwork-client-id", "x-opencode-directory", "host", "origin", "content-length"]) headers.delete(header);
   if (connection.authHeader) headers.set("Authorization", connection.authHeader);
@@ -1548,7 +1555,7 @@ async function forwardOpencodeRequest(input: NativeProxyInput) {
   if (method === "POST" && response.ok && (path === "/session" || path.endsWith("/fork")) && actor.scope) {
     const result: unknown = await response.clone().json().catch(() => null);
     const session = isRecord(result) && isRecord(result.data) ? result.data : null;
-    if (session && typeof session.id === "string") await grantWikiAgentSession(input.config, { sessionId: session.id, directory, scope: actor.scope });
+    if (session && typeof session.id === "string") await grantWikiAgentSession(input.config, { sessionId: session.id, workspaceId: workspace.id, directory, scope: actor.scope });
   }
   return sanitizeProxyResponse(await projectNativeClientRead(method, path, response));
 }
@@ -1947,6 +1954,7 @@ function createRoutes(
       unarchive: async id => { await getWorkspaceEngineSession(client, workspace, id); return client.session.update({ sessionID: id, archived: false }); },
     };
   });
+  registerBackOfficeRoutes({ routes, config, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace });
   registerReviewRoutes({ routes, config, reviews, corpus, reviewSessions, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace });
   registerCalendarEventDraftRoutes({ routes, config, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace, requireApproval });
   registerEmailDraftRoutes({ routes, config, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace, requireApproval });
@@ -1997,6 +2005,20 @@ function createRoutes(
   });
   registerViewRoutes({ routes, config, jsonResponse, readJsonBodyLimited, ensureWritable, requireApproval, requireClientScope, resolveWorkspace,
     isWikiWorkspace: async id => (await wikiStore.list()).some(wiki => wiki.workspaceId === id) });
+  addRoute(routes, "GET", "/agent/file-workspace", "client", async ctx => {
+    if (!ctx.agentAccess) throw new ApiError(403, "wiki_agent_session_unknown", "An authenticated agent session is required.");
+    const { workspace, directory } = ctx.agentAccess;
+    const registrations = await wikiStore.list({ registrationsOnly: true });
+    const wiki = registrations.find(item => item.workspaceId === workspace?.id) ?? wikiForDirectory(registrations, directory, config.workspaces);
+    if (wiki) {
+      assertWikiWorkspaceAccess(ctx.actor, wiki);
+      await wikiSync.ensureReadable(wiki, ownsWikis(ctx.actor));
+    }
+    return jsonResponse({
+      workspaceId: wiki?.workspaceId ?? workspace?.id ?? null,
+      wiki: wiki ? { root: wiki.root, engineDirectory: config.workspaces.find(item => item.id === wiki.workspaceId)?.path || wiki.root } : null,
+    });
+  });
   registerWikiRoutes({ routes, config, store: wikiStore, jsonResponse, readJsonBodyLimited, ensureWritable, requireApproval, requireClientScope,
     ensureWikiReadable: async (ctx, wiki) => {
       const agent = await authenticateWikiAgentRequest(config, ctx.request);
@@ -3011,9 +3033,10 @@ function createRoutes(
       const force = body.force === true;
       // Every check first, then anything leaves: synced project copies go
       // only once the tasks may go too.
+      const directoryPending = await signOutBackOffice(config, { force, apply: false });
       const projects = await signOutOfFirmProjects(config, { force, apply: false });
       const tasks = await signOutOfFirmTasks(config, { force });
-      const pending = (projects.ok ? 0 : projects.pending) + (tasks.ok ? 0 : tasks.pending);
+      const pending = directoryPending + (projects.ok ? 0 : projects.pending) + (tasks.ok ? 0 : tasks.pending);
       if (pending > 0) {
         throw new ApiError(
           409,
@@ -3022,6 +3045,7 @@ function createRoutes(
           { pending },
         );
       }
+      await signOutBackOffice(config, { force: true, apply: true });
       await signOutOfFirmProjects(config, { force: true });
       await revokeEigenweltConnection(config);
       // The firm's settings stay, and enforced settings unlock; what its hub installed goes.
@@ -3977,7 +4001,9 @@ function createRoutes(
     // An agent filing from a session names it; that link stays on this machine.
     const input = parseTaskCreate(body, workspace.id);
     if (input.projectId) await resolveWorkspace(config, input.projectId);
-    const task = store.createTask(input, actor);
+    const links = await prepareFormLinks(config, body.backOfficeLinks, "task", input.projectId ?? "");
+    const task = store.createTask(input, actor, undefined, links?.write);
+    links?.committed();
     tasksChanged();
     return jsonResponse({ ok: true, task }, 201);
   });

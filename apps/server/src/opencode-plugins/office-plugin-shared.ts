@@ -50,6 +50,22 @@ export async function workspaceToolHeaders(context?: OpenCodeContext): Promise<R
   return headers;
 }
 
+const fileWorkspaceSchema = z.object({
+  workspaceId: z.string().min(1).nullable(),
+  wiki: z.object({ root: z.string().min(1), engineDirectory: z.string().min(1) }).nullable(),
+});
+
+export async function sessionFileWorkspace(context: OpenCodeContext) {
+  if (!process.env.LEGALWORK_WIKI_AGENT_TOKEN?.trim()) return undefined;
+  const timeout = AbortSignal.timeout(30_000);
+  const response = await fetch(`${serverUrl()}/agent/file-workspace`, {
+    headers: await workspaceToolHeaders(context),
+    signal: context.abort ? AbortSignal.any([context.abort, timeout]) : timeout,
+  });
+  if (!response.ok) throw new Error(`Workspace lookup failed: HTTP ${response.status}`);
+  return fileWorkspaceSchema.parse(await response.json());
+}
+
 const workspaceListSchema = z.object({ items: z.array(z.object({ id: z.string(), path: z.string(), contentPath: z.string().nullable().optional(), previousPath: z.string().nullable().optional() })) });
 type ToolWorkspace = z.infer<typeof workspaceListSchema>["items"][number];
 

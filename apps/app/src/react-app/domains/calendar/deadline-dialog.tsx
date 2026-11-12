@@ -1,9 +1,10 @@
 import { useId, useRef, useState } from "react";
 import { ArrowUpRight, FolderOpen, Bell, CalendarDays, ChevronDown, ChevronRight, ListFilter, Circle, CircleCheck, ExternalLink, Loader2, MessageSquarePlus, Timer, Trash2 } from "lucide-react";
 import type { CalendarItem } from "@legalwork/types/calendar";
-import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
+import type { BackOfficeLinkChanges, LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { useNavigate } from "react-router-dom";
 import { workspaceProjectRoute } from "../../shell/workspace-routes";
+import { NativeRecordLinks } from "../back-office/native-record-links";
 import { DeadlineLinks } from "./deadline-links";
 import type { CalendarSource } from "./calendar-queries";
 import { Button } from "@/components/ui/button";
@@ -42,10 +43,13 @@ export function CalculationDetails({ item }: { item: CalendarItem }) {
 }
 
 export function DeadlineDialog(props: { client: LegalworkServerClient; workspaceId: string; projectId: string; projectName: string; projects?: CalendarSource[]; item: CalendarItem | null; day: string; onClose: () => void; onSaved: () => void }) {
-  const item = props.item, navigate = useNavigate();
+  const [item, setItem] = useState(props.item);
+  const navigate = useNavigate();
   const sessionContext = useWorkspace();
   const [starting, setStarting] = useState(false);
   const startingRef = useRef(false);
+  const [newId] = useState(() => crypto.randomUUID());
+  const [links, setLinks] = useState<BackOfficeLinkChanges>();
   const [project, setProject] = useState<CalendarSource>({ id: props.projectId, name: props.projectName, workspaceId: props.workspaceId, client: props.client });
   const { client, workspaceId } = project;
   const [attachmentPaths, setAttachmentPaths] = useState(item?.attachmentPaths ?? []), [sessionIds, setSessionIds] = useState(item?.sessionIds ?? []);
@@ -83,14 +87,20 @@ export function DeadlineDialog(props: { client: LegalworkServerClient; workspace
     setSaving(true);
     try {
       const reminders = reminder === "none" ? [] : [Number(reminder)];
-      const body = item ? { attachmentPaths, sessionIds, revision, title: title.trim(), description, status, verified, assigneeUserId: assignee === UNASSIGNED ? null : assignee,
+      const owner = assignee === UNASSIGNED ? null : assignee;
+      const body = item ? { backOfficeLinks: links, revision,
+        ...(title.trim() !== item.title ? { title: title.trim() } : {}), ...(description !== item.description ? { description } : {}),
+        ...(status !== item.status ? { status } : {}), ...(verified !== item.verified ? { verified } : {}),
+        ...(owner !== item.assigneeUserId ? { assigneeUserId: owner } : {}),
+        ...(JSON.stringify(attachmentPaths) !== JSON.stringify(item.attachmentPaths) ? { attachmentPaths } : {}),
+        ...(JSON.stringify(sessionIds) !== JSON.stringify(item.sessionIds) ? { sessionIds } : {}),
         ...(day !== item.start?.slice(0, 10) ? { start: day, end: null } : {}), ...(timeZone !== item.timeZone ? { timeZone } : {}),
         ...(needsReason ? { reason: reason.trim() } : {}),
         ...(item.provenance.kind === "manual" && source !== originalSource ? { source } : {}),
         ...(reminder !== originalReminder ? { reminders } : {}) }
-        : { attachmentPaths, sessionIds, title: title.trim(), description, start: day, timeZone, kind: "deadline", source, assigneeUserId: assignee === UNASSIGNED ? null : assignee, reminders };
+        : { id: newId, backOfficeLinks: links, attachmentPaths, sessionIds, title: title.trim(), description, start: day, timeZone, kind: "deadline", source, assigneeUserId: owner, reminders };
       const result = await client.calendarWrite(workspaceId, item ? `/${item.id}` : "", body, item ? "PATCH" : "POST");
-      if (result.item) setRevision(result.item.revision);
+      if (result.item) { setRevision(result.item.revision); setLinks(undefined); if (item) setItem(result.item); }
       if (close) { toast.success(t(item ? "calendar.saved" : "calendar.created")); props.onSaved(); }
       return result.item;
     } catch (error) { toast.error(calendarError(error)); } finally { setSaving(false); }
@@ -143,9 +153,10 @@ export function DeadlineDialog(props: { client: LegalworkServerClient; workspace
 
             {!item && props.projects?.length ? <PropertyChip label={t("calendar.project")} value={project.id} disabled={busy}
               items={props.projects.map(value => ({ value: value.id, label: value.name, leading: <FolderOpen className="size-3.5" /> }))}
-              onChange={value => { const next = props.projects?.find(entry => entry.id === value); if (next) { setProject(next); setAttachmentPaths([]); setSessionIds([]); setAssignee(UNASSIGNED); } }} />
+              onChange={value => { const next = props.projects?.find(entry => entry.id === value); if (next) { if (next.client.baseUrl !== client.baseUrl) setLinks(undefined); setProject(next); setAttachmentPaths([]); setSessionIds([]); setAssignee(UNASSIGNED); } }} />
             : <Button type="button" variant="outline" size="sm" className="h-8 max-w-full gap-2 px-2.5 text-xs" title={project.name} disabled={busy} onClick={() => { props.onClose(); navigate(workspaceProjectRoute(project.id)); }}><FolderOpen className="size-3.5 shrink-0 text-muted-foreground" /><span className="truncate">{project.name}</span><ArrowUpRight className="size-3 shrink-0 text-muted-foreground" /></Button>}
           </div>
+          {(!item || item.kind === "deadline") && <NativeRecordLinks client={client} kind="deadline" workspace={workspaceId} sourceId={item?.id} disabled={busy} draft={links} onDraftChange={setLinks} />}
           {advanced && <p className="text-xs leading-5 text-muted-foreground">{t("calendar.advanced_hint")}</p>}
           <div className="border-t border-border/60 pt-4">
             <DeadlineLinks key={project.id} client={client} workspaceId={workspaceId} projectId={project.id} attachmentPaths={attachmentPaths} sessionIds={sessionIds} disabled={saving || deleting}

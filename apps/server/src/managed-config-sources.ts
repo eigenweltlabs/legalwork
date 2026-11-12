@@ -16,7 +16,8 @@ export function commonManagedConfiguration(configurations: readonly NativeRuntim
   const result: Record<string, unknown> = {};
   const documents: readonly Record<string, unknown>[] = configurations;
   for (const [key, value] of Object.entries(first)) {
-    if (key === "permissions" || key === "plugins") continue;
+    // Folder-specific paths stay in each project's native document.
+    if (key === "permissions" || key === "plugins" || key === "skills" || key === "instructions") continue;
     if (declarations.has(key) && record(value)) {
       const shared = Object.fromEntries(Object.entries(value).filter(([id, entry]) => documents.every(document => record(document[key]) && same(document[key][id], entry))));
       if (Object.keys(shared).length) result[key] = shared;

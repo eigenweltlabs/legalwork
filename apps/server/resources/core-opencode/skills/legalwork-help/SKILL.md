@@ -20,7 +20,8 @@ For an ordinary how-to question, read the matching page with `legalwork_skill_re
 | Calendar, deadlines, reminders or subscriptions | [calendar.md](references/calendar.md) |
 | Transcription models, recording setup, dictation shortcut, meeting detection or Meeting Summarisation | [recorder-settings.md](references/recorder-settings.md) |
 | Record, import, edit or summarize a transcript; speaker names; Voice Mode | [audio.md](references/audio.md) |
-| Projects, matter details, linked folders or sharing | [projects-sharing.md](references/projects-sharing.md) |
+| Projects, matter/client links, field names/types/content, More and Customize fields, templates, linked folders or sharing | [projects-sharing.md](references/projects-sharing.md) |
+| Back Office, clients, matters, people, companies, short creation forms, data models, record history, signed exports or history verification | [back-office.md](references/back-office.md) |
 | Chats, history, workspace tabs, keyboard shortcuts, folders or remote workers | [workspaces-chats.md](references/workspaces-chats.md) |
 | Model providers, Fusion, OCR or JEV | [models-fusion.md](references/models-fusion.md) |
 | Tabular Review or review prompt sets | [reviews.md](references/reviews.md) |
@@ -34,7 +35,7 @@ For an ordinary how-to question, read the matching page with `legalwork_skill_re
 | Save, copy, rename, export or reopen dashboards and reports | [dashboards.md](references/dashboards.md) |
 | Evaluations | [evaluations.md](references/evaluations.md) |
 | Word, Excel or PowerPoint add-ins | [office-addins.md](references/office-addins.md) |
-| Browser passwords, inline sign-in card, automatic password filling, account, language, appearance, permissions, secrets or privacy | [settings-privacy.md](references/settings-privacy.md) |
+| Browser passwords, inline sign-in card, automatic password filling, account, usage credits, top-ups, tax, language, appearance, permissions, secrets or privacy | [settings-privacy.md](references/settings-privacy.md) |
 | Chat shield icon, sandbox on/off, network settings or application-default inheritance | [settings-privacy.md](references/settings-privacy.md#sandboxing) |
 | Firm infrastructure region, EU/US hosting or account routing | [settings-privacy.md](references/settings-privacy.md#firm-infrastructure-region) |
 | Setup | [getting-started.md](references/getting-started.md) |

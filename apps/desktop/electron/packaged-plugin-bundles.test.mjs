@@ -7,7 +7,7 @@ import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 
-import { findUnresolvableImports } from "../scripts/check-plugin-bundles.mjs";
+import { findUnresolvableImports } from "../../server/scripts/check-plugin-bundles.mjs";
 
 const fixture = (files) => {
   const dir = mkdtempSync(join(tmpdir(), "plugin-bundles-"));
@@ -49,6 +49,13 @@ test('a string that reads "from" is not an import', () => {
     "a.js": 'const sender = pick(a, ["submitter", "from"]) || pick(b, ["from", "sender"]);\n',
   });
   assert.deepEqual(findUnresolvableImports(dir), []);
+});
+
+test("dashboard schema diagnostics can quote import examples alongside a real import", () => {
+  const dir = fixture({
+    "view.js": 'const diagnostic = `Component ${name} requires Zod 4. Use import from "zod/v4".`; export * from "missing";',
+  });
+  assert.deepEqual(findUnresolvableImports(dir), [{ file: "view.js", imports: ["missing"] }]);
 });
 
 // electron-builder filters these out, so they must not fail the build.

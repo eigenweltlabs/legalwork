@@ -1,0 +1,28 @@
+name: Prepare the pinned Windows ARM64 speech adapter
+description: Reuse verified native output for identical source, Node, CMake and runner toolchain inputs
+runs:
+  using: composite
+  steps:
+    - id: key
+      shell: bash
+      run: node apps/desktop/scripts/windows-arm64-speech-cache.mjs key
+    - uses: actions/cache/restore@v4
+      id: cache
+      with:
+        path: ${{ steps.key.outputs.directory }}
+        key: ${{ steps.key.outputs.key }}
+    - uses: ./.github/actions/recover-native-package
+      if: steps.cache.outputs.cache-hit != 'true'
+      with:
+        key: ${{ steps.key.outputs.key }}
+        directory: ${{ steps.key.outputs.directory }}
+    - name: Verify and load the native adapter, or compile on a miss
+      shell: bash
+      env:
+        TARGET: aarch64-pc-windows-msvc
+      run: node apps/desktop/scripts/prepare-windows-arm64-speech.mjs
+    - uses: actions/cache/save@v4
+      if: steps.cache.outputs.cache-hit != 'true'
+      with:
+        path: ${{ steps.key.outputs.directory }}
+        key: ${{ steps.key.outputs.key }}

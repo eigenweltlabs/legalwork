@@ -32,13 +32,17 @@ function abortableAdmission<T>(operation: () => Promise<T>, signal?: AbortSignal
 /** The native v2 client returns domain values directly and throws on failure.
  * Location is explicit on location-scoped operations; a session routes through
  * its saved location. Never change a process-global default for another project. */
-export function createEngineClient(config: ServerConfig, workspace: WorkspaceInfo): OpenCodeClient {
+export function createEngineClient(config: ServerConfig, workspace: WorkspaceInfo, options: { fileReferences?: boolean } = {}): OpenCodeClient {
   const { baseUrl, authHeader } = resolveWorkspaceOpencodeConnection(config, workspace);
   if (!baseUrl) throw new ApiError(503, "opencode_unavailable", "The agent engine is not available for this project.");
   const client: OpenCodeClient = OpenCode.make({ baseUrl, ...(authHeader ? { headers: { Authorization: authHeader } } : {}),
     fetch: Object.assign(async (request: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
       const url = new URL(typeof request === "string" ? request : request instanceof URL ? request.href : request.url);
       const method = (init?.method ?? (request instanceof Request ? request.method : "GET")).toUpperCase();
+      if (options.fileReferences && method === "GET" && /^\/api\/session\/[^/]+\/message$/.test(url.pathname)) {
+        url.searchParams.set("files", "references");
+        request = request instanceof Request ? new Request(url, request) : url;
+      }
       const signal = init?.signal ?? (request instanceof Request ? request.signal : undefined) ?? undefined;
       const passive = method === "GET" && (url.pathname === "/api/info" || url.pathname === "/api/event" || /^\/api\/session\/[^/]+$/.test(url.pathname))
         || method === "POST" && (/^\/api\/session\/[^/]+\/interrupt$/.test(url.pathname) || /\/legalwork\.commands\/cancel$/.test(url.pathname));

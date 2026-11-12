@@ -1,7 +1,8 @@
+import { nativeFixtureDirectory, removeNativeFixtureDirectory } from "../native-fixture-directory.test-support.js";
 import { expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { z } from "zod";
@@ -22,7 +23,7 @@ const approvalSchema = z.object({ items: z.array(z.object({ id: z.string(), sess
 test.skipIf(!binary)("compiled Code Mode fetch obeys production session policy with complete private transport and Stop", async () => {
   const childRoot = process.env.LEGALWORK_RAW_HTTP_ENGINE_FIXTURE;
   if (!childRoot) {
-    const root = await realpath(await mkdtemp(join(tmpdir(), "legalwork-native-raw-http-")));
+    const root = await realpath(await nativeFixtureDirectory(join(tmpdir(), "legalwork-native-raw-http-")));
     // Full-server stores live for the process. Reap their owner before deleting
     // the profile, matching the existing full-server fixtures on Windows.
     try {
@@ -33,9 +34,9 @@ test.skipIf(!binary)("compiled Code Mode fetch obeys production session policy w
       });
       expect(await child.exited).toBe(0);
     } finally {
-      await rm(root, { recursive: true, force: true });
+      await removeNativeFixtureDirectory(root);
     }
-    expect(existsSync(root)).toBe(false);
+    expect(existsSync(root)).toBe(Boolean(process.env.LEGALWORK_TEST_NATIVE_FIXTURE_PARENT));
     return;
   }
   const providerRequests: unknown[] = [], hits: Array<{ path: string; method: string; headers: Record<string, string>; bytes: number; sha256: string }> = [];

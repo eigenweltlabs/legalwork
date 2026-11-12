@@ -25,8 +25,16 @@ export function applyProjectTemplate(fields: ProjectField[], template: ProjectMe
   const selected = new Set(template.fields.map((field) => field.id));
   const existing = new Map(fields.map((field) => [field.id, field]));
   return [
-    ...localizedTemplateFields(template.fields).map((field) => existing.get(field.id) ?? field),
-    ...fields.filter((field) => !selected.has(field.id) && (field.value !== null && field.value !== "" || field.labelSource !== "suggested")),
+    ...localizedTemplateFields(template.fields).map(field => {
+      const old = existing.get(field.id);
+      if (!old || (old.value === null && old.labelSource === "suggested" && field.type === "backoffice")) return field;
+      if (old.type === "backoffice" && field.type === "backoffice" && old.objectId === field.objectId) {
+        if (field.multiple || (old.value?.recordIds.length ?? 0) <= 1) return { ...field, value: old.value };
+      }
+      return old.type === "backoffice" && old.quickAction ? { ...old, quickAction: false } : old;
+    }),
+    ...fields.filter(field => !selected.has(field.id) && (field.value !== null && field.value !== "" || field.labelSource !== "suggested"))
+      .map(field => field.type === "backoffice" && field.quickAction ? { ...field, quickAction: false } : field),
   ];
 }
 
@@ -57,7 +65,8 @@ export function migrateProjectDefaults(persisted: unknown): Pick<ProjectTemplate
         parsed.data.templates.push(templates.find((entry) => entry.id === "contracts")!);
         if (pristine && parsed.data.defaultTemplateId === legacy.id) parsed.data.defaultTemplateId = "contracts";
       }
-      return { templates: parsed.data.templates, defaultTemplateId: parsed.data.defaultTemplateId, hasLegacyDefaults: true };
+      const upgraded = shared.upgradeProjectTemplateReferences(parsed.data);
+      return { templates: upgraded.templates, defaultTemplateId: upgraded.defaultTemplateId, hasLegacyDefaults: true };
     }
   }
   if (persisted && typeof persisted === "object" && "fields" in persisted && Array.isArray(persisted.fields)) {
@@ -68,7 +77,7 @@ export function migrateProjectDefaults(persisted: unknown): Pick<ProjectTemplate
     );
     templates[0].fields = emptyProjectFields(fields);
   }
-  return { templates, defaultTemplateId: "legal_matter", hasLegacyDefaults: Boolean(persisted && typeof persisted === "object" && "fields" in persisted) };
+  return { templates: shared.upgradeProjectTemplateReferences({ revision: 0, defaultTemplateId: "legal_matter", templates }).templates, defaultTemplateId: "legal_matter", hasLegacyDefaults: Boolean(persisted && typeof persisted === "object" && "fields" in persisted) };
 }
 
 export const useProjectDefaultsStore = create<ProjectTemplatesState>()(persist((): ProjectTemplatesState => ({
@@ -79,7 +88,7 @@ export const useProjectDefaultsStore = create<ProjectTemplatesState>()(persist((
   defaultTemplateId: "legal_matter",
 }), {
   name: "legalwork.projectMetadataDefaults",
-  version: 2,
+  version: 6,
   migrate: migrateProjectDefaults,
   partialize: ({ templates, defaultTemplateId, migrated, hasLegacyDefaults }) => ({ templates, defaultTemplateId, migrated, hasLegacyDefaults }),
 }));

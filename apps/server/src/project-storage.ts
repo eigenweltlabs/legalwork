@@ -276,15 +276,16 @@ export async function completeProjectMigrationProgress(config: ServerConfig): Pr
 
 /** Receipts survive removal from the registry. Inspect only owned local
  * metadata, never probe other projects' disconnected document drives. */
-export async function localProjectIdForContent(config: Pick<ServerConfig, "projectsDirectory">, content: string): Promise<string | undefined> {
+export async function localProjectIdForContent(config: Pick<ServerConfig, "projectsDirectory">, content: string, registeredIds: string[] = []): Promise<string | undefined> {
   if (!config.projectsDirectory) return;
   const home = await canonicalFilePath(config.projectsDirectory), selected = await canonicalFilePath(content);
   const suffix = relative(home, selected).split(sep);
   if (suffix.length === 2 && suffix[1] === "files" && /^[a-zA-Z0-9_-]+$/.test(suffix[0])) return suffix[0];
   const entries = await readdir(home, { withFileTypes: true }).catch(error => { if (missing(error)) return []; throw error; });
   const ids: string[] = [];
+  const registered = new Set(registeredIds);
   for (const entry of entries) {
-    if (!entry.isDirectory() || !/^[a-zA-Z0-9_-]+$/.test(entry.name)) continue;
+    if (registered.has(entry.name) || !entry.isDirectory() || !/^[a-zA-Z0-9_-]+$/.test(entry.name)) continue;
     const path = join(home, entry.name);
     const raw = await readFile(receiptPath(path), "utf8").catch(error => { if (missing(error)) return; throw error; });
     if (!raw) continue;

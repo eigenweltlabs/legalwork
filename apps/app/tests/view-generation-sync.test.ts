@@ -1,7 +1,7 @@
 import { beforeEach, expect, test } from "bun:test";
 import type { DynamicToolUIPart } from "ai";
-import { reconcileViewGenerations, syncViewGeneration } from "../src/react-app/domains/views/view-generation-sync";
-import { useViewGenerationStore, viewGenerationId, viewToolOutcome, type ViewDraftTab } from "../src/react-app/domains/views/view-generation";
+import { reconcileViewGenerations, syncViewGeneration, visibleDashboardContext } from "../src/react-app/domains/views/view-generation-sync";
+import { useViewGenerationStore, viewGenerationId, latestDraftId, viewToolOutcome, type ViewDraftTab } from "../src/react-app/domains/views/view-generation";
 import { usePanelTabStore } from "../src/react-app/domains/session/panel/panel-tab-store";
 import { parseDynamicToolUIPart } from "../src/react-app/domains/session/sync/parse-tool-parts";
 import { getAssistantRenderGroups } from "../src/components/chat/utils";
@@ -186,4 +186,54 @@ test("Assistant generation records the preview without selecting or opening a ta
   expect(opened).toEqual([]);
   expect(useViewGenerationStore.getState().entries[id].status).toBe("saved");
   expect(usePanelTabStore.getState().sessions).toEqual({});
+});
+
+test("a chat preview edit streams into the original tab and survives transcript replay", async () => {
+  const { version, title, mode, catalog, program, queries, owner } = saved;
+  const preview = { status: "preview", owner, input: { version, title, mode, catalog, program, queries } };
+  await syncViewGeneration(context, pending, open);
+  await syncViewGeneration(context, { ...done, output: preview }, open);
+  expect(visibleDashboardContext(context)).toContain('"preview_id":"call"');
+  expect(visibleDashboardContext({ ...context, sessionId: "another-chat" })).toBe("");
+  const edit = { ...pending, toolName: "view_update", toolCallId: "edit" };
+  const editId = viewGenerationId("local", "session", "edit");
+  await syncViewGeneration(context, edit, open);
+  const rawInput = '{"preview_id":"call","program":"root = Text(\\"Rev';
+  await syncViewGeneration(context, { ...edit, callProviderMetadata: { opencode: { rawInput } } }, open);
+  const entries = () => useViewGenerationStore.getState().entries;
+  expect(latestDraftId(id, entries())).toBe(editId);
+  expect(entries()[editId]).toMatchObject({ program: 'root = Text("Rev', layoutEdit: true, title, status: "streaming" });
+  expect(entries()[id].program).toBe(program);
+
+  const revised = { ...preview, replacesCallId: "call", input: { ...preview.input, program: 'root = Text("Revised")' } };
+  const result = { ...done, toolName: "view_update", toolCallId: "edit", output: revised };
+  await syncViewGeneration(context, result, open);
+  expect(opened.map(tab => tab.id)).toEqual([id]);
+  expect(usePanelTabStore.getState().sessions["workspace:wiki"].tabs.map(tab => tab.id)).toEqual([id]);
+  expect(visibleDashboardContext(context)).toContain('"preview_id":"edit"');
+  useViewGenerationStore.setState({ entries: {} });
+  await reconcileViewGenerations(context, [{ ...done, output: preview }, result]);
+  expect(entries()[latestDraftId(id, entries())].preview).toMatchObject(revised);
+
+  const failing = { ...edit, toolCallId: "attempt", input: { preview_id: "edit", program: "root = Text(" } };
+  await syncViewGeneration(context, failing, open);
+  await syncViewGeneration(context, { ...failing, state: "output-error", errorText: "Interrupted" }, open);
+  expect(latestDraftId(id, entries())).toBe(editId);
+  expect(opened).toHaveLength(1);
+  await syncViewGeneration(context, { ...pending, toolCallId: "separate" }, open);
+  expect(opened).toHaveLength(2);
+});
+
+test("a saved dashboard edit streams in its existing pane and restores the file on cancellation", async () => {
+  const scope = "workspace:wiki";
+  const tab = { type: "view", id: "saved-tab", serverUrl: context.serverUrl, owner: { kind: "wiki", id: "wiki" }, viewId: saved.id, label: "Live" } as const;
+  usePanelTabStore.getState().openTab(scope, tab);
+  const edit = { ...pending, toolName: "view_update", toolCallId: "edit-file", input: { view_id: saved.id, owner: tab.owner, base_revision: "r1", input: { program: 'root = Text("Revi' } } };
+  await syncViewGeneration(context, edit, open);
+  const panel = () => usePanelTabStore.getState().sessions[scope];
+  expect(panel().tabs).toHaveLength(1);
+  expect(panel().panes[0].activeTabId).toBe(viewGenerationId(context.serverUrl, context.sessionId, "edit-file"));
+  await syncViewGeneration(context, { ...edit, state: "output-error", errorText: "Cancelled" }, open);
+  expect(panel().tabs).toEqual([tab]);
+  expect(panel().panes[0].activeTabId).toBe(tab.id);
 });

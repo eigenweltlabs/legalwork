@@ -1,7 +1,7 @@
 import type { ApprovalService } from "../approvals.js";
 import type { ReloadEventStore } from "../events.js";
 import type { TokenService } from "../tokens.js";
-import type { Actor, ServerConfig } from "../types.js";
+import type { Actor, ServerConfig, WorkspaceInfo } from "../types.js";
 
 export type AuthMode = "none" | "client" | "host" | "host-token";
 
@@ -14,6 +14,7 @@ export interface RequestContext {
   reloadEvents: ReloadEventStore;
   tokens: TokenService;
   actor?: Actor;
+  agentAccess?: { directory: string; workspace?: WorkspaceInfo } | null;
 }
 
 export interface Route {

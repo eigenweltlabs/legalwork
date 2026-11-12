@@ -32,7 +32,7 @@ for (const scenario of ["publish", "rollback", "close"]) {
         assertNativeEngineRecoveryProjectsReady: async () => { if (!allowed) throw new Error("Project approval held"); },
       }));
       mock.module(${JSON.stringify(new URL("./session-history-permissions.ts", import.meta.url).href)}, () => ({ assertRegisteredLegacySessionPermissionsReady: async () => {}, restoreRegisteredLegacySessionPermissions: async () => {}, restoreLegacySessionPermissions: async (_config, _workspace, _client, session) => session }));
-      mock.module(${JSON.stringify(new URL("./legalwork-runtime-config.ts", import.meta.url).href)}, () => ({ writeLegalworkRuntimeConfigFile: async () => "synthetic-config" }));
+      mock.module(${JSON.stringify(new URL("./legalwork-runtime-config.ts", import.meta.url).href)}, () => ({ writeLegalworkRuntimeConfigFile: async () => "synthetic-config", publishRuntimeConfigChanges: (_config, _id, update) => update() }));
       mock.module(${JSON.stringify(new URL("./native-saved-approval-migration.ts", import.meta.url).href)}, () => ({ migrateStoppedNativeSavedApprovals: async () => ({ changed: false }) }));
       mock.module(${JSON.stringify(new URL("./managed-opencode-service.ts", import.meta.url).href)}, () => ({ stopManagedOpencodeService: async () => {} }));
       mock.module(${JSON.stringify(new URL("./managed-opencode.ts", import.meta.url).href)}, () => ({ createManagedOpencodeServer: async () => { throw new Error("Unexpected engine factory; use the owned injected creator"); } }));
@@ -120,7 +120,7 @@ test("catalog reload defers active sessions, admission and service-mode sign-ins
     }) }));
     mock.module(${JSON.stringify(new URL("./native-engine-recovery.ts", import.meta.url).href)}, () => ({ inspectNativeEngineRecovery: async () => ({ sessions: [] }), assertNativeEngineRecoveryProjectsReady: async () => {} }));
     mock.module(${JSON.stringify(new URL("./session-history-permissions.ts", import.meta.url).href)}, () => ({ assertRegisteredLegacySessionPermissionsReady: async () => {}, restoreRegisteredLegacySessionPermissions: async () => {}, restoreLegacySessionPermissions: async (_config, _workspace, _client, session) => session }));
-    mock.module(${JSON.stringify(new URL("./legalwork-runtime-config.ts", import.meta.url).href)}, () => ({ writeLegalworkRuntimeConfigFile: async () => "synthetic-config" }));
+    mock.module(${JSON.stringify(new URL("./legalwork-runtime-config.ts", import.meta.url).href)}, () => ({ writeLegalworkRuntimeConfigFile: async () => "synthetic-config", publishRuntimeConfigChanges: (_config, _id, update) => update() }));
     mock.module(${JSON.stringify(new URL("./native-saved-approval-migration.ts", import.meta.url).href)}, () => ({ migrateStoppedNativeSavedApprovals: async () => ({ changed: false }) }));
     mock.module(${JSON.stringify(new URL("./managed-opencode-service.ts", import.meta.url).href)}, () => ({ stopManagedOpencodeService: async () => {} }));
     mock.module(${JSON.stringify(new URL("./managed-opencode.ts", import.meta.url).href)}, () => ({ createManagedOpencodeServer: async () => { throw new Error("Use injected owned creator"); } }));

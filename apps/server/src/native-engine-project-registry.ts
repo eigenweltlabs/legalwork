@@ -59,7 +59,13 @@ export function nativeEngineLocationApprovedSync(path: string, directory: string
       const file = nativeEngineProjectRegistrySchema.parse(JSON.parse(content));
       let selected: { root: string; project: Entry } | undefined;
       for (const project of file.projects) {
-        const root = realpathSync(project.directory), suffix = relative(root, actual);
+        let root: string;
+        try { root = realpathSync(project.directory); }
+        catch (error) {
+          if (error instanceof Error && "code" in error && (error.code === "ENOENT" || error.code === "ENOTDIR")) continue;
+          throw error;
+        }
+        const suffix = relative(root, actual);
         if (suffix === ".." || suffix.startsWith("../") || suffix.startsWith("..\\") || isAbsolute(suffix)) continue;
         if (selected?.root === root) return false;
         if (!selected || root.length > selected.root.length) selected = { root, project };

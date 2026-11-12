@@ -66,3 +66,9 @@ test("mixed live dashboards still protect unsaved static data", () => {
   expect(reviewSessionViews([{ callId: "mixed", title: "Mixed", preview: mixed }], [stale], "project", "chat").items).toHaveLength(1);
   expect(savedViewMatchesPreview({ ...copy, datasets: { ...copy.datasets, extra: preview.input.datasets!.rows } }, mixed)).toBe(false);
 });
+
+test("chat preview discovery keeps the latest completed edit and independent dashboards", () => {
+  const result = (id: string, parent?: string) => part({ status: "completed", content: [], metadata: { legalworkViewPreview: { ...preview, replacesCallId: parent } } }, id);
+  const messages = [{ type: "assistant", content: [result("original"), result("other"), result("edit", "original"), result("latest", "edit"), part({ status: "error", content: [] }, "cancelled")] }];
+  expect(sessionViewPreviews(messages).map(item => item.callId)).toEqual(["other", "latest"]);
+});

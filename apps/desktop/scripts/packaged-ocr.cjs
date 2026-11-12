@@ -1,9 +1,10 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { createRequire } = require("node:module");
+const { assertWindowsVcRuntime } = require("./windows-vc-runtime.cjs");
 
 /** Keep only the target CPU runtime; the npm package contains every platform. */
-function pruneOcrRuntime(resources, platform, arch) {
+function pruneOcrRuntime(resources, platform, arch, vcRuntimePin) {
   const modules = path.join(resources, "app.asar.unpacked", "node_modules");
   const requireUnpacked = createRequire(path.join(modules, "ocr-check.cjs"));
   const runtime = path.dirname(requireUnpacked.resolve("onnxruntime-node/package.json"));
@@ -12,6 +13,7 @@ function pruneOcrRuntime(resources, platform, arch) {
   if (!fs.existsSync(path.join(target, "onnxruntime_binding.node"))) {
     throw new Error(`Missing OCR runtime for ${platform}/${arch}`);
   }
+  if (platform === "win32") assertWindowsVcRuntime(target, arch, vcRuntimePin);
   for (const os of fs.readdirSync(binaries)) {
     if (os !== platform) fs.rmSync(path.join(binaries, os), { recursive: true, force: true });
     else for (const cpu of fs.readdirSync(path.join(binaries, os))) {
@@ -23,6 +25,7 @@ function pruneOcrRuntime(resources, platform, arch) {
   createRequire(requireUnpacked.resolve("onnxruntime-node")).resolve("onnxruntime-common");
   if (!fs.existsSync(path.join(resources, "ocr", "native-worker.cjs"))) throw new Error("Missing bundled OCR worker");
   if (!fs.existsSync(path.join(resources, "ocr", "layout-worker.cjs"))) throw new Error("Missing bundled layout worker");
+  if (!fs.existsSync(path.join(resources, "ocr", "llama-launcher.cjs"))) throw new Error("Missing bundled quality OCR launcher");
 }
 
 module.exports = { pruneOcrRuntime };

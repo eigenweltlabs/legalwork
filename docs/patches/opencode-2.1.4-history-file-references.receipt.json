@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "upstreamCommit": "68bc26b7da1990ce10ffecfbc1e09eb13aa5d824",
+  "patchSha256": "75cc4c142ca62ae82999f235a91506164e0bd3bd5503a9e98ddf82e2854652c2",
+  "priorPatch": {
+    "path": "docs/patches/opencode-2.1.4-project-relocation.patch",
+    "sha256": "dd6a34e338b40428cdccd7d7a761df84e9267d9945171c11b097858a24043396",
+    "unchangedPrefix": true
+  },
+  "priorReceipt": {
+    "path": "docs/patches/opencode-2.1.4-project-relocation.receipt.json",
+    "sha256": "c07e9db134d25ca626a8a1c1d08e1462674d45a2c6b7452ed646000bdd7f0f7e"
+  },
+  "runtime": {
+    "bun": "1.4.4"
+  },
+  "tests": [
+    {
+      "cwd": "packages/server",
+      "command": "bun test test/message.test.ts",
+      "passed": 6,
+      "failed": 0,
+      "assertions": 32
+    },
+    {
+      "cwd": "packages/core",
+      "command": "bun run script/test.ts test/session-move.test.ts test/session-execution.test.ts test/v1-migration.test.ts test/codemode-http.test.ts test/mcp.test.ts test/session-generate.test.ts test/session-model-request.test.ts test/session-projector.test.ts test/session-store.test.ts",
+      "passed": 212,
+      "failed": 0,
+      "assertions": 947
+    },
+    {
+      "cwd": "packages/core",
+      "command": "bun run typecheck",
+      "exitCode": 0,
+      "files": 1637
+    },
+    {
+      "cwd": "packages/server",
+      "command": "bun run typecheck",
+      "exitCode": 0,
+      "files": 1273
+    }
+  ],
+  "contract": "Opt-in GET session message list files=references returns source-backed read-tool PDFs as file URLs; default list, single-message reads, persisted history and model context retain original data. Images and PDFs without a matching original read path retain complete data."
+}
