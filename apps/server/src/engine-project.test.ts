@@ -20,6 +20,26 @@ async function fixture() {
   return { root, directory, config, workspace };
 }
 
+test("a stale project entry does not disable native MCP in an approved project", async () => {
+  const { root, directory } = await fixture();
+  try {
+    const replaced = join(root, "replaced-folder");
+    await writeFile(replaced, "This path is now a file.");
+    const registry = join(root, "registry.json");
+    const approved = { directory, approved: true };
+    const stale = [
+      { directory: join(root, "deleted-project"), approved: true },
+      { directory: join(replaced, "old-project"), approved: false },
+    ];
+    for (const projects of [[...stale, approved], [approved, ...stale]]) {
+      await writeFile(registry, JSON.stringify({ version: 1, projects }));
+      expect(await nativeEngineLocationApproved(registry, directory)).toBe(true);
+      expect(nativeEngineLocationApprovedSync(registry, directory)).toBe(true);
+      expect(nativeEngineLocationApprovedSync(registry, root)).toBe(false);
+    }
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 test("recovery readiness reveals only the selected project's interrupted chats", async () => {
   const { root, directory, config, workspace } = await fixture();
   try {

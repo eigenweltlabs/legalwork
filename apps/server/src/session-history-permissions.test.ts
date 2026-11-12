@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { OpenCode } from "@opencode/client";
@@ -99,9 +99,12 @@ test("the actual SDK execution wrapper restores native policy before admitting a
   } finally { await run.close(); }
 });
 
-test("plain-serve preparation restores only registered chats before service readiness", async () => {
+test("plain-serve preparation restores registered chats despite an unrelated stale project", async () => {
   const run = await fixture();
   try {
+    const replaced = join(run.other, "replaced-folder");
+    await writeFile(replaced, "This path is now a file.");
+    run.config.workspaces.unshift({ ...run.workspace, id: "stale", path: join(replaced, "old-project") });
     await expect(assertRegisteredLegacySessionPermissionsReady(run.config)).rejects.toMatchObject({ details: { reason: "original_permissions_not_restored" } });
     await restoreRegisteredLegacySessionPermissions(run.config, run.client);
     await expect(assertRegisteredLegacySessionPermissionsReady(run.config, run.client)).resolves.toBeUndefined();
