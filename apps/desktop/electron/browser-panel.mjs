@@ -110,7 +110,7 @@ export function createBrowserPanel(options) {
   };
 }
 
-function createWindowBrowserPanel({ app, View, WebContentsView, clipboard, session, getWindow, isAllowedAppNavigation, safeOpen, resolveDownloadDirectory, authorizeBrowserAutomation, automationBroker, proxyState, nativeHost, capture, loadBrowserPasswords }) {
+function createWindowBrowserPanel({ app, BaseWindow, WebContentsView, clipboard, session, getWindow, isAllowedAppNavigation, safeOpen, resolveDownloadDirectory, authorizeBrowserAutomation, automationBroker, proxyState, nativeHost, capture, loadBrowserPasswords }) {
   const browserTabs = new Map();
   let browserTabOrder = [];
   let activeBrowserTabId = null;
@@ -304,23 +304,15 @@ function createWindowBrowserPanel({ app, View, WebContentsView, clipboard, sessi
     if (!owner || owner.isDestroyed()) throw new Error("Browser window is unavailable.");
     const temporary = !owner.contentView.children.includes(tab.view);
     capturingViews.add(tab.view);
+    let captureWindow;
     if (temporary) {
-      // Put the existing app view above background browser views in one window.
-      if (owner.contentView === owner.webContentsView) {
-        const appView = owner.webContentsView;
-        const children = [...appView.children];
-        owner.setContentView(new View());
-        owner.contentView.addChildView(appView);
-        for (const child of children) owner.contentView.addChildView(child);
-        const resize = () => {
-          const [width, height] = owner.getContentSize();
-          appView.setBounds({ x: 0, y: 0, width, height });
-        };
-        owner.on("resize", resize);
-        resize();
-      }
-      owner.contentView.addChildView(tab.view, 0);
+      // A shown, transparent host paints on Windows without covering the app.
+      // Fully hidden or offscreen views can stall the compositor indefinitely.
+      captureWindow = new BaseWindow({ parent: owner, show: false, frame: false,
+        focusable: false, skipTaskbar: true, opacity: 0, width: 1200, height: 800 });
+      captureWindow.contentView.addChildView(tab.view);
       tab.view.setBounds({ x: 0, y: 0, width: 1200, height: 800 });
+      captureWindow.showInactive();
     }
     tab.view.setVisible?.(true);
     let restored = false;
@@ -328,6 +320,10 @@ function createWindowBrowserPanel({ app, View, WebContentsView, clipboard, sessi
       if (restored) return;
       restored = true;
       capturingViews.delete(tab.view);
+      if (captureWindow && !captureWindow.isDestroyed()) {
+        captureWindow.contentView.removeChildView(tab.view);
+        captureWindow.destroy();
+      }
       if (tab.view.webContents.isDestroyed() || owner.isDestroyed()) return;
       if (temporary || !browserViewVisible || tab.background) detachBrowserView(tab.view);
       attachActiveBrowserView();

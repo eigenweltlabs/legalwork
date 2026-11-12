@@ -68,9 +68,10 @@ way to release such native work.
 Queue admission and asynchronous authorization both verify the exact current owner;
 disposal aborts the queue's signal even for embed captures without a caller signal.
 
-Background captures attach the existing browser view beneath the app view in its
-own visible window for the duration of the physical operation. A user-opened tab
-keeps its current parent and bounds. The card only displays the last successful
-capture; reading its preview never starts another screenshot. No hidden preview
-window, screenshot polling or platform flags are used. Minimized/hidden owner
-windows still follow the native screenshot visibility requirement.
+Background captures temporarily attach the existing browser view to a shown,
+fully transparent host window that cannot take focus or appear in the taskbar.
+Windows needs a visible compositor: fully hidden or offscreen views can stall
+captures. The host is destroyed when the physical operation finishes. A user-opened
+tab keeps its current parent and bounds. The card only displays the last successful
+capture; reading its preview never starts another screenshot. No independent
+preview page, screenshot polling or platform flags are used.
