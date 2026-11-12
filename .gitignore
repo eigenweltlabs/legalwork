@@ -82,7 +82,8 @@ apns.json
 # Locked plugin SDK staged at build time for offline engine startup.
 apps/desktop/resources/opencode-sdk/
 
-# Full help translations are generated from the app's locale tables at build time.
+# Bundled skills and help are generated from their sources at build time.
+apps/server/src/core-skills.ts
 docs/user-guide/i18n.json
 apps/server/src/help-i18n.generated.ts
 

@@ -5,7 +5,7 @@ import * as os from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// Source tests also need the ignored translation module on a fresh checkout.
+// Source tests need the generated skills and translations on a fresh checkout.
 // The suite coordinator checks this once before starting isolated file workers.
 // Direct bun invocations retain the fresh-checkout check.
 if (process.env.LEGALWORK_TEST_PREPARED !== '1') {
