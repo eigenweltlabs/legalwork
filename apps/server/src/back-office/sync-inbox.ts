@@ -1,33 +1,44 @@
-import { randomUUID } from "node:crypto";
-import type { SqliteHandle } from "../runtime-db.js";
+import { openSqlite, type SqliteHandle } from "../runtime-db.js";
 import { BackOfficeRecordSchema, type BackOfficeRecord } from "./schema.js";
 
-/** TEMP rows belong to this SQLite connection. Readers only see the live
- * tables. A closed/crashed connection automatically discards partial pages. */
+/** An empty filename opens a private, disk-backed SQLite temporary database.
+ * Staging pages never changes the live database's audit verification stamp. */
 export class SyncInbox {
-  private readonly transfer = randomUUID();
-  constructor(private readonly db: SqliteHandle) {
-    db.exec(
-      "CREATE TEMP TABLE IF NOT EXISTS bo_incoming(transfer TEXT,id TEXT,revision INTEGER,data TEXT,PRIMARY KEY(transfer,id)) WITHOUT ROWID",
-    );
+  private constructor(private readonly db: SqliteHandle) {}
+  static async open() {
+    const db = await openSqlite("");
+    try {
+      db.exec(
+        "PRAGMA secure_delete=ON; CREATE TABLE incoming(id TEXT PRIMARY KEY, revision INTEGER NOT NULL, data TEXT NOT NULL) WITHOUT ROWID",
+      );
+      return new SyncInbox(db);
+    } catch (error) {
+      db.close();
+      throw error;
+    }
   }
   add(
     records: BackOfficeRecord[],
     translate: (record: BackOfficeRecord) => void,
   ) {
-    for (const row of records) {
-      translate(row);
-      this.db.run(
-        "INSERT INTO temp.bo_incoming VALUES(?,?,?,?) ON CONFLICT(transfer,id) DO UPDATE SET revision=excluded.revision,data=excluded.data WHERE excluded.revision>=bo_incoming.revision",
-        [this.transfer, row.id, row.revision, JSON.stringify(row)],
-      );
+    if (!records.length) return;
+    this.db.exec("BEGIN");
+    try {
+      for (const row of records) {
+        translate(row);
+        this.db.run(
+          "INSERT INTO incoming VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET revision=excluded.revision,data=excluded.data WHERE excluded.revision>=incoming.revision",
+          [row.id, row.revision, JSON.stringify(row)],
+        );
+      }
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
     }
   }
   get(id: string) {
-    const row = this.db.get(
-      "SELECT data FROM temp.bo_incoming WHERE transfer=? AND id=?",
-      [this.transfer, id],
-    );
+    const row = this.db.get("SELECT data FROM incoming WHERE id=?", [id]);
     return row
       ? BackOfficeRecordSchema.parse(JSON.parse(String(row.data)))
       : undefined;
@@ -36,8 +47,8 @@ export class SyncInbox {
     let after = "";
     for (;;) {
       const rows = this.db.all(
-        "SELECT id,data FROM temp.bo_incoming WHERE transfer=? AND id>? ORDER BY id LIMIT 256",
-        [this.transfer, after],
+        "SELECT id,data FROM incoming WHERE id>? ORDER BY id LIMIT 256",
+        [after],
       );
       for (const row of rows)
         yield BackOfficeRecordSchema.parse(JSON.parse(String(row.data)));
@@ -45,15 +56,31 @@ export class SyncInbox {
       after = String(rows[rows.length - 1].id);
     }
   }
-  missing(scope: string) {
-    return this.db.all(
-      "SELECT id FROM bo_records r WHERE scope=? AND NOT EXISTS(SELECT 1 FROM temp.bo_incoming i WHERE i.transfer=? AND i.id=r.id)",
-      [scope, this.transfer],
-    );
+  *missing(live: SqliteHandle, scope: string) {
+    let after = "";
+    for (;;) {
+      const rows = live.all(
+        "SELECT id FROM bo_records WHERE scope=? AND id>? ORDER BY id LIMIT 256",
+        [scope, after],
+      );
+      if (!rows.length) return;
+      const ids = rows.map((row) => String(row.id));
+      const present = new Set(
+        this.db
+          .all(
+            "SELECT id FROM incoming WHERE id IN (SELECT value FROM json_each(?))",
+            [JSON.stringify(ids)],
+          )
+          .map((row) => row.id),
+      );
+      for (const id of ids) if (!present.has(id)) yield { id };
+      after = ids[ids.length - 1];
+    }
   }
   clear() {
-    this.db.run("DELETE FROM temp.bo_incoming WHERE transfer=?", [
-      this.transfer,
-    ]);
+    this.db.exec("DELETE FROM incoming");
+  }
+  close() {
+    this.db.close();
   }
 }

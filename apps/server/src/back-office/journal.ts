@@ -27,7 +27,8 @@ import {
   newBackOfficeAuditNonce,
   signBackOfficeAudit,
   verifyBackOfficeAuditEntry,
-  verifyBackOfficeAuditProofChain,
+  verifyBackOfficeAuditProof,
+  chainHeadOfVerifiedProofs,
 } from "./audit-integrity.js";
 import type { BackOfficeAuditStorage } from "./audit-storage.js";
 
@@ -139,6 +140,13 @@ export class BackOfficeJournal {
   private prospectiveHeads = new Map<string, BackOfficeAuditHead>();
   private admittedKeys = new Map<string, string | null>();
   private admittedHeads = new Map<string, BackOfficeAuditHead>();
+  // Cache only public commitments. A changed proof, ciphertext, scope, row
+  // identity or encryption key must pass full authentication again.
+  private readonly authenticated = new Map<string, { digest: string; proof: BackOfficeAuditProof; revoked: boolean }>();
+  private readonly batchKeys = new Map<string, Buffer>();
+  private entryDigest(scope: string, keyHash: string | null, row: z.infer<typeof RowSchema>) {
+    return backOfficeAuditDigest(JSON.stringify([scope, keyHash, row.stream_id, row.sequence, row.event_id, row.proof, row.sealed]));
+  }
   private preparedStamp: string | null = null;
   private verifiedCache: {
     stamp: string;
@@ -384,11 +392,10 @@ export class BackOfficeJournal {
     }
     return result;
   }
-  private expected(stream: ReturnType<BackOfficeJournal["streams"]>[number]) {
+  private expected(proofs: BackOfficeAuditProof[]) {
     const result: Record<string, string> = {};
     const empty = backOfficeAuditStateHash(null, null);
-    for (const row of this.rows(stream.stream_id)) {
-      const proof = BackOfficeAuditProofSchema.parse(JSON.parse(row.proof));
+    for (const proof of proofs) {
       if (!auditedTables.some(table => table.kind === proof.entityType))
         continue;
       if (proof.beforeHash !== (result[proof.entityKey] ?? empty))
@@ -400,20 +407,20 @@ export class BackOfficeJournal {
     }
     return result;
   }
-  private stateNonce(streamId: string, entityKey: string) {
+  private stateNonce(streamId: string, entityKey: string, key: Buffer | null) {
     const row = this.db.get("SELECT sealed FROM bo_journal_state_nonces WHERE stream_id=? AND entity_key=?", [streamId, entityKey]);
     if (!row) throw new Error("Back Office database contents differ from their recorded history: state nonce is missing.");
-    const key = this.storage.key(streamId);
     if (!key) throw new Error("Back Office current state has no readable audit encryption key.");
     return z.string().regex(/^[a-f0-9]{64}$/).parse(unseal(String(row.sealed), key));
   }
   private currentHashes(stream: ReturnType<BackOfficeJournal["streams"]>[number]) {
     const result: Record<string, string> = {};
+    const contentKey = this.storage.key(stream.stream_id);
     for (const [key, value] of Object.entries(this.current(stream.scope))) {
       const colon = key.indexOf(":");
       const kind = PendingSchema.shape.kind.parse(key.slice(0, colon));
       const entityKey = backOfficeAuditEntityKey(stream.scope, kind, key.slice(colon + 1));
-      result[entityKey] = backOfficeAuditStateHash(value, this.stateNonce(stream.stream_id, entityKey));
+      result[entityKey] = backOfficeAuditStateHash(value, this.stateNonce(stream.stream_id, entityKey, contentKey));
     }
     const cached = this.db.all("SELECT entity_key FROM bo_journal_state_nonces WHERE stream_id=?", [stream.stream_id]);
     if (cached.length !== Object.keys(result).length || cached.some(row => !(String(row.entity_key) in result)))
@@ -450,20 +457,28 @@ export class BackOfficeJournal {
         throw new Error(
           "Back Office audit checkpoint is missing. History cannot be reset automatically.",
         );
-      const head = verifyBackOfficeAuditProofChain(
-        rows.map((row) => JSON.parse(row.proof)),
-        checkpoint ?? this.root(stream),
-      );
-      for (const row of rows) {
-        const proof = BackOfficeAuditProofSchema.parse(JSON.parse(row.proof));
-        if (proof.streamId !== row.stream_id || proof.sequence !== row.sequence || proof.eventId !== row.event_id || proof.scopeKey !== backOfficeAuditScopeKey(stream.scope))
-          throw new Error("Back Office journal row identity differs from its signed proof.");
-      }
-      const active = this.db.get(
-        "SELECT scope FROM bo_journal_active WHERE stream_id=?",
-        [stream.stream_id],
-      );
       const key = this.storage.key(stream.stream_id);
+      const keyHash = key ? backOfficeAuditDigest(key.toString("hex")) : null;
+      let revoked = false;
+      const proofs = rows.map(row => {
+        const slot = row.stream_id + ":" + row.sequence;
+        const digest = this.entryDigest(stream.scope, keyHash, row);
+        let memo = this.authenticated.get(slot);
+        if (memo?.digest !== digest) {
+          const rawProof = JSON.parse(row.proof);
+          const entry = key ? verifyBackOfficeAuditEntry({ proof: rawProof, payload: unseal(row.sealed, key) }) : null;
+          const proof = entry?.proof ?? verifyBackOfficeAuditProof(rawProof);
+          if (proof.streamId !== row.stream_id || proof.sequence !== row.sequence || proof.eventId !== row.event_id ||
+              proof.scopeKey !== backOfficeAuditScopeKey(stream.scope) || (entry && entry.payload.scope !== stream.scope))
+            throw new Error("Back Office journal row identity differs from its signed proof.");
+          memo = { digest, proof, revoked: entry?.payload.action === "cache.revoke" };
+          this.authenticated.set(slot, memo);
+        }
+        revoked = memo.revoked;
+        return memo.proof;
+      });
+      const head = chainHeadOfVerifiedProofs(proofs, checkpoint ?? this.root(stream));
+      const active = this.db.get("SELECT scope FROM bo_journal_active WHERE stream_id=?", [stream.stream_id]);
       if (active && (active.scope !== stream.scope || latest.get(stream.scope) !== stream.stream_id))
         throw new Error("Back Office active-stream identity differs from its recorded scope.");
       if (latest.get(stream.scope) !== stream.stream_id && this.db.get("SELECT entity_key FROM bo_journal_state_nonces WHERE stream_id=? LIMIT 1", [stream.stream_id]))
@@ -473,9 +488,8 @@ export class BackOfficeJournal {
           "Back Office history encryption key is missing. Further changes are blocked.",
         );
       if (key) {
-        const entries = this.entries(stream.stream_id);
         if (!active) {
-          if (entries.at(-1)?.payload.action !== "cache.revoke")
+          if (!revoked)
             throw new Error(
               "Back Office history was disconnected without a recorded access revocation.",
             );
@@ -484,7 +498,7 @@ export class BackOfficeJournal {
       }
       if (
         latest.get(stream.scope) === stream.stream_id &&
-        canonicalBackOfficeAudit(this.expected(stream)) !==
+        canonicalBackOfficeAudit(this.expected(proofs)) !==
           canonicalBackOfficeAudit(this.currentHashes(stream))
       )
         throw new Error(
@@ -599,7 +613,7 @@ export class BackOfficeJournal {
     const previous = last
       ? BackOfficeAuditProofSchema.parse(JSON.parse(String(last.proof)))
       : null;
-    const key = this.storage.key(stream.stream_id);
+    const key = this.batchKeys.get(stream.stream_id) ?? this.storage.key(stream.stream_id);
     if (
       !key ||
       this.admittedKeys.get(stream.stream_id) !==
@@ -608,9 +622,10 @@ export class BackOfficeJournal {
       throw new Error(
         "Back Office history encryption key changed outside its audited lifecycle.",
       );
+    this.batchKeys.set(stream.stream_id, key);
     const entityKey = backOfficeAuditEntityKey(input.scope, input.entityType, input.entityId);
     const projected = auditedTables.some(table => table.kind === input.entityType);
-    const beforeNonce = input.before === null ? null : this.stateNonce(stream.stream_id, entityKey);
+    const beforeNonce = input.before === null ? null : this.stateNonce(stream.stream_id, entityKey, key);
     const afterNonce = input.after === null ? null : newBackOfficeAuditNonce();
     const priorState = this.db.get("SELECT proof FROM bo_journal_entries WHERE stream_id=? AND json_extract(proof,'$.entityKey')=? ORDER BY sequence DESC LIMIT 1", [stream.stream_id, entityKey]);
     const beforeHash = backOfficeAuditStateHash(input.before, beforeNonce);
@@ -631,13 +646,13 @@ export class BackOfficeJournal {
       previous?.hash ?? BACK_OFFICE_AUDIT_GENESIS,
       this.storage.identity,
     );
-    this.db.run("INSERT INTO bo_journal_entries VALUES(?,?,?,?,?)", [
-      stream.stream_id,
-      entry.proof.sequence,
-      entry.payload.eventId,
-      JSON.stringify(entry.proof),
-      seal(entry.payload, key),
-    ]);
+    const row = { stream_id: stream.stream_id, sequence: entry.proof.sequence, event_id: entry.payload.eventId,
+      proof: JSON.stringify(entry.proof), sealed: seal(entry.payload, key) };
+    this.db.run("INSERT INTO bo_journal_entries VALUES(?,?,?,?,?)", [row.stream_id, row.sequence, row.event_id, row.proof, row.sealed]);
+    this.authenticated.set(row.stream_id + ":" + row.sequence, {
+      digest: this.entryDigest(stream.scope, this.admittedKeys.get(stream.stream_id)!, row),
+      proof: entry.proof, revoked: entry.payload.action === "cache.revoke",
+    });
     if (projected) {
       if (afterNonce === null) this.db.run("DELETE FROM bo_journal_state_nonces WHERE stream_id=? AND entity_key=?", [stream.stream_id, entityKey]);
       else this.db.run("INSERT INTO bo_journal_state_nonces VALUES(?,?,?) ON CONFLICT(stream_id,entity_key) DO UPDATE SET sealed=excluded.sealed", [stream.stream_id, entityKey, seal(afterNonce, key)]);
@@ -652,7 +667,18 @@ export class BackOfficeJournal {
     return entry;
   }
 
-  private stream(scope: string, pending: Pending[]) {
+  private *pendingRows(scope?: string): Generator<Pending> {
+    let cursor: number | undefined;
+    for (;;) {
+      const rows = scope
+        ? this.db.all("SELECT * FROM bo_journal_pending WHERE scope=? AND (? IS NULL OR seq<?) ORDER BY seq DESC LIMIT 256", [scope,cursor ?? null,cursor ?? null])
+        : this.db.all("SELECT * FROM bo_journal_pending WHERE seq>? ORDER BY seq LIMIT 256", [cursor ?? 0]);
+      for (const row of rows) yield PendingSchema.parse(row);
+      if (rows.length < 256) return;
+      cursor = Number(rows[rows.length - 1].seq);
+    }
+  }
+  private stream(scope: string, newestFirst: Iterable<Pending>) {
     const active = this.db.get(
       "SELECT s.* FROM bo_journal_streams s JOIN bo_journal_active a ON a.stream_id=s.stream_id WHERE a.scope=?",
       [scope],
@@ -687,7 +713,7 @@ export class BackOfficeJournal {
     ]);
     this.db.run("DELETE FROM bo_journal_state_nonces WHERE stream_id IN (SELECT stream_id FROM bo_journal_streams WHERE scope=? AND stream_id<>?)", [scope, stream.stream_id]);
     const state = this.current(scope);
-    for (const change of [...pending].reverse()) {
+    for (const change of newestFirst) {
       if (change.scope !== scope) continue;
       const id = `${change.kind}:${change.target}`;
       if (change.before_data === null) delete state[id];
@@ -766,11 +792,13 @@ export class BackOfficeJournal {
 
   flush() {
     this.validateGuards();
-    const pending = this.db
-      .all("SELECT * FROM bo_journal_pending ORDER BY seq")
-      .map((row) => PendingSchema.parse(row));
-    for (const change of pending) {
-      const stream = this.stream(change.scope, pending);
+    const streams = new Map<string, z.infer<typeof StreamSchema>>();
+    for (const change of this.pendingRows()) {
+      let stream = streams.get(change.scope);
+      if (!stream) {
+        stream = this.stream(change.scope, this.pendingRows(change.scope));
+        streams.set(change.scope, stream);
+      }
       const revision = change.model_revision;
       this.append(stream, {
         scope: change.scope,
@@ -825,6 +853,7 @@ export class BackOfficeJournal {
     if (Object.keys(this.current(scope)).length) this.stream(scope, []);
   }
   checkpoint() {
+    this.batchKeys.clear();
     try {
       const expectedHeads = new Map(this.admittedHeads);
       for (const [id, head] of this.prospectiveHeads)
@@ -892,6 +921,7 @@ export class BackOfficeJournal {
   }
 
   rollback() {
+    this.batchKeys.clear();
     for (const id of this.createdStreams) {
       this.storage.discardUncommittedStream(id);
       this.admittedHeads.delete(id);

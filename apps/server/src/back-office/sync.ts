@@ -111,7 +111,7 @@ export async function syncBackOffice(config: ServerConfig): Promise<void> {
         await syncRecordFiles(config, chunk, actor.principalKey);
         store.requireAccount(scope, actor);
         const position=store.directoryPosition(scope,actor);
-        const inbox=new SyncInbox(store.db);
+        const inbox=await SyncInbox.open();
         const localProjects=new Map(links.links().filter(link=>link.orgId===scope).map(link=>[link.projectId,link.workspaceId]));
         const translate=(record: BackOfficeRecord) => {
           if (record.objectId !== "projectLinks" || typeof record.values.projectId !== "string") return;
@@ -133,7 +133,7 @@ export async function syncBackOffice(config: ServerConfig): Promise<void> {
           conflicted ||= snapshot.conflicts.length>0;
           if (snapshot.conflicts.length || snapshot.accepted.length<chunk.length) break;
         } finally {
-          inbox.clear();
+          inbox.close();
         }
       } while (batch.length);
       store.requireAccount(scope, actor);

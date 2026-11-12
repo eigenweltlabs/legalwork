@@ -109,7 +109,11 @@ const ReplicaBindingSchema = z.object({ id: z.literal("replica"), principalKey: 
 
 export class BackOfficeStore {
   private transactionDepth = 0;
-  private lastRestricted: string | null = null;
+  private lastRestricted: { signature: string; version: number } | null = null;
+  private restrictionState(scope: string, actor: BackOfficeActor) {
+    const row = this.db.get("SELECT data_version,(SELECT max(rowid) FROM bo_journal_entries) AS head FROM pragma_data_version");
+    return { signature: JSON.stringify([scope, actor.userId, actor.principalKey, actor.replicaId ?? this.replicaId(scope), actor.edit, actor.model, actor.finance, row?.head]), version: Number(row?.data_version) };
+  }
   readonly journal: BackOfficeJournal;
   private readonly releaseAuditStorage: () => void;
   private closed = false;
@@ -1003,7 +1007,9 @@ export class BackOfficeStore {
     return binding.principalKey === backOfficeAuthorKey(actor) && binding.replicaId === actor.replicaId ? binding.position ?? null : null;
   }
   receive(scope: string, snapshot: BackOfficeSnapshot, actor: BackOfficeActor, position?: DirectoryPosition, incremental = false, inbox?: SyncInbox) {
-    return this.transaction(() => {
+    const before = this.restrictionState(scope, actor);
+    const localized = incremental && before.signature === this.lastRestricted?.signature;
+    const replicaId = this.transaction(() => {
       this.requireAccount(scope, actor);
       const cursor = Number(this.db.get("SELECT cursor FROM bo_sync WHERE scope=?", [scope])?.cursor ?? 0);
       if (snapshot.cursor < cursor)
@@ -1070,13 +1076,14 @@ export class BackOfficeStore {
       const incomingIds = new Set(snapshot.records.map(record => record.id));
       const missing = incremental
         ? [...settledIds].filter(id => !(inbox ? inbox.get(id) : incomingIds.has(id))).map(id => ({id}))
-        : inbox ? inbox.missing(scope) : this.db.all("SELECT id FROM bo_records WHERE scope=?", [scope]).filter(row => !incomingIds.has(String(row.id)));
+        : inbox ? inbox.missing(this.db,scope) : this.db.all("SELECT id FROM bo_records WHERE scope=?", [scope]).filter(row => !incomingIds.has(String(row.id)));
       for (const row of missing) {
         if (!newDrafts.has(String(row.id))) {
           revoked = true;
           this.db.run("DELETE FROM bo_records WHERE scope=? AND id=?", [scope, String(row.id)]);
         }
       }
+      const changedIds: string[] = [];
       for (const record of inbox ? inbox.records() : snapshot.records) {
         const previous = this.raw(scope, record.id);
         let projected = record;
@@ -1106,6 +1113,7 @@ export class BackOfficeStore {
         // present in the authorized projection. That is not an access change.
         if (previous && (Object.keys(previous.values).some(id => !(id in projected.values)) || previous.access !== record.access || previous.ownerId !== record.ownerId || canonicalBackOfficeAudit(previous.members) !== canonicalBackOfficeAudit(record.members))) revoked = true;
         if (previous && JSON.stringify(previous) === JSON.stringify(projected)) continue;
+        if (incremental) changedIds.push(record.id);
         this.db.run(
           "INSERT INTO bo_records VALUES(?,?,?,?) ON CONFLICT(scope,id) DO UPDATE SET data=excluded.data",
           [scope, record.id, record.objectId, JSON.stringify(projected)],
@@ -1127,7 +1135,7 @@ export class BackOfficeStore {
         "INSERT INTO bo_sync(scope,cursor,enabled,last_error) VALUES(?,?,1,?) ON CONFLICT(scope) DO UPDATE SET cursor=excluded.cursor,last_error=excluded.last_error WHERE bo_sync.cursor<>excluded.cursor OR bo_sync.enabled<>1 OR bo_sync.last_error IS NOT excluded.last_error",
         [scope, snapshot.cursor, snapshot.conflicts[0]?.message ?? null],
       );
-      this.restrictTeamAccess(scope, actor);
+      this.restrictTeamAccess(scope, actor, localized && !revoked ? changedIds : undefined);
       if (revoked) this.retireCache(scope, actor);
       const bound = this.db.get("SELECT data FROM bo_replicas WHERE scope=?", [scope]);
       if (bound) {
@@ -1137,27 +1145,40 @@ export class BackOfficeStore {
       }
       return this.replicaId(scope);
     });
+    if (!this.transactionDepth) {
+      const after = this.restrictionState(scope, replicaId ? {...actor, replicaId} : actor);
+      this.lastRestricted = after.version === before.version ? after : null;
+    }
+    return replicaId;
   }
 
   /** Current permissions also apply to cached values and copied proposal data. */
-  restrictTeamAccess(scope: string, actor: BackOfficeActor) {
+  restrictTeamAccess(scope: string, actor: BackOfficeActor, changedIds?: string[]) {
     if (scope === "local") return;
     this.requireAccount(scope, actor);
     // Only committed signed work can be memoized. Pending operations inside a
     // transaction have not reached the journal yet and must be checked directly.
-    const generation = () => this.db.get("SELECT data_version, (SELECT max(rowid) FROM bo_journal_entries) AS head FROM pragma_data_version");
-    const stamp = (state: ReturnType<typeof generation>) => JSON.stringify([scope, actor.userId, actor.principalKey, actor.replicaId,
-      actor.edit, actor.model, actor.finance, state?.data_version, state?.head]);
-    const outer = this.transactionDepth === 0;
-    const before = outer ? generation() : null;
-    if (before && this.lastRestricted === stamp(before)) return;
+    const outer = this.transactionDepth === 0 && !changedIds;
+    const before = outer ? this.restrictionState(scope, actor) : null;
+    if (before && this.lastRestricted?.signature === before.signature) {
+      // Other stores share runtime.sqlite. An external write still triggers
+      // integrity verification. Reapply permissions only if the CRM head moved.
+      if (this.lastRestricted.version !== before.version) this.checkIntegrity();
+      this.lastRestricted = before;
+      return;
+    }
     this.transaction(() => {
       this.requireAccount(scope, actor);
       const modelRow = this.db.get("SELECT data FROM bo_models WHERE scope=?", [scope]);
       if (!modelRow) return;
       const model = BackOfficeModelSchema.parse(JSON.parse(String(modelRow.data)));
       let revoked = false;
-      const records = this.db.all("SELECT data FROM bo_records WHERE scope=?", [scope]).map(row => BackOfficeRecordSchema.parse(JSON.parse(String(row.data))));
+      // The platform resets a paged transfer whenever directory visibility
+      // changes. Inside a stable incremental transfer only these rows changed.
+      const rows = changedIds
+        ? this.db.all("SELECT data FROM bo_records WHERE scope=? AND id IN (SELECT value FROM json_each(?))", [scope, JSON.stringify(changedIds)])
+        : this.db.all("SELECT data FROM bo_records WHERE scope=?", [scope]);
+      const records = rows.map(row => BackOfficeRecordSchema.parse(JSON.parse(String(row.data))));
       for (const record of records) {
         const object = model.objects.find(object => object.id === record.objectId);
         if (!object || !this.canRead(scope, record, actor)) {
@@ -1171,7 +1192,11 @@ export class BackOfficeStore {
           revoked = true;
         }
       }
-      const readableIds = new Set(records.filter(record => this.raw(scope, record.id) && this.canRead(scope, record, actor)).map(record => record.id));
+      // Saved filters only require membership checks for IDs they reference.
+      const readableIds = { has: (id: string) => {
+        const record = this.raw(scope, id);
+        return !!record && this.canRead(scope, record, actor);
+      } };
       for (const entry of this.pending(scope, 0, actor)) {
         const change = entry.change;
         if (change.kind === "view") {
@@ -1236,8 +1261,8 @@ export class BackOfficeStore {
       if (revoked) this.retireCache(scope, actor);
     }, { action: "cache.permissions" });
     if (before) {
-      const after = generation();
-      this.lastRestricted = after?.data_version === before.data_version ? stamp(after) : null;
+      const after = this.restrictionState(scope, actor);
+      this.lastRestricted = after.version === before.version ? after : null;
     }
   }
   syncError(scope: string, message: string) {

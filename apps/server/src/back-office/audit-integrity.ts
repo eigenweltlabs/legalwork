@@ -74,11 +74,11 @@ function proofHash(proof: ReturnType<typeof proofBody>) {
 function signatureBody(proof: Omit<BackOfficeAuditProof, "signature">) {
   return Buffer.from(canonicalBackOfficeAudit({ domain, ...proof }));
 }
-export function signBackOfficeAudit(
-  raw: BackOfficeAuditPayload,
-  previousHash: string,
-  keys: ReturnType<typeof newBackOfficeAuditKey>,
-): BackOfficeAuditEntry {
+type AuditSigningKey = ReturnType<typeof newBackOfficeAuditKey>;
+const signingKeys = new WeakMap<AuditSigningKey, { encoded: string; publicKey: string; key: ReturnType<typeof createPrivateKey> }>();
+function signingKey(keys: AuditSigningKey) {
+  const previous = signingKeys.get(keys);
+  if (previous?.encoded === keys.privateKey && previous.publicKey === keys.publicKey) return previous.key;
   const privateKey = createPrivateKey({
     key: Buffer.from(keys.privateKey, "base64"),
     type: "pkcs8",
@@ -93,6 +93,15 @@ export function signBackOfficeAudit(
     throw new Error(
       "Back Office audit signing key does not match its pinned identity.",
     );
+  signingKeys.set(keys, {encoded: keys.privateKey, publicKey: keys.publicKey, key: privateKey});
+  return privateKey;
+}
+export function signBackOfficeAudit(
+  raw: BackOfficeAuditPayload,
+  previousHash: string,
+  keys: ReturnType<typeof newBackOfficeAuditKey>,
+): BackOfficeAuditEntry {
+  const privateKey = signingKey(keys);
   const payload = BackOfficeAuditPayloadSchema.parse(raw);
   const chain = {
     streamId: payload.streamId,
@@ -179,18 +188,27 @@ export function verifyBackOfficeAuditChain(
   trusted: BackOfficeAuditHead,
 ): BackOfficeAuditHead {
   const proofs = raw.map((entry) => verifyBackOfficeAuditEntry(entry).proof);
-  return verifyBackOfficeAuditProofChain(proofs, trusted);
+  return chainHeadOfVerifiedProofs(proofs, trusted);
 }
 
 export function verifyBackOfficeAuditProofChain(
   raw: unknown[],
   trusted: BackOfficeAuditHead,
 ): BackOfficeAuditHead {
+  return chainHeadOfVerifiedProofs(raw.map(verifyBackOfficeAuditProof), trusted);
+}
+
+/** Use only with individually authenticated proofs. Recheck order, state
+ * transitions and the independently retained checkpoint every time. */
+export function chainHeadOfVerifiedProofs(
+  proofs: BackOfficeAuditProof[],
+  trusted: BackOfficeAuditHead,
+): BackOfficeAuditHead {
   let previousHash = BACK_OFFICE_AUDIT_GENESIS;
   const states = new Map<string, string>();
   let anchored = trusted.sequence === 0 && trusted.hash === previousHash;
-  for (let index = 0; index < raw.length; index++) {
-    const proof = verifyBackOfficeAuditProof(raw[index]);
+  for (let index = 0; index < proofs.length; index++) {
+    const proof = proofs[index];
     if (
       proof.sequence !== index + 1 ||
       proof.streamId !== trusted.streamId ||
@@ -215,7 +233,7 @@ export function verifyBackOfficeAuditProofChain(
   return {
     streamId: trusted.streamId,
     publicKey: trusted.publicKey,
-    sequence: raw.length,
+    sequence: proofs.length,
     hash: previousHash,
   };
 }

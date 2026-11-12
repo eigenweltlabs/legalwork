@@ -615,7 +615,7 @@ export function readableBackOfficeRecord(
 }
 
 /** Saved selection criteria must not disclose values of unreadable fields. */
-export function readableBackOfficeView(view: BackOfficeView, model: BackOfficeModel, actor: BackOfficeActor, recordIds: ReadonlySet<string> = new Set()): BackOfficeView | null {
+export function readableBackOfficeView(view: BackOfficeView, model: BackOfficeModel, actor: BackOfficeActor, recordIds: Pick<ReadonlySet<string>, "has"> = new Set()): BackOfficeView | null {
   const object = model.objects.find(object => object.id === view.objectId);
   if (!object || object.archived || (!actor.finance && ["feeAgreements", "billingItems", "invoices"].includes(object.id))) return null;
   const allowed = (id: string) => object.fields.some(field => field.id === id && field.visibility !== "private" && (field.visibility !== "finance" || actor.finance));

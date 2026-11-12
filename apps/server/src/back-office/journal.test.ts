@@ -662,3 +662,16 @@ test("independent processes serialize the business commit and durable checkpoint
   ).toEqual(["First writer", "Second writer"]);
   expect(final.checkIntegrity().locallyVerified).toBe(true);
 }, 10000);
+
+test("sync verification authenticates cached ciphertext again after an independent replacement", async () => {
+  const { store } = await fixture();
+  expect(store.checkIntegrity().locallyVerified).toBe(true);
+  store.db.exec("CREATE TEMP TABLE unrelated_sync_cache(n INTEGER)");
+  store.db.run("INSERT INTO unrelated_sync_cache VALUES(1)");
+  expect(store.checkIntegrity().locallyVerified).toBe(true);
+  const guard = String(store.db.get("SELECT sql FROM sqlite_schema WHERE name='bo_journal_entries_no_update'")?.sql);
+  store.db.exec("DROP TRIGGER bo_journal_entries_no_update");
+  store.db.run("UPDATE bo_journal_entries SET sealed='{}' WHERE rowid=(SELECT max(rowid) FROM bo_journal_entries)");
+  store.db.exec(guard);
+  expect(() => store.checkIntegrity()).toThrow();
+});
