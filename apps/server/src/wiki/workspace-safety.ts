@@ -9,7 +9,7 @@ export async function canonicalFolderPath(path: string): Promise<string> {
   const absolute = resolve(path);
   try { return await realpath(absolute); }
   catch (error) {
-    if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+    if (!(error instanceof Error && "code" in error && (error.code === "ENOENT" || error.code === "ENOTDIR"))) throw error;
     const parent = dirname(absolute);
     if (parent === absolute) throw error;
     return join(await canonicalFolderPath(parent), basename(absolute));

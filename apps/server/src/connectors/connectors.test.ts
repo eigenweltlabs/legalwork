@@ -769,9 +769,10 @@ test("Outlook returns native message bodies and attachment identifiers", async (
 });
 
 for (const provider of ["gmail", "outlook"] satisfies Array<"gmail" | "outlook">) {
-  test(`${provider} downloads attachments above the former mail and inline limits to the active workspace`, async () => {
+  test(`${provider} downloads large attachments when a missing authorized root precedes the active project`, async () => {
     const bytes = Buffer.alloc(21 * 1024 * 1024 + 5, 137);
     attachmentFixture(provider, bytes, "Vertrag Müller.pdf");
+    config.authorizedRoots.unshift(join(root, "deleted-project"));
     const result = await downloadAttachment(provider);
     const file = downloadedAttachment.parse(result.result);
     expect(file.relativePath).toMatch(new RegExp(`^\\.legalwork/attachments/email/${provider}-[^/]+/Vertrag Müller\\.pdf$`));
@@ -801,8 +802,9 @@ for (const provider of ["gmail", "outlook"] satisfies Array<"gmail" | "outlook">
     expect(await readFile(second.path, "utf8")).toBe("second");
   });
 
-  test(`${provider} downloads from a nested task directory into its project root`, async () => {
+  test(`${provider} downloads from a nested task directory despite a missing registered project`, async () => {
     attachmentFixture(provider, Buffer.alloc(0));
+    config.workspaces.push({ ...config.workspaces[0], id: "removed", path: join(root, "removed-project") });
     const nested = join(root, "matter", "notes");
     await mkdir(nested, { recursive: true });
     const file = downloadedAttachment.parse((await downloadAttachment(provider, { directory: nested })).result);
@@ -813,6 +815,9 @@ for (const provider of ["gmail", "outlook"] satisfies Array<"gmail" | "outlook">
   test(`${provider} requires an authorized project and rejects downloads on a read-only server`, async () => {
     attachmentFixture(provider, Buffer.from("private attachment"));
     await expect(downloadAttachment(provider, {})).rejects.toMatchObject({ code: "connector_workspace_required" });
+    await expect(downloadAttachment(provider, { directory: join(root, "missing") })).rejects.toMatchObject({ code: "workspace_not_found" });
+    config.authorizedRoots = [join(root, "deleted-project")];
+    await expect(downloadAttachment(provider)).rejects.toMatchObject({ code: "workspace_unauthorized" });
     config.authorizedRoots = [];
     await expect(downloadAttachment(provider)).rejects.toMatchObject({ code: "workspace_unauthorized" });
     config.authorizedRoots = [root]; config.readOnly = true;
