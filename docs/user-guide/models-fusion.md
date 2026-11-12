@@ -23,6 +23,8 @@ Free and lapsed accounts continue to use free Exa search. No separate AWS or Exa
 
 When paid search is blocked by an exhausted allowance, an empty credit balance or a spending limit, the chat shows the same usage controls as a model allowance failure, below the search activity. You can leave tool details collapsed. Members can choose **Request more usage**; firm admins see the relevant spending settings or credit options. Restore access, then ask the assistant to retry. A blocked search is not charged. If the chat uses your own model provider, the card says **Web search limit reached** and explains that search uses your Eigenwelt allowance. Your chat model provider has separate usage limits; the search limit does not indicate that its allowance is exhausted.
 
+The search usage controls remain visible when the assistant catches or rewrites a search error in Code Mode, including after reopening the chat. They use the search tool's confirmed allowance details rather than the assistant's summary of the error.
+
 If a search reports **The web search service is unavailable**, retry later. Changing the search terms does not resolve a service outage. A failed search does not mean that no matching information exists.
 
 Paid searches accept up to **200 characters per query**. The assistant must reformulate longer searches instead of truncating legal citations. Results include excerpts and source links; ask the assistant to open the relevant sources when excerpts omit an important passage. Search processing does not change the app's saved chat history or the destination website's handling of a subsequent page read.

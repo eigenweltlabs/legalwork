@@ -7,9 +7,17 @@ import { createManagedOpencodeServer } from "../managed-opencode.js";
 import { buildNativePluginFixture } from "./native-plugin-build.test-support.js";
 import { webResult } from "../agent-sandbox/web.js";
 import { ApiError, formatError } from "../errors.js";
-import { eigenweltUsageLimitFromText, type UsageLimitDetails } from "../provider-usage-limit.js";
+import type { UsageLimitDetails } from "../provider-usage-limit.js";
+import { projectMessage } from "@legalwork/types/opencode-view";
 
-test.skipIf(!process.env.LEGALWORK_TEST_OPENCODE_BIN)("released Code Mode preserves an allowance failure for the agent and saved search activity", async () => {
+const cases = [
+  { name: "uncaught", code: 'return await tools.legalwork_websearch({query:"§ 203 StGB"});', agentSeesAllowance: true },
+  { name: "caught as JSON", code: 'try { return await tools.legalwork_websearch({query:"§ 203 StGB"}); } catch (error) { return {error: String(error)}; }', agentSeesAllowance: true },
+  { name: "caught and rewritten", code: 'try { return await tools.legalwork_websearch({query:"§ 203 StGB"}); } catch { return "Search is unavailable; please try later."; }', agentSeesAllowance: false },
+  { name: "rethrown", code: 'try { return await tools.legalwork_websearch({query:"§ 203 StGB"}); } catch { throw new Error("Rewritten failure"); }', agentSeesAllowance: false },
+];
+
+test.skipIf(!process.env.LEGALWORK_TEST_OPENCODE_BIN).each(cases)("released Code Mode search recovery survives reload: $name", async scenario => {
   const root = await mkdtemp(join(tmpdir(), "legalwork-search-allowance-"));
   const workspace = join(root, "workspace");
   for (const name of ["workspace", "home", "config", "data", "state", "cache", "plugins"]) await mkdir(join(root, name));
@@ -34,7 +42,7 @@ test.skipIf(!process.env.LEGALWORK_TEST_OPENCODE_BIN)("released Code Mode preser
       if (!first) agentSawAllowance = JSON.stringify(body).includes("Do not retry or use another search route");
       const id = `resp_${calls}`;
       const item = first
-        ? { type: "function_call", id: "fc_search", call_id: "call_search", name: "execute", arguments: JSON.stringify({ code: 'return await tools.legalwork_websearch({query:"§ 203 StGB"});' }), status: "completed" }
+        ? { type: "function_call", id: "fc_search", call_id: "call_search", name: "execute", arguments: JSON.stringify({ code: scenario.code }), status: "completed" }
         : { type: "message", id: "msg_answer", role: "assistant", content: [{ type: "output_text", text: "Search needs more allowance." }], status: "completed" };
       const response = { id, status: "completed", output: [item], usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 } };
       const events = [{ type: "response.created", response: { ...response, status: "in_progress", output: [] } },
@@ -46,9 +54,18 @@ test.skipIf(!process.env.LEGALWORK_TEST_OPENCODE_BIN)("released Code Mode preser
   let engine: Awaited<ReturnType<typeof createManagedOpencodeServer>> | undefined;
   try {
     const entry = join(root, "plugin.ts");
-    await writeFile(entry, `export { LegalWorkSandbox as default } from ${JSON.stringify(resolve(import.meta.dir, "legalwork-sandbox.ts"))};`);
+    await writeFile(entry, `
+      import { Plugin } from "@opencode/plugin";
+      import { LegalWorkSandbox } from ${JSON.stringify(resolve(import.meta.dir, "legalwork-sandbox.ts"))};
+      import { registerChatToolResults } from ${JSON.stringify(resolve(import.meta.dir, "native-chat-tool-results.ts"))};
+      export default Plugin.define({ id: "search-recovery-fixture", async setup(ctx) {
+        const stopResults = await registerChatToolResults(ctx);
+        const stopSandbox = await LegalWorkSandbox.setup(ctx);
+        return async () => { await stopSandbox?.(); stopResults(); };
+      } });
+    `);
     await buildNativePluginFixture(entry, join(root, "plugins", "index.mjs"));
-    engine = await createManagedOpencodeServer({ bin: process.env.LEGALWORK_TEST_OPENCODE_BIN, cwd: workspace, hostname: "127.0.0.1", port: 0, timeoutMs: 30000, env: {
+    const startEngine = () => createManagedOpencodeServer({ bin: process.env.LEGALWORK_TEST_OPENCODE_BIN, cwd: workspace, hostname: "127.0.0.1", port: 0, timeoutMs: 30000, env: {
       HOME: join(root, "home"), XDG_CONFIG_HOME: join(root, "config"), XDG_DATA_HOME: join(root, "data"), XDG_STATE_HOME: join(root, "state"), XDG_CACHE_HOME: join(root, "cache"),
       OPENCODE_DB: join(root, "data", "engine.db"), OPENCODE_CONFIG_DIR: join(root, "config"), OPENCODE_CONFIG_PROJECT_DISABLE: "1", OPENCODE_DISABLE_CLAUDE_CODE: "1", OPENCODE_DISABLE_MODELS_FETCH: "1",
       LEGALWORK_SERVER_URL: relay.url.origin, LEGALWORK_SERVER_TOKEN: "fixture",
@@ -56,17 +73,28 @@ test.skipIf(!process.env.LEGALWORK_TEST_OPENCODE_BIN)("released Code Mode preser
         agents: { legalwork: { mode: "primary" } }, permissions: [{ action: "*", resource: "*", effect: "allow" }],
         providers: { fixture: { package: "@opencode/ai/providers/openai", settings: { baseURL: relay.url.origin + "/v1", apiKey: "fixture" }, models: { fixture: { capabilities: { tools: true } } } } } }),
     } });
-    const client = OpenCode.make({ baseUrl: engine.url, headers: { Authorization: `Basic ${Buffer.from(`${engine.username}:${engine.password}`).toString("base64")}` } });
+    engine = await startEngine();
+    const clientFor = (running: Awaited<ReturnType<typeof startEngine>>) => OpenCode.make({ baseUrl: running.url, headers: { Authorization: `Basic ${Buffer.from(`${running.username}:${running.password}`).toString("base64")}` } });
+    const client = clientFor(engine);
     const session = await client.session.create({ location: { directory: workspace }, title: "Search allowance fixture" });
     await client.session.prompt({ sessionID: session.id, text: "Search public law" }, { signal: AbortSignal.timeout(30000) });
     await client.session.wait({ sessionID: session.id }, { signal: AbortSignal.timeout(30000) });
-    const history = await client.session.context({ sessionID: session.id });
-    const execute = history.flatMap(message => message.type === "assistant" ? message.content.filter(part => part.type === "tool") : []).find(part => part.name === "execute");
-    expect(execute?.state.status).toBe("completed");
-    if (execute?.state.status !== "completed") throw new Error("Expected Code Mode wrapper: " + JSON.stringify(history));
-    expect(eigenweltUsageLimitFromText(execute.state.content.flatMap(part => part.type === "text" ? [part.text] : []).join("\n"))).toEqual(limit);
-    expect(execute.state.metadata?.toolCalls).toMatchObject([{ tool: "legalwork_websearch", status: "error" }]);
+    const assertRecovery = async (current: typeof client) => {
+      const history = await current.session.context({ sessionID: session.id });
+      const execute = history.flatMap(message => message.type === "assistant" ? message.content.filter(part => part.type === "tool") : []).find(part => part.name === "execute");
+      expect(execute?.state.status).toBe("completed");
+      if (execute?.state.status !== "completed") throw new Error("Expected Code Mode wrapper: " + JSON.stringify(history));
+      expect(execute.state.metadata?.toolCalls).toMatchObject([{ tool: "legalwork_websearch", status: "error" }]);
+      expect(execute.state.metadata?.legalworkWebSearchUsageLimit).toEqual(limit);
+      const projected = history.flatMap(message => projectMessage(session.id, message)).flatMap(message => message.parts)
+        .find(part => part.type === "tool" && part.tool === "execute");
+      expect(projected?.type === "tool" && "metadata" in projected.state && projected.state.metadata?.legalworkWebSearchUsageLimit).toEqual(limit);
+    };
+    await assertRecovery(client);
+    await engine.close();
+    engine = await startEngine();
+    await assertRecovery(clientFor(engine));
     expect(searches).toBe(1);
-    expect(agentSawAllowance).toBe(true);
+    expect(agentSawAllowance).toBe(scenario.agentSeesAllowance);
   } finally { await engine?.close(); relay.stop(true); await rm(root, { recursive: true, force: true }); }
 }, 60000);

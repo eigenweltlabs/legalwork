@@ -29,7 +29,7 @@ test("native sandbox removes host tools, guards shell creation and preserves man
       return Response.json({ output, exitCode: 0, truncated: false, sandbox: "virtual-machine", future: "preserved" });
     }
     if (path.endsWith("/sandbox/web")) return webFailure
-      ? Response.json({ code: "web_search_usage_limit", message: limitMessage, details: limit }, { status: 429 })
+      ? Response.json({ code: "web_search_usage_limit", message: limitMessage, details: { ...limit, privateQuery: "discard me" } }, { status: 429 })
       : Response.json({ title: "Page", output: "page body", metadata: { url: "https://example.org" }, attachments: [{ type: "file", url: "file:///page.png", mime: "image/png" }] });
     if (path.endsWith("/sandbox/http")) return Response.json({ url: "https://example.org/final", status: 418, statusText: "Complete raw response", headers: { "x-result": "complete" }, bodyBase64: Buffer.from(output).toString("base64"), redirected: true });
     return new Response("Unexpected route", { status: 404 });
@@ -93,7 +93,9 @@ test("native sandbox removes host tools, guards shell creation and preserves man
     webFailure = true;
     const search = runtime.tools.get("legalwork_websearch");
     if (!search) throw new Error("No native web search");
-    await expect(search.execute({ query: "public law" }, nativeTestInvocation("ses_sandbox"))).rejects.toThrow(limitMessage);
+    await expect(search.execute({ query: "public law" }, nativeTestInvocation("ses_sandbox"))).rejects.toMatchObject({
+      message: limitMessage, metadata: { legalworkWebSearchUsageLimit: limit },
+    });
   } finally {
     await runtime.close();
     api.stop(true);

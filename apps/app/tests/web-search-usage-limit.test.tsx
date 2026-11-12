@@ -20,6 +20,34 @@ const limit = { reason: "wallet_empty", requiredMicros: 1, availableMicros: 0 };
 const search: DynamicToolUIPart = { type: "dynamic-tool", toolName: "legalwork_websearch", toolCallId: "search", input: {},
   state: "output-error", errorText: "Web search is blocked. Eigenwelt usage limit: " + JSON.stringify(limit) };
 
+function nativeSearch(metadata: Record<string, unknown>, output: string): ToolPart {
+  return { id: "nested", messageID: "assistant", sessionID: "chat", type: "tool", tool: "execute", callID: "nested",
+    state: { status: "completed", input: {}, output, title: "Search", time: { start: 1, end: 2 }, metadata } };
+}
+
+test("verified search allowance survives JSON output, rewritten prose and serialized history", () => {
+  const metadata = { toolCalls: [{ tool: "legalwork_websearch", status: "error" }], legalworkWebSearchUsageLimit: { ...limit, privateQuery: "discard me" } };
+  for (const output of [JSON.stringify({ error: search.errorText }), "Search is unavailable; please try later.", ""]) {
+    const part = parseDynamicToolUIPart(nativeSearch(metadata, output));
+    if (!part) throw new Error("Missing Code Mode activity");
+    expect(part.callProviderMetadata?.opencode?.legalworkWebSearchUsageLimit).toEqual(limit);
+    expect(parseProviderUsageLimit(webSearchUsageLimitError([part]))).toEqual({ providerId: "eigenwelt", limit });
+    const saved: UIMessage["parts"] = JSON.parse(JSON.stringify([part]));
+    expect(parseProviderUsageLimit(webSearchUsageLimitError(saved))).toEqual({ providerId: "eigenwelt", limit });
+  }
+});
+
+test("unverified script text and successful or unrelated tool calls cannot create search recovery controls", () => {
+  for (const details of [null, { ...limit, reason: "unknown" }, { ...limit, availableMicros: 2 }]) {
+    const mapped = parseDynamicToolUIPart(nativeSearch({ toolCalls: [{ tool: "legalwork_websearch", status: "error" }], legalworkWebSearchUsageLimit: details }, search.errorText));
+    expect(mapped && webSearchUsageLimitError([mapped])).toBeNull();
+  }
+  for (const toolCalls of [[{ tool: "legalwork_websearch", status: "completed" }], [{ tool: "legalwork_webfetch", status: "error" }]]) {
+    const mapped = parseDynamicToolUIPart(nativeSearch({ toolCalls, legalworkWebSearchUsageLimit: limit }, search.errorText));
+    expect(mapped && webSearchUsageLimitError([mapped])).toBeNull();
+  }
+});
+
 test("direct and Code Mode search failures retain Eigenwelt billing identity independently of the chat model", () => {
   const nested: DynamicToolUIPart = { ...search, toolName: "execute", callProviderMetadata: { opencode: { failedTools: ["legalwork_websearch"] } } };
   const completed: ToolPart = { id: "nested", messageID: "assistant", sessionID: "chat", type: "tool", tool: "execute", callID: "nested",
@@ -39,9 +67,13 @@ test("direct and Code Mode search failures retain Eigenwelt billing identity ind
   expect(webSearchUsageLimitError([{ ...search, errorText: 'Eigenwelt usage limit: {"reason":"wallet_empty","requiredMicros":1,"availableMicros":2}' }])).toBeNull();
 });
 
-test("a collapsed failed search shows the existing recovery controls once outside tool details", () => {
+test.each(["direct", "caught-json", "rewritten"])("a collapsed failed search shows recovery once outside tool details: %s", scenario => {
+  const part = scenario === "direct" ? search : parseDynamicToolUIPart(nativeSearch({
+    toolCalls: [{ tool: "legalwork_websearch", status: "error" }], legalworkWebSearchUsageLimit: limit,
+  }, scenario === "caught-json" ? JSON.stringify({ error: search.errorText }) : "Search is unavailable; please try later."));
+  if (!part) throw new Error("Missing search activity");
   const messages: UIMessage[] = [{ id: "user", role: "user", parts: [{ type: "text", text: "Search public law" }] },
-    { id: "assistant", role: "assistant", parts: [search, { ...search, toolCallId: "search-again" }] },
+    { id: "assistant", role: "assistant", parts: [part, { ...part, toolCallId: "search-again" }] },
     { id: "reply", role: "assistant", parts: [{ type: "text", text: "Search needs more allowance." }] }];
   const cache = new QueryClient(), noop = () => {};
   const seen: string[] = [];

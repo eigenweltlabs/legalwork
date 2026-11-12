@@ -1,4 +1,5 @@
 import { Plugin } from "@opencode/plugin";
+import { Error as ToolError } from "@opencode/plugin/promise/tool";
 import { z } from "zod";
 import { webFetchArgs, webSearchArgs } from "../agent-sandbox/web.js";
 import { resolveWorkspaceId, serverUrl, workspaceToolHeaders } from "./office-plugin-shared.js";
@@ -101,7 +102,8 @@ export const LegalWorkSandbox = Plugin.define({
                 let payload: unknown;
                 try { payload = JSON.parse(body); } catch { /* Preserve the normal web error. */ }
                 const error = z.object({ code: z.literal("web_search_usage_limit"), message: z.string(), details: usageLimitDetailsSchema }).safeParse(payload);
-                if (error.success) throw new Error(error.data.message);
+                if (error.success) throw new ToolError({ message: error.data.message,
+                  metadata: { legalworkWebSearchUsageLimit: error.data.details } });
               }
               throw new Error(`Web access failed (${response.status}): ${body}`);
             }
