@@ -118,8 +118,10 @@ export function RecordGrid({
   onCreate,
   onSaveView,
   archived,
-  onArchivedChange,
+  onArchivedChange, lockedSchema = false, readOnlyFields,
 }: {
+  lockedSchema?: boolean;
+  readOnlyFields?: readonly string[];
   object: BackOfficeObject;
   records: BackOfficeRecord[];
   localRows?: BackOfficeRecord[];
@@ -465,13 +467,13 @@ export function RecordGrid({
     <RecordGridRow key={record.id} record={record} index={index} top={top}
       measure={windowed ? rowWindow.measureElement : undefined} template={template}
       fields={visibleFields} records={localIds.has(record.id) ? localChoices ?? [] : records} recordById={localIds.has(record.id) ? undefined : recordById}
-      userId={userId} localOnly={localIds.has(record.id)} editable={editable} selected={selectedIds.has(record.id)}
+      readOnlyFields={readOnlyFields} userId={userId} localOnly={localIds.has(record.id)} editable={editable} selected={selectedIds.has(record.id)}
       editing={editing?.record === record.id ? editing : undefined}
       onEdit={setEditing} onError={message => { if (message) toast.error(message); }} onSelect={selectRow} onMove={moveCell}
       onSave={onSave} onOpen={onOpen} />
   );
   const viewProps = {
-    rows, records, localIds, localChoices, fields: visibleFields, editable: editable && !archived,
+    rows, records, localIds, localChoices, readOnlyFields, fields: visibleFields, editable: editable && !archived,
     userId, onSave, onOpen, onCreate,
   };
   return (
@@ -830,7 +832,7 @@ export function RecordGrid({
               </div>
             ))}
             <div className="bo-grid-heading">
-              <Button
+              {!lockedSchema && <Button
                 size="sm"
                 variant="ghost"
                 aria-label="Add field"
@@ -838,7 +840,7 @@ export function RecordGrid({
                 onClick={() =>
                   (window.location.hash = "/back-office/data-model")
                 }
-              />
+              />}
             </div>
             <div className="bo-grid-fill" />
             <div className="bo-grid-fill" />

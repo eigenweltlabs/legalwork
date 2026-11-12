@@ -1,3 +1,4 @@
+import { NativeWorkspace } from "../back-office/native-table";
 import { useEffect, useState } from "react";
 import { CalendarDays, ChevronLeft, ChevronRight, FolderOpen, Link2, ListFilter, Loader2, MoreHorizontal, Plus, RefreshCw, Tags, Trash2, UserRound, X } from "lucide-react";
 import type { CalendarItem, CalendarOccurrence } from "@legalwork/types/calendar";
@@ -32,6 +33,7 @@ type CalendarViewProps = CalendarContext & {
 };
 
 export function CalendarView(props: CalendarViewProps) {
+  const [deadlineTable,setDeadlineTable]=useState(false);
   const [anchor, setAnchor] = useState(() => new Date());
   const [view, setView] = useState<CalendarViewMode>("week");
   const [kind, setKind] = useState("all"), [status, setStatus] = useState("active"), [project, setProject] = useState("all"), [assignee, setAssignee] = useState("all");
@@ -108,9 +110,11 @@ export function CalendarView(props: CalendarViewProps) {
   const projectOptions = [{ value: "all", label: t("calendar.all_projects_short") }, ...projects.map(([value, label]) => ({ value, label }))];
   if (project !== "all" && !projectOptions.some(option => option.value === project)) projectOptions.push({ value: project, label: t("calendar.selected_project") });
 
+  if (deadlineTable && props.client) return <NativeWorkspace client={props.client} project={props.projectId ?? props.workspaceId ?? ""} kind="deadline"><Button size="sm" variant="ghost" onClick={()=>setDeadlineTable(false)}>{t("calendar.title")}</Button></NativeWorkspace>;
   return <div className="@container/calendar flex h-full min-h-0 flex-col bg-background">
     <div className="flex h-full min-h-0 flex-col gap-4 px-4 py-5 @min-[720px]/calendar:px-6">
       <SectionHeading size="page" className="shrink-0 [&_h1]:text-xl" title={t("calendar.title")} description={!props.workspaceId ? t("calendar.all_projects_short") : undefined} action={<>
+        <Button size="sm" variant="ghost" onClick={()=>setDeadlineTable(true)}>{t("native.deadlines")}</Button>
         <Button variant="outline" disabled={!props.client} onClick={() => setSubscriptionOpen(true)}><Link2 />{t("calendar.subscribe")}</Button>
         {canCreate && <Button disabled={!props.client} onClick={() => create()}><Plus />{t("calendar.add")}</Button>}
         <Tooltip><TooltipTrigger render={<Button variant="ghost" size="icon-sm" aria-label={t("common.refresh")} disabled={query.isFetching || connectedLoading} onClick={refresh} />}><RefreshCw className={cn((query.isFetching || connectedLoading) && "animate-spin")} /></TooltipTrigger><TooltipContent>{t("common.refresh")}</TooltipContent></Tooltip>

@@ -1,3 +1,4 @@
+import type { NativeKind } from "./native-model";
 import type { QueryClient } from "@tanstack/react-query";
 import { LegalworkServerError, type LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { z } from "@legalwork/types/back-office";
@@ -148,3 +149,26 @@ export const ModelPreviewSchema = z.object({
   errors: z.array(z.string()),
 });
 export type ModelPreview = z.infer<typeof ModelPreviewSchema>;
+
+export function linkRecords(
+  client: LegalworkServerClient,
+  state: BackOfficeState,
+  kind: NativeKind,
+  id: string,
+  workspace: string,
+  add: string[],
+  remove: string[],
+) {
+  return client.backOffice("/native-links", {
+    method: "POST",
+    body: {
+      kind,
+      sourceId: id,
+      projectKey: kind === "task" ? "" : workspace,
+      directoryId: state.directoryId,
+      userId: state.permissions.userId,
+      add,
+      remove,
+    },
+  });
+}

@@ -30,7 +30,7 @@ import { t } from "@/i18n";
 export function RecordDetail({
   client,
   team,
-  historyAccessKey,
+  historyAccessKey, children, nativeHistory, readOnlyFields,
   record,
   object,
   records,
@@ -47,6 +47,9 @@ export function RecordDetail({
   client: LegalworkServerClient;
   team: boolean;
   historyAccessKey: string;
+  children?: React.ReactNode;
+  readOnlyFields?: readonly string[];
+  nativeHistory?: React.ReactNode;
   record: BackOfficeRecord;
   object: BackOfficeObject;
   records: BackOfficeRecord[];
@@ -201,7 +204,7 @@ export function RecordDetail({
         </Tabs.List>
       </Tabs.Root>
       {tab === "history" ? (
-        <HistoryPanel
+        nativeHistory ?? <HistoryPanel
           client={client}
           team={team}
           target={{ type: "record", id: record.id }}
@@ -240,7 +243,7 @@ export function RecordDetail({
                   (field.visibility !== "finance" || finance),
               )
               .map((field) => {
-                const canEdit = editable && !(onReviewLocal && field.type === "file") && (field.visibility !== "private" || record.ownerId === userId);
+                const canEdit = editable && !readOnlyFields?.includes(field.id) && !(onReviewLocal && field.type === "file") && (field.visibility !== "private" || record.ownerId === userId);
                 return <div className="bo-property" key={field.id}>
                   <label>
                     <FieldIcon field={field} />
@@ -305,6 +308,7 @@ export function RecordDetail({
                   </div>
                 </div>
               })}
+            {children}
           </div>
           {error && (
             <p className="bo-error" role="alert">

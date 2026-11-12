@@ -1,3 +1,6 @@
+import { NativeTable } from "./native-table";
+import { nativeKind, nativeModel } from "./native-model";
+import { NativeBacklinks } from "./native-backlinks";
 import { toast } from "@/components/ui/sonner";
 import { RecordCreationProvider } from "./record-creation-context";
 import { RecordFilesProvider } from "./record-files";
@@ -87,6 +90,7 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
     navigate = useNavigate(),
     cache = useQueryClient();
   const selected = location.pathname.split("/")[2] ?? "matters";
+  const native = nativeKind(selected);
   const moreSelected = !primaryObjectIcons.has(selected) && selected !== "data-model";
   const [detailId, setDetailId] = useState<string | null>(
       new URLSearchParams(location.search).get("record"),
@@ -401,7 +405,7 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
                   endIcon={<ChevronDown size={13} />}
                 >
                   {moreSelected
-                    ? (object?.plural ?? t("back_office.more"))
+                    ? (native ? nativeModel(native).plural : object?.plural ?? t("back_office.more"))
                     : t("back_office.more")}
                 </Button>
               }
@@ -422,6 +426,7 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
                     {displayBackOfficeObject(object).plural}
                   </Dropdown.ActionItem>
                 ))}
+              {(["task","deadline"] as const).map(kind => { const model = nativeModel(kind); return <Dropdown.ActionItem key={model.id} onClick={()=>show(model.id)} startIcon={<ObjectIcon id={model.id}/>}>{model.plural}</Dropdown.ActionItem>; })}
             </DirectoryMenu>
             <Button
               size="sm"
@@ -446,6 +451,7 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
               )}
             </div>
           )}
+          {data && native && <NativeTable key={selected} client={client} state={data} kind={native}/>}
           {data && selected === "data-model" && (
             <ModelEditor
               model={data.model}
@@ -604,8 +610,7 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
               onClose={() => { setDetailId(null); setDraft(null); setFocusNameId(null); }}
               onSave={save}
               onOpen={openRecord}
-
-            />
+            >{!pendingDetail && detail.revision > 0 && !detail.archivedAt && <NativeBacklinks client={client} state={data} id={detail.id}/>}</RecordDetail>
           )}
           {importing && object && (
             <DirectoryDialog

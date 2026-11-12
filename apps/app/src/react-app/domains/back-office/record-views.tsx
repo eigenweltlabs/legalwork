@@ -39,6 +39,7 @@ type Props = {
   records: BackOfficeRecord[];
   fields: BackOfficeField[];
   editable: boolean;
+  readOnlyFields?: readonly string[];
   userId: string;
   onOpen: (record: BackOfficeRecord) => void;
   onSave: (
@@ -77,7 +78,7 @@ function Property({
       />
     );
   if (
-    !props.editable || (field.type === "file" && props.localIds?.has(record.id)) ||
+    !props.editable || props.readOnlyFields?.includes(field.id) || (field.type === "file" && props.localIds?.has(record.id)) ||
     (field.visibility === "private" && record.ownerId !== props.userId)
   )
     return <span className="bo-record-property">{content}</span>;
@@ -259,7 +260,7 @@ export function RecordKanban(props: Props & { field: BackOfficeField }) {
       (group) => JSON.stringify(group.value) === target,
     );
     if (
-      !props.editable || (field.type === "file" && props.localIds?.has(record.id)) ||
+      !props.editable || props.readOnlyFields?.includes(field.id) || (field.type === "file" && props.localIds?.has(record.id)) ||
       move ||
       !group ||
       !props.rows.some((row) => row.id === record.id) ||

@@ -20,6 +20,7 @@ type RowProps = {
   records: BackOfficeRecord[];
   recordById?: ReadonlyMap<string, BackOfficeRecord>;
   editable: boolean;
+  readOnlyFields?: readonly string[];
   localOnly?: boolean;
   userId: string;
   selected: boolean;
@@ -34,7 +35,7 @@ type RowProps = {
 
 export const RecordGridRow = memo(function RecordGridRow({
   record, index, top, measure, template, fields, records, recordById, editable, localOnly, userId,
-  selected, editing, onEdit, onError, onSelect, onMove, onOpen, onSave,
+  selected, editing, readOnlyFields, onEdit, onError, onSelect, onMove, onOpen, onSave,
 }: RowProps) {
   const popupId = useId();
   const anchor = useRef<HTMLDivElement>(null);
@@ -52,7 +53,7 @@ export const RecordGridRow = memo(function RecordGridRow({
           onCheckedChange={checked => onSelect(record.id, checked)} />
       </div>
       {fields.map((field, column) => {
-        const canEdit = editable && !(localOnly && field.type === "file") && (field.visibility !== "private" || record.ownerId === userId);
+        const canEdit = editable && !readOnlyFields?.includes(field.id) && !(localOnly && field.type === "file") && (field.visibility !== "private" || record.ownerId === userId);
         const inline = field.id !== "name" && ["text", "email", "number", "currency"].includes(field.type);
         const active = canEdit && editing?.field === field.id;
         const edit = (cell: HTMLDivElement) => {

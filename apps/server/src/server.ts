@@ -1,6 +1,7 @@
 import { workspaceContentPath, workspaceFileRoot } from "./project-storage.js";
 import { signOutBackOffice } from "./back-office/sync.js";
 import { scheduleBackOfficeSync, cancelScheduledBackOfficeSync } from "./back-office/sync.js";
+import { prepareFormLinks } from "./back-office/native-links.js";
 import { registerBackOfficeRoutes } from "./back-office/routes.js";
 import { assistantRouteRequiresSubscription, requireAssistantSubscription, requireAssistantWorkspaceSubscription } from "./assistant-subscription.js";
 import { createAssistantRuntime } from "./assistant-runtime.js";
@@ -3985,7 +3986,9 @@ function createRoutes(
     // An agent filing from a session names it; that link stays on this machine.
     const input = parseTaskCreate(body, workspace.id);
     if (input.projectId) await resolveWorkspace(config, input.projectId);
-    const task = store.createTask(input, actor);
+    const links = await prepareFormLinks(config, body.backOfficeLinks, "task", input.projectId ?? "");
+    const task = store.createTask(input, actor, undefined, links?.write);
+    links?.committed();
     tasksChanged();
     return jsonResponse({ ok: true, task }, 201);
   });

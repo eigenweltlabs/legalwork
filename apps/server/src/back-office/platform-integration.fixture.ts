@@ -6,6 +6,7 @@ import { loadAttachedFile } from "./file-sync.js";
 import { BackOfficeFilesSchema, BackOfficeFieldSchema } from "./schema.js";
 // Run by model-api's Back Office integration test against its disposable HTTP server.
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -49,6 +50,7 @@ const settings = z
     admin: z.string(),
     member: z.string(),
     tokens: z.record(z.string(), z.string()),
+    scale: z.object({ size: z.number().int().positive(), id: z.uuid(), digest: z.string() }).optional(),
   })
   .parse(JSON.parse(input));
 process.env.EIGENWELT_PLATFORM_URL = settings.url;
@@ -121,7 +123,7 @@ async function syncDevice(config: ServerConfig) {
   await refreshDeviceActor(config);
 }
 
-try {
+async function verifyLifecycle() {
   const a = await device(settings.admin),
     b = await device(settings.member),
     scope = settings.orgId;
@@ -446,6 +448,44 @@ try {
   console.log(
     "BACK_OFFICE_INTEGRATION_OK: two devices, conflicts, model ordering, persisted migration, revocation",
   );
+}
+
+async function verifyScale(scale: NonNullable<typeof settings.scale>) {
+  const writer = await device(settings.admin);
+  const peer = await device(settings.member);
+  const scope = settings.orgId;
+  const timed = async (task: () => Promise<void>) => {
+    const start = performance.now();
+    await task();
+    return Math.round(performance.now() - start);
+  };
+  const firstSyncMs: number[] = [];
+  for (const replica of [writer, peer]) {
+    firstSyncMs.push(await timed(() => syncDevice(replica.config)));
+    const rows = replica.store.db.all(
+      "SELECT id,json_extract(data,'$.values.name') AS name FROM bo_records WHERE scope=? ORDER BY id", [scope],
+    ).map(({id, name}) => [id, name]);
+    assert.equal(rows.length, scale.size);
+    assert.equal(createHash("sha256").update(JSON.stringify(rows)).digest("hex"), scale.digest);
+  }
+  const idleMs = await timed(() => syncDevice(peer.config));
+  const record = writer.store.raw(scope, scale.id);
+  assert.ok(record);
+  const start = performance.now();
+  writer.store.saveRecord(scope, writer.actor, {
+    id: scale.id, objectId: record.objectId, revision: record.revision, values: {name: "Edited on first device"},
+  });
+  const localSaveMs = Math.round(performance.now() - start);
+  const uploadMs = await timed(() => syncDevice(writer.config));
+  assert.equal(writer.store.pending(scope, 1, writer.actor).length, 0);
+  const peerMs = await timed(() => syncDevice(peer.config));
+  assert.equal(peer.store.raw(scope, scale.id)?.values.name, "Edited on first device");
+  console.log("BACK_OFFICE_INTEGRATION_OK", JSON.stringify({ records: scale.size, firstSyncMs, idleMs, localSaveMs, uploadMs, peerMs }));
+}
+
+try {
+  if (settings.scale) await verifyScale(settings.scale);
+  else await verifyLifecycle();
 } finally {
   for (const config of configs) {
     await resetOrgPolicyRuntimeForTests(config);

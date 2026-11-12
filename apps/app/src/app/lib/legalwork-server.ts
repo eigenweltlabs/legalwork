@@ -465,7 +465,11 @@ export type LegalworkTaskListParams = {
   deleted?: "only" | "include";
 };
 
+export type BackOfficeLinkChanges = { directoryId: string; userId: string; add: string[]; remove: string[] };
+
 export type LegalworkTaskCreate = {
+  id?: string;
+  backOfficeLinks?: BackOfficeLinkChanges;
   projectId?: string | null;
   title: string;
   description?: string;

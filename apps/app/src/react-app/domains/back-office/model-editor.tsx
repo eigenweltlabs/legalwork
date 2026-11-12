@@ -1,3 +1,4 @@
+import { nativeKind,nativeModel } from "./native-model";
 import { displayBackOfficeObject } from "./labels";
 import { useState } from "react";
 import {
@@ -45,7 +46,7 @@ const basicFieldTypes = [
 
 export function ModelEditor({
   model,
-  editable,
+  editable: canEditModel,
   onSave,
   onPreview,
   onRecords,
@@ -80,7 +81,9 @@ export function ModelEditor({
     model: BackOfficeModel;
     preview: ModelPreview;
   } | null>(null);
-  const object = model.objects.find((object) => object.id === objectId);
+  const shownObjects = [...model.objects,nativeModel("task"),nativeModel("deadline")];
+  const object = shownObjects.find(o => o.id === objectId);
+  const editable = canEditModel && !nativeKind(objectId ?? "");
   const commit = async (next: BackOfficeModel) => {
     setSaving(true);
     setError("");
@@ -349,9 +352,8 @@ export function ModelEditor({
                   >
                     <span>
                       {
-                        model.objects.find(
-                          (object) => object.id === field.target,
-                        )?.plural
+                        field.target === "@directory" ? t("native.all_models") : field.target === "@member" ? t("tasks.column_assignee") :
+                          model.objects.find(candidate => candidate.id === field.target)?.plural
                       }
                       <span className="bo-muted"> · {field.label}</span>
                     </span>
@@ -425,7 +427,7 @@ export function ModelEditor({
               <span />
             </div>
             <div className="bo-field-list">
-              {model.objects
+              {shownObjects
                 .filter(
                   (object) =>
                     !isInternalBackOfficeObject(object.id) &&

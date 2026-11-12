@@ -117,7 +117,7 @@ const FieldValue = memo(function FieldValue({ field, value }: { field: BackOffic
         }).format(value.amountMinor / 100)}
       </span>
     );
-  if (field.type === "date" && typeof value === "string")
+  if ((field.type === "date" || (field.type === "datetime" && typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value))) && typeof value === "string")
     return (
       <span>
         {new Date(value + "T12:00:00").toLocaleDateString(undefined, {

@@ -1,3 +1,5 @@
+import { writeNative } from "./native-write.js";
+import { nativeRows } from "./native-rows.js";
 import { changeNativeLinks, linkChangesSchema, nativeSources, sourceSchema, visibleNativeLinks } from "./native-links.js";
 import { firstSyncStatus, assignLocalRecords, localDirectoryRows, editLocalCopy, createLocalRelated } from "./first-sync.js";
 import { readEigenweltConnection } from "../eigenwelt-connection-store.js";
@@ -679,6 +681,11 @@ export function registerBackOfficeRoutes(options: {
     await syncBackOffice(options.config);
     await refreshBackOfficeActor(options.config, scope, actor);
     return store.syncState(scope, actor);
+  });
+  route("POST", "/native/:kind", async (ctx, store,{scope,actor}) => writeNative(options.config,store,scope,actor,z.enum(["task","deadline"]).parse(ctx.params.kind),await input(ctx)));
+  route("GET", "/native/:kind", async (ctx, store, { scope, actor }) => {
+    const kind = z.enum(["task","deadline"]).parse(ctx.params.kind);
+    return nativeRows(options.config, store, scope, actor, kind, ctx.url.searchParams.get("archived")==="true",ctx.url.searchParams.get("project"));
   });
   route("GET", "/native-linked/:id", async (ctx,store,access) => {
     const sources = await nativeSources(options.config);

@@ -1509,3 +1509,7 @@
 .bo-file-project-list { max-height: 220px; overflow: auto; }
 .bo-file-preview { display: flex; flex-direction: column; min-height: 0; height: min(70dvh, 800px); }
 .bo-file-preview-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-bottom: 10px; }
+
+.bo-native-links { padding: 12px 0; border-top: 1px solid var(--bo-border); }
+.bo-native-links .bo-schema-heading, .bo-native-link { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.bo-native { min-height: 0; }

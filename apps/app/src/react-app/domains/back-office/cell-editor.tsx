@@ -1,3 +1,6 @@
+import { isInternalBackOfficeObject } from "@legalwork/types/back-office";
+import { allRecordsTarget, nativeKind } from "./native-model";
+import { NativeDateEditor } from "./native-date-editor";
 import { cellInputText, parseCellInput } from "./cell-input";
 import { FileCellEditor } from "./record-files";
 import { useEffect, useRef, useState } from "react";
@@ -44,7 +47,10 @@ export function CellEditor({
   projectScope?: string;
 }) {
   const creation = useRecordCreation();
-  const target = field.type === "relation" ? creatableRecordObject(creation?.state, field.target) : undefined;
+  const [targetType,setTargetType] = useState("");
+  const polymorphic = field.target === allRecordsTarget;
+  const targetId = polymorphic ? targetType : field.target;
+  const target = field.type === "relation" ? creatableRecordObject(creation?.state, targetId) : undefined;
   const [creating, setCreating] = useState(false), [created, setCreated] = useState<{ record: BackOfficeRecord; replica?: string }[]>([]);
   const [text, setText] = useState(() => cellInputText(value));
   const [month, setMonth] = useState(
@@ -80,9 +86,9 @@ export function CellEditor({
   let options: { id: string; label: string; subtitle?: string }[];
   if (field.type === "relation") {
     const available = [...new Map([...created.filter(item => item.replica === creation?.state.permissions.replicaId).map(item => item.record), ...records].map(item => [item.id, item])).values()]
-      .filter(item => item.objectId === field.target && !item.archivedAt);
+      .filter(item => (polymorphic ? !item.objectId.startsWith("@") && !isInternalBackOfficeObject(item.objectId) && (!targetType || item.objectId === targetType) : item.objectId === field.target) && !item.archivedAt);
     options = relationPickerOptions(available, query, field.target === "matters" ? projectScope : undefined, creation?.state.records)
-      .map(({ record, subtitle }) => ({ id: record.id, label: String(record.values.name ?? ""), subtitle }))
+      .map(({ record, subtitle }) => ({ id: record.id, label: String(record.values.name ?? ""), subtitle:polymorphic ? creation?.state.model.objects.find(o=>o.id===record.objectId)?.label : subtitle }))
       .sort((a, b) => {
         const left = selected.indexOf(a.id), right = selected.indexOf(b.id);
         return (left < 0 ? selected.length : left) - (right < 0 ? selected.length : right);
@@ -120,6 +126,7 @@ export function CellEditor({
     await queue.current;
     await save(multiple ? next : record.id, true, multiple ? selected : undefined);
   }} /></LocalCreationScope.Provider>;
+  if (record && nativeKind(record.objectId) && field.id === "due") return <NativeDateEditor value={typeof value === "string"?value:""} required={field.required} onSave={onSave} onCancel={onCancel}/>;
   if (field.type === "file")
     return (
       <FileCellEditor
@@ -183,6 +190,7 @@ export function CellEditor({
           />
         ) : isChoices ? (
           <>
+            {polymorphic && creation && <DirectorySelect label={t("native.all_models")} value={targetType} onChange={setTargetType} options={[{value:"",label:t("native.all_models")},...creation.state.model.objects.filter(o => creatableRecordObject(creation.state,o.id)).map(o => ({value:o.id,label:displayBackOfficeObject(o).plural}))]}/>}
             <div className="bo-choice-search">
               <Input
                 ref={focusEditorInput}
