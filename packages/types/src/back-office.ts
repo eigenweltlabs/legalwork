@@ -107,6 +107,17 @@ export const BackOfficeStoredRecordSchema = z.object({
   updatedAt: z.string().datetime(),
   archivedAt: z.string().datetime().nullable(),
 });
+/** A script assigns each source row a stable UUID before submitting it. */
+export const BackOfficeCreateBatchSchema = z.strictObject({
+  directoryId: z.string().min(1),
+  records: z.array(z.strictObject({
+    id: BackOfficeStoredRecordSchema.shape.id,
+    objectId: identifier,
+    values: BackOfficeStoredRecordSchema.shape.values,
+    access: z.enum(["org", "members"]).optional(),
+    members: z.array(z.string().min(1).max(200)).max(500).optional(),
+  })).min(1).max(500),
+});
 export const BackOfficeRecordSchema = BackOfficeStoredRecordSchema.transform(
   (record) => {
     // Retire the preview template's provider-specific field without losing import identity.

@@ -585,7 +585,8 @@ export class BackOfficeStore {
           );
         if (parsed.create && existing) {
           if (parsed.revision === 0 && existing.revision === 1 && existing.ownerId === actor.userId &&
-              parsed.sourceId === undefined && parsed.members === undefined && parsed.access === undefined &&
+              parsed.sourceId === undefined && existing.sourceId == null && existing.access === (parsed.access ?? "org") &&
+              canonicalBackOfficeAudit(existing.members) === canonicalBackOfficeAudit(parsed.members ?? []) &&
               parsed.archived === undefined && !existing.archivedAt &&
               canonicalBackOfficeAudit(existing.values) === canonicalBackOfficeAudit({ ...defaultBackOfficeValues(object), ...parsed.values }))
             return readableBackOfficeRecord(existing, object, actor);

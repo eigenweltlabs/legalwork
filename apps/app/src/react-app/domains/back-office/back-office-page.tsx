@@ -17,7 +17,6 @@ import {
   MoreHorizontal,
   Plus,
   RefreshCw,
-  Upload,
   X,
 } from "lucide-react";
 import { Dropdown } from "twenty-ui/components/navigation";
@@ -57,19 +56,6 @@ import "./back-office.css";
 const projectsSchema = z.object({
   projects: z.array(z.object({ id: z.string(), name: z.string() })),
 });
-const importSchema = z.object({
-  planId: z.string(),
-  valid: z.boolean(),
-  rows: z.array(
-    z.object({
-      row: z.number(),
-      values: z.record(z.string(), z.unknown()),
-      warning: z.string().optional(),
-      error: z.string().optional(),
-    }),
-  ),
-});
-
 const pendingChangesSchema = z.object({
   changes: z.array(z.object({
     id: z.string(),
@@ -112,12 +98,6 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
   const [menu, setMenu] = useState(false),
     [more, setMore] = useState(false),
     [archived, setArchived] = useState(false);
-  const [importing, setImporting] = useState(false),
-    [csv, setCsv] = useState(""),
-    [mapping, setMapping] = useState<Record<string, string>>({}),
-    [importPlan, setImportPlan] = useState<z.infer<typeof importSchema> | null>(
-      null,
-    );
   const key = ["back-office", client.baseUrl, "auto", selected];
   const query = useQuery({
     queryKey: key,
@@ -144,9 +124,6 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
           setDraft(null);
           setSyncDetailsOpen(false);
           setDiscardChange(null);
-          setCsv("");
-          setImportPlan(null);
-          setImporting(false);
           setError("");
         }
         if (poke.policy || poke.reload || poke.backOffice || poke.resync)
@@ -505,17 +482,6 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
                     }
                   >
                     <Dropdown.ActionItem
-                      onClick={() => {
-                        setImporting(true);
-                        setCsv("");
-                        setImportPlan(null);
-                      }}
-                      disabled={!data.permissions.edit}
-                      startIcon={<Upload size={14} />}
-                    >
-                      Import CSV
-                    </Dropdown.ActionItem>
-                    <Dropdown.ActionItem
                       onClick={exportCsv}
                       startIcon={<ArrowDownToLine size={14} />}
                     >
@@ -611,141 +577,6 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
               onSave={save}
               onOpen={openRecord}
             >{!pendingDetail && detail.revision > 0 && !detail.archivedAt && <NativeBacklinks client={client} state={data} id={detail.id}/>}</RecordDetail>
-          )}
-          {importing && object && (
-            <DirectoryDialog
-              title={`Import ${object.plural}`}
-              wide
-              onClose={() => setImporting(false)}
-            >
-              <div className="bo-form">
-                <label>
-                  CSV file
-                  <input
-                    type="file"
-                    accept=".csv,text/csv"
-                    onChange={(event) => {
-                      const file = event.target.files?.[0];
-                      if (file)
-                        void file.text().then((text) => {
-                          setCsv(text);
-                          setImportPlan(null);
-                          const headers = text
-                            .split(/\r?\n/)[0]
-                            .split(",")
-                            .map((value) => value.replace(/^"|"$/g, "").trim());
-                          setMapping(
-                            Object.fromEntries(
-                              object.fields
-                                .filter((field) => field.type !== "file")
-                                .flatMap((field) => {
-                                  const header = headers.find((header) =>
-                                    [
-                                      field.id.toLowerCase(),
-                                      field.label.toLowerCase(),
-                                    ].includes(header.toLowerCase()),
-                                  );
-                                  return header ? [[field.id, header]] : [];
-                                }),
-                            ),
-                          );
-                        });
-                    }}
-                  />
-                </label>
-                {csv && (
-                  <div className="bo-import-mapping">
-                    <label>
-                      {t("Source ID (optional)")}
-                      <input
-                        value={mapping.$sourceId ?? ""}
-                        placeholder={t("CSV column name")}
-                        onChange={(event) => {
-                          setMapping({
-                            ...mapping,
-                            $sourceId: event.target.value,
-                          });
-                          setImportPlan(null);
-                        }}
-                      />
-                    </label>
-                    {object.fields
-                      .filter((field) => field.type !== "file")
-                      .map((field) => (
-                        <label key={field.id}>
-                          {field.label}
-                          <input
-                            value={mapping[field.id] ?? ""}
-                            placeholder="CSV column name"
-                            onChange={(event) => {
-                              setMapping((current) => ({
-                                ...current,
-                                [field.id]: event.target.value,
-                              }));
-                              setImportPlan(null);
-                            }}
-                          />
-                        </label>
-                      ))}
-                  </div>
-                )}
-                {importPlan && (
-                  <div className="bo-import-preview">
-                    {importPlan.rows.map((row) => (
-                      <div key={row.row}>
-                        <strong>Row {row.row}</strong>{" "}
-                        {String(row.values.name ?? "")}
-                        <span className={row.error ? "bo-error" : "bo-muted"}>
-                          {row.error ?? row.warning ?? "Create record"}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                {error && (
-                  <p className="bo-error" role="alert">
-                    {error}
-                  </p>
-                )}
-                <div className="bo-modal-footer">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={!csv}
-                    onClick={() =>
-                      void request("/import/preview", {
-                        objectId: object.id,
-                        csv,
-                        mapping,
-                      })
-                        .then((response) => {
-                          setImportPlan(importSchema.parse(response));
-                          setError("");
-                        })
-                        .catch((error) => setError(error.message))
-                    }
-                  >
-                    Preview import
-                  </Button>
-                  <Button
-                    size="sm"
-                    disabled={!importPlan?.valid}
-                    onClick={() =>
-                      void request("/import/apply", {
-                        planId: importPlan?.planId,
-                      })
-                        .then(() => {
-                          setImporting(false);
-                          return refresh();
-                        })
-                        .catch((error) => setError(error.message))
-                    }
-                  >
-                    Import {importPlan?.rows.length ?? ""} records
-                  </Button>
-                </div>
-              </div>
-            </DirectoryDialog>
           )}
           {syncDetailsOpen && data && team && (
             <DirectoryDialog title={t("back_office.team_sync")} onClose={() => { setSyncDetailsOpen(false); setError(""); }}>

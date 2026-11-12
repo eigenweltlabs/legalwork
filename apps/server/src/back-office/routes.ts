@@ -11,7 +11,7 @@ import { readFile, realpath, stat } from "node:fs/promises";
 import { basename, isAbsolute, join, relative, sep } from "node:path";
 import { attachFile, attachedFile, historicalFile, fileFromHistory, fileField } from "./files.js";
 import { loadAttachedFile } from "./file-sync.js";
-import { BACK_OFFICE_FILE_LIMIT } from "./schema.js";
+import { BACK_OFFICE_FILE_LIMIT, BackOfficeCreateBatchSchema, isInternalBackOfficeObject } from "./schema.js";
 import {
   readableBackOfficeRecord,
   type BackOfficeRecord,
@@ -375,6 +375,27 @@ export function registerBackOfficeRoutes(options: {
       values: z.record(z.string(), BackOfficeValueSchema), expectedValues: z.record(z.string(), BackOfficeValueSchema).optional(), archived: z.boolean().optional(),
     }).parse(body));
     return { record: store.saveRecord(scope, actor, body) };
+  });
+  route("POST", "/records/batch", async (ctx, store, { scope, actor }) => {
+    const { directoryId, records } = BackOfficeCreateBatchSchema.parse(await input(ctx));
+    if (directoryId !== await directoryIdentity(options.config, scope, store))
+      throw new ApiError(409, "back_office_directory_changed", "The active Back Office directory changed.");
+    const ids = new Set<string>();
+    return store.transaction(() => {
+      for (const [index, record] of records.entries()) {
+        try {
+          if (ids.has(record.id)) throw new ApiError(400, "back_office_duplicate_id", "This ID occurs twice in the batch.");
+          if (isInternalBackOfficeObject(record.objectId)) throw new ApiError(400, "back_office_object", "Internal objects cannot be imported.");
+          store.saveRecord(scope, actor, { ...record, create: true, revision: 0 });
+          ids.add(record.id);
+        } catch (error) {
+          if (error instanceof ApiError)
+            throw new ApiError(error.status, error.code, `Row ${index + 1}: ${error.message}`, { row: index + 1 });
+          throw error;
+        }
+      }
+      return { processed: records.length };
+    });
   });
   route("POST", "/model/preview", async (ctx, store, { scope, actor }) => {
     const body = await input(ctx);

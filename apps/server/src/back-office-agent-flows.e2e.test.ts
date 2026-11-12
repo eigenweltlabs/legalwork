@@ -48,7 +48,7 @@ test("Assistant and ordinary chats discover CRM models, create/reuse records and
     const main = z.object({ workspace: z.object({ id: z.string(), path: z.string() }) }).parse(await current.json());
     const crm = await nativePluginTools(ProjectPlugin, { directory: main.workspace.path }); plugins.push(crm);
     const assistant = await nativePluginTools(AssistantPlugin, { directory: main.workspace.path }); plugins.push(assistant);
-    for (const name of ["discover", "records", "save", "model_preview", "model"]) expect(crm.tool).toHaveProperty(`legalwork_back_office_${name}`);
+    for (const name of ["discover", "records", "save", "create_batch", "model_preview", "model"]) expect(crm.tool).toHaveProperty(`legalwork_back_office_${name}`);
     const discovered = directorySchema.parse(JSON.parse(await crm.tool.legalwork_back_office_discover.execute({})));
     const people = discovered.model.objects.find(object => object.id === "people")!;
     people.fields.find(field => field.id === "personType")!.options.push("Research fellow");
@@ -64,6 +64,19 @@ test("Assistant and ordinary chats discover CRM models, create/reuse records and
     const matter = await save("matters", { name: "Acquisition work", fileNumber: "MAT-771", clients: [client.id], leadLawyer: partner.id });
     const external = await save("people", { name: "Outside contact", personType: "External contact" });
     const engagement = await save("engagements", { name: "Custom engagement" });
+    const batch = (records: unknown[], directoryId = discovered.directoryId) =>
+      crm.tool.legalwork_back_office_create_batch.execute({ directoryId, records });
+    const parent = { objectId: "companies", id: crypto.randomUUID(), values: { name: "Imported organisation" } };
+    const contact = { objectId: "people", id: crypto.randomUUID(), values: { name: "Imported contact", company: parent.id } };
+    const custom = { objectId: "engagements", id: crypto.randomUUID(), values: { name: "Imported engagement" }, access: "members", members: ["local"] };
+    const imported = [parent, contact, custom];
+    await expect(batch(imported, "wrong-directory")).rejects.toThrow("directory changed");
+    await expect(batch([parent, { ...contact, values: { name: "Invalid", invalidField: true } }])).rejects.toThrow("Row 2");
+    const organisations = () => crm.tool.legalwork_back_office_records.execute({ objectId: "companies" });
+    expect(await organisations()).not.toContain(parent.id);
+    expect(JSON.parse(await batch(imported))).toEqual({ processed: 3 });
+    expect(JSON.parse(await batch(imported))).toEqual({ processed: 3 });
+    await expect(batch([{ ...parent, values: { name: "Changed input" } }])).rejects.toThrow("Row 1");
     const existing = z.object({ records: z.array(BackOfficeRecordSchema) }).parse(JSON.parse(await crm.tool.legalwork_back_office_records.execute({ objectId: "clients" })));
     expect(existing.records.map(record => record.id)).toEqual([client.id]);
     const created = z.object({ project: z.object({ id: z.string(), path: z.string() }), details: detailsSchema }).parse(JSON.parse(await assistant.tool.legalwork_assistant_project_create.execute({ name: "Project Alpha" })));

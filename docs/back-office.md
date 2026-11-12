@@ -36,6 +36,18 @@ Publishing creates identities before optional relationships, with required relat
 
 The server's build bundles `back-office/schema.ts` into its runtime dist, keeping packaged Electron independent of workspace TypeScript sources. The renderer's components are bundled by Vite. Packaging checks use Node's 8 GB heap allowance for the existing large renderer build.
 
+## Scripted record imports
+
+Discover the directory and its schema once. Prepare rows as `{ id, objectId, values }` with stable UUIDs, and put referenced rows before their dependants. Code Mode can submit the prepared array directly:
+
+```js
+for (let i = 0; i < rows.length; i += 500) {
+  await tools.legalwork_back_office_create_batch({ directoryId, records: rows.slice(i, i + 500) });
+}
+```
+
+The authenticated API equivalent is `POST /back-office/records/batch` with the same JSON body. Each request accepts up to 500 records and 2 MiB. Use smaller chunks for large field values. Each chunk commits atomically and returns a processed count. Retry an uncertain chunk with the same IDs and values. If a record has since changed, inspect the conflict before continuing.
+
 ## Validation
 
 Feature tests use `bun test apps/server/src/back-office/back-office.test.ts` in LegalWork and `vitest run src/lib/back-office/permissions.test.ts` in platform. Type checks, server and renderer builds, help generation and manual native UI comparisons supplement those tests.

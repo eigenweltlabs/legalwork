@@ -3,7 +3,7 @@ import type { Plugin } from "@opencode/plugin";
 import { z } from "zod";
 import { nativeTool, nativeToolSignal } from "./native-tool.js";
 import { serverToken, serverUrl } from "./office-plugin-shared.js";
-import { BackOfficeAuditHeadSchema } from "../back-office/schema.js";
+import { BackOfficeAuditHeadSchema, BackOfficeCreateBatchSchema } from "../back-office/schema.js";
 
 export const BACK_OFFICE_GUIDANCE = `For questions about matters, people, clients or organisations, including lookups by name alone, search Back Office records first. If the records leave the question unanswered, search the accessible wiki, then the public web if needed. For fees, time, invoices and custom CRM models, start with legalwork_back_office_discover and use legalwork_back_office_query to read records or counts. Use project links for questions scoped to the current project.
 Back Office is LegalWork's structured CRM and metadata data store: clients, matters, people, organisations and user-defined objects. Project metadata links to those records; do not maintain parallel CRM lists in notes, text fields or internal databases.
@@ -13,7 +13,7 @@ For authorized project setup, reuse matching accessible records before creating 
 Project record fields instead use {directoryId, recordIds}, never names or raw relation IDs. Discover the actual project schema, search legalwork_project_reference_options for each reference field, then save matching IDs with legalwork_project_set_metadata and the latest revision. Respect each field's object, cardinality and filters, including Active and dynamic Type options. Never weaken filters or reclassify a person merely to make a selection eligible. Never create projectLinks junction records. New-project tools return the target project ID; pass projectId to subsequent project tools so the originating chat's project is not modified. The main Assistant uses its equivalent scoped project tools.
 Read back project details and linked Back Office context before claiming setup is complete. On conflicts reread and merge; after uncertain writes inspect existing records before retrying to avoid duplicates. Preserve valid completed steps if a later step fails and report what remains. Unknown optional fields can stay empty; missing required facts or unavailable/private records must not be guessed. CRM unavailability is not an empty directory. Do not fall back to shell, SQLite or a separate local CRM. Model edits use discovery, model_preview and model with the latest revision only when the user's request calls for a schema change; normal project setup uses the existing model.`;
 
-async function call(path: string, method = "GET", body?: unknown) {
+async function call(path: string, method = "GET", body?: unknown, timeoutMs = 30_000) {
   const base = serverUrl(),
     token = serverToken();
   if (!base || !token) throw new Error("The LegalWork server is unavailable.");
@@ -27,7 +27,7 @@ async function call(path: string, method = "GET", body?: unknown) {
         "X-Legalwork-Agent": "back-office",
       },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-      signal: nativeToolSignal(30_000),
+      signal: nativeToolSignal(timeoutMs),
     },
   );
   const result: unknown = await response.json();
@@ -149,6 +149,15 @@ export function backOfficeTools(ctx: Plugin.Context) {
       execute: (args) => {
         return call("/records", "POST", args);
       },
+    }),
+    nativeTool(ctx, {
+      name: "legalwork_back_office_create_batch",
+      permission: "domain",
+      save: [],
+      description: "Mass-create records in any writable Back Office CRM model, including custom models. In Code Mode, pass a records array and the discovered directoryId. Send sequential chunks of up to 500 rows and 2 MiB per request. Assign stable UUIDs once and reuse them on retry. A chunk may mix models: put referenced records first and use their IDs in relation fields. The chunk commits atomically. An identical retry of unmodified records is safe. Returns a processed count.",
+      schema: BackOfficeCreateBatchSchema,
+      outputSchema: z.object({ processed: z.number().int() }),
+      execute: args => call("/records/batch", "POST", args, 120_000),
     }),
     nativeTool(ctx, {
       name: "legalwork_back_office_model_preview",

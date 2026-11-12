@@ -574,39 +574,6 @@
   font-size: 12px;
 }
 
-.bo-import-mapping {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 9px 16px;
-}
-
-.bo-import-mapping label {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  color: var(--bo-muted);
-  font-size: 11px;
-}
-
-.bo-import-mapping input {
-  padding: 5px;
-  border: 1px solid var(--bo-border);
-  border-radius: 4px;
-}
-
-.bo-import-preview {
-  max-height: 220px;
-  overflow-y: auto;
-}
-
-.bo-import-preview > div {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 7px;
-  padding: 7px;
-  border-bottom: 1px solid var(--bo-border);
-}
-
 @media (max-width: 850px) {
   .bo-tabs {
     gap: 1px;
