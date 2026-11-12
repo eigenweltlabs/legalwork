@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { openSqlite } from "../runtime-db.js";
 import { defaultProjectTemplates } from "../project-schema.js";
+import { backOfficeRecordUrl } from "./schema.js";
 import { BackOfficeStore } from "./store.js";
 import { projectBackOfficeReferences } from "./project-references.js";
 
@@ -15,7 +16,7 @@ test("a matter-only project resolves current client, organisation and contact co
     const matter = store.saveRecord("local", actor, { objectId: "matters", revision: 0, values: { name: "Matter", fileNumber: "MAT-42", clients: [client.id] } });
     store.saveRecord("local", actor, { objectId: "clients", revision: 0, values: { name: "Unrelated client" } });
     const fields = defaultProjectTemplates()[0].fields.filter(field => field.id === "matter").map(field => field.type === "backoffice" ? { ...field, value: { directoryId: "local:fixture", recordIds: [matter.id] } } : field);
-    const context = { scope: "local", store, actor, directoryId: "local:fixture", model: store.model("local"), records: store.records("local", actor) };
+    const context = { scope: "local", store, actor, directoryId: "local:fixture", model: store.model("local"), records: store.records("local", actor).map(record => ({ ...record, url: backOfficeRecordUrl(record) })) };
     const resolved = projectBackOfficeReferences(context, fields);
     expect(fields.map(field => field.id)).toEqual(["matter"]);
     expect(resolved.records.map(record => record.id).sort()).toEqual([matter.id, client.id, organisation.id, person.id].sort());

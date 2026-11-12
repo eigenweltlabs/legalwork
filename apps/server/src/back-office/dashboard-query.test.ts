@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { z } from "zod";
 import { ViewPreviewSchema, type BackOfficeDataQuery } from "@legalwork/types/views";
-import { BackOfficeModelSchema, defaultBackOfficeModel, isInternalBackOfficeObject } from "./schema.js";
+import { backOfficeRecordUrl, BackOfficeModelSchema, defaultBackOfficeModel, isInternalBackOfficeObject } from "./schema.js";
 import { queryDirectoryRecords } from "./dashboard-query.js";
 import { closeBackOfficeStoreForTests } from "./store.js";
 import { startServer } from "../server.js";
@@ -53,6 +53,13 @@ test("chat queries built-in and custom models, saves a live workspace dashboard 
       objectId: "claims", revision: 0, values: { name, practiceArea: "Commercial", claimValue: { currency, amountMinor } },
     })).record;
     const first = await add("First", "EUR", 5000);
+    const url = backOfficeRecordUrl(first);
+    expect(first.url).toBe(url);
+    const records = JSON.parse(await crm.tool.legalwork_back_office_records.execute({ objectId: "claims" })).records;
+    expect(records.find((record: { id: string }) => record.id === first.id).url).toBe(url);
+    const named = await query({ ...binding, objectId: "claims", fields: ["name"], filters: [{ field: "$id", op: "eq", value: first.id }] });
+    expect(named.rows).toEqual([{ name: "First", $id: first.id, $archived: false, $url: url }]);
+    expect((await query({ ...binding, objectId: "claims", fields: Array(20).fill("name") })).rows[0].$url).toBe(url);
     await add("Other currency", "USD", 10000);
     const summary: BackOfficeDataQuery = { ...binding, objectId: "claims", fields: ["count", "value"], currency: "EUR",
       metrics: [{name:"count",op:"count"}, {name:"value",op:"sum",field:"claimValue"}] };
@@ -79,6 +86,14 @@ test("chat queries built-in and custom models, saves a live workspace dashboard 
     const changed = await query(summary);
     expect(changed.rows).toEqual([{ count: 2, value: 1234.5 }]);
     expect(changed.revision).not.toBe(initial.revision);
+    const updated = JSON.parse(await crm.tool.legalwork_back_office_records.execute({ objectId: "claims" })).records.find((record: { id: string }) => record.id === first.id);
+    const archived = JSON.parse(await crm.tool.legalwork_back_office_save.execute({
+      id: first.id, objectId: "claims", revision: updated.revision, values: {}, archived: true,
+    })).record;
+    expect(archived.url).toBe(backOfficeRecordUrl(archived));
+    expect(archived.url).toEndWith("&archived=true");
+    const archive = await query({ ...binding, objectId: "claims", fields: ["name"], includeArchived: true, filters: [{ field: "$id", op: "eq", value: first.id }] });
+    expect(archive.rows[0].$url).toBe(archived.url);
     const rejected = (q: BackOfficeDataQuery) => fetch(base+"/back-office/dashboard-query", { method:"POST", headers:{authorization:"Bearer owner","content-type":"application/json"}, body:JSON.stringify(q) });
     expect((await rejected({...summary, directoryId:"different"})).status).toBe(409);
     expect((await rejected({...summary, objectId:"projectLinks"})).status).toBe(403);

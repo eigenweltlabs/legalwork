@@ -216,7 +216,7 @@ export function registerBackOfficeRoutes(options: {
     const result = queryDirectoryRecords(model, actor, (objectId) => {
       const active = store.records(scope, actor, objectId);
       return query.includeArchived ? active.concat(store.records(scope, actor, objectId, true)) : active;
-    }, query);
+    }, query, ctx.url.searchParams.get("links") === "1");
     return result;
   }, true);
   route("GET", "/record-page", async (ctx, store, {scope, actor}) => {

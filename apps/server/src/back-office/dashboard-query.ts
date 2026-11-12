@@ -1,12 +1,12 @@
 import { createHash } from "node:crypto";
 import type { BackOfficeDataQuery } from "@legalwork/types/views";
 import type { WikiValue } from "@legalwork/types/wiki";
-import { isInternalBackOfficeObject, type BackOfficeActor, type BackOfficeModel, type BackOfficeRecord } from "./schema.js";
+import { backOfficeRecordUrl, isInternalBackOfficeObject, type BackOfficeActor, type BackOfficeModel, type BackOfficeRecord } from "./schema.js";
 import { ApiError } from "../errors.js";
 import { queryIndexedRows } from "../wiki/data-query.js";
 
 /** Records have already passed the directory's record and field access checks. */
-export function queryDirectoryRecords(model: BackOfficeModel, actor: BackOfficeActor, readRecords: (objectId: string) => BackOfficeRecord[], query: BackOfficeDataQuery) {
+export function queryDirectoryRecords(model: BackOfficeModel, actor: BackOfficeActor, readRecords: (objectId: string) => BackOfficeRecord[], query: BackOfficeDataQuery, recordLinks = false) {
   const object = model.objects.find(o => o.id === query.objectId && !o.archived);
   if (!object || isInternalBackOfficeObject(object.id) || (!actor.finance && ["invoices", "billingItems", "feeAgreements"].includes(object.id)))
     throw new ApiError(403, "directory_object_unavailable", "This Back Office model is unavailable.");
@@ -48,5 +48,13 @@ export function queryDirectoryRecords(model: BackOfficeModel, actor: BackOfficeA
     const revision = createHash("sha256").update(JSON.stringify(values)).digest("hex");
     return { path: record.id, type: object.id, revision, updatedAt: Date.parse(record.updatedAt), archived: !!record.archivedAt, values };
   });
-  return { ...queryIndexedRows(indexed, query, new Set([...fields.keys(), "$id", "$archived"]), (row, field) => field === "$id" ? row.path : field === "$archived" ? row.archived : row.values[field], [], null), sourceKind: "backOffice" as const };
+  const result = queryIndexedRows(indexed, query, new Set([...fields.keys(), "$id", "$archived"]), (row, field) => field === "$id" ? row.path : field === "$archived" ? row.archived : row.values[field], recordLinks ? ["$id", "$archived"] : [], null);
+  return {
+    ...result,
+    rows: recordLinks && !query.groupBy && !query.metrics?.length ? result.rows.map(row => ({
+      ...row,
+      $url: backOfficeRecordUrl({ objectId: object.id, id: String(row.$id) }, row.$archived === true),
+    })) : result.rows,
+    sourceKind: "backOffice" as const,
+  };
 }

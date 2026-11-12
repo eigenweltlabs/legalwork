@@ -97,7 +97,7 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
   const [discardChange, setDiscardChange] = useState<string | null>(null);
   const [menu, setMenu] = useState(false),
     [more, setMore] = useState(false),
-    [archived, setArchived] = useState(false);
+    [archived, setArchived] = useState(() => new URLSearchParams(location.search).get("archived") === "true");
   const key = ["back-office", client.baseUrl, "auto", selected];
   const query = useQuery({
     queryKey: key,
@@ -137,7 +137,7 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
     setDraft(null);
     setFocusNameId(null);
     setDetailId(new URLSearchParams(location.search).get("record"));
-    setArchived(false);
+    setArchived(new URLSearchParams(location.search).get("archived") === "true");
     setError("");
   }, [selected, team, location.search]);
   const rawObject = data?.model.objects.find(

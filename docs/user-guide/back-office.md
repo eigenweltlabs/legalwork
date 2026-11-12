@@ -36,6 +36,8 @@ Filtering applies to Table, Kanban, Calendar and List. For a saved view, choose 
 
 ### Working with the assistant
 
+The assistant can link record names in its answers. Click a record link to open that item in Back Office.
+
 The main Assistant and ordinary project chats can read and update Back Office records, including custom objects. Ask for the result you need, for example, “Create a project for this client's acquisition and connect the client and matter.” The agent discovers your current model and project fields, checks for existing records, creates missing records supported by your request or sources, and links them through project metadata. It verifies the saved links before reporting completion. Creating a project does not automatically create billing records or fill unknown details.
 
 The same workflow applies when a project chat sets itself up from documents or receives delegated work. Records are shared CRM items; linking them to another project keeps their identity. The agent preserves existing values, respects each field's selectable-record filters and asks about ambiguous identities or missing required facts. Custom People types remain ordinary editable options. Changes to the model itself are a separate requested action with a preview for affected records. Back Office and project permissions still apply.

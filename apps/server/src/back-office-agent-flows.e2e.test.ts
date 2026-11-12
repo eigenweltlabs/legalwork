@@ -113,7 +113,11 @@ test("Assistant and ordinary chats discover CRM models, create/reuse records and
     const choices = optionsSchema.parse(JSON.parse(await chat.tool.legalwork_project_reference_options.execute({ projectId: second.activeId, fieldId: "engagement", query: "Custom" })));
     expect(choices.records.map(record => record.id)).toEqual([engagement.id]);
     await chat.tool.legalwork_project_set_metadata.execute({ projectId: second.activeId, revision: target.revision, values: { engagement: { directoryId: choices.directoryId, recordIds: [engagement.id] } } });
-    const beta = contextSchema.parse(JSON.parse(await chat.tool.legalwork_project_back_office_context.execute({ projectId: second.activeId })));
+    const linkedContext = JSON.parse(await chat.tool.legalwork_project_back_office_context.execute({ projectId: second.activeId }));
+    expect(linkedContext.records[0].url).toContain(`/back-office/engagements?record=${engagement.id}`);
+    const assistantContext = JSON.parse(await assistant.tool.legalwork_assistant_project_back_office_context.execute({ projectId: second.activeId }));
+    expect(assistantContext.records[0].url).toBe(linkedContext.records[0].url);
+    const beta = contextSchema.parse(linkedContext);
     expect(beta.records.map(record => record.id)).toEqual([engagement.id]);
     const customMatch = z.object({ projects: z.array(z.object({ id: z.string() })) }).parse(JSON.parse(await assistant.tool.legalwork_assistant_projects.execute({ query: "Custom engagement" })));
     expect(customMatch.projects.map(project => project.id)).toContain(second.activeId);

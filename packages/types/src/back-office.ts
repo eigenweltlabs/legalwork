@@ -132,6 +132,11 @@ export const BackOfficeRecordSchema = BackOfficeStoredRecordSchema.transform(
     };
   },
 );
+/** Opens the existing Back Office record sidebar from an agent citation. */
+export function backOfficeRecordUrl(record: { objectId: string; id: string; archivedAt?: string | null }, archived = Boolean(record.archivedAt)) {
+  return `legalwork://app/back-office/${encodeURIComponent(record.objectId)}?record=${encodeURIComponent(record.id)}${archived ? "&archived=true" : ""}`;
+}
+
 export const BackOfficeViewSchema = z
   .object({
     id: z.string().uuid(),

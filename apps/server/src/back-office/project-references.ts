@@ -4,7 +4,7 @@ import { ApiError } from "../errors.js";
 import type { ServerConfig } from "../types.js";
 import { backOfficeAccess, backOfficeDirectoryIdentity } from "./access.js";
 import { backOfficeStore } from "./store.js";
-import { isInternalBackOfficeObject } from "./schema.js";
+import { backOfficeRecordUrl, isInternalBackOfficeObject } from "./schema.js";
 
 type ReferenceField = Extract<ProjectField, { type: "backoffice" }>;
 function previousSelection(before: ProjectField[], field: ReferenceField) {
@@ -15,7 +15,7 @@ function previousSelection(before: ProjectField[], field: ReferenceField) {
 export async function projectReferenceDirectory(config: ServerConfig, team?: boolean) {
   const { scope, actor } = await backOfficeAccess(config, team);
   const store = await backOfficeStore(config), directoryId = await backOfficeDirectoryIdentity(config, scope, store);
-  const model = store.model(scope), records = store.records(scope, actor);
+  const model = store.model(scope), records = store.records(scope, actor).map(record => ({ ...record, url: backOfficeRecordUrl(record) }));
   store.requireAccount(scope, actor);
   return { scope, actor, store, directoryId, model, records };
 }
