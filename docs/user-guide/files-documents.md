@@ -40,6 +40,8 @@ While the assistant writes in the background, a small live document tile appears
 
 Page-sized letterhead artwork keeps its position and transparent areas when you open or save the document. Body text appears in front of pictures that the template places behind the text and wraps around reserved header or footer objects, including transparent ones. New text inherits the template’s fonts and paragraph formatting. Addresses with manual line breaks use left alignment unless another alignment is explicitly requested.
 
+Saving reuses unchanged embedded pictures and keeps the file compressed. Existing duplicate and unused image files are retained, so saving an already enlarged document may not reduce its size.
+
 Word dims inactive headers and footers while you edit the body; LegalWork shows their print colors. This does not change the saved artwork. If Word shows nearly white body text on a white page-sized letterhead image, use **View > Switch Modes** to select a light page. Word’s dark page mode changes text colors but leaves that image white. This viewing mode does not change the document’s print colors.
 
 For a document open in Microsoft Word with the add-in connected, use the live Word tools instead. For a file with neither live surface available, the bundled `docx-edit` skill can inspect and write a separate redlined copy. File-mode output names such as `.redlined.docx` identify a new deliverable, not a change to the open Word document. See [Office Add-ins](office-addins.md).

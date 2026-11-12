@@ -23,7 +23,7 @@ export async function createCleanDocx(buffer: ArrayBuffer, options = { acceptCha
       throw new Error(t("artifact.markup_blocked"));
     }
   }
-  return finalizeWordPackage(await zip.generateAsync({ type: "arraybuffer" }), await readWordMetadata(buffer));
+  return finalizeWordPackage(await zip.generateAsync({ type: "arraybuffer", compression: "DEFLATE", compressionOptions: { level: 6 } }), await readWordMetadata(buffer));
 }
 
 export function downloadDocx(buffer: ArrayBuffer, name: string) {

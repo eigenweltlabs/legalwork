@@ -37,7 +37,7 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
-// node_modules/.pnpm/@eigenpal+docx-editor-agents@1.8.3_patch_hash=0721fac7fa42bef9585ae9d1ec7cedab4b4156f87_7528ec917ae27a9400f086f6542d1bed/node_modules/@eigenpal/docx-editor-agents/dist/chunk-2WFD55YM.mjs
+// node_modules/.pnpm/@eigenpal+docx-editor-agents@1.8.3_patch_hash=52c2093040a47cfc3376ed309b8eb188067bebe35_7a01f8261f672cbf795b477d7821c0cb/node_modules/@eigenpal/docx-editor-agents/dist/chunk-2WFD55YM.mjs
 function te(a, e2) {
   return a.map((t) => S.register(t, e2));
 }
@@ -425,7 +425,7 @@ function Ve(a, e2) {
 }
 var D, S, Q, C, E;
 var init_chunk_2WFD55YM = __esm({
-  "node_modules/.pnpm/@eigenpal+docx-editor-agents@1.8.3_patch_hash=0721fac7fa42bef9585ae9d1ec7cedab4b4156f87_7528ec917ae27a9400f086f6542d1bed/node_modules/@eigenpal/docx-editor-agents/dist/chunk-2WFD55YM.mjs"() {
+  "node_modules/.pnpm/@eigenpal+docx-editor-agents@1.8.3_patch_hash=52c2093040a47cfc3376ed309b8eb188067bebe35_7a01f8261f672cbf795b477d7821c0cb/node_modules/@eigenpal/docx-editor-agents/dist/chunk-2WFD55YM.mjs"() {
     D = class {
       constructor() {
         this.plugins = /* @__PURE__ */ new Map();
@@ -28813,7 +28813,7 @@ var require_docxtemplater = __commonJS({
   }
 });
 
-// node_modules/.pnpm/@eigenpal+docx-editor-agents@1.8.3_patch_hash=0721fac7fa42bef9585ae9d1ec7cedab4b4156f87_7528ec917ae27a9400f086f6542d1bed/node_modules/@eigenpal/docx-editor-agents/dist/chunk-UILTIEBD.mjs
+// node_modules/.pnpm/@eigenpal+docx-editor-agents@1.8.3_patch_hash=52c2093040a47cfc3376ed309b8eb188067bebe35_7a01f8261f672cbf795b477d7821c0cb/node_modules/@eigenpal/docx-editor-agents/dist/chunk-UILTIEBD.mjs
 function T2(e2, r, t = {}) {
   return b(e2, r, t).buffer;
 }
@@ -28919,14 +28919,14 @@ function U2(e2 = {}) {
 }
 var import_pizzip, import_docxtemplater, z2;
 var init_chunk_UILTIEBD = __esm({
-  "node_modules/.pnpm/@eigenpal+docx-editor-agents@1.8.3_patch_hash=0721fac7fa42bef9585ae9d1ec7cedab4b4156f87_7528ec917ae27a9400f086f6542d1bed/node_modules/@eigenpal/docx-editor-agents/dist/chunk-UILTIEBD.mjs"() {
+  "node_modules/.pnpm/@eigenpal+docx-editor-agents@1.8.3_patch_hash=52c2093040a47cfc3376ed309b8eb188067bebe35_7a01f8261f672cbf795b477d7821c0cb/node_modules/@eigenpal/docx-editor-agents/dist/chunk-UILTIEBD.mjs"() {
     import_pizzip = __toESM(require_js(), 1);
     import_docxtemplater = __toESM(require_docxtemplater(), 1);
     z2 = T2;
   }
 });
 
-// node_modules/.pnpm/@eigenpal+docx-editor-agents@1.8.3_patch_hash=0721fac7fa42bef9585ae9d1ec7cedab4b4156f87_7528ec917ae27a9400f086f6542d1bed/node_modules/@eigenpal/docx-editor-agents/dist/processTemplate-DEFHEMLN.mjs
+// node_modules/.pnpm/@eigenpal+docx-editor-agents@1.8.3_patch_hash=52c2093040a47cfc3376ed309b8eb188067bebe35_7a01f8261f672cbf795b477d7821c0cb/node_modules/@eigenpal/docx-editor-agents/dist/processTemplate-DEFHEMLN.mjs
 var processTemplate_DEFHEMLN_exports = {};
 __export(processTemplate_DEFHEMLN_exports, {
   createTemplateProcessor: () => U2,
@@ -28942,12 +28942,12 @@ __export(processTemplate_DEFHEMLN_exports, {
   validateTemplate: () => D2
 });
 var init_processTemplate_DEFHEMLN = __esm({
-  "node_modules/.pnpm/@eigenpal+docx-editor-agents@1.8.3_patch_hash=0721fac7fa42bef9585ae9d1ec7cedab4b4156f87_7528ec917ae27a9400f086f6542d1bed/node_modules/@eigenpal/docx-editor-agents/dist/processTemplate-DEFHEMLN.mjs"() {
+  "node_modules/.pnpm/@eigenpal+docx-editor-agents@1.8.3_patch_hash=52c2093040a47cfc3376ed309b8eb188067bebe35_7a01f8261f672cbf795b477d7821c0cb/node_modules/@eigenpal/docx-editor-agents/dist/processTemplate-DEFHEMLN.mjs"() {
     init_chunk_UILTIEBD();
   }
 });
 
-// node_modules/.pnpm/@eigenpal+docx-editor-agents@1.8.3_patch_hash=0721fac7fa42bef9585ae9d1ec7cedab4b4156f87_7528ec917ae27a9400f086f6542d1bed/node_modules/@eigenpal/docx-editor-agents/dist/chunk-LPCN5G3A.mjs
+// node_modules/.pnpm/@eigenpal+docx-editor-agents@1.8.3_patch_hash=52c2093040a47cfc3376ed309b8eb188067bebe35_7a01f8261f672cbf795b477d7821c0cb/node_modules/@eigenpal/docx-editor-agents/dist/chunk-LPCN5G3A.mjs
 function A2(e2) {
   return e2.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
 }
@@ -29924,14 +29924,22 @@ function Mr(e2) {
     }
   }), t;
 }
+async function lwImageUnchanged(zip, relationship, data) {
+  if (!relationship || relationship.targetMode === "External" || !relationship.type.endsWith("/image")) return false;
+  const file = zip.file(ke(relationship.target));
+  if (!file) return false;
+  const stored = await file.async("uint8array"), current = new Uint8Array(data);
+  return stored.length === current.length && stored.every((byte, index) => byte === current[index]);
+}
 async function Br(e2, t, n) {
   let r = Mr(t), o3 = /* @__PURE__ */ new Set();
   for (let { relsPath: i2, blocks: s } of e2) {
     let a = Ir(s);
     if (a.length === 0) continue;
-    let l3 = await he2(t, i2), u3 = K2(l3), p3 = [];
+    let l3 = await he2(t, i2), u3 = K2(l3), p3 = [], lwExistingImages = De(l3);
     for (let m4 of a) {
       let { data: y4, extension: g3 } = Rr(m4.src);
+      if (await lwImageUnchanged(t, lwExistingImages.get(m4.rId), y4)) continue;
       r++, u3++;
       let x4 = `image${r}.${g3}`, b5 = `rId${u3}`;
       t.file(`word/media/${x4}`, y4, { compression: "DEFLATE", compressionOptions: { level: n } }), p3.push(`<Relationship Id="${b5}" Type="${H2.image}" Target="media/${x4}"/>`), o3.add(g3), m4.rId = b5;
@@ -35323,7 +35331,7 @@ function Bp() {
 }
 var import_jszip, import_xml_js, ce2, ue2, Zn, Bs, sa, V2, Aa, H2, Ba, $a, Oa, za, Hr, Ua, qa, Gr, Za, Ka, Qa, gt, ht, wt, xt, el, wo, xo, So, Ct, gn, yl, Al, Ll, Xl, Hl, ec, Ho, En, Zo, Jo, wc, xc, zi, _e, et, Qi, ze, iu, Zi, Bn, An, Qe, Ki, fu, mu, gu, hu, yu, Su, Pu, tt, ae, ye, Wt, Ve2, Af, le2, ws, Me, ip, Ps, ap, Gn, Ap, Gw;
 var init_chunk_LPCN5G3A = __esm({
-  "node_modules/.pnpm/@eigenpal+docx-editor-agents@1.8.3_patch_hash=0721fac7fa42bef9585ae9d1ec7cedab4b4156f87_7528ec917ae27a9400f086f6542d1bed/node_modules/@eigenpal/docx-editor-agents/dist/chunk-LPCN5G3A.mjs"() {
+  "node_modules/.pnpm/@eigenpal+docx-editor-agents@1.8.3_patch_hash=52c2093040a47cfc3376ed309b8eb188067bebe35_7a01f8261f672cbf795b477d7821c0cb/node_modules/@eigenpal/docx-editor-agents/dist/chunk-LPCN5G3A.mjs"() {
     init_chunk_2WFD55YM();
     import_jszip = __toESM(require_lib3(), 1);
     import_xml_js = __toESM(require_lib4(), 1);
@@ -35636,7 +35644,7 @@ var init_chunk_LPCN5G3A = __esm({
   }
 });
 
-// node_modules/.pnpm/@eigenpal+docx-editor-agents@1.8.3_patch_hash=0721fac7fa42bef9585ae9d1ec7cedab4b4156f87_7528ec917ae27a9400f086f6542d1bed/node_modules/@eigenpal/docx-editor-agents/dist/headless-HLWBVNLB.mjs
+// node_modules/.pnpm/@eigenpal+docx-editor-agents@1.8.3_patch_hash=52c2093040a47cfc3376ed309b8eb188067bebe35_7a01f8261f672cbf795b477d7821c0cb/node_modules/@eigenpal/docx-editor-agents/dist/headless-HLWBVNLB.mjs
 var headless_HLWBVNLB_exports = {};
 __export(headless_HLWBVNLB_exports, {
   ContentControlBoundError: () => Ve2,
@@ -35765,14 +35773,14 @@ __export(headless_HLWBVNLB_exports, {
   validateTemplate: () => D2
 });
 var init_headless_HLWBVNLB = __esm({
-  "node_modules/.pnpm/@eigenpal+docx-editor-agents@1.8.3_patch_hash=0721fac7fa42bef9585ae9d1ec7cedab4b4156f87_7528ec917ae27a9400f086f6542d1bed/node_modules/@eigenpal/docx-editor-agents/dist/headless-HLWBVNLB.mjs"() {
+  "node_modules/.pnpm/@eigenpal+docx-editor-agents@1.8.3_patch_hash=52c2093040a47cfc3376ed309b8eb188067bebe35_7a01f8261f672cbf795b477d7821c0cb/node_modules/@eigenpal/docx-editor-agents/dist/headless-HLWBVNLB.mjs"() {
     init_chunk_LPCN5G3A();
     init_chunk_UILTIEBD();
     init_chunk_2WFD55YM();
   }
 });
 
-// node_modules/.pnpm/@eigenpal+docx-editor-agents@1.8.3_patch_hash=0721fac7fa42bef9585ae9d1ec7cedab4b4156f87_7528ec917ae27a9400f086f6542d1bed/node_modules/@eigenpal/docx-editor-agents/dist/chunk-CTF74DCM.mjs
+// node_modules/.pnpm/@eigenpal+docx-editor-agents@1.8.3_patch_hash=52c2093040a47cfc3376ed309b8eb188067bebe35_7a01f8261f672cbf795b477d7821c0cb/node_modules/@eigenpal/docx-editor-agents/dist/chunk-CTF74DCM.mjs
 init_chunk_LPCN5G3A();
 init_chunk_2WFD55YM();
 function h2(o3) {
@@ -36295,7 +36303,7 @@ function ke2(o3) {
   } };
 }
 
-// node_modules/.pnpm/@eigenpal+docx-editor-agents@1.8.3_patch_hash=0721fac7fa42bef9585ae9d1ec7cedab4b4156f87_7528ec917ae27a9400f086f6542d1bed/node_modules/@eigenpal/docx-editor-agents/dist/chunk-52DPIL2H.mjs
+// node_modules/.pnpm/@eigenpal+docx-editor-agents@1.8.3_patch_hash=52c2093040a47cfc3376ed309b8eb188067bebe35_7a01f8261f672cbf795b477d7821c0cb/node_modules/@eigenpal/docx-editor-agents/dist/chunk-52DPIL2H.mjs
 init_chunk_LPCN5G3A();
 function R4(o3, e2) {
   let { paragraphIndex: t, author: n = "AI", text: r, search: a } = e2, s = R3(o3, t), i2 = (o3.comments ?? []).map((m4) => m4.id), p3 = i2.length > 0 ? Math.max(...i2) + 1 : 1, u3 = { id: p3, author: n, date: (/* @__PURE__ */ new Date()).toISOString(), content: [{ type: "paragraph", content: [{ type: "run", content: [{ type: "text", text: r }] }], formatting: {} }] };
@@ -36525,7 +36533,7 @@ var X4 = class o {
   }
 };
 
-// node_modules/.pnpm/@eigenpal+docx-editor-agents@1.8.3_patch_hash=0721fac7fa42bef9585ae9d1ec7cedab4b4156f87_7528ec917ae27a9400f086f6542d1bed/node_modules/@eigenpal/docx-editor-agents/dist/chunk-MSKW7E36.mjs
+// node_modules/.pnpm/@eigenpal+docx-editor-agents@1.8.3_patch_hash=52c2093040a47cfc3376ed309b8eb188067bebe35_7a01f8261f672cbf795b477d7821c0cb/node_modules/@eigenpal/docx-editor-agents/dist/chunk-MSKW7E36.mjs
 var c2 = ["single", "words", "double", "thick", "dotted", "dottedHeavy", "dash", "dashedHeavy", "dashLong", "dashLongHeavy", "dotDash", "dashDotHeavy", "dotDotDash", "dashDotDotHeavy", "wave", "wavyHeavy", "wavyDouble", "none"];
 var o2 = ["black", "blue", "cyan", "darkBlue", "darkCyan", "darkGray", "darkGreen", "darkMagenta", "darkRed", "darkYellow", "green", "lightGray", "magenta", "red", "white", "yellow", "none"];
 var p2 = { name: "apply_formatting", displayName: "Applying formatting", description: 'Apply character formatting (bold, italic, underline, strike, color, highlight, font size, font family) to a paragraph or to a unique phrase within it. Pass `search` to scope the change to part of the paragraph; omit it to format the whole paragraph. Direct edit \u2014 does not create a tracked change. Pass `false` to clear a mark; omit a key to leave it untouched. Color uses `{rgb: "FF0000"}` (no hash) or `{themeColor: "accent1"}`. Font size is in points. Font family takes `{ascii, hAnsi}`.', inputSchema: { type: "object", properties: { paraId: { type: "string", description: "Paragraph id from read_document / find_text." }, search: { type: "string", description: "Optional: format only this exact phrase within the paragraph (must be unique)." }, marks: { type: "object", description: "Marks to set or clear. Omit a key to leave it untouched.", properties: { bold: { type: "boolean" }, italic: { type: "boolean" }, underline: { description: 'true \u2192 single underline; false \u2192 clear; or { style: "single"|"double"|"thick"|"dotted"|"dottedHeavy"|"dash"|"dashedHeavy"|"dashLong"|"dashLongHeavy"|"dotDash"|"dashDotHeavy"|"dotDotDash"|"dashDotDotHeavy"|"wave"|"wavyHeavy"|"wavyDouble"|"words"|"none" }. Other values are rejected.' }, strike: { type: "boolean" }, color: { type: "object", description: 'Either {rgb: "RRGGBB"} (no hash) or {themeColor: "accent1"|"text1"|...}.', properties: { rgb: { type: "string" }, themeColor: { type: "string" } } }, highlight: { type: "string", enum: [...o2], description: "Highlight color \u2014 must be one of the Word-supported names: " + o2.join(", ") + '. Pass "none" to clear. Hex values are rejected (Word does not accept hex for <w:highlight>).' }, fontSize: { type: "number", description: "Size in points (e.g. 12, 14, 24)." }, fontFamily: { type: "object", properties: { ascii: { type: "string" }, hAnsi: { type: "string" } } } } } }, required: ["paraId", "marks"] }, handler: (e2, r) => {
