@@ -1,3 +1,4 @@
+import { risStatus, saveRisSettings, testRisConnection } from "../extensions/ris.js";
 import { appendFile, mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 import { EnvStoreReadError, InvalidEnvKeyError, isValidEnvKey, type EnvService } from "../env-file.js";
@@ -91,10 +92,13 @@ export function registerCoreRoutes(options: RegisterCoreRoutesOptions): void {
     opencodeVersion,
     uptimeMs: Date.now() - config.startedAt,
     ...(config.engineProjectTrustRequired && (config.workspaces[0]?.path || config.managedEngineStatus)
-      ? { engine: { status: config.managedEngineStatus ?? (config.managedEngineStarting === false && config.opencodeBaseUrl ? "ready" : "starting") } } : {}),
+      ? { engine: { status: config.managedEngineStatus === "error" ? "error"
+        : config.projectStorageMigrating || config.migrationProgress?.status === "running" ? "migrating"
+        : config.managedEngineStatus ?? (config.managedEngineStarting === false && config.opencodeBaseUrl ? "ready" : "starting") } } : {}),
   });
 
   addRoute(routes, "GET", "/health", "none", async () => healthResponse());
+  addRoute(routes, "GET", "/migration/progress", "client", async () => jsonResponse({ migration: config.migrationProgress ?? null }));
 
   // Local support export spans chats, so ordinary workspace/client tokens cannot access it.
   addRoute(routes, "POST", "/diagnostics/export", "host-token", async (ctx) => {
@@ -294,8 +298,13 @@ export function registerCoreRoutes(options: RegisterCoreRoutesOptions): void {
     const body = await readJsonBody(ctx.request);
     return jsonResponse(await callExperimentalExtensionAction(config, env, body, {
       personalConnections: ctx.actor?.scope === "owner" || hasConnectorRuntimeCapability(config, ctx.request),
+      signal: ctx.request.signal,
     }));
   });
+
+  addRoute(routes, "GET", "/integrations/ris", "client", async () => jsonResponse(await risStatus(config)));
+  addRoute(routes, "PUT", "/integrations/ris", "host", async ctx => jsonResponse(await saveRisSettings(config, await readJsonBody(ctx.request))));
+  addRoute(routes, "POST", "/integrations/ris/test", "host", async ctx => jsonResponse(await testRisConnection(config, ctx.request.signal)));
 
   addRoute(routes, "GET", "/experimental/google-workspace/status", "client", async () => {
     return jsonResponse(await googleWorkspaceStatus(config));

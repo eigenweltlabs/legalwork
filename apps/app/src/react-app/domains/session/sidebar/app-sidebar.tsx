@@ -8,7 +8,6 @@ import { projectViewLabel } from "../panel/side-panel";
 import type { AssistantProfile } from "@legalwork/types/main-assistant";
 /** @jsxImportSource react */
 import * as React from "react";
-import { StatusDot } from "@legalwork/ui/react";
 import legalworkMarkDark from "@/assets/legalwork-mark-dark.svg";
 import {
   Search,
@@ -130,7 +129,7 @@ import {
 } from "./session-management-store";
 import { cn } from "@/lib/utils";
 import { WorkspaceIcon } from "../../../design-system/workspace-icon";
-import { getSessionActivityStatusLabel, type SessionActivityStatus } from "../status/session-activity-store";
+import { UnreadDot, SessionInboxIndicators, SessionStatusIndicator, isSessionActivityStatus, type SessionStatusIndicatorProps } from "@/components/chat/session-inbox-indicators";
 import { DEFAULT_SHELL_CONFIG, useShellConfig, type ShellWindowNavKey } from "../../../shell/shell-config";
 import { allProjectSessions, SessionProjectHover } from "./session-project-hover";
 import { SidebarCustomization, SIDEBAR_ITEMS } from "./sidebar-customization";
@@ -139,15 +138,12 @@ import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { MainActionRail, type MainRailActions } from "./main-action-rail";
 import { EigenweltAccountMenu } from "./eigenwelt-account-menu";
 import { ProjectFolderIcon } from "../../workspace/project-sync";
+import { useProjectRemoving } from "@/app/lib/project-removal-state";
 import { projectSectionGroups, reorderProjectSection } from "./project-sections";
 import { useProjectSyncStore } from "../../workspace/project-sync-store";
 import { unreadSession, unreadWorkspace, runningWorkspace, useSessionInboxStore } from "./session-inbox-store";
 import { workspaceServerId } from "@/app/lib/workspace-endpoint";
 import { useProjectFavoritesStore } from "../../workspace/project-favorites-store";
-
-function UnreadDot({ unread, className }: { unread: boolean; className?: string }) {
-  return unread ? <span className={cn("inline-block size-1.5 shrink-0 rounded-full bg-blue-11", className)} role="img" aria-label={t("sidebar.unread_reply")} title={t("sidebar.unread_reply")} /> : null;
-}
 
 function useUnreadChats(sessions: SessionListItem[]) {
   return useSessionInboxStore(state => sessions.some(session => !isSessionArchived(session) && unreadSession(state, session.id)));
@@ -158,76 +154,6 @@ function ScheduledSessionIcon({ sessionId }: { sessionId: string }) {
   return automated ? <span className="flex size-3.5 shrink-0 items-center justify-center">
     <Clock strokeWidth={1.5} className="size-3.5! text-muted-foreground" role="img" aria-label={t("sidebar.automated_chat")}><title>{t("sidebar.automated_chat")}</title></Clock>
   </span> : null;
-}
-
-function SessionInboxIndicators({ unread, status, isStreaming, isActive }: SessionStatusIndicatorProps & { unread: boolean }) {
-  if (!unread && !isStreaming && !isActive) return null;
-  return <span className="pointer-events-none flex shrink-0 items-center gap-2">
-    <SessionStatusIndicator status={status} isStreaming={isStreaming} isActive={isActive} />
-    {unread && !isStreaming && !isActive && <span className="flex size-3.5 shrink-0 items-center justify-center"><UnreadDot unread /></span>}
-  </span>;
-}
-
-interface SessionStatusIndicatorProps {
-  className?: string;
-  status?: string;
-  isStreaming: boolean;
-  isActive: boolean;
-}
-
-function SessionStatusIndicator({ className, status, isStreaming, isActive }: SessionStatusIndicatorProps) {
-  const activityTitle = isSessionActivityStatus(status) && status !== "idle"
-    ? getSessionActivityStatusLabel(status)
-    : undefined;
-  const title = activityTitle ?? (isStreaming ? t("workspace_list.session_streaming") : t("workspace_list.session_active"));
-
-  // A pending permission or question is not progress. The run has stopped and
-  // the user is the only thing that can move it, so it reads as attention
-  // rather than activity: a pulsing amber dot, the same idiom the chat status
-  // bar already uses, instead of a fourth spinner that only differs in hue.
-  if (status === "waiting") {
-    return (
-      <span
-        className={cn("flex size-3.5 shrink-0 items-center justify-center", className)}
-        title={title}
-        aria-label={title}
-      >
-        <StatusDot tone="warning" size="sm" pulse />
-      </span>
-    );
-  }
-
-  if (isStreaming) {
-    return (
-      <span
-        className={cn(
-          "flex size-3.5 shrink-0 items-center justify-center",
-          status === "error" && "text-red-9",
-          className,
-        )}
-        title={title}
-        aria-label={title}
-      >
-        <Loader2 className="size-3.5 animate-spin" />
-      </span>
-    );
-  }
-
-  if (isActive) {
-    return (
-      <span
-        className={cn(
-          "size-1.5 shrink-0 rounded-full bg-foreground/45",
-          status === "error" && "bg-red-9",
-          className,
-        )}
-        title={title}
-        aria-label={title}
-      />
-    );
-  }
-
-  return null;
 }
 
 function useCanManageSession() {
@@ -572,6 +498,7 @@ export type AppSidebarProps = {
   onOpenProjectFiles: (workspaceId: string) => void;
   projectFilesOpen?: boolean;
   onOpenNavWindow?: (key: ShellWindowNavKey) => void;
+  onOpenSettings?: () => void;
   onOpenProjectWindow?: SidebarContextValue["onOpenProjectWindow"];
   activeProjectView?: SidebarContextValue["activeProjectFeature"];
   showSessionActions?: boolean;
@@ -606,7 +533,7 @@ export type AppSidebarProps = {
    */
   onShowTasks?: () => void;
   /** Which main-pane nav tab is currently shown (shades it like hover). */
-  activeNav?: "wikis" | "scheduled" | "calendar" | "evals" | "workflows" | "extensions" | "recorder" | "tasks" | null;
+  activeNav?: "wikis" | "scheduled" | "calendar" | "evals" | "workflows" | "extensions" | "recorder" | "tasks" | "back-office" | null;
   onReorderWorkspaces?: (workspaceIds: string[]) => void;
   onStartResize?: React.PointerEventHandler<HTMLButtonElement>;
 };
@@ -619,10 +546,6 @@ function useSessionTree(
     () => buildSessionTreeState(sessions, sessionStatusById),
     [sessions, sessionStatusById],
   );
-}
-
-function isSessionActivityStatus(status: string | undefined): status is SessionActivityStatus {
-  return status === "idle" || status === "thinking" || status === "responding" || status === "error" || status === "compacting" || status === "waiting";
 }
 
 // Primary nav rows (Workflows / Integrations / Evals): smooth color fade on
@@ -866,7 +789,7 @@ function AppSidebarContent(props: AppSidebarProps) {
         className="group/project-sidebar mac:**:data-[sidebar=sidebar]:bg-transparent"
       >
         <div className="flex min-h-0 flex-1">
-        {(!customizingNavigation || collapsed) && <MainActionRail actions={actions} onOpenWindow={props.onOpenNavWindow} unreadTasks={unreadTasks}>
+        {(!customizingNavigation || collapsed) && <MainActionRail actions={actions} onOpenWindow={props.onOpenNavWindow} onOpenSettings={props.onOpenSettings} unreadTasks={unreadTasks}>
           <EigenweltAccountMenu client={props.accountClient} workspaceId={props.selectedWorkspaceId} />
         </MainActionRail>}
         <div className={cn("lw-chat-sidebar flex min-h-0 min-w-0 flex-1 flex-col group-data-[collapsible=icon]:hidden", props.assistantActive && "hidden")}>
@@ -1060,6 +983,7 @@ function WorkspaceSidebarGroup({
 }: WorkspaceSidebarGroupProps) {
   const ctx = useSidebarContext();
   const workspace = group.workspace;
+  const removing = useProjectRemoving(workspace.id);
   const unread = useUnreadChats(group.sessions);
   const backgroundRunning = useSessionInboxStore(state => runningWorkspace(state, workspaceServerId(workspace)));
   const isConnecting = ctx.connectingWorkspaceId === workspace.id;
@@ -1078,6 +1002,7 @@ function WorkspaceSidebarGroup({
 
 
   const statusLabel = (() => {
+    if (removing) return t("catalog.removing");
     if (connectionState.status === "error") return connectionState.message?.trim() || taskLoadError.message;
     if (group.status === "error") return taskLoadError.label;
     if (isConnectionActionBusy) return t("workspace_list.connecting");
@@ -1094,7 +1019,7 @@ function WorkspaceSidebarGroup({
         <SidebarMenu>
           <Collapsible
             render={<SidebarMenuItem />}
-            open={isExpanded}
+            open={isExpanded && !removing}
             onOpenChange={() => ctx.toggleWorkspaceExpanded(workspace.id)}
             className="group/collapsible"
           >
@@ -1105,12 +1030,14 @@ function WorkspaceSidebarGroup({
                 isActive={isSelected}
                 aria-current={isSelected ? "location" : undefined}
                 statusLabel={statusLabel}
-                isError={group.status === "error"}
-                isLoading={group.status === "loading" || isConnecting}
+                disabled={removing}
+                aria-busy={removing}
+                isError={!removing && group.status === "error"}
+                isLoading={removing || group.status === "loading" || isConnecting}
                 isRunning={backgroundRunning || group.sessions.some((session) => isStreamingSessionStatus(ctx.sessionStatusById?.[session.id]))}
-                onTitlePointerDown={onWorkspaceTitlePointerDown}
+                onTitlePointerDown={removing ? undefined : onWorkspaceTitlePointerDown}
               /></ProjectFileDropTarget>
-              <div data-workspace-actions className="group/workspace-actions absolute right-16 top-1/2 flex -translate-y-1/2 items-center gap-1">
+              {!removing && <div data-workspace-actions className="group/workspace-actions absolute right-16 top-1/2 flex -translate-y-1/2 items-center gap-1">
                 {isExpanded && <Button
                   variant="ghost"
                   size="icon"
@@ -1129,13 +1056,14 @@ function WorkspaceSidebarGroup({
                   workspace={workspace}
                   className="size-6 text-muted-foreground opacity-0 group-hover/workspace-header:opacity-100 group-focus-within/workspace-header:opacity-100 [@media(hover:none)]:opacity-100 data-popup-open:opacity-100"
                 />
-              </div>
+              </div>}
               <Button
                 variant="ghost"
                 size="icon"
                 className="absolute right-2 top-1/2 size-6 -translate-y-1/2 text-muted-foreground flex items-center justify-center group/expand-collapse-button"
                 aria-label={isExpanded ? t("sidebar.collapse") : t("sidebar.expand")}
                 aria-expanded={isExpanded}
+                disabled={removing}
                 onClick={(e) => {
                   e.stopPropagation();
                   ctx.toggleWorkspaceExpanded(workspace.id);

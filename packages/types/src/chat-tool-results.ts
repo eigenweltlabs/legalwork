@@ -5,7 +5,6 @@ import { CalculationCardSchema } from "./calculation.js";
 import { EmailDraftSchema } from "./email-draft.js";
 import { CalendarEventDraftSchema } from "./calendar-event-draft.js";
 import { ScheduledTaskSchema } from "./scheduled-tasks.js";
-import { projectContentsSchema } from "./workspace.js";
 import { WikiSuggestionSchema } from "./wiki-suggestions.js";
 import { ViewPreviewSchema, ViewRecordSchema } from "./views.js";
 import { AssistantDelegationResultSchema, AssistantNameResultSchema, AssistantReactionResultSchema, AssistantSharedFileResultSchema } from "./main-assistant.js";
@@ -24,7 +23,6 @@ const schemas: Record<string, z.ZodType> = {
   legalwork_email_draft: email, legalwork_email_draft_update: email,
   legalwork_calendar_event_draft: calendar, legalwork_calendar_event_draft_update: calendar,
   legalwork_schedule_create: z.object({ task: ScheduledTaskSchema }), legalwork_schedule_update: z.object({ task: ScheduledTaskSchema }),
-  legalwork_project_list: projectContentsSchema,
   legalwork_task_create: z.object({ ok: z.literal(true), task: z.object({ id: z.string().min(1), title: z.string().nullable().optional(), origin: z.enum(["desktop", "intake"]) }) }),
   wiki_suggest: z.object({ suggestion: WikiSuggestionSchema }), wiki_suggestion_update: z.object({ suggestion: WikiSuggestionSchema }), wiki_write: z.object({ suggestion: WikiSuggestionSchema }),
   view_create: ViewPreviewSchema, view_update: ViewPreviewSchema, view_read: z.object({ view: ViewRecordSchema }),

@@ -1,4 +1,4 @@
-import { projectRemoteSchema } from "./project-schema.js";
+import { projectFieldSchema, projectRemoteSchema } from "./project-schema.js";
 import { dirname } from "node:path";
 import type { ProjectSyncConflict, ProjectSyncSettings, ProjectSyncSkipped } from "@legalwork/types/workspace";
 import { z } from "zod";
@@ -21,6 +21,10 @@ import { MAX_CUSTOM_INSTRUCTIONS_LENGTH } from "./runtime-opencode-config-store.
  */
 
 export const PROJECT_SYNC_SCHEMA = [
+  `CREATE TABLE IF NOT EXISTS project_copy_ownership (
+    workspace_id TEXT PRIMARY KEY NOT NULL, project_id TEXT NOT NULL,
+    content_path TEXT NOT NULL, content_removed INTEGER NOT NULL DEFAULT 0
+  )`,
   // A local project (workspace) that syncs, and how. `origin` says where it
   // began: `local` on this machine (its folder is the user's own), `remote`
   // pulled from the firm (its folder was made by sync).
@@ -175,14 +179,7 @@ export const projectSyncSettingsSchema = z.object({
   scope: scopeSchema,
 });
 
-const fieldSchema = z.object({
-  id: z.string(),
-  label: z.string(),
-  labelSource: z.enum(["suggested", "custom"]).optional(),
-  type: z.enum(["text", "number", "date", "select"]),
-  value: z.union([z.string(), z.number(), z.null()]),
-  options: z.array(z.string()).optional(),
-});
+const fieldSchema = projectFieldSchema;
 
 const fieldChangeSchema = z.object({ id: z.string(), field: fieldSchema.nullable() });
 export type FieldChange = z.infer<typeof fieldChangeSchema>;
@@ -306,6 +303,18 @@ function toLink(row: Row): ProjectLink {
 export class ProjectSyncStore {
   private constructor(private readonly db: SqliteHandle) {}
 
+  ownedCopy(workspaceId: string) {
+    const row = this.db.get("SELECT project_id,content_path,content_removed FROM project_copy_ownership WHERE workspace_id=?", [workspaceId]);
+    return row ? { projectId: text(row.project_id), contentPath: text(row.content_path), contentRemoved: row.content_removed === 1 } : null;
+  }
+  ownCopy(workspaceId: string, projectId: string, contentPath: string) {
+    const prior = this.ownedCopy(workspaceId);
+    if (prior && (prior.projectId !== projectId || prior.contentPath !== contentPath)) throw new Error("The downloaded project's saved content ownership does not match this folder.");
+    this.db.run("INSERT INTO project_copy_ownership (workspace_id,project_id,content_path) VALUES (?,?,?) ON CONFLICT(workspace_id) DO NOTHING", [workspaceId, projectId, contentPath]);
+  }
+  markCopyContentRemoved(workspaceId: string) { this.db.run("UPDATE project_copy_ownership SET content_removed=1 WHERE workspace_id=?", [workspaceId]); }
+  releaseCopy(workspaceId: string) { this.db.run("DELETE FROM project_copy_ownership WHERE workspace_id=?", [workspaceId]); }
+
   static async open(path: string): Promise<ProjectSyncStore> {
     await ensureDir(dirname(path));
     const db = await openSqlite(path);
@@ -378,7 +387,7 @@ export class ProjectSyncStore {
   /** The project no longer syncs here: its link, compared state and kept conflicts go. */
   removeLink(workspaceId: string): void {
     const link = this.linkByWorkspace(workspaceId);
-    if (!link) return;
+    if (!link) { this.releaseCopy(workspaceId); return; }
     this.db.run("DELETE FROM project_file_base WHERE project_id = ?", [link.projectId]);
     this.db.run("DELETE FROM project_file_base_text WHERE project_id = ?", [link.projectId]);
     this.db.run("DELETE FROM project_review_base WHERE project_id = ?", [link.projectId]);
@@ -387,6 +396,7 @@ export class ProjectSyncStore {
     this.db.run("DELETE FROM project_conflicts WHERE project_id = ?", [link.projectId]);
     this.db.run("DELETE FROM project_recording_exports WHERE project_id = ?", [link.projectId]);
     this.db.run("DELETE FROM project_links WHERE workspace_id = ?", [workspaceId]);
+    this.releaseCopy(workspaceId);
   }
 
   // --- Outbox ------------------------------------------------------------------

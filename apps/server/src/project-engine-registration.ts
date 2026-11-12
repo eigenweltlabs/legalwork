@@ -1,17 +1,22 @@
 import { ApiError } from "./errors.js";
 import { writeLegalworkRuntimeConfigFile } from "./legalwork-runtime-config.js";
-import type { ServerConfig } from "./types.js";
+import type { ServerConfig, WorkspaceInfo } from "./types.js";
 
 const publications = new WeakMap<ServerConfig, Promise<void>>();
 
 /** Initial engine startup builds the registry. Later project mutations must
  * publish their native configuration before their first task can be admitted. */
-export function commitRegisteredEngineProjects<T>(config: ServerConfig, save: () => Promise<T>): Promise<T> {
+export function commitRegisteredEngineProjects<T>(config: ServerConfig, save: () => Promise<T>, workspace?: WorkspaceInfo): Promise<T> {
   const previous = publications.get(config);
   const operation = (async () => {
     await previous?.catch(() => {});
     const result = await save();
-    try { if (config.engineConfigurationMode && config.opencodeBaseUrl) await writeLegalworkRuntimeConfigFile(config, config.workspaces[0]?.id ?? ""); }
+    try {
+      if (config.engineConfigurationMode && config.opencodeBaseUrl) {
+        await writeLegalworkRuntimeConfigFile(config, workspace?.id ?? config.workspaces[0]?.id ?? "", workspace);
+        if (!workspace || workspace.previousPath) await config.migrateProjectStorageSessions?.(workspace);
+      }
+    }
     catch (cause) {
       const error = new ApiError(503, "project_engine_setup_failed", "The project was saved, but its AI configuration could not be applied. Retry project setup before sending a task.");
       error.cause = cause;

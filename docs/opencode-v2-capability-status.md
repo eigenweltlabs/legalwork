@@ -1,5 +1,17 @@
 # Engine and capability acceptance status
 
+History-loading follow-up, 10 November: derivative `2.1.4-legalwork.http-policy.6` adds an opt-in display representation for source-backed PDFs in completed read-tool history. Both chat snapshots and their checklist scan use it; canonical history, single-message reads and model context remain complete. Images and inline-only PDFs retain their data. The [source receipt](patches/opencode-2.1.4-history-file-references.receipt.json) records 218 passing source regressions and both native type checks. Actual Windows app acceptance is recorded with the history-loading PR. Earlier checkpoints below describe their own snapshots.
+
+Project-storage follow-up, 8 November: the reviewed derivative is now
+`2.1.4-legalwork.http-policy.5`, still based on the frozen OpenCode 2.1.4 commit
+and dependency graph. A separate native `session.relocate` endpoint changes an
+inactive chat's placement without executing queued input or clearing interrupted
+recovery. Normal interactive moves and native file-tool resolution stay intact.
+The combined source receipt is [recorded here](patches/opencode-2.1.4-project-relocation.receipt.json).
+Source regressions/typechecks and the macOS ARM64 runtime reproduction pass;
+cross-platform and packaged acceptance remain separate gates. Earlier results
+below describe their recorded snapshots and do not certify this derivative.
+
 Current debug follow-up, 28 October (LW-287): native project loading replaces
 shared-only reconstruction, as agreed with the user. No project-automation
 approval UI or endpoint remains. The shared capability library, native project
@@ -64,6 +76,23 @@ agents and five document commands are present in both the released-engine fixtur
 and the restarted real dev app. Managed projects no longer receive new core
 copies; existing project and personal files remain untouched. Full helper assets
 and generation settings are retained.
+
+Follow-up, 5 November: desktop `native-project` startup already used the shared
+bundle, but registration and first project access still seeded project copies.
+All three entry points now leave those copies alone. Known bundle receipts
+classify complete skill packages and standalone agents/commands: unchanged
+copies yield to the private library; edited, linked, incomplete, cloud-only or
+unknown packages retain their project selection. Existing project copies are
+neither moved nor deleted. Explicit skill edits create a complete custom copy.
+
+Skill discovery supplies the same selected paths to the native engine, API and
+sandbox mounts. The native command adapter omits verified old shortcuts. An
+agent declaration adapter retains the pinned ConfigAgent source order, native
+schema, permission fold and Markdown watching, omitting only verified old app
+copies; the unfiltered `opencode.config.agent` loader is disabled. Project
+configuration, custom plugins, MCP, providers and other native agent providers
+retain their existing ownership. Pinned-engine tests exercise older defaults,
+custom overrides, shared updates, live agent edits and unchanged project files.
 
 Managed MCP definitions have one location-scoped owner. Recovery reads that same
 managed selection; unchanged status refreshes do not wait for a new connection.

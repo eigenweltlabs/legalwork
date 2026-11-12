@@ -7,6 +7,7 @@ import { startServer } from "../server.js";
 import type { ServerConfig } from "../types.js";
 import { ensureWikiAgentToken, grantWikiAgentSession, revokeWikiAgentSession } from "./agent-access.js";
 import { waitForApprovals, respondApproval } from "./approval.test-helpers.js";
+import { prepareLocalProjects } from "../project-storage.js";
 
 const cleanup: Array<() => Promise<void> | void> = [];
 afterEach(async () => { for (const stop of cleanup.splice(0).reverse()) await stop(); });
@@ -18,14 +19,16 @@ async function fixture() {
   const config: ServerConfig = { host: "127.0.0.1", port: 0, token: "client", hostToken: "host", configPath: join(root, "server.json"),
     approval: { mode: "auto", timeoutMs: 3000 }, corsOrigins: ["*"], workspaces: [{ id: "matter", name: "Matter", path: project, preset: "starter", workspaceType: "local" }],
     authorizedRoots: [root], readOnly: false, startedAt: Date.now(), tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false };
+  config.projectsDirectory = join(root, "homes");
+  await prepareLocalProjects(config);
   const token = await ensureWikiAgentToken(config), server = await startServer(config);
   cleanup.push(() => server.stop()); const url = `http://127.0.0.1:${server.port}`;
   const host = (path: string, method = "GET", body?: unknown) => fetch(`${url}${path}`, { method, headers: { "x-legalwork-host-token": config.hostToken, "content-type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
-  const { wiki } = z.object({ wiki: z.object({ id: z.string(), root: z.string() }) }).parse(await (await host("/wikis", "POST", { name: "Knowledge", root: join(root, "Knowledge"), template: "blank" })).json());
-  for (const sessionId of ["chat", "other"]) await grantWikiAgentSession(config, { sessionId, directory: wiki.root, scope: "owner" });
+  const { wiki } = z.object({ wiki: z.object({ id: z.string(), root: z.string(), engineDirectory: z.string() }) }).parse(await (await host("/wikis", "POST", { name: "Knowledge", root: join(root, "Knowledge"), template: "blank" })).json());
+  for (const sessionId of ["chat", "other"]) await grantWikiAgentSession(config, { sessionId, directory: wiki.engineDirectory, scope: "owner" });
   const base = `/wikis/${wiki.id}/sessions/chat/projects`;
   const agent = (path: string, method = "GET", session = "chat") => fetch(`${url}${path}`, { method, headers: {
-    "x-legalwork-wiki-agent-token": token, "x-legalwork-wiki-agent-session": session, "x-legalwork-wiki-agent-directory": encodeURIComponent(wiki.root),
+    "x-legalwork-wiki-agent-token": token, "x-legalwork-wiki-agent-session": session, "x-legalwork-wiki-agent-directory": encodeURIComponent(wiki.engineDirectory),
   } });
   const requestAccess = async (reply: "allow" | "deny") => {
     const response = agent(`${base}/matter/access`, "POST");
@@ -62,9 +65,9 @@ test("approved project tools reject traversal, symlink escape, writes and broad 
 
 test("scope changes and deleted chats revoke grants; revoke while approval is pending cannot regrant", async () => {
   const f = await fixture(); expect((await f.requestAccess("allow")).status).toBe(200);
-  await grantWikiAgentSession(f.config, { sessionId: "chat", directory: f.wiki.root, scope: "collaborator" });
+  await grantWikiAgentSession(f.config, { sessionId: "chat", directory: f.wiki.engineDirectory, scope: "collaborator" });
   expect([403, 404]).toContain((await f.agent(`${f.base}/matter/read?path=note.txt`)).status);
-  await grantWikiAgentSession(f.config, { sessionId: "chat", directory: f.wiki.root, scope: "owner" });
+  await grantWikiAgentSession(f.config, { sessionId: "chat", directory: f.wiki.engineDirectory, scope: "owner" });
   const pending = f.agent(`${f.base}/matter/access`, "POST");
   const [approval] = await waitForApprovals(f.url, f.config.hostToken);
   expect((await f.host(`${f.base}/matter/access`, "DELETE")).status).toBe(200);

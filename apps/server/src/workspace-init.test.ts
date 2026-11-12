@@ -1,10 +1,11 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import { mkdtemp, readFile, rm, writeFile, mkdir, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
-import { ensureWorkspaceFiles } from "./workspace-init.js";
+import { ensureWorkspaceFiles, ensureCoreOpencodeFiles } from "./workspace-init.js";
 import { legalworkExtensionsPreviewPluginPath, legalworkPluginPath } from "./legalwork-extensions-plugin-path.js";
+import * as availability from "./project-availability.js";
 
 async function withWorkspace(fn: (root: string) => Promise<void>) {
   const root = await mkdtemp(join(tmpdir(), "legalwork-workspace-init-"));
@@ -16,16 +17,27 @@ async function withWorkspace(fn: (root: string) => Promise<void>) {
 }
 
 describe("ensureWorkspaceFiles", () => {
+  test("legacy migration initialization avoids pinning the whole support tree", async () => {
+    const pin = spyOn(availability, "keepProjectStateDownloaded").mockResolvedValue();
+    try {
+      await withWorkspace(async root => {
+        await ensureWorkspaceFiles(root, "starter", { skipCloudPin: true });
+        expect(pin).not.toHaveBeenCalled();
+        await ensureWorkspaceFiles(root, "starter");
+        expect(pin).toHaveBeenCalledWith(root);
+      });
+    } finally { pin.mockRestore(); }
+  });
   test("managed projects keep metadata without seeding or overwriting bundled capability copies", async () => {
     await withWorkspace(async root => {
-      await ensureWorkspaceFiles(root, "starter", { bundledCore: false });
+      await ensureWorkspaceFiles(root, "starter");
       expect(await readFile(join(root, ".opencode", "legalwork.json"), "utf8")).toContain('"authorizedRoots"');
       expect(await stat(join(root, ".opencode", "skills")).catch(() => null)).toBeNull();
       expect(await stat(join(root, ".opencode", "agents")).catch(() => null)).toBeNull();
       expect(await stat(join(root, ".opencode", "commands")).catch(() => null)).toBeNull();
       const oldCopy = join(root, ".opencode", "skills", "docx-edit", "SKILL.md");
       await mkdir(dirname(oldCopy), { recursive: true }); await writeFile(oldCopy, "Preserve this existing copy.");
-      await ensureWorkspaceFiles(root, "starter", { bundledCore: false });
+      await ensureWorkspaceFiles(root, "starter");
       expect(await readFile(oldCopy, "utf8")).toBe("Preserve this existing copy.");
     });
   });
@@ -36,9 +48,10 @@ describe("ensureWorkspaceFiles", () => {
       expect(await stat(disconnected).catch(() => null)).toBeNull();
     });
   });
-  test("creates LegalWork workspace config and seeds bundled-core skills", async () => {
+  test("the private library seeds bundled-core skills independently of project initialization", async () => {
     await withWorkspace(async (root) => {
-      const result = await ensureWorkspaceFiles(root, "starter");
+      await ensureWorkspaceFiles(root, "starter");
+      const reloadReasons = await ensureCoreOpencodeFiles(root);
       const legalwork = await readFile(join(root, ".opencode", "legalwork.json"), "utf8");
       await expect(readFile(join(root, "opencode.jsonc"), "utf8")).rejects.toThrow();
       expect(legalwork).toContain('"authorizedRoots"');
@@ -53,11 +66,11 @@ describe("ensureWorkspaceFiles", () => {
       await expect(stat(join(root, ".opencode", "skills", "pdf-tools", "assets", "vendor", "pdf.min.js"))).resolves.toBeDefined();
       await expect(stat(join(root, ".opencode", "agents", "document-extractor.md"))).resolves.toBeDefined();
       await expect(stat(join(root, ".opencode", "agents", "fusion-candidate.md"))).resolves.toBeDefined();
-      expect([...result.reloadReasons].sort()).toEqual(["agents", "commands", "skills"]);
+      expect([...reloadReasons].sort()).toEqual(["agents", "commands", "skills"]);
 
       // idempotent: a second ensure writes nothing
-      const secondResult = await ensureWorkspaceFiles(root, "starter");
-      expect(secondResult).toEqual({ changed: false, reloadReasons: [] });
+      const secondResult = await ensureCoreOpencodeFiles(root);
+      expect(secondResult).toEqual([]);
     });
   });
 
@@ -104,26 +117,25 @@ describe("ensureWorkspaceFiles", () => {
       const agent = await readFile(join(root, ".opencode", "agents", "legalwork.md"), "utf8");
       expect(agent).toContain("Old instructions");
       expect(agent).not.toContain("LegalWork Artifacts");
-      // seeding the bundled-core extractor must not touch the pre-existing legalwork agent
-      expect([...result.reloadReasons].sort()).toEqual(["agents", "commands", "skills"]);
+      expect(result.reloadReasons).toEqual([]);
     });
   });
 
-  test("refreshes a stale bundled-core file (older copy, no stamp)", async () => {
+  test("the private library refreshes a stale bundled file (older copy, no stamp)", async () => {
     await withWorkspace(async (root) => {
       const tpl = join(root, ".opencode", "skills", "pdf-tools", "SKILL.md");
       await mkdir(dirname(tpl), { recursive: true });
       await writeFile(tpl, "OLD UGLY TEMPLATE", "utf8");
 
-      const result = await ensureWorkspaceFiles(root, "starter");
+      const result = await ensureCoreOpencodeFiles(root);
       const after = await readFile(tpl, "utf8");
       expect(after).not.toBe("OLD UGLY TEMPLATE");
       expect(after).toContain("pdf-tools");
-      expect(result.reloadReasons).toContain("skills");
+      expect(result).toContain("skills");
 
       // now stamped at the current bundle — a second ensure is a no-op
-      const second = await ensureWorkspaceFiles(root, "starter");
-      expect(second).toEqual({ changed: false, reloadReasons: [] });
+      const second = await ensureCoreOpencodeFiles(root);
+      expect(second).toEqual([]);
     });
   });
 
@@ -133,15 +145,15 @@ describe("ensureWorkspaceFiles", () => {
       await mkdir(dirname(engine), { recursive: true });
       await writeFile(engine, "// old @xmldom/xmldom@0.9.10 engine", "utf8");
       await writeFile(join(root, ".opencode", ".legalwork-core"), "previous-release-bundle", "utf8");
-      const result = await ensureWorkspaceFiles(root, "starter");
+      const result = await ensureCoreOpencodeFiles(root);
       const updated = await readFile(engine, "utf8");
       expect(updated).toContain("@xmldom+xmldom@0.9.12/");
       expect(updated).not.toContain("@xmldom+xmldom@0.9.10/");
       const assets = join(root, ".opencode", "skills", "docx-edit", "assets");
       expect(await readFile(join(assets, "populate-template.py"), "utf8")).toContain("def populate(");
       expect(await readFile(join(assets, "verify-evidence.py"), "utf8")).toContain("def verify(");
-      expect(result.reloadReasons).toContain("skills");
-      expect(await ensureWorkspaceFiles(root, "starter")).toEqual({ changed: false, reloadReasons: [] });
+      expect(result).toContain("skills");
+      expect(await ensureCoreOpencodeFiles(root)).toEqual([]);
     });
   });
 

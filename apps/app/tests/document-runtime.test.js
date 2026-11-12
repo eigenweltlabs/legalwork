@@ -384,6 +384,26 @@ test("automatic file edits preserve selection, queue other tasks, and reload wit
   } finally { stop(); }
 });
 
+test("native engine-relative edits hand off the same content file and leave unrelated editors alone", async () => {
+  const { runtime, clients } = fixture();
+  const project = { projectId: "a", workspaceId: "a", workspaceRoot: "/a", contentRoot: "/a/files", client: clients.a };
+  runtime.setResolver(() => project);
+  const make = path => {
+    const entry = runtime.ensure({ ...project, sessionId: "left", tab: { id: `file:${path}`, type: "artifact", value: path, label: path, preview: "word" }, onClose() {} });
+    entry.registration = { surface: { path, editable: true }, ready: () => true, dirty: () => false, action: { id: "document.agent_tool", execute: async () => ({ ok: true, saved: true }) } };
+    return entry;
+  };
+  const target = make("notes.docx"), other = make("other.docx");
+  const original = target.registration, generation = target.generation;
+  const stop = runtime.subscribe(() => { if (!target.fileEditing && target.generation !== generation) target.registration = original; });
+  try {
+    await runtime.beginFileEdit({ sessionId: "left", operationId: "edit", paths: ["files/notes.docx"] });
+    expect(target.fileEditing).toBe(true); expect(other.fileEditing).toBe(false);
+    await runtime.endFileEdit({ sessionId: "left", operationId: "edit" });
+    expect(target.fileEditing).toBe(false);
+  } finally { stop(); }
+});
+
 test("partial handoff failure restores saved editors and preserves the failing draft", async () => {
   const { runtime, document } = fixture();
   const first = document("a", "first.docx", async () => ({ ok: true, saved: true }));
@@ -442,4 +462,17 @@ test("a shell handoff with no open editor needs no document import",async()=>{
   const {runtime}=fixture();
   expect(await runtime.beginFileEdit({sessionId:"left",operationId:"headless"})).toEqual({ok:true,operationId:"headless"});
   expect(await runtime.endFileEdit({sessionId:"left",operationId:"headless"})).toEqual({ok:true,reloaded:true});
+});
+
+test("the editor opens a verified absolute project file while connected storage keeps relative validation", async () => {
+  const { runtime, document, clients } = fixture();
+  const exact = "/a/engine/report.docx", engine = document("a", exact), content = document("a", "report.docx");
+  const checked = [];
+  clients.a.statWorkspaceFile = async (_workspace, path) => { checked.push(path); return { exists: path === exact, kind: "file" }; };
+  expect(await runtime.open({ sessionId: "left", path: exact })).toMatchObject({ ok: true, path: exact });
+  expect(checked).toEqual([exact]);
+  expect((await runtime.list({ sessionId: "left" })).activeSurface?.path).toBe(exact);
+  expect(runtime.entries.get(engine.key)).toBe(engine); expect(runtime.entries.get(content.key)).toBe(content);
+  await expect(runtime.open({ sessionId: "left", path: "/outside/report.docx" })).rejects.toThrow("not found");
+  await expect(runtime.open({ sessionId: "left", connectionId: "cloud", path: exact })).rejects.toThrow("relative");
 });

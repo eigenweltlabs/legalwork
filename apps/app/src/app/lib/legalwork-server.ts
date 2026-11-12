@@ -1,4 +1,7 @@
+export type RisIntegrationStatus = { enabled: boolean; allowed: boolean; readOnly: boolean; source: string; requiresAuthentication: false };
+import type { BackOfficeDataQuery } from "@legalwork/types/views";
 import { trackLegalMemoryInterfaceRead } from "./legalmemory-interface-activity";
+import { pendingProjectRemoval, waitForProjectRemoval } from "./project-removal-state";
 import { LegalMemoryPermissionsSchema, type LegalMemoryPermissionReply } from "@legalwork/types/legalmemory";
 import type { CalendarEventDraft } from "@legalwork/types/calendar-event-draft";
 import type { EmailDraft } from "@legalwork/types/email-draft";
@@ -27,6 +30,7 @@ import type {
   ProjectContentKind,
   ProjectDetails,
   ProjectField,
+  ProjectRecordReference,
   ProjectTemplateCatalog,
   ProjectSyncOverview,
   ProjectSyncSettings,
@@ -44,6 +48,7 @@ import type { SessionViewReview, ViewSaveSource, ViewInput, ViewOwner, ViewRecor
 import type { SessionInfo, SessionMessageInfo, SessionStatus } from "@opencode/client";
 import { SessionHistoryProvenanceSchema, type SessionHistoryProvenance } from "@legalwork/types/session-history";
 import type { EngineProjectStatus } from "@legalwork/types/engine-project";
+import type { MigrationProgressResponse } from "@legalwork/types/migration-progress";
 import type { ConnectorConfigEdit, ConnectorDisplayItem } from "@legalwork/types/connector-config";
 import { projectSession, projectMessages, type SessionView as Session, type Todo, type MessageView, type SessionSnapshotView } from "./opencode-view";
 import { desktopFetch, desktopReadFetch, desktopStreamFetch } from "./desktop";
@@ -460,7 +465,11 @@ export type LegalworkTaskListParams = {
   deleted?: "only" | "include";
 };
 
+export type BackOfficeLinkChanges = { directoryId: string; userId: string; add: string[]; remove: string[] };
+
 export type LegalworkTaskCreate = {
+  id?: string;
+  backOfficeLinks?: BackOfficeLinkChanges;
   projectId?: string | null;
   title: string;
   description?: string;
@@ -1508,13 +1517,27 @@ async function requestJson<T>(
   const url = `${baseUrl}${path}`;
   const method = options.method ?? "GET";
   const readOnly = method === "GET" || options.readOnly === true;
+  const workspaceId = /^\/workspace\/([^/?]+)/.exec(path)?.[1];
   const body = options.body === undefined ? undefined : JSON.stringify(options.body);
   const timeoutMs = options.timeoutMs ?? DEFAULT_LEGALWORK_SERVER_TIMEOUT_MS;
   const fetchImpl = method === "GET" && isDesktopRuntime() ? desktopReadFetch : resolveFetch(url);
-  const read = () => fetchWithTimeout(fetchImpl, url, {
-    method, headers: buildHeaders(options.token, options.hostToken),
-    body, signal: options.signal,
-  }, timeoutMs, async (response, progress) => ({ ok: response.ok, status: response.status, statusText: response.statusText, text: await readJsonText(response, progress) }));
+  const read = async (): Promise<JsonReply> => {
+    if (readOnly && workspaceId) await waitForProjectRemoval(baseUrl, workspaceId, options.signal);
+    try {
+      const response = await fetchWithTimeout(fetchImpl, url, {
+        method, headers: buildHeaders(options.token, options.hostToken),
+        body, signal: options.signal,
+      }, timeoutMs, async (response, progress) => ({ ok: response.ok, status: response.status, statusText: response.statusText, text: await readJsonText(response, progress) }));
+      if (!readOnly || !workspaceId || !pendingProjectRemoval(baseUrl, workspaceId)) return response;
+    } catch (error) {
+      if (options.signal?.aborted || !readOnly || !workspaceId || !pendingProjectRemoval(baseUrl, workspaceId)) throw error;
+    }
+    // An earlier read can return a 404 after the server unregisters the
+    // project. Do not publish it as a project error during removal. Retry
+    // the read if deletion failed; confirmed deletion cancels it instead.
+    await waitForProjectRemoval(baseUrl, workspaceId, options.signal);
+    return read();
+  };
   // Never share mutations or a caller's cancellation. Only concurrent reads
   // join; there is no result cache, and every caller parses its own value.
   const key = readOnly && !options.signal
@@ -1726,6 +1749,10 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
   };
 
   return {
+    backOffice: (path = "", options: { method?: string; body?: unknown; team?: boolean } = {}) => requestJson<unknown>(baseUrl, `/back-office${path}${path.includes("?") ? "&" : "?"}scope=${options.team === undefined ? "auto" : options.team ? "team" : "local"}`, { token, hostToken, method: options.method, body: options.body, timeoutMs: timeouts.binary }),
+    downloadBackOfficeFile: (recordId: string, fieldId: string, fileId: string, options: { team?: boolean; eventId?: string } = {}) => requestBinary(baseUrl, `/back-office/records/${encodeURIComponent(recordId)}/files/${encodeURIComponent(fieldId)}/${encodeURIComponent(fileId)}?scope=${options.team === undefined ? "auto" : options.team ? "team" : "local"}${options.eventId ? `&eventId=${encodeURIComponent(options.eventId)}` : ""}`, { token, hostToken, timeoutMs: timeouts.binary }),
+    uploadBackOfficeFile: (recordId: string, fieldId: string, name: string, data: ArrayBuffer, objectId: string) => requestJson<unknown>(baseUrl, `/back-office/records/${encodeURIComponent(recordId)}/files/${encodeURIComponent(fieldId)}?scope=auto`, { token, hostToken, method: "POST", body: { name, dataBase64: arrayBufferToBase64(data), objectId }, timeoutMs: timeouts.binary }),
+
     baseUrl,
     token,
     wikiContributions: (wikiId: string) => requestJson<{ items: WikiContribution[]; unavailableProjects: string[] }>(baseUrl, `/wikis/${encodeURIComponent(wikiId)}/suggestions`, { token, hostToken }),
@@ -1764,6 +1791,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     readView: (owner: ViewOwner, id: string) => requestJson<ViewRecord>(baseUrl, `/${owner.kind === "wiki" ? "wikis" : "workspace"}/${encodeURIComponent(owner.id)}/ui-views/${encodeURIComponent(id)}`, { token, hostToken }),
     createView: (owner: ViewOwner, input: ViewInput, savedFrom?: ViewSaveSource) => requestJson<ViewRecord>(baseUrl, `/${owner.kind === "wiki" ? "wikis" : "workspace"}/${encodeURIComponent(owner.id)}/ui-views${savedFrom ? `?source=${encodeURIComponent(JSON.stringify(savedFrom))}` : ""}`, { token, hostToken, method: "POST", body: input }),
     updateView: (owner: ViewOwner, id: string, input: { baseRevision: string; input: ViewInput }, savedFrom?: ViewSaveSource) => requestJson<ViewRecord>(baseUrl, `/${owner.kind === "wiki" ? "wikis" : "workspace"}/${encodeURIComponent(owner.id)}/ui-views/${encodeURIComponent(id)}${savedFrom ? `?source=${encodeURIComponent(JSON.stringify(savedFrom))}` : ""}`, { token, hostToken, method: "PUT", body: input }),
+    queryBackOffice: (query: BackOfficeDataQuery) => requestJson<WikiDataResult>(baseUrl, "/back-office/dashboard-query", { token, hostToken, method: "POST", body: query, readOnly: true }),
     queryWiki: (id: string, query: WikiDataQuery) => requestJson<WikiDataResult>(baseUrl, `/wikis/${encodeURIComponent(id)}/query`, { token, hostToken, method: "POST", body: query, readOnly: true }),
     updateWikiProperties: (id: string, input: { path: string; baseRevision: string; patch: { set: Record<string, string> } }) => requestJson<WikiDocument>(baseUrl, `/wikis/${encodeURIComponent(id)}/properties`, { token, hostToken, method: "PATCH", body: input }),
     wikiFields: (id: string) => requestJson<WikiFields>(baseUrl, `/wikis/${encodeURIComponent(id)}/fields`, { token, hostToken }),
@@ -1788,6 +1816,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     searchWiki: (id: string, query: string, type?: string) => requestJson<{ items: WikiPage[] }>(baseUrl, `/wikis/${encodeURIComponent(id)}/search?q=${encodeURIComponent(query)}${type ? `&type=${encodeURIComponent(type)}` : ""}`, { token, hostToken }),
     health: () =>
       requestJson<{ ok: boolean; version: string; uptimeMs: number; engine?: { status: "starting" | "migrating" | "ready" | "error" } }>(baseUrl, "/health", { token, hostToken, timeoutMs: timeouts.health }),
+    migrationProgress: () => requestJson<MigrationProgressResponse>(baseUrl, "/migration/progress", { token, hostToken, timeoutMs: timeouts.health }),
     runtimeVersions: () =>
       requestJson<LegalworkRuntimeSnapshot>(baseUrl, "/runtime/versions", { token, hostToken, timeoutMs: timeouts.status }),
     status: () => requestJson<LegalworkServerDiagnostics>(baseUrl, "/status", { token, hostToken, timeoutMs: timeouts.status }),
@@ -1879,6 +1908,9 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     sessionSandbox: (workspace: string, session: string) => requestJson<{ enabled: boolean; supported: boolean; networkMode: "allow" | "block" | "approve"; source: "application" | "session" | "parent" | "organization"; policy: { mode: "enforced" | "default"; locked: boolean; orgName: string | null } | null; application: { enabled: boolean; networkMode: "allow" | "block" | "approve" } }>(baseUrl, `/workspace/${encodeURIComponent(workspace)}/sandbox/session/${encodeURIComponent(session)}`, { token, hostToken, timeoutMs: timeouts.status }),
     setSessionSandbox: (workspace: string, session: string, settings: { enabled: boolean; networkMode: "allow" | "block" | "approve" } | null) => requestJson<unknown>(baseUrl, `/workspace/${encodeURIComponent(workspace)}/sandbox/session/${encodeURIComponent(session)}`, { token, hostToken, method: "PATCH", body: { settings }, timeoutMs: timeouts.config }),
     prepareSandbox: () => requestJson<{ ready: boolean }>(baseUrl, "/sandbox/prepare", { token, hostToken, method: "POST", timeoutMs: 660_000 }),
+    risStatus: () => requestJson<RisIntegrationStatus>(baseUrl, "/integrations/ris", { token, hostToken, timeoutMs: timeouts.status }),
+    risSaveSettings: (enabled: boolean) => requestJson<RisIntegrationStatus>(baseUrl, "/integrations/ris", { token, hostToken, method: "PUT", body: { enabled }, timeoutMs: timeouts.status }),
+    risTestConnection: () => requestJson<{ ok: boolean; checkedAt: string }>(baseUrl, "/integrations/ris/test", { token, hostToken, method: "POST", timeoutMs: 60_000 }),
     googleWorkspaceStatus: () => requestJson<GoogleWorkspaceAuthStatus>(baseUrl, "/experimental/google-workspace/status", { token, hostToken, timeoutMs: timeouts.status }),
     googleWorkspaceConnectStart: (options?: { gmailRead?: boolean; features?: string[] }) => requestJson<GoogleWorkspaceConnectStart>(baseUrl, "/experimental/google-workspace/connect/start", { token, hostToken, method: "POST", body: { gmailRead: options?.gmailRead === true, features: options?.features ?? [] }, timeoutMs: timeouts.status }),
     googleWorkspaceConnectStatus: (flowId: string) => requestJson<GoogleWorkspaceConnectStatus>(baseUrl, `/experimental/google-workspace/connect/status/${encodeURIComponent(flowId)}`, { token, hostToken, timeoutMs: timeouts.status }),
@@ -1953,7 +1985,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     getProjectDetails: (workspaceId: string) => requestJson<ProjectDetails>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/project`, { token, hostToken }),
     updateProjectDetails: (workspaceId: string, payload: { revision: number; fields: ProjectField[] }) =>
       requestJson<ProjectDetails>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/project`, { token, hostToken, method: "PATCH", body: payload }),
-    createLocalWorkspace: (payload: { folderPath?: string; folderMode?: "default" | "selected"; name: string; preset: string; templateId?: string | null; templateLanguage?: "en" | "de"; projectFields?: ProjectField[]; remoteFolders?: RemoteFolderSelection[]; initializeFromFolders?: boolean; fromRemoteFolder?: boolean }) =>
+    createLocalWorkspace: (payload: { folderPath?: string; folderMode?: "default" | "selected"; name: string; preset: string; templateId?: string | null; templateLanguage?: "en" | "de"; projectFields?: ProjectField[]; matters?: ProjectRecordReference; remoteFolders?: RemoteFolderSelection[]; initializeFromFolders?: boolean; fromRemoteFolder?: boolean }) =>
       requestJson<WorkspaceList>(baseUrl, "/workspaces/local", {
         token,
         hostToken,
@@ -2220,8 +2252,9 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         `/workspace/${encodeURIComponent(workspaceId)}/sessions/${encodeURIComponent(sessionId)}`,
         { token, hostToken, timeoutMs: timeouts.sessionRead },
       ).then(result=>({item:projectSession(result.item)})),
-    getSessionMessages: (workspaceId: string, sessionId: string, options?: { limit?: number }) => {
+    getSessionMessages: (workspaceId: string, sessionId: string, options?: { limit?: number; fileReferences?: boolean }) => {
       const query = new URLSearchParams();
+      if (options?.fileReferences) query.set("files", "references");
       if (typeof options?.limit === "number") query.set("limit", String(options.limit));
       const suffix = query.size ? `?${query.toString()}` : "";
       return requestJson<{ items: SessionMessageInfo[]; historyProvenance?:SessionHistoryProvenance }>(
@@ -2234,8 +2267,9 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
       requestJson<{ ok: boolean }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/sessions/${encodeURIComponent(sessionId)}/usage-limit`, {
         token, hostToken, method: "POST", body: { messageId, ...(limit ? { limit } : {}) },
       }),
-    getSessionSnapshot: (workspaceId: string, sessionId: string, options?: { limit?: number }) => {
+    getSessionSnapshot: (workspaceId: string, sessionId: string, options?: { limit?: number; fileReferences?: boolean }) => {
       const query = new URLSearchParams();
+      if (options?.fileReferences) query.set("files", "references");
       if (typeof options?.limit === "number") query.set("limit", String(options.limit));
       const suffix = query.size ? `?${query.toString()}` : "";
       return requestJson<{ item: NativeSessionSnapshot }>(
@@ -2610,7 +2644,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     linkProjectFolders: (workspaceId: string, revision: number, folders: RemoteFolderSelection[]) => requestJson<ProjectDetails>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/project/remote-folders`, { token, hostToken, method: "POST", body: { revision, folders }, timeoutMs: 120_000 }),
     unlinkProjectFolder: (workspaceId: string, revision: number, folderId: string) => requestJson<ProjectDetails>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/project/remote-folders/${encodeURIComponent(folderId)}`, { token, hostToken, method: "DELETE", body: { revision }, timeoutMs: 30_000 }),
     storageRoots: (workspaceId: string) =>
-      requestJson<{ roots: StorageRoot[]; teamError?: string }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage/roots`, { token, hostToken, timeoutMs: 30_000 }),
+      requestJson<{ roots: StorageRoot[]; unavailableRoots?: StorageRoot[]; teamError?: string }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage/roots`, { token, hostToken, timeoutMs: 30_000 }),
     storageChildren: (workspaceId: string, id: string, path: string, cursor?: string) =>
       requestJson<StoragePage>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/storage/${encodeURIComponent(id)}/children?${new URLSearchParams({ path, ...(cursor ? { cursor } : {}) })}`, { token, hostToken, timeoutMs: 90_000 }),
     storageFilenameSearch: (workspaceId: string, id: string, input: StorageFilenameSearch, signal?: AbortSignal) =>
@@ -2855,7 +2889,9 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     viewAssistantGreeting: () => requestJson<AssistantOnboardingState>(baseUrl, "/assistant/onboarding/view", { token, hostToken, method: "POST" }),
     answerAssistantOnboarding: (answer: { name: string } | { icon: AssistantAvatarIcon }) => requestJson<AssistantOnboardingState>(baseUrl, "/assistant/onboarding", { token, hostToken, method: "POST", body: answer }),
     updateAssistantProfile: (profile: AssistantProfile) => requestJson<{ profile: AssistantProfile }>(baseUrl, "/assistant/profile", { token, hostToken, method: "PATCH", body: profile }),
-    mainAssistantCurrent: (projectFields?: ProjectField[]) => requestJson<{ workspace: LegalworkWorkspaceInfo; day: { date: string; sessionId: string }; profile: AssistantProfile }>(baseUrl, "/assistant/current", { token, hostToken, method: "POST", body: { projectFields } }),
+    // Explicit initialization can check, recover and create a chat. Its engine
+    // calls each have a 10s deadline; don't race that deadline in the renderer.
+    mainAssistantCurrent: (projectFields?: ProjectField[]) => requestJson<{ workspace: LegalworkWorkspaceInfo; day: { date: string; sessionId: string }; profile: AssistantProfile }>(baseUrl, "/assistant/current", { token, hostToken, method: "POST", body: { projectFields }, timeoutMs: 30_000 }),
     mainAssistantHistory: (before?: string, limit = 14) => requestJson<{ days: { date: string; sessionId: string }[]; nextBefore: string | null }>(baseUrl, `/assistant/history?limit=${limit}${before ? `&before=${encodeURIComponent(before)}` : ""}`, { token, hostToken }),
     scheduledTasks: () => requestJson<{ tasks: ScheduledTask[] }>(baseUrl, "/scheduled-tasks", { token, hostToken }),
     scheduledTask: (workspaceId: string, id: string) => requestJson<{ task: ScheduledTask; runs: ScheduledRun[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/scheduled-tasks/${encodeURIComponent(id)}`, { token, hostToken }),

@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { PDFDocument } from "pdf-lib";
@@ -37,6 +37,18 @@ async function fixture(fail = false, layoutAvailable = true) {
   return { root, workspace, preparation, box, calls: () => calls, setFailure: (value: boolean) => { fail = value; } };
 }
 const signal = () => new AbortController().signal;
+
+test("connected document OCR writes preparation files only into the local engine home", async () => {
+  const f = await fixture(), engine = join(f.root, "engine"), content = join(f.root, "documents");
+  await mkdir(engine); await mkdir(content);
+  f.workspace.path = engine; f.workspace.contentPath = content;
+  await writeFile(join(content, "scan.png"), await readFile(new URL("./ocr/fixtures/bilingual.png", import.meta.url)));
+  const result = await settled(f, "escrow");
+  expect(result.items).toHaveLength(1);
+  expect(await stat(join(content, ".opencode")).catch(() => null)).toBeNull();
+  expect((await stat(join(engine, ".opencode/legalwork/prepared-documents"))).isDirectory()).toBe(true);
+});
+
 async function settled(f: Awaited<ReturnType<typeof fixture>>, query: string) {
   for (let index = 0; index < 200; index++) {
     const result = await searchFileContents(f.workspace, query, signal(), f.preparation);

@@ -72,7 +72,7 @@ export async function prepareConnectorEmailDraft(config: ServerConfig, id: strin
   const input = parseDraftInput(connectorEmailDraftInput, args);
   const connectionId = await connectedAccount(config, id, input.connectionId);
   const workspace = await connectorWorkspace(config, context);
-  const draft = await saveEmailDraft(workspace.path, workspace.id, EmailDraftInputSchema.parse({ ...input, to: input.to.join(", "), cc: input.cc.join(", "), bcc: input.bcc.join(", ") }), undefined, { connectorId: id, connectionId });
+  const draft = await saveEmailDraft(workspace.path, workspace.id, EmailDraftInputSchema.parse({ ...input, to: input.to.join(", "), cc: input.cc.join(", "), bcc: input.bcc.join(", ") }), undefined, { connectorId: id, connectionId }, workspace.contentPath || workspace.path);
   return { draft, instruction: "This is an editable local preview. No email was sent or saved in the provider. The user can save it to the connected mailbox or send it from the card." };
 }
 

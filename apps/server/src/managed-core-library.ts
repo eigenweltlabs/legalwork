@@ -1,15 +1,17 @@
 import { join } from "node:path";
 import { mkdir } from "node:fs/promises";
 import { CORE_OPENCODE_FILES } from "./core-skills.js";
-import { engineStorageDir } from "./engine-storage.js";
+import { runtimeStorageDir } from "./runtime-opencode-config-store.js";
 import { parseFrontmatter } from "./frontmatter.js";
 import { Config } from "@opencode/schema/config";
 import { Schema } from "effect";
 import { ensureCoreOpencodeFiles } from "./workspace-init.js";
 import type { ServerConfig } from "./types.js";
+import { rememberCoreManifest } from "./core-bundle.js";
 
 export function managedCoreLibraryRoot(config: ServerConfig) {
-  return join(engineStorageDir(config), "capability-library");
+  // A project shared by the desktop and CLI must reference the same skill files.
+  return join(runtimeStorageDir(config), "capability-library");
 }
 
 /** App-owned bundled files have one private home. Project and personal files
@@ -17,6 +19,7 @@ export function managedCoreLibraryRoot(config: ServerConfig) {
 export async function prepareManagedCoreLibrary(config: ServerConfig) {
   const root = managedCoreLibraryRoot(config);
   await mkdir(root, { recursive: true, mode: 0o700 });
+  await rememberCoreManifest(root);
   await ensureCoreOpencodeFiles(root);
 }
 

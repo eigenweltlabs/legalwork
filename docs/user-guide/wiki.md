@@ -12,9 +12,15 @@ Open a wiki chat and ask, "Help me set up this wiki for our firm." Identify the 
 
 Wiki chats can search, list and read pages with Sandbox off. Running shell commands in a wiki chat requires protected execution: enable **Sandboxing** in **Settings > Tool Permissions** when a command is necessary. The option to run commands directly on your computer with Sandbox off applies to project chats. For questions about wiki contents, the assistant can use wiki and file-reading tools without enabling Sandbox.
 
+LegalWork keeps each wiki's engine settings, attachments and working state in a local app-owned folder. On upgrade, it moves only `.opencode` and `.legalwork`; existing pages, sources, instructions and other wiki files stay in their current folder. New wikis without a selected folder store their pages in the local home's `files` folder. Wiki chats and sharing identities are preserved. If a connected wiki folder is unavailable, reconnect it to read or edit its pages; its local chat history and retained attachments remain available.
+
+In a wiki chat, ask to read a project's files to request this chat's read-only access. The picker shows the project's document folder. Approved projects remain read-only in protected commands, including when another folder connection covers the same files. Revoking access stops commands using that grant.
+
 ## Your legal research knowledge base
 
-For a legal research question, the agent first searches this wiki and reads relevant findings and saved sources. When they answer the question for the relevant jurisdiction and date, it reuses them instead of repeating the research. It searches external sources for missing information, conflicts or changes that need checking, then updates the existing page with new findings. Ask for fresh research when you want the sources checked again.
+Ordinary legal questions are answered in chat. Native integrations and APIs, including Austrian RIS, are queried directly; their resources are not automatically copied into this wiki. Asking to find decisions, summarize a law, cite sources or download a PDF does not by itself create a wiki entry.
+
+The assistant uses the research wiki when you explicitly ask to save, file or maintain persistent research, or when website research produces reusable findings that would make future research materially faster. For those tasks, it checks existing findings and saved sources before repeating website research, verifies their jurisdiction and date, and updates a relevant existing page where possible.
 
 When you open this release with your local LegalWork server connected, LegalWork automatically creates a personal wiki named **Legal Research**, or **Rechtliche Recherche** when the app uses German. This applies to existing users and new installations, even if you have not connected a research database. Find it under **Wiki**. It starts without research findings and is not shared automatically.
 
@@ -28,7 +34,7 @@ Each finding records its legal question, conclusion, territorial scope, sources,
 
 This wiki is for substantive legal knowledge only: legal questions, legislation, case law, interpretation, exceptions and conflicting authorities, with their sources and limits. Browser instructions, workflows, login problems, process notes and task logs do not belong here. Website troubleshooting stays in each database skill's separate [experience log](integrations.md#learning-from-research-website-problems).
 
-Legal research automatically reads and downloads the relevant primary judgments, legislation or other available original documents, then prepares a source-backed wiki entry. You do not need to ask separately for source downloads or a wiki draft. The assistant checks existing knowledge first and respects a request not to save. If a primary document is unavailable, the page retains its citation and link and identifies what could not be obtained.
+For qualifying website findings or research you explicitly ask to retain, the assistant prepares a source-backed entry and saves the primary documents needed to support it. It respects a request not to save. Ordinary chat research does not automatically download or archive every source. You can separately ask for a source PDF without creating a wiki entry. If a primary document is unavailable, the entry retains its citation and link and identifies what could not be obtained.
 
 The automatically generated Legal Research wiki saves project contributions in the background by default. Turn on **Require human approval from agents** in its **Settings > Agent access** if you want to review each contribution first. Other wikis require approval by default. Review the proposal, its jurisdiction, legal areas, dates, source documents and destination. Choose **Save to wiki** to publish or **Dismiss** to leave the wiki unchanged. Missing research folders are created only on publication. Turn off **Require human approval from agents** in this wiki's **Settings > Agent access** to let project agents save the page and sources in the background. A chat inside the wiki can edit its own pages directly.
 

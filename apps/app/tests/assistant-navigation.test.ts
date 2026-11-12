@@ -1,7 +1,54 @@
 import { expect, test } from "bun:test";
-import { QueryClient } from "@tanstack/react-query";
+import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import type { LegalworkServerClient } from "../src/app/lib/legalwork-server";
-import { resolveAssistantChat, seedSavedAssistant } from "../src/react-app/shell/assistant-navigation";
+import { currentAssistantQuery, resolveAssistantChat, seedSavedAssistant } from "../src/react-app/shell/assistant-navigation";
+
+test("background Assistant observation never provisions, and a timed-out open can be retried explicitly", async () => {
+  const cache = new QueryClient({ defaultOptions: { queries: { retry: 3, retryDelay: 1 } } });
+  let requests = 0;
+  const today = current("2026-11-07", "recovered");
+  const client = { baseUrl: "http://server", mainAssistantCurrent: async () => {
+    requests++;
+    if (requests === 1) throw new Error("Assistant setup timed out");
+    return today;
+  } };
+  const observer = new QueryObserver(cache, currentAssistantQuery(client));
+  const unsubscribe = observer.subscribe(() => {});
+  try {
+    await Bun.sleep(10);
+    expect(requests).toBe(0);
+    await expect(resolveAssistantChat(client, cache, new Date(2026, 10, 7))).rejects.toThrow("timed out");
+    await Bun.sleep(30);
+    expect(requests).toBe(1);
+    expect(await resolveAssistantChat(client, cache, new Date(2026, 10, 7))).toEqual(today);
+    expect(observer.getCurrentResult().data).toEqual(today);
+    expect(requests).toBe(2);
+  } finally { unsubscribe(); cache.clear(); }
+});
+
+test("saved status advances the daily chat without initializing and never rolls it back", async () => {
+  const cache = new QueryClient();
+  let requests = 0;
+  const client = { baseUrl: "http://server", mainAssistantCurrent: async () => { requests++; throw new Error("Not needed"); } };
+  try {
+    seedSavedAssistant(cache, client.baseUrl, current("2026-11-06", "yesterday"));
+    seedSavedAssistant(cache, client.baseUrl, current("2026-11-07", "today"));
+    seedSavedAssistant(cache, client.baseUrl, current("2026-11-06", "stale-response"));
+    expect(await resolveAssistantChat(client, cache, new Date(2026, 10, 7))).toEqual(current("2026-11-07", "today"));
+    expect(requests).toBe(0);
+  } finally { cache.clear(); }
+});
+
+test("on-demand Assistant initialization preserves project field defaults", async () => {
+  const cache = new QueryClient();
+  const fields: Parameters<LegalworkServerClient["mainAssistantCurrent"]>[0] = [{ id: "client", label: "Client", type: "text", value: null }];
+  let received: typeof fields;
+  const client = { baseUrl: "http://server", mainAssistantCurrent: async (input?: typeof fields) => { received = input; return current("2026-11-07", "today"); } };
+  try {
+    await resolveAssistantChat(client, cache, new Date(2026, 10, 7), fields);
+    expect(received).toEqual(fields);
+  } finally { cache.clear(); }
+});
 
 function current(date: string, sessionId: string): Awaited<ReturnType<LegalworkServerClient["mainAssistantCurrent"]>> {
   return { workspace: { id: "assistant", path: "/projects/Assistant", name: "Assistant", preset: "main-assistant", workspaceType: "local" }, day: { date, sessionId }, profile: { name: "Josi", icon: "cat" } };

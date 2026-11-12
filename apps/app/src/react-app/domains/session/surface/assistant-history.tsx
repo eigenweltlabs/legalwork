@@ -35,7 +35,7 @@ export function AssistantHistory({ client, workspaceId, sessionId, date, scrollR
     queryFn: async ({ pageParam }) => {
       const page = await client.mainAssistantHistory(pageParam, 1);
       const days = await Promise.all(page.days.map(async day => {
-        const snapshot = (await client.getSessionSnapshot(workspaceId, day.sessionId)).item;
+        const snapshot = (await client.getSessionSnapshot(workspaceId, day.sessionId, { fileReferences: true })).item;
         const messages = snapshotToUIMessages(snapshot);
         const targets = deriveOpenTargets(messages);
         const openTargets: OpenTarget[] = targets.length ? await client.resolveArtifacts(workspaceId, targets)

@@ -1,3 +1,4 @@
+import { isBackOfficeQuery } from "../views/schema.js";
 import { isViewFile, copyViewFile } from "../views/schema.js";
 import { viewSaveSource, recordViewSaveSource } from "../views/save-source.js";
 import { registerWikiProjectRoutes } from "./wiki-projects.js";
@@ -192,7 +193,12 @@ export function registerWikiRoutes(options: Options): WikiStore {
     const wiki = await selected(ctx, true), input = await viewInput(ctx);
     if (input.mode === "report" && Object.keys(input.queries).length) {
       const pages = await store.indexedPages(wiki.id);
-      input.datasets = { ...input.datasets, ...Object.fromEntries(Object.entries(input.queries).map(([name, query]) => [name, input.datasets?.[name] ?? { ...queryWikiPages(pages, query), sourceOwner: { kind: "wiki", id: wiki.id } }])) };
+      input.datasets = { ...input.datasets };
+      for (const [name, query] of Object.entries(input.queries)) {
+        if (input.datasets[name]) continue;
+        if (isBackOfficeQuery(query)) throw new ApiError(400, "report_snapshot_missing", "Refresh the Back Office report before saving its snapshot.");
+        input.datasets[name] = { ...queryWikiPages(pages, query), sourceOwner: { kind: "wiki", id: wiki.id } };
+      }
     }
     const source = viewSaveSource(ctx.request);
     await authorize(ctx, wiki, "wiki.view.create", [input.mode === "report" ? "Reports" : "Dashboards"], input);
@@ -240,7 +246,7 @@ export function registerWikiRoutes(options: Options): WikiStore {
       catch (error) {
         // A disconnected local folder must not hide the other wikis or prevent reconnecting it.
         const status = options.getSyncStatus ? await options.getSyncStatus(wiki.id) : { state: "error", lastSyncedAt: null, error: error instanceof Error ? error.message : "Wiki folder unavailable.", conflicts: [] };
-        items.push({ ...wiki, writable: false, pageCount: 0, totalBytes: 0, syncStatus: { ...status, state: "error", error: error instanceof Error ? error.message : "Wiki folder unavailable." } });
+        items.push({ ...wiki, engineDirectory: config.workspaces.find(item => item.id === wiki.workspaceId)?.path || wiki.root, writable: false, pageCount: 0, totalBytes: 0, syncStatus: { ...status, state: "error", error: error instanceof Error ? error.message : "Wiki folder unavailable." } });
       }
     }
     return jsonResponse({ items });

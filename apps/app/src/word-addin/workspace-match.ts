@@ -3,7 +3,7 @@
  * contains it. Pure and framework-free so it can be unit-tested.
  */
 
-export type WorkspaceLike = { id: string; path?: string | null };
+export type WorkspaceLike = { id: string; path?: string | null; contentPath?: string | null };
 
 function stripTrailingSep(path: string): string {
   return path.replace(/[/\\]+$/, "");
@@ -25,7 +25,7 @@ export function matchWorkspaceForDocument<T extends WorkspaceLike>(
 
   let best: { workspace: T; length: number } | null = null;
   for (const workspace of workspaces) {
-    const root = stripTrailingSep((workspace.path ?? "").trim());
+    const root = stripTrailingSep((workspace.contentPath || workspace.path || "").trim());
     if (!root) continue;
     const rootLower = root.toLowerCase();
     if (docLower === rootLower || docLower.startsWith(`${rootLower}/`)) {

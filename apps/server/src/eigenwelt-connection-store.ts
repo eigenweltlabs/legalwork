@@ -434,6 +434,22 @@ async function persistConnection(
   } else db.upsert(value);
   if (nextAccountJson !== current?.accountJson || nextPlatformUrl !== current?.platformUrl ||
       (!expected && (input.platformToken !== undefined || input.refreshToken !== undefined))) invalidateConnectorCredentials(config);
+  if (nextAccountJson !== current?.accountJson || nextPlatformUrl !== current?.platformUrl || Boolean(nextPlatformToken) !== Boolean(current?.platformToken)) {
+    const previousAccount = decodeAccount(current?.accountJson ?? null);
+    const nextAccount = decodeAccount(nextAccountJson);
+    const { backOfficePrincipalKey } = await import("./back-office/principal.js");
+    const expectedConnection = nextAccount && nextPlatformUrl && nextPlatformToken ? backOfficePrincipalKey(nextPlatformUrl, nextAccount.orgId, nextAccount.userId) : null;
+    const previousPrincipal = previousAccount && current?.platformUrl && current.platformToken ? backOfficePrincipalKey(current.platformUrl, previousAccount.orgId, previousAccount.userId) : null;
+    if (previousPrincipal !== expectedConnection) {
+      const { reconcileBackOfficeAccounts } = await import("./back-office/accounts.js");
+      try { await reconcileBackOfficeAccounts(config, expectedConnection, nextAccount?.orgId ?? null, true); }
+      catch {
+        // Back Office fails closed on its own routes. Its damaged history must
+        // not prevent an already-persisted account change elsewhere in the app.
+        console.warn("[back-office] Account saved; Back Office cache reconciliation failed. Back Office remains unavailable until its integrity is restored.");
+      }
+    }
+  }
   return true;
 }
 

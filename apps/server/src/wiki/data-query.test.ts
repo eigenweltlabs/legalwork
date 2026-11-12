@@ -31,7 +31,7 @@ describe("typed wiki data queries", () => {
     expect(() => queryWikiPages(pages.slice(1), { ...query, cursor: first.nextCursor })).toThrow("source data changed");
   });
   test("rejects invented fields and malformed metrics", () => {
-    expect(() => queryWikiPages(pages, { fields: ["secrets"] })).toThrow("indexed page fields");
+    expect(() => queryWikiPages(pages, { fields: ["secrets"] })).toThrow(expect.objectContaining({ status: 400, code: "wiki_unknown_field" }));
     expect(() => queryWikiPages(pages, { fields: ["average"], metrics: [{ name: "average", op: "avg" }] })).toThrow("numeric field");
     expect(() => queryWikiPages(pages, { fields: ["amount"], filters: [{ field: "stage", op: "in", value: "active" }] })).toThrow("requires a list");
   });

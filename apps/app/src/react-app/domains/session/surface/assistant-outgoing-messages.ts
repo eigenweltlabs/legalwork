@@ -101,7 +101,7 @@ export function preparingAttachmentNames(message: UIMessage): string[] {
 
 /** Any idle chat can preview an ordinary prompt with a durable message ID. */
 export function canPreviewAssistantSend(queue: SessionQueue | undefined, busy: boolean, editing: boolean, outgoing: boolean, draft: Pick<ComposerDraft, "mode" | "command">) {
-  return Boolean(queue && !queue.paused && queue.entries.length === 0 && !busy && !editing && !outgoing && draft.mode === "prompt" && !draft.command);
+  return Boolean(queue && queue.entries.length === 0 && (!queue.paused || queue.pauseReason === "error") && !busy && !editing && !outgoing && draft.mode === "prompt" && !draft.command);
 }
 
 /** The server can discover work that the submitting window has not seen yet. */

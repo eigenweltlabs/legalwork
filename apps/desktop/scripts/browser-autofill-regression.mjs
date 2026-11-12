@@ -97,11 +97,11 @@ if (!process.versions.electron) {
       await until(() => popup(), "saved login picker");
       await until(() => popup()?.webContents.executeJavaScript("document.body.textContent.includes('Work account')"), "account choices");
     };
-    const choose = async name => {
+    const choose = async (name, username) => {
       const overlay = popup();
       await overlay.webContents.executeJavaScript(`Array.from(document.querySelectorAll('button')).find(button=>button.textContent.includes(${JSON.stringify(name)})).click()`);
-      await until(async () => !popup(), "picker closes");
-      await delay(100);
+      await until(() => !popup(), "picker closes");
+      await until(async () => await browser.webContents.executeJavaScript("document.querySelector('[name=username]').value") === username, "selected username filled");
     };
     await focus('[name="username"]');
     const text = await popup().webContents.executeJavaScript("document.body.textContent");
@@ -114,11 +114,11 @@ if (!process.versions.electron) {
       await writeFile(path.join(output, "saved-login-suggestions.png"), (await popup().webContents.capturePage()).toPNG());
       await writeFile(path.join(output, "login-page.png"), (await browser.webContents.capturePage()).toPNG());
     }
-    await choose("Personal account");
+    await choose("Personal account", "personal@example.org");
     assert.deepEqual(await browser.webContents.executeJavaScript("[document.querySelector('[name=username]').value,document.querySelector('[name=password]').value,Boolean(window.submitted)]"), ["personal@example.org", "synthetic-personal-password", false]);
     console.log("PASS: real persisted vault, matching multi-account picker, username/password fill, no submission or secret in picker");
     await browser.webContents.loadURL(website + "/username");
-    await focus('[name="username"]'); await choose("Work account");
+    await focus('[name="username"]'); await choose("Work account", "lawyer@example.org");
     assert.equal(await browser.webContents.executeJavaScript("document.querySelector('[name=username]').value"), "lawyer@example.org");
     await browser.webContents.loadURL(website + "/password");
     await focus('[name="password"]');

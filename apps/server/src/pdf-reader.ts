@@ -32,10 +32,11 @@ export class PdfReader {
       throw new ApiError(400, "pdf_input", "Provide a readable PDF of at most 64 MiB.");
     const source_hash = createHash("sha256").update(bytes).digest("hex");
     const native = await extractPdfText(bytes, signal, options.pages);
-    const pages: PdfTextResult["pages"] = native.pages.map(page => ({ ...page, extraction: "native" }));
-    const required = pages.filter(page => options.ocr === true || !page.text.trim());
-    if (!required.length) return { source_hash, page_count: native.pageCount, extraction: "native", complete: true, pages };
-    if (required.length > 100) throw new ApiError(400, "pdf_ocr_pages", "Read at most 100 OCR pages at a time using pages. Embedded text does not require OCR.");
+    const pages: PdfTextResult["pages"] = native.pages.map(page => ({ ...page, embedded_text_chars: page.text.trim().length, extraction: "native" }));
+    const required = options.ocr === true ? pages : [];
+    if (options.ocr === true && options.text === true) for (const page of required) page.native_text = page.text;
+    if (!required.length) return { source_hash, page_count: native.pageCount, extraction: "native", complete: pages.every(page => page.embedded_text_chars > 0), pages };
+    if (required.length > 100) throw new ApiError(400, "pdf_ocr_pages", "OCR was not started: at most 100 pages can be recognized per call. Select fewer source pages with pages, or use text=true without ocr for embedded text. offset/limit only paginate returned text and do not reduce OCR work.");
     // Serialize OCR across reads. A cancelled request must not release the slot
     // while an earlier operation still owns the model process.
     const operation = this.pending.catch(() => undefined).then(async () => {
@@ -79,8 +80,8 @@ export class PdfReader {
     this.pending = operation;
     await operation;
     signal.throwIfAborted();
-    if (pages.reduce((sum, page) => sum + page.text.length, 0) > 2_000_000)
-      throw new ApiError(400, "pdf_text_size", "Extracted text exceeds 2 million characters. Read fewer pages.");
+    if (pages.reduce((sum, page) => sum + page.text.length + (page.native_text?.length ?? 0), 0) > 2_000_000)
+      throw new ApiError(400, "pdf_text_size", "Extracted text exceeds 2 million characters. Select fewer source pages with pages. offset/limit only paginate returned text and do not reduce extraction work.");
     return { source_hash, page_count: native.pageCount, extraction: "ocr", complete: pages.every(page => !page.error), pages };
   }
 }

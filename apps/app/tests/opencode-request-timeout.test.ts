@@ -1,7 +1,9 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, jest, test } from "bun:test";
 
 import { createClient, resolveRequestTimeoutMs } from "../src/app/lib/opencode";
 import { createLegalworkServerClient } from "../src/app/lib/legalwork-server";
+
+afterEach(() => jest.useRealTimers());
 
 /** Native HTTP protocol fixtures; no inference or real-agent parity claims.
  * Delayed responses deliberately exceed the former ten-second read window.
@@ -35,24 +37,36 @@ test("direct engine recovery allows OneDrive hydration without slowing ordinary 
   expect(resolveRequestTimeoutMs("http://localhost:5421/api/info", 10_000)).toBe(10_000);
 });
 
-test("cold provider and session reads survive the former deadlines without retrying", async () => {
+test("cold provider, session and Assistant requests survive the former deadlines without retrying", async () => {
+  jest.useFakeTimers();
   const paths: string[] = [];
+  let requestsReady = () => {};
+  const ready = new Promise<void>(resolve => { requestsReady = resolve; });
   const server = Bun.serve({ port: 0, idleTimeout: 20, async fetch(request) {
     const path = new URL(request.url).pathname;
     paths.push(path);
-    await Bun.sleep(13_000);
-    return Response.json(path.endsWith("/sessions") ? { items: [] } : {location:{directory:"/fixture"},data:[]});
+    const delay = new Promise(resolve => setTimeout(resolve, 13_000));
+    if (paths.length === 3) requestsReady();
+    await delay;
+    return Response.json(path === "/assistant/current" ? { day: { sessionId: "daily-chat" } }
+      : path.endsWith("/sessions") ? { items: [] } : {location:{directory:"/fixture"},data:[]});
   } });
   try {
     const engine = createClient(String(server.url));
     const api = createLegalworkServerClient({ baseUrl: String(server.url) });
-    const [providers, sessions] = await Promise.all([
+    const result = Promise.all([
       engine.provider.list(),
       api.listSessions("ws_cold"),
+      api.mainAssistantCurrent(),
     ]);
+    void result.catch(() => {});
+    await ready;
+    jest.advanceTimersByTime(13_000);
+    const [providers, sessions, assistant] = await result;
     expect(providers.data).toEqual([]);
     expect(sessions.items).toEqual([]);
-    expect(paths.sort()).toEqual(["/api/provider", "/workspace/ws_cold/sessions"]);
+    expect(assistant.day.sessionId).toBe("daily-chat");
+    expect(paths.sort()).toEqual(["/api/provider", "/assistant/current", "/workspace/ws_cold/sessions"]);
   } finally {
     server.stop(true);
   }
@@ -74,11 +88,16 @@ test("caller cancellation reaches the transport and is not reported as a timeout
 });
 
 test("connector discovery, registration, storage and native connection survive their existing handshake window", async () => {
+  jest.useFakeTimers();
   const paths: string[] = [];
+  let requestsReady = () => {};
+  const ready = new Promise<void>(resolve => { requestsReady = resolve; });
   const server = Bun.serve({ port: 0, idleTimeout: 20, async fetch(request) {
     const path = new URL(request.url).pathname;
     paths.push(path);
-    await Bun.sleep(11_000);
+    const delay = new Promise(resolve => setTimeout(resolve, 11_000));
+    if (paths.length === 4) requestsReady();
+    await delay;
     if(path === "/api/experimental/mcp/research/connect")return new Response(null,{status:204});
     if (path.endsWith("/probe")) return Response.json({ url: "https://example.com/mcp", reachable: true, auth: "oauth", steps: [] });
     if (path.endsWith("/register-client")) return Response.json({ registered: true, client: { clientId: "test-client" } });
@@ -88,12 +107,16 @@ test("connector discovery, registration, storage and native connection survive t
     const engine = createClient(String(server.url));
     const api = createLegalworkServerClient({ baseUrl: String(server.url) });
     const payload = { url: "https://example.com/mcp" };
-    const [probe, registered, saved, added] = await Promise.all([
+    const result = Promise.all([
       api.probeMcp("ws_test", payload),
       api.registerMcpClient("ws_test", payload),
       api.addMcp("ws_test", { name: "research", config: { type: "remote", ...payload, oauth: {} } }),
       engine.mcp.connect({server:"research",location:{directory:"/fixture"}}),
     ]);
+    void result.catch(() => {});
+    await ready;
+    jest.advanceTimersByTime(11_000);
+    const [probe, registered, saved, added] = await result;
     expect(probe.auth).toBe("oauth");
     expect(registered.registered).toBe(true);
     expect(saved.items.map(item => item.name)).toEqual(["research"]);

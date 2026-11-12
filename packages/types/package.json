@@ -56,6 +56,7 @@
     "./legalmemory": "./src/legalmemory.ts",
     "./session-visibility": "./src/session-visibility.ts",
     "./engine-project": "./src/engine-project.ts",
+    "./migration-progress": "./src/migration-progress.ts",
     "./scheduled-tasks": "./src/scheduled-tasks.ts",
     "./org-policy": "./src/org-policy.ts",
     "./org-policy-view": "./src/org-policy-view.ts",
@@ -70,7 +71,8 @@
     "./line-diff": "./src/line-diff.ts",
     "./opencode-view": "./src/opencode-view.ts",
     "./legal-research": "./src/legal-research.ts",
-    "./legal-research-wiki": "./src/legal-research-wiki.ts"
+    "./legal-research-wiki": "./src/legal-research-wiki.ts",
+    "./back-office": "./src/back-office.ts"
   },
   "files": [
     "src",

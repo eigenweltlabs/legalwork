@@ -1,4 +1,4 @@
-export type IntegrationSelection = { kind: "mcp" | "account" | "storage" | "website"; id: string; label: string };
+export type IntegrationSelection = { kind: "mcp" | "account" | "storage" | "website" | "extension"; id: string; label: string };
 
 /** Only identity and a display label belong in a chip, never credentials. */
 export function createIntegrationMention(selection: IntegrationSelection): string {
@@ -6,10 +6,10 @@ export function createIntegrationMention(selection: IntegrationSelection): strin
 }
 
 export function parseIntegrationMention(value: string): IntegrationSelection | null {
-  const match = /^legalwork-integration:\/\/(mcp|account|storage|website)\/([^?\s]+)\?([^\s]*)$/.exec(value);
+  const match = /^legalwork-integration:\/\/(mcp|account|storage|website|extension)\/([^?\s]+)\?([^\s]*)$/.exec(value);
   if (!match) return null;
   const kind = match[1];
-  if (kind !== "mcp" && kind !== "account" && kind !== "storage" && kind !== "website") return null;
+  if (kind !== "mcp" && kind !== "account" && kind !== "storage" && kind !== "website" && kind !== "extension") return null;
   try {
     const id = decodeURIComponent(match[2]);
     if (!id.trim()) return null;
@@ -26,6 +26,7 @@ export function integrationInstruction(value: string): string {
   const selection = parseIntegrationMention(value);
   if (!selection) return "";
   const guidance = {
+    extension: "Use the built-in integration identified by id. Discover its actions with legalwork_extension_list_actions using id as extensionId, then invoke them with legalwork_extension_call and the same extensionId. Read ris_about before RIS research for search and citation guidance.",
     mcp: "Use the tools of the MCP server identified by id for the user's request.",
     account: "Use the connected provider identified by id and its available account tools for the user's request.",
     storage: "Use storage_list_connections to find this exact connection_id, then its storage tools for the user's request.",

@@ -1,0 +1,28 @@
+name: Retain verified native packaging outputs
+description: Keep tiny exact-key native outputs independently of the 10GB dependency cache
+runs:
+  using: composite
+  steps:
+    - name: Verify Electron cache receipt before retention
+      shell: bash
+      run: node scripts/ci/native-package-artifacts.mjs validate "$LEGALWORK_ELECTRON_NATIVE_KEY" "$LEGALWORK_ELECTRON_NATIVE_CACHE"
+    - uses: actions/upload-artifact@v4
+      with:
+        name: ${{ env.LEGALWORK_ELECTRON_NATIVE_KEY }}
+        path: ${{ env.LEGALWORK_ELECTRON_NATIVE_CACHE }}/
+        include-hidden-files: true
+        if-no-files-found: error
+        retention-days: 7
+        compression-level: 6
+    - name: Verify speech cache receipt before retention
+      if: runner.arch == 'ARM64'
+      shell: bash
+      run: node scripts/ci/native-package-artifacts.mjs validate "$LEGALWORK_SPEECH_CACHE_KEY" "$LEGALWORK_SPEECH_CACHE_DIRECTORY"
+    - uses: actions/upload-artifact@v4
+      if: runner.arch == 'ARM64'
+      with:
+        name: ${{ env.LEGALWORK_SPEECH_CACHE_KEY }}
+        path: ${{ env.LEGALWORK_SPEECH_CACHE_DIRECTORY }}/
+        if-no-files-found: error
+        retention-days: 7
+        compression-level: 6

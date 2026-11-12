@@ -65,6 +65,7 @@ beforeEach(async () => {
     requests.push({ path, method, body, authorization: headers.get("Authorization"),
       agentToken: headers.get("x-legalwork-wiki-agent-token"), sessionId: headers.get("x-legalwork-wiki-agent-session"),
       directory: headers.get("x-legalwork-wiki-agent-directory") });
+    if (url.pathname === "/agent/file-workspace") return response({ workspaceId: "project-1", wiki: null });
     if (url.pathname === "/wikis") return response(malformed ? { items: [{ id: "wrong" }] } : { items: wikis });
     if (url.pathname === "/workspaces") return response({ items: [{ id: "project-1", path: projectRoot }] });
     if (url.pathname === `/wikis/${unavailableWiki}/search`) return response({ code: "offline", message: "Offline" }, 503);
@@ -379,14 +380,13 @@ test("wiki guard covers unmanaged bash and custom tools that read host files", a
 });
 
 
-test("native project tools classify once per turn and don't depend on repeated server calls", async () => {
+test("managed project reads use only the current workspace and reuse it for this turn", async () => {
+  process.env.LEGALWORK_WIKI_AGENT_TOKEN = "runtime-secret";
   const plugin = await LegalWorkWikiTools({ directory: projectRoot });
   await nativeToolBefore(plugin.runtime,"read",{ filePath: "notes.md" },"project-chat");
-  expect(requests.filter(item => item.path === "/wikis")).toHaveLength(1);
-  expect(requests.filter(item => item.path === "/workspaces")).toHaveLength(1);
-  malformed = true;
+
   await nativeToolBefore(plugin.runtime,"write",{ filePath: "notes.md" },"project-chat");
-  expect(requests.filter(item => item.path === "/wikis")).toHaveLength(1);
+  expect(requests.map(item => item.path)).toEqual(["/agent/file-workspace"]);
 });
 
 test("unregistered directories do not fail workspace discovery or retain a negative wiki classification", async () => {

@@ -152,6 +152,17 @@ export function isTrustedBuiltInExtension(manifest: LegalWorkExtensionManifest |
 }
 
 export const BUILT_IN_LEGALWORK_EXTENSION_MANIFESTS: LegalWorkExtensionManifest[] = [
+  {
+    schemaVersion: 1, id: "ris", get name() { return t("ris.name"); },
+    get description() { return t("ris.description"); },
+    source: { format: "legalwork-builtin", origin: "builtin", trusted: true,
+      reference: "https://www.ris.bka.gv.at/" },
+    icon: { src: "/ext-ris.svg" },
+    composer: { get prompt() { return t("ris.prompt"); } },
+    resources: [{ type: "local-service", id: "ris-api", label: "RIS", required: true }],
+    contributions: [{ type: "settings-panel", ref: "ris", location: "settings-detail" }],
+    lifecycle: { detection: ["provider:ris"] },
+  },
   ...connectorDefinitions.map(({ id, name, icon, descriptionKey, promptKey }): LegalWorkExtensionManifest => ({
     schemaVersion: 1, id, name,
     get description() { return t(descriptionKey); },

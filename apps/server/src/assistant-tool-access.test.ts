@@ -17,6 +17,8 @@ test("restricted Assistant children reject forbidden projects, native file escap
     tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false,
   };
   await Promise.all(config.workspaces.map(project => mkdir(project.path)));
+  const connected = join(root, "connected-private"); await mkdir(connected);
+  config.workspaces.find(project => project.id === "private")!.contentPath = connected;
   await writeFile(join(root, "private", "secret.txt"), "private data");
   await symlink(join(root, "private"), join(root, "assistant", "alias"));
   const assistant = await MainAssistant.open(config, join(root, "runtime.sqlite"), () => ({ get: async () => null, list: async () => [], create: async () => { throw new Error("not used"); } }));
@@ -28,6 +30,7 @@ test("restricted Assistant children reject forbidden projects, native file escap
   for (const tool of ["bash", "legalwork_shell", "apply_patch", "legalwork_task_list", "legalwork_sandbox_execute"]) await expect(guard(tool, {})).rejects.toThrow("access rules");
   await expect(guard("read", { filePath: "alias/secret.txt" })).rejects.toThrow("allowed projects");
   await expect(guard("write", { filePath: "alias/new.txt" })).rejects.toThrow("allowed projects");
+  await expect(guard("read", { filePath: join(connected, "secret.txt") })).rejects.toThrow("allowed projects");
   await expect(guard("read", { filePath: join(root, "outside.txt") })).rejects.toThrow("access rules");
   await expect(guard("write", { filePath: "notes/new.txt" })).resolves.toBeUndefined();
   await expect(guard("read", { filePath: join(root, "allowed", "report.txt") })).resolves.toBeUndefined();

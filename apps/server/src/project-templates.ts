@@ -2,8 +2,8 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import type { ProjectTemplateCatalog } from "@legalwork/types/workspace";
-import { defaultProjectTemplates, localizedTemplateFields, projectTemplateCatalogSchema, projectTemplateName } from "./project-schema.js";
+import type { ProjectField, ProjectTemplateCatalog } from "@legalwork/types/workspace";
+import { upgradeProjectTemplateReferences, defaultProjectTemplates, localizedTemplateFields, projectTemplateCatalogSchema, projectTemplateName } from "./project-schema.js";
 import { ApiError } from "./errors.js";
 import type { ServerConfig } from "./types.js";
 
@@ -14,7 +14,7 @@ function catalogPath(config: Pick<ServerConfig, "configPath">) {
 
 export async function readProjectTemplates(config: Pick<ServerConfig, "configPath">): Promise<ProjectTemplateCatalog> {
   try {
-    return projectTemplateCatalogSchema.parse(JSON.parse(await readFile(catalogPath(config), "utf8")));
+    return upgradeProjectTemplateReferences(projectTemplateCatalogSchema.parse(JSON.parse(await readFile(catalogPath(config), "utf8"))));
   } catch (error) {
     if (error instanceof Error && "code" in error && error.code === "ENOENT")
       return { revision: 0, defaultTemplateId: "legal_matter", templates: defaultProjectTemplates() };
@@ -28,7 +28,7 @@ export function localizeProjectTemplates(catalog: ProjectTemplateCatalog, langua
   })) };
 }
 
-export function saveProjectTemplates(config: Pick<ServerConfig, "configPath">, input: unknown): Promise<ProjectTemplateCatalog> {
+export function saveProjectTemplates(config: Pick<ServerConfig, "configPath">, input: unknown, validate?: (before: ProjectField[], after: ProjectField[]) => Promise<void>): Promise<ProjectTemplateCatalog> {
   const parsed = projectTemplateCatalogSchema.safeParse(input);
   if (!parsed.success) throw new ApiError(400, "invalid_project_templates", parsed.error.issues[0]?.message ?? "Invalid templates.");
   const path = catalogPath(config);
@@ -36,6 +36,7 @@ export function saveProjectTemplates(config: Pick<ServerConfig, "configPath">, i
     const current = await readProjectTemplates(config);
     if (parsed.data.revision !== current.revision)
       throw new ApiError(409, "project_templates_conflict", "Templates changed. Reload them before saving again.");
+    for (const template of parsed.data.templates) await validate?.(current.templates.find(previous => previous.id === template.id)?.fields ?? [], template.fields);
     const updated = { ...parsed.data, revision: current.revision + 1 };
     await mkdir(dirname(path), { recursive: true });
     const temporary = `${path}.${randomUUID()}.tmp`;

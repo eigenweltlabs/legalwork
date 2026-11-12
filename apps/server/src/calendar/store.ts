@@ -16,6 +16,7 @@ import { emptyCalendar, itemCalendar, parseCalendar, serializeCalendar, updateCa
 import type { DeadlineResult } from "./deadline-rules.js";
 
 const hash = (text: string) => createHash("sha256").update(text).digest("hex");
+type WriteLinks = (db: SqliteHandle, id: string) => void;
 export class CalendarStore {
   private constructor(private db: SqliteHandle) {}
   static async open(path: string) {
@@ -70,7 +71,7 @@ export class CalendarStore {
     this.write(item, previous?.revision);
     return { item, savedRevision: draft.revision };
   }
-  private write(item: CalendarItem, expected?: number, remoteRevision?: number, replica = false, transaction = true): CalendarItem {
+  private write(item: CalendarItem, expected?: number, remoteRevision?: number, replica = false, transaction = true, writeLinks?: WriteLinks): CalendarItem {
     CalendarItemSchema.parse(item);
     if (transaction) this.db.exec("BEGIN IMMEDIATE");
     try {
@@ -84,6 +85,10 @@ export class CalendarStore {
         [item.id, item.projectId, item.uid, JSON.stringify(item), remoteRevision ?? 0, remoteRevision === undefined ? 1 : 0, replica ? 1 : 0, remoteRevision ?? null, remoteRevision ?? null]);
       this.db.run("INSERT INTO calendar_history (item_id, revision, data) VALUES (?, ?, ?)", [item.id, item.revision, JSON.stringify(item)]);
       this.db.run("DELETE FROM calendar_reminders WHERE delivered = 0 AND json_extract(data, '$.itemId') = ?", [item.id]);
+      if (writeLinks) {
+        if (item.kind !== "deadline") throw new ApiError(400, "native_link_kind", "Only deadlines can have Back Office links.");
+        writeLinks(this.db, item.id);
+      }
       if (transaction) this.db.exec("COMMIT"); return item;
     } catch (error) { if (transaction) this.db.exec("ROLLBACK"); throw error; }
   }
@@ -100,17 +105,33 @@ export class CalendarStore {
     if (input.kind !== "deadline" || input.start !== calculation.deadlineDay || input.timeZone !== calculation.timeZone) throw new ApiError(400, "calculation_mismatch", "The entered deadline must match the calculation receipt.");
     return calculation;
   }
-  create(projectId: string, raw: unknown, calculationId?: string, review?: { id: string; transaction: boolean }): CalendarItem {
-    const input = CalendarCreateSchema.parse(raw), now = new Date().toISOString(), id = randomUUID();
+  create(projectId: string, raw: unknown, calculationId?: string, review?: { id: string; transaction: boolean }, id: string = randomUUID(), writeLinks?: WriteLinks): CalendarItem {
+    const input = CalendarCreateSchema.parse(raw), now = new Date().toISOString();
+    const previous = this.db.get("SELECT data FROM calendar_items WHERE id=?", [id]);
+    if (previous) {
+      const item = CalendarItemSchema.parse(JSON.parse(String(previous.data)));
+      if (!item.deletedAt && item.projectId === projectId && item.revision === 1 && item.title === input.title && item.start === input.start && item.kind === input.kind && item.timeZone === input.timeZone) return item;
+      throw new ApiError(409,"calendar_identity","This calendar entry already exists.");
+    }
     const calculation = calculationId ? this.checkedCalculation(projectId, calculationId, input, !!review) : null;
     const item: CalendarItem = { ...input, id, uid: `${id}@legalwork`, projectId, end: input.end ?? null,
       status: "active", verified: !!review, provenance: calculation ? { kind: "calculated", calculation } : { kind: "manual", source: input.source, reason: input.reason },
       revision: 1, createdAt: now, updatedAt: now, deletedAt: null, ical: "" };
-    this.validateDates(item); item.ical = itemCalendar(item); return this.write(item, undefined, undefined, false, review?.transaction ?? true);
+    this.validateDates(item); item.ical = itemCalendar(item); return this.write(item, undefined, undefined, false, review?.transaction ?? true, writeLinks);
   }
-  patch(projectId: string, id: string, raw: unknown): CalendarItem {
+  patch(projectId: string, id: string, raw: unknown, writeLinks?: WriteLinks): CalendarItem {
     const { revision, source, reason, calculationId, ...patch } = CalendarPatchSchema.parse(raw), current = this.get(projectId, id);
     if (current.deletedAt) throw new ApiError(410, "calendar_deleted", "Restore this entry before editing it.");
+    if (writeLinks && !Object.keys(patch).length && calculationId === undefined && source === undefined && reason === undefined) {
+      this.db.exec("BEGIN IMMEDIATE");
+      try {
+        const latest = this.get(projectId, id);
+        if (latest.deletedAt || latest.kind !== "deadline") throw new ApiError(404, "native_link_missing", "This deadline is unavailable.");
+        writeLinks(this.db, id);
+        this.db.exec("COMMIT");
+        return latest;
+      } catch (error) { this.db.exec("ROLLBACK"); throw error; }
+    }
     const item = { ...current, ...patch, revision: current.revision + 1, updatedAt: new Date().toISOString() };
     if (calculationId) {
       item.provenance = { kind: "calculated", calculation: this.checkedCalculation(projectId, calculationId, item) };
@@ -122,7 +143,7 @@ export class CalendarStore {
     }
     const changed = new Set(Object.keys(patch));
     if (calculationId || (current.provenance.kind === "calculated" && item.provenance.kind === "manual")) changed.add("reminders");
-    this.validateDates(item); item.ical = updateCalendar(item, changed); return this.write(item, revision);
+    this.validateDates(item); item.ical = updateCalendar(item, changed); return this.write(item, revision, undefined, false, true, writeLinks);
   }
   remove(projectId: string, id: string, revision: number, restore = false) {
     const current = this.get(projectId, id), now = new Date().toISOString();

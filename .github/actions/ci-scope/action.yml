@@ -1,5 +1,12 @@
 name: Select affected checks
 description: Inspect the complete PR or push diff; unknown inputs select all checks
+inputs:
+  compare-base:
+    description: Base revision for an explicit timing replay
+  compare-head:
+    description: Head revision for an explicit timing replay
+  compare-event:
+    description: Comparison semantics for an explicit timing replay
 outputs:
   app:
     value: ${{ steps.scope.outputs.app }}
@@ -38,8 +45,8 @@ runs:
     - id: scope
       shell: bash
       env:
-        EVENT_NAME: ${{ github.event_name }}
+        EVENT_NAME: ${{ inputs.compare-event || github.event_name }}
         GIT_REF: ${{ github.ref }}
-        BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
-        HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        BASE_SHA: ${{ inputs.compare-base || github.event.merge_group.base_sha || github.event.pull_request.base.sha || github.event.before }}
+        HEAD_SHA: ${{ inputs.compare-head || github.event.merge_group.head_sha || github.event.pull_request.head.sha || github.sha }}
       run: node scripts/ci/change-scope.mjs

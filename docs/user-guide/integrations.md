@@ -28,6 +28,28 @@ SharePoint and Dropbox each have one provider entry in **Files & storage**. Use 
 
 For Dropbox, give the file connection a name, choose its folder and access, then choose **Connect Dropbox**. Complete the sign-in in the browser. The setup dialog stays open until Dropbox confirms sign-in. Cancelling or failing a new sign-in removes the unfinished connection; it is not reported as a completed connection. An existing account that needs sign-in is marked **Sign in to use it** on its detail page.
 
+## Austrian RIS
+
+The built-in Austrian RIS integration searches Austria's official legal information system. It can search legislation and decisions, read legal texts and historical versions, check validity on a date, and inspect related publications and changes. It is based on [Matteo Bürgler’s RIS MCP server](https://github.com/mburgler/ris-mcp-worker).
+
+1. Open **Settings > Integrations > Legal databases** and select **Austrian RIS**.
+2. Choose **Connect** or the **+** beside the entry to open its setup panel, then choose **Enable RIS**. No RIS account, API key or separate installation is required.
+3. Choose **Test connection** to check whether RIS is reachable. The server owner can enable, disable and test the integration. Organization policy can prevent activation.
+4. Ask a legal research question in chat, naming the law or decision and the relevant date. For example: “Use Austrian RIS to read § 1295 ABGB in the version in force on 1 January 2025 and link the original source.” To select it explicitly, open the chat's tool picker, choose **Integrations**, then **Austrian RIS**. The entry appears when RIS is enabled and allowed on the server used by that chat. Selecting it adds a chip to your message; it does not install a separate MCP connection. If the entry is missing, check RIS activation in Settings and whether your organization permits it.
+5. To stop using it, open its entry under **Installed**, choose **Manage**, then **Disable RIS**. This stops queued and running RIS operations on that LegalWork server.
+
+Requests go directly from the machine running the LegalWork server to RIS. With the local desktop server, that is your computer; with a remote server, it is the remote machine. No Eigenwelt RIS proxy or provider sign-in is involved. Research text returned to a chat is processed by that chat's configured model as usual.
+
+LegalWork queues requests across chats and reads results afresh rather than keeping a legal-result cache. Broad searches across many databases take longer; specify a court, state or date when possible. The integration does not synchronize whole databases in the background. RIS availability and its [published access conditions](https://www.ris.bka.gv.at/UI/Ogd.aspx) still apply.
+
+For state legislation, name the state as well as the law. Different states can share the same numeric law number; LegalWork uses the specific section's document ID to keep the source unambiguous. A validity check for a state document applies to that exact version. If it is outside the requested date, search for the version in force on that date.
+
+To research decisions about a law, ask, for example: “Find VwGH decisions about IFG (Informationsfreiheitsgesetz) since 1 September 2025 and combine the results without duplicates.” RIS can list different decisions under the abbreviation and full name, so a search needs to cover both spellings and all result pages within the same court and date range.
+
+To save a source, ask: “Download this RIS decision as a PDF.” In a project chat connected to the LegalWork desktop server, the assistant can save a PDF directly into the project's **Downloads** folder, alongside browser downloads. No browser tab opens. The PDF contains the original RIS HTML content, with source details and page numbers; it is a generated reading copy, not RIS's original or digitally signed PDF. Existing files are kept, with a numbered filename for repeated downloads. For a whole judgment, ask for the full decision text rather than only its legal principle (Rechtssatz). If the document has no readable HTML or the server has no desktop PDF renderer, the assistant reports the unavailable download and retains the original source link.
+
+Results include original RIS source links, retrieval times and version information. Read any version warning. A connection test confirms reachability, not completeness or legal currency. When a request fails, narrow the query or open the original source; a failure does not establish that no relevant law or decision exists. For legislation, distinguish consolidated information from the authentic promulgation. RIS data is attributed to Bundeskanzleramt, Republik Österreich, under CC BY 4.0.
+
 ## Research databases
 
 The **Save logins for the in-app browser** welcome screen lets you save your own accounts for common legal research websites, including beck-online, juris, Lexis and Westlaw. Use these logins to stay signed in in the in-app browser. The Saved browser login entries are shortcuts for your saved browser logins. Country suggestions cover the EU, UK and US. They are a starting list, not a guarantee that your subscription covers a particular matter or jurisdiction.
@@ -89,6 +111,10 @@ For a new Microsoft connection, open **Settings > Integrations**, use **Communic
 Connecting a calendar service lets the assistant use that service's available tools. It does not automatically import those events into LegalWork's project Calendar. Connecting a drive does not establish mail access. Check the individual connector's status and granted permissions.
 
 ## Browser and Computer Use
+
+You can browse websites while a connected project drive is unavailable. Reconnect that drive before downloading into its project folder. For local projects, the browser can also open files in the connected document folder and local project support folder. A separately connected server does not grant access to files on your computer.
+
+If opening a browser reports that the local browser engine is unavailable, it is an engine connection problem. Wait for LegalWork startup to finish before retrying. Changing a valid website address does not repair the engine connection; use the reported browser error when troubleshooting.
 
 The built-in browser opens websites in a browser panel. Ask the assistant to open a URL and inspect the page with the browser tools. Opening or reconnecting a tab gives the assistant a page observation it can use directly for searches, forms, links and other interactions. It can perform known steps together, then inspect the result; a new page or an unexpected result requires another observation. For saved website passwords, use **Settings > Secrets > Browser passwords**; see [browser password setup and limits](settings-privacy.md#browser-passwords). Filling uses the existing tab. Background task tabs remain available after the assistant finishes, so you can reopen them from their chat cards or continue in the same tab on a follow-up. Close a tab when you no longer need it. Website sign-ins, downloads and site permissions are separate from LegalWork model-provider sign-in. Inspect the returned file location after downloading.
 

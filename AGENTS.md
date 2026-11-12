@@ -22,14 +22,26 @@ LegalWork is a practical control surface for agentic work:
 
 ## Pull Request Expectations (Fast Merge)
 
-If you open a PR, you must run tests and report what you ran (commands + result).
+While developing, run the test that exercises the behavior you changed. Run
+the relevant checks on the finished change before opening a PR and report the
+commands and results. Reuse those results across commits that leave the tested
+inputs unchanged. The merge gate owns platform matrices and package builds.
+For a server runtime dependency change, also run
+`node apps/desktop/scripts/check-server-deps.mjs`.
 
-To maximize merge speed, include evidence of the end-to-end flow:
+To maximize merge speed, include evidence of the end-to-end flow, subject to the screenshot and recording privacy rules below:
 
 * Ideally: attach a short video/screen recording showing the flow running successfully.
 * Otherwise: screenshots are acceptable, but video is preferred.
 
 If you cannot run tests or capture the video, say so explicitly and explain why, and include the exact commands/steps for the reviewer to reproduce.
+
+## Screenshot and Recording Privacy
+
+* Do not commit, push, upload, or attach screenshots or screen recordings to LegalWork's repository, pull requests, issues, documentation, or shared artifacts without the user's explicit acknowledgement and approval of the exact media being shared.
+* Screenshots and recordings must never contain real user or customer content, documents, chat messages, names, email addresses, case details, credentials, access tokens, or other personal, confidential, or sensitive information, even if the user approves sharing the media.
+* Use only synthetic test data in an isolated demo or test environment. Inspect every image and recording before sharing; discard and retake any capture that contains sensitive content.
+* If the user has not approved the media, provide text-only verification and reproduction steps.
 
 ## Coding Guidelines
 

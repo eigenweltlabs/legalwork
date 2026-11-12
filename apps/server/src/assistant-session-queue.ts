@@ -19,6 +19,7 @@ const entrySchema = targetSchema.extend({
 });
 export type AssistantQueuedMessage = z.infer<typeof entrySchema>;
 export type AssistantQueueExecutor = {
+  available?: (target: AssistantSessionTarget) => Promise<boolean>;
   inspect: (target: AssistantSessionTarget) => Promise<{ busy: boolean; pending: boolean; interrupted: boolean }>;
   hasMessage: (target: AssistantSessionTarget, id: string) => Promise<boolean>;
   send: (entry: AssistantQueuedMessage) => Promise<void | { accepted: true }>;
@@ -111,6 +112,7 @@ export class AssistantSessionQueue {
     if (!entry || entry.state === "paused" || this.stopped || this.stopping) return;
     let confirming = entry.attempted;
     try {
+      if (this.executor.available && !await this.executor.available(target)) return;
       // Check the stable message identity before retrying an ambiguous send.
       if (entry.attempted && await this.executor.hasMessage(target, entry.id)) {
         this.save({ ...entry, state: "sent", error: null });

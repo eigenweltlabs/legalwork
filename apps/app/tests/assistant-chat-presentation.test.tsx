@@ -44,6 +44,15 @@ test("an explicitly linked briefing gets one card, without promoting reads, bare
   expect(cards.match(/data-assistant-file-card/g)).toHaveLength(1);
 });
 
+test("an Assistant reply can cite project files inline without adding file cards", () => {
+  const path = "Contracts/Signed agreement.pdf";
+  const target: OpenTarget = { id: "agreement", kind: "file", value: path, name: "Signed agreement.pdf", preview: "pdf", confidence: 95, reason: "link", exists: true };
+  const reply: UIMessage = { ...response, parts: [{ type: "text", text: "The [signed agreement](Contracts/Signed%20agreement.pdf) is in Contracts." }] };
+  expect(linkedAssistantFiles([reply], [target])).toEqual([]);
+  expect(assistantChatMessages([reply])).toEqual([reply]);
+  expect(resolveHrefOpenTarget(path, [target])?.value).toBe(path);
+});
+
 test("only deliberate file cards survive, tool/file noise is hidden and source messages remain intact", () => {
   expect(assistantChatMessages([user, activity, response, { ...response, id: "retry", parts: [shared] }])).toEqual([user, response]);
   expect(activity.parts).toHaveLength(5);
@@ -63,6 +72,35 @@ function render(messages: UIMessage[], status: "ready" | "submitted" | "streamin
     </MessageListProvider></OpenTargetProvider></MemoryRouter></QueryClientProvider>);
   } finally { query.clear(); }
 }
+
+function withFixtureMarkdown(run: () => void) {
+  // Trusted fixture prose only; the Bun renderer has no browser DOM.
+  const sanitize = Object.getOwnPropertyDescriptor(DOMPurify, "sanitize");
+  Object.defineProperty(DOMPurify, "sanitize", { value: (html: string) => html, configurable: true });
+  try {
+    run();
+  } finally {
+    if (sanitize) Object.defineProperty(DOMPurify, "sanitize", sanitize);
+    else Reflect.deleteProperty(DOMPurify, "sanitize");
+  }
+}
+
+test("a project overview renders the agent’s explanation without an inventory or file card", () => {
+  const lookup = tool("legalwork_project_list", { version: 1, project: { id: "matter", name: "Matter", fields: [] }, sections: [
+    { kind: "files", path: "", items: [{ id: "engagement.pdf", kind: "files", title: "engagement.pdf" }], nextCursor: null },
+  ] });
+  const answer = "The engagement letter is signed. The closing checklist is still open.";
+  const reply: UIMessage = { id: "result", role: "assistant", parts: [lookup, { type: "text", text: answer }] };
+  withFixtureMarkdown(() => {
+    for (const assistant of [false, true]) {
+      const html = render([user, reply], "ready", assistant);
+      expect(html).toContain(answer);
+      expect(html).not.toContain('aria-label="Project contents"');
+      expect(html).not.toContain("engagement.pdf");
+      expect(html).not.toContain("data-assistant-file-card");
+    }
+  });
+});
 
 test("an outgoing bubble is visible before delivery, without canonical message edit actions", () => {
   const pending = render([{ ...user, metadata: { localOutgoing: true } }], "ready");
@@ -94,10 +132,7 @@ test("the messenger keeps reactions and file cards, hides typing during tools an
 });
 
 test("typing sits after the acknowledgement only while the next bubble's text is being written", () => {
-  // Trusted fixture prose only; the Bun renderer has no browser DOM.
-  const sanitize = Object.getOwnPropertyDescriptor(DOMPurify, "sanitize");
-  Object.defineProperty(DOMPurify, "sanitize", { value: (html: string) => html, configurable: true });
-  try {
+  withFixtureMarkdown(() => {
     const acknowledgement: UIMessage = { id: "ack", role: "assistant", parts: [{ type: "text", text: "I will take care of it and let you know when done." }] };
     const messages = [user, acknowledgement];
     expect(render(messages, "streaming", true)).not.toContain('data-assistant-typing=""');
@@ -114,10 +149,7 @@ test("typing sits after the acknowledgement only while the next bubble's text is
     expect(render(messages, "submitted", true)).not.toContain('data-assistant-typing=""');
     const streaming: UIMessage = { ...acknowledgement, parts: [{ type: "text", text: "The result", state: "streaming" }] };
     expect(render([user, streaming], "streaming")).toContain('data-assistant-typing=""');
-  } finally {
-    if (sanitize) Object.defineProperty(DOMPurify, "sanitize", sanitize);
-    else Reflect.deleteProperty(DOMPurify, "sanitize");
-  }
+  });
 });
 
 test("submitted, thinking and delegated work never create a typing bubble", () => {

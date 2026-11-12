@@ -145,6 +145,7 @@ test("only immediate sends appear as bubbles, not queued messages, edits or paus
   expect(canPreviewAssistantSend(emptyQueue, false, true, false, draft)).toBe(false);
   expect(canPreviewAssistantSend(emptyQueue, false, false, true, draft)).toBe(false);
   expect(canPreviewAssistantSend({ ...emptyQueue, paused: true }, false, false, false, draft)).toBe(false);
+  expect(canPreviewAssistantSend({ ...emptyQueue, paused: true, pauseReason: "error" }, false, false, false, draft)).toBe(true);
   expect(canPreviewAssistantSend(emptyQueue, false, false, false, { mode: "shell" })).toBe(false);
   expect(canPreviewAssistantSend(emptyQueue, false, false, false, { mode: "prompt", command: { name: "compact", arguments: "" } })).toBe(false);
 });

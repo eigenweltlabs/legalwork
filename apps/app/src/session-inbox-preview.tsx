@@ -39,7 +39,7 @@ function Preview() {
   const [scheduled, setScheduled] = useState(false);
   useEffect(() => { void client.listWorkspaces().then(({ items }) => setWorkspaces(items.map(workspace => ({ ...workspace, displayNameResolved: workspace.name })))); }, []);
   useEffect(() => {
-    if (selected) void client.getSessionSnapshot("preview", selected).then(({ item }) => cache.setQueryData(snapshotKey("preview", selected), item));
+    if (selected) void client.getSessionSnapshot("preview", selected, { fileReferences: true }).then(({ item }) => cache.setQueryData(snapshotKey("preview", selected), item));
   }, [selected]);
   useSyncEvents(client);
   useSessionInbox(client, workspaces, listed, async targets => {

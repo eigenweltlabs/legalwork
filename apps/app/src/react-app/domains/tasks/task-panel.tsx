@@ -158,6 +158,7 @@ export function TaskContent(props: TaskContentProps) {
 
   return (
     <><TaskDetail
+      client={client}
       draftKey={props.draftKey}
       onDirtyChange={props.onDirtyChange}
       inPanel

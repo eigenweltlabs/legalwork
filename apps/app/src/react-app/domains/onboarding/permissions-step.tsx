@@ -2,9 +2,9 @@
 /**
  * Onboarding: tool permissions. Renders the SAME panel as Settings -> Tool
  * Permissions, so whatever is chosen here is exactly what settings shows
- * later. In its "quick" variant: sandbox defaults and safety switches,
- * no per-tool or pattern rules, because those push
- * the step's one action below the fold and belong in Settings anyway.
+ * later. In its "quick" variant: sandbox defaults and the file-editing switch.
+ * Command approval defaults off and can be changed later in Settings.
+ * Per-tool and pattern rules also remain in Settings.
  */
 import { useEffect } from "react";
 

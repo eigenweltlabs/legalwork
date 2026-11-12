@@ -21,6 +21,10 @@ test("Assistant reports persist once, embed by exact identity, and protect edits
     expect(first.markdown).toBe(`\`\`\`legalwork-view\n${first.reference}\n\`\`\``);
     const changed = { ...args, input: { ...input, title: "Updated priorities" } };
     await expect(saveAssistantReport(workspace, changed)).rejects.toMatchObject({ status: 409 });
+    await expect(saveAssistantReport(workspace, { ...changed, baseRevision: first.view.revision,
+      input: { ...input, program: 'root = Card("Matters", Table([], []))' },
+    })).rejects.toMatchObject({ code: "invalid_view_program", details: { issues: [{ component: "Card", path: "/children" }] } });
+    expect(await repository.read(first.view.id)).toEqual(first.view);
     const update = await saveAssistantReport(workspace, { ...changed, baseRevision: first.view.revision });
     expect(update.path).toBe(first.path);
     expect(update.view.title).toBe("Updated priorities");

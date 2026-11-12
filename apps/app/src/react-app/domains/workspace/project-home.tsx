@@ -1,10 +1,11 @@
+import { projectFieldsSchema, type ProjectDetails, type ProjectField } from "@legalwork/types/workspace";
 import { ProjectRemoteFolders } from "./project-remote-folders";
 import { useProjectPersonalisation } from "./project-personalisation-modal";
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import type { AudioRecordingMeta } from "@legalwork/types/audio";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight, MessageSquare, Mic, Pin, Plus, RefreshCw, Settings2, Square, SquareCheck, SquarePen, Star, StickyNote, WandSparkles } from "lucide-react";
-import type { LegalworkServerClient, LegalworkWorkspaceDirectoryEntry } from "@/app/lib/legalwork-server";
+import { LegalworkServerError, type LegalworkServerClient, type LegalworkWorkspaceDirectoryEntry } from "@/app/lib/legalwork-server";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -16,6 +17,7 @@ import { toast } from "@/components/ui/sonner";
 import { SectionHeading, Surface } from "@/react-app/design-system/surface";
 import { cn } from "@/lib/utils";
 import { ProjectProperties } from "./project-properties";
+import { ProjectMatterClients } from "./project-matter-clients";
 import { ProjectName } from "./project-name";
 import { ProjectMetadata } from "./project-metadata";
 import { ProjectNoteDialog } from "./project-note-dialog";
@@ -34,6 +36,36 @@ import { projectErrorMessage } from "./project-errors";
 import { ProjectShareButton, ProjectSyncNotice } from "./project-sync";
 import { deleteProjectNote } from "./delete-project-note";
 import { noteTitle } from "./project-note-title";
+
+async function saveProjectField(client: LegalworkServerClient, workspaceId: string, original: ProjectDetails, id: string,
+  value: ProjectField["value"], previousSelection?: string[]) {
+  const originalField = original.fields.find(field => field.id === id);
+  let current = original;
+  for (let attempt = 0; ; attempt++) {
+    const field = current.fields.find(item => item.id === id);
+    if (!field || !originalField || JSON.stringify({ ...field, value: null }) !== JSON.stringify({ ...originalField, value: null }))
+      throw new LegalworkServerError(409, "project_changed", "This field definition changed.");
+    let next = value;
+    if (field.type === "backoffice" && field.multiple && previousSelection && (value === null || typeof value === "object")) {
+      const directoryId = value?.directoryId ?? (originalField.type === "backoffice" ? originalField.value?.directoryId : undefined);
+      if (field.value && field.value.directoryId !== directoryId)
+        throw new LegalworkServerError(409, "project_reference_directory_changed", "The linked directory changed.");
+      const currentIds = field.value?.recordIds ?? [], desired = value?.recordIds ?? [];
+      const ids = [...new Set([...desired.filter(id => !previousSelection.includes(id) || currentIds.includes(id)), ...currentIds.filter(id => !previousSelection.includes(id))])];
+      next = ids.length && directoryId ? { directoryId, recordIds: ids } : null;
+    } else if (JSON.stringify(field.value) !== JSON.stringify(originalField.value) && JSON.stringify(field.value) !== JSON.stringify(value)) {
+      throw new LegalworkServerError(409, "project_changed", "This field was edited by someone else.");
+    }
+    if (JSON.stringify(next) === JSON.stringify(field.value)) return current;
+    try {
+      return await client.updateProjectDetails(workspaceId, { revision: current.revision,
+        fields: projectFieldsSchema.parse(current.fields.map(item => item.id === id ? { ...item, value: next } : item)) });
+    } catch (error) {
+      if (!(error instanceof LegalworkServerError) || error.code !== "project_changed" || attempt >= 3) throw error;
+      current = await client.getProjectDetails(workspaceId);
+    }
+  }
+}
 
 export function ProjectHome(props: {
   client: LegalworkServerClient;
@@ -69,8 +101,9 @@ export function ProjectHome(props: {
   const [deletingNote, setDeletingNote] = useState<LegalworkWorkspaceDirectoryEntry | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [taskOpen, setTaskOpen] = useState(false);
-  const [detailsOpen, setDetailsOpen] = useState(false);
-  const [editMetadata, setEditMetadata] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(true);
+  const [editMetadata, setEditMetadata] = useState<ProjectDetails | null>(null);
+  useEffect(() => { setEditMetadata(null); }, [workspaceId, client.baseUrl]);
   const [sessionStarting, setSessionStarting] = useState(false);
   const newSession = async (shareRecording: boolean) => {
     if (sessionStarting) return;
@@ -167,28 +200,31 @@ export function ProjectHome(props: {
               <ChevronRight className={cn("size-3.5 transition-transform", detailsOpen && "rotate-90")} />
               {t("projects.metadata")}
             </CollapsibleTrigger>
-            <Button size="icon-xs" variant="ghost" disabled={!details.data} aria-label={t("projects.configure_fields")} title={t("projects.configure_fields")} onClick={() => setEditMetadata(true)}><Settings2 className="size-3.5" /></Button>
+            <Button type="button" variant="ghost" size="sm" className="text-xs text-muted-foreground" disabled={!details.data} onClick={() => setEditMetadata(details.data ?? null)}>
+              <Settings2 className="size-3.5" />{t("projects.customize_connections")}
+            </Button>
           </div>
           <CollapsibleContent>
             <div className="pb-3 pt-2">
               {details.isPending ? <Notice>{t("projects.loading")}</Notice> : details.error ? <Notice error>{t("projects.failed")}</Notice> : details.data?.fields.length ? (
-                <ProjectProperties className="grid gap-x-10 space-y-0 @min-[640px]/project-page:grid-cols-2" fields={details.data.fields} onSave={async (id, value) => {
+                <ProjectProperties key={workspaceId} client={client} className="grid gap-x-10 space-y-0 @min-[640px]/project-page:grid-cols-2" fields={details.data.fields} onSave={async (id, value, previousSelection) => {
                   if (!details.data) return;
                   try {
-                    const data = await client.updateProjectDetails(workspaceId, { revision: details.data.revision, fields: details.data.fields.map((field) => field.id === id ? { ...field, value } : field) });
+                    const data = await saveProjectField(client, workspaceId, details.data, id, value, previousSelection);
                     queryClient.setQueryData(["project", workspaceId], data);
                   } catch (error) {
-                    void details.refetch();
+                    await details.refetch();
                     throw error;
                   }
                 }} />
-              ) : <Notice>{t("projects.no_metadata")}</Notice>}
+              ) : null}
+              {details.data && <ProjectMatterClients client={client} fields={details.data.fields} />}
             </div>
           </CollapsibleContent>
         </Collapsible>
         </ContextMenuTrigger>
         <ContextMenuContent>
-          <ContextMenuItem disabled={!details.data} onClick={() => setEditMetadata(true)}><Settings2 />{t("projects.configure_fields")}</ContextMenuItem>
+          <ContextMenuItem disabled={!details.data} onClick={() => setEditMetadata(details.data ?? null)}><Settings2 />{t("projects.customize_connections")}</ContextMenuItem>
           <ContextMenuItem onClick={() => setDetailsOpen(!detailsOpen)}><ChevronDown />{t(detailsOpen ? "projects.collapse_details" : "projects.expand_details")}</ContextMenuItem>
           <ContextMenuItem disabled={details.isFetching} onClick={() => { void details.refetch(); }}><RefreshCw />{t("common.refresh")}</ContextMenuItem>
         </ContextMenuContent>
@@ -255,18 +291,19 @@ export function ProjectHome(props: {
         </AlertDialogContent>
       </AlertDialog>
       {taskOpen ? <ProjectTaskDialog client={client} workspaceId={workspaceId} onClose={() => setTaskOpen(false)} /> : null}
-      <Dialog open={editMetadata} onOpenChange={setEditMetadata}>
+      <Dialog open={editMetadata !== null} onOpenChange={open => { if (!open) setEditMetadata(null); }}>
         <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
-          <DialogHeader><DialogTitle>{t("projects.metadata")}</DialogTitle><DialogDescription>{t("projects.metadata_hint")}</DialogDescription></DialogHeader>
-          {details.data ? <ProjectMetadata details={details.data} onCancel={() => setEditMetadata(false)} onReload={async () => {
+          <DialogHeader><DialogTitle>{t("projects.customize_connections")}</DialogTitle><DialogDescription>{t("projects.customize_connections_hint")}</DialogDescription></DialogHeader>
+          {editMetadata ? <ProjectMetadata client={client} details={editMetadata} onCancel={() => setEditMetadata(null)} onReload={async () => {
             const data = await client.getProjectDetails(workspaceId);
             queryClient.setQueryData(["project", workspaceId], data);
-            return withInitialProjectFields(data, savedDefaults);
+            const next = withInitialProjectFields(data, savedDefaults);
+            setEditMetadata(next);
+            return next;
           }} onSave={async (fields) => {
-            if (!details.data) return;
-            const data = await client.updateProjectDetails(workspaceId, { revision: details.data.revision, fields });
+            const data = await client.updateProjectDetails(workspaceId, { revision: editMetadata.revision, fields });
             queryClient.setQueryData(["project", workspaceId], data);
-            setEditMetadata(false);
+            setEditMetadata(null);
           }} /> : null}
         </DialogContent>
       </Dialog>

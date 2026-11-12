@@ -17,7 +17,7 @@ export function saveViewPreview(client: Pick<LegalworkServerClient, "createView"
 
 /** Copies keep the reviewed data and original source links, never rebind queries to another wiki. */
 export function viewInputForDestination(input: ViewInput, source: ViewOwner, destination: ViewOwner): ViewInput {
-  if (sameViewOwner(source, destination)) return input.mode === "dashboard" && source.kind === "wiki"
+  if (sameViewOwner(source, destination)) return input.mode === "dashboard" && Object.keys(input.queries).length
     ? { ...input, datasets: Object.fromEntries(Object.entries(input.datasets ?? {}).filter(([name]) => !Object.hasOwn(input.queries, name))) } : input;
   if (Object.keys(input.queries).some(name => !input.datasets?.[name])) throw new Error(t("views.copy_refresh_required"));
   return { ...input, sourceOwner: input.sourceOwner ?? source, queries: {}, datasets: Object.fromEntries(Object.entries(input.datasets ?? {}).map(([name, data]) => [name, { ...data, sourceOwner: data.sourceOwner ?? source }])) };

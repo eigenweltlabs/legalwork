@@ -1,8 +1,10 @@
+import { waitForNativeFixture } from "./native-mcp.test-support.js";
+import { nativeFixtureDirectory, removeNativeFixtureDirectory } from "./native-fixture-directory.test-support.js";
 import { Config } from "@opencode/schema/config";
 import { Schema } from "effect";
 import { expect, test } from "bun:test";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { OpenCode } from "@opencode/client";
 import { engineProjectStatus } from "./engine-project.js";
@@ -15,7 +17,7 @@ import type { ServerConfig } from "./types.js";
 
 const binary = process.env.LEGALWORK_TEST_OPENCODE_BIN;
 test.skipIf(!binary)("one native engine serves shared capabilities and isolated project settings, and loads native project automation without an approval prompt", async () => {
-  const root = await mkdtemp(join(import.meta.dir, "../../../.legalwork/scratch/managed-config-")), previous = { ...process.env };
+  const root = await nativeFixtureDirectory(join(import.meta.dir, "../../../.legalwork/scratch/managed-config-"), true), previous = { ...process.env };
   let server: Awaited<ReturnType<typeof startServer>> | undefined, engine: Awaited<ReturnType<typeof createManagedOpencodeServer>> | undefined;
   const a = join(root, "a"), b = join(root, "b"), outside = join(root, "outside"), library = join(root, "library", "opencode");
   const config: ServerConfig = { host: "127.0.0.1", port: 0, configPath: join(root, "private", "server.json"), token: "fixture", hostToken: "fixture-host", workspaces: [a,b].map((path,index) => ({ id: index === 0 ? "a" : "b", name: "Matter", path, preset: "starter", workspaceType: "local" })), authorizedRoots: [a,b], approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: [], readOnly: false, engineProjectTrustRequired: true, engineConfigurationMode: "native-project", startedAt: Date.now(), tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false };
@@ -40,11 +42,11 @@ test.skipIf(!binary)("one native engine serves shared capabilities and isolated 
     for (const workspace of config.workspaces) expect(await engineProjectStatus(config,workspace)).toMatchObject({state:"ready",plugins:[]});
     expect(existsSync(join(a,"opencode.json"))).toBe(false); expect(existsSync(join(b,"opencode.json"))).toBe(false);
     server = await startServer(config);
-    engine = await createManagedOpencodeServer({bin:binary,cwd:root,timeoutMs:30000,env:{HOME:join(root,"home"),USERPROFILE:join(root,"home"),XDG_CONFIG_HOME:join(root,"engine-config"),XDG_DATA_HOME:join(root,"data"),XDG_STATE_HOME:join(root,"state"),XDG_CACHE_HOME:join(root,"cache"),OPENCODE_CONFIG_DIR:orgPolicyEngineDir(config),OPENCODE_CONFIG:legalworkRuntimeConfigFilePath(config),OPENCODE_CONFIG_CONTENT:await legalworkMandatoryRuntimeConfigContent(config),OPENCODE_DB:join(root,"engine.db"),OPENCODE_CONFIG_PROJECT_DISABLE:"",OPENCODE_DISABLE_CLAUDE_CODE:"1",OPENCODE_DISABLE_MODELS_FETCH:"1",LEGALWORK_SERVER_URL:`http://127.0.0.1:${server.port}`,LEGALWORK_SERVER_TOKEN:config.token}});
+    engine = await createManagedOpencodeServer({bin:binary,cwd:root,timeoutMs:30000,parentLease:true,env:{HOME:join(root,"home"),USERPROFILE:join(root,"home"),XDG_CONFIG_HOME:join(root,"engine-config"),XDG_DATA_HOME:join(root,"data"),XDG_STATE_HOME:join(root,"state"),XDG_CACHE_HOME:join(root,"cache"),OPENCODE_CONFIG_DIR:orgPolicyEngineDir(config),OPENCODE_CONFIG:legalworkRuntimeConfigFilePath(config),OPENCODE_CONFIG_CONTENT:await legalworkMandatoryRuntimeConfigContent(config),OPENCODE_DB:join(root,"engine.db"),OPENCODE_CONFIG_PROJECT_DISABLE:"",OPENCODE_DISABLE_CLAUDE_CODE:"1",OPENCODE_DISABLE_MODELS_FETCH:"1",LEGALWORK_SERVER_URL:`http://127.0.0.1:${server.port}`,LEGALWORK_SERVER_TOKEN:config.token}});
     config.opencodeBaseUrl=engine.url;config.opencodeUsername=engine.username;config.opencodePassword=engine.password;
     const client=OpenCode.make({baseUrl:engine.url,headers:{authorization:`Basic ${Buffer.from(`${engine.username}:${engine.password}`).toString("base64")}`}});
     const locationA={directory:a},locationB={directory:b};
-    const modelsA=await client.model.list({location:locationA}),modelsB=await client.model.list({location:locationB});
+    const modelsA=await waitForNativeFixture(() => client.model.list({location:locationA}), () => true, "project a plugins"),modelsB=await waitForNativeFixture(() => client.model.list({location:locationB}), () => true, "project b plugins");
     const plugins=await client.plugin.list({location:locationA});
     expect(plugins.data.filter(plugin=>plugin.state.status==="failed").map(plugin=>({id:plugin.id,state:plugin.state}))).toEqual([]);
     expect(plugins.data.map(plugin=>({id:plugin.id,state:plugin.state}))).toContainEqual(expect.objectContaining({id:"fixture.shared-tool"}));
@@ -75,7 +77,12 @@ test.skipIf(!binary)("one native engine serves shared capabilities and isolated 
     await writeLegalworkRuntimeConfigFile(config,"a");
     expect((await engineProjectStatus(config,config.workspaces[0]!)).state).toBe("ready");
     await client.location.reload();
-    await client.mcp.list({location:locationA});
+    // Reload boots replacement services, but model.list also awaits lazy
+    // plugin activation; mcp.list alone only reads the current server list.
+    await Promise.all([{ directory: root }, locationA].map(async location => {
+      await waitForNativeFixture(() => client.model.list({ location }), () => true, "reloaded project plugins");
+      await client.mcp.list({ location });
+    }));
     expect(await readFile(join(a,"opencode.json"),"utf8")).toContain("untrusted-plugin");
     const deadline = Date.now() + 5000;
     while (markers.some(path => !existsSync(path)) && Date.now() < deadline) await Bun.sleep(10);
@@ -83,6 +90,6 @@ test.skipIf(!binary)("one native engine serves shared capabilities and isolated 
   } finally {
     await engine?.close();await server?.stop();await closeRuntimeOpencodeConfig(config);
     for (const key of Object.keys(process.env)) if (!(key in previous)) delete process.env[key]; Object.assign(process.env,previous);
-    await rm(root,{recursive:true,force:true});
+    await removeNativeFixtureDirectory(root);
   }
 },60000);

@@ -15,7 +15,7 @@ test("the live scheduler runs research beside a busy daily chat and returns the 
     const { parseEigenweltEntitlements } = await import(${JSON.stringify(new URL("./eigenwelt-auth.ts", import.meta.url).href)});
     const { nativeAssistantFixture } = await import(${JSON.stringify(new URL("./assistant-engine.test-support.ts", import.meta.url).href)});
     const { ScheduledTaskStore } = await import(${JSON.stringify(new URL("./scheduled-tasks/store.ts", import.meta.url).href)});
-    const root = process.env.XDG_CONFIG_HOME, folder = join(root, "assistant"); await mkdir(folder);
+    const root = process.env.XDG_CONFIG_HOME, folder = join(root, "assistant"); await mkdir(join(folder, "files"), { recursive: true });
     const date = new Date(), title = date.getFullYear() + "-" + String(date.getMonth()+1).padStart(2,"0") + "-" + String(date.getDate()).padStart(2,"0");
     const sessions = new Map([["daily", { id: "daily", title, directory: folder, slug: "daily", projectID: "project", version: "1", time: { created: 1, updated: 1 } }]]);
     const deliveries = []; const enginePaths = []; let dailyBusy = true;
@@ -36,7 +36,7 @@ test("the live scheduler runs research beside a busy daily chat and returns the 
       return Response.json({});
     }, folder) });
     const config = { host: "127.0.0.1", port: 0, token: "fixture", hostToken: "host", configPath: join(root, "server.json"), opencodeBaseUrl: engine.url.origin,
-      projectsDirectory: root, workspaces: [{ id: "assistant", name: "Assistant", path: folder, preset: "main-assistant", workspaceType: "local" }], authorizedRoots: [root],
+      projectsDirectory: root, workspaces: [{ id: "assistant", name: "Assistant", path: folder, contentPath: join(folder, "files"), preset: "main-assistant", workspaceType: "local" }], authorizedRoots: [root],
       approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: [], readOnly: false, startedAt: 0, tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false };
     await writeEigenweltConnection(config, { entitlements: parseEigenweltEntitlements({ plan: "plus", subscriptionStatus: "active" }) });
     const store = await ScheduledTaskStore.open(process.env.LEGALWORK_RUNTIME_DB);

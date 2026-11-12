@@ -47,7 +47,7 @@ test("native task tools create, download, replace and remove attachments through
     const original = (await details(taskId)).attachments.find(file => file.filename === "agreement.pdf");
     if (!original) throw new Error("The source was not attached.");
 
-    expect(JSON.parse(await plugin.tool.legalwork_task_download_attachment.execute({ taskId, attachmentId: original.id, path: "sources/agreement.pdf" }))).toMatchObject({ ok: true, local_path: "sources/agreement.pdf", bytes: source.byteLength });
+    expect(JSON.parse(await plugin.tool.legalwork_task_download_attachment.execute({ taskId, attachmentId: original.id, path: "sources/agreement.pdf" }))).toMatchObject({ ok: true, local_path: join(directory, "sources/agreement.pdf"), bytes: source.byteLength });
     expect(new Uint8Array(await readFile(join(directory, "sources/agreement.pdf")))).toEqual(source);
 
     await writeFile(join(directory, "revised.pdf"), "Edited agreement");

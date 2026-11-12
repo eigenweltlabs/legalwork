@@ -327,7 +327,9 @@ test("normal transport shutdown settles every active socket, reaps its child and
 test.skipIf(process.platform === "win32")("pre-ready cancellation preserves a waiting peer, then reaps the last caller's child before a fresh call", async () => {
   const root = await mkdtemp(join(tmpdir(), "legalwork-hop-pre-ready-")), pidPath = join(root, "owned.pid"), stub = join(root, "held.cjs"), executable = join(root, "held-node");
   const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
-  await writeFile(stub, `require('node:fs').writeFileSync(${JSON.stringify(pidPath)},String(process.pid));process.stdin.resume();process.on('message',()=>{});setInterval(()=>{},1000);`);
+  // Publish only the complete PID; existence alone can observe writeFileSync's
+  // newly opened, still empty file on another process.
+  await writeFile(stub, `const fs=require('node:fs');fs.writeFileSync(${JSON.stringify(pidPath + ".tmp")},String(process.pid));fs.renameSync(${JSON.stringify(pidPath + ".tmp")},${JSON.stringify(pidPath)});process.stdin.resume();process.on('message',()=>{});setInterval(()=>{},1000);`);
   await writeFile(executable, `#!/bin/sh\nexec ${quote(node)} ${quote(stub)}\n`); await chmod(executable, 0o700);
   let hits = 0, starts = 0, ownedPID = 0;
   const alive = () => { try { process.kill(ownedPID, 0); return true; } catch (error) { if (error instanceof Error && "code" in error && error.code === "ESRCH") return false; throw error; } };
@@ -354,7 +356,7 @@ test.skipIf(process.platform === "win32")("pre-ready cancellation preserves a wa
 test.skipIf(process.platform === "win32")("normal close reaps a never-ready owned child and settles every waiting call without a deadline", async () => {
   const root = await mkdtemp(join(tmpdir(), "legalwork-hop-pre-ready-close-")), pidPath = join(root, "owned.pid"), stub = join(root, "held.cjs"), executable = join(root, "held-node");
   const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
-  await writeFile(stub, `require('node:fs').writeFileSync(${JSON.stringify(pidPath)},String(process.pid));process.stdin.resume();process.on('message',()=>{});setInterval(()=>{},1000);`);
+  await writeFile(stub, `const fs=require('node:fs');fs.writeFileSync(${JSON.stringify(pidPath + ".tmp")},String(process.pid));fs.renameSync(${JSON.stringify(pidPath + ".tmp")},${JSON.stringify(pidPath)});process.stdin.resume();process.on('message',()=>{});setInterval(()=>{},1000);`);
   await writeFile(executable, `#!/bin/sh\nexec ${quote(node)} ${quote(stub)}\n`); await chmod(executable, 0o700);
   const transport = createNodeRawHttpTransport(() => executable); transports.push(transport);
   try {

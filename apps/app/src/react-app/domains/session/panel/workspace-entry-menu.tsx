@@ -11,7 +11,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { t } from "@/i18n";
 import { isDesktopRuntime, isWindowsPlatform } from "@/app/utils";
-import { joinDesktopPath, revealDesktopItemInDir } from "@/app/lib/desktop";
+import { revealDesktopItemInDir } from "@/app/lib/desktop";
+import { resolveLocalFilePath } from "@/app/lib/local-file-path.impl.js";
 import { toast } from "@/components/ui/sonner";
 import { useProjectFileImport } from "../../workspace/use-project-file-import";
 import { useProjectFiles } from "../../workspace/project-file-context";
@@ -62,7 +63,7 @@ export function WorkspaceEntryMenu({ client, workspaceId, workspaceRoot, isRemot
       actions={[
         ...(onOpen ? [{ label: t("storage.open"), icon: <FolderOpen />, onClick: onOpen }] : []),
         ...(!isRemoteWorkspace && isDesktopRuntime() ? [{ label: t(isWindowsPlatform() ? "workspace_list.reveal_explorer" : "workspace_list.reveal_finder"), icon: <FolderOpen />, disabled: !workspaceRoot, onClick: () => {
-          void joinDesktopPath(workspaceRoot, ...(entry?.path ?? folderPath).split("/").filter(Boolean)).then(revealDesktopItemInDir).catch(() => toast.error(t("workspace_files.open_failed_title")));
+          void revealDesktopItemInDir(resolveLocalFilePath(workspaceRoot, entry?.path ?? folderPath)).catch(() => toast.error(t("workspace_files.open_failed_title")));
         } }] : []),
         ...(isFolder ? [{ label: t("workspace_files.refresh_folder"), icon: <RefreshCw />, onClick: () => { void queryClient.invalidateQueries({ queryKey: ["workspace-files", workspaceId, targetFolder] }); onRefresh(); } }] : []),
         "separator",

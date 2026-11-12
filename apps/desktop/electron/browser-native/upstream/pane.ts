@@ -49,6 +49,7 @@ export function createBrowserPane(input: {
   readonly network?: () => BrowserNetwork
   readonly authorize?: (binding: string) => Promise<void>
   readonly downloadDirectory?: (binding: string) => string | undefined
+  readonly fileRoots?: (binding: string) => string[]
   readonly page?: (binding: string, page: BrowserPage) => void
   readonly capture?: BrowserCapture
   /** Keep pages across reloads of a trusted host app, never navigation to another origin. */
@@ -167,7 +168,7 @@ export function createBrowserPane(input: {
             const session = yield* client.session.get({ sessionID })
 
             // The agent can already read this workspace, so showing its files adds no access.
-            if (server.local) entry.fileRoots = [session.location.directory]
+            if (server.local) entry.fileRoots = input.fileRoots?.(binding) ?? [session.location.directory]
 
             const options = {
               location: { directory: session.location.directory, workspace: session.location.workspaceID },

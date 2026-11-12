@@ -1,3 +1,4 @@
+import { workspaceContentPath } from "../project-storage-paths.js";
 import { viewSaveSource, recordViewSaveSource } from "../views/save-source.js";
 import { isAbsolute, relative, sep } from "node:path";
 import { realpath } from "node:fs/promises";
@@ -55,7 +56,7 @@ export function registerViewRoutes(options: {
       const current = candidates.filter(candidate => candidate !== null).sort((a, b) => b.root.length - a.root.length)[0];
       if (current?.id !== workspace.id) throw new ApiError(403, "view_workspace_denied", "This report belongs to another workspace.");
     }
-    return { workspace, repository: new ViewRepository({ kind: "workspace", id: workspace.id }, workspaceViewFiles(workspace.path)) };
+    return { workspace, repository: new ViewRepository({ kind: "workspace", id: workspace.id }, workspaceViewFiles(workspaceContentPath(workspace))) };
   };
   const authorize = async (ctx: RequestContext, workspace: WorkspaceInfo, path: string) => options.requireApproval(ctx, {
     workspaceId: workspace.id, action: "view.write", summary: "Save a report in this project", paths: [path],

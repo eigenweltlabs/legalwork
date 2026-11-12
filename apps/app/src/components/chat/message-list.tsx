@@ -27,7 +27,6 @@ import { ReviewToolCard, ReviewToolGroup } from "./review/review-card";
 import { SubagentToolRows } from "./subagent-tool-row";
 "use memo";
 
-import { ProjectContentsTool } from "./project/project-contents-card";
 
 import * as React from "react"
 import {
@@ -465,7 +464,6 @@ const AssistantMessage = React.memo(
             if (group.kind === "assistant-name") return <AssistantNameCard key={group.part.toolCallId} part={group.part} />;
             if (group.kind === "scheduled-task") return <ScheduledTaskToolCard key={group.part.toolCallId} part={group.part} />;
             if (group.kind === "calculation") return <CalculationToolCard key={group.part.toolCallId} part={group.part} />;
-            if (group.kind === "project") return <ProjectContentsTool key={group.part.toolCallId} part={group.part} />;
             if (group.kind === "wiki-suggestion") return <WikiSuggestionCard key={group.part.toolCallId} part={group.part} />;
             if (group.kind === "view") return <ViewToolCard key={group.part.toolCallId} part={group.part} />;
 

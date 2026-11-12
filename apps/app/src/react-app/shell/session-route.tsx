@@ -1,3 +1,5 @@
+import { workspaceFileRoot } from "@legalwork/types/workspace";
+import { BackOfficePage } from "../domains/back-office/back-office-page";
 import { defaultProjectFields, useProjectDefaultsStore } from "@/react-app/domains/workspace/project-defaults-store";
 import {ensureNativeCatalogReady} from "@/app/lib/opencode-catalog-ready";
 import type { Client } from "@/app/types";
@@ -14,6 +16,7 @@ import { deleteOrReviewSession } from "@/react-app/domains/views/session-view-de
 import { useDocumentProjectResolver } from "../domains/session/artifacts/document-runtime";
 import { registerEmptySession } from "@/react-app/domains/session/sidebar/session-list-visibility";
 import { projectViewFromPath } from "./workspace-routes";
+import { visibleDashboardContext } from "@/react-app/domains/views/view-generation-sync";
 import { usePanelTabStore, workspacePanelKey } from "@/react-app/domains/session/panel/panel-tab-store";
 import type { QueueInput } from "@legalwork/types/session-queue";
 import { buildFusionDelegationSystemPrompt } from "@/react-app/domains/session/fusion/fusion-prompt";
@@ -21,7 +24,7 @@ import type { AssistantAvatarIcon, AssistantProfile } from "@legalwork/types/mai
 import { carryAssistantDraft } from "@/react-app/domains/session/surface/composer-state-store";
 import { hasAssistantSubscription } from "@legalwork/types/main-assistant";
 import { AssistantUpgradeModal } from "./assistant-upgrade";
-import { resolveAssistantChat, savedAssistantQuery, seedSavedAssistant } from "./assistant-navigation";
+import { currentAssistantQuery, resolveAssistantChat, savedAssistantQuery, seedSavedAssistant } from "./assistant-navigation";
 import { useSessionInbox } from "./use-session-inbox";
 import { ScheduledTasksPage } from "../domains/scheduled-tasks/scheduled-tasks-page";
 import { CalendarView } from "../domains/calendar/calendar-view";
@@ -185,7 +188,6 @@ import {
   useHiddenTemplateWorkspaceIds,
   useTemplateWorkflowRun,
 } from "@/react-app/domains/settings/state/template-workflow-generation";
-import { useMcpConnectedCount } from "@/react-app/domains/connections/use-mcp-connected-count";
 import { RenameWorkspaceModal } from "@/react-app/domains/workspace/rename-workspace-modal";
 import { useProjectSyncPoller } from "@/react-app/domains/workspace/project-sync-store";
 import { refreshTaskQueries } from "@/react-app/domains/tasks/tasks-queries";
@@ -325,7 +327,7 @@ function attachmentMime(attachment: ComposerAttachment) {
   return "text/plain";
 }
 
-async function draftToParts(draft: ComposerDraft, workspaceRoot: string, client:Client) {
+async function draftToParts(draft: ComposerDraft, workspaceRoot: string, client:Client, contentRoot?: string) {
   const parts: import("@/app/lib/opencode-view").PromptPart[] = [];
   const root = workspaceRoot.trim();
 
@@ -335,7 +337,7 @@ async function draftToParts(draft: ComposerDraft, workspaceRoot: string, client:
     if (trimmed.startsWith("/")) return trimmed;
     if (/^[a-zA-Z]:\\/.test(trimmed)) return trimmed;
     if (!root) return "";
-    return `${root}/${trimmed}`.replace(/\/\/+/g, "/");
+    return `${workspaceFileRoot({path: root, contentPath: contentRoot}, trimmed)}/${trimmed}`.replace(/\/\/+/g, "/");
   };
 
   const filenameFromPath = (path: string) => {
@@ -408,6 +410,7 @@ export function SessionRoute() {
   // Mirroring the URL in state lets urgent updates reopen the chat sidebar
   // while React Router is still committing a top-level navigation.
   const mainPage = sessionMainPage(location.pathname);
+  const backOfficePage = location.pathname === "/back-office" || location.pathname.startsWith("/back-office/");
   const showWikis = mainPage === "wikis";
   const manageWikis = showWikis && new URLSearchParams(location.search).get("manage") === "1";
   const showEvals = mainPage === "evals";
@@ -514,6 +517,7 @@ export function SessionRoute() {
     routeNotFoundMessage,
     endpointForWorkspace,
     refreshRouteState,
+    reconnect,
     loadWorkspaceSessionsInBackground,
     rememberPendingCreatedSession,
     handleRuntimeSessionLoaded,
@@ -583,11 +587,7 @@ export function SessionRoute() {
   useEffect(() => {
     if (eigenweltEntitlementsQuery.data && !assistantIncluded && selectedWorkspace?.preset === "main-assistant") setAssistantUpgrade("intro");
   }, [assistantIncluded, eigenweltEntitlementsQuery.data?.connected, selectedWorkspace?.id]);
-  const assistant = useQuery({
-    queryKey: ["main-assistant", client?.baseUrl], enabled: Boolean(client) && assistantIncluded && !isOfficeAddinRuntime(),
-    queryFn: () => { if (!client) throw new Error("Server unavailable"); return client.mainAssistantCurrent(defaultProjectFields(useProjectDefaultsStore.getState())); },
-    refetchInterval: 30_000, refetchOnWindowFocus: "always",
-  });
+  const assistant = useQuery(currentAssistantQuery(client));
   const savedAssistant = useQuery({
     ...savedAssistantQuery(client), enabled: Boolean(client) && !isOfficeAddinRuntime(),
     staleTime: 30_000,
@@ -610,7 +610,7 @@ export function SessionRoute() {
       return info;
     },
   });
-  const assistantActive = selectedWorkspace?.preset === "main-assistant" && !mainPage
+  const assistantActive = selectedWorkspace?.preset === "main-assistant" && !mainPage && !backOfficePage
     && isAssistantConversation(selectedSessionId, assistant.data?.day.sessionId, selectedSessionInfo);
   // Home already knows today's Assistant. Load its transcript in the shared
   // cache so opening it does not start from an empty loading screen.
@@ -619,7 +619,7 @@ export function SessionRoute() {
     if (!client || !current || (location.pathname !== "/home" && !isSessionIndexRoute(location.pathname))) return;
     void getReactQueryClient().prefetchQuery({
       queryKey: snapshotKey(current.workspace.id, current.day.sessionId),
-      queryFn: async () => (await client.getSessionSnapshot(current.workspace.id, current.day.sessionId, { limit: 140 })).item,
+      queryFn: async () => (await client.getSessionSnapshot(current.workspace.id, current.day.sessionId, { limit: 140, fileReferences: true })).item,
       staleTime: 30_000,
     });
   }, [client, assistant.data, location.pathname]);
@@ -650,7 +650,7 @@ export function SessionRoute() {
     if (!client) return;
     if (!assistantIncluded && !assistant.data) { pendingAssistantOpen.current = true; setAssistantUpgrade("intro"); return; }
     try {
-      const current = assistant.data ?? await resolveAssistantChat(client, getReactQueryClient());
+      const current = await resolveAssistantChat(client, getReactQueryClient(), new Date(), defaultProjectFields(useProjectDefaultsStore.getState()));
       getReactQueryClient().setQueryData(["main-assistant", client.baseUrl], current);
       const panels = usePanelTabStore.getState();
       panels.setAssistantWorkspace(current.workspace.id);
@@ -896,8 +896,6 @@ export function SessionRoute() {
   }, [selectedSessionId, selectedWorkspaceId, workspaceSessionGroups]);
 
   const workspaceConnectionStateById = workspaceConnectionOverrides;
-
-  const mcpConnectedCount = useMcpConnectedCount(opencodeClient, selectedWorkspaceRoot);
 
   // Recorder: subscribe to recorder events app-wide (the call overlay asks
   // must work even when the Recorder pane is closed) and keep the copilot
@@ -1438,9 +1436,6 @@ export function SessionRoute() {
     sessionId: selectedSessionId,
     workspaceRoot: selectedWorkspaceRoot,
   });
-  const showPreparingStatus =
-    effectiveLoading ||
-    (!canCreateChat && !routeError && !selectedWorkspaceError);
 
   useEffect(() => {
     if (!opencodeClient) {
@@ -1688,12 +1683,13 @@ export function SessionRoute() {
           workspaceId: selectedWorkspaceId,
           readStatuses: async () => await readMcpStatuses(opencodeClient,selectedWorkspaceRoot || undefined),
         });
-        const parts = await draftToParts(draft, selectedWorkspaceRoot,opencodeClient);
+        const parts = await draftToParts(draft, selectedWorkspaceRoot,opencodeClient, selectedWorkspace?.contentPath ?? undefined);
         const envSystemContext = await buildLegalworkEnvSystemContext(client, {
           cacheKey: targetSessionId,
           runtimeKey: environmentRuntimeKey,
         });
-        const turnSystemContext = [envSystemContext, draft.modelContext, pluginContext]
+        const dashboardContext = visibleDashboardContext({ serverUrl: client.baseUrl, workspaceId: selectedWorkspaceId, sessionId: targetSessionId });
+        const turnSystemContext = [envSystemContext, draft.modelContext, pluginContext, dashboardContext]
           .filter((context): context is string => Boolean(context?.trim()))
           .join("\n\n");
         if (turnSystemContext) parts.push(systemReminderPart(turnSystemContext));
@@ -2285,7 +2281,7 @@ export function SessionRoute() {
     const workspace = workspaces.find(workspace => workspace.id === owner?.[0]);
     const endpoint = workspace ? endpointForWorkspace(workspace) : null;
     if (!workspace || !endpoint) throw new Error("The task's project could not be resolved. Do not navigate the user's workspace to retry.");
-    return { projectId: workspace.id, workspaceId: endpoint.workspaceId, workspaceRoot: workspace.path || "", client: endpoint.client, isRemoteWorkspace: endpoint.isRemote };
+    return { projectId: workspace.id, workspaceId: endpoint.workspaceId, workspaceRoot: workspace.path || "", contentRoot: workspace.contentPath || workspace.path || "", client: endpoint.client, isRemoteWorkspace: endpoint.isRemote };
   }, [sessionsByWorkspaceId, workspaces, endpointForWorkspace]));
 
   const sessionTarget = useCallback((sessionId: string) => {
@@ -2317,6 +2313,12 @@ export function SessionRoute() {
     [opencodeClient, refreshRouteState, sessionTarget, loadWorkspaceSessionsInBackground],
   );
 
+  const showCreatedWorkspace = useCallback((workspace: WorkspaceInfo) => {
+    const next = [mapDesktopWorkspace(workspace), ...workspacesRef.current.filter(item => item.id !== workspace.id)];
+    workspacesRef.current = next;
+    setWorkspaces(next);
+  }, [workspacesRef, setWorkspaces]);
+
   const handleCreateWorkspace = useCallback(async (preset: WorkspacePreset, folder: string | null) => {
     if (!folder) return;
     setCreateWorkspaceBusy(true);
@@ -2347,7 +2349,7 @@ export function SessionRoute() {
       setCreateWorkspaceOpen(false);
       // Mark onboarding complete so the /welcome redirect never fires again.
       local.setPrefs((prev) => ({ ...prev, hasCompletedOnboarding: true }));
-      await refreshRouteState();
+      if (targetWorkspace) showCreatedWorkspace(targetWorkspace);
       if (targetWorkspaceId) {
         const workspacePath = targetWorkspace?.path?.trim() || folder;
         const session = createdOnServer && baseUrl && token
@@ -2385,7 +2387,7 @@ export function SessionRoute() {
     } finally {
       setCreateWorkspaceBusy(false);
     }
-  }, [baseUrl, client, hostToken, local, navigateToWorkspaceSession, refreshRouteState, rememberPendingCreatedSession, token]);
+  }, [baseUrl, client, hostToken, local, navigateToWorkspaceSession, showCreatedWorkspace, rememberPendingCreatedSession, token]);
 
   const handleCreateProject = async (input: CreateProjectInput) => {
     if (!client || createWorkspaceBusy) return;
@@ -2394,7 +2396,8 @@ export function SessionRoute() {
     try {
       const list = await client.createLocalWorkspace({ ...input, preset: "starter" });
       const id = resolveWorkspaceListSelectedId(list);
-      if (!id) throw new Error(t("session_route.create_server_unavailable"));
+      const created = list.workspaces.find(workspace => workspace.id === id);
+      if (!created || !id) throw new Error(t("session_route.create_server_unavailable"));
       setLegacySelectedWorkspaceId(id);
       writeActiveWorkspaceId(id);
       if (isDesktopRuntime()) {
@@ -2402,7 +2405,7 @@ export function SessionRoute() {
         await workspaceSetRuntimeActive(id).catch(() => undefined);
       }
       local.setPrefs((prev) => ({ ...prev, hasCompletedOnboarding: true }));
-      await refreshRouteState();
+      showCreatedWorkspace(created);
       setCreateWorkspaceOpen(false);
       if (selectCreatedProjectForHome && !input.initializeFromFolders) {
         setHomeProjectId(id);
@@ -2414,7 +2417,7 @@ export function SessionRoute() {
       if (input.initializeFromFolders) {
         try {
           if (!baseUrl || !token) throw new Error(t("session_route.create_server_unavailable"));
-          const workspacePath = list.workspaces.find((workspace) => workspace.id === id)?.path;
+          const workspacePath = created.path;
           const firstClient = createClient(`${(buildLegalworkWorkspaceBaseUrl(baseUrl, id) ?? baseUrl).replace(/\/+$/, "")}/opencode`, workspacePath, { token, hostToken, mode: "legalwork" });
           const session = unwrap(await createSessionView(firstClient,{ directory: workspacePath }));
           rememberPendingCreatedSession(id, session.id);
@@ -2477,7 +2480,7 @@ export function SessionRoute() {
       let assistantSessionId: string | null = null;
       if (homeProjectId && !workspace) throw new Error(t("workspace.not_found"));
       if (!workspace) {
-        const current = await resolveAssistantChat(client, getReactQueryClient());
+        const current = await resolveAssistantChat(client, getReactQueryClient(), new Date(), defaultProjectFields(useProjectDefaultsStore.getState()));
         workspace = mapDesktopWorkspace(current.workspace);
         assistantSessionId = current.day.sessionId;
         getReactQueryClient().setQueryData(["main-assistant", client.baseUrl], current);
@@ -2558,8 +2561,9 @@ export function SessionRoute() {
   const handleOpenWikiSession = async (wiki: WikiVault, prompt?: string) => {
     const endpoint = resolveWorkspaceEndpoint({ id: wiki.workspaceId, workspaceType: "local" }, { baseUrl, token, hostToken });
     if (!endpoint) throw new Error(t("wiki.offline"));
-    const wikiClient = createClient(endpoint.opencodeBaseUrl, wiki.root, { token: endpoint.token, hostToken: endpoint.hostToken, mode: "legalwork" });
-    const session = unwrap(await createSessionView(wikiClient,{ directory: wiki.root, title: wiki.name }));
+    const engineDirectory = wiki.engineDirectory || wiki.root;
+    const wikiClient = createClient(endpoint.opencodeBaseUrl, engineDirectory, { token: endpoint.token, hostToken: endpoint.hostToken, mode: "legalwork" });
+    const session = unwrap(await createSessionView(wikiClient,{ directory: engineDirectory, title: wiki.name }));
     if (prompt) useComposerStateStore.getState().setDraft(session.id, prompt);
     setLegacySelectedWorkspaceId(wiki.workspaceId);
     writeActiveWorkspaceId(wiki.workspaceId);
@@ -2732,7 +2736,7 @@ export function SessionRoute() {
       opencodeBaseUrl={opencodeBaseUrl}
       workspaces={sidebarWorkspaces}
       clientConnected={canCreateChat}
-      legalworkServerStatus={client ? "connected" : "disconnected"}
+      reconnect={{ error: reconnect.error, pending: reconnect.pending, onRetry: reconnect.retry }}
       legalworkServerClient={selectedWorkspaceEndpoint?.client ?? client}
       environmentClient={client}
       wikiWorkspace={activeWiki}
@@ -2746,7 +2750,6 @@ export function SessionRoute() {
       providerConnectedIds={providerConnectedIds}
       providerConnectedCount={usableProviderCount}
       providers={providers}
-      mcpConnectedCount={mcpConnectedCount}
       onOpenSettings={() => handleOpenSettings("/settings/general")}
       onOpenProviderAuth={() => sessionProviderAuthStore.openProviderAuthModal({ returnFocusTarget: "composer" })}
       titlebarControlsHidden={aiPlansScreenVisible}
@@ -2850,7 +2853,7 @@ export function SessionRoute() {
         });
       }}
       mainView={
-        openingWiki ? <PageLoading role="status" aria-label={t("wiki.loading")}><PageLoadingSpinner /></PageLoading>
+        backOfficePage ? (client ? <BackOfficePage client={client} /> : <PageLoading><PageLoadingSpinner /></PageLoading>) : openingWiki ? <PageLoading role="status" aria-label={t("wiki.loading")}><PageLoadingSpinner /></PageLoading>
         : showWikis && (manageWikis || !activeWiki) ? <WikiManager client={client} serverUrl={baseUrl} workspaces={sidebarWorkspaces} onChanged={() => void refreshRouteState()} onOpen={openWikiWorkspace} onNewChat={handleOpenWikiSession} /> : scheduledPage ? (
           <ScheduledTasksPage client={client}
             projects={[...workspaces].sort((a, b) => Number(b.id === selectedWorkspaceId) - Number(a.id === selectedWorkspaceId)).map(workspace => ({ id: workspace.id, name: workspace.preset === "main-assistant" ? assistant.data?.profile.name ?? t("assistant.title") : workspace.displayNameResolved || workspace.name || workspace.id, assistant: workspace.preset === "main-assistant", assistantIcon: assistant.data?.profile.icon }))}
@@ -2928,13 +2931,13 @@ export function SessionRoute() {
               id: workspace.id,
               name: workspace.displayNameResolved || workspace.name || workspace.id,
             }))}
-            workspacePath={selectedWorkspaceRoot ?? null}
+            workspacePath={selectedWorkspace?.contentPath || selectedWorkspaceRoot || null}
             workspaceTargets={workspaces
               .filter((workspace) => workspace.path?.trim())
               .map((workspace) => ({
                 id: workspace.id,
                 name: workspace.displayNameResolved,
-                path: workspace.path,
+                path: workspace.contentPath || workspace.path,
               }))
               // Selected workspace first, so the common case is one click away.
               .sort((a, b) => Number(b.id === selectedWorkspaceId) - Number(a.id === selectedWorkspaceId))}
@@ -2968,7 +2971,7 @@ export function SessionRoute() {
         // Tasks live on this machine, so the surface exists for everyone — a
         // connected firm additionally syncs them with its Eigenwelt account.
         onShowTasks: showTasksPane,
-        activeNav: mainPage === "projects" ? null : mainPage,
+        activeNav: backOfficePage ? "back-office" : mainPage === "projects" ? null : mainPage,
         workspaceSessionGroups,
         selectedWorkspaceId,
         selectedSessionId,
@@ -3111,7 +3114,6 @@ export function SessionRoute() {
           : undefined
       }
       onArchiveSession={opencodeClient ? handleArchiveSession : undefined}
-      statusBar={{ loading: showPreparingStatus }}
       notFoundMessage={routeNotFoundMessage}
     />
     {viewDeleteRequest && <SessionViewDeleteDialog request={viewDeleteRequest} onClose={() => setViewDeleteRequest(null)} />}

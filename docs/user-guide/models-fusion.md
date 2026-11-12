@@ -72,6 +72,8 @@ Fusion is intended for substantial work; ordinary follow-ups may stay with the m
 
 When upgrading from v1, LegalWork transfers saved provider logins and API keys into its current connection store, including when it creates a new chat database. Existing connections are kept, and disconnecting an imported account prevents it from being imported again on restart. An expired or revoked credential still needs to be renewed in **Settings > AI Providers**.
 
+Saved **Azure Cognitive Services** and **Google Vertex Anthropic** connections transfer to **Azure** and **Google Vertex**, including their separately saved keys and sign-ins. If you saved connections under both the older and current names, LegalWork keeps the connection under the current name.
+
 An authentication error belongs to the provider selected for that request. A custom provider rejecting its API key does not require you to sign into your Eigenwelt account again.
 
 Requests are sent to the model provider you select. Connecting a local model can keep model inference local, but connected services and other tools can still make network requests. Account access, subscription entitlements and provider credentials are separate sources of availability. **Settings > Account** shows the signed-in firm's plan and usage; external provider billing is governed by that provider.
@@ -79,6 +81,12 @@ Requests are sent to the model provider you select. Connecting a local model can
 ## Document recognition and review models
 
 In builds exposing **Document recognition providers (OCR)** under AI Providers, choose how scanned pages and images are read. Download the offered local model before using it, or configure a supported custom provider with its endpoint, model and credentials. Test the connection with the supplied sample, then check the selected default. Provider choice determines whether document images leave the computer. A chat-model change does not automatically change OCR.
+
+The Windows desktop app includes the runtime dependencies for its fast local OCR engine. You do not need to install Python, Visual Studio, or a separate Visual C++ runtime package. Download the recognition model from this settings page before using local OCR.
+
+**Higher quality · Local** is an optional download on Apple Silicon Macs and x64 Windows PCs. Open **Settings > AI Providers > Document recognition providers (OCR)**, open the actions menu for **Higher quality · Local**, and choose **Download model**. On Windows, the model and its runtime download about 1.85 GB; shared text and layout models are added only if missing. The size appears before download, and progress shows the current file's transferred bytes. Choose **Cancel** to stop. Choose **Download model** again to retry; completed, verified files are reused, including after an app restart. An interrupted file is downloaded again.
+
+**Download local models automatically** covers the small model and shared layout model. It never starts the higher-quality model download, even if that model was previously selected. Downloading the higher-quality model does not change your default: after setup, use its actions menu to **Test sample**, then **Use as default** when you want it used for OCR. Windows ARM64 remains unsupported for the higher-quality model.
 
 The separate local layout model identifies page regions and reading order where supported. Inspect its download/error state as well as OCR readiness. Recognition and layout can be incomplete independently; neither guarantees correct handwriting or table reconstruction. See [Tabular Review](reviews.md) for how this affects evidence.
 

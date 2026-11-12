@@ -18,6 +18,7 @@ type DirectoryTreeWatcher = {
 };
 
 type WorkspaceReloadWatcher = {
+  root: string;
   refreshBaseline: (reasons?: ReloadReason[]) => Promise<void>;
   close: () => void;
 };
@@ -27,25 +28,35 @@ export function startReloadWatchers(input: {
   reloadEvents: ReloadEventStore;
   logger?: Logger | null;
   debounceMs?: number;
-}): { close: () => void; refreshWorkspace: (workspaceId: string, reasons?: ReloadReason[]) => Promise<void> } {
+}) {
   const { config, reloadEvents } = input;
   const logger = input.logger ?? null;
   const debounceMs = typeof input.debounceMs === "number" ? input.debounceMs : 750;
 
   const workspaceWatchers = new Map<string, WorkspaceReloadWatcher>();
 
-  for (const workspace of config.workspaces) {
-    try {
-      const watcher = startWorkspaceReloadWatcher({ workspace, reloadEvents, logger, debounceMs });
-      workspaceWatchers.set(workspace.id, watcher);
-    } catch (error) {
-      logger?.log("warn", "Reload watcher failed to start", {
-        workspaceId: workspace.id,
-        workspacePath: workspace.path,
-        error: error instanceof Error ? error.message : String(error),
-      });
+  function syncWorkspaces() {
+    const roots = new Map(config.workspaces.map(workspace => [workspace.id, resolve(workspace.path)]));
+    for (const [id, watcher] of workspaceWatchers) {
+      if (roots.get(id) === watcher.root) continue;
+      watcher.close();
+      workspaceWatchers.delete(id);
+    }
+    for (const workspace of config.workspaces) {
+      if (workspaceWatchers.has(workspace.id)) continue;
+      try {
+        const watcher = startWorkspaceReloadWatcher({ workspace, reloadEvents, logger, debounceMs });
+        workspaceWatchers.set(workspace.id, watcher);
+      } catch (error) {
+        logger?.log("warn", "Reload watcher failed to start", {
+          workspaceId: workspace.id,
+          workspacePath: workspace.path,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
     }
   }
+  syncWorkspaces();
 
   if (config.workspaces.length) {
     logger?.log("info", `Reload watcher enabled (${config.workspaces.length})`, {
@@ -54,6 +65,7 @@ export function startReloadWatchers(input: {
   }
 
   return {
+    syncWorkspaces,
     close: () => {
       for (const watcher of workspaceWatchers.values()) {
         try {
@@ -144,6 +156,7 @@ function startWorkspaceReloadWatcher(input: {
   };
 
   const checkReason = async (reason: ReloadReason, trigger?: ReloadTrigger) => {
+    await initialized;
     if (closed) return;
     if (!fingerprintedReloadReasons.includes(reason)) return;
 
@@ -365,9 +378,11 @@ function startWorkspaceReloadWatcher(input: {
   for (const tree of trees) {
     tree.scheduleRescan();
   }
-  void refreshBaseline();
+  const initialized = refreshBaseline();
 
-  return { close: closeAll, refreshBaseline };
+  // An explicit refresh is a readiness barrier: the initial background scan
+  // must not overwrite a fingerprint after its caller starts changing files.
+  return { root, close: closeAll, refreshBaseline: async (reasons) => { await initialized; await refreshBaseline(reasons); } };
 }
 
 function createDirectoryTreeWatcher(input: {

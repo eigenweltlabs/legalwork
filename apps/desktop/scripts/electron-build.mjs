@@ -3,6 +3,10 @@ import { copyFileSync, cpSync, existsSync, readFileSync, readdirSync, rmSync, wr
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { engineBuildMode } from "../../../packages/opencode-release/prepare.mjs";
+import { verifyPortableAssets } from "../../../scripts/ci/portable-assets.mjs";
+import timing from "../../../scripts/ci/timing.cjs";
+import { performance } from "node:perf_hooks";
+import { prepareElectronNativeModules } from './electron-native-cache.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const desktopRoot = resolve(__dirname, "..");
@@ -20,12 +24,14 @@ function needsShell(command) {
 }
 
 function run(command, args, cwd, env) {
+  const started = performance.now();
   const result = spawnSync(command, args, {
     cwd,
     stdio: "inherit",
     shell: needsShell(command),
     env: env ? { ...process.env, ...env } : process.env,
   });
+  timing.recordSpan(`desktop:${args.join(' ')}`, started, { status: result.status });
   if (result.status !== 0) {
     process.exit(result.status ?? 1);
   }
@@ -48,6 +54,8 @@ run(pnpmCmd, ["--filter", "legalwork-server", "build"], repoRoot);
 // LEGALWORK_ELECTRON_BUILD tells Vite to emit relative asset paths so
 // index.html resolves /assets/* correctly when loaded via file:// from
 // inside the packaged .app bundle.
+if (process.env.LEGALWORK_PREBUILT_UI === '1') verifyPortableAssets();
+else {
 run(pnpmCmd, ["--filter", "@legalwork/app", "build"], repoRoot, {
   LEGALWORK_ELECTRON_BUILD: "1",
 });
@@ -57,6 +65,7 @@ run(pnpmCmd, ["--filter", "@legalwork/app", "build"], repoRoot, {
 // loudly if the entry point is absent (the packaged add-in would otherwise
 // 503 with word_addin_bundle_missing).
 run(pnpmCmd, ["--filter", "@legalwork/app", "build:word-addin"], repoRoot);
+}
 const wordAddinDistDir = resolve(repoRoot, "apps", "app", "dist-word-addin");
 if (!existsSync(resolve(wordAddinDistDir, "taskpane.html"))) {
   console.error(`Word add-in bundle missing after build: ${wordAddinDistDir}/taskpane.html`);
@@ -88,13 +97,13 @@ for (const fileName of readdirSync(electronRoot).filter((name) => /\.(mjs|cjs)$/
 }
 run(nodeCmd, [resolve(__dirname, "check-electron-bridge.mjs")], repoRoot);
 run(nodeCmd, [resolve(__dirname, "check-server-deps.mjs")], repoRoot);
-run(nodeCmd, [resolve(__dirname, "check-plugin-bundles.mjs")], repoRoot);
+run(nodeCmd, [resolve(repoRoot, "apps/server/scripts/check-plugin-bundles.mjs"), resolve(packagedServerRoot, "dist/opencode-plugins")], repoRoot);
 // pnpm installs for host Node; packaging needs the Electron native ABI.
 // Respect cross-architecture release builds (for example x64 on an arm64 Mac).
 const targetTriple = process.env.CARGO_CFG_TARGET_TRIPLE ?? process.env.TARGET;
 const nativeArch = targetTriple?.startsWith("aarch64-") ? "arm64"
   : targetTriple?.startsWith("x86_64-") ? "x64" : process.arch;
-run(pnpmCmd, ["exec", "electron-builder", "install-app-deps", `--arch=${nativeArch}`], desktopRoot);
+prepareElectronNativeModules(nativeArch, () => run(pnpmCmd, ["exec", "electron-builder", "install-app-deps", `--arch=${nativeArch}`], desktopRoot));
 
 process.stdout.write(
   `${JSON.stringify(
