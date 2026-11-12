@@ -7,7 +7,7 @@ const pending = new Map<string, Promise<void>>();
 export async function canonicalFilePath(path: string): Promise<string> {
   try { return await realpath(path); }
   catch (error) {
-    if (!(error instanceof Error) || !("code" in error) || error.code !== "ENOENT") throw error;
+    if (!(error instanceof Error) || !("code" in error) || (error.code !== "ENOENT" && error.code !== "ENOTDIR")) throw error;
     const parent = dirname(path);
     if (parent === path) return resolve(path);
     return resolve(await canonicalFilePath(parent), basename(path));
