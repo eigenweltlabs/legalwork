@@ -8,10 +8,7 @@ export function createNativeBrowserHost(options) {
   const entries = new Map();
   const pageOwners = new WeakMap();
   if (typeof options.capture !== "function" || typeof options.capture.close !== "function") throw new Error("The native browser requires a shared screenshot queue.");
-  const capturePage = createOwnedBrowserCapture(options.capture, pageOwners, authorize, options.prepareCapture);
-  capturePage.record = (contents, image) => {
-    if (pageOwners.has(contents)) options.captured?.(contents, image);
-  };
+  const capturePage = createOwnedBrowserCapture(options.capture, pageOwners, authorize, options.prepareCapture, options.captured);
   const endpoints = new Map();
   const connections = new Map();
   const extensionChannels = new Map();
@@ -241,7 +238,7 @@ export function createNativeBrowserHost(options) {
 }
 
 /** Recheck the exact owner and queue lifetime after asynchronous permission checks. */
-export function createOwnedBrowserCapture(capture, pageOwners, authorize, prepare) {
+export function createOwnedBrowserCapture(capture, pageOwners, authorize, prepare, captured) {
   const run = (contents, signal, operation) => capture(contents, signal, async active => {
     active.throwIfAborted();
     const entry = pageOwners.get(contents);
@@ -253,6 +250,9 @@ export function createOwnedBrowserCapture(capture, pageOwners, authorize, prepar
     try { return await operation(active); }
     finally { restore?.(); }
   });
+  run.record = (contents, image) => {
+    if (pageOwners.has(contents)) captured?.(contents, image);
+  };
   run.close = contents => {
     if (!pageOwners.has(contents)) return;
     capture.close(contents);

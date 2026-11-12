@@ -29,7 +29,7 @@ async function readBody(request, maximum = 64000) {
 }
 
 /** A capability URL grants access to one explicitly registered browser tab. */
-export function createBrowserAutomationBroker({ authorize, capture = createBrowserCaptureQueue(), captured }) {
+export function createBrowserAutomationBroker({ authorize, capture = createBrowserCaptureQueue(), captured = undefined }) {
   if (typeof authorize !== "function") throw new Error("Browser automation requires a network policy check.");
   const grants = new Map();
   const websocketServer = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 });
