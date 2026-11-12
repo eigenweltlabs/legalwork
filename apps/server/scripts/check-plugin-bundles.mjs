@@ -7,7 +7,7 @@ import { init, parse } from "es-module-lexer";
 import { isBuiltin } from "node:module";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const pluginDir = resolve(__dirname, "..", "server", "dist", "opencode-plugins");
+const pluginDir = resolve(__dirname, "..", "dist", "opencode-plugins");
 
 await init();
 

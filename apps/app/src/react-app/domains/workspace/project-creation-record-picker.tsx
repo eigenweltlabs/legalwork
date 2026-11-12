@@ -71,7 +71,7 @@ export function ProjectCreationRecordPicker({ client, state, field, disabled, on
               <RecordCreateForm object={displayBackOfficeObject(creatable)} name={query.trim()} filters={field.filters} persistenceNotice={t(isMatter ? "projects.matters.saved_separately" : "projects.connections.saved_separately")}
                 onCancel={() => setCreating(false)} onCreated={async record => {
                   if (isMatter) rememberMatter(scope, record.id);
-                  setSelection(field.multiple && currentDirectory ? [...selected.filter(id => id !== record.id), record.id] : [record.id]);
+                  setSelection(field.multiple && currentDirectory ? [record.id, ...selected.filter(id => id !== record.id)] : [record.id]);
                   setCreating(false); setOpen(false); setQuery("");
                 }} />
             </BackOfficeTheme> : <Command filter={null} value={query} onValueChange={(value, details) => { if (details.reason !== "item-press") setQuery(value); }}>

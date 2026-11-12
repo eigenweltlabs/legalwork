@@ -160,7 +160,7 @@ try {
   assert.equal(input(t("projects.name")).value, "My project draft");
   const created = store.records("local", actor, "matters").find(record => record.values.name === "New case"); assert.ok(created);
   const newClient = store.records("local", actor, "clients").find(record => record.values.name === "New client"); assert.ok(newClient);
-  assert.deepEqual(created.values.clients, [abc.id, newClient.id]);
+  assert.deepEqual(created.values.clients, [newClient.id, abc.id]);
   assert.equal(created.values.requiredDetail, "Litigation");
   assert.equal(created.values.fileNumber, "2026/043");
   assert.equal(created.values.subject, "Keep this optional description");
@@ -219,7 +219,7 @@ try {
     assert.deepEqual(field?.value, { directoryId: "local:fixture", recordIds: [id] });
   }
   assert.ok(submissions[0].projectFields?.some(field => field.id === "matter"), "Template fields are preserved with additional links");
-  assert.deepEqual(submissions[0].projectFields?.find(field => field.id === "matter")?.value, { directoryId: "local:fixture", recordIds: [beta.id, created.id] });
+  assert.deepEqual(submissions[0].projectFields?.find(field => field.id === "matter")?.value, { directoryId: "local:fixture", recordIds: [created.id, beta.id] });
   assert.equal(submissions[0].projectFields?.find(field => field.label === "Intake note")?.value, "Waiting for signatures");
   assert.equal(submissions[0].projectFields?.find(field => field.id === "internal_note")?.value, "Preserve this template value");
   assert.equal(submissions[0].templateId, undefined, "Explicit fields are not combined with templateId");
@@ -236,7 +236,7 @@ try {
   await act(async () => button(t("projects.connections.add_record", { name: t("back_office.matters.singular") })).click());
   assert.ok(document.querySelector('[role="option"]')?.textContent?.includes("New case"), "Recents survive reopening the project dialog");
   await type(t("projects.matters.search"), "ABC 2026/043");
-  assert.ok(document.body.textContent?.includes("ABC GmbH, New client · AZ 2026/043"));
+  assert.ok(document.body.textContent?.includes("New client, ABC GmbH · AZ 2026/043"));
   await act(async () => input(t("projects.matters.search")).dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
   await type(t("projects.name"), "Ohne Mandat");
   await act(async () => button(t("projects.create")).click());

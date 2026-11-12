@@ -401,7 +401,7 @@ jobs:
         run: |
           node apps/desktop/scripts/prepare-node-runtime.mjs
           pnpm --filter legalwork-server build
-          node apps/desktop/scripts/check-plugin-bundles.mjs apps/server/dist/opencode-plugins
+          node apps/server/scripts/check-plugin-bundles.mjs
           node scripts/ci/affected-tests.mjs server
       - name: Prepare the reviewed engine selection for desktop runtime fixtures
         if: matrix.area == 'desktop'
@@ -586,7 +586,7 @@ jobs:
 
       - name: Check packaged OpenCode plugins are self-contained
         if: (runner.os == 'Linux') && (needs.changes.outputs.engine == 'true')
-        run: node apps/desktop/scripts/check-plugin-bundles.mjs apps/server/dist/opencode-plugins
+        run: node apps/server/scripts/check-plugin-bundles.mjs
 
       - name: Run app unit tests
         if: needs.changes.outputs.app == 'true'

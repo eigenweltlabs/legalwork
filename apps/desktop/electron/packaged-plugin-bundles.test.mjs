@@ -7,7 +7,7 @@ import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 
-import { findUnresolvableImports } from "../scripts/check-plugin-bundles.mjs";
+import { findUnresolvableImports } from "../../server/scripts/check-plugin-bundles.mjs";
 
 const fixture = (files) => {
   const dir = mkdtempSync(join(tmpdir(), "plugin-bundles-"));
