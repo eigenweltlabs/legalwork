@@ -31,8 +31,6 @@ Paid searches accept up to **200 characters per query**. The assistant must refo
 
 For searches within a website, use a domain-only restriction such as `site:ris.bka.gv.at`. Adding a URL path, such as `site:ris.bka.gv.at/GeltendeFassung`, can miss available sources. Keep the domain and add relevant words such as `Geltende Fassung`, then check the returned source URLs. Keywords do not guarantee that a result belongs to a particular URL path. No matches do not establish that a law or decision is absent. LegalWork sends the query as requested; it does not silently broaden it or run another billed search.
 
-Paid results label a provider-supplied date **Search index date (unverified)**. These dates can be wrong, including placeholder dates around 1980. Ask the assistant to open the source and verify an explicitly stated publication or update date. A judgment date, effective date or year mentioned in the text is not automatically the page's publication date. If the source does not state one, the publication date remains unknown.
-
 ## Connect and select a model
 
 Open **Settings > AI Providers**, choose the connection action, then follow the provider's supported sign-in or API-key flow. The provider catalog includes hosted services and OpenAI-compatible custom endpoints. For a local service such as Ollama, install and start that service, make the intended model available, and configure its endpoint/model through the local provider flow.

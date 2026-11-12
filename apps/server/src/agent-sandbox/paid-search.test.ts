@@ -43,27 +43,6 @@ test("paid search preserves the exact approved query and explains path-scoped si
   }
 });
 
-test("search-index dates remain unverified, unknown dates are omitted and historical source dates are preserved", async () => {
-  const provider = { name: "aws", url: "https://gateway.example/v1/web/search", apiKey: "secret" } satisfies Awaited<ReturnType<typeof searchProvider>>;
-  const rows = [
-    { title: "Article", url: "https://example.org/article", text: "The change takes effect on 1 January 2024.", publishedDate: "04:00PM, Monday, December 31 1979, PST" },
-    { title: "Dated article", url: "https://example.org/dated", text: "Published 12 February 2024.", publishedDate: "2024-02-12" },
-    { title: "Historical judgment", url: "https://example.org/historical", text: "Judgment date: 31 December 1979.", publishedDate: "1979-12-31" },
-    ...[null, "unknown", " N/A ", ""].map((publishedDate, index) => ({ title: "Undated", url: `https://example.org/undated/${index}`, text: "No publication date stated.", publishedDate })),
-  ];
-  const result = await webResult(input(), provider.url, { status: 200, headers: {},
-    bodyBase64: Buffer.from(JSON.stringify({ provider: "aws", region: "eu-west-1", results: rows })).toString("base64") }, undefined, provider);
-  expect(result.output).not.toContain("\nPublished:");
-  expect(result.output).toContain("Search index date (unverified): 04:00PM, Monday, December 31 1979, PST");
-  expect(result.output.match(/Search index date \(unverified\):/g)).toHaveLength(3);
-  expect(result.output).toContain("keep judgment and effective dates separate");
-  expect(result.output).toContain("If no publication date is stated, report it as unknown");
-  for (const row of rows) {
-    expect(result.output).toContain(row.url);
-    expect(result.output).toContain(row.text);
-  }
-});
-
 test("free and lapsed accounts keep the unchanged free Exa request", async () => {
   const config = await fixture();
   expect(await searchProvider(config, async () => { throw new Error("Free search must not read a hosted model"); })).toEqual({ name: "exa" });
