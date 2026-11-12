@@ -69,7 +69,7 @@ test("a denied browser tool cannot create a tab or change the proxy, while manua
   assert.equal(f.views.length, 1);
 });
 
-test("background capture uses a transparent unfocused host and destroys it after repeated captures", async t => {
+test("background capture never covers the app and cleans up after repeated captures", async t => {
   const f = fixture(); t.after(() => f.controller.destroy());
   const context = { workspaceId: "project", sessionId: "background-capture" };
   const connection = await f.call("openUrl", f.first, "https://example.org", "builtin", context);
@@ -77,12 +77,17 @@ test("background capture uses a transparent unfocused host and destroys it after
   f.views[0].webContents.debugger.sendCommand = async method => {
     if (method !== "Page.captureScreenshot") return {};
     const host = f.captureWindows.at(-1);
-    assert.deepEqual(f.first.contentView.children, []);
-    assert.deepEqual(host.contentView.children, [f.views[0]]);
-    assert.equal(host.options.opacity, 0);
-    assert.equal(host.options.focusable, false);
-    assert.equal(host.options.skipTaskbar, true);
-    assert.equal(host.shown, true);
+    if (host) {
+      assert.deepEqual(f.first.contentView.children, []);
+      assert.deepEqual(host.contentView.children, [f.views[0]]);
+      assert.equal(host.options.opacity, 0);
+      assert.equal(host.options.focusable, false);
+      assert.equal(host.options.skipTaskbar, true);
+      assert.equal(host.shown, true);
+    } else {
+      assert.deepEqual(f.first.contentView.children, [f.views[0]]);
+      assert.ok(f.views[0].bounds.x + f.views[0].bounds.width <= 0);
+    }
     captures++;
     return { data: "synthetic-image" };
   };
@@ -92,7 +97,7 @@ test("background capture uses a transparent unfocused host and destroys it after
     assert.equal(response.ok, true);
     await response.json();
     assert.deepEqual(f.first.contentView.children, []);
-    assert.equal(f.captureWindows.at(-1).destroyed, true);
+    assert.ok(f.captureWindows.every(host => host.destroyed));
   }
   assert.equal(captures, 2);
 });

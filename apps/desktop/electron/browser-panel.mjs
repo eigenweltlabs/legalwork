@@ -306,13 +306,17 @@ function createWindowBrowserPanel({ app, BaseWindow, WebContentsView, clipboard,
     capturingViews.add(tab.view);
     let captureWindow;
     if (temporary) {
-      // A shown, transparent host paints on Windows without covering the app.
-      // Fully hidden or offscreen views can stall the compositor indefinitely.
-      captureWindow = new BaseWindow({ parent: owner, show: false, frame: false,
-        focusable: false, skipTaskbar: true, opacity: 0, width: 1200, height: 800 });
-      captureWindow.contentView.addChildView(tab.view);
-      tab.view.setBounds({ x: 0, y: 0, width: 1200, height: 800 });
-      captureWindow.showInactive();
+      // Windows needs an onscreen compositor; opacity keeps its pixels off the UI.
+      if (process.platform === "win32") {
+        captureWindow = new BaseWindow({ parent: owner, show: false, frame: false,
+          focusable: false, skipTaskbar: true, opacity: 0, width: 1200, height: 800 });
+        captureWindow.contentView.addChildView(tab.view);
+        tab.view.setBounds({ x: 0, y: 0, width: 1200, height: 800 });
+        captureWindow.showInactive();
+      } else {
+        owner.contentView.addChildView(tab.view, 0);
+        tab.view.setBounds({ x: -1200, y: 0, width: 1200, height: 800 });
+      }
     }
     tab.view.setVisible?.(true);
     let restored = false;
