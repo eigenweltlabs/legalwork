@@ -90,9 +90,14 @@ export async function webResult(input: WebInput, url: string, response: Outbound
       const output = result.data.results.map(item => {
         const text = item.text.slice(0, Math.max(0, remaining));
         remaining -= text.length;
-        return `Title: ${item.title ?? "Web information"}\n${item.url ? `URL: ${item.url}\n` : ""}${item.publishedDate ? `Published: ${item.publishedDate}\n` : ""}Highlights:\n${text}`;
+        const date = item.publishedDate?.trim();
+        const indexDate = date && !/^(unknown|n\/a|not available|null|undefined|-)$/i.test(date) ? date : undefined;
+        return `Title: ${item.title ?? "Web information"}\n${item.url ? `URL: ${item.url}\n` : ""}${indexDate ? `Search index date (unverified): ${indexDate}\n` : ""}Highlights:\n${text}`;
       }).join("\n\n");
-      return { title: `Web search: ${input.query}`, output: output || "No search results found.", metadata: { provider: "aws", region: result.data.region } };
+      const notes = ["Date note: Search-index dates are unverified and may be wrong. Check explicit publication/update dates on source pages; keep judgment and effective dates separate. If no publication date is stated, report it as unknown."];
+      if (/(?:^|\s)site:[^\s/]+\/\S+/i.test(input.query))
+        notes.push("Query note: URL paths inside site: may return no matches. Use a domain-only site: filter plus relevant keywords, then check result URLs; keywords do not enforce a path. No matches do not establish that the source is absent.");
+      return { title: `Web search: ${input.query}`, output: [...notes, output || "No search results found."].join("\n\n"), metadata: { provider: "aws", region: result.data.region } };
     }
     const payloads = content.trim().startsWith("{") ? [content] : content.split("\n").filter(line => line.startsWith("data:")).map(line => line.slice(5).trim());
     for (const payload of payloads) {
