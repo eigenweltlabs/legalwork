@@ -1,3 +1,4 @@
+import { changeNativeLinks, linkChangesSchema, nativeSources, sourceSchema, visibleNativeLinks } from "./native-links.js";
 import { firstSyncStatus, assignLocalRecords, localDirectoryRows, editLocalCopy, createLocalRelated } from "./first-sync.js";
 import { readEigenweltConnection } from "../eigenwelt-connection-store.js";
 import { BackOfficeQueryPageSchema } from "../views/schema.js";
@@ -678,6 +679,27 @@ export function registerBackOfficeRoutes(options: {
     await syncBackOffice(options.config);
     await refreshBackOfficeActor(options.config, scope, actor);
     return store.syncState(scope, actor);
+  });
+  route("GET", "/native-linked/:id", async (ctx,store,access) => {
+    const sources = await nativeSources(options.config);
+    const links = visibleNativeLinks(store,access,sources,{recordId:ctx.params.id});
+    return { links:links.map(edge => ({...edge,title:edge.kind === "task" ? sources.tasks.getTask(edge.sourceId)!.title : sources.calendars.get(edge.projectKey,edge.sourceId).title})) };
+  });
+  route("GET", "/native-links", async (ctx, store, access) => {
+    const params = ctx.url.searchParams;
+    const source = sourceSchema.parse(Object.fromEntries(params));
+    if (params.get("directoryId") !== await directoryIdentity(options.config, access.scope, store) || params.get("userId") !== access.actor.userId)
+      throw new ApiError(409, "native_link_account", "The account changed.");
+    const sources = await nativeSources(options.config, source);
+    if (!sources.allowed(source)) throw new ApiError(404, "native_link_missing", "This record is unavailable.");
+    return { ids: visibleNativeLinks(store, access, sources, source).map(edge => edge.recordId) };
+  });
+  route("POST", "/native-links", async (ctx, store, access) => {
+    const body = sourceSchema.extend(linkChangesSchema.shape).parse(await input(ctx));
+    if (body.directoryId !== await directoryIdentity(options.config,access.scope,store) || body.userId !== access.actor.userId)
+      throw new ApiError(409,"native_link_account","The account changed.");
+    changeNativeLinks(store,access,await nativeSources(options.config, body),body,body.add,body.remove);
+    return { saved:true };
   });
   route("GET", "/projects", async () => ({
     projects: options.config.workspaces.map((workspace) => ({

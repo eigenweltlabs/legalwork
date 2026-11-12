@@ -17,6 +17,7 @@ type PageResult = {
   position?: DirectoryPosition;
   incremental: boolean;
   more: boolean;
+  nativeLinks: boolean;
 };
 /** Only the first page can submit operations. Keep the previous position until
  * every page is authorized, validated and ready to commit to SQLite together. */
@@ -66,6 +67,7 @@ export async function pullDirectory(
         }
       }
       await requireBackOfficePrincipal(config, principal);
+      const nativeLinks = !!raw && typeof raw === "object" && "nativeLinks" in raw && raw.nativeLinks === true;
       if (!raw || typeof raw !== "object" || !("page" in raw)) {
         if (!first)
           throw new Error(
@@ -75,6 +77,7 @@ export async function pullDirectory(
           snapshot: BackOfficeSnapshotSchema.parse(raw),
           incremental: false,
           more: false,
+          nativeLinks,
         };
       }
       const page = BackOfficeSyncPageSchema.parse(raw);
@@ -114,6 +117,7 @@ export async function pullDirectory(
           },
           position: { access: page.page.access, cursor: page.cursor },
           incremental: !full,
+          nativeLinks,
           more: page.page.latest > page.cursor,
         };
       }

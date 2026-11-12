@@ -1,3 +1,4 @@
+import { changeNativeLinks, nativeSources, syncNativeLinks, visibleNativeLinks } from "./native-links.js";
 import { assignLocalRecords, firstSyncStatus, firstSyncBatch, editLocalCopy, createLocalRelated, pendingLocalRows, stageFirstSync } from "./first-sync.js";
 import { backOfficeTestConfig } from "./config.test-support.js";
 import { afterEach, expect, spyOn, test } from "bun:test";
@@ -39,14 +40,14 @@ async function fixture() {
   const platformURL = "http://127.0.0.1:55499";
   process.env.EIGENWELT_PLATFORM_URL = platformURL;
   const snapshot = (records: BackOfficeRecord[] = [], accepted: string[] = []): BackOfficeSnapshot => ({ protocol: 1, model: defaultBackOfficeModel(), records, accepted, conflicts: [], views: [], cursor: 1 });
-  const backend: { enabled: boolean; revision: number; finance: string[]; respond: (() => Promise<Response>) | null } = { enabled: true, revision: 1, finance: ["alice"], respond: null };
+  const backend: { enabled: boolean; revision: number; finance: string[]; respond: ((init?: RequestInit) => Promise<Response>) | null } = { enabled: true, revision: 1, finance: ["alice"], respond: null };
   const requests: { url: string; authorization: string | null }[] = [];
   const network = spyOn(globalThis, "fetch").mockImplementation(Object.assign(async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
     requests.push({ url, authorization: new Headers(init?.headers).get("authorization") });
     if (url.endsWith("/api/desktop/policy")) return Response.json({ schemaVersion: 1, orgId: "firm", orgName: "Fixture firm", revision: backend.revision, role: "member", updatedAt: null, entries: { "backOffice.sync": { mode: "enforced", value: { enabled: backend.enabled, modelEditors: ["alice"], directoryEditors: ["alice", "bob"], billingMembers: backend.finance } } } });
     if (url.endsWith("/api/desktop/policy/secrets")) return Response.json({ schemaVersion: 1, revision: backend.revision, secrets: {} });
-    if (backend.respond && url.includes("/api/back-office")) return backend.respond();
+    if (backend.respond && url.includes("/api/back-office")) return backend.respond(init);
     if (url.endsWith("/api/back-office")) return Response.json(snapshot());
     return new Response(null, { status: 404 });
   }, { preconnect: globalThis.fetch.preconnect }));
@@ -378,4 +379,73 @@ test("unassigned rows can be edited and linked on their source device without pu
   expect(store.raw("firm", client.id)).toBeNull();
   expect(firstSyncStatus(store, bob).unassigned).toBe(2);
   expect(() => editLocalCopy(store, "firm", bob, { id: matter.id, objectId: "matters", revision: change.record.revision, values: { clients: [crypto.randomUUID()] } })).toThrow("available record");
+});
+
+test("native links survive an unavailable platform, wait for both shared endpoints and ignore a late response after account switch", async () => {
+  const { config, store, alice, original, backend, signIn } = await fixture();
+  const access = { scope: "firm", actor: alice };
+  const sources = await nativeSources(config);
+  const task = sources.tasks.createTask({ title: "Locally drafted work" }, { userId: "alice", name: null, email: null });
+  const source = { kind: "task" as const, sourceId: task.id, projectKey: "" };
+  const edge = { ...source, recordId: original.id };
+  changeNativeLinks(store, access, sources, source, [original.id], []);
+  const pending = () => store.db.get("SELECT stamp FROM native_directory_links WHERE account=? AND sourceId=?", [alice.principalKey!, task.id])?.stamp;
+  const stamp = pending();
+  const read = () => visibleNativeLinks(store, access, sources);
+  expect(read()).toEqual([edge]);
+  // Old platforms do not implement this endpoint. Preserve the local intent.
+  expect(await syncNativeLinks(config, store, "firm", alice)).toBe(false);
+  expect(pending()).toBe(stamp);
+  const sent: { stamp: string; recordId: string }[][] = [];
+  backend.respond = async init => {
+    const body = JSON.parse(String(init?.body));
+    sent.push(body.changes);
+    return Response.json({ links: body.changes.length ? [edge] : [], states: body.changes.length ? [{...edge, present:true, generation:null}] : [], accepted: body.changes.map((c:{stamp:string})=>c.stamp) });
+  };
+  await syncNativeLinks(config, store, "firm", alice);
+  expect(sent.at(-1)).toEqual([]);
+  sources.tasks.markSynced(task.id, "firm", new Date().toISOString());
+  await syncNativeLinks(config, store, "firm", alice);
+  expect(sent.at(-1)?.map(c=>c.stamp)).toEqual([String(stamp)]);
+  expect(pending()).toBeNull();
+  expect(read()).toEqual([edge]);
+  backend.respond = async () => {
+    backend.respond = null;
+    await signIn("bob");
+    return Response.json({ links:[edge], accepted:[] });
+  };
+  await expect(syncNativeLinks(config, store, "firm", alice)).rejects.toMatchObject({code:"back_office_account_changed"});
+  const bob = (await backOfficeAccess(config, true)).actor;
+  expect(visibleNativeLinks(store,{scope:"firm",actor:bob},await nativeSources(config))).toEqual([]);
+  expect(store.db.get("SELECT 1 FROM native_directory_links WHERE account=? AND stamp IS NULL",[alice.principalKey!])).toBeUndefined();
+});
+
+test.each(["source first", "directory first"])("a local link publishes once both endpoints are shared, %s", async order => {
+  const { config, store, alice, snapshot, original, backend } = await fixture();
+  const local = {scope:"local", actor:{userId:"local",edit:true,model:true,finance:true}};
+  const sources = await nativeSources(config);
+  const task = sources.tasks.createTask({title:"Initially local task"}, {userId:"alice",name:null,email:null});
+  const source = {kind:"task" as const, projectKey:"", sourceId:task.id};
+  const record = store.saveRecord("local",local.actor,{objectId:"people",revision:0,values:{name:"Initially local contact"}});
+  const edge = {...source,recordId:record.id};
+  changeNativeLinks(store,local,sources,source,[record.id],[]);
+  const sent: string[] = [];
+  backend.respond = async init => {
+    const changes = JSON.parse(String(init?.body)).changes as {stamp:string}[];
+    sent.push(...changes.map(c=>c.stamp));
+    return Response.json({links:sent.length ? [edge] : [],accepted:changes.map(c=>c.stamp)});
+  };
+  const shareDirectory = () => {
+    store.receive("firm",snapshot([original,{...record,ownerId:"alice",revision:1}]),alice);
+    store.db.run("UPDATE bo_first_sync SET confirmed=1 WHERE id=? AND principal=?", [record.id,alice.principalKey!]);
+  };
+  const shareTask = () => sources.tasks.markSynced(task.id,"firm",new Date().toISOString());
+  if(order==="source first") shareTask(); else shareDirectory();
+  await syncNativeLinks(config,store,"firm",alice);
+  expect(sent).toEqual([]);
+  if(order==="source first") shareDirectory(); else shareTask();
+  await syncNativeLinks(config,store,"firm",alice);
+  await syncNativeLinks(config,store,"firm",alice);
+  expect(sent).toHaveLength(1);
+  expect(visibleNativeLinks(store,{scope:"firm",actor:alice},sources)).toEqual([edge]);
 });

@@ -54,6 +54,9 @@ CREATE TABLE IF NOT EXISTS bo_migrations (version INTEGER PRIMARY KEY, applied_a
 CREATE TABLE IF NOT EXISTS bo_models (scope TEXT PRIMARY KEY, data TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS bo_records (scope TEXT NOT NULL, id TEXT NOT NULL, object_id TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY(scope,id));
 CREATE INDEX IF NOT EXISTS bo_records_object ON bo_records(scope,object_id);
+CREATE TABLE IF NOT EXISTS native_directory_links (
+  account TEXT NOT NULL, kind TEXT NOT NULL, sourceId TEXT NOT NULL, projectKey TEXT NOT NULL, recordId TEXT NOT NULL,
+  present INTEGER NOT NULL, stamp TEXT, generation TEXT, PRIMARY KEY(account,kind,sourceId,projectKey,recordId));
 CREATE TABLE IF NOT EXISTS bo_views (scope TEXT NOT NULL, id TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY(scope,id));
 CREATE TABLE IF NOT EXISTS bo_outbox (seq INTEGER PRIMARY KEY AUTOINCREMENT, scope TEXT NOT NULL, id TEXT NOT NULL UNIQUE, data TEXT NOT NULL, error TEXT);
 CREATE TABLE IF NOT EXISTS bo_replicas (scope TEXT PRIMARY KEY, data TEXT NOT NULL);
@@ -135,6 +138,8 @@ export class BackOfficeStore {
         db.exec("PRAGMA busy_timeout=5000");
         db.exec("PRAGMA secure_delete=ON");
         db.exec(table);
+        if (!db.all("PRAGMA table_info(native_directory_links)").some(column => column.name === "generation"))
+          db.exec("ALTER TABLE native_directory_links ADD COLUMN generation TEXT");
         this.journal = new BackOfficeJournal(db, storage);
         this.journal.initialize();
         this.applyCachedPolicy();
@@ -1273,6 +1278,7 @@ export class BackOfficeStore {
   }
   suspendTeam(scope: string, message: string) {
     this.transaction(() => {
+      this.db.run("DELETE FROM native_directory_links WHERE stamp IS NULL AND account=(SELECT json_extract(data,'$.principalKey') FROM bo_replicas WHERE scope=?)",[scope]);
       const modelRow = this.db.get("SELECT data FROM bo_models WHERE scope=?", [scope]);
       if (!modelRow && !this.db.get("SELECT id FROM bo_records WHERE scope=? LIMIT 1", [scope]) && !this.db.get("SELECT id FROM bo_views WHERE scope=? LIMIT 1", [scope]) && !this.db.get("SELECT id FROM bo_files WHERE scope=? LIMIT 1", [scope]) && !this.syncState(scope).enabled) {
         this.syncError(scope, message);

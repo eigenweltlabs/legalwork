@@ -1,3 +1,4 @@
+import { scheduleNativeLinkSync } from "./native-links.js";
 import { SyncInbox } from "./sync-inbox.js";
 import { scheduleOrgPolicySync } from "../org-policy.js";
 import { pullDirectory } from "./paged-sync.js";
@@ -36,7 +37,7 @@ export async function backOfficePlatform(
   changes: unknown[] = [],
   expectedPrincipal?: string,
   baseline?: BackOfficeRecord[],
-): Promise<BackOfficeSnapshot> {
+): Promise<BackOfficeSnapshot & { nativeLinks?: boolean }> {
   const principal = expectedPrincipal ?? await connectedBackOfficePrincipal(config);
   if (!principal) throw new ApiError(403, "back_office_firm", "Sign in to your firm to open team records.");
   await ensureFreshPlatformToken(config);
@@ -50,7 +51,7 @@ export async function backOfficePlatform(
     ? expandDirectoryDelta(buckets, BackOfficeDeltaSchema.parse(response))
     : BackOfficeSnapshotSchema.parse(response);
   await requireBackOfficePrincipal(config, principal);
-  return snapshot;
+  return {...snapshot, nativeLinks: !!response && typeof response === "object" && "nativeLinks" in response && response.nativeLinks === true};
 }
 export async function syncBackOffice(config: ServerConfig): Promise<void> {
   const connection = await readEigenweltConnection(config);
@@ -98,7 +99,7 @@ export async function syncBackOffice(config: ServerConfig): Promise<void> {
             "Share the linked project before sending this matter link to the team.",
           );
       }
-      let accepted = false, conflicted = false;
+      let accepted = false, conflicted = false, supportsNativeLinks = false;
       do {
         // A file field must exist on the platform before its bytes are prepared.
         // Preserve operation order while splitting model changes from record batches.
@@ -124,6 +125,7 @@ export async function syncBackOffice(config: ServerConfig): Promise<void> {
             announceSyncChange(config,"backOffice");
           });
           const snapshot=result.snapshot;
+          supportsNativeLinks = result.nativeLinks;
           if (result.more) scheduleBackOfficeSync(config);
           if (result.incremental && snapshot.cursor===position?.cursor && !chunk.length && !before.error) break;
           if (!result.position) snapshot.records.forEach(translate);
@@ -142,6 +144,7 @@ export async function syncBackOffice(config: ServerConfig): Promise<void> {
         scheduleBackOfficeSync(config);
       await connectFirstSyncProjects(config, store, scope, actor, backOfficeDirectoryKey(connection.platformURL!, scope));
       retryDelay.delete(config.configPath ?? "default");
+      if (supportsNativeLinks) scheduleNativeLinkSync(config,store,scope,actor);
       const after = store.syncState(scope, actor);
       if (accepted || staged || before.cursor !== after.cursor || before.pending !== after.pending ||
           before.enabled !== after.enabled || before.error !== after.error || replicaBefore !== store.replicaId(scope))
