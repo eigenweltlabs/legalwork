@@ -1,3 +1,4 @@
+import type { BackOfficeRecord } from "@legalwork/types/back-office";
 import type { ProjectField } from "@legalwork/types/workspace";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
@@ -8,11 +9,12 @@ export type ProjectFilterField = {
   key: string;
   label: string;
   type: ProjectField["type"];
-  options: Array<{ value: string; count: number }>;
+  objectId?: string;
+  options: Array<{ value: string; label?: string; count: number }>;
 };
 export type ProjectFilter = {
   id: string;
-  field: Pick<ProjectFilterField, "key" | "label" | "type">;
+  field: Pick<ProjectFilterField, "key" | "label" | "type" | "objectId">;
   operator: FilterOperator;
   values: string[];
 };
@@ -24,10 +26,12 @@ const normalize = (value: string) => value.normalize("NFC").trim().toLowerCase()
  * name and type can be filtered together even when created independently. */
 export function projectFilterFieldKey(field: ProjectField) {
   const source = field.labelSource ?? localizedProjectFields([field])[0].labelSource;
-  return JSON.stringify([source === "suggested" ? "suggested" : "custom", source === "suggested" ? field.id : normalize(field.label), field.type]);
+  return JSON.stringify([source === "suggested" ? "suggested" : "custom", source === "suggested" ? field.id : normalize(field.label), field.type, ...(field.type === "backoffice" ? [field.objectId] : [])]);
 }
 
-export function collectProjectFilterFields(projects: ProjectField[][]): ProjectFilterField[] {
+export const projectReferenceFilterValue = (directoryId: string, recordId: string) => JSON.stringify([directoryId, recordId]);
+
+export function collectProjectFilterFields(projects: ProjectField[][], directory?: { directoryId?: string; records: BackOfficeRecord[] }): ProjectFilterField[] {
   const fields = new Map<string, ProjectFilterField>();
   for (const project of projects) {
     const seen = new Set<string>();
@@ -35,8 +39,19 @@ export function collectProjectFilterFields(projects: ProjectField[][]): ProjectF
       const key = projectFilterFieldKey(field);
       let entry = fields.get(key);
       if (!entry) {
-        entry = { key, label: projectFieldLabel(field), type: field.type, options: [] };
+        entry = { key, label: projectFieldLabel(field), type: field.type, ...(field.type === "backoffice" ? { objectId: field.objectId } : {}), options: [] };
         fields.set(key, entry);
+      }
+      if (field.type === "backoffice") {
+        if (directory?.directoryId) for (const record of directory.records.filter(record => record.objectId === field.objectId && !record.archivedAt)) {
+          const value = projectReferenceFilterValue(directory.directoryId, record.id);
+          let option = entry.options.find(option => option.value === value);
+          if (!option) { option = { value, label: String(record.values.name ?? ""), count: 0 }; entry.options.push(option); }
+          if (field.value?.directoryId === directory.directoryId && field.value.recordIds.includes(record.id) && !seen.has(JSON.stringify([key, value]))) {
+            option.count++; seen.add(JSON.stringify([key, value]));
+          }
+        }
+        continue;
       }
       if (field.type !== "select" && field.type !== "text") continue;
       for (const value of [...(field.options ?? []), ...(typeof field.value === "string" && field.value.trim() ? [field.value] : [])]) {
@@ -47,7 +62,7 @@ export function collectProjectFilterFields(projects: ProjectField[][]): ProjectF
       }
     }
   }
-  return [...fields.values()].map(field => ({ ...field, options: field.options.sort((a, b) => b.count - a.count || a.value.localeCompare(b.value)) }));
+  return [...fields.values()].map(field => ({ ...field, options: field.options.sort((a, b) => b.count - a.count || (a.label ?? a.value).localeCompare(b.label ?? b.value)) }));
 }
 
 export function filterOperators(type: ProjectField["type"]): FilterOperator[] {
@@ -74,7 +89,7 @@ export function validProjectFilter(filter: ProjectFilter) {
   const values = filter.values;
   if (!values.length || values.some(value => !value.trim())) return false;
   if (filter.operator === "between" && values.length !== 2) return false;
-  if (filter.operator !== "between" && filter.field.type !== "select" && values.length !== 1) return false;
+  if (filter.operator !== "between" && filter.field.type !== "select" && filter.field.type !== "backoffice" && values.length !== 1) return false;
   if (filter.field.type === "number" && values.some(value => !Number.isFinite(Number(value)))) return false;
   if (filter.field.type === "date" && values.some(value => !validDate(value))) return false;
   if (filter.operator === "between") return filter.field.type === "number" ? Number(values[0]) <= Number(values[1]) : values[0] <= values[1];
@@ -127,7 +142,11 @@ export function matchesProjectFilters(fields: ProjectField[], filters: ProjectFi
     if (field.value === null || (typeof field.value === "string" && !field.value.trim())) continue;
     const key = projectFilterFieldKey(field);
     const values = valuesByField.get(key) ?? [];
-    values.push(field.value);
+    if (field.type === "backoffice") {
+      const reference = field.value;
+      values.push(...reference.recordIds.map(id => projectReferenceFilterValue(reference.directoryId, id)));
+    }
+    else values.push(field.value);
     valuesByField.set(key, values);
   }
   const match = (filter: ProjectFilter) => {

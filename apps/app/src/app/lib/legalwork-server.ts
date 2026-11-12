@@ -1,4 +1,5 @@
 export type RisIntegrationStatus = { enabled: boolean; allowed: boolean; readOnly: boolean; source: string; requiresAuthentication: false };
+import type { BackOfficeDataQuery } from "@legalwork/types/views";
 import { trackLegalMemoryInterfaceRead } from "./legalmemory-interface-activity";
 import { pendingProjectRemoval, waitForProjectRemoval } from "./project-removal-state";
 import { LegalMemoryPermissionsSchema, type LegalMemoryPermissionReply } from "@legalwork/types/legalmemory";
@@ -29,6 +30,7 @@ import type {
   ProjectContentKind,
   ProjectDetails,
   ProjectField,
+  ProjectRecordReference,
   ProjectTemplateCatalog,
   ProjectSyncOverview,
   ProjectSyncSettings,
@@ -463,7 +465,11 @@ export type LegalworkTaskListParams = {
   deleted?: "only" | "include";
 };
 
+export type BackOfficeLinkChanges = { directoryId: string; userId: string; add: string[]; remove: string[] };
+
 export type LegalworkTaskCreate = {
+  id?: string;
+  backOfficeLinks?: BackOfficeLinkChanges;
   projectId?: string | null;
   title: string;
   description?: string;
@@ -1743,6 +1749,10 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
   };
 
   return {
+    backOffice: (path = "", options: { method?: string; body?: unknown; team?: boolean } = {}) => requestJson<unknown>(baseUrl, `/back-office${path}${path.includes("?") ? "&" : "?"}scope=${options.team === undefined ? "auto" : options.team ? "team" : "local"}`, { token, hostToken, method: options.method, body: options.body, timeoutMs: timeouts.binary }),
+    downloadBackOfficeFile: (recordId: string, fieldId: string, fileId: string, options: { team?: boolean; eventId?: string } = {}) => requestBinary(baseUrl, `/back-office/records/${encodeURIComponent(recordId)}/files/${encodeURIComponent(fieldId)}/${encodeURIComponent(fileId)}?scope=${options.team === undefined ? "auto" : options.team ? "team" : "local"}${options.eventId ? `&eventId=${encodeURIComponent(options.eventId)}` : ""}`, { token, hostToken, timeoutMs: timeouts.binary }),
+    uploadBackOfficeFile: (recordId: string, fieldId: string, name: string, data: ArrayBuffer, objectId: string) => requestJson<unknown>(baseUrl, `/back-office/records/${encodeURIComponent(recordId)}/files/${encodeURIComponent(fieldId)}?scope=auto`, { token, hostToken, method: "POST", body: { name, dataBase64: arrayBufferToBase64(data), objectId }, timeoutMs: timeouts.binary }),
+
     baseUrl,
     token,
     wikiContributions: (wikiId: string) => requestJson<{ items: WikiContribution[]; unavailableProjects: string[] }>(baseUrl, `/wikis/${encodeURIComponent(wikiId)}/suggestions`, { token, hostToken }),
@@ -1781,6 +1791,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     readView: (owner: ViewOwner, id: string) => requestJson<ViewRecord>(baseUrl, `/${owner.kind === "wiki" ? "wikis" : "workspace"}/${encodeURIComponent(owner.id)}/ui-views/${encodeURIComponent(id)}`, { token, hostToken }),
     createView: (owner: ViewOwner, input: ViewInput, savedFrom?: ViewSaveSource) => requestJson<ViewRecord>(baseUrl, `/${owner.kind === "wiki" ? "wikis" : "workspace"}/${encodeURIComponent(owner.id)}/ui-views${savedFrom ? `?source=${encodeURIComponent(JSON.stringify(savedFrom))}` : ""}`, { token, hostToken, method: "POST", body: input }),
     updateView: (owner: ViewOwner, id: string, input: { baseRevision: string; input: ViewInput }, savedFrom?: ViewSaveSource) => requestJson<ViewRecord>(baseUrl, `/${owner.kind === "wiki" ? "wikis" : "workspace"}/${encodeURIComponent(owner.id)}/ui-views/${encodeURIComponent(id)}${savedFrom ? `?source=${encodeURIComponent(JSON.stringify(savedFrom))}` : ""}`, { token, hostToken, method: "PUT", body: input }),
+    queryBackOffice: (query: BackOfficeDataQuery) => requestJson<WikiDataResult>(baseUrl, "/back-office/dashboard-query", { token, hostToken, method: "POST", body: query, readOnly: true }),
     queryWiki: (id: string, query: WikiDataQuery) => requestJson<WikiDataResult>(baseUrl, `/wikis/${encodeURIComponent(id)}/query`, { token, hostToken, method: "POST", body: query, readOnly: true }),
     updateWikiProperties: (id: string, input: { path: string; baseRevision: string; patch: { set: Record<string, string> } }) => requestJson<WikiDocument>(baseUrl, `/wikis/${encodeURIComponent(id)}/properties`, { token, hostToken, method: "PATCH", body: input }),
     wikiFields: (id: string) => requestJson<WikiFields>(baseUrl, `/wikis/${encodeURIComponent(id)}/fields`, { token, hostToken }),
@@ -1974,7 +1985,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     getProjectDetails: (workspaceId: string) => requestJson<ProjectDetails>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/project`, { token, hostToken }),
     updateProjectDetails: (workspaceId: string, payload: { revision: number; fields: ProjectField[] }) =>
       requestJson<ProjectDetails>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/project`, { token, hostToken, method: "PATCH", body: payload }),
-    createLocalWorkspace: (payload: { folderPath?: string; folderMode?: "default" | "selected"; name: string; preset: string; templateId?: string | null; templateLanguage?: "en" | "de"; projectFields?: ProjectField[]; remoteFolders?: RemoteFolderSelection[]; initializeFromFolders?: boolean; fromRemoteFolder?: boolean }) =>
+    createLocalWorkspace: (payload: { folderPath?: string; folderMode?: "default" | "selected"; name: string; preset: string; templateId?: string | null; templateLanguage?: "en" | "de"; projectFields?: ProjectField[]; matters?: ProjectRecordReference; remoteFolders?: RemoteFolderSelection[]; initializeFromFolders?: boolean; fromRemoteFolder?: boolean }) =>
       requestJson<WorkspaceList>(baseUrl, "/workspaces/local", {
         token,
         hostToken,

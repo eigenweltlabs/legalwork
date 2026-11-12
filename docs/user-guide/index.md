@@ -12,6 +12,7 @@ This manual is bundled with the app. Ask the assistant a question about LegalWor
 | How do I get started? | [Getting started](getting-started.md) |
 | What does each screen do, and where is it? | [Screen map](screens.md) |
 | How do folders, workspaces, chats and connected services work? | [Workspaces and chats](workspaces-chats.md) |
+| How do I manage clients, matters and the Back Office data model? | [Back Office](back-office.md) |
 | How do I create a matter, link folders, set project details or share it? | [Projects and sharing](projects-sharing.md) |
 | How do I connect a model, change reasoning, or use Fusion? | [Models and Fusion](models-fusion.md) |
 | How do I open, edit, redline or export files? | [Files and document editors](files-documents.md) |

@@ -34,6 +34,8 @@ Project menus provide the actions available in this context, including renaming 
 
 In a project, **New Chat** starts a conversation in that project. From the Personal Assistant, it opens a project picker so you can choose where the new conversation belongs. The Assistant conversation stays available. **Cmd/Ctrl+N** follows the same behavior.
 
+Ask “What is in this project?” or “Which files are here?” to get an answer directly in chat. The agent can look up the project’s files, notes, tasks, recordings and chats and summarize what it finds.
+
 The composer accepts a task, file attachments, `@` references and available slash commands. The model selector applies to the conversation. The assistant may ask a question or request permission while working; answer in the supplied controls. You can stop an active response and send a follow-up. Queued messages wait for the running work to reach the next opportunity to handle them. Stopping also cancels document requests that are still waiting to run. An edit already applied may finish saving; Stop does not undo that edit.
 
 Questions appear above the composer with numbered choices. Click once to select a choice, or select several when multiple answers are allowed; selected answers have a highlighted border. Use the arrow keys to move through single-choice answers. If **Or type a custom answer** appears, you can enter your own response there. For a single question, double-click a choice, choose **Send** or press Enter in the response field to send your answer.

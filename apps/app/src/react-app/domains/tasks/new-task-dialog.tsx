@@ -1,10 +1,11 @@
 /** @jsxImportSource react */
+import { NativeRecordLinks } from "../back-office/native-record-links";
 import { useId, useState, type FormEvent } from "react";
 import { Loader2, SquareCheck, Tags } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ItemDetailLabel, ItemDescriptionInput, ItemDialogContent, ItemTitleInput } from "@/react-app/design-system/item-detail";
-import type { LegalworkTaskCreate, LegalworkTaskMember, LegalworkTaskPriority } from "@/app/lib/legalwork-server";
+import type { BackOfficeLinkChanges, LegalworkServerClient, LegalworkTaskCreate, LegalworkTaskMember, LegalworkTaskPriority } from "@/app/lib/legalwork-server";
 import { t } from "@/i18n";
 import { TASK_PRIORITIES, taskMemberOptions, taskPriorityLabel } from "./task-format";
 import { AssigneeMark, PriorityMark } from "./task-glyphs";
@@ -14,6 +15,7 @@ import { TaskTagInput } from "./task-tag-input";
 const UNASSIGNED = "__unassigned__";
 
 export type NewTaskDialogProps = {
+  client?: LegalworkServerClient | null;
   open: boolean;
   busy: boolean;
   /** The firm is signed in — the only time a task can be handed to someone. */
@@ -27,6 +29,8 @@ export type NewTaskDialogProps = {
 
 export function NewTaskDialog(props: NewTaskDialogProps) {
   const titleId = useId();
+  const [id] = useState(() => crypto.randomUUID());
+  const [links, setLinks] = useState<BackOfficeLinkChanges>();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [priority, setPriority] = useState<LegalworkTaskPriority>(2);
@@ -42,6 +46,7 @@ export function NewTaskDialog(props: NewTaskDialogProps) {
     event.preventDefault();
     if (!title.trim() || props.busy) return;
     props.onCreate({
+      id, backOfficeLinks: links,
       title: title.trim(),
       ...(description.trim() ? { description: description.trim() } : {}),
       priority,
@@ -72,6 +77,7 @@ export function NewTaskDialog(props: NewTaskDialogProps) {
             <PropertyChip label={t("tasks.field_priority")} value={String(priority)} disabled={props.busy}
               items={TASK_PRIORITIES.map(value => ({ value: String(value), key: String(value), label: taskPriorityLabel(value), leading: <PriorityMark priority={value} /> }))}
               onChange={value => { const next = TASK_PRIORITIES.find(item => String(item) === value); if (next !== undefined) setPriority(next); }} />
+            {props.client && <NativeRecordLinks client={props.client} kind="task" draft={links} onDraftChange={setLinks} disabled={props.busy} />}
           </div>
           <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-2 border-t border-border/60 pt-3">
             <Tags className="size-3.5 text-muted-foreground" />

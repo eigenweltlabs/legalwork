@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { projectFieldsSchema, type ProjectField } from "./project-templates.js";
+export type { ProjectField, ProjectRecordReference } from "./project-templates.js";
 
 /**
  * Shared wire contract for workspace records.
@@ -21,15 +23,7 @@ export function isRetiredRemoteWorkspace(value: unknown): boolean {
 }
 
 /** Project information travels with the folder; documents remain ordinary files. */
-export type ProjectField = {
-  id: string;
-  label: string;
-  /** Suggested labels follow the app language; custom labels are literal. */
-  labelSource?: "suggested" | "custom";
-  type: "text" | "number" | "date" | "select";
-  value: string | number | null;
-  options?: string[];
-};
+
 
 /** References only. Authentication and local connection bindings never travel with a project. */
 export const remoteFolderSchema = z.object({
@@ -220,11 +214,7 @@ export const projectContentsSchema = z.object({
   version: z.literal(1),
   project: z.object({
     id: z.string(), name: z.string(),
-    fields: z.array(z.object({
-      id: z.string(), label: z.string(), labelSource: z.enum(["suggested", "custom"]).optional(),
-      type: z.enum(["text", "number", "date", "select"]), value: z.union([z.string(), z.number(), z.null()]),
-      options: z.array(z.string()).optional(),
-    })),
+    fields: projectFieldsSchema,
   }),
   sections: z.array(z.object({ kind, path: z.string(), items: z.array(item), nextCursor: z.string().nullable(), unavailable: z.boolean().optional() })),
 });

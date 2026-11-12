@@ -77,7 +77,7 @@ async function projectionStatus(record: ProjectRecord): Promise<EngineProjectSta
   } catch (error) { if (missing(error)) return {}; throw error; }
 }
 
-export async function engineProjectStatus(config: ServerConfig, workspace: WorkspaceInfo): Promise<EngineProjectStatus> {
+export async function engineProjectStatus(config: ServerConfig, workspace: WorkspaceInfo, includeRecovery = true): Promise<EngineProjectStatus> {
   const requested = resolve(workspace.directory?.trim() || workspace.path);
   const directory = await rootFor(workspace).catch(error => { if (projectFileFailure(error, requested)) return requested; throw error; });
   // A generated document and its private ownership receipt are one logical
@@ -94,7 +94,7 @@ export async function engineProjectStatus(config: ServerConfig, workspace: Works
   const scope: EngineProjectStatus["approvalScope"] = [];
   const required = false;
   const plugins: EngineProjectStatus["plugins"] = [];
-  const recoveryState = config.managedEngineRecoveryState?.();
+  const recoveryState = includeRecovery && config.managedEngineRecoveryState?.();
   let recovery: EngineProjectStatus["recovery"];
   if (recoveryState) {
     const own = await Promise.all(recoveryState.heldSessions.map(async session =>
@@ -133,13 +133,21 @@ async function publishProjectionTransition(config: ServerConfig, path: string, n
   });
 }
 
-export async function writeNativeEngineProjectRegistry(config: ServerConfig): Promise<void> {
-  const projects = await Promise.all(config.workspaces.map(async workspace => {
-    const status = await engineProjectStatus(config, workspace);
+export async function writeNativeEngineProjectRegistry(config: ServerConfig, workspaces = config.workspaces, update?: { previousDirectory?: string }): Promise<void> {
+  const projects = await Promise.all(workspaces.map(async workspace => {
+    const status = await engineProjectStatus(config, workspace, false);
     return { directory: status.directory, approved: status.state === "ready" };
   }));
   const path = nativeEngineProjectRegistryPath(config);
   await withFileWriteLock(path, async () => {
+    if (update) {
+      try {
+        const existing = nativeEngineProjectRegistrySchema.parse(JSON.parse(await readFile(path, "utf8")));
+        const previous = existing.projects.findIndex(project => project.directory === update.previousDirectory);
+        if (previous >= 0) existing.projects.splice(previous, 1);
+        projects.push(...existing.projects);
+      } catch (error) { if (!missing(error)) throw error; }
+    }
     const temporary = `${path}.${randomUUID()}.tmp`;
     await mkdir(dirname(path), { recursive: true, mode: 0o700 });
     try { await writeFile(temporary, JSON.stringify({ version: 1, projects }), { mode: 0o600 }); await rename(temporary, path); }

@@ -231,7 +231,7 @@ export async function startManagedEngineLifecycle(options: {
     const id = parsed.data.data.attemptID;
     attempts.set(`${integrationID}:${id}`, { kind, integrationID, attemptID: id, directory: request.directory });
   };
-  config.migrateProjectStorageSessions = () => migrateLocalProjectSessions(config, client());
+  config.migrateProjectStorageSessions = workspace => migrateLocalProjectSessions(config, client(), workspace);
   if (mode === "recovery") { monitor(); await refresh(false); }
   return {
     get engine() { return engine; },

@@ -20,10 +20,10 @@ test("untouched projects inherit optional defaults while saved schemas, values a
 
 test("Akte defaults start empty and every new project's values and options are independent", () => {
   const template = defaultAkteFields();
-  expect(template.length).toBe(10);
+  expect(template.map(field => [field.id, field.type, field.type === "backoffice" ? field.objectId : null])).toEqual([["matter", "backoffice", "matters"], ["client", "backoffice", "clients"]]);
   expect(new Set(template.map((field) => field.id)).size).toBe(template.length);
   expect(template.every((field) => field.value === null)).toBe(true);
-  const customized = template.map((field) => ({ ...field, value: "old value" }));
+  const customized = defaultProjectTemplates()[1].fields.filter((field) => field.type !== "backoffice").map((field) => ({ ...field, value: "old value" }));
   const first = emptyProjectFields(customized);
   const second = emptyProjectFields(customized);
   first[0].value = "Client A";
@@ -44,7 +44,7 @@ test("legacy custom and explicitly empty defaults migrate only into Legal Matter
   expect(migrated.templates[0].fields).toEqual([{ ...field, value: null }]);
   expect(migrated.templates[1].fields.some((field) => field.id === "objective")).toBe(true);
   expect(migrateProjectDefaults({ fields: [] }).templates[0].fields).toEqual([]);
-  expect(migrateProjectDefaults({ fields: null }).templates[0].fields).toHaveLength(10);
+  expect(migrateProjectDefaults({ fields: null }).templates[0].fields).toHaveLength(2);
 });
 
 test("migration preserves custom templates, their names, options and an explicitly absent default", () => {
@@ -57,8 +57,8 @@ test("migration preserves custom templates, their names, options and an explicit
 });
 
 test("template selection keeps values and custom fields while replacing empty suggested fields", () => {
-  const fields = defaultAkteFields();
-  fields[1].value = "Acme";
+  const fields = defaultAkteFields().filter(field => field.id !== "client");
+  fields.push({ id: "client", label: "Client", labelSource: "suggested", type: "text", value: "Acme" });
   fields.push({ id: "custom", label: "Our code", labelSource: "custom", type: "text", value: null });
   const template = defaultProjectTemplates()[1];
   const applied = applyProjectTemplate(fields, template);

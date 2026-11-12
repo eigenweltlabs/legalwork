@@ -9,6 +9,11 @@
       "source": "apps/app/src/react-app/domains/connections/usage-control/payment-components.tsx"
     },
     {
+      "id": "project-creation",
+      "guide": "projects-sharing.md",
+      "source": "apps/app/src/react-app/domains/workspace/create-project-modal.tsx"
+    },
+    {
       "id": "ris-integration",
       "guide": "integrations.md",
       "source": "apps/app/src/react-app/domains/settings/ris-config.tsx"
@@ -34,6 +39,38 @@
       "source": "apps/app/src/react-app/domains/settings/pages/research-connection-dialog.tsx"
     }
   ],
+  "panels": [
+    {
+      "id": "project-field-editor",
+      "guide": "projects-sharing.md",
+      "source": "apps/app/src/react-app/domains/workspace/project-field-editor.tsx"
+    },
+    {
+      "id": "back-office-history",
+      "guide": "back-office.md",
+      "source": "apps/app/src/react-app/domains/back-office/history-panel.tsx"
+    },
+    {
+      "id": "back-office-creation",
+      "guide": "back-office.md",
+      "source": "apps/app/src/react-app/domains/back-office/record-create-form.tsx"
+    },
+    {
+      "id": "back-office-model-settings",
+      "guide": "back-office.md",
+      "source": "apps/app/src/react-app/domains/back-office/model-editor.tsx"
+    },
+    {
+      "id": "project-record-links",
+      "guide": "projects-sharing.md",
+      "source": "apps/app/src/react-app/domains/workspace/project-record-field.tsx"
+    },
+    {
+      "id": "project-field-settings",
+      "guide": "projects-sharing.md",
+      "source": "apps/app/src/react-app/domains/workspace/project-metadata.tsx"
+    }
+  ],
   "routes": [
     {
       "path": "*",
@@ -43,6 +80,11 @@
     {
       "path": "/",
       "guide": "getting-started.md",
+      "source": "apps/app/src/react-app/shell/app-root.tsx"
+    },
+    {
+      "path": "/back-office/*",
+      "guide": "back-office.md",
       "source": "apps/app/src/react-app/shell/app-root.tsx"
     },
     {

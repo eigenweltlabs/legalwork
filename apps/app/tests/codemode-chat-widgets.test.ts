@@ -25,7 +25,6 @@ const cases = [
   { tool: "legalwork_email_draft", kind: "email-draft", output: { draft: { ...common, subject: "Hello" } } },
   { tool: "legalwork_calendar_event_draft", kind: "calendar-event-draft", output: { draft: { ...common, title: "Meeting", sequence: 0, start: "2026-10-27", end: "2026-10-28", startInstant: "2026-10-27T00:00:00Z", endInstant: "2026-10-28T00:00:00Z" } } },
   { tool: "legalwork_schedule_create", kind: "scheduled-task", output: { task: { id, workspaceId: "workspace", revision: 1, title: "Follow-up", prompt: "Review", schedule: { kind: "once", startAt: "2026-10-28T10:00:00Z", timeZone: "Europe/Berlin" }, sessionId: null, status: "active", nextRunAt: null, createdAt: "now", updatedAt: "now" } } },
-  { tool: "legalwork_project_list", kind: "project", output: { version: 1, project: { id: "workspace", name: "Matter", fields: [] }, sections: [] } },
   { tool: "wiki_suggest", kind: "wiki-suggestion", output: { suggestion: { id, workspaceId: "workspace", sessionId: "chat", title: "Knowledge", content: "# Knowledge", destination: { wikiId: "wiki", path: "Knowledge.md", baseRevision: null }, status: "pending", createdAt: 1, updatedAt: 1, revision: "r1", filePath: "draft.md" } } },
   { tool: "view_create", kind: "view", output: preview },
   { tool: "legalwork_assistant_share_file", kind: "assistant-file", output: { ok: true, file: { path: "reports/briefing.md", title: "Morning briefing", size: 100, source: { workspaceId: "matter", workspaceRoot: "/fixture/matter", projectName: "Matter" } } } },
@@ -44,6 +43,19 @@ function history(tool: SessionMessageAssistantTool) {
     id: "assistant", type: "assistant", agent: "legalwork", model: { providerID: "fixture", id: "model" }, tokens: session.tokens, cost: 0, time: { created: 1, completed: 2 }, content: [tool],
   }]) })[0].parts;
 }
+
+test("project inventory stays in tool history for live and reopened chats, including previously recorded widgets", () => {
+  const tool = "legalwork_project_list";
+  const output = { version: 1, project: { id: "workspace", name: "Matter", fields: [] }, sections: [] };
+  for (const recorded of [false, true]) {
+    const source = native(tool, output);
+    if (source.state.status !== "completed") throw new Error("Expected completed fixture");
+    if (recorded) source.state.metadata = { ...source.state.metadata, legalworkToolResults: [{ tool, input: {}, output }] };
+    for (const parts of [parseDynamicToolUIParts(projectTool(session.id, "assistant", source)), history(source)]) {
+      expect(getAssistantRenderGroups(parts, false).map(group => group.kind)).toEqual(["tools"]);
+    }
+  }
+});
 
 test.each(cases)("native Code Mode restores $kind cards in live projection and saved history", ({ tool, kind, output }) => {
   const source = native(tool, output);

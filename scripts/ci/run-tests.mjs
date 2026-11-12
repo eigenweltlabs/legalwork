@@ -34,7 +34,7 @@ export function testArguments(suite, files = [], workers = suite === 'sandbox' ?
     ...(suite === 'server' && files.length === 0 ? [...serverUnitIgnorePatterns, ...serialServerTestFiles.map(file => `**/${file}`)].map(pattern => `--path-ignore-patterns=${pattern}`) : []),
     ...(suite === 'app' ? [] : ['--preload', path.join(root, 'apps/server/test-preload.ts')]),
     ...(['engine', 'sandbox'].includes(suite) ? ['--timeout', '180000'] : []),
-    ...(files.length ? files : [suite === 'app' ? 'tests/' : 'src/'])];
+    ...(files.length ? files : suite === 'server' ? ['src/', 'tests/'] : [suite === 'app' ? 'tests/' : 'src/'])];
 }
 
 const isSerialServerTest = file => serialServerTestFiles.some(name => file.replaceAll('\\', '/').endsWith('/' + name));

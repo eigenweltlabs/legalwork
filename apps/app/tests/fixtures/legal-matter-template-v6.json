@@ -1,0 +1,13 @@
+[
+  {"id": "matter", "labelSource": "suggested", "label": "Matters", "type": "backoffice", "objectId": "matters", "multiple": true, "value": null},
+  {"id": "matter_number", "labelSource": "suggested", "label": "Matter reference", "type": "text", "value": null},
+  {"id": "client", "labelSource": "suggested", "label": "Client", "type": "backoffice", "objectId": "clients", "multiple": true, "value": null},
+  {"id": "opposing_party", "labelSource": "suggested", "label": "Opposing party", "type": "backoffice", "objectId": "companies", "multiple": true, "value": null},
+  {"id": "subject", "labelSource": "suggested", "label": "Matter subject", "type": "text", "value": null},
+  {"id": "practice_area", "labelSource": "suggested", "label": "Practice area", "type": "text", "value": null},
+  {"id": "responsible", "labelSource": "suggested", "label": "Responsible", "type": "backoffice", "objectId": "people", "multiple": true, "filters": {"mode": "all", "conditions": [{"fieldId": "personType", "operator": "is", "values": ["Partner", "Counsel", "Associate", "Assistant", "Operations", "Freelancer", "Other team member"]}, {"fieldId": "active", "operator": "is", "values": [true]}]}, "value": null},
+  {"id": "status", "labelSource": "suggested", "label": "Status", "type": "select", "value": null, "options": ["Open", "In progress", "Waiting", "Closed"]},
+  {"id": "opened_on", "labelSource": "suggested", "label": "Opened on", "type": "date", "value": null},
+  {"id": "court", "labelSource": "suggested", "label": "Court / authority", "type": "backoffice", "objectId": "companies", "multiple": true, "filters": {"mode": "all", "conditions": [{"fieldId": "organisationType", "operator": "is", "values": ["Court", "Public authority"]}]}, "value": null},
+  {"id": "external_reference", "labelSource": "suggested", "label": "External reference", "type": "text", "value": null}
+]

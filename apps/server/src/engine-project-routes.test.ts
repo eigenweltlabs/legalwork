@@ -99,7 +99,7 @@ test.skipIf(process.platform === "win32" || process.getuid?.() === 0)("an unwrit
     const recovered = await fetch(`${url}/retry-recovery`, { method: "POST", headers });
     expect(recovered.status).toBe(200);
     expect(await recovered.json()).toMatchObject({ state: "ready" });
-    expect(await readFile(join(settings, "opencode.json"), "utf8")).toContain('"providers"');
+    expect(await readFile(join(settings, "opencode.json"), "utf8")).toContain('"permissions"');
   } finally {
     await server?.stop();
     await chmod(settings, 0o700);

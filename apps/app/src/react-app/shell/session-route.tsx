@@ -1,4 +1,5 @@
 import { workspaceFileRoot } from "@legalwork/types/workspace";
+import { BackOfficePage } from "../domains/back-office/back-office-page";
 import { defaultProjectFields, useProjectDefaultsStore } from "@/react-app/domains/workspace/project-defaults-store";
 import {ensureNativeCatalogReady} from "@/app/lib/opencode-catalog-ready";
 import type { Client } from "@/app/types";
@@ -15,6 +16,7 @@ import { deleteOrReviewSession } from "@/react-app/domains/views/session-view-de
 import { useDocumentProjectResolver } from "../domains/session/artifacts/document-runtime";
 import { registerEmptySession } from "@/react-app/domains/session/sidebar/session-list-visibility";
 import { projectViewFromPath } from "./workspace-routes";
+import { visibleDashboardContext } from "@/react-app/domains/views/view-generation-sync";
 import { usePanelTabStore, workspacePanelKey } from "@/react-app/domains/session/panel/panel-tab-store";
 import type { QueueInput } from "@legalwork/types/session-queue";
 import { buildFusionDelegationSystemPrompt } from "@/react-app/domains/session/fusion/fusion-prompt";
@@ -408,6 +410,7 @@ export function SessionRoute() {
   // Mirroring the URL in state lets urgent updates reopen the chat sidebar
   // while React Router is still committing a top-level navigation.
   const mainPage = sessionMainPage(location.pathname);
+  const backOfficePage = location.pathname === "/back-office" || location.pathname.startsWith("/back-office/");
   const showWikis = mainPage === "wikis";
   const manageWikis = showWikis && new URLSearchParams(location.search).get("manage") === "1";
   const showEvals = mainPage === "evals";
@@ -607,7 +610,7 @@ export function SessionRoute() {
       return info;
     },
   });
-  const assistantActive = selectedWorkspace?.preset === "main-assistant" && !mainPage
+  const assistantActive = selectedWorkspace?.preset === "main-assistant" && !mainPage && !backOfficePage
     && isAssistantConversation(selectedSessionId, assistant.data?.day.sessionId, selectedSessionInfo);
   // Home already knows today's Assistant. Load its transcript in the shared
   // cache so opening it does not start from an empty loading screen.
@@ -1685,7 +1688,8 @@ export function SessionRoute() {
           cacheKey: targetSessionId,
           runtimeKey: environmentRuntimeKey,
         });
-        const turnSystemContext = [envSystemContext, draft.modelContext, pluginContext]
+        const dashboardContext = visibleDashboardContext({ serverUrl: client.baseUrl, workspaceId: selectedWorkspaceId, sessionId: targetSessionId });
+        const turnSystemContext = [envSystemContext, draft.modelContext, pluginContext, dashboardContext]
           .filter((context): context is string => Boolean(context?.trim()))
           .join("\n\n");
         if (turnSystemContext) parts.push(systemReminderPart(turnSystemContext));
@@ -2309,6 +2313,12 @@ export function SessionRoute() {
     [opencodeClient, refreshRouteState, sessionTarget, loadWorkspaceSessionsInBackground],
   );
 
+  const showCreatedWorkspace = useCallback((workspace: WorkspaceInfo) => {
+    const next = [mapDesktopWorkspace(workspace), ...workspacesRef.current.filter(item => item.id !== workspace.id)];
+    workspacesRef.current = next;
+    setWorkspaces(next);
+  }, [workspacesRef, setWorkspaces]);
+
   const handleCreateWorkspace = useCallback(async (preset: WorkspacePreset, folder: string | null) => {
     if (!folder) return;
     setCreateWorkspaceBusy(true);
@@ -2339,7 +2349,7 @@ export function SessionRoute() {
       setCreateWorkspaceOpen(false);
       // Mark onboarding complete so the /welcome redirect never fires again.
       local.setPrefs((prev) => ({ ...prev, hasCompletedOnboarding: true }));
-      await refreshRouteState();
+      if (targetWorkspace) showCreatedWorkspace(targetWorkspace);
       if (targetWorkspaceId) {
         const workspacePath = targetWorkspace?.path?.trim() || folder;
         const session = createdOnServer && baseUrl && token
@@ -2377,7 +2387,7 @@ export function SessionRoute() {
     } finally {
       setCreateWorkspaceBusy(false);
     }
-  }, [baseUrl, client, hostToken, local, navigateToWorkspaceSession, refreshRouteState, rememberPendingCreatedSession, token]);
+  }, [baseUrl, client, hostToken, local, navigateToWorkspaceSession, showCreatedWorkspace, rememberPendingCreatedSession, token]);
 
   const handleCreateProject = async (input: CreateProjectInput) => {
     if (!client || createWorkspaceBusy) return;
@@ -2386,7 +2396,8 @@ export function SessionRoute() {
     try {
       const list = await client.createLocalWorkspace({ ...input, preset: "starter" });
       const id = resolveWorkspaceListSelectedId(list);
-      if (!id) throw new Error(t("session_route.create_server_unavailable"));
+      const created = list.workspaces.find(workspace => workspace.id === id);
+      if (!created || !id) throw new Error(t("session_route.create_server_unavailable"));
       setLegacySelectedWorkspaceId(id);
       writeActiveWorkspaceId(id);
       if (isDesktopRuntime()) {
@@ -2394,7 +2405,7 @@ export function SessionRoute() {
         await workspaceSetRuntimeActive(id).catch(() => undefined);
       }
       local.setPrefs((prev) => ({ ...prev, hasCompletedOnboarding: true }));
-      await refreshRouteState();
+      showCreatedWorkspace(created);
       setCreateWorkspaceOpen(false);
       if (selectCreatedProjectForHome && !input.initializeFromFolders) {
         setHomeProjectId(id);
@@ -2406,7 +2417,7 @@ export function SessionRoute() {
       if (input.initializeFromFolders) {
         try {
           if (!baseUrl || !token) throw new Error(t("session_route.create_server_unavailable"));
-          const workspacePath = list.workspaces.find((workspace) => workspace.id === id)?.path;
+          const workspacePath = created.path;
           const firstClient = createClient(`${(buildLegalworkWorkspaceBaseUrl(baseUrl, id) ?? baseUrl).replace(/\/+$/, "")}/opencode`, workspacePath, { token, hostToken, mode: "legalwork" });
           const session = unwrap(await createSessionView(firstClient,{ directory: workspacePath }));
           rememberPendingCreatedSession(id, session.id);
@@ -2842,7 +2853,7 @@ export function SessionRoute() {
         });
       }}
       mainView={
-        openingWiki ? <PageLoading role="status" aria-label={t("wiki.loading")}><PageLoadingSpinner /></PageLoading>
+        backOfficePage ? (client ? <BackOfficePage client={client} /> : <PageLoading><PageLoadingSpinner /></PageLoading>) : openingWiki ? <PageLoading role="status" aria-label={t("wiki.loading")}><PageLoadingSpinner /></PageLoading>
         : showWikis && (manageWikis || !activeWiki) ? <WikiManager client={client} serverUrl={baseUrl} workspaces={sidebarWorkspaces} onChanged={() => void refreshRouteState()} onOpen={openWikiWorkspace} onNewChat={handleOpenWikiSession} /> : scheduledPage ? (
           <ScheduledTasksPage client={client}
             projects={[...workspaces].sort((a, b) => Number(b.id === selectedWorkspaceId) - Number(a.id === selectedWorkspaceId)).map(workspace => ({ id: workspace.id, name: workspace.preset === "main-assistant" ? assistant.data?.profile.name ?? t("assistant.title") : workspace.displayNameResolved || workspace.name || workspace.id, assistant: workspace.preset === "main-assistant", assistantIcon: assistant.data?.profile.icon }))}
@@ -2960,7 +2971,7 @@ export function SessionRoute() {
         // Tasks live on this machine, so the surface exists for everyone — a
         // connected firm additionally syncs them with its Eigenwelt account.
         onShowTasks: showTasksPane,
-        activeNav: mainPage === "projects" ? null : mainPage,
+        activeNav: backOfficePage ? "back-office" : mainPage === "projects" ? null : mainPage,
         workspaceSessionGroups,
         selectedWorkspaceId,
         selectedSessionId,

@@ -19,7 +19,10 @@ Open a connected event to read its full description, dates and times, time zone,
 1. Open the intended project's Calendar and choose the new-deadline action. In the combined calendar, choose the project in the dialog.
 2. Enter a clear title, the confirmed due date and useful context. Set the assignee and reminders where needed. Check the time zone and any existing time-of-day information.
 3. Attach the source document by selecting a project file, uploading it or dropping it into the dialog. Link a relevant project chat if useful.
-4. Save, then open the entry again to check the date, project, attachments and reminder settings.
+4. Choose **Link records** to select the related Back Office records. You can search across models or narrow the list to one model.
+5. Save, then open the entry again to check the date, project, attachments and reminder settings.
+
+To update links, open the deadline, choose **Link records**, and select or deselect records. **Save** applies the changes. **Cancel** discards the link edits.
 
 The manual date entry is available without a calculation skill. **Entered manually** describes how a date was recorded; it is not a legal verification. Editing an imported or recurring entry preserves advanced properties that the simple dialog does not expose. Do not assume a date edit has rewritten an entire recurring series.
 

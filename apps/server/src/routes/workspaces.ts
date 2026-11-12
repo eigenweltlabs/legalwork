@@ -2,12 +2,14 @@ import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { localProjectIdForContent, markLocalProjectPublished, prepareLocalProject, projectHome, recoverLocalProject, workspaceContentPath } from "../project-storage.js";
 import { prepareManagedCoreLibrary } from "../managed-core-library.js";
+import { validateProjectReferences, projectReferenceOptions } from "../back-office/project-references.js";
 import type { registerProjectFolderRoutes } from "./project-folders.js";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
 import { canonicalFilePath, withFileWriteLock } from "../file-write-lock.js";
 import { recordAudit } from "../audit.js";
 import { readProjectTemplates, saveProjectTemplates, localizeProjectTemplates, projectFieldsFromTemplate } from "../project-templates.js";
+import { projectRecordReferenceSchema, withProjectMatters } from "../project-schema.js";
 import { ApiError } from "../errors.js";
 import { inheritWorkspaceOpencodeConnection } from "../opencode-connection.js";
 import type { ProjectField } from "@legalwork/types/workspace";
@@ -90,7 +92,7 @@ function serializeWorkspaceConfigEntry(workspace: WorkspaceInfo): Record<string,
   };
 }
 
-export async function persistServerWorkspaceState(config: ServerConfig): Promise<boolean> {
+export async function persistServerWorkspaceState(config: ServerConfig, published = config.workspaces): Promise<boolean> {
   const configPath = config.configPath?.trim() ?? "";
   if (!configPath) return false;
 
@@ -110,7 +112,7 @@ export async function persistServerWorkspaceState(config: ServerConfig): Promise
     try {
       await writeFile(tmpPath, `${JSON.stringify(next, null, 2)}\n`, "utf8");
       await rename(tmpPath, configPath);
-      for (const workspace of config.workspaces) await markLocalProjectPublished(workspace);
+      for (const workspace of published) await markLocalProjectPublished(workspace);
       return true;
     } finally {
       try {
@@ -140,13 +142,13 @@ export async function registerLocalProject(
 ): Promise<{ workspace: WorkspaceInfo; persisted: boolean }> {
   if (config.projectStorageMigrating) throw new ApiError(503, "project_storage_migrating", "Project storage is being upgraded. Retry when startup finishes.");
   const workspacePath = await canonicalFilePath(resolve(input.folderPath));
-  await assertProjectFolderIndependent(workspacePath, await new WikiStore(config).list());
+  await assertProjectFolderIndependent(workspacePath, await new WikiStore(config).list({ registrationsOnly: true }));
   await ensureDir(workspacePath);
   await prepareManagedCoreLibrary(config);
 
 
   const existing = config.workspaces.find(entry => resolve(workspaceContentPath(entry)) === workspacePath);
-  const retainedId = !existing && !input.id ? await localProjectIdForContent(config, workspacePath) : undefined;
+  const retainedId = !existing && !input.id ? await localProjectIdForContent(config, workspacePath, config.workspaces.map(item => item.id)) : undefined;
   let workspace: WorkspaceInfo = {
     id: existing?.id || input.id || retainedId || (config.projectsDirectory ? `ws_${randomUUID().replaceAll("-", "")}` : workspaceIdForPath(workspacePath)),
     name: input.name,
@@ -166,7 +168,7 @@ export async function registerLocalProject(
   if (!config.authorizedRoots.some((root) => resolve(root) === workspace.path)) {
     config.authorizedRoots = [...config.authorizedRoots, workspace.path];
   }
-  const persisted = await commitRegisteredEngineProjects(config, () => persistServerWorkspaceState(config));
+  const persisted = await commitRegisteredEngineProjects(config, () => persistServerWorkspaceState(config, [workspace]), workspace);
   return { workspace, persisted };
 }
 
@@ -271,7 +273,7 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
 
   addRoute(routes, "PUT", "/workspaces/project-templates", "host", async (ctx) => {
     ensureWritable(config);
-    return jsonResponse(await saveProjectTemplates(config, await readJsonBodyLimited(ctx.request, 2 * 1024 * 1024)));
+    return jsonResponse(await saveProjectTemplates(config, await readJsonBodyLimited(ctx.request, 2 * 1024 * 1024), (before, after) => validateProjectReferences(config, before, after)));
   });
 
   addRoute(routes, "GET", "/workspace/:id/project", "client", async (ctx) => {
@@ -284,7 +286,7 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
     const workspace = await resolveWorkspace(config, ctx.params.id);
     requireClientScope(ctx, "collaborator");
     const before = await readProjectDetails(workspace.path);
-    const updated = await updateProjectDetails(workspace.path, await readJsonBodyLimited(ctx.request, 512 * 1024));
+    const updated = await updateProjectDetails(workspace.path, await readJsonBodyLimited(ctx.request, 512 * 1024), (before, after) => validateProjectReferences(config, before, after));
     await onProjectDetailsSaved(workspace.id, before.fields, updated.fields);
     return jsonResponse(updated);
   });
@@ -294,9 +296,18 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
     requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const before = await readProjectDetails(workspace.path);
-    const updated = await updateProjectFieldValues(workspace.path, await readJsonBodyLimited(ctx.request, 256 * 1024));
+    const updated = await updateProjectFieldValues(workspace.path, await readJsonBodyLimited(ctx.request, 256 * 1024), (before, after) => validateProjectReferences(config, before, after));
     await onProjectDetailsSaved(workspace.id, before.fields, updated.fields);
     return jsonResponse(updated);
+  });
+
+  addRoute(routes, "GET", "/workspace/:id/project/metadata/:fieldId/options", "client", async ctx => {
+    requireClientScope(ctx, "viewer");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const field = (await readProjectDetails(workspace.path)).fields.find(field => field.id === ctx.params.fieldId);
+    if (field?.type !== "backoffice") throw new ApiError(404, "project_reference_field", "Choose an existing Back Office metadata field.");
+    const query = (ctx.url.searchParams.get("query") ?? "").slice(0, 500);
+    return jsonResponse(await projectReferenceOptions(config, field, query));
   });
 
   const createLocalWorkspace = async (ctx: RequestContext, newProjectOnly = false) => {
@@ -304,8 +315,8 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
     const body = await readJsonBody(ctx.request);
     if (newProjectOnly) {
       requireClientScope(ctx, "collaborator");
-      if (Object.keys(body).some((key) => !["name", "templateId", "templateLanguage", "projectFields"].includes(key)))
-        throw new ApiError(400, "invalid_payload", "This endpoint creates a new project folder. Only name, templateId, templateLanguage and projectFields are supported.");
+      if (Object.keys(body).some((key) => !["name", "templateId", "templateLanguage", "projectFields", "matters"].includes(key)))
+        throw new ApiError(400, "invalid_payload", "This endpoint creates a new project folder. Only name, templateId, templateLanguage, projectFields and matters are supported.");
       body.folderMode = "default";
       body.preset = "starter";
     }
@@ -313,14 +324,24 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
     if (body.fromRemoteFolder && !preparedFolders?.length) throw new ApiError(400, "project_folder_required", "Select a remote folder first.");
     if (body.projectFields !== undefined && body.templateId !== undefined)
       throw new ApiError(400, "invalid_project_template", "Choose either a template or explicit fields.");
-    const projectFields = body.projectFields === undefined
+    let projectFields = body.projectFields === undefined
       ? await projectFieldsFromTemplate(config, body) : parseProjectFields(body.projectFields);
+    if (body.matters !== undefined) {
+      const matters = projectRecordReferenceSchema.safeParse(body.matters);
+      if (!matters.success) throw new ApiError(400, "invalid_project_metadata", "Choose available matters for the project.");
+      projectFields = parseProjectFields(withProjectMatters(projectFields, matters.data, body.templateLanguage === "de" ? "de" : "en"));
+    }
+    await validateProjectReferences(config, [], projectFields);
     let folderPath = typeof body.folderPath === "string" ? body.folderPath.trim() : "";
     const initializeFromFolders = body.initializeFromFolders === true || body.fromRemoteFolder === true;
     if (initializeFromFolders && !folderPath && !preparedFolders?.length)
       throw new ApiError(400, "project_folder_required", "Choose a local or remote folder with existing project files first.");
     const name = typeof body.name === "string" && body.name.trim() ? body.name.trim() : basename(folderPath || "Workspace");
     const preset = typeof body.preset === "string" && body.preset.trim() ? body.preset.trim() : "starter";
+
+    const hasRecordLinks = projectFields.some(field => field.type === "backoffice" && field.value?.recordIds.length);
+    if ((body.matters !== undefined || hasRecordLinks) && folderPath && (await readProjectDetails(folderPath)).revision > 0)
+      throw new ApiError(409, "project_already_initialized", "This folder already has project details. Open its Project Home to change its linked records, or choose a new folder.");
 
     let newProjectId: string | undefined;
     if (body.folderMode === "default") {
@@ -410,7 +431,7 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
       workspace,
       ...config.workspaces.filter((entry) => entry.id !== workspace.id),
     ];
-    const persisted = persist ? await persistServerWorkspaceState(config) : false;
+    const persisted = persist ? await persistServerWorkspaceState(config, []) : false;
     await recordAudit(workspace.path, {
       id: shortId(),
       workspaceId: workspace.id,

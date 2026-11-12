@@ -127,7 +127,7 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
       return jsonResponse({ accepted: true, messageID: admitted.id, staged: false });
     }
     await validateQueuedExecution(client, workspace, input);
-    await grantWikiAgentSession(config, { sessionId: sessionID, directory: workspaceEngineLocation(workspace).directory,
+    await grantWikiAgentSession(config, { sessionId: sessionID, workspaceId: workspace.id, directory: workspaceEngineLocation(workspace).directory,
       scope: ctx.actor?.type === "host" ? "owner" : ctx.actor?.scope ?? "viewer" });
     if (input.delivery === "steer" || input.kind === "prompt" && input.resume === false) {
       const messageID = await withSessionDispatch(config, sessionID, async () => {
@@ -168,7 +168,7 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
       // Queued prompts bypass the public engine proxy. Refresh their authenticated
       // origin here too, including an existing chat resumed after server restart.
       await grantWikiAgentSession(config, {
-        sessionId: ctx.params.sessionId,
+        sessionId: ctx.params.sessionId, workspaceId: workspace.id,
         directory: workspace.directory?.trim() || workspace.path,
         scope: ctx.actor?.type === "host" ? "owner" : ctx.actor?.scope ?? "viewer",
     });
@@ -540,6 +540,19 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
     const active = await client.session.active();
     if (sessionIds.some(id => active[id])) throw new ApiError(409, "session_busy", "Stop this chat and its related agent chats before deleting, so their dashboards can be checked.");
   }
+  addRoute(routes, "GET", "/workspace/:id/sessions/:sessionId/view-previews", "client", async ctx => {
+    requireClientScope(ctx, "viewer");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const sessionId = ctx.params.sessionId;
+    const client = await queueClient(workspace, sessionId);
+    const previews = sessionViewPreviews(await listEngineMessages(client, sessionId));
+    const callId = ctx.url.searchParams.get("callId");
+    if (callId === null) return jsonResponse({ previews: previews.filter(item => item.preview).map(item => ({ preview_id: item.callId, title: item.title })) });
+    const preview = previews.find(item => item.callId === callId)?.preview;
+    if (!preview) throw new ApiError(409, "preview_unavailable", "Read view_chat_previews for the current preview ID.");
+    return jsonResponse(preview);
+  });
+
   addRoute(routes, "GET", "/workspace/:id/sessions/:sessionId/views", "client", async ctx => {
     requireClientScope(ctx, "viewer");
     return jsonResponse((await viewReview(await resolveWorkspace(config, ctx.params.id), ctx.params.sessionId)).review);

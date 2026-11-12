@@ -3,20 +3,13 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { init, parse } from "es-module-lexer";
 import { isBuiltin } from "node:module";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const pluginDir = resolve(__dirname, "..", "server", "dist", "opencode-plugins");
+const pluginDir = resolve(__dirname, "..", "dist", "opencode-plugins");
 
-/**
- * Bare specifiers only: "./x" and "../x" resolve next to the file and are fine.
- * A `from "x"` counts only after an import or export keyword with nothing but
- * bindings, braces, commas and `*` in between. Plugin code may hold the string
- * "from" (task tools read a mail's sender under that key), and a bare
- * `from\s*"` pattern took the text up to the next quote for an import.
- */
-const IMPORT =
-  /\b(?:import|export)\b[\p{ID_Continue}$\s*{},]*?\bfrom\s*["']([^"'.][^"']*)["']|\bimport\s*\(\s*["']([^"'.][^"']*)["']|\bimport\s*["']([^"'.][^"']*)["']/gu;
+await init();
 
 export function findUnresolvableImports(dir = pluginDir) {
   const offenders = [];
@@ -29,8 +22,9 @@ export function findUnresolvableImports(dir = pluginDir) {
   for (const file of walk(dir).sort()) {
     const source = readFileSync(join(dir, file), "utf8");
     const bare = new Set();
-    for (const match of source.matchAll(IMPORT)) {
-      const specifier = match[1] ?? match[2] ?? match[3];
+    const [imports] = parse(source, file);
+    for (const { specifier } of imports) {
+      if (!specifier || specifier.startsWith(".")) continue;
       if (!isBuiltin(specifier) && !/^(?:@opencode\/plugin|effect)(?:\/|$)/.test(specifier)) bare.add(specifier);
     }
     if (bare.size > 0) offenders.push({ file, imports: [...bare].sort() });
