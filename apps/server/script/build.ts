@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { join, resolve } from "node:path";
@@ -109,6 +109,7 @@ async function buildOnce(entrypoint: string, outdir: string, filename: string, t
 }
 
 const options = readArgs(bun.argv.slice(2));
+execFileSync("node", [resolve("../../scripts/gen-core-skills.mjs")], { stdio: "inherit" });
 const preparedEngine = await prepareForBuild({ mode: options.engineMode,
   ...(options.engineMode === "development" ? { targets: engineTargetsForBuild(options.targets) } : {}) });
 await stagePreparedEngineBuild({ prepared: preparedEngine, outputDirectory: options.outdir,
