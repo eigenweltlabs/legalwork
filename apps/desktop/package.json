@@ -99,7 +99,7 @@
     "@ricky0123/vad-web": "0.0.30",
     "@types/ws": "^8.18.1",
     "cmake-js": "7.4.0",
-    "electron": "^43.8.3",
+    "electron": "^43.8.8",
     "electron-builder": "^26.16.1",
     "electron-devtools-installer": "^4.0.0",
     "es-module-lexer": "3.0.4",

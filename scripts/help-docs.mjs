@@ -5,8 +5,9 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
-const require = createRequire(join(repoRoot, "apps/app/package.json"));
-const ts = require("typescript");
+// Help generation also runs after a server-only or app-only frozen install.
+const require = createRequire(import.meta.url);
+const ts = require(require.resolve("typescript", { paths: [join(repoRoot, "apps/server"), join(repoRoot, "apps/app")] }));
 const localeDirectory = "apps/app/src/i18n/locales";
 
 // Git may check text out with CRLF on Windows. Bundled text and source hashes
@@ -105,7 +106,7 @@ export function generateHelpScreens(root = repoRoot) {
     schemaVersion: 1,
     generatedBy: "scripts/gen-core-skills.mjs",
     note: "Source-defined routes and visible settings for the build that bundles this file. Runtime, platform, account and permissions can restrict them.",
-    dialogs: [{ id: "project-creation", guide: "projects-sharing.md", source: "apps/app/src/react-app/domains/workspace/create-project-modal.tsx" }, { id: "ris-integration", guide: "integrations.md", source: "apps/app/src/react-app/domains/settings/ris-config.tsx" }, { id: "assistant-upgrade", guide: "assistant.md", source: "apps/app/src/react-app/shell/assistant-upgrade.tsx" }, { id: "unsaved-shutdown", guide: "settings-privacy.md", source: "apps/app/src/react-app/domains/session/artifacts/document-discard-dialog.tsx" }, { id: "browser-autofill", guide: "settings-privacy.md", source: "apps/app/src/overlay/index.tsx" }, { id: "manage-saved-login", guide: "integrations.md", source: "apps/app/src/react-app/domains/settings/pages/research-connection-dialog.tsx" }],
+    dialogs: [{ id: "usage-top-up", guide: "settings-privacy.md", source: "apps/app/src/react-app/domains/connections/usage-control/payment-components.tsx" }, { id: "project-creation", guide: "projects-sharing.md", source: "apps/app/src/react-app/domains/workspace/create-project-modal.tsx" }, { id: "ris-integration", guide: "integrations.md", source: "apps/app/src/react-app/domains/settings/ris-config.tsx" }, { id: "assistant-upgrade", guide: "assistant.md", source: "apps/app/src/react-app/shell/assistant-upgrade.tsx" }, { id: "unsaved-shutdown", guide: "settings-privacy.md", source: "apps/app/src/react-app/domains/session/artifacts/document-discard-dialog.tsx" }, { id: "browser-autofill", guide: "settings-privacy.md", source: "apps/app/src/overlay/index.tsx" }, { id: "manage-saved-login", guide: "integrations.md", source: "apps/app/src/react-app/domains/settings/pages/research-connection-dialog.tsx" }],
     panels: [{ id: "project-field-editor", guide: "projects-sharing.md", source: "apps/app/src/react-app/domains/workspace/project-field-editor.tsx" }, { id: "back-office-history", guide: "back-office.md", source: "apps/app/src/react-app/domains/back-office/history-panel.tsx" }, { id: "back-office-creation", guide: "back-office.md", source: "apps/app/src/react-app/domains/back-office/record-create-form.tsx" }, { id: "back-office-model-settings", guide: "back-office.md", source: "apps/app/src/react-app/domains/back-office/model-editor.tsx" }, { id: "project-record-links", guide: "projects-sharing.md", source: "apps/app/src/react-app/domains/workspace/project-record-field.tsx" }, { id: "project-field-settings", guide: "projects-sharing.md", source: "apps/app/src/react-app/domains/workspace/project-metadata.tsx" }],
     routes: [...routes].sort().map((path) => ({ path, guide: guide(routeGuides, path), source: routerSource })),
     settings: [...settings].sort(([a], [b]) => a.localeCompare(b, "en")).map(([id, scope]) => ({

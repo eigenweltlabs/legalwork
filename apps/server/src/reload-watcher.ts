@@ -156,6 +156,7 @@ function startWorkspaceReloadWatcher(input: {
   };
 
   const checkReason = async (reason: ReloadReason, trigger?: ReloadTrigger) => {
+    await initialized;
     if (closed) return;
     if (!fingerprintedReloadReasons.includes(reason)) return;
 
@@ -377,9 +378,11 @@ function startWorkspaceReloadWatcher(input: {
   for (const tree of trees) {
     tree.scheduleRescan();
   }
-  void refreshBaseline();
+  const initialized = refreshBaseline();
 
-  return { root, close: closeAll, refreshBaseline };
+  // An explicit refresh is a readiness barrier: the initial background scan
+  // must not overwrite a fingerprint after its caller starts changing files.
+  return { root, close: closeAll, refreshBaseline: async (reasons) => { await initialized; await refreshBaseline(reasons); } };
 }
 
 function createDirectoryTreeWatcher(input: {

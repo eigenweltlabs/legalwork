@@ -10,8 +10,20 @@ on:
         description: Comma-separated platform-architecture targets, or all
         type: string
         default: all
+      guest_only:
+        description: Prepare only the selected guest image for dependent native jobs
+        type: boolean
+        default: false
       run_tests:
         description: Run sandbox validation after preparing the runtime
+        type: boolean
+        default: true
+      retain_fresh_build:
+        description: Retain a verified newly built archive for future cache recovery
+        type: boolean
+        default: false
+      publish_runtime:
+        description: Retain native runtime artifacts for same-run consumers
         type: boolean
         default: true
   workflow_dispatch:
@@ -26,6 +38,7 @@ on:
         default: true
 permissions:
   contents: read
+  actions: read
 jobs:
   targets:
     runs-on: ubuntu-latest
@@ -56,13 +69,39 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: 24.22.1
+      - name: Identify exact sandbox build inputs
+        id: runtime-key
+        run: node scripts/ci/cache-sandbox-runtime.mjs key guest ${{ matrix.arch }}
+      - uses: actions/cache/restore@v4
+        id: runtime-cache
+        with:
+          path: apps/server/resources/agent-sandbox/runtime
+          key: ${{ steps.runtime-key.outputs.key }}
+      - name: Verify restored sandbox bytes
+        if: steps.runtime-cache.outputs.cache-hit == 'true'
+        run: node scripts/ci/cache-sandbox-runtime.mjs verify guest ${{ matrix.arch }}
       - run: node scripts/sandbox/build-guest.mjs ${{ matrix.arch }}
+        if: steps.runtime-cache.outputs.cache-hit != 'true'
+      - name: Seal newly built sandbox bytes
+        if: steps.runtime-cache.outputs.cache-hit != 'true'
+        run: node scripts/ci/cache-sandbox-runtime.mjs seal guest ${{ matrix.arch }}
+      - name: Verify complete sandbox cache receipt
+        run: node scripts/ci/cache-sandbox-runtime.mjs verify guest ${{ matrix.arch }}
+      # GitHub scopes PR saves to their merge ref; only the dev warmer seeds dev.
+      - uses: actions/cache/save@v4
+        if: steps.runtime-cache.outputs.cache-hit != 'true'
+        with:
+          path: apps/server/resources/agent-sandbox/runtime
+          key: ${{ steps.runtime-key.outputs.key }}
       - uses: actions/upload-artifact@v4
         with:
           name: sandbox-guest-${{ matrix.arch }}
-          path: apps/server/resources/agent-sandbox/runtime/
+          path: apps/server/resources/agent-sandbox/runtime/*
+          include-hidden-files: false
+          retention-days: 1
   runtime:
-    needs: [targets, guest]
+    if: ${{ !inputs.guest_only }}
+    needs: [ targets, guest ]
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.targets.outputs.runtime) }}
@@ -78,90 +117,25 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.4
+        if: inputs.run_tests
       - uses: pnpm/action-setup@v4
         with:
           version: 11.4.0
-      - run: pnpm install --frozen-lockfile
+        if: inputs.run_tests
+      - uses: ./.github/actions/install-dependencies
+        if: inputs.run_tests
+        with:
+          filter: legalwork-server...
       - name: Prepare checksum-pinned Node for worker tests
         if: inputs.run_tests
         run: node apps/desktop/scripts/prepare-node-runtime.mjs
-      - uses: actions/download-artifact@v4
+      - uses: ./.github/actions/prepare-sandbox-runtime
         with:
-          name: sandbox-guest-${{ matrix.arch }}
-          path: apps/server/resources/agent-sandbox/runtime/
-      - name: Build QEMU (macOS)
-        if: runner.os == 'macOS'
-        env:
-          HOMEBREW_NO_AUTO_UPDATE: '1'
-        run: |
-          brew install ninja pkgconf
-          bash scripts/sandbox/build-macos.sh ${{ matrix.qemu }}
-      - name: Install QEMU build dependency (Windows)
-        if: runner.os == 'Windows'
-        uses: msys2/setup-msys2@v2
-        with:
-          msystem: ${{ matrix.msystem }}
-          path-type: inherit
-          update: true
-      - name: Install checksum-pinned QEMU packages (Windows)
-        if: runner.os == 'Windows'
-        shell: msys2 {0}
-        run: bash scripts/sandbox/install-windows-qemu.sh ${{ matrix.prefix }}
-      - name: Bundle QEMU (Windows)
-        if: runner.os == 'Windows'
-        shell: msys2 {0}
-        run: |
-          cc -O2 -municode -static scripts/sandbox/host-windows.c -o apps/server/resources/agent-sandbox/runtime/legalwork-host.exe
-          node scripts/sandbox/package-runtime.mjs "$(cygpath -w /${{ matrix.prefix }}/bin/qemu-system-${{ matrix.qemu }}.exe)"
-      - name: Build QEMU (Linux)
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          sudo apt-get -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Acquire::Retries=3 update
-          sudo apt-get -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Acquire::Retries=3 install -y ninja-build libglib2.0-dev libpixman-1-dev libslirp-dev python3-venv
-          curl -fL https://download.qemu.org/qemu-11.1.2.tar.xz -o "$RUNNER_TEMP/qemu.tar.xz"
-          echo "731b5681e4bb18be313231579b8efd0296c5b015fa36dc533874b639ba838016  $RUNNER_TEMP/qemu.tar.xz" | sha256sum -c -
-          tar -xf "$RUNNER_TEMP/qemu.tar.xz" -C "$RUNNER_TEMP"
-          cd "$RUNNER_TEMP/qemu-11.1.2"
-          ./configure --prefix="$RUNNER_TEMP/qemu" --target-list=${{ matrix.qemu }}-softmmu --without-default-features --enable-tcg --enable-slirp
-          make -j2
-          make install
-      - name: Bundle QEMU (macOS and Linux)
-        if: runner.os != 'Windows'
-        shell: bash
-        run: |
-          binary="$RUNNER_TEMP/qemu/bin/qemu-system-${{ matrix.qemu }}"
-          QEMU_SOURCE_DIR="$RUNNER_TEMP/qemu-11.1.2" SANDBOX_DEPENDENCY_LICENSES="$RUNNER_TEMP/qemu-deps/share/licenses" node scripts/sandbox/package-runtime.mjs "$binary"
-      # Preserve the built runtime before validation so manual package diagnostics
-      # can run independently. Uploading it does not certify that tests passed.
-      - name: Preserve executable modes in runtime artifact
-        shell: bash
-        run: tar -czf sandbox-runtime.tgz -C apps/server/resources/agent-sandbox/runtime .
-      - uses: actions/upload-artifact@v4
-        with:
-          name: sandbox-runtime-${{ matrix.platform }}-${{ matrix.arch }}
-          path: sandbox-runtime.tgz
-      - name: Test packaged sandbox paths and macOS compatibility
+          arch: ${{ matrix.arch }}
+          qemu: ${{ matrix.qemu }}
+          msystem: ${{ matrix.msystem || '' }}
+          prefix: ${{ matrix.prefix || '' }}
+          publish-runtime: ${{ inputs.publish_runtime }}
+          retain-fresh-build: ${{ inputs.retain_fresh_build }}
+      - uses: ./.github/actions/test-sandbox-runtime
         if: inputs.run_tests
-        run: node --test scripts/sandbox/probe-packaged.test.mjs scripts/sandbox/macos-compatibility.test.mjs
-      - name: Record temporary filesystem capacity
-        if: inputs.run_tests
-        shell: bash
-        run: |
-          for runtime in node bun; do
-            "$runtime" -e 'const fs = require("node:fs"), os = require("node:os"); const temporary = os.tmpdir(), space = fs.statfsSync(temporary); console.log(JSON.stringify({ kind: "sandbox-tmp-capacity", node: process.versions.node, bun: process.versions.bun, platform: process.platform, arch: process.arch, temporary, statfs: space, availableBytes: space.bavail * space.bsize }));'
-            temporary="$("$runtime" -e 'process.stdout.write(require("node:os").tmpdir())')"
-            if [ "$RUNNER_OS" = Windows ]; then temporary="$(cygpath -u "$temporary")"; fi
-            df -Pk "$temporary"
-          done
-      - name: Exercise real isolation and permission enforcement
-        if: inputs.run_tests
-        timeout-minutes: 30
-        env:
-          LEGALWORK_SANDBOX_INTEGRATION: '1'
-        shell: bash
-        run: |
-          if [ '${{ runner.os }}' = macOS ]; then
-            sysctl -i kern.hv_support kern.hv_vmm_present hw.optional.arm64
-          fi
-          bun test --preload ./apps/server/test-preload.ts --timeout 180000 apps/server/src/agent-sandbox apps/server/src/calculations/calculations.test.ts apps/server/src/approvals.test.ts apps/server/src/skill-package.test.ts

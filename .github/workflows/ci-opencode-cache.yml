@@ -17,6 +17,7 @@ on:
       - scripts/ci/build-opencode-derivative.mjs
       - .github/workflows/ci-opencode-derivative.yml
       - .github/workflows/ci-opencode-cache.yml
+      - .github/actions/setup-merge-engine/**
   workflow_dispatch:
 
 permissions:
@@ -36,3 +37,13 @@ jobs:
     with:
       build-mode: development
       ref: ${{ github.sha }}
+
+  warm-merge-engine:
+    if: github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24.22.1
+      - uses: ./.github/actions/setup-merge-engine

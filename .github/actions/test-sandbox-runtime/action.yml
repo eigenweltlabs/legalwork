@@ -1,0 +1,37 @@
+name: Validate the prepared sandbox runtime
+description: Exercise the exact same-run archive on its native OS and CPU
+runs:
+  using: composite
+  steps:
+    - name: Verify downloaded runtime hashes and licensing
+      shell: bash
+      run: node scripts/sandbox/verify-runtime.mjs
+    - name: Test packaged sandbox paths and macOS compatibility
+      shell: bash
+      run: node --test scripts/sandbox/probe-packaged.test.mjs scripts/sandbox/macos-compatibility.test.mjs
+    - name: Record temporary filesystem capacity
+      shell: bash
+      run: |
+        for runtime in node bun; do
+          "$runtime" -e 'const fs = require("node:fs"), os = require("node:os"); const temporary = os.tmpdir(), space = fs.statfsSync(temporary); console.log(JSON.stringify({ kind: "sandbox-tmp-capacity", node: process.versions.node, bun: process.versions.bun, platform: process.platform, arch: process.arch, cpu: os.cpus()[0]?.model, cores: os.availableParallelism(), totalMemoryBytes: os.totalmem(), freeMemoryBytes: os.freemem(), load: os.loadavg(), temporary, statfs: space, availableBytes: space.bavail * space.bsize }));'
+          temporary="$("$runtime" -e 'process.stdout.write(require("node:os").tmpdir())')"
+          if [ "$RUNNER_OS" = Windows ]; then temporary="$(cygpath -u "$temporary")"; fi
+          df -Pk "$temporary"
+        done
+    - name: Exercise real isolation and permission enforcement
+      env:
+        LEGALWORK_SANDBOX_INTEGRATION: '1'
+        # Protected-engine fixtures run once in the separate explicit step.
+        LEGALWORK_TEST_OPENCODE_BIN: ''
+      shell: bash
+      run: |
+        if [ '${{ runner.os }}' = macOS ]; then
+          sysctl -i kern.hv_support kern.hv_vmm_present hw.optional.arm64
+        fi
+        node scripts/ci/run-sandbox-tests.mjs
+    - name: Record macOS pressure after native validation
+      if: always() && runner.os == 'macOS'
+      shell: bash
+      run: |
+        /usr/bin/memory_pressure -Q
+        /usr/bin/vm_stat

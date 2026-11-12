@@ -6,10 +6,13 @@ import { chmod, copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:f
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { unzipSync } from "fflate";
+import { createRequire } from "node:module";
 import windowsVcRuntime from "./windows-vc-runtime.cjs";
 
 const desktopRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+// Server-only CI also prepares this shared worker, without desktop dependencies.
+const require = createRequire(import.meta.url);
+const { unzipSync } = require(require.resolve("fflate", { paths: [desktopRoot, path.join(desktopRoot, "../server")] }));
 const config = JSON.parse(await readFile(path.join(desktopRoot, "build/node-runtime.json"), "utf8"));
 const triples = {
   "aarch64-apple-darwin": "darwin-arm64", "x86_64-apple-darwin": "darwin-x64",
