@@ -127,7 +127,7 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
       return jsonResponse({ accepted: true, messageID: admitted.id, staged: false });
     }
     await validateQueuedExecution(client, workspace, input);
-    await grantWikiAgentSession(config, { sessionId: sessionID, directory: workspaceEngineLocation(workspace).directory,
+    await grantWikiAgentSession(config, { sessionId: sessionID, workspaceId: workspace.id, directory: workspaceEngineLocation(workspace).directory,
       scope: ctx.actor?.type === "host" ? "owner" : ctx.actor?.scope ?? "viewer" });
     if (input.delivery === "steer" || input.kind === "prompt" && input.resume === false) {
       const messageID = await withSessionDispatch(config, sessionID, async () => {
@@ -168,7 +168,7 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
       // Queued prompts bypass the public engine proxy. Refresh their authenticated
       // origin here too, including an existing chat resumed after server restart.
       await grantWikiAgentSession(config, {
-        sessionId: ctx.params.sessionId,
+        sessionId: ctx.params.sessionId, workspaceId: workspace.id,
         directory: workspace.directory?.trim() || workspace.path,
         scope: ctx.actor?.type === "host" ? "owner" : ctx.actor?.scope ?? "viewer",
     });

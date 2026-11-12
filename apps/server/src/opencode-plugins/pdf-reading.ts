@@ -8,7 +8,7 @@ import { PDFDocument } from "pdf-lib";
 import { ApiError } from "../errors.js";
 import { nativeToolContext } from "./native-tool.js";
 import { pdfReadOptions, pdfTextResult, PDF_MAX_BYTES, PDF_ATTACHMENT_MAX_BYTES, PDF_READING_RECOVERY } from "../pdf-read-schema.js";
-import { resolveWorkspaceId, serverUrl, workspaceToolHeaders, type OpenCodeContext } from "./office-plugin-shared.js";
+import { resolveWorkspaceId, sessionFileWorkspace, serverUrl, workspaceToolHeaders, type OpenCodeContext } from "./office-plugin-shared.js";
 
 type Attachment = { type: "file"; mime: string; url: string; filename?: string };
 type PdfResult = { title: string; output: string; metadata: Record<string, unknown>; attachments?: Attachment[] };
@@ -77,7 +77,9 @@ export function pdfReading() {
         if (!attached.attachments || !text && !options.ocr) return attached;
       }
       if (!text && !options.ocr) throw new ApiError(400, "pdf_read_mode", "No PDF read mode was selected. Choose text=true for embedded text, ocr=true for recognition, attach=true for visual inspection, or combine these modes.");
-      const workspace = await resolveWorkspaceId(context, { requireDirectory: true });
+      const current = await sessionFileWorkspace(context);
+      const workspace = current ? current.workspaceId : await resolveWorkspaceId(context, { requireDirectory: true });
+      if (!workspace) throw new ApiError(403, "workspace_not_found", "This chat has no registered workspace.");
       const response = await fetch(`${serverUrl()}/workspace/${encodeURIComponent(workspace)}/pdf/read`, {
         method: "POST", headers: { ...await workspaceToolHeaders(context), "Content-Type": "application/json" },
         body: JSON.stringify({ dataBase64: file.url.slice(prefix.length), text, ocr: options.ocr === true, pages: options.pages }),
