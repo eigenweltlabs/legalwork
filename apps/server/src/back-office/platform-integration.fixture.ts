@@ -435,9 +435,9 @@ try {
     method: "POST",
   });
   assert.equal(revoked.status, 200);
-  await syncDevice(a.config);
+  await syncBackOffice(a.config);
   assert.equal(a.store.syncState(scope).enabled, false);
-  assert.equal(a.store.records(scope, a.actor).length, 0);
+  assert.equal(a.store.db.get("SELECT count(*) AS n FROM bo_records WHERE scope=?", [scope])?.n, 0);
   assert.equal(a.store.syncState(scope).pending, 1);
   assert.ok(a.store.pending(scope)[0].error);
   await scheduleOrgPolicySync(a.config, { force: true });

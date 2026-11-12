@@ -1,3 +1,6 @@
+import { SyncInbox } from "./sync-inbox.js";
+import { scheduleOrgPolicySync } from "../org-policy.js";
+import { pullDirectory } from "./paged-sync.js";
 import { createHash, randomUUID } from "node:crypto";
 import { firstSyncBatch, assignLocalRecords, firstSyncStatus, unknownRecords, connectFirstSyncProjects, stageFirstSync } from "./first-sync.js";
 import { syncRecordFiles } from "./file-sync.js";
@@ -107,26 +110,31 @@ export async function syncBackOffice(config: ServerConfig): Promise<void> {
         store.requireAccount(scope, actor);
         await syncRecordFiles(config, chunk, actor.principalKey);
         store.requireAccount(scope, actor);
-        const baseline = [...store.records(scope, actor), ...store.records(scope, actor, undefined, true)];
-        const snapshot = await backOfficePlatform(config, chunk, actor.principalKey, baseline);
-        const localLinks = links.links().filter((link) => link.orgId === scope);
-        for (const record of snapshot.records.filter(
-          (record) => record.objectId === "projectLinks",
-        )) {
-          const local = localLinks.find(
-            (link) => link.projectId === record.values.projectId,
-          );
-          if (local) record.values.projectId = local.workspaceId;
+        const position=store.directoryPosition(scope,actor);
+        const inbox=new SyncInbox(store.db);
+        const localProjects=new Map(links.links().filter(link=>link.orgId===scope).map(link=>[link.projectId,link.workspaceId]));
+        const translate=(record: BackOfficeRecord) => {
+          if (record.objectId !== "projectLinks" || typeof record.values.projectId !== "string") return;
+          record.values.projectId=localProjects.get(record.values.projectId) ?? record.values.projectId;
+        };
+        try {
+          const result=await pullDirectory(config,initialPrincipal,position,chunk,inbox,translate,()=>{
+            store.requireAccount(scope,actor);
+            store.suspendTeam(scope,"Directory permissions changed while reconnecting.");
+            announceSyncChange(config,"backOffice");
+          });
+          const snapshot=result.snapshot;
+          if (result.more) scheduleBackOfficeSync(config);
+          if (result.incremental && snapshot.cursor===position?.cursor && !chunk.length && !before.error) break;
+          if (!result.position) snapshot.records.forEach(translate);
+          const replicaId=store.receive(scope,snapshot,actor,result.position,result.incremental,result.position ? inbox : undefined);
+          if (replicaId) actor={...actor,replicaId};
+          accepted ||= snapshot.accepted.length>0;
+          conflicted ||= snapshot.conflicts.length>0;
+          if (snapshot.conflicts.length || snapshot.accepted.length<chunk.length) break;
+        } finally {
+          inbox.clear();
         }
-        const replicaId = store.receive(scope, snapshot, actor);
-        if (replicaId) actor = { ...actor, replicaId };
-        accepted ||= snapshot.accepted.length > 0;
-        conflicted ||= snapshot.conflicts.length > 0;
-        if (
-          snapshot.conflicts.length ||
-          snapshot.accepted.length < chunk.length
-        )
-          break;
       } while (batch.length);
       store.requireAccount(scope, actor);
       const staged = stageFirstSync(store, scope, actor, new Set(links.links().filter(link => link.orgId === scope && link.state === "active").flatMap(link => [link.workspaceId, link.projectId])));
@@ -149,9 +157,12 @@ export async function syncBackOffice(config: ServerConfig): Promise<void> {
       if (
         error instanceof ApiError &&
         (error.status === 401 || error.status === 403)
-      )
+      ) {
         store.suspendTeam(scope, message);
-      else {
+        announceSyncChange(config, "backOffice");
+        // Reconcile the cached grant before another screen can select this firm.
+        await scheduleOrgPolicySync(config, { force: true }).catch(() => undefined);
+      } else {
         store.syncError(scope, message);
         const key = config.configPath ?? "default";
         const delay = Math.min((retryDelay.get(key) ?? 1000) * 2, 60_000);

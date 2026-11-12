@@ -1,3 +1,5 @@
+import type { SyncInbox } from "./sync-inbox.js";
+import type { DirectoryPosition } from "./paged-sync.js";
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -103,10 +105,11 @@ function selectionField(model: BackOfficeModel, record: BackOfficeRecord, fields
   const field = definition?.fields.find(item => item.id === fields[0]);
   if (field?.type === "multiselect" || (field?.type === "relation" && field.multiple)) return field.id;
 }
-const ReplicaBindingSchema = z.object({ id: z.literal("replica"), principalKey: z.string(), replicaId: z.string().uuid().optional(), permissions: z.object({ model: z.boolean(), edit: z.boolean(), finance: z.boolean() }).optional() });
+const ReplicaBindingSchema = z.object({ id: z.literal("replica"), principalKey: z.string(), replicaId: z.string().uuid().optional(), position: z.object({ access: z.string(), cursor: z.number().int().nonnegative() }).optional(), permissions: z.object({ model: z.boolean(), edit: z.boolean(), finance: z.boolean() }).optional() });
 
 export class BackOfficeStore {
   private transactionDepth = 0;
+  private lastRestricted: string | null = null;
   readonly journal: BackOfficeJournal;
   private readonly releaseAuditStorage: () => void;
   private closed = false;
@@ -330,7 +333,7 @@ export class BackOfficeStore {
     const binding = this.db.get("SELECT data FROM bo_replicas WHERE scope=?", [scope]);
     if (binding) {
       const previous = ReplicaBindingSchema.parse(JSON.parse(String(binding.data)));
-      this.db.run("UPDATE bo_replicas SET data=? WHERE scope=?", [JSON.stringify({ ...previous, replicaId: randomUUID() }), scope]);
+      this.db.run("UPDATE bo_replicas SET data=? WHERE scope=?", [JSON.stringify({ ...previous, position: undefined, replicaId: randomUUID() }), scope]);
     }
     this.journal.retire(scope);
   }
@@ -922,7 +925,8 @@ export class BackOfficeStore {
         const existing = this.views(scope).find(view => view.id === patch.id);
         if (existing && expected === undefined)
           throw new ApiError(428, "back_office_view_base_required", "The original view settings are missing.");
-        if (canonicalBackOfficeAudit(existing ?? null) !== canonicalBackOfficeAudit(expected ?? null))
+        const comparable = (view?: BackOfficeView | null) => view ? { ...view, filterCriteria: view.filterCriteria ?? null } : null;
+        if (canonicalBackOfficeAudit(comparable(existing)) !== canonicalBackOfficeAudit(comparable(expected)))
           throw new ApiError(409, "back_office_view_conflict", "This view changed elsewhere.");
         const view = BackOfficeViewSchema.parse({ ...existing, ...patch });
         try {
@@ -991,7 +995,14 @@ export class BackOfficeStore {
       [scope, enabled ? 1 : 0],
     );
   }
-  receive(scope: string, snapshot: BackOfficeSnapshot, actor: BackOfficeActor) {
+  directoryPosition(scope: string, actor: BackOfficeActor): DirectoryPosition | null {
+    this.requireAccount(scope, actor);
+    const row = this.db.get("SELECT data FROM bo_replicas WHERE scope=?", [scope]);
+    if (!row) return null;
+    const binding = ReplicaBindingSchema.parse(JSON.parse(String(row.data)));
+    return binding.principalKey === backOfficeAuthorKey(actor) && binding.replicaId === actor.replicaId ? binding.position ?? null : null;
+  }
+  receive(scope: string, snapshot: BackOfficeSnapshot, actor: BackOfficeActor, position?: DirectoryPosition, incremental = false, inbox?: SyncInbox) {
     return this.transaction(() => {
       this.requireAccount(scope, actor);
       const cursor = Number(this.db.get("SELECT cursor FROM bo_sync WHERE scope=?", [scope])?.cursor ?? 0);
@@ -999,6 +1010,12 @@ export class BackOfficeStore {
         throw new ApiError(409, "back_office_snapshot_stale", "A newer team snapshot is already stored.");
       const previousModel = this.db.get("SELECT data FROM bo_models WHERE scope=?", [scope]);
       let revoked = Boolean(previousModel && canonicalBackOfficeAudit(BackOfficeModelSchema.parse(JSON.parse(String(previousModel.data)))) !== canonicalBackOfficeAudit(snapshot.model));
+      const settledIds = new Set<string>();
+      if (incremental) for (const id of [...snapshot.accepted, ...snapshot.conflicts.map(item => item.id)]) {
+        const entry=this.db.get("SELECT json_extract(data,'$.data.id') AS record FROM bo_outbox WHERE scope=? AND id=? AND json_extract(data,'$.kind')='record' AND json_extract(data,'$.authorKey')=?",
+          [scope,id,backOfficeAuthorKey(actor)]);
+        if (entry?.record) settledIds.add(String(entry.record));
+      }
       for (const id of snapshot.accepted) {
         this.db.run("UPDATE bo_first_sync SET confirmed=1,operation=NULL WHERE operation=? AND principal=?", [id, backOfficeAuthorKey(actor)]);
         this.db.run("DELETE FROM bo_outbox WHERE scope=? AND id=? AND json_extract(data,'$.authorKey')=?", [
@@ -1014,7 +1031,8 @@ export class BackOfficeStore {
         if (row && typeof row.base === "string" && actor.edit) {
           const change = BackOfficeChangeSchema.parse(JSON.parse(String(row.data)));
           const draft = BackOfficeRecordSchema.parse(change.data);
-          const remote = snapshot.records.find(record => record.id === draft.id && record.objectId === draft.objectId);
+          const found = inbox ? inbox.get(draft.id) : snapshot.records.find(record => record.id === draft.id);
+          const remote = found?.objectId === draft.objectId ? found : undefined;
           const base = z.object({ selectionBase: z.array(z.string()).optional() }).parse(JSON.parse(String(row.data))).selectionBase;
           const field = remote && base && !remote.archivedAt && !draft.archivedAt && selectionField(snapshot.model, remote, change.changedFields);
           const desired = field ? selectionIds(draft.values[field]) : undefined;
@@ -1049,20 +1067,17 @@ export class BackOfficeStore {
             : [],
         ),
       );
-      const incoming = new Set(snapshot.records.map((record) => record.id));
-      for (const row of this.db.all("SELECT id FROM bo_records WHERE scope=?", [
-        scope,
-      ])) {
-        // A removed or no-longer-readable record leaves the managed replica, even with a queued draft.
-        if (!incoming.has(String(row.id)) && !newDrafts.has(String(row.id))) {
+      const incomingIds = new Set(snapshot.records.map(record => record.id));
+      const missing = incremental
+        ? [...settledIds].filter(id => !(inbox ? inbox.get(id) : incomingIds.has(id))).map(id => ({id}))
+        : inbox ? inbox.missing(scope) : this.db.all("SELECT id FROM bo_records WHERE scope=?", [scope]).filter(row => !incomingIds.has(String(row.id)));
+      for (const row of missing) {
+        if (!newDrafts.has(String(row.id))) {
           revoked = true;
-          this.db.run("DELETE FROM bo_records WHERE scope=? AND id=?", [
-            scope,
-            String(row.id),
-          ]);
+          this.db.run("DELETE FROM bo_records WHERE scope=? AND id=?", [scope, String(row.id)]);
         }
       }
-      for (const record of snapshot.records) {
+      for (const record of inbox ? inbox.records() : snapshot.records) {
         const previous = this.raw(scope, record.id);
         let projected = record;
         const object = snapshot.model.objects.find(object => object.id === record.objectId);
@@ -1114,6 +1129,12 @@ export class BackOfficeStore {
       );
       this.restrictTeamAccess(scope, actor);
       if (revoked) this.retireCache(scope, actor);
+      const bound = this.db.get("SELECT data FROM bo_replicas WHERE scope=?", [scope]);
+      if (bound) {
+        const binding=ReplicaBindingSchema.parse(JSON.parse(String(bound.data)));
+        if (binding.position?.access !== position?.access || binding.position?.cursor !== position?.cursor)
+          this.db.run("UPDATE bo_replicas SET data=? WHERE scope=?",[JSON.stringify({...binding,position}),scope]);
+      }
       return this.replicaId(scope);
     });
   }
@@ -1121,6 +1142,15 @@ export class BackOfficeStore {
   /** Current permissions also apply to cached values and copied proposal data. */
   restrictTeamAccess(scope: string, actor: BackOfficeActor) {
     if (scope === "local") return;
+    this.requireAccount(scope, actor);
+    // Only committed signed work can be memoized. Pending operations inside a
+    // transaction have not reached the journal yet and must be checked directly.
+    const generation = () => this.db.get("SELECT data_version, (SELECT max(rowid) FROM bo_journal_entries) AS head FROM pragma_data_version");
+    const stamp = (state: ReturnType<typeof generation>) => JSON.stringify([scope, actor.userId, actor.principalKey, actor.replicaId,
+      actor.edit, actor.model, actor.finance, state?.data_version, state?.head]);
+    const outer = this.transactionDepth === 0;
+    const before = outer ? generation() : null;
+    if (before && this.lastRestricted === stamp(before)) return;
     this.transaction(() => {
       this.requireAccount(scope, actor);
       const modelRow = this.db.get("SELECT data FROM bo_models WHERE scope=?", [scope]);
@@ -1198,13 +1228,17 @@ export class BackOfficeStore {
         if (!next) {
           this.db.run("DELETE FROM bo_views WHERE scope=? AND id=?", [scope, String(row.id)]);
           revoked = true;
-        } else if (canonicalBackOfficeAudit(view) !== canonicalBackOfficeAudit(next)) {
+        } else if (canonicalBackOfficeAudit({ ...view, filterCriteria: view.filterCriteria ?? null }) !== canonicalBackOfficeAudit(next)) {
           this.db.run("UPDATE bo_views SET data=? WHERE scope=? AND id=?", [JSON.stringify(next), scope, String(row.id)]);
           revoked = true;
         }
       }
       if (revoked) this.retireCache(scope, actor);
     }, { action: "cache.permissions" });
+    if (before) {
+      const after = generation();
+      this.lastRestricted = after?.data_version === before.data_version ? stamp(after) : null;
+    }
   }
   syncError(scope: string, message: string) {
     this.db.run("UPDATE bo_sync SET last_error=? WHERE scope=?", [

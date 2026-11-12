@@ -190,7 +190,15 @@ export const BackOfficeChangeSchema = z.object({
 });
 export const BackOfficeBucketHashes = z.array(z.string().regex(/^[a-f0-9]{64}$/)).length(16);
 
+
+export const BackOfficePageRequestSchema = z.object({
+  access: z.string().regex(/^[a-f0-9]{64}$/).nullable(),
+  after: z.string().uuid().optional(),
+  through: z.number().int().nonnegative().optional(),
+});
+
 export const BackOfficeSyncSchema = z.object({
+  page: BackOfficePageRequestSchema.optional(),
   recordBuckets: BackOfficeBucketHashes.optional(),
   protocol: z.literal(BACK_OFFICE_PROTOCOL),
   changes: z.array(BackOfficeChangeSchema).max(100),
@@ -640,6 +648,16 @@ export const BackOfficeSnapshotSchema = z.object({
     .array(z.object({ id: z.string().uuid(), message: z.string() }))
     .default([]),
 });
+
+export const BackOfficeSyncPageSchema = BackOfficeSnapshotSchema.extend({
+  page: z.object({
+    access: z.string().regex(/^[a-f0-9]{64}$/),
+    reset: z.boolean(),
+    next: z.string().uuid().nullable(),
+    latest: z.number().int().nonnegative(),
+  }),
+});
+
 export type BackOfficeSnapshot = z.infer<typeof BackOfficeSnapshotSchema>;
 
 /** Add new shipped definitions by stable ID while preserving firm extensions and labels. */
