@@ -66,7 +66,7 @@ If you cannot run tests or capture the video, say so explicitly and explain why,
 - Write for questions users might ask: what a feature does, where to find it, how to set it up and use it, what prerequisites apply, and how to resolve common problems. Technical implementation notes do not replace this help.
 - Give complete steps with the actual button and menu labels, including entry steps such as **Add > Plugins > select a connector**. Use supported app links to relevant pages and describe the current app directly.
 - Cover new screens and settings in the guide and screen inventory mapping. Keep the `legalwork-help` skill's topic routing current so the agent can read the relevant page directly.
-- After updating help or UI translations, run `pnpm docs:generate` and `pnpm docs:check`, and include changes to the tracked bundle and screen inventory as applicable. The full i18n reference and its runtime module are generated during builds and ignored by Git; do not commit those copies. Keep user guides focused on using the app; put architecture and developer instructions in technical docs.
+- After updating help or UI translations, run `pnpm docs:generate` and `pnpm docs:check`. Commit the source edits and any changes to `docs/user-guide/screens.json`. Git ignores the generated core skills bundle and translation copies. Keep user guides focused on using the app and put developer instructions in technical docs.
 
 ### Tech Stack Preferences
 

@@ -808,7 +808,10 @@ jobs:
         run: |
           # Recovery publication tools may come from the workflow commit, but
           # engine and server build inputs must match the signed producer's tag.
-          if ! git diff --quiet "$RELEASE_TAG" -- package.json pnpm-lock.yaml pnpm-workspace.yaml constants.json packages docs/patches apps/server apps/orchestrator/package.json apps/orchestrator/tsconfig.json apps/orchestrator/src apps/orchestrator/script 'apps/orchestrator/scripts/build*' apps/orchestrator/scripts/clean-dist.mjs; then
+          if ! git diff --quiet "$RELEASE_TAG" -- package.json pnpm-lock.yaml pnpm-workspace.yaml constants.json packages docs/patches apps/server \
+            scripts/gen-core-skills.mjs scripts/help-docs.mjs docs/user-guide apps/app/src/i18n \
+            apps/app/src/react-app/shell/app-root.tsx apps/app/src/react-app/domains/settings/shell/settings-page.tsx \
+            apps/orchestrator/package.json apps/orchestrator/tsconfig.json apps/orchestrator/src apps/orchestrator/script 'apps/orchestrator/scripts/build*' apps/orchestrator/scripts/clean-dist.mjs; then
             echo 'Release recovery source differs from the requested tag. Use matching engine/server build sources; publisher tooling alone may differ.' >&2
             exit 1
           fi
