@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { openSqlite } from "../runtime-db.js";
 import { BackOfficeStore } from "./store.js";
 import { memoryBackOfficeAuditStorage } from "./audit-storage.js";
-import { BackOfficeRecordSchema, defaultBackOfficeModel, type BackOfficeActor, type BackOfficeRecord, type BackOfficeSnapshot } from "./schema.js";
+import { z, BackOfficeRecordSchema, defaultBackOfficeModel, type BackOfficeActor, type BackOfficeRecord, type BackOfficeSnapshot } from "./schema.js";
 
 const editor: BackOfficeActor = { userId: "lawyer", model: true, edit: true, finance: true };
 const basic = { ...editor, finance: false };
@@ -116,4 +116,66 @@ test("authored source and sharing changes survive a later separate field edit in
   const intent = store.queuedRecordIntent("firm", operation);
   expect(intent.metadata).toEqual(["sourceId", "sharing"]);
   expect(intent.record).toMatchObject({ sourceId: "authored-source", access: "org", members: [], values: { email: "authored@example.test" } });
+});
+
+test("record edits and archive merge independent revisions and preserve competing values", async () => {
+  const { store, remote } = await fixture();
+  const patch = (values: BackOfficeRecord["values"], expectedValues: BackOfficeRecord["values"], archived?: boolean) =>
+    store.saveRecord("firm", editor, { id: remote.id, objectId: remote.objectId, revision: remote.revision, values, expectedValues, archived });
+  const renamed = patch({ name: "New name" }, { name: remote.values.name });
+  const email = patch({ email: "new@example.test" }, { email: remote.values.email });
+  expect(email.values.name).toBe("New name");
+  expect(email.revision).toBe(renamed.revision + 1);
+  expect(() => patch({ name: "Competing" }, { name: remote.values.name })).toThrow("same field");
+  const archived = patch({}, {}, true);
+  expect(archived.values.email).toBe("new@example.test");
+  expect(patch({}, {}, true).revision).toBe(archived.revision);
+  expect(store.pending("firm").map(entry => entry.change.baseRevision)).toEqual([remote.revision, renamed.revision, email.revision]);
+});
+
+test("sync resubmits independent edits from the server revision and holds a competing field", async () => {
+  const { store, remote } = await fixture();
+  store.saveRecord("firm", editor, { id: remote.id, objectId: remote.objectId, revision: remote.revision, values: { email: "mine@example.test" } });
+  const operation = store.pending("firm")[0].change.id;
+  const reject = (revision: number, values: BackOfficeRecord["values"]) => store.receive("firm", {
+    ...snapshot([{ ...remote, revision, values: { ...remote.values, ...values } }]),
+    conflicts: [{ id: operation, message: "The record changed on another device." }],
+  }, editor);
+  store.restrictTeamAccess("firm", editor);
+  reject(2, { name: "Updated elsewhere" });
+  expect(store.pending("firm")[0].error).toBeNull();
+  expect(store.pending("firm")[0].change.baseRevision).toBe(2);
+  expect(store.raw("firm", remote.id)?.values.email).toBe("mine@example.test");
+  reject(3, { email: "theirs@example.test" });
+  expect(store.pending("firm")[0].error).toBeTruthy();
+  expect(store.raw("firm", remote.id)?.values.email).toBe("theirs@example.test");
+});
+
+test("independent client selections converge across pending local clicks and a concurrent team edit", async () => {
+  const { store, remote } = await fixture();
+  const create = (objectId: string, name: string) => store.saveRecord("firm", editor, { objectId, revision: 0, values: { name } });
+  const clients = ["Existing", "First click", "Other device", "Second click"].map(name => create("clients", name));
+  const [existing, first, other, second] = clients.map(record => record.id);
+  const matter = create("matters", "Matter");
+  const baseline = { ...matter, values: { ...matter.values, clients: [existing] } };
+  const others = [remote, ...clients];
+  store.receive("firm", snapshot([...others, baseline], store.pending("firm").map(row => row.change.id)), editor);
+  const click = (before: string[], after: string[]) => store.saveRecord("firm", editor, { id: matter.id, objectId: "matters",
+    revision: baseline.revision, expectedValues: { clients: before }, values: { clients: after } });
+  click([existing], [existing, first]);
+  click([existing, first], [first, second]);
+  const [one, two] = store.pending("firm").map(row => row.change.id);
+  const team = { ...baseline, revision: 2, values: { ...baseline.values, clients: [existing, other] } };
+  const rejected = (id: string) => [{ id, message: "Concurrent edit" }];
+  store.receive("firm", { ...snapshot([...others, team]), conflicts: rejected(one) }, editor);
+  expect(new Set(z.array(z.string()).parse(store.raw("firm", matter.id)?.values.clients))).toEqual(new Set([first, second, other]));
+  const acknowledged = { ...team, revision: 3, values: { ...team.values, clients: [existing, other, first] } };
+  store.receive("firm", { ...snapshot([...others, acknowledged], [one]), conflicts: rejected(two) }, editor);
+  const [remaining] = store.pending("firm");
+  expect(remaining.error).toBeNull();
+  expect(remaining.change.baseRevision).toBe(3);
+  const next = BackOfficeRecordSchema.parse(remaining.change.data);
+  expect(new Set(z.array(z.string()).parse(next.values.clients))).toEqual(new Set([first, second, other]));
+  store.receive("firm", snapshot([...others, { ...acknowledged, revision: 4, values: { ...acknowledged.values, ...next.values } }], [two]), editor);
+  expect(store.pending("firm")).toHaveLength(0);
 });

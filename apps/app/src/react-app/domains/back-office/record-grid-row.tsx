@@ -1,3 +1,4 @@
+import { t } from "@/i18n";
 import { memo, useId, useRef, type KeyboardEvent } from "react";
 import type { BackOfficeField, BackOfficeRecord, BackOfficeValue } from "@legalwork/types/back-office";
 import { Checkbox } from "twenty-ui/primitives/input";
@@ -17,8 +18,9 @@ type RowProps = {
   template: string;
   fields: BackOfficeField[];
   records: BackOfficeRecord[];
-  recordById: ReadonlyMap<string, BackOfficeRecord>;
+  recordById?: ReadonlyMap<string, BackOfficeRecord>;
   editable: boolean;
+  localOnly?: boolean;
   userId: string;
   selected: boolean;
   editing?: EditingCell;
@@ -31,7 +33,7 @@ type RowProps = {
 };
 
 export const RecordGridRow = memo(function RecordGridRow({
-  record, index, top, measure, template, fields, records, recordById, editable, userId,
+  record, index, top, measure, template, fields, records, recordById, editable, localOnly, userId,
   selected, editing, onEdit, onError, onSelect, onMove, onOpen, onSave,
 }: RowProps) {
   const popupId = useId();
@@ -46,11 +48,11 @@ export const RecordGridRow = memo(function RecordGridRow({
       style={{ gridTemplateColumns: template, transform: top === undefined ? undefined : `translateY(${top}px)` }}
     >
       <div className="bo-check-cell">
-        <Checkbox size="sm" aria-label={`Select ${record.values.name}`} checked={selected}
+        <Checkbox size="sm" disabled={record.revision === 0} aria-label={`Select ${record.values.name}`} checked={selected}
           onCheckedChange={checked => onSelect(record.id, checked)} />
       </div>
       {fields.map((field, column) => {
-        const canEdit = editable && (field.visibility !== "private" || record.ownerId === userId);
+        const canEdit = editable && !(localOnly && field.type === "file") && (field.visibility !== "private" || record.ownerId === userId);
         const inline = field.id !== "name" && ["text", "email", "number", "currency"].includes(field.type);
         const active = canEdit && editing?.field === field.id;
         const edit = (cell: HTMLDivElement) => {
@@ -60,7 +62,7 @@ export const RecordGridRow = memo(function RecordGridRow({
         };
         return (
           <div key={field.id} role="gridcell" tabIndex={0}
-            className={`bo-grid-cell ${inline && active ? "bo-inline-cell" : ""}`}
+            className={`bo-grid-cell ${localOnly && field.id === "name" ? "bo-local-name" : ""} ${inline && active ? "bo-inline-cell" : ""}`}
             data-row={index} data-col={column}
             aria-haspopup={canEdit && !inline ? "dialog" : undefined}
             aria-controls={active && !inline ? popupId : undefined}
@@ -79,7 +81,7 @@ export const RecordGridRow = memo(function RecordGridRow({
                 onSave={value => onSave(editing.base, { [field.id]: value })}
                 onCancel={() => onEdit(null)} onError={onError} />
             ) : field.id === "name" ? (
-              <RecordChip record={record} onOpen={onOpen} />
+              <><RecordChip record={record} onOpen={onOpen} />{localOnly && <small className="bo-local-label">{t("back_office.local_copy")}</small>}</>
             ) : (
               <ValueDisplay field={field} value={record.values[field.id]}
                 records={records} recordById={recordById} onOpen={onOpen} />
@@ -91,8 +93,8 @@ export const RecordGridRow = memo(function RecordGridRow({
                     <DirectoryEditorPopup id={popupId} finalFocus={anchor}
                       style={{ width: field.type === "date" ? "max-content" : field.type === "select" ? 200 : 260 }}>
                       <CellEditor record={editing.base} field={field}
-                        value={editing.base.values[field.id]} records={records}
-                        onCancel={() => onEdit(null)} onSave={value => onSave(editing.base, { [field.id]: value })} />
+                        value={field.multiple || field.type === "multiselect" ? record.values[field.id] : editing.base.values[field.id]} records={records}
+                        onCancel={() => onEdit(null)} onSave={(value, previous) => onSave(previous ? { ...record, values: { ...record.values, [field.id]: previous } } : editing.base, { [field.id]: value })} />
                     </DirectoryEditorPopup>
                   </Popover.Positioner>
                 </Popover.Portal>

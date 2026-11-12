@@ -44,6 +44,10 @@ import {
 } from "./schema.js";
 
 const table = `
+CREATE TABLE IF NOT EXISTS bo_first_sync (id TEXT PRIMARY KEY, principal TEXT NOT NULL, staged INTEGER, baseline TEXT, operation TEXT, confirmed INTEGER NOT NULL DEFAULT 0);
+CREATE INDEX IF NOT EXISTS bo_first_sync_operation ON bo_first_sync(operation) WHERE operation IS NOT NULL;
+CREATE INDEX IF NOT EXISTS bo_first_sync_pending ON bo_first_sync(principal,staged);
+CREATE TABLE IF NOT EXISTS bo_first_sync_projects (principal TEXT NOT NULL, workspace TEXT NOT NULL, generation INTEGER NOT NULL, PRIMARY KEY(principal,workspace));
 CREATE TABLE IF NOT EXISTS bo_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS bo_models (scope TEXT PRIMARY KEY, data TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS bo_records (scope TEXT NOT NULL, id TEXT NOT NULL, object_id TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY(scope,id));
@@ -58,18 +62,46 @@ INSERT OR IGNORE INTO bo_migrations VALUES(1,datetime('now'));`;
 const inputRecord = z.object({
   id: z.string().uuid().optional(),
   create: z.boolean().optional(),
+  expectedValues: z.record(z.string(), BackOfficeValueSchema).optional(),
   objectId: z.string(),
   revision: z.number().int().nonnegative(),
-  values: z.record(z.string(), z.unknown()),
+  values: z.record(z.string(), BackOfficeValueSchema),
   sourceId: z.string().max(16000).nullable().optional(),
   archived: z.boolean().optional(),
   access: z.enum(["org", "members"]).optional(),
   members: z.array(z.string()).max(500).optional(),
 });
 function conflict(
-  message = "This record changed. Refresh it before saving.",
+  message = "This edit conflicts with a newer change.",
 ): never {
   throw new ApiError(409, "back_office_conflict", message);
+}
+// Keep a fingerprint of only the modified fields on this device. The wire schema strips it.
+function editBaseDigest(record: BackOfficeRecord, fields: string[]) {
+  return createHash("sha256").update(canonicalBackOfficeAudit({
+    archived: Boolean(record.archivedAt),
+    values: Object.fromEntries(fields.map(id => [id, record.values[id] ?? null])),
+  })).digest("hex");
+}
+// Selection edits have set semantics. Hash the previous membership so the
+// outbox does not keep a second copy of names or IDs the user removed.
+function selectionIds(value: unknown): string[] | undefined {
+  if (value == null) return [];
+  return Array.isArray(value) && value.every(id => typeof id === "string") ? value : undefined;
+}
+function memberHash(id: string) { return createHash("sha256").update(id).digest("hex"); }
+function mergeSelection(before: string[], desired: string[], current: string[]) {
+  const original = new Set(before), present = new Set(current);
+  return [...new Set([
+    ...desired.filter(id => present.has(id) || !original.has(memberHash(id))),
+    ...current.filter(id => !original.has(memberHash(id))),
+  ])];
+}
+function selectionField(model: BackOfficeModel, record: BackOfficeRecord, fields?: string[]) {
+  if (fields?.length !== 1) return undefined;
+  const definition = model.objects.find(object => object.id === record.objectId && !object.archived);
+  const field = definition?.fields.find(item => item.id === fields[0]);
+  if (field?.type === "multiselect" || (field?.type === "relation" && field.multiple)) return field.id;
 }
 const ReplicaBindingSchema = z.object({ id: z.literal("replica"), principalKey: z.string(), replicaId: z.string().uuid().optional(), permissions: z.object({ model: z.boolean(), edit: z.boolean(), finance: z.boolean() }).optional() });
 
@@ -231,16 +263,16 @@ export class BackOfficeStore {
     if (scope === "local" || !actor.principalKey) return;
     const account = this.connectedAccount();
     if (!account || account.orgId !== scope || account.userId !== actor.userId || account.principalKey !== actor.principalKey)
-      throw new ApiError(409, "back_office_account_changed", "The connected account changed. Refresh Back Office before continuing.");
+      throw new ApiError(409, "back_office_account_changed", "The connected account changed.");
     if (actor.replicaId && actor.replicaId !== this.replicaId(scope))
-      throw new ApiError(409, "back_office_replica_changed", "The directory reconnected. Refresh Back Office before continuing.");
+      throw new ApiError(409, "back_office_replica_changed", "The directory is updating.");
   }
   requireAccount(scope: string, actor: BackOfficeActor) {
     this.requireIdentity(scope, actor);
     if (scope === "local" || !actor.principalKey) return;
     const current = this.cachedPolicyActor(scope);
     if (!current || (actor.model && !current.model) || (actor.edit && !current.edit) || (actor.finance && !current.finance))
-      throw new ApiError(403, "back_office_permissions_changed", "Firm permissions changed. Refresh Back Office before continuing.");
+      throw new ApiError(403, "back_office_permissions_changed", "Your current permissions do not allow this action.");
   }
   private cachedPolicyActor(scope: string): BackOfficeActor | null {
     const account = this.connectedAccount();
@@ -407,6 +439,7 @@ export class BackOfficeStore {
     data: unknown,
     changedFields?: string[],
     changedMetadata: BackOfficeChange["changedMetadata"] = [],
+    base?: BackOfficeRecord,
   ) {
     if (scope === "local") return;
     if (kind === "record" && revision > 0) {
@@ -429,11 +462,15 @@ export class BackOfficeStore {
       changedMetadata,
       authorKey: backOfficeAuthorKey(actor),
     };
+    const selection = base && !changedMetadata.length && selectionField(this.model(scope), base, changedFields);
+    const selectionBase = selection ? selectionIds(base?.values[selection])?.map(memberHash) : undefined;
     this.db.run("INSERT INTO bo_outbox(scope,id,data) VALUES(?,?,?)", [
       scope,
       change.id,
-      JSON.stringify(change),
+      JSON.stringify(base && changedFields && changedMetadata.every(key => key === "archive")
+        ? { ...change, editBase: editBaseDigest(base, changedFields), selectionBase } : change),
     ]);
+    return change.id;
   }
   raw(scope: string, id: string): BackOfficeRecord | null {
     const row = this.db.get(
@@ -534,9 +571,19 @@ export class BackOfficeStore {
             "back_office_record",
             "The record is unavailable.",
           );
-        if (parsed.create && existing)
+        if (parsed.create && existing) {
+          if (parsed.revision === 0 && existing.revision === 1 && existing.ownerId === actor.userId &&
+              parsed.sourceId === undefined && parsed.members === undefined && parsed.access === undefined &&
+              parsed.archived === undefined && !existing.archivedAt &&
+              canonicalBackOfficeAudit(existing.values) === canonicalBackOfficeAudit({ ...defaultBackOfficeValues(object), ...parsed.values }))
+            return readableBackOfficeRecord(existing, object, actor);
           conflict("This record identity already exists.");
-        if ((existing?.revision ?? 0) !== parsed.revision) conflict();
+        }
+        const revision = existing?.revision ?? 0;
+        const mergeable = existing && parsed.revision > 0 && parsed.revision <= revision &&
+          !parsed.create && parsed.sourceId === undefined && parsed.access === undefined && parsed.members === undefined &&
+          (parsed.expectedValues !== undefined || (parsed.archived !== undefined && !Object.keys(parsed.values).length));
+        if (revision !== parsed.revision && !mergeable) conflict();
         if (
           existing &&
           ((parsed.access !== undefined && parsed.access !== existing.access) ||
@@ -572,7 +619,15 @@ export class BackOfficeStore {
               "back_office_field",
               `You cannot edit ${field.label}.`,
             );
-          const value = BackOfficeValueSchema.parse(raw);
+          let value = BackOfficeValueSchema.parse(raw);
+          if (existing && mergeable && parsed.expectedValues && Object.hasOwn(parsed.expectedValues, id) &&
+              (field.type === "multiselect" || field.type === "relation" && field.multiple)) {
+            const before = selectionIds(parsed.expectedValues[id]), desired = selectionIds(value), current = selectionIds(existing.values[id]);
+            if (before && desired && current) {
+              value = mergeSelection(before.map(memberHash), desired, current);
+              parsed.expectedValues[id] = existing.values[id] ?? null;
+            }
+          }
           if (field.type === "file" && value !== null) {
             for (const file of BackOfficeFilesSchema.parse(value)) {
               if (file.recordId !== recordId || file.fieldId !== field.id)
@@ -604,6 +659,23 @@ export class BackOfficeStore {
             }
           }
           values[id] = value;
+        }
+        if (mergeable) {
+          const keys = Object.keys(parsed.values);
+          const same = (a: BackOfficeRecord["values"][string] | undefined, b: BackOfficeRecord["values"][string] | undefined) => canonicalBackOfficeAudit(a ?? null) === canonicalBackOfficeAudit(b ?? null);
+          if (revision !== parsed.revision) {
+            if (existing.archivedAt && parsed.archived === undefined)
+              throw new ApiError(409, "back_office_archived", "This record was archived while you were editing.");
+            const conflicts = keys.filter(id => !same(existing.values[id], values[id]) &&
+              (!Object.hasOwn(parsed.expectedValues ?? {}, id) || !same(existing.values[id], parsed.expectedValues?.[id])));
+            if (conflicts.length)
+              throw new ApiError(409, "back_office_field_conflict", "Two edits changed the same field.", {
+                record: readableBackOfficeRecord(existing, object, actor), fields: conflicts,
+              });
+          }
+          if (keys.every(id => same(existing.values[id], values[id])) &&
+              (parsed.archived === undefined || parsed.archived === Boolean(existing.archivedAt)))
+            return readableBackOfficeRecord(existing, object, actor);
         }
         try {
           validateBackOfficeValues(object, values);
@@ -639,7 +711,7 @@ export class BackOfficeStore {
             parsed.sourceId === undefined
               ? existing?.sourceId
               : parsed.sourceId,
-          revision: parsed.revision + 1,
+          revision: revision + 1,
           schemaRevision: model.revision,
           ownerId: existing?.ownerId ?? actor.userId,
           access: parsed.access ?? existing?.access ?? "org",
@@ -657,6 +729,10 @@ export class BackOfficeStore {
           "INSERT INTO bo_records VALUES(?,?,?,?) ON CONFLICT(scope,id) DO UPDATE SET data=excluded.data",
           [scope, record.id, record.objectId, JSON.stringify(record)],
         );
+        if (scope === "local" && !existing) {
+          const principal = this.connectedPrincipalKey();
+          if (principal) this.db.run("INSERT INTO bo_first_sync(id,principal) VALUES(?,?)", [record.id, principal]);
+        }
         this.audit(
           scope,
           actor,
@@ -676,10 +752,11 @@ export class BackOfficeStore {
           scope,
           actor,
           "record",
-          parsed.revision,
+          revision,
           record,
           Object.keys(parsed.values).filter(id => !existing || existing.values[id] === undefined || canonicalBackOfficeAudit(existing.values[id]) !== canonicalBackOfficeAudit(record.values[id])),
           changedMetadata,
+          existing ?? undefined,
         );
         return readableBackOfficeRecord(record, object, actor);
       },
@@ -701,7 +778,7 @@ export class BackOfficeStore {
     const candidate = BackOfficeModelSchema.parse(input),
       current = this.model(scope);
     if (revision !== current.revision)
-      conflict("The data model changed. Refresh before reviewing changes.");
+      conflict("The data model changed while you were editing.");
     const changes = candidate.objects.flatMap((object) => {
       const before = current.objects.find((item) => item.id === object.id);
       if (JSON.stringify(before) === JSON.stringify(object)) return [];
@@ -772,7 +849,7 @@ export class BackOfficeStore {
         const current = this.model(scope);
         if (current.revision !== baseRevision)
           conflict(
-            "The data model changed. Refresh before applying your changes.",
+            "The data model changed while you were editing.",
           );
         try {
           assertModelChange(current, candidate);
@@ -844,9 +921,9 @@ export class BackOfficeStore {
         this.requireAccount(scope, actor);
         const existing = this.views(scope).find(view => view.id === patch.id);
         if (existing && expected === undefined)
-          throw new ApiError(428, "back_office_view_base_required", "Reload this view before saving changes.");
+          throw new ApiError(428, "back_office_view_base_required", "The original view settings are missing.");
         if (canonicalBackOfficeAudit(existing ?? null) !== canonicalBackOfficeAudit(expected ?? null))
-          throw new ApiError(409, "back_office_view_conflict", "This view changed elsewhere. Your settings are kept. Reopen the view to load its latest settings before trying again.");
+          throw new ApiError(409, "back_office_view_conflict", "This view changed elsewhere.");
         const view = BackOfficeViewSchema.parse({ ...existing, ...patch });
         try {
           validateBackOfficeView(this.model(scope), view);
@@ -882,7 +959,7 @@ export class BackOfficeStore {
     if (actor) this.requireAccount(scope, actor);
     return this.db
       .all(
-        "SELECT seq,data,error FROM bo_outbox WHERE scope=?" + (actor ? " AND json_extract(data,'$.authorKey')=?" : "") + " ORDER BY seq" +
+        "SELECT seq,data,error,json_extract(data,'$.selectionBase') AS selection_base FROM bo_outbox WHERE scope=?" + (actor ? " AND json_extract(data,'$.authorKey')=?" : "") + " ORDER BY seq" +
           (limit ? ` LIMIT ${limit}` : ""),
         actor ? [scope, backOfficeAuthorKey(actor)] : [scope],
       )
@@ -890,6 +967,7 @@ export class BackOfficeStore {
         seq: Number(row.seq),
         change: BackOfficeChangeSchema.parse(JSON.parse(String(row.data))),
         error: row.error,
+        selectionBase: row.selection_base == null ? undefined : z.array(z.string()).parse(JSON.parse(String(row.selection_base))),
       }));
   }
   syncState(scope: string, actor?: BackOfficeActor) {
@@ -918,22 +996,45 @@ export class BackOfficeStore {
       this.requireAccount(scope, actor);
       const cursor = Number(this.db.get("SELECT cursor FROM bo_sync WHERE scope=?", [scope])?.cursor ?? 0);
       if (snapshot.cursor < cursor)
-        throw new ApiError(409, "back_office_snapshot_stale", "A newer team snapshot is already stored. Refresh Back Office before continuing.");
+        throw new ApiError(409, "back_office_snapshot_stale", "A newer team snapshot is already stored.");
       const previousModel = this.db.get("SELECT data FROM bo_models WHERE scope=?", [scope]);
       let revoked = Boolean(previousModel && canonicalBackOfficeAudit(BackOfficeModelSchema.parse(JSON.parse(String(previousModel.data)))) !== canonicalBackOfficeAudit(snapshot.model));
-      for (const id of snapshot.accepted)
+      for (const id of snapshot.accepted) {
+        this.db.run("UPDATE bo_first_sync SET confirmed=1,operation=NULL WHERE operation=? AND principal=?", [id, backOfficeAuthorKey(actor)]);
         this.db.run("DELETE FROM bo_outbox WHERE scope=? AND id=? AND json_extract(data,'$.authorKey')=?", [
           scope,
           id,
           backOfficeAuthorKey(actor),
         ]);
-      for (const conflict of snapshot.conflicts)
-        this.db.run("UPDATE bo_outbox SET error=? WHERE scope=? AND id=? AND json_extract(data,'$.authorKey')=?", [
-          conflict.message,
-          scope,
-          conflict.id,
-          backOfficeAuthorKey(actor),
-        ]);
+      }
+      for (const conflict of snapshot.conflicts) {
+        const params = [scope, conflict.id, backOfficeAuthorKey(actor)];
+        const where = " WHERE scope=? AND id=? AND json_extract(data,'$.authorKey')=?";
+        const row = this.db.get("SELECT data,json_extract(data,'$.editBase') AS base FROM bo_outbox" + where, params);
+        if (row && typeof row.base === "string" && actor.edit) {
+          const change = BackOfficeChangeSchema.parse(JSON.parse(String(row.data)));
+          const draft = BackOfficeRecordSchema.parse(change.data);
+          const remote = snapshot.records.find(record => record.id === draft.id && record.objectId === draft.objectId);
+          const base = z.object({ selectionBase: z.array(z.string()).optional() }).parse(JSON.parse(String(row.data))).selectionBase;
+          const field = remote && base && !remote.archivedAt && !draft.archivedAt && selectionField(snapshot.model, remote, change.changedFields);
+          const desired = field ? selectionIds(draft.values[field]) : undefined;
+          const current = field && remote ? selectionIds(remote.values[field]) : undefined;
+          const selection = base && desired && current ? mergeSelection(base, desired, current) : undefined;
+          if (remote && remote.revision > change.baseRevision && change.changedFields &&
+              (selection || editBaseDigest(remote, change.changedFields) === row.base ||
+                (change.changedMetadata?.includes("archive") && !change.changedFields.length && Boolean(draft.archivedAt) === Boolean(remote.archivedAt)))) {
+            // Only a rejected operation is rebased. Accepted operation IDs stay immutable.
+            const archiveTime = remote.archivedAt && draft.archivedAt ? remote.archivedAt : draft.archivedAt;
+            this.db.run("UPDATE bo_outbox SET data=?,error=NULL" + where, [JSON.stringify({
+              ...change, baseRevision: remote.revision, editBase: editBaseDigest(remote, change.changedFields),
+              selectionBase: selection && current?.map(memberHash),
+              data: { ...draft, values: field && selection ? { ...draft.values, [field]: selection } : draft.values, revision: remote.revision + 1, archivedAt: archiveTime },
+            }), ...params]);
+            continue;
+          }
+        }
+        this.db.run("UPDATE bo_outbox SET error=?" + where, [conflict.message, ...params]);
+      }
       const pending = this.pending(scope, 0, actor);
       this.db.run(
           "INSERT INTO bo_models VALUES(?,?) ON CONFLICT(scope) DO UPDATE SET data=excluded.data WHERE bo_models.data<>excluded.data",
@@ -963,7 +1064,6 @@ export class BackOfficeStore {
       }
       for (const record of snapshot.records) {
         const previous = this.raw(scope, record.id);
-        if (previous && (Object.keys(previous.values).some(id => !(id in record.values)) || previous.access !== record.access || previous.ownerId !== record.ownerId || canonicalBackOfficeAudit(previous.members) !== canonicalBackOfficeAudit(record.members))) revoked = true;
         let projected = record;
         const object = snapshot.model.objects.find(object => object.id === record.objectId);
         for (const queued of pending) {
@@ -972,9 +1072,14 @@ export class BackOfficeStore {
           if (draft.id !== record.id) continue;
           const authored = new Set(queued.change.changedFields ?? []);
           const values = readableBackOfficeRecord({ ...record, values: Object.fromEntries(Object.entries(draft.values).filter(([id]) => authored.has(id))) }, object, actor).values;
+          const field = queued.selectionBase && selectionField(snapshot.model, record, queued.change.changedFields);
+          if (field && queued.selectionBase && Object.hasOwn(values, field)) {
+            const current = selectionIds(projected.values[field]), desired = selectionIds(values[field]);
+            if (current && desired) values[field] = mergeSelection(queued.selectionBase, desired, current);
+          }
           const metadata = queued.change.changedMetadata;
           projected = { ...projected, values: { ...projected.values, ...values },
-            revision: draft.revision,
+            revision: Math.max(projected.revision, draft.revision),
             updatedAt: draft.updatedAt,
             sourceId: metadata?.includes("sourceId") ? draft.sourceId : projected.sourceId,
             access: metadata?.includes("sharing") ? draft.access : projected.access,
@@ -982,6 +1087,9 @@ export class BackOfficeStore {
             archivedAt: metadata?.includes("archive") ? draft.archivedAt : projected.archivedAt,
           };
         }
+        // An unsent field can be absent from the platform snapshot but still
+        // present in the authorized projection. That is not an access change.
+        if (previous && (Object.keys(previous.values).some(id => !(id in projected.values)) || previous.access !== record.access || previous.ownerId !== record.ownerId || canonicalBackOfficeAudit(previous.members) !== canonicalBackOfficeAudit(record.members))) revoked = true;
         if (previous && JSON.stringify(previous) === JSON.stringify(projected)) continue;
         this.db.run(
           "INSERT INTO bo_records VALUES(?,?,?,?) ON CONFLICT(scope,id) DO UPDATE SET data=excluded.data",
@@ -1042,7 +1150,7 @@ export class BackOfficeStore {
           if (!next) {
             this.db.run("DELETE FROM bo_outbox WHERE scope=? AND id=?", [scope, change.id]);
             revoked = true;
-          } else if (canonicalBackOfficeAudit(next) !== canonicalBackOfficeAudit(view)) {
+          } else if (canonicalBackOfficeAudit(next) !== canonicalBackOfficeAudit({ ...view, filterCriteria: view.filterCriteria ?? null })) {
             this.db.run("UPDATE bo_outbox SET data=?,error=? WHERE scope=? AND id=?", [JSON.stringify({ ...change, data: next }), "Access changed. Review the remaining view settings before sending.", scope, change.id]);
             revoked = true;
           } else if (!actor.edit && !entry.error)
@@ -1161,7 +1269,7 @@ export class BackOfficeStore {
         return (
           object &&
           object.fields
-            .filter((field) => field.type === "relation" && field.required)
+            .filter((field) => field.type === "relation" && (field.required || field.id === "matter" && record.values.matter != null))
             .every((field) => {
               const value = record.values[field.id];
               return (Array.isArray(value) ? value : [value]).every(
@@ -1191,7 +1299,7 @@ export class BackOfficeStore {
           const field = object.fields.find((field) => field.id === id);
           return (
             field &&
-            (field.type !== "relation" || field.required) &&
+            (field.type !== "relation" || field.required || field.id === "matter") &&
             (field.visibility !== "finance" || actor.finance)
           );
         }),
@@ -1219,7 +1327,7 @@ export class BackOfficeStore {
       const relations = Object.fromEntries(
         Object.entries(record.values).filter(
           ([id]) =>
-            object.fields.find((field) => field.id === id)?.type === "relation",
+            id !== "matter" && object.fields.find((field) => field.id === id)?.type === "relation",
         ),
       );
       if (record.objectId === "projectLinks") {
@@ -1263,6 +1371,11 @@ export class BackOfficeStore {
     this.audit(scope, actor, "directory.publish", "directory", {
       records: source.map((record) => record.id),
     });
+  }
+  holdFirstSyncConflict(scope: string, actor: BackOfficeActor, record: BackOfficeRecord, revision: number, fields: string[], metadata: NonNullable<BackOfficeChange["changedMetadata"]>) {
+    this.requireAccount(scope, actor);
+    const id = this.enqueue(scope, actor, "record", revision, { ...record, revision: revision + 1 }, fields, metadata);
+    this.db.run("UPDATE bo_outbox SET error=? WHERE scope=? AND id=?", ["The local and firm copies changed. Review your changes.", scope, id!]);
   }
   queuedRecordIntent(scope: string, operationId: string, actor?: BackOfficeActor) {
     const pending = this.pending(scope, 0, actor),
@@ -1335,6 +1448,8 @@ export class BackOfficeStore {
           )
             this.db.run("DELETE FROM bo_outbox WHERE id=?", [String(row.id)]);
         }
+        // A reviewed first-sync draft now follows the team copy; do not enqueue it again.
+        this.db.run("UPDATE bo_first_sync SET operation=NULL,confirmed=1 WHERE id=? AND principal=? AND operation IS NOT NULL", [id, entry.change.authorKey ?? ""]);
         this.db.run("DELETE FROM bo_records WHERE scope=? AND id=?", [
           scope,
           id,

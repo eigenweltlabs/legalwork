@@ -19,7 +19,7 @@ const { act, useState } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { MemoryRouter } = await import("react-router-dom");
 const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
-const { createLegalworkServerClient } = await import("../../src/app/lib/legalwork-server");
+const { createLegalworkServerClient, LegalworkServerError } = await import("../../src/app/lib/legalwork-server");
 const { BackOfficePage } = await import("../../src/react-app/domains/back-office/back-office-page");
 const { ProjectMatterClients } = await import("../../src/react-app/domains/workspace/project-matter-clients");
 const { ProjectProperties } = await import("../../src/react-app/domains/workspace/project-properties");
@@ -31,13 +31,19 @@ const actor = { userId: "owner", model: true, edit: true, finance: true };
 const abc = store.saveRecord("local", actor, { objectId: "clients", revision: 0, values: { name: "ABC GmbH" } });
 const alice = store.saveRecord("local", actor, { objectId: "people", revision: 0, values: { name: "Alice" } });
 const bob = store.saveRecord("local", actor, { objectId: "people", revision: 0, values: { name: "Bob" } });
-let writes = 0;
+const localMatter = { ...abc, id: crypto.randomUUID(), objectId: "matters", values: { name: "Warehouse lease renewal" } };
+let writes = 0, teamSyncIssue = false, replica = "first", retireDuringWrite = false;
 const client = {
   ...createLegalworkServerClient({ baseUrl: "http://localhost" }),
   backOffice: async (path: string, options?: { body?: unknown }) => {
-    if (path.startsWith("?")) return { scope: "local", directoryId: "local:fixture", model: store.model("local"), records: store.records("local", actor), views: [], permissions: actor, sync: { enabled: false, cursor: 0, pending: 0, error: null } };
+    if (path.startsWith("?")) return { scope: teamSyncIssue ? "firm" : "local", directoryId: teamSyncIssue ? "team:fixture" : "local:fixture", ...(teamSyncIssue ? { localRows: path.includes("pendingLocalObject=matters") ? [localMatter] : [], firstSync: { unassigned: 25, waiting: 3, selection: "fixture", firm: "Review firm" } } : {}), model: store.model("local"), records: store.records("local", actor), views: [], permissions: { ...actor, replicaId: replica }, sync: { enabled: teamSyncIssue, cursor: 0, pending: 0, error: teamSyncIssue ? "Back Office sync failed (HTTP 500)." : null } };
     if (path === "/projects") return { projects: [] };
-    if (path === "/records" && options?.body) { writes++; return { record: store.saveRecord("local", actor, options.body) }; }
+    if (path === "/records" && options?.body) {
+      if (retireDuringWrite) { retireDuringWrite = false; throw new LegalworkServerError(409, "back_office_replica_changed", "Replica replaced"); }
+      assert.equal(Reflect.get(Object(options.body), "expectedUserId"), actor.userId);
+      assert.equal(Reflect.get(Object(options.body), "directoryId"), teamSyncIssue ? "team:fixture" : "local:fixture");
+      writes++; return { record: store.saveRecord("local", actor, options.body) };
+    }
     throw new Error(`Unexpected request ${path}`);
   },
 };
@@ -69,19 +75,47 @@ async function key(label: string, key: string, metaKey = false) { await act(asyn
 try {
   await render();
   await click("Create");
-  assert.equal(writes, 0, "Opening Create must not persist an Untitled record");
+  assert.equal(document.querySelector('[role="dialog"], [aria-modal="true"]'), null, "Create must leave the table interactive");
+  assert.ok(input("Matter name").closest("aside.bo-detail"), "Create opens in the same side panel as an existing record");
+  assert.equal(input("Matter name").value, "Untitled");
+  assert.equal(writes, 1, "Create saves a row immediately");
+  assert.equal(document.querySelectorAll(".bo-grid-row[data-index]").length, 1);
+  assert.equal(document.activeElement, input("Matter name"), "The new row is ready to rename");
   await type("Matter name", "Acquisition");
+  await key("Matter name", "Enter");
+  assert.equal(writes, 2);
+  await click("Edit File number");
   await type("File number", "2026/042");
+  await click("Save");
   await click("Edit Clients");
-  await type("Search Clients…", "ABC");
-  await key("Search Clients…", "Enter");
-  await key("Search Clients…", "Escape");
-  await key("File number", "Enter", true);
-  assert.equal(writes, 1);
+  await type("Search Clients", "ABC");
+  const clientOption = [...document.querySelectorAll<HTMLButtonElement>('button[role="option"]')].find(option => option.textContent?.includes("ABC GmbH"));
+  assert.ok(clientOption);
+  replica = "next";
+  await act(async () => { await cache.invalidateQueries({ queryKey: ["back-office"] }); });
+  assert.equal(input("Search Clients").value, "ABC", "Refreshing the cache preserves the open picker and its search");
+  retireDuringWrite = true;
+  await act(async () => clientOption.click());
+  assert.equal(document.querySelector('button[type="submit"]')?.textContent === "Apply", false);
+  await key("Search Clients", "Escape");
+  assert.equal(writes, 4);
   const matter = store.records("local", actor, "matters").find(record => record.values.name === "Acquisition"); assert.ok(matter);
   assert.deepEqual(matter.values.clients, [abc.id]);
   assert.equal(matter.values.fileNumber, "2026/042");
 
+  await click("Edit Clients");
+  await type("Search Clients", "Case client");
+  await click("Create Client");
+  await click("Create and select");
+  assert.equal(document.querySelector('input[aria-label="Search Clients"]'), null, "Create and select commits the link");
+  const linkedClient = store.records("local", actor, "clients").find(row => row.values.name === "Case client");
+  assert.ok(linkedClient);
+  assert.deepEqual(store.raw("local", matter.id)?.values.clients, [linkedClient.id, abc.id]);
+  assert.ok(document.querySelector("aside.bo-detail")?.textContent?.includes("Case client"));
+  // Restore the original single-client case for the following project inheritance checks.
+  await click("Edit Clients");
+  const selectedClient = [...document.querySelectorAll<HTMLButtonElement>('button[role="option"]')].find(row => row.textContent?.includes("Case client"));
+  assert.ok(selectedClient); await act(async () => selectedClient.click()); await key("Search Clients", "Escape");
   await render(true);
   assert.ok(document.body.textContent?.includes("Witnesses"), "Intentional empty roles remain visible on Home");
   assert.equal(button("Edit Client").textContent?.trim(), t("projects.empty_value"));
@@ -106,8 +140,7 @@ try {
   await key("Search Client…", "Enter");
   assert.ok(![...document.querySelectorAll("button")].some(item => item.textContent?.trim() === "Apply"), "Outer action is hidden during nested creation");
   await key("Client name", "Enter", true);
-  assert.equal(writes, 2);
-  await key("Search Client…", "Enter", true);
+  assert.equal(writes, 8);
   assert.equal(savedFields[0].value, "Keep me");
   assert.equal(savedFields.find(field => field.id === "direct_client")?.type, "backoffice");
   await click("Edit Client: New client");
@@ -139,9 +172,26 @@ try {
   store.saveModel("local", actor, { ...model, objects: model.objects.map(item => item.id === "matters" ? { ...item, quickCreateFields: ["subject"] } : item) }, model.revision);
   await act(async () => cache.invalidateQueries({ queryKey: ["back-office", client.baseUrl] }));
   await render(); await click("Create");
-  assert.ok(input("Matter name")); assert.ok(input("Subject"));
-  assert.equal(document.querySelector('input[aria-label="File number"]'), null, "Shared quick-form configuration applies to the normal Back Office Create button");
-  await click("More details"); assert.ok(input("File number"));
-  assert.equal(writes, 2, "Opening or configuring forms does not create records");
+  assert.ok(button("Edit Subject")); assert.ok(button("Edit File number"));
+  assert.equal(document.querySelector('button[aria-label="Create and select"]'), null);
+  await click("Close record");
+  assert.equal(document.querySelector("aside.bo-detail"), null);
+  teamSyncIssue = true;
+  await act(async () => cache.invalidateQueries({ queryKey: ["back-office", client.baseUrl] }));
+  await render();
+  assert.doesNotMatch(host.textContent ?? "", /records on this computer|records are waiting|HTTP 500|last sync could not finish/i);
+  const localRow = document.querySelector('[aria-label="Select Warehouse lease renewal"]');
+  assert.ok(localRow, host.textContent ?? "Missing local matter");
+  assert.ok(localRow.closest('[role="row"]')?.textContent?.includes("On this computer"));
+  assert.ok(!localRow.hasAttribute("disabled") && localRow.getAttribute("aria-disabled") !== "true");
+  const emptyCell = localRow.closest('[role="row"]')?.querySelector<HTMLElement>('[data-col="1"]');
+  assert.ok(emptyCell); await act(async () => emptyCell.click());
+  assert.ok(input("File number"), "Empty fields on pending local rows open their editor");
+  await key("File number", "Escape");
+  await click("More actions");
+  const syncMenu = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(item => item.textContent?.trim() === "Team sync");
+  assert.ok(syncMenu); await act(async () => syncMenu.click());
+  assert.ok(button("Share with Review firm"));
+  assert.ok(document.body.textContent?.includes("Sync will retry automatically."));
   console.log("Simple Back Office flow passed");
 } finally { await act(async () => root.unmount()); cache.clear(); store.close(); await window.happyDOM.close(); }

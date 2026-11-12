@@ -1,6 +1,7 @@
 import { cellInputText, parseCellInput } from "./cell-input";
 import { FileCellEditor } from "./record-files";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { toast } from "@/components/ui/sonner";
 import { Plus, X } from "lucide-react";
 import { DatePicker } from "twenty-ui/components/input";
 import { Button, Input } from "twenty-ui/primitives/input";
@@ -12,7 +13,7 @@ import type {
   BackOfficeValue,
 } from "@legalwork/types/back-office";
 import { DirectorySelect } from "./twenty-controls";
-import { useRecordCreation } from "./record-creation-context";
+import { LocalCreationScope, useRecordCreation } from "./record-creation-context";
 import { creatableRecordObject, relationPickerOptions } from "./record-creation-values";
 import { RecordCreateForm } from "./record-create-form";
 import { displayBackOfficeObject } from "./labels";
@@ -37,14 +38,14 @@ export function CellEditor({
   record?: BackOfficeRecord;
   value: BackOfficeValue | undefined;
   records: BackOfficeRecord[];
-  onSave: (value: BackOfficeValue) => Promise<void>;
+  onSave: (value: BackOfficeValue, previousSelection?: string[]) => Promise<void>;
   onCancel: () => void;
   creationFilters?: ProjectReferenceFilters | null;
   projectScope?: string;
 }) {
   const creation = useRecordCreation();
   const target = field.type === "relation" ? creatableRecordObject(creation?.state, field.target) : undefined;
-  const [creating, setCreating] = useState(false), [created, setCreated] = useState<BackOfficeRecord[]>([]);
+  const [creating, setCreating] = useState(false), [created, setCreated] = useState<{ record: BackOfficeRecord; replica?: string }[]>([]);
   const [text, setText] = useState(() => cellInputText(value));
   const [month, setMonth] = useState(
     (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)
@@ -53,20 +54,19 @@ export function CellEditor({
     ).slice(0, 7),
   );
   const [query, setQuery] = useState("");
-  const [selected, setSelected] = useState(
-    Array.isArray(value)
-      ? value.filter((item) => typeof item === "string")
-      : typeof value === "string" && value
-        ? [value]
-        : [],
-  );
+  const selectedValues = Array.isArray(value) ? value.filter(item => typeof item === "string") : typeof value === "string" && value ? [value] : [];
+  const [pending, setPending] = useState<{ id: string; add: boolean }[]>([]);
+  const queue = useRef(Promise.resolve());
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  const selected = pending.reduce((ids, edit) => edit.add ? [...new Set([...ids, edit.id])] : ids.filter(id => id !== edit.id), selectedValues);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
-  const save = async (next: BackOfficeValue, newlyCreated = false) => {
+  const save = async (next: BackOfficeValue, newlyCreated = false, previous?: string[]) => {
     setSaving(true);
     setError("");
     try {
-      await onSave(next);
+      await onSave(next, previous);
       onCancel();
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not save.";
@@ -79,7 +79,7 @@ export function CellEditor({
   const matchesName = (name: string) => name.toLocaleLowerCase().includes(search);
   let options: { id: string; label: string; subtitle?: string }[];
   if (field.type === "relation") {
-    const available = [...new Map([...created, ...records].map(item => [item.id, item])).values()]
+    const available = [...new Map([...created.filter(item => item.replica === creation?.state.permissions.replicaId).map(item => item.record), ...records].map(item => [item.id, item])).values()]
       .filter(item => item.objectId === field.target && !item.archivedAt);
     options = relationPickerOptions(available, query, field.target === "matters" ? projectScope : undefined, creation?.state.records)
       .map(({ record, subtitle }) => ({ id: record.id, label: String(record.values.name ?? ""), subtitle }))
@@ -96,15 +96,30 @@ export function CellEditor({
     field.type === "select" ||
     (field.type === "multiselect" && field.options.length > 0);
   const choose = (id: string) => {
-    if (multiple) setSelected(current => current.includes(id) ? current.filter(item => item !== id) : [...current, id]);
-    else void save(id);
+    if (!multiple) { void save(id); return; }
+    const edit = { id, add: !selected.includes(id) };
+    const next = edit.add ? [...selected, id] : selected.filter(item => item !== id);
+    setPending(items => [...items, edit]);
+    setError("");
+    queue.current = queue.current.then(async () => {
+      try { await onSave(next, selected); }
+      catch (reason) {
+        const message = reason instanceof Error ? reason.message : t("back_office.create.failed");
+        if (mounted.current) setError(message);
+        else toast.error(message);
+      }
+      finally { setPending(items => items.filter(item => item !== edit)); }
+    });
+
   };
-  if (creating && target) return <RecordCreateForm object={displayBackOfficeObject(target)} name={query.trim()} filters={creationFilters} persistenceNotice={projectScope ? t("back_office.create.persistence_notice") : undefined} onCancel={() => setCreating(false)} onCreated={async record => {
-    setCreated(current => [record, ...current]);
+  const localSource = record && creation?.state.localRows?.some(row => row.id === record.id) ? { id: record.id, objectId: record.objectId, fields: [field.id] } : undefined;
+  if (creating && target) return <LocalCreationScope.Provider value={localSource}><RecordCreateForm object={displayBackOfficeObject(target)} name={query.trim()} filters={creationFilters} persistenceNotice={projectScope ? t("back_office.create.persistence_notice") : undefined} onCancel={() => setCreating(false)} onCreated={async record => {
+    setCreated(current => [{ record, replica: creation?.state.permissions.replicaId }, ...current]);
     setQuery(""); setCreating(false);
-    if (multiple) setSelected(current => [record.id, ...current.filter(id => id !== record.id)]);
-    else { setSelected([record.id]); await save(record.id, true); }
-  }} />;
+    const next = multiple ? [record.id, ...selected.filter(id => id !== record.id)] : [record.id];
+    await queue.current;
+    await save(multiple ? next : record.id, true, multiple ? selected : undefined);
+  }} /></LocalCreationScope.Provider>;
   if (field.type === "file")
     return (
       <FileCellEditor
@@ -123,7 +138,7 @@ export function CellEditor({
         if (event.key === "Escape") onCancel();
         if (projectScope && multiple && event.key === "Enter" && (event.ctrlKey || event.metaKey) && !event.nativeEvent.isComposing) {
           event.preventDefault();
-          if (!event.repeat && !saving) void save(selected);
+          if (!event.repeat) onCancel();
         }
         if (projectScope && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
           const choices = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="option"], .bo-create-option')];
@@ -142,7 +157,7 @@ export function CellEditor({
           event.preventDefault();
           event.stopPropagation();
           if (isChoices) {
-            void save(multiple ? selected : (selected[0] ?? null));
+            if (!multiple) void save(selected[0] ?? null);
             return;
           }
           try {
@@ -178,7 +193,7 @@ export function CellEditor({
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 onKeyDown={event => {
-                  if (!projectScope || event.key !== "Enter" || event.ctrlKey || event.metaKey || event.nativeEvent.isComposing) return;
+                  if (event.key !== "Enter" || event.ctrlKey || event.metaKey || event.nativeEvent.isComposing) return;
                   event.preventDefault();
                   if (event.repeat || saving) return;
                   if (options.length) choose(options[0].id);
@@ -192,7 +207,7 @@ export function CellEditor({
                   render={<button type="button" disabled={saving} />}
                   selected={!selected.length}
                   indicator="check"
-                  onClick={() => void save(null)}
+                  onClick={async () => { await queue.current; await save(multiple ? [] : null, false, multiple ? selected : undefined); }}
                 >
                   No {field.label}
                 </ListItem>
@@ -230,18 +245,7 @@ export function CellEditor({
               )}
             </div>
             {target && <ListItem className="bo-create-option" render={<button type="button" disabled={saving} />} startIcon={<Plus size={14} />} onClick={() => setCreating(true)}>{t("back_office.create.title", { name: displayBackOfficeObject(target).label })}</ListItem>}
-            {multiple && (
-              <Button
-                type="submit"
-                size="sm"
-                variant="solid"
-                color="neutral"
-                fullWidth
-                disabled={saving}
-              >
-                Apply
-              </Button>
-            )}
+
           </>
         ) : (
           <>

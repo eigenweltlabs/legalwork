@@ -17,7 +17,7 @@ export async function connectedBackOfficePrincipal(config: ServerConfig) {
 export async function requireBackOfficePrincipal(config: ServerConfig, expected: string) {
   const connection = await readEigenweltConnection(config);
   if (principalOf(connection) !== expected)
-    throw new ApiError(409, "back_office_account_changed", "The connected account changed. Refresh Back Office before continuing.");
+    throw new ApiError(409, "back_office_account_changed", "The connected account changed.");
   return connection;
 }
 

@@ -1,3 +1,5 @@
+import { firstSyncStatus, assignLocalRecords, localDirectoryRows, editLocalCopy, createLocalRelated } from "./first-sync.js";
+import { readEigenweltConnection } from "../eigenwelt-connection-store.js";
 import { BackOfficeQueryPageSchema } from "../views/schema.js";
 import { queryDirectoryRecords } from "./dashboard-query.js";
 import { projectFilePath } from "../project-file-schema.js";
@@ -36,7 +38,7 @@ import {
   localBackOfficeHistoryExport,
   platformBackOfficeHistory,
 } from "./history.js";
-import { BackOfficeHistoryTargetSchema } from "./schema.js";
+import { BackOfficeValueSchema, BackOfficeHistoryTargetSchema } from "./schema.js";
 import {
   BackOfficeAuditHeadSchema,
   BackOfficeHistoryExportSchema,
@@ -103,17 +105,6 @@ export function registerBackOfficeRoutes(options: {
           store.checkIntegrity();
           store.requireAccount(access.scope, access.actor);
           store.restrictTeamAccess(access.scope, access.actor);
-          if (
-            access.scope !== "local" &&
-            !readOnly &&
-            !["/sync/preview", "/sync/publish", "/sync"].includes(path) &&
-            !store.syncState(access.scope).enabled
-          )
-            throw new ApiError(
-              403,
-              "back_office_sync",
-              "Open the team directory and reconnect before changing team records.",
-            );
           const result = await action(ctx, store, access);
           store.requireAccount(access.scope, access.actor);
           store.checkIntegrity();
@@ -183,8 +174,9 @@ export function registerBackOfficeRoutes(options: {
     },
   );
   route("GET", "", async (ctx, store, { scope, actor }) => {
-    if (scope !== "local") {
-      store.setSync(scope, true);
+    if (scope !== "local" && ctx.url.searchParams.has("manifest")) {
+      scheduleBackOfficeSync(options.config);
+    } else if (scope !== "local") {
       await syncBackOffice(options.config);
       await refreshBackOfficeActor(options.config, scope, actor);
     }
@@ -193,24 +185,27 @@ export function registerBackOfficeRoutes(options: {
       directoryId: await directoryIdentity(options.config, scope, store),
       model: store.model(scope),
       permissions: actor,
+      ...(scope !== "local" && actor.principalKey ? { firstSync: { ...firstSyncStatus(store, actor), firm: (await readEigenweltConnection(options.config)).account?.orgName ?? scope } } : {}),
       views: store.views(scope),
       sync: store.syncState(scope, actor),
     };
     if (ctx.url.searchParams.get("schema") === "1") return metadata;
-    if (ctx.url.searchParams.get("manifest") !== "1") return { ...metadata, records: store.records(scope, actor) };
     const archivedObject = ctx.url.searchParams.get("archivedObject") || undefined;
     const records = store.records(scope, actor, archivedObject, Boolean(archivedObject));
+    const localObject = ctx.url.searchParams.get("pendingLocalObject");
+    const local = localObject && (!archivedObject || archivedObject === localObject) && metadata.firstSync && (metadata.firstSync.unassigned || metadata.firstSync.waiting)
+      ? localDirectoryRows(store, scope, actor, localObject, Boolean(archivedObject)) : {};
+    if (ctx.url.searchParams.get("manifest") !== "1") return { ...metadata, ...local, records };
     const index = records.map(record => [record.id, recordDigest(record)]);
     const identity = JSON.stringify([archivedObject, metadata.directoryId, actor.userId, actor.principalKey, actor.replicaId, actor.finance, actor.model]);
     const version = createHash("sha256").update(identity).update(JSON.stringify(index)).digest("hex");
-    return { ...metadata, version, index: ctx.url.searchParams.get("known") === version ? null : index };
+    return { ...metadata, version, ...local, index: ctx.url.searchParams.get("known") === version ? null : index };
   });
   route("POST", "/dashboard-query", async (ctx, store, { scope, actor }) => {
     const query = BackOfficeQueryPageSchema.parse(await input(ctx));
     if (query.directoryId !== await directoryIdentity(options.config, scope, store))
       throw new ApiError(409, "back_office_directory_changed", "Open this dashboard from its original Back Office directory.");
     if (scope !== "local") {
-      store.setSync(scope, true);
       await syncBackOffice(options.config);
       await refreshBackOfficeActor(options.config, scope, actor);
     }
@@ -361,9 +356,21 @@ export function registerBackOfficeRoutes(options: {
     },
   );
   route("POST", "/records", async (ctx, store, { scope, actor }) => {
-    const { directoryId, ...body } = await input(ctx);
-    if (directoryId !== undefined && directoryId !== await directoryIdentity(options.config, scope, store))
-      throw new ApiError(409, "back_office_directory_changed", "The Back Office directory changed. Reopen the picker before creating a record.");
+    const { directoryId, expectedUserId, expectedPrincipalKey, expectedReplicaId, ...body } = await input(ctx);
+    if ((expectedUserId !== undefined && actor.userId !== expectedUserId) ||
+        (expectedPrincipalKey !== undefined && actor.principalKey !== expectedPrincipalKey) ||
+        (directoryId !== undefined && directoryId !== await directoryIdentity(options.config, scope, store)))
+      throw new ApiError(409, "back_office_directory_changed", "These changes could not be saved with the current account.");
+    if (expectedReplicaId !== undefined && actor.replicaId !== expectedReplicaId)
+      throw new ApiError(409, "back_office_replica_changed", "The directory is updating.");
+    if (body.localSource !== undefined) {
+      const source = z.object({ id: z.string().uuid(), objectId: z.string(), fields: z.array(z.string()).min(1).max(16) }).parse(body.localSource);
+      return createLocalRelated(store, scope, actor, source, z.object({ id: z.string().uuid(), objectId: z.string(), values: z.record(z.string(), BackOfficeValueSchema) }).parse(body));
+    }
+    if (body.localCopy === true) return editLocalCopy(store, scope, actor, z.object({
+      id: z.string().uuid(), objectId: z.string(), revision: z.number().int().positive(),
+      values: z.record(z.string(), BackOfficeValueSchema), expectedValues: z.record(z.string(), BackOfficeValueSchema).optional(), archived: z.boolean().optional(),
+    }).parse(body));
     return { record: store.saveRecord(scope, actor, body) };
   });
   route("POST", "/model/preview", async (ctx, store, { scope, actor }) => {
@@ -641,6 +648,14 @@ export function registerBackOfficeRoutes(options: {
     );
     await syncBackOffice(options.config);
     await refreshBackOfficeActor(options.config, scope, actor);
+    return { ok: true };
+  });
+  route("POST", "/sync/assign-local", async (ctx, store, { scope, actor }) => {
+    const body = z.object({ directoryId: z.string(), selection: z.string().length(64) }).parse(await input(ctx));
+    if (scope === "local" || body.directoryId !== await directoryIdentity(options.config, scope, store))
+      throw new ApiError(409, "back_office_directory_changed", "These records could not be shared with the current firm.");
+    assignLocalRecords(store, scope, actor, body.selection);
+    await syncBackOffice(options.config);
     return { ok: true };
   });
   route("POST", "/sync/preview", async (_ctx, _store, { scope, actor }) => {

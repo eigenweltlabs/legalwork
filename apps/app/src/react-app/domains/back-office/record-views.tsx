@@ -34,6 +34,8 @@ import {
 
 type Props = {
   rows: BackOfficeRecord[];
+  localIds?: ReadonlySet<string>;
+  localChoices?: BackOfficeRecord[];
   records: BackOfficeRecord[];
   fields: BackOfficeField[];
   editable: boolean;
@@ -70,12 +72,12 @@ function Property({
       <ValueDisplay
         field={field}
         value={value}
-        records={props.records}
+        records={props.localIds?.has(record.id) ? props.localChoices ?? [] : props.records}
         onOpen={props.onOpen}
       />
     );
   if (
-    !props.editable ||
+    !props.editable || (field.type === "file" && props.localIds?.has(record.id)) ||
     (field.visibility === "private" && record.ownerId !== props.userId)
   )
     return <span className="bo-record-property">{content}</span>;
@@ -109,8 +111,8 @@ function Property({
                   record={record}
                   field={field}
                   value={value}
-                  records={props.records}
-                  onSave={(value) => props.onSave(record, { [field.id]: value })}
+                  records={props.localIds?.has(record.id) ? props.localChoices ?? [] : props.records}
+                  onSave={(value, previous) => props.onSave(previous ? { ...record, values: { ...record.values, [field.id]: previous } } : record, { [field.id]: value })}
                   onCancel={() => setOpen(false)}
                 />
               </DirectoryEditorPopup>
@@ -124,9 +126,10 @@ function Property({
 
 const Title = memo(function Title({
   record,
-  onOpen,
+  onOpen, localOnly,
 }: {
   record: BackOfficeRecord;
+  localOnly?: boolean;
   onOpen: Props["onOpen"];
 }) {
   const name = String(record.values.name ?? "");
@@ -144,7 +147,7 @@ const Title = memo(function Title({
         colorSeed={record.id}
         shape={record.objectId === "people" ? "circle" : "square"}
       />
-      <span>{name}</span>
+      <span>{name}</span>{localOnly && <small className="bo-local-label">{t("back_office.local_copy")}</small>}
     </button>
   );
 });
@@ -153,7 +156,7 @@ const Title = memo(function Title({
 const CardContents = memo(function CardContents({ record, props }: { record: BackOfficeRecord; props: Props }) {
   return (
     <>
-      <Title record={record} onOpen={props.onOpen} />
+      <Title record={record} onOpen={props.onOpen} localOnly={props.localIds?.has(record.id)} />
       <div className="bo-record-card-properties">
         {props.fields
           .filter((field) => field.id !== "name")
@@ -224,7 +227,7 @@ export function RecordList(props: Props) {
             </div>
           }
         >
-          <Title record={record} onOpen={props.onOpen} />
+          <Title record={record} onOpen={props.onOpen} localOnly={props.localIds?.has(record.id)} />
         </ListItem>
       ))}
       {props.editable && (
@@ -256,7 +259,7 @@ export function RecordKanban(props: Props & { field: BackOfficeField }) {
       (group) => JSON.stringify(group.value) === target,
     );
     if (
-      !props.editable ||
+      !props.editable || (field.type === "file" && props.localIds?.has(record.id)) ||
       move ||
       !group ||
       !props.rows.some((row) => row.id === record.id) ||

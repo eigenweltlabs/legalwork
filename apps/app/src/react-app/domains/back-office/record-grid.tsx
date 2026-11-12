@@ -1,6 +1,7 @@
 import { RecordFilterEditor, recordFilterOperatorLabel, recordFilterValueLabel } from "./record-filter-editor";
 import { BackOfficeFilesSchema, backOfficeViewFilters, compileBackOfficeFilters } from "@legalwork/types/back-office";
 import { backOfficeViewLabel, backOfficeIconLabel } from "./labels";
+import { toast } from "@/components/ui/sonner";
 import { defaultRangeExtractor, useVirtualizer, type Range } from "@tanstack/react-virtual";
 import { useSearchParams } from "react-router-dom";
 import { t } from "@/i18n";
@@ -107,6 +108,7 @@ const defaultWidths: Record<string, number> = {
 export function RecordGrid({
   object,
   records,
+  localRows, localChoices, draft,
   views,
   editable,
   finance,
@@ -120,6 +122,9 @@ export function RecordGrid({
 }: {
   object: BackOfficeObject;
   records: BackOfficeRecord[];
+  localRows?: BackOfficeRecord[];
+  draft?: BackOfficeRecord | null;
+  localChoices?: BackOfficeRecord[];
   views: BackOfficeView[];
   editable: boolean;
   finance: boolean;
@@ -160,7 +165,7 @@ export function RecordGrid({
   const [filters, setFilters] = useState(() => backOfficeViewFilters(initialView));
   const [filterOpen, setFilterOpen] = useState(false);
   const [editing, setEditing] = useState<EditingCell | null>(null);
-  const [error, setError] = useState("");
+  const [archiving, setArchiving] = useState(false);
   const [viewName, setViewName] = useState("");
   const [savingView, setSavingView] = useState(false);
   const [activeViewId, setActiveViewId] = useState<string | null>(
@@ -220,21 +225,22 @@ export function RecordGrid({
     setViewIcon(view?.icon ?? null);
     setViewMenu(false);
     setSavingView(true);
-    setError("");
   };
   const visibleFields = useMemo(() => columns.flatMap((id) => {
     const field = object.fields.find((field) => field.id === id);
     return field && (field.visibility !== "finance" || finance) ? [field] : [];
   }), [columns, object, finance]);
-  const own = useMemo(
-    () =>
-      records.filter(
-        (record) =>
-          record.objectId === object.id &&
-          Boolean(record.archivedAt) === archived,
-      ),
-    [records, object.id, archived],
-  );
+  const localIds = useMemo(() => {
+    if (!localRows?.length) return new Set<string>();
+    const shared = new Set(records.map(record => record.id));
+    return new Set(localRows.filter(record => !shared.has(record.id)).map(record => record.id));
+  }, [localRows, records]);
+  const own = useMemo(() => {
+    const own = records.filter(record => record.objectId === object.id && Boolean(record.archivedAt) === archived);
+    if (localRows?.length) own.push(...localRows.filter(row => row.objectId === object.id && Boolean(row.archivedAt) === archived && localIds.has(row.id)));
+    if (draft && !archived && draft.objectId === object.id && !own.some(row => row.id === draft.id)) own.push(draft);
+    return own;
+  }, [records, object.id, archived, localRows, localIds, draft]);
   const recordById = useMemo(() => new Map(records.map(record => [record.id, record])), [records]);
   const fieldById = useMemo(() => new Map(object.fields.map(field => [field.id, field])), [object]);
   const display = useCallback((record: BackOfficeRecord, id: string) => {
@@ -268,7 +274,8 @@ export function RecordGrid({
     return sort.direction === "asc" ? order : -order;
   }), [searchRows, object, filters, sort, collator, display]);
   const selectedIds = useMemo(() => new Set(selected), [selected]);
-  const selectedCount = useMemo(() => rows.reduce((sum, row) => sum + Number(selectedIds.has(row.id)), 0), [rows, selectedIds]);
+  const selectable = useMemo(() => rows.filter(record => record.revision > 0), [rows]);
+  const selectedCount = useMemo(() => selectable.reduce((sum, row) => sum + Number(selectedIds.has(row.id)), 0), [selectable, selectedIds]);
   const scroll = useRef<HTMLDivElement>(null);
   const editingIndex = editing ? rows.findIndex(row => row.id === editing.record) : -1;
   // Small tables can scroll entirely on the compositor, even during a fast reversal.
@@ -295,16 +302,20 @@ export function RecordGrid({
   }, [query, sort, filters, archived, activeViewId]);
 
   const bulkArchive = async () => {
-    setError("");
+    if (archiving) return;
+    setArchiving(true);
+    const failures: string[] = [];
     try {
-      for (const record of rows.filter((record) =>
-        selectedIds.has(record.id),
-      ))
-        await onSave(record, {}, !archived);
-      setSelected([]);
-    } catch (error) {
-      setError(error instanceof Error ? error.message : "The update failed.");
-    }
+      for (const record of selectable.filter(row => selectedIds.has(row.id))) {
+        try {
+          await onSave(record, {}, !archived);
+          setSelected(ids => ids.filter(id => id !== record.id));
+        } catch (error) {
+          failures.push(String(record.values.name) + ": " + (error instanceof Error ? error.message : "The update failed."));
+        }
+      }
+      if (failures.length) toast.error(failures.join("\n"));
+    } finally { setArchiving(false); }
   };
   const kanbanField = object.fields.find((field) => field.id === groupField);
   const template = `32px ${visibleFields.map((field) => `${widths[field.id] ?? (field.type === "relation" ? 185 : 144)}px`).join(" ")} 32px minmax(0,1fr)`;
@@ -335,7 +346,7 @@ export function RecordGrid({
       applyView(saved);
       setSavingView(false);
     } catch (error) {
-      setError(error instanceof Error ? error.message : "Could not save view.");
+      toast.error(error instanceof Error ? error.message : "Could not save view.");
     }
   };
   const applyView = (view?: BackOfficeView, updateUrl = true) => {
@@ -453,14 +464,14 @@ export function RecordGrid({
   const renderRow = (record: BackOfficeRecord, index: number, top?: number) => (
     <RecordGridRow key={record.id} record={record} index={index} top={top}
       measure={windowed ? rowWindow.measureElement : undefined} template={template}
-      fields={visibleFields} records={records} recordById={recordById}
-      userId={userId} editable={editable} selected={selectedIds.has(record.id)}
+      fields={visibleFields} records={localIds.has(record.id) ? localChoices ?? [] : records} recordById={localIds.has(record.id) ? undefined : recordById}
+      userId={userId} localOnly={localIds.has(record.id)} editable={editable} selected={selectedIds.has(record.id)}
       editing={editing?.record === record.id ? editing : undefined}
-      onEdit={setEditing} onError={setError} onSelect={selectRow} onMove={moveCell}
+      onEdit={setEditing} onError={message => { if (message) toast.error(message); }} onSelect={selectRow} onMove={moveCell}
       onSave={onSave} onOpen={onOpen} />
   );
   const viewProps = {
-    rows, records, fields: visibleFields, editable: editable && !archived,
+    rows, records, localIds, localChoices, fields: visibleFields, editable: editable && !archived,
     userId, onSave, onOpen, onCreate,
   };
   return (
@@ -629,7 +640,7 @@ export function RecordGrid({
                     calendarMode,
                   }, viewBase)
                     .then(saved => setViewBase(current => current?.id === saved.id ? saved : current))
-                    .catch((error) => setError(error.message))
+                    .catch((error) => toast.error(error.message))
                 }
               >
                 {t("back_office.save_view")}
@@ -677,6 +688,7 @@ export function RecordGrid({
             <Button
               size="sm"
               variant="ghost"
+              disabled={archiving}
               onClick={() => void bulkArchive()}
             >
               {archived ? "Restore" : "Archive"}
@@ -685,18 +697,6 @@ export function RecordGrid({
           <Button size="sm" variant="ghost" onClick={() => setSelected([])}>
             Clear selection
           </Button>
-        </div>
-      )}
-      {error && (
-        <div className="bo-error" role="alert">
-          {error}
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() => setError("")}
-            aria-label="Dismiss error"
-            startIcon={<X size={14} />}
-          />
         </div>
       )}
       {filters.conditions.length > 0 && <div className="bo-filter-chips" aria-label={t("back_office.filters.active")}>
@@ -720,7 +720,7 @@ export function RecordGrid({
             if (viewBase)
               void onSaveView({ ...viewBase, calendarMode: mode }, viewBase)
                 .then(saved => setViewBase(current => current?.id === saved.id ? saved : current))
-                .catch((error) => setError(error.message));
+                .catch((error) => toast.error(error.message));
           }}
         />
       ) : layout === "list" ? (
@@ -742,15 +742,16 @@ export function RecordGrid({
               <Checkbox
                 size="sm"
                 aria-label="Select all rows"
+                disabled={!selectable.length}
                 checked={
-                  rows.length > 0 &&
-                  selectedCount === rows.length
+                  selectable.length > 0 &&
+                  selectedCount === selectable.length
                 }
                 indeterminate={
-                  selectedCount > 0 && selectedCount < rows.length
+                  selectedCount > 0 && selectedCount < selectable.length
                 }
                 onCheckedChange={(checked) =>
-                  setSelected(checked ? rows.map((row) => row.id) : [])
+                  setSelected(checked ? selectable.map((row) => row.id) : [])
                 }
               />
             </div>
@@ -1064,7 +1065,7 @@ export function RecordGrid({
                     if (activeViewId === deletingView.id) applyView();
                     setDeletingView(null);
                   })
-                  .catch((error) => setError(error.message))
+                  .catch((error) => toast.error(error.message))
               }
             >
               {t("back_office.delete_view")}

@@ -134,7 +134,7 @@ test("stale view edits cannot revert another window's rename or recreate a delet
   expect(store.views("local").find(view => view.id === original.id)).toEqual(renamed);
   expect(store.db.all("SELECT * FROM bo_audit")).toEqual(auditBeforeConflict);
   expect(store.db.all("SELECT * FROM bo_outbox")).toEqual(outboxBeforeConflict);
-  expect(() => store.saveView("local", owner, { ...renamed, name: "Unguarded" })).toThrow("Reload this view");
+  expect(() => store.saveView("local", owner, { ...renamed, name: "Unguarded" })).toThrow("original view settings");
   const updated = store.saveView("local", owner, { ...renamed, columns: ["name"], expected: renamed });
   expect(updated.name).toBe("Renamed");
   expect(updated.columns).toEqual(["name"]);

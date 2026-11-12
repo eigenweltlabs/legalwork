@@ -1,6 +1,7 @@
+import { toast } from "@/components/ui/sonner";
 import { RecordCreationProvider } from "./record-creation-context";
 import { RecordFilesProvider } from "./record-files";
-import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "@legalwork/types/back-office";
@@ -24,16 +25,19 @@ import type {
   BackOfficeView,
 } from "@legalwork/types/back-office";
 import {
+  BackOfficeRecordSchema,
   BackOfficeViewSchema,
+  defaultBackOfficeValues,
+  validateBackOfficeValues,
   isInternalBackOfficeObject,
 } from "@legalwork/types/back-office";
-import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
+import { LegalworkServerError, type LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { onSyncPoke } from "@/react-app/kernel/sync-events";
-import { loadBackOfficeState, type BackOfficeState, ModelPreviewSchema } from "./api";
+import { applySavedRecord, BackOfficeStateSchema, loadBackOfficeState, writeBackOfficeRecord, type BackOfficeState, ModelPreviewSchema } from "./api";
 import { ObjectIcon, primaryObjectIcons } from "./object-icon";
 import { RecordGrid } from "./record-grid";
+import { ValueDisplay } from "./record-values";
 import { RecordDetail } from "./record-detail";
-import { RecordCreateForm } from "./record-create-form";
 import { creatableRecordObject } from "./record-creation-values";
 import { ModelEditor } from "./model-editor";
 import {
@@ -89,9 +93,17 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
     ),
     [error, setError] = useState("");
   const openRecord = useCallback((record: BackOfficeRecord) => setDetailId(record.id), []);
-  const [creating, setCreating] = useState<{ objectId: string; values: Record<string, BackOfficeValue> } | null>(null);
+  const [draft, setDraft] = useState<BackOfficeRecord | null>(null);
+  const [focusNameId, setFocusNameId] = useState<string | null>(null);
+  const creations = useRef(new Map<string, Promise<BackOfficeRecord>>());
+  const [collision, setCollision] = useState<{
+    current: BackOfficeRecord; fields: string[]; proposed: Record<string, BackOfficeValue>;
+    decide: (useMine: boolean) => void;
+  } | null>(null);
+  const [viewConflict, setViewConflict] = useState<{ name: string; decide: (mine: boolean) => void } | null>(null);
+  const conflictDecision = useRef<((mine: boolean) => void) | undefined>(undefined);
   const [detailWidth, setDetailWidth] = useState(400);
-  const [pendingChanges, setPendingChanges] = useState<z.infer<typeof pendingChangesSchema>["changes"] | null>(null);
+  const [syncDetailsOpen, setSyncDetailsOpen] = useState(false);
   const [discardChange, setDiscardChange] = useState<string | null>(null);
   const [menu, setMenu] = useState(false),
     [more, setMore] = useState(false),
@@ -102,14 +114,20 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
     [importPlan, setImportPlan] = useState<z.infer<typeof importSchema> | null>(
       null,
     );
-  const key = ["back-office", client.baseUrl, "auto"];
+  const key = ["back-office", client.baseUrl, "auto", selected];
   const query = useQuery({
     queryKey: key,
-    queryFn: ({signal}) => loadBackOfficeState(client, cache.getQueryData<BackOfficeState>(key), signal),
+    queryFn: ({signal}) => loadBackOfficeState(client, cache.getQueryData<BackOfficeState>(key), signal, undefined, selected),
     refetchInterval: 30_000,
   });
   const data = query.isError ? undefined : query.data;
+  useEffect(() => () => { conflictDecision.current?.(false); }, [selected, data?.directoryId, data?.permissions.principalKey, data?.permissions.replicaId, data?.permissions.finance, data?.permissions.model]);
   const team = Boolean(data && data.scope !== "local");
+  const pendingChanges = useQuery({
+    queryKey: [...key, "pending", data?.directoryId, data?.permissions.principalKey, data?.permissions.replicaId, data?.sync.pending, data?.sync.cursor],
+    enabled: syncDetailsOpen && team && !!data?.sync.pending,
+    queryFn: async () => pendingChangesSchema.parse(await client.backOffice("/sync/pending", { team: true })).changes,
+  });
   const projects = useQuery({
     queryKey: ["back-office-projects", client.baseUrl],
     queryFn: async () =>
@@ -119,16 +137,15 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
     () =>
       onSyncPoke((poke) => {
         if (poke.policy || poke.reload) {
-          setCreating(null);
-          setPendingChanges(null);
+          setDraft(null);
+          setSyncDetailsOpen(false);
           setDiscardChange(null);
           setCsv("");
           setImportPlan(null);
           setImporting(false);
           setError("");
-          return;
         }
-        if (poke.backOffice || poke.resync)
+        if (poke.policy || poke.reload || poke.backOffice || poke.resync)
           void cache.invalidateQueries({
             queryKey: ["back-office", client.baseUrl],
           }, { cancelRefetch: false });
@@ -136,7 +153,8 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
     [cache, client.baseUrl],
   );
   useEffect(() => {
-    setCreating(null);
+    setDraft(null);
+    setFocusNameId(null);
     setDetailId(new URLSearchParams(location.search).get("record"));
     setArchived(false);
     setError("");
@@ -152,13 +170,15 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
   const archivedRecords = useQuery({
     queryKey: archiveKey,
     enabled: archived && Boolean(object),
-    queryFn: ({signal}) => loadBackOfficeState(client, cache.getQueryData<BackOfficeState>(archiveKey), signal, selected),
+    queryFn: ({signal}) => loadBackOfficeState(client, cache.getQueryData<BackOfficeState>(archiveKey), signal, selected, selected),
   });
   const records = useMemo(() => [
     ...(data?.records ?? []),
     ...(archived && data && !archivedRecords.isError && archivedRecords.data?.directoryId === data.directoryId ? archivedRecords.data?.records ?? [] : []),
   ], [data?.records, data?.directoryId, archived, archivedRecords.data, archivedRecords.isError]);
-  const detail = records.find((record) => record.id === detailId),
+  const localDirectory = archived && archivedRecords.data?.directoryId === data?.directoryId ? archivedRecords.data : data;
+  const pendingDetail = team ? localDirectory?.localRows?.find(record => record.id === detailId && !records.some(shared => shared.id === detailId)) : undefined;
+  const detail = draft && draft.id === detailId ? draft : records.find((record) => record.id === detailId) ?? pendingDetail,
     detailObject = data?.model.objects.find(
       (object) =>
         object.id === detail?.objectId &&
@@ -171,25 +191,122 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
       queryKey: ["back-office", client.baseUrl],
     });
   };
+  const createRow = (record: BackOfficeRecord) => {
+    const existing = creations.current.get(record.id);
+    if (existing) return existing;
+    if (!data) throw new Error(t("back_office.create.unavailable"));
+    const pending = writeBackOfficeRecord(client, data, {
+      id: record.id, create: true, objectId: record.objectId, revision: 0, values: record.values,
+    }).then(async response => {
+      const { record: saved } = z.object({ record: BackOfficeRecordSchema }).parse(response);
+      await applySavedRecord(cache, client.baseUrl, data, saved);
+      setDraft(current => current?.id === saved.id ? null : current);
+      return saved;
+    }).finally(() => creations.current.delete(record.id));
+    creations.current.set(record.id, pending);
+    return pending;
+  };
   const save = async (
     record: BackOfficeRecord,
     values: Record<string, BackOfficeValue>,
     archived?: boolean,
   ) => {
-    await request("/records", {
-      id: record.id, objectId: record.objectId, revision: record.revision, values, archived,
-    });
-    await refresh();
+    if (!data) return;
+    const localCopy = localDirectory?.localRows?.some(row => row.id === record.id) && !data.records.some(row => row.id === record.id);
+    let base = record;
+    if (record.revision === 0) {
+      const creating = creations.current.get(record.id);
+      const saved = creating ? await creating : cache.getQueryData<BackOfficeState>(key)?.records.find(row => row.id === record.id);
+      if (saved) base = saved;
+      else {
+        const next = { ...(draft?.id === record.id ? draft : record), values: { ...(draft?.id === record.id ? draft.values : record.values), ...values } };
+        setDraft(next);
+        const definition = data.model.objects.find(item => item.id === record.objectId);
+        if (!definition) return;
+        validateBackOfficeValues(definition, next.values);
+        await createRow(next);
+        return;
+      }
+    }
+    for (;;) {
+      const expectedValues = Object.fromEntries(Object.keys(values).map(id => [id, base.values[id] ?? null]));
+      try {
+        const result = z.object({ record: BackOfficeRecordSchema, localCopy: z.boolean().optional() }).parse(await writeBackOfficeRecord(client, data, {
+          id: record.id, objectId: record.objectId, revision: base.revision, values, archived, expectedValues, localCopy,
+        }));
+        await applySavedRecord(cache, client.baseUrl, data, result.record, result.localCopy);
+        return;
+      } catch (error) {
+        if (!(error instanceof LegalworkServerError) || error.code !== "back_office_field_conflict") throw error;
+        const conflict = z.object({ record: BackOfficeRecordSchema, fields: z.array(z.string()) }).parse(error.details);
+        const mine = await new Promise<boolean>(resolve => {
+          conflictDecision.current?.(false);
+          const decide = (apply: boolean) => { conflictDecision.current = undefined; setCollision(null); resolve(apply); };
+          conflictDecision.current = decide;
+          setCollision({ current: conflict.record, fields: conflict.fields, proposed: values, decide });
+        });
+        if (!mine) { void refresh(); return; }
+        base = conflict.record;
+      }
+    }
   };
   const beginCreate = (values: Record<string, BackOfficeValue> = {}) => {
-    if (!object || !creatableRecordObject(data, object.id)) return;
+    if (!object || !data || !creatableRecordObject(data, object.id)) return;
     setError("");
-    setCreating({ objectId: object.id, values });
+    const now = new Date().toISOString();
+    const newRecord = BackOfficeRecordSchema.parse({
+      id: crypto.randomUUID(),
+      objectId: object.id,
+      values: { ...defaultBackOfficeValues(object), name: t("back_office.untitled"), ...values },
+      revision: 0,
+      schemaRevision: data.model.revision,
+      ownerId: data.permissions.userId,
+      access: "org",
+      members: [],
+      createdAt: now,
+      updatedAt: now,
+      archivedAt: null,
+    });
+    setDraft(newRecord);
+    setDetailId(newRecord.id);
+    setFocusNameId(newRecord.id);
+    setArchived(false);
+    try { validateBackOfficeValues(object, newRecord.values); } catch { return; }
+    void createRow(newRecord).catch(error => toast.error(error instanceof Error ? error.message : t("back_office.create.failed")));
+
   };
   const saveView = async (view: BackOfficeView, expected: BackOfficeView | null) => {
-    const result = z.object({ view: BackOfficeViewSchema }).parse(await request("/views", { ...view, expected }));
-    await refresh();
-    return result.view;
+    let base = expected, candidate = view;
+    for (let attempt = 0; ; attempt++) {
+      try {
+        const result = z.object({ view: BackOfficeViewSchema }).parse(await request("/views", { ...candidate, expected: base }));
+        await refresh();
+        return result.view;
+      } catch (reason) {
+        if (!(reason instanceof LegalworkServerError) || reason.code !== "back_office_view_conflict" || !base || attempt >= 3) throw reason;
+        const state = BackOfficeStateSchema.pick({ directoryId: true, permissions: true, views: true }).parse(await client.backOffice("?schema=1"));
+        if (!data || state.directoryId !== data.directoryId || state.permissions.userId !== data.permissions.userId ||
+            state.permissions.principalKey !== data.permissions.principalKey || !state.permissions.edit)
+          throw new Error(t("back_office.write.account_unavailable"));
+        const latest = state.views.find(item => item.id === view.id && !item.archived);
+        if (!latest) throw reason;
+        const original = base;
+        const edits = Object.entries(candidate).filter(([key, value]) => JSON.stringify(Reflect.get(original, key)) !== JSON.stringify(value));
+        const overlaps = edits.some(([key, value]) => JSON.stringify(Reflect.get(latest, key)) !== JSON.stringify(Reflect.get(original, key)) &&
+          JSON.stringify(Reflect.get(latest, key)) !== JSON.stringify(value));
+        if (overlaps) {
+          const mine = await new Promise<boolean>(resolve => {
+            conflictDecision.current?.(false);
+            const decide = (keep: boolean) => { conflictDecision.current = undefined; setViewConflict(null); resolve(keep); };
+            conflictDecision.current = decide;
+            setViewConflict({ name: latest.name, decide });
+          });
+          if (!mine) { await refresh(); return latest; }
+        }
+        base = latest;
+        candidate = BackOfficeViewSchema.parse({ ...latest, ...Object.fromEntries(edits) });
+      }
+    }
   };
   const exportCsv = () => {
     if (!object) return;
@@ -252,7 +369,7 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
       <RecordCreationProvider client={client} state={data}>
       <RecordFilesProvider
         key={data?.scope}
-        records={records}
+        records={draft ? [...records, draft] : records}
         client={client}
         projects={projects.data?.projects ?? []}
       >
@@ -315,19 +432,11 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
               {t("back_office.data_model")}
             </Button>
           </nav>
-          {data && team && data.sync.error && (
-            <div className="bo-error" role="alert">
-              {data.sync.error}
-            </div>
-          )}
           {!data && (
             <div className="bo-loading">
               {query.error ? (
                 <>
                   <strong>{query.error.message}</strong>
-                  <Button size="sm" onClick={() => void query.refetch()}>
-                    Try again
-                  </Button>
                 </>
               ) : (
                 <>
@@ -345,14 +454,14 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
                 ModelPreviewSchema.parse(
                   await request("/model/preview", {
                     model,
-                    revision: data.model.revision,
+                    revision: model.revision,
                   }),
                 )
               }
               onSave={async (model) => {
                 await request(
                   "/model",
-                  { model, revision: data.model.revision },
+                  { model, revision: model.revision },
                   "PUT",
                 );
                 await refresh();
@@ -406,17 +515,12 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
                     >
                       Export CSV
                     </Dropdown.ActionItem>
-                    {team && data.sync.pending > 0 && (
-                      <Dropdown.ActionItem
-                        onClick={() =>
-                          void client
-                            .backOffice("/sync/pending", { team })
-                            .then((response) => setPendingChanges(pendingChangesSchema.parse(response).changes))
-                            .catch((error) => setError(error.message))
-                        }
-                        startIcon={<Cloud size={14} />}
-                      >
-                        {data.sync.pending} changes pending
+                    {team && (
+                      <Dropdown.ActionItem startIcon={<Cloud size={14} />} onClick={() => {
+                        setError("");
+                        setSyncDetailsOpen(true);
+                      }}>
+                        {t("back_office.team_sync")}
                       </Dropdown.ActionItem>
                     )}
                     <Dropdown.Separator />
@@ -432,12 +536,6 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
                     >
                       Edit data model
                     </Dropdown.ActionItem>
-                    <Dropdown.ActionItem
-                      onClick={() => void refresh()}
-                      startIcon={<RefreshCw size={14} />}
-                    >
-                      Refresh
-                    </Dropdown.ActionItem>
                   </DirectoryMenu>
                 </div>
               </header>
@@ -445,6 +543,8 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
                 key={object.id + String(team)}
                 object={object}
                 records={records}
+                draft={draft} localChoices={localDirectory?.localChoices}
+                localRows={team ? localDirectory?.localRows : undefined}
                 views={data.views}
                 editable={data.permissions.edit}
                 finance={data.permissions.finance}
@@ -458,11 +558,33 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
               />
             </>
           )}
-          {creating && object && creating.objectId === object.id && creatableRecordObject(data, object.id) && <DirectoryDialog title={t("back_office.create.title", { name: object.label })} onClose={() => setCreating(null)}>
-            <RecordCreateForm object={object} name="" initialValues={creating.values} standalone onCancel={() => setCreating(null)} onCreated={async record => {
-              setCreating(null); setDetailId(record.id); await refresh();
-            }} />
+          {viewConflict && <DirectoryDialog title={t("back_office.conflict.title")} onClose={() => viewConflict.decide(false)}>
+            <p>{t("back_office.conflict.view", { name: viewConflict.name })}</p>
+            <div className="bo-modal-footer">
+              <Button size="sm" onClick={() => viewConflict.decide(false)}>{t("back_office.conflict.keep")}</Button>
+              <Button size="sm" variant="solid" onClick={() => viewConflict.decide(true)}>{t("back_office.conflict.apply")}</Button>
+            </div>
           </DirectoryDialog>}
+          {collision && data && (
+            <DirectoryDialog title={t("back_office.conflict.title")} onClose={() => collision.decide(false)}>
+              <div className="bo-form">
+                {collision.fields.map(id => {
+                  const field = data.model.objects.find(o => o.id === collision.current.objectId)?.fields.find(f => f.id === id);
+                  if (!field) return null;
+                  const display = (value: BackOfficeValue | undefined) => value == null || value === "" ? "∅" :
+                    <ValueDisplay field={field} value={value} records={records} onOpen={openRecord} />;
+                  return <section key={id}><strong>{field.label}</strong><dl>
+                    <dt>{t("back_office.conflict.saved")}</dt><dd>{display(collision.current.values[id])}</dd>
+                    <dt>{t("back_office.conflict.yours")}</dt><dd>{display(collision.proposed[id])}</dd>
+                  </dl></section>;
+                })}
+                <div className="bo-modal-footer">
+                  <Button size="sm" onClick={() => collision.decide(false)}>{t("back_office.conflict.keep")}</Button>
+                  <Button size="sm" variant="solid" onClick={() => collision.decide(true)}>{t("back_office.conflict.apply")}</Button>
+                </div>
+              </div>
+            </DirectoryDialog>
+          )}
           {data && detail && detailObject && (
             <RecordDetail
               client={client}
@@ -470,14 +592,16 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
               historyAccessKey={`${data.permissions.principalKey ?? data.permissions.userId}:${data.permissions.replicaId ?? "local"}:${data.permissions.model}:${data.permissions.finance}`}
               key={detail.id}
               record={detail}
+              focusName={focusNameId === detail.id}
               width={detailWidth}
               onWidthChange={setDetailWidth}
               object={displayBackOfficeObject(detailObject)}
-              records={records}
+              records={pendingDetail ? localDirectory?.localChoices ?? [] : records}
               editable={data.permissions.edit}
+              onReviewLocal={pendingDetail ? () => { setError(""); setSyncDetailsOpen(true); } : undefined}
               finance={data.permissions.finance}
               userId={data.permissions.userId}
-              onClose={() => setDetailId(null)}
+              onClose={() => { setDetailId(null); setDraft(null); setFocusNameId(null); }}
               onSave={save}
               onOpen={openRecord}
 
@@ -618,13 +742,26 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
               </div>
             </DirectoryDialog>
           )}
-          {pendingChanges && (
-            <DirectoryDialog
-              title="Pending team changes"
-              onClose={() => setPendingChanges(null)}
-            >
+          {syncDetailsOpen && data && team && (
+            <DirectoryDialog title={t("back_office.team_sync")} onClose={() => { setSyncDetailsOpen(false); setError(""); }}>
               <div className="bo-form">
-                {pendingChanges.map((change) => (
+                {data.firstSync && data.firstSync.unassigned > 0 && data.permissions.edit && (
+                  <div>
+                    <p>{t("back_office.assign_local", { count: data.firstSync.unassigned, firm: data.firstSync.firm })}</p>
+                    <Button size="sm" onClick={() => void request("/sync/assign-local", {
+                      directoryId: data.directoryId, selection: data.firstSync?.selection,
+                    }).then(refresh).catch(err => setError(err.message))}>{t("back_office.share_with", { firm: data.firstSync.firm })}</Button>
+                  </div>
+                )}
+                {!!data.firstSync?.waiting && <p>{t("back_office.first_sync_waiting", { count: data.firstSync.waiting, firm: data.firstSync.firm })}</p>}
+                {error && <p role="alert">{error}</p>}
+                {data.sync.error && <div>
+                  <p>{t("back_office.sync_retry_hint")}</p>
+                </div>}
+                {!data.sync.error && !data.sync.pending && !data.firstSync?.unassigned && !data.firstSync?.waiting &&
+                  <p>{t("back_office.sync_current")}</p>}
+                {pendingChanges.isError && !!data.sync.pending && <p role="alert">{t("back_office.sync_retry_hint")}</p>}
+                {(data.sync.pending ? pendingChanges.data ?? [] : []).map((change) => (
                   <div key={change.id} className="bo-pending-change">
                     <strong>{change.summary}</strong>
                     <p className="bo-muted">
@@ -656,7 +793,7 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
                             revision: change.currentRevision,
                           })
                             .then(() => {
-                              setPendingChanges(null);
+                              setSyncDetailsOpen(false);
                               return refresh();
                             })
                             .catch((error) => setError(error.message))
@@ -701,7 +838,7 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
                       void request("/sync/discard", { id: discardChange })
                         .then(() => {
                           setDiscardChange(null);
-                          setPendingChanges(null);
+                          setSyncDetailsOpen(false);
                           return refresh();
                         })
                         .catch((error) => setError(error.message))
@@ -713,14 +850,7 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
               </div>
             </DirectoryDialog>
           )}
-          {error && !importing && (
-            <div className="bo-error" role="alert">
-              {error}
-              <button aria-label="Dismiss error" onClick={() => setError("")}>
-                <X size={13} />
-              </button>
-            </div>
-          )}
+
         </div>
       </RecordFilesProvider>
       </RecordCreationProvider>

@@ -1,10 +1,10 @@
 import { createHash, randomUUID } from "node:crypto";
+import { firstSyncBatch, assignLocalRecords, firstSyncStatus, unknownRecords, connectFirstSyncProjects, stageFirstSync } from "./first-sync.js";
 import { syncRecordFiles } from "./file-sync.js";
 import { backOfficeAccess, refreshBackOfficeActor } from "./access.js";
 import { backOfficeStore, existingBackOfficeStore } from "./store.js";
 import { mergePublishModel } from "./publish-model.js";
 import {
-  BackOfficeChangeSchema,
   BackOfficeRecordSchema,
   BackOfficeSnapshotSchema,
   BackOfficeDeltaSchema,
@@ -24,7 +24,7 @@ import { projectSyncStore } from "../project-sync-store.js";
 import type { ServerConfig } from "../types.js";
 import { BackOfficeSyncRounds } from "./sync-rounds.js";
 import { connectedBackOfficePrincipal, requireBackOfficePrincipal } from "./accounts.js";
-import { backOfficeAuthorKey, backOfficePrincipalKey } from "./principal.js";
+import { backOfficeAuthorKey, backOfficeDirectoryKey, backOfficePrincipalKey } from "./principal.js";
 
 const rounds = new BackOfficeSyncRounds(),
   scheduled = new Map<string, ReturnType<typeof setTimeout>>();
@@ -71,14 +71,11 @@ export async function syncBackOffice(config: ServerConfig): Promise<void> {
       return;
     }
     const store = await backOfficeStore(config);
-    if (!store.syncState(scope).enabled) return;
     try {
       store.restrictTeamAccess(scope, actor);
-      const pending = store.pending(scope, 100, actor),
-        firstBlocked = pending.findIndex((entry) => entry.error);
-      const batch = pending
-        .slice(0, firstBlocked < 0 ? pending.length : firstBlocked)
-        .map((entry) => BackOfficeChangeSchema.parse(entry.change));
+      const before = store.syncState(scope, actor);
+      const replicaBefore = store.replicaId(scope);
+      const batch = firstSyncBatch(store, scope, actor);
       // Every queued project reference must name a project already shared with this firm.
       const links = await projectSyncStore(config);
       for (const change of batch) {
@@ -98,7 +95,7 @@ export async function syncBackOffice(config: ServerConfig): Promise<void> {
             "Share the linked project before sending this matter link to the team.",
           );
       }
-      let accepted = false;
+      let accepted = false, conflicted = false;
       do {
         // A file field must exist on the platform before its bytes are prepared.
         // Preserve operation order while splitting model changes from record batches.
@@ -124,15 +121,23 @@ export async function syncBackOffice(config: ServerConfig): Promise<void> {
         const replicaId = store.receive(scope, snapshot, actor);
         if (replicaId) actor = { ...actor, replicaId };
         accepted ||= snapshot.accepted.length > 0;
+        conflicted ||= snapshot.conflicts.length > 0;
         if (
           snapshot.conflicts.length ||
           snapshot.accepted.length < chunk.length
         )
           break;
       } while (batch.length);
-      if (accepted && store.pending(scope, 100, actor).some((entry) => !entry.error))
+      store.requireAccount(scope, actor);
+      const staged = stageFirstSync(store, scope, actor, new Set(links.links().filter(link => link.orgId === scope && link.state === "active").flatMap(link => [link.workspaceId, link.projectId])));
+      if (staged || ((accepted || conflicted) && firstSyncBatch(store, scope, actor).length > 0))
         scheduleBackOfficeSync(config);
-      announceSyncChange(config, "backOffice");
+      await connectFirstSyncProjects(config, store, scope, actor, backOfficeDirectoryKey(connection.platformURL!, scope));
+      retryDelay.delete(config.configPath ?? "default");
+      const after = store.syncState(scope, actor);
+      if (accepted || staged || before.cursor !== after.cursor || before.pending !== after.pending ||
+          before.enabled !== after.enabled || before.error !== after.error || replicaBefore !== store.replicaId(scope))
+        announceSyncChange(config, "backOffice");
     } catch (error) {
       if (await connectedBackOfficePrincipal(config) !== initialPrincipal) return;
       if (actor.replicaId && actor.replicaId !== store.replicaId(scope)) return;
@@ -146,157 +151,57 @@ export async function syncBackOffice(config: ServerConfig): Promise<void> {
         (error.status === 401 || error.status === 403)
       )
         store.suspendTeam(scope, message);
-      else store.syncError(scope, message);
+      else {
+        store.syncError(scope, message);
+        const key = config.configPath ?? "default";
+        const delay = Math.min((retryDelay.get(key) ?? 1000) * 2, 60_000);
+        retryDelay.set(key, delay);
+        scheduleBackOfficeSync(config, delay);
+      }
     }
   });
 }
-export function scheduleBackOfficeSync(config: ServerConfig) {
+const retryDelay = new Map<string, number>();
+export function cancelScheduledBackOfficeSync(config: ServerConfig) {
+  const key = config.configPath ?? "default";
+  retryDelay.delete(key);
+  clearTimeout(scheduled.get(key));
+  scheduled.delete(key);
+}
+export function scheduleBackOfficeSync(config: ServerConfig, delay = 1000) {
   const key = config.configPath ?? "default";
   if (scheduled.has(key)) return;
   const timer = setTimeout(() => {
     scheduled.delete(key);
-    void syncBackOffice(config);
-  }, 1000);
+    void syncBackOffice(config).catch(error => console.warn("[back-office] Background sync failed", error instanceof Error ? error.message : "unknown error"));
+  }, delay);
   timer.unref?.();
   scheduled.set(key, timer);
 }
-const publishPlans = new Map<
-  string,
-  {
-    scope: string;
-    actor: string;
-    revision: number;
-    fingerprint: string;
-    ids: string[];
-    expires: number;
-  }
->();
+// Compatibility for clients which still use the two-step publish endpoints.
+const publishPlans = new Map<string, { principal: string; selection: string | null; revision: number; expires: number }>();
 export async function previewBackOfficePublish(config: ServerConfig) {
-  const { scope, actor } = await backOfficeAccess(config, true),
-    store = await backOfficeStore(config);
-  store.setSync(scope, true);
-  await syncBackOffice(config);
-  await refreshBackOfficeActor(config, scope, actor);
-  const local = store.records("local", {
-    userId: "local",
-    model: true,
-    edit: true,
-    finance: true,
-  });
-  const team = store.records(scope, actor),
-    ids = local
-      .filter((record) => !team.some((other) => other.id === record.id))
-      .map((record) => record.id);
-  const teamModel = store.model(scope),
-    publishingModel = mergePublishModel(store.model("local"), teamModel);
-  const planId = randomUUID();
-  for (const [key, plan] of publishPlans)
-    if (plan.expires < Date.now()) publishPlans.delete(key);
-  publishPlans.set(planId, {
-    scope,
-    actor: backOfficeAuthorKey(actor),
-    revision: store.model("local").revision,
-    fingerprint: createHash("sha256")
-      .update(
-        JSON.stringify(local.map((record) => [record.id, record.revision])),
-      )
-      .digest("hex"),
-    ids,
-    expires: Date.now() + 600000,
-  });
-  return {
-    planId,
-    count: ids.length,
-    records: local
-      .filter((record) => ids.includes(record.id))
-      .map((record) => ({
-        id: record.id,
-        objectId: record.objectId,
-        name: record.values.name,
-        duplicate: team.some(
-          (other) =>
-            other.objectId === record.objectId &&
-            other.values.name === record.values.name,
-        ),
-      })),
-    needsModelUpdate:
-      JSON.stringify(publishingModel.objects) !==
-      JSON.stringify(teamModel.objects),
+  const { scope, actor } = await backOfficeAccess(config, true), store = await backOfficeStore(config);
+  store.requireAccount(scope, actor);
+  const { selection } = firstSyncStatus(store, actor);
+  const records = unknownRecords(store).map(row => store.raw("local", String(row.id))!);
+  const team = store.records(scope, actor);
+  const planId = randomUUID(), now = Date.now();
+  for (const [id, plan] of publishPlans) if (plan.expires < now) publishPlans.delete(id);
+  const local = store.model("local"), shared = store.model(scope);
+  publishPlans.set(planId, { principal: backOfficeAuthorKey(actor), selection, revision: local.revision, expires: now + 600000 });
+  return { planId, count: records.length,
+    records: records.map(record => ({ id: record.id, objectId: record.objectId, name: record.values.name,
+      duplicate: team.some(other => other.objectId === record.objectId && other.values.name === record.values.name) })),
+    needsModelUpdate: records.length > 0 && JSON.stringify(mergePublishModel(local, shared).objects) !== JSON.stringify(shared.objects),
   };
 }
 export async function publishBackOffice(config: ServerConfig, planId: string) {
-  const { scope, actor } = await backOfficeAccess(config, true),
-    store = await backOfficeStore(config),
-    plan = publishPlans.get(planId);
-  if (
-    !actor.edit ||
-    !plan ||
-    plan.scope !== scope ||
-    plan.actor !== backOfficeAuthorKey(actor) ||
-    plan.expires < Date.now() ||
-    plan.revision !== store.model("local").revision
-  )
-    throw new ApiError(
-      409,
-      "back_office_publish",
-      "Preview publishing your directory again.",
-    );
-  const sourceRecords = store.records("local", {
-    userId: "local",
-    model: true,
-    edit: true,
-    finance: true,
-  });
-  if (
-    plan.fingerprint !==
-    createHash("sha256")
-      .update(
-        JSON.stringify(
-          sourceRecords.map((record) => [record.id, record.revision]),
-        ),
-      )
-      .digest("hex")
-  )
-    throw new ApiError(
-      409,
-      "back_office_publish",
-      "Local records changed. Preview publishing again.",
-    );
-  const local = sourceRecords.filter((record) => plan.ids.includes(record.id));
-  if (
-    !actor.finance &&
-    local.some((record) =>
-      ["feeAgreements", "billingItems", "invoices"].includes(record.objectId),
-    )
-  )
-    throw new ApiError(
-      403,
-      "back_office_finance",
-      "Billing permission is required to publish your billing records.",
-    );
-  const model = store.model(scope),
-    source = mergePublishModel(store.model("local"), model);
-  if (
-    JSON.stringify(model.objects) !== JSON.stringify(source.objects) &&
-    !actor.model
-  )
-    throw new ApiError(
-      403,
-      "back_office_model",
-      "A model administrator must approve the additional fields before publishing.",
-    );
-  store.transaction(() => {
-    if (JSON.stringify(model.objects) !== JSON.stringify(source.objects))
-      store.saveModel(
-        scope,
-        actor,
-        { ...source, revision: model.revision },
-        model.revision,
-      );
-    // Create identities first, then attach relations so cyclic contact links remain valid.
-    store.stagePublish(scope, actor, local);
-    store.setSync(scope, true);
-  });
+  const { scope, actor } = await backOfficeAccess(config, true), store = await backOfficeStore(config);
+  const plan = publishPlans.get(planId);
+  if (!actor.edit || !plan || plan.principal !== backOfficeAuthorKey(actor) || plan.expires < Date.now() || plan.revision !== store.model("local").revision)
+    throw new ApiError(409, "back_office_publish", "Preview publishing your directory again.");
+  if (plan.selection) assignLocalRecords(store, scope, actor, plan.selection);
   publishPlans.delete(planId);
   await syncBackOffice(config);
   await refreshBackOfficeActor(config, scope, actor);

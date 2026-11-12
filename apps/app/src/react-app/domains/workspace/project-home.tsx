@@ -1,11 +1,11 @@
-import { projectFieldsSchema, type ProjectDetails } from "@legalwork/types/workspace";
+import { projectFieldsSchema, type ProjectDetails, type ProjectField } from "@legalwork/types/workspace";
 import { ProjectRemoteFolders } from "./project-remote-folders";
 import { useProjectPersonalisation } from "./project-personalisation-modal";
 import { useEffect, useState, type ReactNode } from "react";
 import type { AudioRecordingMeta } from "@legalwork/types/audio";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight, MessageSquare, Mic, Pin, Plus, RefreshCw, Settings2, Square, SquareCheck, SquarePen, Star, StickyNote, WandSparkles } from "lucide-react";
-import type { LegalworkServerClient, LegalworkWorkspaceDirectoryEntry } from "@/app/lib/legalwork-server";
+import { LegalworkServerError, type LegalworkServerClient, type LegalworkWorkspaceDirectoryEntry } from "@/app/lib/legalwork-server";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -36,6 +36,36 @@ import { projectErrorMessage } from "./project-errors";
 import { ProjectShareButton, ProjectSyncNotice } from "./project-sync";
 import { deleteProjectNote } from "./delete-project-note";
 import { noteTitle } from "./project-note-title";
+
+async function saveProjectField(client: LegalworkServerClient, workspaceId: string, original: ProjectDetails, id: string,
+  value: ProjectField["value"], previousSelection?: string[]) {
+  const originalField = original.fields.find(field => field.id === id);
+  let current = original;
+  for (let attempt = 0; ; attempt++) {
+    const field = current.fields.find(item => item.id === id);
+    if (!field || !originalField || JSON.stringify({ ...field, value: null }) !== JSON.stringify({ ...originalField, value: null }))
+      throw new LegalworkServerError(409, "project_changed", "This field definition changed.");
+    let next = value;
+    if (field.type === "backoffice" && field.multiple && previousSelection && (value === null || typeof value === "object")) {
+      const directoryId = value?.directoryId ?? (originalField.type === "backoffice" ? originalField.value?.directoryId : undefined);
+      if (field.value && field.value.directoryId !== directoryId)
+        throw new LegalworkServerError(409, "project_reference_directory_changed", "The linked directory changed.");
+      const currentIds = field.value?.recordIds ?? [], desired = value?.recordIds ?? [];
+      const ids = [...new Set([...desired.filter(id => !previousSelection.includes(id) || currentIds.includes(id)), ...currentIds.filter(id => !previousSelection.includes(id))])];
+      next = ids.length && directoryId ? { directoryId, recordIds: ids } : null;
+    } else if (JSON.stringify(field.value) !== JSON.stringify(originalField.value) && JSON.stringify(field.value) !== JSON.stringify(value)) {
+      throw new LegalworkServerError(409, "project_changed", "This field was edited by someone else.");
+    }
+    if (JSON.stringify(next) === JSON.stringify(field.value)) return current;
+    try {
+      return await client.updateProjectDetails(workspaceId, { revision: current.revision,
+        fields: projectFieldsSchema.parse(current.fields.map(item => item.id === id ? { ...item, value: next } : item)) });
+    } catch (error) {
+      if (!(error instanceof LegalworkServerError) || error.code !== "project_changed" || attempt >= 3) throw error;
+      current = await client.getProjectDetails(workspaceId);
+    }
+  }
+}
 
 export function ProjectHome(props: {
   client: LegalworkServerClient;
@@ -177,10 +207,10 @@ export function ProjectHome(props: {
           <CollapsibleContent>
             <div className="pb-3 pt-2">
               {details.isPending ? <Notice>{t("projects.loading")}</Notice> : details.error ? <Notice error>{t("projects.failed")}</Notice> : details.data?.fields.length ? (
-                <ProjectProperties key={workspaceId} client={client} className="grid gap-x-10 space-y-0 @min-[640px]/project-page:grid-cols-2" fields={details.data.fields} onSave={async (id, value) => {
+                <ProjectProperties key={workspaceId} client={client} className="grid gap-x-10 space-y-0 @min-[640px]/project-page:grid-cols-2" fields={details.data.fields} onSave={async (id, value, previousSelection) => {
                   if (!details.data) return;
                   try {
-                    const data = await client.updateProjectDetails(workspaceId, { revision: details.data.revision, fields: projectFieldsSchema.parse(details.data.fields.map((field) => field.id === id ? { ...field, value } : field)) });
+                    const data = await saveProjectField(client, workspaceId, details.data, id, value, previousSelection);
                     queryClient.setQueryData(["project", workspaceId], data);
                   } catch (error) {
                     await details.refetch();

@@ -227,6 +227,13 @@
   border-bottom: 1px solid var(--bo-border);
 }
 
+.bo-local-label {
+  margin-inline-start: 6px;
+  color: var(--bo-muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
 .bo-grid-row:hover {
   background: var(--bo-hover);
 }
@@ -245,6 +252,19 @@
   padding: 4px 8px;
   border-right: 1px solid var(--bo-border);
   font-size: 13px;
+}
+
+.bo-grid-cell.bo-local-name {
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 2px;
+  overflow: hidden;
+}
+
+.bo-local-name .bo-local-label {
+  margin-inline-start: 0;
+  line-height: 1.1;
 }
 
 .bo-grid-cell > .bo-truncate {

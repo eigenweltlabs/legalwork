@@ -310,7 +310,9 @@ async function pull(config: ServerConfig, org: { orgId: string; platformURL: str
   const sameOrg = before?.snapshot.orgId === org.orgId;
   let result: { status: number; body: unknown };
   try {
-    result = await fetchJson(`${base}/api/desktop/policy`, token, sameOrg ? { etag: `"${before.snapshot.revision}"` } : {});
+    const cached = before && parseOrgPolicyEntries(before.snapshot.entries)["backOffice.sync"];
+    const tags = before && [`"${before.snapshot.revision}"`, ...(cached ? [`"bo.${before.snapshot.revision}.${Number(cached.value.enabled)}"`] : [])];
+    result = await fetchJson(`${base}/api/desktop/policy`, token, sameOrg && tags ? { etag: tags.join(", ") } : {});
   } catch {
     return before;
   }

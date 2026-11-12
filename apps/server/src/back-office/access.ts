@@ -11,7 +11,7 @@ import { backOfficeStore, existingBackOfficeStore, type BackOfficeStore } from "
 export async function refreshBackOfficeActor(config: ServerConfig, scope: string, actor: BackOfficeActor) {
   const current = await backOfficeAccess(config, scope !== "local");
   if (current.scope !== scope || current.actor.principalKey !== actor.principalKey)
-    throw new ApiError(409, "back_office_account_changed", "The connected account changed. Refresh Back Office before continuing.");
+    throw new ApiError(409, "back_office_account_changed", "The connected account changed.");
   Object.assign(actor, current.actor);
 }
 
@@ -43,6 +43,7 @@ export async function backOfficeAccess(
       const replicaId = store.replicaId(account.orgId);
       if (!replicaId) throw new Error("Back Office replica identity is missing.");
       actor = { ...actor, replicaId };
+      if (team) store.setSync(account.orgId, true);
     }
   }
   if (!team)

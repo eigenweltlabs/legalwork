@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useContext, useEffect, useRef, useState } from "react";
 import { ArrowLeft, ChevronDown, Plus } from "lucide-react";
 import { Button, Input } from "twenty-ui/primitives/input";
 import { Popover } from "twenty-ui/primitives/surfaces";
@@ -13,7 +13,7 @@ import { ObjectIcon } from "./object-icon";
 import { RecordFilesProvider } from "./record-files";
 import { DirectoryEditorPopup } from "./twenty-controls";
 import { quickCreateFieldIds, recordCreationValues } from "./record-creation-values";
-import { useRecordCreation } from "./record-creation-context";
+import { LocalCreationScope, useRecordCreation } from "./record-creation-context";
 import { RecordCreateRelation } from "./record-create-relation";
 
 function focusName(input: HTMLInputElement | null) { input?.focus({ preventScroll: true }); }
@@ -26,17 +26,16 @@ function displayValue(value: BackOfficeValue | undefined): string {
   return String(value);
 }
 
-export function RecordCreateForm({ object, name, filters, persistenceNotice, initialValues, standalone = false, onCancel, onCreated }: {
+export function RecordCreateForm({ object, name, filters, persistenceNotice, onCancel, onCreated }: {
   object: BackOfficeObject; name: string; filters?: ProjectReferenceFilters | null;
   persistenceNotice?: string;
-  initialValues?: Record<string, BackOfficeValue>;
-  standalone?: boolean;
   onCancel: () => void; onCreated: (record: BackOfficeRecord) => Promise<void>;
 }) {
   const creation = useRecordCreation();
+  const localSource = useContext(LocalCreationScope);
   const [draft, setDraft] = useState(() => {
     const now = new Date().toISOString();
-    return BackOfficeRecordSchema.parse({ id: crypto.randomUUID(), objectId: object.id, values: { ...recordCreationValues(object, name, filters), ...initialValues }, revision: 0, schemaRevision: creation?.state.model.revision ?? 0,
+    return BackOfficeRecordSchema.parse({ id: crypto.randomUUID(), objectId: object.id, values: recordCreationValues(object, name, filters), revision: 0, schemaRevision: creation?.state.model.revision ?? 0,
       ownerId: creation?.state.permissions.userId ?? "local", createdAt: now, updatedAt: now, archivedAt: null });
   });
   const [edit, setEdit] = useState<string | null>(null), [more, setMore] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState("");
@@ -55,19 +54,18 @@ export function RecordCreateForm({ object, name, filters, persistenceNotice, ini
       validateBackOfficeValues(object, draft.values);
       saving.current = true;
       setBusy(true);
-      const record = await creation.create(draft, filters);
+      const record = await creation.create(draft, filters, localSource);
       if (mounted.current) await onCreated(record);
     } catch (error) { if (mounted.current) setError(error instanceof Error ? error.message : t("back_office.create.failed")); }
     finally { saving.current = false; if (mounted.current) setBusy(false); }
   };
   if (!creation) return null;
   const quickFields = quickCreateFieldIds(object);
-  const createLabel = t(standalone ? "back_office.create.save" : "back_office.create.select");
+  const createLabel = t("back_office.create.select");
   const fields = object.fields.filter(field => field.id !== "name" && (field.visibility !== "finance" || creation.state.permissions.finance));
   const rank = (id: string) => quickFields.includes(id) ? quickFields.indexOf(id) : quickFields.length;
   fields.sort((a, b) => rank(a.id) - rank(b.id));
-  const primary = (field: typeof fields[number]) => field.required || quickFields.includes(field.id) || filters?.conditions.some(condition => condition.fieldId === field.id)
-    || initialValues?.[field.id] !== undefined;
+  const primary = (field: typeof fields[number]) => field.required || quickFields.includes(field.id) || filters?.conditions.some(condition => condition.fieldId === field.id);
   const visible = fields.filter(field => more || primary(field));
   return <RecordFilesProvider client={creation.client} records={[...creation.state.records, draft]} projects={projects.data?.projects ?? []}>
     <div className="bo-create-record bo-cell-form" role="form" aria-label={t("back_office.create.title", { name: object.label })} onKeyDown={event => {

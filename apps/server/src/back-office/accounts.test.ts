@@ -1,3 +1,4 @@
+import { assignLocalRecords, firstSyncStatus, firstSyncBatch, editLocalCopy, createLocalRelated, pendingLocalRows, stageFirstSync } from "./first-sync.js";
 import { backOfficeTestConfig } from "./config.test-support.js";
 import { afterEach, expect, spyOn, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -61,6 +62,16 @@ async function fixture() {
   const oldHead = store.journal.storage.heads().at(-1)!;
   return { config, store, alice: access.actor, original, snapshot, signIn, backend, requests, oldHead, platformURL };
 }
+
+test("receiving a snapshot while an authored field is queued does not retire the picker's replica", async () => {
+  const { store, alice, original, snapshot } = await fixture();
+  store.saveRecord("firm", alice, { id: original.id, objectId: original.objectId, revision: original.revision, values: { email: "office@example.test" } });
+  if (!alice.replicaId) throw new Error("Missing test replica");
+  expect(store.receive("firm", snapshot([original]), alice)).toBe(alice.replicaId);
+  expect(store.raw("firm", original.id)?.values.email).toBe("office@example.test");
+  expect(store.receive("firm", snapshot([]), alice)).not.toBe(alice.replicaId);
+  expect(store.raw("firm", original.id)).toBeNull();
+});
 
 test("account switch erases the old readable cache and keeps remaining proposals scoped to their author", async () => {
   const { store, config, alice, original, signIn, oldHead } = await fixture();
@@ -131,7 +142,7 @@ test("an actor captured before a policy change cannot commit with its old cached
   const { store, config, alice, original, backend } = await fixture();
   backend.finance = []; backend.revision++;
   await scheduleOrgPolicySync(config, { force: true });
-  expect(() => store.saveRecord("firm", alice, { id: original.id, objectId: original.objectId, revision: original.revision, values: { vatId: "Rejected stale edit" } })).toThrow("Refresh Back Office");
+  expect(() => store.saveRecord("firm", alice, { id: original.id, objectId: original.objectId, revision: original.revision, values: { vatId: "Rejected stale edit" } })).toThrow(expect.objectContaining({ code: expect.stringMatching(/^back_office_(replica|permissions)_changed$/) }));
   expect(store.raw("firm", original.id)?.values.vatId).toBeUndefined();
   expect(store.accountPendingCount("firm", (await backOfficeAccess(config, true)).actor)).toBe(0);
   expect(await signOutBackOffice(config, { force: true, apply: true })).toBe(0);
@@ -311,4 +322,60 @@ test("the Back Office sign-out step cannot clear a new principal after waiting f
   const bob = (await backOfficeAccess(config, true)).actor;
   expect(store.records("firm", bob)[0].values.name).toBe("Bob retained");
   expect(store.pending("firm", 100, bob)).toHaveLength(1);
+});
+
+test("first sync keeps account ownership across sign-ins and queues independent records beside a held edit", async () => {
+  const { config, store, alice, signIn } = await fixture();
+  const local = { userId: "local", edit: true, model: true, finance: true };
+  const save = (name: string) => store.saveRecord("local", local, { objectId: "people", revision: 0, values: { name } });
+  const original = save("Alice's private source");
+  await writeEigenweltConnection(config, { account: null, platformToken: null });
+  const unassigned = save("Before sign-in");
+  await signIn("bob");
+  await scheduleOrgPolicySync(config, { force: true });
+  const bob = (await backOfficeAccess(config, true)).actor;
+  const status = firstSyncStatus(store, bob);
+  expect(status.unassigned).toBe(1);
+  expect(status.waiting).toBe(0);
+  expect(pendingLocalRows(store, "firm", bob, "people").map(record => record.id)).toEqual([unassigned.id]);
+  save("Bob's own contact");
+  expect(() => assignLocalRecords(store, "firm", bob, "stale")).toThrow("changed");
+  assignLocalRecords(store, "firm", bob, status.selection!);
+  expect(firstSyncStatus(store, bob).unassigned).toBe(0);
+  const billing = store.saveRecord("local", local, { objectId: "invoices", revision: 0, values: { name: "Local invoice" } });
+  stageFirstSync(store, "firm", bob, new Set());
+  expect(store.raw("firm", original.id)).toBeNull();
+  expect(pendingLocalRows(store, "firm", bob, "people")).toEqual([]);
+  expect(pendingLocalRows(store, "firm", bob, "invoices")).toEqual([]);
+  expect(store.raw("firm", billing.id)).toBeNull();
+  expect(store.raw("firm", unassigned.id)?.values.name).toBe("Before sign-in");
+  const held = store.pending("firm", 0, bob).find(entry => BackOfficeRecordSchema.parse(entry.change.data).id === unassigned.id)!;
+  store.db.run("UPDATE bo_outbox SET error='Record changed' WHERE id=?", [held.change.id]);
+  const later = save("Unaffected contact");
+  stageFirstSync(store, "firm", bob, new Set());
+  expect(firstSyncBatch(store, "firm", bob).map(change => BackOfficeRecordSchema.parse(change.data).id)).toContain(later.id);
+  expect(firstSyncStatus(store, bob).waiting).toBe(1);
+  expect(alice.principalKey).not.toBe(bob.principalKey);
+});
+
+test("unassigned rows can be edited and linked on their source device without publishing them", async () => {
+  const { config, store, signIn } = await fixture();
+  await writeEigenweltConnection(config, { account: null, platformToken: null });
+  const matter = store.saveRecord("local", { userId: "local", edit: true, model: true, finance: true }, {
+    objectId: "matters", revision: 0, values: { name: "Device matter" },
+  });
+  await signIn("bob");
+  await scheduleOrgPolicySync(config, { force: true });
+  const bob = (await backOfficeAccess(config, true)).actor;
+  const client = createLocalRelated(store, "firm", bob, { id: matter.id, objectId: "matters", fields: ["clients"] }, {
+    id: crypto.randomUUID(), objectId: "clients", values: { name: "Device client" },
+  }).record;
+  const change = editLocalCopy(store, "firm", bob, { id: matter.id, objectId: "matters", revision: matter.revision,
+    values: { fileNumber: "DEV-1", clients: [client.id] }, expectedValues: { fileNumber: null, clients: null } });
+  expect(change.record.values.clients).toEqual([client.id]);
+  expect(store.raw("local", matter.id)?.values.fileNumber).toBe("DEV-1");
+  expect(store.raw("firm", matter.id)).toBeNull();
+  expect(store.raw("firm", client.id)).toBeNull();
+  expect(firstSyncStatus(store, bob).unassigned).toBe(2);
+  expect(() => editLocalCopy(store, "firm", bob, { id: matter.id, objectId: "matters", revision: change.record.revision, values: { clients: [crypto.randomUUID()] } })).toThrow("available record");
 });

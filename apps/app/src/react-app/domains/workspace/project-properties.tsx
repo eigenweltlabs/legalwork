@@ -28,7 +28,7 @@ export function ProjectProperties({ fields, onSave, className, client }: {
   fields: ProjectField[];
   client?: LegalworkServerClient | null;
   className?: string;
-  onSave: (id: string, value: ProjectField["value"]) => Promise<void>;
+  onSave: (id: string, value: ProjectField["value"], previousSelection?: string[]) => Promise<void>;
 }) {
   const [editing, setEditing] = useState<{ id: string; draft: string } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -56,7 +56,7 @@ export function ProjectProperties({ fields, onSave, className, client }: {
       const label = projectFieldLabel(field);
       if (field.type === "backoffice") return <div key={field.id} className="grid min-h-9 grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] items-start gap-2 text-xs">
         <dt className="flex min-w-0 items-center gap-2 py-2 text-muted-foreground"><ObjectIcon id={field.objectId} className="size-3.5 shrink-0 opacity-70" /><span>{label}</span></dt>
-        <dd className="min-w-0"><ProjectRecordField field={field} client={client} onSave={value => onSave(field.id, value)} /></dd>
+        <dd className="min-w-0"><ProjectRecordField field={field} client={client} onSave={(value, previous) => onSave(field.id, value, previous)} /></dd>
       </div>;
       const Icon = fieldIcons[field.type];
       const empty = field.value === null || field.value === "";

@@ -7,7 +7,7 @@ import { Button } from "twenty-ui/primitives/input";
 import { Popover } from "twenty-ui/primitives/surfaces";
 import { BackOfficeFieldSchema, isInternalBackOfficeObject } from "@legalwork/types/back-office";
 import { matchesProjectReferenceFilters, type ProjectField, type ProjectRecordReference } from "@legalwork/types/workspace";
-import { LegalworkServerError, type LegalworkServerClient } from "@/app/lib/legalwork-server";
+import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { projectErrorMessage } from "./project-errors";
 import { t } from "@/i18n";
 import { onSyncPoke } from "@/react-app/kernel/sync-events";
@@ -37,7 +37,7 @@ export function projectReferenceObjects(data: ReturnType<typeof useProjectBackOf
 }
 
 type RecordField = Extract<ProjectField, { type: "backoffice" }>;
-type SaveReference = (value: ProjectRecordReference | null) => Promise<void>;
+type SaveReference = (value: ProjectRecordReference | null, previousSelection?: string[]) => Promise<void>;
 
 export function ProjectRecordField({ field, client, onSave }: {
   field: RecordField; client?: LegalworkServerClient | null; onSave: SaveReference;
@@ -45,25 +45,25 @@ export function ProjectRecordField({ field, client, onSave }: {
   const directory = useProjectBackOffice(client), navigate = useNavigate();
   const data = directory.data, object = projectReferenceObjects(data).find(object => object.id === field.objectId);
   const [edit, setEdit] = useState<{ field: RecordField; directoryId: string; onSave: SaveReference; version: number } | null>(null);
-  const [error, setError] = useState(""), [busy, setBusy] = useState(false), [conflict, setConflict] = useState(false);
+  const [error, setError] = useState(""), [busy, setBusy] = useState(false);
   const saving = useRef(false);
-  const scope = JSON.stringify([client?.baseUrl, data?.directoryId, data?.permissions.userId, data?.permissions.principalKey, data?.permissions.replicaId]);
-  useEffect(() => { setEdit(null); setError(""); setConflict(false); }, [scope]);
+  const scope = JSON.stringify([client?.baseUrl, data?.directoryId, data?.permissions.userId, data?.permissions.principalKey, data?.permissions.edit, data?.permissions.finance, data?.model.revision]);
+  useEffect(() => { setEdit(null); setError(""); }, [scope]);
   const foreign = Boolean(field.value && field.value.directoryId !== data?.directoryId);
   const begin = () => {
     if (!object || !data?.directoryId || foreign) return;
     const directoryId = data.directoryId;
     setEdit(current => ({ field, directoryId, onSave, version: (current?.version ?? 0) + 1 }));
-    setError(""); setConflict(false);
+    setError("");
   };
-  const persist = async (save: SaveReference, value: ProjectRecordReference | null) => {
+  const persist = async (save: SaveReference, value: ProjectRecordReference | null, previous?: string[]) => {
     saving.current = true; setBusy(true); setError("");
-    try { await save(value); }
+    try { await save(value, previous); }
     finally { saving.current = false; setBusy(false); }
   };
   const records = data?.records ?? [], label = projectFieldLabel(field);
   const canEdit = !busy && !foreign && Boolean(object && data?.directoryId);
-  const selected = edit?.field.value?.recordIds ?? [];
+  const selected = field.value?.recordIds ?? [];
   const selectable = edit && object ? records.filter(record => record.objectId === edit.field.objectId &&
     (selected.includes(record.id) || matchesProjectReferenceFilters(record, object, edit.field.filters))) : [];
   return <RecordCreationProvider client={client} state={data}><BackOfficeTheme>
@@ -78,7 +78,7 @@ export function ProjectRecordField({ field, client, onSave }: {
             <Button type="button" size="sm" variant="ghost" disabled={busy} aria-label={t("projects.remove_reference", { name, field: label })} onClick={() => {
               if (saving.current || !field.value) return;
               const remaining = field.value.recordIds.filter(recordId => recordId !== id);
-              void persist(onSave, remaining.length ? { ...field.value, recordIds: remaining } : null).catch(reason => setError(projectErrorMessage(reason)));
+              void persist(onSave, remaining.length ? { ...field.value, recordIds: remaining } : null, field.multiple ? field.value.recordIds : undefined).catch(reason => setError(projectErrorMessage(reason)));
             }} startIcon={<X size={12} />} />
           </span>;
         })}
@@ -86,23 +86,21 @@ export function ProjectRecordField({ field, client, onSave }: {
         {error && <p role="alert" className="text-xs text-destructive">{error}</p>}
       </div>
       {edit && <Popover.Portal><Popover.Positioner align="start" sideOffset={4}><DirectoryEditorPopup>
-        <fieldset disabled={conflict} className="min-w-0"><CellEditor key={edit.version}
+        <div className="min-w-0"><CellEditor key={edit.version}
           field={BackOfficeFieldSchema.parse({ id: "projectReference", label: projectFieldLabel(edit.field), type: "relation", target: edit.field.objectId, multiple: edit.field.multiple })}
           value={edit.field.multiple ? selected : selected[0] ?? null} records={selectable} creationFilters={edit.field.filters}
           projectScope={scope}
           onCancel={() => { if (!saving.current) setEdit(null); }}
-          onSave={async value => {
-            if (saving.current || edit.directoryId !== data?.directoryId) throw new Error(t("projects.matters.selection_changed"));
+          onSave={async (value, previous) => {
+            if (edit.directoryId !== data?.directoryId) throw new Error(t("projects.matters.selection_changed"));
             const ids = Array.isArray(value) ? value.filter(item => typeof item === "string") : typeof value === "string" ? [value] : [];
-            try { await persist(edit.onSave, ids.length ? { directoryId: edit.directoryId, recordIds: ids } : null); }
+            try { await persist(previous ? onSave : edit.onSave, ids.length ? { directoryId: edit.directoryId, recordIds: ids } : null, previous); }
             catch (reason) {
-              if (reason instanceof LegalworkServerError && reason.code === "project_changed") setConflict(true);
               throw new Error(projectErrorMessage(reason));
             }
             if (edit.field.objectId === "matters") ids.forEach(id => rememberMatter(scope, id));
           }}
-        /></fieldset>
-        {conflict && <Button type="button" size="sm" variant="ghost" onClick={begin}>{t("projects.reload_fields")}</Button>}
+        /></div>
       </DirectoryEditorPopup></Popover.Positioner></Popover.Portal>}
     </Popover.Root>
   </BackOfficeTheme></RecordCreationProvider>;

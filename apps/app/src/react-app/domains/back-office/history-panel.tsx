@@ -5,7 +5,6 @@ import {
   Bot,
   ChevronDown,
   Download,
-  RefreshCw,
   ShieldCheck,
 } from "lucide-react";
 import { Button } from "twenty-ui/primitives/input";
@@ -353,7 +352,7 @@ export function HistoryPanel({
     refetchInterval: 30_000,
     retry: false,
   });
-  const page = query.isError || error ? undefined : query.data?.pages[0];
+  const page = query.isError ? undefined : query.data?.pages[0];
   const exportHistory = async () => {
     setExporting(true);
     setError("");
@@ -380,10 +379,6 @@ export function HistoryPanel({
     } finally {
       setExporting(false);
     }
-  };
-  const refresh = () => {
-    setError("");
-    void query.refetch();
   };
   return (
     <section className="bo-history" aria-label={t("back_office.history.tab")}>
@@ -421,13 +416,6 @@ export function HistoryPanel({
         </Popover.Root>
         <Button
           size="sm"
-          variant="ghost"
-          aria-label={t("back_office.history.refresh")}
-          onClick={refresh}
-          startIcon={<RefreshCw size={13} />}
-        />
-        <Button
-          size="sm"
           variant="outline"
           disabled={!page || exporting}
           onClick={() => void exportHistory()}
@@ -446,9 +434,6 @@ export function HistoryPanel({
                 ? query.error.message
                 : t("back_office.history.unavailable"))}
           </p>
-          <Button size="sm" variant="outline" onClick={refresh}>
-            {t("back_office.history.retry")}
-          </Button>
         </div>
       )}
       {query.isPending && (

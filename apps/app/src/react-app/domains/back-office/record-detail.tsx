@@ -37,7 +37,7 @@ export function RecordDetail({
   editable,
   finance,
   userId,
-  focusName,
+  focusName, onReviewLocal,
   width,
   onWidthChange,
   onClose,
@@ -54,6 +54,7 @@ export function RecordDetail({
   finance: boolean;
   userId: string;
   focusName?: boolean;
+  onReviewLocal?: () => void;
   width: number;
   onWidthChange: (width: number) => void;
   onClose: () => void;
@@ -130,12 +131,13 @@ export function RecordDetail({
           variant="plain"
           size="sm"
           aria-label={`${object.label} name`}
+          placeholder={object.fields.find(field => field.id === "name")?.label}
           autoFocus={focusName}
           disabled={!editable}
           value={name}
           onFocus={(event) => {
             setNameDraft(current => current ?? { base: record, text: String(record.values.name) });
-            if (focusName && name === "Untitled") event.target.select();
+            if (focusName && name === t("back_office.untitled")) event.target.select();
           }}
           onChange={(event) => {
             const text = event.target.value;
@@ -157,9 +159,11 @@ export function RecordDetail({
               cancelName.current = true;
               setNameDraft(null);
               event.currentTarget.blur();
+              if (record.revision === 0 && !name.trim()) onClose();
             }
           }}
         />
+        {onReviewLocal && <Button size="sm" variant="ghost" onClick={onReviewLocal}>{t("back_office.team_sync")}</Button>}
         <Button
           size="sm"
           variant="ghost"
@@ -188,7 +192,7 @@ export function RecordDetail({
           <Tabs.Tab
             value="history"
             size="sm"
-            disabled={record.revision === 0}
+            disabled={record.revision === 0 || !!onReviewLocal}
             startIcon={<History size={14} />}
           >
             {t("back_office.history.tab")}
@@ -212,7 +216,7 @@ export function RecordDetail({
           <div className="bo-detail-fields">
             {record.revision === 0 && (
               <p className="bo-muted">
-                Complete required fields to save this record.
+                {t("back_office.create.draft_hint")}
               </p>
             )}
             <div className="bo-property bo-system-property">
@@ -235,18 +239,19 @@ export function RecordDetail({
                   field.id !== "name" &&
                   (field.visibility !== "finance" || finance),
               )
-              .map((field) => (
-                <div className="bo-property" key={field.id}>
+              .map((field) => {
+                const canEdit = editable && !(onReviewLocal && field.type === "file") && (field.visibility !== "private" || record.ownerId === userId);
+                return <div className="bo-property" key={field.id}>
                   <label>
                     <FieldIcon field={field} />
-                    {field.label}
+                    {field.label}{record.revision === 0 && field.required ? " *" : ""}
                     {field.visibility === "private" && (
                       <LockKeyhole size={11} />
                     )}
                   </label>
                   <div className="bo-property-value">
                     <Popover.Root
-                      open={edit?.field === field.id}
+                      open={canEdit && edit?.field === field.id}
                       onOpenChange={(open) => setEdit(open ? { field: field.id, base: record } : null)}
                     >
                       <Popover.Trigger
@@ -255,11 +260,7 @@ export function RecordDetail({
                             size="sm"
                             variant="ghost"
                             fullWidth
-                            disabled={
-                              !editable ||
-                              (field.visibility === "private" &&
-                                record.ownerId !== userId)
-                            }
+                            disabled={!canEdit}
                             aria-label={`Edit ${field.label}`}
                           />
                         }
@@ -292,12 +293,10 @@ export function RecordDetail({
                             {edit?.field === field.id && <CellEditor
                               record={edit.base}
                               field={field}
-                              value={edit.base.values[field.id]}
+                              value={field.multiple || field.type === "multiselect" ? record.values[field.id] : edit.base.values[field.id]}
                               records={records}
                               onCancel={() => setEdit(null)}
-                              onSave={(value) =>
-                                onSave(edit.base, { [field.id]: value })
-                              }
+                              onSave={(value, previous) => onSave(previous ? { ...record, values: { ...record.values, [field.id]: previous } } : edit.base, { [field.id]: value })}
                             />}
                           </DirectoryEditorPopup>
                         </Popover.Positioner>
@@ -305,7 +304,7 @@ export function RecordDetail({
                     </Popover.Root>
                   </div>
                 </div>
-              ))}
+              })}
           </div>
           {error && (
             <p className="bo-error" role="alert">
@@ -327,7 +326,7 @@ export function RecordDetail({
               }
             >
               <Dropdown.ActionItem
-                disabled={!editable}
+                disabled={!editable || record.revision === 0}
                 startIcon={
                   record.archivedAt ? (
                     <RotateCcw size={14} />

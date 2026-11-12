@@ -1,3 +1,5 @@
+import { useContext } from "react";
+import { LocalCreationScope } from "./record-creation-context";
 import { useState } from "react";
 import { Check, ChevronDown, Plus, X } from "lucide-react";
 import type { BackOfficeField, BackOfficeValue } from "@legalwork/types/back-office";
@@ -17,9 +19,11 @@ export function RecordCreateRelation({ field, value, disabled, onChange, onSubmi
   onChange: (value: BackOfficeValue) => void; onSubmit: () => void;
 }) {
   const creation = useRecordCreation();
+  const source = useContext(LocalCreationScope);
   const [open, setOpen] = useState(false), [query, setQuery] = useState(""), [creating, setCreating] = useState(false);
   const object = creation?.state.model.objects.find(object => object.id === field.target);
-  const records = creation?.state.records.filter(record => record.objectId === object?.id && !record.archivedAt) ?? [];
+  const pool = source ? creation?.state.localChoices : creation?.state.records;
+  const records = pool?.filter(record => record.objectId === object?.id && !record.archivedAt) ?? [];
   const target = creatableRecordObject(creation?.state, field.target);
   const selected = Array.isArray(value) ? value.filter(item => typeof item === "string") : typeof value === "string" ? [value] : [];
   const setSelection = (ids: string[]) => onChange(field.multiple ? ids : ids[0] ?? null);
@@ -36,10 +40,10 @@ export function RecordCreateRelation({ field, value, disabled, onChange, onSubmi
           }
           event.stopPropagation();
         }}>
-        {creating && target ? <BackOfficeTheme><RecordCreateForm object={displayBackOfficeObject(target)} name={query.trim()} persistenceNotice={t("back_office.create.persistence_notice")} onCancel={() => setCreating(false)} onCreated={async record => {
-          setSelection(field.multiple ? [...selected.filter(id => id !== record.id), record.id] : [record.id]);
+        {creating && target ? <LocalCreationScope.Provider value={source && { ...source, fields: [...source.fields, field.id] }}><BackOfficeTheme><RecordCreateForm object={displayBackOfficeObject(target)} name={query.trim()} persistenceNotice={t("back_office.create.persistence_notice")} onCancel={() => setCreating(false)} onCreated={async record => {
+          setSelection(field.multiple ? [record.id, ...selected.filter(id => id !== record.id)] : [record.id]);
           setOpen(false); setCreating(false); setQuery("");
-        }} /></BackOfficeTheme> : <Command filter={null} value={query} onValueChange={(next, details) => { if (details.reason !== "item-press") setQuery(next); }}>
+        }} /></BackOfficeTheme></LocalCreationScope.Provider> : <Command filter={null} value={query} onValueChange={(next, details) => { if (details.reason !== "item-press") setQuery(next); }}>
           <CommandInput aria-label={t("back_office.create.search", { name: field.label })} placeholder={t("back_office.create.search", { name: field.label })} />
           <CommandList className="max-h-56 overflow-y-auto">
             {options.map(({ record, subtitle }) => <CommandItem key={record.id} value={record.id} disabled={disabled} onClick={() => {

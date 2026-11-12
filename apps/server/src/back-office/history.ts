@@ -128,7 +128,7 @@ export function localBackOfficeHistoryPage(
     throw new ApiError(
       409,
       "back_office_history_cursor",
-      error instanceof Error ? error.message : "Refresh the history.",
+      error instanceof Error ? error.message : "History is temporarily unavailable.",
     );
   }
 }
@@ -192,7 +192,7 @@ export async function platformBackOfficeHistory(
       `/api/back-office/history?${query}`,
     );
     await requireBackOfficePrincipal(config, principal);
-    if (store.replicaId(scope) !== replicaId) throw new ApiError(409, "back_office_replica_changed", "History access changed. Refresh Back Office before continuing.");
+    if (store.replicaId(scope) !== replicaId) throw new ApiError(409, "back_office_replica_changed", "This history is no longer available with the current access.");
     if (options.export) {
       const exported = BackOfficeHistoryExportSchema.parse(result);
       verifyBackOfficeHistoryExport(exported);

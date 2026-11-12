@@ -1,5 +1,6 @@
 import { workspaceContentPath, workspaceFileRoot } from "./project-storage.js";
 import { signOutBackOffice } from "./back-office/sync.js";
+import { scheduleBackOfficeSync, cancelScheduledBackOfficeSync } from "./back-office/sync.js";
 import { registerBackOfficeRoutes } from "./back-office/routes.js";
 import { assistantRouteRequiresSubscription, requireAssistantSubscription, requireAssistantWorkspaceSubscription } from "./assistant-subscription.js";
 import { createAssistantRuntime } from "./assistant-runtime.js";
@@ -879,6 +880,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
   configureProjectSync(config, { onWorkspacesChanged: () => restartReloadWatchers() });
   const stopOrgPolicy = onOrgPolicyChange(config, (scopes) => {
     if (scopes.has("engine")) applyOrgPolicyToEngines(config);
+    if (scopes.has("server")) scheduleBackOfficeSync(config);
   });
   // The firm's Knowledge Hub likewise: what it installs for everyone, and what
   // the member added, follows the platform; connectors and skills reload the engines.
@@ -1287,6 +1289,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
       preparation.stop();
       ocr.stop();
       stopOrgPolicy();
+      cancelScheduledBackOfficeSync(config);
       stopFirmHub();
       await wikiSync.stop();
       await wikiStore.close();

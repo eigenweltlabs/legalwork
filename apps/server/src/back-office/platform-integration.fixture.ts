@@ -1,3 +1,5 @@
+import { readProjectDetails, updateProjectDetails } from "../project-store.js";
+import { backOfficeDirectoryKey } from "./principal.js";
 import { backOfficeTestConfig } from "./config.test-support.js";
 import { attachFile, cachedFile } from "./files.js";
 import { loadAttachedFile } from "./file-sync.js";
@@ -23,8 +25,6 @@ import { verifyBackOfficeHistoryExport } from "./history-export.js";
 import {
   backOfficePlatform,
   syncBackOffice,
-  previewBackOfficePublish,
-  publishBackOffice,
 } from "./sync.js";
 import {
   writeEigenweltConnection,
@@ -120,10 +120,7 @@ async function syncDevice(config: ServerConfig) {
   await syncBackOffice(config);
   await refreshDeviceActor(config);
 }
-async function publishDevice(config: ServerConfig, planId: string) {
-  await publishBackOffice(config, planId);
-  await refreshDeviceActor(config);
-}
+
 try {
   const a = await device(settings.admin),
     b = await device(settings.member),
@@ -146,6 +143,14 @@ try {
     revision: 0,
     values: { name: "Local case", clients: [client.id] },
   });
+  const projectPath = join(root, "metadata-test");
+  await mkdir(projectPath);
+  a.config.workspaces.push({ id: "metadata-test", name: "Local project", path: projectPath, preset: "starter", workspaceType: "local" });
+  await updateProjectDetails(projectPath, { revision: 0, fields: [{ id: "matter", label: "Matter", type: "backoffice",
+    objectId: "matters", multiple: false, value: { directoryId: "local:" + a.store.journal.storage.identity.deviceId, recordIds: [localMatter.id] } }] });
+  const contacts = Array.from({ length: 22 }, (_, index) => a.store.saveRecord("local", localActor, {
+    objectId: "people", revision: 0, values: { name: "Firm contact " + index },
+  }).id);
   const link = a.store.saveRecord("local", localActor, {
     objectId: "projectLinks",
     revision: 0,
@@ -186,9 +191,8 @@ try {
     revision: localMatter.revision,
     values: { caseFile: [attachment] },
   });
-  const preview = await previewBackOfficePublish(a.config);
-  assert.equal(preview.count, 3);
-  await publishDevice(a.config, preview.planId);
+  await syncDevice(a.config);
+  await syncDevice(a.config);
   await syncDevice(b.config);
   assert.equal(a.store.syncState(scope).pending, 0);
   assert.deepEqual(b.store.raw(scope, localMatter.id)?.values.clients, [
@@ -198,6 +202,18 @@ try {
     b.store.raw(scope, link.id)?.values.projectId,
     `ws_${settings.member}`,
   );
+  assert.ok(b.store.raw(scope, localMatter.id)?.values.caseFile, JSON.stringify({
+    localFile: !!a.store.raw("local", localMatter.id)?.values.caseFile,
+    stagedFile: !!a.store.raw(scope, localMatter.id)?.values.caseFile, sync: a.store.syncState(scope),
+    pending: a.store.pending(scope, 10, a.actor).map(entry => entry.error),
+  }));
+  for (const id of contacts) assert.ok(b.store.raw(scope, id));
+  const linkedField = (await readProjectDetails(projectPath)).fields[0];
+  assert.deepEqual(linkedField.value, { directoryId: backOfficeDirectoryKey(settings.url, scope), recordIds: [localMatter.id] });
+  const revision = (await readProjectDetails(projectPath)).revision;
+  await syncDevice(a.config);
+  assert.equal((await readProjectDetails(projectPath)).revision, revision);
+  assert.equal(a.store.syncState(scope).pending, 0);
   const receivedFile = BackOfficeFilesSchema.parse(
     b.store.raw(scope, localMatter.id)?.values.caseFile,
   )[0];
@@ -252,6 +268,8 @@ try {
   assert.deepEqual(a.store.raw(scope, created.id)?.values, {
     name: "Mara Weber",
     email: "mara@example.test",
+    active: true,
+    personType: "External contact",
   });
 
   // More than one API batch must not delete unsent creations on a full-snapshot pull.
@@ -265,7 +283,7 @@ try {
   await syncDevice(a.config);
   await syncDevice(b.config);
   assert.equal(a.store.syncState(scope).pending, 0);
-  assert.equal(b.store.records(scope, b.actor, "people").length, 102);
+  assert.equal(b.store.records(scope, b.actor, "people").length, contacts.length + 102);
 
   // One batch contains a model operation followed by a record using its new field.
   const model = a.store.model(scope);
@@ -294,8 +312,8 @@ try {
     revision: 0,
     values: { name: "Later local contact" },
   });
-  const laterPreview = await previewBackOfficePublish(a.config);
-  await publishDevice(a.config, laterPreview.planId);
+  await syncDevice(a.config);
+  await syncDevice(a.config);
   await syncDevice(b.config);
   assert.equal(
     b.store.raw(scope, laterLocal.id)?.values.name,
@@ -396,6 +414,8 @@ try {
     a.store.journal.storage,
   );
   assert.equal(reopened.syncState(scope).pending, 1);
+  assert.equal(reopened.db.get("SELECT count(*) AS n FROM bo_first_sync WHERE confirmed=1 AND principal=?", [a.actor.principalKey!])?.n, 26);
+
   assert.equal(
     reopened.model("local").objects.find((object) => object.id === "clients")
       ?.plural,
