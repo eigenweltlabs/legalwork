@@ -25,23 +25,13 @@ const chatDocks = new Map<string, TabDock>();
 
 type MiniTab = { id: string; label: string; preview: ReactNode; open: () => void; openOnClick?: boolean; close: () => void };
 
-function BrowserMiniPreview({ id }: { id: string }) {
-  const [image, setImage] = useState<string | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout>;
-    const refresh = async () => {
-      try {
-        const value = await window.__LEGALWORK_ELECTRON__?.browser?.previewTab?.(id);
-        if (!cancelled && value) setImage(value);
-      } catch { /* Navigation can temporarily make a preview unavailable. */ }
-      if (!cancelled) timer = setTimeout(refresh, 2500);
-    };
-    void refresh();
-    return () => { cancelled = true; clearTimeout(timer); };
-  }, [id]);
-  return image ? <img src={image} alt="" className="h-full w-full object-cover object-top" />
-    : <div className="flex h-full items-center justify-center bg-gray-2"><Globe className="size-8 text-gray-7" /></div>;
+// Reuse native action screenshots; preview captures would compete with browser input.
+function BrowserMiniPreview({ label, preview }: { label: string; preview?: string | null }) {
+  return preview ? <img src={preview} alt="" className="h-full w-full object-cover object-top" />
+    : <div className="flex h-full flex-col items-center justify-center gap-2 bg-gray-2 px-3">
+    <Globe className="size-8 text-gray-7" />
+    <span className="w-full truncate text-center text-xs text-gray-9">{label}</span>
+  </div>;
 }
 
 function MiniCard({ tab, toggle, onSurfaceClick, onPointerDown, expanded, count, depth, columns, dock }: {
@@ -237,7 +227,7 @@ export function BackgroundTabStack({ sessionId, workspaceId, client, assistantCh
       preview: <DocumentMiniPreview entry={entry} />, open: () => openBackgroundTab(entry.props.sessionId, sessionId, entry.props.tab), close: () => runtime?.dismiss(entry, sessionId) });
   }
   for (const tab of visibleTaskBrowserTabs(browsers, sessionId, assistantChat, sessions, workers.data, statuses)) {
-    tabs.push({ id: tab.id, label: tab.label, openOnClick: true, preview: <BrowserMiniPreview id={tab.id} />,
+    tabs.push({ id: tab.id, label: tab.label, openOnClick: true, preview: <BrowserMiniPreview label={tab.label} preview={tab.preview} />,
       open: () => openBackgroundTab(workspacePanelKey(workspaceId), sessionId, { ...tab, background: false }),
       close: () => { void window.__LEGALWORK_ELECTRON__?.browser?.dismissTab?.(tab.id); } });
   }

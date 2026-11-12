@@ -126,6 +126,8 @@ export type BrowserCapture = {
   <T>(contents: WebContents, signal: AbortSignal | undefined, operation: (signal: AbortSignal) => Promise<T>): Promise<T>
   /** Close capture admission before asynchronous native page disposal begins. */
   close?: (contents: WebContents) => void
+  /** Reuse successful native pixels for the host's cached tab preview. */
+  record?: (contents: WebContents, image: Electron.NativeImage | Buffer) => void
 }
 
 export type BrowserPage = ReturnType<typeof createBrowserPage>
@@ -703,7 +705,10 @@ export function createBrowserPage(
     transfers: readonly Browser.File[],
     signal: AbortSignal,
     approved?: Browser.Target,
+    captureHeld = false,
   ): Promise<Browser.Result> {
+    if (options.capture && !captureHeld && pointerOperations.includes(action.type))
+      return options.capture(contents, signal, active => execute(action, transfers, active, approved, true))
     const captureSources = sourceURLs()
     const transfer = (id: Browser.FileID) => files.transfer(id, approved?.resources)
 
@@ -810,16 +815,16 @@ export function createBrowserPage(
       }
 
       case "click":
-        await click(target(action.ref), action.button ?? "left", action.count ?? 1, action.modifiers, signal)
+        await click(target(action.ref), action.button ?? "left", action.count ?? 1, action.modifiers, signal, captureHeld)
         break
       case "hover":
-        await cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", ...(await point(target(action.ref), signal)) })
+        await cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", ...(await point(target(action.ref), signal, captureHeld)) })
         break
       case "drag": {
         const source = target(action.from)
         const destination = target(action.to)
-        await point(destination, signal)
-        const from = await point(source, signal)
+        await point(destination, signal, captureHeld)
+        const from = await point(source, signal, captureHeld)
         const box = await rect(destination)
         const to = { x: box.x + box.width / 2, y: box.y + box.height / 2 }
         const html5 = await call(source, "function() { return this.draggable; }")
@@ -877,7 +882,7 @@ export function createBrowserPage(
 
           if (field.type === "select") await select(target(field.ref), field.values)
 
-          if (field.type === "check") await check(target(field.ref), field.checked, signal)
+          if (field.type === "check") await check(target(field.ref), field.checked, signal, captureHeld)
         }
 
         break
@@ -885,7 +890,7 @@ export function createBrowserPage(
         await select(target(action.ref), action.values)
         break
       case "check":
-        await check(target(action.ref), action.checked, signal)
+        await check(target(action.ref), action.checked, signal, captureHeld)
         break
       case "press":
         await key(action.key)
@@ -1000,7 +1005,9 @@ export function createBrowserPage(
             clip: { ...bounds, scale },
           })
 
-          const id = await files.save(`screenshot.${format}`, `image/${format}`, Buffer.from(capture.data, "base64"), [
+          const data = Buffer.from(capture.data, "base64")
+          options.capture?.record?.(contents, data)
+          const id = await files.save(`screenshot.${format}`, `image/${format}`, data, [
             ...captureSources,
             ...sourceURLs(),
           ])
@@ -1043,7 +1050,7 @@ export function createBrowserPage(
           await cdp.send("DOM.setFileInputFiles", { files: local, backendNodeId: element.backendID }, element.sessionID)
 
         if (action.type === "files.drop") {
-          const position = await point(element, signal)
+          const position = await point(element, signal, captureHeld)
 
           for (const type of ["dragEnter", "dragOver", "drop"])
             await cdp.send("Input.dispatchDragEvent", {
@@ -1281,7 +1288,8 @@ export function createBrowserPage(
       if (signal) abortError(signal)
       // Force a compositor update after scrolling. requestAnimationFrame can
       // stall in a hidden WebContentsView, even with background throttling off.
-      await contents.capturePage(undefined, { stayHidden: false, stayAwake: true })
+      const image = await cdp.send("Page.captureScreenshot", { format: "png", captureBeyondViewport: false })
+      options.capture?.record?.(contents, Buffer.from(image.data, "base64"))
       if (signal) abortError(signal)
     }
 
@@ -1332,14 +1340,14 @@ export function createBrowserPage(
     return id ? sessions.get(id) : undefined
   }
 
-  async function point(element: Element, signal?: AbortSignal) {
-    const box = await rect(element, true, signal)
+  async function point(element: Element, signal?: AbortSignal, captureHeld = false) {
+    const box = await rect(element, true, signal, captureHeld)
 
     return { x: box.x + box.width / 2, y: box.y + box.height / 2 }
   }
 
-  async function click(element: Element, button = "left", count = 1, modifiers: readonly string[] = [], signal?: AbortSignal) {
-    const position = await point(element, signal)
+  async function click(element: Element, button = "left", count = 1, modifiers: readonly string[] = [], signal?: AbortSignal, captureHeld = false) {
+    const position = await point(element, signal, captureHeld)
     const flags = modifiers.reduce((mask, key) => mask | ({ Alt: 1, Control: 2, Meta: 4, Shift: 8 }[key] ?? 0), 0)
     await cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", ...position, modifiers: flags })
 
@@ -1400,14 +1408,14 @@ export function createBrowserPage(
     )
   }
 
-  async function check(element: Element, checked: boolean, signal: AbortSignal) {
+  async function check(element: Element, checked: boolean, signal: AbortSignal, captureHeld = false) {
     const current = await call(
       element,
       "function(checked) { if (!(this instanceof HTMLInputElement) || !['checkbox','radio'].includes(this.type) || this.disabled) throw new Error('Target is not an enabled checkbox or radio. Take a fresh snapshot and choose the correct ref.'); if (this.type === 'radio' && this.checked && !checked) throw new Error('A selected radio cannot be cleared by clicking it. Select a different radio in its group instead.'); return this.checked; }",
       [checked],
     )
 
-    if (current !== checked) await click(element, "left", 1, [], signal)
+    if (current !== checked) await click(element, "left", 1, [], signal, captureHeld)
 
     if ((await call(element, "function() { return this.checked; }")) !== checked)
       throw new Error(

@@ -9,7 +9,7 @@ import { resolveBrowserProject } from "./browser-project.mjs";
 
 /** @param {(contents: EventEmitter, url: string) => Promise<void>} [load] */
 function fixture(resolveDownloadDirectory = async () => null, authorizeBrowserAutomation = async () => {}, load = async () => {}) {
-  const views = [];
+  const views = [], captureWindows = [];
   class View {
     constructor() {
       const contents = Object.assign(new EventEmitter(), {
@@ -32,12 +32,17 @@ function fixture(resolveDownloadDirectory = async () => null, authorizeBrowserAu
   const window = focused => Object.assign(new EventEmitter(), {
     focused, destroy() {}, isDestroyed: () => false, isFocused() { return this.focused; },
     webContents: { messages: [], url: "file:///app/index.html", getURL() { return this.url; }, isDestroyed: () => false, send(channel, payload) { this.messages.push({ channel, payload }); }, getZoomFactor: () => 1.25 },
-    contentView: { children: [], addChildView(view) { this.children.push(view); }, removeChildView(view) { this.children = this.children.filter(child => child !== view); } },
+    contentView: { children: [], addChildView(view, index = this.children.length) { this.children = this.children.filter(child => child !== view); this.children.splice(index, 0, view); }, removeChildView(view) { this.children = this.children.filter(child => child !== view); } },
   });
   const first = window(true), second = window(false), third = window(false);
   const handlers = new Map();
   const browserSession = new EventEmitter();
-  const controller = createBrowserPanel({ app: new EventEmitter(), BaseWindow: class { constructor() { return window(false); } }, WebContentsView: View, clipboard: { writeText: () => {} }, session: { fromPartition: () => browserSession },
+  const controller = createBrowserPanel({ app: new EventEmitter(), BaseWindow: class { constructor(options) {
+      const host = Object.assign(window(false), { options, shown: false, destroyed: false,
+        showInactive() { this.shown = true; }, isDestroyed() { return this.destroyed; },
+        destroy() { this.destroyed = true; } });
+      captureWindows.push(host); return host;
+    } }, WebContentsView: View, clipboard: { writeText: () => {} }, session: { fromPartition: () => browserSession },
     getWindow: () => first, getWindowForEvent: event => [first, second, third].find(host => event.sender === host.webContents),
     resolveDownloadDirectory, authorizeBrowserAutomation,
     isAllowedAppNavigation: () => true, safeOpen: { openExternal: () => {} },
@@ -45,7 +50,7 @@ function fixture(resolveDownloadDirectory = async () => null, authorizeBrowserAu
   controller.registerIpc({ handle: (name, handler) => handlers.set(name, handler), on: () => {} });
   const call = (name, host, ...args) => handlers.get(`legalwork:browser:${name}`)({ sender: host.webContents }, ...args);
   const left = { x: 20, y: 50, width: 400, height: 600 }, right = { ...left, x: 425 };
-  return { controller, views, first, second, third, call, left, right, browserSession };
+  return { controller, views, captureWindows, first, second, third, call, left, right, browserSession };
 }
 
 test("a denied browser tool cannot create a tab or change the proxy, while manual browsing still works", async t => {
@@ -62,6 +67,39 @@ test("a denied browser tool cannot create a tab or change the proxy, while manua
   assert.deepEqual(contexts, [context, context]);
   await f.call("createTab", f.first, "https://example.org");
   assert.equal(f.views.length, 1);
+});
+
+test("background capture never covers the app and cleans up after repeated captures", async t => {
+  const f = fixture(); t.after(() => f.controller.destroy());
+  const context = { workspaceId: "project", sessionId: "background-capture" };
+  const connection = await f.call("openUrl", f.first, "https://example.org", "builtin", context);
+  let captures = 0;
+  f.views[0].webContents.debugger.sendCommand = async method => {
+    if (method !== "Page.captureScreenshot") return {};
+    const host = f.captureWindows.at(-1);
+    if (host) {
+      assert.deepEqual(f.first.contentView.children, []);
+      assert.deepEqual(host.contentView.children, [f.views[0]]);
+      assert.equal(host.options.opacity, 0);
+      assert.equal(host.options.focusable, false);
+      assert.equal(host.options.skipTaskbar, true);
+      assert.equal(host.shown, true);
+    } else {
+      assert.deepEqual(f.first.contentView.children, [f.views[0]]);
+      assert.ok(f.views[0].bounds.x + f.views[0].bounds.width <= 0);
+    }
+    captures++;
+    return { data: "synthetic-image" };
+  };
+  for (let i = 0; i < 2; i++) {
+    const response = await fetch(`${connection.browser_url}/capture`, { method: "POST",
+      headers: { "content-type": "application/json", "x-legalwork-browser-session": context.sessionId }, body: JSON.stringify({ fullPage: false }) });
+    assert.equal(response.ok, true);
+    await response.json();
+    assert.deepEqual(f.first.contentView.children, []);
+    assert.ok(f.captureWindows.every(host => host.destroyed));
+  }
+  assert.equal(captures, 2);
 });
 
 test("native browser panes keep separate bounds, navigation and visibility", async t => {
@@ -356,7 +394,7 @@ function initialLoadBarrier() {
   return { promise, entered, release, load: () => { started(); return promise; } };
 }
 
-test("a thumbnail waits for the tab initial load before entering native capture", async t => {
+test("a thumbnail cache read never waits for initial load or starts a capture", async t => {
   const initial = initialLoadBarrier();
   const f = fixture(undefined, undefined, initial.load);
   const opening = f.call("openUrl", f.first, "https://example.org/ready", "builtin", {});
@@ -371,15 +409,12 @@ test("a thumbnail waits for the tab initial load before entering native capture"
   };
   // Drain the existing grant microtasks, not a wall-clock readiness delay.
   await new Promise(resolve => setImmediate(resolve));
-  let settled = false;
-  const preview = f.call("previewTab", f.first, tabID).finally(() => { settled = true; });
-  await new Promise(resolve => setImmediate(resolve));
-  assert.equal(settled, false, "preview must still be waiting on the controlled initial load");
-  assert.equal(screenshots, 0, "no screenshot may dispatch before initial readiness");
+  assert.equal(f.call("previewTab", f.first, tabID), null);
+  assert.equal(screenshots, 0);
   initial.release();
   await opening;
-  assert.equal(await preview, "data:image/png;base64,complete-owned-thumbnail");
-  assert.equal(screenshots, 1);
+  assert.equal(f.call("previewTab", f.first, tabID), null);
+  assert.equal(screenshots, 0);
 });
 
 test("closing a tab while its initial load is pending never starts a late thumbnail", async t => {

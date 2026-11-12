@@ -43,8 +43,9 @@ Adapted source:
   beyond-viewport capture, which otherwise removes the scrollbar, changes page
   layout and loses right-edge pixels. Full-page and element capture keep the
   upstream setting. Screenshot limits remain unchanged.
-  The compositor capture used after element scrolling acquires the same queue;
-  a screenshot already holding it reuses that lease instead of nesting acquisition.
+  Native pointer operations retain that lease through mouse dispatch. Their post-scroll
+  compositor update uses a viewport CDP screenshot, reusing its pixels for the host's
+  cached preview; screenshots and other successful captures also publish existing pixels.
   Default accessibility observations traverse nested controls without an AX depth
   cutoff, omit unnamed layout wrappers and retain the existing rendered output
   limits. Explicit depth bounds the displayed tree. Focused find filters during
@@ -67,8 +68,11 @@ way to release such native work.
 Queue admission and asynchronous authorization both verify the exact current owner;
 disposal aborts the queue's signal even for embed captures without a caller signal.
 
-Hidden-window capture remains a known platform limitation under investigation.
-Exact pre-migration modules reproduced a Linux hidden-preview stall, while visible
-tabs passed the same pixel checks. This source integration must not be described
-as complete background-capture acceptance. The API remains available; no forced
-window visibility or platform flags are introduced.
+On Windows, background captures temporarily attach the existing browser view to
+a shown, fully transparent host window that cannot take focus or appear in the
+taskbar. Fully hidden or offscreen Windows views can stall captures. The host is
+destroyed when the physical operation finishes. Other platforms attach the view
+outside the app's visible bounds; Electron does not support window opacity on Linux.
+A user-opened tab keeps its current parent and bounds. The card only displays the
+last successful capture; reading its preview never starts another screenshot.
+No independent preview page, screenshot polling or platform flags are used.

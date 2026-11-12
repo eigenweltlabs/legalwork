@@ -280,7 +280,7 @@ test("capture, thumbnail and raw CDP serialize without frame subscribers or chan
   assert.deepEqual(screenshots[2].params, params);
 });
 
-test("HTTP Stop restores caller visibility immediately but the next capture waits for the true native reply", async t => {
+test("HTTP Stop returns immediately but capture cleanup and the next capture wait for the true native reply", async t => {
   const broker = createBrowserAutomationBroker({ authorize: async () => {} });
   t.after(() => broker.close());
   const tab = browserTab(81), native = deferred(), started = deferred(), restored = deferred();
@@ -299,10 +299,10 @@ test("HTTP Stop restores caller visibility immediately but the next capture wait
   await started.promise;
   controller.abort(new Error("User Stop"));
   await assert.rejects(first, /User Stop/);
-  await restored.promise;
   const second = fetch(`${grant.browser_url}/capture`, options);
   assert.equal(calls, 1);
   native.resolve();
+  await restored.promise;
   const response = await second;
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), { mime: "image/png", data: "original-image" });
