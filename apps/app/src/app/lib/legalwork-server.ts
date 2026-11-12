@@ -569,8 +569,9 @@ export type LegalworkRecorderLiveTranscriptStatus = {
 };
 
 export type LegalworkSessionMessage = MessageView;
-export type LegalworkSessionSnapshot = SessionSnapshotView;
-export type NativeSessionSnapshot = {session:SessionInfo;messages:SessionMessageInfo[];todos:Array<{content:string;status:string;priority?:string;id?:string}>;status:SessionStatus;historyProvenance?:SessionHistoryProvenance};
+export type SessionHistoryPage = { olderCursor?: string; newerCursor?: string; count: number; order?: "asc" | "desc" };
+export type LegalworkSessionSnapshot = SessionSnapshotView & { historyPage?: SessionHistoryPage };
+export type NativeSessionSnapshot = {session:SessionInfo;messages:SessionMessageInfo[];todos:Array<{content:string;status:string;priority?:string;id?:string}>;status:SessionStatus;historyProvenance?:SessionHistoryProvenance;historyPage?:SessionHistoryPage};
 function projectSessionSnapshot(snapshot:NativeSessionSnapshot):LegalworkSessionSnapshot {
  const historical=snapshot.historyProvenance ? SessionHistoryProvenanceSchema.parse(snapshot.historyProvenance):undefined;
  return {...snapshot,historyProvenance:historical,session:projectSession(snapshot.session),messages:projectMessages(snapshot.session.id,snapshot.messages,historical?.messages),todos:snapshot.todos.map((todo,index)=>({...todo,id:todo.id ?? `${snapshot.session.id}:todo:${index}`,priority:todo.priority ?? "medium"}))};
@@ -2267,15 +2268,18 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
       requestJson<{ ok: boolean }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/sessions/${encodeURIComponent(sessionId)}/usage-limit`, {
         token, hostToken, method: "POST", body: { messageId, ...(limit ? { limit } : {}) },
       }),
-    getSessionSnapshot: (workspaceId: string, sessionId: string, options?: { limit?: number; fileReferences?: boolean }) => {
+    getSessionSnapshot: (workspaceId: string, sessionId: string, options?: { limit?: number; fileReferences?: boolean; page?: boolean; cursor?: string; pageOrder?: "asc" | "desc"; signal?: AbortSignal }) => {
       const query = new URLSearchParams();
       if (options?.fileReferences) query.set("files", "references");
       if (typeof options?.limit === "number") query.set("limit", String(options.limit));
+      if (options?.page) query.set("page", "true");
+      if (options?.cursor) query.set("cursor", options.cursor);
+      if (options?.pageOrder) query.set("pageOrder", options.pageOrder);
       const suffix = query.size ? `?${query.toString()}` : "";
       return requestJson<{ item: NativeSessionSnapshot }>(
         baseUrl,
         `/workspace/${encodeURIComponent(workspaceId)}/sessions/${encodeURIComponent(sessionId)}/snapshot${suffix}`,
-        { token, hostToken, timeoutMs: timeouts.sessionRead },
+        { token, hostToken, timeoutMs: timeouts.sessionRead, signal: options?.signal },
       ).then(result=>({item:projectSessionSnapshot(result.item)}));
     },
     exportWorkspace: (
@@ -2892,7 +2896,7 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
     // Explicit initialization can check, recover and create a chat. Its engine
     // calls each have a 10s deadline; don't race that deadline in the renderer.
     mainAssistantCurrent: (projectFields?: ProjectField[]) => requestJson<{ workspace: LegalworkWorkspaceInfo; day: { date: string; sessionId: string }; profile: AssistantProfile }>(baseUrl, "/assistant/current", { token, hostToken, method: "POST", body: { projectFields }, timeoutMs: 30_000 }),
-    mainAssistantHistory: (before?: string, limit = 14) => requestJson<{ days: { date: string; sessionId: string }[]; nextBefore: string | null }>(baseUrl, `/assistant/history?limit=${limit}${before ? `&before=${encodeURIComponent(before)}` : ""}`, { token, hostToken }),
+    mainAssistantHistory: (before?: string, limit = 14, after?: string) => requestJson<{ days: { date: string; sessionId: string }[]; nextBefore: string | null }>(baseUrl, `/assistant/history?limit=${limit}${before ? `&before=${encodeURIComponent(before)}` : ""}${after ? `&after=${encodeURIComponent(after)}` : ""}`, { token, hostToken }),
     scheduledTasks: () => requestJson<{ tasks: ScheduledTask[] }>(baseUrl, "/scheduled-tasks", { token, hostToken }),
     scheduledTask: (workspaceId: string, id: string) => requestJson<{ task: ScheduledTask; runs: ScheduledRun[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/scheduled-tasks/${encodeURIComponent(id)}`, { token, hostToken }),
     scheduledTaskChats: (workspaceId: string, search = "") => requestJson<{ sessions: { id: string; title: string }[] }>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/scheduled-tasks/chats?search=${encodeURIComponent(search)}`, { token, hostToken }),
