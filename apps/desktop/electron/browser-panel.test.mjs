@@ -356,7 +356,7 @@ function initialLoadBarrier() {
   return { promise, entered, release, load: () => { started(); return promise; } };
 }
 
-test("a thumbnail waits for the tab initial load before entering native capture", async t => {
+test("a thumbnail cache read never waits for initial load or starts a capture", async t => {
   const initial = initialLoadBarrier();
   const f = fixture(undefined, undefined, initial.load);
   const opening = f.call("openUrl", f.first, "https://example.org/ready", "builtin", {});
@@ -371,15 +371,12 @@ test("a thumbnail waits for the tab initial load before entering native capture"
   };
   // Drain the existing grant microtasks, not a wall-clock readiness delay.
   await new Promise(resolve => setImmediate(resolve));
-  let settled = false;
-  const preview = f.call("previewTab", f.first, tabID).finally(() => { settled = true; });
-  await new Promise(resolve => setImmediate(resolve));
-  assert.equal(settled, false, "preview must still be waiting on the controlled initial load");
-  assert.equal(screenshots, 0, "no screenshot may dispatch before initial readiness");
+  assert.equal(f.call("previewTab", f.first, tabID), null);
+  assert.equal(screenshots, 0);
   initial.release();
   await opening;
-  assert.equal(await preview, "data:image/png;base64,complete-owned-thumbnail");
-  assert.equal(screenshots, 1);
+  assert.equal(f.call("previewTab", f.first, tabID), null);
+  assert.equal(screenshots, 0);
 });
 
 test("closing a tab while its initial load is pending never starts a late thumbnail", async t => {

@@ -8,7 +8,10 @@ export function createNativeBrowserHost(options) {
   const entries = new Map();
   const pageOwners = new WeakMap();
   if (typeof options.capture !== "function" || typeof options.capture.close !== "function") throw new Error("The native browser requires a shared screenshot queue.");
-  const capturePage = createOwnedBrowserCapture(options.capture, pageOwners, authorize);
+  const capturePage = createOwnedBrowserCapture(options.capture, pageOwners, authorize, options.prepareCapture);
+  capturePage.record = (contents, image) => {
+    if (pageOwners.has(contents)) options.captured?.(contents, image);
+  };
   const endpoints = new Map();
   const connections = new Map();
   const extensionChannels = new Map();
@@ -77,8 +80,14 @@ export function createNativeBrowserHost(options) {
       embeds: { create(view, owner) {
         const id = randomUUID(), listeners = new Set();
         views.set(id, view);
-        return { id, show(visible) { view.setVisible(visible && owner.contentView.children.includes(view)); }, on(_event, handler) { listeners.add(handler); return () => listeners.delete(handler); },
-          capture: () => capturePage(view.webContents, undefined, () => view.webContents.capturePage()), dispose() { capturePage.close(view.webContents); views.delete(id); listeners.clear(); } };
+        return { id, show(visible) {
+          if (!options.captureActive?.(owner, view.webContents)) view.setVisible(visible && owner.contentView.children.includes(view));
+        }, on(_event, handler) { listeners.add(handler); return () => listeners.delete(handler); },
+          capture: () => capturePage(view.webContents, undefined, async () => {
+            const image = await view.webContents.capturePage();
+            capturePage.record(view.webContents, image);
+            return image;
+          }), dispose() { capturePage.close(view.webContents); views.delete(id); listeners.clear(); } };
       } },
       emit(windowID, { binding, event }) {
         const entry = [...entries.values()].find(entry => entry.binding === binding && entry.owner.id === windowID);
@@ -232,7 +241,7 @@ export function createNativeBrowserHost(options) {
 }
 
 /** Recheck the exact owner and queue lifetime after asynchronous permission checks. */
-export function createOwnedBrowserCapture(capture, pageOwners, authorize) {
+export function createOwnedBrowserCapture(capture, pageOwners, authorize, prepare) {
   const run = (contents, signal, operation) => capture(contents, signal, async active => {
     active.throwIfAborted();
     const entry = pageOwners.get(contents);
@@ -240,7 +249,9 @@ export function createOwnedBrowserCapture(capture, pageOwners, authorize) {
     await authorize(entry.context);
     active.throwIfAborted();
     if (pageOwners.get(contents) !== entry || entry.closed || contents.isDestroyed() || entry.owner.isDestroyed()) throw new Error("The browser page is closed.");
-    return operation(active);
+    const restore = prepare?.(entry.owner, contents);
+    try { return await operation(active); }
+    finally { restore?.(); }
   });
   run.close = contents => {
     if (!pageOwners.has(contents)) return;

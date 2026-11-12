@@ -29,7 +29,7 @@ async function readBody(request, maximum = 64000) {
 }
 
 /** A capability URL grants access to one explicitly registered browser tab. */
-export function createBrowserAutomationBroker({ authorize, capture = createBrowserCaptureQueue() }) {
+export function createBrowserAutomationBroker({ authorize, capture = createBrowserCaptureQueue(), captured }) {
   if (typeof authorize !== "function") throw new Error("Browser automation requires a network policy check.");
   const grants = new Map();
   const websocketServer = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 });
@@ -92,6 +92,7 @@ export function createBrowserAutomationBroker({ authorize, capture = createBrows
     // Cancelling a caller does not cancel Chromium's screenshot or its temporary
     // viewport. Keep the page lease until that native operation actually settles.
     const result = method === "Page.captureScreenshot" ? await operation() : await browserAbortable(operation, signal);
+    if (method === "Page.captureScreenshot" && result.data) captured?.(grant.webContents, Buffer.from(result.data, "base64"));
     return method === "Accessibility.getFullAXTree" ? normalizeAccessibilityTree(result) : result;
   }
 
@@ -112,13 +113,10 @@ export function createBrowserAutomationBroker({ authorize, capture = createBrows
     return capture(grant.webContents, stopping, active => withDebugger(grant, async send => {
       active.throwIfAborted();
       const cleanup = prepare?.();
-      const restoreOnStop = () => cleanup?.();
-      active.addEventListener("abort", restoreOnStop, { once: true });
       try {
         active.throwIfAborted();
         return await action(send);
       } finally {
-        active.removeEventListener("abort", restoreOnStop);
         cleanup?.();
       }
     }, active, activity));

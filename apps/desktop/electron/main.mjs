@@ -22,7 +22,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parse as parseYaml } from "yaml";
 
-import { app, autoUpdater, BaseWindow, BrowserWindow, WebContentsView, clipboard, desktopCapturer, dialog, globalShortcut, ipcMain as electronIpcMain, nativeImage, nativeTheme, Notification, powerMonitor, powerSaveBlocker, protocol, safeStorage, session, shell, systemPreferences } from "electron";
+import { app, autoUpdater, BaseWindow, BrowserWindow, View, WebContentsView, clipboard, desktopCapturer, dialog, globalShortcut, ipcMain as electronIpcMain, nativeImage, nativeTheme, Notification, powerMonitor, powerSaveBlocker, protocol, safeStorage, session, shell, systemPreferences } from "electron";
 import { createActaportConnection, prepareActaportRuntime } from "./actaport.mjs";
 import { notificationIcon, showNativeNotification } from "./desktop-notifications.mjs";
 import { CommunicationNotifications } from "./communication-notifications.mjs";
@@ -738,6 +738,7 @@ process.on("unhandledRejection", (reason) => {
 });
 
 const browserPanel = createBrowserPanel({
+  nativeImage, View,
   app, BaseWindow, WebContentsView, clipboard, session,
   loadBrowserPasswords: async () => (await runtimeManager.credentialVault()).browserPasswords,
   resolveEngine: () => runtimeManager.engineInfo(),
