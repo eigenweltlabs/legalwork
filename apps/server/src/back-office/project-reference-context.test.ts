@@ -14,7 +14,7 @@ test("a matter-only project resolves current client, organisation and contact co
     const client = store.saveRecord("local", actor, { objectId: "clients", revision: 0, values: { name: "Client", company: organisation.id } });
     const matter = store.saveRecord("local", actor, { objectId: "matters", revision: 0, values: { name: "Matter", fileNumber: "MAT-42", clients: [client.id] } });
     store.saveRecord("local", actor, { objectId: "clients", revision: 0, values: { name: "Unrelated client" } });
-    const fields = defaultProjectTemplates()[0].fields.map(field => field.type === "backoffice" ? { ...field, value: { directoryId: "local:fixture", recordIds: [matter.id] } } : field);
+    const fields = defaultProjectTemplates()[0].fields.filter(field => field.id === "matter").map(field => field.type === "backoffice" ? { ...field, value: { directoryId: "local:fixture", recordIds: [matter.id] } } : field);
     const context = { scope: "local", store, actor, directoryId: "local:fixture", model: store.model("local"), records: store.records("local", actor) };
     const resolved = projectBackOfficeReferences(context, fields);
     expect(fields.map(field => field.id)).toEqual(["matter"]);

@@ -1280,7 +1280,13 @@ export class BackOfficeStore {
     this.transaction(() => {
       this.db.run("DELETE FROM native_directory_links WHERE stamp IS NULL AND account=(SELECT json_extract(data,'$.principalKey') FROM bo_replicas WHERE scope=?)",[scope]);
       const modelRow = this.db.get("SELECT data FROM bo_models WHERE scope=?", [scope]);
-      if (!modelRow && !this.db.get("SELECT id FROM bo_records WHERE scope=? LIMIT 1", [scope]) && !this.db.get("SELECT id FROM bo_views WHERE scope=? LIMIT 1", [scope]) && !this.db.get("SELECT id FROM bo_files WHERE scope=? LIMIT 1", [scope]) && !this.syncState(scope).enabled) {
+      if (!modelRow && !this.db.get("SELECT id FROM bo_records WHERE scope=? LIMIT 1", [scope]) && !this.db.get("SELECT id FROM bo_views WHERE scope=? LIMIT 1", [scope]) && !this.db.get("SELECT id FROM bo_files WHERE scope=? LIMIT 1", [scope])) {
+        // A reconnect can enable sync before a new model arrives. The first
+        // suspension already trimmed the author's queue; do not strip it twice.
+        if (this.db.get("SELECT enabled FROM bo_sync WHERE scope=?", [scope])?.enabled) {
+          this.setSync(scope, false);
+          this.retireCache(scope);
+        }
         this.syncError(scope, message);
         return;
       }

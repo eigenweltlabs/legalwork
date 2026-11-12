@@ -23,7 +23,10 @@ test("picker creation pins the directory and reserved identity, leaving no recor
     const created = await request("/records", { ...body, directoryId });
     expect(created.status).toBe(200);
     expect(z.object({ record: BackOfficeRecordSchema }).parse(await created.json()).record.id).toBe(id);
-    expect((await request("/records", { ...body, directoryId })).status).toBe(409);
+    const replay = await request("/records", { ...body, directoryId });
+    expect(replay.status).toBe(200);
+    expect(z.object({ record: BackOfficeRecordSchema }).parse(await replay.json()).record).toMatchObject({ id, revision: 1 });
+    expect((await request("/records", { ...body, directoryId, values: { name: "Different client" } })).status).toBe(409);
     expect(z.object({ records: z.array(BackOfficeRecordSchema) }).parse(await (await request("/records/clients")).json()).records).toHaveLength(1);
   } finally {
     await server.stop();

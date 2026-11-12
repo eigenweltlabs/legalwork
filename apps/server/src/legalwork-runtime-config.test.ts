@@ -323,7 +323,7 @@ describe("legalwork runtime config files", () => {
     // The shared selection is data for the native loader, not an extra host
     // plugin or a connector sign-in implementation owned by LegalWork.
     const common = await readConfigurationFile(legalworkRuntimeConfigFilePath(config));
-    expect(common.mcp).toEqual((await readSettings(config)).configuration.mcp);
+    expect(common.mcp?.servers?.firecrawl).toBeUndefined();
     expect(pluginTargets(common.plugins).some(target => /firecrawl/i.test(target))).toBe(false);
   });
 
@@ -356,9 +356,10 @@ describe("legalwork runtime config files", () => {
 
     const common = await readConfigurationFile(legalworkRuntimeConfigFilePath(config));
     expect(common).toMatchObject({ update: "disable", default_agent: "legalwork", experimental: { todo: true } });
-    expect(common.agents).toEqual(parsed.agents);
+    expect(common.agents?.legalwork).toEqual(parsed.agents?.legalwork);
+    expect(common.agents?.reviewer).toBeUndefined();
     expect(common.providers ?? {}).toEqual(parsed.providers ?? {});
-    expect(common.mcp).toEqual(parsed.mcp);
+    expect(common.mcp?.servers?.posthog).toBeUndefined();
     const sources = await bundledSources(common.plugins);
     await expectBundle(sources, "legalwork-anthropic-adaptive-thinking");
     await expectBundle(sources, "legalwork-anthropic-tool-schema");

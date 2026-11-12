@@ -217,7 +217,7 @@ describe("Back Office records and protected model", () => {
     });
     expect(() =>
       store.saveRecord("local", owner, { ...record, values: { name: "Old" } }),
-    ).toThrow("changed");
+    ).toThrow(expect.objectContaining({ status: 409, code: "back_office_conflict" }));
     expect(store.raw("local", record.id)?.values.industry).toBe("Software");
   });
   test("field patches preserve values unknown to an older client", async () => {

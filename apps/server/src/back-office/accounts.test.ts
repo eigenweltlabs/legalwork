@@ -251,7 +251,7 @@ test("permission shrink at an unchanged cursor fences earlier responses and olde
   const { store, config, alice, original, snapshot } = await fixture();
   const { vatId: _hidden, ...values } = original.values;
   store.receive("firm", snapshot([{ ...original, values }]), alice);
-  expect(() => store.receive("firm", snapshot([original]), alice)).toThrow("directory reconnected");
+  expect(() => store.receive("firm", snapshot([original]), alice)).toThrow(expect.objectContaining({ code: "back_office_replica_changed" }));
   const current = (await backOfficeAccess(config, true)).actor;
   store.receive("firm", { ...snapshot([{ ...original, values: { name: "Newest" } }]), cursor: 20 }, current);
   expect(() => store.receive("firm", { ...snapshot([original]), cursor: 19 }, current)).toThrow("newer team snapshot");

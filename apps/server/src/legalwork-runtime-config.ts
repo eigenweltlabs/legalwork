@@ -552,7 +552,8 @@ export async function writeLegalworkRuntimeConfigFile(config: ServerConfig, work
         if (!(error instanceof Error && "code" in error && error.code === "project_engine_configuration_conflict")) throw error;
       }
     }
-    await writeGeneratedConfigFile(settingsPath, JSON.stringify({ version: 2, workspaces, sharedConfiguration }));
+    const settingsContent = JSON.stringify({ version: 2, workspaces, sharedConfiguration });
+    await writeGeneratedConfigFile(settingsPath, settingsContent);
     await writeNativeEngineProjectRegistry(config, registered, target ? { previousDirectory } : undefined);
     const published = { path, workspaces, shared: sharedConfiguration, systemOne: systemOneSettings, commonPlugins };
     if (previous) { publishedSettings.set(config, published); return; }
@@ -584,7 +585,7 @@ export async function writeLegalworkRuntimeConfigFile(config: ServerConfig, work
     // The shared document lives outside the native configuration directory.
     // Signal the completed publication inside its recursive watch as well: an
     // atomic replacement alone can be missed by the explicit-file watch.
-    await writeGeneratedConfigFile(join(orgPolicyEngineDir(config), "runtime-config.revision"), createHash("sha256").update(content).digest("hex"));
+    await writeGeneratedConfigFile(join(orgPolicyEngineDir(config), "runtime-config.revision"), createHash("sha256").update(content).update(settingsContent).digest("hex"));
     publishedSettings.set(config, published);
   };
   await queueRuntimePublication(path, job, !!target);
