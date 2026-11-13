@@ -18,6 +18,11 @@ async function browserContext(project: DocumentProject, sessionId: string) {
   return { workspaceId: project.workspaceId, sessionId, directory: project.workspaceRoot, ...(registration ? { connectionId: registration.connectionId } : {}) };
 }
 
+function browserTaskActive(workspaceId: string, sessionId: string, state = useSessionActivityStore.getState()) {
+  const record = state.recordsByWorkspaceId[workspaceId]?.[sessionId];
+  return Boolean(record && (record.runActive || record.compacting || record.waitingPermissionIds.length || record.waitingQuestionIds.length));
+}
+
 type Runtime = ReturnType<typeof createDocumentRuntime>;
 const RuntimeContext = createContext<Runtime | null>(null);
 export function useDocumentRuntime() { return use(RuntimeContext); }
@@ -51,15 +56,17 @@ export function DocumentRuntimeProvider({ children }: { children: ReactNode }) {
   const [parking, setParking] = useState<HTMLDivElement | null>(null);
   useEffect(() => {
     const tabs = usePanelTabStore.subscribe(() => runtime.prune());
-    const attach = (sessionId: string) => void runtime.getProject(sessionId).then(async project =>
-      window.__LEGALWORK_ELECTRON__?.browser?.attachSession?.(await browserContext(project, sessionId))).catch(() => {});
+    const attach = (sessionId: string) => void runtime.getProject(sessionId).then(async project => {
+      const context = await browserContext(project, sessionId);
+      return window.__LEGALWORK_ELECTRON__?.browser?.attachSession?.({ ...context, taskActive: browserTaskActive(project.workspaceId, sessionId) });
+    }).catch(() => {});
     const activity = useSessionActivityStore.subscribe((state, previous) => {
-      for (const records of Object.values(state.recordsByWorkspaceId)) for (const [sessionId, record] of Object.entries(records)) {
-        if (record.runActive && !Object.values(previous.recordsByWorkspaceId).some(prior => prior[sessionId]?.runActive)) attach(sessionId);
+      for (const [workspace, records] of Object.entries(state.recordsByWorkspaceId)) for (const sessionId of Object.keys(records)) {
+        if (browserTaskActive(workspace, sessionId, state) && !browserTaskActive(workspace, sessionId, previous)) attach(sessionId);
       }
       for (const [workspace, records] of Object.entries(previous.recordsByWorkspaceId)) {
-        for (const [sessionId, record] of Object.entries(records)) {
-          if (record.runActive && !state.recordsByWorkspaceId[workspace]?.[sessionId]?.runActive) {
+        for (const sessionId of Object.keys(records)) {
+          if (browserTaskActive(workspace, sessionId, previous) && !browserTaskActive(workspace, sessionId, state)) {
             runtime.releaseTask(sessionId);
             void window.__LEGALWORK_ELECTRON__?.browser?.releaseSession?.(sessionId);
           }
@@ -82,7 +89,10 @@ export function DocumentRuntimeProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const sessionId = location.pathname.match(/\/session\/([^/]+)/)?.[1];
     if (!sessionId) return;
-    void runtime.getProject(sessionId).then(async project => window.__LEGALWORK_ELECTRON__?.browser?.attachSession?.({ ...await browserContext(project, sessionId), takeControl: true })).catch(() => {});
+    void runtime.getProject(sessionId).then(async project => {
+      const context = await browserContext(project, sessionId);
+      return window.__LEGALWORK_ELECTRON__?.browser?.attachSession?.({ ...context, takeControl: true, taskActive: browserTaskActive(project.workspaceId, sessionId) });
+    }).catch(() => {});
   }, [runtime, location.pathname]);
   useControlAction({ id: "browser.connection", label: "Access a task browser's extended capabilities", background: true, execute: async (args, { callerSessionId }) => {
     const browser = window.__LEGALWORK_ELECTRON__?.browser;

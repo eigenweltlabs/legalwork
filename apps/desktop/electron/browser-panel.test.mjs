@@ -6,6 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { createBrowserPanel } from "./browser-panel.mjs";
 import { resolveBrowserProject } from "./browser-project.mjs";
+import { BROWSER_IDLE_TIMEOUT_MS, createBrowserIdleSessions } from "./browser-idle.mjs";
 
 /** @param {(contents: EventEmitter, url: string) => Promise<void>} [load] */
 function fixture(resolveDownloadDirectory = async () => null, authorizeBrowserAutomation = async () => {}, load = async () => {}) {
@@ -294,7 +295,7 @@ test("agent browsers load and navigate without adopting the foreground pane", as
   assert.deepEqual(f.first.contentView.children, [f.views[0]]);
 });
 
-test("agent mini tabs retain their chat ownership between turns and close only when dismissed", async t => {
+test("agent mini tabs retain their chat ownership between turns and explicit dismissal still closes them", async t => {
   const f = fixture(); t.after(() => f.controller.destroy());
   const a = await f.call("openUrl", f.first, "https://example.com", "builtin", { workspaceId: "project", sessionId: "a" });
   const b = await f.call("openUrl", f.first, "https://example.org", "builtin", { workspaceId: "project", sessionId: "b" });
@@ -337,6 +338,55 @@ test("agent mini tabs retain their chat ownership between turns and close only w
   assert.equal(f.call("state", f.first).tabs[0].background, true);
   f.call("dismissTab", f.first, a.tab_id);
   assert.equal(f.views[0].webContents.isDestroyed(), true);
+});
+
+test("idle cleanup waits for task completion, resets on interaction, and keeps expanded and manual tabs", async t => {
+  const f = fixture(); t.after(() => f.controller.destroy());
+  const context = { workspaceId: "project", sessionId: "idle-chat" };
+  const a = await f.call("openUrl", f.first, "https://example.com", "builtin", context);
+  const b = await f.call("openUrl", f.first, "https://example.org", "builtin", context);
+  await f.call("createTab", f.first, "https://manual.example");
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  t.mock.timers.tick(BROWSER_IDLE_TIMEOUT_MS * 2);
+  assert.equal(f.call("state", f.first).tabs.length, 3);
+  f.call("releaseSession", f.first, context.sessionId);
+  f.call("selectTab", f.first, b.tab_id);
+  t.mock.timers.tick(BROWSER_IDLE_TIMEOUT_MS - 1);
+  f.views[1].webContents.emit("input-event", {}, { type: "mouseDown" });
+  t.mock.timers.tick(BROWSER_IDLE_TIMEOUT_MS - 1);
+  assert.equal(f.views[0].webContents.isDestroyed(), false);
+  t.mock.timers.tick(1);
+  assert.equal(f.views[0].webContents.isDestroyed(), true);
+  assert.equal(f.views[1].webContents.isDestroyed(), false);
+  assert.equal(f.views[2].webContents.isDestroyed(), false);
+  f.call("closeTab", f.first, b.tab_id);
+  t.mock.timers.tick(BROWSER_IDLE_TIMEOUT_MS);
+  assert.equal(f.views[1].webContents.isDestroyed(), true);
+  assert.equal(f.call("state", f.first).tabs.length, 1);
+  assert.ok(a.tab_id);
+});
+
+test("a resumed task or pending native operation invalidates delayed idle cleanup; disposal cancels timers", t => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const expired = [];
+  const idle = createBrowserIdleSessions((id, valid) => expired.push({ id, valid }));
+  idle.active("chat", false);
+  t.mock.timers.tick(BROWSER_IDLE_TIMEOUT_MS);
+  assert.equal(expired[0].valid(), true);
+  idle.active("chat", true);
+  assert.equal(expired[0].valid(), false);
+  t.mock.timers.tick(BROWSER_IDLE_TIMEOUT_MS * 2);
+  assert.equal(expired.length, 1);
+  const done = idle.use("chat");
+  idle.active("chat", false);
+  t.mock.timers.tick(BROWSER_IDLE_TIMEOUT_MS * 2);
+  assert.equal(expired.length, 1);
+  done();
+  t.mock.timers.tick(BROWSER_IDLE_TIMEOUT_MS - 1);
+  assert.equal(expired.length, 1);
+  idle.dispose();
+  t.mock.timers.tick(BROWSER_IDLE_TIMEOUT_MS);
+  assert.equal(expired.length, 1);
 });
 
 test("dismissing an active background tab closes it when the turn finishes", async t => {

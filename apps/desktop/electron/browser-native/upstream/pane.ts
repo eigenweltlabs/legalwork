@@ -48,6 +48,7 @@ export function createBrowserPane(input: {
   readonly partition?: string
   readonly network?: () => BrowserNetwork
   readonly authorize?: (binding: string) => Promise<void>
+  readonly activity?: (binding: string) => (() => void) | undefined
   readonly downloadDirectory?: (binding: string) => string | undefined
   readonly fileRoots?: (binding: string) => string[]
   readonly page?: (binding: string, page: BrowserPage, popup?: { openerTabId: Browser.TabID; background: boolean }) => void
@@ -360,6 +361,17 @@ export function createBrowserPane(input: {
       if (reason) throw new Error(reason)
       return await execute(entry, { action: command, files: [] }, new AbortController().signal)
     },
+    async suspendPage(window: number, binding: string, tabID: Browser.TabID) {
+      const entry = owned(window, binding)
+      const page = entry.pages.get(tabID)
+      if (!page) return
+      // Retain a lightweight URL with a new generation. Old element refs cannot
+      // be reused after a later command lazily reloads the document.
+      entry.tabs.set(tabID, { ...page.state(), generation: page.state().generation + 1, loading: false, canGoBack: false, canGoForward: false })
+      entry.pages.delete(tabID)
+      publishState(entry)
+      await release(page)
+    },
     async close(window: number, binding: string) {
       const entry = owned(window, binding)
       restore.remove(entry.storageKey)
@@ -550,6 +562,15 @@ export function createBrowserPane(input: {
   }
 
   async function execute(entry: Entry, command: Browser.Command, signal: AbortSignal) {
+    const done = input.activity?.(entry.binding)
+    try {
+      return await runCommand(entry, command, signal)
+    } finally {
+      done?.()
+    }
+  }
+
+  async function runCommand(entry: Entry, command: Browser.Command, signal: AbortSignal) {
     await input.authorize?.(entry.binding)
     const action = command.action
 

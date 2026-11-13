@@ -59,6 +59,10 @@ export function createNativeBrowserHost(options) {
         if (!entry) throw new Error("The browser session no longer has a desktop owner.");
         await authorize(entry.context);
       },
+      activity: binding => {
+        const entry = ownerEntry(binding);
+        return entry && options.activity?.(entry.owner, entry.context);
+      },
       downloadDirectory: binding => ownerEntry(binding)?.downloadDirectory,
       fileRoots: binding => {
         const entry = ownerEntry(binding);
@@ -218,7 +222,7 @@ export function createNativeBrowserHost(options) {
             else throw new Error("Invalid browser extension request.");
           }
         } catch { abort.abort(); }
-        finally { extensionChannels.delete(id); await fetch(endpoint, { method: "DELETE", headers, redirect: "error" }).catch(() => undefined); }
+        finally { if (extensionChannels.get(id) === channel) extensionChannels.delete(id); await fetch(endpoint, { method: "DELETE", headers, redirect: "error" }).catch(() => undefined); }
       })();
       return channel.url;
     },
@@ -231,6 +235,13 @@ export function createNativeBrowserHost(options) {
       const entry = entries.get(key(owner, context));
       if (!entry || entry.closed) throw new Error("The browser is not attached to this chat.");
       return (await getPane()).command(owner.id, entry.binding, command);
+    },
+    async suspend(owner, context, tabID, valid) {
+      const entry = entries.get(key(owner, context)), pane = await getPane();
+      if (!entry || entry.closed || !valid()) return;
+      const channel = extensionChannels.get(`${entry.binding}:${tabID}`);
+      channel?.abort.abort();
+      await pane.suspendPage(owner.id, entry.binding, tabID);
     },
     preview(contents, signal) {
       return capturePage(contents, signal, async () => {

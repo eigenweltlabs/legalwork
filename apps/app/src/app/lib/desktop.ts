@@ -125,7 +125,7 @@ declare global {
       };
       browser?: {
         registerConnection?: (connection: { baseUrl: string; token: string }) => Promise<{ connectionId: string }>;
-        attachSession?: (context: { workspaceId: string; sessionId: string; directory?: string; connectionId?: string; takeControl?: boolean }) => Promise<{ attached: boolean }>;
+        attachSession?: (context: { workspaceId: string; sessionId: string; directory?: string; connectionId?: string; takeControl?: boolean; taskActive?: boolean }) => Promise<{ attached: boolean }>;
         connection?: (tabId: string, context: { workspaceId: string; sessionId: string; directory?: string; connectionId?: string }) => Promise<unknown>;
         show?: (bounds: { x: number; y: number; width: number; height: number }, tabId?: string) => Promise<void>;
         hide?: (tabId?: string) => Promise<void>;
