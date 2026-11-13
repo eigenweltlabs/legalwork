@@ -11,6 +11,20 @@ export function localAssistantDate(now = new Date()) {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 }
 
+/** Identify the Assistant chat for the workspace pane, including explicit conversations. */
+export function assistantChatIdentity(
+  state: AssistantShellState | null | undefined,
+  sessionId: string | null,
+  resolved: AssistantConversation | null | undefined,
+  now = new Date(),
+) {
+  const conversation = [resolved, state?.conversation].find(item =>
+    item?.sessionId === sessionId && item.workspaceId === state?.workspace.id,
+  );
+  if (conversation) return { sessionId: conversation.sessionId, date: conversation.date ?? localAssistantDate(now) };
+  return state?.day ?? undefined;
+}
+
 /**
  * Home and the panel bind to a concrete conversation. Reading never creates
  * one; a navigation into the Assistant, or a first message, does so explicitly.
