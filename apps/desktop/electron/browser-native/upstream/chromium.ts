@@ -1288,8 +1288,7 @@ export function createBrowserPage(
       if (signal) abortError(signal)
       // Force a compositor update after scrolling. requestAnimationFrame can
       // stall in a hidden WebContentsView, even with background throttling off.
-      const image = await cdp.send("Page.captureScreenshot", { format: "png", captureBeyondViewport: false })
-      options.capture?.record?.(contents, Buffer.from(image.data, "base64"))
+      await cdp.send("Page.captureScreenshot", { format: "png", captureBeyondViewport: false })
       if (signal) abortError(signal)
     }
 

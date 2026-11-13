@@ -48,9 +48,10 @@ export function createBrowserPane(input: {
   readonly partition?: string
   readonly network?: () => BrowserNetwork
   readonly authorize?: (binding: string) => Promise<void>
+  readonly activity?: (binding: string) => (() => void) | undefined
   readonly downloadDirectory?: (binding: string) => string | undefined
   readonly fileRoots?: (binding: string) => string[]
-  readonly page?: (binding: string, page: BrowserPage) => void
+  readonly page?: (binding: string, page: BrowserPage, popup?: { openerTabId: Browser.TabID; background: boolean }) => void
   readonly capture?: BrowserCapture
   /** Keep pages across reloads of a trusted host app, never navigation to another origin. */
   readonly retainOnNavigation?: (url: string) => boolean
@@ -360,6 +361,17 @@ export function createBrowserPane(input: {
       if (reason) throw new Error(reason)
       return await execute(entry, { action: command, files: [] }, new AbortController().signal)
     },
+    async suspendPage(window: number, binding: string, tabID: Browser.TabID) {
+      const entry = owned(window, binding)
+      const page = entry.pages.get(tabID)
+      if (!page) return
+      // Retain a lightweight URL with a new generation. Old element refs cannot
+      // be reused after a later command lazily reloads the document.
+      entry.tabs.set(tabID, { ...page.state(), generation: page.state().generation + 1, loading: false, canGoBack: false, canGoForward: false })
+      entry.pages.delete(tabID)
+      publishState(entry)
+      await release(page)
+    },
     async close(window: number, binding: string) {
       const entry = owned(window, binding)
       restore.remove(entry.storageKey)
@@ -486,6 +498,7 @@ export function createBrowserPane(input: {
     initialize = true,
     popupOptions?: Electron.BrowserWindowConstructorOptions,
     restore?: Browser.Tab,
+    opener?: { openerTabId: Browser.TabID; background: boolean },
   ) {
     if (!entry.network) throw new Error("Browser network is not ready; no tab was opened.")
     const id = restore?.id ?? Browser.TabID.make(`tab_${crypto.randomUUID()}`)
@@ -526,7 +539,7 @@ export function createBrowserPane(input: {
         publish(entry, { type: "address", tabID: id })
       },
       popup: (popupOptions, background) => {
-        const popup = create(entry, false, popupOptions)
+        const popup = create(entry, false, popupOptions, undefined, { openerTabId: id, background })
 
         if (!background) focus(entry, popup.state().id)
 
@@ -535,7 +548,7 @@ export function createBrowserPane(input: {
     })
 
     entry.pages.set(id, page)
-    input.page?.(entry.binding, page)
+    input.page?.(entry.binding, page, opener)
     entry.tabs.set(id, restore ?? page.state())
     // Straight to the window, not through the server report: the embed is local to this desktop.
     publish(entry, { type: "embed", tabID: id, embed: page.embed })
@@ -549,6 +562,15 @@ export function createBrowserPane(input: {
   }
 
   async function execute(entry: Entry, command: Browser.Command, signal: AbortSignal) {
+    const done = input.activity?.(entry.binding)
+    try {
+      return await runCommand(entry, command, signal)
+    } finally {
+      done?.()
+    }
+  }
+
+  async function runCommand(entry: Entry, command: Browser.Command, signal: AbortSignal) {
     await input.authorize?.(entry.binding)
     const action = command.action
 

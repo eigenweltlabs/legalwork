@@ -23,7 +23,7 @@ const cardHeight = 143;
 const cardGap = 12;
 const chatDocks = new Map<string, TabDock>();
 
-type MiniTab = { id: string; label: string; preview: ReactNode; open: () => void; openOnClick?: boolean; close: () => void };
+type MiniTab = { id: string; label: string; preview: ReactNode; open: () => void; openOnClick?: boolean; close: () => void; closeLabel?: string };
 
 // Reuse native action screenshots; preview captures would compete with browser input.
 function BrowserMiniPreview({ label, preview }: { label: string; preview?: string | null }) {
@@ -40,6 +40,7 @@ function MiniCard({ tab, toggle, onSurfaceClick, onPointerDown, expanded, count,
   expanded: boolean; count: number; depth: number; columns: number; dock: TabDock;
 }) {
   const covered = !expanded && depth > 0;
+  const closeLabel = tab.closeLabel ?? t("background_tabs.close", { name: tab.label });
   const stackDepth = Math.min(depth, 2);
   const horizontal = dock.horizontal === "right" ? -1 : 1;
   const vertical = dock.vertical === "bottom" ? -1 : 1;
@@ -64,7 +65,7 @@ function MiniCard({ tab, toggle, onSurfaceClick, onPointerDown, expanded, count,
       onPointerDown={onPointerDown} onClick={onSurfaceClick}
       title={tab.label} aria-label={tab.openOnClick ? t("background_tabs.open", { name: tab.label }) : t("background_tabs.toggle")} aria-expanded={tab.openOnClick ? undefined : expanded} />
     <div className="absolute left-1.5 top-1.5 flex gap-0.5 rounded-full bg-white/90 p-0.5 shadow-sm">
-      <Button variant="ghost" size="icon" className="size-5 rounded-full text-black/60 hover:bg-black/10 hover:text-black" aria-label={t("background_tabs.close", { name: tab.label })} title={t("background_tabs.close", { name: tab.label })} onClick={tab.close}><X className="size-3.5" /></Button>
+      <Button variant="ghost" size="icon" className="size-5 rounded-full text-black/60 hover:bg-black/10 hover:text-black" aria-label={closeLabel} title={closeLabel} onClick={tab.close}><X className="size-3.5" /></Button>
       <Button variant="ghost" size="icon" className="size-5 rounded-full text-black/60 hover:bg-black/10 hover:text-black" aria-label={t("background_tabs.open", { name: tab.label })} title={t("background_tabs.open", { name: tab.label })} onClick={tab.open}><ArrowUpRight className="size-3.5" /></Button>
     </div>
     {depth === 0 && count > 1 && <button type="button" className="absolute right-1.5 top-1.5 flex h-6 items-center gap-0.5 rounded-full bg-white/90 px-1.5 text-[10px] font-medium text-black/80 shadow-sm hover:bg-white" onClick={toggle} aria-expanded={expanded} aria-label={t("background_tabs.count", { count })}>
@@ -229,6 +230,7 @@ export function BackgroundTabStack({ sessionId, workspaceId, client, assistantCh
   for (const tab of visibleTaskBrowserTabs(browsers, sessionId, assistantChat, sessions, workers.data, statuses)) {
     tabs.push({ id: tab.id, label: tab.label, openOnClick: true, preview: <BrowserMiniPreview label={tab.label} preview={tab.preview} />,
       open: () => openBackgroundTab(workspacePanelKey(workspaceId), sessionId, { ...tab, background: false }),
+      closeLabel: t("background_tabs.close_browser", { name: tab.label }),
       close: () => { void window.__LEGALWORK_ELECTRON__?.browser?.dismissTab?.(tab.id); } });
   }
   return tabs.length ? <FloatingTabStack tabs={tabs} sessionId={sessionId} /> : null;
