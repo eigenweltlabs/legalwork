@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { createBrowserAutomationBroker } from "./browser-automation-broker.mjs";
 import { createNativeBrowserHost } from "./browser-native-host.mjs";
 import { createBrowserCaptureQueue } from "./browser-capture-queue.mjs";
+import { installBrowserPreview } from "./browser-preview.mjs";
 import { createBrowserPasswordActions } from "./browser-passwords.mjs";
 import { prepareBrowserAutofill } from "./browser-autofill.mjs";
 import { installBrowserDownloads } from "./browser-downloads.mjs";
@@ -30,10 +31,11 @@ export function createBrowserPanel(options) {
   const { app, getWindow, getWindowForEvent, nativeImage } = options;
   const authorizeBrowserAutomation = context => nativeHost?.authorize(context) ?? options.authorizeBrowserAutomation(context);
   const capture = createBrowserCaptureQueue();
-  const captured = (contents, image) => setImmediate(() => {
-    if (contents.isDestroyed()) return;
+  const captured = (contents, image, valid = () => true) => setImmediate(() => {
+    if (contents.isDestroyed() || !valid()) return;
     try {
-      const bitmap = Buffer.isBuffer(image) ? nativeImage.createFromBuffer(image) : image;
+      const bitmap = Buffer.isBuffer(image) ? nativeImage.createFromBuffer(image)
+        : typeof image === "string" ? nativeImage.createFromDataURL(image) : image;
       if (bitmap.isEmpty()) return;
       const preview = bitmap.resize({ width: 480 }).toDataURL();
       for (const { panel } of panels.values()) panel.updatePreview(contents, preview);
@@ -66,7 +68,7 @@ export function createBrowserPanel(options) {
     let entry = panels.get(owner);
     if (entry) return entry;
     const handlers = new Map(), listeners = new Map();
-    const panel = createWindowBrowserPanel({ ...options, getWindow: () => owner, authorizeBrowserAutomation, automationBroker, proxyState, nativeHost, capture });
+    const panel = createWindowBrowserPanel({ ...options, getWindow: () => owner, authorizeBrowserAutomation, automationBroker, proxyState, nativeHost, capture, captured });
     panel.registerIpc({ handle: (name, handler) => handlers.set(name, handler), on: (name, listener) => listeners.set(name, listener) });
     const closed = () => destroy(owner);
     entry = { panel, handlers, listeners, closed };
@@ -110,7 +112,7 @@ export function createBrowserPanel(options) {
   };
 }
 
-function createWindowBrowserPanel({ app, BaseWindow, WebContentsView, clipboard, session, getWindow, isAllowedAppNavigation, safeOpen, resolveDownloadDirectory, authorizeBrowserAutomation, automationBroker, proxyState, nativeHost, capture, loadBrowserPasswords }) {
+function createWindowBrowserPanel({ app, BaseWindow, WebContentsView, clipboard, session, getWindow, isAllowedAppNavigation, safeOpen, resolveDownloadDirectory, authorizeBrowserAutomation, automationBroker, proxyState, nativeHost, capture, captured, loadBrowserPasswords }) {
   const browserTabs = new Map();
   let browserTabOrder = [];
   let activeBrowserTabId = null;
@@ -691,6 +693,13 @@ function createWindowBrowserPanel({ app, BaseWindow, WebContentsView, clipboard,
     const tab = { tabId, view, background: !select, taskSessionId, workspaceId, taskActive: Boolean(taskSessionId), dismissed: false, favicon: null, downloadDirectory, downloads: [], initialLoad, nativePage, autofillGeneration: 0 };
     browserTabs.set(tabId, tab);
     browserTabOrder.push(tabId);
+    tab.previewRefresh = installBrowserPreview(view.webContents, {
+      enabled: () => Boolean(tab.taskSessionId && !tab.dismissed && (tab.nativePage || tab.connection)),
+      busy: () => capture.isBusy(view.webContents),
+      capture: signal => tab.nativePage ? nativeHost.preview(view.webContents, signal)
+        : automationBroker.preview(view.webContents, () => prepareBrowserCapture(tab), signal),
+      publish: (image, valid) => captured(view.webContents, image, valid),
+    });
     view.webContents.on("did-start-navigation", () => {
       tab.autofillGeneration++;
       if (menuOverlayRequest?.tabId === tabId) hideMenuOverlay();
@@ -833,6 +842,7 @@ function createWindowBrowserPanel({ app, BaseWindow, WebContentsView, clipboard,
   function closeBrowserTab(tabId = activeBrowserTabId) {
     const tab = getBrowserTab(tabId);
     if (!tab) return null;
+    tab.previewRefresh.dispose();
     capture.close(tab.view.webContents);
     if (menuOverlayRequest?.tabId === tabId) hideMenuOverlay();
     const closingIndex = browserTabOrder.indexOf(tabId);
@@ -939,6 +949,7 @@ function createWindowBrowserPanel({ app, BaseWindow, WebContentsView, clipboard,
     menuOverlayRequest = null;
     try { overlayView?.webContents.close(); } catch { /* already destroyed */ }
     for (const tab of browserTabs.values()) {
+      tab.previewRefresh.dispose();
       capture.close(tab.view.webContents);
       try { tab.view.webContents.close(); } catch { /* already destroyed */ }
     }

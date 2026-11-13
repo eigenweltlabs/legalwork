@@ -232,6 +232,12 @@ export function createNativeBrowserHost(options) {
       if (!entry || entry.closed) throw new Error("The browser is not attached to this chat.");
       return (await getPane()).command(owner.id, entry.binding, command);
     },
+    preview(contents, signal) {
+      return capturePage(contents, signal, async () => {
+        const image = await contents.debugger.sendCommand("Page.captureScreenshot", { format: "png", captureBeyondViewport: false });
+        return Buffer.from(image.data, "base64");
+      });
+    },
     async destroy(owner) { for (const entry of [...entries.values()]) if (!owner || entry.owner === owner) await close(entry); for (const [id, connection] of connections) if (!owner || connection.owner === owner) connections.delete(id); },
     async dispose() { disposed = true; clearInterval(timer); await Promise.all([...entries.values()].map(close)); connections.clear(); endpoints.clear(); if (loading) await (await loading).dispose(); },
   };

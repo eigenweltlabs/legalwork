@@ -92,7 +92,7 @@ export function createBrowserAutomationBroker({ authorize, capture = createBrows
     // Cancelling a caller does not cancel Chromium's screenshot or its temporary
     // viewport. Keep the page lease until that native operation actually settles.
     const result = method === "Page.captureScreenshot" ? await operation() : await browserAbortable(operation, signal);
-    if (method === "Page.captureScreenshot" && result.data) captured?.(grant.webContents, Buffer.from(result.data, "base64"));
+    if (method === "Page.captureScreenshot" && result.data && activity) captured?.(grant.webContents, Buffer.from(result.data, "base64"));
     return method === "Accessibility.getFullAXTree" ? normalizeAccessibilityTree(result) : result;
   }
 
@@ -316,7 +316,7 @@ export function createBrowserAutomationBroker({ authorize, capture = createBrows
       if (!grant) throw new Error("Browser tab has no automation grant.");
       return withDebugger(grant, (send) => browserSnapshot(send, webContents));
     },
-    async preview(webContents, prepare) {
+    async preview(webContents, prepare, signal) {
       const grant = [...grants.values()].find(entry => entry.webContents === webContents);
       if (!grant) return null;
       return withCapture(grant, async send => {
@@ -327,7 +327,7 @@ export function createBrowserAutomationBroker({ authorize, capture = createBrows
           clip: { x: 0, y: 0, width: 1200, height: 800, scale: 0.4 },
         });
         return image.data ? `data:image/png;base64,${image.data}` : null;
-      }, undefined, false, prepare);
+      }, signal, false, prepare);
     },
     async close() {
       closed = true;
