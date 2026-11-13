@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/dialog";
 import type { Run, Text, UsageTextKey, UsageTransport } from "./transport";
 import { parseTopUpResult } from "./top-up-result";
+import { confirmSavedCardTopUp } from "./confirm-saved-card-top-up";
 import { usageBlockMessageKey } from "./usage-block";
 import { CHECKING_TOP_UP, checkConfirmedTopUp, type TopUpRecovery } from "./usage-recovery";
 import type { UsageLimitDetails } from "@legalwork/types/provider-usage-limit";
@@ -153,6 +154,7 @@ export function CardTopUp(props: Props & {
   limit?: UsageLimitDetails | null;
 }) {
   const [open, setOpen] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   const [paidOperationId, setPaidOperationId] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [checked, setChecked] = useState<{ operationId: string; recovery: TopUpRecovery } | null>(null);
@@ -195,7 +197,7 @@ export function CardTopUp(props: Props & {
     <Dialog
       open={open}
       onOpenChange={(value) => {
-        if (props.busy) return;
+        if (props.busy || confirming) return;
         if (value && !waiting) setPaidOperationId(null);
         setOpen(value);
       }}
@@ -219,12 +221,12 @@ export function CardTopUp(props: Props & {
           </div>
           {waiting && !checking && <Button variant="outline" className="w-full" onClick={() => setAttempt(value => value + 1)}>{props.t("limits.check_credits")}</Button>}
           <Button className="w-full" onClick={() => setOpen(false)}>{props.t(props.returnLabel ?? "limits.done")}</Button>
-        </div> : <TopUpForm {...props} onPaid={setPaidOperationId} />)}
+        </div> : <TopUpForm {...props} busy={props.busy || confirming} onConfirming={setConfirming} onPaid={setPaidOperationId} />)}
       </DialogContent>
     </Dialog>
   );
 }
-function TopUpForm({ t, run, busy, transport, onPaid, trialUsage }: Props & { onPaid: (operationId: string) => void }) {
+function TopUpForm({ t, run, busy, transport, onPaid, trialUsage, onConfirming }: Props & { onPaid: (operationId: string) => void; onConfirming: (value: boolean) => void }) {
   const { details, failed, reload } = usePaymentDetails(transport);
   const [value, setValue] = useState(trialUsage ? "20" : "100"),
     [operationId, setOperationId] = useState(() => crypto.randomUUID()),
@@ -238,7 +240,17 @@ function TopUpForm({ t, run, busy, transport, onPaid, trialUsage }: Props & { on
     setError("");
     setSubmitted(true);
     try {
-      const next = parseTopUpResult(await run(action));
+      let next = parseTopUpResult(await run(action));
+      if (next.status === "requires_client_confirmation") {
+        if (action.action !== "resumeTopUp" || action.expectedTotalCents !== next.totalCents)
+          throw new Error("top_up_confirmation_required");
+        onConfirming(true);
+        let confirmationError: unknown;
+        try { await confirmSavedCardTopUp(next); } catch (err) { confirmationError = err; }
+        next = parseTopUpResult(await run({ action: "resumeTopUp", operationId: next.operationId, preview: true }));
+        if (next.status === "requires_client_confirmation") throw new Error("response");
+        if (confirmationError && next.status === "requires_confirmation") throw confirmationError;
+      }
       setResult(next);
       if (next.status === "paid") return next;
       if (next.status === "canceled") {
@@ -262,6 +274,8 @@ function TopUpForm({ t, run, busy, transport, onPaid, trialUsage }: Props & { on
       }
       setSubmitted(false);
       await reload();
+    } finally {
+      onConfirming(false);
     }
   }
   async function checkout(amountCents: number) {
@@ -299,12 +313,11 @@ function TopUpForm({ t, run, busy, transport, onPaid, trialUsage }: Props & { on
         <dl className="grid grid-cols-2 gap-3 rounded-xl border p-4 text-sm">
           <dt>{t("limits.usable_credits")}</dt><dd className="text-right">{money(result.amountCents)}</dd>
           <dt>{t("limits.tax")}</dt><dd className="text-right">{money(result.taxCents)}</dd>
-          {!!result.balanceCents && <><dt>{t("limits.account_balance")}</dt><dd className="text-right">{money(-result.balanceCents)}</dd></>}
           <dt className="font-semibold">{t("limits.total_charge")}</dt><dd className="text-right font-semibold">{money(result.totalCents)}</dd>
         </dl>
         {details?.card && <CardLabel card={details.card} t={t} />}
         <Button className="w-full" disabled={busy} onClick={() => void execute({
-          action: "resumeTopUp", operationId: result.operationId, expectedTotalCents: result.totalCents,
+          action: "resumeTopUp", operationId: result.operationId, expectedTotalCents: result.totalCents, clientConfirmation: true,
         })}>{t("limits.confirm_topup")} · {money(result.totalCents)}</Button>
         <Button className="w-full" variant="outline" disabled={busy} onClick={() => {
           setResult(null); setSubmitted(false); setOperationId(crypto.randomUUID());
@@ -404,6 +417,7 @@ function TopUpForm({ t, run, busy, transport, onPaid, trialUsage }: Props & { on
         if (details.card)
           void execute({
             action: "quoteTopUp",
+            clientConfirmation: true,
             enableTrialUsage: trialUsage || undefined,
             operationId,
             amountCents,
