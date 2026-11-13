@@ -17,10 +17,11 @@ function textMessage(id: string, role: UIMessage["role"], text: string): UIMessa
   return { id, role, parts: [{ type: "text", text }] };
 }
 
-function renderMessages(messages: UIMessage[], status: ThreadStatus) {
+function renderMessages(messages: UIMessage[], status: ThreadStatus, replyActionsMessageId?: string) {
   return renderToStaticMarkup(
     <QueryClientProvider client={new QueryClient()}><MemoryRouter>
       <MessageListProvider
+        replyActionsMessageId={replyActionsMessageId}
         workspaceId="copy-test"
         sessionId="session"
         showThinking={false}
@@ -44,6 +45,16 @@ function copyButtonCount(html: string) {
 }
 
 describe("message copying", () => {
+  test("a separate reply toolbar suppresses only its own duplicate copy button", () => {
+    const messages = [
+      textMessage("user-1", "user", "First prompt"),
+      textMessage("assistant-1", "assistant", "Earlier answer"),
+      textMessage("user-2", "user", "Second prompt"),
+      textMessage("assistant-2", "assistant", "Latest answer"),
+    ];
+    expect(copyButtonCount(renderMessages(messages, "ready"))).toBe(4);
+    expect(copyButtonCount(renderMessages(messages, "ready", "assistant-2"))).toBe(3);
+  });
   test("sent integration references render inline as chips while ordinary mentions stay text", () => {
     const selection: IntegrationSelection = { kind: "website", id: "beck", label: "beck-online" };
     for (const legacy of [false, true]) {

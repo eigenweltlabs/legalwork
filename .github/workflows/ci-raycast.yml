@@ -1,0 +1,32 @@
+name: Raycast extension
+
+on:
+  pull_request:
+    paths:
+      - 'apps/raycast-legalwork/**'
+      - 'packages/types/**'
+      - '.github/workflows/ci-raycast.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24.22.1
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.4.0
+      - name: Install extension dependencies
+        run: pnpm --dir apps/raycast-legalwork install --ignore-workspace --frozen-lockfile --ignore-scripts
+      - name: Check extension types
+        working-directory: apps/raycast-legalwork
+        run: node node_modules/typescript/bin/tsc --noEmit
+      - name: Build extension
+        working-directory: apps/raycast-legalwork
+        run: ./node_modules/.bin/ray build -e dist
