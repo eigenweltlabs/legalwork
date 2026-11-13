@@ -13,6 +13,7 @@
  * tighten them instead of widening call sites.
  */
 import type { WorkspaceWire } from "./workspace.js";
+import type { LauncherWorkspaceContext, LauncherOutputIntent, LauncherOutputTask, LauncherCaptureResult, LauncherDesktopStatus, LauncherDraftFile, LauncherInsertResult, LauncherInvocation, LauncherOrigin, LauncherSelectionResult, LauncherSettings, LauncherWindowState } from "./launcher.js";
 
 export type ActaportToolset = "records" | "finance" | "administration" | "uploads";
 export type ActaportConnectionStatus = {
@@ -826,6 +827,37 @@ export type DesktopCommandMap = {
     args: [badge: { count: number; overlayDataUrl?: string | null; description?: string }];
     result: boolean;
   };
+
+  /**
+   * Global Assistant launcher: its own background presence, shortcut registry,
+   * panel window, external origin/selection/insertion, screen capture and the
+   * shared draft file. Native window and process identifiers never leave the
+   * main process; the renderer only sees opaque origin IDs.
+   */
+  launcherStatus: { args: []; result: LauncherDesktopStatus };
+  launcherSettingsSet: { args: [patch: Partial<LauncherSettings>]; result: LauncherDesktopStatus };
+  launcherWindowControl: { args: [command: "show" | "hide" | "pin" | "unpin" | "expand" | "resize" | "state" | "dialog-begin" | "dialog-end" | "context" | "invoke" | "reset-position", payload?: { height?: number; route?: string; conversationId?: string; context?: LauncherWorkspaceContext | null; invocation?: LauncherInvocation }]; result: LauncherWindowState };
+  launcherOriginGet: { args: []; result: LauncherOrigin | null };
+  launcherOriginSelection: { args: [originId: string]; result: LauncherSelectionResult };
+  launcherOriginInsert: { args: [originId: string, text: string]; result: LauncherInsertResult };
+  launcherClipboardRead: { args: []; result: { text: string; capturedAt: number } };
+  launcherClipboardWrite: { args: [text: string]; result: void };
+  launcherFilesPrepareDrag: { args: [serverUrl: string, files: { path: string; root: string }[]]; result: { path: string; token: string }[] };
+  launcherFilesStartDrag: { args: [tokens: string[]]; result: void };
+  launcherClipboardCopyFiles: { args: [serverUrl: string, paths: string[]]; result: void };
+  launcherCaptureWindow: { args: []; result: LauncherCaptureResult };
+  launcherCaptureRegion: { args: []; result: LauncherCaptureResult };
+  launcherOutputRemember: { args: [serverUrl: string, intent: LauncherOutputIntent]; result: void };
+  launcherOutputList: { args: []; result: LauncherOutputTask[] };
+  launcherOutputCancel: { args: [requestId: string]; result: void };
+  launcherDraftsRead: { args: []; result: LauncherDraftFile };
+  launcherDraftsWrite: { args: [file: LauncherDraftFile, expectedVersion: number]; result: boolean };
+  launcherInvocationsDrain: { args: []; result: LauncherInvocation[] };
+  launcherAttentionSet: { args: [input: { count: number; recording: boolean }]; result: void };
+  launcherRaycastPairing: { args: [action: "status" | "enable" | "disable"]; result: { enabled: boolean; path: string | null } };
+  launcherApprovalReply: { args: [id: string, decision: "allow" | "deny"]; result: boolean };
+  /** Dictate into the captured origin app, or open the meeting recorder: the two other voice destinations. */
+  launcherVoice: { args: [action: "dictate" | "record"]; result: boolean };
 
   // Window / OS utilities (dunder commands)
   __openPath: { args: [target: string]; result: unknown };

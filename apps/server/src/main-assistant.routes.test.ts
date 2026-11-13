@@ -77,6 +77,13 @@ test("assistant HTTP provisioning, scheduling, source scope, delegation and perm
       const unpaid = await call("/assistant/current", "POST", {});
       assert.equal(unpaid.status, 403); assert.equal((await unpaid.json()).code, "assistant_subscription_required");
       assert.equal(sessions.size, 0, "Unpaid visits must not create an Assistant chat");
+      const launcherSearch = await call("/launcher/search?q=Matter&kinds=projects");
+      assert.equal(launcherSearch.status, 200, "Local project search needs no cloud setup or Assistant subscription");
+      assert.ok((await launcherSearch.json()).items.some(item => item.kind === "projects" && item.id === "matter"));
+      const launcherCurrent = await call("/assistant/conversations/current");
+      assert.equal(launcherCurrent.status, 200);
+      assert.equal((await launcherCurrent.json()).conversation, null);
+      assert.equal(sessions.size, 0, "Opening the launcher must not provision an Assistant chat");
       await subscribe("sync");
       assert.equal((await call("/assistant/current", "POST", {})).status, 403);
       await subscribe("plus", "canceled");
@@ -87,6 +94,9 @@ test("assistant HTTP provisioning, scheduling, source scope, delegation and perm
         assert.equal((await call(path)).status, 404, "Cloud-only routes must not ship in the local assistant");
       assert.equal((await call("/assistant/cloud", "POST", {})).status, 404);
       assert.equal((await call("/assistant/cloud", "DELETE")).status, 404);
+      assert.equal((await call("/cloud-sync/status")).status, 404);
+      for (const path of ["checkpoint", "resume", "ready", "projects/matter/prepare"])
+        assert.equal((await call("/cloud-sync/" + path, "POST", {})).status, 404);
       const projectFields = [{ id: "our_client", label: "Our client", type: "text", value: null }];
       const [a, b] = await Promise.all([call("/assistant/current", "POST", { projectFields }), call("/assistant/current", "POST", {})]);
       const assistant = await a.json(); assert.deepEqual(await b.json(), assistant);
