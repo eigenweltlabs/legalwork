@@ -1,0 +1,695 @@
+{
+  "ris_about": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {},
+    "additionalProperties": false
+  },
+  "ris_list_scopes": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "controller": {
+        "type": "string",
+        "enum": [
+          "Bundesrecht",
+          "Landesrecht",
+          "Bezirke",
+          "Gemeinden",
+          "Judikatur",
+          "Sonstige",
+          "History",
+          "Version"
+        ]
+      },
+      "applikation": {
+        "type": "string",
+        "enum": [
+          "BrKons",
+          "BgblAuth",
+          "BgblPdf",
+          "BgblAlt",
+          "Begut",
+          "RegV",
+          "Erv",
+          "LrKons",
+          "LgblAuth",
+          "Lgbl",
+          "LgblNO",
+          "Vbl",
+          "Bvb",
+          "Gr",
+          "GrA",
+          "Vfgh",
+          "Vwgh",
+          "Justiz",
+          "Bvwg",
+          "Lvwg",
+          "Dsk",
+          "Dok",
+          "Pvak",
+          "Gbk",
+          "Verg",
+          "Uvs",
+          "Ubas",
+          "Umse",
+          "Bks",
+          "AsylGH",
+          "Normenliste",
+          "PruefGewO",
+          "Avsv",
+          "Spg",
+          "Avn",
+          "KmGer",
+          "Mrp",
+          "Erlaesse",
+          "Upts"
+        ]
+      },
+      "field": {
+        "description": "Restrict the response to one field, e.g. 'einbringende_stelle' or 'bundesland'.",
+        "type": "string"
+      }
+    }
+  },
+  "ris_search": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "corpus": {
+        "type": "string",
+        "enum": [
+          "federal_law",
+          "state_law",
+          "case_law",
+          "gazettes",
+          "drafts_and_bills",
+          "municipal",
+          "official_announcements",
+          "english_translations"
+        ],
+        "description": "Coarse selector mapping to one or more applications. Use 'federal_law' for consolidated Bundesrecht; 'case_law' for Vfgh/Vwgh/Justiz/Bvwg/Lvwg and friends; 'gazettes' for BgblAuth/LgblAuth/..."
+      },
+      "applikation": {
+        "description": "Narrows to a specific RIS application within the chosen corpus. Omit to fan out across all apps of the corpus (slow for case_law; failures per app are reported, not fatal).",
+        "type": "string",
+        "enum": [
+          "BrKons",
+          "BgblAuth",
+          "BgblPdf",
+          "BgblAlt",
+          "Begut",
+          "RegV",
+          "Erv",
+          "LrKons",
+          "LgblAuth",
+          "Lgbl",
+          "LgblNO",
+          "Vbl",
+          "Bvb",
+          "Gr",
+          "GrA",
+          "Vfgh",
+          "Vwgh",
+          "Justiz",
+          "Bvwg",
+          "Lvwg",
+          "Dsk",
+          "Dok",
+          "Pvak",
+          "Gbk",
+          "Verg",
+          "Uvs",
+          "Ubas",
+          "Umse",
+          "Bks",
+          "AsylGH",
+          "Normenliste",
+          "PruefGewO",
+          "Avsv",
+          "Spg",
+          "Avn",
+          "KmGer",
+          "Mrp",
+          "Erlaesse",
+          "Upts"
+        ]
+      },
+      "query": {
+        "description": "Full-text search over document TEXT (German). Boolean operators: 'und', 'oder', 'nicht'. One '*' wildcard per word, ≥2 chars before and after. NOT for statute names — a name in query returns every document that merely mentions it; use title instead.",
+        "type": "string"
+      },
+      "title": {
+        "description": "Title search over Langtitel, Kurztitel AND Abkürzung — use this for law names and abbreviations ('IFG' ≡ 'Informationsfreiheitsgesetz'). Variants may be combined: 'IFG oder Informationsfreiheitsgesetz'.",
+        "type": "string"
+      },
+      "date_from": {
+        "description": "Lower bound for the relevant date (Kundmachung / Entscheidung / Veröffentlichung depending on corpus). YYYY-MM-DD.",
+        "type": "string"
+      },
+      "date_to": {
+        "description": "Upper bound for the relevant date. YYYY-MM-DD.",
+        "type": "string"
+      },
+      "in_force_on": {
+        "description": "Consolidated law only — restricts to the version in force on this date. YYYY-MM-DD.",
+        "type": "string"
+      },
+      "gesetzesnummer": {
+        "description": "Stable numeric key of one law (every consolidated-law hit carries it in ris_citation.gesetzesnummer). Searching with it returns one hit per section — the law's table of contents.",
+        "type": "string"
+      },
+      "kundmachungsorgan": {
+        "description": "e.g. 'BGBl. I Nr.'",
+        "type": "string"
+      },
+      "geschaeftszahl": {
+        "description": "Case number; for Upts, wrapper aliases to upstream 'GZ'.",
+        "type": "string"
+      },
+      "norm": {
+        "description": "Case law: decisions citing a given norm, e.g. '§ 3 AsylG 2005'.",
+        "type": "string"
+      },
+      "gericht": {
+        "description": "Case law: court name.",
+        "type": "string"
+      },
+      "bundesland": {
+        "description": "One of nine Austrian states. For state-law apps (LrKons/LgblAuth/Lgbl/Vbl) accepts an array — wrapper expands to SucheIn{State}=true upstream. For value-style apps (Bvb/Gr/GrA/Lvwg/Uvs) takes a single value.",
+        "anyOf": [
+          {
+            "type": "string",
+            "enum": [
+              "Burgenland",
+              "Kaernten",
+              "Niederoesterreich",
+              "Oberoesterreich",
+              "Salzburg",
+              "Steiermark",
+              "Tirol",
+              "Vorarlberg",
+              "Wien"
+            ]
+          },
+          {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "Burgenland",
+                "Kaernten",
+                "Niederoesterreich",
+                "Oberoesterreich",
+                "Salzburg",
+                "Steiermark",
+                "Tirol",
+                "Vorarlberg",
+                "Wien"
+              ]
+            }
+          }
+        ]
+      },
+      "rechtsgebiet": {
+        "type": "string"
+      },
+      "fachgebiet": {
+        "type": "string"
+      },
+      "einbringende_stelle": {
+        "type": "string"
+      },
+      "entscheidungsart": {
+        "type": "string"
+      },
+      "since_period": {
+        "type": "string",
+        "enum": [
+          "Undefined",
+          "EinerWoche",
+          "ZweiWochen",
+          "EinemMonat",
+          "DreiMonaten",
+          "SechsMonaten",
+          "EinemJahr"
+        ]
+      },
+      "document_type": {
+        "description": "Multi-select. Mapped upstream to Typ.SucheInGesetzen/.SucheInVerordnungen/.SucheInKundmachungen/.SucheInSonstiges.",
+        "type": "array",
+        "items": {
+          "type": "string",
+          "enum": [
+            "law",
+            "regulation",
+            "announcement",
+            "other"
+          ]
+        }
+      },
+      "filters": {
+        "description": "Per-application niche filters. Call ris_list_scopes(field, applikation) to discover valid fields and values.",
+        "type": "object",
+        "propertyNames": {
+          "type": "string"
+        },
+        "additionalProperties": {}
+      },
+      "sort_by": {
+        "default": "relevance",
+        "type": "string",
+        "enum": [
+          "relevance",
+          "date_desc",
+          "date_asc",
+          "citation"
+        ]
+      },
+      "limit": {
+        "default": 20,
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 100
+      },
+      "offset": {
+        "default": 0,
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9007199254740991
+      },
+      "include_full_metadata": {
+        "default": false,
+        "description": "Includes Indizes, Schlagworte, Anmerkung, Aenderung lists, and the full ris_citation. Requires limit ≤ 25 (a larger limit is rejected).",
+        "type": "boolean"
+      },
+      "include_raw_content_urls": {
+        "default": false,
+        "description": "Includes the full ContentUrl array (xml/html/pdf/rtf/authentisch) under content_urls.alternates.",
+        "type": "boolean"
+      },
+      "bulk_acknowledged": {
+        "default": false,
+        "description": "Set true to bypass the bulk-fetch refusal when paginating past 1,000 records. Caller affirms they have RIS upstream consent.",
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "corpus"
+    ],
+    "additionalProperties": false
+  },
+  "ris_get_document": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "id": {
+        "type": "string",
+        "description": "Gesetzesnummer (whole law), RIS document number (e.g. NOR40191806, JWT_…), ELI/RIS URL, or free text (first match)."
+      },
+      "applikation": {
+        "description": "Required when 'id' is not a Gesetzesnummer; picks the app/controller the id lives in.",
+        "type": "string",
+        "enum": [
+          "BrKons",
+          "BgblAuth",
+          "BgblPdf",
+          "BgblAlt",
+          "Begut",
+          "RegV",
+          "Erv",
+          "LrKons",
+          "LgblAuth",
+          "Lgbl",
+          "LgblNO",
+          "Vbl",
+          "Bvb",
+          "Gr",
+          "GrA",
+          "Vfgh",
+          "Vwgh",
+          "Justiz",
+          "Bvwg",
+          "Lvwg",
+          "Dsk",
+          "Dok",
+          "Pvak",
+          "Gbk",
+          "Verg",
+          "Uvs",
+          "Ubas",
+          "Umse",
+          "Bks",
+          "AsylGH",
+          "Normenliste",
+          "PruefGewO",
+          "Avsv",
+          "Spg",
+          "Avn",
+          "KmGer",
+          "Mrp",
+          "Erlaesse",
+          "Upts"
+        ]
+      },
+      "fassung_vom": {
+        "description": "YYYY-MM-DD — snapshot for consolidated law. Defaults to today.",
+        "type": "string"
+      },
+      "include_structure": {
+        "default": false,
+        "description": "Include the consolidated-law TOC (one entry per section; capped at 800 — see structure_truncated).",
+        "type": "boolean"
+      },
+      "include_full_metadata": {
+        "default": false,
+        "description": "Include all Metadaten fields.",
+        "type": "boolean"
+      },
+      "include_raw_content_urls": {
+        "default": false,
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "id"
+    ],
+    "additionalProperties": false
+  },
+  "ris_get_section": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "id": {
+        "type": "string",
+        "description": "Gesetzesnummer (with section_ref), RIS document number from a search result (NOR…, JWT_…, JJR_…), ELI/RIS URL, Geschäftszahl, or law abbreviation."
+      },
+      "section_ref": {
+        "type": "string",
+        "description": "Paragraph/article/anlage label, e.g. '§ 12', 'Art. 5', 'Anlage 1'. Ignored when id is a document number (those address one section already)."
+      },
+      "applikation": {
+        "type": "string",
+        "enum": [
+          "BrKons",
+          "BgblAuth",
+          "BgblPdf",
+          "BgblAlt",
+          "Begut",
+          "RegV",
+          "Erv",
+          "LrKons",
+          "LgblAuth",
+          "Lgbl",
+          "LgblNO",
+          "Vbl",
+          "Bvb",
+          "Gr",
+          "GrA",
+          "Vfgh",
+          "Vwgh",
+          "Justiz",
+          "Bvwg",
+          "Lvwg",
+          "Dsk",
+          "Dok",
+          "Pvak",
+          "Gbk",
+          "Verg",
+          "Uvs",
+          "Ubas",
+          "Umse",
+          "Bks",
+          "AsylGH",
+          "Normenliste",
+          "PruefGewO",
+          "Avsv",
+          "Spg",
+          "Avn",
+          "KmGer",
+          "Mrp",
+          "Erlaesse",
+          "Upts"
+        ]
+      },
+      "fassung_vom": {
+        "type": "string"
+      },
+      "format": {
+        "default": "markdown",
+        "type": "string",
+        "enum": [
+          "markdown",
+          "text",
+          "plain",
+          "raw_url"
+        ]
+      },
+      "include_neighbours": {
+        "default": false,
+        "description": "Include prev/next section refs.",
+        "type": "boolean"
+      },
+      "include_full_metadata": {
+        "default": false,
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "id",
+      "section_ref"
+    ],
+    "additionalProperties": false
+  },
+  "ris_get_related": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "id": {
+        "type": "string"
+      },
+      "applikation": {
+        "type": "string",
+        "enum": [
+          "BrKons",
+          "BgblAuth",
+          "BgblPdf",
+          "BgblAlt",
+          "Begut",
+          "RegV",
+          "Erv",
+          "LrKons",
+          "LgblAuth",
+          "Lgbl",
+          "LgblNO",
+          "Vbl",
+          "Bvb",
+          "Gr",
+          "GrA",
+          "Vfgh",
+          "Vwgh",
+          "Justiz",
+          "Bvwg",
+          "Lvwg",
+          "Dsk",
+          "Dok",
+          "Pvak",
+          "Gbk",
+          "Verg",
+          "Uvs",
+          "Ubas",
+          "Umse",
+          "Bks",
+          "AsylGH",
+          "Normenliste",
+          "PruefGewO",
+          "Avsv",
+          "Spg",
+          "Avn",
+          "KmGer",
+          "Mrp",
+          "Erlaesse",
+          "Upts"
+        ]
+      },
+      "relationship_types": {
+        "description": "Filter the returned relations. Defaults to all known types for the record's corpus.",
+        "type": "array",
+        "items": {
+          "type": "string",
+          "enum": [
+            "amends",
+            "amended_by",
+            "predecessor",
+            "successor",
+            "cites_norm",
+            "cited_by_case"
+          ]
+        }
+      },
+      "limit": {
+        "default": 50,
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 100
+      },
+      "offset": {
+        "default": 0,
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9007199254740991
+      }
+    },
+    "required": [
+      "id"
+    ],
+    "additionalProperties": false
+  },
+  "ris_verify": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "id": {
+        "type": "string",
+        "description": "Gesetzesnummer (preferred), or a law name/abbreviation."
+      },
+      "applikation": {
+        "default": "BrKons",
+        "type": "string",
+        "enum": [
+          "BrKons",
+          "BgblAuth",
+          "BgblPdf",
+          "BgblAlt",
+          "Begut",
+          "RegV",
+          "Erv",
+          "LrKons",
+          "LgblAuth",
+          "Lgbl",
+          "LgblNO",
+          "Vbl",
+          "Bvb",
+          "Gr",
+          "GrA",
+          "Vfgh",
+          "Vwgh",
+          "Justiz",
+          "Bvwg",
+          "Lvwg",
+          "Dsk",
+          "Dok",
+          "Pvak",
+          "Gbk",
+          "Verg",
+          "Uvs",
+          "Ubas",
+          "Umse",
+          "Bks",
+          "AsylGH",
+          "Normenliste",
+          "PruefGewO",
+          "Avsv",
+          "Spg",
+          "Avn",
+          "KmGer",
+          "Mrp",
+          "Erlaesse",
+          "Upts"
+        ]
+      },
+      "at_date": {
+        "description": "YYYY-MM-DD. Defaults to today (UTC).",
+        "type": "string"
+      }
+    },
+    "required": [
+      "id"
+    ],
+    "additionalProperties": false
+  },
+  "ris_get_history": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "anwendung": {
+        "type": "string",
+        "enum": [
+          "BrKons",
+          "BgblAuth",
+          "BgblPdf",
+          "BgblAlt",
+          "Begut",
+          "RegV",
+          "Erv",
+          "LrKons",
+          "LgblAuth",
+          "Lgbl",
+          "LgblNO",
+          "Vbl",
+          "Bvb",
+          "Gr",
+          "GrA",
+          "Vfgh",
+          "Vwgh",
+          "Justiz",
+          "Bvwg",
+          "Lvwg",
+          "Dsk",
+          "Dok",
+          "Pvak",
+          "Gbk",
+          "Verg",
+          "Uvs",
+          "Ubas",
+          "Umse",
+          "Bks",
+          "AsylGH",
+          "Normenliste",
+          "PruefGewO",
+          "Avsv",
+          "Spg",
+          "Avn",
+          "KmGer",
+          "Mrp",
+          "Erlaesse",
+          "Upts"
+        ],
+        "description": "The application to track (e.g. BgblAuth, BrKons, Vfgh)."
+      },
+      "from_date": {
+        "type": "string",
+        "description": "YYYY-MM-DD."
+      },
+      "to_date": {
+        "description": "YYYY-MM-DD. Defaults to today (UTC).",
+        "type": "string"
+      },
+      "include_deleted": {
+        "default": false,
+        "type": "boolean"
+      },
+      "limit": {
+        "default": 20,
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 100
+      },
+      "offset": {
+        "default": 0,
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9007199254740991
+      },
+      "bulk_acknowledged": {
+        "default": false,
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "anwendung",
+      "from_date"
+    ],
+    "additionalProperties": false
+  }
+}

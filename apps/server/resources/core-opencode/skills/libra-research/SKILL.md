@@ -5,7 +5,7 @@ description: Research through the Libra by Wolters Kluwer agent chat at app.libr
 
 # Research with Libra
 
-Use this skill when the user selects Libra or the general legal-research skill chooses a saved Libra connection. Load legal-research if it is not already loaded, and use its source selection, vault, website experience and automatic source preservation and wiki contribution instructions. Saving a Libra login does not require loading either skill.
+Use this skill when the user selects Libra or the general legal-research skill chooses a saved Libra connection. Load legal-research if it is not already loaded, and use its source selection, vault, website experience and conditional source preservation and wiki contribution instructions. Saving a Libra login does not require loading either skill.
 
 ## Access
 

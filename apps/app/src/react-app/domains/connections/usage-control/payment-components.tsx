@@ -18,6 +18,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import type { Run, Text, UsageTextKey, UsageTransport } from "./transport";
+import { parseTopUpResult } from "./top-up-result";
 import { usageBlockMessageKey } from "./usage-block";
 import { CHECKING_TOP_UP, checkConfirmedTopUp, type TopUpRecovery } from "./usage-recovery";
 import type { UsageLimitDetails } from "@legalwork/types/provider-usage-limit";
@@ -62,26 +63,6 @@ const detailsSchema = {
         return { operationId: item.operationId, amountCents: item.amountCents };
       }),
     };
-  },
-};
-const resultSchema = {
-  parse(value: unknown): TopUpResult {
-    if (!record(value) || typeof value.operationId !== "string")
-      throw new Error("response");
-    if (
-      value.status === "paid" ||
-      value.status === "canceled" ||
-      value.status === "failed" ||
-      value.status === "processing"
-    )
-      return { status: value.status, operationId: value.operationId };
-    if (value.status === "requires_action" && typeof value.url === "string")
-      return {
-        status: value.status,
-        operationId: value.operationId,
-        url: value.url,
-      };
-    throw new Error("response");
   },
 };
 const money = (cents: number) =>
@@ -257,73 +238,95 @@ function TopUpForm({ t, run, busy, transport, onPaid, trialUsage }: Props & { on
     setError("");
     setSubmitted(true);
     try {
-      const next = resultSchema.parse(await run(action));
+      const next = parseTopUpResult(await run(action));
       setResult(next);
-      if (next.status === "paid") return;
+      if (next.status === "paid") return next;
       if (next.status === "canceled") {
         setSubmitted(false);
         setOperationId(crypto.randomUUID());
       }
       await reload();
+      return next;
     } catch (err) {
       setError(
         t(
           err instanceof Error && err.message.includes("payment_method_changed")
             ? "limits.payment_changed"
+            : err instanceof Error && err.message.includes("top_up_quote_expired")
+            ? "limits.topup_quote_expired"
             : "limits.topup_retry_hint",
         ),
       );
+      if (err instanceof Error && err.message.includes("top_up_quote_expired")) {
+        setResult(null); setOperationId(crypto.randomUUID());
+      }
       setSubmitted(false);
       await reload();
     }
+  }
+  async function checkout(amountCents: number) {
+    async function checkPayment() {
+      const latest = detailsSchema.parse(await transport.write({ action: "paymentDetails" }));
+      const previous = latest.pendingTopUps[0];
+      if (!previous) return false;
+      const next = await execute({ action: "resumeTopUp", operationId: previous.operationId, preview: true });
+      return !next || (next.status !== "failed" && next.status !== "canceled");
+    }
+    setSubmitted(true);
+    try {
+      if (await checkPayment()) return;
+      setResult(null);
+      await run({ action: "checkout", amountCents });
+    } catch (err) {
+      if (err instanceof Error && err.message.includes("top_up_pending")) {
+        try {
+          if (await checkPayment()) return;
+          setResult(null);
+          await run({ action: "checkout", amountCents });
+          return;
+        } catch { /* Show the payment error below. */ }
+      }
+      setError(t("limits.action_error"));
+    } finally { setSubmitted(false); }
   }
   if (result?.status === "paid")
     return (
       <p role="status" className="text-sm text-muted-foreground">{t("limits.topup_paid")}</p>
     );
+  if (result?.status === "requires_confirmation")
+    return (
+      <div className="space-y-4">
+        <dl className="grid grid-cols-2 gap-3 rounded-xl border p-4 text-sm">
+          <dt>{t("limits.usable_credits")}</dt><dd className="text-right">{money(result.amountCents)}</dd>
+          <dt>{t("limits.tax")}</dt><dd className="text-right">{money(result.taxCents)}</dd>
+          <dt className="font-semibold">{t("limits.total_charge")}</dt><dd className="text-right font-semibold">{money(result.totalCents)}</dd>
+        </dl>
+        {details?.card && <CardLabel card={details.card} t={t} />}
+        <Button className="w-full" disabled={busy} onClick={() => void execute({
+          action: "resumeTopUp", operationId: result.operationId, expectedTotalCents: result.totalCents,
+        })}>{t("limits.confirm_topup")} · {money(result.totalCents)}</Button>
+        <Button className="w-full" variant="outline" disabled={busy} onClick={() => {
+          setResult(null); setSubmitted(false); setOperationId(crypto.randomUUID());
+        }}>{t("limits.change_topup_amount")}</Button>
+        {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+      </div>
+    );
   if (result?.status === "failed" || result?.status === "processing")
     return (
       <div className="space-y-4">
-        <p
-          role="status"
-          className="text-sm leading-relaxed text-muted-foreground"
-        >
-          {t(
-            result.status === "failed"
-              ? "limits.card_declined"
-              : "limits.payment_processing",
-          )}
+        <p role="status" className="text-sm leading-relaxed text-muted-foreground">
+          {t(result.status === "failed" ? "limits.card_declined" : "limits.payment_processing")}
         </p>
-        <Button
-          disabled={busy}
-          className="w-full"
-          onClick={() =>
-            void execute({
-              action: "resumeTopUp",
-              operationId: result.operationId,
-            })
-          }
-        >
-          {t("limits.check_payment")}
-        </Button>
-        <Button
-          disabled={busy}
-          variant="outline"
-          className="w-full"
-          onClick={() =>
-            void execute({
-              action: "cancelTopUp",
-              operationId: result.operationId,
-            })
-          }
-        >
-          {t("limits.cancel_topup")}
-        </Button>
-        {error && (
-          <p role="alert" className="text-sm text-destructive">
-            {error}
-          </p>
+        {result.status === "failed" ? (
+          <Button className="w-full" disabled={busy} onClick={() => {
+            setResult(null); setSubmitted(false); setOperationId(crypto.randomUUID());
+          }}>{t("limits.try_payment_again")}</Button>
+        ) : (
+          <Button className="w-full" disabled={busy} onClick={() => void execute({
+            action: "resumeTopUp", operationId: result.operationId, preview: true,
+          })}>{t("limits.check_payment")}</Button>
         )}
+        {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
       </div>
     );
   if (result?.status === "requires_action")
@@ -351,7 +354,7 @@ function TopUpForm({ t, run, busy, transport, onPaid, trialUsage }: Props & { on
           disabled={busy}
           onClick={() =>
             void execute({
-              action: "resumeTopUp",
+              action: "resumeTopUp", preview: true,
               operationId: result.operationId,
             })
           }
@@ -381,50 +384,6 @@ function TopUpForm({ t, run, busy, transport, onPaid, trialUsage }: Props & { on
         )}
       </div>
     );
-  if (details?.pendingTopUps.length)
-    return (
-      <div className="space-y-4">
-        <p className="text-sm text-muted-foreground">
-          {t("limits.pending_topup_hint")}
-        </p>
-        {details.pendingTopUps.map((pending) => (
-          <div key={pending.operationId} className="grid gap-2">
-            <Button
-              disabled={busy}
-              className="w-full"
-              onClick={() =>
-                void execute({
-                  action: "resumeTopUp",
-                  operationId: pending.operationId,
-                })
-              }
-            >
-              {t("limits.resume_topup")} · {money(pending.amountCents)}
-            </Button>
-            <Button
-              variant="ghost"
-              disabled={busy}
-              onClick={() =>
-                void execute({
-                  action: "cancelTopUp",
-                  operationId: pending.operationId,
-                })
-              }
-            >
-              {t("limits.cancel_topup")}
-            </Button>
-          </div>
-        ))}
-        <p className="text-xs text-muted-foreground">
-          {t("limits.cancel_topup_hint")}
-        </p>
-        {error && (
-          <p role="alert" className="text-sm text-destructive">
-            {error}
-          </p>
-        )}
-      </div>
-    );
   return (
     <form
       className="min-w-0 space-y-5"
@@ -443,16 +402,14 @@ function TopUpForm({ t, run, busy, transport, onPaid, trialUsage }: Props & { on
         }
         if (details.card)
           void execute({
-            action: "topUp",
+            action: "quoteTopUp",
             enableTrialUsage: trialUsage || undefined,
             operationId,
             amountCents,
             paymentMethodId: details.card.id,
           });
         else
-          void run(trialUsage ? { action: "paymentSetup" } : { action: "checkout", amountCents }).catch(() =>
-            setError(t("limits.action_error")),
-          );
+          void (trialUsage ? run({ action: "paymentSetup" }) : checkout(amountCents)).catch(() => setError(t("limits.action_error")));
       }}
     >
       <fieldset disabled={busy || submitted} className="space-y-4">
@@ -516,7 +473,7 @@ function TopUpForm({ t, run, busy, transport, onPaid, trialUsage }: Props & { on
       >
         <CreditCard />
         {!details || details.card
-          ? t("limits.confirm_topup")
+          ? t("limits.review_topup")
           : t(trialUsage ? "limits.change_card" : "limits.continue_checkout")}
         {(!details || details.card) &&
           ` · ${money(Math.round(Number(value.replace(",", ".")) * 100) || 0)}`}
@@ -539,9 +496,7 @@ function TopUpForm({ t, run, busy, transport, onPaid, trialUsage }: Props & { on
               setError(t("limits.invalid_topup"));
               return;
             }
-            void run(trialUsage ? { action: "paymentSetup" } : { action: "checkout", amountCents }).catch(() =>
-              setError(t("limits.action_error")),
-            );
+            void (trialUsage ? run({ action: "paymentSetup" }) : checkout(amountCents)).catch(() => setError(t("limits.action_error")));
           }}
         >
           {t("limits.other_payment")}

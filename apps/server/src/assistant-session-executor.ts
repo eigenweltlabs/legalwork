@@ -12,6 +12,7 @@ import { QueuePreparationError } from "./session-message-queue.js";
 import { ApiError, findApiError } from "./errors.js";
 import { nativeDeliveryRejection } from "./native-delivery.js";
 import { z } from "zod";
+import { projectChatMigrationPending } from "./project-storage.js";
 
 export async function createAssistantSessionQueue(path: string, options: {
   workspace: (id: string) => Promise<WorkspaceInfo>;
@@ -25,11 +26,13 @@ export async function createAssistantSessionQueue(path: string, options: {
   watchRequest?: (sessionId: string, messageId: string) => void;
 }) {
   const requestOptions = () => ({ throwOnError: true, signal: AbortSignal.timeout(10000) });
+  const workspaceFor = (target: AssistantSessionTarget) => options.workspace(target.workspaceId).catch(error => {
+    if (error instanceof ApiError && [403, 404].includes(error.status)) throw new QueuePreparationError(error.message);
+    throw error;
+  });
+  const available = async (target: AssistantSessionTarget) => options.available?.() !== false && !await projectChatMigrationPending(options.config, await workspaceFor(target));
   const read = async (target: AssistantSessionTarget) => {
-    const workspace = await options.workspace(target.workspaceId).catch(error => {
-      if (error instanceof ApiError && [403, 404].includes(error.status)) throw new QueuePreparationError(error.message);
-      throw error;
-    });
+    const workspace = await workspaceFor(target);
     try { options.assistant.assertProjectAccess(workspace.id); }
     catch (error) { throw new QueuePreparationError(error instanceof Error ? error.message : "This project is no longer accessible."); }
     if (isMainAssistant(workspace)) throw new QueuePreparationError("Choose an accessible local project chat.");
@@ -39,8 +42,9 @@ export async function createAssistantSessionQueue(path: string, options: {
     return { workspace, client, session };
   };
   return AssistantSessionQueue.open(path, {
-    available: options.available,
+    available,
     inspect: async target => {
+      if (!await available(target)) return { busy: true, pending: true, interrupted: false };
       if (!await assistantSubscriptionAvailable(options.config)) return { busy: true, pending: false, interrupted: false };
       const { workspace, client, session } = await read(target);
       const { data: statuses } = await client.session.status({}, requestOptions());

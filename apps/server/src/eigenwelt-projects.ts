@@ -1,5 +1,5 @@
 import type { ProjectRemote } from "@legalwork/types/workspace";
-import { projectRemoteSchema } from "./project-schema.js";
+import { projectFieldSchema, projectRemoteSchema } from "./project-schema.js";
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { open } from "node:fs/promises";
@@ -35,14 +35,7 @@ const scopeSchema = z.object({
   calendar: z.boolean().default(true),
 });
 
-const fieldSchema = z.object({
-  id: z.string(),
-  label: z.string(),
-  labelSource: z.enum(["suggested", "custom"]).optional(),
-  type: z.enum(["text", "number", "date", "select"]),
-  value: z.union([z.string(), z.number(), z.null()]),
-  options: z.array(z.string()).optional(),
-});
+const fieldSchema = projectFieldSchema;
 
 const projectSchema = z.object({
   purpose: z.enum(["project", "personal-state"]).optional(),

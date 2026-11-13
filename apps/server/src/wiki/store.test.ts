@@ -1,10 +1,13 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ServerConfig } from "../types.js";
 import { WikiStore } from "./store.js";
 import { StoredViewSchema } from "../views/schema.js";
+import { prepareLocalProjects } from "../project-storage.js";
+import { wikiForDirectory } from "./access.js";
+import { buildWikiFilePolicy } from "./file-access-policy.js";
 
 const roots: string[] = [], stores: WikiStore[] = [];
 afterEach(async () => {
@@ -12,7 +15,7 @@ afterEach(async () => {
   for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true });
 });
 async function fixture() {
-  const root = await mkdtemp(join(tmpdir(), "legalwork-wiki-"));
+  const root = await realpath(await mkdtemp(join(tmpdir(), "legalwork-wiki-")));
   roots.push(root);
   const config: ServerConfig = {
     host: "127.0.0.1", port: 0, token: "wiki-client", hostToken: "wiki-host", configPath: join(root, "config", "server.json"),
@@ -25,6 +28,29 @@ async function fixture() {
 }
 
 describe("Markdown wiki store", () => {
+  test("wiki migration preserves content, IDs and own-wiki policy across reopen and restore", async () => {
+    const f = await fixture();
+    const wiki = await f.store.create({ name: "Knowledge", root: join(f.root, "Connected wiki"), template: "blank" });
+    await writeFile(join(wiki.root, "Preserved.md"), "Existing knowledge");
+    await mkdir(join(wiki.root, ".legalwork"), { recursive: true });
+    await writeFile(join(wiki.root, ".legalwork", "retained.txt"), "Local support");
+    f.config.projectsDirectory = join(f.root, "homes");
+    expect(await prepareLocalProjects(f.config)).toBe(true);
+    const workspace = f.config.workspaces.find(item => item.id === wiki.workspaceId)!;
+    expect(workspace.contentPath).toBe(wiki.root);
+    expect(workspace.path).toBe(join(f.config.projectsDirectory, wiki.workspaceId));
+    expect(await readFile(join(workspace.path, ".legalwork", "retained.txt"), "utf8")).toBe("Local support");
+    expect(await readFile(join(wiki.root, "Preserved.md"), "utf8")).toBe("Existing knowledge");
+    expect(wikiForDirectory(await f.store.list(), workspace.path, f.config.workspaces)?.id).toBe(wiki.id);
+    expect((await buildWikiFilePolicy(await f.store.list(), workspace.path, [], f.config.workspaces)).ownRoot).toBe(wiki.root);
+    await f.store.archive(wiki.id); await f.store.restoreWiki(wiki.id);
+    const restored = f.config.workspaces.find(item => item.id === wiki.workspaceId)!;
+    expect(restored).toMatchObject({ path: workspace.path, contentPath: wiki.root });
+    expect((await f.store.get(wiki.id)).workspaceId).toBe(wiki.workspaceId);
+    const created = await f.store.create({ name: "Local wiki", template: "blank" });
+    const fresh = f.config.workspaces.find(item => item.id === created.workspaceId)!;
+    expect(created.root).toBe(join(fresh.path, "files"));
+  });
   test("contributions flatten legacy paths, resolve collisions without overwrites and recover completed publication", async () => {
     const { store } = await fixture(), wiki = await store.create({ name: "Research", template: "blank" });
     const assets = [{ path: "Sources/old-draft/a.pdf", data: Buffer.from("A") }, { path: "Sources/old-draft/b.pdf", data: Buffer.from("B") }];
@@ -446,4 +472,16 @@ test("full text search ranks titles, finds deep body passages, phrases, prefixes
   expect((await store.search(wiki.id, "Übertragung")).map(page => page.path)).toEqual(["A.md"]);
   expect(await store.search(wiki.id, '" OR * NEAR( --')).toEqual([]);
   expect(await store.search(wiki.id, "!!!")).toEqual([]);
+});
+
+test("forgetting and reattaching a default local wiki retains its engine workspace", async () => {
+  const f = await fixture(); f.config.projectsDirectory = join(f.root, "homes");
+  const wiki = await f.store.create({ name: "Default local", template: "blank" });
+  const before = f.config.workspaces.find(workspace => workspace.id === wiki.workspaceId)!;
+  await writeFile(join(before.path, "retained.txt"), "Local engine output");
+  await f.store.forget(wiki.id);
+  const restored = await f.store.create({ name: "Reattached", root: wiki.root, attach: true });
+  expect(restored.id).toBe(wiki.id); expect(restored.workspaceId).toBe(wiki.workspaceId);
+  expect(f.config.workspaces.find(workspace => workspace.id === restored.workspaceId)?.path).toBe(before.path);
+  expect(await readFile(join(before.path, "retained.txt"), "utf8")).toBe("Local engine output");
 });

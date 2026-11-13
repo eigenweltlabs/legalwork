@@ -1,3 +1,4 @@
+import { workspaceContentPath } from "@legalwork/types/workspace";
 import type { LauncherSearchResult } from "@legalwork/types/launcher";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { resultKey } from "./launcher-search-session";
@@ -53,8 +54,9 @@ export async function launcherLocalPaths(items: LauncherSearchResult[], client: 
   const folders = items.some(item => item.folderId && item.fileType === "folder") ? await client.launcherFolders() : null;
   return Promise.all(items.map(async item => {
     if (item.folderId && item.fileType !== "folder") return (await client.launcherFolderFile(item.folderId, item.path ?? item.id)).path;
+    const workspace = (workspaces?.items ?? workspaces?.workspaces ?? []).find(workspace => workspace.id === item.workspaceId);
     const root = item.folderId ? folders?.folders.find(folder => folder.id === item.folderId)?.path
-      : (workspaces?.items ?? workspaces?.workspaces ?? []).find(workspace => workspace.id === item.workspaceId)?.path;
+      : (workspace ? workspaceContentPath(workspace) : undefined);
     if (!root) throw new Error(t("launcher.chat.context_unavailable"));
     return `${root.replace(/[\\/]+$/, "")}/${item.path ?? item.id}`;
   }));

@@ -4,19 +4,24 @@ const { createHash } = require("node:crypto");
 const { tmpdir } = require("node:os");
 const { setTimeout: delay } = require("node:timers/promises");
 const path = require("node:path");
+const { performance } = require('node:perf_hooks');
+const { recordSpan } = require('../../../scripts/ci/timing.cjs');
 
 function run(command, args) {
+  const started = performance.now();
   const result = spawnSync(command, args, { stdio: "inherit" });
+  recordSpan(`package:${command === 'ditto' ? 'notary-archive' : args.slice(0, 2).join(':')}`, started, { status: result.status });
   if (result.status !== 0) {
     throw new Error(`${command} ${args.join(" ")} failed with status ${result.status}`);
   }
 }
 
 async function runStapler(action, appPath) {
+  const started = performance.now();
   const args = ["stapler", action, appPath];
   for (let attempt = 1; attempt <= 5; attempt++) {
     const result = spawnSync("xcrun", args, { stdio: "inherit" });
-    if (result.status === 0) return;
+    if (result.status === 0) { recordSpan(`package:stapler:${action}`, started); return; }
     // Apple ticket lookups can lose their CloudKit connection even after
     // notarization was accepted or stapling succeeded. Retry that service
     // failure only; every attempt must still pass Apple's real validation.
@@ -68,7 +73,9 @@ async function afterSign(context) {
   const issuer = requireEnv("APPLE_API_ISSUER");
 
   try {
-    run("ditto", ["-c", "-k", "--keepParent", appPath, notaryZipPath]);
+    // This temporary upload is discarded after acceptance; favor compression
+    // speed while preserving ditto's bundle metadata and resource forks.
+    run("ditto", ["-c", "-k", "--keepParent", "--zlibCompressionLevel", "1", appPath, notaryZipPath]);
     run("xcrun", [
       "notarytool",
       "submit",

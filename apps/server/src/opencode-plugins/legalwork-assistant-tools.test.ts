@@ -232,7 +232,7 @@ test("project creation returns the schema used to save known client metadata bef
     const output: { system: string[] } = { system: [] };
     await plugin["experimental.chat.system.transform"]({}, output);
     expect(output.system.join(" ")).toContain("SAME turn");
-    expect(output.system.join(" ")).toContain("before delegation so the project is searchable by client right away");
+    expect(output.system.join(" ")).toMatch(/before delegation[^.]*searchable[^.]*linked matter and client/i);
   } finally {
     server.stop(true);
     if (previousUrl === undefined) delete process.env.LEGALWORK_SERVER_URL; else process.env.LEGALWORK_SERVER_URL = previousUrl;

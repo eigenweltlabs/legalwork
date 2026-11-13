@@ -26,7 +26,7 @@ export function useViewGenerations(messages: UIMessage[], status: ThreadStatus) 
     if (!legalworkClient || status !== "ready" || !pendingIds) return;
     let cancelled = false;
     const timer = setTimeout(() => {
-      void legalworkClient.getSessionSnapshot(workspaceId, sessionId).then(({ item }) => {
+      void legalworkClient.getSessionSnapshot(workspaceId, sessionId, { fileReferences: true }).then(({ item }) => {
         if (cancelled || item.status.type !== "idle") return;
         const parts = item.messages.flatMap(message => message.parts.flatMap(part => {
           if (part.type !== "tool" || (part.tool !== "view_create" && part.tool !== "view_update")) return [];

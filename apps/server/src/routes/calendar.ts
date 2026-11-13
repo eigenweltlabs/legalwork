@@ -1,3 +1,4 @@
+import { prepareFormLinks } from "../back-office/native-links.js";
 import { calculationScript, runPythonCalculation } from "../calculations/python-runner.js";
 import type { DocumentPreparation } from "../document-preparation/service.js";
 import type { ApprovalRequest } from "../types.js";
@@ -73,12 +74,12 @@ export function registerCalendarRoutes(options: {
     sessions: (await options.listSessions(workspace, ctx.url.searchParams.get("search")?.slice(0, 255))).filter(session => resolve(session.directory) === resolve(workspace.path)).map(({ id, title }) => ({ id, title })) }));
   route("POST", "/calculate", async (ctx, workspace) => {
     const input = z.strictObject({ skill: z.string(), input: z.unknown() }).parse(await body(ctx));
-    const result = await calculateWithSkill(workspace.path, input.skill, input.input);
+    const result = await calculateWithSkill(workspace, input.skill, input.input);
     return { calculation: (await calendarStore(config)).recordCalculation(workspace.id, result, result.codeHash) };
   });
   route("POST", "/run", async (ctx, workspace) => {
     const input = z.object({ skill: z.string().min(1), input: z.record(z.string(), z.unknown()) }).parse(await body(ctx));
-    const script = await calculationScript(workspace.path, input.skill);
+    const script = await calculationScript(workspace, input.skill);
     await options.requireApproval(ctx, { workspaceId: workspace.id, action: "calculations.execute", summary: `Execute installed calculation skill ${input.skill}`, paths: [script.path] });
     const run = await runPythonCalculation(await calendarStore(config), workspace.id, input.skill, script, input.input, ctx.request.signal);
     return { runId: run.id, status: run.status, results: run.results, missingFacts: run.missingFacts };
@@ -100,10 +101,13 @@ export function registerCalendarRoutes(options: {
     return { presentation: store.decidePresentation(workspace.id, card.id, action) };
   });
   route("POST", "", async (ctx, workspace) => {
-    const { calculationId, ...input } = await body(ctx);
+    const { calculationId, backOfficeLinks, id, ...input } = await body(ctx);
     await validateCalendarLinks(workspace, CalendarCreateSchema.parse(input), undefined, options.getSession);
     if (Array.isArray(input.taskIds)) { const tasks = await datedTasks(config, workspace.id); if (input.taskIds.some(id => !tasks.some(task => task.id === id))) throw new ApiError(400, "calendar_task_link", "Link only tasks in this project."); }
-    return { item: (await calendarStore(config)).create(workspace.id, input, z.uuid().optional().parse(calculationId)) };
+    const links = await prepareFormLinks(config, backOfficeLinks, "deadline", workspace.id);
+    const item = (await calendarStore(config)).create(workspace.id, input, z.uuid().optional().parse(calculationId), undefined, z.uuid().optional().parse(id), links?.write);
+    links?.committed();
+    return { item };
   });
   route("POST", "/import", async (ctx, workspace) => {
     const input = z.strictObject({ ical: z.string(), source: z.string().max(4000).default(""), timeZone: z.string().default("Europe/Berlin"), revisions: z.record(z.string(), z.number().int()).default({}) }).parse(await body(ctx));
@@ -129,10 +133,13 @@ export function registerCalendarRoutes(options: {
   route("GET", "/:item", async (ctx, workspace) => ({ item: (await calendarStore(config)).get(workspace.id, ctx.params.item) }));
   route("GET", "/:item/history", async (ctx, workspace) => ({ history: (await calendarStore(config)).history(workspace.id, ctx.params.item) }));
   route("PATCH", "/:item", async (ctx, workspace) => {
-    const input = await body(ctx);
+    const { backOfficeLinks, ...input } = await body(ctx);
     await validateCalendarLinks(workspace, CalendarPatchSchema.parse(input), (await calendarStore(config)).get(workspace.id, ctx.params.item), options.getSession);
     if (Array.isArray(input.taskIds)) { const tasks = await datedTasks(config, workspace.id); if (input.taskIds.some(id => !tasks.some(task => task.id === id))) throw new ApiError(400, "calendar_task_link", "Link only tasks in this project."); }
-    return { item: (await calendarStore(config)).patch(workspace.id, ctx.params.item, input) };
+    const links = await prepareFormLinks(config, backOfficeLinks, "deadline", workspace.id);
+    const item = (await calendarStore(config)).patch(workspace.id, ctx.params.item, input, links?.write);
+    links?.committed();
+    return { item };
   });
   for (const restore of [false, true]) route("POST", `/:item/${restore ? "restore" : "delete"}`, async (ctx, workspace) => {
     const { revision } = z.strictObject({ revision: z.number().int().nonnegative() }).parse(await body(ctx)); return { item: (await calendarStore(config)).remove(workspace.id, ctx.params.item, revision, restore) };

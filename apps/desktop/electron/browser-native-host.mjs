@@ -8,7 +8,7 @@ export function createNativeBrowserHost(options) {
   const entries = new Map();
   const pageOwners = new WeakMap();
   if (typeof options.capture !== "function" || typeof options.capture.close !== "function") throw new Error("The native browser requires a shared screenshot queue.");
-  const capturePage = createOwnedBrowserCapture(options.capture, pageOwners, authorize);
+  const capturePage = createOwnedBrowserCapture(options.capture, pageOwners, authorize, options.prepareCapture, options.captured);
   const endpoints = new Map();
   const connections = new Map();
   const extensionChannels = new Map();
@@ -60,6 +60,10 @@ export function createNativeBrowserHost(options) {
         await authorize(entry.context);
       },
       downloadDirectory: binding => ownerEntry(binding)?.downloadDirectory,
+      fileRoots: binding => {
+        const entry = ownerEntry(binding);
+        return entry && !entry.context.remote ? [entry.engineDirectory, entry.downloadDirectory].filter(Boolean) : [];
+      },
       page: (binding, page) => {
         const entry = ownerEntry(binding);
         if (!entry) throw new Error("The browser page has no owning chat.");
@@ -73,8 +77,14 @@ export function createNativeBrowserHost(options) {
       embeds: { create(view, owner) {
         const id = randomUUID(), listeners = new Set();
         views.set(id, view);
-        return { id, show(visible) { view.setVisible(visible && owner.contentView.children.includes(view)); }, on(_event, handler) { listeners.add(handler); return () => listeners.delete(handler); },
-          capture: () => capturePage(view.webContents, undefined, () => view.webContents.capturePage()), dispose() { capturePage.close(view.webContents); views.delete(id); listeners.clear(); } };
+        return { id, show(visible) {
+          if (!options.captureActive?.(owner, view.webContents)) view.setVisible(visible && owner.contentView.children.includes(view));
+        }, on(_event, handler) { listeners.add(handler); return () => listeners.delete(handler); },
+          capture: () => capturePage(view.webContents, undefined, async () => {
+            const image = await view.webContents.capturePage();
+            capturePage.record(view.webContents, image);
+            return image;
+          }), dispose() { capturePage.close(view.webContents); views.delete(id); listeners.clear(); } };
       } },
       emit(windowID, { binding, event }) {
         const entry = [...entries.values()].find(entry => entry.binding === binding && entry.owner.id === windowID);
@@ -124,12 +134,13 @@ export function createNativeBrowserHost(options) {
     if (session.agent === "document-extractor" || session.metadata?.legalworkReviewWorker === true) throw new Error("An internal review worker cannot own a browser.");
     const directory = await realpath(session.location.directory);
     const verified = { ...context, directory };
-    const downloadDirectory = await options.resolveDownloadDirectory(verified, owner.webContents.getURL());
-    const relative = path.relative(await realpath(downloadDirectory), directory);
+    const engineDirectory = options.resolveEngineDirectory ? await options.resolveEngineDirectory(verified, owner.webContents.getURL()) : await options.resolveDownloadDirectory(verified, owner.webContents.getURL());
+    const relative = path.relative(await realpath(engineDirectory), directory);
     if (path.isAbsolute(relative) || relative === ".." || relative.startsWith(`..${path.sep}`)) throw new Error("The browser chat does not belong to its project.");
+    const downloadDirectory = await options.resolveDownloadDirectory(verified, owner.webContents.getURL());
     const server = "legalwork-local-engine";
     endpoints.set(server, { id: server, url: engine.baseUrl, headers, local: true });
-    const entry = { owner, context: verified, downloadDirectory, binding: randomUUID(), closed: false, replaced: false, checking: false, ready: Promise.resolve() };
+    const entry = { owner, context: verified, engineDirectory, downloadDirectory, binding: randomUUID(), closed: false, replaced: false, checking: false, ready: Promise.resolve() };
     entries.set(entryKey, entry);
     entry.ready = getPane().then(pane => pane.register(owner.id, entry.binding, { server, session: context.sessionId }));
     try { await entry.ready; return entry; }
@@ -227,7 +238,7 @@ export function createNativeBrowserHost(options) {
 }
 
 /** Recheck the exact owner and queue lifetime after asynchronous permission checks. */
-export function createOwnedBrowserCapture(capture, pageOwners, authorize) {
+export function createOwnedBrowserCapture(capture, pageOwners, authorize, prepare, captured) {
   const run = (contents, signal, operation) => capture(contents, signal, async active => {
     active.throwIfAborted();
     const entry = pageOwners.get(contents);
@@ -235,8 +246,13 @@ export function createOwnedBrowserCapture(capture, pageOwners, authorize) {
     await authorize(entry.context);
     active.throwIfAborted();
     if (pageOwners.get(contents) !== entry || entry.closed || contents.isDestroyed() || entry.owner.isDestroyed()) throw new Error("The browser page is closed.");
-    return operation(active);
+    const restore = prepare?.(entry.owner, contents);
+    try { return await operation(active); }
+    finally { restore?.(); }
   });
+  run.record = (contents, image) => {
+    if (pageOwners.has(contents)) captured?.(contents, image);
+  };
   run.close = contents => {
     if (!pageOwners.has(contents)) return;
     capture.close(contents);

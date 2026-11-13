@@ -1,6 +1,7 @@
 import type { Plugin } from "@opencode/plugin";
 import type { Info, ToolContext, ToolEditor } from "@opencode/plugin/promise/tool";
 import type { OpenCodeContext } from "./office-plugin-shared.js";
+import type { NativePermissionRule } from "../agent-sandbox/permissions.js";
 
 type Hook = (event: unknown) => Promise<void> | void;
 
@@ -10,7 +11,7 @@ export function nativePluginTestRuntime(directory = "/Users/lawyer/Matter") {
   const hooks = new Map<string, Hook[]>();
   const tools = new Map<string, Info>();
   const histories = new Map<string, unknown[]>();
-  const sessions = new Map<string, { agent?: string; parentID?: string; model?: { providerID: string; id: string }; metadata?: Record<string, unknown> }>();
+  const sessions = new Map<string, { agent?: string; parentID?: string; permissions?: NativePermissionRule[]; model?: { providerID: string; id: string }; metadata?: Record<string, unknown> }>();
   const permissions: unknown[] = [];
   const interrupts: string[] = [];
   let models: Array<{ id: string; providerID: string; capabilities: { input: string[] } }> = [];
@@ -43,7 +44,7 @@ export function nativePluginTestRuntime(directory = "/Users/lawyer/Matter") {
     get(_target, property) {
       if (property === "location") return { directory: setupDirectory };
       if (property === "session") return {
-        get: async ({ sessionID }: { sessionID: string }) => ({ ...sessions.get(sessionID), location: { directory } }),
+        get: async ({ sessionID }: { sessionID: string }) => ({ id: sessionID, ...sessions.get(sessionID), location: { directory } }),
         update: async ({ sessionID, metadata }: { sessionID: string; metadata?: Record<string, unknown> }) => { sessions.set(sessionID, { ...sessions.get(sessionID), metadata }); },
         interrupt: async ({ sessionID }: { sessionID: string }) => { interrupts.push(sessionID); },
         context: async ({ sessionID }: { sessionID: string }) => histories.get(sessionID) ?? [],

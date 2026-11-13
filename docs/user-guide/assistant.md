@@ -4,8 +4,8 @@ The Assistant is included with an active **Plus** or **Pro** plan, including
 trials. Sync and using your own model do not include it. No separate add-on
 is needed.
 
-Without an eligible plan, click **Assistant** in the sidebar, then **Explore AI
-plans**. Choose **Plus** or **Pro**, complete the upgrade, and return to LegalWork.
+Without an eligible plan, click the Assistant avatar in the navigation rail,
+then **Explore AI plans**. Choose **Plus** or **Pro**, complete the upgrade, and return to LegalWork.
 The app checks your subscription and opens the Assistant once access is active.
 If you already subscribe, use **Sign in** on the plan screen with that account.
 **Maybe later** closes the introduction without changing your subscription.
@@ -15,9 +15,10 @@ Assistant work and proactive checks pause. Your saved conversations stay
 available, and you can still stop delegated work. Reconnect an eligible account
 to continue; ordinary project chats with your own model remain available.
 
-Open **Assistant** in the sidebar to coordinate work across your projects. On
-first use, choose a name and appearance. Each calendar day has its own chat;
-earlier conversations remain available in Assistant history.
+Click the Assistant avatar in the navigation rail to coordinate work across your
+projects. It appears below **Home** by default. The conversation uses the space beside the rail
+and hides the chat sidebar. On first use, choose a name and appearance. Each
+calendar day has its own chat. Scroll up to load earlier conversations.
 
 After reopening the app, your saved Assistant conversation loads while account
 and model updates continue in the background. Sending a message checks your current access and continues the conversation
@@ -29,13 +30,14 @@ signed-in LegalWork account when available. It updates this context when you
 switch accounts or sign out. Your account profile is separate from the name
 and appearance you choose for the Assistant.
 
-To show or hide the Assistant entry, open **Customize navigation** using the
-gear at the top of the sidebar. Under **Chat sidebar**, toggle **Your assistant**
-below **New Chat**, then choose **Done**. This only changes sidebar visibility.
+Open **Customize navigation** using the gear at the top of the chat sidebar.
+Under **Main actions**, toggle **Your assistant** to show or hide it, or drag
+its handle to move it in the rail. Choose **Done** when finished.
 To change its name or avatar, click the assistant at the top of its conversation, or open
 **Settings > Assistant**. You can also ask in chat, for example, “Call yourself Maya.”
 During first setup, saving the name shows the appearance picker in the conversation.
-Renaming later keeps the current appearance.
+The selected avatar appears in the navigation rail, Customize navigation, and
+Settings. Renaming later keeps the current appearance.
 
 To choose the Assistant's model, click its name or avatar at the top of the
 conversation, expand **Advanced**, and change **Model** or **Thinking effort**.
@@ -103,6 +105,13 @@ round of delegated work. Pending questions and approvals keep the current round
 open until the work returns a final result.
 
 ## Mini-bar: search and act from any app
+
+Project and wiki files use the same document folders as the main app, including
+projects upgraded to separate local app data from their documents. New documents,
+file copies, clipboard file references and dragging to Finder use those document
+folders. Internal chat attachments and save-recovery records remain in the local
+app data folder; they are not shown as ordinary search results.
+
 
 Press **Command+Shift+Space** on macOS or **Ctrl+Shift+Space** on Windows to
 open the floating mini-bar. Press the shortcut again or **Esc** from its start
@@ -392,7 +401,7 @@ hours, still use normal
 
 ## Briefings and visual reports
 
-Ask for a morning briefing, matter overview or dashboard. The Assistant can deliver a dated report, a dashboard, or a Markdown document with an embedded chart. It chooses a document when the result benefits from more space than a chat reply.
+Ask for a project overview or a list of its files to get a reply in chat. You can also ask for a morning briefing, a dated report, a dashboard, or a Markdown document with an embedded chart.
 
 After a few useful exchanges, the Assistant may suggest a morning briefing if
 you do not already have one. It proposes a time and days, then creates the
@@ -411,9 +420,15 @@ Shared document cards remain available when you reopen the conversation,
 including documents shared while the Assistant was doing several actions
 together. A card for a project deliverable opens that project's original file.
 
-Scheduled morning briefings use the same layout and share one primary document card. An unchanged built-in briefing schedule receives the new instructions automatically; custom schedule instructions are preserved. To use the layout in a custom schedule, ask it to prepare a visual morning briefing with an embedded matter chart and linked priority emails and tasks.
+Scheduled morning briefings adapt to the day's priorities. If you want a particular comparison or chart, include it in the scheduled task instructions.
 
 Related: [Dashboards and reports](dashboards.md), [Files](files-documents.md), [Scheduled tasks](scheduled-tasks.md).
+
+## If the Assistant does not open
+
+If the Assistant takes too long to open, LegalWork stops that attempt and shows
+an error. Wait for the engine to become available, then select **Your assistant**
+again. Saved Assistant conversations remain available while it reconnects.
 
 ## Settings
 

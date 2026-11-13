@@ -1,3 +1,4 @@
+import { workspaceContentPath } from "@legalwork/types/workspace";
 import { useRef, type DragEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { LauncherSearchResult } from "@legalwork/types/launcher";
@@ -31,8 +32,9 @@ export function useLauncherFileDrag(items: LauncherSearchResult[], enabled: bool
       ]);
       signal.throwIfAborted();
       const files = live.flatMap(item => {
+        const workspace = (workspaces?.items ?? workspaces?.workspaces ?? []).find(workspace => workspace.id === item.workspaceId);
         const root = item.folderId ? folders?.folders.find(folder => folder.id === item.folderId)?.path
-          : (workspaces?.items ?? workspaces?.workspaces ?? []).find(workspace => workspace.id === item.workspaceId)?.path;
+          : (workspace ? workspaceContentPath(workspace) : undefined);
         return root ? [{ key: resultKey(item), root, path: `${root.replace(/[\\/]+$/, "")}/${item.path ?? item.id}` }] : [];
       });
       const tokens = new Map((await launcherFilesPrepareDrag(client.baseUrl, files.map(({ path, root }) => ({ path, root })))).map(item => [item.path, item.token]));

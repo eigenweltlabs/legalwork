@@ -1,4 +1,3 @@
-import { assistantHasVisibleContent } from "@/components/chat/assistant-chat-presentation";
 import { readMcpStatuses } from "@/react-app/domains/connections/native-mcp";
 import { browserPasswordRequest } from "@legalwork/types/browser-password-request";
 import { NativeFormPanel } from "../modals/native-form-panel";
@@ -12,7 +11,9 @@ import { BackgroundTabStack } from "../background/background-tab-stack";
 import { MarkdownStreamLinks } from "../artifacts/markdown-stream-links";
 import { useProjectFiles } from "../../workspace/project-file-context";
 import type { QueueInput } from "@legalwork/types/session-queue";
-import { AssistantHistory } from "./assistant-history";
+import { AssistantHistory, AssistantDateDivider } from "./assistant-history";
+import { useSessionHistory } from "./use-session-history";
+import { HISTORY_BATCH_SIZE, messagesAfter } from "./history-window";
 import { assistantBubbleMessages, assistantIsWriting } from "./assistant-bubbles";
 import { canPreviewAssistantSend, assistantOutgoingIsQueued, addAssistantOutgoingMessage, assistantOutgoingScope, mergeAssistantOutgoingMessages, rememberAcceptedSteeringMessages, removeAssistantOutgoingMessage, useAssistantOutgoingMessages } from "./assistant-outgoing-messages";
 import { AssistantOnboardingConversation, type AssistantOnboardingControls } from "./assistant-onboarding-conversation";
@@ -129,7 +130,6 @@ import {
   statusKey as reactStatusKey,
   transcriptKey as reactTranscriptKey,
 } from "@/react-app/domains/session/sync/session-sync";
-import { resolveForkBoundaryId } from "@/react-app/domains/session/sync/transcript-reconcile";
 import {
   getComposerAttachments,
   getComposerDraft,
@@ -791,11 +791,11 @@ export function SessionSurface(props: SessionSurfaceProps) {
   const [error, setError] = useState<SessionError | null>(null);
   const [sending, setSending] = useState(false);
   const [showDelayedLoading, setShowDelayedLoading] = useState(false);
-  const [awaitingAssistantBaseline, setAwaitingAssistantBaseline] = useState<number | null>(null);
+  const [awaitingAssistantBaseline, setAwaitingAssistantBaseline] = useState<string | null>(null);
   const [voiceJob, setVoiceJob] = useState<(VoiceOpenCodeJobSnapshot & {
     workspaceId: string;
     sessionId: string;
-    baseline: number;
+    baseline: string;
     observedRun: boolean;
   }) | null>(null);
   const voiceJobRef = useRef(voiceJob);
@@ -823,13 +823,11 @@ export function SessionSurface(props: SessionSurfaceProps) {
   );
   const searchTarget = useSearchNavigation(state => state.target);
   const searchMessageId = searchTarget?.kind === "sessions" && searchTarget.id === props.sessionId && searchTarget.workspaceId === props.workspaceId ? searchTarget.messageId : undefined;
-  const fullHistorySession = useRef<string | null>(null);
-  if (searchMessageId) fullHistorySession.current = props.sessionId;
   const snapshotQuery = useQuery<LegalworkSessionSnapshot>({
     queryKey: snapshotQueryKey,
     queryFn: async () => {
       const startedAt = Date.now();
-      const snapshot = (await props.client.getSessionSnapshot(props.workspaceId, props.sessionId, fullHistorySession.current === props.sessionId ? undefined : { limit: 140 })).item;
+      const snapshot = (await props.client.getSessionSnapshot(props.workspaceId, props.sessionId, { fileReferences: true, page: true, limit: HISTORY_BATCH_SIZE })).item;
       seedTodoState(props.workspaceId, props.sessionId, snapshot.todos, startedAt);
       return snapshot;
     },
@@ -963,6 +961,8 @@ export function SessionSurface(props: SessionSurfaceProps) {
     () => deriveRenderedSessionMessages({ transcriptState, snapshot }),
     [snapshot, transcriptState],
   );
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
   const subscriptionEndedAccessoryVisible = subscriptionEndedNoticeVisible &&
     !isSubscriptionRecoveryError(error?.message ?? "") &&
     !renderedMessages.some(message => message.id.startsWith(SYNTHETIC_SESSION_ERROR_MESSAGE_PREFIX) &&
@@ -976,21 +976,26 @@ export function SessionSurface(props: SessionSurfaceProps) {
     retry: false,
   });
   const channelData = eigenweltEntitlementsQuery.data?.connected ? channelHistory.data : undefined;
+  const history = useSessionHistory({ client: props.client, workspaceId: props.workspaceId, sessionId: props.sessionId, snapshot, live: renderedMessages, containerRef: scrollRef, assistantDate: props.assistantDate, channelHistory: channelData,
+    channelScope: props.assistantDate ? JSON.stringify([eigenweltEntitlementsQuery.data?.connected, eigenweltEntitlementsQuery.data?.account?.orgId, eigenweltEntitlementsQuery.data?.account?.userId]) : undefined });
   const outgoingMessages = useAssistantOutgoingMessages(state => state.entries);
   const outgoingScope = assistantOutgoingScope(props.client.baseUrl, props.workspaceId, props.sessionId);
   const displayedMessages = useMemo(() => mergeAssistantOutgoingMessages(
-    props.assistantDate ? mergeAssistantChannelHistory(assistantBubbleMessages(renderedMessages, snapshot, chatStreaming), channelData) : renderedMessages,
+    props.assistantDate ? mergeAssistantChannelHistory(assistantBubbleMessages(history.messages, snapshot, chatStreaming), history.browsing ? undefined : channelData) : history.messages,
     outgoingMessages, outgoingScope, sharedQueue.state,
-  ), [props.assistantDate, renderedMessages, snapshot, chatStreaming, outgoingMessages, outgoingScope, sharedQueue.state, channelData]);
+  ), [props.assistantDate, history.messages, snapshot, chatStreaming, outgoingMessages, outgoingScope, sharedQueue.state, channelData, history.browsing]);
+  const pastSections = history.sections.filter(section => section.sessionId !== props.sessionId);
+  const pastMessageIds = new Set(pastSections.flatMap(section => section.messages.map(message => message.id)));
+  const currentDisplayedMessages = props.assistantDate ? displayedMessages.filter(message => !pastMessageIds.has(message.id)) : displayedMessages;
   useEffect(() => {
     const confirmed = new Set(renderedMessages.map(message => message.id));
     rememberAcceptedSteeringMessages(outgoingScope, sharedQueue.state, confirmed);
     for (const entry of outgoingMessages) {
       if (entry.scope === outgoingScope && (confirmed.has(entry.message.id) || assistantOutgoingIsQueued(entry.queueId, sharedQueue.state))) removeAssistantOutgoingMessage(entry.queueId);
     }
-  }, [renderedMessages, outgoingMessages, outgoingScope, sharedQueue.state, channelData]);
+  }, [renderedMessages, outgoingMessages, outgoingScope, sharedQueue.state, channelData, history.browsing]);
   const queryClient = useQueryClient();
-  const openTargets = useMemo(() => deriveOpenTargets(renderedMessages), [renderedMessages]);
+  const openTargets = useMemo(() => deriveOpenTargets(history.messages), [history.messages]);
   const openTargetsFingerprint = useMemo(
     () => openTargets.map((target) => `${target.kind}:${target.value}:${target.confidence}`).join("|"),
     [openTargets],
@@ -999,8 +1004,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
   const pendingSessionLoad = !snapshot && snapshotQuery.isLoading && displayedMessages.length === 0;
   const assistantOutputAfterAwaitStart = useMemo(() => {
     if (awaitingAssistantBaseline === null) return false;
-    return renderedMessages
-      .slice(awaitingAssistantBaseline)
+    return messagesAfter(renderedMessages, awaitingAssistantBaseline)
       .some(messageHasVisibleAssistantOutput);
   }, [awaitingAssistantBaseline, renderedMessages]);
   const showAssistantWaitState = awaitingAssistantBaseline !== null && !assistantOutputAfterAwaitStart;
@@ -1083,12 +1087,12 @@ export function SessionSurface(props: SessionSurfaceProps) {
     if (assistantOutputAfterAwaitStart) {
       return;
     }
-    if (sending || liveStatus.type !== "idle" || renderedMessages.length <= awaitingAssistantBaseline) return;
+    if (sending || liveStatus.type !== "idle" || messagesAfter(renderedMessages, awaitingAssistantBaseline).length === 0) return;
     const id = window.setTimeout(() => {
       setAwaitingAssistantBaseline(null);
     }, 1200);
     return () => window.clearTimeout(id);
-  }, [assistantOutputAfterAwaitStart, awaitingAssistantBaseline, liveStatus.type, renderedMessages.length, sending]);
+  }, [assistantOutputAfterAwaitStart, awaitingAssistantBaseline, liveStatus.type, renderedMessages, sending]);
 
   const model = deriveSessionRenderModel({
     intendedSessionId: props.sessionId,
@@ -1146,7 +1150,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
     appendComposerHistory(props.sessionId, nextDraft.text);
     useSessionActivityStore.getState().setRunStatus(props.workspaceId, props.sessionId, { type: "busy" });
     setSending(true);
-    setAwaitingAssistantBaseline(renderedMessages.length);
+    setAwaitingAssistantBaseline(renderedMessages.at(-1)?.id ?? "");
     try {
       await props.onSendDraft(nextDraft, props.sessionId);
       draftAttachments.forEach(revokeAttachmentPreview);
@@ -1165,7 +1169,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
       setSending(false);
       throw nextError;
     }
-  }, [appendComposerHistory, props.onSendDraft, props.sessionId, props.workspaceId, renderedMessages.length, setComposerDraft]);
+  }, [appendComposerHistory, props.onSendDraft, props.sessionId, props.workspaceId, renderedMessages, setComposerDraft]);
 
   const clearComposer = useCallback(() => {
     clearComposerSession(props.sessionId);
@@ -1291,12 +1295,12 @@ export function SessionSurface(props: SessionSurfaceProps) {
       status: "queued" as const,
       workspaceId: props.workspaceId,
       sessionId: props.sessionId,
-      baseline: renderedMessages.length,
+      baseline: renderedMessages.at(-1)?.id ?? "",
       observedRun: false,
     };
     voiceJobRef.current = job;
     setVoiceJob(job);
-    setAwaitingAssistantBaseline(renderedMessages.length);
+    setAwaitingAssistantBaseline(renderedMessages.at(-1)?.id ?? "");
     useSessionActivityStore.getState().setRunStatus(props.workspaceId, props.sessionId, { type: "busy" });
 
     // Work selected by the voice conversation enters the same canonical
@@ -1323,7 +1327,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
     })();
 
     return { jobId };
-  }, [chatStreaming, opencodeClient, props.selectedAgent, props.selectedModel, props.sessionId, props.workspaceId, props.workspaceRoot, renderedMessages.length]);
+  }, [chatStreaming, opencodeClient, props.selectedAgent, props.selectedModel, props.sessionId, props.workspaceId, props.workspaceRoot, renderedMessages]);
 
   useEffect(() => {
     voiceJobRef.current = voiceJob;
@@ -1346,7 +1350,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
         return failed;
       }
 
-      const jobMessages = renderedMessages.slice(current.baseline);
+      const jobMessages = messagesAfter(renderedMessages, current.baseline);
       const observedRun = current.observedRun || effectiveActivityStatus !== "idle" || jobMessages.length > 0;
 
       let status: VoiceOpenCodeJobSnapshot["status"] = current.status;
@@ -1375,7 +1379,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
       || !current.observedRun
       || effectiveActivityStatus !== "idle"
     ) return;
-    const jobMessages = renderedMessages.slice(current.baseline);
+    const jobMessages = messagesAfter(renderedMessages, current.baseline);
     if (messagesHaveRunningTool(jobMessages)) return;
     const canonicalResult = jobMessages
       .map(assistantCanonicalText)
@@ -1398,7 +1402,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
   }, [effectiveActivityStatus, renderedMessages]);
 
   const voiceActivity = useMemo(() => (
-    voiceJob ? collectVoiceActivity(renderedMessages.slice(voiceJob.baseline)) : []
+    voiceJob ? collectVoiceActivity(messagesAfter(renderedMessages, voiceJob.baseline)) : []
   ), [renderedMessages, voiceJob]);
 
   const handleDismissError = useCallback(() => {
@@ -1843,14 +1847,15 @@ export function SessionSurface(props: SessionSurfaceProps) {
     }
   };
 
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const contentRef = useRef<HTMLDivElement>(null);
   const sessionScroll = useSessionScrollController({
     selectedSessionId: props.sessionId,
     renderedMessages: displayedMessages,
     containerRef: scrollRef,
     contentRef,
   });
+  const jumpToLatest = useCallback(() => {
+    history.latest(() => sessionScroll.jumpToLatest("auto"));
+  }, [history.latest, sessionScroll.jumpToLatest]);
 
   const onboardingStep = props.assistantOnboarding?.state.step;
   useEffect(() => {
@@ -1859,19 +1864,19 @@ export function SessionSurface(props: SessionSurfaceProps) {
     return () => cancelAnimationFrame(frame);
   }, [onboardingNeeded, onboardingStep, sessionScroll.jumpToMessage]);
 
-  const searchMessagePresent = Boolean(searchMessageId && renderedMessages.some(message => message.id === searchMessageId));
+  const searchMessagePresent = Boolean(searchMessageId && history.messages.some(message => message.id === searchMessageId));
   useEffect(() => {
-    if (!searchMessageId || searchMessagePresent) return;
+    if (!searchMessageId || searchMessagePresent || !snapshot) return;
     let cancelled = false;
-    void snapshotQuery.refetch().then(result => {
+    void history.find(searchMessageId).then(found => {
       if (cancelled) return;
-      if (result.error || !result.data?.messages.some(message => message.info.id === searchMessageId)) {
+      if (!found) {
         toast.error(t("content_search.message_unavailable"));
         useSearchNavigation.getState().setTarget(null);
       }
-    });
+    }).catch(() => { if (!cancelled) toast.error(t("content_search.message_unavailable")); });
     return () => { cancelled = true; };
-  }, [searchMessageId, searchMessagePresent, snapshotQuery.refetch]);
+  }, [searchMessageId, searchMessagePresent, Boolean(snapshot), history.find]);
   useEffect(() => {
     if (!searchMessageId || !searchMessagePresent) return;
     const frame = requestAnimationFrame(() => {
@@ -1883,9 +1888,9 @@ export function SessionSurface(props: SessionSurfaceProps) {
   // Sending a message is an explicit "take me to the latest": jump to the
   // bottom and re-arm follow mode regardless of any prior manual scrolling
   // (awaitingAssistantBaseline is set exactly once per send).
-  const scrollToBottomOnSend = sessionScroll.scrollToBottom;
+  const scrollToBottomOnSend = jumpToLatest;
   useEffect(() => {
-    if (awaitingAssistantBaseline !== null) scrollToBottomOnSend("auto");
+    if (awaitingAssistantBaseline !== null) scrollToBottomOnSend();
   }, [awaitingAssistantBaseline, scrollToBottomOnSend]);
 
   const handleMessageListDispatchAction = useCallback((action: DispatchAction) => {
@@ -1905,8 +1910,10 @@ export function SessionSurface(props: SessionSurfaceProps) {
   const handleForkAtMessage = useCallback((messageId: string) => {
     // OpenCode's fork copies messages strictly before the given id, so pass
     // the next real message to make the branch include the clicked message.
-    props.onForkAtMessage?.(resolveForkBoundaryId(renderedMessages, messageId), props.sessionId);
-  }, [props.onForkAtMessage, props.sessionId, renderedMessages]);
+    void history.forkBoundary(messageId).then(boundary => {
+      props.onForkAtMessage?.(boundary, props.sessionId);
+    }).catch(() => toast.error(t("session.branch_failed")));
+  }, [props.onForkAtMessage, props.sessionId, history.forkBoundary]);
 
   const handleEditUserMessage = useCallback((messageId: string, text: string) => {
     void (async () => {
@@ -1938,10 +1945,10 @@ export function SessionSurface(props: SessionSurfaceProps) {
     description: "Scroll the visible session transcript to the newest messages and composer area.",
     sideEffect: "none",
     execute: () => {
-      sessionScroll.jumpToLatest("smooth");
+      jumpToLatest();
       return { ok: true, position: "bottom" };
     },
-  }), [sessionScroll.jumpToLatest]);
+  }), [jumpToLatest]);
   useControlAction(sessionScrollBottomControlAction);
 
   const sessionLatestMessageControlAction = useMemo<LegalworkControlAction>(() => ({
@@ -1970,8 +1977,8 @@ export function SessionSurface(props: SessionSurfaceProps) {
   return (
     <DevProfiler id="SessionSurface">
     <div className="lw-session-typography relative flex h-full min-h-0 flex-col" data-assistant-chat={props.assistantDate ? "" : undefined}>
-      {chatWorkspace === "wiki" && <WikiProjectFilesDialog open={projectPickerOpen} onOpenChange={setProjectPickerOpen} client={props.client} wikiId={chatWiki?.id} workspaceId={props.workspaceId} sessionId={props.sessionId} />}
       <SessionSandbox key={`${props.workspaceId}:${props.sessionId}`} client={props.client} workspaceId={props.workspaceId} sessionId={props.sessionId} />
+      {chatWorkspace === "wiki" && <WikiProjectFilesDialog open={projectPickerOpen} onOpenChange={setProjectPickerOpen} client={props.client} wikiId={chatWiki?.id} workspaceId={props.workspaceId} sessionId={props.sessionId} />}
       <SessionSubagents key={`subagents:${props.workspaceId}:${props.sessionId}`} workspaceId={props.workspaceId} workspaceRoot={props.workspaceRoot} sessionId={props.sessionId} client={opencodeClient} serverClient={props.client} waiting={props.pendingInteractionSessionIds} onOpen={props.onOpenInteractionSession} />
       <MarkdownStreamLinks workspaceId={props.workspaceId} sessionId={props.sessionId} onOpen={target => props.onOpenTarget?.(target, undefined, props.sessionId)} />
       {fusionAvailable ? <FusionIntroDialog open={fusionIntroOpen} onOpenChange={setFusionIntroOpen} /> : null}
@@ -1992,6 +1999,10 @@ export function SessionSurface(props: SessionSurfaceProps) {
           aria-hidden={props.realtimeVoiceActive || undefined}
           onWheel={(event) => {
             sessionScroll.markScrollGesture(event.target);
+            const nested = event.target instanceof Element ? event.target.closest("[data-scrollable]") : null;
+            if (nested && nested !== event.currentTarget) return;
+            if (event.deltaY < 0 && event.currentTarget.scrollTop < 1) void history.load("older");
+            if (event.deltaY > 0 && history.browsing && event.currentTarget.scrollHeight - event.currentTarget.clientHeight - event.currentTarget.scrollTop < 1) void history.load("newer");
           }}
           onTouchStart={(event) => {
             sessionScroll.markScrollGesture(event.target);
@@ -2003,7 +2014,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
             if (event.target !== event.currentTarget) return;
             sessionScroll.markScrollGesture(event.currentTarget);
           }}
-          onScroll={sessionScroll.handleScroll}
+          onScroll={(event) => { sessionScroll.handleScroll(event); if (history.onScroll()) jumpToLatest(); }}
           className={cn(
             "lw-session-transcript absolute inset-0 overflow-x-hidden overflow-y-auto overscroll-y-contain px-4 py-4 md:px-8",
             props.assistantDate && "[&_[data-user-message-bubble]]:bg-blue-3",
@@ -2011,9 +2022,10 @@ export function SessionSurface(props: SessionSurfaceProps) {
           )}
         >
           <div ref={contentRef} className="lw-session-column">
-            {props.assistantDate && <AssistantHistory key={props.sessionId} client={props.client} workspaceId={props.workspaceId} sessionId={props.sessionId} date={props.assistantDate} hasCurrentContent={showOnboarding || assistantHasVisibleContent(displayedMessages)} scrollRef={scrollRef} onOpenTarget={props.onOpenTarget} onboarding={props.assistantOnboarding?.state} />}
+            {history.loading && <div role="status" className="pointer-events-none sticky top-0 z-10 h-0 overflow-visible text-center"><span className="inline-block rounded-full bg-background/90 px-3 py-1 text-xs text-muted-foreground">{t("assistant.loading_history")}</span></div>}
+            {history.error && <div className="sticky top-0 z-10 h-0 overflow-visible text-center"><button type="button" className="rounded-full bg-background px-3 py-1 text-xs text-muted-foreground" onClick={history.retry}>{t("assistant.history_failed")} · {t("scheduled.retry")}</button></div>}
             <div className={cn(props.assistantDate && displayedMessages.length === 0 && !showOnboarding && "min-h-[calc(100dvh-12rem)]")}>
-            {showOnboarding && props.assistantOnboarding && <AssistantOnboardingConversation workspaceId={props.workspaceId} state={props.assistantOnboarding.state} onIcon={props.assistantOnboarding.onIcon} onAvatarQuestionComplete={() => { sessionScroll.jumpToMessage("assistant-onboarding-avatar"); }} />}
+            {showOnboarding && !pastSections.length && props.assistantOnboarding && <AssistantOnboardingConversation workspaceId={props.workspaceId} state={props.assistantOnboarding.state} onIcon={props.assistantOnboarding.onIcon} onAvatarQuestionComplete={() => { sessionScroll.jumpToMessage("assistant-onboarding-avatar"); }} />}
             {pendingSessionLoad ? (showDelayedLoading ? (
               <div className="px-6 py-16">
                 <div className="mx-auto max-w-sm rounded-3xl border border-dls-border bg-dls-hover/60 px-8 py-10 text-center">
@@ -2074,6 +2086,8 @@ export function SessionSurface(props: SessionSurfaceProps) {
                       onForkAtMessage={handleForkAtMessage}
                       onEditUserMessage={handleEditUserMessage}
                     >
+                      {props.assistantDate && <AssistantHistory client={props.client} workspaceId={props.workspaceId} sections={pastSections} onboarding={props.assistantOnboarding?.state} />}
+                      {props.assistantDate && pastSections.length > 0 && currentDisplayedMessages.length > 0 && <AssistantDateDivider date={props.assistantDate} />}
                       <MessageList
                         showWelcome={!props.assistantDate}
                         eigenweltPlan={eigenweltPlan}
@@ -2094,7 +2108,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
                             resolved={messageId ? hasAssistantReplyAfter(renderedMessages, messageId) : false}
                           />;
                         }}
-                        messages={displayedMessages}
+                        messages={currentDisplayedMessages}
                         assistantTyping={Boolean(props.assistantDate) && assistantIsWriting(renderedMessages, snapshot, chatStreaming)}
                         status={props.assistantDate && (props.activePermission || props.activeQuestion) ? "ready" : status}
                         retryStatus={props.assistantDate && (props.activePermission || props.activeQuestion) ? null : retryStatusForDisplay}
@@ -2128,7 +2142,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
           <SessionScrollOverlay
             sessionId={props.sessionId}
             isStreaming={chatStreaming}
-            onJumpToLatest={sessionScroll.jumpToLatest}
+            onJumpToLatest={jumpToLatest}
             onJumpToStartOfMessage={sessionScroll.jumpToStartOfMessage}
           />
         )}

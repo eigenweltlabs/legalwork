@@ -69,6 +69,7 @@ If a saved draft changes in Gmail or Outlook, LegalWork can require you to revie
 | Assistant reports invalid draft details | Ask it to correct the listed fields and retry with the same connected account. This error occurs before a mailbox write and does not require reconnecting. Previously created local drafts stay local; request a new draft using the named connection. |
 | Organization blocks consent | Give the administrator the provider's error and application details. |
 | Connection needs refreshing | Use **Refresh**, **Test connection**, then **Reconnect** if authorization expired. |
+| LegalWork cannot find the chat's project folder | Restore the folder at its original location, or open a chat in the project where you now want to save the attachment and retry the download. |
 | Attachment cannot be downloaded | Open a chat in an authorized project and check available disk space and the returned error. If an older chat reports a missing attachment, ask the assistant to read the email again and retry. Retry an interrupted download; incomplete copies are removed. Outlook cloud links and other non-file attachment types are not supported by this download action. |
 | Remove access | Select **Disconnect**. For Outlook this disconnects the shared Email and Calendar account. Review provider-side app permissions separately if you also want to revoke consent. |
 

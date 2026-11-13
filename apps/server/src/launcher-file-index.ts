@@ -65,7 +65,7 @@ export class LauncherFileIndex {
     if (this.indexes.get(workspaceId) !== index) return;
     index.entries = entries; index.builtAt = Date.now(); index.complete = true; index.limited = limited;
     // A change that arrived mid-walk is not in this snapshot: walk again.
-    if (index.dirty) { index.building = null; void this.ensure(workspaceId, index.root); }
+    if (index.dirty) { index.building = null; void this.ensure(workspaceId, index.root).catch(() => this.invalidate(workspaceId)); }
   }
   private startWatching(workspaceId: string, index: Index) {
     if (index.watcher || this.options.watch === false) return;
@@ -73,7 +73,7 @@ export class LauncherFileIndex {
       index.watcher = watch(index.root, { recursive: true, persistent: false }, () => {
         index.dirty = true;
         if (index.timer) clearTimeout(index.timer);
-        index.timer = setTimeout(() => { index.timer = null; void this.ensure(workspaceId, index.root); }, this.options.debounceMs ?? 1500);
+        index.timer = setTimeout(() => { index.timer = null; void this.ensure(workspaceId, index.root).catch(() => this.invalidate(workspaceId)); }, this.options.debounceMs ?? 1500);
         index.timer.unref?.();
       });
       index.watcher.on("error", () => { index.watcher?.close(); index.watcher = null; });
@@ -81,7 +81,8 @@ export class LauncherFileIndex {
   }
   /** Current entries for a project; starts or refreshes the index in the background when needed. */
   async ensure(workspaceId: string, path: string, wait = false) {
-    const root = await realpath(path).catch(() => path);
+    const root = await realpath(path);
+    if (!(await stat(root)).isDirectory()) throw new Error("The document folder is unavailable.");
     let index = this.indexes.get(workspaceId);
     if (index && index.root !== root) { this.invalidate(workspaceId); index = undefined; }
     if (!index) {

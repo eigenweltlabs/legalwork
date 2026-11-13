@@ -93,3 +93,13 @@ test("native paths belong only to the exact running desktop server, not another 
   expect(isDesktopLauncherServer(runtime.baseUrl, { ...runtime, running: false })).toBe(false);
   expect(isDesktopLauncherServer(runtime.baseUrl, undefined)).toBe(false);
 });
+
+
+test("migrated project clipboard references use the document root, not the engine home", async () => {
+  const file = { ...item("files"), path: "Contracts/Notes.md" };
+  expect(await launcherLocalPaths([file], {
+    visibleLauncherFiles: async items => ({ items }),
+    listWorkspaces: async () => ({ items: [{ id: "w", name: "Matter", path: "/local/engine", contentPath: "/documents/matter", preset: "starter", workspaceType: "local" }] }),
+    launcherFolders: unused, launcherFolderFile: unused,
+  })).toEqual(["/documents/matter/Contracts/Notes.md"]);
+});

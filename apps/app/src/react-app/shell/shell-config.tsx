@@ -7,9 +7,10 @@ import { useOrgPolicy } from "../domains/connections/org-policy";
 /*  Types                                                              */
 /* ------------------------------------------------------------------ */
 
-export type ShellNavKey = "navHome" | "navScheduled" | "navCalendar" | "navProjects" | "navTasks" | "navWorkflows" | "navRecorder" | "navWikis" | "navEvaluations";
+export type ShellNavKey = "navHome" | "navAssistant" | "navScheduled" | "navCalendar" | "navProjects" | "navTasks" | "navWorkflows" | "navRecorder" | "navWikis" | "navEvaluations";
+export type ShellWindowNavKey = Exclude<ShellNavKey, "navAssistant">;
 
-const DEFAULT_NAV_ORDER: ShellNavKey[] = ["navHome", "navProjects", "navCalendar", "navTasks", "navScheduled", "navWorkflows", "navRecorder", "navWikis", "navEvaluations"];
+const DEFAULT_NAV_ORDER: ShellNavKey[] = ["navHome", "navAssistant", "navProjects", "navCalendar", "navTasks", "navScheduled", "navWorkflows", "navRecorder", "navWikis", "navEvaluations"];
 
 export type ChatSectionKey = "navNewChat" | "sectionPinned" | "sectionPinnedProjects" | "sectionSharedProjects" | "sectionProjects" | "sectionRecent";
 export type ProjectNavKey = "projectCalendar" | "projectHome" | "projectReviews" | "projectTasks" | "projectFiles" | "projectSessions";
@@ -51,8 +52,6 @@ export type ShellConfig = {
   sidebarBrandName: string;
   /** Optional user-uploaded brand logo (data URL) for the left sidebar. */
   sidebarBrandLogoDataUrl: string;
-  /** Show the bottom status bar (connection status, docs, feedback). */
-  statusBar: boolean;
   /** Show the left sidebar with workspace/session list. */
   sidebar: boolean;
   /** Show the Cloud sign-in button when not signed in. */
@@ -108,7 +107,6 @@ export const DEFAULT_SHELL_CONFIG: ShellConfig = {
   appName: "LegalWork",
   sidebarBrandName: "LegalWork",
   sidebarBrandLogoDataUrl: "",
-  statusBar: true,
   sidebar: true,
   cloudSignin: true,
   welcomePage: true,
@@ -157,6 +155,10 @@ export function readShellConfig(): ShellConfig {
     const savedNavOrder = Array.isArray(next.navOrder) ? next.navOrder.flatMap((key: unknown) => key === "navNewChat" ? ["navHome", "navProjects"] : [key]) : next.navOrder;
     const navOrder = readOrder(savedNavOrder, DEFAULT_NAV_ORDER);
     // Place newly available items beside their default neighbors, preserving saved ordering.
+    if (Array.isArray(savedNavOrder) && !savedNavOrder.includes("navAssistant")) {
+      navOrder.splice(navOrder.indexOf("navAssistant"), 1);
+      navOrder.splice(navOrder.indexOf("navHome") + 1, 0, "navAssistant");
+    }
     if (Array.isArray(savedNavOrder) && !savedNavOrder.includes("navCalendar")) {
       navOrder.splice(navOrder.indexOf("navCalendar"), 1);
       navOrder.splice(navOrder.indexOf("navProjects") + 1, 0, "navCalendar");

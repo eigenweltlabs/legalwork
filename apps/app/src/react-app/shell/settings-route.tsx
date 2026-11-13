@@ -4,7 +4,9 @@ import { OrgPolicyFeatureOff } from "@/react-app/domains/connections/org-policy-
 /** @jsxImportSource react */
 import { cloneElement, useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import { toast } from "@/components/ui/sonner";
+import { savedAssistantQuery } from "./assistant-navigation";
 
 import { SUGGESTED_PLUGINS } from "@/app/constants";
 import type { EnablementContext } from "@/app/enablement";
@@ -31,6 +33,7 @@ import type {
 } from "@/app/types";
 import { getWorkspaceTaskLoadErrorDisplay } from "@/app/utils";
 import { removeProjectFromSidebar } from "./project-removal";
+import { isProjectRemoving, retainRemovingProjects } from "@/app/lib/project-removal-state";
 import { currentLocale, t } from "@/i18n";
 import { useModelPicker } from "@/react-app/domains/session/modals/use-model-picker";
 import {
@@ -76,6 +79,7 @@ import "@/react-app/domains/settings/open-computer-use-config";
 import "@/react-app/domains/settings/actaport-config";
 import "@/react-app/domains/settings/google-workspace-config";
 import "@/react-app/domains/settings/connector-config";
+import "@/react-app/domains/settings/ris-config";
 import { useSettingsExtensionController } from "@/react-app/domains/settings/settings-extension-controller";
 import { buildExtensionItems } from "@/react-app/domains/settings/extension-items";
 import { isLegalWorkExtensionEnabled, LEGALWORK_EXTENSION_STATE_CHANGED, setLegalWorkExtensionEnabled } from "@/react-app/domains/settings/extension-state";
@@ -406,6 +410,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   const [baseUrl, setBaseUrl] = useState("");
   const [token, setToken] = useState("");
   const [legalworkClient, setLegalworkClient] = useState<LegalworkServerClient | null>(null);
+  const assistantIcon = useQuery(savedAssistantQuery(props.singleView && route.tab !== "general" ? null : legalworkClient)).data?.profile.icon;
   // On its own route, Settings keeps the window's line to the server (inside a session, that has it).
   useSyncEvents(props.embedded ? null : legalworkClient);
   const [activeClient, setActiveClient] = useState<Client | null>(null);
@@ -1226,7 +1231,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         const list = await client.listWorkspaces();
         if (list.warnings?.length) notifyAlert({ kind: "system", title: "Remote agent workspaces retired", body: list.warnings.join("\n"), dedupeKey: "retired-remote-workspaces" });
         const serverWorkspaceIds = new Set(list.items.map((workspace) => workspace.id));
-        const nextWorkspaces = mergeRouteWorkspaces(list.items, desktopWorkspaces);
+        const nextWorkspaces = retainRemovingProjects(normalizedBaseUrl, mergeRouteWorkspaces(list.items, desktopWorkspaces), workspacesRef.current);
         // Account/settings navigation needs the registry, not every engine's
         // cold session index. Publish the connection before starting that work.
         setLegalworkClient(client);
@@ -1243,7 +1248,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         });
         void Promise.all(
           nextWorkspaces.map(async (workspace) => {
-            if (!serverWorkspaceIds.has(workspace.id)) {
+            if (isProjectRemoving(workspace.id) || !serverWorkspaceIds.has(workspace.id)) {
               return { workspaceId: workspace.id, sessions: [], error: null as string | null };
             }
             try {
@@ -1856,7 +1861,12 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         await workspaceSetRuntimeActive(createdId).catch(() => undefined);
       }
       setCreateWorkspaceOpen(false);
-      await refreshRouteState();
+      const created = list.workspaces.find(workspace => workspace.id === createdId);
+      if (created) {
+        workspacesRef.current = [mapDesktopWorkspace(created), ...workspacesRef.current.filter(item => item.id !== createdId)];
+        setWorkspaces(workspacesRef.current);
+        setLegacySelectedWorkspaceId(createdId);
+      }
     } catch (error) {
       setCreateWorkspaceError(describeWorkspaceCreateError(error));
     } finally {
@@ -1897,6 +1907,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       case "general":
         return (
           <GeneralSettingsView
+            assistantIcon={assistantIcon}
             onNavigateTab={(tab) => navigateSettingsPath(tab)}
             developerMode={developerMode}
           />
@@ -2403,6 +2414,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       ) : (
         <SettingsShell
           accountClient={legalworkClient ?? legalworkServerSnapshot.legalworkServerClient}
+          assistantIcon={assistantIcon}
           activeTab={route.tab}
           onSelectTab={(tab) => navigateSettingsPath(tab)}
           developerMode={developerMode}

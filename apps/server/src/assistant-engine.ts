@@ -102,11 +102,11 @@ export function assistantEngineClient(native: OpenCodeClient, directory: string)
     session: {
       get: (input: { sessionID: string }, options: Options = {}) => result(async () => projectSession(await native.session.get(input, options)), options),
       list: (input: { limit?: number; search?: string } = {}, options: Options = {}) => result(async () =>
-        (await listEngineSessions(native, { directory, ...input })).map(projectSession), options),
+        (await listEngineSessions(native, { directory, ...input }, options)).map(projectSession), options),
       create: (input: { title?: string; parentID?: string }, options: Options = {}) => result(async () =>
         projectSession(await native.session.create({ ...input, location: { directory } }, options)), options),
       children: (input: { sessionID: string }, options: Options = {}) => result(async () =>
-        (await listEngineSessions(native, { directory })).filter(session => session.parentID === input.sessionID).map(projectSession), options),
+        (await listEngineSessions(native, { directory }, options)).filter(session => session.parentID === input.sessionID).map(projectSession), options),
       status: (_input: object = {}, options: Options = {}) => result(async () =>
         Object.fromEntries(Object.keys(await native.session.active(options)).map(id => [id, { type: "busy" }])), options),
       messages: (input: { sessionID: string; limit?: number; untilMessageID?: string }, options: Options = {}) => result(() => history(input.sessionID, input.limit, options, input.untilMessageID), options),

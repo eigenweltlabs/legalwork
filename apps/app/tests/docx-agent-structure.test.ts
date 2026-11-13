@@ -257,3 +257,17 @@ test("formatting rejects protection, locked controls, ambiguity, invalid setting
   assert.throws(() => applyWordFormatting(context, { paraId: pending.node.attrs.paraId, marks: { italic: true } }), /pending revision/);
   assert.equal(context.view.state.doc, lockedBefore);
 });
+
+test("character spacing repairs preserve unrelated properties and survive Word export", async () => {
+  const { context, read, save } = await contract(true);
+  const target = read().paragraphs.find(item => item.text.includes("Windenergieanlage"))!;
+  applyWordFormatting(context, { paraId: target.paraId, marks: { characterSpacing: { spacing: -1, scale: 80, kerning: 12 } } });
+  applyWordFormatting(context, { paraId: target.paraId, marks: { characterSpacing: { spacing: 0, scale: 100 } } });
+  const node = readWordFormatting(context.view.state.doc, context.document, { paraId: target.paraId }).paragraphs[0];
+  assert.deepEqual(node.runs[0].marks.find(mark => mark.type === "characterSpacing")?.attrs, { spacing: 0, scale: 100, kerning: 24, position: null });
+  const reopened = await parseDocx(await save());
+  const doc = toProseDoc(reopened, { styles: reopened.package.styles });
+  const output = readWordFormatting(doc, reopened, {}).paragraphs.find(item => item.runs.some(run => run.text.includes("Windenergieanlage")))!;
+  assert.equal(output.runs[0].marks.find(mark => mark.type === "characterSpacing")?.attrs.scale, 100);
+  assert.equal(output.runs[0].marks.find(mark => mark.type === "characterSpacing")?.attrs.spacing, 0);
+});

@@ -1,3 +1,4 @@
+import { workspaceContentPath, workspaceFileRoot } from "../project-storage-paths.js";
 import { existingLauncherFiles } from "../launcher-file-visibility.js";
 import { createLauncherDocument } from "../launcher-document.js";
 import { browseLauncherDirectory } from "../launcher-browse.js";
@@ -45,9 +46,10 @@ export function registerLauncherRoutes(options: Parameters<typeof registerMainAs
     write(ctx);
     const input = parse(z.object({ workspaceId: z.string().min(1), operationId: z.string().regex(/^[a-zA-Z0-9_-]{8,100}$/), folder: z.string().max(4096), name: z.string().trim().min(1).max(200), format: z.enum(["md", "txt", "docx"]), templatePath: z.string().max(4096).optional(), text: z.string().max(500_000) }), await options.readJsonBodyLimited(ctx.request, 2_100_000), "document_input", "Choose a project, folder and document name.");
     const target = await options.resolveWorkspace(config, input.workspaceId);
-    const result = await createLauncherDocument(target.path, input, async path => { await options.requireApproval(ctx, { workspaceId: target.id, action: "workspace.file.write", summary: `Create ${input.name}`, paths: [path] }); });
+    const result = await createLauncherDocument(workspaceContentPath(target), input, async path => { await options.requireApproval(ctx, { workspaceId: target.id, action: "workspace.file.write", summary: `Create ${input.name}`, paths: [path] }); }, target.path);
     await recordAudit(target.path, { id: shortId(), workspaceId: target.id, actor: ctx.actor ?? { type: "remote" }, action: "workspace.file.write", target: result.path, summary: `Created ${input.name}`, timestamp: Date.now() });
-    void fileIndex.ensure(target.id, target.path, false).catch(() => undefined);
+    fileIndex.invalidate(target.id);
+    void fileIndex.ensure(target.id, workspaceContentPath(target), false).catch(() => undefined);
     return jsonResponse(result, 201);
   });
   addRoute(routes, "GET", "/launcher/folders", "client", async ctx => { read(ctx); return jsonResponse({ folders: options.searchFolders.list() }); });
@@ -67,7 +69,7 @@ export function registerLauncherRoutes(options: Parameters<typeof registerMainAs
       try {
         const folder = first.folderId ? await options.searchFolders.root(first.folderId) : null;
         const workspace = !folder && first.workspaceId ? await options.resolveWorkspace(config, first.workspaceId) : null;
-        const root = folder?.path ?? workspace?.path;
+        const root = folder?.path ?? (workspace ? workspaceContentPath(workspace) : undefined);
         const sourceKind = folder ? "folder" : workspace?.preset === "wiki" ? "wiki" : "project";
         return root ? (await existingLauncherFiles(root, group)).map(item => ({ ...item, sourceKind, subtitle: folder?.name ?? (workspace ? projectName(workspace) : item.subtitle) })) : [];
       } catch { return []; }
@@ -80,7 +82,7 @@ export function registerLauncherRoutes(options: Parameters<typeof registerMainAs
     if (Boolean(input.workspaceId) === Boolean(input.folderId)) throw new ApiError(400, "launcher_browse", "Choose one project or search folder.");
     const folder = input.folderId ? await options.searchFolders.root(input.folderId) : null;
     const workspace = input.workspaceId ? await options.resolveWorkspace(config, input.workspaceId) : null;
-    const root = folder?.path ?? workspace?.path;
+    const root = folder?.path ?? (workspace ? workspaceContentPath(workspace) : undefined);
     if (!root) throw new ApiError(404, "launcher_browse", "Folder unavailable.");
     return jsonResponse(await browseLauncherDirectory({ root, path: input.path, workspaceId: workspace?.id ?? null, folderId: folder?.id, sourceKind: folder ? "folder" : workspace?.preset === "wiki" ? "wiki" : "project", name: folder?.name ?? (workspace ? projectName(workspace) : "") }));
   });
@@ -179,24 +181,26 @@ export function registerLauncherRoutes(options: Parameters<typeof registerMainAs
     if (input.sourceWorkspaceId === input.targetWorkspaceId) throw new ApiError(400, "launcher_transfer", "Choose a different project as the destination.");
     const [source, target] = await Promise.all([options.resolveWorkspace(config, input.sourceWorkspaceId), options.resolveWorkspace(config, input.targetWorkspaceId)]);
     const relativePath = normalizeWorkspaceRelativePath(input.path, { allowSubdirs: true });
-    const sourceRoot = await realpath(source.path), sourceFile = await realpath(resolve(sourceRoot, relativePath)).catch(() => null);
+    const sourceRoot = await realpath(workspaceFileRoot(source, relativePath)), sourceFile = await realpath(resolve(sourceRoot, relativePath)).catch(() => null);
     if (!sourceFile || (sourceFile !== sourceRoot && !sourceFile.startsWith(sourceRoot + sep))) throw new ApiError(400, "invalid_path", "The file is outside this project.");
     const sourceInfo = await stat(sourceFile).catch(() => null);
     if (!sourceInfo?.isFile()) throw new ApiError(404, "file_not_found", "File not found");
     const folder = input.folder ? normalizeWorkspaceRelativePath(input.folder, { allowSubdirs: true }) : "";
-    const targetRoot = await realpath(target.path), destination = resolve(targetRoot, folder, basename(sourceFile));
+    const targetRoot = await realpath(workspaceContentPath(target)), destination = resolve(targetRoot, folder, basename(sourceFile));
     await launcherDestination(targetRoot, folder);
     if (!destination.startsWith(targetRoot + sep)) throw new ApiError(400, "invalid_path", "The destination is outside the project.");
     if (await stat(destination).catch(() => null)) throw new ApiError(409, "file_exists", "A file with that name already exists in the destination project.");
     const destinationPath = relative(targetRoot, destination).split("\\").join("/");
     await options.requireApproval(ctx, { workspaceId: target.id, action: "workspace.file.write", summary: `${input.mode === "move" ? "Move" : "Copy"} ${relativePath} from ${projectName(source)} to ${projectName(target)}`, paths: [destination, ...(input.mode === "move" ? [sourceFile] : [])] });
     await launcherDestination(targetRoot, folder, true);
-    await copyLauncherTransferFile({ rootPath: source.path, root: sourceRoot, relativePath, path: sourceFile, info: sourceInfo }, destination, input.mode === "move");
+    await copyLauncherTransferFile({ rootPath: workspaceFileRoot(source, relativePath), root: sourceRoot, relativePath, path: sourceFile, info: sourceInfo }, destination, input.mode === "move");
     const actor = ctx.actor ?? { type: "remote" as const };
     await recordAudit(target.path, { id: shortId(), workspaceId: target.id, actor, action: "workspace.file.write", target: destination, summary: `${input.mode === "move" ? "Moved" : "Copied"} ${relativePath} from ${projectName(source)}`, timestamp: Date.now() });
     if (input.mode === "move") await recordAudit(source.path, { id: shortId(), workspaceId: source.id, actor, action: "workspace.file.write", target: sourceFile, summary: `Moved ${relativePath} to ${projectName(target)}`, timestamp: Date.now() });
-    void fileIndex.ensure(source.id, source.path, false).catch(() => undefined);
-    void fileIndex.ensure(target.id, target.path, false).catch(() => undefined);
+    fileIndex.invalidate(source.id);
+    void fileIndex.ensure(source.id, workspaceContentPath(source), false).catch(() => undefined);
+    fileIndex.invalidate(target.id);
+    void fileIndex.ensure(target.id, workspaceContentPath(target), false).catch(() => undefined);
     return jsonResponse({ ok: true, path: destinationPath }, 201);
   });
   // Previews read what the result points at; nothing here reaches a model.
@@ -208,20 +212,20 @@ export function registerLauncherRoutes(options: Parameters<typeof registerMainAs
     const size = (bytes: number) => bytes >= 1_048_576 ? `${(bytes / 1_048_576).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
     if (input.kind === "projects") {
       const workspace = await workspaceOf();
-      return jsonResponse(assemblePreview({ kind: "projects", id: workspace.id, title: projectName(workspace), meta: [workspace.path], updatedAt: null }, clampPreview(workspace.path), "metadata"));
+      return jsonResponse(assemblePreview({ kind: "projects", id: workspace.id, title: projectName(workspace), meta: [workspaceContentPath(workspace)], updatedAt: null }, clampPreview(workspaceContentPath(workspace)), "metadata"));
     }
     if (input.kind === "files") {
       const external = input.folderId ? await options.searchFolders.file(input.folderId, input.id) : null;
       const workspace = external ? { id: external.folder.id, path: external.folder.path, name: external.folder.name } : await workspaceOf();
       const relativePath = normalizeWorkspaceRelativePath(input.id, { allowSubdirs: true });
-      const root = await realpath(workspace.path), absolute = await realpath(resolve(root, relativePath)).catch(() => null);
+      const root = await realpath(workspaceFileRoot(workspace, relativePath)), absolute = await realpath(resolve(root, relativePath)).catch(() => null);
       if (!absolute || (absolute !== root && !absolute.startsWith(root + sep))) throw new ApiError(400, "invalid_path", "The file is outside this project.");
       const info = await stat(absolute).catch(() => null);
       if (!info?.isFile()) throw new ApiError(404, "file_not_found", "File not found");
       const source = { kind: "files" as const, id: relativePath, title: relativePath.split("/").pop() ?? relativePath, meta: [external?.folder.name ?? workspace.name, relativePath, size(info.size)], updatedAt: info.mtimeMs };
       if (isSupportedWorkspaceTextFilePath(relativePath) && info.size <= 5_000_000) return jsonResponse(assemblePreview(source, clampPreview(await readFile(absolute, "utf8")), "text"));
       try {
-        const prepared = await extractCorpusText(workspace.path, relativePath, options.preparation, signal);
+        const prepared = await extractCorpusText(workspace, relativePath, options.preparation, signal);
         if (prepared.text.trim()) return jsonResponse(assemblePreview(source, clampPreview(prepared.text), "prepared"));
       } catch { /* metadata only */ }
       return jsonResponse(assemblePreview({ ...source, meta: [...source.meta, extname(relativePath).replace(/^\./, "").toUpperCase()] }, { text: "", truncated: false }, "metadata"));

@@ -12,12 +12,12 @@ export function documentBytes(format: "md" | "txt" | "docx", text: string): Uint
     "[Content_Types].xml": strToU8('<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>'),
     "_rels/.rels": strToU8('<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>'),
     "word/document.xml": strToU8(`<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${text.split(/\r?\n/).map(line => `<w:p><w:r><w:t xml:space="preserve">${escape(line)}</w:t></w:r></w:p>`).join("")}<w:sectPr/></w:body></w:document>`),
-  }, { level: 0, mtime: new Date("1980-01-01T00:00:00Z") });
+  }, { level: 6, mtime: new Date("1980-01-01T00:00:00Z") });
 }
 
 const pending = new Map<string, Promise<{ path: string }>>();
 /** Exclusive creation with a durable operation receipt: retries cannot overwrite or duplicate files. */
-export async function createLauncherDocument(root: string, input: { operationId: string; folder: string; name: string; format: "md" | "txt" | "docx"; text: string; templatePath?: string }, approve: (path: string) => Promise<void>): Promise<{ path: string }> {
+export async function createLauncherDocument(root: string, input: { operationId: string; folder: string; name: string; format: "md" | "txt" | "docx"; text: string; templatePath?: string }, approve: (path: string) => Promise<void>, metadataRoot = root): Promise<{ path: string }> {
   if (!/^[a-zA-Z0-9_-]{8,100}$/.test(input.operationId) || !input.name.trim() || /[/\\\x00-\x1f]/.test(input.name) || /^\.+$/.test(input.name)) throw new ApiError(400, "document_name", "Choose a filename without path separators.");
   const folder = await launcherDestination(root, input.folder);
   const name = input.name.endsWith(`.${input.format}`) ? input.name : `${input.name}.${input.format}`;
@@ -35,9 +35,9 @@ export async function createLauncherDocument(root: string, input: { operationId:
   const fingerprint = createHash("sha256").update(JSON.stringify(input)).digest("hex");
   const key = `${root}:${input.operationId}`;
   const active = pending.get(key);
-  if (active) { await active; return createLauncherDocument(root, input, approve); }
+  if (active) { await active; return createLauncherDocument(root, input, approve, metadataRoot); }
   const execute = async () => {
-    const journal = await launcherDestination(root, ".legalwork/launcher-documents", true);
+    const journal = await launcherDestination(metadataRoot, ".legalwork/launcher-documents", true);
     const receiptPath = resolve(journal, `${input.operationId}.json`);
     const receiptInfo = await lstat(receiptPath).catch(error => { if (error?.code === "ENOENT") return null; throw error; });
     if (receiptInfo?.isSymbolicLink()) throw new ApiError(409, "document_receipt", "Invalid save receipt.");
@@ -51,7 +51,7 @@ export async function createLauncherDocument(root: string, input: { operationId:
     if (!prior && await lstat(destination).catch(() => null)) throw new ApiError(409, "file_exists", "A file with this name already exists. Choose another name.");
     await approve(destination);
     await launcherDestination(root, input.folder, true);
-    await launcherDestination(root, ".legalwork/launcher-documents");
+    await launcherDestination(metadataRoot, ".legalwork/launcher-documents");
     if (!prior) await writeFile(receiptPath, JSON.stringify({ fingerprint, path, complete: false }), { flag: "wx", mode: 0o600 });
     try { await writeFile(destination, bytes, { flag: "wx", mode: 0o600 }); }
     catch (error) {

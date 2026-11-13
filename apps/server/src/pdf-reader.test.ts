@@ -35,23 +35,49 @@ test("native PDF text, including short pages and drawings, does not initialize O
   expect(state.snapshots()).toBe(0); expect(state.calls).toEqual([]);
 });
 
-test("automatic OCR reads only pages without embedded text and reuses successful pages", async () => {
+test("default text reads report pages without embedded text without initializing OCR", async () => {
   const state = fixture(), bytes = await document();
   const result = await state.reader.read(bytes, {}, signal());
-  expect(result.pages.map(page => page.extraction)).toEqual(["native", "native", "ocr"]);
-  expect(result.pages[2]?.text).toBe("Recognized page 3"); expect(result.complete).toBe(true);
-  await state.reader.read(bytes, {}, signal()); expect(state.calls).toEqual([3]);
+  expect(result.pages.map(page => page.extraction)).toEqual(["native", "native", "native"]);
+  expect(result.pages[2]).toMatchObject({ text: "", embedded_text_chars: 0 });
+  expect(result.complete).toBe(false);
+  expect(state.snapshots()).toBe(0); expect(state.calls).toEqual([]);
+});
+
+test("explicit OCR reuses successful pages and invalidates them after settings change", async () => {
+  const state = fixture(), bytes = await document(), options = { ocr: true, pages: [3] };
+  const result = await state.reader.read(bytes, options, signal());
+  expect(result.pages[0]).toMatchObject({ text: "Recognized page 3", embedded_text_chars: 0 });
+  expect(result.complete).toBe(true);
+  await state.reader.read(bytes, options, signal()); expect(state.calls).toEqual([3]);
   state.configure("settings-2");
-  await state.reader.read(bytes, {}, signal()); expect(state.calls).toEqual([3, 3]);
+  await state.reader.read(bytes, options, signal()); expect(state.calls).toEqual([3, 3]);
 });
 
 test("explicit OCR selects only requested pages and replaces overlapping native text", async () => {
   const state = fixture();
   const result = await state.reader.read(await document(), { ocr: true, pages: [2, 2] }, signal());
-  expect(state.calls).toEqual([2]); expect(result.pages).toEqual([{ page: 2, text: "Recognized page 2", extraction: "ocr" }]);
+  expect(state.calls).toEqual([2]); expect(result.pages[0]).toMatchObject({ page: 2, text: "Recognized page 2", extraction: "ocr" });
+  expect(result.pages[0]?.embedded_text_chars).toBeGreaterThan(0);
 });
 
-test("selected native, automatic OCR and explicit OCR pages ignore oversized unrequested text", async () => {
+test("embedded text and OCR can be requested together without losing either source", async () => {
+  const state = fixture();
+  const result = await state.reader.read(await document(), { text: true, ocr: true, pages: [2] }, signal());
+  expect(result.pages[0]).toMatchObject({ page: 2, text: "Recognized page 2", extraction: "ocr" });
+  expect(result.pages[0]?.native_text?.trim()).toBe("Text plus logo");
+  expect(state.calls).toEqual([2]);
+});
+
+test("explicit text-only reads do not initialize OCR for scanned pages", async () => {
+  const state = fixture();
+  const result = await state.reader.read(await document(), { text: true, pages: [3] }, signal());
+  expect(result.pages).toEqual([{ page: 3, text: "", extraction: "native", embedded_text_chars: 0 }]);
+  expect(result.complete).toBe(false);
+  expect(state.snapshots()).toBe(0);
+});
+
+test("selected text and explicit OCR pages ignore oversized unrequested text", async () => {
   const pdf = await PDFDocument.create();
   pdf.addPage([200, 200]).drawText("Selected contract marker", { x: 10, y: 170, size: 12 });
   pdf.addPage([200, 200]);
@@ -65,10 +91,10 @@ test("selected native, automatic OCR and explicit OCR pages ignore oversized unr
   expect(state.snapshots()).toBe(0);
   const explicit = await state.reader.read(bytes, { pages: [1], ocr: true }, signal());
   expect(explicit.page_count).toBe(5);
-  expect(explicit.pages).toEqual([{ page: 1, text: "Recognized page 1", extraction: "ocr" }]);
-  const automatic = await state.reader.read(bytes, { pages: [2] }, signal());
-  expect(automatic.page_count).toBe(5);
-  expect(automatic.pages).toEqual([{ page: 2, text: "Recognized page 2", extraction: "ocr" }]);
+  expect(explicit.pages[0]).toMatchObject({ page: 1, text: "Recognized page 1", extraction: "ocr" });
+  const scanned = await state.reader.read(bytes, { pages: [2], ocr: true }, signal());
+  expect(scanned.page_count).toBe(5);
+  expect(scanned.pages).toEqual([{ page: 2, text: "Recognized page 2", extraction: "ocr", embedded_text_chars: 0 }]);
   expect(state.calls).toEqual([1, 2]);
   await expect(state.reader.read(bytes, {}, signal())).rejects.toThrow("2 million characters");
 });
@@ -83,11 +109,11 @@ test("OCR failure is reported as partial without retrying or discarding native t
 test("repeated failures do not immediately invoke OCR again for unchanged pages and settings", async () => {
   const state = fixture(async () => { throw new OcrError("runtime-unavailable", "Install the OCR model."); });
   const bytes = await document();
-  await state.reader.read(bytes, { pages: [3] }, signal());
-  const repeated = await state.reader.read(bytes, { pages: [3] }, signal());
+  await state.reader.read(bytes, { ocr: true, pages: [3] }, signal());
+  const repeated = await state.reader.read(bytes, { ocr: true, pages: [3] }, signal());
   expect(repeated.pages[0]?.error).toContain("OCR was not repeated"); expect(state.calls).toEqual([3]);
   state.configure("settings-2");
-  await state.reader.read(bytes, { pages: [3] }, signal()); expect(state.calls).toEqual([3, 3]);
+  await state.reader.read(bytes, { ocr: true, pages: [3] }, signal()); expect(state.calls).toEqual([3, 3]);
 });
 
 test("invalid PDFs and nonexistent pages fail before OCR", async () => {
@@ -97,9 +123,23 @@ test("invalid PDFs and nonexistent pages fail before OCR", async () => {
   expect(state.calls).toEqual([]);
 });
 
+test("large scans are readable as text and oversized OCR explains how to select a batch", async () => {
+  const pdf = await PDFDocument.create();
+  for (let i = 0; i < 101; i++) pdf.addPage([200, 200]);
+  const bytes = await pdf.save(), state = fixture();
+  const text = await state.reader.read(bytes, { text: true }, signal());
+  expect(text.pages).toHaveLength(101); expect(text.complete).toBe(false);
+  await expect(state.reader.read(bytes, { ocr: true }, signal())).rejects.toMatchObject({ code: "pdf_ocr_pages" });
+  await expect(state.reader.read(bytes, { ocr: true }, signal())).rejects.toThrow("offset/limit only paginate returned text");
+  expect(state.snapshots()).toBe(0);
+  const selected = await state.reader.read(bytes, { ocr: true, pages: [101] }, signal());
+  expect(selected.pages[0]).toMatchObject({ page: 101, text: "Recognized page 101", extraction: "ocr" });
+  expect(state.calls).toEqual([101]);
+});
+
 test("cancellation interrupts OCR and does not become a successful partial read", async () => {
   const controller = new AbortController();
   const state = fixture(async () => { controller.abort(); return "cancelled"; });
-  await expect(state.reader.read(await document(), { pages: [3] }, controller.signal)).rejects.toThrow();
+  await expect(state.reader.read(await document(), { ocr: true, pages: [3] }, controller.signal)).rejects.toThrow();
   expect(state.calls).toEqual([3]);
 });

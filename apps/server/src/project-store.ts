@@ -11,10 +11,11 @@ import {
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { z } from "zod";
-import type { ProjectDetails, ProjectRemote } from "@legalwork/types/workspace";
-import { projectRemoteSchema, projectFieldsSchema } from "./project-schema.js";
+import type { ProjectDetails, ProjectField, ProjectRemote } from "@legalwork/types/workspace";
+import { projectRemoteSchema, projectFieldsSchema, projectFieldValueSchema } from "./project-schema.js";
 import { ApiError } from "./errors.js";
 import { MAX_CUSTOM_INSTRUCTIONS_LENGTH } from "./runtime-opencode-config-store.js";
+import { keepProjectStateDownloaded } from "./project-availability.js";
 
 export function parseProjectFields(input: unknown) {
   const parsed = projectFieldsSchema.safeParse(input);
@@ -62,7 +63,10 @@ async function metadataPath(root: string, create: boolean) {
     );
   }
   const directory = join(root, ".legalwork");
-  if (create) await mkdir(directory, { recursive: true });
+  if (create) {
+    await mkdir(directory, { recursive: true });
+    await keepProjectStateDownloaded(root);
+  }
   try {
     if ((await lstat(directory)).isSymbolicLink())
       throw new ApiError(
@@ -107,9 +111,12 @@ export async function readProjectDetails(
   }
 }
 
+export type ProjectFieldsValidator = (before: ProjectField[], after: ProjectField[]) => Promise<void>;
+
 export async function updateProjectDetails(
   root: string,
   input: unknown,
+  validate?: ProjectFieldsValidator,
 ): Promise<ProjectDetails> {
   const parsed = patchSchema.safeParse(input);
   if (!parsed.success)
@@ -118,7 +125,7 @@ export async function updateProjectDetails(
       "invalid_project_metadata",
       parsed.error.issues[0]?.message ?? "Invalid project metadata.",
     );
-  return writeProjectDetails(root, (current) => {
+  return writeProjectDetails(root, async (current) => {
     if (parsed.data.revision !== current.revision) {
       throw new ApiError(
         409,
@@ -126,6 +133,7 @@ export async function updateProjectDetails(
         "This project changed in another window. Reload before saving.",
       );
     }
+    await validate?.(current.fields, parsed.data.fields);
     return { ...current, fields: parsed.data.fields };
   });
 }
@@ -150,13 +158,13 @@ export async function updateProjectPersonalization(root: string, input: unknown)
 }
 
 /** Agents may fill discovered fields without replacing the user's schema. */
-export async function updateProjectFieldValues(root: string, input: unknown): Promise<ProjectDetails> {
+export async function updateProjectFieldValues(root: string, input: unknown, validate?: ProjectFieldsValidator): Promise<ProjectDetails> {
   const parsed = z.object({
     revision: z.number().int().nonnegative(),
-    values: z.record(z.string(), z.union([z.string().max(4000), z.number().finite(), z.null()])),
+    values: z.record(z.string(), projectFieldValueSchema),
   }).strict().safeParse(input);
   if (!parsed.success) throw new ApiError(400, "invalid_project_metadata", "Provide the current revision and values keyed by existing field IDs.");
-  return writeProjectDetails(root, (current) => {
+  return writeProjectDetails(root, async (current) => {
     if (parsed.data.revision !== current.revision)
       throw new ApiError(409, "project_changed", "This project changed. Read its metadata again before saving.");
     for (const id of Object.keys(parsed.data.values)) {
@@ -167,6 +175,7 @@ export async function updateProjectFieldValues(root: string, input: unknown): Pr
       Object.hasOwn(parsed.data.values, field.id) ? { ...field, value: parsed.data.values[field.id] } : field,
     ));
     if (!fields.success) throw new ApiError(400, "invalid_project_metadata", fields.error.issues[0]?.message ?? "Invalid field value.");
+    await validate?.(current.fields, fields.data);
     return { ...current, fields: fields.data };
   });
 }
@@ -181,14 +190,14 @@ export async function setProjectSyncId(root: string, syncProjectId: string | nul
 /** One write at a time per folder, each against the details as they stand. */
 async function writeProjectDetails(
   root: string,
-  change: (current: ProjectDetails) => ProjectDetails,
+  change: (current: ProjectDetails) => ProjectDetails | Promise<ProjectDetails>,
 ): Promise<ProjectDetails> {
   const previous = writes.get(root) ?? Promise.resolve();
   const next = previous
     .catch(() => undefined)
     .then(async () => {
       const current = await readProjectDetails(root);
-      const updated: ProjectDetails = { ...change(current), version: 1, revision: current.revision + 1 };
+      const updated: ProjectDetails = { ...await change(current), version: 1, revision: current.revision + 1 };
       const path = await metadataPath(root, true);
       const temporary = `${path}.${randomUUID()}.tmp`;
       try {

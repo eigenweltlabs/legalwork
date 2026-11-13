@@ -1,3 +1,4 @@
+import { scheduleBackOfficeSync } from "./back-office/sync.js";
 import { serverSentEvents, syncPokeOf, type SyncPoke } from "./sync-events.js";
 
 import { readEigenweltConnection } from "./eigenwelt-connection-store.js";
@@ -50,9 +51,10 @@ export function startSyncEvents(
   const onPoke =
     options.onPoke ??
     ((poke: SyncPoke) => {
+      if (poke.backOffice || poke.resync) scheduleBackOfficeSync(config);
       if (poke.projects || poke.resync) scheduleProjectSync(config, POKE_DELAY_MS);
       if (poke.tasks || poke.resync) scheduleTaskSync(config, POKE_DELAY_MS);
-      if (poke.policy || poke.resync) void scheduleOrgPolicySync(config, { force: true });
+      if (poke.policy || poke.resync) void scheduleOrgPolicySync(config, { force: true }).then(() => scheduleBackOfficeSync(config), () => scheduleBackOfficeSync(config));
       if (poke.hub || poke.resync) void scheduleFirmHubSync(config, { force: true });
       if (poke.connectors || poke.resync) scheduleConnectorSync(config);
     });

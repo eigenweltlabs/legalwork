@@ -6,6 +6,7 @@ const NATIVE_MENU_OPEN_SESSION_WINDOW_EVENT = "legalwork:native-menu:open-sessio
 const NATIVE_MENU_TOGGLE_SIDEBAR_EVENT = "legalwork:native-menu:toggle-sidebar";
 const NATIVE_MENU_CHECK_UPDATES_EVENT = "legalwork:native-menu:check-updates";
 const NATIVE_MENU_ZOOM_EVENT = "legalwork:native-menu:zoom";
+const NATIVE_MENU_SELECT_TAB_EVENT = "legalwork:native-menu:select-tab";
 const DESKTOP_NOTIFICATION_CLICK_EVENT = "legalwork:desktop-notification-click";
 const LAUNCHER_EVENT = "legalwork:launcher:event";
 const NAVIGATE_EVENT = "legalwork:navigate";
@@ -280,6 +281,11 @@ ipcRenderer.on(NATIVE_MENU_CHECK_UPDATES_EVENT, () => {
 ipcRenderer.on(NATIVE_MENU_ZOOM_EVENT, (_event, action) => {
   if (typeof window === "undefined") return;
   window.dispatchEvent(new CustomEvent(NATIVE_MENU_ZOOM_EVENT, { detail: action }));
+});
+
+ipcRenderer.on(NATIVE_MENU_SELECT_TAB_EVENT, (_event, number) => {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent(NATIVE_MENU_SELECT_TAB_EVENT, { detail: number }));
 });
 
 // A system notification the page asked for was clicked (see

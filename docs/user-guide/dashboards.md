@@ -1,13 +1,23 @@
 # Dashboards and reports
 
-Dashboards and reports are saved files in your project or wiki. Project Files and the file sidebar show their readable titles and dashboard icons. The **Dashboards** folder has a dashboard badge; reports use **Reports**. A live dashboard queries its source wiki, while a snapshot keeps the reviewed data from a particular time.
+Dashboards and reports are saved files in your project or wiki. Project Files and the file sidebar show their readable titles and dashboard icons. The **Dashboards** folder has a dashboard badge; reports use **Reports**. A live dashboard reads current Back Office records or indexed wiki fields. A snapshot keeps the reviewed data from a particular time.
 
 ## Create and save
 
 1. Open a chat in the intended project or wiki. Ask for a dashboard and identify its sources, for example, "Create a dashboard of matters from this wiki, grouped by responsible lawyer and status."
-2. Review the preview and its source records. Generation alone does not save a file.
-3. Choose **Save** to save directly into the originating project or wiki. An update preview saves back to its original file, provided that version has not changed.
-4. Reopen the file from the project's **Files > Dashboards**, the file sidebar or the wiki explorer. Both file explorers refresh after saving.
+2. The agent chooses a layout from your question and the available data. You can ask for related figures side by side, a trend over time, or a ranking by client. You can also ask for changes after reviewing the preview and its source records. Generation alone does not save a file.
+3. To revise a preview, keep its tab beside the chat and describe the change. The edit streams into that tab. If you have several dashboards in the chat, you can name the one you want to change.
+   LegalWork checks the finished layout and sends any component errors back to the agent so it can correct the same preview.
+4. Choose **Save** to save directly into the originating project or wiki. An update preview saves back to its original file, provided that version has not changed.
+5. Reopen the file from the project's **Files > Dashboards**, the file sidebar or the wiki explorer. Both file explorers refresh after saving.
+
+To chart a CSV, attach the file in chat and ask for the comparisons you want. The dashboard keeps a snapshot of the supplied rows. To update it with a newer CSV, attach that file and ask the agent to revise the dashboard.
+
+## Back Office dashboards
+
+Ask in a project chat or the Assistant, for example, “Chart all my matters by practice area and value in dispute.” The agent can use any accessible Back Office model, including models your firm adds. A dashboard can combine several models in separate charts or tables. Grouped counts and totals cover all matching records even when the register displays only a page. Monetary totals use a specified currency.
+
+A saved live dashboard reads the original directory with the current viewer’s permissions. Local records work offline. Changes appear while the dashboard is open, and **Refresh data** requests an immediate update. A different local directory cannot supply the original records.
 
 ## Assistant briefings and embedded charts
 
@@ -35,7 +45,7 @@ Use **Export snapshot** to download a portable `.view.json` file with frozen dat
 
 Saved dashboard tabs reconnect automatically when you restart the desktop app. A loading indicator appears while the local connection starts. If a view belongs to another server, open it from its original project or wiki to reconnect.
 
-**Live dashboard** and **Refresh data** mean the view queries the source wiki. **Snapshot** with its data timestamp and **Reload saved file** mean the data is frozen. Cross-owner copies retain snapshots and source attribution; same-wiki copies can retain live queries. Imported files never silently run another wiki's queries against the destination. If an import requests a snapshot, export one from its source first. Source links can be unavailable when the original server is not connected, while the saved data remains readable.
+**Live dashboard** and **Refresh data** mean the view queries its Back Office directory or source wiki. **Snapshot** with its data timestamp and **Reload saved file** mean the data is frozen. Cross-owner copies retain snapshots and source attribution; copies in the same project or wiki can retain live queries. Imported files never silently run another wiki's queries against the destination. If an import requests a snapshot, export one from its source first. Source links can be unavailable when the original server is not connected, while the saved data remains readable.
 
 If the original changes before an update preview is saved, LegalWork preserves the existing file. Choose **Open latest version** to inspect it or **Save a copy** to keep your preview separately. Some live dashboard boards allow property changes; those update source records and require access and matching revisions. Reports and generation previews are read-only.
 

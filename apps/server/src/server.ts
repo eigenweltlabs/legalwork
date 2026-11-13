@@ -1,3 +1,8 @@
+import { workspaceContentPath, workspaceFileRoot } from "./project-storage.js";
+import { signOutBackOffice } from "./back-office/sync.js";
+import { scheduleBackOfficeSync, cancelScheduledBackOfficeSync } from "./back-office/sync.js";
+import { prepareFormLinks } from "./back-office/native-links.js";
+import { registerBackOfficeRoutes } from "./back-office/routes.js";
 import { assistantRouteRequiresSubscription, requireAssistantSubscription, requireAssistantWorkspaceSubscription } from "./assistant-subscription.js";
 import { createAssistantRuntime } from "./assistant-runtime.js";
 import { startConnectorSync } from "./connectors/sync.js";
@@ -8,6 +13,7 @@ import { createToolImageRaster } from "./tool-image-raster.js";
 import { resolveNodeToolImageRasterRuntime } from "./tool-image-raster-runtime.js";
 import { registerToolImageOriginalRoutes } from "./routes/tool-image-originals.js";
 import { toolImageOriginalStore } from "./tool-image-original-store.js";
+import { localProjectMigrationPending } from "./project-storage.js";
 import { startToolImageOriginalLifecycle } from "./tool-image-original-lifecycle.js";
 import { LegalMemoryPermissionReplySchema } from "./native-shared-values.js";
 import { isRetiredRemoteWorkspace } from "./native-shared-values.js";
@@ -72,6 +78,7 @@ import { ApprovalService } from "./approvals.js";
 import { AgentSandboxService } from "./agent-sandbox/service.js";
 import { explicitFileApprovals, managedPermissionRules } from "./agent-sandbox/engine-policy.js";
 import { rememberNativeChatApproval, listNativeProjectApprovals, removeNativeProjectApproval, updateNativeProjectApproval } from "./native-folder-approval.js";
+import { chatApprovalLineage } from "./chat-approval-scope.js";
 import { registerAgentSandboxRoutes } from "./routes/agent-sandbox.js";
 import { assertSandboxProxyAllowed, sandboxSessionBody } from "./agent-sandbox/proxy-gate.js";
 import { addPlugin, listPlugins, normalizePluginSpec, removePlugin } from "./plugins.js";
@@ -82,11 +89,12 @@ import { probeMcpServer, registerMcpClient } from "./mcp-probe.js";
 import { mcpRecovery, recoverWorkspaceMcp } from "./workspace-mcp-recovery.js";
 import { readNativeWorkspaceConfig } from "./native-workspace-config.js";
 import { deleteSkill, listSkills, resolveHubSkillKind, skillPathForScope, upsertSkill, type SkippedSkill } from "./skills.js";
+import { managedCoreLibraryRoot, prepareManagedCoreLibrary } from "./managed-core-library.js";
 import {
   deleteSkillResource,
   listSkillResources,
   readSkillResource,
-  resolveSkillDir,
+  writableSkillDir,
   upsertSkillResource,
   validateResourceName,
 } from "./skill-resources.js";
@@ -99,6 +107,7 @@ import { recordAudit, readAuditEntries, readLastAudit } from "./audit.js";
 import { ReloadEventStore } from "./events.js";
 import { computeReloadFingerprint } from "./reload-fingerprint.js";
 import { startReloadWatchers } from "./reload-watcher.js";
+import { keepProjectStateDownloaded } from "./project-availability.js";
 import { globalOpencodeConfigDir, globalSkillsDir, opencodeConfigPath, legalworkConfigPath, projectCommandsDir, projectPluginsDir, projectSkillsDir } from "./workspace-files.js";
 import { ensureDir, exists, hashToken, shortId, tokensMatch } from "./utils.js";
 import { ensureWorkspaceFiles, readRawOpencodeConfig } from "./workspace-init.js";
@@ -856,43 +865,32 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
   const logger = createServerLogger(config);
   const wikiStore = new WikiStore(config);
   await wikiStore.list();
-  let watcherHandle = startReloadWatchers({ config, reloadEvents, logger });
+  let backgroundStarted = false;
+  const backgroundStops: Array<() => void> = [];
+  let watcherHandle: ReturnType<typeof startReloadWatchers> | undefined;
   reloadBaselineRefreshers.set(
     config,
-    (workspaceId, reasons) => watcherHandle.refreshWorkspace(workspaceId, reasons),
+    async (workspaceId, reasons) => { await watcherHandle?.refreshWorkspace(workspaceId, reasons); },
   );
   const restartReloadWatchers = () => {
-    watcherHandle.close();
-    watcherHandle = startReloadWatchers({ config, reloadEvents, logger });
+    if (!backgroundStarted) return;
+    if (watcherHandle) watcherHandle.syncWorkspaces();
+    else watcherHandle = startReloadWatchers({ config, reloadEvents, logger });
   };
-  // Tasks push and pull with the firm's account in the background (a no-op
-  // while no firm is connected); each local write also asks for a round.
-  const stopTaskSync = startTaskSyncTimer(config);
-  // Synced projects (Akten) likewise; a project arriving from the firm is a
-  // new folder for the reload watchers too.
+  // Register change handlers now; background writers start after engine and
+  // project-storage initialization have completed.
   configureProjectSync(config, { onWorkspacesChanged: () => restartReloadWatchers() });
-  const stopProjectSyncTimer = startProjectSyncTimer(config);
-  // The firm pokes this computer when something changed, so rounds start at once.
-  const stopConnectorSync = startConnectorSync(config);
-  const stopSyncEvents = startSyncEvents(config);
-  const stopSandboxSettingsSync = startSandboxSettingsSync(config);
-  // The firm's policy: pulled now and whenever the firm pokes; what changes
-  // the engine's settings reloads the engines once they are idle.
   const stopOrgPolicy = onOrgPolicyChange(config, (scopes) => {
     if (scopes.has("engine")) applyOrgPolicyToEngines(config);
+    if (scopes.has("server")) scheduleBackOfficeSync(config);
   });
-  void scheduleOrgPolicySync(config, { force: true });
   // The firm's Knowledge Hub likewise: what it installs for everyone, and what
   // the member added, follows the platform; connectors and skills reload the engines.
   const stopFirmHub = onFirmHubChange(config, (changes) => {
     if (changes.has("engine")) applyOrgPolicyToEngines(config);
   });
-  void scheduleFirmHubSync(config, { force: true });
-  // Due days are checked every minute, connected or not, for the app to announce.
-  const stopTaskReminders = startTaskReminderTimer(config);
   const officeTools = new OfficeToolRelay();
   const wikiSync = new WikiSync(config, wikiStore);
-  wikiSync.start();
   const benchmarkRunner = new BenchmarkRunner({
     config,
     createClient: (workspace, directory) =>
@@ -909,7 +907,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
         throw new ApiError(409, "corpus_provider", "Select an available JEV provider supporting yes/no and classification in Settings.");
       return settings.selection;
     },
-    extract: (workspace, path, signal) => extractCorpusText(workspace, path, preparation, signal),
+    extract: (workspace, path, signal, contentPath) => extractCorpusText({ path: workspace, contentPath }, path, preparation, signal),
     infer: (request, selection, signal) => systemOne(config, request, { providerId: selection.providerId, signal, retry: false }),
   });
   const reviews = new ReviewService(new ReviewExecutor(config), preparation, new ReviewDefaults(runtimeStorageDir(config), {
@@ -917,7 +915,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
     requireUnmanaged: () => requireOrgPolicyUnmanaged(config, "reviews.defaults"),
   }));
   const scheduledTasks = await ScheduledTaskStore.open(runtimeDbPath(config), () => announceSyncChange(config, "sessions"));
-  const assistantRuntime = await createAssistantRuntime(config, { scheduledTasks, preparation, resolveWorkspace: id => resolveWorkspace(config, id),
+  const assistantRuntime = await createAssistantRuntime(config, { scheduledTasks, preparation, deferStart: true, resolveWorkspace: id => resolveWorkspace(config, id),
     changed: restartReloadWatchers, tokenActive: hash => tokens.isActiveHash(hash) });
   const scheduledWorkspace = async (task: ScheduledTask) => {
     const workspace = await resolveWorkspace(config, task.workspaceId);
@@ -927,10 +925,13 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
   const scheduledRunner = new ScheduledTaskRunner(scheduledTasks, {
     resolveSession: async task => assistantRuntime.scheduledSession(task, await scheduledWorkspace(task)),
     available: async task => {
-      if (config.readOnly || config.cloudSync && !config.cloudSync.canExecute()) return false;
+      if (config.readOnly || config.cloudSync && !config.cloudSync.canExecute() || config.projectStorageMigrating || config.managedEngineStarting) return false;
       const workspace = await scheduledWorkspace(task);
-      const status = await createWorkspaceOpencodeClient(config, workspace).session.active({ signal: AbortSignal.timeout(10000) });
+      if (config.projectsDirectory && !workspace.contentPath || await localProjectMigrationPending(workspace)) return false;
+      const recovery = config.managedEngineRecoveryState?.();
       const target = task.sessionId ?? scheduledTasks.runs(task.id)[0]?.sessionId;
+      if (recovery?.mode === "promoting" || recovery?.heldSessions.some(session => session.id === target)) return false;
+      const status = await createWorkspaceOpencodeClient(config, workspace).session.active({ signal: AbortSignal.timeout(10000) });
       return !target || !status[target];
     },
     createSession: async task => {
@@ -954,7 +955,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
         throw new ApiError(409, "schedule_chat_permissions", "This chat has broader saved permissions. Choose a new chat for each run to use project-only access.");
       // The server records the schedule editor's authority. A collaborator edit
       // downgrades it; old schedules default to shared-wiki access.
-      await grantWikiAgentSession(config, { sessionId, directory: session.location.directory, scope: task.wikiScope,
+      await grantWikiAgentSession(config, { sessionId, workspaceId: workspace.id, directory: session.location.directory, scope: task.wikiScope,
         scheduledProjects: task.projectAccess === "all" ? "all" : [workspace.id] });
       });
       const queue = registeredMessageQueue(config);
@@ -978,18 +979,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
   registerAgentSandboxRoutes({ routes, config, sandbox: agentSandbox, resolveWorkspace, requireClientScope, readJsonBodyLimited, jsonResponse,
     sessionLineage: async (workspace, sessionID) => {
       const client = createWorkspaceOpencodeClient(config, workspace);
-      const lineage: string[] = [];
-      let id: string | undefined = sessionID;
-      while (id) {
-        if (lineage.includes(id) || lineage.length >= 64) throw new ApiError(400, "sandbox_session", "Invalid chat ancestry.");
-        const currentId: string = id;
-        const session = await getWorkspaceEngineSession(client, workspace, currentId);
-        const directory = resolveOpencodeDirectory(workspace);
-        if (!directory || !await sameProjectDirectory(session.location.directory, directory)) throw new ApiError(403, "sandbox_session", "This chat belongs to a different workspace.");
-        lineage.push(id);
-        id = session.parentID;
-      }
-      return lineage;
+      return (await chatApprovalLineage(sessionID, id => getWorkspaceEngineSession(client, workspace, id))).map(session => session.id);
     },
     agentRules: async (workspace, sessionID, agentName) => {
       const client = createWorkspaceOpencodeClient(config, workspace);
@@ -1023,7 +1013,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
   const guardWikiDirectory = async (actor: Actor | undefined, request: Request, url: URL, readWikis: WikiStore["list"] = () => wikiStore.list()) => {
     const directory = url.searchParams.get("location[directory]") || url.searchParams.get("directory") || decodeOpencodeDirectoryHeader(request.headers.get("x-opencode-directory"));
     if (!directory) return;
-    const wiki = wikiForDirectory(await readWikis(), await realpath(directory).catch(() => resolve(directory)));
+    const wiki = wikiForDirectory(await readWikis(), await realpath(directory).catch(() => resolve(directory)), config.workspaces);
     assertWikiWorkspaceAccess(actor, wiki);
     if (wiki) await wikiSync.ensureReadable(wiki, ownsWikis(actor));
     if (wiki && request.method !== "GET" && request.method !== "HEAD") await wikiSync.ensureWritable(wiki, ownsWikis(actor));
@@ -1042,7 +1032,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
       const startedAt = Date.now();
       // One authorization snapshot per request, without retaining permissions across requests.
       let registrations: ReturnType<WikiStore["list"]> | undefined;
-      const readWikis = () => registrations ??= wikiStore.list();
+      const readWikis = () => registrations ??= wikiStore.list({ registrationsOnly: /^\/workspace\/[^/]+\/pdf\/read$/.test(url.pathname) });
       let authMode: AuthMode = "none";
       let proxyService: "opencode" | undefined;
       let proxyBaseUrl: string | undefined;
@@ -1091,6 +1081,11 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
         return finalize(new Response(null, { status: 204 }));
       }
       if (!ready) return finalize(jsonResponse({ code: "server_starting", message: "LegalWork is starting." }, 503));
+      // Project reads can initialize bundled files too. Hold them while the
+      // support trees are copied, so opening the selected project cannot
+      // change its source halfway through verification.
+      if (config.projectStorageMigrating && (url.pathname.startsWith("/workspace/") || !["GET", "HEAD"].includes(request.method)))
+        return finalize(jsonResponse({ code: "project_storage_migrating", message: "Project storage is being upgraded. Retry when startup finishes." }, 503));
 
       if (url.pathname === WORD_ADDIN_PATH_PREFIX || url.pathname.startsWith(`${WORD_ADDIN_PATH_PREFIX}/`)) {
         let addinResponse: Response | null;
@@ -1189,6 +1184,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
           request,
           url,
           params: route.params,
+          agentAccess,
           config,
           approvals,
           reloadEvents,
@@ -1276,14 +1272,13 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
     }
   }
 
-  const stopScheduledTasks = config.readOnly ? () => {} : scheduledRunner.start();
   let originalImageCleanup: ReturnType<typeof startOriginalImageCleanup>;
   const startedServer = {
     ...server,
     wordAddinPort: wordAddinServer?.port ?? null,
     invalidateRawHttpTrust: () => rawHttpTransport?.rotate(),
     stop: async () => {
-      stopSandboxSettingsSync();
+      for (const stop of backgroundStops.splice(0).reverse()) stop();
       await originalImageCleanup?.close();
       await agentSandbox.stop();
       await rawHttpTransport?.close();
@@ -1292,22 +1287,17 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
       officeConnection.dispose();
       stopMessageQueue(config);
       await assistantRuntime.close();
-      stopConnectorSync();
       await corpus.stop();
       reviews.stop();
       preparation.stop();
       ocr.stop();
-      stopTaskSync();
-      stopProjectSyncTimer();
-      stopSyncEvents();
       stopOrgPolicy();
+      cancelScheduledBackOfficeSync(config);
       stopFirmHub();
-      stopTaskReminders();
-      stopScheduledTasks();
       await wikiSync.stop();
       await wikiStore.close();
       benchmarkRunner.dispose();
-      watcherHandle.close();
+      watcherHandle?.close();
       workspaceBootstrapPromises.delete(config);
       reloadBaselineRefreshers.delete(config);
       await wordAddinServer?.stop();
@@ -1321,6 +1311,18 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
     // routes while its engine boots. Engine readiness is scoped separately.
     ready = true;
     await runtimeOptions.onListening?.(server.port);
+    // Startup can upgrade OpenCode and relocate project roots. Start writers
+    // and root-bound watchers only after that transition has completed.
+    if (!config.readOnly) await Promise.all(config.workspaces.filter(workspace => !config.projectsDirectory || workspace.contentPath).map(workspace => keepProjectStateDownloaded(workspace.path)));
+    backgroundStarted = true;
+    restartReloadWatchers();
+    for (const start of [() => startTaskSyncTimer(config), () => startConnectorSync(config), () => startProjectSyncTimer(config), () => startSyncEvents(config),
+      () => startSandboxSettingsSync(config), () => startTaskReminderTimer(config)]) backgroundStops.push(start());
+    void scheduleOrgPolicySync(config, { force: true });
+    void scheduleFirmHubSync(config, { force: true });
+    wikiSync.start();
+    await assistantRuntime.start();
+    if (!config.readOnly) backgroundStops.push(scheduledRunner.start());
     await toolImageOriginalStore(config).retryReferenceDeletions().catch(error => {
       console.warn("[legalwork-server] An explicitly requested original image deletion remains pending.", error);
     });
@@ -1400,7 +1402,7 @@ async function forwardOpencodeRequest(input: NativeProxyInput) {
   const root = workspaceEngineLocation(workspace).directory;
   const allowed = async (directory: string) => {
     try {
-      assertWikiWorkspaceAccess(actor, wikiForDirectory(wikis, await realpath(directory).catch(() => resolve(directory))));
+      assertWikiWorkspaceAccess(actor, wikiForDirectory(wikis, await realpath(directory).catch(() => resolve(directory)), input.config.workspaces));
       return await pathWithin(root, directory);
     } catch { return false; }
   };
@@ -1432,11 +1434,11 @@ async function forwardOpencodeRequest(input: NativeProxyInput) {
   }
   if (method === "GET" && path === "/event") {
     const roots = await Promise.all(input.config.workspaces.map(async project => {
-      try { assertWikiWorkspaceAccess(actor, wikiForDirectory(wikis, project.directory || project.path)); return project.directory || project.path; }
+      try { assertWikiWorkspaceAccess(actor, wikiForDirectory(wikis, project.directory || project.path, input.config.workspaces)); return project.directory || project.path; }
       catch { return null; }
     }));
     return scopedNativeEvents(client, async directory => {
-      try { assertWikiWorkspaceAccess(actor, wikiForDirectory(wikis, await realpath(directory).catch(() => resolve(directory)))); }
+      try { assertWikiWorkspaceAccess(actor, wikiForDirectory(wikis, await realpath(directory).catch(() => resolve(directory)), input.config.workspaces)); }
       catch { return false; }
       for (const candidate of roots) if (candidate && await pathWithin(candidate, directory)) return true;
       return false;
@@ -1453,7 +1455,7 @@ async function forwardOpencodeRequest(input: NativeProxyInput) {
   if (method === "GET" && path === "/project") {
     const projects = await client.project.list();
     return jsonResponse({ data: projects.filter(project => input.config.workspaces.some(item => resolve(item.directory || item.path) === resolve(project.canonical))).filter(project => {
-      try { assertWikiWorkspaceAccess(actor, wikiForDirectory(wikis, project.canonical)); return true; } catch { return false; }
+      try { assertWikiWorkspaceAccess(actor, wikiForDirectory(wikis, project.canonical, input.config.workspaces)); return true; } catch { return false; }
     }) });
   }
   if (path.startsWith("/permission/saved")) {
@@ -1488,9 +1490,9 @@ async function forwardOpencodeRequest(input: NativeProxyInput) {
         permitted = projectPermissionEffect({ ...runtimeEngineConfiguration(configured), projectPermissionApprovals: runtime.projectPermissionApprovals }, "external_directory", resources, "allow") === "allow";
       }
     }
-    assertWikiWorkspaceAccess(actor, wikiForDirectory(wikis, await canonicalFilePath(file)));
+    assertWikiWorkspaceAccess(actor, wikiForDirectory(wikis, await canonicalFilePath(file), input.config.workspaces));
     if (!permitted) throw new ApiError(403, "file_access_denied", "This file is outside the project's authorized folders. Open it through LegalWork file access.");
-    if (method !== "GET" && method !== "HEAD" && wikiForDirectory(wikis, file) && !ownsWikis(actor)) throw new ApiError(403, "wiki_write_denied", "Change shared knowledge through approved LegalWork tools.");
+    if (method !== "GET" && method !== "HEAD" && wikiForDirectory(wikis, file, input.config.workspaces) && !ownsWikis(actor)) throw new ApiError(403, "wiki_write_denied", "Change shared knowledge through approved LegalWork tools.");
   }
   const protectedExecution = input.config.agentSandboxEnabled || wikis.length > 0;
   if (protectedExecution) assertSandboxProxyAllowed(method, `/api${path}`);
@@ -1526,7 +1528,7 @@ async function forwardOpencodeRequest(input: NativeProxyInput) {
     // The managed adapter routes template and argument expansion through the
     // chat's sandbox; the native configured-command loader must stay disabled.
   }
-  if (sessionID && method === "POST" && /\/(?:prompt|command|synthetic|fork)$/.test(path) && actor.scope) await grantWikiAgentSession(input.config, { sessionId: sessionID, directory, scope: actor.scope });
+  if (sessionID && method === "POST" && /\/(?:prompt|command|synthetic|fork)$/.test(path) && actor.scope) await grantWikiAgentSession(input.config, { sessionId: sessionID, workspaceId: workspace.id, directory, scope: actor.scope });
   const headers = new Headers(input.request.headers);
   for (const header of ["authorization", "x-legalwork-host-token", "x-legalwork-client-id", "x-opencode-directory", "host", "origin", "content-length"]) headers.delete(header);
   if (connection.authHeader) headers.set("Authorization", connection.authHeader);
@@ -1554,7 +1556,7 @@ async function forwardOpencodeRequest(input: NativeProxyInput) {
   if (method === "POST" && response.ok && (path === "/session" || path.endsWith("/fork")) && actor.scope) {
     const result: unknown = await response.clone().json().catch(() => null);
     const session = isRecord(result) && isRecord(result.data) ? result.data : null;
-    if (session && typeof session.id === "string") await grantWikiAgentSession(input.config, { sessionId: session.id, directory, scope: actor.scope });
+    if (session && typeof session.id === "string") await grantWikiAgentSession(input.config, { sessionId: session.id, workspaceId: workspace.id, directory, scope: actor.scope });
   }
   return sanitizeProxyResponse(await projectNativeClientRead(method, path, response));
 }
@@ -1889,7 +1891,7 @@ function buildAuthorizedFoldersResponse(workspace: WorkspaceInfo, config: Author
   return {
     folders: config.folders,
     hiddenCount: config.hiddenRules.length,
-    workspaceRoot: normalizeAuthorizedFolderPath(workspace.path),
+    workspaceRoot: normalizeAuthorizedFolderPath(workspaceContentPath(workspace)),
   };
 }
 
@@ -1954,6 +1956,7 @@ function createRoutes(
       unarchive: async id => { await getWorkspaceEngineSession(client, workspace, id); return client.session.update({ sessionID: id, archived: false }); },
     };
   });
+  registerBackOfficeRoutes({ routes, config, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace });
   registerReviewRoutes({ routes, config, reviews, corpus, reviewSessions, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace });
   registerCalendarEventDraftRoutes({ routes, config, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace, requireApproval });
   registerEmailDraftRoutes({ routes, config, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace, requireApproval });
@@ -2004,6 +2007,20 @@ function createRoutes(
   });
   registerViewRoutes({ routes, config, jsonResponse, readJsonBodyLimited, ensureWritable, requireApproval, requireClientScope, resolveWorkspace,
     isWikiWorkspace: async id => (await wikiStore.list()).some(wiki => wiki.workspaceId === id) });
+  addRoute(routes, "GET", "/agent/file-workspace", "client", async ctx => {
+    if (!ctx.agentAccess) throw new ApiError(403, "wiki_agent_session_unknown", "An authenticated agent session is required.");
+    const { workspace, directory } = ctx.agentAccess;
+    const registrations = await wikiStore.list({ registrationsOnly: true });
+    const wiki = registrations.find(item => item.workspaceId === workspace?.id) ?? wikiForDirectory(registrations, directory, config.workspaces);
+    if (wiki) {
+      assertWikiWorkspaceAccess(ctx.actor, wiki);
+      await wikiSync.ensureReadable(wiki, ownsWikis(ctx.actor));
+    }
+    return jsonResponse({
+      workspaceId: wiki?.workspaceId ?? workspace?.id ?? null,
+      wiki: wiki ? { root: wiki.root, engineDirectory: config.workspaces.find(item => item.id === wiki.workspaceId)?.path || wiki.root } : null,
+    });
+  });
   registerWikiRoutes({ routes, config, store: wikiStore, jsonResponse, readJsonBodyLimited, ensureWritable, requireApproval, requireClientScope,
     ensureWikiReadable: async (ctx, wiki) => {
       const agent = await authenticateWikiAgentRequest(config, ctx.request);
@@ -2599,7 +2616,7 @@ function createRoutes(
       await readOpencodeConfig(config, workspace),
       runtime,
     );
-    const foldersConfig = readAuthorizedFoldersFromOpencodeConfig(opencode, workspace.path, runtime.projectPermissionApprovals);
+    const foldersConfig = readAuthorizedFoldersFromOpencodeConfig(opencode, workspaceContentPath(workspace), runtime.projectPermissionApprovals);
     return jsonResponse(buildAuthorizedFoldersResponse(workspace, foldersConfig));
   });
 
@@ -2609,7 +2626,7 @@ function createRoutes(
     await requireOrgPolicyToolsUnmanaged(config, ["external_directory"]);
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const body = await readJsonBody(ctx.request);
-    const folders = parseAuthorizedFoldersPayload(body.folders, workspace.path);
+    const folders = parseAuthorizedFoldersPayload(body.folders, workspaceContentPath(workspace));
     const configPath = legalworkConfigPath(workspace.path);
 
     await requireApproval(ctx, {
@@ -2627,9 +2644,9 @@ function createRoutes(
       // Keeping a remembered folder does not turn its private approval into a
       // second native config rule. Manual native grants retain their ownership.
       const configured = folders.filter(folder => !remembered.has(folder) || (current.permissions ?? []).some(rule => rule.action === "external_directory" && externalDirectoryKeyToAuthorizedFolder(rule.resource, rule.effect) === folder));
-      const root = normalizeAuthorizedFolderPath(workspace.path), desired = new Set(folders);
+      const root = normalizeAuthorizedFolderPath(workspaceContentPath(workspace)), desired = new Set(folders);
       return { ...current,
-        permissions: mergeAuthorizedFoldersIntoExternalDirectory(configured, current.permissions ?? [], workspace.path),
+        permissions: mergeAuthorizedFoldersIntoExternalDirectory(configured, current.permissions ?? [], workspaceContentPath(workspace)),
         projectPermissionApprovals: current.projectPermissionApprovals?.flatMap(approval => {
           if (!permissionPatternMatches("external_directory", approval.action)) return [approval];
           const resources = approval.resources.filter(resource => {
@@ -2654,7 +2671,7 @@ function createRoutes(
 
     emitReloadEvent(ctx.reloadEvents, workspace, "config", buildConfigTrigger(configPath));
 
-    const updatedFoldersConfig = readAuthorizedFoldersFromOpencodeConfig(runtimeEngineConfiguration(updatedRuntime), workspace.path, updatedRuntime.projectPermissionApprovals);
+    const updatedFoldersConfig = readAuthorizedFoldersFromOpencodeConfig(runtimeEngineConfiguration(updatedRuntime), workspaceContentPath(workspace), updatedRuntime.projectPermissionApprovals);
 
     const response: AuthorizedFoldersUpdateResponse = {
       folders: updatedFoldersConfig.folders,
@@ -3019,9 +3036,10 @@ function createRoutes(
       const force = body.force === true;
       // Every check first, then anything leaves: synced project copies go
       // only once the tasks may go too.
+      const directoryPending = await signOutBackOffice(config, { force, apply: false });
       const projects = await signOutOfFirmProjects(config, { force, apply: false });
       const tasks = await signOutOfFirmTasks(config, { force });
-      const pending = (projects.ok ? 0 : projects.pending) + (tasks.ok ? 0 : tasks.pending);
+      const pending = directoryPending + (projects.ok ? 0 : projects.pending) + (tasks.ok ? 0 : tasks.pending);
       if (pending > 0) {
         throw new ApiError(
           409,
@@ -3030,6 +3048,7 @@ function createRoutes(
           { pending },
         );
       }
+      await signOutBackOffice(config, { force: true, apply: true });
       await signOutOfFirmProjects(config, { force: true });
       await revokeEigenweltConnection(config);
       // The firm's settings stay, and enforced settings unlock; what its hub installed goes.
@@ -3071,10 +3090,15 @@ function createRoutes(
           models: parseManifestModels(body.models),
           ...(SystemOneConfigurationSchema.safeParse(body.systemOne).success ? { systemOne: SystemOneConfigurationSchema.parse(body.systemOne) } : {}),
         });
-        await rebuildEngineConfigFile(workspace);
       }
       return view;
     });
+    // Global credential commits must not hold the account lock while scanning
+    // projects or checking remote model readiness. Those reads may themselves
+    // need token refresh. Publications read the latest committed credentials.
+    if (typeof body.baseURL === "string" && body.baseURL && typeof body.apiKey === "string" && body.apiKey) {
+      await rebuildEngineConfigFile(workspace);
+    }
     if (view.connected) {
       void scheduleOrgPolicySync(config, { force: true });
       void scheduleFirmHubSync(config, { force: true });
@@ -3240,7 +3264,7 @@ function createRoutes(
     if (!skill) throw new ApiError(400, "invalid_skill_name", "Skill name is required");
     const name = typeof body.name === "string" && body.name.trim() ? body.name.trim() : skill;
     const description = typeof body.description === "string" ? body.description : undefined;
-    const payload = await serializeWorkflowSkill(workspace.path, skill);
+    const payload = await serializeWorkflowSkill(workspace, skill, managedCoreLibraryRoot(config));
     const result = await hubCreate(client, { kind: "workflow", name, description, payload });
     return jsonResponse({ ok: true, ...result });
   });
@@ -3369,7 +3393,7 @@ function createRoutes(
     // there by this route, so a same-named file is the same document fetched
     // again rather than the firm's work. Suffixing copies instead would leave a
     // trail of "Deed (2).docx" for repeat clicks on one source.
-    const exportDir = join(workspace.path, LEGALMEMORY_EXPORT_DIR);
+    const exportDir = join(workspaceContentPath(workspace), LEGALMEMORY_EXPORT_DIR);
     await mkdir(exportDir, { recursive: true });
     const relativePath = `${LEGALMEMORY_EXPORT_DIR}/${filename}`;
     await writeFile(join(exportDir, filename), document.bytes);
@@ -3409,7 +3433,7 @@ function createRoutes(
     }
 
     const relativeRoot = `${LEGALMEMORY_EXPORT_DIR}/${folderName}`;
-    await mkdir(join(workspace.path, relativeRoot), { recursive: true });
+    await mkdir(join(workspaceContentPath(workspace), relativeRoot), { recursive: true });
 
     // A few at a time: a folder of fifty documents fetched one after another
     // leaves the user watching a spinner, and the appliance is happy to answer
@@ -3427,7 +3451,7 @@ function createRoutes(
         }
         try {
           const document = await fetchLegalMemoryDocument(legalMemory, entry.file.document_id);
-          const target = join(workspace.path, relativeRoot, relativePath);
+          const target = join(workspaceContentPath(workspace), relativeRoot, relativePath);
           await mkdir(dirname(target), { recursive: true });
           await writeFile(target, document.bytes);
           written += 1;
@@ -3650,10 +3674,10 @@ function createRoutes(
         if (kind === "skill" || kind === "workflow") {
           // Generated workflows live in the global skill library, so resolve
           // the kind against the same list the Workflows page shows.
-          const localSkills = await listSkills(workspace.path, true);
+          const localSkills = await listSkills(workspace, true, undefined, managedCoreLibraryRoot(config));
           const localSkill = localSkills.find((skill) => skill.name === ref);
           const publishedKind = resolveHubSkillKind(localSkill, kind, ref);
-          const payload = await serializeWorkflowSkill(workspace.path, ref);
+          const payload = await serializeWorkflowSkill(workspace, ref, managedCoreLibraryRoot(config));
           const res = await hubCreate(client, { kind: publishedKind, name: ref, description, payload });
           results.push({ ref, kind: publishedKind, ok: true, id: res.id, version: res.version });
         } else if (kind === "mcp") {
@@ -3923,10 +3947,10 @@ function createRoutes(
       page: z.number().int().positive(), source: z.enum(["native", "ocr"]),
       quote: z.string().min(1).max(4000), preparationPath: z.string().max(4096).optional(),
     }).parse(await readJsonBodyLimited(ctx.request, 32 * 1024));
-    return jsonResponse(await reviewSourcePage(workspace.path, source.path, {
+    return jsonResponse(await reviewSourcePage(workspaceFileRoot(workspace, source.path), source.path, {
       sourceHash: source.hash, preparationPath: source.preparationPath,
       citations: [{ page: source.page, quote: source.quote, source: source.source }],
-    }, 0, ctx.request.signal));
+    }, 0, ctx.request.signal, undefined, workspace.path));
   });
 
   addRoute(routes, "GET", "/workspace/:id/search/:kind", "client", async (ctx) => {
@@ -3980,7 +4004,9 @@ function createRoutes(
     // An agent filing from a session names it; that link stays on this machine.
     const input = parseTaskCreate(body, workspace.id);
     if (input.projectId) await resolveWorkspace(config, input.projectId);
-    const task = store.createTask(input, actor);
+    const links = await prepareFormLinks(config, body.backOfficeLinks, "task", input.projectId ?? "");
+    const task = store.createTask(input, actor, undefined, links?.write);
+    links?.committed();
     tasksChanged();
     return jsonResponse({ ok: true, task }, 201);
   });
@@ -4526,7 +4552,7 @@ function createRoutes(
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const includeGlobal = ctx.url.searchParams.get("includeGlobal") === "true";
     const skipped: SkippedSkill[] = [];
-    const items = await listSkills(workspace.path, includeGlobal, skipped);
+    const items = await listSkills(workspace, includeGlobal, skipped, managedCoreLibraryRoot(config));
     // The firm's skills apply in every workspace, like the member's global ones.
     return jsonResponse({ items: includeGlobal ? [...items, ...(await firmHubSkills(config))] : items, skipped });
   });
@@ -4636,7 +4662,7 @@ function createRoutes(
     if (!name) {
       throw new ApiError(400, "invalid_skill_name", "Skill name is required");
     }
-    const items = await listSkills(workspace.path, includeGlobal);
+    const items = await listSkills(workspace, includeGlobal, undefined, managedCoreLibraryRoot(config));
     const item = items.find((skill) => skill.name === name);
     if (!item) {
       throw new ApiError(404, "skill_not_found", `Skill not found: ${name}`);
@@ -4648,7 +4674,7 @@ function createRoutes(
   addRoute(routes, "GET", "/workspace/:id/skills/:name/composed", "client", async ctx => {
     requireClientScope(ctx, "viewer");
     const workspace = await resolveWorkspace(config, ctx.params.id);
-    const composed = await composedSkill(workspace.path, ctx.params.name);
+    const composed = await composedSkill(workspace, ctx.params.name, true, managedCoreLibraryRoot(config));
     return jsonResponse({ ...composed, chain: await Promise.all(composed.chain.map(skill => withResearchExperience(config, workspace.path, skill))) });
   });
 
@@ -4658,7 +4684,7 @@ function createRoutes(
     const parsed = z.object({ directory: z.string().min(1), operation: researchExperienceAction, connectionId: z.string().uuid().optional(), websiteUrl: z.string().url().optional() }).strict().safeParse(await readJsonBodyLimited(ctx.request, 8192));
     if (!parsed.success) throw new ApiError(400, "research_experience_invalid", "Use the loaded research skill and a valid experience operation.");
     const { directory, operation, connectionId, websiteUrl } = parsed.data;
-    const installed = (await listSkills(workspace.path, true)).find(item => item.name === ctx.params.name);
+    const installed = (await listSkills(workspace, true, undefined, managedCoreLibraryRoot(config))).find(item => item.name === ctx.params.name);
     if (!installed) throw new ApiError(404, "skill_not_found", "This research skill is no longer installed.");
     const skill = { ...installed, ...await inspectSkillPackage(installed.path) };
     if (connectionId || websiteUrl) requireClientScope(ctx, "collaborator");
@@ -4681,7 +4707,7 @@ function createRoutes(
     requireClientScope(ctx, "viewer");
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const input = z.object({ directory: z.string().min(1), path: z.string().min(1), offset: z.coerce.number().int().min(0).default(0) }).parse(Object.fromEntries(ctx.url.searchParams));
-    const skill = (await listSkills(workspace.path, true)).find(item => item.name === ctx.params.name);
+    const skill = (await listSkills(workspace, true, undefined, managedCoreLibraryRoot(config))).find(item => item.name === ctx.params.name);
     if (!skill) throw new ApiError(404, "skill_not_found", "This skill is no longer installed.");
     return jsonResponse(await readSkillPackageFile(skill.path, input.directory, input.path, input.offset));
   });
@@ -4698,7 +4724,7 @@ function createRoutes(
     // screens list; the default stays project-scoped for existing callers.
     const scope = body.scope === "global" ? "global" : "project";
     // The firm may allow no new skills of the member's own; existing ones stay editable.
-    const skillPath = await skillPathForScope(workspace.path, scope, name);
+    const skillPath = await skillPathForScope(workspace, scope, name);
     if (!(await exists(skillPath))) {
       await requireOrgPolicyAllows(config, "skills.allowCustom");
     }
@@ -4708,7 +4734,7 @@ function createRoutes(
       summary: `Upsert skill ${name}`,
       paths: [skillPath],
     });
-    const result = await upsertSkill(workspace.path, { name, content, description, scope, lesson: body.lesson });
+    const result = await upsertSkill(workspace, { name, content, description, scope, lesson: body.lesson }, managedCoreLibraryRoot(config));
     await recordAudit(workspace.path, {
       id: shortId(),
       workspaceId: workspace.id,
@@ -4741,7 +4767,7 @@ function createRoutes(
       summary: `Delete skill ${name}`,
       paths: [join(workspace.path, ".opencode", "skills", name)],
     });
-    const result = await deleteSkill(workspace.path, name);
+    const result = await deleteSkill(workspace, name);
     await recordAudit(workspace.path, {
       id: shortId(),
       workspaceId: workspace.id,
@@ -4766,17 +4792,18 @@ function createRoutes(
   // Mutations also regenerate the managed "Attached resources" SKILL.md section.
   addRoute(routes, "GET", "/workspace/:id/skills/:skill/resources", "client", async (ctx) => {
     const workspace = await resolveWorkspace(config, ctx.params.id);
-    const items = await listSkillResources(workspace.path, String(ctx.params.skill ?? ""));
+    const items = await listSkillResources(workspace, String(ctx.params.skill ?? ""), managedCoreLibraryRoot(config));
     return jsonResponse({ items });
   });
 
   addRoute(routes, "GET", "/workspace/:id/skills/:skill/resources/:name", "client", async (ctx) => {
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const result = await readSkillResource(
-      workspace.path,
+      workspace,
       String(ctx.params.skill ?? ""),
       String(ctx.params.name ?? "").trim(),
       ctx.url.searchParams.get("encoding") === "base64" ? "base64" : "utf8",
+      managedCoreLibraryRoot(config),
     );
     return jsonResponse(result);
   });
@@ -4792,14 +4819,14 @@ function createRoutes(
     const contentBase64 = typeof body.contentBase64 === "string" ? body.contentBase64 : undefined;
     // Validate + resolve up front so the approval prompt shows the real path.
     validateResourceName(name);
-    const skillDir = await resolveSkillDir(workspace.path, skill);
+    const skillDir = await writableSkillDir(workspace, skill, managedCoreLibraryRoot(config));
     await requireApproval(ctx, {
       workspaceId: workspace.id,
       action: "skills.resource.upsert",
       summary: `Attach ${name} to skill ${skill}`,
       paths: [join(skillDir, "resources", name)],
     });
-    const result = await upsertSkillResource(workspace.path, skill, { name, content, contentBase64 });
+    const result = await upsertSkillResource(workspace, skill, { name, content, contentBase64 }, managedCoreLibraryRoot(config));
     await recordAudit(workspace.path, {
       id: shortId(),
       workspaceId: workspace.id,
@@ -4826,14 +4853,14 @@ function createRoutes(
     const skill = String(ctx.params.skill ?? "").trim();
     const name = String(ctx.params.name ?? "").trim();
     validateResourceName(name);
-    const skillDir = await resolveSkillDir(workspace.path, skill);
+    const skillDir = await writableSkillDir(workspace, skill, managedCoreLibraryRoot(config));
     await requireApproval(ctx, {
       workspaceId: workspace.id,
       action: "skills.resource.delete",
       summary: `Remove ${name} from skill ${skill}`,
       paths: [join(skillDir, "resources", name)],
     });
-    const result = await deleteSkillResource(workspace.path, skill, name);
+    const result = await deleteSkillResource(workspace, skill, name, managedCoreLibraryRoot(config));
     await recordAudit(workspace.path, {
       id: shortId(),
       workspaceId: workspace.id,
@@ -5324,7 +5351,8 @@ async function resolveWorkspace(config: ServerConfig, id: string): Promise<Works
     let bootstrap = bootstraps.get(bootstrapKey);
     if (!bootstrap) {
       bootstrap = (async () => {
-        const ensured = await ensureWorkspaceFiles(resolvedWorkspace, workspace.preset ?? "starter", { bundledCore: config.engineConfigurationMode !== "managed" });
+        await prepareManagedCoreLibrary(config);
+        const ensured = await ensureWorkspaceFiles(resolvedWorkspace, workspace.preset ?? "starter", { skipCloudPin: Boolean(config.projectsDirectory && !workspace.contentPath) });
         const bootstrapReloadReasons = new Set<ReloadReason>(ensured.reloadReasons);
         if (await repairCommands(resolvedWorkspace)) {
           bootstrapReloadReasons.add("commands");
@@ -5830,7 +5858,7 @@ async function exportWorkspace(
   const rawOpencode = await readOpencodeConfig(config, workspace);
   let opencode = sanitizePortableOpencodeConfig(rawOpencode);
   const legalwork = sanitizeLegalworkTemplateConfig(await readLegalworkConfig(workspace.path));
-  const skills = await listSkills(workspace.path, false);
+  const skills = (await listSkills(workspace, false, undefined, managedCoreLibraryRoot(config))).filter(skill => skill.scope === "project");
   const commands = await listCommands(workspace.path, "workspace");
   let files = await listPortableFiles(workspace.path);
   const warnings = collectWorkspaceExportWarnings({ opencode: rawOpencode, files });
@@ -5934,7 +5962,7 @@ async function importWorkspace(workspace: WorkspaceInfo, payload: Record<string,
     for (const skill of input.skills) {
       const path = workspaceImportRelativePath(workspace, join(projectSkillsDir(workspace.path), skill.name, "SKILL.md"));
       if (!changedPath("skill", path)) continue;
-      await upsertSkill(workspace.path, skill);
+      await upsertSkill(workspace, skill);
     }
     if (input.modes.skills === "replace") {
       for (const change of preview.changes) {

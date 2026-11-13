@@ -4,14 +4,14 @@ import { changeProjectFieldType, parseProjectOptions } from "../src/react-app/do
 
 const field: ProjectField = { id: "reference", label: "Reference", type: "text", value: "Acme" };
 
-test("changing metadata types keeps compatible values and refuses data loss", () => {
-  expect(changeProjectFieldType(field, "number")).toBeNull();
-  expect(changeProjectFieldType(field, "date")).toBeNull();
+test("changing metadata types preserves compatible values and clears incompatible values in the unsaved draft", () => {
+  expect(changeProjectFieldType(field, "number")).toMatchObject({ type: "number", value: null });
+  expect(changeProjectFieldType(field, "date")).toMatchObject({ type: "date", value: null });
   expect(field.value).toBe("Acme");
   expect(changeProjectFieldType(field, "select")).toEqual({ ...field, type: "select", options: ["Acme"] });
   expect(changeProjectFieldType({ ...field, value: "125.50" }, "number")?.value).toBe(125.5);
   expect(changeProjectFieldType({ ...field, type: "number", value: 125.5 }, "text")?.value).toBe("125.5");
-  expect(changeProjectFieldType({ ...field, value: "2026-02-30" }, "date")).toBeNull();
+  expect(changeProjectFieldType({ ...field, value: "2026-02-30" }, "date")).toMatchObject({ type: "date", value: null });
   expect(changeProjectFieldType({ ...field, value: "2026-09-24" }, "date")?.value).toBe("2026-09-24");
   expect(changeProjectFieldType({ ...field, value: null }, "number")?.value).toBeNull();
 });

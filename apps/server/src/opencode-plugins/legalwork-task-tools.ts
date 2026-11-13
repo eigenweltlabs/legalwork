@@ -1,14 +1,15 @@
+import { resolveWorkspaceFile } from "../project-storage-paths.js";
 import { registerPrimaryContext } from "./native-review-worker.js";
 import { Plugin } from "@opencode/plugin";
 import { nativeTool, nativeToolSignal } from "./native-tool.js";
 import { randomBytes } from "node:crypto";
 import { readFile } from "node:fs/promises";
-import { basename, extname, isAbsolute, join } from "node:path";
+import { basename, extname, isAbsolute } from "node:path";
 import { z } from "zod";
 import { receiveFile, storagePath } from "../file-storage/common.js";
 import { keepWorkspaceSnapshot, workingCopy } from "../file-storage/working-copy.js";
 
-import { resolveWorkspaceId, serverToken, serverUrl, type OpenCodeContext } from "./office-plugin-shared.js";
+import { resolveWorkspaceId, resolveWorkspaceInfo, serverToken, serverUrl, type OpenCodeContext } from "./office-plugin-shared.js";
 
 /**
  * Agent tools for LegalWork Tasks — the firm's work list on this machine.
@@ -619,8 +620,9 @@ async execute(args, context) {
         if (!url || !token) return JSON.stringify({ ok: false, error: "LegalWork server connection is not configured for this engine." });
         if (!context.directory?.trim()) throw new Error("A current workspace directory is required to download an attachment.");
         storagePath(args.path, false);
-        const workspaceId = await resolveWorkspaceId(context, { requireDirectory: true });
-        const staged = await workingCopy(context.directory, "attachment");
+        const workspace = await resolveWorkspaceInfo(context, { requireDirectory: true });
+        const workspaceId = workspace.id;
+        const staged = await workingCopy(workspace.path, "attachment");
         try {
           const response = await fetch(`${url}${tasksPath(workspaceId, `/${encodeURIComponent(args.taskId)}/attachments/${encodeURIComponent(args.attachmentId)}`)}`, {
             headers: { Authorization: `Bearer ${token}` },
@@ -630,8 +632,9 @@ async execute(args, context) {
           if (!response.body) throw new Error("The server returned no attachment file.");
           await receiveFile(response.body, staged.path);
           context.abort?.throwIfAborted();
-          const saved = await keepWorkspaceSnapshot(context.directory, staged.path, args.path);
-          return JSON.stringify({ ok: true, taskId: args.taskId, attachmentId: args.attachmentId, local_path: saved.path, bytes: saved.bytes });
+          const destination = resolveWorkspaceFile(workspace, args.path);
+          const saved = await keepWorkspaceSnapshot(destination.root, staged.path, destination.relativePath);
+          return JSON.stringify({ ok: true, taskId: args.taskId, attachmentId: args.attachmentId, local_path: destination.path, bytes: saved.bytes });
         } finally {
           await staged.remove();
         }
@@ -705,7 +708,8 @@ async execute(rawArgs: unknown, context: OpenCodeContext): Promise<string> {
       let uploadStarted = false;
       let replacementAttachmentId: string | undefined;
       try {
-        const workspaceId = await resolveWorkspaceId(context);
+        const workspace = await resolveWorkspaceInfo(context);
+        const workspaceId = workspace.id;
         let previousIds: string[] = [];
         if (args.replaceAttachmentId) {
           const current = await requestJson(tasksPath(workspaceId, `/${encodeURIComponent(args.taskId)}`));
@@ -715,14 +719,13 @@ async execute(rawArgs: unknown, context: OpenCodeContext): Promise<string> {
             return JSON.stringify({ ok: false, error: "That attachment does not exist on this task." });
           }
         }
-        const baseDir = context.directory?.trim() || process.cwd();
         const form = new FormData();
         const attached: string[] = [];
         const warnings: string[] = [];
         let total = 0;
         for (const path of args.paths) {
           try {
-            const bytes = await readFile(isAbsolute(path) ? path : join(baseDir, path));
+            const bytes = await readFile(isAbsolute(path) ? path : resolveWorkspaceFile(workspace, path).path);
             if (bytes.byteLength === 0) {
               warnings.push(`${path}: file is empty`);
               continue;

@@ -21,7 +21,12 @@ async function setup() {
   const remote = await a.sync.share(wiki.id, { access: "members", memberIds: ["member"] });
   const joined = await b.sync.join({ wikiId: remote.id, root: join(b.directory, "content") });
   async function save(machine: typeof a, id: string, path: string, content: string) { const previous = await machine.store.read(id, path).catch(() => null); return machine.store.write(id, path, content, previous?.revision ?? ""); }
-  async function exchange() { expect((await a.sync.sync(wiki.id)).state).toBe("idle"); expect((await b.sync.sync(joined.id)).state).toBe("idle"); }
+  async function exchange(releaseIncoming?: () => void) {
+    expect((await a.sync.sync(wiki.id, true)).state).toBe("idle");
+    const incoming = b.sync.sync(joined.id, true);
+    releaseIncoming?.();
+    expect((await incoming).state).toBe("idle");
+  }
   return { fixture, computer, a, b, wiki, joined, remote, save, exchange, readA: async (path: string) => (await a.store.read(wiki.id, path)).content, readB: async (path: string) => (await b.store.read(joined.id, path)).content };
 }
 
@@ -139,8 +144,24 @@ describe("Automatic independent wiki sync across local folders", () => {
     await save(a, wiki.id, "Views.md", "# Views\n"); await save(a, wiki.id, "Templates/Example.md", "# Example\n");
     await a.store.writeAsset(wiki.id, "Attachments/image.png", Buffer.from([0, 1, 255]), "");
     await exchange(); expect(await readB("Page.md")).toBe("# Knowledge\n"); expect(await b.store.readAsset(joined.id, "Attachments/image.png")).toEqual(Buffer.from([0, 1, 255]));
-    await a.store.remove(wiki.id, "Page.md", (await a.store.read(wiki.id, "Page.md")).revision); await exchange();
-    await expect(b.store.read(joined.id, "Page.md")).rejects.toMatchObject({ status: 404 });
+    // Hold a pre-delete snapshot so the exchange must request a fresh round,
+    // even when the share/join background timer already started a sync.
+    const captured = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
+    const files = b.client.files.bind(b.client);
+    b.client.files = async (...args) => {
+      const snapshot = await files(...args);
+      b.client.files = files;
+      captured.resolve();
+      await release.promise;
+      return snapshot;
+    };
+    const stale = b.sync.sync(joined.id, true);
+    try {
+      await captured.promise;
+      await a.store.remove(wiki.id, "Page.md", (await a.store.read(wiki.id, "Page.md")).revision);
+      await exchange(() => release.resolve());
+      await expect(b.store.read(joined.id, "Page.md")).rejects.toMatchObject({ status: 404 });
+    } finally { release.resolve(); await stale; }
   });
   test("independent text edits merge while overlapping edits preserve both versions", async () => {
     const { a, b, wiki, joined, save, exchange, readA, readB } = await setup();

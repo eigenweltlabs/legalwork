@@ -5,7 +5,7 @@ import { constants } from "node:fs";
 import { access, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import { OpenCode, type MigrationV1StatusOutput } from "@opencode/client";
-import { expectedOpencodeServiceFilename, expectedOpencodeVersion, type VerifiedOpencodeCandidate } from "@legalwork/opencode-release/candidate";
+import { opencodeEngineIdentity, verifyOpencodeForExecution, type VerifiedOpencodeCandidate } from "@legalwork/opencode-release/candidate";
 import { prepareManagedOpencodeService, type ManagedOpencodeServiceOptions } from "./managed-opencode-service.js";
 
 export type ManagedOpencodeServer = {
@@ -121,7 +121,7 @@ function waitForServerReady(child: ChildProcess, timeoutMs: number, parentLease 
       child.stdout?.off("data", onStdout);
       child.stderr?.off("data", onStderr);
       child.off("error", fail);
-      child.off("exit", onExit);
+      child.off("close", onClose);
     };
     const done = (value: string) => {
       if (settled) return;
@@ -137,6 +137,7 @@ function waitForServerReady(child: ChildProcess, timeoutMs: number, parentLease 
     };
     const onStdout = (chunk: Buffer) => {
       output += chunk.toString();
+      if (child.exitCode !== null || child.signalCode !== null) return;
       for (const line of output.split("\n")) {
         if (parentLease) {
           let info: unknown;
@@ -155,7 +156,9 @@ function waitForServerReady(child: ChildProcess, timeoutMs: number, parentLease 
     const onStderr = (chunk: Buffer) => {
       output += chunk.toString();
     };
-    const onExit = (code: number | null) =>
+    // Process exit can precede the last stderr data event. Close follows
+    // stdio draining, so failure diagnostics and DB-lock retries keep it.
+    const onClose = (code: number | null) =>
       fail(new Error(`OpenCode server exited with code ${code}${output.trim() ? `\n${output}` : ""}`));
     const timeout = setTimeout(
       () => fail(new Error(`Timeout waiting for OpenCode server after ${timeoutMs}ms${output.trim() ? `\n${output}` : ""}`)),
@@ -164,7 +167,7 @@ function waitForServerReady(child: ChildProcess, timeoutMs: number, parentLease 
     child.stdout?.on("data", onStdout);
     child.stderr?.on("data", onStderr);
     child.once("error", fail);
-    child.once("exit", onExit);
+    child.once("close", onClose);
   });
 }
 
@@ -294,10 +297,10 @@ export async function createManagedOpencodeServer(options: {
   const password = randomSecret();
   const env: Record<string, string | undefined> = { ...process.env, ...options.env };
   const command = await resolveEngineExecutable(options.bin?.trim() || "opencode", options.cwd, env);
-  await expectedOpencodeVersion(command, options.candidateBuild);
+  const identity = await opencodeEngineIdentity(command, options.candidateBuild);
   if (options.service && options.parentLease) throw new Error("A managed engine cannot combine native service and stdin lease modes.");
   const serviceEnv = options.service ? await prepareManagedOpencodeService({ ...options.service,
-    filename: await expectedOpencodeServiceFilename(command, options.candidateBuild),
+    filename: identity.serviceFilename,
     executablePath: command,
   }, password) : {};
   await options.beforeSpawn?.();
@@ -334,7 +337,8 @@ export async function createManagedOpencodeServer(options: {
     const port = options.port ?? (await findFreePort(hostname, options.excludedPorts));
     const args = ["serve", ...(options.service ? ["--service"] : options.parentLease ? ["--stdio"] : []), "--hostname", hostname, "--port", String(port), "--cors", "*"];
     if (options.logLevel) args.push("--log-level", options.logLevel);
-    const expectedVersion = await expectedOpencodeVersion(command, options.candidateBuild);
+    const expectedVersion = await verifyOpencodeForExecution(command, options.candidateBuild);
+    options.signal?.throwIfAborted();
     const child: ChildProcess = spawn(command, args, {
       cwd: options.cwd,
       env,

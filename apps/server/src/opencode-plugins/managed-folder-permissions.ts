@@ -3,9 +3,11 @@ import { homedir } from "node:os";
 import { stat } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { canonicalFilePath } from "../file-write-lock.js";
-import { permissionPatternMatches } from "../agent-sandbox/permissions.js";
+import { permissionAction, permissionPatternMatches } from "../agent-sandbox/permissions.js";
+import { chatApprovalLineage } from "../chat-approval-scope.js";
 import { projectPermissionEffect } from "../project-permission-approvals.js";
 import type { ManagedEngineSettings } from "../managed-engine-settings.js";
+import { projectFilePermissionRules } from "../project-storage-permissions.js";
 
 const strictness = { allow: 0, ask: 1, deny: 2 };
 const within = (root: string, path: string) => {
@@ -23,12 +25,34 @@ export async function registerManagedFolderPermissions(ctx: Plugin.Context, read
     if (event.effect === "deny") return;
     const settings = await read();
     if (!settings) { event.effect = "deny"; event.message = "This project has no LegalWork permissions."; return; }
-    const session = await ctx.session.get({ sessionID: event.sessionID });
+    const lineage = await chatApprovalLineage(event.sessionID, id => ctx.session.get({ sessionID: id }));
+    const session = lineage[0];
+    // Within a shared Git worktree native resources remain Location-relative,
+    // even for connected documents. Evaluate their absolute aliases too.
+    const fileResources = settings.contentPath && ["read", "edit", "list"].includes(event.action);
+    const aliases = (resources: readonly string[]) => [...new Set(resources.flatMap(resource => fileResources && resource !== "*" ? [resource, resolve(ctx.location.directory, home(resource)).replaceAll("\\", "/")] : [resource]))];
+    const resources = aliases(event.resources);
+    const roots = { path: settings.directory, contentPath: settings.contentPath, previousPath: settings.previousPath };
+    const fileAction = ["read", "edit", "list", "external_directory"].includes(event.action);
+    const sessionRules = (rules: NonNullable<typeof session.permissions>) => fileAction ? projectFilePermissionRules(roots, rules) : rules;
+    if (lineage.some(ancestor => resources.some(resource => permissionAction(sessionRules(ancestor.permissions ?? []), event.action, resource, "ask") === "deny"))) {
+      event.effect = "deny";
+      return;
+    }
     const agentID = event.agent ?? session.agent ?? settings.configuration.default_agent;
-    const approvals = [...settings.projectPermissionApprovals ?? [], ...session.permissions?.filter(rule => rule.effect === "allow")
-      .map(rule => ({ action: rule.action, resources: [rule.resource] })) ?? []];
-    event.effect = projectPermissionEffect({ ...settings.configuration, projectPermissionApprovals: approvals }, event.action,
-      event.resources, event.metadata?.legalworkCanonicalAsk ? "ask" : event.effect, agentID);
+    let configuration = settings.configuration;
+    if (settings.contentPath && ["read", "edit", "list", "external_directory"].includes(event.action)) {
+      const agent = agentID ? (await ctx.agent.get({ agentID })).data : undefined;
+      // Evaluate the final native agent, including authored declarations and
+      // helpers loaded after this plugin. Transform registration order must
+      // never decide whether an original document restriction is enforced.
+      configuration = { ...configuration, permissions: projectFilePermissionRules(roots, configuration.permissions ?? []),
+        ...(agentID && agent ? { agents: { ...configuration.agents, [agentID]: { ...configuration.agents?.[agentID], permissions: projectFilePermissionRules(roots, agent.permissions) } } } : {}) };
+    }
+    const approvals = [...settings.projectPermissionApprovals ?? [], ...lineage.flatMap(ancestor => sessionRules(ancestor.permissions ?? []).filter(rule => rule.effect === "allow")
+      .map(rule => ({ action: rule.action, resources: [rule.resource] })))].map(approval => ({ ...approval, resources: aliases(approval.resources) }));
+    event.effect = projectPermissionEffect({ ...configuration, projectPermissionApprovals: approvals }, event.action,
+      resources, event.metadata?.legalworkCanonicalAsk ? "ask" : event.effect, agentID);
     if (event.effect === "deny") return;
     if (!["external_directory", "read", "edit", "glob", "grep", "list"].includes(event.action)) return;
     if (event.action === "external_directory") {
@@ -55,7 +79,7 @@ export async function registerManagedFolderPermissions(ctx: Plugin.Context, read
           if (actual !== folder) event.message = `This folder resolves to ${actual}. Remembering approval includes that destination.`;
         }
         let effect: "allow" | "ask" | "deny" = "ask";
-        for (const rule of settings.configuration.permissions ?? []) {
+        for (const rule of configuration.permissions ?? []) {
           // A general tool allow does not grant another filesystem folder.
           if (rule.action === "external_directory" && permissionPatternMatches(resource, home(rule.resource))) effect = rule.effect;
         }

@@ -14,26 +14,30 @@ import { legalResearchWikiFiles } from "./legal-research-template.js";
 import { researchIndexGroups } from "@legalwork/types/legal-research-wiki";
 import { openSqlite } from "../runtime-db.js";
 
-test("research starts with saved knowledge and limits external work to missing or outdated findings", () => {
+test("research persistence is limited to reusable website work or explicit saving, with API answers staying in chat", () => {
   const skill = CORE_OPENCODE_FILES.find(file => file.path === ".opencode/skills/legal-research/SKILL.md")!.content;
-  expect(skill.indexOf("## Start with saved research")).toBeLessThan(skill.indexOf("## Select sources for remaining research"));
+  expect(skill.indexOf("## Decide whether saved research applies")).toBeLessThan(skill.indexOf("## Select sources for remaining research"));
   expect(skill).toContain(legalResearchCaptureGuidance);
-  for (const instruction of ["wiki_search", "wiki_read", "before starting external research", "Research externally only for gaps", "cite the wiki page and underlying sources", "instead of creating a duplicate"])
+  for (const instruction of ["wiki_search", "wiki_read", "website-based research", "user explicitly asks", "including Austrian RIS", "stay in the chat by default", "not by itself a request for a wiki entry", "cite the wiki page and underlying sources", "instead of creating a duplicate"])
     expect(legalResearchCaptureGuidance).toContain(instruction);
 });
 
-test.each(["en", "de"] satisfies Array<"en" | "de">)("%s unchanged v3 research instructions gain wiki-first reuse, preserving custom guidance", async language => {
+test.each(["en", "de"] satisfies Array<"en" | "de">)("%s unchanged v4 research instructions gain conditional capture, preserving custom guidance", async language => {
   const { root, config } = await fixture(), store = new WikiStore(config);
   try {
     const { wiki } = await store.ensureLegalResearch(language);
     const page = await store.read(wiki!.id, "AGENTS.md");
-    const previous = page.content.replace(legalResearchCaptureGuidance, legalResearchCaptureGuidance.slice(legalResearchCaptureGuidance.indexOf("## Filing legal research")));
+    const legacy = JSON.parse(await readFile(new URL("./fixtures/legal-research-v4.json", import.meta.url), "utf8"));
+    const previous = legacy[language].agents;
     await store.write(wiki!.id, "AGENTS.md", previous, page.revision);
-    const reset = async () => { const db = await openSqlite(join(store.baseDir, "wiki-state.sqlite")); try { db.run("UPDATE wiki_research_structure SET version=3 WHERE wiki=?", [wiki!.id]); } finally { db.close(); } };
+    const home = await store.read(wiki!.id, "Wiki.md");
+    await store.write(wiki!.id, "Wiki.md", legacy[language].home, home.revision);
+    const reset = async () => { const db = await openSqlite(join(store.baseDir, "wiki-state.sqlite")); try { db.run("UPDATE wiki_research_structure SET version=4 WHERE wiki=?", [wiki!.id]); } finally { db.close(); } };
     await reset();
     await store.ensureLegalResearch(language);
     const updated = await store.read(wiki!.id, "AGENTS.md");
-    expect(updated.content).toContain("Reuse saved legal research first");
+    expect(updated.content).toContain(legalResearchCaptureGuidance);
+    expect((await store.read(wiki!.id, "Wiki.md")).content).toContain(language === "de" ? "Gewöhnliche API-Abfragen bleiben im Chat" : "Ordinary API lookups remain in chat");
     const custom = previous + "\nCustom research instructions.\n";
     await store.write(wiki!.id, "AGENTS.md", custom, updated.revision);
     await reset(); await store.ensureLegalResearch(language);
@@ -178,8 +182,8 @@ test("default wiki is owner-provisioned and requested legal findings stage until
       await plugin.runtime.hook("session", "context", prompt);
       expect(prompt.system.some(part => part.text.includes(legalResearchCaptureGuidance))).toBe(true);
       expect(CORE_OPENCODE_FILES.find(file => file.path === ".opencode/skills/legal-research/SKILL.md")?.content).toContain(legalResearchCaptureGuidance);
-      expect(legalResearchCaptureGuidance).toContain("Do not wait for a separate request");
-      expect(legalResearchCaptureGuidance).toContain("Download the relevant judgments");
+      expect(legalResearchCaptureGuidance).toContain("user explicitly asks");
+      expect(legalResearchCaptureGuidance).toContain("do not automatically download every source");
       const listed = JSON.parse(await plugin.tool.wiki_list.execute({}));
       expect(listed.wikis).toContainEqual({ id: wiki.id, name: wiki.name, purpose: "legal-research", requireAgentApproval: true, writable: true, shared: false });
       const guidance = JSON.parse(await plugin.tool.wiki_guidance.execute({ wiki_id: wiki.id }));

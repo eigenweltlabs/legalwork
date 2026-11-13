@@ -79,8 +79,9 @@ export async function localResultPath(pairing: Pairing, item: SearchResult): Pro
     const response = await request<{ folders: { id: string; path: string }[] }>(pairing, "/launcher/folders");
     root = response.folders.find(folder => folder.id === item.folderId)?.path;
   } else {
-    const response = await request<{ items?: { id: string; path: string }[]; workspaces?: { id: string; path: string }[] }>(pairing, "/workspaces");
-    root = (response.items ?? response.workspaces ?? []).find(workspace => workspace.id === item.workspaceId)?.path;
+    const response = await request<{ items?: { id: string; path: string; contentPath?: string | null }[]; workspaces?: { id: string; path: string; contentPath?: string | null }[] }>(pairing, "/workspaces");
+    const workspace = (response.items ?? response.workspaces ?? []).find(workspace => workspace.id === item.workspaceId);
+    root = workspace?.contentPath || workspace?.path;
   }
   if (!root) throw new Error("The file's source is no longer available.");
   return canonicalResultFile(root, item.path ?? item.id, item.fileType === "folder");

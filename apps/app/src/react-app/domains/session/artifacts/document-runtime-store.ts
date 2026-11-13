@@ -9,8 +9,10 @@ import { storageFileTab } from "../panel/storage-file-tab";
 import { createDocumentTaskQueue, checkDocumentTask, type DocumentTaskOptions } from "./document-task-queue";
 import { openBackgroundTab } from "../background/open-background-tab";
 import { t } from "@/i18n";
+import { workspaceFileRoot } from "@legalwork/types/workspace";
+import { localFileIdentity, normalizeLocalFilePath } from "@/app/lib/local-file-path.impl.js";
 
-export type DocumentProject = { projectId: string; workspaceId: string; workspaceRoot: string; client: LegalworkServerClient; isRemoteWorkspace: boolean };
+export type DocumentProject = { projectId: string; workspaceId: string; workspaceRoot: string; contentRoot?: string; client: LegalworkServerClient; isRemoteWorkspace: boolean };
 export type Registration = { surface: LegalworkControlSurface; action: LegalworkControlAction; ready: () => boolean; dirty: () => boolean; updatedAt?: () => number | null };
 export type Entry = {
   key: string;
@@ -20,11 +22,27 @@ export type Entry = {
   tasks: Set<string>;
   dismissed: Set<string>;
   previews: Set<HTMLElement>;
-  destinations: Map<HTMLElement, boolean>;
+  destinations: Map<HTMLElement, { active: boolean; visible: boolean }>;
   registration: Registration | null;
   generation: number;
   fileEditing: boolean;
 };
+
+/** A retained tab may be detached or belong to a hidden workspace. Only a
+ * displayed pane should own the editor instead of the task's miniature. */
+export function visibleDocumentDestination(entry: Entry) {
+  let visible: HTMLElement | null = null;
+  for (const [node, state] of entry.destinations) {
+    if (!node.isConnected || !state.visible) continue;
+    if (state.active) return node;
+    visible ??= node;
+  }
+  return visible;
+}
+
+export function documentPreviewVisible(entry: Entry, sessionId: string) {
+  return entry.tasks.has(sessionId) && !entry.dismissed.has(sessionId) && !visibleDocumentDestination(entry);
+}
 
 export function documentKey(props: ArtifactPanelProps) {
   return JSON.stringify([props.client?.baseUrl, props.workspaceId, props.tab.storage ? [props.tab.storage.root.id, props.tab.storage.file.path] : props.tab.value ?? props.tab.id]);
@@ -107,7 +125,7 @@ export function createDocumentRuntime(createHost = () => document.createElement(
     const explicit = selected.get(sessionId);
     const candidates = [...entries.values()].filter(entry => belongs(entry, project));
     const entry = path ? candidates.find(entry => (entry.registration?.surface.path ?? entry.props.tab.value) === path)
-      : candidates.find(entry => entry.key === explicit) ?? candidates.find(entry => [...entry.destinations.values()].some(Boolean));
+      : candidates.find(entry => entry.key === explicit) ?? candidates.find(entry => [...entry.destinations.values()].some(state => state.active && state.visible));
     if (!entry) throw new Error("No document is selected for this task. Use inapp_documents_open with its workspace path; no visible tab is required.");
     return entry;
   };
@@ -154,6 +172,7 @@ export function createDocumentRuntime(createHost = () => document.createElement(
       const project = await getProject(sessionId);
       const paths: unknown = args && typeof args === "object" ? Reflect.get(args, "paths") : undefined;
       if (paths !== undefined && (!Array.isArray(paths) || !paths.every(path => typeof path === "string" && validPath(path)))) throw new Error("Use workspace-relative file paths.");
+      const edited = Array.isArray(paths) ? new Set(paths.map(path => localFileIdentity(project.workspaceRoot, path))) : null;
       if (fileEdits.has(operationId)) throw new Error("This file operation is already running.");
       let finish!: () => void, ready!: () => void, fail!: (error: unknown) => void;
       const released = new Promise<void>(resolve => { finish = resolve; });
@@ -163,7 +182,7 @@ export function createDocumentRuntime(createHost = () => document.createElement(
         const matches = (props: ArtifactPanelProps) => props.workspaceId === project.workspaceId
           && props.client?.baseUrl === project.client.baseUrl && !props.tab.storage
           && ["word", "markdown", "sheet", "slides"].includes(props.tab.preview ?? "")
-          && (!Array.isArray(paths) || paths.includes(props.tab.value));
+          && (!edited || edited.has(localFileIdentity(workspaceFileRoot({ path: project.workspaceRoot, contentPath: project.contentRoot }, props.tab.value ?? ""), props.tab.value ?? "")));
         const handoff = { matches, opened: new Array<Entry>() };
         activeHandoffs.set(operationId, handoff);
         try {
@@ -267,7 +286,9 @@ export function createDocumentRuntime(createHost = () => document.createElement(
       checkDocumentTask(options);
       let path = stringArg(args, "path"), connectionId = stringArg(args, "connectionId");
       const copyTo = stringArg(args, "copyTo");
-      if (!validPath(path)) throw new Error("Use a relative file path within the workspace or connection.");
+      if (!connectionId) path = normalizeLocalFilePath(path).replaceAll("\\", "/");
+      const absoluteProjectFile = !connectionId && /^(?:\/|[A-Za-z]:\/)/.test(path) && !/[\x00-\x1f\x7f]/.test(path) && path.length <= 4096;
+      if (!validPath(path) && !absoluteProjectFile) throw new Error("Use a project file address or a relative path within the storage connection.");
       if (copyTo) {
         if (!validPath(copyTo) || copyTo.split(".").at(-1)?.toLowerCase() !== (connectionId ? path : attachmentFilename(path)).split(".").at(-1)?.toLowerCase()) throw new Error("Use a new workspace-relative filename with the same file extension as the template.");
         if (connectionId) {

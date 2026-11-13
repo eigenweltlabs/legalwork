@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { MainAssistant, isMainAssistant } from "./main-assistant.js";
@@ -42,7 +42,8 @@ test("concurrent callers share one persisted project and one session; midnight a
   expect(new Set(first.map(value => value.day.sessionId)).size).toBe(1);
   expect(f.config.workspaces).toHaveLength(1);
   expect(isMainAssistant(first[0].workspace)).toBe(true);
-  expect(first[0].workspace.path).toBe(join(f.config.projectsDirectory!, "Assistant"));
+  expect(first[0].workspace.path).toBe(await realpath(join(f.config.projectsDirectory!, first[0].workspace.id)));
+  expect(first[0].workspace.contentPath).toBe(join(first[0].workspace.path, "files"));
   expect(JSON.parse(await readFile(f.config.configPath!, "utf8")).workspaces[0].preset).toBe("main-assistant");
   f.setTime(new Date(2026, 9, 8, 0, 0));
   const today = await f.assistant.current();
@@ -56,6 +57,7 @@ test("concurrent callers share one persisted project and one session; midnight a
   expect(f.sessions).toHaveLength(3);
   expect(reopened.history(today.workspace.id, afterSleep.day.date, 1)).toEqual({ days: [today.day], nextBefore: "2026-10-08" });
   expect(reopened.history(today.workspace.id, "2026-10-08", 1)).toEqual({ days: [first[0].day], nextBefore: null });
+  expect(reopened.history(today.workspace.id, undefined, 1, "2026-10-07").days).toEqual([today.day]);
 });
 
 test("recovery only adopts a live root session inside the assistant folder", async () => {
@@ -232,4 +234,18 @@ test("all four project access modes keep the Assistant workspace and handle futu
     expect(f.assistant.canAccessProject(workspace.id)).toBe(true);
     if (!expected[0]) expect(() => f.assistant.assertProjectAccess("a")).toThrow("allowed projects");
   }
+});
+
+test("pending chat migration keeps today's saved Assistant identity until relocation finishes", async () => {
+  const f = await fixture(), first = await f.assistant.current(), workspace = first.workspace;
+  workspace.previousPath = workspace.contentPath!;
+  const receipt = { version: 1, id: workspace.id, source: workspace.previousPath, fingerprints: {}, complete: false };
+  await writeFile(join(workspace.path, ".project-storage-migration.json"), JSON.stringify(receipt));
+  f.sessions[0]!.directory = workspace.previousPath;
+  await expect(f.assistant.current()).rejects.toMatchObject({ code: "project_storage_migrating" });
+  expect(f.assistant.savedDay()).toEqual(first.day);
+  expect(f.sessions).toHaveLength(1);
+  f.sessions[0]!.directory = workspace.path;
+  await writeFile(join(workspace.path, ".project-storage-migration.json"), JSON.stringify({ ...receipt, complete: true, referencesComplete: true }));
+  expect((await f.assistant.current()).day).toEqual(first.day);
 });

@@ -9,13 +9,19 @@ Use this map when you know what you want to do but not where to start. The assis
 | Welcome | First-run account, folder, audio and integration setup | [Getting started](getting-started.md) |
 | Save logins for the in-app browser | Save your own logins for legal research websites so you and your agent can use them | [Research databases](integrations.md#research-databases) |
 | Home / New Chat | Start an assistant conversation, attach inputs and choose a model | [Chats](workspaces-chats.md) |
-| Chat and document tabs | Continue work, respond to approvals, inspect files and use the terminal | [Chats](workspaces-chats.md), [Files](files-documents.md) |
+| Chat and document tabs, View > Select Tab | Continue work, switch tabs with Cmd/Ctrl+1–9, respond to approvals, inspect files and use the terminal | [Chats](workspaces-chats.md), [Files](files-documents.md) |
+| Shield icon in the top-right of a chat | Choose the chat's sandbox and network settings, restore inheritance or retry a status check | [Sandboxing](settings-privacy.md#sandboxing) |
 | Message queue above the composer | Edit or reorder pending messages; use Steer to send one at the next step without stopping the current work | [Steer with a queued message](workspaces-chats.md#steer-with-a-queued-message) |
 | Sign-in details needed card | Save a missing website login directly in chat and let the browser task continue | [Browser passwords](settings-privacy.md#browser-passwords) |
 | Manage saved login | Edit an existing account and use Add URL to manage its starting pages and sign-in websites | [Saved login URLs](integrations.md#add-urls-to-an-existing-login) |
 | Fill saved login | Choose a saved account from a browser login field and fill its username and password | [Browser passwords](settings-privacy.md#browser-passwords) |
 | Projects | Select the matter or working context from the project catalog | [Projects](projects-sharing.md) |
-| Project Home | Matter details, notes, linked folders, recordings and upcoming deadlines | [Projects](projects-sharing.md) |
+| Back Office > Create | Create a record with the same short form used in project and relation pickers | [Back Office](back-office.md) |
+| Back Office > Data model > object > Settings | Choose which fields appear immediately in short creation forms | [Short forms](back-office.md#choose-the-fields-in-short-forms) |
+| Back Office > record > History | Inspect changes, compare previous values, check attribution and download signed history | [Back Office history](back-office.md#history-and-verification) |
+| Project Home | Link matters, clients, people or organisations directly; see clients via linked matters, notes and upcoming deadlines | [Projects](projects-sharing.md) |
+| Create project > Template | Choose which quick actions and project details are available | [Projects](projects-sharing.md) |
+| Project Home / Create project > Customize fields | Edit field names, types, quick actions and record selection rules | [Projects](projects-sharing.md) |
 | Project Files | Local files and linked storage, with import and document panels | [Files](files-documents.md), [Storage](connected-storage.md) |
 | Project Chats | Conversations belonging to one project | [Chats](workspaces-chats.md) |
 | Tasks / Inbox and Project Tasks | Work with an owner, status, due date and attachments | [Tasks](tasks-intake.md) |
@@ -44,6 +50,7 @@ Opening a project or changing a filter can reveal items hidden in an aggregate l
 | Recorder: Meetings | How do meeting detection, Meeting Summarisation, mini-bar visibility and screen-share visibility work? | [Recorder settings](recorder-settings.md) |
 | Office Add-ins | How do I install and connect the Office sidebars? | [Office Add-ins](office-addins.md) |
 | Integrations: category catalogue and connector details | How do I connect an external service, sign in directly with Microsoft or manage an OAuth app override? | [Integrations](integrations.md), [Email](email.md) |
+| Integrations: Austrian RIS | How do I enable Austrian legal research, test access or disable local API tools? | [Austrian RIS](integrations.md#austrian-ris) |
 | Integrations: Files & storage | Where are cloud drives and network shares configured? | [Storage](connected-storage.md) |
 | Workflows: Skills | How do I install, inspect or share reusable instructions? | [Workflows](skills-workflows.md), [Integrations](integrations.md) |
 | Personalisation | Where do writing instructions, tone and legacy memory controls live? | [Settings](settings-privacy.md) |

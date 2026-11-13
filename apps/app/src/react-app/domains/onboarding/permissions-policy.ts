@@ -7,6 +7,6 @@ export function onboardingPermissionsEnforced(view: OrgPolicyView): boolean {
   return Boolean(
     sandbox?.locked && !sandbox.released &&
     tools?.locked && !tools.released &&
-    tools.value.edit !== undefined && tools.value.bash !== undefined,
+    tools.value.edit !== undefined,
   );
 }

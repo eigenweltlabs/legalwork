@@ -1,5 +1,7 @@
 import { expect, test } from "bun:test";
 import { mkdtemp, mkdir, rm } from "node:fs/promises";
+import { pathToFileURL } from "node:url";
+import type { SessionMessageInfo } from "@opencode/client";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createEngineClient, getWorkspaceEngineSession, listEngineMessages, listEngineSessions, workspaceEngineLocation } from "./engine-client.js";
@@ -47,6 +49,25 @@ test.skipIf(!binary)("released native client follows all pages and rejects a ses
     expect(changed.id).toBe(seeded[0].id);
     expect((await listEngineMessages(client, changed.id)).length).toBe(55);
     await expect(createSeededOpencodeSession({ ...template, workspaceRoot: second.path })).rejects.toThrow("belongs to another project");
+    const pdfPath = join(first.path, "large.pdf");
+    const pdfUri = "data:application/pdf;base64," + Buffer.alloc(1_000_000, 65).toString("base64");
+    const fileMessages: SessionMessageInfo[] = [{ id: "msg_pdf_history", type: "assistant", agent: "legalwork",
+      model: { providerID: "fixture", id: "fixture" }, time: { created: 1, completed: 3 },
+      content: [{ type: "tool", id: "call_pdf", name: "read", time: { created: 1, ran: 2, completed: 3 },
+        state: { status: "completed", input: { path: pdfPath }, metadata: { preserved: true },
+          content: [{ type: "text", text: "Complete PDF analysis" },
+            { type: "file", name: pdfPath, mime: "application/pdf", uri: pdfUri }] } }] }];
+    const pdfSession = await client.session.import({ info: { ...sessions[0], id: "ses_pdf_history" },
+      messages: fileMessages, location: workspaceEngineLocation(first) });
+    const displayClient = createEngineClient(config, first, { fileReferences: true });
+    const display = await listEngineMessages(displayClient, pdfSession.id);
+    expect(JSON.stringify(display).length).toBeLessThan(3000);
+    expect(display).toMatchObject([{ content: [{ state: { status: "completed", metadata: { preserved: true },
+      content: [{ type: "text", text: "Complete PDF analysis" },
+        { type: "file", name: pdfPath, uri: pathToFileURL(pdfPath).href }] } }] }]);
+    expect(await listEngineMessages(client, pdfSession.id)).toEqual(fileMessages);
+    // Single-message callers remain complete even when using a display client.
+    expect(await displayClient.session.message.get({ sessionID: pdfSession.id, messageID: "msg_pdf_history" })).toEqual(fileMessages[0]);
     // No prompt is submitted and no model call is possible in this test.
     expect(await client.session.active()).toEqual({});
   } finally { await engine.close(); await rm(root, { recursive: true, force: true }); }

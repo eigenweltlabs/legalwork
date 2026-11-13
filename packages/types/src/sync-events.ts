@@ -9,6 +9,7 @@ import { z } from "zod";
  */
 const SyncPokeSchema = z.object({
   projects: z.boolean().optional(),
+  backOffice: z.boolean().optional(),
   tasks: z.boolean().optional(),
   policy: z.boolean().optional(),
   hub: z.boolean().optional(),

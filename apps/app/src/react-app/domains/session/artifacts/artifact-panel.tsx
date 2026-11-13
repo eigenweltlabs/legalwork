@@ -1,3 +1,6 @@
+import { workspaceFileRoot } from "@legalwork/types/workspace";
+import { resolveLocalFilePath } from "@/app/lib/local-file-path.impl.js";
+import { useProjectFiles } from "../../workspace/project-file-context";
 import { documentNavigationSchema } from "@legalwork/types/office-editor";
 import { suggestionIdFromFile } from "@legalwork/types/wiki-suggestions";
 import { PersistentArtifactPanel, useDocumentAgentControl, useDocumentRuntimeEntry, useDocumentTaskActive } from "./document-runtime";
@@ -72,8 +75,10 @@ export type ArtifactPanelProps = {
   client: LegalworkServerClient | null;
   workspaceId: string | null;
   workspaceRoot: string;
+  contentRoot?: string;
   isRemoteWorkspace?: boolean;
   localReadOnly?: boolean;
+  visible?: boolean;
   onClose: () => void;
 };
 
@@ -82,6 +87,7 @@ type ArtifactPanelViewProps = {
   client: LegalworkServerClient;
   workspaceId: string;
   workspaceRoot: string;
+  contentRoot?: string;
   isRemoteWorkspace?: boolean;
   target: OpenTarget;
   sourcePage?: number;
@@ -106,10 +112,7 @@ function nextBinaryRevision(updatedAt: number | null) {
 }
 
 function absoluteWorkspacePath(root: string, path: string) {
-  const cleanRoot = root.trim().replace(/[/\\]+$/, "");
-  const cleanPath = path.trim().replace(/^\.\//, "");
-  
-  return cleanRoot ? `${cleanRoot}/${cleanPath}` : cleanPath;
+  return root ? resolveLocalFilePath(root, path) : path;
 }
 
 function isTextContent(target: OpenTarget): boolean {
@@ -122,7 +125,9 @@ export function ArtifactPanel(input: ArtifactPanelProps) {
   return <PersistentArtifactPanel {...props} />;
 }
 
-export function ArtifactPanelContent({ sessionId, tab, client, workspaceId, workspaceRoot, isRemoteWorkspace = false, localReadOnly = false, onClose }: ArtifactPanelProps) {
+export function ArtifactPanelContent({ sessionId, tab, client, workspaceId, workspaceRoot: suppliedRoot, contentRoot, isRemoteWorkspace = false, localReadOnly = false, onClose }: ArtifactPanelProps) {
+  const projectFiles = useProjectFiles();
+  const project = projectFiles?.projects.find(item => item.workspaceId === workspaceId && item.client.baseUrl === client?.baseUrl);
   const transcriptTargets = usePanelTabStore((state) => state.transcriptArtifactTargets[tab.sourceSessionId ?? sessionId] ?? EMPTY_TRANSCRIPT_TARGETS);
   const artifactTargets = useMemo(() => transcriptTargets.filter(isCollectibleArtifactTarget), [transcriptTargets]);
   // Tabs opened from the workspace file browser carry their own path, so they
@@ -139,6 +144,8 @@ export function ArtifactPanelContent({ sessionId, tab, client, workspaceId, work
     size: tab.size,
     updatedAt: tab.updatedAt,
   } satisfies OpenTarget : null);
+
+  const workspaceRoot = workspaceFileRoot({ path: project?.localRoot || suppliedRoot, contentPath: project?.root || contentRoot }, target?.value || "");
 
   if (tab.wikiSource && target && client) {
     const source = tab.wikiSource;
@@ -283,14 +290,17 @@ export function ArtifactPanelView({ loadFile, sourcePage, localReadOnly = false,
     gcTime: 5 * 60 * 1000,
   });
 
+  const artifactQueryKey = ["artifact-panel", workspaceId, target.id, client.baseUrl, runtimeEntry?.generation] as const;
   const { data, error, isError, isLoading, refetch } = useQuery<ArtifactQueryState>({
-    queryKey: ["artifact-panel", workspaceId, target.id, client.baseUrl, runtimeEntry?.generation] as const,
+    queryKey: artifactQueryKey,
     queryFn: async () => {
+      const cached = queryClient.getQueryData<ArtifactQueryState>(artifactQueryKey);
+      const previous = cached?.kind === "binary" ? cached : undefined;
       if (loadFile) {
         const result = await loadFile();
         return isTextContent(target)
           ? { kind: "text", data: new TextDecoder().decode(result.data), updatedAt: null }
-          : { kind: "binary", ...result, updatedAt: null, revision: nextBinaryRevision(null) };
+          : { kind: "binary", ...result, data: retainBinaryContent(previous?.data, result.data), updatedAt: null, revision: nextBinaryRevision(null) };
       }
       if (target.kind === "url") {
         throw new Error(t("artifact.urls_open_in_browser"));
@@ -305,8 +315,7 @@ export function ArtifactPanelView({ loadFile, sourcePage, localReadOnly = false,
         return { kind: "text", data: result.content, updatedAt: result.updatedAt ?? null };
       }
 
-      const previous = queryClient.getQueryData<ArtifactQueryState>(["artifact-panel", workspaceId, target.id, client.baseUrl]);
-      if ((localReadOnly || reader.current) && previous?.kind === "binary") {
+      if (previous?.downloadedUpdatedAt != null && (target.preview === "pdf" || localReadOnly || reader.current)) {
         // Older servers without stat/version metadata retain the download path.
         const stat = await client.statWorkspaceFile(workspaceId, target.value).catch(() => null);
         if (stat && binaryMatchesStat(previous, stat)) return previous;
@@ -316,7 +325,7 @@ export function ArtifactPanelView({ loadFile, sourcePage, localReadOnly = false,
 
       return {
         kind: "binary",
-        data: retainBinaryContent(previous?.kind === "binary" ? previous.data : undefined, result.data),
+        data: retainBinaryContent(previous?.data, result.data),
         contentType: result.contentType,
         downloadedUpdatedAt: result.updatedAt,
         updatedAt,
@@ -455,7 +464,7 @@ export function ArtifactPanelView({ loadFile, sourcePage, localReadOnly = false,
       if (savedDocx) { snapshotRef.current = savedDocx; setDocumentSnapshot(savedDocx); }
       access.saved();
       queryClient.setQueryData<ArtifactQueryState>(
-        ["artifact-panel", workspaceId, target.id, client.baseUrl, runtimeEntry?.generation] as const,
+        artifactQueryKey,
         input.kind === "text"
           ? { kind: "text", data: result.content ?? input.data, updatedAt: result.updatedAt ?? null }
           : savedDocx ? publishedDocxSnapshot(savedDocx, nextBinaryRevision(result.updatedAt ?? null)) : {
@@ -515,7 +524,7 @@ export function ArtifactPanelView({ loadFile, sourcePage, localReadOnly = false,
       buffer = current;
       contentType = isOfficeEditor ? (data?.kind === "binary" ? data.contentType : null) : "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
     } else {
-      const result = await client.downloadWorkspaceFile(workspaceId, target.value);
+      const result = await (loadFile ? loadFile() : client.downloadWorkspaceFile(workspaceId, target.value));
       buffer = result.data;
       contentType = result.contentType;
     }

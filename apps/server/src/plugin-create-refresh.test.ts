@@ -213,7 +213,7 @@ for (const kind of ["plugin", "connector"]) test.skipIf(!binary)(`created and re
     config.opencodeBaseUrl = engine.url; config.opencodeUsername = engine.username; config.opencodePassword = engine.password;
     const client = OpenCode.make({ baseUrl: engine.url, headers: { authorization: `Basic ${Buffer.from(`${engine.username}:${engine.password}`).toString("base64")}` } });
     for (const workspace of [origin, loaded]) {
-      await client.model.list({ location: { directory: workspace.path } });
+      await waitForNativeFixture(() => client.model.list({ location: { directory: workspace.path } }), () => true, `native project activation in ${workspace.id}`);
       await waitForNativeFixture(async () => (await client.plugin.list({ location: { directory: workspace.path } })).data,
         plugins => plugins.some(plugin => plugin.id === "opencode.config.mcp" && plugin.state.status === "active"), `active MCP configuration in ${workspace.id}`);
       await waitForNativeFixture(async () => (await client.mcp.list({ location: { directory: workspace.path } })).data,
@@ -232,7 +232,7 @@ for (const kind of ["plugin", "connector"]) test.skipIf(!binary)(`created and re
     expect(response.status, await response.text()).toBe(200);
     for (const workspace of [origin, loaded, unopened]) {
       // Opening a cold project activates its native plugin registrations.
-      if (workspace === unopened) await client.model.list({ location: { directory: workspace.path } });
+      if (workspace === unopened) await waitForNativeFixture(() => client.model.list({ location: { directory: workspace.path } }), () => true, `native project activation in ${workspace.id}`);
       const connectors = await waitForNativeFixture(async () => (await client.mcp.list({ location: { directory: workspace.path } })).data,
         entries => entries.length === 2 && entries.every(entry => entry.status.status === "connected"), `connected plugin in ${workspace.id}`);
       expect(connectors).toHaveLength(2);
@@ -242,14 +242,14 @@ for (const kind of ["plugin", "connector"]) test.skipIf(!binary)(`created and re
     }).catch(cause => { throw new Error(`Native ${kind} removal across ${config.workspaces.length} projects failed`, { cause }); });
     expect(removed.status, await removed.text()).toBe(200);
     for (const workspace of [origin, loaded, unopened, config.workspaces[3]!]) {
-      if (workspace === config.workspaces[3]) await client.model.list({ location: { directory: workspace.path } });
+      if (workspace === config.workspaces[3]) await waitForNativeFixture(() => client.model.list({ location: { directory: workspace.path } }), () => true, `native project activation in ${workspace.id}`);
       const connectors = await waitForNativeFixture(async () => (await client.mcp.list({ location: { directory: workspace.path } })).data,
         entries => entries.length === 1 && entries[0]?.name === "retained", `removed plugin in ${workspace.id}`);
       expect(connectors.map(entry => entry.name)).toEqual(["retained"]);
     }
     await publishRuntimeConfigChanges(config, origin.id, () => writeRuntimeOpencodeConfig(config, GLOBAL_MCP_ID, () => ({ mcp: { servers: {} } })));
     for (const workspace of [origin, loaded, unopened, config.workspaces[4]!]) {
-      if (workspace === config.workspaces[4]) await client.model.list({ location: { directory: workspace.path } });
+      if (workspace === config.workspaces[4]) await waitForNativeFixture(() => client.model.list({ location: { directory: workspace.path } }), () => true, `native project activation in ${workspace.id}`);
       const connectors = await waitForNativeFixture(async () => (await client.mcp.list({ location: { directory: workspace.path } })).data,
         entries => entries.length === 0, `last connector removed in ${workspace.id}`);
       expect(connectors).toEqual([]);

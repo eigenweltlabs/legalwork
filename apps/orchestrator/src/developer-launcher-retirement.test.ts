@@ -1,10 +1,20 @@
-import { expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
+import { cliFixture } from "./cli-test-fixture.mjs";
+
+let fixtureDirectory: string;
+let entry: string;
+beforeAll(async () => {
+  fixtureDirectory = await mkdtemp(join(tmpdir(), "legalwork-retired-cli-"));
+  entry = await cliFixture(fixtureDirectory);
+});
+afterAll(async () => { if (fixtureDirectory) await rm(fixtureDirectory, { recursive: true, force: true }); });
+
 async function command(dataDirectory: string, arguments_: string[]) {
-  const child = Bun.spawn([process.execPath, join(import.meta.dir, "cli.ts"), ...arguments_, "--data-dir", dataDirectory, "--json"], {
+  const child = Bun.spawn([process.execPath, "--no-install", entry, ...arguments_, "--data-dir", dataDirectory, "--json"], {
     stdout: "pipe", stderr: "pipe", env: { ...process.env, LEGALWORK_OPENCODE_BIN: join(dataDirectory, "must-never-be-started") },
   });
   const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);

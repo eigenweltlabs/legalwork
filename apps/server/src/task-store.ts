@@ -1099,7 +1099,7 @@ export class TaskStore {
     }
   }
 
-  createTask(input: TaskCreate, actor: TaskActor, now: number = Date.now()): Task {
+  createTask(input: TaskCreate, actor: TaskActor, now: number = Date.now(), writeLinks?: (db: SqliteHandle, id: string) => void): Task {
     const title = input.title.trim();
     if (!title) throw new ApiError(400, "invalid_task_title", "A task needs a title.");
     if (title.length > TASK_TITLE_MAX_CHARS) {
@@ -1140,6 +1140,7 @@ export class TaskStore {
       }
       this.enqueue(id, { kind: "create", changedAt: new Date(now).toISOString() }, now);
       this.acknowledgeDue(id, { status: "open", dueDate: input.dueDate ?? null, deletedAt: null }, now);
+      writeLinks?.(this.db, id);
       return this.requireTask(id);
     });
   }

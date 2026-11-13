@@ -9,7 +9,7 @@ minimumReleaseAgeExclude:
   - "@opencode/ai@2.1.4"
   - "@opencode/util@2.1.4"
   # Explicitly allow the reviewed Electron security update.
-  - "electron@43.8.3"
+  - "electron@43.8.8"
   # Pinned standalone OpenUI runtime reviewed for the reversible wiki prototype.
   - "@openuidev/react-lang@0.4.1"
   - "@openuidev/lang-core@0.4.1"

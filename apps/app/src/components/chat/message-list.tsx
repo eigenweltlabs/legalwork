@@ -25,7 +25,6 @@ import { ReviewToolCard, ReviewToolGroup } from "./review/review-card";
 import { SubagentToolRows } from "./subagent-tool-row";
 "use memo";
 
-import { ProjectContentsTool } from "./project/project-contents-card";
 
 import * as React from "react"
 import {
@@ -465,7 +464,6 @@ const AssistantMessage = React.memo(
             if (group.kind === "assistant-name") return <AssistantNameCard key={group.part.toolCallId} part={group.part} />;
             if (group.kind === "scheduled-task") return <ScheduledTaskToolCard key={group.part.toolCallId} part={group.part} />;
             if (group.kind === "calculation") return <CalculationToolCard key={group.part.toolCallId} part={group.part} />;
-            if (group.kind === "project") return <ProjectContentsTool key={group.part.toolCallId} part={group.part} />;
             if (group.kind === "wiki-suggestion") return <WikiSuggestionCard key={group.part.toolCallId} part={group.part} />;
             if (group.kind === "view") return <ViewToolCard key={group.part.toolCallId} part={group.part} />;
 
@@ -673,7 +671,6 @@ const UserMessage = React.memo(
                 ))}
                 {assistantChat && assistantScheduledRun && !scheduledRun?.taskId ? <ScheduledRunCard run={assistantScheduledRun} created={getMessageCreated(message)} /> : scheduledRun ? <div className="w-full max-w-[85%] sm:max-w-[75%]"><ScheduledTaskRunCard run={scheduledRun} /></div> : preparingAttachments.length > 0 || message.parts.some((part) => part.type === "text" && part.text) ? (
                   <MessageContent
-                    layoutId={assistantChat ? undefined : message.id}
                     data-user-message-bubble=""
                     className="relative bg-foreground/[0.06] text-foreground max-w-[85%] rounded-3xl px-5 py-2.5 whitespace-pre-wrap sm:max-w-[75%]"
                   >

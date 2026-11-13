@@ -1,3 +1,4 @@
+import { workspaceContentPath } from "./project-storage-paths.js";
 import { launcherResultActions } from "@legalwork/types/launcher";
 import { existingLauncherFiles } from "./launcher-file-visibility.js";
 import { compareLauncherResults, isLauncherInternalPath } from "@legalwork/types/launcher";
@@ -67,10 +68,10 @@ export async function searchLauncher(deps: LauncherSearchDeps, input: LauncherSe
     let count = 0;
     for (const workspace of scoped) {
       if (workspace.preset === "wiki") continue;
-      const match = projectMatch({ id: workspace.id, name: deps.projectName(workspace), path: workspace.path }, query);
+      const match = projectMatch({ id: workspace.id, name: deps.projectName(workspace), path: workspaceContentPath(workspace) }, query);
       if (!match) continue;
       const score = match.match === "exact" ? 1000 : match.match === "literal" ? 700 - match.score * 50 : match.match === "all" ? 0 : 150 - match.score * 10;
-      items.push({ id: workspace.id, kind: "projects", workspaceId: workspace.id, sourceId: `local:${workspace.id}`, title: deps.projectName(workspace), subtitle: workspace.path, updatedAt: 0,
+      items.push({ id: workspace.id, kind: "projects", workspaceId: workspace.id, sourceId: `local:${workspace.id}`, title: deps.projectName(workspace), subtitle: workspaceContentPath(workspace), updatedAt: 0,
         match: match.match === "exact" ? "exact" : match.match === "literal" ? "substring" : match.match === "approximate" ? "fuzzy" : "recent", score, actions: [] });
       count++;
     }
@@ -106,7 +107,7 @@ export async function searchLauncher(deps: LauncherSearchDeps, input: LauncherSe
       const label = deps.projectName(workspace);
       try {
         const fileItems: LauncherSearchResult[] = [];
-        const index = await deps.fileIndex.ensure(workspace.id, workspace.path, false);
+        const index = await deps.fileIndex.ensure(workspace.id, workspaceContentPath(workspace), false);
         const seen = new Set<string>();
         const filter = { types: input.fileTypes ?? null, modifiedAfter: input.modifiedAfter ?? null, browse: input.kinds.length === 1, sort: input.sort };
         const passes = (path: string, updatedAt: number) => (!filter.types?.length || filter.types.includes(extname(path).replace(/^\./, "").toLowerCase())) && (filter.modifiedAfter === null || updatedAt >= filter.modifiedAfter);
@@ -130,7 +131,7 @@ export async function searchLauncher(deps: LauncherSearchDeps, input: LauncherSe
             coverage = preparing ? "indexing" : coverage === "indexing" ? "indexing" : limited ? "partial" : "complete";
           } catch { coverage = coverage === "indexing" ? "indexing" : "filename-only"; }
         }
-        const visible = await existingLauncherFiles(workspace.path, fileItems);
+        const visible = await existingLauncherFiles(workspaceContentPath(workspace), fileItems);
         items.push(...visible);
         source({ id: `files:${workspace.id}`, kind: "files", workspaceId: workspace.id, label, coverage, count: visible.length, limited, preparing });
       } catch (error) { source({ id: `files:${workspace.id}`, kind: "files", workspaceId: workspace.id, label, coverage: "unavailable", count: 0, error: error instanceof Error ? error.message : String(error) }); }

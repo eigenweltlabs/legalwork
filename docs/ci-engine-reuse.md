@@ -1,4 +1,4 @@
-# Development engine reuse in CI
+# Engine reuse in CI
 
 OpenCode is an input to LegalWork's integration tests. A change to an OAuth
 connector or a desktop screen requires testing with the engine, but does not
@@ -56,15 +56,20 @@ remain where unit fixtures require them. Tests that declare
 `LEGALWORK_TEST_OPENCODE_BIN` skip their real-engine fixtures in this job.
 
 The existing required `legalwork-tests (ubuntu-latest)` and
-`legalwork-tests (macos-14)` names remain. They require the unit matrix and, when
-selected, the verified engine producer to succeed before executing integration
-checks. A failed producer is reported as a failed required check rather than a
+`legalwork-tests (macos-14)` names remain. They are final gates over every selected check, including units, integration,
+protected-runtime tests and manual packaging acceptance. Integration starts as
+soon as its verified engine is ready, independently of the unit matrix. A failed
+selected producer or test is reported as a failed required check rather than a
 skipped check. Pure presentation changes need only the successful unit matrix.
 
-`scripts/ci/run-engine-tests.mjs` collects every server test file declaring the
-real-engine fixture variable, including newly added files. It refuses to run
+`scripts/ci/run-engine-tests.mjs` collects server tests declaring the real-engine
+fixture variable directly or through an imported helper. It uses the same
+runtime import graph for discovery, including imported fixture helpers.
+Selection uses the owned native contracts in `engine-test-contracts.mjs`, so
+ordinary server imports do not select unrelated native fixtures. Portable
+affected-test selection keeps the complete dependency graph. It refuses to run
 without the verified engine. Desktop runtime tests import the generated engine selection and therefore stay
-in this gated job too. These tests, browser/e2e checks and prompt-cache
+in the engine integration job too. These tests, browser/e2e checks and prompt-cache
 acceptance remain behind engine setup. The final selected-check summary also
 includes the unit matrix. Sandbox skip labels and manual acceptance modes keep
 their existing scope.
@@ -81,3 +86,64 @@ required status failure propagation, real-engine test discovery, cache
 verification and production-policy separation. A live shared-cache hit can be
 checked after the producer is merged and completes on `dev`: the next ordinary
 PR's engine job should restore and verify the cache while skipping compilation.
+
+
+## Native archive delivery
+
+The producer retains a complete twelve-target distribution and its pinned
+manifest for universal publication and diagnostics. Native consumers download
+only their macOS, Linux or Windows archive family, together with that complete
+manifest. An explicit family selection is accepted only with an independently
+pinned manifest digest; every delivered archive still passes its hash,
+provenance and signature checks. The handoff receipt records its coverage, so
+warming a family cannot masquerade as a complete distribution.
+
+## Production engine reuse
+
+Alpha and release producers look for an immutable production artifact named by
+the current engine fingerprint. The identity covers the pinned upstream source,
+patch/dependency/test-evidence recipe, compiler, build helpers, complete target
+matrix, production certificate and entitlements. LegalWork's app version, UI
+changes and unrelated server edits are not inputs. Changing engine inputs or
+losing the retained artifact causes a fresh signed twelve-target build.
+
+A production cache hit requires a completed same-repository production producer,
+its successful full verification step, and the exact key plus unambiguous manifest
+pin in its independently fetched GitHub job log. Normal publication accepts
+trusted `dev` or release-event producers, not PR or arbitrary branch artifacts. An
+explicit manual benchmark may reuse its own branch's prior manual producer.
+Development caches and explicitly supplied development reuse inputs remain
+separate and cannot satisfy production reuse.
+
+Downloaded bytes must match that independent manifest and receipt. The existing
+production verifier checks every archive and current source/provenance policy,
+including actual native Apple signature and exact certificate checks for all
+Mac targets. Corrupt selected artifacts fail the run. Cache hits do not import
+private signing keys; misses retain the existing signing process and cleanup.
+Only freshly built and verified full production distributions are retained in
+the named cache for 90 days; normal same-run platform handoffs retain their
+existing seven-day lifetime. This is retained-artifact reuse, separate from the
+temporary development Actions cache.
+
+To seed an engine without packaging or publishing:
+
+```sh
+gh workflow run alpha-macos-aarch64.yml --ref dev \
+  -f signing_test=true -f warm_engine_cache=true
+```
+
+After that workflow completes, a fresh full nonpublishing alpha benchmark can
+require a hit rather than silently recompiling:
+
+```sh
+gh workflow run alpha-macos-aarch64.yml --ref dev \
+  -f signing_test=true -f require_engine_cache=true
+```
+
+The warm-up and full benchmark are separate runs. Report the full run's creation
+time through each platform job's completion, including all producers, dispatch
+and runner queues. Do not substitute native consumer duration or add overlapping
+stage durations. Release creation, release asset upload and publication stay
+disabled in these benchmark modes; signing and packaged startup still run.
+
+[CI selection and rollout](ci-selection.md) covers merge checks, queue activation and production alpha timing.

@@ -54,6 +54,7 @@ export type BrowserPanelTab = {
   label: string;
   url: string;
   favicon: string | null;
+  preview?: string | null;
   status: "loading" | "ready";
   canGoBack: boolean;
   canGoForward: boolean;

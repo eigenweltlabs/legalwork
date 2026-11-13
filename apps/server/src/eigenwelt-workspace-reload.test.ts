@@ -1,4 +1,6 @@
-import { afterAll, beforeAll, expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, spyOn, test } from "bun:test";
+import * as systemOne from "./systemone.js";
+import { withEigenweltConnectionLock } from "./eigenwelt-connection-store.js";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -137,4 +139,19 @@ test("a sign-out reloads them too, so the models leave every workspace", async (
   expect((await call("PUT", "/workspace/ws_b/eigenwelt/connection", { disconnect: true })).status).toBe(200);
   await reloadPassDone();
   expect(reloaded).toEqual([dir("ws_a")]);
+});
+
+test("account publication can refresh credentials without waiting on its own account-write lock", async () => {
+  let readinessRead = false;
+  const settings = spyOn(systemOne, "readSystemOneSettings").mockImplementation(async () => {
+    await withEigenweltConnectionLock(config, async () => { readinessRead = true; });
+    return { providers: [], selection: { providerId: "eigenwelt", model: "EigenJev" } };
+  });
+  try {
+    const result = await call("PUT", "/workspace/ws_a/eigenwelt/connection", {
+      platformToken: "new-access", baseURL: "https://paid.gateway.test/v1", apiKey: "new-key", models: [],
+    });
+    expect(result.status).toBe(200);
+    expect(readinessRead).toBe(true);
+  } finally { settings.mockRestore(); }
 });

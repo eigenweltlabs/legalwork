@@ -211,6 +211,22 @@ test("a wiki registered during a command prevents its staged changes from commit
   } finally { await store.close(); }
 });
 
+test("another wiki's local support home keeps the same privacy boundary as its content", async () => {
+  const f = await fixture([{ action: "shell", resource: "*", effect: "allow" }, { action: "read", resource: "*", effect: "allow" }, { action: "edit", resource: "*", effect: "allow" }, { action: "external_directory", resource: "*", effect: "allow" }]);
+  f.config.projectsDirectory = join(f.workspace.path, "..", "wiki-homes");
+  const store = new WikiStore(f.config);
+  try {
+    const wiki = await store.create({ name: "Private knowledge", template: "blank" });
+    const home = f.config.workspaces.find(item => item.id === wiki.workspaceId)!.path;
+    expect(home).not.toBe(wiki.root);
+    await writeRuntimeOpencodeConfig(f.config, f.workspace.id, () => ({ permissions: [{ action: "external_directory", resource: `${home}/*`, effect: "allow" }] }));
+    await expect(f.service.run(f.workspace, { command: "true", write: false, timeoutMs: 1000 }, { type: "remote", scope: "collaborator" }, new AbortController().signal)).rejects.toMatchObject({ code: "workspace_not_found" });
+    await store.update(wiki.id, { allowInProjects: false });
+    await expect(f.service.run(f.workspace, { command: "true", write: false, timeoutMs: 1000 }, { type: "host" }, new AbortController().signal)).rejects.toMatchObject({ code: "wiki_access_denied" });
+    expect(f.executions).toHaveLength(0);
+  } finally { await store.close(); }
+});
+
 test("approve is the persistent default and prompts even when webfetch and server approvals allow", async () => {
   const f = await fixture([{ action: "webfetch", resource: "*", effect: "allow" }], true, async (input) => {
     expect(input.networkMode).toBe("approve");
@@ -772,6 +788,8 @@ test("wiki shell requires protected execution and approved project mounts stay r
     await expect(run.beforeCommit?.()).rejects.toMatchObject({ status: 403, code: "wiki_project_access_revoked" });
     run.signal.throwIfAborted();
   });
+  const content = join(f.workspace.path, "..", "connected-project-documents");
+  await mkdir(content); f.workspace.contentPath = await realpath(content);
   const store = new WikiStore(f.config);
   try {
     const wiki = await store.create({ name: "Wiki project access", template: "blank" });
@@ -781,14 +799,15 @@ test("wiki shell requires protected execution and approved project mounts stay r
     const signal = new AbortController().signal;
     const origin = await verifiedWikiSessionOrigin(f.config, own, "wiki-chat", "owner", signal);
     const command = { command: "true", sessionID: "wiki-chat", write: true, timeoutMs: 1000 };
-    await writeRuntimeOpencodeConfig(f.config, own.id, () => ({ permissions: [{ action: "external_directory", resource: `${f.workspace.path}/*`, effect: "allow" }] }));
+    await writeRuntimeOpencodeConfig(f.config, own.id, () => ({ permissions: [{ action: "external_directory", resource: `${f.workspace.contentPath}/*`, effect: "allow" }] }));
     await expect(f.service.run(own, command, { type: "host" }, signal)).rejects.toMatchObject({ code: "wiki_project_access_required" });
-    grantWikiProjectAccess(f.config, "wiki-chat", { wikiId: wiki.id, projectId: f.workspace.id, root: await realpath(f.workspace.path), scope: "owner", origin: origin.generation }, wikiProjectAccessRevision(f.config, "wiki-chat"));
+    grantWikiProjectAccess(f.config, "wiki-chat", { wikiId: wiki.id, projectId: f.workspace.id, root: f.workspace.contentPath, scope: "owner", origin: origin.generation }, wikiProjectAccessRevision(f.config, "wiki-chat"));
     revoke = () => revokeWikiProjectAccess(f.config, "wiki-chat", f.workspace.id);
     await expect(f.service.run(own, command, { type: "host" }, signal)).rejects.toMatchObject({
       status: 403, code: "wiki_project_access_revoked", message: "Project access was revoked. This operation was stopped. Request access again before retrying.",
     });
     const run = f.executions[0];
+    expect(run.mounts[1]?.source).toBe(f.workspace.contentPath);
     expect(run.mounts.map(mount => [mount.target, mount.writable])).toEqual([["/workspace", true], ["/authorized/0", false]]);
     await writeSandboxDefault(f.config, { enabled: false, networkMode: "allow" });
     await expect(f.service.run(own, command, { type: "host" }, signal)).rejects.toMatchObject({ code: "wiki_sandbox_required" });
@@ -911,7 +930,7 @@ test("a new read-only project boundary cannot commit an older writable mount", a
   } finally { await store.close(); }
 });
 
-test("remembered network approval repeats only for an identical request in the same chat", async () => {
+test("remembered network approval covers identical requests in the chat and its subtasks", async () => {
   const f = await fixture([{ action: "webfetch", resource: "*", effect: "allow" }]);
   const net = observedWebNetwork();
   const input = webInput("https://example.com/document");
@@ -926,16 +945,46 @@ test("remembered network approval repeats only for an identical request in the s
   expect(f.service.approvals.list()).toEqual([]);
   expect(net.sent).toHaveLength(2);
 
-  for (const request of [{ ...input, sessionID: "child" }, { ...input, url: "https://example.com/other-document" }]) {
-    const result = run(request, [request.sessionID, input.sessionID]).catch(error => error);
+  await run({ ...input, sessionID: "child" }, ["child", input.sessionID]);
+  expect(f.service.approvals.list()).toEqual([]);
+  expect(net.sent).toHaveLength(3);
+  for (const request of [{ ...input, sessionID: "unrelated" }, { ...input, url: "https://example.com/other-document" }]) {
+    const result = run(request).catch(error => error);
     const [changed] = await waitForWebApproval(f.service);
     f.service.approvals.respond(changed.id, "deny");
     expect(await result).toBeInstanceOf(Error);
   }
-  expect(net.sent).toHaveLength(2);
+  expect(net.sent).toHaveLength(3);
   await writeRuntimeOpencodeConfig(f.config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permissions: [{ action: "webfetch", resource: "*", effect: "deny" }] }));
   await expect(run()).rejects.toThrow("blocked by your permissions");
-  expect(net.sent).toHaveLength(2);
+  expect(net.sent).toHaveLength(3);
+});
+
+test("remembered shell approval settles queued subtasks and checks each helper's restrictions", async () => {
+  const f = await fixture([{ action: "shell", resource: "*", effect: "ask" }]);
+  await writeSandboxDefault(f.config, { enabled: true, networkMode: "allow" });
+  const run = (sessionID: string, rules: AgentPermissionRule[] = [], command = "extract same-document.pdf", workdir?: string) => f.service.run(f.workspace,
+    { command, workdir, sessionID, description: "extract same-document.pdf", write: false, timeoutMs: 5000 }, { type: "host" },
+    new AbortController().signal, rules, sessionID === "parent" ? [sessionID] : [sessionID, "parent"]);
+  const first = run("child-a");
+  const second = run("child-b", [{ permission: "bash", pattern: "*", action: "ask" }]);
+  for (let attempt = 0; attempt < 100 && f.service.approvals.list().length < 2; attempt++) await Bun.sleep(10);
+  expect(f.service.approvals.list()).toHaveLength(2);
+  f.service.approvals.respond(f.service.approvals.list()[0].id, "always");
+  expect((await Promise.all([first, second])).every(result => result.exitCode === 0)).toBe(true);
+  expect(f.service.approvals.list()).toEqual([]);
+  await run("parent");
+  await run("late-helper", [{ permission: "bash", pattern: "extract *", action: "ask" }]);
+  expect(f.service.approvals.list()).toEqual([]);
+  await expect(run("denied-helper", [{ permission: "bash", pattern: "*", action: "deny" }])).rejects.toThrow("bash is blocked");
+  const changed = run("changed", [], "extract another-document.pdf").catch(error => error);
+  const [request] = await waitForWebApproval(f.service);
+  f.service.approvals.respond(request.id, "deny");
+  expect(await changed).toBeInstanceOf(Error);
+  const changedDirectory = run("changed-directory", [], "extract same-document.pdf", "/workspace/another-folder").catch(error => error);
+  const [directoryRequest] = await waitForWebApproval(f.service);
+  f.service.approvals.respond(directoryRequest.id, "deny");
+  expect(await changedDirectory).toBeInstanceOf(Error);
 });
 
 test("unchanged config writes retain remembered network approval but permission changes revoke it", async () => {
@@ -1031,4 +1080,30 @@ test("native remembered folder approvals feed project sandbox mounts and are rev
   await writeRuntimeOpencodeConfig(f.config, f.workspace.id, current => ({ ...current, permissions: [], projectPermissionApprovals: [] }));
   await f.run();
   expect(f.executions[2].mounts.map(mount => mount.source)).toEqual([await realpath(f.workspace.path)]);
+});
+
+test("local project home and connected documents share existing sandbox permissions and separate mounts", async () => {
+  const f = await fixture([{ action: "shell", resource: "*", effect: "allow" }, { action: "read", resource: "*", effect: "allow" }, { action: "edit", resource: "*", effect: "allow" }]);
+  const content = await realpath(await mkdtemp(join(tmpdir(), "sandbox-content-"))); roots.push(content);
+  const additional = await realpath(await mkdtemp(join(tmpdir(), "sandbox-additional-"))); roots.push(additional);
+  f.workspace.path = await realpath(f.workspace.path);
+  f.workspace.contentPath = content;
+  await writeRuntimeOpencodeConfig(f.config, f.workspace.id, () => ({ permissions: [{ action: "external_directory", resource: `${additional}/*`, effect: "allow" }] }));
+  await f.service.run(f.workspace, { command: `cat "${content}/contract.txt"`, workdir: content, write: true, timeoutMs: 1000 }, { type: "host" }, new AbortController().signal);
+  expect(f.executions[0].mounts).toEqual([
+    { source: f.workspace.path, target: "/workspace", writable: true },
+    { source: content, target: "/authorized/0", writable: true },
+    { source: additional, target: "/authorized/1", writable: true },
+  ]);
+  expect(f.executions[0].cwd).toBe("/authorized/0");
+  expect(f.executions[0].command).toBe('cat "/authorized/0/contract.txt"');
+  await rm(content, { recursive: true });
+  await f.run();
+  expect(f.executions[1].mounts.map(mount => mount.source)).toEqual([f.workspace.path, additional]);
+  const nested = join(f.workspace.path, "files");
+  await mkdir(nested);
+  f.workspace.contentPath = nested;
+  await f.service.run(f.workspace, { command: "true", workdir: nested, write: false, timeoutMs: 1000 }, { type: "host" }, new AbortController().signal);
+  expect(f.executions[2].cwd).toBe("/workspace/files");
+  expect(f.executions[2].mounts.map(mount => mount.source)).toEqual([f.workspace.path, additional]);
 });

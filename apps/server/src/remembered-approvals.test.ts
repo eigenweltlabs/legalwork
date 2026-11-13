@@ -11,6 +11,26 @@ const input = (workspaceId: string, sessionID = "first-chat"): Omit<ApprovalRequ
   workspaceId, sessionID, actor: { type: "host" }, action: "sandbox.webfetch", summary: "Send this exact request", paths: [],
 });
 
+test("a remembered parent-chat grant survives restart for existing and later subtasks", async () => {
+  const root = await mkdtemp(join(tmpdir(), "legalwork-chat-family-approval-"));
+  const config = { configPath: join(root, "server.json") };
+  const scope = { sessionID: "parent-chat", key: "exact-operation-and-current-policy" };
+  let service = new ApprovalService({ mode: "manual", timeoutMs: 1000 }, undefined, undefined, await openRememberedApprovalStore(config));
+  try {
+    const first = service.requestApproval(input("matter", "child-a"), undefined, true, "legacy-operation", scope);
+    service.respond(service.list()[0].id, "always");
+    expect((await first).allowed).toBe(true);
+    service.dispose();
+    service = new ApprovalService({ mode: "manual", timeoutMs: 1000 }, undefined, undefined, await openRememberedApprovalStore(config));
+    for (const session of ["parent-chat", "child-a", "later-child"])
+      expect(await service.requestApproval(input("matter", session), undefined, true, "legacy-operation", scope)).toMatchObject({ id: "remembered", allowed: true });
+    const other = service.requestApproval(input("matter", "other-child"), undefined, true, "legacy-operation", { ...scope, sessionID: "unrelated-chat" });
+    expect(service.list()).toHaveLength(1);
+    service.respond(service.list()[0].id, "deny");
+    expect((await other).allowed).toBe(false);
+  } finally { service.dispose(); await rm(root, { recursive: true, force: true }); }
+});
+
 test("existing project approvals retain their scope without making new approvals project-wide", async () => {
   const root = await mkdtemp(join(tmpdir(), "legalwork-existing-project-approval-"));
   const store = await openRememberedApprovalStore({ configPath: join(root, "server.json") });

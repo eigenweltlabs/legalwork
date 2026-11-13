@@ -21,8 +21,10 @@ export function registerAssistantChannelHistoryRoutes(options: { routes: Route[]
     options.requireClientScope(ctx, "viewer");
     const params = new URL(ctx.request.url).searchParams;
     const before = params.get("before") ?? undefined;
+    const after = params.get("after") ?? undefined;
+    if (after && !/^\d{4}-\d{2}-\d{2}$/.test(after)) throw new ApiError(400, "invalid_date", "Use a calendar date.");
     if (before && !/^\d{4}-\d{2}-\d{2}$/.test(before)) throw new ApiError(400, "invalid_date", "Use a calendar date.");
     const limit = z.coerce.number().int().min(1).max(30).parse(params.get("limit") ?? 14);
-    return options.json(await options.history.days(before, limit));
+    return options.json(await options.history.days(before, limit, after));
   });
 }

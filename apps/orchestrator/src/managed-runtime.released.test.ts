@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { chmod, copyFile, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { chmod, copyFile, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { OpenCode } from "@opencode/client";
@@ -11,7 +11,9 @@ const orchestratorScript = process.env.LEGALWORK_TEST_ORCHESTRATOR_JS;
 const orchestratorEntry = orchestratorScript ? resolve(orchestratorScript) : resolve(import.meta.dir, "cli.ts");
 const orchestratorRuntime = orchestratorScript ? "node" : process.execPath;
 
-for (const stopDuringStartup of [false, true]) test.skipIf(!serverBinary || !engineBinary)(stopDuringStartup
+for (const mode of ["serve", "cancel", "check"]) test.skipIf(!serverBinary || !engineBinary)(mode === "check"
+  ? "standalone checks select the relocated engine through a content folder alias"
+  : mode === "cancel"
   ? "standalone cancellation during startup reaps its managed engine and independently deployed server"
   : "standalone orchestrator delegates its engine to the independently deployed server and stops only its private owner", async () => {
   if (!serverBinary || !engineBinary) throw new Error("Explicit released engine and compiled server binaries are required");
@@ -19,21 +21,26 @@ for (const stopDuringStartup of [false, true]) test.skipIf(!serverBinary || !eng
   const root = await realpath(await mkdtemp(join(import.meta.dir, "../../../.legalwork/scratch/managed-orchestrator-")));
   const directory = join(root, "matter"), server = join(root, "bin", "legalwork-server"), data = join(root, "orchestrator");
   await Promise.all([directory, join(root, "bin"), ...["home", "config", "data", "cache", "state", "shared"].map(name => join(root, name))].map(path => mkdir(path, { recursive: true })));
+  const alias = join(root, "matter-alias"); await symlink(directory, alias, process.platform === "win32" ? "junction" : "dir");
   await copyFile(resolve(serverBinary), server); await chmod(server, 0o755);
   const authoredPlugin = join(directory, "authored-plugin"), marker = join(root, "project-activated");
-  await mkdir(authoredPlugin);
+  await mkdir(authoredPlugin); await mkdir(join(directory, ".opencode"));
   await writeFile(join(authoredPlugin, "index.js"), `import{writeFileSync}from'node:fs';import{Plugin}from'@opencode/plugin';export default Plugin.define({id:'fixture.readiness',setup(){writeFileSync(${JSON.stringify(marker)},'approved')}});`);
-  await writeFile(join(directory, "opencode.jsonc"), JSON.stringify({ plugins: [authoredPlugin] }));
+  const authored = JSON.stringify({ plugins: [authoredPlugin] });
+  await writeFile(join(directory, "opencode.jsonc"), authored);
+  await writeFile(join(directory, ".opencode", "opencode.jsonc"), authored);
   const catalog = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => Response.json({}) });
   let output = "";
   const token = "orchestrator-fixture-client", hostToken = "orchestrator-fixture-host";
-  const child = Bun.spawn([orchestratorRuntime, orchestratorEntry, "serve", "--workspace", directory, "--data-dir", data,
+  const child = Bun.spawn([orchestratorRuntime, orchestratorEntry, "serve", "--workspace", alias, "--data-dir", data,
     "--no-tui", "--json", "--allow-external", "--sidecar-source", "external", "--opencode-source", "external",
-    "--legalwork-server-bin", server, "--opencode-bin", resolve(engineBinary), "--approval", "auto", "--legalwork-token", token, "--legalwork-host-token", hostToken], {
+    "--legalwork-server-bin", server, "--opencode-bin", resolve(engineBinary), "--approval", "auto", "--legalwork-token", token, "--legalwork-host-token", hostToken,
+    ...(mode === "check" ? ["--check", "--check-events"] : [])], {
     cwd: root, stdout: "pipe", stderr: "pipe", env: { ...process.env,
       HOME: join(root, "home"), USERPROFILE: join(root, "home"), XDG_CONFIG_HOME: join(root, "config"), XDG_DATA_HOME: join(root, "data"), XDG_CACHE_HOME: join(root, "cache"), XDG_STATE_HOME: join(root, "state"),
       LEGALWORK_SERVER_CONFIG: join(root, "shared", "server.json"), LEGALWORK_RUNTIME_DB: join(root, "shared", "runtime.sqlite"), LEGALWORK_TOKEN_STORE: join(root, "shared", "tokens.json"), LEGALWORK_STORAGE_STORE: join(root, "shared", "storage.json"),
       LEGALWORK_DEV_MODE: "0", OPENCODE_DB: "", OPENCODE_DISABLE_MODELS_FETCH: "1", OPENCODE_DISABLE_CLAUDE_CODE: "1", OPENCODE_MODELS_URL: `http://127.0.0.1:${catalog.port}`,
+      LEGALWORK_PROJECT_DATA_DIR: join(root, "projects"),
       LEGALWORK_ENGINE_STORAGE_DIR: "", LEGALWORK_ENGINE_PLUGIN_DIRECTORIES: "", LEGALWORK_OPENCODE_BASE_URL: "", LEGALWORK_OPENCODE_SDK_DIR: "",
     },
   });
@@ -46,6 +53,11 @@ for (const stopDuringStartup of [false, true]) test.skipIf(!serverBinary || !eng
   const readers = Promise.all([capture(child.stdout), capture(child.stderr)]);
   let nativePID: number | undefined;
   try {
+    if (mode === "check") {
+      expect(await child.exited).toBe(0); await readers;
+      expect(output).toContain("Checks ok"); expect(existsSync(marker)).toBe(true);
+      return;
+    }
     const deadline = Date.now() + 30_000;
     let baseURL = "";
     while (!baseURL) {
@@ -59,7 +71,7 @@ for (const stopDuringStartup of [false, true]) test.skipIf(!serverBinary || !eng
     expect(info.version).toBe(expectedEngineVersion); expect(info.pid).not.toBe(child.pid);
     const health = await (await fetch(`${baseURL}/health`)).json();
     expect(health.engine.status).toBe("ready");
-    if (stopDuringStartup) return;
+    if (mode === "cancel") return;
     while (!output.includes('"authentication": "legalwork-bearer"')) {
       if (child.exitCode !== null || Date.now() > deadline) throw new Error("Orchestrator did not publish complete native engine readiness: " + output);
       await Bun.sleep(20);
@@ -67,8 +79,9 @@ for (const stopDuringStartup of [false, true]) test.skipIf(!serverBinary || !eng
     const response = await fetch(`${baseURL}/workspaces`, { headers });
     const workspaces: unknown = await response.json();
     if (!workspaces || typeof workspaces !== "object" || !("items" in workspaces) || !Array.isArray(workspaces.items)) throw new Error("Missing workspace metadata");
-    const workspace = workspaces.items.find((value: unknown) => value && typeof value === "object" && "path" in value && value.path === directory);
-    if (!workspace || typeof workspace !== "object" || !("id" in workspace) || typeof workspace.id !== "string") throw new Error("Missing managed matter");
+    const workspace = workspaces.items.find((value: unknown) => value && typeof value === "object" && "contentPath" in value && value.contentPath === directory);
+    if (!workspace || typeof workspace !== "object" || !("id" in workspace) || typeof workspace.id !== "string" || !("path" in workspace) || typeof workspace.path !== "string") throw new Error("Missing managed matter");
+    expect(workspace.path).toBe(join(root, "projects", workspace.id));
     const projectURL = `${baseURL}/workspace/${workspace.id}/engine-project`;
     const status = await (await fetch(projectURL, { headers })).json();
     expect(status.state).toBe("ready");
@@ -80,7 +93,7 @@ for (const stopDuringStartup of [false, true]) test.skipIf(!serverBinary || !eng
       expect(JSON.parse(text)).toMatchObject({ opencode: { ok: true, url: proxy, health: { healthy: true, version: expectedEngineVersion, pid: info.pid, status: "ready" } } });
       expect(text).not.toContain(token); expect(text).not.toContain(hostToken);
     }
-    const location = { directory }; await client.model.list({ location });
+    const location = { directory: workspace.path }; await client.model.list({ location });
     const plugins = (await client.plugin.list({ location })).data;
     expect(existsSync(marker)).toBe(true);
     for (const id of ["legalwork.project-admission", "legalwork.product-scope", "legalwork.commands"]) {
@@ -88,7 +101,9 @@ for (const stopDuringStartup of [false, true]) test.skipIf(!serverBinary || !eng
     }
     expect(plugins.some(plugin => plugin.id?.startsWith("legalwork.messaging."))).toBe(false);
     const session = await client.session.create({ location, title: "No inference standalone proof", permissions: [{ action: "fixture_permission", resource: "*", effect: "ask" }] });
-    expect((await client.session.get({ sessionID: session.id })).location.directory).toBe(directory);
+    expect((await client.session.get({ sessionID: session.id })).location.directory).toBe(workspace.path);
+    expect(await readFile(join(directory, "opencode.jsonc"), "utf8")).toBe(authored);
+    expect(await readFile(join(workspace.path, ".opencode", "opencode.jsonc"), "utf8")).toBe(authored);
     const permission = await client.permission.create({ sessionID: session.id, action: "fixture_permission", resources: ["fixture"] });
     expect(permission.effect).toBe("ask");
     const retiredClient = OpenCode.make({ baseUrl: `${baseURL}/opencode`, headers: { authorization: "Bearer owt_retired_viewer" } });

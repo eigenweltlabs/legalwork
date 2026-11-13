@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Surface } from "@/react-app/design-system/surface";
 import { t } from "@/i18n";
+import { savedAssistantQuery } from "../../../shell/assistant-navigation";
 import { AssistantAppearanceFields, AssistantAvatar } from "../../session/sidebar/assistant-appearance";
 import { useAssistantNotificationPreferences } from "../../session/sidebar/assistant-notification-preferences";
 import { AssistantBehaviorFields } from "./assistant-behavior-settings";
@@ -25,8 +26,8 @@ export function AssistantSettingsView({ client, onSignIn, onModels, browserModel
   browserModelPicker: AssistantBrowserModelPicker;
 }) {
   const cache = useQueryClient();
-  const profile = useQuery({ queryKey: ["main-assistant-profile", client?.baseUrl], enabled: Boolean(client),
-    queryFn: () => { if (!client) throw new Error(t("assistant.unavailable")); return client.mainAssistantProfile(); } });
+  const profileQuery = savedAssistantQuery(client);
+  const profile = useQuery(profileQuery);
   const settings = useQuery({ queryKey: ["assistant-settings", client?.baseUrl], enabled: Boolean(client),
     queryFn: () => { if (!client) throw new Error(t("assistant.unavailable")); return client.assistantSettings(); } });
   const catalog = useQuery({ queryKey: ["assistant-settings-catalog", client?.baseUrl], enabled: Boolean(client),
@@ -40,10 +41,10 @@ export function AssistantSettingsView({ client, onSignIn, onModels, browserModel
     browserModelPicker={browserModelPicker}
     profile={profile.data.profile} settings={settings.data.settings} catalog={catalog.data} notifications={notifications} onModels={onModels}
     onSave={async draft => {
-      const currentProfile = cache.getQueryData<typeof profile.data>(["main-assistant-profile", client.baseUrl]) ?? profile.data;
+      const currentProfile = cache.getQueryData(profileQuery.queryKey) ?? profile.data;
       if (JSON.stringify(draft.profile) !== JSON.stringify(currentProfile.profile)) {
         const saved = await client.updateAssistantProfile(draft.profile);
-        cache.setQueryData(["main-assistant-profile", client.baseUrl], { ...currentProfile, profile: saved.profile });
+        cache.setQueryData(profileQuery.queryKey, { ...currentProfile, profile: saved.profile });
         await Promise.all(["main-assistant", "assistant-onboarding"].map(name => cache.invalidateQueries({ queryKey: [name, client.baseUrl] })));
       }
       const currentSettings = cache.getQueryData<typeof settings.data>(["assistant-settings", client.baseUrl]) ?? settings.data;

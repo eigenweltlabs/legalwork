@@ -47,7 +47,7 @@ test("project tools resolve the closest project, carry pagination and reject unr
     const output = { system: [] };
     await plugin.runtime.hook("session", "context", output);
     expect(output.system.map((item: {text:string})=>item.text).join(" ")).toContain("untrusted");
-    expect(output.system.map((item: {text:string})=>item.text).join(" ")).toContain("interactive cards");
+    expect(output.system.map((item: {text:string})=>item.text).join(" ")).toContain("Answer directly in chat using the facts you found");
     expect(output.system.map((item: {text:string})=>item.text).join(" ")).toContain("Do not assume the current project's recordings are the full library");
     expect(plugin.tool).toHaveProperty("legalwork_recordings_list");
     expect(plugin.tool).toHaveProperty("legalwork_recording_read");

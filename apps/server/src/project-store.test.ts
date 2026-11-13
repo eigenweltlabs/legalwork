@@ -174,10 +174,23 @@ test("agent metadata updates preserve custom definitions and reject unknown, sta
   ] });
   const values: Record<string, string | number> = { custom_budget: 3500, phase: "Diligence", deadline: "2026-10-01" };
   const updated = await updateProjectFieldValues(root, { revision: initial.revision, values });
-  expect(updated.fields).toEqual(initial.fields.map((field) => ({ ...field, value: values[field.id] ?? field.value })));
+  expect(updated.fields).toEqual(initial.fields.map((field) => field.type === "backoffice" ? field : ({ ...field, value: values[field.id] ?? field.value })));
   await expect(updateProjectFieldValues(root, { revision: initial.revision, values: { custom_budget: 1 } })).rejects.toMatchObject({ status: 409 });
   for (const values of [{ invented: "x" }, { phase: "Unknown" }, { custom_budget: "3500" }, { deadline: "2026-02-30" }]) {
     await expect(updateProjectFieldValues(root, { revision: updated.revision, values })).rejects.toMatchObject({ status: 400 });
     expect(await readProjectDetails(root)).toEqual(updated);
   }
+});
+
+test("Back Office metadata references survive disk and agent edits without accepting names or a second record in a single field", async () => {
+  const { updateProjectFieldValues } = await import("./project-store.js");
+  const root = await folder(), first = crypto.randomUUID(), second = crypto.randomUUID();
+  const initial = await updateProjectDetails(root, { revision: 0, fields: [{ id: "agreement", label: "Agreement", type: "backoffice", objectId: "feeAgreements", multiple: false, value: null }] });
+  const value = { directoryId: "team:firm-a", recordIds: [first] };
+  const updated = await updateProjectFieldValues(root, { revision: initial.revision, values: { agreement: value } });
+  expect(await readProjectDetails(root)).toMatchObject({ fields: [{ id: "agreement", label: "Agreement", type: "backoffice", objectId: "feeAgreements", multiple: false, value }] });
+  for (const next of ["Agreement name", { ...value, recordIds: [first, second] }]) {
+    await expect(updateProjectFieldValues(root, { revision: updated.revision, values: { agreement: next } })).rejects.toMatchObject({ status: 400 });
+  }
+  expect(await readProjectDetails(root)).toEqual(updated);
 });

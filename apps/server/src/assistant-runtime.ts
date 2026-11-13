@@ -49,6 +49,7 @@ type Helpers = Pick<Parameters<typeof registerMainAssistantRoutes>[0], "jsonResp
 export async function createAssistantRuntime(config: ServerConfig, options: {
   scheduledTasks: ScheduledTaskStore;
   preparation: DocumentPreparation;
+  deferStart?: boolean;
   resolveWorkspace: (id: string) => Promise<WorkspaceInfo>;
   changed: () => void;
   tokenActive: (hash: string) => Promise<boolean>;
@@ -272,15 +273,30 @@ export async function createAssistantRuntime(config: ServerConfig, options: {
       client: workspace => createWorkspaceOpencodeClient(config, workspace), workspace: options.resolveWorkspace, json: jsonResponse, body: readJsonBodyLimited });
     registerPushRoutes(routes, push, readJsonBodyLimited);
   }
-  const stopHistory = assistantChannelHistory.start();
-  const stopPush = push.start();
-  migrateMorningBriefing(config, scheduledTasks);
-  const stopMain = config.readOnly ? () => {} : mainAssistant.start(undefined, () => (!config.cloudSync || config.cloudSync.canExecute()) ? assistantSubscriptionAvailable(config) : Promise.resolve(false));
-  const stopDelegations = config.readOnly ? async () => {} : delegations.start();
-  const stopQueue = config.readOnly ? async () => {} : sessionQueue.start();
-  const stopProactivity = await startAssistantProactivity(config, mainAssistant, options.resolveWorkspace, assistantSessionAccess);
+  let startPromise: Promise<void> | undefined, closed = false;
+  let stopHistory: ReturnType<typeof assistantChannelHistory.start> | undefined;
+  let stopPush: ReturnType<typeof push.start> | undefined;
+  let stopMain: ReturnType<typeof mainAssistant.start> | undefined;
+  let stopDelegations: ReturnType<typeof delegations.start> | undefined;
+  let stopQueue: ReturnType<typeof sessionQueue.start> | undefined;
+  let stopProactivity: Awaited<ReturnType<typeof startAssistantProactivity>> | undefined;
+  const start = () => {
+    if (closed) return Promise.resolve();
+    return startPromise ??= (async () => {
+      stopHistory = assistantChannelHistory.start();
+      stopPush = push.start();
+      migrateMorningBriefing(config, scheduledTasks);
+      if (!config.readOnly) {
+        stopMain = mainAssistant.start(undefined, () => (!config.cloudSync || config.cloudSync.canExecute()) ? assistantSubscriptionAvailable(config) : Promise.resolve(false));
+        stopDelegations = delegations.start();
+        stopQueue = sessionQueue.start();
+      }
+      stopProactivity = await startAssistantProactivity(config, mainAssistant, options.resolveWorkspace, assistantSessionAccess);
+    })();
+  };
+  if (!options.deferStart) await start();
   return {
-    register,
+    register, start,
     prepareQueuedSubmission: (workspaceId: string, sessionId: string, entry: QueueEntry) => submissions.prepareQueued({ workspaceId, sessionId }, entry, async ceiling => {
       const { workspace, session } = await delegationSession(workspaceId, sessionId);
       const authority = await assistantSessionAccess.prepare(sessionId, session.directory, ceiling);
@@ -299,8 +315,10 @@ export async function createAssistantRuntime(config: ServerConfig, options: {
       return isMainAssistant(workspace) ? prepareAssistantScheduledWork(task, workspace, session, client, delegations) : { model: task.model, prompt: task.prompt };
     },
     async close() {
+      closed = true; await startPromise?.catch(() => {});
+      stopMain?.(); await stopProactivity?.(); await stopDelegations?.(); await stopQueue?.(); await stopPush?.();
       launcher.fileIndex.dispose();
-      stopMain(); await stopProactivity(); await stopDelegations(); await stopQueue(); await stopHistory(); await stopPush();
+      await stopHistory?.();
       await cloudAssistantSetup.close(); channelRuntime?.close();
     },
   };

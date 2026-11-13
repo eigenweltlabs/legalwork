@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { workingCopy } from "../file-storage/working-copy.js";
 import { ApiError } from "../errors.js";
 import { storageTransferSchema } from "@legalwork/types/file-storage";
+import { PDFDocument } from "pdf-lib";
 import pluginDefinition from "./legalwork-storage-tools.js";
 import { nativePluginTools } from "./native-plugin-test-support.js";
 const LegalWorkStorageTools = (context = {}) => nativePluginTools(pluginDefinition, context);
@@ -24,6 +25,12 @@ async function fixture(
   const outside = await mkdtemp(join(tmpdir(), "storage-outside-"));
   await mkdir(join(directory, "nested"));
   await writeFile(join(outside, "private.txt"), "outside workspace");
+  let checkoutBytes = Buffer.from([0, 255, 1, 2]);
+  if (checkoutName.endsWith(".pdf")) {
+    const pdf = await PDFDocument.create();
+    pdf.addPage();
+    checkoutBytes = Buffer.from(await pdf.save());
+  }
   const calls: Call[] = [];
   const previousUrl = process.env.LEGALWORK_SERVER_URL;
   const previousToken = process.env.LEGALWORK_SERVER_TOKEN;
@@ -104,10 +111,10 @@ async function fixture(
       if (url.pathname.endsWith("/checkout")) {
         try {
           const copy = await workingCopy(directory, checkoutName);
-          await writeFile(copy.path, Buffer.from([0, 255, 1, 2]));
+          await writeFile(copy.path, checkoutBytes);
           return Response.json({
             localPath: copy.relativePath,
-            size: 4,
+            size: checkoutBytes.length,
             contentType: "application/octet-stream",
             version: "v1",
             writable: true,
@@ -119,6 +126,11 @@ async function fixture(
         }
       }
       if (url.pathname.endsWith("/from-workspace")) return Response.json({ ok: true, version: "v2" });
+      if (url.pathname.endsWith("/folders")) {
+        if (url.pathname.includes("/two/")) return Response.json({ code: "storage_read_only", message: "This connection is read-only." }, { status: 403 });
+        if (url.pathname.includes("/existing/")) return Response.json({ code: "storage_conflict", message: "A folder with that name already exists." }, { status: 409 });
+        return Response.json({ ok: true }, { status: 201 });
+      }
       if (url.pathname.endsWith("/transfer")) {
         if (url.pathname.includes("/two/"))
           return Response.json({ code: "storage_read_only", message: "This connection is read-only." }, { status: 403 });
@@ -317,7 +329,7 @@ test("PDF reader cards use the checked-out filename and retain the remote file i
     plugin.runtime.models([{ providerID: "fixture", id: "pdf", capabilities: { input: ["text", "pdf"] } }]);
     await plugin.runtime.hook("session", "model.request", { sessionID: "read-cloud-pdf", agent: "build", kind: "primary", model: { providerID: "fixture", id: "pdf" } });
     const path = "~lw~Zm9sZGVy~Matters/~lw~cHJvdmlkZXItZmlsZQ~Rechnung (Signatur).pdf";
-    const result = await plugin.tool.storage_read_file.executeResult({ connection_id: "one", path }, { directory, sessionID: "read-cloud-pdf" });
+    const result = await plugin.tool.storage_read_file.executeResult({ connection_id: "one", path, attach: true }, { directory, sessionID: "read-cloud-pdf" });
     const attachment = typeof result.content === "string" ? undefined : result.content?.find(part => part.type === "file");
     expect(attachment?.name).toBe("Rechnung (Signatur).pdf");
     expect(result.output).toMatchObject({ path, local_path: expect.stringContaining("/Rechnung (Signatur).pdf"), extraction: "pdf" });
@@ -334,6 +346,57 @@ test("omitted search connections default exclusively to project folder aliases",
     expect(searches[0]?.url.pathname).toContain("project%3Alinked-folder");
     expect(searches[0]?.body).toMatchObject({ path: "", query: "agreement" });
   }, true);
+});
+
+test("creates folders from an exact parent identity and a separate new name, retaining legacy full paths", async () => {
+  await fixture(async ({ plugin, directory, calls }) => {
+    const parent = "Tax/~lw~Zm9sZGVy~Fragebogen Steuerliche Erfassung";
+    for (const input of [
+      { connection_id: "one", parent_path: parent, name: "Versandbestätigung" },
+      { connection_id: "one", parent_path: "", name: "New root folder" },
+      { connection_id: "one", path: "Archive/Legacy folder" },
+    ]) {
+      const expected = "path" in input ? input.path : input.parent_path ? `${input.parent_path}/${input.name}` : input.name;
+      expect(parseToolJson(await plugin.tool.storage_create_folder.execute(input, { directory: join(directory, "nested") }))).toEqual({
+        connection_id: "one", path: expected, result: { ok: true },
+      });
+      expect(calls.at(-1)).toMatchObject({ method: "POST", body: { path: expected } });
+      expect(calls.at(-1)?.url.pathname).toBe("/workspace/inner/storage/one/folders");
+    }
+  });
+});
+
+test("rejects mixed, incomplete and unknown folder arguments before requesting the server", async () => {
+  await fixture(async ({ plugin, directory, calls }) => {
+    for (const input of [
+      { connection_id: "one", path: "Tax/~lw~Zm9sZGVy~Existing folder", name: "Versandbestätigung" },
+      { connection_id: "one", path: "Archive/New", parent_path: "Archive", name: "New" },
+      { connection_id: "one", parent_path: "Archive" },
+      { connection_id: "one", name: "New" },
+      { connection_id: "one" },
+      { connection_id: "one", parent_path: "Archive", name: "New", unexpected: true },
+      { connection_id: "one", path: "Archive/New", unexpected: true },
+    ]) {
+      await expect(plugin.tool.storage_create_folder.execute(input, { directory })).rejects.toThrow();
+    }
+    expect(calls).toHaveLength(0);
+  });
+});
+
+test("rejects folder names containing paths and preserves backend failures without retrying", async () => {
+  await fixture(async ({ plugin, directory, calls }) => {
+    for (const name of ["", ".", "..", "Nested/child", "Nested\\child", "Bad\u0000name", "x".repeat(256)]) {
+      const response = await plugin.tool.storage_create_folder.execute({ connection_id: "one", parent_path: "", name }, { directory }).catch(() => null);
+      if (response !== null) expect(parseToolJson(response)).toMatchObject({ ok: false, code: "invalid_storage_name" });
+    }
+    const result = parseToolJson(await plugin.tool.storage_create_folder.execute({ connection_id: "one", parent_path: "../private", name: "New" }, { directory }));
+    expect(result).toMatchObject({ ok: false, code: "invalid_storage_path" });
+    expect(calls).toHaveLength(0);
+    for (const [connection_id, code] of [["two", "storage_read_only"], ["existing", "storage_conflict"]]) {
+      expect(parseToolJson(await plugin.tool.storage_create_folder.execute({ connection_id, parent_path: "", name: "New" }, { directory }))).toMatchObject({ ok: false, code });
+    }
+    expect(calls.filter(call => call.method === "POST")).toHaveLength(2);
+  });
 });
 
 test("transfers files and folders within and between connections using the task's workspace", async () => {

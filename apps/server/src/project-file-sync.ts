@@ -1,6 +1,7 @@
+import { moveFileAcrossVolumes } from "./project-storage-file-move.js";
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { mkdir, readdir, readFile, rename, rm, rmdir, stat, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rm, rmdir, stat, writeFile } from "node:fs/promises";
 import { dirname, extname, join, relative, sep } from "node:path";
 
 import { ApiError } from "./errors.js";
@@ -53,6 +54,7 @@ export type FileBaseStore = {
 
 export type FileSyncOptions = {
   root: string;
+  stateRoot?: string;
   remote: StorageAdapter;
   base: FileBaseStore;
   /** Whether a project-relative path is part of what this project syncs. */
@@ -208,10 +210,10 @@ export function conflictCopyPath(path: string, label: string, at: Date, taken: (
 }
 
 /** Move a file of the project into the sync trash, as sync does with what it removes here. */
-export async function moveToSyncTrash(root: string, path: string, at: Date = new Date()): Promise<void> {
-  const target = join(root, ".legalwork", "sync-trash", at.toISOString().replace(/[:.]/g, "-"), ...path.split("/"));
+export async function moveToSyncTrash(root: string, path: string, at: Date = new Date(), stateRoot = root): Promise<void> {
+  const target = join(stateRoot, ".legalwork", "sync-trash", at.toISOString().replace(/[:.]/g, "-"), ...path.split("/"));
   await mkdir(dirname(target), { recursive: true });
-  await rename(join(root, ...path.split("/")), target);
+  await moveFileAcrossVolumes(join(root, ...path.split("/")), target);
 }
 
 /** How long files removed by sync stay recoverable in `.legalwork/sync-trash`. */
@@ -261,11 +263,12 @@ export async function syncProjectFiles(options: FileSyncOptions): Promise<FileSy
   };
 
   if (options.enabled === false) return result;
-  const workDir = join(root, ".legalwork", "sync-tmp");
+  const stateRoot = options.stateRoot || root;
+  const workDir = join(stateRoot, ".legalwork", "sync-tmp");
   await rm(workDir, { recursive: true, force: true });
-  await pruneTrash(root, now());
+  await pruneTrash(stateRoot, now());
   // One folder per round, so nothing moved to the trash replaces an earlier copy.
-  const trashDir = join(root, ".legalwork", "sync-trash", now().toISOString().replace(/[:.]/g, "-"));
+  const trashDir = join(stateRoot, ".legalwork", "sync-trash", now().toISOString().replace(/[:.]/g, "-"));
 
   const { files: local, clashes, unsyncable } = await scanLocal(root, includes);
   for (const path of clashes) result.skipped.push({ path, reason: "name_clash" });
@@ -376,7 +379,7 @@ export async function syncProjectFiles(options: FileSyncOptions): Promise<FileSy
         return true;
       }
       await writeFile(temporary, merged, "utf8");
-      await rename(temporary, file.abs);
+      await moveFileAcrossVolumes(temporary, file.abs);
       const placed = await stat(file.abs);
       const sha256 = createHash("sha256").update(merged).digest("hex");
       await remote.upload(file.path, file.abs, "application/octet-stream", { version: remoteFile.version });
@@ -411,7 +414,7 @@ export async function syncProjectFiles(options: FileSyncOptions): Promise<FileSy
         return;
       }
       await mkdir(dirname(target), { recursive: true });
-      await rename(temporary, target);
+      await moveFileAcrossVolumes(temporary, target);
       const placed = await stat(target);
       base.put(key, { path: targetPath, sha256: remoteFile.version, size: placed.size, mtimeMs: placed.mtimeMs });
       await rememberText(key, targetPath, target, remoteFile.version);
@@ -480,7 +483,7 @@ export async function syncProjectFiles(options: FileSyncOptions): Promise<FileSy
           if (!file) break;
           const trashed = join(trashDir, ...file.path.split("/"));
           await mkdir(dirname(trashed), { recursive: true });
-          await rename(file.abs, trashed);
+          await moveFileAcrossVolumes(file.abs, trashed);
           await removeEmptyFolders(file.abs);
           base.drop(key);
           result.removedLocal += 1;
@@ -491,7 +494,7 @@ export async function syncProjectFiles(options: FileSyncOptions): Promise<FileSy
           if (await mergeBoth(key, file, remoteFile)) break;
           const copyPath = conflictCopyPath(file.path, label, now(), (candidate) => takenPaths.has(fileKey(candidate)));
           takenPaths.add(fileKey(copyPath));
-          await rename(file.abs, join(root, ...copyPath.split("/")));
+          await moveFileAcrossVolumes(file.abs, join(root, ...copyPath.split("/")));
           await placeDownload(key, file.path, null);
           result.conflicts.push({ path: file.path, copyPath });
           extraUploads.push(copyPath);

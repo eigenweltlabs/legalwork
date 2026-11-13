@@ -11,6 +11,7 @@ import { readMessages, readSession, projectNativeTodos } from "@/app/lib/opencod
 import { applyMarkdownStreamEvent } from "../artifacts/markdown-stream";
 import { usePanelTabStore } from "../panel/panel-tab-store";
 import type { UIMessage } from "ai";
+import { recentMessages } from "../surface/history-window";
 import { scheduledTextMetadata } from "../../scheduled-tasks/scheduled-message";
 import type { HostApprovalRequest } from "@legalwork/types/desktop-ipc";
 import { textPartProviderMetadata } from "./assistant-message-sender";
@@ -77,6 +78,7 @@ import {
 import {
   parseDynamicToolUIPart,
   parseDynamicToolUIParts,
+  visibleToolAttachments,
   parseStructuredOutputUIPart,
   STRUCTURED_OUTPUT_TOOL,
 } from "./parse-tool-parts";
@@ -669,7 +671,7 @@ function toUIParts(part: Part): UIMessage["parts"] {
   if (part.type === "tool" && part.tool !== STRUCTURED_OUTPUT_TOOL) {
     const mapped = parseDynamicToolUIParts(part);
     return part.state.status === "completed" && part.state.attachments
-      ? [...mapped, ...part.state.attachments.flatMap(toFileUIParts)] : mapped;
+      ? [...mapped, ...visibleToolAttachments(part).flatMap(toFileUIParts)] : mapped;
   }
   const mapped = toUIPart(part);
   if (!mapped) return [];
@@ -701,7 +703,7 @@ function getPartMetadataId(part: UIMessage["parts"][number]) {
 
 function upsertMessage(messages: UIMessage[], next: UIMessage) {
   const index = messages.findIndex((message) => message.id === next.id);
-  if (index === -1) return [...messages, next];
+  if (index === -1) return recentMessages([...messages, next]);
   return messages.map((message, messageIndex) =>
     messageIndex === index
       ? {
@@ -1042,12 +1044,12 @@ function applyEvent(
           current
             ? {
                 ...current,
-                messages: [
+                messages: recentMessages([
                   ...current.messages.filter(
                     (message) => message.info.id !== messageID,
                   ),
                   ...view,
-                ].sort((a, b) => a.info.time.created - b.info.time.created),
+                ].sort((a, b) => a.info.time.created - b.info.time.created)),
               }
             : current,
       );
@@ -1860,7 +1862,9 @@ export function seedSessionState(
     key,
     applyRevertCursor(
       reconcileTranscriptMessages({
-        currentMessages: existing ?? [],
+        // A staged undo snapshot is authoritative even when its boundary has
+        // been evicted from the recent cache (including undo in another window).
+        currentMessages: snapshot.session.revert ? [] : existing ?? [],
         snapshotMessages: incoming,
         reason: "snapshot",
       }),
@@ -1948,12 +1952,14 @@ export function applySessionRevert(workspaceId: string, session: Session) {
         ? {
             ...current,
             session: { ...current.session, revert: session.revert },
+            messages: revertMessageId ? current.messages.slice(0, Math.max(0, current.messages.findIndex(message => message.info.id === revertMessageId))) : current.messages,
+            historyPage: undefined,
           }
         : current,
   );
   queryClient.setQueryData<UIMessage[]>(
     transcriptKey(workspaceId, session.id),
-    (current = []) => applyRevertCursor(current, revertMessageId),
+    (current = []) => revertMessageId && !current.some(message => message.id === revertMessageId) ? [] : applyRevertCursor(current, revertMessageId),
   );
   void queryClient.invalidateQueries({
     queryKey: snapshotKey(workspaceId, session.id),

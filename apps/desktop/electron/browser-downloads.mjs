@@ -6,7 +6,7 @@ import { randomUUID } from "node:crypto";
 export function reserveDownload(projectRoot, suggestedName) {
   const root = realpathSync(projectRoot);
   const folder = path.join(root, "Downloads");
-  mkdirSync(folder, { recursive: true });
+  try { mkdirSync(folder); } catch (error) { if (error.code !== "EEXIST") throw error; }
   if (realpathSync(folder) !== folder) throw new Error("The project's Downloads folder must not be a symbolic link.");
   const name = path.basename(String(suggestedName).replaceAll("\\", "/"))
     .replace(/[<>:"/\\|?*\x00-\x1f]/g, "_").replace(/^[. ]+|[. ]+$/g, "").slice(0, 160) || "download";

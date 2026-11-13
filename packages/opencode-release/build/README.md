@@ -1,10 +1,10 @@
 # Reviewed OpenCode source preparation
 
 The migration target is frozen at **OpenCode 2.1.4**, with LegalWork derivative
-**`2.1.4-legalwork.http-policy.4`**. The recipe pins the upstream commit, original
+**`2.1.4-legalwork.http-policy.6`**. The recipe pins the upstream commit, original
 frozen Bun dependency graph, official Bun 1.4.4 compiler per host and reviewed
-MCP-readiness/Code Mode HTTP and migration timestamp patches. The SDK/client/plugin
-ABI stays at 2.1.4.
+MCP-readiness/Code Mode HTTP, migration timestamp and passive project relocation and display-history file reference patches. The SDK/client/plugin
+ABI stays at 2.1.4. The additive `session.relocate` HTTP endpoint is used explicitly by the stopped migration; ordinary session moves are unchanged.
 OpenCode 2.2.0 is deferred by the user's decision. See the [current acceptance
 status](../../../docs/opencode-v2-capability-status.md) for actual platform gates.
 
@@ -35,6 +35,14 @@ caches use the full manifest digest, keeping different same-version builds
 separate. Every process reconstructs trust and verifies the actual five installed
 files; environment/PATH overrides do not replace the compiled selection.
 
+Startup layers use `opencodeEngineIdentity` for version and service-file metadata
+without reading executable contents. `verifyOpencodeForExecution` verifies the
+installed bytes once immediately before each spawn, including restart/retry and
+diagnostic executions. Executable hashing runs in a worker with a reusable 1 MiB
+buffer, keeping disk reads and SHA-256 work off the desktop main thread. No
+successful disk verification is cached across launches. The historical
+`expectedOpencodeVersion` export remains an execution-verification alias.
+
 Production preparation (`pnpm engine:prepare:production`) requires the complete
 twelve-target matrix and exact approved public Mac signer policy. Existing CI
 imports the identity in an owned temporary keychain, signs Mac outputs **before**
@@ -53,7 +61,7 @@ engine release nor changes application auto-update delivery.
 
 The source-build and actual app acceptance are separate gates. No complete
 six-platform verdict is implied by cross-compilation, cache validation or these
-documentation changes. The [combined patch receipt](../../../docs/patches/opencode-2.1.4-migration-times.receipt.json)
+documentation changes. The [combined patch receipt](../../../docs/patches/opencode-2.1.4-history-file-references.receipt.json)
 and the [historical evidence archive](../../../docs/opencode-v2-historical-evidence.md) preserve earlier exact evidence.
 
 ## Verification and low-level preparation

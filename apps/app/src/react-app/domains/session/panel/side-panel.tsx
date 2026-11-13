@@ -43,9 +43,10 @@ import {
 } from "lucide-react";
 
 import { openDesktopUrl } from "@/app/lib/desktop";
+import { isMacPlatform } from "@/app/utils";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { PanelTab, PanelTabClose, PanelTabItem, PanelTabList } from "@/components/panel-tabs";
-import { ChatTabIcon } from "@/components/chat/chat-tab-icon";
+import { ChatTabIcon, ChatTabIndicators } from "@/components/chat/chat-tab-icon";
 import { toast } from "@/components/ui/sonner";
 import { useQueryClient } from "@tanstack/react-query";
 import { hasViewerFileDrag, readViewerFileDrop, viewerFileTabs } from "./viewer-file-drop";
@@ -115,6 +116,7 @@ type SidePanelProps = {
   visible?: boolean;
   projectId?: string;
   renderChat?: (sessionId: string, active: boolean) => React.ReactNode;
+  notice?: React.ReactNode;
   onFocusChat?: (sessionId: string) => void;
   onCloseChat?: (sessionId: string, nextSessionId: string | null) => void;
   onNewChat?: (pane: string) => void;
@@ -432,6 +434,7 @@ function SidePanelTab({ tab, workspaceId, fileSource, projectId, pane, destinati
             <ArtifactIcon type={tab.preview} />
           )}
           <span className={cn("min-w-0 flex-1 truncate text-left", preview && "italic text-muted-foreground")}>{label}</span>
+          {tab.type === "chat" && <ChatTabIndicators workspaceId={workspaceId} sessionId={tab.sessionId} />}
         </PanelTab>
         <PanelTabClose
           active={active}
@@ -739,6 +742,7 @@ function SidePanelContent({
   isRemoteWorkspace = false,
   onClose,
   renderChat,
+  notice,
   visible: workspaceVisible = true,
   onFocusChat,
   onCloseChat,
@@ -980,18 +984,46 @@ function SidePanelContent({
 
   React.useEffect(() => {
     if (!workspaceVisible) return;
-    const handleKeyDown = (event: KeyboardEvent) => {
+    const focusedTabs = () => {
       const pane = panes.find(pane => pane.activeTabId === focusedId) ?? panes[0];
-      const paneTabs = tabs.filter(tab => pane.tabIds.includes(tab.id));
+      return { pane, paneTabs: tabs.filter(tab => pane.tabIds.includes(tab.id)) };
+    };
+    const activate = (tab: PanelTabEntry) => {
+      selectTab(tab.id); setFocusedTabId(tab.id);
+      if (tab.type === "chat") onFocusChat?.(tab.sessionId);
+    };
+    const selectNumberedTab = (number: number) => {
+      const { paneTabs } = focusedTabs();
+      const tab = paneTabs.at(number === 9 ? -1 : number - 1);
+      if (tab) activate(tab);
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.isComposing || event.altKey) return;
+      const mod = isMacPlatform() ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
+      if (mod && !event.shiftKey && /^[1-9]$/.test(event.key)) {
+        event.preventDefault();
+        event.stopPropagation();
+        selectNumberedTab(Number(event.key));
+        return;
+      }
+      const { pane, paneTabs } = focusedTabs();
       if (!event.ctrlKey || event.altKey || event.metaKey || event.key !== "Tab" || paneTabs.length < 2) return;
       const index = paneTabs.findIndex(tab => tab.id === pane.activeTabId);
       event.preventDefault();
       const next = paneTabs[(index + (event.shiftKey ? -1 : 1) + paneTabs.length) % paneTabs.length];
-      selectTab(next.id); setFocusedTabId(next.id);
-      if (next.type === "chat") onFocusChat?.(next.sessionId);
+      activate(next);
     };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    // Native accelerators also reach us while an embedded website or iframe has focus.
+    const handleNativeSelectTab = (event: Event) => {
+      const number: unknown = event instanceof CustomEvent ? event.detail : null;
+      if (typeof number === "number" && Number.isInteger(number) && number >= 1 && number <= 9) selectNumberedTab(number);
+    };
+    window.addEventListener("keydown", handleKeyDown, true);
+    window.addEventListener("legalwork:native-menu:select-tab", handleNativeSelectTab);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown, true);
+      window.removeEventListener("legalwork:native-menu:select-tab", handleNativeSelectTab);
+    };
   }, [panes, tabs, focusedId, selectTab, onFocusChat, workspaceVisible]);
 
   const portaledHeader = expanded ? null : headerTarget;
@@ -1056,6 +1088,7 @@ function SidePanelContent({
     return <TabDropZone workspaceId={projectId ?? workspaceId} onChatDrop={onDropChat} onProjectViewDrop={renderProjectView ? (view, pane, split) => dropProjectTab(projectViewTab(view, projectViewLabel(view)), pane, split) : undefined} onProjectItemDrop={renderProjectView ? dropProjectTab : undefined} pane={pane.id} dragging={draggingTab} edge={Boolean(tab) && !sameLoneTab} splitBlocked={panes.length >= MAX_DOCUMENT_PANES && !relocating} inset
       shieldFileDrops={tab?.type === "artifact" || tab?.type === "browser" || tab?.type === "wiki"}
       label={t("side_panel.drop_to_move_here")} onDrop={(id, split) => moveToPane(id, pane.id, split)} onFileDrop={openFilesInViewer} className="flex min-h-0 flex-1 flex-col">
+      {notice}
       {/* Keep editor toolbars in their own stacking context, below the drop overlay. */}
       {tab ? <div ref={destinationRef(pane.id)} className="isolate min-h-0 flex-1 overflow-hidden" /> : <PanelEmpty
         onNewChat={onNewChat ? () => onNewChat(pane.id) : undefined}
@@ -1120,7 +1153,7 @@ function SidePanelContent({
         const visible = workspaceVisible && Boolean(pane);
         const active = visible && tab.id === focusedId;
         const focus = () => { setFocusedTabId(tab.id); if (tab.type === "chat") onFocusChat?.(tab.sessionId); };
-        const body = tab.type === "artifact" ? <ArtifactPanel sessionId={sessionId} tab={tab} client={client} workspaceId={workspaceId} workspaceRoot={workspaceRoot} isRemoteWorkspace={isRemoteWorkspace} onClose={() => closeDocumentTab(tab)} />
+        const body = tab.type === "artifact" ? <ArtifactPanel sessionId={sessionId} tab={tab} client={client} workspaceId={workspaceId} workspaceRoot={workspaceRoot} isRemoteWorkspace={isRemoteWorkspace} visible={visible} onClose={() => closeDocumentTab(tab)} />
           : tab.type === "view-draft" ? <React.Suspense fallback={<div role="status" className="p-6 text-sm text-muted-foreground">Preparing view…</div>}><ViewDraftPanel client={client} tab={tab} sessionId={sessionId} /></React.Suspense>
           : tab.type === "view" ? <React.Suspense fallback={<div role="status" className="p-6 text-sm text-muted-foreground">Loading view…</div>}><ViewPanel client={client} tab={tab} sessionId={sessionId} /></React.Suspense>
           : tab.type === "wiki" ? renderWikiTab?.(tab)

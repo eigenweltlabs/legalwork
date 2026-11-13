@@ -1,5 +1,6 @@
+import { cliFixture } from "./cli-test-fixture.mjs";
 import { expect, test } from "bun:test";
-import { copyFile, mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -40,16 +41,6 @@ test("local bundled/external preferences and unrelated connection fields remain 
   }
   expect(() => assertNoRetiredBinaryDownloads(new Map([["sidecar-source", "external"]]), { LEGALWORK_SIDECAR_SOURCE: "downloaded" })).not.toThrow();
 });
-
-async function cliFixture(root) {
-  const source = path.join(root, "src"); await mkdir(source);
-  for (const name of ["cli.ts", "legacy-developer-launcher.ts", "retired-messaging-tools.ts", "retired-binary-downloads.ts"])
-    await copyFile(new URL(name, import.meta.url), path.join(source, name));
-  await writeFixtureReleaseLibrary(path.join(root, "node_modules/@legalwork/opencode-release"));
-  await mkdir(path.join(root, "node_modules/@opencode"), { recursive: true });
-  await symlink(await realpath(new URL("../node_modules/@opencode/client", import.meta.url)), path.join(root, "node_modules/@opencode/client"), process.platform === "win32" ? "junction" : "dir");
-  return path.join(source, "cli.ts");
-}
 
 test("the actual CLI rejects retired input before runtime/profile work and never calls the URL", () => fixture(async root => {
   const entry = await cliFixture(root);

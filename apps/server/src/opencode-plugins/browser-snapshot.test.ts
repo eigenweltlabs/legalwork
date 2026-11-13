@@ -1,5 +1,14 @@
 import { expect, test } from "bun:test";
-import { compactBrowserResult } from "./browser-snapshot.js";
+import { ZodError } from "zod";
+import { browserConnectionResult, compactBrowserResult } from "./browser-snapshot.js";
+
+test("browser failures preserve their runtime message/code instead of becoming argument-validation errors", () => {
+  const message = "The local browser engine is unavailable.";
+  expect(() => browserConnectionResult({ ok: false, error: message, code: "engine_unavailable" })).toThrow(message);
+  try { browserConnectionResult({ ok: false, error: message, code: "engine_unavailable" }); }
+  catch (error) { expect(error).toMatchObject({ message, code: "engine_unavailable" }); expect(error).not.toBeInstanceOf(ZodError); }
+  expect(() => browserConnectionResult({ ok: true, result: { tab_id: "tab" } })).toThrow("The browser returned an invalid connection response.");
+});
 
 test("large snapshots remain valid JSON and paginate all text and selectors without truncation", () => {
   const long = "A quoted \"clause\" with tabs\t and Unicode € 中文.\n".repeat(3_000);

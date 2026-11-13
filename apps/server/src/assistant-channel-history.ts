@@ -182,15 +182,15 @@ export class AssistantChannelHistory {
     const account = await this.account();
     return account ? this.projection(account.key, date) : AssistantChannelHistorySchema.parse({ messages: [], reactions: [], typing: false });
   }
-  async days(before?: string, limit = 14) {
+  async days(before?: string, limit = 14, after?: string) {
     const workspace = this.options.config.workspaces.find(isMainAssistant);
-    const local = workspace ? this.options.assistant.history(workspace.id, before, limit + 1).days : [];
+    const local = workspace ? this.options.assistant.history(workspace.id, before, limit + 1, after).days : [];
     const dates = new Map(local.map(day => [day.date, day.sessionId]));
     for (const message of (await this.history()).messages) {
       const date = assistantDate(new Date(message.desktop?.createdAt ?? message.createdAt));
-      if ((!before || date < before) && !dates.has(date)) dates.set(date, "");
+      if ((!before || date < before) && (!after || date > after) && !dates.has(date)) dates.set(date, "");
     }
-    const all = [...dates].sort(([a], [b]) => b.localeCompare(a));
+    const all = [...dates].sort(([a], [b]) => after ? a.localeCompare(b) : b.localeCompare(a));
     const days = all.slice(0, limit).map(([date, sessionId]) => ({ date, sessionId: sessionId || null }));
     return { days, nextBefore: all.length > limit ? days.at(-1)?.date ?? null : null };
   }

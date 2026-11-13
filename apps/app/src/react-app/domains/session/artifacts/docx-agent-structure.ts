@@ -7,13 +7,15 @@ import { fieldTarget, pageAtPosition, pageLabels, resolveWordFields, wordParagra
 import { permitsWordEdit } from "./docx-protection";
 import type { WordMetadata } from "./docx-word-package";
 import { wordBookmarkIdentities, wordBookmarks } from "./docx-bookmarks";
+import { wordWritingLocations } from "./docx-agent-locations";
+import { insertWordParagraphs } from "./docx-insert-paragraphs";
 
 type View = { state: EditorState; dispatch: (transaction: Transaction) => void };
 type WordField = { id: string; paraId: string; ordinal: number; type: string; instruction: string; target?: string; displayText: string; resolvedText?: string; status: string; locked: boolean; tracked: boolean };
 type WordControl = { paraIds: string[]; id: string; tag: string; alias: string; type: string; text: string; lock: string; editable: boolean };
 type WordNote = { id: number; type: string; text: string; references: { id: number; type: string; paraId: string }[]; editable: boolean; fields: WordField[]; controls: WordControl[] };
 export type WordToolContext = { view: View; document: Document; layout: Layout | null; metadata: WordMetadata; loadDocument: (document: Document) => void };
-export const WORD_STRUCTURE_MUTATIONS = new Set(["create_bookmark", "insert_cross_reference", "edit_cross_reference", "fill_content_control", "edit_note", "insert_note"]);
+export const WORD_STRUCTURE_MUTATIONS = new Set(["create_bookmark", "insert_cross_reference", "edit_cross_reference", "fill_content_control", "edit_note", "insert_note", "insert_paragraphs"]);
 
 function paragraphs(doc: Node) {
   return wordParagraphs(doc).map((paragraph, index) => ({ ...paragraph, paraId: typeof paragraph.node.attrs.paraId === "string" ? paragraph.node.attrs.paraId : `@paragraph:${index}` }));
@@ -68,7 +70,7 @@ export function readWordStructure(doc: Node, document: Document, layout: Layout 
     story, fields, bookmarks, controls, notes,
     headings: items.filter((item) => item.level !== undefined).map((item) => ({ paraId: item.paraId, level: item.level, text: text(item.node), number: item.marker, page: labels.get(pageAtPosition(layout, item.pos)?.number ?? -1), bookmarks: bookmarks.filter((mark) => mark.paraId === item.paraId).map((mark) => mark.name) })),
     sections: metadata.pages.map((rule, index) => ({ index, ...rule })), protection: metadata.protection, contents: { levels: metadata.tocLevels },
-    paragraphs: items.map((item, index) => ({ paraId: item.paraId, index, styleId: item.node.attrs.styleId ?? null })),
+    paragraphs: wordWritingLocations(doc, layout, story).map(item => ({ paraId: item.paraId, index: item.index, styleId: item.node.attrs.styleId ?? null, text: item.text, editable: item.editable, location: item.location })),
     styles: document.package.styles?.styles.map((style) => ({ id: style.styleId, name: style.name, type: style.type, basedOn: style.basedOn })) ?? [],
     capabilities: { bookmarkScope: "paragraph_or_text_range", crossReferenceKinds: ["number", "text", "page"], editableFieldStories: ["body"], structuralEditsTracked: false, noteEditsTracked: false, noteInsertion: true, formattingReadTool: "inapp_docx_read_document", formattingReadView: "formatting", formattingEditTool: "inapp_docx_edit", formattingEditOperation: "apply_formatting", formattingEditsTracked: false, editableFormattingStories: ["body"] },
   };
@@ -138,6 +140,11 @@ export function commit(context: WordToolContext, transaction: Transaction) {
 export function executeWordStructureTool(context: WordToolContext, tool: string, args: Record<string, unknown>) {
   const { view } = context;
   let tr = view.state.tr;
+  if (tool === "insert_paragraphs") {
+    const inserted = insertWordParagraphs(view.state, context.document, args);
+    const result = commit(context, inserted.transaction);
+    return { ...result, data: { ...result.data, paragraphIds: inserted.paragraphIds, location: { story: "body", area: inserted.area } } };
+  }
   if (tool === "create_bookmark") return commit(context, addBookmark(tr, requiredString(args, "paraId"), requiredString(args, "bookmark"), typeof args.search === "string" ? args.search : undefined));
   if (tool === "insert_cross_reference" || tool === "edit_cross_reference") {
     let bookmark = typeof args.bookmark === "string" ? args.bookmark : "";

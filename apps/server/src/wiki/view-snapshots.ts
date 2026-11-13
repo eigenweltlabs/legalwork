@@ -1,6 +1,6 @@
 import type { ViewRecord, WikiViewSnapshots, ViewOwner } from "@legalwork/types/views";
 import type { WikiPage } from "@legalwork/types/wiki";
-import { ViewInputSchema, parseViewReference, viewReferenceKey } from "../views/schema.js";
+import { isBackOfficeQuery, ViewInputSchema, parseViewReference, viewReferenceKey } from "../views/schema.js";
 import { ViewRepository, type ViewFiles } from "../views/repository.js";
 import { queryWikiPages } from "./data-query.js";
 
@@ -21,6 +21,8 @@ export async function captureWikiViews(content: string, owner: ViewOwner, files:
       const view = records.find(record => record.id === reference.viewId);
       if (!view) continue;
       const input = ViewInputSchema.strip().parse(view);
+      // Wiki history is shared. A live firm directory is resolved per viewer.
+      if (view.mode === "dashboard" && Object.values(view.queries).some(isBackOfficeQuery)) continue;
       if (view.mode === "dashboard" && Object.keys(view.queries).length) {
         indexed ??= await pages();
         input.datasets = { ...input.datasets };

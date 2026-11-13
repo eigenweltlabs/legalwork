@@ -4,8 +4,9 @@ import { animate, motion, useMotionValue, useReducedMotion } from "motion/react"
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { t } from "@/i18n";
-import { usePanelTabStore, workspacePanelKey } from "../panel/panel-tab-store";
+import { workspacePanelKey } from "../panel/panel-tab-store";
 import { DocumentMiniPreview, useDocumentRuntime } from "../artifacts/document-runtime";
+import { documentPreviewVisible } from "../artifacts/document-runtime-store";
 import { assistantBrowserWorkerIds, useTaskBrowserTabs, visibleTaskBrowserTabs } from "./task-browser-tabs";
 import { openBackgroundTab } from "./open-background-tab";
 import { magneticTabDock, tabThrowVelocity, type TabDock } from "./magnetic-tab-dock";
@@ -24,23 +25,13 @@ const chatDocks = new Map<string, TabDock>();
 
 type MiniTab = { id: string; label: string; preview: ReactNode; open: () => void; openOnClick?: boolean; close: () => void };
 
-function BrowserMiniPreview({ id }: { id: string }) {
-  const [image, setImage] = useState<string | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout>;
-    const refresh = async () => {
-      try {
-        const value = await window.__LEGALWORK_ELECTRON__?.browser?.previewTab?.(id);
-        if (!cancelled && value) setImage(value);
-      } catch { /* Navigation can temporarily make a preview unavailable. */ }
-      if (!cancelled) timer = setTimeout(refresh, 2500);
-    };
-    void refresh();
-    return () => { cancelled = true; clearTimeout(timer); };
-  }, [id]);
-  return image ? <img src={image} alt="" className="h-full w-full object-cover object-top" />
-    : <div className="flex h-full items-center justify-center bg-gray-2"><Globe className="size-8 text-gray-7" /></div>;
+// Reuse native action screenshots; preview captures would compete with browser input.
+function BrowserMiniPreview({ label, preview }: { label: string; preview?: string | null }) {
+  return preview ? <img src={preview} alt="" className="h-full w-full object-cover object-top" />
+    : <div className="flex h-full flex-col items-center justify-center gap-2 bg-gray-2 px-3">
+    <Globe className="size-8 text-gray-7" />
+    <span className="w-full truncate text-center text-xs text-gray-9">{label}</span>
+  </div>;
 }
 
 function MiniCard({ tab, toggle, onSurfaceClick, onPointerDown, expanded, count, depth, columns, dock }: {
@@ -217,7 +208,6 @@ function FloatingTabStack({ tabs, sessionId }: { tabs: MiniTab[]; sessionId: str
 export function BackgroundTabStack({ sessionId, workspaceId, client, assistantChat = false }: { sessionId: string; workspaceId: string; client: Client; assistantChat?: boolean }) {
   const runtime = useDocumentRuntime();
   useSyncExternalStore(runtime?.subscribe ?? subscribeEmpty, runtime?.version ?? zero);
-  const panels = usePanelTabStore(state => state.sessions);
   const browsers = useTaskBrowserTabs(state => state.tabs);
   const statuses = useSessionActivityStore(state => state.statusesByWorkspaceId[workspaceId] ?? emptyStatuses);
   const sessions = useQueryCacheState<InteractionSessions>(interactionSessionsKey(workspaceId), emptyInteractionSessions);
@@ -232,13 +222,12 @@ export function BackgroundTabStack({ sessionId, workspaceId, client, assistantCh
   });
   const tabs: MiniTab[] = [];
   for (const entry of runtime?.entries.values() ?? []) {
-    if (!entry.tasks.has(sessionId) || entry.dismissed.has(sessionId)) continue;
-    if (panels[entry.props.sessionId]?.tabs.some(tab => tab.id === entry.props.tab.id)) continue;
+    if (!documentPreviewVisible(entry, sessionId)) continue;
     tabs.push({ id: entry.key, label: entry.props.tab.label,
       preview: <DocumentMiniPreview entry={entry} />, open: () => openBackgroundTab(entry.props.sessionId, sessionId, entry.props.tab), close: () => runtime?.dismiss(entry, sessionId) });
   }
   for (const tab of visibleTaskBrowserTabs(browsers, sessionId, assistantChat, sessions, workers.data, statuses)) {
-    tabs.push({ id: tab.id, label: tab.label, openOnClick: true, preview: <BrowserMiniPreview id={tab.id} />,
+    tabs.push({ id: tab.id, label: tab.label, openOnClick: true, preview: <BrowserMiniPreview label={tab.label} preview={tab.preview} />,
       open: () => openBackgroundTab(workspacePanelKey(workspaceId), sessionId, { ...tab, background: false }),
       close: () => { void window.__LEGALWORK_ELECTRON__?.browser?.dismissTab?.(tab.id); } });
   }

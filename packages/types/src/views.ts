@@ -13,8 +13,23 @@ export const WikiDataQuerySchema = z.object({
   limit: z.number().int().min(1).max(200).optional(),
   cursor: z.string().max(300).optional(),
 }).strict();
+export const BackOfficeDataQuerySchema = WikiDataQuerySchema.omit({ pageType: true, cursor: true }).extend({
+  source: z.literal("backOffice"),
+  directoryId: z.string().min(1).max(512),
+  objectId: field,
+  currency: z.string().regex(/^[A-Z]{3}$/).optional(),
+  includeArchived: z.boolean().optional(),
+}).strict();
+export const BackOfficeQueryPageSchema = BackOfficeDataQuerySchema.extend({ cursor: WikiDataQuerySchema.shape.cursor });
+export type BackOfficeDataQuery = z.infer<typeof BackOfficeDataQuerySchema>;
+export const ViewQuerySchema = z.union([BackOfficeDataQuerySchema, WikiDataQuerySchema.omit({ cursor: true })]);
+export type ViewQuery = z.infer<typeof ViewQuerySchema>;
+export function isBackOfficeQuery(query: ViewQuery): query is BackOfficeDataQuery {
+  return "source" in query && query.source === "backOffice";
+}
 export const WikiDataResultSchema = z.object({
   rows: z.array(z.record(field, value)).max(1000),
+  sourceKind: z.literal("backOffice").optional(),
   total: z.number().int().nonnegative(),
   revision: z.string().min(1).max(200),
   asOf: z.number().nonnegative(),
@@ -31,7 +46,7 @@ export const ViewInputSchema = z.object({
   mode: z.enum(["report", "dashboard"]),
   catalog: z.literal("legalwork-1"),
   program: z.string().min(1).max(100_000),
-  queries: z.record(field, WikiDataQuerySchema.omit({ cursor: true })).refine(queries => Object.keys(queries).length <= 20),
+  queries: z.record(field, ViewQuerySchema).refine(queries => Object.keys(queries).length <= 20),
   datasets: z.record(field, WikiDataResultSchema).refine(datasets => Object.keys(datasets).length <= 20).optional(),
   /** Default source context for paths embedded directly in the program. */
   sourceOwner: ViewOwnerSchema.optional(),
@@ -99,6 +114,7 @@ export const ViewPreviewSchema = z.object({
   status: z.literal("preview"),
   owner: ViewOwnerSchema,
   input: ViewInputSchema,
+  replacesCallId: z.string().min(1).max(200).optional(),
   target: z.object({ viewId: z.string().uuid(), baseRevision: z.string().min(1).max(200) }).strict().optional(),
 }).strict();
 export type ViewPreview = z.infer<typeof ViewPreviewSchema>;

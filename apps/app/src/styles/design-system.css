@@ -197,6 +197,7 @@
 .lw-workspace-shell {
   --lw-sidebar-transition-duration: 250ms;
   padding-top: var(--lw-window-bar-height);
+  padding-bottom: var(--lw-window-empty-rail-width);
   background: var(--lw-window-chrome);
 }
 .lw-window-topbar {
@@ -304,7 +305,7 @@ html.legalwork-electron.legalwork-platform-mac .lw-window-navigation {
 }
 .lw-workspace-shell [data-slot="sidebar-container"] {
   top: var(--lw-window-bar-height);
-  height: calc(100svh - var(--lw-window-bar-height));
+  height: calc(100svh - var(--lw-window-bar-height) - var(--lw-window-empty-rail-width));
   border-right: none;
 }
 /* Keep the divider mounted while the inner sidebar is hidden. Reveal it only
@@ -336,21 +337,20 @@ html.legalwork-electron.legalwork-platform-mac .lw-window-navigation {
 .lw-workspace-shell .lw-chat-sidebar {
   overflow: hidden;
   padding-top: 12px;
-  border-top-left-radius: var(--lw-window-curve);
+  border-radius: var(--lw-window-curve) 0 0 var(--lw-window-curve);
   border: 1px solid var(--lw-border);
   border-right-color: transparent;
-  border-bottom: none;
   background: color-mix(in srgb, var(--lw-canvas) 65%, var(--lw-sidebar));
 }
 .lw-workspace-surface {
   overflow: hidden;
-  border-top-right-radius: var(--lw-window-curve);
-  border-top: 1px solid var(--lw-border);
+  border-radius: 0 var(--lw-window-curve) var(--lw-window-curve) 0;
+  border-block: 1px solid var(--lw-border);
   border-right: 1px solid var(--lw-border);
   background: var(--lw-canvas);
 }
 .lw-workspace-shell[data-sidebar-visible="false"] .lw-workspace-surface {
-  border-top-left-radius: var(--lw-window-curve);
+  border-radius: var(--lw-window-curve);
   border-left: 1px solid var(--lw-border);
 }
 @media (prefers-reduced-motion: reduce) {

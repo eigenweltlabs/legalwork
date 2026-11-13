@@ -1,5 +1,6 @@
 import { permissionAction } from "./agent-sandbox/permissions.js";
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
+import * as systemOne from "./systemone.js";
 import { Config } from "@opencode/schema/config";
 import { Schema } from "effect";
 import { chmod, mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
@@ -77,6 +78,29 @@ async function addWorkspace(config: ServerConfig) {
   config.authorizedRoots.push(directory);
 }
 
+test("configuration bursts share the next publication and include edits made during a running build", async () => {
+  const { config } = await setup();
+  let release = () => {};
+  let started = () => {};
+  const blocked = new Promise<void>(resolve => { release = resolve; });
+  const entered = new Promise<void>(resolve => { started = resolve; });
+  let builds = 0;
+  const settings = spyOn(systemOne, "readSystemOneSettings").mockImplementation(async () => {
+    if (++builds === 1) { started(); await blocked; }
+    return { providers: [], selection: { providerId: "eigenwelt", model: "EigenJev" } };
+  });
+  try {
+    const first = writeLegalworkRuntimeConfigFile(config, "ws_1");
+    await entered;
+    await writeRuntimeOpencodeConfig(config, "ws_1", () => ({ permissions: [{ action: "shell", resource: "latest", effect: "ask" }] }));
+    const burst = Array.from({ length: 12 }, () => writeLegalworkRuntimeConfigFile(config, "ws_1"));
+    release();
+    await Promise.all([first, ...burst]);
+    expect(builds).toBe(2);
+    expect((await readSettings(config)).configuration.permissions).toContainEqual({ action: "shell", resource: "latest", effect: "ask" });
+  } finally { release(); settings.mockRestore(); }
+});
+
 async function readSettings(config: ServerConfig, workspaceID = "ws_1") {
   const workspace = config.workspaces.find(item => item.id === workspaceID);
   if (!workspace) throw new Error(`Missing test workspace ${workspaceID}`);
@@ -104,6 +128,27 @@ test.skipIf(process.platform === "win32" || process.getuid?.() === 0)("an unwrit
 async function readConfigurationFile(path: string) {
   return Schema.decodeUnknownSync(Config.Info)(JSON.parse(await readFile(path, "utf8")), { onExcessProperty: "error" });
 }
+
+test("startup runtime publication repairs a synced older project config and admits the project", async () => {
+  const { root, config } = await setup();
+  config.engineProjectTrustRequired = true;
+  const workspace = config.workspaces[0]!;
+  await writeLegalworkRuntimeConfigFile(config, workspace.id);
+  const path = join(root, ".opencode", "opencode.json");
+  const stale = await readFile(path);
+  await writeRuntimeOpencodeConfig(config, workspace.id, () => ({ permissions: [{ action: "read", resource: "current-settings/*", effect: "deny" }] }));
+  await writeLegalworkRuntimeConfigFile(config, workspace.id);
+  const expected = await readFile(path);
+  expect(stale.equals(expected)).toBe(false);
+  await writeFile(path, stale);
+  expect((await engineProjectStatus(config, workspace)).state).toBe("configuration_conflict");
+  const restarted = { ...config };
+  await writeLegalworkRuntimeConfigFile(restarted, workspace.id);
+  expect(await readFile(path)).toEqual(expected);
+  expect((await engineProjectStatus(restarted, workspace)).state).toBe("ready");
+  const registry = JSON.parse(await readFile(nativeEngineProjectRegistryPath(restarted), "utf8"));
+  expect(registry.projects).toContainEqual({ directory: root, approved: true });
+});
 
 function pluginTargets(plugins: NativeConfig["plugins"]) {
   return (plugins ?? []).map(plugin => typeof plugin === "string" ? plugin : plugin.package);
@@ -278,7 +323,7 @@ describe("legalwork runtime config files", () => {
     // The shared selection is data for the native loader, not an extra host
     // plugin or a connector sign-in implementation owned by LegalWork.
     const common = await readConfigurationFile(legalworkRuntimeConfigFilePath(config));
-    expect(common.mcp).toEqual((await readSettings(config)).configuration.mcp);
+    expect(common.mcp?.servers?.firecrawl).toBeUndefined();
     expect(pluginTargets(common.plugins).some(target => /firecrawl/i.test(target))).toBe(false);
   });
 
@@ -311,9 +356,10 @@ describe("legalwork runtime config files", () => {
 
     const common = await readConfigurationFile(legalworkRuntimeConfigFilePath(config));
     expect(common).toMatchObject({ update: "disable", default_agent: "legalwork", experimental: { todo: true } });
-    expect(common.agents).toEqual(parsed.agents);
+    expect(common.agents?.legalwork).toEqual(parsed.agents?.legalwork);
+    expect(common.agents?.reviewer).toBeUndefined();
     expect(common.providers ?? {}).toEqual(parsed.providers ?? {});
-    expect(common.mcp).toEqual(parsed.mcp);
+    expect(common.mcp?.servers?.posthog).toBeUndefined();
     const sources = await bundledSources(common.plugins);
     await expectBundle(sources, "legalwork-anthropic-adaptive-thinking");
     await expectBundle(sources, "legalwork-anthropic-tool-schema");

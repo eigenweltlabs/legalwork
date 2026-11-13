@@ -119,7 +119,7 @@ async function inspectPdfPages(bytes: Uint8Array, signal: AbortSignal, inspectVi
       const page = await pdf.getPage(i), content = await page.getTextContent();
       const text = content.items.map(item => "str" in item ? item.str + (item.hasEOL ? "\n" : " ") : "").join("");
       size += text.length;
-      if (size > 2_000_000) throw new ApiError(400, "pdf_text_size", "PDF text exceeds 2 million characters. Read fewer pages.");
+      if (size > 2_000_000) throw new ApiError(400, "pdf_text_size", "PDF text exceeds 2 million characters. Select fewer source pages with pages. offset/limit only paginate returned text and do not reduce extraction work.");
       if (!inspectVisualAdditions) { pages.push({ page: i, text, needsOcr: !text.trim() }); page.cleanup(); continue; }
       const [operators, annotations] = await Promise.all([page.getOperatorList(), page.getAnnotations()]);
       const visual = operators.fnArray.some(op => [OPS.paintImageXObject, OPS.paintInlineImageXObject, OPS.paintImageMaskXObject, OPS.constructPath, OPS.shadingFill].includes(op));

@@ -92,6 +92,7 @@ export class OcrManager {
           authentication: engine.kind === "local" ? undefined : engine.apiKeyRef === null ? "none" : "api-key",
           languages: info.find((item) => item.id === engine.id)?.languages?.slice() ?? null,
           keyConfigured,
+          downloadBytes: engine.kind === "local" ? this.runtime.downloadBytes(engine.model) : undefined,
           firmKey: firmKeys.get(engine.id),
           status: engine.kind !== "local" ? (engine.apiKeyRef === null || keyConfigured ? "ready" : "missing-key")
             : !this.runtime.supported(engine.model) ? "unsupported"

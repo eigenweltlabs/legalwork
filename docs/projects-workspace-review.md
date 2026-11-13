@@ -14,7 +14,7 @@ Record starts capture on Home and associates it with that project. While capture
 
 ## Project context in chat
 
-The agent uses `legalwork_project_list` for project inventory questions. One call provides scoped tasks with attachment counts, note previews, files/folders, explicitly linked recordings, sessions and metadata. Results appear as compact chat cards outside the collapsed command history, with expansion and pagination. Cards open the existing task, Markdown, file and recording viewers or navigate to a session. Folder cards browse the project in place.
+The agent uses `legalwork_project_list` for project inventory questions. One call provides scoped tasks with attachment counts, note previews, files/folders, explicitly linked recordings, sessions and metadata. The lookup stays in tool activity. The agent answers the question in its own words and names relevant files in the reply.
 
 `legalwork_project_read` reads a linked task, note, text file or recording transcript with continuation for long content. Binary documents continue through the existing document tools. Unavailable sources are distinguished from empty lists. Project boundaries and linked recording membership are checked; content is treated as untrusted source data.
 

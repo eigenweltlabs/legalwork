@@ -1,3 +1,4 @@
+import { workspaceContentPath } from "@legalwork/types/workspace";
 import { conversationTarget, resultChatProject, startLauncherResultChat, type ResultChatAction } from "./launcher-result-chat";
 import { matchesAssistantSuggestion, matchesSortSuggestion, prioritizeLauncherSuggestions } from "./launcher-suggestions";
 import { LauncherResultOrigin } from "./launcher-result-origin";
@@ -904,9 +905,12 @@ export function LauncherPanel() {
     } finally { uploadingRef.current = false; setUploading(false); }
   };
   const draftDocument = async (workspaceId: string, folder: string, name: string, format: string, instructions: string) => {
+    const workspace = workspaces.find(item => item.id === workspaceId);
+    if (!workspace) throw new Error(t("launcher.chat.context_unavailable"));
+    const path = `${workspaceContentPath(workspace).replace(/[\\/]+$/, "")}/${folder ? `${folder}/` : ""}${name.endsWith(`.${format}`) ? name : `${name}.${format}`}`;
     await switchTarget(workspaceId);
     store.setView("results");
-    const sent = await submitAsk(t("launcher.flow.draft_prompt", { project: workspaceId, path: `${folder ? `${folder}/` : ""}${name.endsWith(`.${format}`) ? name : `${name}.${format}`}`, instructions }));
+    const sent = await submitAsk(t("launcher.flow.draft_prompt", { project: workspaceId, path, instructions }));
     if (!sent) throw new Error(t("launcher.submission.unconfirmed"));
   };
   const browseCategory = (category: LauncherSearchKind) => {

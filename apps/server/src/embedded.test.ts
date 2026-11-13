@@ -1,5 +1,5 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startEmbeddedServer } from "./embedded.js";
@@ -31,7 +31,9 @@ const server = Bun.serve({ hostname: "127.0.0.1", port, async fetch(request) {
     if (request.headers.get("authorization") !== "Basic " + Buffer.from("opencode:" + password).toString("base64")) return new Response("Unauthorized", {status:401});
     if (url.pathname === "/api/info") return Response.json({version:${JSON.stringify(version)},pid:process.pid});
     if (url.pathname === "/api/experimental/migration/v1") return Response.json(Date.now() < migrationDoneAt ? {status:"running",progress:{label:"Chats",numerator:1,denominator:2}} : {status:"completed"});
-    if (url.pathname === "/api/session/verified-session") return Response.json({id:"verified-session",projectID:"fixture",location:{directory:projectDirectory},cost:0,tokens:{input:0,output:0,reasoning:0,cache:{read:0,write:0}},time:{created:1,updated:1}});
+    if (url.pathname === "/api/session") return Response.json({data:[],cursor:{next:null}});
+    if (url.pathname === "/api/session/active") return Response.json({data:{}});
+    if (url.pathname === "/api/session/verified-session") return Response.json({data:{id:"verified-session",projectID:"fixture",location:{directory:projectDirectory},cost:0,tokens:{input:0,output:0,reasoning:0,cache:{read:0,write:0}},time:{created:1,updated:1}}});
     return Response.json({data:[]});
   }
   if (url.pathname !== "/probe") return Response.json({ healthy: true });
@@ -48,11 +50,11 @@ const server = Bun.serve({ hostname: "127.0.0.1", port, async fetch(request) {
   }
   return Response.json({ url: process.env.LEGALWORK_SERVER_URL, results });
 } });
-console.log("server listening on http://127.0.0.1:" + server.port);
+console.log(process.argv.includes("--stdio") ? JSON.stringify({url:"http://127.0.0.1:"+server.port}) : "server listening on http://127.0.0.1:" + server.port);
 `;
 
 test.each(["first", "last", "only"])("an unavailable cloud project does not block startup (%s), stays registered and recovers on retry", async (position) => {
-  const root = await mkdtemp(join(tmpdir(), "embedded-cloud-project-"));
+  const root = await realpath(await mkdtemp(join(tmpdir(), "embedded-cloud-project-")));
   cleanup.push(() => rm(root, { recursive: true, force: true }));
   const previous = { ...process.env };
   cleanup.push(async () => {
@@ -83,6 +85,8 @@ test.each(["first", "last", "only"])("an unavailable cloud project does not bloc
   const server = await startEmbeddedServer({
     host: "127.0.0.1", port: 0, workspaces: position === "only" ? [cloud] : position === "first" ? [cloud, local] : [local, cloud],
     configPath: join(root, "server.json"), logRequests: false,
+    projectsDirectory: join(root, "projects"),
+    opencodeDirectory: cloud,
     token: "test-client", hostToken: "test-host", manageOpencode: true, opencodeBin: bin, opencodeCandidateBuild: candidateBuild, opencodeSdkDirectory: sdk,
   });
   cleanup.push(() => server.stop());
@@ -90,10 +94,13 @@ test.each(["first", "last", "only"])("an unavailable cloud project does not bloc
   expect((await fetch(`${server.url}/health`)).status).toBe(200);
   expect(server.managedOpencodeStatus()?.running).toBe(true);
   const list = await (await fetch(`${server.url}/workspaces`, { headers })).json();
-  expect(list.items.map((item: { path: string }) => item.path).sort()).toEqual(position === "only" ? [cloud] : [cloud, local].sort());
+  expect(list.items.map((item: { path: string; contentPath?: string }) => item.contentPath || item.path).sort()).toEqual(position === "only" ? [cloud] : [cloud, local].sort());
   const cloudId = server.config.workspaces.find(workspace => workspace.path === cloud)!.id;
+  expect(server.selectedWorkspaceId).toBe(cloudId);
   if (position !== "only") {
-    const localId = server.config.workspaces.find(workspace => workspace.path === local)!.id;
+    const registered = server.config.workspaces.find(workspace => workspace.contentPath === local)!;
+    expect(registered.path).toBe(join(root, "projects", registered.id));
+    const localId = registered.id;
     expect((await fetch(`${server.url}/workspace/${localId}/project`, { headers })).status).toBe(200);
   }
   const failed = await fetch(`${server.url}/workspace/${cloudId}/project`, { headers });
@@ -107,7 +114,7 @@ test.each(["first", "last", "only"])("an unavailable cloud project does not bloc
 }, 30_000);
 
 test("managed agent authenticates wiki and storage tools after the preferred server port is occupied", async () => {
-  const root = await mkdtemp(join(tmpdir(), "embedded-agent-port-"));
+  const root = await realpath(await mkdtemp(join(tmpdir(), "embedded-agent-port-")));
   cleanup.push(() => rm(root, { recursive: true, force: true }));
   const previous = { ...process.env };
   cleanup.push(async () => {
@@ -142,6 +149,7 @@ test("managed agent authenticates wiki and storage tools after the preferred ser
     },
     host: "127.0.0.1", port: oldServer.port, workspaces: [workspace],
     configPath: join(root, "server.json"), readOnly: true, logRequests: false,
+    projectsDirectory: join(root, "projects"),
     token: "test-client", hostToken: "test-host", manageOpencode: true, opencodeBin: bin, opencodeCandidateBuild: candidateBuild, opencodeSdkDirectory: sdk,
   });
   cleanup.push(() => server.stop());
