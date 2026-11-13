@@ -108,6 +108,15 @@ app.whenReady().then(async () => {
   const handlers = new Map();
   panel.registerIpc({ handle: (name, handler) => handlers.set(name, handler), on: () => {} });
   const invoke = (method, ...args) => handlers.get(`legalwork:browser:${method}`)({ sender: main.webContents }, ...args);
+  // Navigation previews may temporarily attach an offscreen capture view.
+  // Assert that agent work never covers the user's actual browser pane.
+  const visibleViews = () => {
+    const [width, height] = main.getContentSize();
+    return main.contentView.children.filter(view => {
+      const bounds = view.getBounds();
+      return view.getVisible() && bounds.x < width && bounds.y < height && bounds.x + bounds.width > 0 && bounds.y + bounds.height > 0;
+    });
+  };
   let client;
   let exitCode = 0;
   try {
@@ -118,7 +127,7 @@ app.whenReady().then(async () => {
     invoke("show", { x: 0, y: 0, width: 900, height: 700 });
     main.show();
     const first = await invoke("openUrl", origin, "builtin", { directory: projectA, workspaceId: "a", sessionId: "task-a" });
-    assert.equal(main.contentView.children.length, 0);
+    assert.equal(visibleViews().length, 0);
     assert.equal(invoke("state").activeTabId, null);
     assert.equal(first.download_directory, path.join(projectA, "Downloads"));
     assert.equal(first.snapshot.error, undefined);
@@ -129,13 +138,16 @@ app.whenReady().then(async () => {
     console.log("PASS: opening a project tab returns labeled controls and observed selectors");
 
     const foreground = await invoke("createTab", `${origin}/foreground`);
-    const foregroundView = main.contentView.children[0];
+    const [foregroundView] = visibleViews();
+    assert.ok(foregroundView);
     const second = await invoke("openUrl", origin, "builtin", { directory: projectA });
     assert.deepEqual(invoke("state").tabs.map(tab => tab.id), [first.tab_id, foreground.tabId, second.tab_id]);
     assert.equal(invoke("state").activeTabId, foreground.tabId);
-    assert.deepEqual(main.contentView.children, [foregroundView]);
+    assert.deepEqual(visibleViews(), [foregroundView]);
     invoke("closeTab", second.tab_id);
-    assert.equal(await invoke("previewTab", first.tab_id), null);
+    const navigationPreview = await invoke("previewTab", first.tab_id);
+    if (navigationPreview !== null) assert.match(navigationPreview, /^data:image\/png;base64,/);
+    await batch(first, [{ action: "fill", selector: selector("Applicant"), value: "Screenshot fixture" }]);
     const screenshot = await fetch(`${first.browser_url}/capture`, {
       method: "POST", headers: { "Content-Type": "application/json", "x-legalwork-browser-session": "task-a" },
       body: JSON.stringify({ format: "png" }), signal: AbortSignal.timeout(5000),
@@ -144,20 +156,25 @@ app.whenReady().then(async () => {
     await new Promise(resolve => setImmediate(resolve));
     const cachedPreview = await invoke("previewTab", first.tab_id);
     assert.match(cachedPreview, /^data:image\/png;base64,/);
-    assert.deepEqual(main.contentView.children, [foregroundView]);
+    assert.notEqual(cachedPreview, navigationPreview, "An agent screenshot must update the preview after the page changes");
+    assert.deepEqual(visibleViews(), [foregroundView]);
     assert.equal(invoke("state").activeTabId, foreground.tabId);
     console.log("PASS: agent screenshots populate cached previews without showing or selecting their native view");
 
     const [target] = await (await fetch(`${first.browser_url}/json/list`)).json();
     client = new WebSocket(target.webSocketDebuggerUrl);
     await once(client, "open");
-    assert.equal(await invoke("previewTab", first.tab_id), cachedPreview);
+    assert.match(await invoke("previewTab", first.tab_id), /^data:image\/png;base64,/);
     assert.equal(client.readyState, WebSocket.OPEN, "A cached preview must preserve the agent's debugger connection");
     const previewOnly = await invoke("openUrl", origin, "builtin", { directory: projectA, sessionId: "task-b" });
-    assert.deepEqual(await Promise.all([invoke("previewTab", first.tab_id), invoke("previewTab", previewOnly.tab_id)]), [cachedPreview, null]);
-    assert.equal(BaseWindow.getAllWindows().filter(win => win.isVisible()).length, 1, "Preview hosts must never become visible");
+    // Cache reads are immediate even while a decorative capture is pending.
+    const firstPreview = invoke("previewTab", first.tab_id), secondPreview = invoke("previewTab", previewOnly.tab_id);
+    if (secondPreview !== null) assert.match(secondPreview, /^data:image\/png;base64,/);
+    assert.deepEqual(await Promise.all([invoke("previewTab", first.tab_id), invoke("previewTab", previewOnly.tab_id)]), [firstPreview, secondPreview]);
+    assert.equal(BaseWindow.getAllWindows().filter(win => win.isVisible() && win.getOpacity() > 0).length, 1, "Preview hosts must never show pixels");
     invoke("releaseSession", "task-b");
-    assert.deepEqual(main.contentView.children, [foregroundView]);
+    assert.deepEqual(visibleViews(), [foregroundView]);
+    invoke("dismissTab", previewOnly.tab_id);
     const tree = await command(client, "Accessibility.getFullAXTree");
     const reachable = new Set();
     const visit = (id) => {
@@ -183,20 +200,20 @@ app.whenReady().then(async () => {
     const fields = await command(client, "Runtime.evaluate", { expression: "[document.querySelector('#applicant').value, document.querySelector('#notes').value, document.querySelector('#region').value]", returnByValue: true });
     assert.deepEqual(fields.result.value, ["Alice", "Review complete", "East"]);
     console.log("PASS: one batch fills input, textarea and select, clicks, waits and shares the CDP attachment");
-    assert.deepEqual(main.contentView.children, [foregroundView]);
+    assert.deepEqual(visibleViews(), [foregroundView]);
     assert.equal(invoke("state").activeTabId, foreground.tabId);
     console.log("PASS: agent tabs are listed and complete work without replacing the selected browser");
 
     // Revealing a working tab is an explicit user action, independent of the
     // agent's ability to inspect, fill, click, and download in the background.
     invoke("selectTab", first.tab_id);
-    assert.deepEqual(main.contentView.children[0].getBounds(), { x: 0, y: 0, width: 900, height: 700 });
+    assert.deepEqual(visibleViews()[0].getBounds(), { x: 0, y: 0, width: 900, height: 700 });
     invoke("selectTab", foreground.tabId);
     await command(client, "Page.navigate", { url: `${origin}/next` });
     await batch(first, [{ action: "wait_for", text: "Browser workflow fixture" }]);
     await command(client, "Runtime.evaluate", { expression: "document.querySelector('#applicant').focus()" });
     assert.equal(invoke("state").activeTabId, foreground.tabId);
-    assert.deepEqual(main.contentView.children, [foregroundView]);
+    assert.deepEqual(visibleViews(), [foregroundView]);
     // Restore the fixture form for the remaining workflow assertions.
     await batch(first, [
       { action: "fill", selector: "#applicant", value: "Alice" },
@@ -217,7 +234,7 @@ app.whenReady().then(async () => {
     console.log("PASS: closing and dismissing a task tab preserves its live automation connection");
 
     if (process.env.LEGALWORK_BROWSER_TEST_SCREENSHOT) {
-      const contents = main.contentView.children[0].webContents;
+      const contents = visibleViews()[0].webContents;
       await contents.executeJavaScript("new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
       const screenshot = await contents.capturePage({ x: 0, y: 0, width: 900, height: 700 }, { stayAwake: true });
       assert.equal(screenshot.isEmpty(), false);
