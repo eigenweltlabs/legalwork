@@ -181,11 +181,11 @@ export function registerMainAssistantRoutes(options: {
   addRoute(routes, "GET", "/assistant/history", "client", async ctx => {
     options.requireClientScope(ctx, "viewer");
     const workspace = config.workspaces.find(isMainAssistant);
-    const query = z.object({ before: z.iso.date().optional(), limit: z.coerce.number().int().min(1).max(31).default(14) }).safeParse(Object.fromEntries(ctx.url.searchParams));
+    const query = z.object({ before: z.iso.date().optional(), after: z.iso.date().optional(), limit: z.coerce.number().int().min(1).max(31).default(14) }).safeParse(Object.fromEntries(ctx.url.searchParams));
     if (!query.success) throw new ApiError(400, "assistant_history_query", "Use a date and a page size from 1 to 31.");
     if (!workspace) return jsonResponse({ days: [], nextBefore: null });
     await accessible(workspace.id);
-    return jsonResponse({ workspaceId: workspace.id, ...assistant.history(workspace.id, query.data.before, query.data.limit) });
+    return jsonResponse({ workspaceId: workspace.id, ...assistant.history(workspace.id, query.data.before, query.data.limit, query.data.after) });
   });
   addRoute(routes, "GET", "/assistant/projects", "client", async ctx => {
     options.requireClientScope(ctx, "viewer");

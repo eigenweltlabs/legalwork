@@ -32,6 +32,8 @@ Project menus provide the actions available in this context, including renaming 
 
 ## Conversations
 
+Long conversations load older messages automatically as you scroll up. LegalWork keeps only a few nearby batches loaded to keep memory use under control. Messages outside that window stay saved and load again when you scroll back. Loading another batch keeps the message you are reading in place. Use **Jump to latest** to return to the newest messages.
+
 In a project, **New Chat** starts a conversation in that project. From the Personal Assistant, it opens a project picker so you can choose where the new conversation belongs. The Assistant conversation stays available. **Cmd/Ctrl+N** follows the same behavior.
 
 Ask “What is in this project?” or “Which files are here?” to get an answer directly in chat. The agent can look up the project’s files, notes, tasks, recordings and chats and summarize what it finds.
@@ -82,7 +84,7 @@ Answers display mathematical formulas and monetary calculations with their forma
 
 ## Connected services
 
-Browser pages opened by the agent stay in the chat's preview tiles while it works. Opening or switching between those pages does not change the tab you are viewing. Click a preview tile to open that browser beside the conversation. Close its browser tab to return it to the background while the agent continues working; the agent switching back to that page does not reopen it on your screen.
+Browser pages opened by the agent stay in the chat's preview tiles while it works. Each browser tile shows the latest available screenshot, or the page title and a browser icon before a screenshot is available. Opening or switching between those pages does not change the tab you are viewing. Click a preview tile to open that browser beside the conversation. Close its browser tab to return it to the background while the agent continues working; the agent switching back to that page does not reopen it on your screen.
 
 When a browser task needs a login that is not saved, the assistant can show a **Sign-in details needed** card inline in the conversation. Enter the credentials there and choose **Save and continue**, or choose **Cancel** to stop the login attempt. The password is saved directly to the device vault and is not sent as chat text or an agent form answer. See [browser passwords](settings-privacy.md#browser-passwords) for saving, reuse and management.
 

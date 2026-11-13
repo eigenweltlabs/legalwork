@@ -55,7 +55,7 @@ app.whenReady().then(async () => {
     main = new BrowserWindow({ show: true, width: 1300, height: 900 }); detached = new BrowserWindow({ show: false });
     await main.loadURL("about:blank"); await detached.loadURL("about:blank");
     const blocked = new Set();
-    panel = createBrowserPanel({ app, BaseWindow, WebContentsView, clipboard, session,
+    panel = createBrowserPanel({ app, BaseWindow, WebContentsView, clipboard, nativeImage, session,
       getWindow: () => main, getWindowForEvent: event => BrowserWindow.fromWebContents(event.sender),
       resolveEngine: async () => ({ running: true, baseUrl: url, opencodeUsername: "opencode", opencodePassword: password }),
       authorizeBrowserAutomation: async context => { if (blocked.has(context.sessionId)) throw new Error("Browser tools are disabled."); },

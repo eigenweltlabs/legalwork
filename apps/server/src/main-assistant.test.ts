@@ -57,6 +57,7 @@ test("concurrent callers share one persisted project and one session; midnight a
   expect(f.sessions).toHaveLength(3);
   expect(reopened.history(today.workspace.id, afterSleep.day.date, 1)).toEqual({ days: [today.day], nextBefore: "2026-10-08" });
   expect(reopened.history(today.workspace.id, "2026-10-08", 1)).toEqual({ days: [first[0].day], nextBefore: null });
+  expect(reopened.history(today.workspace.id, undefined, 1, "2026-10-07").days).toEqual([today.day]);
 });
 
 test("recovery only adopts a live root session inside the assistant folder", async () => {

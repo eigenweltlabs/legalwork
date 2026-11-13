@@ -287,6 +287,7 @@ export function useSessionScrollController(
 
   const jumpToLatest = useCallback(
     (behavior: ScrollBehavior = "smooth") => {
+      lastGestureAtRef.current = 0;
       scrollToBottom(behavior);
     },
     [scrollToBottom],

@@ -27,14 +27,25 @@ export const BROWSER_PRELOAD_CHANNELS = ["legalwork:menu-overlay:dismiss", "lega
 // belong to one app window. A detached window must never adopt another's tabs.
 let browserTabCounter = 0;
 export function createBrowserPanel(options) {
-  const { app, getWindow, getWindowForEvent } = options;
+  const { app, getWindow, getWindowForEvent, nativeImage } = options;
   const authorizeBrowserAutomation = context => nativeHost?.authorize(context) ?? options.authorizeBrowserAutomation(context);
   const capture = createBrowserCaptureQueue();
-  const automationBroker = createBrowserAutomationBroker({ authorize: authorizeBrowserAutomation, capture });
+  const captured = (contents, image) => setImmediate(() => {
+    if (contents.isDestroyed()) return;
+    try {
+      const bitmap = Buffer.isBuffer(image) ? nativeImage.createFromBuffer(image) : image;
+      if (bitmap.isEmpty()) return;
+      const preview = bitmap.resize({ width: 480 }).toDataURL();
+      for (const { panel } of panels.values()) panel.updatePreview(contents, preview);
+    } catch { /* A decorative preview must never interrupt native input. */ }
+  });
+  const automationBroker = createBrowserAutomationBroker({ authorize: authorizeBrowserAutomation, capture, captured });
   const proxyState = { current: null };
   const panels = new Map();
   let autofillPreload;
   const nativeHost = options.resolveEngine ? createNativeBrowserHost({ ...options, capture, partition: BROWSER_SESSION_PARTITION,
+    prepareCapture: (owner, contents) => panelFor(owner).panel.prepareCapture(contents), captured,
+    captureActive: (owner, contents) => panelFor(owner).panel.captureActive(contents),
     adoptPage: (owner, page, context, directory) => panelFor(owner).panel.adoptNativePage(page, context, directory),
     sessionError: (owner, context, error) => owner.webContents.send("legalwork:browser:error", { sessionId: context.sessionId, error }),
   }) : null;
@@ -114,7 +125,7 @@ function createWindowBrowserPanel({ app, BaseWindow, WebContentsView, clipboard,
   let menuOverlayReadyResolvers = [];
   let menuOverlayShowSerial = 0;
   let removeDownloadHandler = null;
-  let previewWindow = null;
+  const capturingViews = new Set();
 
   function ensureDownloadHandler() {
     removeDownloadHandler ??= installBrowserDownloads(session.fromPartition(BROWSER_SESSION_PARTITION),
@@ -289,21 +300,38 @@ function createWindowBrowserPanel({ app, BaseWindow, WebContentsView, clipboard,
   }
 
   function prepareBrowserCapture(tab) {
-    if (!window()?.contentView.children.includes(tab.view)) {
-      previewWindow ??= new BaseWindow({ show: false, focusable: false, skipTaskbar: true, width: 1200, height: 800 });
-      if (!previewWindow.contentView.children.includes(tab.view)) previewWindow.contentView.addChildView(tab.view);
-      tab.view.setBounds({ x: 0, y: 0, width: 1200, height: 800 });
-      tab.view.setVisible?.(true);
-      let restored = false;
-      return () => {
-        if (restored) return;
-        restored = true;
-        if (tab.view.webContents.isDestroyed()) return;
-        const owner = window();
-        if (!owner || owner.isDestroyed() || !owner.contentView.children.includes(tab.view)) tab.view.setVisible?.(false);
-      };
+    const owner = window();
+    if (!owner || owner.isDestroyed()) throw new Error("Browser window is unavailable.");
+    const temporary = !owner.contentView.children.includes(tab.view);
+    capturingViews.add(tab.view);
+    let captureWindow;
+    if (temporary) {
+      // Windows needs an onscreen compositor; opacity keeps its pixels off the UI.
+      if (process.platform === "win32") {
+        captureWindow = new BaseWindow({ parent: owner, show: false, frame: false,
+          focusable: false, skipTaskbar: true, opacity: 0, width: 1200, height: 800 });
+        captureWindow.contentView.addChildView(tab.view);
+        tab.view.setBounds({ x: 0, y: 0, width: 1200, height: 800 });
+        captureWindow.showInactive();
+      } else {
+        owner.contentView.addChildView(tab.view, 0);
+        tab.view.setBounds({ x: -1200, y: 0, width: 1200, height: 800 });
+      }
     }
-    return () => {};
+    tab.view.setVisible?.(true);
+    let restored = false;
+    return () => {
+      if (restored) return;
+      restored = true;
+      capturingViews.delete(tab.view);
+      if (captureWindow && !captureWindow.isDestroyed()) {
+        captureWindow.contentView.removeChildView(tab.view);
+        captureWindow.destroy();
+      }
+      if (tab.view.webContents.isDestroyed() || owner.isDestroyed()) return;
+      if (temporary || !browserViewVisible || tab.background) detachBrowserView(tab.view);
+      attachActiveBrowserView();
+    };
   }
 
   function getBrowserTab(tabId = activeBrowserTabId) {
@@ -346,6 +374,7 @@ function createWindowBrowserPanel({ app, BaseWindow, WebContentsView, clipboard,
       label: getBrowserTabLabel(title, url),
       url,
       favicon: tab.favicon ?? null,
+      preview: tab.preview ?? null,
       status: isLoading ? "loading" : "ready",
       canGoBack: (webContents.navigationHistory ?? webContents).canGoBack(),
       canGoForward: (webContents.navigationHistory ?? webContents).canGoForward(),
@@ -698,7 +727,6 @@ function createWindowBrowserPanel({ app, BaseWindow, WebContentsView, clipboard,
     view.webContents.on("did-stop-loading", () => sendBrowserState());
     view.webContents.once("destroyed", () => {
       if (menuOverlayRequest?.tabId === tabId) hideMenuOverlay();
-      if (previewWindow?.contentView.children.includes(view)) previewWindow.contentView.removeChildView(view);
       browserTabs.delete(tabId);
       paneBounds.delete(tabId);
       browserTabOrder = browserTabOrder.filter((id) => id !== tabId);
@@ -719,7 +747,7 @@ function createWindowBrowserPanel({ app, BaseWindow, WebContentsView, clipboard,
 
   function detachBrowserView(view) {
     const mainWindow = window();
-    if (!mainWindow || !view) return;
+    if (!mainWindow || !view || capturingViews.has(view)) return;
     if (menuOverlayRequest?.tabId === [...browserTabs.values()].find(tab => tab.view === view)?.tabId) hideMenuOverlay();
     try {
       if (mainWindow.contentView.children.includes(view)) {
@@ -765,6 +793,7 @@ function createWindowBrowserPanel({ app, BaseWindow, WebContentsView, clipboard,
     const mainWindow = window();
     if (!mainWindow || !browserViewVisible) return;
     for (const [id, tab] of browserTabs) {
+      if (capturingViews.has(tab.view)) continue;
       const bounds = paneBounds.size ? paneBounds.get(id) : id === activeBrowserTabId ? lastBrowserBounds : null;
       if (!bounds || bounds.width <= 0 || bounds.height <= 0) { detachBrowserView(tab.view); continue; }
       if (!mainWindow.contentView.children.includes(tab.view)) mainWindow.contentView.addChildView(tab.view);
@@ -913,8 +942,6 @@ function createWindowBrowserPanel({ app, BaseWindow, WebContentsView, clipboard,
       capture.close(tab.view.webContents);
       try { tab.view.webContents.close(); } catch { /* already destroyed */ }
     }
-    previewWindow?.destroy();
-    previewWindow = null;
     browserTabs.clear();
     browserTabOrder = [];
     activeBrowserTabId = null;
@@ -1024,24 +1051,7 @@ function createWindowBrowserPanel({ app, BaseWindow, WebContentsView, clipboard,
       }
       sendBrowserState();
     });
-    ipcMain.handle("legalwork:browser:previewTab", async (_event, tabId) => {
-      const tab = getBrowserTab(tabId);
-      if (!tab || tab.view.webContents.isDestroyed()) return null;
-      await tab.initialLoad;
-      if (getBrowserTab(tabId) !== tab || tab.view.webContents.isDestroyed()) return null;
-      if (tab.nativePage && !tab.connection) tab.connection = await automationBroker.grant(tab.view.webContents, () => tab.downloads,
-        tab.nativeContext, () => { tab.taskActive = true; tab.dismissed = false; sendBrowserState(); }, () => prepareBrowserCapture(tab), passwordActions(tab));
-      return automationBroker.preview(tab.view.webContents, () => {
-        // Preserve the existing hidden preview host, but prepare only after this
-        // page's preceding native screenshot has physically finished.
-        if (!window()?.contentView.children.includes(tab.view)) {
-          previewWindow ??= new BaseWindow({ show: false, focusable: false, skipTaskbar: true, width: 1200, height: 800 });
-          if (!previewWindow.contentView.children.includes(tab.view)) previewWindow.contentView.addChildView(tab.view);
-          tab.view.setBounds({ x: 0, y: 0, width: 1200, height: 800 });
-        }
-        tab.view.setVisible?.(true);
-      });
-    });
+    ipcMain.handle("legalwork:browser:previewTab", (_event, tabId) => getBrowserTab(tabId)?.preview ?? null);
     ipcMain.handle("legalwork:browser:closeAllTabs", (event) => {
       return closeAllBrowserTabs();
     });
@@ -1093,6 +1103,20 @@ function createWindowBrowserPanel({ app, BaseWindow, WebContentsView, clipboard,
   return {
     destroy: destroyBrowserView,
     adoptNativePage,
+    prepareCapture(contents) {
+      const tab = [...browserTabs.values()].find(tab => tab.view.webContents === contents);
+      if (!tab) throw new Error("Browser tab is closed.");
+      return prepareBrowserCapture(tab);
+    },
+    captureActive(contents) {
+      return [...capturingViews].some(view => view.webContents === contents);
+    },
+    updatePreview(contents, preview) {
+      const tab = [...browserTabs.values()].find(tab => tab.view.webContents === contents);
+      if (!tab) return;
+      tab.preview = preview;
+      sendBrowserState();
+    },
     isMainWindowAllowedNavigation,
     registerIpc,
     routeBlockedMainWindowNavigation,
