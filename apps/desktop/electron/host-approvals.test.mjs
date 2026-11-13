@@ -90,3 +90,17 @@ test("serializes dialogs and skips a cancelled request waiting in the queue", as
   assert.equal(await second, "deny");
   assert.equal(opened, 1);
 });
+
+test("the panel card answers first; a panel that closes unanswered hands the request to the dialog", async () => {
+  let dialogs = 0;
+  const handler = createHostApprovalHandler({
+    getWindow: hostWindow,
+    presentInPanel: async (received, signal) => { assert.equal(received, request); assert.equal(signal.aborted, false); return dialogs === 0 && received === request && presented++ === 0 ? "allow" : null; },
+    showMessageBox: async () => { dialogs += 1; return { response: 0 }; },
+  });
+  let presented = 0;
+  assert.equal(await handler(request, new AbortController().signal), "allow");
+  assert.equal(dialogs, 0);
+  assert.equal(await handler(request, new AbortController().signal), "deny");
+  assert.equal(dialogs, 1);
+});

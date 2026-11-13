@@ -53,6 +53,12 @@ const SKELETON_ROW_WIDTHS = ["56%", "72%", "44%", "64%", "38%", "52%"];
 
 // Remember the folder when navigating away from a workspace and back.
 const lastPathByWorkspace = new Map<string, string>();
+export function openLauncherFolder(baseUrl: string, workspaceId: string, path: string) {
+  lastPathByWorkspace.set(`${baseUrl}:${workspaceId}`, path);
+  lastPathByWorkspace.set(workspaceId, path);
+  window.dispatchEvent(new Event("legalwork:open-folder"));
+}
+export const launcherFolderForWorkspace = (id: string) => lastPathByWorkspace.get(id);
 
 function workspaceDisplayName(workspaceRoot: string): string {
   const cleaned = workspaceRoot.trim().replace(/[/\\]+$/, "");
@@ -86,6 +92,14 @@ function WorkspaceFilesPanelContent({
   const projectId = client && workspaceId ? projectFiles?.identify(client, workspaceId, { path: "_", name: "_" })?.projectId : undefined;
   const pins = useFilePins().filter(pin => pin.workspaceId === workspaceId && pin.source === "local");
   const [path, setPath] = React.useState(() => (workspaceId ? lastPathByWorkspace.get(scope) ?? "" : ""));
+  React.useEffect(() => {
+    const open = () => {
+      const folder = lastPathByWorkspace.get(scope);
+      if (folder !== undefined) { setPath(folder); setQuery(""); }
+    };
+    window.addEventListener("legalwork:open-folder", open);
+    return () => window.removeEventListener("legalwork:open-folder", open);
+  }, [scope]);
   const [showHidden, setShowHidden] = React.useState(false);
   const [query, setQuery] = React.useState("");
   const [searchQuery, setSearchQuery] = React.useState("");
@@ -105,6 +119,8 @@ function WorkspaceFilesPanelContent({
   React.useEffect(() => {
     if (workspaceId) {
       lastPathByWorkspace.set(scope, path);
+      lastPathByWorkspace.set(workspaceId, path);
+      window.dispatchEvent(new Event("legalwork:folder-changed"));
     }
   }, [path, workspaceId, scope]);
   const breadcrumbsRef = React.useRef<HTMLElement>(null);

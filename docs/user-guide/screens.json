@@ -103,6 +103,11 @@
       "source": "apps/app/src/react-app/shell/app-root.tsx"
     },
     {
+      "path": "/launcher",
+      "guide": "assistant.md",
+      "source": "apps/app/src/react-app/shell/app-root.tsx"
+    },
+    {
       "path": "/projects",
       "guide": "projects-sharing.md",
       "source": "apps/app/src/react-app/shell/app-root.tsx"
@@ -260,6 +265,12 @@
       "id": "general",
       "scope": "global",
       "guide": "settings-privacy.md",
+      "source": "apps/app/src/react-app/domains/settings/shell/settings-page.tsx"
+    },
+    {
+      "id": "launcher",
+      "scope": "global",
+      "guide": "assistant.md",
       "source": "apps/app/src/react-app/domains/settings/shell/settings-page.tsx"
     },
     {

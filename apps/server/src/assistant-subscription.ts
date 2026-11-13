@@ -20,7 +20,11 @@ export async function requireAssistantWorkspaceSubscription(config: ServerConfig
 /** Keep saved history, preferences and stopping work reachable after a plan ends. */
 export function assistantRouteRequiresSubscription(method: string, path: string) {
   if (path !== "/assistant" && !path.startsWith("/assistant/")) return false;
-  if (method === "GET" && ["/assistant", "/assistant/history", "/assistant/settings", "/assistant/settings/context", "/assistant/activity"].includes(path)) return false;
+  if (method === "GET") return false;
+  // Conversation IDs may refer to ordinary project chats. Their handlers check
+  // the stored workspace before an action can resume model execution.
+  if (method === "POST" && /^\/assistant\/conversations\/[^/]+\/(?:messages|attention\/reply)$/.test(path)) return false;
+  if (method === "PATCH" && /^\/assistant\/conversations\/[^/]+$/.test(path)) return false;
   // The handler checks the action, allowing stop/cancel/list without starting work.
   return path !== "/assistant/session-control";
 }

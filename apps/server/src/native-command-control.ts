@@ -1,9 +1,21 @@
 import { isRpcError, type OpenCodeClient } from "@opencode/client";
 import { Schema } from "effect";
+import { z } from "zod";
 import { ApiError, findApiError } from "./errors.js";
 import { commandSettingsRpc } from "./native-command-rpc.js";
 
 const cancelledSchema = Schema.Struct({ cancelled: Schema.Boolean });
+
+/** The native command endpoint has no caller-supplied message ID. The managed
+ * command adapter preserves the launcher's receipt through template expansion. */
+export async function runIdentifiedCommand(client: OpenCodeClient, input: Parameters<OpenCodeClient["session"]["command"]>[0], messageID: string) {
+  if (isCompactionCommand(input.name)) return runNativeCommand(client, input, messageID);
+  const session = await client.session.get({ sessionID: input.sessionID });
+  await assertRunnableCommand(client, session.location, input.name);
+  const { sessionID, name, delivery, ...prompt } = input;
+  await client.rpc.call({ rpcID: commandSettingsRpc.id, method: "invoke", location: session.location,
+    input: z.json().parse(JSON.parse(JSON.stringify({ sessionID, name, messageID, prompt, delivery: delivery ?? "queue" }))) });
+}
 
 /** The native configured-command loader expands shell outside the shell hook. */
 export async function assertManagedCommandIntegration(client: OpenCodeClient, location: { directory: string }): Promise<void> {

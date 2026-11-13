@@ -20,6 +20,8 @@ minimumReleaseAgeExclude:
 packages:
   - "apps/*"
   - "packages/*"
+  # The Raycast extension is built by Raycast's own tooling; install it inside its folder.
+  - "!apps/raycast-legalwork"
 
 catalog:
   react: 19.2.4

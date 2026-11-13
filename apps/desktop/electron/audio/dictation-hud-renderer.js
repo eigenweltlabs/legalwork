@@ -30,6 +30,7 @@ const translations = {
     slow: "Taking longer than usual…",
     "meeting-starting": "Starting recording…", "meeting-recording": "Recording meeting", "meeting-saving": "Saving meeting…", "meeting-error": "Recording needs attention",
     meetingStart: "Record meeting", meetingStop: "Stop and save meeting", meetingOpen: "Open recording in LegalWork", meetingDetected: "Meeting detected", meetingDescription: "Record microphone and meeting audio", meetingDismiss: "Not now", meetingRecord: "Record",
+    assistant: "Start Assistant",
   },
   de: {
     starting: "Diktat starten", listening: "Hört zu", transcribing: "Wird transkribiert…", inserting: "Wird eingefügt…",
@@ -40,6 +41,7 @@ const translations = {
     slow: "Dauert länger als üblich…",
     "meeting-starting": "Aufnahme wird gestartet…", "meeting-recording": "Besprechung wird aufgenommen", "meeting-saving": "Besprechung wird gespeichert…", "meeting-error": "Aufnahme braucht Aufmerksamkeit",
     meetingStart: "Besprechung aufnehmen", meetingStop: "Aufnahme beenden und speichern", meetingOpen: "Aufnahme in LegalWork öffnen", meetingDetected: "Besprechung erkannt", meetingDescription: "Mikrofon und Besprechungston aufnehmen", meetingDismiss: "Nicht jetzt", meetingRecord: "Aufnehmen",
+    assistant: "Assistenten starten",
   },
 };
 
@@ -93,6 +95,17 @@ bridge.onState((value) => {
   meetingStartNotice = labels.meetingStart;
   meetingStartedAt = value.meeting?.startedAt;
   document.body.dataset.meetingAvailable = "true";
+  const companion = value.companion ?? { enabled: false, badge: true, attention: 0, recording: false };
+  document.body.dataset.companion = String(Boolean(companion.enabled));
+  document.body.dataset.companionRecording = String(Boolean(companion.recording));
+  const assistantButton = document.getElementById("assistant");
+  const badge = document.getElementById("assistant-badge");
+  const assistantLabel = (labels.assistant || "Open Assistant") + (companion.attention ? ` · ${companion.attention}` : "");
+  assistantButton.setAttribute("aria-label", assistantLabel);
+  assistantButton.title = "";
+  document.getElementById("assistant-label").textContent = labels.assistant;
+  badge.hidden = !(companion.badge && companion.attention > 0);
+  badge.textContent = companion.attention > 9 ? "9+" : String(companion.attention);
   document.getElementById("start").disabled = !value.enabled || !value.registered;
   const detected = value.state === "idle" ? value.meeting?.detected : null;
   document.getElementById("meeting-prompt").hidden = !detected;
@@ -153,6 +166,7 @@ bridge.onLevel((level) => {
 });
 for (const action of ["start", "stop", "cancel", "dismiss"]) document.getElementById(action).addEventListener("click", () => bridge.action(action));
 for (const action of ["meeting-start", "meeting-stop", "meeting-open", "meeting-dismiss"]) document.getElementById(action).addEventListener("click", () => bridge.action(action));
+document.getElementById("assistant").addEventListener("click", event => { event.stopPropagation(); bridge.action("assistant-open"); });
 document.getElementById("meeting-record").addEventListener("click", () => bridge.action("meeting-start"));
 document.getElementById("meeting-close").addEventListener("click", () => bridge.action("meeting-dismiss"));
 setInterval(() => {
@@ -160,14 +174,16 @@ setInterval(() => {
   document.getElementById("meeting-time").textContent = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 }, 250);
 bar.addEventListener("click", (event) => {
-  if (currentState === "idle" && !event.target.closest("button")) bridge.action("start");
+  if (currentState !== "idle" || event.target.closest("button")) return;
+  if (document.getElementById("start").disabled && document.body.dataset.companion === "true") bridge.action("assistant-open");
+  else bridge.action("start");
 });
 let interactive = false;
 let pointerDrag = null;
 let suppressClick = false;
 function setHover(target) {
   bar.dataset.hovered = String(Boolean(target?.closest("#bar")) && !pointerDrag?.moving);
-  for (const id of ["start", "meeting-start"]) {
+  for (const id of ["start", "meeting-start", "assistant"]) {
     document.getElementById(id).dataset.hovered = String(target?.closest("button")?.id === id && !pointerDrag?.moving);
   }
   if (currentState === "idle") notice.textContent = target?.closest("#meeting-start") ? meetingStartNotice : idleNotice;

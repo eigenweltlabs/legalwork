@@ -44,6 +44,7 @@
     "./reviews": "./src/reviews.ts",
     "./corpus": "./src/corpus.ts",
     "./search": "./src/search.ts",
+    "./launcher": "./src/launcher.ts",
     "./sync-events": "./src/sync-events.ts",
     "./calendar": "./src/calendar.ts",
     "./calendar-event-draft": "./src/calendar-event-draft.ts",

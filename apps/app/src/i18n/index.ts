@@ -289,13 +289,10 @@ export const initLocale = (): Language => {
     console.warn("Failed to read language preference:", e);
   }
 
+  const previousPreference = preferenceValue;
   preferenceValue = isLanguagePreference(stored) ? stored : SYSTEM_LANGUAGE;
   const resolved = preferenceValue === SYSTEM_LANGUAGE ? detectSystemLanguage() : preferenceValue;
-
-  localeValue = resolved;
-  if (typeof document !== "undefined") {
-    document.documentElement.setAttribute("lang", resolved);
-  }
-
-  return resolved;
+  applyLocale(firmLanguage ?? resolved);
+  if (previousPreference !== preferenceValue) notify();
+  return localeValue;
 };

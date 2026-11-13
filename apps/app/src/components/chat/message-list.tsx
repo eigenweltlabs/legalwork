@@ -132,6 +132,7 @@ import { useOpenTargets } from "@/lib/target-provider"
 import { resolveFilePartOpenTarget, resolvePathOpenTarget } from "@/react-app/domains/session/artifacts/open-target"
 import { WORKSPACE_ATTACHMENT_LINK_SOURCE, parseWorkspaceAttachmentLink } from "@/react-app/domains/session/surface/composer/workspace-attachment"
 import { TASK_REFERENCE_SOURCE, parseTaskReference } from "@/react-app/domains/tasks/task-reference"
+import { useTask } from "@/react-app/domains/tasks/tasks-queries"
 import { useTaskRunStore } from "@/react-app/domains/tasks/task-run-store"
 import { LEGALMEMORY_OPEN_EVENT, parseLegalMemoryRef } from "@/components/markdown/legalmemory-ref"
 import { STORAGE_LINK_SOURCE, STORAGE_OPEN_EVENT, parseStorageRefLink, type StorageRef } from "@/components/markdown/storage-ref"
@@ -357,15 +358,16 @@ interface CopyMessageButtonProps {
 }
 
 function useCopyMessage() {
-  const { workspaceId, legalworkClient } = useMessageList();
+  const { workspaceId, legalworkClient, onCopyMessage } = useMessageList();
   const files = useProjectFiles();
-  return React.useCallback((text: string) => copyMessageWithAttachments(text, file => {
+  return React.useCallback((text: string) => onCopyMessage ? onCopyMessage(text) : copyMessageWithAttachments(text, file => {
     const source = legalworkClient && files?.identify(legalworkClient, workspaceId, file);
     return source && files ? { source, projectName: files.sourceProject(source).name } : null;
-  }), [workspaceId, legalworkClient, files]);
+  }), [workspaceId, legalworkClient, files, onCopyMessage]);
 }
 
 function CopyMessageButton({ messages }: CopyMessageButtonProps) {
+  const { replyActionsMessageId } = useMessageList();
   const copyMessage = useCopyMessage();
   const [copied, setCopied] = React.useState(false)
   const text = React.useMemo(() => getMessagesText(messages), [messages])
@@ -384,7 +386,7 @@ function CopyMessageButton({ messages }: CopyMessageButtonProps) {
     }
   }, [text, copyMessage])
 
-  if (!text) {
+  if (!text || messages.at(-1)?.id === replyActionsMessageId) {
     return null
   }
 
@@ -511,12 +513,14 @@ function UserSkillChip(props: { name: string }) {
   )
 }
 
-/** A task the message refers to by id. The title comes from this machine's
- *  run record, not from the message: the message carries only the id. A click
- *  opens the task in the side panel. */
+/** The message carries only a task id. Launcher attachments may have no local
+ *  run record yet, so resolve their label from the same task API as the pane. */
 function UserTaskChip(props: { taskId: string }) {
   const requestOpenTask = useRequestOpenTask();
-  const title = useTaskRunStore((state) => state.runsByTaskId[props.taskId]?.taskTitle)
+  const cachedTitle = useTaskRunStore((state) => state.runsByTaskId[props.taskId]?.taskTitle)
+  const { legalworkClient, workspaceId } = useMessageList()
+  const task = useTask({ client: legalworkClient, workspaceId }, cachedTitle ? null : props.taskId)
+  const title = task.data?.task.title ?? cachedTitle
   return (
     <button
       type="button"

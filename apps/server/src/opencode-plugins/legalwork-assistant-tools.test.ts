@@ -222,11 +222,11 @@ test("project creation returns the schema used to save known client metadata bef
   process.env.LEGALWORK_SERVER_URL = server.url.origin; process.env.LEGALWORK_SERVER_TOKEN = "fixture";
   try {
     const plugin = await LegalWorkAssistantTools();
-    const created = JSON.parse(await plugin.tool.legalwork_assistant_project_create.execute({ name: "Northbridge acquisition" }));
+    const created = JSON.parse(await plugin.tool.legalwork_assistant_project_create.execute({ name: "Northbridge acquisition" }, { sessionID: "assistant-chat" }));
     const data = created;
     await plugin.tool.legalwork_assistant_project_set_metadata.execute({ projectId: data.project.id, revision: data.details.revision, values: { [data.details.fields[0].id]: "Northbridge" } });
     expect(calls).toEqual([
-      { path: "/assistant/projects", body: { name: "Northbridge acquisition" } },
+      { path: "/assistant/projects", body: { name: "Northbridge acquisition", sourceSessionId: "assistant-chat" } },
       { path: "/assistant/projects/new-matter/metadata", body: { revision: 1, values: { our_client: "Northbridge" } } },
     ]);
     const output: { system: string[] } = { system: [] };

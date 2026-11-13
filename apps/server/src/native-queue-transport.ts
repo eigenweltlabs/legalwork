@@ -6,11 +6,11 @@ import { QueuePreparationError } from "./session-message-queue.js";
 import { queuedPromptPayload } from "./session-queue-schema.js";
 import { withSessionDispatch } from "./session-execution-gate.js";
 import type { ServerConfig } from "./types.js";
-import { isCompactionCommand, runNativeCommand } from "./native-command-control.js";
+import { isCompactionCommand, runIdentifiedCommand, runNativeCommand } from "./native-command-control.js";
 import { nativeDeliveryRejection } from "./native-delivery.js";
 import { findApiError } from "./errors.js";
 
-export const queueMessageID = (entry: Pick<QueueEntry, "id" | "execution">) => entry.execution.kind === "prompt" && entry.execution.id || `msg_${entry.id.replaceAll("-", "")}`;
+export const queueMessageID = (entry: Pick<QueueEntry, "id" | "execution" | "messageId">) => entry.execution.kind === "prompt" && entry.execution.id || entry.messageId || `msg_${entry.id.replaceAll("-", "")}`;
 
 async function delivered(client: OpenCodeClient, sessionID: string, id: string) {
   try {
@@ -25,11 +25,12 @@ async function delivered(client: OpenCodeClient, sessionID: string, id: string) 
 
 /** Native prompt retries keep the FIRST delivery mode. Promotion must use the
  * inbox mutation, and a delivery racing that mutation must reconcile history. */
-async function reconcileSteer(client: OpenCodeClient, sessionID: string, entry: QueueEntry) {
+async function reconcileSteer(client: OpenCodeClient, sessionID: string, entry: QueueEntry, prepare: () => Promise<void>) {
   if (entry.execution.kind !== "prompt") throw new QueuePreparationError("Only ordinary messages can steer a chat.");
   const id = queueMessageID(entry);
   const pending = (await client.session.inbox.list({ sessionID })).find(item => item.id === id);
   if (!pending) return delivered(client, sessionID, id);
+  await prepare();
   if (pending.type !== "user") throw new Error("The engine returned a different inbox item type.");
   if (pending.delivery === "queue") {
     try { await client.session.inbox.update({ sessionID, inboxID: id, delivery: "steer" }); }
@@ -60,10 +61,11 @@ export function nativeQueueTransport(config: ServerConfig, input: {
     async confirmed(workspaceId, sessionID, entry) {
       if (entry.delivery === "steer") return withSessionDispatch(config, sessionID, async () => {
         await requireAssistantWorkspaceSubscription(config, workspaceId);
-        return reconcileSteer(await input.client(workspaceId, sessionID), sessionID, entry);
+        const client = await input.client(workspaceId, sessionID);
+        return reconcileSteer(client, sessionID, entry, () => input.prepare(workspaceId, sessionID, client, entry));
       });
       const compaction = entry.execution.kind === "command" && isCompactionCommand(entry.execution.command);
-      if (entry.execution.kind !== "prompt" && !compaction) return false;
+      if (entry.execution.kind !== "prompt" && !compaction && !entry.messageId) return false;
       const client = await input.client(workspaceId, sessionID);
       const id = queueMessageID(entry);
       const type = compaction ? "compaction" : "user";
@@ -73,10 +75,12 @@ export function nativeQueueTransport(config: ServerConfig, input: {
         // server crash without re-running prompt hooks or creating a new turn.
         if (!(await client.session.active())[sessionID]) {
           await requireAssistantWorkspaceSubscription(config, workspaceId);
+          await input.prepare(workspaceId, sessionID, client, entry);
           if (compaction) {
             const admitted = await client.session.compact({ sessionID, id, delivery: "queue" });
             if (admitted.id !== id) throw new Error("The engine did not confirm the queued compaction identity.");
           } else if (entry.execution.kind === "prompt") await client.session.prompt({ sessionID, id, ...queuedPromptPayload(entry.execution), delivery: "queue" });
+          else if (pending.type === "user") await client.session.prompt({ sessionID, id, text: pending.payload.text, delivery: "queue" });
         }
         return true;
       }
@@ -103,7 +107,7 @@ export function nativeQueueTransport(config: ServerConfig, input: {
       if (entry.delivery === "steer") {
         await requireAssistantWorkspaceSubscription(config, workspaceId);
         client = await input.client(workspaceId, sessionID);
-        if (await reconcileSteer(client, sessionID, entry)) return { accepted: true };
+        if (await reconcileSteer(client, sessionID, entry, () => input.prepare(workspaceId, sessionID, client, entry))) return { accepted: true };
       }
       try {
         await requireAssistantWorkspaceSubscription(config, workspaceId);
@@ -133,11 +137,11 @@ export function nativeQueueTransport(config: ServerConfig, input: {
         const admitted = await client.session.prompt({ sessionID, ...queuedPromptPayload(execution), id, delivery: entry.delivery ?? "queue" })
           .catch(error => { throw nativeDeliveryRejection(error) ?? error; });
         if (admitted.id !== id) throw new Error("The engine did not confirm the queued message identity.");
-        if (entry.delivery === "steer" && admitted.delivery === "queue" && !await reconcileSteer(client, sessionID, entry)) {
+        if (entry.delivery === "steer" && admitted.delivery === "queue" && !await reconcileSteer(client, sessionID, entry, () => input.prepare(workspaceId, sessionID, client, entry))) {
           throw new Error("The engine has not confirmed message steering. Checking delivery automatically.");
         }
       } else if (execution.kind === "command") {
-        await runNativeCommand(client, { sessionID, name: execution.command, text: execution.args,
+        await (entry.messageId ? runIdentifiedCommand : runNativeCommand)(client, { sessionID, name: execution.command, text: execution.args,
           files: execution.files, agents: execution.agents, skills: execution.skills, delivery: "queue" }, queueMessageID(entry));
       } else {
         await client.session.shell({ sessionID, command: execution.command });
