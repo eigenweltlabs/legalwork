@@ -1403,6 +1403,7 @@ export default {
     "limits.topup_quote_expired": "This price expired. Review the amount again.",
     "limits.total_charge": "Total charge",
     "limits.tax": "Tax",
+    "limits.account_balance": "Stripe account balance adjustment",
     "limits.usable_credits": "Usable credits",
     "limits.review_topup": "Review total",
     "limits.continue_checkout": "Continue to payment",

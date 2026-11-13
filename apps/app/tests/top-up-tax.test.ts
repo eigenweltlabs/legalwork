@@ -11,6 +11,16 @@ test("rejects inconsistent or invalid payment quotes", () => {
     { ...quote, amountCents: 0 }, { ...quote, taxCents: 0.5 }, { ...quote, totalCents: null }])
     expect(() => parseTopUpResult(bad)).toThrow("response");
 });
+test("includes invoice credits or debits in the amount requiring consent", () => {
+  for (const balanceCents of [4875, 5950, -3500]) {
+    const adjusted = { ...quote, balanceCents, totalCents: 5950 - balanceCents };
+    expect(parseTopUpResult(adjusted)).toEqual(adjusted);
+  }
+  for (const balanceCents of ["4875", 0.5, null, NaN])
+    expect(() => parseTopUpResult({ ...quote, balanceCents })).toThrow("response");
+  expect(() => parseTopUpResult({ ...quote, balanceCents: 6000, totalCents: -50 })).toThrow("response");
+  expect(() => parseTopUpResult({ ...quote, balanceCents: 4875 })).toThrow("response");
+});
 test("continues to handle payment confirmation and bank verification responses", () => {
   expect(parseTopUpResult({ status: "paid", operationId: "purchase" })).toEqual({ status: "paid", operationId: "purchase" });
   expect(parseTopUpResult({ status: "requires_action", operationId: "purchase", url: "https://hooks.stripe.com/test" })).toMatchObject({ status: "requires_action" });

@@ -1408,6 +1408,7 @@ const de = {
     "limits.topup_quote_expired": "Dieser Preis ist abgelaufen. Prüfen Sie den Betrag erneut.",
     "limits.total_charge": "Zahlungsbetrag",
     "limits.tax": "Steuer",
+    "limits.account_balance": "Verrechnung des Stripe-Kontosaldos",
     "limits.usable_credits": "Nutzbares Guthaben",
     "limits.review_topup": "Gesamtbetrag prüfen",
     "limits.continue_checkout": "Weiter zur Zahlung",

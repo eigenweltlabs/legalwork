@@ -162,7 +162,7 @@ export type BillingPaymentDetails = {
   pendingTopUps: { operationId: string; amountCents: number }[];
 };
 export type TopUpResult =
-  | { status: "requires_confirmation"; operationId: string; amountCents: number; taxCents: number; totalCents: number }
+  | { status: "requires_confirmation"; operationId: string; amountCents: number; taxCents: number; totalCents: number; balanceCents?: number }
   | {
       status: "paid" | "canceled" | "failed" | "processing";
       operationId: string;

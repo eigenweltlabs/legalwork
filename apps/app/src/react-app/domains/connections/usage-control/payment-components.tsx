@@ -299,6 +299,7 @@ function TopUpForm({ t, run, busy, transport, onPaid, trialUsage }: Props & { on
         <dl className="grid grid-cols-2 gap-3 rounded-xl border p-4 text-sm">
           <dt>{t("limits.usable_credits")}</dt><dd className="text-right">{money(result.amountCents)}</dd>
           <dt>{t("limits.tax")}</dt><dd className="text-right">{money(result.taxCents)}</dd>
+          {!!result.balanceCents && <><dt>{t("limits.account_balance")}</dt><dd className="text-right">{money(-result.balanceCents)}</dd></>}
           <dt className="font-semibold">{t("limits.total_charge")}</dt><dd className="text-right font-semibold">{money(result.totalCents)}</dd>
         </dl>
         {details?.card && <CardLabel card={details.card} t={t} />}
