@@ -83,7 +83,7 @@ const de = {
   "back_office.conflict.apply": "Meine Änderung übernehmen",
   "back_office.create.save": "Anlegen",
   "back_office.create.quick_fields": "Felder beim Anlegen eines Datensatzes",
-  "back_office.create.quick_fields_hint": "Wähle die Felder für die Kurzformulare in der Datensatz- und Projektauswahl. Pflichtfelder werden immer angezeigt; weitere Felder bleiben unter Weitere Angaben erreichbar.",
+  "back_office.create.quick_fields_hint": "Wählen Sie die Felder für die Kurzformulare in der Datensatz- und Projektauswahl. Pflichtfelder werden immer angezeigt; weitere Felder bleiben unter Weitere Angaben erreichbar.",
   "back_office.create.choose": "{name} auswählen",
   "back_office.create.search": "{name} suchen…",
   "back_office.create.select": "Erstellen und auswählen",
