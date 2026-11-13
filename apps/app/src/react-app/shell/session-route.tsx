@@ -25,7 +25,7 @@ import { usePanelTabStore, workspacePanelKey } from "@/react-app/domains/session
 import type { QueueInput } from "@legalwork/types/session-queue";
 import { buildFusionDelegationSystemPrompt } from "@/react-app/domains/session/fusion/fusion-prompt";
 import type { AssistantAvatarIcon, AssistantProfile } from "@legalwork/types/main-assistant";
-import { assistantShellQueryKey, localAssistantDate, resolveAssistantConversation, type AssistantShellState } from "@/react-app/launcher/assistant-navigation";
+import { assistantChatIdentity, assistantShellQueryKey, localAssistantDate, resolveAssistantConversation, type AssistantShellState } from "@/react-app/launcher/assistant-navigation";
 import { useHomeDraftSync, flushHomeDraft } from "@/react-app/launcher/home-draft-sync";
 import { sharedDraftCoordinator, windowOwnerId } from "@/react-app/launcher/launcher-route";
 import { submitAssistantDraft } from "@/react-app/launcher/submit-draft";
@@ -2957,7 +2957,7 @@ export function SessionRoute() {
         assistantGreetingUnread: assistantOnboarding.data?.greetingUnread,
         assistantProfile: assistant.data?.profile ?? savedAssistant.data?.profile,
         assistantWorkspaceId: assistant.data?.workspace.id,
-        assistantDay: assistant.data?.day ?? undefined,
+        assistantDay: assistantChatIdentity(assistant.data, selectedSessionId, assistantSessionConversation.data?.conversation),
         onSaveAssistantProfile: saveAssistantProfile,
         assistantDisabled: !client || (!assistant.data && eigenweltEntitlementsQuery.isPending && !eigenweltEntitlementsQuery.isError),
         onShowChats: () => navigate("/home"),
