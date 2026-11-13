@@ -73,7 +73,7 @@ export function DocumentRuntimeProvider({ children }: { children: ReactNode }) {
     const update = (state: import("@/app/lib/desktop").BrowserStatePayload) => {
       useTaskBrowserTabs.getState().update(state.tabs ?? []);
       const focused = state.focusedTabId ? state.tabs?.find(tab => tab.id === state.focusedTabId) : undefined;
-      if (focused?.taskSessionId && focused.workspaceId) openBackgroundTab(workspacePanelKey(focused.workspaceId), focused.taskSessionId, { ...focused, background: false });
+      if (focused?.taskSessionId && focused.workspaceId) openBackgroundTab(workspacePanelKey(focused.workspaceId), focused.taskSessionId, { ...focused, background: false }, state.openerTabId);
     };
     const unsubscribe = browser?.onStateChange?.(update);
     void browser?.getState?.().then(state => { if (state) update(state); });

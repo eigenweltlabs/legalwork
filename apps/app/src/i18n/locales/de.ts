@@ -602,6 +602,7 @@ const de = {
   "background_tabs.count": "Aktive Tabs ({count})",
   "background_tabs.toggle": "Hintergrund-Tabs auf- oder zuklappen",
   "background_tabs.close": "Hintergrund-Tab schließen: {name}",
+  "background_tabs.close_browser": "Browser-Tab schließen: {name}",
   "background_tabs.open": "Im rechten Bereich öffnen: {name}",
   "actaport.description": "Akten, Kontakte, Fristen und Dokumente in Actaport lesen und bearbeiten.",
   "actaport.prompt": "Verwenden Sie meinen verbundenen Actaport-Zugang, um die passende Akte und ihre Informationen zu finden. Lesen Sie den aktuellen Stand vor Änderungen und fragen Sie vor folgenreichen Schreibaktionen nach Freigabe.",

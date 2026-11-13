@@ -592,6 +592,7 @@ export default {
   "background_tabs.count": "Working tabs ({count})",
   "background_tabs.toggle": "Expand or collapse background tabs",
   "background_tabs.close": "Close background tab: {name}",
+  "background_tabs.close_browser": "Close browser tab: {name}",
   "background_tabs.open": "Open in right panel: {name}",
   "actaport.description": "Read and work with matters, contacts, deadlines and documents in Actaport.",
   "actaport.prompt": "Use my connected Actaport account to find the relevant matter and its records. Read before making changes and ask for approval for consequential writes.",

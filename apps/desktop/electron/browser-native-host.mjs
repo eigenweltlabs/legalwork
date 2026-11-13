@@ -64,11 +64,11 @@ export function createNativeBrowserHost(options) {
         const entry = ownerEntry(binding);
         return entry && !entry.context.remote ? [entry.engineDirectory, entry.downloadDirectory].filter(Boolean) : [];
       },
-      page: (binding, page) => {
+      page: (binding, page, popup) => {
         const entry = ownerEntry(binding);
         if (!entry) throw new Error("The browser page has no owning chat.");
         pageOwners.set(page.contents, entry);
-        options.adoptPage(entry.owner, page, entry.context, entry.downloadDirectory);
+        options.adoptPage(entry.owner, page, entry.context, entry.downloadDirectory, popup);
       },
       capture: capturePage,
       windows: { get: id => [...entries.values()].find(entry => entry.owner.id === id)?.owner },

@@ -48,7 +48,7 @@ export function createBrowserPanel(options) {
   const nativeHost = options.resolveEngine ? createNativeBrowserHost({ ...options, capture, partition: BROWSER_SESSION_PARTITION,
     prepareCapture: (owner, contents) => panelFor(owner).panel.prepareCapture(contents), captured,
     captureActive: (owner, contents) => panelFor(owner).panel.captureActive(contents),
-    adoptPage: (owner, page, context, directory) => panelFor(owner).panel.adoptNativePage(page, context, directory),
+    adoptPage: (owner, page, context, directory, popup) => panelFor(owner).panel.adoptNativePage(page, context, directory, popup),
     sessionError: (owner, context, error) => owner.webContents.send("legalwork:browser:error", { sessionId: context.sessionId, error }),
   }) : null;
   app.once("will-quit", () => { destroy(); void automationBroker.close(); void nativeHost?.dispose(); });
@@ -290,7 +290,7 @@ function createWindowBrowserPanel({ app, BaseWindow, WebContentsView, clipboard,
       downloads: tab.nativeContext?.remote ? tab.downloads.map(file => ({ ...file, path: null, relativePath: null, transferRequired: file.state === "completed" })) : tab.downloads, snapshot };
   }
 
-  function adoptNativePage(page, context, downloadDirectory) {
+  function adoptNativePage(page, context, downloadDirectory, popup) {
     const tab = createBrowserTab("about:blank", { select: false, downloadDirectory, taskSessionId: context.sessionId, workspaceId: context.workspaceId, nativePage: page });
     tab.nativeSessionId = context.sessionId;
     tab.nativeContext = context;
@@ -298,6 +298,11 @@ function createWindowBrowserPanel({ app, BaseWindow, WebContentsView, clipboard,
       state: file.state === "pending" ? "progressing" : file.state, receivedBytes: file.bytes, totalBytes: file.bytes,
       path: file.path, relativePath: path.relative(downloadDirectory, file.path).split(path.sep).join("/"),
       error: file.state === "failed" ? "Download failed; inspect the page before retrying." : null })) });
+    const opener = popup && getBrowserTab(popup.openerTabId);
+    if (opener && !popup.background && !opener.background && browserViewVisible && window().contentView.children.includes(opener.view)) {
+      // Only a popup from a pane the user opened may join that pane's tabs.
+      sendToRenderer("legalwork:browser:state", { ...browserStatePayload(), focusedTabId: tab.tabId, openerTabId: opener.tabId });
+    }
     return tab;
   }
 
@@ -836,7 +841,7 @@ function createWindowBrowserPanel({ app, BaseWindow, WebContentsView, clipboard,
   }
 
   function closeUserBrowserTab(tab) {
-    return tab.taskActive ? returnBrowserTabToBackground(tab) : closeBrowserTab(tab.tabId);
+    return tab.taskSessionId ? returnBrowserTabToBackground(tab) : closeBrowserTab(tab.tabId);
   }
 
   function closeBrowserTab(tabId = activeBrowserTabId) {

@@ -333,6 +333,9 @@ test("agent mini tabs retain their chat ownership between turns and close only w
   assert.equal(f.views[0].webContents.isDestroyed(), false);
   assert.equal(f.call("state", f.first).tabs[0].taskSessionId, "a");
   f.call("closeTab", f.first, a.tab_id);
+  assert.equal(f.views[0].webContents.isDestroyed(), false);
+  assert.equal(f.call("state", f.first).tabs[0].background, true);
+  f.call("dismissTab", f.first, a.tab_id);
   assert.equal(f.views[0].webContents.isDestroyed(), true);
 });
 
@@ -345,7 +348,7 @@ test("dismissing an active background tab closes it when the turn finishes", asy
   assert.equal(f.views[0].webContents.isDestroyed(), true);
 });
 
-test("normal panel close rejects capture admission before an asynchronous native close finishes", async t => {
+test("explicit preview close rejects capture admission before an asynchronous native close finishes", async t => {
   const f = fixture(); t.after(() => f.controller.destroy());
   const opened = await f.call("openUrl", f.first, "https://example.com/close", "builtin", { workspaceId: "project", sessionId: "closing-chat" });
   f.call("selectTab", f.first, opened.tab_id);
@@ -354,6 +357,8 @@ test("normal panel close rejects capture admission before an asynchronous native
   let requested = false;
   contents.close = () => { requested = true; };
   f.call("closeTab", f.first, opened.tab_id);
+  assert.equal(requested, false);
+  f.call("dismissTab", f.first, opened.tab_id);
   assert.equal(requested, true);
   assert.equal(contents.isDestroyed(), false);
   const response = await fetch(`${opened.browser_url}/capture`, { method: "POST", headers: { "x-legalwork-browser-session": "closing-chat" }, body: "{}" });

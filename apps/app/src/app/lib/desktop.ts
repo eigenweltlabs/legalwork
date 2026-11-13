@@ -38,6 +38,7 @@ import type { BrowserPanelTab } from "./desktop-types";
 
 export type BrowserStatePayload = {
   focusedTabId?: string;
+  openerTabId?: string;
   activeTabId?: string | null;
   tabs?: BrowserPanelTab[];
 };

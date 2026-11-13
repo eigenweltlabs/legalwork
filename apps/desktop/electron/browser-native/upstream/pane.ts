@@ -50,7 +50,7 @@ export function createBrowserPane(input: {
   readonly authorize?: (binding: string) => Promise<void>
   readonly downloadDirectory?: (binding: string) => string | undefined
   readonly fileRoots?: (binding: string) => string[]
-  readonly page?: (binding: string, page: BrowserPage) => void
+  readonly page?: (binding: string, page: BrowserPage, popup?: { openerTabId: Browser.TabID; background: boolean }) => void
   readonly capture?: BrowserCapture
   /** Keep pages across reloads of a trusted host app, never navigation to another origin. */
   readonly retainOnNavigation?: (url: string) => boolean
@@ -486,6 +486,7 @@ export function createBrowserPane(input: {
     initialize = true,
     popupOptions?: Electron.BrowserWindowConstructorOptions,
     restore?: Browser.Tab,
+    opener?: { openerTabId: Browser.TabID; background: boolean },
   ) {
     if (!entry.network) throw new Error("Browser network is not ready; no tab was opened.")
     const id = restore?.id ?? Browser.TabID.make(`tab_${crypto.randomUUID()}`)
@@ -526,7 +527,7 @@ export function createBrowserPane(input: {
         publish(entry, { type: "address", tabID: id })
       },
       popup: (popupOptions, background) => {
-        const popup = create(entry, false, popupOptions)
+        const popup = create(entry, false, popupOptions, undefined, { openerTabId: id, background })
 
         if (!background) focus(entry, popup.state().id)
 
@@ -535,7 +536,7 @@ export function createBrowserPane(input: {
     })
 
     entry.pages.set(id, page)
-    input.page?.(entry.binding, page)
+    input.page?.(entry.binding, page, opener)
     entry.tabs.set(id, restore ?? page.state())
     // Straight to the window, not through the server report: the embed is local to this desktop.
     publish(entry, { type: "embed", tabID: id, embed: page.embed })
