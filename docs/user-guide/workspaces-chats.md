@@ -36,6 +36,8 @@ Long conversations load older messages automatically as you scroll up. LegalWork
 
 In a project, **New Chat** starts a conversation in that project. From the Personal Assistant, it opens a project picker so you can choose where the new conversation belongs. The Assistant conversation stays available. **Cmd/Ctrl+N** follows the same behavior.
 
+**Home** selects the project you most recently worked in for new messages. Visiting the Personal Assistant or Wiki keeps that project remembered. Use the project picker below the composer to choose another project or explicitly send a message to your Assistant. If the remembered project is no longer available, Home selects an available project; with no projects, it uses the Assistant.
+
 Ask “What is in this project?” or “Which files are here?” to get an answer directly in chat. The agent can look up the project’s files, notes, tasks, recordings and chats and summarize what it finds.
 
 The composer accepts a task, file attachments, `@` references and available slash commands. The model selector applies to the conversation. The assistant may ask a question or request permission while working; answer in the supplied controls. You can stop an active response and send a follow-up. Queued messages wait for the running work to reach the next opportunity to handle them. Stopping also cancels document requests that are still waiting to run. An edit already applied may finish saving; Stop does not undo that edit.

@@ -208,6 +208,8 @@ import { useBootState } from "./boot-state";
 import { removeProjectFromSidebar } from "./project-removal";
 import {
   forgetWorkspaceMemory,
+  readLastProjectId,
+  writeLastProjectId,
   readActiveWorkspaceId,
   readLastSessionFor,
   readLastWikiWorkspaceId,
@@ -843,6 +845,9 @@ export function SessionRoute() {
     () => workspaces.filter((workspace) => workspace.preset !== "wiki" && workspace.preset !== "main-assistant" && !hiddenTemplateWorkspaceIds.includes(workspace.id)),
     [hiddenTemplateWorkspaceIds, workspaces],
   );
+  useEffect(() => {
+    if (sidebarWorkspaces.some(workspace => workspace.id === selectedWorkspaceId)) writeLastProjectId(selectedWorkspaceId);
+  }, [sidebarWorkspaces, selectedWorkspaceId]);
   const workspaceSessionGroups = useMemo(
     () => toSessionGroups(showWikis && activeWiki ? workspaces.filter(workspace => workspace.id === activeWiki.workspaceId) : sidebarWorkspaces, sessionsByWorkspaceId, errorsByWorkspaceId, new Set(retryingWorkspaceIds)),
     [errorsByWorkspaceId, retryingWorkspaceIds, sessionsByWorkspaceId, sidebarWorkspaces, showWikis, activeWiki, workspaces],
@@ -2450,7 +2455,11 @@ export function SessionRoute() {
   const calendarPage = mainPage === "calendar";
   const homePage = location.pathname === "/home" || (!selectedSessionId && isSessionIndexRoute(location.pathname) && new URLSearchParams(location.search).get("view") !== "workspace");
   const homeEntryProjectId = routeWorkspaceId || homeProjectIdFromSearch(location.search);
-  const [homeProjectId, setHomeProjectId] = useState<string | null>(homeEntryProjectId);
+  const homeDefaultProjectId = sidebarWorkspaces.find(workspace => workspace.id === selectedWorkspaceId)?.id
+    ?? sidebarWorkspaces.find(workspace => workspace.id === readLastProjectId())?.id
+    ?? sidebarWorkspaces[0]?.id ?? null;
+  const homeInitialProjectId = homeEntryProjectId ?? (new URLSearchParams(location.search).get("assistant") === "1" ? null : homeDefaultProjectId);
+  const [homeProjectId, setHomeProjectId] = useState<string | null>(homeInitialProjectId);
   const homeAssistant = !homeProjectId || workspaces.find(item => item.id === homeProjectId)?.preset === "main-assistant";
   const homeModel = useChatModelPreferences(homeAssistant, homePage ? providerListQuery.data : undefined);
   const homeModelBehavior = useModelBehavior({ providerList: providerListQuery.data, defaultModel: homeModel.model, modelVariant: homeModel.variant });
@@ -2458,9 +2467,9 @@ export function SessionRoute() {
   const pendingHomeMessage = useRef<PendingHomeMessage & { workspaceId: string } | null>(null);
   useEffect(() => {
     if (!homePage) return;
-    setHomeProjectId(homeEntryProjectId);
+    setHomeProjectId(homeInitialProjectId);
     pendingHomeMessage.current = null;
-  }, [homePage, homeEntryProjectId]);
+  }, [homePage, homeInitialProjectId]);
 
   const handleHomeSend = async (text: string, attachments: HomeDraftAttachment[]) => {
     if (homeSending.current) return;
@@ -2879,7 +2888,7 @@ export function SessionRoute() {
               setHomeProjectId(id);
               pendingHomeMessage.current = null;
               if (id) setLegacySelectedWorkspaceId(id);
-              if (location.pathname === "/home") navigate(homeRoute(id), { replace: true });
+              if (location.pathname === "/home") navigate(id ? homeRoute(id) : "/home?assistant=1", { replace: true });
             }}
             onSend={handleHomeSend}
             disabled={effectiveLoading || createWorkspaceBusy || !client}
