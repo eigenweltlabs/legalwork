@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import os from "node:os";
 import path from "node:path";
 import { EventEmitter } from "node:events";
-import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
 import { createRequire } from "node:module";
 
 import {
@@ -15,6 +15,7 @@ import {
   staleUpdaterStatePaths,
   electronUpdaterFeedConfig,
   downloadUpdateReady,
+  isEligibleUpdate,
 } from "./updater.mjs";
 
 const checkForUpdatesWithFeedFallback = (app, updater) => checkUpdates(app, updater, { resolveFeed: async () => { throw new Error("Simulated API outage"); } });
@@ -25,6 +26,76 @@ const fakeApp = { getPath: (key) => (key === "home" ? "/Users/test" : `/Users/te
 // Only the native OS boundary is simulated: it must fetch the feed and ZIP
 // before reporting validation success or failure. No installer is executed.
 const { MacUpdater } = createRequire(import.meta.url)("electron-updater/out/MacUpdater.js");
+const { AppUpdater } = createRequire(import.meta.url)("electron-updater/out/AppUpdater.js");
+
+it("the real updater retains its gradual-rollout identity across app launches", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "legalwork-rollout-check-"));
+  const selected = { tag: "v4.0.0", version: "4.0.0", releaseId: 1, manifest: "latest.yml", assetNames: [], kind: "stable", feedUrl: "https://github.com/eigenweltlabs/legalwork/releases/download/v4.0.0" };
+  const app = { isPackaged: true, version: "3.0.0", name: "LegalWork", userDataPath: root,
+    baseCachePath: root, appUpdateConfigPath: path.join(root, "app-update.yml"),
+    whenReady: async () => {}, relaunch() {}, quit() {}, onQuit() {},
+    getVersion: () => "3.0.0", getPath: () => root,
+  };
+  const requests = [];
+  try {
+    for (let launch = 0; launch < 3; launch++) {
+      const updater = new AppUpdater(undefined, app);
+      updater.autoDownload = false;
+      updater.logger = { info() {}, warn() {}, error() {} };
+      updater.httpExecutor = { request: async (options) => {
+        requests.push(options);
+        return "version: 4.0.0\nfiles:\n  - url: legalwork-mac-arm64-4.0.0.zip\n    sha512: abc\n    size: 10\n";
+      } };
+      const { channelState, result } = await checkUpdates(app, updater, { resolveFeed: async () => selected });
+      assert.equal(channelState.feedFallback, false);
+      assert.equal(result.updateInfo.version, "4.0.0");
+      assert.equal(isEligibleUpdate(result, app.version), true);
+    }
+    const persisted = await readFile(path.join(root, ".updaterId"), "utf8");
+    assert.equal(requests.length, 3);
+    for (const req of requests) {
+      assert.equal(req.hostname, "eigenweltlabs.com");
+      assert.match(req.path, /^\/legalwork\/update\/releases\/v4\.0\.0\/latest.*\.yml/);
+      assert.equal(req.headers["x-user-staging-id"], persisted);
+      assert.deepEqual(Object.keys(req.headers).sort(), ["x-user-staging-id", "x-legalwork-version", "x-legalwork-update-channel"].sort());
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+it("honors the real updater's gradual-rollout decision before offering or downloading an update", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "legalwork-staged-rollout-"));
+  const id = "11111111-2222-4333-8444-555555555555";
+  const selected = { tag: "v4.0.0", version: "4.0.0", releaseId: 1, manifest: "latest.yml", assetNames: [], kind: "stable", feedUrl: "https://github.com/eigenweltlabs/legalwork/releases/download/v4.0.0" };
+  const app = { isPackaged: true, version: "3.0.0", name: "LegalWork", userDataPath: root,
+    baseCachePath: root, appUpdateConfigPath: path.join(root, "app-update.yml"),
+    whenReady: async () => {}, relaunch() {}, quit() {}, onQuit() {},
+    getVersion: () => "3.0.0", getPath: () => root,
+  };
+  try {
+    await writeFile(path.join(root, ".updaterId"), id);
+    for (const stagingPercentage of [0, 100]) {
+      const updater = new AppUpdater(undefined, app);
+      updater.autoDownload = false;
+      updater.logger = { info() {}, warn() {}, error() {} };
+      updater.httpExecutor = { request: async (options) => {
+        assert.equal(options.headers["x-user-staging-id"], id);
+        return `version: 4.0.0\nstagingPercentage: ${stagingPercentage}\nfiles:\n  - url: legalwork-mac-arm64-4.0.0.zip\n    sha512: abc\n    size: 10\n`;
+      } };
+      const { result } = await checkUpdates(app, updater, { resolveFeed: async () => selected });
+      assert.equal(result.updateInfo.version, "4.0.0");
+      assert.equal(result.isUpdateAvailable, stagingPercentage === 100);
+      assert.equal(isEligibleUpdate(result, app.version), stagingPercentage === 100);
+      assert.equal(isEligibleUpdate(result, "4.0.0"), false);
+      assert.equal(isEligibleUpdate(result, "5.0.0"), false);
+    }
+    assert.equal(await readFile(path.join(root, ".updaterId"), "utf8"), id);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 for (const autoInstallOnAppQuit of [false, true]) {
   for (const preparationFails of [false, true]) {
     it(`prepares through the real MacUpdater handoff (auto install=${autoInstallOnAppQuit}, failure=${preparationFails})`, async () => {
@@ -96,8 +167,10 @@ it("resolves each persisted channel to an exact release without permitting a dow
         assert.equal(chosen, channel === "alpha" && process.platform === "linux" ? "stable" : channel);
         return selected;
       } });
-      assert.equal(channelState.feedUrl, selected.feedUrl);
-      assert.equal(updater.feed, selected.feedUrl);
+      const websiteFeed = "https://eigenweltlabs.com/legalwork/update/releases/v4.0.0";
+      assert.equal(channelState.feedUrl, websiteFeed);
+      assert.equal(updater.feed, websiteFeed);
+      assert.equal(channelState.feedFallback, false);
       assert.equal(updater.allowDowngrade, false);
       assert.equal(isVersionNewer("4.0.0", "5.0.0"), false);
       assert.equal(isVersionNewer("4.0.0", "4.0.0"), false);
@@ -105,6 +178,37 @@ it("resolves each persisted channel to an exact release without permitting a dow
     }
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+for (const tag of ["v4.0.0", "v4.0.0-beta.2", "alpha-macos-v4.0.0-alpha.7-abcdef1"]) {
+  for (const websiteFailure of ["outage", "stale"]) {
+    it(`retries the exact selected ${tag} on GitHub after a website ${websiteFailure}`, async () => {
+      const app = { isPackaged: true, getVersion: () => "3.0.0", getPath: () => "/nonexistent/legalwork-test" };
+      const selected = { tag, version: "4.0.0", releaseId: 1, manifest: "latest.yml", assetNames: [], kind: "stable", feedUrl: `https://github.com/eigenweltlabs/legalwork/releases/download/${tag}` };
+      const checks = [];
+      const updater = {
+        feed: "", requestHeaders: { existing: "retained" }, allowDowngrade: false,
+        setFeedURL({ url }) { this.feed = url; },
+        async checkForUpdates() {
+          checks.push(this.feed);
+          if (this.feed.startsWith("https://eigenweltlabs.com")) {
+            if (websiteFailure === "outage") throw new Error("Website unavailable");
+            return { updateInfo: { version: "3.0.0" } };
+          }
+          return { updateInfo: { version: selected.version } };
+        },
+      };
+      const { channelState } = await checkUpdates(app, updater, { resolveFeed: async () => selected });
+      assert.deepEqual(checks, [`https://eigenweltlabs.com/legalwork/update/releases/${tag}`, selected.feedUrl]);
+      assert.equal(channelState.feedUrl, selected.feedUrl);
+      assert.equal(channelState.feedFallback, true);
+      assert.equal(updater.feed, selected.feedUrl, "follow-up downloads must use the feed that answered");
+      assert.equal(updater.requestHeaders["x-legalwork-update-channel"], "stable");
+      assert.equal(updater.requestHeaders["x-legalwork-version"], "3.0.0");
+      assert.equal(updater.requestHeaders.existing, "retained");
+      assert.equal(updater.allowDowngrade, false);
+    });
+  }
+}
 
 it("rejects mismatched manifests instead of silently switching release or channel", async () => {
   const app = { isPackaged: true, getVersion: () => "3.0.0", getPath: () => "/nonexistent/legalwork-test" };

@@ -47,10 +47,10 @@ test("saved speaker audio is analyzed only at Stop, in bounded batches, then rem
     assert.equal(requests.length, 0);
     assert.equal(results.length, 0);
     await pass.finish();
-    assert.equal(requests.length, 5);
-    assert.equal(requests[0].length, 45000 * 32);
+    assert.equal(requests.length, 7);
+    assert.equal(requests[0].length, 30000 * 32);
     assert.ok(requests.every(request => request.length <= 58000 * 32));
-    assert.deepEqual(results.map(result => result.endMs), [45000, 90000, 135000, 180000, 200000]);
+    assert.deepEqual(results.map(result => result.endMs), [30000, 60000, 90000, 120000, 150000, 180000, 200000]);
     assert.equal(fs.existsSync(pass.folder), false);
   } finally { await pass.stop(); }
 });
@@ -61,6 +61,53 @@ test("cancelling before Stop removes saved speaker audio without a provider requ
   await pass.stop();
   await pass.finish();
   assert.equal(fs.existsSync(pass.folder), false);
+});
+
+test("a transient recognition failure skips that window and continues without retrying paid audio", async () => {
+  const actual = provider();
+  const warnings = [];
+  const results = [];
+  let calls = 0;
+  const pass = new CloudSpeakerPass({ chunkMs: 30000, recognize: async bytes => {
+    if (++calls === 2) throw Object.assign(new Error("Transient provider error"), { recoverable: true });
+    return actual.recognize(bytes);
+  }, onTurns: result => results.push(result), onError: error => warnings.push(error) });
+  for (let i = 0; i < 3; i++) { pass.feed(audio(100, 30000)); await pass.pending; }
+  await pass.finish();
+  assert.equal(calls, 3);
+  assert.equal(warnings.length, 1);
+  assert.equal(results.at(-1).endMs, 90000);
+  assert.ok(results.at(-1).turns.some(turn => turn.speaker === 0));
+});
+
+test("the deferred recording pass retains audio after a recoverable window failure", async () => {
+  const actual = provider();
+  let calls = 0;
+  const results = [];
+  const warnings = [];
+  const pass = new DeferredCloudSpeakerPass({ recognize: async bytes => {
+    if (++calls === 2) throw Object.assign(new Error("Temporary error"), { recoverable: true });
+    return actual.recognize(bytes);
+  }, onTurns: result => results.push(result), onError: error => warnings.push(error) });
+  for (let i = 0; i < 3; i++) {
+    pass.feed(audio(100, 30000));
+    await new Promise((resolve, reject) => pass.writer.write(Buffer.alloc(0), error => error ? reject(error) : resolve()));
+  }
+  await pass.finish();
+  assert.equal(calls, 3);
+  assert.equal(warnings.length, 1);
+  assert.equal(results.at(-1).endMs, 90000);
+  assert.equal(fs.existsSync(pass.folder), false);
+});
+
+test("three consecutive provider failures stop further speaker requests", async () => {
+  let calls = 0;
+  const pass = new CloudSpeakerPass({ chunkMs: 30000, recognize: async () => {
+    calls++; throw Object.assign(new Error("Unavailable"), { recoverable: true });
+  }, onTurns() {}, onError() {} });
+  for (let i = 0; i < 5; i++) { pass.feed(audio(100, 30000)); await pass.pending; }
+  await pass.finish();
+  assert.equal(calls, 3);
 });
 
 test("two cloud calls keep returning voices stable despite provider label swaps, silence and an absent speaker", async () => {
@@ -105,6 +152,17 @@ test("the same speech in the overlap cannot become a new person when Chirp split
   assert.equal(pass.anchors.length, 2);
 });
 
+test("a reference/current-label mismatch alone cannot enroll a new person", () => {
+  const pass = new CloudSpeakerPass({ recognize: async () => [], onTurns() {}, onError: assert.fail });
+  pass.anchors = [{ speaker: 0, audio: audio(100, 3000), startMs: 0, endMs: 3000, confirmed: true }];
+  pass.nextSpeaker = 1;
+  const turns = pass.match([{ startMs: 0, endMs: 3000, speaker: "reference" },
+    { startMs: 3250, endMs: 11250, speaker: "current" }],
+  [{ speaker: 0, startMs: 0, endMs: 3000 }], audio(100, 8000), 3250, 30000);
+  assert.equal(turns[0].speaker, null);
+  assert.equal(pass.anchors.length, 1);
+});
+
 test("word alignment separates people within one delayed live segment without rewriting its text", () => {
   const segment = { id: "live", text: "Ich prüfe den Vertrag. Danke, ich übernehme.", startMs: 0, endMs: 14000, final: true, speaker: null };
   const words = ["ich", "prüfe", "den", "Vertrag", "danke", "ich", "übernehme"].map((text, i) =>
@@ -115,6 +173,16 @@ test("word alignment separates people within one delayed live segment without re
   assert.equal(parts[1].startMs, 3000, "use word time, not a proportional split of the delayed live interval");
   assert.deepEqual(parts.map(part => part.id), ["live:w0", "live:w4"]);
   assert.equal(splitCloudTranscript({ ...segment, text: "Unrelated recognition words" }, words, [], 14000)[0].speaker, null);
+});
+
+test("a long final packet is split at timed paragraph boundaries even for one speaker", () => {
+  const words = Array.from({ length: 600 }, (_, i) => ({ text: `word${i}`, startMs: i*300, endMs: i*300+250, speaker: 0 }));
+  const segment = { id: "long", text: words.map(word => word.text).join(" "), startMs: 0, endMs: 180000, final: true, speaker: 0 };
+  const parts = splitCloudTranscript(segment, words, [], 180000);
+  assert.ok(parts.length > 6);
+  assert.equal(parts.map(part => part.text).join(" "), segment.text);
+  assert.ok(parts.every(part => part.text.length <= 600 && part.endMs-part.startMs <= 30000 && part.speaker === 0));
+  assert.ok(parts.every((part, i) => i === 0 || part.startMs >= parts[i-1].endMs));
 });
 
 test("brief uncertain speech remains unassigned and speaker references are bounded", () => {

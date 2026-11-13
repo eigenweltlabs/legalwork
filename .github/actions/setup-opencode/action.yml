@@ -1,6 +1,10 @@
 name: Set up pinned OpenCode
 description: Install LegalWork's selected, independently pinned OpenCode engine
 inputs:
+  archive-family:
+    description: Handoff contains native OS-family archives plus the complete independently pinned manifest
+    required: false
+    default: 'false'
   build-mode:
     description: Explicit development or production source preparation mode
     required: false
@@ -28,6 +32,7 @@ runs:
         BUILD_ARCHIVES: ${{ inputs.archive-directory }}
         BUILD_MANIFEST_SHA256: ${{ inputs.manifest-sha256 }}
         BUILD_CACHE_DIRECTORY: ${{ inputs.build-cache-directory }}
+        BUILD_ARCHIVE_FAMILY: ${{ inputs.archive-family }}
       run: |
         node --input-type=module <<'NODE'
         import assert from 'node:assert/strict';
@@ -43,6 +48,7 @@ runs:
         if (archiveDirectory) assert.equal(path.basename(path.resolve(archiveDirectory)), 'archives');
         if (mode === 'production') assert.ok(archiveDirectory, 'Production setup requires the complete independently pinned same-run signed distribution');
         const prepared = await prepareOpencodeEngine({ mode,
+          ...(process.env.BUILD_ARCHIVE_FAMILY === 'true' ? { archiveTargets: recipe.targets.filter(target => target.startsWith(({ darwin: 'darwin-', linux: 'linux-', win32: 'windows-' })[process.platform])) } : {}),
           ...(mode === 'production' ? { targets: recipe.targets } : {}),
           ...(process.env.BUILD_CACHE_DIRECTORY ? { cacheDirectory: path.resolve(process.env.BUILD_CACHE_DIRECTORY) } : {}),
           ...(archiveDirectory ? { distributionDirectory: path.dirname(path.resolve(archiveDirectory)), manifestSha256 } : {}) });

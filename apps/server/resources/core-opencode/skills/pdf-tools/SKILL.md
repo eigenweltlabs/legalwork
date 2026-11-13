@@ -1,18 +1,18 @@
 ---
 name: pdf-tools
 description: >-
-  Firm-owned PDF reading + actions over the in-app PDF viewer. Use whenever the user
-  wants to work with a PDF: read it (extract its text to quote, summarize, or compare),
-  annotate it (sticky notes, highlight boxes), list or fill its form fields (AcroForm),
+  Firm-owned PDF editing actions. Use when the user wants to
+  annotate a PDF (sticky notes, highlight boxes), list or fill its form fields (AcroForm),
   or stamp a signature (typed name + date, or a PNG signature image). Editing always
   writes a NEW copy (.annotated.pdf / .filled.pdf / .signed.pdf) — the original PDF is
   never modified. Self-contained; runs on the firm's own infrastructure; pairs with
-  the in-app PDF viewer.
+  the in-app PDF viewer. For reading, quoting, summarizing or comparing PDFs, use
+  read or storage_read_file directly; this skill is not required.
 ---
 
-# PDF reading + actions (text / annotate / fill-form / sign)
+# PDF actions (annotate / fill-form / sign)
 
-This skill is how this firm reads, annotates, fills, and signs PDFs with AI. It is
+This skill is how this firm annotates, fills, and signs PDFs with AI. It is
 **self-contained**: `assets/pdf-agent.mjs` imports vendored engines (pdf-lib for
 actions, pdf.js for text — pure JS, no native deps), so it runs in any workspace
 with no install. **Do not hand-edit PDF bytes or reach for python or `pdftotext`**
@@ -22,13 +22,9 @@ a **new file next to the source**; the original PDF is **never touched**.
 ## The tool
 
 ```bash
-# ALWAYS FIRST: page count, page sizes (points), and every form field
+# Before editing: page count, page sizes (points), and every form field
 # (name / type / current value / options) as JSON.
 node .opencode/skills/pdf-tools/assets/pdf-agent.mjs inspect "<file.pdf>"
-
-# READ the PDF: its text content per page as JSON ({ pageCount, pages: [{page, text}] }).
-# All pages by default; --pages limits it ("3", "1-4", "1,3,7-9").
-node .opencode/skills/pdf-tools/assets/pdf-agent.mjs text "<file.pdf>" --pages 1-4
 
 # Sticky notes + highlight rectangles (plan JSON on stdin). Writes <base>.annotated.pdf.
 echo '<plan-json>' | node .opencode/skills/pdf-tools/assets/pdf-agent.mjs annotate "<file.pdf>" --plan -
@@ -79,12 +75,40 @@ on the signature line `inspect` showed you). With `--image sig.png` the PNG is d
 above the signature rule instead of the typed name (`--image-width` scales it,
 default 140pt). This is a visible signature stamp, not a cryptographic signature.
 
-## Read (text)
+## Read PDFs and scans
 
-To answer questions about a PDF, quote it, summarize it, or compare it against
-another document, run `text` and work from the returned per-page JSON — cite the
-`page` numbers it gives you. A scanned/image-only PDF has no text layer: pages come
-back empty. Say so plainly (offer annotation instead); never fabricate content.
+For reading, quoting, summarizing or comparing, call `read` with `path`.
+For connected storage use `storage_read_file`. Neither requires loading this
+skill, opening a viewer, inspecting fields or running a shell command.
+
+- Choose combinable modes: `text: true` extracts embedded text, `ocr: true`
+  explicitly recognizes pages, and `attach: true` sends PDF pages directly to a
+  PDF-capable model for visual inspection. Ordinary reads default to embedded text
+  only. OCR never runs automatically, and text/OCR never implicitly attach a PDF.
+- `pages: [2, 3]` selects actual source pages; omitted means all pages.
+  OCR processes at most 100 pages per call;
+  attachments must fit 2 MB including base64 overhead. Oversized attachments return
+  recovery instructions without sending PDF bytes: choose fewer pages or text/OCR.
+- `pages_without_embedded_text` and `page_sources` report text-layer coverage.
+  Missing embedded text does not establish a blank page: choose OCR or visual
+  inspection for those pages. Embedded text also does not establish that images,
+  handwriting and annotations were reviewed. Use OCR and/or attachment when needed.
+- Choose a built-in PDF reading mode suited to the task: `text`, `attach` or `ocr`.
+  If the first chosen mode fails or leaves a specific uncertainty relevant to the
+  answer, such as missing page content or garbled, implausible or inconsistent
+  information, use another applicable built-in PDF mode to resolve the affected
+  content. Use shell only if the applicable built-in modes fail, are unavailable,
+  or leave the relevant uncertainty unresolved. Stop once the information is clear
+  and sufficient to answer.
+- `offset` and `limit` (`max_chars` for storage) only paginate returned embedded/OCR
+  text, never PDF pages, OCR work or attachment bytes. Follow `next_offset` with the
+  same pages and modes when `truncated: true`. `complete` describes extraction
+  coverage of selected pages, not whether all text was returned or the entire
+  document reviewed. Report unreadable pages and OCR setup errors; do not repeat an
+  unchanged failed call or claim missing content is absent. Never fabricate content.
+
+The legacy script's `text` subcommand extracts embedded text only. It is not the
+document reader and cannot establish that a scan is unreadable.
 
 ## Workflow
 
@@ -93,7 +117,7 @@ back empty. Say so plainly (offer annotation instead); never fabricate content.
    AcroForm fields — `inspect` reports `fields: []` for flat PDFs; say so and offer
    annotations instead.
 2. **`inspect`** and read the JSON: page sizes for placement, field names/options for
-   filling. To read the document itself, run **`text`**.
+   filling. To read the document itself, use **`read`**.
 3. **Run the action** (`annotate` / `fill` / `sign`). The tool refuses to overwrite
    the source; output goes to `<base>.annotated.pdf` / `.filled.pdf` / `.signed.pdf`
    next to it (`--out` to change).

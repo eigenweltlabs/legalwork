@@ -1,5 +1,6 @@
 /** @jsxImportSource react */
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { CalendarDays, CheckCircle2, ChevronDown, Folder, Loader2, Mail, RefreshCw } from "lucide-react";
 import { connectorDefinitions, connectorIsConnected, connectorStatusSchema, type ConnectorStatus, type ConnectorOAuthClient } from "@legalwork/types/connectors";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -17,6 +18,7 @@ import { resolveBrandIconSrc } from "../../design-system/extension-icon-src";
 
 export function ConnectorConfig({ id, legalworkServerClient: client, onExtensionConnectionChange, presentation = "panel" }: Pick<ExtensionConfigContext, "legalworkServerClient" | "onExtensionConnectionChange"> & { id: string; presentation?: "panel" | "dialog" }) {
   const platform = usePlatform();
+  const cache = useQueryClient();
   const definition = connectorDefinitions.find((item) => item.id === id);
   const [status, setStatus] = useState<ConnectorStatus | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -76,7 +78,12 @@ export function ConnectorConfig({ id, legalworkServerClient: client, onExtension
   const run = async (label: string, command: () => Promise<void>) => {
     if (active.current || busy) return;
     setBusy(label); setError(null); setNotice(null);
-    try { await command(); }
+    try {
+      await command();
+      if (definition?.kind === "calendar" || id === "outlook") {
+        cache.removeQueries({ predicate: query => query.queryKey[0] === "calendar" && (query.queryKey.includes("connections") || query.queryKey.includes("connected-events")) });
+      }
+    }
     catch (value) { if (mounted.current) setError(value instanceof Error ? value.message : t("connectors.failed")); }
     finally { if (mounted.current) setBusy(null); }
   };
@@ -84,7 +91,9 @@ export function ConnectorConfig({ id, legalworkServerClient: client, onExtension
   const connector = status?.connectors.find((item) => item.id === id);
   const connections = connector?.connections ?? [];
   const sharedOutlookAccount = id === "outlook" || id === "outlook-calendar";
-  const method = connections.length === 1 ? connections[0].source ?? "nango" : selectedMethod ?? (status?.requiresSignIn || oauthClient?.configured ? "custom" : "nango");
+  const microsoft = oauthClient?.family === "microsoft";
+  const builtIn = oauthClient?.builtIn === true;
+  const method = connections.length === 1 ? connections[0].source ?? "nango" : microsoft ? "custom" : selectedMethod ?? (status?.requiresSignIn || oauthClient?.configured ? "custom" : "nango");
   const dirty = clientId.trim() !== oauthClient?.clientId || tenantId.trim() !== oauthClient?.tenantId || Boolean(clientSecret.trim());
   const connect = async (connectionId?: string, source = method) => {
     if (!client) return;
@@ -138,14 +147,14 @@ export function ConnectorConfig({ id, legalworkServerClient: client, onExtension
         await client.connectorSaveOAuthClient(id, { clientId: clientId.trim(), tenantId: tenantId.trim(), ...(clientSecret.trim() ? { clientSecret: clientSecret.trim() } : {}) });
         await refresh(); setNotice(t("connectors.details_saved"));
       })}>{t("connectors.save_details")}</Button>
-      {oauthClient.configured && <Button variant="ghost" disabled={Boolean(busy)} onClick={() => void run("remove", async () => {
+      {oauthClient.configured && !builtIn && <Button variant="ghost" disabled={Boolean(busy)} onClick={() => void run("remove", async () => {
         if (client) { await client.connectorRemoveOAuthClient(id); await refresh(); }
-      })}>{t("connectors.remove_details")}</Button>}
+      })}>{t(microsoft ? "connectors.use_default_app" : "connectors.remove_details")}</Button>}
     </div>
     <p className="text-xs text-muted-foreground">{t("connectors.local_vault")}</p>
   </div>;
   return (
-    <div className="space-y-5">
+    <div className="min-w-0 space-y-5 [overflow-wrap:anywhere]">
       {presentation === "panel" && <header className="space-y-2">
         <h2 className="flex items-center gap-2 text-base font-semibold">
           {iconSrc ? <img src={iconSrc} alt="" className="size-5 shrink-0 object-contain" /> : <Icon className="size-4" />}
@@ -170,7 +179,7 @@ export function ConnectorConfig({ id, legalworkServerClient: client, onExtension
           <div key={connection.id} className="space-y-3">
             <div className="text-sm text-muted-foreground">
               {connections.length > 1 && <p className="font-medium text-foreground">{t("connectors.account", { count: index + 1 })}</p>}
-              <p>{t(connection.source === "custom" ? "connectors.method_custom" : "connectors.method_nango")}</p>
+              <p>{t(connection.source === "custom" ? builtIn ? "connectors.microsoft_signin" : "connectors.method_custom" : "connectors.method_nango")}</p>
               {connection.needsReconnect && <p className="mt-1 text-destructive">{t("connectors.reconnect_needed")}</p>}
             </div>
             <div className="flex flex-wrap gap-2">
@@ -189,22 +198,22 @@ export function ConnectorConfig({ id, legalworkServerClient: client, onExtension
         {sharedOutlookAccount && connections.length === 1 && <div className="space-y-2 pt-1">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="min-w-0 flex-1 text-sm text-muted-foreground">{t(connector?.active ? "connectors.activation_active" : "connectors.activation_available")}</p>
-            <Button variant={connector?.active ? "outline" : "default"} size="sm" disabled={Boolean(busy) || !client} onClick={() => void run("activate", async () => {
+            <Button className="h-auto min-h-8 max-w-full whitespace-normal py-1.5" variant={connector?.active ? "outline" : "default"} size="sm" disabled={Boolean(busy) || !client} onClick={() => void run("activate", async () => {
               if (client) { await client.connectorActivation(id, connections[0].id, !connector?.active); await refresh(); }
             })}>{t(connector?.active ? "connectors.deactivate" : "connectors.activate", { name: definition.name })}</Button>
           </div>
           <p className="text-xs leading-relaxed text-muted-foreground">{t("connectors.outlook_shared")}</p>
         </div>}
         {status && connections.length === 0 && <>
-          <Field>
+          {!microsoft && <Field>
             <FieldLabel htmlFor={`${id}-method`}>{t("connectors.method")}</FieldLabel>
             <Select value={method} disabled={Boolean(busy)} onValueChange={(value) => { if (value === "nango" || value === "custom") setSelectedMethod(value); }}>
               <SelectTrigger id={`${id}-method`} className="w-full"><SelectValue>{t(method === "custom" ? "connectors.method_custom" : "connectors.method_nango")}</SelectValue></SelectTrigger>
               <SelectContent><SelectItem value="nango">{t("connectors.method_nango")}</SelectItem><SelectItem value="custom">{t("connectors.method_custom")}</SelectItem></SelectContent>
             </Select>
-          </Field>
+          </Field>}
           {client && <div className="border-t border-border py-3"><ConnectorWriteSettings id={id} kind={definition.kind} client={client} /></div>}
-          {method === "custom" && oauthFields}
+          {method === "custom" && !builtIn && oauthFields}
           {method === "nango" && status?.requiresSignIn && <Alert><AlertDescription>{t("connectors.signin_hint")}</AlertDescription></Alert>}
           {method === "nango" && status && !status.requiresSignIn && !connector?.configured && <Alert><AlertDescription>{t("connectors.unavailable")}</AlertDescription></Alert>}
           <Button disabled={Boolean(busy) || !client || (method === "custom" ? !oauthClient?.configured || dirty : !connector?.configured || status.requiresSignIn)} onClick={() => void run("connect", () => connect())}>
@@ -227,12 +236,12 @@ export function ConnectorConfig({ id, legalworkServerClient: client, onExtension
           {t("connectors.connection_details")}<ChevronDown className="size-4 text-muted-foreground transition-transform group-open:rotate-180" />
         </summary>
         <div className="space-y-4 pb-1 pt-3">
-          <p className="text-xs leading-relaxed text-muted-foreground">{t(method === "custom" ? "connectors.custom_privacy" : "connectors.privacy", { name: definition.name })}</p>
+          <p className="text-xs leading-relaxed text-muted-foreground">{t(method === "custom" ? builtIn ? "connectors.direct_privacy" : "connectors.custom_privacy" : "connectors.privacy", { name: definition.name })}</p>
           {sharedOutlookAccount && connections.length === 0 && <p className="text-xs leading-relaxed text-muted-foreground">{t("connectors.outlook_shared")}</p>}
-          {method === "custom" && connections.length > 0 && <div className="space-y-3">
-            <h3 className="text-sm font-medium">{t("connectors.oauth_details")}</h3>
+          {method === "custom" && (connections.length > 0 || builtIn) && <details className="space-y-3">
+            <summary className="cursor-pointer text-sm font-medium">{t(builtIn ? "connectors.method_custom" : "connectors.oauth_details")}</summary>
             {oauthFields}
-          </div>}
+          </details>}
         </div>
       </details>
     </div>

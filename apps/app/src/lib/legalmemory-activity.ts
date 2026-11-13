@@ -13,7 +13,7 @@
 
 import { t } from "@/i18n";
 
-const SERVER_PREFIX = /^(?:legal[_-]?memory|knowledge[_-]?index)[_-]/i;
+const SERVER_PREFIX = /^(?:legal[_-]?memory|knowledge[_-]?index)[_.-]/i;
 
 /** Every tool the appliance registers. Kept explicit so an unrelated MCP server
  * that happens to expose `get_document` is not mistaken for LegalMemory. */

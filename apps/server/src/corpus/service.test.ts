@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, writeFile, mkdir, symlink, rm } from "node:fs/promises";
+import { mkdtemp, writeFile, mkdir, realpath, symlink, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { CorpusService, discoverCorpus, validateDocumentQuestion } from "./service.js";
@@ -111,4 +111,15 @@ test("one named folder searches over 5,000 files and reloads complete saved pagi
 
 test("explicit search paths have no document-count cap", () => {
   expect(CorpusQuerySchema.safeParse({ paths: Array.from({ length: 6001 }, (_, n) => String(n) + ".pdf") }).success).toBe(true);
+});
+
+test("explicit engine files retain their identity without adding engine files to ordinary folder searches", async () => {
+  const f = await fixture(), engine = await mkdtemp(join(tmpdir(), "corpus-engine-")); roots.push(engine);
+  await mkdir(join(engine, ".legalwork", "attachments"), { recursive: true });
+  const attachment = join(engine, ".legalwork", "attachments", "contract.txt"), ordinary = join(engine, "000.txt");
+  await writeFile(attachment, "Engine attachment"); await writeFile(ordinary, "Engine output");
+  expect((await discoverCorpus(f.root, ["."], engine)).files.map(file => file.path)).toEqual(["000.txt"]);
+  expect((await discoverCorpus(f.root, [attachment, ordinary, "000.txt"], engine)).files.map(file => file.path)).toEqual([".legalwork/attachments/contract.txt", await realpath(ordinary), "000.txt"]);
+  await symlink(tmpdir(), join(engine, "escape"));
+  await expect(discoverCorpus(f.root, [join(engine, "escape", "outside.txt")], engine)).rejects.toThrow();
 });

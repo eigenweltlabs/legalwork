@@ -1,5 +1,13 @@
 import { nativePluginTools } from "./opencode-plugins/native-plugin-test-support.js";
-const LegalWorkStorageTools = (context = {}) => nativePluginTools(LegalWorkStorageToolsDefinition, context);
+const LegalWorkStorageTools = (context = {}) => nativePluginTools({ ...LegalWorkStorageToolsDefinition,
+  setup: ctx => LegalWorkStorageToolsDefinition.setup(new Proxy(ctx, { get(target, property, receiver) {
+    if (property === "model") return { list: async () => ({ data: [
+      { providerID: "fixture", id: "pdf", capabilities: { input: ["text", "pdf"] } },
+      { providerID: "fixture", id: "text", capabilities: { input: ["text"] } },
+    ] }) };
+    return Reflect.get(target, property, receiver);
+  } })),
+}, context);
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import LegalWorkStorageToolsDefinition from "./opencode-plugins/legalwork-storage-tools.js";
@@ -26,6 +34,7 @@ import { storagePath, providerError } from "./file-storage/common.js";
 import { webdavFixture } from "./file-storage/testing/webdav.js";
 import { zipSync, strToU8 } from "fflate";
 import { PDFDocument, StandardFonts } from "pdf-lib";
+import { ensureWikiAgentToken, grantWikiAgentSession, revokeWikiAgentSession } from "./wiki/agent-access.js";
 
 let temporary: string;
 let rootPath: string;
@@ -125,8 +134,9 @@ test("storage_read_file reads Office and PDF sources without a viewer or sandbox
   pdf.addPage().drawText("Client consent is required before assigning this engagement to another firm.", { font, size: 12 });
   dav.files.set("first/source.pdf", Buffer.from(await pdf.save()));
   const id = await connect(storageInputSchema.parse({ name: "Source reading", readOnly: true, config: { kind: "webdav", endpoint: `${dav.endpoint}/first` } }));
-  const { tool } = await LegalWorkStorageTools();
-  const read = (path: string, args: Record<string, unknown> = {}) => tool.storage_read_file.execute({ connection_id: id, path, ...args }, { directory: temporary }).then(JSON.parse);
+  const plugin = await LegalWorkStorageTools();
+  await plugin.runtime.hook("session", "model.request", { sessionID: "source-reading", agent: "build", kind: "primary", model: { providerID: "fixture", id: "text" } });
+  const read = (path: string, args: Record<string, unknown> = {}) => plugin.tool.storage_read_file.execute({ connection_id: id, path, ...args }, { directory: temporary, sessionID: "source-reading" }).then(parseToolJson);
   try {
     const first = await read("source.docx", { max_chars: 24 });
     expect(first).toMatchObject({ complete: true, extraction: "native", writable: false, next_offset: 24 });
@@ -136,7 +146,18 @@ test("storage_read_file reads Office and PDF sources without a viewer or sandbox
     expect(first.text.length + rest.text.length).toBe(first.total_chars);
     expect(rest).not.toHaveProperty("next_offset");
     expect(rest.source_hash).toBe(first.source_hash);
-    expect((await read("source.pdf")).text).toContain("[Page 1]\nClient consent");
+    const pdfFirst = await read("source.pdf", { max_chars: 24 });
+    const pdfRest = await read("source.pdf", { offset: pdfFirst.next_offset });
+    expect(pdfFirst.attached).toBe(false);
+    expect(pdfFirst.text + pdfRest.text).toContain("[Page 1]\nClient consent");
+    expect(pdfFirst.next_offset).toBe(24);
+    expect(pdfRest).not.toHaveProperty("next_offset");
+    await plugin.runtime.hook("session", "model.request", { sessionID: "source-reading", agent: "build", kind: "primary", model: { providerID: "fixture", id: "pdf" } });
+    const visual = await plugin.tool.storage_read_file.executeResult({ connection_id: id, path: "source.pdf", attach: true }, { directory: temporary, sessionID: "source-reading" });
+    const attachment = typeof visual.content === "string" ? undefined : visual.content?.find(part => part.type === "file");
+    expect(attachment?.mime).toBe("application/pdf");
+    expect(attachment?.uri).toBe(`data:application/pdf;base64,${dav.files.get("first/source.pdf")!.toString("base64")}`);
+    expect(visual.output).toMatchObject({ extraction: "pdf", path: "source.pdf", writable: false });
     expect((await read("deck.pptx")).text).toContain("Board approval");
     expect((await read("sheet.xlsx")).text).toContain("Budget\t45000");
     expect(await read("broken.docx")).toMatchObject({ ok: false, code: "storage_document_read_failed" });
@@ -148,6 +169,62 @@ test("storage_read_file reads Office and PDF sources without a viewer or sandbox
 });
 
 describe("storage API access and validation", () => {
+  test("session-scoped storage tools create a folder and move files without a general client credential", async () => {
+    const dav = webdavFixture();
+    const ids: string[] = [];
+    const sessionID = "storage-transfer-agent";
+    const previousToken = process.env.LEGALWORK_SERVER_TOKEN;
+    const previousAgentToken = process.env.LEGALWORK_WIKI_AGENT_TOKEN;
+    try {
+      for (const folder of ["first", "second", "readonly"])
+        ids.push(await connect(storageInputSchema.parse({ name: folder, readOnly: folder === "readonly", config: { kind: "webdav", endpoint: `${dav.endpoint}/${folder}` } })));
+      const [first, second, reference] = ids;
+      const agentToken = await ensureWikiAgentToken(config);
+      await grantWikiAgentSession(config, { sessionId: sessionID, directory: temporary, scope: "owner" });
+      process.env.LEGALWORK_WIKI_AGENT_TOKEN = agentToken;
+      process.env.LEGALWORK_SERVER_TOKEN = "not-a-general-client-credential";
+      const plugin = await LegalWorkStorageTools();
+      const context = { directory: temporary, sessionID };
+      const transfer = (input: Record<string, unknown>) => plugin.tool.storage_transfer.execute(input, context).then(parseToolJson);
+      expect(parseToolJson(await plugin.tool.storage_create_folder.execute({ connection_id: first, parent_path: "", name: "Archive" }, context))).toMatchObject({ path: "Archive", result: { ok: true } });
+      expect(dav.folders.has("first/Archive")).toBe(true);
+      expect(parseToolJson(await plugin.tool.storage_create_folder.execute({ connection_id: first, path: "Legacy folder" }, context))).toMatchObject({ result: { ok: true } });
+      expect(dav.folders.has("first/Legacy folder")).toBe(true);
+      await expect(plugin.tool.storage_create_folder.execute({ connection_id: first, path: "Archive", name: "Wrong folder" }, context)).rejects.toThrow("Use parent_path and name together");
+      expect(dav.folders.has("first/Wrong folder")).toBe(false);
+      expect((await api("POST", `/${first}/folders`, { path: "Ignored-name regression", name: "Wrong folder" })).status).toBe(400);
+      expect(dav.folders.has("first/Ignored-name regression")).toBe(false);
+      const file = { connection_id: first, path: "note.txt", kind: "file", destination_connection_id: first, destination_path: "Archive", mode: "move" };
+      expect(await transfer(file)).toMatchObject({ result: { ok: true, path: "Archive/note.txt" } });
+      expect(dav.files.has("first/note.txt")).toBe(false);
+      expect(dav.files.get("first/Archive/note.txt")?.toString()).toBe("note");
+      expect(await transfer({ ...file, path: "matter", kind: "folder", destination_connection_id: second, destination_path: "" })).toMatchObject({ result: { ok: true, path: "matter" } });
+      expect(dav.files.get("second/matter/nested/b.txt")?.toString()).toBe("beta");
+      expect(dav.folders.has("second/matter/empty")).toBe(true);
+      expect(dav.folders.has("first/matter")).toBe(false);
+      expect(await transfer({ ...file, connection_id: reference, path: "reference.txt" })).toMatchObject({ ok: false, code: "storage_read_only" });
+      expect(await transfer({ ...file, path: "Archive/note.txt", destination_connection_id: reference, destination_path: "" })).toMatchObject({ ok: false, code: "storage_read_only" });
+      expect(dav.files.has("first/Archive/note.txt")).toBe(true);
+      expect(dav.files.has("readonly/reference.txt")).toBe(true);
+      const crossWorkspace = await api("POST", `/${first}/transfer`, {}, "none", "other-workspace", {
+        "x-legalwork-wiki-agent-token": agentToken,
+        "x-legalwork-wiki-agent-session": sessionID,
+        "x-legalwork-wiki-agent-directory": encodeURIComponent(temporary),
+      });
+      expect(crossWorkspace.status).toBe(403);
+      expect(await crossWorkspace.json()).toMatchObject({ code: "wiki_agent_workspace_denied" });
+      await grantWikiAgentSession(config, { sessionId: sessionID, directory: temporary, scope: "viewer" });
+      expect(await transfer({ ...file, path: "Archive/note.txt", destination_path: "" })).toMatchObject({ ok: false, code: "forbidden" });
+      expect(dav.files.has("first/Archive/note.txt")).toBe(true);
+      expect(dav.files.has("first/note.txt")).toBe(false);
+    } finally {
+      revokeWikiAgentSession(config, sessionID);
+      if (previousToken === undefined) delete process.env.LEGALWORK_SERVER_TOKEN; else process.env.LEGALWORK_SERVER_TOKEN = previousToken;
+      if (previousAgentToken === undefined) delete process.env.LEGALWORK_WIKI_AGENT_TOKEN; else process.env.LEGALWORK_WIKI_AGENT_TOKEN = previousAgentToken;
+      for (const id of ids) await api("DELETE", `/${id}`);
+      await dav.server.stop(true);
+    }
+  });
   test("streams folder progress before the transfer finishes, and reports the final path", async () => {
     const dav = webdavFixture(20);
     const ids: string[] = [];
@@ -162,7 +239,7 @@ describe("storage API access and validation", () => {
       const events: StorageTransferEvent[] = [];
       let sawPartialCopy = false;
       const feed = serverSentEvents((data) => {
-        const event = storageTransferEventSchema.parse(JSON.parse(data));
+        const event = storageTransferEventSchema.parse(parseToolJson(data));
         events.push(event);
         if (event.type === "progress" && event.progress.phase === "transferring" && event.progress.completedFiles === 1) {
           sawPartialCopy = true;
@@ -368,7 +445,7 @@ describe("storage API access and validation", () => {
     expect((await api("POST", "/test", local)).status).toBe(400);
     expect((await api("PUT", `/${id}`, local)).status).toBe(400);
     const store = new StorageStore(config);
-    const entries = z.array(z.unknown()).parse(JSON.parse(await readFile(store.path, "utf8")));
+    const entries = z.array(z.unknown()).parse(parseToolJson(await readFile(store.path, "utf8")));
     const legacyId = "8d59f1d1-f435-4515-b0f1-06f50eeef487";
     await writeFile(
       store.path,
@@ -609,7 +686,7 @@ async function roundTrip(input: StorageInput) {
   }
   expect(checkedFiles).toBe(input.config.kind === "gcs" ? 107 : 2);
   const { tool: filenameTools } = await LegalWorkStorageTools();
-  const filenameToolResults = JSON.parse(
+  const filenameToolResults = parseToolJson(
     await filenameTools.storage_search_filenames.execute(
       { connection_ids: [id, "missing-connection"], query: "IDDEN", path: folder },
       { directory: temporary },
@@ -659,7 +736,7 @@ async function roundTrip(input: StorageInput) {
     expect(capabilities.search).toMatchObject({ modes: ["name"], scope: "folder", pagination: true });
     const { tool } = await LegalWorkStorageTools();
     const search = async (query: string, cursor?: string) =>
-      JSON.parse(
+      parseToolJson(
         await tool.storage_search.execute(
           {
             connection_ids: [id],
@@ -730,7 +807,7 @@ async function roundTrip(input: StorageInput) {
 async function mutationRoundTrip(id: string, folder: string) {
   const { tool } = await LegalWorkStorageTools();
   const context = { directory: temporary };
-  const rename = (path: string, name: string, kind: "file" | "folder") => tool.storage_rename.execute({ connection_id: id, path, name, kind }, context).then(JSON.parse);
+  const rename = (path: string, name: string, kind: "file" | "folder") => tool.storage_rename.execute({ connection_id: id, path, name, kind }, context).then(parseToolJson);
   const source = `${folder}/rename-source`;
   const destination = `${folder}/renamed-ä`;
   for (const path of [source, `${source}/nested`, `${source}/empty`]) expect((await api("POST", `/${id}/folders`, { path })).status).toBe(201);
@@ -777,16 +854,16 @@ async function agentRoundTrip(id: string, folder: string) {
   const { tool } = await LegalWorkStorageTools();
   const context = { directory: temporary };
   const source = { connection_id: id, path: `${folder}/agent.txt` };
-  const roots = JSON.parse(await tool.storage_list_connections.execute({}, context)).connections;
+  const roots = parseToolJson(await tool.storage_list_connections.execute({}, context)).connections;
   expect(roots).toContainEqual(expect.objectContaining({ connection_id: id }));
-  const made = JSON.parse(
+  const made = parseToolJson(
     await tool.storage_write_file.execute({ ...source, mode: "create", content: "Agent draft" }, context),
   );
   expect(made.result.ok).toBe(true);
   let cursor: string | undefined;
   const paths: string[] = [];
   do {
-    const result = JSON.parse(
+    const result = parseToolJson(
       await tool.storage_search.execute(
         {
           connection_ids: [id],
@@ -802,12 +879,12 @@ async function agentRoundTrip(id: string, folder: string) {
     expect(result.page.complete).toBe(!cursor);
   } while (cursor);
   expect(paths).toContain(source.path);
-  const read = JSON.parse(await tool.storage_read_file.execute({ ...source, max_chars: 5 }, context));
+  const read = parseToolJson(await tool.storage_read_file.execute({ ...source, max_chars: 5 }, context));
   expect(read.text).toBe("Agent");
   expect(read.next_offset).toBe(5);
-  const rest = JSON.parse(await tool.storage_read_file.execute({ ...source, offset: read.next_offset }, context));
+  const rest = parseToolJson(await tool.storage_read_file.execute({ ...source, offset: read.next_offset }, context));
   expect(rest.text).toBe(" draft");
-  const saved = JSON.parse(
+  const saved = parseToolJson(
     await tool.storage_write_file.execute(
       { ...source, mode: "replace", content: "Agent saved", version: read.version },
       context,
@@ -815,7 +892,7 @@ async function agentRoundTrip(id: string, folder: string) {
   );
   expect(saved.result.ok).toBe(true);
   expect(
-    JSON.parse(
+    parseToolJson(
       await tool.storage_write_file.execute(
         { ...source, mode: "replace", content: "Stale", version: read.version },
         context,
@@ -823,50 +900,50 @@ async function agentRoundTrip(id: string, folder: string) {
     ).code,
   ).toBe("storage_conflict");
   expect(
-    JSON.parse(
+    parseToolJson(
       await tool.storage_write_file.execute({ ...source, mode: "replace", content: "Missing version" }, context),
     ).code,
   ).toBe("storage_version_required");
-  const downloaded = JSON.parse(await tool.storage_read_file.execute({ ...source, format: "download" }, context));
+  const downloaded = parseToolJson(await tool.storage_read_file.execute({ ...source, format: "download" }, context));
   expect(await readFile(join(temporary, downloaded.local_path), "utf8")).toBe("Agent saved");
   await writeFile(join(temporary, downloaded.local_path), "Edited local document");
   expect(
-    JSON.parse(
+    parseToolJson(
       await tool.storage_write_file.execute(
         { ...source, mode: "replace", local_path: downloaded.local_path, version: downloaded.version },
         context,
       ),
     ).result.ok,
   ).toBe(true);
-  expect(JSON.parse(await tool.storage_read_file.execute(source, context)).text).toBe("Edited local document");
+  expect(parseToolJson(await tool.storage_read_file.execute(source, context)).text).toBe("Edited local document");
   expect(
-    JSON.parse(await tool.storage_create_folder.execute({ connection_id: id, path: `${folder}/agent-folder` }, context))
+    parseToolJson(await tool.storage_create_folder.execute({ connection_id: id, path: `${folder}/agent-folder` }, context))
       .result.ok,
   ).toBe(true);
   expect(
-    JSON.parse(await tool.storage_list_folder.execute({ connection_id: id, path: `${folder}/agent-folder` }, context))
+    parseToolJson(await tool.storage_list_folder.execute({ connection_id: id, path: `${folder}/agent-folder` }, context))
       .page.entries,
   ).toEqual([]);
-  const outside = JSON.parse(
+  const outside = parseToolJson(
     await tool.storage_write_file.execute({ ...source, mode: "create", local_path: process.execPath }, context),
   );
   expect(outside.code).toBe("storage_local_path_outside_workspace");
   const connection = await new StorageStore(config).get("storage-test", id);
   await api("PUT", `/${id}`, { ...connection, readOnly: true });
   expect(
-    JSON.parse(await tool.storage_get_capabilities.execute({ connection_id: id }, context)).capabilities.write,
+    parseToolJson(await tool.storage_get_capabilities.execute({ connection_id: id }, context)).capabilities.write,
   ).toBe(false);
   expect(
-    JSON.parse(await tool.storage_write_file.execute({ ...source, mode: "create", content: "Read only" }, context))
+    parseToolJson(await tool.storage_write_file.execute({ ...source, mode: "create", content: "Read only" }, context))
       .code,
   ).toBe("storage_read_only");
   await api("PUT", `/${id}`, { ...connection, readOnly: false });
   process.env.LEGALWORK_SERVER_TOKEN = viewerToken;
   expect(
-    JSON.parse(await tool.storage_get_capabilities.execute({ connection_id: id }, context)).capabilities.write,
+    parseToolJson(await tool.storage_get_capabilities.execute({ connection_id: id }, context)).capabilities.write,
   ).toBe(false);
   expect(
-    JSON.parse(await tool.storage_write_file.execute({ ...source, mode: "create", content: "Viewer" }, context)).ok,
+    parseToolJson(await tool.storage_write_file.execute({ ...source, mode: "create", content: "Viewer" }, context)).ok,
   ).toBe(false);
   process.env.LEGALWORK_SERVER_TOKEN = config.token;
 }
@@ -1092,3 +1169,7 @@ test("remote-folder project creation, agent scope, setup completion and unlink n
     expect(mutations).toBe(0);
   } finally { config.projectsDirectory = previousProjectsDirectory; await dav.stop(true); }
 }, 30_000);
+
+function parseToolJson(value: string | { output: string }) {
+  return JSON.parse(typeof value === "string" ? value : value.output);
+}

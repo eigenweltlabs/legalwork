@@ -9,7 +9,7 @@ export async function canonicalFolderPath(path: string): Promise<string> {
   const absolute = resolve(path);
   try { return await realpath(absolute); }
   catch (error) {
-    if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+    if (!(error instanceof Error && "code" in error && (error.code === "ENOENT" || error.code === "ENOTDIR"))) throw error;
     const parent = dirname(absolute);
     if (parent === absolute) throw error;
     return join(await canonicalFolderPath(parent), basename(absolute));
@@ -20,11 +20,13 @@ function overlapError(): ApiError {
   return new ApiError(409, "wiki_workspace_overlap", "Choose separate wiki and project folders so project file access cannot bypass wiki permissions.");
 }
 export async function assertWikiFoldersIndependent(wikis: WikiRegistration[], workspaces: WorkspaceInfo[]): Promise<void> {
+  if (wikis.length === 0) return;
   const wikiWorkspaceIds = new Set(wikis.map((wiki) => wiki.workspaceId));
   const projectRoots: string[] = [];
   for (const workspace of workspaces) {
     if (workspace.workspaceType !== "local" || !workspace.path || (workspace.preset === "wiki" && wikiWorkspaceIds.has(workspace.id))) continue;
     projectRoots.push(await canonicalFolderPath(workspace.path));
+    if (workspace.contentPath) projectRoots.push(await canonicalFolderPath(workspace.contentPath));
   }
   for (const wiki of wikis) {
     const root = await canonicalFolderPath(wiki.root);

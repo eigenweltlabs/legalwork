@@ -319,3 +319,16 @@ test("the storage source tabs include optional team sources and isolate personal
   }
   queries.clear();
 });
+
+
+test("Workflows hosts Skills with one toolbar and the shared source filter", () => {
+  const queries = new QueryClient();
+  const html = renderToStaticMarkup(<QueryClientProvider client={queries}><WorkflowsView initialSection="skills" workspaceId="test" workspaceName="Test" busy={false} canInstallSkillCreator canUseDesktopTools extensions={{ ...extensions, workspaceContextKey: () => "test" }} onOpenLink={noop} createSessionAndOpen={noop} firmSkillsView={<p>Team catalogue</p>} /></QueryClientProvider>);
+  expect(html).toContain("Review prompts");
+  expect(html).toContain("skill-13");
+  expect(html).toContain("Team catalogue");
+  expect(html).toContain('title="Library source"');
+  expect(html.match(/aria-label="More actions"/g)).toHaveLength(1);
+  expect(html).not.toContain(">Local<");
+  queries.clear();
+});

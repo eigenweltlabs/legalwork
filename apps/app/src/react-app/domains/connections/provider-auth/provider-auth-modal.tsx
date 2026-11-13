@@ -297,7 +297,6 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [activeEntryIndex, setActiveEntryIndex] = useState(0);
   const [localError, setLocalError] = useState<string | null>(null);
-  const [pollingBusy, setPollingBusy] = useState(false);
   const [oauthAutoBusy, setOauthAutoBusy] = useState(false);
   const [oauthCodeCopied, setOauthCodeCopied] = useState(false);
   const [oauthBrowserOpened, setOauthBrowserOpened] = useState(false);
@@ -344,10 +343,8 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
   });
 
   const searchInputRef = useRef<HTMLInputElement | null>(null);
-  const providerPollRef = useRef<number | null>(null);
   const oauthAutoPollRef = useRef<number | null>(null);
   const oauthCodeCopiedResetRef = useRef<number | null>(null);
-  const pollingBusyRef = useRef(false);
   const oauthSubmitBusyRef = useRef(false);
   const oauthAutoBusyRef = useRef(false);
   const oauthStartBusyRef = useRef(false);
@@ -600,19 +597,10 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     setCustomEndpointConfigured(false);
     setCustomRefreshStatus(undefined);
     customModelsFocusRef.current = false;
-    pollingBusyRef.current = false;
     oauthSubmitBusyRef.current = false;
     oauthAutoBusyRef.current = false;
     oauthStartBusyRef.current = false;
-    setPollingBusy(false);
     setOauthAutoBusy(false);
-  };
-
-  const stopProviderPolling = () => {
-    if (providerPollRef.current !== null) {
-      window.clearInterval(providerPollRef.current);
-      providerPollRef.current = null;
-    }
   };
 
   const stopOauthAutoPolling = () => {
@@ -625,7 +613,6 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
   const handleClose = () => {
     void props.onRefreshProviders?.();
     stopOauthAutoPolling();
-    stopProviderPolling();
     resetState();
     props.onClose();
   };
@@ -737,55 +724,12 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     return () => {
       oauthStartTokenRef.current += 1;
       stopOauthAutoPolling();
-      stopProviderPolling();
       if (oauthCodeCopiedResetRef.current !== null) {
         window.clearTimeout(oauthCodeCopiedResetRef.current);
         oauthCodeCopiedResetRef.current = null;
       }
     };
   }, []);
-
-  const isOauthView = resolvedView === "oauth-code" || resolvedView === "oauth-auto";
-  const activeProviderId = oauthSession?.providerId ?? selectedProviderId;
-  const isActiveProviderConnected =
-    !!activeProviderId && (props.connectedProviderIds ?? []).includes(activeProviderId);
-
-  const pollProviders = async () => {
-    const id = activeProviderId;
-    if (!id || pollingBusyRef.current) return;
-    pollingBusyRef.current = true;
-    setPollingBusy(true);
-    try {
-      await props.onRefreshProviders?.();
-    } finally {
-      pollingBusyRef.current = false;
-      setPollingBusy(false);
-    }
-    if ((props.connectedProviderIds ?? []).includes(id)) {
-      handleClose();
-    }
-  };
-
-  const startProviderPolling = () => {
-    if (typeof window === "undefined") return;
-    if (providerPollRef.current !== null) return;
-    void pollProviders();
-    providerPollRef.current = window.setInterval(() => {
-      void pollProviders();
-    }, 2000);
-  };
-
-  useEffect(() => {
-    if (!props.open || !isOauthView) {
-      stopProviderPolling();
-      return;
-    }
-    if (isActiveProviderConnected) {
-      handleClose();
-      return;
-    }
-    startProviderPolling();
-  }, [isActiveProviderConnected, isOauthView, props.open]);
 
   const openOauthUrl = async (url: string) => {
     if (!url) return;
@@ -819,9 +763,14 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
 
     const trimmedCode = code?.trim();
     oauthSubmitBusyRef.current = true;
+    const startToken = oauthStartTokenRef.current;
     setLocalError(null);
     try {
-      return await props.onSubmitOAuth(providerId, methodIndex, trimmedCode || undefined);
+      const result = await props.onSubmitOAuth(providerId, methodIndex, trimmedCode || undefined);
+      // Existing API keys or firm connections do not complete this sign-in.
+      // Only the current native attempt may close the dialog and its listener.
+      if (startToken === oauthStartTokenRef.current && result?.connected) handleClose();
+      return result;
     } catch (error) {
       const message = error instanceof Error ? error.message : t("providers.oauth_failed");
       setLocalError(message);
@@ -838,9 +787,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     setOauthAutoBusy(true);
     try {
       const result = await submitOauth(session.providerId, session.methodIndex);
-      if (result?.connected) {
-        stopOauthAutoPolling();
-      } else if (result?.message) {
+      if (!result?.connected && result?.message) {
         setOauthSession(current => current ? { ...current, authorization: { ...current.authorization, instructions: result.message } } : current);
       }
     } finally {
@@ -919,8 +866,8 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
    * t("provider_auth.sign_in_eigenwelt"): the LegalWork server owns the OAuth loopback +
    * code exchange. We open the authorize URL, show the standard oauth-auto
    * waiting view with a synthetic session, and await the server long-poll.
-   * On success the provider flips connected and the existing provider polling
-   * closes the modal; on failure the error surfaces in the modal.
+   * Only the finalized sign-in result closes the modal; an existing provider
+   * connection is not proof that this new sign-in completed.
    */
   const startEigenweltOauth = async (entry: ProviderAuthEntry) => {
     if (!props.onEigenweltSignIn || actionDisabled || oauthStartBusyRef.current) return;
@@ -1763,7 +1710,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                     </div>
                   ) : (
                     <div className="flex items-center gap-2 text-xs text-dls-secondary">
-                      <Loader2 size={14} className={props.submitting || pollingBusy || oauthAutoBusy ? "animate-spin" : ""} />
+                      <Loader2 size={14} className={props.submitting || oauthAutoBusy ? "animate-spin" : ""} />
                       <span>{t("providers.checking_status")}</span>
                     </div>
                   )}

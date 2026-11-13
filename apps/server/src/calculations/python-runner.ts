@@ -37,7 +37,7 @@ const OutputSchema = z.object({ runtime: z.string(), steps: z.array(CalculationS
   results: z.array(z.object({ title: z.string().min(1), date: z.iso.date(), cutoff: z.iso.datetime({ offset: true }), timeZone: z.string() })).max(30).default([]),
   missingFacts: z.array(z.string()).max(30).default([]), sources: z.array(z.string()).max(40).default([]),
 }) });
-export async function calculationScript(workspace: string, name: string) {
+export async function calculationScript(workspace: import("../skills.js").SkillWorkspace, name: string) {
   const composed = await composedSkill(workspace, name);
   const installed = (await listSkills(workspace, true)).find(skill => skill.name === name);
   if (!installed) throw new ApiError(422, "deadline_skill_missing", "Install the calculation skill first.");

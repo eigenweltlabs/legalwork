@@ -7,7 +7,9 @@ import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster, toast } from "@/components/ui/sonner";
-import { createLegalworkServerClient, type LegalworkServerClient } from "@/app/lib/legalwork-server";
+import { createLegalworkServerClient, type LegalworkServerClient, type LegalworkBrowserPassword } from "@/app/lib/legalwork-server";
+import { legalResearchProviders } from "@legalwork/types/legal-research";
+import { ResearchDatabasesStep } from "@/react-app/domains/onboarding/research-databases";
 import { setLocale, t } from "@/i18n";
 import { EigenweltSignInTimeoutError } from "@/app/lib/eigenwelt-sign-in";
 import { WelcomePage, type ProjectCreatePhase } from "@/react-app/domains/onboarding/welcome-page";
@@ -28,6 +30,8 @@ document.documentElement.lang = params.get("lang") === "de" ? "de" : "en";
 document.documentElement.dataset.theme = params.get("theme") === "dark" ? "dark" : "light";
 const delay = () => new Promise<void>((resolve) => window.setTimeout(resolve, 700));
 const queryClient = new QueryClient();
+const previewPasswords: LegalworkBrowserPassword[] = [];
+let researchAttempts = 0;
 let previewConfig: Record<string, unknown> = {};
 let previewSandbox: Awaited<ReturnType<LegalworkServerClient["sandboxStatus"]>> = {
   enabled: params.has("sandbox-on") || params.has("managed"), supported: true, backend: "vm", available: true,
@@ -37,6 +41,24 @@ let previewSandbox: Awaited<ReturnType<LegalworkServerClient["sandboxStatus"]>> 
 const permissionsClient: LegalworkServerClient = {
   ...createLegalworkServerClient({ baseUrl: "http://127.0.0.1:0" }),
   canApprove: true,
+  listBrowserPasswords: async origin => ({ items: previewPasswords.filter(item => origin === undefined || item.origin === origin) }),
+  saveBrowserPassword: async input => {
+    await delay();
+    const item = { id: crypto.randomUUID(), label: input.label, origin: input.origin, username: input.username, updatedAt: new Date().toISOString(), websites: [{ name: input.label, url: input.websiteUrl ?? input.origin }] };
+    previewPasswords.push(item);
+    return { item };
+  },
+  configureResearchDatabase: async (_workspaceId, input) => {
+    await delay();
+    if (params.has("research-error") && researchAttempts++ === 0) throw new Error("Simulated connection failure");
+    const provider = "providerId" in input ? legalResearchProviders.find(item => item.id === input.providerId) : null;
+    const name = provider?.name ?? ("name" in input ? input.name : "Research");
+    const item = previewPasswords.find(entry => entry.id === input.passwordId);
+    if (!item) throw new Error("Choose a saved login");
+    const url = provider?.researchUrl ?? ("researchUrl" in input ? input.researchUrl : item.origin);
+    item.websites = [...item.websites.filter(site => site.url !== url), { name, url, providerId: provider?.id }];
+    return { item };
+  },
   sandboxStatus: async () => previewSandbox,
   setSandboxSettings: async settings => {
     if (previewSandbox.policy?.locked) throw new Error("Managed by your firm");
@@ -57,16 +79,18 @@ function OnboardingPreview() {
   const [analytics, setAnalytics] = useState(true);
   const [phase, setPhase] = useState<ProjectCreatePhase | null>(null);
   const [step, setStep] = useState(params.get("step") ?? "welcome");
+  const [researchCountry, setResearchCountry] = useState(params.get("country") ?? "");
   const previewAction = () => toast.info("Preview only", { description: "Account and device settings are unchanged." });
   return (
     <>
       <div className="fixed right-6 top-5 z-50 rounded-full border border-border bg-background/90 px-3 py-1 text-[10px] text-muted-foreground">Preview · Simulated setup</div>
       {step === "ai" && params.has("sync-flow") ? <SyncFlowPreview />
+      : step === "research" ? <ResearchDatabasesStep client={permissionsClient} workspaceId="preview" totalSteps={params.has("web") ? 4 : 7} initialCountry={researchCountry} onCountryChange={setResearchCountry} onBack={() => setStep("permissions")} onDone={previewAction} />
       : step === "office" ? <OfficeStep onBack={() => setStep("welcome")} onDone={() => setStep("audio")} />
       : step === "audio" || step === "dictation" ? <AudioStep feature={step === "audio" ? "meetings" : "dictation"} legalworkClient={null} workspaceId={null} onBack={() => setStep(step === "dictation" ? "audio" : "office")} onDone={() => setStep(step === "audio" ? "dictation" : "ai")} />
-      : step === "permissions" ? <PermissionsStep totalSteps={params.has("web") ? 3 : 6} legalworkClient={permissionsClient} runtimeWorkspaceId="preview" onConfigUpdated={() => {}} onBack={params.has("web") ? undefined : () => setStep("dictation")} onDone={previewAction} />
+      : step === "permissions" ? <PermissionsStep totalSteps={params.has("web") ? 4 : 7} legalworkClient={permissionsClient} runtimeWorkspaceId="preview" onConfigUpdated={() => {}} onBack={params.has("web") ? undefined : () => setStep("dictation")} onDone={() => setStep("research")} />
       : step === "ai" ? <AiPlansOverlay
-        totalSteps={params.has("web") ? 3 : 6}
+        totalSteps={params.has("web") ? 4 : 7}
         mode="onboarding"
         variant="new"
         account={null}
@@ -89,7 +113,7 @@ function OnboardingPreview() {
       />
       : <WelcomePage
         client={permissionsClient}
-        totalSteps={params.has("web") ? 3 : 6}
+        totalSteps={params.has("web") ? 4 : 7}
         analyticsEnabled={analytics}
         onAnalyticsChange={setAnalytics}
         busy={phase !== null}

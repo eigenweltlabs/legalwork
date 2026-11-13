@@ -7,6 +7,8 @@ import { copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import assert from 'node:assert/strict';
+import { currentSpeechCacheKey, restoreSpeechCache, sealSpeechCache } from './windows-arm64-speech-cache.mjs';
 
 const target = process.env.CARGO_CFG_TARGET_TRIPLE ?? process.env.TARGET;
 if (target !== "aarch64-pc-windows-msvc" && !(target == null && process.platform === "win32" && process.arch === "arm64")) process.exit(0);
@@ -17,6 +19,19 @@ const require = createRequire(path.join(desktop, "package.json"));
 const pin = JSON.parse(await readFile(path.join(desktop, "build/windows-arm64-speech.json"), "utf8"));
 const installed = require("sherpa-onnx-node/package.json");
 if (installed.version !== pin.version) throw new Error("Update Windows ARM64 speech pins alongside sherpa-onnx-node.");
+const destination = path.dirname(require.resolve("sherpa-onnx-node/package.json"));
+const cache = process.env.LEGALWORK_SPEECH_CACHE_DIRECTORY;
+const cacheKey = cache ? currentSpeechCacheKey() : undefined;
+if (cache) {
+  assert.equal(process.env.LEGALWORK_SPEECH_CACHE_KEY, cacheKey, 'Native speech cache must match this build');
+  if (restoreSpeechCache(cache, destination, cacheKey)) {
+    const loaded = spawnSync(process.execPath, ['-e', "const s=require('sherpa-onnx-node');console.log('ARM64 speech cache hit:',s.version)"], { cwd: desktop, stdio: 'inherit' });
+    if (loaded.error) throw loaded.error;
+    assert.equal(loaded.status, 0, 'Restored native speech adapter must load with its DLLs');
+    process.exit(0);
+  }
+  console.log('Native speech cache miss: compile the pinned adapter.');
+}
 const temporary = await mkdtemp(path.join(tmpdir(), "legalwork-arm64-speech-"));
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, { stdio: "inherit", ...options });
@@ -68,7 +83,6 @@ try {
   run(process.execPath, [require.resolve("cmake-js/bin/cmake-js"), "compile", "--directory", addon, "--arch", "arm64", "--CDCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded"], {
     env: { ...process.env, SHERPA_ONNX_INSTALL_DIR: native, NODE_PATH: path.join(desktop, "node_modules") },
   });
-  const destination = path.dirname(require.resolve("sherpa-onnx-node/package.json"));
   await copyFile(path.join(addon, "build/Release/sherpa-onnx.node"), path.join(destination, "sherpa-onnx.node"));
   for (const name of await readdir(path.join(native, "lib"))) {
     if (name.endsWith(".dll")) await copyFile(path.join(native, "lib", name), path.join(destination, name));
@@ -81,6 +95,7 @@ try {
   await writeFile(path.join(notices, "onnxruntime-ThirdPartyNotices.txt"), await download(`${onnxSource}/ThirdPartyNotices.txt`, pin.onnxruntimeNoticesSha256));
   // Prove that the generated adapter can load its native DLLs before packaging.
   run(process.execPath, ["-e", "const s=require('sherpa-onnx-node');console.log('ARM64 speech:',s.version)"] , { cwd: desktop });
+  if (cache) sealSpeechCache(cache, destination, cacheKey);
 } finally {
   await rm(temporary, { recursive: true, force: true });
 }

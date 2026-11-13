@@ -7,9 +7,11 @@ import { useUpdateCheckRequestStore } from "../domains/settings/state/update-che
 import { supportBundleCollect } from "../../app/lib/desktop";
 import { isDesktopRuntime } from "../../app/utils";
 import { useBootState, useBootOverlayVisible } from "./boot-state";
+import type { EngineStartupState } from "./engine-startup";
 import { OwDotTicker } from "./dot-ticker";
 import { SettingsSurface } from "./settings-route";
 import { t } from "@/i18n";
+import { MigrationProgressView } from "./migration-progress";
 
 const RELEASES_URL = "https://github.com/eigenweltlabs/legalwork/releases";
 
@@ -72,9 +74,13 @@ function CollectLogsButton() {
  * A minimal typographic beat plus a small dot ticker. Fades once both the
  * boot hook and the first route load are ready.
  */
-export function LoadingOverlay() {
+export function LoadingOverlay({ startup = { status: "ready" } }: { startup?: EngineStartupState }) {
   const visible = useBootOverlayVisible();
-  const { phase, message, error } = useBootState();
+  const { phase, message, error: bootError, routeReady } = useBootState();
+  const error = startup.status === "error" ? startup.message : bootError;
+  const updating = startup.status === "updating" && !error;
+  const migration = startup.status === "updating" ? startup.progress : undefined;
+  const preparingMessage = phase === "ready" || phase === "idle" ? t("boot.preparing_workspace") : message || t("boot.preparing_workspace");
   const [updatesOpen, setUpdatesOpen] = useState(false);
 
   const openUpdates = () => {
@@ -82,53 +88,55 @@ export function LoadingOverlay() {
     setUpdatesOpen(true);
   };
 
-  if (!visible) return null;
+  if (!visible && startup.status === "ready" && !updatesOpen) return null;
 
-  const fading = phase === "ready";
+  const fading = startup.status === "ready" && routeReady && (phase === "ready" || phase === "idle");
 
   return (
     <div
+      data-testid="startup-screen"
       className={`fixed inset-0 z-[1000] flex items-center justify-center bg-dls-surface transition-opacity duration-[160ms] ${
         fading ? "pointer-events-none opacity-0" : "pointer-events-auto opacity-100"
       }`}
       aria-live="polite"
-      aria-busy={!fading}
+      aria-busy={!fading && !error}
       role="status"
     >
       <div className="flex w-full max-w-[320px] flex-col items-center gap-4 px-6 text-center">
         <OwDotTicker size="md" />
         <div className="text-[12px] leading-5 text-dls-secondary">
-          {message || t("boot.preparing_workspace")}
+          {error ? t("boot.error") : updating ? t(migration ? "boot.migration_title" : "boot.updating") : preparingMessage}
         </div>
+        {updating ? migration ? <MigrationProgressView progress={migration} /> : <div className="text-[12px] leading-5 text-dls-secondary">{t("boot.updating_detail")}</div> : null}
         {error ? (
           <div className="flex flex-col items-center gap-3 text-[12px] leading-5 text-red-11">
             <div>{error}</div>
-            {isDesktopRuntime() ? (
-              <>
-                <Button variant="outline" size="sm" className="absolute bottom-6 right-6" onClick={openUpdates}>
-                  {t("ai_plans.check_updates")}
-                </Button>
-                <CollectLogsButton />
-                <Dialog open={updatesOpen} onOpenChange={setUpdatesOpen}>
-                  {/* Keep the updater and its menus above the boot overlay. */}
-                  <DialogContent
-                    className="flex max-h-[calc(100vh-2rem)] min-h-0 flex-col gap-0 bg-background p-0 sm:max-w-2xl"
-                    portalClassName="relative z-[1001]"
-                  >
-                    <DialogHeader className="px-6 pb-1 pt-6">
-                      <DialogTitle>{t("settings.tab_updates")}</DialogTitle>
-                      <DialogDescription>{t("settings.tab_description_updates")}</DialogDescription>
-                    </DialogHeader>
-                    {updatesOpen ? (
-                      <div className="flex min-h-0 flex-1 flex-col">
-                        <SettingsSurface embedded singleView initialPath="updates" />
-                      </div>
-                    ) : null}
-                  </DialogContent>
-                </Dialog>
-              </>
-            ) : null}
+            {isDesktopRuntime() ? <CollectLogsButton /> : null}
           </div>
+        ) : null}
+        {isDesktopRuntime() ? (
+          <>
+            <Button variant="outline" size="sm" className="absolute bottom-6 right-6" onClick={openUpdates}>
+              {t("ai_plans.check_updates")}
+            </Button>
+            <Dialog open={updatesOpen} onOpenChange={setUpdatesOpen}>
+              {/* Keep the updater and its menus above the boot overlay. */}
+              <DialogContent
+                className="flex max-h-[calc(100vh-2rem)] min-h-0 flex-col gap-0 bg-background p-0 sm:max-w-2xl"
+                portalClassName="relative z-[1001]"
+              >
+                <DialogHeader className="px-6 pb-1 pt-6">
+                  <DialogTitle>{t("settings.tab_updates")}</DialogTitle>
+                  <DialogDescription>{t("settings.tab_description_updates")}</DialogDescription>
+                </DialogHeader>
+                {updatesOpen ? (
+                  <div className="flex min-h-0 flex-1 flex-col">
+                    <SettingsSurface embedded singleView initialPath="updates" />
+                  </div>
+                ) : null}
+              </DialogContent>
+            </Dialog>
+          </>
         ) : null}
       </div>
     </div>

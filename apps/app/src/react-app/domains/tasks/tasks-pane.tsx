@@ -422,6 +422,7 @@ export function TasksPane(props: TasksPaneProps) {
       {attachmentTab && <div className="flex min-h-0 flex-1 flex-col"><Button variant="ghost" size="sm" className="self-start" onClick={() => attachments.closeThen()}>{t("workspace.back_to_task")}</Button><ArtifactPanel tab={attachmentTab} sessionId={draftScope} client={props.client} workspaceId={props.workspaceId} workspaceRoot={props.workspaces.find(workspace => workspace.id === props.workspaceId)?.path ?? ""} onClose={() => attachments.closeThen()} /></div>}
       <div className={attachmentTab ? "hidden" : "flex min-h-0 flex-1 flex-col"}><TaskDetail
         key={selectedTask.id}
+        client={props.client}
         inDialog={detailMode === "modal"}
         inPanel={detailMode === "modal"}
         draft={selectedDraft}
@@ -691,6 +692,7 @@ export function TasksPane(props: TasksPaneProps) {
       {linking && props.projectId && props.client ? <LinkProjectTaskDialog client={props.client} workspaceId={props.workspaceId} projectId={props.projectId} onClose={() => setLinking(false)} /> : null}
       {creating ? (
         <NewTaskDialog
+          client={props.client}
           open
           busy={createTask.isPending}
           connected={Boolean(syncQuery.data?.connected ?? access.connected)}

@@ -5,7 +5,27 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { sourceBuildPolicy } from "../build-policy.mjs";
 import recipe from "./recipe.json" with { type: "json" };
-import { buildOpencodeDistribution, sourceInstallArguments, validateSourceBuildRequest } from "./producer.mjs";
+import { buildOpencodeDistribution, runBuildWorkers, sourceInstallArguments, validateSourceBuildRequest } from "./producer.mjs";
+
+test('bounded producer workers retain complete target order and stop dispatch after a failure', async () => {
+  let active = 0, peak = 0;
+  const targets = ['a', 'b', 'c', 'd'];
+  const result = await runBuildWorkers(targets, 2, async (target, worker) => {
+    active++; peak = Math.max(peak, active);
+    await new Promise(resolve => setTimeout(resolve, 5));
+    active--; return { target, worker };
+  });
+  assert.equal(peak, 2);
+  assert.deepEqual(result.map(row => row.target), targets);
+  const started = [];
+  await assert.rejects(runBuildWorkers(targets, 2, async target => {
+    started.push(target);
+    if (target === 'a') throw new Error('native build failed');
+    await new Promise(resolve => setTimeout(resolve, 5));
+  }), /native build failed/);
+  assert.deepEqual(started, ['a', 'b']);
+  await assert.rejects(runBuildWorkers(targets, 0, async () => {}), /Engine workers/);
+});
 
 test("source builds require explicit mode, reviewed host compiler and unique reviewed targets", () => {
   assert.throws(() => validateSourceBuildRequest({}), /explicit development or production/);

@@ -1,13 +1,15 @@
+import { workspaceContentPath } from "../project-storage-paths.js";
 import { withViewSaveSources, type SavedSessionView } from "./save-source.js";
 import { createHash } from "node:crypto";
 import { z } from "zod";
+import { codeModeWidgetResults, toolDisplayText } from "../native-shared-values.js";
 import type { ViewPreview, ViewRecord, SessionViewPreview, SessionViewReview } from "@legalwork/types/views";
 import { ViewPreviewSchema } from "./schema.js";
 import type { ServerConfig } from "../types.js";
 import { WikiStore } from "../wiki/store.js";
 import { ViewRepository, workspaceViewFiles } from "./repository.js";
 
-const toolSchema = z.object({ type: z.literal("tool"), name: z.enum(["view_create", "view_update"]), id: z.string(), state: z.object({
+const toolSchema = z.object({ type: z.literal("tool"), name: z.enum(["view_create", "view_update", "execute"]), id: z.string(), state: z.object({
   status: z.literal("completed"), content: z.array(z.object({ type: z.string(), text: z.string().optional() }).passthrough()), metadata: z.record(z.string(), z.unknown()).optional(),
 }) });
 const messagesSchema = z.array(z.object({ type: z.string(), content: z.array(z.unknown()).optional() }).passthrough());
@@ -19,7 +21,15 @@ export function sessionViewPreviews(messages: unknown): SessionViewPreview[] {
       const part = toolSchema.safeParse(raw);
       if (!part.success) continue;
       const { id: callId, state } = part.data;
-      let value: unknown = state.metadata?.legalworkViewPreview ?? state.content.flatMap(item => item.type === "text" && item.text ? [item.text] : []).join("\n");
+      let value: unknown = state.metadata?.legalworkViewPreview ?? toolDisplayText(state.content, state.metadata);
+      if (part.data.name === "execute") {
+        for (const widget of codeModeWidgetResults(callId, state.metadata, value)) {
+          if (widget.tool !== "view_create" && widget.tool !== "view_update") continue;
+          const preview = ViewPreviewSchema.parse(widget.output);
+          result.push({ callId: widget.callId, title: preview.input.title, preview });
+        }
+        continue;
+      }
       if (typeof value === "string") {
         try { value = JSON.parse(value.replace(/(?:\n\n<system-reminder topic="[^"\r\n]+">\n[\s\S]*?\n<\/system-reminder>)+\s*$/u, "")); } catch { value = null; }
       }
@@ -28,7 +38,8 @@ export function sessionViewPreviews(messages: unknown): SessionViewPreview[] {
       else if (state.metadata?.truncated === true) result.push({ callId, title: "Dashboard preview (content unavailable)" });
     }
   }
-  return result;
+  const replaced = new Set(result.flatMap(item => item.preview?.replacesCallId ? [item.preview.replacesCallId] : []));
+  return result.filter(item => !replaced.has(item.callId));
 }
 function canonical(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
@@ -58,7 +69,7 @@ export async function savedSessionViews(config: ServerConfig): Promise<SavedSess
     const wikis = await store.list();
     const repositories = [
       ...wikis.map(wiki => new ViewRepository({ kind: "wiki", id: wiki.id }, { list: async () => (await store.files(wiki.id)).map(file => file.path), read: path => store.readAsset(wiki.id, path), write: async () => { throw new Error("Read only"); } })),
-      ...config.workspaces.filter(workspace => !wikis.some(wiki => wiki.workspaceId === workspace.id)).map(workspace => new ViewRepository({ kind: "workspace", id: workspace.id }, workspaceViewFiles(workspace.path))),
+      ...config.workspaces.filter(workspace => !wikis.some(wiki => wiki.workspaceId === workspace.id)).map(workspace => new ViewRepository({ kind: "workspace", id: workspace.id }, workspaceViewFiles(workspaceContentPath(workspace)))),
     ];
     const records: ViewRecord[] = [];
     for (const repository of repositories) {

@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "status": "relocation-source-validated",
+  "sourceValidationPassed": true,
+  "candidateBuildReady": true,
+  "buildReadyScope": "Passive relocation, existing move/execution/V1 migration, MCP/Code Mode HTTP and session generation source regressions; core/server typechecks. Native artifact and application acceptance are separate gates.",
+  "proposedCandidateVersion": "2.1.4-legalwork.http-policy.5",
+  "verifiedAt": "2026-11-08T13:34:59.238522+00:00",
+  "upstream": {
+    "repository": "https://github.com/anomalyco/opencode.git",
+    "tag": "v2.1.4",
+    "commit": "68bc26b7da1990ce10ffecfbc1e09eb13aa5d824"
+  },
+  "patch": {
+    "path": "docs/patches/opencode-2.1.4-project-relocation.patch",
+    "sha256": "dd6a34e338b40428cdccd7d7a761df84e9267d9945171c11b097858a24043396"
+  },
+  "priorPatch": {
+    "path": "docs/patches/opencode-2.1.4-mcp-http-policy-v3.patch",
+    "sha256": "422bbc772dffc711254b7f518b5f4ce4498af2cb0f6220e9bd4a11bc3414c92c",
+    "unchangedPrefix": true
+  },
+  "priorReceipt": {
+    "path": "docs/patches/opencode-2.1.4-migration-times.receipt.json",
+    "sha256": "62831d34304930800094afa27c8a6a6bbdabbcaa3b84234abf706e5c727b2dfe"
+  },
+  "runtime": {
+    "bun": "1.4.4"
+  },
+  "tests": [
+    {
+      "cwd": "packages/core",
+      "command": "bun run script/test.ts test/session-move.test.ts test/session-execution.test.ts test/v1-migration.test.ts test/codemode-http.test.ts test/mcp.test.ts test/session-generate.test.ts",
+      "passed": 183,
+      "failed": 0,
+      "assertions": 847
+    },
+    {
+      "cwd": "packages/core",
+      "command": "bun run typecheck",
+      "exitCode": 0,
+      "files": 1637
+    },
+    {
+      "cwd": "packages/server",
+      "command": "bun run typecheck",
+      "exitCode": 0,
+      "files": 1273
+    },
+    {
+      "cwd": "packages/client",
+      "command": "bun run generate",
+      "exitCode": 0
+    }
+  ],
+  "beforeFix": {
+    "command": "bun run script/test.ts test/session-move.test.ts --test-name-pattern \"passive relocation\"",
+    "passed": 0,
+    "failed": 2
+  },
+  "contract": "POST /api/session/:id/relocate publishes native placement only for inactive sessions, preserving queued input and suspended recovery. Ordinary move semantics stay unchanged. An older engine returns unsupported endpoint instead of running move."
+}

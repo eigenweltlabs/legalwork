@@ -8,28 +8,30 @@ test("engine file-reader defaults do not turn allowed project commands into appr
     { permission: "read", pattern: "*.env", action: "ask" },
     { permission: "read", pattern: "*.env.*", action: "ask" },
   ];
-  expect(explicitFileApprovals(defaults, [{ bash: "allow", edit: "allow" }])).toEqual([defaults[0]]);
-  expect(explicitFileApprovals(defaults, [{ read: { "*.env": "ask", "*.env.*": "ask" }, external_directory: "ask" }])).toEqual(defaults);
+  expect(explicitFileApprovals(defaults, [{ action: "shell", resource: "*", effect: "allow" }, { action: "edit", resource: "*", effect: "allow" }])).toEqual([defaults[0]]);
+  expect(explicitFileApprovals(defaults, [{ action: "read", resource: "*.env", effect: "ask" }, { action: "read", resource: "*.env.*", effect: "ask" }, { action: "external_directory", resource: "*", effect: "ask" }])).toEqual(defaults);
   const deny = { permission: "read", pattern: "private/*", action: "deny" };
   expect(explicitFileApprovals([...defaults, deny], [])).toContainEqual(deny);
   expect(managedPermissionRules(explicitFileApprovals(defaults, []), [defaults[1]])).toContainEqual(defaults[1]);
 });
 
 test("the protected tool keeps shell permissions while the host shell stays denied", () => {
-  expect(sandboxEnginePermissions({ "*": "allow", bash: "ask", edit: "deny" }))
-    .toEqual({ "*": "allow", edit: "deny", legalwork_shell: "ask", bash: "deny", webfetch: "deny", websearch: "deny" });
+  expect(sandboxEnginePermissions([{ action: "*", resource: "*", effect: "allow" }, { action: "shell", resource: "*", effect: "ask" }, { action: "edit", resource: "*", effect: "deny" }]))
+    .toEqual([{ action: "*", resource: "*", effect: "allow" }, { action: "legalwork_shell", resource: "*", effect: "ask" }, { action: "edit", resource: "*", effect: "deny" },
+      { action: "shell", resource: "*", effect: "deny" }, { action: "webfetch", resource: "*", effect: "deny" }, { action: "websearch", resource: "*", effect: "deny" }]);
 });
 
 test("custom and built-in agents cannot restore the host shell", () => {
-  const agents = sandboxEngineAgents({ custom: { permission: { "*": "allow", bash: "allow" } } });
-  for (const agent of Object.values(agents)) expect(agent.permission).toHaveProperty("bash", "deny");
-  expect(agents.custom.permission).toHaveProperty("legalwork_shell", "allow");
+  const agents = sandboxEngineAgents({ custom: { permissions: [{ action: "*", resource: "*", effect: "allow" }, { action: "shell", resource: "*", effect: "allow" }] } });
+  for (const agent of Object.values(agents)) expect(agent.permissions).toContainEqual({ action: "shell", resource: "*", effect: "deny" });
+  expect(agents.custom.permissions).toContainEqual({ action: "legalwork_shell", resource: "*", effect: "allow" });
   expect(agents.plan).toBeDefined();
 });
 
 test("managed web tools retain permission rules while built-in network routes stay denied", () => {
-  expect(sandboxEnginePermissions({ webfetch: { "*": "ask", "https://private/*": "deny" }, websearch: "deny" }))
-    .toMatchObject({ webfetch: "deny", websearch: "deny", legalwork_webfetch: { "*": "ask", "https://private/*": "deny" }, legalwork_websearch: "deny" });
+  expect(sandboxEnginePermissions([{ action: "webfetch", resource: "*", effect: "ask" }, { action: "webfetch", resource: "https://private/*", effect: "deny" }, { action: "websearch", resource: "*", effect: "deny" }]))
+    .toEqual([{ action: "legalwork_webfetch", resource: "*", effect: "ask" }, { action: "legalwork_webfetch", resource: "https://private/*", effect: "deny" }, { action: "legalwork_websearch", resource: "*", effect: "deny" },
+      { action: "shell", resource: "*", effect: "deny" }, { action: "webfetch", resource: "*", effect: "deny" }, { action: "websearch", resource: "*", effect: "deny" }]);
 });
 
 test("existing chat web restrictions survive the managed tool migration", () => {

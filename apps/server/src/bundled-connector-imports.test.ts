@@ -93,7 +93,7 @@ test("local bundled connectors retain executable support files and resolve paths
   expect(plan!.resourceFiles.map(file => Buffer.from(file.bytes).toString()).join("\n")).not.toContain("unselected-secret");
   await installPluginImport(config, "test", root, plan!, true);
   const installedName = plan!.preview.components[0]!.installedName;
-  const installed = (await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID)).mcp?.[installedName];
+  const installed = (await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID)).mcp?.servers?.[installedName];
   expect(installed?.type).toBe("local");
   if (installed?.type !== "local") throw new Error("Expected local MCP connector");
   if (!Array.isArray(installed.command)) throw new Error("Expected a local command array");
@@ -125,11 +125,11 @@ test("full plugin, individually selected connectors and version updates have ind
   expect(updated!.preview.components[0]!.installedName).toBe(search!.preview.components[0]!.installedName);
   await installPluginImport(config, "test", root, updated!, true);
   const searchName = updated!.preview.components[0]!.installedName;
-  expect((await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID)).mcp?.[searchName]).toMatchObject({ url: "https://v2.0.example/mcp", enabled: false });
+  expect((await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID)).mcp?.servers?.[searchName]).toMatchObject({ url: "https://v2.0.example/mcp", disabled: true });
   await removeCloudPlugin({ serverConfig: config, workspaceId: "test", workspaceRoot: root, pluginId: updated!.preview.id, scope: "global" });
   const runtime = await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID);
-  expect(runtime.mcp?.[searchName]).toBeUndefined();
-  for (const component of [...whole!.preview.components, ...docket!.preview.components]) expect(runtime.mcp?.[component.installedName]).toBeDefined();
+  expect(runtime.mcp?.servers?.[searchName]).toBeUndefined();
+  for (const component of [...whole!.preview.components, ...docket!.preview.components]) expect(runtime.mcp?.servers?.[component.installedName]).toBeDefined();
 }));
 
 test("bundled selectors validate roots, missing connectors and links without hiding other discoveries", async () => fixture(async root => {

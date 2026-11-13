@@ -11,6 +11,7 @@ import { SANDBOX_DEFAULT_ID, readSandboxDefault, writeSessionSandbox, effectiveS
 import { saveSandboxDefault, syncSandboxSettings, sandboxSyncStatus } from "./sync.js";
 import { sandboxSettingsSchema } from "./settings-schema.js";
 import { z } from "zod";
+import { onSyncChange } from "../app-sync-events.js";
 
 test("application default sync handles devices, offline edits, conflicts, accounts and plans", async () => {
   const root = process.env.LEGALWORK_SANDBOX_SYNC_TEST_ROOT;
@@ -49,6 +50,16 @@ test("application default sync handles devices, offline edits, conflicts, accoun
   await signIn(a); await signIn(b);
   await syncSandboxSettings(a, request); await syncSandboxSettings(b, request);
   expect(writes).toBe(0);
+  // Even a sync that leaves the preference unchanged must push its status
+  // transitions, so an open settings screen can finish without polling.
+  const pushedStatuses: string[] = [];
+  const unsubscribe = onSyncChange(b, change => {
+    if (change === "sandbox") pushedStatuses.push(sandboxSyncStatus(b));
+  });
+  try {
+    await syncSandboxSettings(b, request);
+    expect(pushedStatuses).toEqual(["syncing", "synced"]);
+  } finally { unsubscribe(); }
   await saveSandboxDefault(a, { enabled: true, networkMode: "block" });
   await syncSandboxSettings(a, request); await syncSandboxSettings(b, request);
   expect(await readSandboxDefault(b)).toEqual({ enabled: true, networkMode: "block" });
@@ -101,12 +112,12 @@ test("application default sync handles devices, offline edits, conflicts, accoun
   // A damaged local row must not be silently replaced by a remote preference.
   const db = new Database(join(runtimeStorageDir(a), "runtime.sqlite"));
   try {
-    db.run("UPDATE runtime_opencode_configs SET config_json = ? WHERE workspace_id = ?", ["{", SANDBOX_DEFAULT_ID]);
+    db.run("UPDATE native_runtime_configs SET config_json = ? WHERE workspace_id = ?", ["{", SANDBOX_DEFAULT_ID]);
     const beforeCorruption = calls;
     await syncSandboxSettings(a, request);
     expect(calls).toBe(beforeCorruption);
     expect(sandboxSyncStatus(a)).toBe("pending");
-    await expect(readSandboxDefault(a)).rejects.toThrow("Commands and web access are blocked");
+    await expect(readSandboxDefault(a)).rejects.toMatchObject({ status: 409, code: "execution_settings_invalid", details: { settingsScope: "application" } });
     await saveSandboxDefault(a, { enabled: true, networkMode: "block" });
   } finally { db.close(); }
 

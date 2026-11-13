@@ -119,3 +119,61 @@ LegalWork adds no lower cap to conceal that tradeoff.
 
 Source comparison: [v1 provider transform](https://github.com/anomalyco/opencode/blob/v1.18.29/packages/opencode/src/provider/transform.ts),
 [v2 request preparation](https://github.com/anomalyco/opencode/blob/v2.1.4/packages/core/src/session/model-request.ts).
+
+## Finite model selections remain a parked migration limitation
+
+The pinned released engine has no native per-model `model.use` policy action.
+A legacy `whitelist` placed inside a native `providers` definition is ignored:
+the native model list still contains the excluded model, and a stateless
+`generate.text` call can use it. A model transform plus a session request hook
+also does not cover every native generation entry point. These mechanisms must
+not be presented as universal firm-policy enforcement.
+
+LegalWork therefore refuses to upgrade an existing finite legacy provider
+allowlist or publish a broadened replacement configuration. It preserves the
+exact original settings and private upgrade backup, continues to refuse a blank
+replacement write, and retains that behavior after reopening storage and
+restarting the actual engine. Firm catalog selections with a finite model list
+likewise remain held. This is a preserved restriction with an explicit recovery
+requirement, not support for executing those configurations on v2. The user
+parked the broader model-policy implementation; no model-policy engine or SDK
+schema patch is included.
+
+`managed-model-filters.released.test.ts` records both boundaries with the real
+released engine and a synthetic local provider: the standalone native negative
+control demonstrates that forwarding the unsupported field is unsafe; the app
+upgrade/publication checks retain the original restriction and make zero
+provider calls. These are configuration-boundary tests, not paid legal-quality
+or full-platform acceptance evidence.
+
+## Native configuration and permission storage after LW-287/LW-291
+
+LegalWork's ordinary producers and settings APIs use the pinned native v2
+configuration schema. Startup explicitly imports older records once into
+`native_runtime_configs`; normal reads and writes do not translate or consult
+`runtime_opencode_configs`. Exact originals and upgrade notices remain private.
+An independent profile marker, current scope inventory and atomic writes
+distinguish a new project from missing established settings. Missing or invalid
+expected data blocks the affected operation rather than resetting restrictions.
+The same profile marker records completion of connector and historical-chat
+imports so deleting their current files cannot silently repeat an old import.
+
+OpenCode loads the generated global and hidden project documents through its
+native configuration loader. Identical shared declarations may use the central
+library; project permission rules are never promoted into that shared layer.
+Generated documents reference private values rather than copying credentials
+into the project. Exact app-owned automation is admitted automatically; authored
+automation retains the project approval boundary.
+
+Historical session policies remain on their original session IDs, with native
+restore receipts preventing later explicit edits from being overwritten on
+restart. New remembered approvals belong to the selected LegalWork project;
+temporary approvals stay temporary. Sandbox approvals persist through the
+app-owned project store and are invalidated when their effective restrictions
+change. Existing stricter session, agent and firm denials remain effective.
+
+The separate legacy engine Saved-approval migration helper is tested but is not
+activated during startup. Unlike session policies, those old records can lack
+both an originating session ID and a unique LegalWork project. Resolution of
+that ownership ambiguity is still an open migration decision; retaining the
+original history archive alone does not prove these approvals were carried over.

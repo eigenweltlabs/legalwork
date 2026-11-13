@@ -1,0 +1,72 @@
+{
+  "appLocal": {
+    "status": 0,
+    "stderr": "",
+    "text": "Agreement: The payment is due on Friday.\nVertrag: Die Zahlung ist am Freitag fällig.\nReference 12345 - English and German.",
+    "regions": 3,
+    "seconds": 1.7587066000000002,
+    "pathEmpty": true,
+    "expectedSample": true
+  },
+  "dlls": [
+    {
+      "signature": "Valid",
+      "name": "msvcp140.dll",
+      "bytes": 557728,
+      "version": "14.44.35211.0"
+    },
+    {
+      "signature": "Valid",
+      "name": "msvcp140_1.dll",
+      "bytes": 35952,
+      "version": "14.44.35211.0"
+    },
+    {
+      "signature": "Valid",
+      "name": "vcruntime140.dll",
+      "bytes": 124544,
+      "version": "14.44.35211.0"
+    },
+    {
+      "signature": "Valid",
+      "name": "vcruntime140_1.dll",
+      "bytes": 49792,
+      "version": "14.44.35211.0"
+    }
+  ],
+  "packagingGuard": "packaging guard passed",
+  "testedWorkerSha256": "cd1df62abf927769e6ba3ee118218a45bc149e2f9b0a0185d1e1ca2a453a516d",
+  "installedWorkerUnchanged": true,
+  "systemRuntimeInstalled": false,
+  "systemDlls": [
+    {
+      "exists": false,
+      "name": "msvcp140.dll"
+    },
+    {
+      "exists": false,
+      "name": "msvcp140_1.dll"
+    },
+    {
+      "exists": false,
+      "name": "vcruntime140.dll"
+    },
+    {
+      "exists": false,
+      "name": "vcruntime140_1.dll"
+    }
+  ],
+  "baseline": {
+    "status": 1,
+    "pathEmpty": true,
+    "expectedSample": false
+  },
+  "baselineAfter": {
+    "status": 1,
+    "pathEmpty": true,
+    "expectedSample": false
+  },
+  "testHost": "Windows Server 2022 Desktop Experience x64",
+  "nativeDependenciesFromInstalledApp": "0.3.11",
+  "workerSourceRef": "8bd9e3d14"
+}

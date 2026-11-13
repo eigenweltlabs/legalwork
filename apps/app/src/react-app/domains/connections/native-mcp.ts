@@ -6,9 +6,10 @@ import { createLegalworkServerClient } from "@/app/lib/legalwork-server";
 import { getClientContext, resolveLegalworkWorkspaceMount } from "@/app/lib/opencode";
 
 /** MCP status is native catalog data; the map is only the app's presentation index. */
-export async function readMcpStatuses(client: Client, directory?: string): Promise<McpStatusMap> {
+export async function readMcpStatuses(client: Client, directory?: string, signal?: AbortSignal): Promise<McpStatusMap> {
   await ensureNativeCatalogReady(client, directory);
-  const result = await client.mcp.list({ location: directory ? { directory } : undefined });
+  signal?.throwIfAborted();
+  const result = await client.mcp.list({ location: directory ? { directory } : undefined }, { signal });
   return Object.fromEntries(result.data.map(server => [server.name, server.status]));
 }
 

@@ -19,6 +19,7 @@ import { resolveLegalworkConnection } from "../shell/legalwork-connection";
 import { useOrgPolicy } from "../domains/connections/org-policy";
 import type { ModelRef, ReleaseChannel, SettingsTab, View } from "../../app/types";
 import { readStoredDefaultModel } from "./model-config";
+import { initializeAssistantModel, type ModelSelection } from "./model-preferences";
 
 export type LocalUIState = {
   view: View;
@@ -51,6 +52,8 @@ export type LocalPreferences = {
   hideAppMode: HideAppMode;
   modelVariant: string | null;
   defaultModel: ModelRef | null;
+  /** Independent model and thinking effort for the personal Assistant. */
+  assistantModel?: ModelSelection | null;
   /**
    * Name of the opencode agent used for new prompts (null = the server's
    * default, usually "build"). Persisted so a reload does not silently
@@ -74,11 +77,12 @@ export type LocalPreferences = {
   hasCompletedOnboarding: boolean;
   /**
    * Persisted so a reload or crash resumes the current step. Desktop order:
-   * office -> audio (meetings) -> dictation -> ai -> permissions -> done.
+   * office -> audio (meetings) -> dictation -> ai -> permissions -> research -> done.
    * "setup" is a legacy value treated as "office". The welcome route starts
    * at "office" on desktop and "ai" on the web.
    */
-  onboardingStage: "ai" | "office" | "audio" | "dictation" | "permissions" | "setup" | "done";
+  onboardingStage: "ai" | "office" | "audio" | "dictation" | "permissions" | "research" | "setup" | "done";
+  researchCountry: string;
   /**
    * User preference committed from the welcome-screen toggle (nothing is
    * applied before then); switchable anytime in Settings -> Privacy.
@@ -124,11 +128,13 @@ const INITIAL_PREFS: LocalPreferences = {
   hideAppMode: "recording",
   modelVariant: null,
   defaultModel: null,
+  assistantModel: null,
   selectedAgent: null,
   releaseChannel: "stable",
   featureFlags: { microsandboxCreateSandbox: true },
   hasCompletedOnboarding: false,
   onboardingStage: "done",
+  researchCountry: "",
   // null until the user chooses on the welcome screen — persisting a concrete
   // value here would make getStoredAnalyticsConsent() report a choice that was
   // never made, defeating the welcome toggle's default.
@@ -184,13 +190,10 @@ export function LocalProvider({ children }: LocalProviderProps) {
   );
   const [prefs, setPrefsRaw] = useState<LocalPreferences>(() => {
     const persisted = applyShowThinkingDefault(readPersisted(PREFS_STORAGE_KEY, INITIAL_PREFS));
-    if (persisted.defaultModel) {
-      return persisted;
-    }
-    return {
+    return initializeAssistantModel({
       ...persisted,
-      defaultModel: readStoredDefaultModel(),
-    };
+      defaultModel: persisted.defaultModel ?? readStoredDefaultModel(),
+    });
   });
   const ready = true;
   const migratedThinkingRef = useRef(false);
@@ -285,7 +288,7 @@ export function LocalProvider({ children }: LocalProviderProps) {
 
   const setPrefs = useCallback(
     (updater: (previous: LocalPreferences) => LocalPreferences) => {
-      setPrefsRaw(updater);
+      setPrefsRaw(previous => initializeAssistantModel(updater(initializeAssistantModel(previous))));
     },
     [],
   );

@@ -127,7 +127,7 @@ released("LegalWork metadata identity retains its callback and does not dynamica
   if (!plan) throw new Error("Missing metadata import");
   const prepared = await preparePluginImport(plan, { workspace: engine.directory, scope: "project", current: {} }, { clientMetadataUrl: identity, fetch: (input, init) => String(input) === identity ? Promise.resolve(Response.json({ client_id: identity, client_name: "LegalWork", redirect_uris: [redirectUri], token_endpoint_auth_method: "none" })) : fetch(input, init) });
   const component = prepared.preview.components[0], config = prepared.connectorConfigs?.[component.installedName];
-  expect(config?.oauth).toMatchObject({ clientId: identity, redirectUri });
+  expect(config?.oauth).toMatchObject({ client_id: identity, redirect_uri: redirectUri });
   if (!config) throw new Error("Prepared metadata connection missing");
   const registrations = requestLog.parse(await provider.requests()).requests.filter(request => request.path === "/register").length;
   const client = engine.client();

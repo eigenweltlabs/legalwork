@@ -5,6 +5,7 @@ import { ApiError } from "./errors.js";
 import { canonicalFilePath } from "./file-write-lock.js";
 import { assertEngineProjectReady } from "./engine-project.js";
 import { assertSessionHistoryRecoveryReady } from "./session-history-undo.js";
+import { assertLegacySessionPermissionsRecoveryReady } from "./session-history-permissions.js";
 import { openSqliteReadonly } from "./managed-opencode-db.js";
 import type { ServerConfig } from "./types.js";
 
@@ -56,9 +57,10 @@ export async function assertNativeEngineRecoveryProjectsReady(config: ServerConf
     if (!isAbsolute(directory)) throw new ApiError(409, "engine_recovery_approval_required", "A saved OpenCode recovery location cannot be resolved. Review it before restarting agent automation.", { directory });
     const actual = await canonicalFilePath(directory);
     const selected = roots.filter(root => { const suffix = relative(root.directory, actual); return suffix !== ".." && !suffix.startsWith("../") && !suffix.startsWith("..\\") && !isAbsolute(suffix); }).sort((a, b) => b.directory.length - a.directory.length)[0];
-    if (!selected) throw new ApiError(409, "engine_recovery_approval_required", "A saved OpenCode job belongs to a folder that is no longer registered. Reopen and approve that project before restarting automation. Its history and queued work are preserved.", { directory: actual });
+    if (!selected) throw new ApiError(409, "engine_recovery_approval_required", "A saved OpenCode job belongs to a folder that is no longer registered. Reopen that project in LegalWork before restarting automation. Its history and queued work are preserved.", { directory: actual });
     await assertEngineProjectReady(config, selected.workspace);
   }
   await assertSessionHistoryRecoveryReady(config, recovered.sessions.map(session => session.id));
+  await assertLegacySessionPermissionsRecoveryReady(config, recovered.sessions.map(session => session.id));
   return recovered;
 }

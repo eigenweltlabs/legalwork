@@ -20,7 +20,7 @@ test("Windows call applications use the existing provider and microphone-activit
   assert.deepEqual(windowsMeetingProcesses({ processes: [zoom] }), []);
 });
 
-test("Windows browsers require a real meeting URL or meeting title", () => {
+test("Windows browser provider names require meeting metadata; microphone-only activity offers a generic call", () => {
   for (const executable of ["chrome.exe", "msedge.exe", "firefox.exe"]) {
     const process = { ...chrome("https://meet.google.com/abc-defg-hij?authuser=1"), executable };
     const match = meetingCandidate(windowsMeetingProcesses([process]));
@@ -32,7 +32,8 @@ test("Windows browsers require a real meeting URL or meeting title", () => {
   assert.equal(meetingCandidate(windowsMeetingProcesses([chrome("https://us02web.zoom.us/wc/123/join")]))?.app, "Zoom");
   assert.equal(meetingCandidate(windowsMeetingProcesses([chrome("", "Meet - abc-defg-hij - Google Chrome")]))?.app, "Google Meet");
   for (const value of [chrome("https://youtube.com", "Google Meet tutorial"), chrome("https://meet.google.com/"), chrome("https://meet.google.com.evil.test/abc-defg-hij"), chrome("", "Microsoft Teams - Home"), { ...chrome("https://example.com"), documents: [null, { url: 3 }] }]) {
-    assert.equal(meetingCandidate(windowsMeetingProcesses([value])), null);
+    assert.equal(meetingCandidate(windowsMeetingProcesses([value]))?.app, "Browser call");
+    assert.equal(meetingCandidate(windowsMeetingProcesses([{ ...value, inputActive: false }])), null);
   }
 });
 

@@ -4,7 +4,8 @@ import { eigenweltPlatformUrl } from "../eigenwelt-auth.js";
 import { readEigenweltConnection } from "../eigenwelt-connection-store.js";
 import { ensureFreshPlatformToken } from "../eigenwelt-refresh.js";
 import type { ServerConfig } from "../types.js";
-import type { StorageTeamStatus } from "@legalwork/types/file-storage";
+import type { StorageRoot, StorageTeamStatus } from "@legalwork/types/file-storage";
+import { isCloudStorage } from "./cloud-drives.js";
 import { storageInputSchema, storageSecretKeys } from "./schema.js";
 import type { StoredStorage } from "./store.js";
 import { StorageInstallations } from "./installations.js";
@@ -25,10 +26,19 @@ const snapshotSchema = z.object({
     )
     .max(100),
 });
-type Identity = { orgId: string; token: string };
-type Snapshot = { connections: StoredStorage[]; status: StorageTeamStatus };
+type Identity = { orgId: string; userId: string; token: string };
+type Member = Pick<Identity, "orgId" | "userId">;
+type DisplayRoot = { root: StorageRoot; ownerOnly: boolean };
+type Snapshot = { connections: StoredStorage[]; status: StorageTeamStatus; unavailable?: DisplayRoot[] };
+const sameMember = (left: Member | undefined | null, right: Member | undefined | null) =>
+  Boolean(left && right && left.orgId === right.orgId && left.userId === right.userId);
 const empty = (): Snapshot => ({ connections: [], status: { connected: false, canManage: false } });
 const SYNC_MS = 30_000;
+class TeamStorageError extends ApiError {
+  constructor(status: number, code: string, message: string, readonly reason: string) {
+    super(status, code, message);
+  }
+}
 export const isTeamStorage = (id: string) => id.startsWith("team:");
 export function teamStorageId(id: string) {
   const parsed = z.string().uuid().safeParse(id.slice(5));
@@ -41,7 +51,9 @@ export function teamStorageId(id: string) {
  */
 export class TeamStorage {
   private cache = new Map<string, { identity: Identity; at: number; snapshot: Snapshot }>();
-  private configured = new Map<string, string>();
+  // Names only: never retain usable credentials after a failed authorization lease.
+  private display = new Map<string, { identity: Member; roots: DisplayRoot[] }>();
+  private configured = new Map<string, Member>();
   private pending = new Map<string, Promise<Snapshot>>();
   private generations = new Map<string, number>();
   private installations: StorageInstallations;
@@ -62,8 +74,23 @@ export class TeamStorage {
   }
   private async identity(): Promise<Identity | null> {
     const token = await ensureFreshPlatformToken(this.config);
+    return token ? this.storedIdentity() : null;
+  }
+  private async storedIdentity(): Promise<Identity | null> {
     const connection = await readEigenweltConnection(this.config);
-    return token && connection.account?.orgId ? { token, orgId: connection.account.orgId } : null;
+    return connection.platformToken && connection.account?.orgId
+      ? { token: connection.platformToken, orgId: connection.account.orgId, userId: connection.account.userId } : null;
+  }
+  private clear(workspaceId: string) {
+    this.cache.delete(workspaceId);
+    this.configured.delete(workspaceId);
+    this.display.delete(workspaceId);
+  }
+  private diagnostic(workspaceId: string, reason: string, error?: unknown) {
+    console.warn("[storage.team.sync]", JSON.stringify({ workspaceId, reason,
+      ...(error instanceof ApiError ? { status: error.status, code: error.code } : {}),
+      ...(error instanceof TeamStorageError ? { failure: error.reason } : {}),
+    }));
   }
   invalidate(workspaceId: string) {
     this.cache.delete(workspaceId);
@@ -84,23 +111,25 @@ export class TeamStorage {
   }
   private async fetch(identity: Identity, method: string, suffix: string, body?: unknown): Promise<unknown> {
     let response: Response;
+    const signal = AbortSignal.timeout(15_000);
     try {
       response = await fetch(`${eigenweltPlatformUrl()}/api/storage-connections${suffix}`, {
         method,
         redirect: "error",
         headers: { Authorization: `Bearer ${identity.token}`, "Content-Type": "application/json", "X-LegalWork-Storage-Capabilities": "native-cloud-sharing-v1" },
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-        signal: AbortSignal.timeout(15_000),
+        signal,
       });
     } catch {
-      throw new ApiError(
+      throw new TeamStorageError(
         503,
         "storage_team_unavailable",
         "Team connections could not sync. Check your connection and try again.",
+        signal.aborted ? "timeout" : "network_error",
       );
     }
     if (!response.ok)
-      throw new ApiError(
+      throw new TeamStorageError(
         response.status,
         response.status === 409 ? "storage_settings_conflict" : "storage_team_unavailable",
         response.status === 409
@@ -108,13 +137,14 @@ export class TeamStorage {
           : response.status === 403
             ? "Your firm membership or plan does not allow this action."
             : "Team connections could not sync. Try again or sign in with your firm.",
+        "upstream_http",
       );
     // Validate the feed before replacing any state. Do not expose malformed
     // responses (which may contain credentials) in errors or logs.
     try {
       return await response.json();
     } catch {
-      throw new ApiError(502, "storage_team_unavailable", "The team connection response was invalid.");
+      throw new TeamStorageError(502, "storage_team_unavailable", "The team connection response was invalid.", signal.aborted ? "timeout" : "invalid_json");
     }
   }
   async list(workspaceId: string, force = false): Promise<Snapshot> {
@@ -128,19 +158,21 @@ export class TeamStorage {
     this.pending.set(workspaceId, run);
     return run;
   }
-  private async load(workspaceId: string, generation: number): Promise<Snapshot> {
+  private async load(workspaceId: string, generation: number, retries = 1): Promise<Snapshot> {
     let identity: Identity | null = null;
     try {
       identity = await this.identity();
+      if (generation !== (this.generations.get(workspaceId) ?? 0)) return empty();
       if (!identity) {
-        this.cache.delete(workspaceId);
-        this.configured.delete(workspaceId);
+        this.clear(workspaceId);
         return empty();
       }
-      if (this.configured.get(workspaceId) !== identity.orgId) this.configured.delete(workspaceId);
+      if (!sameMember(this.configured.get(workspaceId), identity)) this.configured.delete(workspaceId);
+      const display = this.display.get(workspaceId);
+      if (display && !sameMember(display.identity, identity)) this.display.delete(workspaceId);
       const cached = this.cache.get(workspaceId);
       if (
-        cached?.identity.orgId === identity.orgId &&
+        cached && sameMember(cached.identity, identity) &&
         cached.identity.token === identity.token &&
         Date.now() - cached.at < SYNC_MS
       )
@@ -153,16 +185,21 @@ export class TeamStorage {
         parsed.data.connections.some(item => item.input.secrets.nangoConnectionId !== undefined || item.input.secrets.nangoOwnerId !== undefined) ||
         new Set(parsed.data.connections.map((item) => item.id)).size !== parsed.data.connections.length
       )
-        throw new ApiError(502, "storage_team_unavailable", "The team connection response was invalid.");
+        throw new TeamStorageError(502, "storage_team_unavailable", "The team connection response was invalid.", "invalid_feed");
       const installations = await this.installations.list();
       const current = await this.identity();
-      if (
-        !current ||
-        current.orgId !== identity.orgId ||
-        current.token !== identity.token ||
-        generation !== (this.generations.get(workspaceId) ?? 0)
-      )
+      if (generation !== (this.generations.get(workspaceId) ?? 0))
         return empty();
+      if (!current || !sameMember(current, identity)) {
+        this.clear(workspaceId);
+        this.diagnostic(workspaceId, "member_changed");
+        return empty();
+      }
+      if (current.token !== identity.token) {
+        this.diagnostic(workspaceId, "token_rotated");
+        if (retries) return this.load(workspaceId, generation, retries - 1);
+        throw new ApiError(503, "storage_team_unavailable", "Team authorization changed while syncing. Try again.");
+      }
       const snapshot: Snapshot = {
         status: { connected: true, canManage: parsed.data.canManage },
         connections: parsed.data.connections.map((item) => ({
@@ -186,13 +223,37 @@ export class TeamStorage {
         })),
       };
       if (snapshot.connections.some((item) => item.enabled && item.team?.installed))
-        this.configured.set(workspaceId, identity.orgId);
+        this.configured.set(workspaceId, { orgId: current.orgId, userId: current.userId });
       else this.configured.delete(workspaceId);
+      this.display.set(workspaceId, {
+        identity: { orgId: current.orgId, userId: current.userId },
+        roots: snapshot.connections.filter(item => item.enabled && item.team?.installed &&
+          !(isCloudStorage(item.config) && item.config.provider === "sharepoint-files" && !item.config.driveId))
+          .map(item => ({
+            root: { id: item.id, name: item.name, kind: item.config.kind, writable: false,
+              ...(item.config.kind === "oauth" ? { provider: item.config.provider } : {}),
+            },
+            ownerOnly: isCloudStorage(item.config) && item.config.sharingMode !== "team",
+          })),
+      });
       this.cache.set(workspaceId, { identity, snapshot, at: Date.now() });
       return snapshot;
     } catch (error) {
       if (generation !== (this.generations.get(workspaceId) ?? 0)) return empty();
       this.cache.delete(workspaceId);
+      const current = await this.storedIdentity();
+      if (generation !== (this.generations.get(workspaceId) ?? 0)) return empty();
+      if (!current || !sameMember(current, identity)) {
+        this.clear(workspaceId);
+        this.diagnostic(workspaceId, "member_changed", error);
+        return empty();
+      }
+      if (identity && current.token !== identity.token && retries) {
+        this.diagnostic(workspaceId, "token_rotated_after_failure", error);
+        return this.load(workspaceId, generation, retries - 1);
+      }
+      this.diagnostic(workspaceId, "discovery_failed", error);
+      if (error instanceof ApiError && (error.status === 401 || error.status === 403)) this.display.delete(workspaceId);
       // Optional discovery is quiet until this firm actually has shared
       // connections. An unavailable feed must not make personal storage look
       // broken. Explicit admin mutations still return their errors via request.
@@ -201,8 +262,10 @@ export class TeamStorage {
         if (identity) this.cache.set(workspaceId, { identity, snapshot, at: Date.now() });
         return snapshot;
       }
+      const unavailable = this.display.get(workspaceId)?.roots;
       return {
         connections: [],
+        ...(unavailable?.length ? { unavailable } : {}),
         status: {
           connected: false,
           canManage: false,

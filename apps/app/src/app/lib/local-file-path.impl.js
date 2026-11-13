@@ -31,3 +31,22 @@ export const normalizeLocalFilePath = (value) => {
     return decoded;
   }
 };
+
+/** Resolve host file identities without requiring Node in the renderer. */
+export const resolveLocalFilePath = (root, value) => {
+  const file = normalizeLocalFilePath(value).replaceAll("\\", "/");
+  const base = String(root ?? "").replaceAll("\\", "/").replace(/\/+$/, "");
+  const path = /^(?:\/|[A-Za-z]:\/)/.test(file) ? file : `${base}/${file}`;
+  const prefix = path.startsWith("//") ? "//" : path.startsWith("/") ? "/" : "";
+  const parts = [];
+  for (const part of path.split("/")) {
+    if (!part || part === ".") continue;
+    if (part === "..") parts.pop(); else parts.push(part);
+  }
+  return prefix + parts.join("/");
+};
+
+export const localFileIdentity = (root, value) => {
+  const path = resolveLocalFilePath(root, value);
+  return /^(?:[A-Za-z]:\/|\/\/)/.test(path) ? path.toLowerCase() : path;
+};

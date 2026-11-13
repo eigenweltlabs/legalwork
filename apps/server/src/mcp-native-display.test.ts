@@ -3,14 +3,17 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { addMcp, getMcpConfig, listMcp, listMcpDisplay, mcpDisplayItem, mergeMcpEdit, removeMcp } from "./mcp.js";
+import { writeNativeProjectProjection } from "./engine-project.js";
+import { legalworkRuntimeConfigFilePath } from "./engine-storage.js";
 import { readGlobalMcpMap } from "./runtime-opencode-config-store.js";
 import type { ServerConfig } from "./types.js";
 
-test("native server maps retain full definitions and distinguish a legacy connector named servers", () => {
+test("native server maps retain full definitions without guessing a legacy map", () => {
   const definition = { type: "remote", url: "{env:PRIVATE_MCP_URL}", headers: { Authorization: "{file:secret}" },
     timeout: { startup: 70000, execution: 150000 }, disabled: true, oauth: { client_id: "client", client_secret: "secret" } };
   expect(getMcpConfig({ mcp: { timeout: { startup: 1000 }, servers: { legalmemory: definition } } })).toEqual({ legalmemory: definition });
-  expect(getMcpConfig({ mcp: { servers: { type: "local", command: ["custom-server"] } } })).toEqual({ servers: { type: "local", command: ["custom-server"] } });
+  expect(getMcpConfig({ mcp: { servers: { type: "local", command: ["custom-server"] } } })).toEqual({});
+  expect(getMcpConfig({ mcp: { servers: { servers: { type: "local", command: ["custom-server"] } } } })).toEqual({ servers: { type: "local", command: ["custom-server"] } });
   expect(getMcpConfig({ mcp: [] })).toEqual({});
 });
 
@@ -27,16 +30,16 @@ test("connector display contains presence and setup metadata without credential-
   for (const secret of ["private-token", "query-token", "command-token", "header-token", "environment-token", "client-token", "oauth-token"]) {
     expect(JSON.stringify(display)).not.toContain(secret);
   }
-  expect(mcpDisplayItem({ name: "token", source: "config.remote", config: { type: "remote", url: "${SERVER_URL}", enabled: false, headers: { Authorization: "${TOKEN}" } } }).configured.variables).toEqual(["SERVER_URL", "TOKEN"]);
+  expect(mcpDisplayItem({ name: "token", source: "config.remote", config: { type: "remote", url: "${SERVER_URL}", disabled: true, headers: { Authorization: "${TOKEN}" } } }).configured.variables).toEqual(["SERVER_URL", "TOKEN"]);
 });
 
 test("connector edits preserve omitted credentials and remove only explicit names", () => {
   const current = { type: "remote", url: "https://private-token.example/mcp", headers: { Authorization: "saved-token", "x-routing": "route" },
-    environment: { KEY: "saved-key", REMOVE: "old" }, oauth: { clientId: "id", clientSecret: "saved-oauth" }, cwd: "/saved", timeout: 60000 };
-  const edited = mergeMcpEdit(current, { type: "remote", enabled: false, headers: { authorization: "replacement" }, oauth: { scope: "read" } },
+    environment: { KEY: "saved-key", REMOVE: "old" }, oauth: { client_id: "id", client_secret: "saved-oauth" }, cwd: "/saved", timeout: { execution: 60000 } };
+  const edited = mergeMcpEdit(current, { type: "remote", disabled: true, headers: { authorization: "replacement" }, oauth: { scope: "read" } },
     { removeHeaders: ["X-ROUTING"], removeEnvironment: ["REMOVE"], resetFields: ["cwd", "timeout"] });
-  expect(edited).toEqual({ type: "remote", enabled: false, url: current.url, headers: { authorization: "replacement" }, environment: { KEY: "saved-key" },
-    oauth: { clientId: "id", clientSecret: "saved-oauth", scope: "read" } });
+  expect(edited).toEqual({ type: "remote", disabled: true, url: current.url, headers: { authorization: "replacement" }, environment: { KEY: "saved-key" },
+    oauth: { client_id: "id", client_secret: "saved-oauth", scope: "read" } });
   expect(current.headers.Authorization).toBe("saved-token");
 });
 
@@ -53,19 +56,19 @@ test("stored connector metadata edits preserve saved values and leave native aut
   try {
     const saved = { type: "remote", url: "https://saved-token.example/mcp", headers: { Authorization: "Bearer saved-token" }, oauth: false };
     await addMcp(config, "matter", "managed", saved);
-    await addMcp(config, "matter", "managed", { type: "remote", enabled: false }, "global", {});
-    expect((await readGlobalMcpMap(config)).managed).toEqual({ ...saved, enabled: false });
+    await addMcp(config, "matter", "managed", { type: "remote", disabled: true }, "global", {});
+    expect((await readGlobalMcpMap(config)).managed).toEqual({ ...saved, disabled: true });
     const display = await listMcpDisplay(config, config.workspaces[0]!);
     expect(display.map(item => item.name)).toEqual(["authored", "managed"]);
     expect(JSON.stringify(display)).not.toContain("saved-token");
     expect(display.find(item => item.name === "managed")?.editable).toBe(true);
     expect(display.find(item => item.name === "authored")?.editable).toBe(false);
-    await addMcp(config, "matter", "setup", { type: "remote", enabled: false, url: "${SERVER_URL}",
-      headers: { Authorization: "Basic ${BASIC_AUTH_CREDENTIALS}" }, environment: { RAW: "${BASIC_AUTH_CREDENTIALS}" } });
-    await addMcp(config, "matter", "setup", { type: "remote", enabled: true }, "global",
+    await addMcp(config, "matter", "setup", { type: "remote", disabled: true, url: "${SERVER_URL}",
+      headers: { Authorization: "Basic ${BASIC_AUTH_CREDENTIALS}", "X-Raw": "${BASIC_AUTH_CREDENTIALS}" } });
+    await addMcp(config, "matter", "setup", { type: "remote", disabled: false }, "global",
       { variables: { SERVER_URL: "https://configured.example/mcp", BASIC_AUTH_CREDENTIALS: "lawyer:pässword" } });
-    expect((await readGlobalMcpMap(config)).setup).toEqual({ type: "remote", enabled: true, url: "https://configured.example/mcp",
-      headers: { Authorization: "Basic " + Buffer.from("lawyer:pässword", "utf8").toString("base64") }, environment: { RAW: "lawyer:pässword" } });
+    expect((await readGlobalMcpMap(config)).setup).toEqual({ type: "remote", disabled: false, url: "https://configured.example/mcp",
+      headers: { Authorization: "Basic " + Buffer.from("lawyer:pässword", "utf8").toString("base64"), "X-Raw": "lawyer:pässword" } });
     await addMcp(config, "matter", "local", { type: "local", command: ["saved-executable", "--saved-argument"] });
     await Promise.all([
       addMcp(config, "matter", "local", { type: "local" }, "global", { executable: "replacement-executable" }),
@@ -77,6 +80,23 @@ test("stored connector metadata edits preserve saved values and leave native aut
     expect(await removeMcp(config, "matter", "authored")).toEqual([]);
     expect(await readFile(path, "utf8")).toBe(authored);
     expect((await listMcp(config, "matter", project)).find(item => item.name === "authored")?.config.url).toBe("{env:PRIVATE_ENDPOINT}");
+    const projection = await writeNativeProjectProjection(config, config.workspaces[0]!, {});
+    const native = Bun.serve({ port: 0, fetch: request => new URL(request.url).pathname === "/api/config" ? Response.json([
+      { type: "document", path: legalworkRuntimeConfigFilePath(config), info: { mcp: { servers: { removedShared: saved, managed: saved } } } },
+      { type: "document", path: projection, info: { mcp: { servers: { removedProject: saved } } } },
+      { type: "document", path, info: { mcp: { servers: { authored: saved, local: saved } } } },
+      { type: "document", info: { mcp: { servers: { virtual: saved } } } },
+    ]) : new Response(null, { status: 404 }) });
+    config.opencodeBaseUrl = native.url.href;
+    try {
+      const updated = await listMcpDisplay(config, config.workspaces[0]!);
+      expect(updated.some(item => item.name === "removedShared" || item.name === "removedProject")).toBe(false);
+      expect(updated.find(item => item.name === "managed")).toMatchObject({ source: "config.remote", editable: true });
+      expect(updated.find(item => item.name === "virtual")).toMatchObject({ source: "config.project", editable: false });
+      expect(updated.find(item => item.name === "authored")).toMatchObject({ source: "config.project", editable: false });
+      expect(updated.find(item => item.name === "local")).toMatchObject({ source: "config.project", editable: false });
+    } finally { native.stop(true); }
+
   } finally {
     if (previousDb === undefined) delete process.env.LEGALWORK_RUNTIME_DB; else process.env.LEGALWORK_RUNTIME_DB = previousDb;
     if (previousXdg === undefined) delete process.env.XDG_CONFIG_HOME; else process.env.XDG_CONFIG_HOME = previousXdg;

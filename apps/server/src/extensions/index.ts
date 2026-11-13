@@ -1,3 +1,5 @@
+import { RIS_ACTIONS } from "../ris/tools.js";
+import { callRisAction } from "./ris.js";
 import { ApiError } from "../errors.js";
 import type { EnvService } from "../env-file.js";
 import type { ServerConfig } from "../types.js";
@@ -16,6 +18,7 @@ import { appliedOrgPolicy } from "../org-policy.js";
 
 const LEGALWORK_EXPERIMENTAL_EXTENSION_ACTIONS = [
   ...CONNECTOR_EXTENSION_ACTIONS,
+  ...RIS_ACTIONS,
   ...GOOGLE_WORKSPACE_EXTENSION_ACTIONS,
   ...OPENAI_IMAGE_GENERATION_EXTENSION_ACTIONS,
 ];
@@ -42,7 +45,7 @@ export async function callExperimentalExtensionAction(
   env: EnvService,
   input: unknown,
   // Only the authenticated caller can supply this grant; it is never read from input.
-  access: { personalConnections: boolean } = { personalConnections: false },
+  access: { personalConnections: boolean; signal?: AbortSignal } = { personalConnections: false },
 ) {
   if (!isRecord(input)) {
     throw new ApiError(400, "invalid_payload", "Expected extension action call payload");
@@ -58,6 +61,15 @@ export async function callExperimentalExtensionAction(
   if (!registered) {
     throw new ApiError(404, "extension_action_not_found", "LegalWork extension action not found");
   }
+  if (isConnectorExtension(extensionId) && !access.personalConnections) {
+    throw new ApiError(403, "forbidden", "Only the LegalWork server owner or their managed agent can use personal account connections.");
+  }
+  const unexpected = Object.keys(input).filter(key => !["extensionId", "action", "args", "context"].includes(key));
+  if (unexpected.length || ("args" in input && !isRecord(input.args))) {
+    throw new ApiError(400, "invalid_payload", "Pass action parameters in the args object, not input or top-level fields. Example: {extensionId: 'outlook', action: 'status', args: {}}.", { unexpectedFields: unexpected });
+  }
+
+  if (extensionId === "ris") return callRisAction(config, action, args, access.signal, context);
 
   if (extensionId === GOOGLE_WORKSPACE_EXTENSION_ID) {
     if ((await appliedOrgPolicy(config, "extensions.builtIn"))?.value["google-workspace"] === false) {
@@ -68,9 +80,6 @@ export async function callExperimentalExtensionAction(
   }
 
   if (isConnectorExtension(extensionId)) {
-    if (!access.personalConnections) {
-      throw new ApiError(403, "forbidden", "Only the LegalWork server owner or their managed agent can use personal account connections.");
-    }
     return callConnectorExtensionAction(config, extensionId, action, args, context);
   }
 

@@ -7,10 +7,11 @@ export type FolderIconProps = Omit<ComponentProps<"svg">, "children"> & {
   empty?: boolean;
   /** Shared with others: two people on its front. */
   shared?: boolean;
+  dashboard?: boolean;
 };
 
 /** A light-blue folder asset, drawn in layers so it stays crisp at any density. */
-export function FolderIcon({ open = false, empty = false, shared = false, className, ...props }: FolderIconProps) {
+export function FolderIcon({ open = false, empty = false, shared = false, dashboard = false, className, ...props }: FolderIconProps) {
   const id = useId();
 
   return (
@@ -51,7 +52,12 @@ export function FolderIcon({ open = false, empty = false, shared = false, classN
         strokeLinejoin="round"
       />
       <path d={open ? "M6 11h14.4" : "M4 11h16"} stroke="var(--lw-glass-highlight)" strokeLinecap="round" />
-      {shared ? (
+      {dashboard ? <g stroke="var(--lw-asset-edge)" strokeWidth=".9" fill="var(--lw-surface)">
+        <rect x="8.5" y="12" width="3" height="3" rx=".65" />
+        <rect x="13" y="12" width="3" height="2" rx=".65" />
+        <rect x="8.5" y="16.5" width="3" height="2" rx=".65" />
+        <rect x="13" y="15.5" width="3" height="3" rx=".65" />
+      </g> : shared ? (
         <g fill="var(--lw-asset-edge)">
           <circle cx="14.6" cy="12.9" r="1.3" />
           <path d="M12.5 18.7a2.3 3.4 0 0 1 4.6 0z" />

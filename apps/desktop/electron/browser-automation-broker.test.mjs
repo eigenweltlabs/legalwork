@@ -68,6 +68,26 @@ function statusWithHost(url, host) {
   });
 }
 
+test("password operations require the exact chat capability and session, and reject legacy/remote tabs", async t => {
+  const broker = createBrowserAutomationBroker({ authorize: async () => {} });
+  t.after(() => broker.close());
+  let fills = 0;
+  const actions = { list: async () => ({ passwords: [{ id: "saved" }] }), fill: async body => { assert.deepEqual(body, { password_id: "saved", ref: "@e2" }); fills++; return { filled: true }; } };
+  const local = await broker.grant(browserTab(201), () => [], { sessionId: "owner" }, undefined, undefined, actions);
+  const other = await broker.grant(browserTab(202), () => [], { sessionId: "other" });
+  for (const session of [undefined, "other"]) {
+    const headers = session ? { "x-legalwork-browser-session": session } : {};
+    assert.equal((await fetch(`${local.browser_url}/passwords`, { headers })).status, 403);
+    assert.equal((await fetch(`${local.browser_url}/fill-password`, { method: "POST", headers, body: "{}" })).status, 403);
+  }
+  assert.equal(fills, 0);
+  const headers = { "x-legalwork-browser-session": "owner", "content-type": "application/json" };
+  assert.deepEqual(await (await fetch(`${local.browser_url}/passwords`, { headers })).json(), { passwords: [{ id: "saved" }] });
+  assert.deepEqual(await (await fetch(`${local.browser_url}/fill-password`, { method: "POST", headers, body: JSON.stringify({ password_id: "saved", ref: "@e2" }) })).json(), { filled: true });
+  assert.equal(fills, 1);
+  assert.equal((await fetch(`${other.browser_url}/passwords`, { headers: { "x-legalwork-browser-session": "other" } })).status, 400);
+});
+
 test("discovery and WebSocket upgrades require a tab capability and reject web origins", async (t) => {
   const broker = createBrowserAutomationBroker({ authorize: async () => {} });
   t.after(() => broker.close());
@@ -260,7 +280,7 @@ test("capture, thumbnail and raw CDP serialize without frame subscribers or chan
   assert.deepEqual(screenshots[2].params, params);
 });
 
-test("HTTP Stop restores caller visibility immediately but the next capture waits for the true native reply", async t => {
+test("HTTP Stop returns immediately but capture cleanup and the next capture wait for the true native reply", async t => {
   const broker = createBrowserAutomationBroker({ authorize: async () => {} });
   t.after(() => broker.close());
   const tab = browserTab(81), native = deferred(), started = deferred(), restored = deferred();
@@ -279,10 +299,10 @@ test("HTTP Stop restores caller visibility immediately but the next capture wait
   await started.promise;
   controller.abort(new Error("User Stop"));
   await assert.rejects(first, /User Stop/);
-  await restored.promise;
   const second = fetch(`${grant.browser_url}/capture`, options);
   assert.equal(calls, 1);
   native.resolve();
+  await restored.promise;
   const response = await second;
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), { mime: "image/png", data: "original-image" });

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { backOfficeRecordUrl } from "@legalwork/types/back-office";
 import { appLinkDestination, parseAppLink } from "../src/lib/app-link";
 import { readFile, readdir } from "node:fs/promises";
 
@@ -26,6 +27,27 @@ describe("app links in help answers", () => {
       .toBe("/workspace/matter-1/settings/extensions/mcp");
     expect(appLinkDestination("legalwork://app/settings/recorder", "/home")).toBe("/settings/recorder");
     expect(appLinkDestination("legalwork://app/calendar", "/workspace/matter-1/session/chat-2")).toBe("/calendar");
+    expect(parseAppLink("legalwork://app/settings/workflows")).toBe("/settings/workflows");
+    expect(appLinkDestination("legalwork://app/settings/workflows/skills", "/workspace/matter-1/session/chat-2"))
+      .toBe("/workspace/matter-1/settings/workflows/skills");
+    expect(appLinkDestination("legalwork://app/settings/workflows/prompts", "/home")).toBe("/settings/workflows/prompts");
+  });
+
+  test("record citations open built-in, custom and archived records from any chat", () => {
+    const id = "12345678-1234-4234-8234-123456789abc";
+    for (const objectId of ["matters", "people", "companies", "custom_claims"]) {
+      const record = { objectId, id };
+      expect(appLinkDestination(backOfficeRecordUrl(record), "/workspace/project/session/chat"))
+        .toBe(`/back-office/${objectId}?record=${id}`);
+      expect(parseAppLink(backOfficeRecordUrl({ ...record, archivedAt: "2026-01-01T00:00:00Z" })))
+        .toBe(`/back-office/${objectId}?record=${id}&archived=true`);
+    }
+    for (const href of [
+      `legalwork://app/back-office/../settings?record=${id}`,
+      `legalwork://app/back-office/%2e%2e?record=${id}`,
+      `legalwork://app/back-office/matters?record=${id}&delete=true`,
+      "legalwork://app/back-office/matters?record=invalid",
+    ]) expect(parseAppLink(href)).toBeNull();
   });
 
   test("only routes to supported app pages, with no actions or external targets", () => {
@@ -34,6 +56,7 @@ describe("app links in help answers", () => {
       "legalwork://user@app/settings", "legalwork://app/settings/../account", "legalwork://app/settings/%2e%2e/account",
       "legalwork://app/settings?connect=outlook", "legalwork://app/settings#script", "legalwork://app/settings/reset",
       "legalwork://app/settings/ai/delete", "legalwork://app/calendar/delete", "javascript:alert(1)",
+      "legalwork://app/settings/workflows/delete", "legalwork://app/settings/workflows/skills/delete",
     ]) expect(parseAppLink(href)).toBeNull();
   });
 });

@@ -12,7 +12,7 @@
 //   - the packaged sidecar versions.json
 // A final scrub pass redacts anything that still looks like a secret
 // assignment, as a safety net for stderr passthrough from child processes.
-import { readFileSync, readdirSync } from "node:fs";
+import { readFileSync, readdirSync, statSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -53,6 +53,64 @@ function section(title, body) {
 export function defaultSupportBundleFileName() {
   const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
   return `legalwork-support-${stamp}.txt`;
+}
+
+/** Collect desktop traces locally; the server removes chat bodies and credentials before returning the export. */
+export async function collectTechnicalSupportBundle({ app, runtimeManager, serverInfo, days = 7, fetchImpl = fetch }) {
+  if (!Number.isInteger(days) || days < 1 || days > 365) throw new Error("Choose a whole number of days from 1 to 365.");
+  if (!serverInfo.running || !serverInfo.baseUrl || !serverInfo.hostToken) {
+    throw new Error("Start the local LegalWork service before exporting technical diagnostics.");
+  }
+  const logs = [];
+  let logsError = null;
+  const since = Date.now() - days * 86400000;
+  try {
+    const logsDir = app.getPath("logs");
+    for (const name of readdirSync(logsDir).filter(name => name.endsWith(".log")).sort().slice(-10)) {
+      const logPath = path.join(logsDir, name);
+      const modifiedAt = statSync(logPath).mtimeMs;
+      if (modifiedAt < since) {
+        logs.push({ name, modifiedAt, excludedBeforePeriod: true });
+        continue;
+      }
+      const content = readFileTail(logPath);
+      let include = true;
+      let excludedLines = 0;
+      const lines = content === null ? null : content.split(/\r?\n/).filter(line => {
+        const timestamp = /^\[?(\d{4}-\d{2}-\d{2}T[\d:.]+Z)/.exec(line)?.[1];
+        if (timestamp) include = Date.parse(timestamp) >= since;
+        if (!include) excludedLines++;
+        // Continuation lines (including stacks) inherit the preceding timestamp.
+        return include;
+      });
+      // Separate lines preserve the newest log entries when individual string limits apply.
+      logs.push({ name, modifiedAt, lines, excludedLines, tailLimit: LOG_TAIL_LIMIT, unavailable: content === null });
+    }
+  } catch (error) { logsError = error instanceof Error ? error.message : String(error); }
+  let runtime;
+  try { runtime = await runtimeManager.collectRuntimeDiagnostics(); }
+  catch (error) { runtime = { error: error instanceof Error ? error.message : String(error) }; }
+  const sidecarVersionsPath = process.resourcesPath ? path.join(process.resourcesPath, "sidecars", "versions.json") : null;
+  const desktop = {
+    app: { name: app.getName(), version: app.getVersion(), packaged: app.isPackaged },
+    system: { platform: process.platform, arch: process.arch, osRelease: os.release(), versions: process.versions,
+      uptimeSeconds: process.uptime(), memory: process.memoryUsage(), cpu: process.cpuUsage() },
+    runtime, logs, logsError, logFileLimit: 10,
+    sidecarVersions: sidecarVersionsPath ? readFileTail(sidecarVersionsPath, 16_000) : null,
+  };
+  const response = await fetchImpl(`${serverInfo.baseUrl}/diagnostics/export`, {
+    method: "POST",
+    headers: { "X-LegalWork-Host-Token": serverInfo.hostToken, "Content-Type": "application/json" },
+    body: JSON.stringify({ desktop, days }),
+    signal: AbortSignal.timeout(60_000),
+  });
+  if (!response.ok) throw new Error("Technical diagnostics could not be collected from the local service.");
+  const diagnostics = await response.json();
+  if (diagnostics?.format !== "legalwork-technical-diagnostics" || diagnostics.schemaVersion !== 2) {
+    throw new Error("This service does not support the technical diagnostics export.");
+  }
+  if (diagnostics.scope?.days !== days) throw new Error("Restart the local LegalWork service to use the selected export period.");
+  return JSON.stringify(diagnostics, null, 2);
 }
 
 /**

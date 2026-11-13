@@ -147,7 +147,7 @@ test("automatic registration is checked once and its exact callback/scopes survi
   expect(same.preview.validationId).toBe(checked.preview.validationId);
   expect(remote.registrations()).toBe(1);
   const ready = reviewedPluginImport(imported, target, checked.preview.validationId);
-  expect(JSON.stringify(ready.resolved)).toContain('"clientId":"legalwork-client"');
+  expect(JSON.stringify(ready.resolved)).toContain('"client_id":"legalwork-client"');
   expect(JSON.stringify(ready.resolved)).not.toContain("irrelevant-public-secret");
   expect(JSON.stringify(checked.preview)).not.toContain("legalwork-client");
   expect(JSON.stringify(checked.preview)).not.toContain("irrelevant-public-secret");
@@ -228,9 +228,9 @@ test("reimport checks existing owned setup and invalidates review if that setup 
   const imported = await plan({ figma: { url: "https://mcp.figma.com/mcp" } });
   const name = imported.preview.connectors?.[0]?.installedName;
   if (!name) throw new Error("Missing test connector");
-  const owned = { ...target, current: { [name]: { type: "remote", url: "https://mcp.figma.com/mcp", enabled: true, headers: { Authorization: "Bearer existing-private-token" }, oauth: false } }, installed: { pluginId: imported.preview.id, name: imported.preview.name, marketplaceId: null, description: null, updatedAt: null, importedAt: 1, files: [{ objectType: "mcp", path: `opencode.jsonc#mcp.${name}`, title: "Figma", configObjectId: "test", versionId: null, updatedAt: null }] } };
+  const owned = { ...target, current: { [name]: { type: "remote", url: "https://mcp.figma.com/mcp", disabled: false, headers: { Authorization: "Bearer existing-private-token" }, oauth: false } }, installed: { pluginId: imported.preview.id, name: imported.preview.name, marketplaceId: null, description: null, updatedAt: null, importedAt: 1, files: [{ objectType: "mcp", path: `opencode.jsonc#mcp.${name}`, title: "Figma", configObjectId: "test", versionId: null, updatedAt: null }] } };
   // A static token alone is not interpreted as an approved OAuth registration.
-  const approved = { ...owned, current: { [name]: { type: "remote", url: "https://mcp.figma.com/mcp", enabled: true, oauth: { clientId: "approved-legalwork-client", clientSecret: "private" } } } };
+  const approved = { ...owned, current: { [name]: { type: "remote", url: "https://mcp.figma.com/mcp", disabled: false, oauth: { client_id: "approved-legalwork-client", client_secret: "private" } } } };
   const remote = provider();
   const checked = await preparePluginImport(imported, approved, { fetch: async (url, init) => fetch(String(url).replace("https://mcp.figma.com", new URL(remote.url).origin), init) });
   expect(checked.preview.connectors?.[0]?.status).toBe("setup");

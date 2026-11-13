@@ -1,5 +1,5 @@
 import { constants } from "node:fs";
-import { copyFile, lstat, mkdir, readdir, realpath, unlink, utimes } from "node:fs/promises";
+import { copyFile, lstat, mkdir, readFile, readdir, realpath, unlink, utimes } from "node:fs/promises";
 import path from "node:path";
 
 /** Resolve only registered local projects, including projects created by the
@@ -7,13 +7,13 @@ import path from "node:path";
  * @param {string} workspaceId
  * Accept only the fields needed for a local path; a stale legacy record must
  * still be rejected before a renderer request can reach the filesystem.
- * @param {Array<{ id: string; path: string; workspaceType?: string }>} desktopWorkspaces
+ * @param {Array<{ id: string; path: string; contentPath?: string | null; workspaceType?: string }>} desktopWorkspaces
  * @param {Pick<import("@legalwork/types/desktop-ipc").LegalworkServerInfo, "running" | "baseUrl" | "ownerToken" | "clientToken">} server
  */
-export async function resolveProjectFolder(workspaceId, desktopWorkspaces, server) {
+export async function resolveProjectFolder(workspaceId, desktopWorkspaces, server, role = "content") {
   const desktop = desktopWorkspaces.find((entry) => entry.id === workspaceId);
   if (desktop) {
-    if (desktop.workspaceType !== "remote" && desktop.path) return desktop.path;
+    if (desktop.workspaceType !== "remote" && desktop.path) return role === "engine" ? desktop.path : desktop.contentPath || desktop.path;
     throw new Error("Local project not found");
   }
   const token = server.ownerToken || server.clientToken;
@@ -28,7 +28,7 @@ export async function resolveProjectFolder(workspaceId, desktopWorkspaces, serve
     ? list.items.find((entry) => entry?.id === workspaceId && entry.workspaceType === "local")
     : null;
   if (typeof workspace?.path !== "string" || !path.isAbsolute(workspace.path)) throw new Error("Local project not found");
-  return workspace.path;
+  return role === "engine" ? workspace.path : workspace.contentPath || workspace.path;
 }
 
 /** Copy files and folders recursively into a registered project without replacing existing files.
@@ -37,9 +37,10 @@ export async function resolveProjectFolder(workspaceId, desktopWorkspaces, serve
  * @param {string[]} sources
  * @param {typeof copyFile} [copy]
  * @param {string} [folder]
+ * @param {(source: string, path: string) => Promise<number>} [importDashboard]
  * @returns {Promise<import("@legalwork/types/desktop-ipc").WorkspaceCopyFilesResult>}
  */
-export async function copyFilesIntoProject(workspacePath, sources, copy = copyFile, folder = "") {
+export async function copyFilesIntoProject(workspacePath, sources, copy = copyFile, folder = "", importDashboard) {
   const project = await realpath(workspacePath);
   if (typeof folder !== "string" || path.isAbsolute(folder) || folder.split(/[/\\]/).includes("..")) throw new Error("Invalid project folder");
   const root = await realpath(path.join(project, folder));
@@ -70,15 +71,21 @@ export async function copyFilesIntoProject(workspacePath, sources, copy = copyFi
           return;
         }
       }
-      const extension = original.isFile() ? path.extname(basename) : "";
+      const dashboard = original.isFile() && /\.view\.json$/i.test(basename);
+      const extension = dashboard ? ".view.json" : original.isFile() ? path.extname(basename) : "";
       const stem = basename.slice(0, basename.length - extension.length);
       let completed = false;
       for (let suffix = 1; suffix <= 10000; suffix += 1) {
         const destinationName = suffix === 1 ? basename : `${stem} (${suffix})${extension}`;
         const destination = path.join(parent, destinationName);
         const destinationPath = path.join(relativeParent, destinationName);
+        let expectedSize = original.size;
         try {
           if (original.isDirectory()) await mkdir(destination);
+          else if (dashboard) {
+            if (!importDashboard) throw Object.assign(new Error("Dashboard import unavailable"), { code: "invalid_view_import" });
+            expectedSize = await importDashboard(source, destinationPath);
+          }
           else await copy(source, destination, constants.COPYFILE_EXCL);
         } catch (error) {
           if (error.code === "EEXIST") continue;
@@ -100,7 +107,7 @@ export async function copyFilesIntoProject(workspacePath, sources, copy = copyFi
             return null;
           });
           if (!target.isFile() || !current || current.dev !== original.dev || current.ino !== original.ino ||
-              current.size !== original.size || current.mtimeMs !== original.mtimeMs || target.size !== original.size) {
+              current.size !== original.size || current.mtimeMs !== original.mtimeMs || target.size !== expectedSize) {
             await unlink(destination);
             result.files.push({ name, status: "failed", error: "changed" });
             completed = true;
@@ -118,9 +125,29 @@ export async function copyFilesIntoProject(workspacePath, sources, copy = copyFi
       }
       if (!completed) result.files.push({ name, status: "failed", error: "failed" });
     } catch (error) {
-      result.files.push({ name, status: "failed", error: error.code === "ENOENT" ? "unavailable" : "failed" });
+      result.files.push({ name, status: "failed", error: error.code === "ENOENT" ? "unavailable" : error.code === "invalid_view_import" ? "dashboard" : "failed" });
     }
   }
   for (const source of new Set(sources)) await copyEntry(source, root, folder);
   return result;
+}
+
+/** Native folder imports use the same dashboard validation and new-ID contract as app copies.
+ * @param {Pick<import("@legalwork/types/desktop-ipc").LegalworkServerInfo, "baseUrl" | "ownerToken" | "clientToken">} server
+ * @param {string} workspaceId
+ * @returns {(source: string, destination: string) => Promise<number>}
+ */
+export function dashboardFileImporter(server, workspaceId) {
+  return async (source, destination) => {
+    if (!server.baseUrl) throw Object.assign(new Error("Dashboard import unavailable"), { code: "invalid_view_import" });
+    if ((await lstat(source)).size > 2 * 1024 * 1024) throw Object.assign(new Error("Dashboard exceeds 2 MB"), { code: "invalid_view_import" });
+    const response = await fetch(`${server.baseUrl.replace(/\/+$/, "")}/workspace/${encodeURIComponent(workspaceId)}/files/import`, {
+      method: "POST", headers: { Authorization: `Bearer ${server.ownerToken || server.clientToken}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ path: destination.split(path.sep).join("/"), dataBase64: (await readFile(source)).toString("base64") }),
+      signal: AbortSignal.timeout(60_000),
+    });
+    const result = await response.json();
+    if (!response.ok) throw Object.assign(new Error(result.message || "Dashboard import failed"), { code: result.code === "file_exists" ? "EEXIST" : result.code });
+    return result.bytes;
+  };
 }

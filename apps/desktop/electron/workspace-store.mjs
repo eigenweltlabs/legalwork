@@ -315,7 +315,7 @@ export function createWorkspaceStore({ app, defaultDenBaseUrl, defaultRequireSig
     });
   }
 
-  async function recoverWorkspacesFromServerConfig() {
+  async function recoverWorkspacesFromServerConfig(onlyId) {
     const config = await readJsonFile(legalworkServerConfigPath(), null);
     if (!isRecord(config) || !Array.isArray(config.workspaces)) return [];
 
@@ -325,7 +325,9 @@ export function createWorkspaceStore({ app, defaultDenBaseUrl, defaultRequireSig
       if (!isRecord(entry)) continue;
       if (entry.workspaceType === "remote") continue;
       const rawPath = typeof entry.path === "string" ? entry.path.trim() : "";
-      const normalizedPath = await normalizeLocalWorkspacePath(normalizeRecoveredWorkspacePath(rawPath));
+      const savedPath = normalizeRecoveredWorkspacePath(rawPath);
+      if (onlyId !== undefined && ((typeof entry.id === "string" && entry.id.trim()) || localWorkspaceId(savedPath)) !== onlyId) continue;
+      const normalizedPath = await normalizeLocalWorkspacePath(savedPath);
       if (!normalizedPath || !(await pathExists(normalizedPath))) continue;
       const id = typeof entry.id === "string" && entry.id.trim() ? entry.id.trim() : localWorkspaceId(normalizedPath);
       const key = normalizeWorkspacePathKey(normalizedPath);
@@ -365,6 +367,8 @@ export function createWorkspaceStore({ app, defaultDenBaseUrl, defaultRequireSig
       id: String(input.id),
       name: String(input.name ?? "Workspace"),
       path: String(input.path ?? ""),
+      contentPath: input.contentPath ?? null,
+      previousPath: input.previousPath ?? null,
       preset: String(input.preset ?? "starter"),
       workspaceType: "local",
       baseUrl: input.baseUrl ?? null,
@@ -420,7 +424,7 @@ export function createWorkspaceStore({ app, defaultDenBaseUrl, defaultRequireSig
     return { ...output, workspaces: activeWorkspaces };
   }
 
-  async function readWorkspaceStateUnchecked() {
+  async function readWorkspaceStateUnchecked(onlyId) {
     // A killed writer cannot run its finally block. Reap only this store's old
     // temporary files, and only when their owning process is known to be gone.
     const directory = app.getPath("userData");
@@ -471,6 +475,13 @@ export function createWorkspaceStore({ app, defaultDenBaseUrl, defaultRequireSig
         changed = true;
       }
     }
+    const authoritative = await recoverWorkspacesFromServerConfig(onlyId);
+    workspaces = workspaces.map(entry => {
+      const saved = authoritative.find(item => item.id === entry.id);
+      if (!saved?.contentPath) return entry;
+      if (entry.path !== saved.path || entry.contentPath !== saved.contentPath) changed = true;
+      return { ...entry, path: saved.path, contentPath: saved.contentPath, previousPath: saved.previousPath, directory: saved.path };
+    });
     const retired = workspaces.filter(entry => entry?.workspaceType === "remote");
     workspaces = workspaces.filter(entry => entry?.workspaceType !== "remote");
     const warnings = retired.length ? [`${retired.length} saved remote agent workspace(s) are no longer supported. Their connection settings remain preserved in ${workspaceStatePath()}.`] : [];
@@ -504,9 +515,9 @@ export function createWorkspaceStore({ app, defaultDenBaseUrl, defaultRequireSig
   function writeWorkspaceState(state) {
     return withWorkspaceState(() => writeWorkspaceStateUnchecked(state));
   }
-  function mutateWorkspaceState(mutator) {
+  function mutateWorkspaceState(mutator, onlyId) {
     return withWorkspaceState(async () => {
-      const current = await readWorkspaceStateUnchecked();
+      const current = await readWorkspaceStateUnchecked(onlyId);
       const next = await mutator({ ...current, workspaces: [...current.workspaces] });
       return writeWorkspaceStateUnchecked(next);
     });
@@ -529,21 +540,21 @@ export function createWorkspaceStore({ app, defaultDenBaseUrl, defaultRequireSig
       // Projects created through the server must also survive a desktop restart.
       // Register the selected project without recreating its folder or metadata.
       if (workspaceId && !state.workspaces.some((entry) => entry.id === workspaceId)) {
-        const created = (await recoverWorkspacesFromServerConfig()).find((entry) => entry.id === workspaceId);
+        const [created] = await recoverWorkspacesFromServerConfig(workspaceId);
         if (created) state.workspaces.unshift(created);
       }
       if (workspaceId && !state.workspaces.some((entry) => entry.id === workspaceId)) return state;
       state.selectedId = workspaceId;
       state.activeId = workspaceId || null;
       return state;
-    });
+    }, workspaceId ?? "");
   }
 
   async function setRuntimeActiveWorkspace(workspaceId) {
     return mutateWorkspaceState((state) => {
       state.watchedId = typeof workspaceId === "string" && workspaceId.trim() ? workspaceId : null;
       return state;
-    });
+    }, workspaceId ?? "");
   }
 
   async function createWorkspace(input = {}) {

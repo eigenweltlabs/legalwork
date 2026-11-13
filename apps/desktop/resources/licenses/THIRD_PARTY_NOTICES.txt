@@ -1,5 +1,17 @@
 Third-party notices for native OpenCode integration
 
+Microsoft Visual C++ Runtime 14.44.35211 (Windows x64 and ARM64)
+=============================================================
+Copyright (c) Microsoft Corporation. All rights reserved.
+The Windows app includes unmodified retail msvcp140.dll, msvcp140_1.dll,
+vcruntime140.dll and vcruntime140_1.dll beside its ONNX Runtime native addon.
+Optional Windows x64 quality OCR setup copies these same files beside llama-server.exe.
+These files remain under Microsoft's license, not LegalWork's open-source license.
+License: https://visualstudio.microsoft.com/license-terms/vs2022-cruntime/
+Redistribution: https://learn.microsoft.com/visualstudio/releases/2022/redistribution
+Source archives and file digests: apps/desktop/build/windows-vc-runtime.json
+App-local runtime security updates must be shipped with LegalWork updates.
+
 The released OpenCode 2.1.4 engine supplies @opencode/plugin and Effect to
 first-party plugins. No foreign SDK node_modules tree is staged. Desktop uses
 the matching released browser RPC and a vendored MIT GUI controller. Versions
@@ -97,3 +109,27 @@ Source: https://github.com/GoogleChrome/lighthouse/tree/v13.4.1
 Copyright 2016 Google LLC
 SPDX-License-Identifier: Apache-2.0
 The complete license is included in Apache-2.0.txt.
+
+Twenty UI (twenty-ui), version 2.54.0
+Copyright (c) 2023-present Twenty.com, PBC
+License: MIT. Full license: twenty-ui-LICENSE.txt in this directory.
+Used for the native Back Office controls, theme and typography.
+The AGPL-licensed Twenty application source is not included.
+
+RIS Legal MCP Server adaptation
+===============================
+Source: https://github.com/mburgler/ris-mcp-worker
+Upstream commit: a99b4fe7d283dc896ecb68e76e1b81c1985a02af
+Upstream package: ris-legal-mcp-server 0.2.0
+License declared by the upstream package.json and README: Apache-2.0.
+
+LegalWork adapts the upstream eight tool input/output schemas, application
+mappings, RIS query translation, citation building and tool handlers.
+Modifications by Eigenwelt Labs include native integration dispatch, opt-in
+activation, organization policy, a shared cancellable request queue without
+a response cache, bounded official-endpoint-only fetching, isolated document
+conversion, stricter validation, date handling and explicit failure reporting.
+
+The upstream repository has no NOTICE file at this pinned revision.
+The Apache License, Version 2.0 is supplied alongside these notices.
+RIS data is separate: CC BY 4.0, Bundeskanzleramt, Republik Österreich.

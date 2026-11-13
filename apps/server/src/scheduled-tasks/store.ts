@@ -37,6 +37,10 @@ export class ScheduledTaskStore {
   hasDefault(key: string) {
     return Boolean(this.db.get("SELECT key FROM scheduled_task_defaults WHERE key = ?", [key]));
   }
+  defaultTask(key: string): ScheduledTask | null {
+    const row = this.db.get("SELECT t.data FROM scheduled_tasks t JOIN scheduled_task_defaults d ON d.task_id = t.id WHERE d.key = ?", [key]);
+    return row ? ScheduledTaskSchema.parse(JSON.parse(String(row.data))) : null;
+  }
   /** Upgrade an untouched preset without changing user edits, timing or deletion. */
   migrateDefaultPrompt(key: string, previousHash: string, prompt: string, now = Date.now()) {
     const task = this.transaction(() => {
@@ -52,11 +56,11 @@ export class ScheduledTaskStore {
     return task;
   }
   /** The marker survives task deletion. Creation and the marker commit together. */
-  createDefault(key: string, workspaceId: string, raw: unknown, now = Date.now()) {
+  createDefault(key: string, workspaceId: string, raw: unknown, now = Date.now(), options: { replaceDeleted?: boolean; wikiScope?: "owner" | "collaborator" } = {}) {
     const task = this.transaction(() => {
-      if (this.hasDefault(key)) return null;
-      const created = this.create(workspaceId, raw, now);
-      this.db.run("INSERT INTO scheduled_task_defaults (key, task_id) VALUES (?, ?)", [key, created.id]);
+      if (this.hasDefault(key) && (!options.replaceDeleted || this.defaultTask(key))) return null;
+      const created = this.create(workspaceId, raw, now, options.wikiScope);
+      this.db.run("INSERT INTO scheduled_task_defaults (key, task_id) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET task_id = excluded.task_id", [key, created.id]);
       return created;
     });
     if (task) this.onChange?.();

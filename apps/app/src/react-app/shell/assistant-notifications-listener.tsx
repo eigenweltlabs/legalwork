@@ -64,12 +64,12 @@ export function AssistantNotificationsListener() {
           if (entry.status && entry.status !== "idle") continue;
           const key = `${client.baseUrl}:${entry.workspaceId}:${entry.sessionId}`;
           if ((checked.get(key) ?? 0) >= entry.assistantAt) continue;
-          const { item } = await client.getSessionSnapshot(entry.workspaceId, entry.sessionId, { limit: 40 });
+          const { item } = await client.getSessionSnapshot(entry.workspaceId, entry.sessionId, { limit: 40, fileReferences: true });
           if (stopped) return;
           if (item.status.type !== "idle") continue;
           // Electron also checks every app window immediately before showing it.
           const foreground = document.visibilityState === "visible" && document.hasFocus();
-          const reply = tracker.receive(item.messages, useAssistantNotificationPreferences.getState().desktopNotifications, foreground);
+          const reply = tracker.receive(item.session, item.messages, useAssistantNotificationPreferences.getState().desktopNotifications, foreground);
           checked.set(key, entry.assistantAt);
           if (reply) await desktopNotificationShow({
             id: assistantNotificationId(entry.workspaceId, entry.sessionId, reply.messageId),

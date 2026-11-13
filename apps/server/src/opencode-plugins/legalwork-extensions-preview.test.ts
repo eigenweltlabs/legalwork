@@ -51,7 +51,10 @@ async function withBridge(snapshot: unknown, execute?: (body: unknown, signal?: 
       if (url.endsWith("/assistant")) return Response.json({ workspace: null });
       if (url.endsWith("/snapshot")) return Response.json(snapshot);
       if (url.endsWith("/execute")) {
-        const body = typeof init?.body === "string" ? JSON.parse(init.body) : null;
+        const raw: unknown = typeof init?.body === "string" ? JSON.parse(init.body) : null;
+        const { requestId, deadline, ...body } = z.object({ requestId: z.uuid(), deadline: z.number() }).passthrough().parse(raw);
+        expect(deadline).toBeGreaterThan(Date.now());
+        expect(requestId).toBeTruthy();
         if (body?.actionId === "documents.list") return Response.json({ ok: true, result: snapshot });
         if (execute) return Response.json(await execute(body, init?.signal));
       }
@@ -68,6 +71,46 @@ async function modelContext(plugin: Awaited<ReturnType<typeof LegalWorkExtension
   await plugin.runtime.hook("session", "prompt", event);
   return { system, reminder: event.prompt.text.trim() };
 }
+
+describe("extension action arguments", () => {
+  test("rejects misplaced or unknown arguments before contacting the server", async () => {
+    const plugin = await LegalWorkExtensionsPreview();
+    const tool = plugin.tool.legalwork_extension_call;
+    const email = { to: ["recipient@example.com"], subject: "Review", body: "Please review." };
+    const call = { extensionId: "outlook", action: "create_draft" };
+    for (const invalid of [{ ...call, input: email }, { ...call, args: email, input: email }, { ...call, args: email, subject: "misplaced" }]) {
+      expect(inputSchema(tool.input).safeParse(invalid).success).toBe(false);
+      await expect(tool.execute(invalid)).rejects.toThrow();
+    }
+    expect(inputSchema(tool.input).safeParse({ ...call, args: email }).success).toBe(true);
+    expect(inputSchema(tool.input).safeParse({ extensionId: "outlook", action: "status", args: {} }).success).toBe(true);
+  });
+
+  test("forwards exact draft fields and search filters under args", async () => {
+    const saved = new Map(["LEGALWORK_SERVER_URL", "LEGALWORK_SERVER_TOKEN"].map(key => [key, process.env[key]]));
+    process.env.LEGALWORK_SERVER_URL = "http://extensions.test";
+    process.env.LEGALWORK_SERVER_TOKEN = "test";
+    const requests: unknown[] = [];
+    originalFetch = globalThis.fetch;
+    globalThis.fetch = Object.assign(async (_input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+      requests.push(JSON.parse(String(init?.body)));
+      return Response.json({ ok: true });
+    }, { preconnect: originalFetch.preconnect });
+    try {
+      const plugin = await LegalWorkExtensionsPreview();
+      const context = { sessionID: "ses_draft", directory: "/Users/lawyer/Matter" };
+      const email = { connectionId: "outlook-account", to: ["recipient@example.com"], subject: "Review", body: "Please review." };
+      await plugin.tool.legalwork_extension_call.execute({ extensionId: "outlook", action: "create_draft", args: email }, context);
+      await plugin.tool.legalwork_extension_call.execute({ extensionId: "outlook", action: "list_messages", args: { query: "Chris", maxResults: 10 } }, context);
+      expect(requests).toMatchObject([
+        { extensionId: "outlook", action: "create_draft", args: email, context: { sessionId: "ses_draft", directory: context.directory } },
+        { extensionId: "outlook", action: "list_messages", args: { query: "Chris", maxResults: 10 } },
+      ]);
+    } finally {
+      for (const [key, value] of saved) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
+    }
+  });
+});
 
 describe("legalwork_ui_snapshot session identity", () => {
   test("scheduled agents cannot read or navigate the active UI even with saved tool approval", async () => {
@@ -665,12 +708,12 @@ test("Word reads treat empty or null optional selectors as whole-document defaul
   expect(requests).toHaveLength(count);
 });
 
-test("Word exposes fifteen focused tools and routes typed batches, controls and copy workflows", async () => {
+test("Word exposes focused tools and routes typed batches, controls and copy workflows", async () => {
   const requests: unknown[] = [];
   await withBridge({}, body => { requests.push(body); return { ok: true, result: { ok: true, saved: true } }; });
   const plugin = await LegalWorkExtensionsPreview();
   const names = Object.keys(plugin.tool).filter(name => name.startsWith("inapp_docx"));
-  expect(names).toHaveLength(15); expect(names).not.toContain("inapp_docx");
+  expect(names).toHaveLength(16); expect(names).toContain("inapp_docx_preview"); expect(names).not.toContain("inapp_docx");
   const identity = { documentId: "live-1", draftRevision: 2, path: "Contract.docx" };
   const edit = { ...identity, operations: [{ operation: "apply_formatting", paraId: "P1", marks: { bold: false, fontSize: 11 }, paragraph: { spaceAfter: 6 } }, { operation: "insert_cross_reference", paraId: "P2", targetParaId: "P3", kind: "number", search: "clause 3" }] };
   await plugin.tool.inapp_docx_edit.execute(edit, { sessionID: "ses_open" });
@@ -703,6 +746,30 @@ test("Word exposes fifteen focused tools and routes typed batches, controls and 
   expect(editSchema).toContain('"enum":["create_bookmark"]');
   expect(editSchema).toContain('"enum":["insert_cross_reference"]');
   expect(editSchema).toContain('"targetSearch"');
+});
+
+test("Word visual inspection attaches a labeled live page without leaking base64 into text", async () => {
+  let request: unknown;
+  await withBridge({}, body => {
+    request = body;
+    return { ok: true, result: { ok: true, saved: false, data: { documentId: "draft", draftRevision: 3, page: 2, labels: [{ label: "main: BODY" }], preview: { available: true, width: 800, height: 1100, dataUrl: "data:image/png;base64,cHJldmlldw==" } } } };
+  });
+  const plugin = await LegalWorkExtensionsPreview();
+  const result = await plugin.tool.inapp_docx_preview.executeResult({ path: "Letter.docx", page: 2 }, { sessionID: "ses_word" });
+  expect(request).toMatchObject({ actionId: "document.agent_tool", args: { sessionId: "ses_word", path: "Letter.docx", toolName: "preview", args: { page: 2, annotate: true } } });
+  expect(result.content).toContainEqual({ type: "file", mime: "image/png", uri: "data:image/png;base64,cHJldmlldw==", name: "docx-inspection-page-2.png" });
+  expect(JSON.stringify(result.output)).not.toContain("cHJldmlldw==");
+  expect(result.output).toMatchObject({ result: { data: { page: 2, preview: { attached: true } } } });
+});
+
+test("Word proposals carry fresh identity and explicit writing area through the bridge", async () => {
+  const requests: unknown[] = [];
+  await withBridge({}, body => { requests.push(body); return { ok: true }; });
+  const plugin = await LegalWorkExtensionsPreview();
+  await expect(plugin.tool.inapp_docx_suggest_change.execute({ path: "Letter.docx", paraId: "BOX", search: "", replaceWith: "Letter" }, { sessionID: "ses_word" })).rejects.toThrow();
+  expect(requests).toHaveLength(0);
+  await plugin.tool.inapp_docx_suggest_change.execute({ path: "Letter.docx", documentId: "draft", draftRevision: 4, paraId: "BOX", area: "textBox", search: "", replaceWith: "Requested box text" }, { sessionID: "ses_word" });
+  expect(requests[0]).toMatchObject({ args: { toolName: "suggest_change", args: { documentId: "draft", draftRevision: 4, area: "textBox", paraId: "BOX" } } });
 });
 
 test("native cancellation reaches the UI bridge and never retries an uncertain mutation", async () => {

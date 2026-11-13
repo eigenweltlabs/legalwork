@@ -8,9 +8,9 @@ import { queueActionSchema, queuedPromptPayload } from "./session-queue-schema.j
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => { await Promise.all(cleanups.splice(0).map(fn => fn())); });
 const message = (text = "hello"): Extract<QueueAction, { type: "enqueue" }> => ({ type: "enqueue", id: crypto.randomUUID(), draft: { mode: "prompt", text, parts: [{ type: "text", text }], attachments: [], editor: { mentions: {}, pasteParts: [] } }, execution: { kind: "prompt", model: { providerID: "test", id: "test" }, text } });
-async function setup(transport: QueueTransport) {
+async function setup(transport: QueueTransport, onChange?: () => void) {
   const dir = await mkdtemp(join(tmpdir(), "legalwork-queue-test-"));
-  const queue = new SessionMessageQueue(dir, transport);
+  const queue = new SessionMessageQueue(dir, transport, onChange);
   cleanups.push(async () => { queue.stop(); await rm(dir, { recursive: true, force: true }); });
   return { queue, dir };
 }
@@ -388,6 +388,47 @@ test("native acceptance survives restart, blocks edits and pauses follow-ups on 
   expect(failed.paused).toBe(true);
   expect(failed.entries.map(entry => entry.id)).toEqual([second.id]);
   expect(sent).toEqual([first.id]);
+  const third = message("another follow-up");
+  const waiting = await restored.act("w", "s", third);
+  expect(waiting.paused).toBe(true);
+  expect(waiting.entries.map(entry => entry.id)).toEqual([second.id, third.id]);
+});
+
+test.each(["before", "after"])("a fresh send after a failed reply starts once, %s the queue polls the outcome", async timing => {
+  const first = message("first"), followUp = message("try this instead");
+  const sent: string[] = [];
+  const { queue } = await setup({
+    idle: async () => true,
+    send: async (_workspace, _session, entry) => { sent.push(entry.id); return { accepted: true }; },
+    settled: async (_workspace, _session, entry) => ({ pause: entry.id === first.id, reason: "error" }),
+  });
+  await queue.act("w", "s", first);
+  await until(async () => (await queue.read("w", "s")).entries[0]?.status === "accepted");
+  if (timing === "after") await queue.tick();
+
+  const state = await queue.act("w", "s", followUp);
+  expect(state.paused).toBe(false);
+  expect(state.completedIds).toContain(first.id);
+  expect(sent).toEqual([first.id, followUp.id]);
+  await until(async () => { await queue.tick(); return (await queue.read("w", "s")).entries.length === 0; });
+  await queue.act("w", "s", followUp);
+  expect(sent).toEqual([first.id, followUp.id]);
+});
+
+test.each(["scheduled send", "manual pause"])("an empty queue stays paused after a reply error with a %s", async scenario => {
+  const first = message(), followUp = message("follow-up");
+  const { queue } = await setup({
+    idle: async () => true,
+    send: async () => ({ accepted: true }),
+    settled: async () => ({ pause: true, reason: "error" }),
+  });
+  await queue.act("w", "s", first);
+  await until(async () => (await queue.read("w", "s")).entries[0]?.status === "accepted");
+  if (scenario === "manual pause") await queue.act("w", "s", { type: "pause", paused: true });
+  await queue.tick();
+  const waiting = await queue.act("w", "s", { ...followUp, resumeStopped: scenario !== "scheduled send" });
+  expect(waiting.paused).toBe(true);
+  expect(waiting.entries.map(entry => [entry.id, entry.status])).toEqual([[followUp.id, "queued"]]);
 });
 
 test("an uncertain dispatch reconciles to native acceptance without sending twice", async () => {
@@ -407,4 +448,23 @@ test("an uncertain dispatch reconciles to native acceptance without sending twic
   await queue.tick();
   expect((await queue.read("w", "s")).entries[0].status).toBe("accepted");
   expect(sent).toEqual([first.id]);
+});
+
+test("native completion wakes request waiters and publishes metadata changes", async () => {
+  let completed = false, notifications = 0;
+  const { queue } = await setup({
+    idle: async () => true,
+    send: async () => ({ accepted: true }),
+    settled: async () => completed ? { pause: false } : undefined,
+  }, () => { notifications++; });
+  const first = message();
+  await queue.act("w", "s", first);
+  await until(async () => (await queue.read("w", "s")).entries[0]?.status === "accepted");
+  const before = notifications;
+  const waiting = queue.waitForEntry("w", "s", first.id, AbortSignal.timeout(2000));
+  completed = true;
+  await queue.tick();
+  await waiting;
+  expect((await queue.read("w", "s")).entries).toEqual([]);
+  expect(notifications).toBeGreaterThan(before);
 });

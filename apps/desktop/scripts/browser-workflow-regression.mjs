@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSy
 import { createServer } from "node:http";
 import os from "node:os";
 import path from "node:path";
-import { app, BaseWindow, BrowserWindow, WebContentsView, clipboard, session } from "electron";
+import { app, BaseWindow, BrowserWindow, WebContentsView, clipboard, nativeImage, session } from "electron";
 import WebSocket from "ws";
 import { createBrowserPanel } from "../electron/browser-panel.mjs";
 import { resolveBrowserProject } from "../electron/browser-project.mjs";
@@ -99,7 +99,7 @@ app.whenReady().then(async () => {
   const main = new BrowserWindow({ show: false });
   const panel = createBrowserPanel({
     authorizeBrowserAutomation: async () => {},
-    app, BaseWindow, WebContentsView, clipboard, session,
+    app, BaseWindow, WebContentsView, clipboard, nativeImage, session,
     getWindow: () => main, getWindowForEvent: () => main,
     isAllowedAppNavigation: () => false,
     safeOpen: { openExternal: async () => false, openPath: async () => "", showItemInFolder: () => {} },
@@ -117,7 +117,7 @@ app.whenReady().then(async () => {
     main.setContentSize(900, 700);
     invoke("show", { x: 0, y: 0, width: 900, height: 700 });
     main.show();
-    const first = await invoke("openUrl", origin, "builtin", { directory: projectA, sessionId: "task-a" });
+    const first = await invoke("openUrl", origin, "builtin", { directory: projectA, workspaceId: "a", sessionId: "task-a" });
     assert.equal(main.contentView.children.length, 0);
     assert.equal(invoke("state").activeTabId, null);
     assert.equal(first.download_directory, path.join(projectA, "Downloads"));
@@ -135,18 +135,26 @@ app.whenReady().then(async () => {
     assert.equal(invoke("state").activeTabId, foreground.tabId);
     assert.deepEqual(main.contentView.children, [foregroundView]);
     invoke("closeTab", second.tab_id);
-    assert.match(await invoke("previewTab", first.tab_id), /^data:image\/png;base64,/);
+    assert.equal(await invoke("previewTab", first.tab_id), null);
+    const screenshot = await fetch(`${first.browser_url}/capture`, {
+      method: "POST", headers: { "Content-Type": "application/json", "x-legalwork-browser-session": "task-a" },
+      body: JSON.stringify({ format: "png" }), signal: AbortSignal.timeout(5000),
+    });
+    assert.equal(screenshot.status, 200, await screenshot.text());
+    await new Promise(resolve => setImmediate(resolve));
+    const cachedPreview = await invoke("previewTab", first.tab_id);
+    assert.match(cachedPreview, /^data:image\/png;base64,/);
     assert.deepEqual(main.contentView.children, [foregroundView]);
     assert.equal(invoke("state").activeTabId, foreground.tabId);
-    console.log("PASS: hidden task previews render without showing or selecting their native view");
+    console.log("PASS: agent screenshots populate cached previews without showing or selecting their native view");
 
     const [target] = await (await fetch(`${first.browser_url}/json/list`)).json();
     client = new WebSocket(target.webSocketDebuggerUrl);
     await once(client, "open");
-    assert.match(await invoke("previewTab", first.tab_id), /^data:image\/png;base64,/);
-    assert.equal(client.readyState, WebSocket.OPEN, "A preview must share the agent's debugger connection");
+    assert.equal(await invoke("previewTab", first.tab_id), cachedPreview);
+    assert.equal(client.readyState, WebSocket.OPEN, "A cached preview must preserve the agent's debugger connection");
     const previewOnly = await invoke("openUrl", origin, "builtin", { directory: projectA, sessionId: "task-b" });
-    for (const preview of await Promise.all([invoke("previewTab", first.tab_id), invoke("previewTab", previewOnly.tab_id)])) assert.match(preview, /^data:image\/png;base64,/);
+    assert.deepEqual(await Promise.all([invoke("previewTab", first.tab_id), invoke("previewTab", previewOnly.tab_id)]), [cachedPreview, null]);
     assert.equal(BaseWindow.getAllWindows().filter(win => win.isVisible()).length, 1, "Preview hosts must never become visible");
     invoke("releaseSession", "task-b");
     assert.deepEqual(main.contentView.children, [foregroundView]);
@@ -266,8 +274,13 @@ app.whenReady().then(async () => {
     console.log("PASS: remote and unknown projects cannot redirect local downloads; web origins are rejected");
     invoke("closeTab", first.tab_id);
     invoke("releaseSession", "task-a");
+    assert.equal(invoke("state").tabs.some(tab => tab.id === first.tab_id), true);
+    const continued = await invoke("connection", first.tab_id, { workspaceId: "a", sessionId: "task-a" });
+    assert.equal(continued.browser_url, first.browser_url);
+    invoke("dismissTab", first.tab_id);
+    invoke("releaseSession", "task-a");
     assert.equal(invoke("state").tabs.some(tab => tab.id === first.tab_id), false);
-    console.log("PASS: completing the owning task closes its temporary native browser");
+    console.log("PASS: task tabs survive follow-up turns and explicit dismissal closes them at turn end");
   } catch (error) {
     console.error(error);
     exitCode = 1;

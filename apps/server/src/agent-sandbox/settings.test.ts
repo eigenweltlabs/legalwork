@@ -11,6 +11,10 @@ import { eigenweltPlatformUrl } from "../eigenwelt-auth.js";
 import { writeEigenweltConnection } from "../eigenwelt-connection-store.js";
 import { scheduleOrgPolicySync } from "../org-policy.js";
 
+// This complete persistence/policy scenario takes about 30 seconds on Windows
+// ARM runners. Its aggregate watchdog is not an individual API latency limit.
+const scenarioTimeoutMs = process.platform === "win32" ? 60_000 : 30_000;
+
 test("network settings API authenticates, validates, persists and respects read-only mode", async () => {
   const childRoot = process.env.LEGALWORK_NETWORK_API_TEST_ROOT;
   if (!childRoot) {
@@ -46,7 +50,7 @@ test("network settings API authenticates, validates, persists and respects read-
     // or tool permission into consent to enable sandboxing.
     for (const networkMode of networkModeSchema.options) {
       await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({
-        permission: { bash: "allow", edit: "ask" }, sandboxNetworkMode: networkMode,
+        permissions: [{ action: "shell", resource: "*", effect: "allow" }, { action: "edit", resource: "*", effect: "ask" }], sandboxNetworkMode: networkMode,
       }));
       expect(await (await fetch(base + "/sandbox/status", { headers: hostHeaders })).json()).toMatchObject({
         enabled: false, available: null, networkMode,
@@ -69,7 +73,7 @@ test("network settings API authenticates, validates, persists and respects read-
     await mkdir(folder);
     config.workspaces.push({ id: "matter", name: "Matter", path: folder, preset: "starter", workspaceType: "local" });
     config.authorizedRoots.push(folder);
-    const engine = Bun.serve({ port: 0, fetch(request) {
+    const engine = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(request) {
       const path = new URL(request.url).pathname, location = { directory: folder };
       if (path === "/api/agent") return Response.json({ location, data: [{ id: "build", permissions: [{ action: "*", resource: "*", effect: "allow" }] }] });
       if (path === "/api/model") return Response.json({ location, data: [] });
@@ -104,7 +108,7 @@ test("network settings API authenticates, validates, persists and respects read-
       await fetch(base + "/org-policy/release", { method: "POST", headers: hostHeaders, body: JSON.stringify({ key: "sandbox" }) });
       globalThis.fetch = realFetch;
     }
-    await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permission: { bash: "ask", read: "allow" } }));
+    await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permissions: [{ action: "shell", resource: "*", effect: "ask" }, { action: "read", resource: "*", effect: "allow" }] }));
     const commands = Array.from({ length: 10 }, (_, index) => fetch(base + "/workspace/matter/sandbox/execute", {
       method: "POST", headers: { authorization: "Bearer client", "content-type": "application/json" },
       body: JSON.stringify({ command: "echo test", agent: "build", sessionID: `chat-${index}`, description: "Read a public source" }),
@@ -137,4 +141,5 @@ test("network settings API authenticates, validates, persists and respects read-
     await server.stop();
     await closeRuntimeOpencodeConfig(config);
   }
-}, 30000);
+  // The supervisor also pays for starting/importing the child and cleanup.
+}, scenarioTimeoutMs + (process.env.LEGALWORK_NETWORK_API_TEST_ROOT ? 0 : 30_000));

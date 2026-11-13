@@ -13,6 +13,7 @@ const message: QueuedComposerDraft = {
   text: "Review the result",
   parts: [{ type: "text", text: "Review the result" }],
   attachments: [],
+  canSteer: true,
   editor: { draft: "Review the result", attachments: [], mentions: {}, pasteParts: [] },
 };
 
@@ -23,6 +24,7 @@ function renderQueue(overrides: Partial<QueuedMessagesPanelProps> = {}) {
     disabled={false}
     onRemove={() => {}}
     onEdit={() => {}}
+    onSteer={async () => {}}
     onReorder={() => {}}
     onCancelEdit={() => {}}
     onResume={() => {}}
@@ -33,6 +35,27 @@ function renderQueue(overrides: Partial<QueuedMessagesPanelProps> = {}) {
 test("an empty queue stays hidden after Stop pauses it", () => {
   expect(renderQueue()).toBe("");
   expect(renderQueue({ paused: true })).toBe("");
+});
+
+test("ordinary pending messages offer Steer even while paused", () => {
+  const html = renderQueue({ messages: [message], paused: true });
+  expect(html).toContain(t("composer.steer_queued"));
+  const button = html.match(new RegExp(`<button[^>]*title="${t("composer.steer_queued_hint")}"[^>]*>`))?.[0];
+  expect(button).toBeDefined();
+  expect(button).not.toContain('disabled=""');
+  expect(renderQueue({ messages: [{ ...message, mode: "shell", canSteer: false }] })).not.toContain(t("composer.steer_queued_hint"));
+  expect(renderQueue({ messages: [{ ...message, command: { name: "review", arguments: "" }, canSteer: false }] })).not.toContain(t("composer.steer_queued_hint"));
+});
+
+test("Steer is disabled during editing, another window's lease and unresolved delivery", () => {
+  for (const overrides of [
+    { editingId: message.id }, { messages: [{ ...message, locked: true }] },
+    ...(["sending", "accepted", "uncertain"] satisfies Array<QueuedComposerDraft["status"]>).map(status => ({ messages: [{ ...message, status }] })),
+  ]) {
+    const html = renderQueue({ messages: [message], ...overrides });
+    const button = html.match(new RegExp(`<button[^>]*title="${t("composer.steer_queued_hint")}"[^>]*>`))?.[0];
+    expect(button).toContain('disabled=""');
+  }
 });
 
 test("paused follow-ups still show the message and Resume control", () => {

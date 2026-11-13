@@ -5,11 +5,11 @@ import path from "node:path";
 import { finished } from "node:stream/promises";
 import { CloudSpeakerPass } from "./cloud-speakers.mjs";
 
-export const SPEAKER_BATCH_MS = 45000;
+export const SPEAKER_BATCH_MS = 30000;
 
 /** Save PCM locally during capture. Speaker requests begin only after Stop. */
 export class DeferredCloudSpeakerPass {
-  constructor({ recognize, onTurns, onError }) {
+  constructor({ recognize, onTurns, onError, onMerge = (_aliases) => {}, createVoiceVerifier = null }) {
     this.folder = fs.mkdtempSync(path.join(os.tmpdir(), "legalwork-speakers-"));
     this.file = path.join(this.folder, "audio.pcm");
     this.writer = fs.createWriteStream(this.file, { mode: 0o600 });
@@ -18,7 +18,24 @@ export class DeferredCloudSpeakerPass {
     this.ending = false;
     this.cleanup = null;
     this.onError = onError;
-    this.pass = new CloudSpeakerPass({ recognize, onTurns, onError: error => this.fail(error), chunkMs: SPEAKER_BATCH_MS });
+    this.onMerge = onMerge;
+    this.verifier = null;
+    this.verifierFailed = false;
+    this.pass = new CloudSpeakerPass({ recognize, onTurns,
+      verifyVoices: createVoiceVerifier ? async (audio, offsetMs, turns) => {
+        if (this.verifierFailed) return null;
+        try {
+          this.verifier ??= await createVoiceVerifier();
+          if (this.stopped) { this.verifier.stop(); return null; }
+          return await this.verifier.verify(audio, offsetMs, turns);
+        } catch {
+          if (!this.stopped) this.onError("Voice matching is unavailable. The transcript keeps its audio input labels.");
+          this.verifierFailed = true;
+          this.verifier?.stop();
+          return null;
+        }
+      } : null,
+      onError: (error, recoverable) => recoverable ? this.onError(error) : this.fail(error), chunkMs: SPEAKER_BATCH_MS });
     this.writer.on("error", error => this.fail(error));
   }
 
@@ -43,6 +60,10 @@ export class DeferredCloudSpeakerPass {
         await this.pass.pending;
       }
       if (!this.stopped) await this.pass.finish();
+      if (!this.stopped && this.verifier && !this.verifierFailed) {
+        const aliases = await this.verifier.finish();
+        if (!this.stopped) this.onMerge(aliases);
+      }
     } catch (error) {
       this.fail(error);
     } finally {
@@ -62,6 +83,7 @@ export class DeferredCloudSpeakerPass {
       this.writer.destroy();
       this.reader?.destroy();
       this.pass.stop();
+      this.verifier?.stop();
       this.cleanup = fsp.rm(this.folder, { recursive: true, force: true }).catch(() => {});
     }
     return this.cleanup;

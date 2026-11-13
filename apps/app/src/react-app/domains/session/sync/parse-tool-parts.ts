@@ -1,6 +1,7 @@
 import type { DynamicToolUIPart, TextUIPart } from "ai";
-import type { ToolPart } from "@/app/lib/opencode-view";
+import type { FilePart, ToolPart } from "@/app/lib/opencode-view";
 import { ViewPreviewSchema } from "@legalwork/types/views";
+import { codeModeWidgetResults } from "@legalwork/types/chat-tool-results";
 
 import { safeStringify } from "@/app/utils";
 
@@ -15,6 +16,31 @@ export function widgetOutput(output: string): string {
   if (!/^(?:\n\n<system-reminder topic="[^"\r\n]+">\n[\s\S]*?\n<\/system-reminder>)+\s*$/.test(reminders)) return output;
   try { JSON.parse(payload); return payload; }
   catch { return output; }
+}
+
+export function parseDynamicToolUIParts(part: ToolPart): DynamicToolUIPart[] {
+  const mapped = parseDynamicToolUIPart(part);
+  if (!mapped) return [];
+  if (part.tool !== "execute" || part.state.status !== "completed") return [mapped];
+  const widgets = codeModeWidgetResults(part.callID, part.state.metadata, part.state.output);
+  if (!widgets.length) return [mapped];
+  const cards: DynamicToolUIPart[] = widgets.map(widget => ({
+    type: "dynamic-tool", toolName: widget.tool, toolCallId: widget.callId, input: widget.input,
+    state: "output-available", output: JSON.stringify(widget.output),
+    callProviderMetadata: { opencode: { partId: part.id, codeModeCallId: part.callID } },
+  }));
+  return widgets[0].callId === part.callID ? cards : [mapped, ...cards];
+}
+
+/** Inspection images remain in model history, never expand into chat attachments.
+ * The filename also covers previews inside mixed Code Mode batches. */
+export function visibleToolAttachments(part: ToolPart): FilePart[] {
+  if (part.state.status !== "completed") return [];
+  const inspectionOnly = part.tool === "inapp_docx_preview" || part.tool === "execute"
+    && Array.isArray(part.state.metadata?.toolCalls)
+    && part.state.metadata.toolCalls.some((call: unknown) => call && typeof call === "object" && "tool" in call && call.tool === "inapp_docx_preview");
+  return (part.state.attachments ?? []).filter(file => !file.filename?.startsWith("docx-inspection-page-")
+    && !(inspectionOnly && /^page-\d+\.png$/.test(file.filename ?? "")));
 }
 
 function shouldDeferInProgressTool(part: ToolPart) {
@@ -51,11 +77,24 @@ export function parseDynamicToolUIPart(part: ToolPart): DynamicToolUIPart | null
   }
 
   const metadata = "metadata" in part.state ? part.state.metadata : undefined;
+  const childSessionId = part.tool === "subagent" ? metadata?.sessionID : part.tool === "task" ? metadata?.sessionId : undefined;
+  const executedTools = part.tool === "execute" && Array.isArray(metadata?.toolCalls)
+    ? metadata.toolCalls.flatMap((call: unknown) =>
+        call && typeof call === "object" && "tool" in call && typeof call.tool === "string"
+          && "status" in call && call.status === "completed" ? [call.tool] : [])
+    : [];
+  const toolNames = part.tool === "execute" && Array.isArray(metadata?.toolCalls)
+    ? metadata.toolCalls.flatMap((call: unknown) =>
+        call && typeof call === "object" && "tool" in call && typeof call.tool === "string"
+          && "status" in call && typeof call.status === "string" && ["running", "completed", "error"].includes(call.status) ? [call.tool] : [])
+    : [];
   const callProviderMetadata = { opencode: {
     partId: part.id,
+    ...(executedTools.length ? { executedTools } : {}),
+    ...(toolNames.length ? { toolNames } : {}),
     ...((part.tool === "view_create" || part.tool === "view_update") && part.state.status === "pending" && part.state.raw ? { rawInput: part.state.raw.slice(0, 200_000) } : {}),
-    ...(part.tool === "task" && typeof metadata?.sessionId === "string" ? { sessionId: metadata.sessionId } : {}),
-    ...(part.tool === "task" && metadata?.background === true ? { background: true } : {}),
+    ...(typeof childSessionId === "string" ? { sessionId: childSessionId } : {}),
+    ...((part.tool === "task" && metadata?.background === true || part.tool === "subagent" && metadata?.status === "running") ? { background: true } : {}),
   } };
 
   if (part.state.status === "error") {

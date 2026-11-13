@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { access, mkdir, rm, writeFile } from "node:fs/promises";
 import { z } from "zod";
@@ -70,8 +70,12 @@ export class OcrManager {
     };
   }
   async service() {
+    return (await this.serviceSnapshot()).service;
+  }
+  async serviceSnapshot() {
     const { settings, resolveApiKey } = await this.effective();
-    return createConfiguredOcrService(settings, { localRuntime: this.runtime.local, resolveApiKey });
+    return { service: createConfiguredOcrService(settings, { localRuntime: this.runtime.local, resolveApiKey }),
+      fingerprint: createHash("sha256").update(JSON.stringify(settings)).digest("hex") };
   }
   async view(readOnly = false): Promise<OcrSettingsView> {
     const { settings, resolveApiKey, firmKeys } = await this.effective();
@@ -88,6 +92,7 @@ export class OcrManager {
           authentication: engine.kind === "local" ? undefined : engine.apiKeyRef === null ? "none" : "api-key",
           languages: info.find((item) => item.id === engine.id)?.languages?.slice() ?? null,
           keyConfigured,
+          downloadBytes: engine.kind === "local" ? this.runtime.downloadBytes(engine.model) : undefined,
           firmKey: firmKeys.get(engine.id),
           status: engine.kind !== "local" ? (engine.apiKeyRef === null || keyConfigured ? "ready" : "missing-key")
             : !this.runtime.supported(engine.model) ? "unsupported"

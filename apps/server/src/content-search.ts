@@ -1,3 +1,5 @@
+import { workspaceContentPath } from "./project-storage.js";
+import { resolveWorkspaceFile, type WorkspaceRoots } from "./project-storage-paths.js";
 import { existsSync } from "node:fs";
 import { setImmediate } from "node:timers/promises";
 import { opendir, realpath, stat } from "node:fs/promises";
@@ -148,7 +150,7 @@ const SKIP_DIRECTORIES = new Set([
 ]);
 function documentEntry(
   preparation: DocumentPreparation,
-  root: string,
+  workspace: WorkspaceRoots,
   path: string,
   revision: string,
   retry: boolean,
@@ -158,7 +160,7 @@ function documentEntry(
     cache = new Map();
     caches.set(preparation, cache);
   }
-  const key = join(root, path);
+  const key = resolveWorkspaceFile(workspace, path).path;
   const prior = cache.get(key);
   if (prior?.revision === revision) {
     prior.touched = Date.now();
@@ -182,7 +184,7 @@ function documentEntry(
   const entry: FileEntry = { revision, pending: true, touched: Date.now() };
   cache.set(key, entry);
   void extractCorpusText(
-    root,
+    workspace,
     path,
     preparation,
     AbortSignal.timeout(5 * 60_000),
@@ -208,13 +210,13 @@ function documentEntry(
 }
 
 export async function searchFileContents(
-  workspace: WorkspaceInfo,
+  workspace: Pick<WorkspaceInfo, "id" | "path">,
   query: string,
   signal: AbortSignal,
   preparation: DocumentPreparation,
   retry = false,
 ): Promise<ContentSearchResponse> {
-  const root = await realpath(workspace.path);
+  const root = await realpath(workspaceContentPath(workspace));
   const items: ContentSearchResult[] = [],
     issues: Array<{ path: string; reason: string }> = [];
   let visited = 0,
@@ -261,7 +263,7 @@ export async function searchFileContents(
           } else {
             const document = documentEntry(
               preparation,
-              root,
+              workspace,
               relativePath,
               `${info.mtimeMs}:${info.ctimeMs}:${info.size}`,
               retry,

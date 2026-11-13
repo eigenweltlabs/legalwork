@@ -39,6 +39,8 @@ export interface StorageAdapter {
   write(path: string, data: Buffer, contentType: string, condition: WriteCondition): Promise<void>;
   upload(path: string, source: string, contentType: string, condition: WriteCondition): Promise<void>;
   mkdir(path: string): Promise<void>;
+  /** Provider-side file copy within this adapter's authorized connection; never transfers content bytes. */
+  copyFile?(path: string, destination: string): Promise<void>;
   rename?(path: string, destination: string, kind: StorageEntry["kind"], onProgress?: (progress: StorageTransferUpdate) => void): Promise<void>;
   /** With a version, removes only that version; a newer one is a `storage_conflict`. */
   deleteFile?(path: string, condition?: WriteCondition): Promise<void>;

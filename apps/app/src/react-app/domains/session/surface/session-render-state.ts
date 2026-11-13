@@ -4,6 +4,7 @@ import type { LegalworkSessionSnapshot } from "../../../../app/lib/legalwork-ser
 import { mergeSnapshotAndLiveMessages } from "../sync/message-merge";
 import { applyRevertCursor } from "../sync/transcript-reconcile";
 import { snapshotToUIMessages } from "../sync/usechat-adapter";
+import { recentMessages } from "./history-window";
 
 export function resolveRenderedSessionSnapshot(input: {
   sessionId: string;
@@ -42,6 +43,6 @@ export function deriveRenderedSessionMessages(input: {
 
   // Synthetic context (such as live-recording instructions) has no visible
   // parts. Keep it in the underlying history without rendering an empty row.
-  return applyRevertCursor(messages, revertMessageId)
-    .filter((message) => message.role !== "user" || message.parts.length > 0);
+  return recentMessages(applyRevertCursor(messages, revertMessageId)
+    .filter((message) => message.role !== "user" || message.parts.length > 0));
 }

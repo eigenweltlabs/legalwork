@@ -5,9 +5,33 @@ import type { ViewPanelTab } from "./view-reference";
 import { t } from "@/i18n";
 
 export type ViewDraftTab = { id: string; type: "view-draft"; serverUrl: string; generationId: string; label: string };
-export type ViewGeneration = { serverUrl: string; workspaceId: string; sessionId: string; toolCallId: string; title: string; program: string; status: "streaming" | "failed" | "preview" | "saved"; error?: string; preview?: ViewPreview; saved?: ViewRecord | ViewSummary };
+export type ViewGeneration = { serverUrl: string; workspaceId: string; sessionId: string; toolCallId: string; replacesId?: string; sourceTab?: ViewPanelTab; layoutEdit?: boolean; title: string; program: string; status: "streaming" | "failed" | "preview" | "saved"; error?: string; preview?: ViewPreview; saved?: ViewRecord | ViewSummary };
 export function viewGenerationId(serverUrl: string, sessionId: string, toolCallId: string) { return `view-generation:${JSON.stringify([serverUrl, sessionId, toolCallId])}`; }
-export function viewDraftTab(id: string, generation: ViewGeneration): ViewDraftTab { return { id, type: "view-draft", generationId: id, serverUrl: generation.serverUrl, label: generation.title }; }
+/** Each edit keeps its own save receipt, while the original tab follows its revision chain. */
+export function latestDraftId(id: string, entries: Record<string, ViewGeneration>) {
+  const revisions = Object.entries(entries).filter(([, entry]) => entry.replacesId && entry.status !== "failed");
+  const seen = new Set([id]);
+  for (;;) {
+    const next = revisions.findLast(([, entry]) => entry.replacesId === id);
+    if (!next || seen.has(next[0])) return id;
+    id = next[0];
+    seen.add(id);
+  }
+}
+export function draftRootId(id: string, entries: Record<string, ViewGeneration>) {
+  const seen = new Set([id]);
+  for (;;) {
+    const parent = entries[id]?.replacesId;
+    if (!parent || seen.has(parent)) break;
+    id = parent;
+    seen.add(id);
+  }
+  return id;
+}
+export function viewDraftTab(id: string, generation: ViewGeneration): ViewDraftTab {
+  const root = draftRootId(id, useViewGenerationStore.getState().entries);
+  return { id: root, type: "view-draft", generationId: root, serverUrl: generation.serverUrl, label: generation.title };
+}
 export function record(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }
 export function viewProgramInput(value: unknown) {
   const input = record(value) && record(value.input) ? value.input : value;

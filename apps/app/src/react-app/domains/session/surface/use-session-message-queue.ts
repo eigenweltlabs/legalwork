@@ -1,3 +1,4 @@
+import { useMetadataPolling } from "@/react-app/infra/metadata-polling";
 import { reconcileQueuedOrder } from "./queued-order";
 import { useCallback, useEffect, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -7,7 +8,7 @@ import { LegalworkServerError } from "@/app/lib/legalwork-server";
 import { toast } from "@/components/ui/sonner";
 import { t } from "@/i18n";
 import type { ComposerDraft } from "@/app/types";
-import { useComposerStateStore, type QueuedComposerDraft, type ComposerSessionState } from "./composer-state-store";
+import { QueuedEditRecoveredError, useComposerStateStore, type QueuedComposerDraft, type ComposerSessionState } from "./composer-state-store";
 
 const fileData = (file: File) => new Promise<string>((resolve, reject) => {
   const reader = new FileReader();
@@ -29,12 +30,15 @@ function hydrateDraft(entry: SessionQueue["entries"][number], editToken?: string
   });
   return { ...entry.draft, id: entry.id, attachments,
     status: entry.status, error: entry.error, locked: Boolean(entry.edit && entry.edit.token !== editToken),
+    canSteer: entry.execution.kind === "prompt" && entry.draft.mode === "prompt" && !entry.draft.command,
+    steering: entry.delivery === "steer",
     editor: { ...entry.draft.editor, draft: entry.draft.text, attachments } };
 }
 
 /** Queue state is shared; only the edit buffer and its stashed composer belong
  * to this window. A lease pauses delivery while a queued item is being edited. */
 export function useSessionMessageQueue(client: LegalworkServerClient, workspaceId: string, sessionId: string) {
+  const metadataInterval = useMetadataPolling(client.baseUrl, 5000);
   const queryClient = useQueryClient();
   const key = ["session-message-queue", client.baseUrl, workspaceId, sessionId];
   const claim = useRef<{ id: string; token: string } | null>(null);
@@ -43,7 +47,7 @@ export function useSessionMessageQueue(client: LegalworkServerClient, workspaceI
     const queue = await client.sessionMessageQueue(workspaceId, sessionId, queryClient.getQueryData<SessionQueue>(key));
     const previous = queryClient.getQueryData<SessionQueue>(key);
     return previous && previous.revision > queue.revision ? previous : queue;
-  }, refetchInterval: query => query.state.data?.entries.length ? 1000 : 5000 });
+  }, refetchInterval: query => query.state.data?.entries.length ? 1000 : metadataInterval });
   const latest = useRef(query.data); latest.current = query.data;
   const apply = useCallback((queue: SessionQueue) => {
     if (!latest.current || queue.revision >= latest.current.revision) latest.current = queue;
@@ -62,7 +66,7 @@ export function useSessionMessageQueue(client: LegalworkServerClient, workspaceI
   }, [client.baseUrl, workspaceId, sessionId]);
   useEffect(() => {
     if (!query.data) return;
-    const items = query.data.entries.filter(entry => entry.status !== "sending" && entry.status !== "accepted").map(entry => hydrateDraft(entry, claim.current?.token));
+    const items = query.data.entries.filter(entry => (entry.status !== "sending" || entry.delivery === "steer") && entry.status !== "accepted").map(entry => hydrateDraft(entry, claim.current?.token));
     useComposerStateStore.setState(state => ({ queuedDrafts: { ...state.queuedDrafts, [sessionId]: items }, pausedQueues: { ...state.pausedQueues, [sessionId]: query.data.paused } }));
   }, [query.data, sessionId]);
   useEffect(() => {
@@ -79,23 +83,30 @@ export function useSessionMessageQueue(client: LegalworkServerClient, workspaceI
     };
   }, [client.baseUrl, workspaceId, sessionId]);
   return {
-    ready: query.isSuccess, error: query.error,
-    enqueue: async (draft: ComposerDraft, send: (input: Omit<QueueInput, "execution">) => Promise<void>, preparedEditor?: ComposerSessionState) => {
+    ready: query.isSuccess, error: query.error, state: query.data,
+    reserve: (draft: ComposerDraft, editor?: ComposerSessionState) => {
+      const signature = JSON.stringify([draft, editor]);
+      if (!submission.current || submission.current.signature !== signature) submission.current = { signature, id: crypto.randomUUID() };
+      return editor?.queuedDraftId ?? submission.current.id;
+    },
+    enqueue: async (draft: ComposerDraft, send: (input: Omit<QueueInput, "execution">) => Promise<void>, preparedEditor?: ComposerSessionState, reservedId?: string) => {
       const editor = preparedEditor ?? useComposerStateStore.getState().sessions[sessionId];
       const snapshot = await snapshotQueuedDraft(draft, editor);
       const signature = JSON.stringify(snapshot);
       const current = editor?.queuedDraftId ? claim.current : null;
       if (editor?.queuedDraftId && current?.id !== editor.queuedDraftId) {
         useComposerStateStore.getState().recoverQueuedEdit(sessionId);
-        throw new Error(t("composer.queue_edit_recovered"));
+        throw new QueuedEditRecoveredError(t("composer.queue_edit_recovered"));
       }
-      if (!submission.current || submission.current.signature !== signature) submission.current = { signature, id: crypto.randomUUID() };
-      try { await send({ id: current?.id ?? submission.current.id, draft: snapshot, ...(current ? { editToken: current.token } : {}) }); }
+      if (!reservedId && (!submission.current || submission.current.signature !== signature)) submission.current = { signature, id: crypto.randomUUID() };
+      const id = current?.id ?? reservedId ?? submission.current?.id;
+      if (!id) throw new Error("Missing queue submission ID");
+      try { await send({ id, draft: snapshot, ...(current ? { editToken: current.token } : {}) }); }
       catch (error) {
         if (current && error instanceof LegalworkServerError && error.status === 409) {
           claim.current = null;
           useComposerStateStore.getState().recoverQueuedEdit(sessionId);
-          throw new Error(t("composer.queue_edit_recovered"));
+          throw new QueuedEditRecoveredError(t("composer.queue_edit_recovered"));
         }
         throw error;
       }
@@ -119,6 +130,7 @@ export function useSessionMessageQueue(client: LegalworkServerClient, workspaceI
       claim.current = null;
     },
     remove: (id: string) => update({ type: "remove", id, revision: latest.current?.revision ?? 0 }),
+    steer: (id: string) => update({ type: "steer", id, revision: latest.current?.revision ?? 0 }),
     reorder: async (ids: string[]) => {
       const action = (state: SessionQueue | undefined): QueueAction => ({ type: "reorder",
         ids: reconcileQueuedOrder(ids, state?.entries.filter(entry => entry.status !== "sending" && entry.status !== "accepted").map(entry => entry.id) ?? ids),

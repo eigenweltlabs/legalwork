@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "kind": "legalwork-patched-source-build",
   "baseVersion": "2.1.4",
-  "version": "2.1.4-legalwork.http-policy.3",
+  "version": "2.1.4-legalwork.http-policy.6",
   "channel": "legalwork",
   "upstream": {
     "repository": "https://github.com/anomalyco/opencode.git",
@@ -72,36 +72,36 @@
   ],
   "inputs": {
     "patch": {
-      "path": "docs/patches/opencode-2.1.4-mcp-http-policy-v3.patch",
-      "sha256": "9b822bb48049bfd49551380c9fb5cfe8acf4743bda6c4ebdb51f115f8ef033e0"
+      "path": "docs/patches/opencode-2.1.4-history-file-references.patch",
+      "sha256": "75cc4c142ca62ae82999f235a91506164e0bd3bd5503a9e98ddf82e2854652c2"
     },
     "lockfile": {
-      "path": "packages/opencode-release/build/inputs/bun.lock",
+      "upstreamPath": "bun.lock",
       "sha256": "47359ba0731b02d14b9a93a6b71b2db104cf9b9716ab0b6371fe96f02c6d71b2"
     },
     "rootPackage": {
-      "path": "packages/opencode-release/build/inputs/root-package.json",
+      "upstreamPath": "package.json",
       "sha256": "1767628e91b25f3b730c39edf67069a4575ff2d5509b0e494fa95ec6b693e246"
     },
     "testReceipt": {
-      "path": "docs/patches/opencode-2.1.4-mcp-http-policy-v3.receipt.json",
-      "sha256": "3921f70ac38eb3d5dbcece983da631f3f3d4cdda8dc9a7e4953f7cd264ed0aae"
+      "path": "docs/patches/opencode-2.1.4-history-file-references.receipt.json",
+      "sha256": "9d82b599f3cb63dc6d76eb9b3440b3543d57586250c9934a94a4242feb2db45d"
     }
   },
   "buildStatus": "tested-source-lock",
   "testEvidence": {
-    "receiptSha256": "3921f70ac38eb3d5dbcece983da631f3f3d4cdda8dc9a7e4953f7cd264ed0aae",
+    "receiptSha256": "9d82b599f3cb63dc6d76eb9b3440b3543d57586250c9934a94a4242feb2db45d",
     "lockfileSha256": "47359ba0731b02d14b9a93a6b71b2db104cf9b9716ab0b6371fe96f02c6d71b2",
-    "patchSha256": "9b822bb48049bfd49551380c9fb5cfe8acf4743bda6c4ebdb51f115f8ef033e0",
+    "patchSha256": "75cc4c142ca62ae82999f235a91506164e0bd3bd5503a9e98ddf82e2854652c2",
     "bun": "1.4.4",
-    "focusedTests": 188,
-    "randomizedHttpExecutions": 90,
-    "fullCodeModePassed": 1416,
-    "fullCorePassed": 6766,
-    "fullCoreSkipped": 43,
-    "fullCorePreexistingMacShellFailures": 7,
-    "fullCoreNewFailures": 0,
-    "canonicalCheckTasks": 34,
-    "rootSourceReviewSha256": "e585f41c07806ea7c000a720268fa2782144b1585f4b0120fdbff3f6552d44f1"
+    "migrationTestsPassed": 38,
+    "migrationTestsFailed": 0,
+    "coreTypecheckPassed": true,
+    "priorHttpPatchUnchanged": true,
+    "relocationSourceTestsPassed": 183,
+    "relocationSourceTestsFailed": 0,
+    "serverTypecheckPassed": true,
+    "historySourceTestsPassed": 218,
+    "historySourceTestsFailed": 0
   }
 }

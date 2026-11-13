@@ -25,7 +25,7 @@ export function ConnectorWriteSettings({ id, kind, client }: { id: string; kind:
   if (!client) return null;
   return <section className="space-y-3" aria-labelledby={`${id}-write-label`}>
     <div className="flex items-start justify-between gap-4">
-      <div className="space-y-1">
+      <div className="min-w-0 flex-1 space-y-1">
         <label id={`${id}-write-label`} htmlFor={`${id}-write-access`} className="text-sm font-medium text-dls-text">{t("connectors.write_access")}</label>
         <p id={`${id}-write-description`} className="text-[13px] leading-relaxed text-dls-secondary">{kind === "mail" ? t("connectors.write_access_mail") : kind === "calendar" ? t("connectors.write_access_calendar") : t("connectors.write_access_files")}</p>
       </div>

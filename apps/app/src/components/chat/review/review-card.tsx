@@ -1,3 +1,4 @@
+import { useMetadataPolling } from "@/react-app/infra/metadata-polling";
 import { reviewActionLabel } from "@/react-app/domains/reviews/review-labels";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRequestPanelTab } from "@/react-app/domains/session/panel/panel-tab-destination";
@@ -32,7 +33,8 @@ function ReviewCard({ card, compact = false }: { card: NonNullable<ReturnType<ty
   const { legalworkClient, workspaceId } = useMessageList();
   const cache = useQueryClient();
   const available = !!legalworkClient && workspaceId === card.workspaceId;
-  const query = useQuery(reviewCardQueryOptions(available ? legalworkClient : null, card.workspaceId, card.review.id, () => cache.getQueryData<SavedReview>(reviewKey(card.workspaceId, card.review.id))));
+  const metadataInterval = useMetadataPolling(legalworkClient?.baseUrl, 15_000);
+  const query = useQuery(reviewCardQueryOptions(available ? legalworkClient : null, card.workspaceId, card.review.id, () => cache.getQueryData<SavedReview>(reviewKey(card.workspaceId, card.review.id)), metadataInterval));
   const review = query.data;
   const progress = reviewCardProgress(card, review);
   const state = progress.status;

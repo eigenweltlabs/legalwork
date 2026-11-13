@@ -135,7 +135,7 @@ export async function finalizeWordPackage(buffer: ArrayBuffer, metadata: WordMet
     type.setAttribute("PartName", "/word/settings.xml"); type.setAttribute("ContentType", "application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml");
     types.documentElement!.appendChild(type); zip.file("[Content_Types].xml", xmlText(types));
   }
-  return zip.generateAsync({ type: "arraybuffer" });
+  return zip.generateAsync({ type: "arraybuffer", compression: "DEFLATE", compressionOptions: { level: 6 } });
 }
 
 export type InspectionKind = "properties" | "hiddenText" | "customXml" | "comments" | "revisions" | "externalLinks";
@@ -209,7 +209,7 @@ export async function removeWordPrivateData(buffer: ArrayBuffer, selected: Inspe
     }
     if (changed) zip.file(path, xmlText(doc));
   }
-  return zip.generateAsync({ type: "arraybuffer" });
+  return zip.generateAsync({ type: "arraybuffer", compression: "DEFLATE", compressionOptions: { level: 6 } });
 }
 
 /** Review every Word story, including notes, headers, and property revisions. */
@@ -267,5 +267,5 @@ export async function reviewWordPackage(buffer: ArrayBuffer, decision: "accept" 
     for (const node of Array.from(doc.getElementsByTagName("*"))) if (/PrChange$|^(tblGridChange|numberingChange|cellIns|cellDel|cellMerge|move(?:From|To)Range(?:Start|End)|customXml(?:Ins|Del|MoveFrom|MoveTo)Range(?:Start|End))$/.test(node.localName ?? "")) node.parentNode?.removeChild(node);
     zip.file(path, xmlText(doc));
   }
-  return zip.generateAsync({ type: "arraybuffer" });
+  return zip.generateAsync({ type: "arraybuffer", compression: "DEFLATE", compressionOptions: { level: 6 } });
 }

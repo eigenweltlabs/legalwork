@@ -6,7 +6,10 @@ const NATIVE_MENU_OPEN_SESSION_WINDOW_EVENT = "legalwork:native-menu:open-sessio
 const NATIVE_MENU_TOGGLE_SIDEBAR_EVENT = "legalwork:native-menu:toggle-sidebar";
 const NATIVE_MENU_CHECK_UPDATES_EVENT = "legalwork:native-menu:check-updates";
 const NATIVE_MENU_ZOOM_EVENT = "legalwork:native-menu:zoom";
+const NATIVE_MENU_SELECT_TAB_EVENT = "legalwork:native-menu:select-tab";
 const DESKTOP_NOTIFICATION_CLICK_EVENT = "legalwork:desktop-notification-click";
+const LAUNCHER_EVENT = "legalwork:launcher:event";
+const NAVIGATE_EVENT = "legalwork:navigate";
 
 function normalizePlatform(value) {
   if (value === "darwin" || value === "linux") return value;
@@ -238,6 +241,18 @@ contextBridge.exposeInMainWorld("__LEGALWORK_ELECTRON__", {
   },
 });
 
+// The quick panel hands a route to the main window (expand into Home, open a result).
+ipcRenderer.on(NAVIGATE_EVENT, (_event, route) => {
+  if (typeof window === "undefined" || typeof route !== "string") return;
+  window.dispatchEvent(new CustomEvent(NAVIGATE_EVENT, { detail: route }));
+});
+
+// Launcher invocations, visibility, origin and attention updates pushed by the main process.
+ipcRenderer.on(LAUNCHER_EVENT, (_event, payload) => {
+  if (typeof window === "undefined" || !payload || typeof payload !== "object") return;
+  window.dispatchEvent(new CustomEvent(LAUNCHER_EVENT, { detail: payload }));
+});
+
 ipcRenderer.on(NATIVE_DEEP_LINK_EVENT, (_event, urls) => {
   if (typeof window === "undefined") return;
   window.dispatchEvent(new CustomEvent(NATIVE_DEEP_LINK_EVENT, { detail: urls }));
@@ -266,6 +281,11 @@ ipcRenderer.on(NATIVE_MENU_CHECK_UPDATES_EVENT, () => {
 ipcRenderer.on(NATIVE_MENU_ZOOM_EVENT, (_event, action) => {
   if (typeof window === "undefined") return;
   window.dispatchEvent(new CustomEvent(NATIVE_MENU_ZOOM_EVENT, { detail: action }));
+});
+
+ipcRenderer.on(NATIVE_MENU_SELECT_TAB_EVENT, (_event, number) => {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent(NATIVE_MENU_SELECT_TAB_EVENT, { detail: number }));
 });
 
 // A system notification the page asked for was clicked (see

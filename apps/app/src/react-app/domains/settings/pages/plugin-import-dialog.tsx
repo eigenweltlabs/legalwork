@@ -107,7 +107,7 @@ export function PluginImportChecks(props: { preview: PluginImportPreview; name: 
   </div>;
 }
 
-export function PluginImportDialog(props: { store: PluginImportStore; onClose: () => void; onImported: (preview: PluginImportPreview) => void | Promise<void>; onImportSkills?: (source: SkillImportSource) => void | Promise<void>; onImportLegalQuants?: () => void; canImportSkills?: boolean; canImportLocalSkills?: boolean; canImportPlugins?: boolean; returnFocus?: RefObject<HTMLElement | null>; initialSource?: PluginImportSource; initialRoot?: string; initialAsWorkflow?: boolean; initialConvertPluginSkills?: boolean; initialWorkflowSkillPaths?: string[] }) {
+export function PluginImportDialog(props: { connectionsOnly?: boolean; store: PluginImportStore; onClose: () => void; onImported: (preview: PluginImportPreview) => void | Promise<void>; onImportSkills?: (source: SkillImportSource) => void | Promise<void>; onImportLegalQuants?: () => void; canImportSkills?: boolean; canImportLocalSkills?: boolean; canImportPlugins?: boolean; returnFocus?: RefObject<HTMLElement | null>; initialSource?: PluginImportSource; initialRoot?: string; initialAsWorkflow?: boolean; initialConvertPluginSkills?: boolean; initialWorkflowSkillPaths?: string[] }) {
   const [provider, setProvider] = useState<PluginImportProvider | null>(props.initialSource?.provider || null);
   const [sourceMode, setSourceMode] = useState<"files" | "github" | null>(null);
   const [candidates, setCandidates] = useState<PluginImportCandidate[]>([]);
@@ -153,7 +153,7 @@ export function PluginImportDialog(props: { store: PluginImportStore; onClose: (
   const componentName = singleComponent ? pluginImportName(singleComponent) : "";
   const differentComponentName = singleComponent !== undefined && componentName.toLocaleLowerCase() !== packageName.toLocaleLowerCase();
   const reviewName = differentComponentName && !wholePlugin ? componentName : packageName;
-  const groups = groupPluginImportCandidates(candidates);
+  const groups = groupPluginImportCandidates(props.connectionsOnly ? candidates.filter(item => item.kind !== "skill") : candidates);
   const search = query.trim().toLocaleLowerCase();
   const narrowed = search.length > 0 || filter !== "all";
   const filtered = groups.filter(({ candidate }) =>
@@ -295,13 +295,13 @@ export function PluginImportDialog(props: { store: PluginImportStore; onClose: (
   return <Dialog open onOpenChange={open => { if (!open && !installing) props.onClose(); }}>
     <DialogContent className={provider ? `flex max-h-[calc(100dvh-3rem)] flex-col gap-0 bg-background p-0 ${compactReview ? "sm:max-w-md" : "sm:max-w-2xl"}` : "bg-background"} showCloseButton={!installing} finalFocus={props.returnFocus}>
       {provider === null ? <>
-        <DialogHeader className="pe-6"><DialogTitle>{t("integrations.import_title")}</DialogTitle><DialogDescription>{t(props.initialAsWorkflow ? "integrations.import_workflow_description" : "integrations.import_choose_provider")}</DialogDescription></DialogHeader>
+        <DialogHeader className="pe-6"><DialogTitle>{t("integrations.import_title")}</DialogTitle><DialogDescription>{t(props.connectionsOnly ? "catalog.import_description" : props.initialAsWorkflow ? "integrations.import_workflow_description" : "integrations.import_choose_provider")}</DialogDescription></DialogHeader>
         <div className="space-y-3">
           <Button ref={providerButton} autoFocus variant="outline" className="h-auto w-full justify-between gap-4 px-4 py-4" disabled={props.canImportPlugins === false} onClick={() => setProvider("chatgpt")}><span className="flex items-center gap-3"><ChatGptLogo className="size-6 shrink-0" />{t("extensions.import_chatgpt")}</span><ChevronRight className="size-4 text-muted-foreground" /></Button>
           <Button variant="outline" className="h-auto w-full justify-between gap-4 px-4 py-4" disabled={props.canImportPlugins === false} onClick={() => setProvider("claude")}><span className="flex items-center gap-3"><img src={claudeLogo} alt="" aria-hidden="true" width={24} height={24} className="size-6 shrink-0" />{t("extensions.import_claude")}</span><ChevronRight className="size-4 text-muted-foreground" /></Button>
-          {props.onImportSkills ? <>
-            <Button variant="outline" className="h-auto w-full justify-between gap-4 px-4 py-4" disabled={!props.canImportSkills} onClick={() => { if (props.canImportPlugins === false) void props.onImportSkills?.("github"); else { setSourceMode("github"); setProvider("claude"); } }}><span className="flex items-center gap-3"><Github className="size-6 shrink-0" />{t("integrations.import_github")}</span><ChevronRight className="size-4 text-muted-foreground" /></Button>
-            <Button variant="outline" className="h-auto w-full justify-between gap-4 px-4 py-4" disabled={!props.canImportLocalSkills} onClick={() => { if (props.canImportPlugins === false) void props.onImportSkills?.("files"); else { setSourceMode("files"); setProvider("claude"); } }}><span className="flex items-center gap-3"><FolderOpen className="size-6 shrink-0" />{t("integrations.import_files")}</span><ChevronRight className="size-4 text-muted-foreground" /></Button>
+          {props.onImportSkills || props.connectionsOnly ? <>
+            <Button variant="outline" className="h-auto w-full justify-between gap-4 px-4 py-4" disabled={props.connectionsOnly ? props.canImportPlugins === false : !props.canImportSkills} onClick={() => { if (props.canImportPlugins === false) void props.onImportSkills?.("github"); else { setSourceMode("github"); setProvider("claude"); } }}><span className="flex items-center gap-3"><Github className="size-6 shrink-0" />{t("integrations.import_github")}</span><ChevronRight className="size-4 text-muted-foreground" /></Button>
+            <Button variant="outline" className="h-auto w-full justify-between gap-4 px-4 py-4" disabled={props.connectionsOnly ? props.canImportPlugins === false : !props.canImportLocalSkills} onClick={() => { if (props.canImportPlugins === false) void props.onImportSkills?.("files"); else { setSourceMode("files"); setProvider("claude"); } }}><span className="flex items-center gap-3"><FolderOpen className="size-6 shrink-0" />{t("integrations.import_files")}</span><ChevronRight className="size-4 text-muted-foreground" /></Button>
           </> : null}
           {props.onImportLegalQuants ? <Button variant="outline" className="h-auto w-full justify-between gap-4 px-4 py-4" disabled={!props.canImportSkills} onClick={props.onImportLegalQuants}><span className="flex items-center gap-3"><Workflow className="size-6 shrink-0" />{t("integrations.import_legalquants")}</span><ChevronRight className="size-4 text-muted-foreground" /></Button> : null}
         </div>
@@ -312,7 +312,7 @@ export function PluginImportDialog(props: { store: PluginImportStore; onClose: (
           {sourceMode ? sourceMode === "files" ? <FolderOpen className="size-6 shrink-0" /> : <Github className="size-6 shrink-0" /> : provider === "chatgpt" ? <ChatGptLogo className="size-6 shrink-0" /> : <img src={claudeLogo} alt="" className="size-6 shrink-0" />}
           <DialogTitle>{t(sourceMode === "files" ? "integrations.import_files" : sourceMode === "github" ? "integrations.import_github" : provider === "chatgpt" ? "extensions.import_chatgpt" : "extensions.import_claude")}</DialogTitle>
         </div>
-        <DialogDescription className={step === "review" ? "sr-only" : undefined}>{t(step === "choose" ? "extensions.import_description" : "extensions.import_review_description")}</DialogDescription>
+        <DialogDescription className={step === "review" ? "sr-only" : undefined}>{t(step === "choose" ? props.connectionsOnly ? "catalog.import_description" : "extensions.import_description" : "extensions.import_review_description")}</DialogDescription>
       </DialogHeader>
 
       <div className="flex min-h-0 min-w-0 flex-col gap-4 overflow-y-auto px-6 pb-5 [overflow-wrap:anywhere]">
@@ -328,9 +328,9 @@ export function PluginImportDialog(props: { store: PluginImportStore; onClose: (
           </div>
           <div className="relative">
             <Search className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-            <Input ref={searchInput} autoFocus className="ps-9" aria-label={t("extensions.import_search")} placeholder={t("extensions.import_search")} value={query} onChange={event => setQuery(event.target.value)} />
+            <Input ref={searchInput} autoFocus className="ps-9" aria-label={t(props.connectionsOnly ? "catalog.search" : "extensions.import_search")} placeholder={t(props.connectionsOnly ? "catalog.search" : "extensions.import_search")} value={query} onChange={event => setQuery(event.target.value)} />
           </div>
-          <HubTabs<ImportFilter>
+          {!props.connectionsOnly ? <HubTabs<ImportFilter>
             label={t("extensions.import_filter")}
             items={[
               { id: "all", label: t("extensions.filter_all") },
@@ -340,7 +340,7 @@ export function PluginImportDialog(props: { store: PluginImportStore; onClose: (
             ]}
             value={filter}
             onChange={setFilter}
-          />
+          /> : null}
           <div className="h-72 min-h-28 overflow-y-auto rounded-xl border border-border">
             {discovering ? <div className="flex h-full items-center justify-center gap-2 text-muted-foreground" role="status"><Loader2 className="size-4 animate-spin motion-reduce:animate-none" />{t("extensions.import_discovering")}</div>
               : discoveryFailed ? <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center"><TriangleAlert className="size-6 text-muted-foreground" /><p className="text-muted-foreground">{t("extensions.import_discovery_failed")}</p><Button variant="outline" size="sm" onClick={() => setDiscoveryRevision(value => value + 1)}>{t("extensions.import_retry")}</Button></div>
@@ -349,12 +349,12 @@ export function PluginImportDialog(props: { store: PluginImportStore; onClose: (
                 const Icon = item.kind === "connector" ? Plug : item.kind === "skill" ? Blocks : Package;
                 return <Button key={pluginImportCandidateKey(item)} variant="ghost" className="h-auto w-full justify-start gap-3 rounded-none px-4 py-3 text-start font-normal" onClick={() => { setCopies(group.sources); void preview({ provider, path: item.path, connector: item.connector, marketplace: item.marketplace }, pluginImportName(item)); }}>
                   <Icon className="size-5 shrink-0 text-muted-foreground" />
-                  <span className="min-w-0 flex-1"><span className="block truncate font-medium text-foreground">{pluginImportName(item)}</span><span className="mt-0.5 block truncate text-xs text-muted-foreground">{item.bundledIn ? t("extensions.import_bundled_connector", { name: pluginImportName(item.bundledIn) }) : item.description || t(item.kind === "skill" ? "extensions.import_skill" : item.kind === "connector" ? "integrations.connector" : "extensions.import_plugin")}</span></span>
+                  <span className="min-w-0 flex-1"><span className="block truncate font-medium text-foreground">{pluginImportName(item)}</span><span className="mt-0.5 block truncate text-xs text-muted-foreground">{item.bundledIn ? t(props.connectionsOnly ? "catalog.import_from" : "extensions.import_bundled_connector", { name: pluginImportName(item.bundledIn) }) : item.description || t(item.kind === "skill" ? "extensions.import_skill" : item.kind === "connector" ? "integrations.connector" : props.connectionsOnly ? "integrations.connector" : "extensions.import_plugin")}</span></span>
                   {item.version ? <span className="max-w-24 truncate text-xs text-muted-foreground">{item.version}</span> : null}
                   {item.state ? <span className="text-xs text-muted-foreground">{t(sourceStateLabels[item.state])}</span> : null}
                   <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
                 </Button>;
-              })}</div> : <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center"><Package className="size-6 text-muted-foreground" /><p className="font-medium">{t(narrowed ? "extensions.import_no_matches" : "extensions.import_none_found")}</p><p className="text-sm text-muted-foreground">{t(narrowed ? "extensions.import_search_hint" : "extensions.import_file_hint")}</p></div>}
+              })}</div> : <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center"><Package className="size-6 text-muted-foreground" /><p className="font-medium">{t(narrowed ? "extensions.import_no_matches" : props.connectionsOnly ? "catalog.import_none" : "extensions.import_none_found")}</p><p className="text-sm text-muted-foreground">{t(narrowed ? "extensions.import_search_hint" : props.connectionsOnly ? "catalog.import_file_hint" : "extensions.import_file_hint")}</p></div>}
           </div>
           </>}
           {sourceMode === "github" ? null : <div className="flex flex-wrap items-center justify-between gap-3">
@@ -369,7 +369,7 @@ export function PluginImportDialog(props: { store: PluginImportStore; onClose: (
               <div className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-border text-muted-foreground"><ReviewIcon className="size-5" /></div>
               <div className="min-w-0 space-y-0.5">
                 <h3 className="break-words text-base font-medium">{reviewName}</h3>
-                <p className="text-sm text-muted-foreground">{selected.format === "connectors" ? t("integrations.connector") : wholePlugin && selected.components.length ? <>{t("extensions.import_plugin")}{singleComponent ? ` · ${packageParts([singleComponent.type], skillsAsWorkflows)}` : ""}</> : singleComponent ? skillsAsWorkflows && singleComponent.type === "skill" ? t("workflows.workflow") : componentLabel(singleComponent.type) : t("extensions.import_no_components")}</p>
+                <p className="text-sm text-muted-foreground">{selected.format === "connectors" ? t("integrations.connector") : wholePlugin && selected.components.length ? <>{t(props.connectionsOnly ? "integrations.connector" : "extensions.import_plugin")}{singleComponent ? ` · ${packageParts([singleComponent.type], skillsAsWorkflows)}` : ""}</> : singleComponent ? skillsAsWorkflows && singleComponent.type === "skill" ? t("workflows.workflow") : componentLabel(singleComponent.type) : t("extensions.import_no_components")}</p>
               </div>
             </div>
             {selected.description && selected.format !== "connectors" ? <p className="line-clamp-3 text-sm leading-relaxed text-muted-foreground">{selected.description}</p> : null}

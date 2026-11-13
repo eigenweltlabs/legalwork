@@ -2,6 +2,7 @@ import type { UIMessage } from "ai";
 
 import { SYNTHETIC_SESSION_ERROR_MESSAGE_PREFIX } from "../../../../app/types";
 import { mergeSnapshotIntoCachedMessages } from "./message-merge";
+import { recentMessages } from "../surface/history-window";
 
 export type TranscriptReconcileReason = "snapshot" | "revert";
 
@@ -19,18 +20,19 @@ export type ReconcileTranscriptInput = {
  *
  * Snapshot reads can lag behind the OpenCode event stream during prompt
  * submission. This helper centralizes the invariant that ordinary snapshots
- * may fill/update the cache, but must not make the visible transcript move
- * backwards. Explicit history operations such as revert can opt into their own
+ * may fill/update the recent live cache, but must not roll back newer output.
+ * Older batches belong to the separate bounded history window. Explicit
+ * history operations such as revert can opt into their own
  * truncation path instead of relying on snapshot absence.
  */
 export function reconcileTranscriptMessages(input: ReconcileTranscriptInput): UIMessage[] {
   const current = input.currentMessages;
   const snapshot = input.snapshotMessages;
 
-  if (current.length === 0) return snapshot;
-  if (snapshot.length === 0) return current;
+  if (current.length === 0) return recentMessages(snapshot);
+  if (snapshot.length === 0) return recentMessages(current);
 
-  return mergeSnapshotIntoCachedMessages(snapshot, current);
+  return recentMessages(mergeSnapshotIntoCachedMessages(snapshot, current));
 }
 
 /**
@@ -69,6 +71,18 @@ export function resolveForkBoundaryId(messages: UIMessage[], messageId: string):
   for (let index = idx + 1; index < messages.length; index += 1) {
     const candidate = messages[index];
     if (candidate && !isSyntheticMessageId(candidate.id)) return candidate.id;
+  }
+  return null;
+}
+
+/** Resolve an unloaded successor before treating the end of a batch as the end of the chat. */
+export async function resolvePagedForkBoundaryId(messages: UIMessage[], messageId: string, readNext: () => Promise<UIMessage[] | null>): Promise<string | null> {
+  if (!messages.some(message => message.id === messageId)) throw new Error("Branch message is no longer loaded");
+  const boundary = resolveForkBoundaryId(messages, messageId);
+  if (boundary) return boundary;
+  for (let next = await readNext(); next; next = await readNext()) {
+    const successor = next.find(message => !isSyntheticMessageId(message.id));
+    if (successor) return successor.id;
   }
   return null;
 }

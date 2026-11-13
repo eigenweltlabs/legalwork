@@ -59,15 +59,34 @@ test("explicit handoff publishes a selector only after archive/provenance verifi
   } finally { await rm(f.root, { recursive: true, force: true }); }
 });
 
-test("verified complete CI selector survives a host-subset preparation byte-identically", async () => {
+test("verified complete CI selector survives offline host-subset preparation byte-identically", async t => {
   const f = await fixture(recipe.targets);
   try {
     const first = await prepareOpencodeEngine(f), before = await readFile(first.selectionPath);
+    const network = t.mock.method(globalThis, "fetch", () => { throw new Error("No network is available for warm preparation"); });
     const subset = { ...options(f), targets: [opencodeReleaseTarget()] };
     const reused = await prepareOpencodeEngine(subset), checked = await checkPreparedOpencodeEngine(subset);
     assert.equal(reused.sourceKey, first.sourceKey); assert.equal(checked.sourceKey, first.sourceKey);
     assert.deepEqual(reused.targets, [...recipe.targets].sort());
     assert.deepEqual(await readFile(first.selectionPath), before);
+    assert.equal(network.mock.callCount(), 0);
+  } finally { await rm(f.root, { recursive: true, force: true }); }
+});
+
+test('native-family handoff retains the complete manifest and verifies exactly the delivered archives', async () => {
+  const f = await fixture(recipe.targets);
+  try {
+    const prefix = ({ darwin: 'darwin-', linux: 'linux-', win32: 'windows-' })[process.platform];
+    const family = recipe.targets.filter(target => target.startsWith(prefix));
+    for (const target of recipe.targets.filter(target => !family.includes(target))) await rm(path.join(f.distributionDirectory, 'archives', f.manifest.artifacts[target].archive.filename));
+    const result = await prepareOpencodeEngine({ ...f, archiveTargets: family });
+    assert.deepEqual(result.targets, [...recipe.targets].sort());
+    const receipt = JSON.parse(await readFile(result.receiptPath, 'utf8'));
+    assert.deepEqual(receipt.archiveTargets, [...family].sort());
+    assert.equal(JSON.parse((await readFile(result.selectionPath, 'utf8'))).manifestContent, await readFile(path.join(f.distributionDirectory, 'derivative-release.json'), 'utf8'));
+    await checkPreparedOpencodeEngine(options(f));
+    await writeFile(path.join(result.archiveDirectory, f.manifest.artifacts[family[0]].archive.filename), 'corrupt');
+    await assert.rejects(checkPreparedOpencodeEngine(options(f)), /archive is corrupt/);
   } finally { await rm(f.root, { recursive: true, force: true }); }
 });
 

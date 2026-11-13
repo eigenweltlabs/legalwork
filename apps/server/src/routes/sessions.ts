@@ -1,5 +1,7 @@
+import { requireAssistantWorkspaceSubscription } from "../assistant-subscription.js";
 import { sessionDispatchSchema } from "../session-queue-schema.js";
 import { dispatchQueueAction } from "../session-dispatch.js";
+import { announceSyncChange } from "../app-sync-events.js";
 import type { SessionViewPreview } from "@legalwork/types/views";
 import { beginSessionDeletion, withSessionExecution, withSessionDispatch } from "../session-execution-gate.js";
 import { REVIEW_RECOVERY_PROMPT } from "../reviews/recover-empty-review-response.js";
@@ -57,6 +59,8 @@ interface RegisterSessionRoutesOptions {
   ensureWritable: (config: ServerConfig) => void;
   requireClientScope: (ctx: RequestContext, required: TokenScope) => void;
   resolveWorkspace: (config: ServerConfig, id: string) => Promise<WorkspaceInfo>;
+  prepareQueuedSubmission?: (workspaceId: string, sessionId: string, entry: QueueEntry) => Promise<void>;
+  resolveWorkspaceMetadata?: (config: ServerConfig, id: string) => WorkspaceInfo;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -79,8 +83,14 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
   } = options;
   registerHistoryImageRoutes({ routes, config, resolveWorkspace, jsonResponse });
   const originalImages = toolImageOriginalStore(config);
+  const metadata = options.resolveWorkspaceMetadata ?? resolveWorkspace;
   const sessionGroupEvents = new SessionGroupEventStore();
+  const groupChanged = (workspaceId: string, action: Parameters<SessionGroupEventStore["record"]>[1], details?: Parameters<SessionGroupEventStore["record"]>[2]) => {
+    sessionGroupEvents.record(workspaceId, action, details);
+    announceSyncChange(config, "groups");
+  };
   async function validateQueuedExecution(client: WorkspaceOpencodeClient, workspace: WorkspaceInfo, execution: QueueEntry["execution"]) {
+    await requireAssistantWorkspaceSubscription(config, workspace.id);
     if (!config.agentSandboxEnabled && !(await new WikiStore(config).list()).length) return;
     if (execution.kind === "shell") assertSandboxProxyAllowed("POST", "/session/queued/shell");
     if (execution.kind === "command") {
@@ -89,23 +99,25 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
       // verified managed adapter, which applies normal sandbox permissions.
     }
   }
-  async function queueClient(workspace: WorkspaceInfo, sessionID: string, allowUnresolved=false) {
-    const client = createEngineClient(config, workspace);
+  async function queueClient(workspace: WorkspaceInfo, sessionID: string, allowUnresolved=false, fileReferences=false) {
+    const client = createEngineClient(config, workspace, { fileReferences });
     if(allowUnresolved)await prepareSessionHistoryUndo(config,workspace,client,await getWorkspaceEngineSession(client,workspace,sessionID));
     else await assertSessionHistoryReady(config,workspace,client,sessionID);
     return client;
   }
   const messageQueue = registerMessageQueue(config, nativeQueueTransport(config, {
     client: async (workspaceId, sessionID) => queueClient(await resolveWorkspace(config, workspaceId), sessionID),
-    prepare: async (workspaceId, _sessionID, client, entry) => {
+    prepare: async (workspaceId, sessionID, client, entry) => {
       ensureWritable(config);
       const workspace = await resolveWorkspace(config, workspaceId);
       await validateQueuedExecution(client, workspace, entry.execution);
+      await options.prepareQueuedSubmission?.(workspaceId, sessionID, entry);
     },
   }));
   addRoute(routes, "POST", "/workspace/:id/sessions/:sessionId/dispatch", "client", async ctx => {
     ensureWritable(config); requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id), sessionID = ctx.params.sessionId;
+    await requireAssistantWorkspaceSubscription(config, workspace.id);
     const client = await queueClient(workspace, sessionID);
     const parsed = sessionDispatchSchema.safeParse(await readJsonBody(ctx.request));
     if (!parsed.success) throw new ApiError(400, "invalid_session_dispatch", "Valid native message or command input is required.", { issues: parsed.error.issues });
@@ -117,7 +129,7 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
       return jsonResponse({ accepted: true, messageID: admitted.id, staged: false });
     }
     await validateQueuedExecution(client, workspace, input);
-    await grantWikiAgentSession(config, { sessionId: sessionID, directory: workspaceEngineLocation(workspace).directory,
+    await grantWikiAgentSession(config, { sessionId: sessionID, workspaceId: workspace.id, directory: workspaceEngineLocation(workspace).directory,
       scope: ctx.actor?.type === "host" ? "owner" : ctx.actor?.scope ?? "viewer" });
     if (input.delivery === "steer" || input.kind === "prompt" && input.resume === false) {
       const messageID = await withSessionDispatch(config, sessionID, async () => {
@@ -158,7 +170,7 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
       // Queued prompts bypass the public engine proxy. Refresh their authenticated
       // origin here too, including an existing chat resumed after server restart.
       await grantWikiAgentSession(config, {
-        sessionId: ctx.params.sessionId,
+        sessionId: ctx.params.sessionId, workspaceId: workspace.id,
         directory: workspace.directory?.trim() || workspace.path,
         scope: ctx.actor?.type === "host" ? "owner" : ctx.actor?.scope ?? "viewer",
     });
@@ -181,8 +193,8 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
     const client=createEngineClient(config,workspace);
     return buildSession((await prepareSessionHistoryUndo(config,workspace,client,await getWorkspaceEngineSession(client,workspace,sessionID))).session);
   }
-  async function readWorkspaceSessionMessages(workspace: WorkspaceInfo, sessionID: string, input: { limit?: number }) {
-    const client = await queueClient(workspace, sessionID,true);
+  async function readWorkspaceSessionMessages(workspace: WorkspaceInfo, sessionID: string, input: { limit?: number; fileReferences?: boolean }) {
+    const client = await queueClient(workspace, sessionID, true, input.fileReferences);
     const messages = await listEngineMessages(client, sessionID, { ...input, order: "desc" });
     return buildSessionMessages(await applySessionUsageLimits(config, workspace.id, sessionID, messages.reverse()));
   }
@@ -192,7 +204,7 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
     let cursor: string | undefined;
     const seen = new Set<string>();
     do {
-      const page = await client.message.list({ sessionID, ...(cursor ? { cursor } : { type: "assistant", order: "desc" }) });
+      const page = await client.message.list({ sessionID, type: "assistant", ...(cursor ? { cursor } : { order: "desc" }) });
       const todos = sessionTodos([...page.data].reverse());
       if (todos !== undefined) return todos;
       cursor = page.cursor.next ?? undefined;
@@ -201,15 +213,37 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
     } while (cursor);
     return [];
   }
-  async function readWorkspaceSessionSnapshot(workspace: WorkspaceInfo, sessionID: string, input: { limit?: number }) {
-    const client = await queueClient(workspace, sessionID,true);
-    const [session, messages, todos, active] = await Promise.all([
-      getWorkspaceEngineSession(client, workspace, sessionID),
-      readWorkspaceSessionMessages(workspace, sessionID, input), readTodos(client, sessionID), client.session.active(),
+  async function readWorkspaceSessionSnapshot(workspace: WorkspaceInfo, sessionID: string, input: { limit?: number; fileReferences?: boolean; page?: boolean; cursor?: string; pageOrder?: "asc" | "desc" }) {
+    const client = await queueClient(workspace, sessionID, true, input.fileReferences);
+    const session = await getWorkspaceEngineSession(client, workspace, sessionID);
+    const limit = Math.min(input.limit ?? 140, 140);
+    let page = input.page ? await client.message.list({ sessionID, limit,
+      ...(input.cursor ? { cursor: input.cursor } : { order: input.pageOrder ?? "desc" }) }) : undefined;
+    // Staged undo keeps the engine's later records. Start the visible live tail
+    // immediately before the undo point, even when it is many pages back.
+    if (page && !input.cursor && input.pageOrder !== "asc" && session.revert) {
+      const seen = new Set<string>();
+      let found = false;
+      while (true) {
+        const index = page.data.findIndex(message => message.id === session.revert?.messageID);
+        if (index >= 0) { found = true; page = { ...page, data: page.data.slice(index + 1) }; }
+        if (found && page.data.length > 0) break;
+        const cursor = page.cursor.next;
+        if (!cursor) { if (!found) page = { ...page, data: [] }; break; }
+        if (seen.has(cursor)) throw new ApiError(502, "opencode_invalid_cursor", "The engine repeated a history cursor.");
+        seen.add(cursor);
+        page = await client.message.list({ sessionID, limit, cursor });
+      }
+    }
+    const [messages, todos, active] = await Promise.all([
+      page ? applySessionUsageLimits(config, workspace.id, sessionID, input.pageOrder === "asc" ? [...page.data] : [...page.data].reverse()).then(buildSessionMessages)
+        : readWorkspaceSessionMessages(workspace, sessionID, input), readTodos(client, sessionID), client.session.active(),
     ]);
     const historyUndo=await prepareSessionHistoryUndo(config,workspace,client,session);
     const historyProvenance = {...await readSessionHistoryProvenance(config, workspace, session, messages),...(historyUndo.state ? {undo:historyUndo.state}:{})};
-    return { ...buildSessionSnapshot({ session, messages, todos, active: active[sessionID] }), historyProvenance };
+    return { ...buildSessionSnapshot({ session, messages, todos, active: active[sessionID] }), historyProvenance,
+      ...(page ? { historyPage: { olderCursor: input.pageOrder === "asc" ? page.cursor.previous : page.cursor.next,
+        newerCursor: input.pageOrder === "asc" ? page.cursor.next : page.cursor.previous, count: page.data.length, order: input.pageOrder ?? "desc" } } : {}) };
   }
   async function updateWorkspaceSessionGroups(
     workspaceId: string,
@@ -237,8 +271,32 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
     return jsonResponse({ items });
   });
 
+  addRoute(routes, "GET", "/session-groups/events", "client", async (ctx) => {
+    let raw: unknown;
+    try { raw = JSON.parse(ctx.url.searchParams.get("cursors") || "{}"); }
+    catch { throw new ApiError(400, "invalid_cursors", "Invalid group event cursors."); }
+    if (!isRecord(raw) || Object.keys(raw).length > 500) throw new ApiError(400, "invalid_cursors", "Invalid group event cursors.");
+    const items = [];
+    for (const [id, since] of Object.entries(raw)) {
+      ctx.request.signal.throwIfAborted();
+      if (since !== null && (typeof since !== "number" || !Number.isSafeInteger(since) || since < 0)) throw new ApiError(400, "invalid_cursors", "Invalid group event cursor.");
+      try {
+        const workspace = await metadata(config, id);
+        const cursor = sessionGroupEvents.cursor(workspace.id);
+        const events = sessionGroupEvents.list(workspace.id, typeof since === "number" ? since : undefined);
+        // Include state on the first read and cursor reset (a server restart), too.
+        const state = since === null || (typeof since === "number" && since > cursor) || events.length > 0
+          ? await readSessionGroupState(config, workspace.id) : undefined;
+        items.push({ workspaceId: workspace.id, cursor, ...(state ? { state: state.state, updatedAt: state.updatedAt } : {}) });
+      } catch (error) {
+        if (!(error instanceof ApiError) || ![403, 404].includes(error.status)) throw error;
+      }
+    }
+    return jsonResponse({ items });
+  });
+
   addRoute(routes, "GET", "/workspace/:id/session-groups", "client", async (ctx) => {
-    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const workspace = await metadata(config, ctx.params.id);
     const result = await readSessionGroupState(config, workspace.id);
     return jsonResponse({ state: result.state, updatedAt: result.updatedAt });
   });
@@ -246,18 +304,18 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
   addRoute(routes, "PUT", "/workspace/:id/session-groups", "client", async (ctx) => {
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");
-    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const workspace = await metadata(config, ctx.params.id);
     const body = await readJsonBody(ctx.request);
     const state = normalizeSessionGroupState(body.state);
     const result = await updateWorkspaceSessionGroups(workspace.id, () => state);
-    sessionGroupEvents.record(workspace.id, "imported");
+    groupChanged(workspace.id, "imported");
     return jsonResponse({ state: result.state, updatedAt: result.updatedAt });
   });
 
   addRoute(routes, "POST", "/workspace/:id/session-groups", "client", async (ctx) => {
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");
-    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const workspace = await metadata(config, ctx.params.id);
     const body = await readJsonBody(ctx.request);
     const label = requireStringField(body, "label").slice(0, 120);
     const requestedId = typeof body.id === "string" ? body.id.trim().slice(0, 128) : "";
@@ -267,14 +325,14 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
       return { ...current, groups: [...current.groups, { id, label }] };
     });
     const groupId = result.state.groups[result.state.groups.length - 1]?.id;
-    sessionGroupEvents.record(workspace.id, "created", groupId ? { groupId } : undefined);
+    groupChanged(workspace.id, "created", groupId ? { groupId } : undefined);
     return jsonResponse({ state: result.state, updatedAt: result.updatedAt });
   });
 
   addRoute(routes, "PATCH", "/workspace/:id/session-groups/reorder", "client", async (ctx) => {
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");
-    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const workspace = await metadata(config, ctx.params.id);
     const body = await readJsonBody(ctx.request);
     const requestedIds = Array.isArray(body.groupIds)
       ? body.groupIds.filter((item) => typeof item === "string").map((item) => item.trim()).filter(Boolean)
@@ -294,14 +352,14 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
       }
       return { ...current, groups };
     });
-    sessionGroupEvents.record(workspace.id, "reordered");
+    groupChanged(workspace.id, "reordered");
     return jsonResponse({ state: result.state, updatedAt: result.updatedAt });
   });
 
   addRoute(routes, "PATCH", "/workspace/:id/session-groups/assignments/:sessionId", "client", async (ctx) => {
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");
-    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const workspace = await metadata(config, ctx.params.id);
     const sessionId = (ctx.params.sessionId ?? "").trim();
     if (!sessionId) throw new ApiError(400, "invalid_payload", "sessionId is required");
     const body = await readJsonBody(ctx.request);
@@ -315,14 +373,14 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
       }
       return { ...current, assignments };
     });
-    sessionGroupEvents.record(workspace.id, "assigned", { sessionId, ...(groupId ? { groupId } : {}) });
+    groupChanged(workspace.id, "assigned", { sessionId, ...(groupId ? { groupId } : {}) });
     return jsonResponse({ state: result.state, updatedAt: result.updatedAt });
   });
 
   addRoute(routes, "PATCH", "/workspace/:id/session-groups/:groupId", "client", async (ctx) => {
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");
-    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const workspace = await metadata(config, ctx.params.id);
     const groupId = (ctx.params.groupId ?? "").trim();
     if (!groupId) throw new ApiError(400, "invalid_payload", "groupId is required");
     const body = await readJsonBody(ctx.request);
@@ -331,14 +389,14 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
       ...current,
       groups: current.groups.map((group) => group.id === groupId ? { ...group, label } : group),
     }));
-    sessionGroupEvents.record(workspace.id, "updated", { groupId });
+    groupChanged(workspace.id, "updated", { groupId });
     return jsonResponse({ state: result.state, updatedAt: result.updatedAt });
   });
 
   addRoute(routes, "DELETE", "/workspace/:id/session-groups/:groupId", "client", async (ctx) => {
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");
-    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const workspace = await metadata(config, ctx.params.id);
     const groupId = (ctx.params.groupId ?? "").trim();
     if (!groupId) throw new ApiError(400, "invalid_payload", "groupId is required");
     const result = await updateWorkspaceSessionGroups(workspace.id, (current) => {
@@ -351,12 +409,12 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
         assignments,
       };
     });
-    sessionGroupEvents.record(workspace.id, "deleted", { groupId });
+    groupChanged(workspace.id, "deleted", { groupId });
     return jsonResponse({ state: result.state, updatedAt: result.updatedAt });
   });
 
   addRoute(routes, "GET", "/workspace/:id/session-groups/events", "client", async (ctx) => {
-    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const workspace = await metadata(config, ctx.params.id);
     const sinceRaw = ctx.url.searchParams.get("since");
     const since = sinceRaw ? Number(sinceRaw) : undefined;
     const items = sessionGroupEvents.list(workspace.id, since);
@@ -386,6 +444,7 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
     }
     const items = await readWorkspaceSessionMessages(workspace, sessionId, {
       limit: parseOptionalPositiveInteger(ctx.url.searchParams.get("limit"), "limit"),
+      fileReferences: ctx.url.searchParams.get("files") === "references",
     });
     const session = await readWorkspaceSession(workspace, sessionId);
     return jsonResponse({ items, historyProvenance: await readSessionHistoryProvenance(config, workspace, session, items) });
@@ -399,6 +458,10 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
     }
     const item = await readWorkspaceSessionSnapshot(workspace, sessionId, {
       limit: parseOptionalPositiveInteger(ctx.url.searchParams.get("limit"), "limit"),
+      fileReferences: ctx.url.searchParams.get("files") === "references",
+      page: ctx.url.searchParams.get("page") === "true",
+      cursor: ctx.url.searchParams.get("cursor") || undefined,
+      pageOrder: ctx.url.searchParams.get("pageOrder") === "asc" ? "asc" : "desc",
     });
     return jsonResponse({ item });
   });
@@ -504,6 +567,19 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
     const active = await client.session.active();
     if (sessionIds.some(id => active[id])) throw new ApiError(409, "session_busy", "Stop this chat and its related agent chats before deleting, so their dashboards can be checked.");
   }
+  addRoute(routes, "GET", "/workspace/:id/sessions/:sessionId/view-previews", "client", async ctx => {
+    requireClientScope(ctx, "viewer");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const sessionId = ctx.params.sessionId;
+    const client = await queueClient(workspace, sessionId);
+    const previews = sessionViewPreviews(await listEngineMessages(client, sessionId));
+    const callId = ctx.url.searchParams.get("callId");
+    if (callId === null) return jsonResponse({ previews: previews.filter(item => item.preview).map(item => ({ preview_id: item.callId, title: item.title })) });
+    const preview = previews.find(item => item.callId === callId)?.preview;
+    if (!preview) throw new ApiError(409, "preview_unavailable", "Read view_chat_previews for the current preview ID.");
+    return jsonResponse(preview);
+  });
+
   addRoute(routes, "GET", "/workspace/:id/sessions/:sessionId/views", "client", async ctx => {
     requireClientScope(ctx, "viewer");
     return jsonResponse((await viewReview(await resolveWorkspace(config, ctx.params.id), ctx.params.sessionId)).review);

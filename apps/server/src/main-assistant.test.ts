@@ -1,5 +1,5 @@
-import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { afterEach, beforeEach, expect, test } from "bun:test";
+import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { MainAssistant, isMainAssistant } from "./main-assistant.js";
@@ -7,9 +7,16 @@ import type { ProjectField } from "@legalwork/types/workspace";
 import type { ServerConfig } from "./types.js";
 
 const roots: string[] = [];
-afterEach(async () => { for (const root of roots.splice(0)) await rm(root, { force: true, recursive: true }); });
+let previousDatabase: string | undefined;
+beforeEach(() => { previousDatabase = process.env.OPENCODE_DB; });
+afterEach(async () => {
+  if (previousDatabase === undefined) delete process.env.OPENCODE_DB;
+  else process.env.OPENCODE_DB = previousDatabase;
+  for (const root of roots.splice(0)) await rm(root, { force: true, recursive: true });
+});
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), "main-assistant-")); roots.push(root);
+  process.env.OPENCODE_DB = join(root, "engine.sqlite");
   const config: ServerConfig = {
     host: "127.0.0.1", port: 0, token: "fixture", hostToken: "fixture-host", configPath: join(root, "server.json"), projectsDirectory: join(root, "projects"),
     workspaces: [], authorizedRoots: [], approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: [], readOnly: false, startedAt: 0,
@@ -35,7 +42,8 @@ test("concurrent callers share one persisted project and one session; midnight a
   expect(new Set(first.map(value => value.day.sessionId)).size).toBe(1);
   expect(f.config.workspaces).toHaveLength(1);
   expect(isMainAssistant(first[0].workspace)).toBe(true);
-  expect(first[0].workspace.path).toBe(join(f.config.projectsDirectory!, "Assistant"));
+  expect(first[0].workspace.path).toBe(await realpath(join(f.config.projectsDirectory!, first[0].workspace.id)));
+  expect(first[0].workspace.contentPath).toBe(join(first[0].workspace.path, "files"));
   expect(JSON.parse(await readFile(f.config.configPath!, "utf8")).workspaces[0].preset).toBe("main-assistant");
   f.setTime(new Date(2026, 9, 8, 0, 0));
   const today = await f.assistant.current();
@@ -49,6 +57,7 @@ test("concurrent callers share one persisted project and one session; midnight a
   expect(f.sessions).toHaveLength(3);
   expect(reopened.history(today.workspace.id, afterSleep.day.date, 1)).toEqual({ days: [today.day], nextBefore: "2026-10-08" });
   expect(reopened.history(today.workspace.id, "2026-10-08", 1)).toEqual({ days: [first[0].day], nextBefore: null });
+  expect(reopened.history(today.workspace.id, undefined, 1, "2026-10-07").days).toEqual([today.day]);
 });
 
 test("recovery only adopts a live root session inside the assistant folder", async () => {
@@ -61,6 +70,19 @@ test("recovery only adopts a live root session inside the assistant folder", asy
   expect(f.sessions).toHaveLength(3);
   f.config.readOnly = true;
   await expect(f.assistant.current()).rejects.toThrow("writable");
+});
+
+test("saved Assistant identity survives restart without contacting the engine or creating a day", async () => {
+  const f = await fixture();
+  expect(f.assistant.savedDay()).toBeNull();
+  const yesterday = await f.assistant.current();
+  f.config.readOnly = true;
+  const reopened = await MainAssistant.open(f.config, join(f.root, "runtime.sqlite"), () => {
+    throw new Error("Browsing saved history must not contact the engine");
+  }, undefined, () => new Date(2026, 9, 8, 9));
+  expect(reopened.savedDay()).toEqual(yesterday.day);
+  expect(f.sessions).toHaveLength(1);
+  expect(reopened.history(yesterday.workspace.id).days).toEqual([yesterday.day]);
 });
 
 test("assistant appearance persists across restart and never changes its project folder or day", async () => {
@@ -136,6 +158,13 @@ test("users can choose the flower as their completed appearance", async () => {
   expect((await f.factory()).profile()).toEqual({ name: "My assistant", icon: "flower" });
 });
 
+test("renaming an existing profile without an onboarding row returns its actual saved name and icon", async () => {
+  const f = await fixture();
+  await f.assistant.updateProfile({ name: "Maya", icon: "bird" });
+  expect(await f.assistant.setName("Momo")).toMatchObject({ needed: false, step: "complete", name: "Momo", icon: "bird" });
+  expect(await (await f.factory()).onboarding()).toMatchObject({ name: "Momo", icon: "bird" });
+});
+
 test("legacy dot profiles remain valid without changing custom names or restarting onboarding", async () => {
   const f = await fixture();
   await f.assistant.answerOnboarding({ name: "Johannes" });
@@ -178,11 +207,12 @@ test("Assistant preferences persist independently of appearance and keep daily h
   const current = await f.assistant.current();
   const prompt = "Write clear German replies.\n".repeat(600);
   const resource = { id: "skill-one", kind: "skill", name: "Research", description: "Find evidence", reference: "/library/research/SKILL.md", projectId: null, projectName: null } satisfies import("@legalwork/types/main-assistant").AssistantResource;
-  const saved = f.assistant.updateSettings({ systemPromptAddition: prompt, resourceIds: [resource.id, resource.id], projectAccess: { mode: "include", projectIds: ["a", "a"] } }, [resource]);
+  const saved = f.assistant.updateSettings({ browserModel: { providerID: "openai", modelID: "gpt-6.1-terra" }, systemPromptAddition: prompt, resourceIds: [resource.id, resource.id], projectAccess: { mode: "include", projectIds: ["a", "a"] } }, [resource]);
   expect(saved.resourceIds).toEqual([resource.id]);
   expect(saved.projectAccess.projectIds).toEqual(["a"]);
   const reopened = await f.factory();
   expect(reopened.settings()).toEqual(saved);
+  expect(reopened.settings().browserModel).toEqual({ providerID: "openai", modelID: "gpt-6.1-terra" });
   expect(reopened.resourceMetadata()).toEqual([resource]);
   expect((await reopened.current()).day).toEqual(current.day);
   expect(reopened.profile()).toEqual({ name: null, icon: "flower" });
@@ -204,4 +234,18 @@ test("all four project access modes keep the Assistant workspace and handle futu
     expect(f.assistant.canAccessProject(workspace.id)).toBe(true);
     if (!expected[0]) expect(() => f.assistant.assertProjectAccess("a")).toThrow("allowed projects");
   }
+});
+
+test("pending chat migration keeps today's saved Assistant identity until relocation finishes", async () => {
+  const f = await fixture(), first = await f.assistant.current(), workspace = first.workspace;
+  workspace.previousPath = workspace.contentPath!;
+  const receipt = { version: 1, id: workspace.id, source: workspace.previousPath, fingerprints: {}, complete: false };
+  await writeFile(join(workspace.path, ".project-storage-migration.json"), JSON.stringify(receipt));
+  f.sessions[0]!.directory = workspace.previousPath;
+  await expect(f.assistant.current()).rejects.toMatchObject({ code: "project_storage_migrating" });
+  expect(f.assistant.savedDay()).toEqual(first.day);
+  expect(f.sessions).toHaveLength(1);
+  f.sessions[0]!.directory = workspace.path;
+  await writeFile(join(workspace.path, ".project-storage-migration.json"), JSON.stringify({ ...receipt, complete: true, referencesComplete: true }));
+  expect((await f.assistant.current()).day).toEqual(first.day);
 });

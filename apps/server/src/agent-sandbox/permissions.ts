@@ -4,7 +4,9 @@ function isAction(value: unknown): value is PermissionAction {
   return value === "allow" || value === "ask" || value === "deny";
 }
 
-/** OpenCode 1.18's ordered wildcard rules, including Windows path matching. */
+export type NativePermissionRule = { action: string; resource: string; effect: PermissionAction };
+
+/** Native ordered wildcard rules, including Windows path matching. */
 export function permissionPatternMatches(input: string, pattern: string, windows = process.platform === "win32"): boolean {
   let expression = pattern.replaceAll("\\", "/")
     .replace(/[.+^${}()|[\]\\]/g, "\\$&")
@@ -16,23 +18,17 @@ export function permissionPatternMatches(input: string, pattern: string, windows
 
 /** Later matching entries win, as in the engine. Invalid policy fails closed. */
 export function permissionAction(
-  permissions: Record<string, unknown>,
+  permissions: readonly NativePermissionRule[],
   tool: string,
   pattern: string,
   fallback: PermissionAction = "allow",
 ): PermissionAction {
   let action = fallback;
-  for (const [name, rule] of Object.entries(permissions)) {
-    if (!permissionPatternMatches(tool, name)) continue;
-    if (isAction(rule)) {
-      action = rule;
-      continue;
-    }
-    if (!rule || typeof rule !== "object" || Array.isArray(rule)) return "deny";
-    for (const [match, value] of Object.entries(rule)) {
-      if (!isAction(value)) return "deny";
-      if (permissionPatternMatches(pattern, match)) action = value;
-    }
+  if (!Array.isArray(permissions)) return "deny";
+  const nativeTool = tool === "bash" ? "shell" : tool;
+  for (const rule of permissions) {
+    if (!rule || typeof rule.action !== "string" || typeof rule.resource !== "string" || !isAction(rule.effect)) return "deny";
+    if (permissionPatternMatches(nativeTool, rule.action) && permissionPatternMatches(pattern, rule.resource)) action = rule.effect;
   }
   return action;
 }

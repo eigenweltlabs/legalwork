@@ -18,6 +18,7 @@ export function ProjectTaskDialog(props: {
   const tags = useTaskTags(props);
 
   return <NewTaskDialog
+    client={props.client}
     open
     busy={createTask.isPending}
     connected={Boolean(sync.data?.connected ?? access.connected)}

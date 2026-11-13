@@ -3,7 +3,7 @@ import { openBackgroundTab } from "../background/open-background-tab";
 import { useSessionActivityStore } from "../status/session-activity-store";
 import { usePanelTabStore, workspacePanelKey } from "../panel/panel-tab-store";
 import { resolveDocumentProject } from "./document-project";
-import { createDocumentRuntime, documentKey, stringArg, type Entry, type DocumentProject } from "./document-runtime-store";
+import { createDocumentRuntime, documentKey, stringArg, visibleDocumentDestination, type Entry, type DocumentProject } from "./document-runtime-store";
 import { useLocation, useNavigate } from "react-router-dom";
 import { createContext, use, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { createPortal, flushSync } from "react-dom";
@@ -112,14 +112,14 @@ export function DocumentRuntimeProvider({ children }: { children: ReactNode }) {
     return browser.setProxy(stringArg(args, "proxy"), await browserContext(project, sessionId));
   } });
   useControlAction({ id: "markdown.create", label: "Create a Markdown document", background: true, execute: runtime.createMarkdown });
-  useControlAction({ id: "documents.open", label: "Prepare a document for a task", background: true, execute: runtime.open });
+  useControlAction({ id: "documents.open", label: "Prepare a document for a task", background: true, execute: (args, helpers) => runtime.open(args, helpers) });
   useControlAction({ id: "documents.select_open", label: "Select a task document", background: true, execute: runtime.select });
-  useControlAction({ id: "documents.begin_file_edit", label: "Save editors before file editing", background: true, execute: runtime.beginFileEdit });
+  useControlAction({ id: "documents.begin_file_edit", label: "Save editors before file editing", background: true, execute: (args, helpers) => runtime.beginFileEdit(args, helpers) });
   useControlAction({ id: "documents.end_file_edit", label: "Reload editors after file editing", background: true, execute: runtime.endFileEdit });
   useControlAction({ id: "documents.list", label: "List task documents", background: true, execute: runtime.list });
-  useControlAction({ id: "document.agent_tool", label: "Work on a Word document", background: true, execute: args => runtime.execute("document.agent_tool", args) });
-  useControlAction({ id: "office.agent_tool", label: "Work on an Office document", background: true, execute: args => runtime.execute("office.agent_tool", args) });
-  useControlAction({ id: "markdown.agent_tool", label: "Work on a Markdown document", background: true, execute: args => runtime.execute("markdown.agent_tool", args) });
+  useControlAction({ id: "document.agent_tool", label: "Work on a Word document", background: true, execute: (args, helpers) => runtime.execute("document.agent_tool", args, helpers) });
+  useControlAction({ id: "office.agent_tool", label: "Work on an Office document", background: true, execute: (args, helpers) => runtime.execute("office.agent_tool", args, helpers) });
+  useControlAction({ id: "markdown.agent_tool", label: "Work on a Markdown document", background: true, execute: (args, helpers) => runtime.execute("markdown.agent_tool", args, helpers) });
   return <RuntimeContext value={runtime}>{children}
     <div ref={setParking} inert aria-hidden="true" style={{ position: "fixed", left: -100000, top: 0, width: 1200, height: 900, pointerEvents: "none" }} />
     {[...runtime.entries.values()].map(entry => <RuntimeDocument key={entry.key} entry={entry} runtime={runtime} parking={parking} />)}
@@ -128,13 +128,13 @@ export function DocumentRuntimeProvider({ children }: { children: ReactNode }) {
 
 function RuntimeDocument({ entry, runtime, parking }: { entry: Entry; runtime: Runtime; parking: HTMLElement | null }) {
   const sessionIds = useMemo(() => [entry.props.sessionId, ...entry.sessions], [entry, entry.sessions.size]);
-  const destination = [...entry.destinations.keys()].find(node => node.isConnected) ?? null;
-  const active = destination ? entry.destinations.get(destination) === true : false;
+  const destination = visibleDocumentDestination(entry);
+  const active = destination ? entry.destinations.get(destination)?.active === true : false;
   useLayoutEffect(() => {
     // A returning route's destination may still be detached during render.
     // Resolve it after React commits, otherwise the editor stays parked until
     // an unrelated runtime update happens to render this component again.
-    const committedDestination = [...entry.destinations.keys()].find(node => node.isConnected) ?? null;
+    const committedDestination = visibleDocumentDestination(entry);
     const parent = committedDestination ?? [...entry.previews].find(node => node.isConnected) ?? parking;
     if (committedDestination !== destination) runtime.changed();
     if (!parent || entry.host.parentElement === parent) return;
@@ -159,6 +159,7 @@ export function PersistentArtifactPanel(props: ArtifactPanelProps) {
   const runtime = use(RuntimeContext);
   const [destination, setDestination] = useState<HTMLDivElement | null>(null);
   const active = useControlScope();
+  const visible = props.visible ?? true;
   const sessions = useDocumentControlSessions(props.sessionId);
   const key = documentKey(props);
   const latest = useRef(props); latest.current = props;
@@ -166,10 +167,10 @@ export function PersistentArtifactPanel(props: ArtifactPanelProps) {
     if (!runtime || !destination) return;
     const entry = runtime.ensure(latest.current);
     sessions.forEach(session => entry.sessions.add(session));
-    entry.destinations.set(destination, active);
+    entry.destinations.set(destination, {active, visible});
     runtime.changed();
     return () => { entry.destinations.delete(destination); runtime.changed(); runtime.prune(); };
-  }, [runtime, key, destination, active, sessions]);
+  }, [runtime, key, destination, active, visible, sessions]);
   if (!runtime) return <ArtifactPanelContent {...props} />;
   return <div ref={setDestination} className="h-full min-h-0 min-w-0" />;
 }

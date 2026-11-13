@@ -8,6 +8,7 @@ import { canonicalFilePath, withFileWriteLocks } from "../file-write-lock.js";
 import { renderEml, type EmailAttachment } from "./eml.js";
 import { EmailDraftSchema } from "./schema.js";
 import { z } from "zod";
+import { workspaceFileRoot } from "../project-storage-paths.js";
 import PostalMime, { type Address } from "postal-mime";
 import { connectorMailDraftTargetSchema, connectorCalendarDraftTargetSchema, connectorDraftDeliverySchema } from "../connectors/schema.js";
 
@@ -35,11 +36,11 @@ async function containedPath(root: string, path: string): Promise<string> {
   return target;
 }
 
-async function attachmentData(root: string, input: EmailDraftInput): Promise<EmailAttachment[]> {
+async function attachmentData(root: string, input: EmailDraftInput, contentPath = root): Promise<EmailAttachment[]> {
   let total = 0;
   const attachments: EmailAttachment[] = [];
   for (const item of input.attachments) {
-    const target = await containedPath(root, item.path);
+    const target = await containedPath(workspaceFileRoot({ path: root, contentPath }, item.path), item.path);
     // Open the validated target without following a replaced leaf symlink.
     const file = await open(target, constants.O_RDONLY | constants.O_NOFOLLOW);
     try {
@@ -70,9 +71,9 @@ export async function readDraft(root: string, id: string, kind: "email" | "calen
   }
 }
 
-export async function saveEmailDraft(root: string, workspaceId: string, input: EmailDraftInput, previous?: { id: string; revision: string }, connectorTarget?: z.infer<typeof connectorMailDraftTargetSchema>): Promise<EmailDraft> {
+export async function saveEmailDraft(root: string, workspaceId: string, input: EmailDraftInput, previous?: { id: string; revision: string }, connectorTarget?: z.infer<typeof connectorMailDraftTargetSchema>, contentPath = root): Promise<EmailDraft> {
   return EmailDraftSchema.parse(await saveDraftFiles(root, workspaceId, "email", async (_id, current) => {
-    const content = renderEml(input, await attachmentData(root, input));
+    const content = renderEml(input, await attachmentData(root, input, contentPath));
     return { input: { ...input, ...editableDraftMetadata(current), ...(connectorTarget ? { connectorTarget } : {}), artifactHash: createHash("sha256").update(content).digest("hex") }, content };
   }, previous));
 }

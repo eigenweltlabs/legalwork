@@ -10,6 +10,41 @@ const input: Omit<ApprovalRequest, "id" | "createdAt"> = {
   actor: { type: "remote", clientId: "client", scope: "collaborator" },
 };
 
+test("remembering resolves identical queued requests across a verified chat's subtasks only", async () => {
+  const service = new ApprovalService({ mode: "manual", timeoutMs: 1000 });
+  const scope = { sessionID: "parent", key: "exact-command-and-policy" };
+  const request = (sessionID: string, workspaceId = "matter", key = "exact-command-and-policy", parent = "parent") =>
+    service.requestApproval({ ...input, action: "sandbox.bash", workspaceId, sessionID }, undefined, true, "legacy-command", { sessionID: parent, key });
+  try {
+    const queued = Array.from({ length: 100 }, (_, index) => request(`child-${index}`));
+    const unrelated = [request("different-command", "matter", "changed-command"), request("other-project", "other-matter"),
+      request("other-chat", "matter", scope.key, "another-parent")];
+    const selected = service.list()[0];
+    expect(selected.sessionID).toBe("child-0");
+    service.respond(selected.id, "always");
+    expect((await Promise.all(queued)).every(result => result.allowed)).toBe(true);
+    expect(service.list()).toHaveLength(3);
+    expect(await request("late-child")).toMatchObject({ id: "remembered", allowed: true });
+    expect(await request("parent")).toMatchObject({ id: "remembered", allowed: true });
+    for (const pending of service.list()) service.respond(pending.id, "deny");
+    expect((await Promise.all(unrelated)).every(result => !result.allowed)).toBe(true);
+  } finally { service.dispose(); }
+});
+
+test.each(["allow", "deny"])("%s settles only one of several identical queued approvals", async reply => {
+  const service = new ApprovalService({ mode: "manual", timeoutMs: 1000 });
+  try {
+    const request = { ...input, sessionID: "chat" };
+    const first = service.requestApproval(request, undefined, true, "exact-request");
+    const second = service.requestApproval(request, undefined, true, "exact-request");
+    service.respond(service.list()[0].id, reply);
+    expect((await first).allowed).toBe(reply === "allow");
+    expect(service.list()).toHaveLength(1);
+    service.respond(service.list()[0].id, "deny");
+    await second;
+  } finally { service.dispose(); }
+});
+
 describe("host approval handler", () => {
   test("ten chat approvals stay independent and never open the host dialog", async () => {
     let dialogs = 0, changes = 0;
@@ -110,6 +145,10 @@ test("remembered sandbox approval is exact, chat-scoped and revocable", async ()
     service.respond(pending.id, "always");
     expect((await first).allowed).toBe(true);
     expect(await service.requestApproval(request, undefined, true, "matter/chat/read")).toMatchObject({ id: "remembered", allowed: true });
+    const sibling = service.requestApproval({ ...request, sessionID: "different-chat" }, undefined, true, "matter/chat/read");
+    expect(service.list()).toHaveLength(1);
+    service.respond(service.list()[0].id, "deny");
+    expect((await sibling).allowed).toBe(false);
     for (const key of ["matter/other-chat/read", "matter/chat/edit"]) {
       const other = service.requestApproval(request, undefined, true, key);
       expect(service.list()).toHaveLength(1);

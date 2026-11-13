@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { connectorCalendarColorSchema } from "./schema.js";
 import { ApiError } from "../errors.js";
 import type { ConnectorRequest } from "./request.js";
 import { accountInput, nativeId, nativePagePath, parseNative } from "./native.js";
@@ -27,23 +28,30 @@ const googleDate = z.object({ date: z.string().optional(), dateTime: z.string().
 const googleEvent = z.object({ id: z.string(), summary: z.string().optional(), description: z.string().optional(), location: z.string().optional(),
   start: googleDate.optional(), end: googleDate.optional(), status: z.string().optional(), htmlLink: z.string().optional(),
   etag: z.string().optional(), recurrence: z.array(z.string()).optional(), recurringEventId: z.string().optional(), originalStartTime: googleDate.optional(), eventType: z.string().optional(),
-  attendees: z.array(z.object({ email: z.string().optional(), displayName: z.string().optional(), responseStatus: z.string().optional() })).optional(), organizer: z.object({ email: z.string().optional(), displayName: z.string().optional(), self: z.boolean().optional() }).optional(),
+  attendees: z.array(z.object({ email: z.string().optional(), displayName: z.string().optional(), responseStatus: z.string().optional(), optional: z.boolean().optional() })).optional(), organizer: z.object({ email: z.string().optional(), displayName: z.string().optional(), self: z.boolean().optional() }).optional(),
+  attachments: z.array(z.object({ title: z.string().optional(), fileUrl: z.string().optional() })).optional(), source: z.object({ title: z.string().optional(), url: z.string().optional() }).optional(),
   reminders: z.object({ useDefault: z.boolean().optional(), overrides: z.array(z.object({ method: z.string(), minutes: z.number() })).optional() }).optional(),
   hangoutLink: z.string().optional(), conferenceData: z.object({ conferenceSolution: z.object({ key: z.object({ type: z.string() }) }).optional(), entryPoints: z.array(z.object({ entryPointType: z.string(), uri: z.string() })).optional(), createRequest: z.object({ status: z.object({ statusCode: z.enum(["pending", "success", "failure"]) }).optional() }).optional() }).optional(),
 });
 const outlookDate = z.object({ dateTime: z.string(), timeZone: z.string() });
+const outlookPerson = z.object({ emailAddress: z.object({ name: z.string().optional(), address: z.string().optional() }) });
 const outlookEvent = z.object({ id: z.string(), subject: z.string().nullish(), body: z.object({ content: z.string(), contentType: z.string() }).nullish(),
   start: outlookDate, end: outlookDate, isAllDay: z.boolean().optional(), isCancelled: z.boolean().optional(),
+  type: z.enum(["singleInstance", "occurrence", "exception", "seriesMaster"]).optional(),
+  originalStartTimeZone: z.string().max(255).optional(),
   location: z.object({ displayName: z.string().optional() }).nullish(), webLink: z.string().optional(),
+  organizer: outlookPerson.nullish(), attendees: z.array(outlookPerson.extend({ type: z.string().optional(), status: z.object({ response: z.string().optional() }).optional() })).optional(),
+  onlineMeeting: z.object({ joinUrl: z.string().nullish() }).nullish(), onlineMeetingUrl: z.string().nullish(),
+  isReminderOn: z.boolean().optional(), reminderMinutesBeforeStart: z.number().optional(), hasAttachments: z.boolean().optional(),
 });
 
 function googleSummary(event: z.infer<typeof googleEvent>) {
   const conferenceUrl = event.conferenceData?.entryPoints?.find(entry => entry.entryPointType === "video")?.uri ?? event.hangoutLink;
   const conference = { status: event.conferenceData?.createRequest?.status?.statusCode ?? (conferenceUrl || event.conferenceData ? "success" : "none"), ...(event.conferenceData?.conferenceSolution?.key.type ? { type: event.conferenceData.conferenceSolution.key.type } : event.hangoutLink ? { type: "hangoutsMeet" } : {}), ...(conferenceUrl ? { url: conferenceLink(conferenceUrl) } : {}) };
-  return { id: event.id, title: event.summary ?? "", description: event.description ?? "", location: event.location ?? "",
+  return { id: event.id, title: event.summary ?? "", description: event.description ?? "", descriptionType: "html", location: event.location ?? "",
     start: event.start?.dateTime ?? event.start?.date ?? null, end: event.end?.dateTime ?? event.end?.date ?? null,
     timeZone: event.start?.timeZone ?? null, allDay: Boolean(event.start?.date), status: event.status ?? "confirmed", webUrl: event.htmlLink ?? null,
-    etag: event.etag ?? null, recurrence: event.recurrence ?? [], recurringEventId: event.recurringEventId ?? null, originalStartTime: event.originalStartTime ?? null, eventType: event.eventType ?? "default", attendees: event.attendees ?? [], organizer: event.organizer ?? null, reminders: event.reminders ?? null, conference };
+    etag: event.etag ?? null, recurrence: event.recurrence ?? [], recurringEventId: event.recurringEventId ?? null, originalStartTime: event.originalStartTime ?? null, eventType: event.eventType ?? "default", attendees: event.attendees ?? [], organizer: event.organizer ?? null, reminders: event.reminders ?? null, conference, attachments: event.attachments ?? [], source: event.source ?? null };
 }
 function conferenceLink(value: string) {
   const url = new URL(value);
@@ -56,7 +64,25 @@ function outlookSummary(event: z.infer<typeof outlookEvent>) {
   return { id: event.id, title: event.subject ?? "", description: event.body?.content ?? "", descriptionType: event.body?.contentType ?? "text",
     location: event.location?.displayName ?? "", start: event.start.dateTime, end: event.end.dateTime,
     timeZone: event.start.timeZone, endTimeZone: event.end.timeZone, allDay: event.isAllDay ?? false,
-    status: event.isCancelled ? "cancelled" : "confirmed", webUrl: event.webLink ?? null };
+    status: event.isCancelled ? "cancelled" : "confirmed", webUrl: event.webLink ?? null, recurring: event.type !== undefined && event.type !== "singleInstance",
+    organizer: event.organizer ? { displayName: event.organizer.emailAddress.name, email: event.organizer.emailAddress.address } : null,
+    attendees: (event.attendees ?? []).map(person => ({ displayName: person.emailAddress.name, email: person.emailAddress.address, responseStatus: person.status?.response, optional: person.type === "optional" })),
+    conference: { status: event.onlineMeeting?.joinUrl || event.onlineMeetingUrl ? "success" : "none", url: event.onlineMeeting?.joinUrl ?? event.onlineMeetingUrl ?? null },
+    reminders: event.isReminderOn === undefined ? null : { useDefault: false, overrides: event.isReminderOn && event.reminderMinutesBeforeStart !== undefined ? [{ method: "popup", minutes: event.reminderMinutesBeforeStart }] : [] },
+    hasAttachments: event.hasAttachments,
+  };
+}
+async function outlookDisplayEvent(request: ConnectorRequest, path: string, event: z.infer<typeof outlookEvent>) {
+  const zone = event.originalStartTimeZone;
+  // UTC conversion can move an all-day event onto the previous date. Ask Graph
+  // for its original zone (including Windows zone names) to retain calendar days.
+  const midnight = /T00:00:00(?:\.0+)?Z?$/;
+  if (event.isAllDay && zone && zone !== event.start.timeZone && (!midnight.test(event.start.dateTime) || !midnight.test(event.end.dateTime))) {
+    if (/["\r\n]/.test(zone)) throw new ApiError(502, "connector_api_invalid", "Microsoft returned an invalid calendar time zone.");
+    const original = parseNative(outlookEvent, await request(path, { headers: { Prefer: `outlook.timezone="${zone}", outlook.body-content-type="text"` } }));
+    return outlookSummary(original);
+  }
+  return outlookSummary(event);
 }
 function googleEventsPath(calendarId: string) { return `/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events`; }
 function outlookCalendarPath(calendarId: string) { return calendarId === "primary" ? "/v1.0/me/calendar" : `/v1.0/me/calendars/${encodeURIComponent(calendarId)}`; }
@@ -74,9 +100,9 @@ export const googleCalendarAdapter = {
   async calendars(request: ConnectorRequest, input: z.infer<typeof calendarListInput>) {
     const query = new URLSearchParams({ maxResults: String(input.maxResults) });
     if (input.pageToken) query.set("pageToken", input.pageToken);
-    const page = parseNative(z.object({ items: z.array(z.object({ id: z.string(), summary: z.string().optional(), timeZone: z.string().optional(), accessRole: z.string().optional(), primary: z.boolean().optional(), conferenceProperties: z.object({ allowedConferenceSolutionTypes: z.array(z.string()).default([]) }).optional() })).default([]), nextPageToken: z.string().optional() }),
+    const page = parseNative(z.object({ items: z.array(z.object({ id: z.string(), summary: z.string().optional(), backgroundColor: connectorCalendarColorSchema, timeZone: z.string().optional(), accessRole: z.string().optional(), primary: z.boolean().optional(), conferenceProperties: z.object({ allowedConferenceSolutionTypes: z.array(z.string()).default([]) }).optional() })).default([]), nextPageToken: z.string().optional() }),
       await request(`/calendar/v3/users/me/calendarList?${query}`));
-    return { calendars: page.items.map((item) => ({ id: item.id, name: item.summary ?? "", timeZone: item.timeZone ?? null, canWrite: item.accessRole === "owner" || item.accessRole === "writer", primary: item.primary ?? false, canAddMeet: item.conferenceProperties?.allowedConferenceSolutionTypes.includes("hangoutsMeet") ?? false })), nextPageToken: page.nextPageToken ?? null };
+    return { calendars: page.items.map((item) => ({ id: item.id, name: item.summary ?? "", color: item.backgroundColor, timeZone: item.timeZone ?? null, canWrite: item.accessRole === "owner" || item.accessRole === "writer", primary: item.primary ?? false, canAddMeet: item.conferenceProperties?.allowedConferenceSolutionTypes.includes("hangoutsMeet") ?? false })), nextPageToken: page.nextPageToken ?? null };
   },
   async events(request: ConnectorRequest, input: z.infer<typeof calendarEventsInput>) {
     const query = new URLSearchParams({ timeMin: input.timeMin, timeMax: input.timeMax, maxResults: String(input.maxResults), singleEvents: "true", orderBy: "startTime" });
@@ -107,11 +133,11 @@ export const outlookCalendarAdapter = {
   },
   async calendars(request: ConnectorRequest, input: z.infer<typeof calendarListInput>) {
     const path = "/v1.0/me/calendars";
-    const query = new URLSearchParams({ "$top": String(input.maxResults), "$select": "id,name,canEdit,isDefaultCalendar" });
-    const page = parseNative(z.object({ value: z.array(z.object({ id: z.string(), name: z.string(), canEdit: z.boolean().optional(), isDefaultCalendar: z.boolean().optional() })), "@odata.nextLink": z.string().optional() }),
+    const query = new URLSearchParams({ "$top": String(input.maxResults), "$select": "id,name,canEdit,isDefaultCalendar,hexColor" });
+    const page = parseNative(z.object({ value: z.array(z.object({ id: z.string(), name: z.string(), hexColor: connectorCalendarColorSchema, canEdit: z.boolean().optional(), isDefaultCalendar: z.boolean().optional() })), "@odata.nextLink": z.string().optional() }),
       await request(input.pageToken ? nativePagePath(input.pageToken, "https://graph.microsoft.com", path) : `${path}?${query}`));
     if (page["@odata.nextLink"]) nativePagePath(page["@odata.nextLink"], "https://graph.microsoft.com", path);
-    return { calendars: page.value.map((item) => ({ id: item.id, name: item.name, canWrite: item.canEdit ?? false, primary: item.isDefaultCalendar ?? false })), nextPageToken: page["@odata.nextLink"] ?? null };
+    return { calendars: page.value.map((item) => ({ id: item.id, name: item.name, color: item.hexColor, canWrite: item.canEdit ?? false, primary: item.isDefaultCalendar ?? false })), nextPageToken: page["@odata.nextLink"] ?? null };
   },
   async events(request: ConnectorRequest, input: z.infer<typeof calendarEventsInput>) {
     const path = `${outlookCalendarPath(input.calendarId)}/calendarView`;
@@ -119,10 +145,13 @@ export const outlookCalendarAdapter = {
     const page = parseNative(z.object({ value: z.array(outlookEvent), "@odata.nextLink": z.string().optional() }),
       await request(input.pageToken ? nativePagePath(input.pageToken, "https://graph.microsoft.com", path) : `${path}?${query}`, { headers: { Prefer: 'outlook.timezone="UTC", outlook.body-content-type="text"' } }));
     if (page["@odata.nextLink"]) nativePagePath(page["@odata.nextLink"], "https://graph.microsoft.com", path);
-    return { events: page.value.map(outlookSummary), nextPageToken: page["@odata.nextLink"] ?? null };
+    const events = [];
+    for (const event of page.value) events.push(await outlookDisplayEvent(request, `${outlookCalendarPath(input.calendarId)}/events/${encodeURIComponent(event.id)}`, event));
+    return { events, nextPageToken: page["@odata.nextLink"] ?? null };
   },
   async get(request: ConnectorRequest, input: z.infer<typeof calendarEventInput>) {
-    return outlookSummary(parseNative(outlookEvent, await request(`${outlookCalendarPath(input.calendarId)}/events/${encodeURIComponent(input.eventId)}`, { headers: { Prefer: 'outlook.timezone="UTC", outlook.body-content-type="text"' } })));
+    const path = `${outlookCalendarPath(input.calendarId)}/events/${encodeURIComponent(input.eventId)}`;
+    return outlookDisplayEvent(request, path, parseNative(outlookEvent, await request(path, { headers: { Prefer: 'outlook.timezone="UTC", outlook.body-content-type="text"' } })));
   },
   async create(request: ConnectorRequest, input: z.infer<typeof calendarCreateInput>) {
     if (input.reminders && input.reminders.length > 1) throw new ApiError(400, "connector_calendar_reminders", "Outlook supports one reminder per event.");

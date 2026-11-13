@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { canTransferProjectFiles, hasProjectFileDrag, readProjectFilesDrag } from "@/app/lib/project-file-drag";
 import { isFileIntakeTarget } from "../panel/file-drop-intent";
 import { t } from "@/i18n";
@@ -10,6 +10,8 @@ import { acceptsProjectItemDrag, readProjectItemDrag } from "../panel/project-it
 import { projectViewLabel } from "../panel/project-view";
 import { acceptsProjectViewDrag, readProjectViewDrag } from "./project-view-drag";
 import { acceptsSessionsDrag, readSessionsDrag } from "./session-drag";
+import { useQueryCacheState } from "../../../infra/query-cache-state";
+import { emptyInteractionSessions, interactionSessionsKey, type InteractionSessions } from "../sync/interaction-state";
 
 /** The sidebar Workspace destination always opens tabs; it never imports files. */
 export function WorkspaceTabDropTarget({ projectId, projectName, sessionTitle, onOpen, children, className = "", hint = true }: {
@@ -17,6 +19,8 @@ export function WorkspaceTabDropTarget({ projectId, projectName, sessionTitle, o
   onOpen: () => Promise<void>; children: ReactNode; className?: string; hint?: boolean;
 }) {
   const files = useProjectFiles();
+  const key = useMemo(() => interactionSessionsKey(projectId), [projectId]);
+  const sessions = useQueryCacheState<InteractionSessions>(key, emptyInteractionSessions);
   const [over, setOver] = useState(false);
   const accepts = (data: Pick<DataTransfer, "types">) => hasProjectFileDrag(data) || acceptsSessionsDrag(data, projectId) || acceptsProjectViewDrag(data, projectId) || acceptsProjectItemDrag(data, projectId);
   const ready = accepts({ types: files?.dragTypes ?? [] });
@@ -46,7 +50,7 @@ export function WorkspaceTabDropTarget({ projectId, projectName, sessionTitle, o
       try {
         if (!files) return;
         sources.forEach(files.sourceProject);
-        const tabs = sources.length ? sources.map(projectFileTab) : ids.length ? ids.map(id => chatPanelTab(id, sessionTitle(id))) : view ? [projectViewTab(view, projectViewLabel(view))] : item ? [item] : [];
+        const tabs = sources.length ? sources.map(projectFileTab) : ids.length ? ids.map(id => chatPanelTab(id, sessionTitle(id), sessions[id]?.parentID)) : view ? [projectViewTab(view, projectViewLabel(view))] : item ? [item] : [];
         if (!tabs.length) return;
         for (const tab of tabs) usePanelTabStore.getState().openTab(workspacePanelKey(projectId), tab);
         void onOpen().catch(error => toast.error(error instanceof Error ? error.message : t("project_files.failed")));

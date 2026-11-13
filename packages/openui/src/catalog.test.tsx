@@ -1,14 +1,43 @@
 import { expect, test } from "bun:test";
 import { createParser, createStreamingParser } from "@openuidev/react-lang";
 import { renderToStaticMarkup } from "react-dom/server";
+import { dashboardComponentSchemas, dashboardProgramErrors } from "./validation";
 import { OPENUI_CATALOG } from "./catalog";
 import { OpenUIView, openUILibrary } from "./runtime";
 
-test("the agent catalog example parses with the exact runtime component schemas", () => {
-  const parsed = createParser(openUILibrary.toJSONSchema()).parse(OPENUI_CATALOG.example);
+test("the agent catalog offers content guidance without a ready-made dashboard or briefing", () => {
+  expect(OPENUI_CATALOG).not.toHaveProperty("templates");
+  expect(OPENUI_CATALOG).not.toHaveProperty("example");
+  expect(OPENUI_CATALOG.contentGuidance.length).toBeGreaterThan(0);
+  for (const suggestion of OPENUI_CATALOG.contentGuidance) {
+    expect(typeof suggestion).toBe("string");
+    expect(suggestion).not.toMatch(/root\s*=|Query\(|Stack\(/);
+  }
+});
+
+test("dashboard metrics and rankings retain their requested columns and optional captions", () => {
+  const program = `totals = [{revenue:21714,count:14}]
+root = Stack([
+  Stack([QueryMetric("Revenue", totals, "revenue", "EUR", "Net"), QueryMetric("Invoices", totals, "count", {detail:"Issued invoices"}), Metric("Paid", 4)], {columns:3}),
+  Stack([RankedBars([], "client", "value"), RankedBars([], "matter", "value")], {columns:2}),
+  Stack([QueryMetric("Receivables", totals, "revenue", {currency:"EUR",detail:"Outstanding"})], 1)
+])`;
+  const parsed = createParser(openUILibrary.toJSONSchema()).parse(program);
+  expect(parsed.meta.errors).toEqual([]);
+  const html = renderToStaticMarkup(<OpenUIView locale="en" program={program} />);
+  expect(html).toContain("repeat(3, minmax(0, 1fr))");
+  expect(html).toContain("repeat(2, minmax(0, 1fr))");
+  expect(html).toContain("Issued invoices");
+  expect(html).toContain("€21,714.00");
+  expect(html).toContain("Outstanding");
+});
+
+test("a live query can drive a standalone chart chosen by the agent", () => {
+  const program = 'areas = Query("data", {name:"areas"}, {rows:[]})\nroot = RankedBars(areas.rows, "area", "count")';
+  const parsed = createParser(openUILibrary.toJSONSchema()).parse(program);
   expect(parsed.meta.errors).toEqual([]);
   expect(parsed.meta.incomplete).toBe(false);
-  expect(parsed.root?.typeName).toBe("Stack");
+  expect(parsed.root?.typeName).toBe("RankedBars");
   expect(parsed.queryStatements).toHaveLength(1);
   expect(parsed.mutationStatements).toEqual([]);
 });
@@ -58,4 +87,44 @@ test("query-bound tables, charts and boards wait for rows instead of throwing du
   const html = renderToStaticMarkup(<OpenUIView program={program} query={async () => ({ rows: [] })} />);
   expect(html).toContain('role="status"');
   expect(html).not.toContain("No matching records");
+});
+
+test("imported rows with unavailable sources render their values without misleading links", () => {
+  for (const component of ['Table(rows,[{field:"title",label:"Matter"}])', 'Board(rows,"stage","title")']) {
+    const render = (available: boolean) => renderToStaticMarkup(<OpenUIView program={`rows = [{title:"Shared matter",path:"Matter.md",stage:"Active",__viewSourceAvailable:${available}}]\nroot = ${component}`} openSource={() => {}} />);
+    expect(render(false)).toContain("Shared matter");
+    expect(render(false)).not.toContain('class="lw-view-source"');
+    expect(render(true)).toContain('class="lw-view-source"');
+  }
+});
+
+test("dashboard authoring validates single children while older previews still render their chart and table", () => {
+  const chart = 'BarChart([{area:"Commercial",amount:1234}],"area",["amount"])';
+  const table = 'Table([{client:"Example LLP"}],[{field:"client",label:"Client"}])';
+  const program = (single: boolean) => {
+    const child = (source: string) => single ? source : `[${source}]`;
+    return `root = Stack([Card("Revenue", ${child(chart)}), Card("Invoices", ${child(table)})], 2)`;
+  };
+  const issues = dashboardProgramErrors(program(true), []);
+  expect(issues.map(issue => issue.message)).toEqual([
+    'field "/children" expects array but got component "BarChart"',
+    'field "/children" expects array but got component "Table"',
+  ]);
+  expect(issues.every(issue => issue.component === "Card" && issue.hint?.includes("square brackets"))).toBe(true);
+  expect(dashboardProgramErrors(program(false), [])).toEqual([]);
+  expect(createParser(openUILibrary.toJSONSchema()).parse(program(true)).meta.errors).toEqual([]);
+  const html = renderToStaticMarkup(<OpenUIView program={program(true)} />);
+  expect(html).toContain('data-chart="bar"');
+  expect(html).toContain("Example LLP");
+});
+
+test("dashboard component discovery describes positional arguments and validation checks named datasets", () => {
+  expect(Object.keys(dashboardComponentSchemas("Card"))).toEqual(["Card"]);
+  expect(dashboardComponentSchemas("Card").Card).toMatchObject({
+    parameterOrder: ["title", "children", "subtitle"], required: ["title", "children"],
+    properties: { children: { type: "array" } },
+  });
+  const program = 'rows = Query("data",{name:"uploaded"})\nroot = Table(rows.rows, [{field:"client",label:"Client"}])';
+  expect(dashboardProgramErrors(program, ["uploaded"])).toEqual([]);
+  expect(dashboardProgramErrors(program, [])[0]).toMatchObject({ statementId: "rows", message: expect.stringContaining("uploaded") });
 });

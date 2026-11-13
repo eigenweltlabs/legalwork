@@ -28,6 +28,90 @@ function fixture() {
   return { adapter: nativeDriveAdapter(driver), driver, items, add, mutations };
 }
 describe("native drive identities and source capabilities", () => {
+  test("folder creation rejects an existing identity as a new name without provider mutations", async () => {
+    const { adapter, add, mutations } = fixture();
+    const tax = add("tax", "Tax", "root", true);
+    const folder = add("existing", "Fragebogen Steuerliche Erfassung", tax.id, true);
+    await expect(adapter.mkdir(`${nativeSegment(tax)}/${nativeSegment(folder)}`)).rejects.toMatchObject({ code: "invalid_storage_name" });
+    expect(mutations).toEqual([]);
+    await adapter.mkdir(`${nativeSegment(tax)}/${nativeSegment(folder)}/Versandbestätigung`);
+    expect(mutations).toEqual(["mkdir:Versandbestätigung"]);
+  });
+  test("parallel identity lookups are bounded and still support ordinary name paths", async () => {
+    const run = fixture(); run.driver.parallelMetadata = true;
+    let parent = "root";
+    const segments: string[] = [];
+    for (let index = 0; index < 18; index++) {
+      const folder = run.add(`folder-${index}`, `Folder ${index}`, parent, true);
+      parent = folder.id; segments.push(nativeSegment(folder));
+    }
+    const file = run.add("leaf", "Leaf.txt", parent);
+    const get = run.driver.get;
+    let active = 0, maximum = 0;
+    run.driver.get = async id => {
+      active++; maximum = Math.max(maximum, active);
+      try { await new Promise<void>(resolve => setImmediate(resolve)); return await get(id); }
+      finally { active--; }
+    };
+    expect((await run.adapter.list(segments.join("/"))).entries[0].id).toBe(file.id);
+    expect(maximum).toBe(8);
+    expect((await run.adapter.read(`${segments.join("/")}/Leaf.txt`)).data.toString()).toBe("data:leaf");
+  });
+  test("parallel lookups validate parent edges before exposing a later provider error or file contents", async () => {
+    const run = fixture(); run.driver.parallelMetadata = true;
+    const folder = run.add("outside", "Outside", "different-root", true);
+    const secret = run.add("secret", "Secret.txt", folder.id);
+    const get = run.driver.get;
+    run.driver.get = async id => { if (id === secret.id) throw new ApiError(403, "private_metadata", "Private metadata"); return get(id); };
+    let downloads = 0; run.driver.download = async () => { downloads++; return new Response("secret"); };
+    await expect(run.adapter.read(`${nativeSegment(folder)}/${nativeSegment(secret)}`)).rejects.toMatchObject({ code: "storage_not_found" });
+    expect(downloads).toBe(0); expect(run.mutations).toEqual([]);
+  });
+  test("native copies recheck source membership and destination collisions before invoking the provider", async () => {
+    const { driver, add, mutations } = fixture();
+    const source = add("native", "Report.docx", "root", false, true), folder = add("archive", "Archive", "root", true);
+    driver.copyFile = async (item, parent, name) => { mutations.push(`copy:${item.id}:${parent.id}:${name}`); };
+    const adapter = nativeDriveAdapter(driver);
+    await adapter.copyFile!(`${nativeSegment(source)}`, `${nativeSegment(folder)}/Report.docx`);
+    expect(mutations).toEqual(["copy:native:archive:Report.docx"]);
+    add("existing", "Taken.docx", folder.id);
+    await expect(adapter.copyFile!(nativeSegment(source), `${nativeSegment(folder)}/Taken.docx`)).rejects.toMatchObject({ code: "storage_conflict" });
+    const outside = add("outside", "Secret.txt", "different-root");
+    await expect(adapter.copyFile!(nativeSegment(outside), `${nativeSegment(folder)}/Secret.txt`)).rejects.toMatchObject({ status: 404 });
+    await expect(adapter.copyFile!(nativeSegment(source), `${nativeSegment(folder)}/${nativeSegment(source)}`)).rejects.toMatchObject({ code: "invalid_storage_name" });
+    expect(mutations).toHaveLength(1);
+  });
+  test("providers without a rename token resolver still require a strong conditional version", async () => {
+    const run = fixture(); const folder = run.add("folder", "Folder", "root", true);
+    run.items.set(folder.id, { ...folder, version: "sha256:7" });
+    await expect(run.adapter.rename!(nativeSegment(folder), "Renamed", "folder")).rejects.toMatchObject({ code: "storage_conditional_write_unsupported" });
+    expect(run.mutations).toEqual([]);
+  });
+  test("read-only sources cannot use a conditional token resolver to bypass their restriction", async () => {
+    const run = fixture(); const folder = run.add("folder", "Folder", "root", true);
+    run.items.set(folder.id, { ...folder, readOnly: true });
+    let tokens = 0; run.driver.conditionalVersion = async () => { tokens++; return '"version"'; };
+    await expect(run.adapter.rename!(nativeSegment(folder), "Renamed", "folder")).rejects.toMatchObject({ code: "storage_read_only" });
+    expect(tokens).toBe(0); expect(run.mutations).toEqual([]);
+  });
+  test("deletion rejects read-only sources and providers without safe versions before any mutation", async () => {
+    for (const folder of [false, true]) for (const readOnly of [false, true]) {
+      const run = fixture(); const item = run.add("source", "Source", "root", folder);
+      run.items.set(item.id, { ...item, version: "sha256:7", readOnly });
+      let tokens = 0;
+      if (readOnly) run.driver.conditionalVersion = async () => { tokens++; return '"safe-version"'; };
+      const deletion = folder ? run.adapter.deleteFolder!(nativeSegment(item), true) : run.adapter.deleteFile!(nativeSegment(item));
+      await expect(deletion).rejects.toMatchObject({ code: readOnly ? "storage_read_only" : "storage_conditional_write_unsupported" });
+      expect(tokens).toBe(0); expect(run.mutations).toEqual([]);
+    }
+  });
+  test("nonrecursive cleanup refuses nonempty folders before token lookup or deletion", async () => {
+    const run = fixture(); const folder = run.add("folder", "Folder", "root", true);
+    run.add("child", "Child.txt", folder.id);
+    let tokens = 0; run.driver.conditionalVersion = async () => { tokens++; return '"safe-version"'; };
+    await expect(run.adapter.deleteFolder!(nativeSegment(folder), false)).rejects.toMatchObject({ code: "storage_conflict" });
+    expect(tokens).toBe(0); expect(run.mutations).toEqual([]);
+  });
   test("same-name files remain distinct and plain names reject ambiguity across pages", async () => {
     const { adapter, add } = fixture(); const first = add("a", "same.txt"), second = add("b", "same.txt");
     const page = await adapter.list(""); const next = await adapter.list("", page.nextCursor);

@@ -1,4 +1,8 @@
+import { resolveWorkspaceFile } from "../project-storage-paths.js";
+import { workspaceContentPath, workspaceFileRoot } from "../project-storage.js";
 import { projectFileLinkSchema, projectFileSourceSchema, projectFilePath } from "../project-file-schema.js";
+import { workspaceViewFiles } from "../views/repository.js";
+import { isViewFile, copyViewFile, StoredViewSchema } from "../views/schema.js";
 import { importProjectFile, renameProjectFileEntry, projectFileParent, readProjectFileLinks, updateProjectFileLinks } from "../project-file-links.js";
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
@@ -136,6 +140,18 @@ export function isSupportedWorkspaceTextFilePath(relativePath: string): boolean 
   );
 }
 
+function normalizeProjectFileReference(workspace: WorkspaceInfo, input: string, options: { allowSubdirs: boolean }): string {
+  if (isAbsolute(input)) {
+    try { return resolveWorkspaceFile(workspace, input).reference; }
+    catch (error) { if (!/^\/workspace(?:s)?\//i.test(input)) throw error; }
+  }
+  return normalizeWorkspaceRelativePath(input, options);
+}
+
+function resolveProjectFile(workspace: WorkspaceInfo, file: string): string {
+  return resolveWorkspaceFile(workspace, file).path;
+}
+
 function resolveSafeChildPath(root: string, child: string): string {
   const rootResolved = resolve(root);
   const candidate = resolve(rootResolved, child);
@@ -199,6 +215,7 @@ type ArtifactTargetInput = {
 };
 
 function artifactPreviewForPath(path: string): string {
+  if (isViewFile(path)) return "view";
   const lowered = path.toLowerCase();
   if (/\.(md|markdown|mdx)$/.test(lowered)) return "markdown";
   if (/\.(csv|tsv|xlsx|xls|ods)$/.test(lowered)) return "sheet";
@@ -245,7 +262,7 @@ async function workspaceArtifactNames(workspaceRoot: string): Promise<Map<string
   return names;
 }
 
-export async function resolveWorkspaceArtifactTargets(workspaceRoot: string, input: unknown): Promise<Array<Record<string, unknown>>> {
+export async function resolveWorkspaceArtifactTargets(workspaceRoot: string, input: unknown, supportRoot = workspaceRoot, previousRoot?: string): Promise<Array<Record<string, unknown>>> {
   const targets = Array.isArray(input) ? input.slice(0, 80) : [];
   const results = new Map<string, Record<string, unknown>>();
   const workspaceResolved = resolve(workspaceRoot);
@@ -279,28 +296,20 @@ export async function resolveWorkspaceArtifactTargets(workspaceRoot: string, inp
       continue;
     }
 
-    let relativePath: string;
+    let relativePath: string, absPath: string;
+    const workspace = { path: supportRoot, contentPath: workspaceRoot, previousPath: previousRoot };
     try {
-      if (isAbsolute(rawValue)) {
-        const absolutePath = resolve(rawValue);
-        const pathFromWorkspace = relative(workspaceResolved, absolutePath);
-        if (!pathFromWorkspace || pathFromWorkspace === ".." || pathFromWorkspace.startsWith(`..${sep}`) || isAbsolute(pathFromWorkspace)) {
-          continue;
-        }
-        relativePath = normalizeWorkspaceRelativePath(pathFromWorkspace, { allowSubdirs: true });
-      } else {
-        relativePath = normalizeWorkspaceRelativePath(rawValue, { allowSubdirs: true });
-      }
-    } catch {
-      continue;
-    }
-    let absPath = resolveSafeChildPath(workspaceRoot, relativePath);
+      const nativeReference = ["write tool metadata", "patch metadata", "write tool output"].includes(reason);
+      const requested = isAbsolute(rawValue) ? rawValue : nativeReference ? resolve(supportRoot, rawValue) : normalizeWorkspaceRelativePath(rawValue, { allowSubdirs: true });
+      const location = resolveWorkspaceFile(workspace, requested);
+      relativePath = location.reference; absPath = location.path;
+    } catch { continue; }
     if (!isAbsolute(rawValue) && !relativePath.includes("/") && !(await exists(absPath))) {
       artifactNames ??= await workspaceArtifactNames(workspaceResolved);
       const matchedPath = artifactNames.get(relativePath.toLowerCase());
       if (matchedPath) {
-        relativePath = matchedPath;
-        absPath = resolveSafeChildPath(workspaceRoot, relativePath);
+        const location = resolveWorkspaceFile(workspace, matchedPath);
+        relativePath = location.reference; absPath = location.path;
       }
     }
     const key = `file:${relativePath.toLowerCase()}`;
@@ -315,12 +324,17 @@ export async function resolveWorkspaceArtifactTargets(workspaceRoot: string, inp
       size = info.size;
       updatedAt = info.mtimeMs;
     }
+    const location = resolveWorkspaceFile(workspace, relativePath);
+    const view = existsFile && isViewFile(relativePath)
+      ? StoredViewSchema.safeParse(await workspaceViewFiles(location.root).read(location.relativePath).then(bytes => JSON.parse(bytes.toString())).catch(() => null))
+      : null;
     const next = {
       id: key,
       kind: "file",
       value: relativePath,
       name: basename(relativePath),
       preview: artifactPreviewForPath(relativePath),
+      ...(view?.success ? { documentType: view.data.mode } : {}),
       confidence,
       reason,
       exists: existsFile,
@@ -499,7 +513,7 @@ async function listWorkspaceCatalogEntries(workspaceRoot: string): Promise<FileS
   return items;
 }
 
-function parseBatchPathList(input: unknown): string[] {
+function parseBatchPathList(input: unknown, workspace: WorkspaceInfo): string[] {
   if (!Array.isArray(input)) {
     throw new ApiError(400, "invalid_payload", "paths must be an array");
   }
@@ -509,10 +523,10 @@ function parseBatchPathList(input: unknown): string[] {
   if (input.length > FILE_SESSION_MAX_BATCH_ITEMS) {
     throw new ApiError(400, "invalid_payload", `paths must include <= ${FILE_SESSION_MAX_BATCH_ITEMS} items`);
   }
-  return input.map((raw) => normalizeWorkspaceRelativePath(String(raw ?? ""), { allowSubdirs: true }));
+  return input.map((raw) => normalizeProjectFileReference(workspace, String(raw ?? ""), { allowSubdirs: true }));
 }
 
-function parseBatchWriteList(input: unknown): Array<{ path: string; contentBase64: string; ifMatchRevision?: string; force?: boolean }> {
+function parseBatchWriteList(input: unknown, workspace: WorkspaceInfo): Array<{ path: string; contentBase64: string; ifMatchRevision?: string; force?: boolean }> {
   if (!Array.isArray(input)) {
     throw new ApiError(400, "invalid_payload", "writes must be an array");
   }
@@ -537,7 +551,7 @@ function parseBatchWriteList(input: unknown): Array<{ path: string; contentBase6
         ? record.ifMatchRevision.trim()
         : undefined;
     return {
-      path: normalizeWorkspaceRelativePath(String(record.path ?? ""), { allowSubdirs: true }),
+      path: normalizeProjectFileReference(workspace, String(record.path ?? ""), { allowSubdirs: true }),
       contentBase64,
       ...(ifMatchRevision ? { ifMatchRevision } : {}),
       ...(record.force === true ? { force: true } : {}),
@@ -726,7 +740,7 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
   addRoute(routes, "POST", "/workspace/:id/artifacts/resolve", "client", async (ctx) => {
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const body = await readJsonBody(ctx.request);
-    const items = await resolveWorkspaceArtifactTargets(workspace.path, body.targets);
+    const items = await resolveWorkspaceArtifactTargets(workspaceContentPath(workspace), body.targets, workspace.path, workspace.previousPath);
     return jsonResponse({ items });
   });
 
@@ -776,7 +790,7 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
     const includeDirs = ctx.url.searchParams.get("includeDirs") !== "false";
     const limit = parseCatalogLimit(ctx.url.searchParams.get("limit"));
 
-    const entries = await listWorkspaceCatalogEntries(workspace.path);
+    const entries = await listWorkspaceCatalogEntries(workspaceContentPath(workspace));
     const filtered = entries.filter((entry) => {
       if (!includeDirs && entry.kind === "dir") return false;
       if (!matchesCatalogFilter(entry.path, prefix)) return false;
@@ -811,12 +825,12 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
   addRoute(routes, "POST", "/files/sessions/:sessionId/read-batch", "client", async (ctx) => {
     const { workspace } = resolveFileSession(ctx, ctx.params.sessionId);
     const body = await readJsonBody(ctx.request);
-    const paths = parseBatchPathList(body.paths);
+    const paths = parseBatchPathList(body.paths, workspace);
     const items: Array<Record<string, unknown>> = [];
 
     for (const relativePath of paths) {
       try {
-        const absPath = resolveSafeChildPath(workspace.path, relativePath);
+        const absPath = resolveProjectFile(workspace, relativePath);
         if (!(await exists(absPath))) {
           items.push({ ok: false, path: relativePath, code: "file_not_found", message: "File not found" });
           continue;
@@ -867,7 +881,7 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
     }
 
     const body = await readJsonBody(ctx.request);
-    const writes = parseBatchWriteList(body.writes);
+    const writes = parseBatchWriteList(body.writes, workspace);
     const items: Array<Record<string, unknown>> = [];
 
     const plan: Array<{
@@ -881,7 +895,7 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
 
     for (const write of writes) {
       try {
-        const absPath = resolveSafeChildPath(workspace.path, write.path);
+        const absPath = resolveProjectFile(workspace, write.path);
         const bytes = Buffer.from(write.contentBase64, "base64");
         if (bytes.byteLength > FILE_SESSION_MAX_FILE_BYTES) {
           items.push({
@@ -1015,13 +1029,13 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
     const approvalPaths: string[] = [];
     for (const op of operations) {
       if (typeof op?.path === "string" && op.path.trim()) {
-        approvalPaths.push(resolveSafeChildPath(workspace.path, normalizeWorkspaceRelativePath(op.path, { allowSubdirs: true })));
+        approvalPaths.push(resolveProjectFile(workspace, normalizeProjectFileReference(workspace, op.path, { allowSubdirs: true })));
       }
       if (typeof op?.from === "string" && op.from.trim()) {
-        approvalPaths.push(resolveSafeChildPath(workspace.path, normalizeWorkspaceRelativePath(op.from, { allowSubdirs: true })));
+        approvalPaths.push(resolveProjectFile(workspace, normalizeProjectFileReference(workspace, op.from, { allowSubdirs: true })));
       }
       if (typeof op?.to === "string" && op.to.trim()) {
-        approvalPaths.push(resolveSafeChildPath(workspace.path, normalizeWorkspaceRelativePath(op.to, { allowSubdirs: true })));
+        approvalPaths.push(resolveProjectFile(workspace, normalizeProjectFileReference(workspace, op.to, { allowSubdirs: true })));
       }
     }
 
@@ -1038,8 +1052,8 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
       const type = String(op.type ?? "").trim();
       try {
         if (type === "mkdir") {
-          const path = normalizeWorkspaceRelativePath(String(op.path ?? ""), { allowSubdirs: true });
-          const absPath = resolveSafeChildPath(workspace.path, path);
+          const path = normalizeProjectFileReference(workspace, String(op.path ?? ""), { allowSubdirs: true });
+          const absPath = resolveProjectFile(workspace, path);
           if (op.exclusive === true) await mkdir(absPath);
           else await ensureDir(absPath);
           recordWorkspaceFileEvent(workspace.id, { type: "mkdir", path });
@@ -1048,8 +1062,8 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
         }
 
         if (type === "delete") {
-          const path = normalizeWorkspaceRelativePath(String(op.path ?? ""), { allowSubdirs: true });
-          const absPath = resolveSafeChildPath(workspace.path, path);
+          const path = normalizeProjectFileReference(workspace, String(op.path ?? ""), { allowSubdirs: true });
+          const absPath = resolveProjectFile(workspace, path);
           await withFileWriteLock(absPath, async () => {
             if (!(await exists(absPath))) {
               items.push({ ok: false, type, path, code: "file_not_found", message: "Path not found" });
@@ -1063,10 +1077,10 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
         }
 
         if (type === "rename") {
-          const from = normalizeWorkspaceRelativePath(String(op.from ?? ""), { allowSubdirs: true });
-          const to = normalizeWorkspaceRelativePath(String(op.to ?? ""), { allowSubdirs: true });
-          const fromAbs = resolveSafeChildPath(workspace.path, from);
-          const toAbs = resolveSafeChildPath(workspace.path, to);
+          const from = normalizeProjectFileReference(workspace, String(op.from ?? ""), { allowSubdirs: true });
+          const to = normalizeProjectFileReference(workspace, String(op.to ?? ""), { allowSubdirs: true });
+          const fromAbs = resolveProjectFile(workspace, from);
+          const toAbs = resolveProjectFile(workspace, to);
           await withFileWriteLocks([fromAbs, toAbs], async () => {
             if (!(await exists(fromAbs))) {
               items.push({ ok: false, type, from, to, code: "file_not_found", message: "Source path not found" });
@@ -1077,7 +1091,9 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
               return;
             }
             await ensureDir(dirname(toAbs));
-            await renameProjectFileEntry(workspace.path, from, to);
+            const root = resolveWorkspaceFile(workspace, from).root;
+            if (root !== resolveWorkspaceFile(workspace, to).root) throw new ApiError(400, "rename_root", "Use copy to save an attachment into the document folder.");
+            await renameProjectFileEntry(root, resolveWorkspaceFile(workspace, from).relativePath, resolveWorkspaceFile(workspace, to).relativePath, workspace.path);
             recordWorkspaceFileEvent(workspace.id, { type: "rename", path: from, toPath: to });
             items.push({ ok: true, type, from, to });
           });
@@ -1113,7 +1129,7 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
     const parsed = projectFileLinkSchema.safeParse({ ...body, id: body.id ?? randomUUID(), createdAt: Date.now() });
     if (!parsed.success) throw new ApiError(400, "invalid_payload", "Invalid project file link");
     const links = await updateProjectFileLinks(workspace.path, async links => {
-      await projectFileParent(workspace.path, parsed.data.folder);
+      await projectFileParent(workspaceContentPath(workspace), parsed.data.folder);
       const duplicate = links.find(link => link.folder === parsed.data.folder && link.source.projectId === parsed.data.source.projectId && link.source.workspaceId === parsed.data.source.workspaceId && link.source.path === parsed.data.source.path && link.source.connectionId === parsed.data.source.connectionId);
       const id = typeof body.id === "string" ? body.id : duplicate?.id ?? parsed.data.id;
       if (typeof body.id === "string" && !links.some(link => link.id === id)) throw new ApiError(404, "not_found", "Link no longer exists");
@@ -1126,27 +1142,33 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
     requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const body = await readJsonBody(ctx.request);
-    const source = projectFileSourceSchema.safeParse(body.source);
+    const source = projectFileSourceSchema.optional().safeParse(body.source);
     if (!source.success || typeof body.path !== "string" || typeof body.dataBase64 !== "string" || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(body.dataBase64)) throw new ApiError(400, "invalid_payload", "Invalid project file import");
     const parsedPath = projectFilePath.safeParse(body.path);
     if (!parsedPath.success) throw new ApiError(400, "invalid_path", "Invalid destination file");
     const path = parsedPath.data;
-    await requireApproval(ctx, { workspaceId: workspace.id, action: "workspace.file.write", summary: `Copy ${source.data.name} into this project`, paths: [join(workspace.path, path)] });
-    const result = await importProjectFile(workspace.path, path, Buffer.from(body.dataBase64, "base64"));
+    if (source.data && isViewFile(source.data.path) && !isViewFile(path)) throw new ApiError(400, "invalid_view_path", "Dashboard copies keep the .view.json extension.");
+    await requireApproval(ctx, { workspaceId: workspace.id, action: "workspace.file.write", summary: `Copy ${source.data?.name ?? path} into this project`, paths: [resolveProjectFile(workspace, path)] });
+    let bytes = Buffer.from(body.dataBase64, "base64");
+    if (isViewFile(path)) {
+      try { bytes = Buffer.from(copyViewFile(bytes)); }
+      catch (error) { throw new ApiError(400, "invalid_view_import", error instanceof Error ? error.message : "Invalid dashboard file."); }
+    }
+    const result = await importProjectFile(workspaceFileRoot(workspace, path), path, bytes);
     recordWorkspaceFileEvent(workspace.id, { type: "write", path });
-    await recordAudit(workspace.path, { id: shortId(), workspaceId: workspace.id, actor: ctx.actor ?? { type: "remote" }, action: "workspace.file.write", target: join(workspace.path, path), summary: `Copied saved file from project ${source.data.projectId}: ${source.data.path}`, timestamp: Date.now() });
+    await recordAudit(workspace.path, { id: shortId(), workspaceId: workspace.id, actor: ctx.actor ?? { type: "remote" }, action: "workspace.file.write", target: resolveProjectFile(workspace, path), summary: source.data ? `Copied saved file from project ${source.data.projectId}: ${source.data.path}` : "Imported a local file", timestamp: Date.now() });
     return jsonResponse({ ok: true, ...result }, 201);
   });
 
   addRoute(routes, "GET", "/workspace/:id/files/content", "client", async (ctx) => {
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const requested = (ctx.url.searchParams.get("path") ?? "").trim();
-    const relativePath = normalizeWorkspaceRelativePath(requested, { allowSubdirs: true });
+    const relativePath = normalizeProjectFileReference(workspace, requested, { allowSubdirs: true });
     if (!isSupportedWorkspaceTextFilePath(relativePath)) {
       throw new ApiError(400, "invalid_path", "Only supported text artifact files can be read inline");
     }
 
-    const absPath = resolveSafeChildPath(workspace.path, relativePath);
+    const absPath = resolveProjectFile(workspace, relativePath);
     if (!(await exists(absPath))) {
       throw new ApiError(404, "file_not_found", "File not found");
     }
@@ -1167,8 +1189,8 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
   addRoute(routes, "GET", "/workspace/:id/files/stat", "client", async (ctx) => {
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const requested = (ctx.url.searchParams.get("path") ?? "").trim();
-    const relativePath = normalizeWorkspaceRelativePath(requested, { allowSubdirs: true });
-    const absPath = resolveSafeChildPath(workspace.path, relativePath);
+    const relativePath = normalizeProjectFileReference(workspace, requested, { allowSubdirs: true });
+    const absPath = resolveProjectFile(workspace, relativePath);
     if (!(await exists(absPath))) {
       return jsonResponse({ ok: true, path: relativePath, exists: false });
     }
@@ -1188,8 +1210,8 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const requested = (ctx.url.searchParams.get("path") ?? "").trim();
     // An empty path lists the workspace root; normalizeWorkspaceRelativePath rejects it.
-    const relativePath = requested ? normalizeWorkspaceRelativePath(requested, { allowSubdirs: true }) : "";
-    const absPath = relativePath ? resolveSafeChildPath(workspace.path, relativePath) : resolve(workspace.path);
+    const relativePath = requested ? normalizeProjectFileReference(workspace, requested, { allowSubdirs: true }) : "";
+    const absPath = relativePath ? resolveProjectFile(workspace, relativePath) : resolve(workspaceContentPath(workspace));
     if (!(await exists(absPath))) {
       throw new ApiError(404, "dir_not_found", "Directory not found");
     }
@@ -1243,8 +1265,8 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
   addRoute(routes, "GET", "/workspace/:id/files/raw", "client", async (ctx) => {
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const requested = (ctx.url.searchParams.get("path") ?? "").trim();
-    const relativePath = normalizeWorkspaceRelativePath(requested, { allowSubdirs: true });
-    const absPath = resolveSafeChildPath(workspace.path, relativePath);
+    const relativePath = normalizeProjectFileReference(workspace, requested, { allowSubdirs: true });
+    const absPath = resolveProjectFile(workspace, relativePath);
     if (!(await exists(absPath))) {
       throw new ApiError(404, "file_not_found", "File not found");
     }
@@ -1267,18 +1289,25 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
     requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const body = await readJsonBody(ctx.request);
-    const source = storagePath(typeof body.path === "string" ? body.path : "", false);
-    const target = storagePath(typeof body.targetPath === "string" ? body.targetPath : "", false);
-    await requireApproval(ctx, { workspaceId: workspace.id, action: "workspace.file.write", summary: `Create ${target} from ${source}`, paths: [join(workspace.path, target)] });
+    const source = normalizeProjectFileReference(workspace, typeof body.path === "string" ? body.path : "", { allowSubdirs: true });
+    const target = normalizeProjectFileReference(workspace, typeof body.targetPath === "string" ? body.targetPath : "", { allowSubdirs: true });
+    const from = resolveWorkspaceFile(workspace, source), to = resolveWorkspaceFile(workspace, target);
+    await requireApproval(ctx, { workspaceId: workspace.id, action: "workspace.file.write", summary: `Create ${target} from ${source}`, paths: [resolveProjectFile(workspace, target)] });
     let result;
-    try { result = await keepWorkspaceCopy(workspace.path, source, target); }
+    try {
+      if (isViewFile(source)) {
+        if (!isViewFile(target)) throw new ApiError(400, "invalid_view_path", "Dashboard copies keep the .view.json extension.");
+        const bytes = await workspaceViewFiles(from.root).read(from.relativePath);
+        result = await importProjectFile(to.root, to.relativePath, copyViewFile(bytes, undefined, true));
+      } else result = await keepWorkspaceCopy(from.root, from.relativePath, to.relativePath, to.root);
+    }
     catch (error) { throw providerError(error); }
     recordWorkspaceFileEvent(workspace.id, { type: "write", path: target });
     await recordAudit(workspace.path, {
       id: shortId(), workspaceId: workspace.id, actor: ctx.actor ?? { type: "remote" },
-      action: "workspace.file.write", target: join(workspace.path, target), summary: `Copied ${source} to ${target}`, timestamp: Date.now(),
+      action: "workspace.file.write", target: resolveProjectFile(workspace, target), summary: `Copied ${source} to ${target}`, timestamp: Date.now(),
     });
-    return jsonResponse({ ok: true, ...result }, 201);
+    return jsonResponse({ ok: true, ...result, path: to.reference }, 201);
   });
 
   addRoute(routes, "POST", "/workspace/:id/files/raw", "client", async (ctx) => {
@@ -1287,7 +1316,7 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const body = await readJsonBody(ctx.request);
     const requestedPath = String(body.path ?? "");
-    const relativePath = normalizeWorkspaceRelativePath(requestedPath, { allowSubdirs: true });
+    const relativePath = normalizeProjectFileReference(workspace, requestedPath, { allowSubdirs: true });
     if (typeof body.dataBase64 !== "string") {
       throw new ApiError(400, "invalid_payload", "dataBase64 must be a string");
     }
@@ -1301,7 +1330,7 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
     const baseUpdatedAt =
       typeof baseUpdatedAtRaw === "number" && Number.isFinite(baseUpdatedAtRaw) ? baseUpdatedAtRaw : null;
     const force = body.force === true;
-    const absPath = resolveSafeChildPath(workspace.path, relativePath);
+    const absPath = resolveProjectFile(workspace, relativePath);
     await requireApproval(ctx, {
       workspaceId: workspace.id,
       action: "workspace.file.write",
@@ -1347,7 +1376,7 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
     const body = await readJsonBody(ctx.request);
 
     const requestedPath = String(body.path ?? "");
-    const relativePath = normalizeWorkspaceRelativePath(requestedPath, { allowSubdirs: true });
+    const relativePath = normalizeProjectFileReference(workspace, requestedPath, { allowSubdirs: true });
     if (!isSupportedWorkspaceTextFilePath(relativePath)) {
       throw new ApiError(400, "invalid_path", "Only supported text artifact files can be edited inline");
     }
@@ -1370,7 +1399,7 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
     // synced in, say) is merged with it, as project sync merges notes.
     const baseContent = typeof body.baseContent === "string" ? body.baseContent : null;
 
-    const absPath = resolveSafeChildPath(workspace.path, relativePath);
+    const absPath = resolveProjectFile(workspace, relativePath);
 
     await requireApproval(ctx, {
       workspaceId: workspace.id,

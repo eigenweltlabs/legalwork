@@ -68,6 +68,50 @@ function drives() {
 }
 
 describe("storage transfers", () => {
+  test("same-connection copies use native file copies for a whole tree, preserving originals, empty folders and progress", async () => {
+    const { source } = drives();
+    source.folders.add("archive");
+    const copied: string[] = [], progress: StorageTransferProgress[] = [];
+    const native = Object.assign(source, {
+      copyFile: async (path: string, destination: string) => { source.files.set(destination, source.files.get(path)!); copied.push(path); },
+      download: async () => { throw new Error("Native copies must not download"); },
+      upload: async () => { throw new Error("Native copies must not upload"); },
+    });
+    expect(await transferEntry(native, native, { ...input, mode: "copy" }, true, update => progress.push(update))).toBe("archive/matter");
+    expect(copied).toEqual(["matter/a.txt", "matter/c.txt", "matter/nested/b.txt"]);
+    expect(source.folders.has("archive/matter/empty")).toBe(true);
+    expect(source.files.get("archive/matter/nested/b.txt")).toEqual(source.files.get("matter/nested/b.txt"));
+    expect(source.removed).toEqual([]);
+    expect([...new Set(progress.filter(update => update.phase === "transferring").map(update => update.completedFiles))]).toEqual([0, 1, 2, 3]);
+    expect(progress.at(-1)).toMatchObject({ phase: "completed", completedFiles: 3, totalFiles: 3 });
+  });
+  test("native copy failures retain originals and partial copies without retrying through byte transfer", async () => {
+    const { source } = drives(); source.folders.add("archive"); let copies = 0;
+    const native = Object.assign(source, {
+      copyFile: async (path: string, destination: string) => {
+        if (++copies === 2) throw new Error("Copy failed");
+        source.files.set(destination, source.files.get(path)!);
+      },
+      download: async () => { throw new Error("Must not download after a native failure"); },
+    });
+    await expect(transferEntry(native, native, { ...input, mode: "copy" }, true)).rejects.toMatchObject({ code: "storage_transfer_incomplete" });
+    expect(copies).toBe(2); expect(source.removed).toEqual([]);
+    expect(source.files.has("archive/matter/a.txt")).toBe(true);
+    expect(source.files.has("matter/nested/b.txt")).toBe(true);
+  });
+  test("different-connection copies keep using streaming even when the source has a native copy method", async () => {
+    const { source, target } = drives(); let copies = 0;
+    const native = Object.assign(source, { copyFile: async () => { copies++; throw new Error("Wrong account"); } });
+    await transferEntry(native, target, { ...input, path: "matter/a.txt", kind: "file", mode: "copy" }, false);
+    expect(copies).toBe(0); expect(target.uploads).toBe(1);
+  });
+  test("an incomplete source listing is rejected before copying any folder contents", async () => {
+    const { source, target } = drives();
+    const list = source.list.bind(source);
+    source.list = async (path, cursor) => ({ ...await list(path, cursor), truncated: true });
+    await expect(transferEntry(source, target, { ...input, mode: "copy" }, false)).rejects.toMatchObject({ code: "storage_listing_incomplete" });
+    expect(target.uploads).toBe(0); expect(target.folders).toEqual(new Set(["archive"]));
+  });
   test("reports real file counts through scanning, verified copies, source cleanup and completion", async () => {
     const { source, target } = drives();
     const updates: StorageTransferProgress[] = [];

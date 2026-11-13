@@ -27,6 +27,18 @@ async function fixture() {
 const event = (cursor: string, actor: "user" | "assistant", text: string) => ({ id: randomUUID(), cursor, channel: "ios", actor,
   event: { type: "message.created", text, attachments: [] }, attachments: [], createdAt: "2026-10-09T08:00:00.000Z", expiresAt: null });
 
+test("channel-only history days can be browsed forward as well as backward", async () => {
+  const f = await fixture();
+  try {
+    await f.account("user_a");
+    const key = JSON.stringify(["org_history", "user_a"]);
+    const events = [8, 9, 10].map((day, index) => ({ ...event(String(index + 1), "user", `Day ${day}`), createdAt: `2026-10-${String(day).padStart(2, "0")}T08:00:00.000Z` }));
+    f.store.importPage(key, { events, nextCursor: "3", hasMore: false });
+    expect((await f.store.days("2026-10-10", 1)).days).toEqual([{ date: "2026-10-09", sessionId: null }]);
+    expect((await f.store.days(undefined, 1, "2026-10-08")).days).toEqual([{ date: "2026-10-09", sessionId: null }]);
+  } finally { f.store.close(); }
+});
+
 test("durable projection replays once, survives restart, and isolates account changes and disable", async () => {
   const f = await fixture();
   const key = JSON.stringify(["org_history", "user_a"]);

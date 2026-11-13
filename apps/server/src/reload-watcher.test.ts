@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, jest, spyOn, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,6 +7,7 @@ import { ReloadEventStore } from "./events.js";
 import { startReloadWatchers } from "./reload-watcher.js";
 import type { ServerConfig, WorkspaceInfo } from "./types.js";
 import { ensureWorkspaceFiles } from "./workspace-init.js";
+import * as fingerprints from "./reload-fingerprint.js";
 
 async function withWorkspace(fn: (root: string) => Promise<void>) {
   const root = await mkdtemp(join(tmpdir(), "legalwork-reload-watcher-"));
@@ -60,6 +61,30 @@ async function waitForEvent(store: ReloadEventStore, workspaceId: string) {
 }
 
 describe("reload watcher fingerprints", () => {
+  test("an explicit refresh waits for the initial baseline before accepting later changes", async () => {
+    await withWorkspace(async (root) => {
+      const { config, workspace } = buildConfig(root);
+      const initialStarted = Promise.withResolvers<void>();
+      const releaseInitial = Promise.withResolvers<void>();
+      let first = true;
+      const compute = spyOn(fingerprints, "computeReloadFingerprint").mockImplementation(async (_root, reason) => {
+        if (first) { first = false; initialStarted.resolve(); await releaseInitial.promise; }
+        return reason;
+      });
+      const watcher = startReloadWatchers({ config, reloadEvents: new ReloadEventStore(), debounceMs: 30 });
+      let refreshed = false;
+      const ready = watcher.refreshWorkspace(workspace.id).then(() => { refreshed = true; });
+      try {
+        await initialStarted.promise;
+        await sleep(0); // Drain the unblocked explicit scan while the first scan is held.
+        expect(refreshed).toBe(false);
+        releaseInitial.resolve();
+        await ready;
+        expect(refreshed).toBe(true);
+      } finally { releaseInitial.resolve(); await ready; watcher.close(); compute.mockRestore(); }
+    });
+  });
+
   test("does not emit when a watched file is rewritten with identical content", async () => {
     await withWorkspace(async (root) => {
       const { config, workspace } = buildConfig(root);
@@ -106,17 +131,26 @@ describe("reload watcher fingerprints", () => {
     await withWorkspace(async (root) => {
       const { config, workspace } = buildConfig(root);
       const events = new ReloadEventStore();
+      // Bootstrap can take longer than the debounce on a busy runner. Hold its
+      // timers until the internal writes and their replacement baseline settle.
+      jest.useFakeTimers();
       const watcher = startReloadWatchers({ config, reloadEvents: events, debounceMs: 100 });
       try {
         await watcher.refreshWorkspace(workspace.id);
         const ensured = await ensureWorkspaceFiles(root, "starter");
+        await mkdir(join(root, ".opencode", "commands"), { recursive: true });
         await watcher.refreshWorkspace(workspace.id, ensured.reloadReasons);
+        jest.runOnlyPendingTimers();
+        jest.useRealTimers();
         await sleep(250);
 
-        expect(ensured.reloadReasons.sort()).toEqual(["agents", "commands", "skills"]);
+        expect(ensured.reloadReasons).toEqual([]);
         expect(events.list(workspace.id)).toEqual([]);
+        await writeFile(join(root, ".opencode", "commands", "sign.md"), "User command change\n", "utf8");
+        expect((await waitForEvent(events, workspace.id))?.reason).toBe("commands");
       } finally {
         watcher.close();
+        jest.useRealTimers();
       }
     });
   });

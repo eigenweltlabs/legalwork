@@ -1,0 +1,52 @@
+name: Build portable desktop assets
+on:
+  workflow_call:
+    inputs:
+      ref:
+        type: string
+        required: true
+      version:
+        type: string
+        required: true
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      NODE_OPTIONS: --max-old-space-size=6144
+      LEGALWORK_ELECTRON_BUILD: '1'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24.22.1
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.4.0
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - uses: ./.github/actions/install-dependencies
+      - name: Stamp the same version as every native consumer
+        env:
+          BUILD_VERSION: ${{ inputs.version }}
+        run: |
+          node scripts/release/apply-version.mjs --version "${BUILD_VERSION#v}"
+          pnpm install --lockfile-only --no-frozen-lockfile
+      - name: Build renderer and Office pane once
+        run: |
+          pnpm --filter @legalwork/app build
+          pnpm --filter @legalwork/app build:word-addin
+          node scripts/ci/portable-assets.mjs seal
+      - uses: actions/upload-artifact@v4
+        with:
+          name: portable-desktop-assets
+          path: |
+            apps/app/dist/
+            apps/app/dist-word-addin/
+            apps/app/portable-ui-receipt.json
+          if-no-files-found: error
+          retention-days: 7

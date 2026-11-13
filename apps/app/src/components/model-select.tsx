@@ -126,13 +126,13 @@ function groupByProvider(modelOptions: ModelOption[]): ModelSelectGroup[] {
     .sort((a, b) => a.value.localeCompare(b.value));
 }
 
-function isSameModel(a: ModelRef, b: ModelRef) {
-  return a.providerID === b.providerID && a.modelID === b.modelID;
+function isSameModel(a: ModelRef | null, b: ModelRef) {
+  return a !== null && a.providerID === b.providerID && a.modelID === b.modelID;
 }
 
 interface ModelSelectProps {
   open: boolean;
-  value: ModelRef;
+  value: ModelRef | null;
   onOpenChange: (open: boolean) => void;
   onChange: (model: ModelRef) => void;
   disabled?: boolean;
@@ -142,7 +142,18 @@ interface ModelSelectProps {
   locked?: boolean;
 }
 
-export function ModelSelect({
+export function ModelSelect(props: ModelSelectProps & { modelOptions?: ModelOption[] }) {
+  return props.modelOptions !== undefined
+    ? <ModelSelectWithOptions {...props} modelOptions={props.modelOptions} />
+    : <WorkspaceModelSelect {...props} />;
+}
+
+function WorkspaceModelSelect(props: ModelSelectProps) {
+  const modelOptions = useModelOptions(props.open);
+  return <ModelSelectWithOptions {...props} modelOptions={modelOptions} />;
+}
+
+function ModelSelectWithOptions({
   open,
   value,
   onOpenChange,
@@ -150,10 +161,10 @@ export function ModelSelect({
   disabled = false,
   showManageModels = true,
   locked = false,
-}: ModelSelectProps) {
+  modelOptions,
+}: ModelSelectProps & { modelOptions: ModelOption[] }) {
   const [search, setSearch] = React.useState("");
   const searchInputRef = React.useRef<HTMLInputElement>(null);
-  const modelOptions = useModelOptions(open);
 
   const focusSearchInput = React.useCallback(() => {
     window.requestAnimationFrame(() => {
@@ -194,7 +205,7 @@ export function ModelSelect({
     onOpenChange(false);
   };
 
-  if (locked) {
+  if (locked && value) {
     return (
       <span className="flex min-w-0 max-w-full items-center px-2.5 py-1.5 text-sm text-gray-10">
         <span className="max-w-48 truncate">
@@ -221,19 +232,19 @@ export function ModelSelect({
             <PopoverTrigger
               type="button"
               disabled={disabled}
-              aria-label={t("model_select.change_model")}
+              aria-label={t(value ? "model_select.change_model" : "model_select.select_model")}
               aria-keyshortcuts="Meta+Alt+/"
               className="flex min-w-0 max-w-full items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm text-gray-10 transition-colors hover:bg-gray-3 hover:text-gray-12 disabled:pointer-events-none disabled:opacity-60"
             />
           }
         >
           <span className="max-w-48 truncate">
-            {selectedOption?.title ?? (value.modelID || t("model_select.select_model"))}
+            {selectedOption?.title ?? (value?.modelID || t("model_select.select_model"))}
           </span>
           <ChevronDown className="h-3 w-3" />
         </TooltipTrigger>
         <TooltipContent>
-          {t("session.change_model")}
+          {t(value ? "session.change_model" : "model_select.select_model")}
         </TooltipContent>
       </Tooltip>
       <PopoverContent

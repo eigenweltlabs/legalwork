@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, mkdir, readFile, realpath, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { OpenCode } from "@opencode/client";
@@ -14,6 +14,7 @@ import { ReloadEventStore } from "./events.js";
 import { TokenService } from "./tokens.js";
 import { matchRoute, type Route } from "./routes/registry.js";
 import { disconnectEngineCredential, engineCredentialMetadata, registerEngineCredentialRoutes } from "./routes/engine-credentials.js";
+import { writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
 
 test.skipIf(!process.env.LEGALWORK_TEST_OPENCODE_BIN)("released native client crosses the real proxy without location, file, session or vault bypasses", async () => {
   const binary = process.env.LEGALWORK_TEST_OPENCODE_BIN;
@@ -65,6 +66,15 @@ test.skipIf(!process.env.LEGALWORK_TEST_OPENCODE_BIN)("released native client cr
     expect(await readFile(join(a, "complete.txt"))).toEqual(Buffer.from(payload));
     expect(await client.file.read({ location: { directory: a }, path: join(a, "complete.txt") })).toEqual(payload);
     await expect(client.file.write({ location: { directory: a }, path: join(b, "forbidden.txt"), payload })).rejects.toThrow();
+    const shared = join(root, "shared"), restricted = join(shared, "private");
+    await mkdir(restricted, { recursive: true });
+    await writeRuntimeOpencodeConfig(config, "a", () => ({ permissions: [{ action: "external_directory", resource: "*", effect: "ask" }, { action: "external_directory", resource: join(restricted, "*"), effect: "deny" }], projectPermissionApprovals: [{ id: "psv_shared", action: "external_directory", resources: [join(shared, "*")], createdAt: 1 }] }));
+    await writeFile(join(shared, "ordinary.txt"), payload);
+    expect(JSON.stringify(await client.file.list({ location: { directory: a }, path: shared }))).toContain("ordinary.txt");
+    await expect(client.file.write({ location: { directory: a }, path: join(restricted, "forbidden.txt"), payload })).rejects.toThrow("UnexpectedStatus: 403");
+    await expect(client.file.list({ location: { directory: a }, path: restricted })).rejects.toThrow("UnexpectedStatus: 403");
+    await writeRuntimeOpencodeConfig(config, "a", () => ({ permissions: [{ action: "external_directory", resource: join(shared, "*"), effect: "allow" }, { action: "external_directory", resource: join(shared, "*"), effect: "deny" }] }));
+    await expect(client.file.read({ location: { directory: a }, path: join(shared, "ordinary.txt") })).rejects.toThrow("UnexpectedStatus: 403");
     const shell = await fetch(`${proxy.url}w/a/opencode/api/session/${sessionA.id}/%73hell`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ command: "echo forbidden" }) });
     expect(shell.status).toBe(403);
     const eventsController = new AbortController();

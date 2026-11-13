@@ -81,6 +81,8 @@ type AiPlansChoice = "own_model" | EigenweltPlanId | "sign_in";
 export type AiPlansOverlayProps = {
   /** Desktop has six onboarding steps; the web has three. */
   totalSteps?: number;
+  /** Assistant requires an AI subscription, even when an own model is connected. */
+  assistantUpgrade?: boolean;
   /** "onboarding": connect an AI provider (step dots, Back). "gate": no model is usable. */
   mode: "onboarding" | "gate";
   variant: AiPlansVariant;
@@ -640,13 +642,13 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
   };
   const firm = props.account?.firmName ?? t("ai_plans.your_firm");
   const title =
-    variant === "ended"
+    props.assistantUpgrade ? t("assistant.upgrade_plans_title") : variant === "ended"
       ? t("ai_plans.title_ended")
       : variant === "no-models"
         ? t("ai_plans.title_no_models")
         : t("ai_plans.title");
   const subtitle =
-    variant === "ended"
+    props.assistantUpgrade ? t("assistant.upgrade_plans_description") : variant === "ended"
       ? t("ai_plans.subtitle_ended", { firm })
       : variant === "no-models"
         ? t("ai_plans.subtitle_no_models", { firm })
@@ -666,12 +668,12 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
   const stepDots =
     mode === "onboarding" ? (
       <div className="flex justify-center [&>div]:mb-4">
-        <StepDots step={(props.totalSteps ?? 6) - 1} total={props.totalSteps ?? 6} />
+        <StepDots step={(props.totalSteps ?? 7) - 2} total={props.totalSteps ?? 7} />
       </div>
     ) : null;
 
   const backRow = phase.kind === "confirm" ? <BackButton onClick={() => confirmPlan(null, "back")} /> :
-    mode === "onboarding" && props.onBack ? (
+    (mode === "onboarding" || props.assistantUpgrade) && props.onBack ? (
       <BackButton onClick={props.onBack} />
     ) : null;
   const onOpenUpdates = props.onOpenUpdates;
@@ -856,10 +858,10 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
           </p>
           {notice ? <div className="mt-4">{notice}</div> : null}
         </header>
-        <div className="mt-10 grid gap-4 md:grid-cols-3 md:gap-x-4 md:gap-y-0 xl:gap-x-5 roomy:mt-14 roomy:gap-x-7">
-          <OwnModelCard disabled={disabled} onChoose={bringOwnModel} />
+        <div className={cn("mt-10 grid gap-4 md:gap-x-4 md:gap-y-0 xl:gap-x-5 roomy:mt-14 roomy:gap-x-7", props.assistantUpgrade ? "mx-auto w-full max-w-[800px] md:grid-cols-2" : "md:grid-cols-3")}>
+          {!props.assistantUpgrade && <OwnModelCard disabled={disabled} onChoose={bringOwnModel} />}
           {EIGENWELT_PLANS.filter(
-            (plan) => plan.id === "sync" || plan.id === aiTier,
+            (plan) => props.assistantUpgrade ? plan.id !== "sync" : plan.id === "sync" || plan.id === aiTier,
           ).map((plan) => (
             <PlanCard
               key={plan.id}
@@ -869,7 +871,7 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
               disabled={disabled}
               onChoose={() => choosePlan(plan.id)}
               switcher={
-                plan.id === "sync" ? undefined : (
+                props.assistantUpgrade || plan.id === "sync" ? undefined : (
                   <Tabs
                     value={aiTier}
                     onValueChange={(value) => {

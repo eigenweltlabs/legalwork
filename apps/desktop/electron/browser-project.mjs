@@ -4,8 +4,12 @@ import { resolveProjectFolder } from "./project-file-copy.mjs";
 
 // Caller directories come from the agent's execution context, never from page content.
 // Resolve them against registered projects before binding a tab's download destination.
-export async function resolveBrowserProject(context, state, server, windowUrl) {
-  if (context?.workspaceId) return realpath(await resolveProjectFolder(context.workspaceId, state.workspaces, server));
+export async function resolveBrowserProject(context, state, server, windowUrl, role = "content") {
+  const rootFor = workspace => role === "engine" ? workspace.path : workspace.contentPath || workspace.path;
+  // Content associations are registered paths. Probe their availability only
+  // when a download is reserved, so browsing survives a disconnected drive.
+  const availableRoot = root => role === "engine" ? realpath(root) : root;
+  if (context?.workspaceId) return availableRoot(await resolveProjectFolder(context.workspaceId, state.workspaces, server, role));
   const directory = context?.directory;
   if (!directory) {
     // Renderer routes belong to individual windows; the persisted selection is
@@ -22,7 +26,7 @@ export async function resolveBrowserProject(context, state, server, windowUrl) {
     }
     const selected = state.workspaces.find((entry) => entry.id === selectedId);
     if (!selected || selected.workspaceType === "remote" || !selected.path) return null;
-    return realpath(selected.path);
+    return availableRoot(rootFor(selected));
   }
   if (typeof directory !== "string" || !path.isAbsolute(directory)) throw new Error("Browser project directory must be absolute.");
   const requested = await realpath(directory);
@@ -30,7 +34,7 @@ export async function resolveBrowserProject(context, state, server, windowUrl) {
     for (const workspace of workspaces) {
       if (workspace.workspaceType === "remote" || typeof workspace.path !== "string") continue;
       const root = await realpath(workspace.path).catch(() => null);
-      if (root === requested) return root;
+      if (root === requested) return availableRoot(rootFor(workspace));
     }
     return null;
   }

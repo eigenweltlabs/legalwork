@@ -3,6 +3,7 @@ import { serverSentEvents, syncPokeOf, type SyncPoke } from "@legalwork/types/sy
 
 import { announceSyncChange, syncEventStream } from "./app-sync-events.js";
 import type { ServerConfig } from "./types.js";
+import { notifySandboxSettingsChange, SANDBOX_DEFAULT_ID, sandboxSessionId } from "./agent-sandbox/settings.js";
 
 function configAt(configPath: string): ServerConfig {
   return { configPath } as ServerConfig;
@@ -31,17 +32,31 @@ function listen(config: ServerConfig) {
 const settle = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 describe("app sync events", () => {
+  test("sandbox changes notify windows even when they do not originate in an HTTP request", async () => {
+    const config = configAt("/tmp/app-sync-events-sandbox.json");
+    const stream = listen(config);
+    try {
+      await notifySandboxSettingsChange(config, SANDBOX_DEFAULT_ID);
+      await settle(400);
+      expect(stream.events).toEqual([{ resync: true, metadata: true }, { sandbox: true }]);
+      await notifySandboxSettingsChange(config, sandboxSessionId("project", "chat"));
+      await settle(400);
+      expect(stream.events.at(-1)).toEqual({ sandbox: true });
+      expect(stream.events).toHaveLength(3);
+    } finally { stream.close(); await stream.ended; }
+  });
+
   test("a window hears a resync first, then changes, close together as one", async () => {
     const config = configAt("/tmp/app-sync-events-a.json");
     const stream = listen(config);
     await settle(10);
-    expect(stream.events).toEqual([{ resync: true }]);
+    expect(stream.events).toEqual([{ resync: true, metadata: true }]);
 
     announceSyncChange(config, "projects");
     announceSyncChange(config, "tasks");
     announceSyncChange(config, "projects");
     await settle(400);
-    expect(stream.events).toEqual([{ resync: true }, { projects: true, tasks: true }]);
+    expect(stream.events).toEqual([{ resync: true, metadata: true }, { projects: true, tasks: true }]);
 
     announceSyncChange(config, "tasks");
     await settle(400);
@@ -61,9 +76,9 @@ describe("app sync events", () => {
 
     announceSyncChange(mine, "tasks");
     await settle(400);
-    expect(open.events).toEqual([{ resync: true }, { tasks: true }]);
-    expect(closed.events).toEqual([{ resync: true }]);
-    expect(other.events).toEqual([{ resync: true }]);
+    expect(open.events).toEqual([{ resync: true, metadata: true }, { tasks: true }]);
+    expect(closed.events).toEqual([{ resync: true, metadata: true }]);
+    expect(other.events).toEqual([{ resync: true, metadata: true }]);
     open.close();
     other.close();
     await Promise.all([open.ended, other.ended]);

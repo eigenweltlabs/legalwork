@@ -4,6 +4,8 @@ import { dirname, join, resolve } from "node:path";
 import { ApiError } from "./errors.js";
 import { eigenweltPlatformUrl } from "./eigenwelt-auth.js";
 import { sanitizeIntegrationMcp } from "./hub-sanitize.js";
+import { nativeMcpDefinition } from "./native-mcp-config.js";
+import { normalizePluginMcpConfig } from "./cloud-plugins.js";
 import { resolveSkillDir } from "./skill-resources.js";
 import { validateMcpConfig, validateMcpName, validateSkillName } from "./validators.js";
 import { globalSkillsDir } from "./workspace-files.js";
@@ -152,10 +154,11 @@ async function walkSkillFiles(root: string, dir: string, out: string[]): Promise
  * Rejects a folder whose JSON payload would exceed 20 MiB.
  */
 export async function serializeWorkflowSkill(
-  workspaceRoot: string,
+  workspaceRoot: import("./skills.js").SkillWorkspace,
   skillName: string,
+  coreRoot?: string,
 ): Promise<{ files: EigenweltHubFile[] }> {
-  const skillDir = await resolveSkillDir(workspaceRoot, skillName);
+  const skillDir = await resolveSkillDir(workspaceRoot, skillName, coreRoot);
   const relPaths: string[] = [];
   await walkSkillFiles(skillDir, skillDir, relPaths);
   relPaths.sort((a, b) => a.localeCompare(b));
@@ -371,7 +374,7 @@ export type EigenweltIntegrationPayload = { mcp: Record<string, unknown>; key: s
 export function buildIntegrationPayload(name: string, config: Record<string, unknown>): EigenweltIntegrationPayload {
   const key = name.trim();
   validateMcpName(key);
-  const mcp = sanitizeIntegrationMcp(config);
+  const mcp = { ...nativeMcpDefinition(sanitizeIntegrationMcp(config)) };
   // Validate the sanitized shape — stripping never removes type/url/command, so
   // a valid entry stays valid (and a secret-only "config" is caught here).
   validateMcpConfig(mcp);
@@ -392,7 +395,8 @@ export function parseIntegrationPayload(payload: unknown): EigenweltIntegrationP
   if (!record.mcp || typeof record.mcp !== "object" || Array.isArray(record.mcp)) {
     throw new ApiError(400, "invalid_integration", "The shared integration is missing its MCP server entry.");
   }
-  const mcp = record.mcp as Record<string, unknown>;
+  const mcp = normalizePluginMcpConfig(record.mcp);
+  if (!mcp) throw new ApiError(400, "invalid_integration", "The shared integration has no supported connector configuration.");
   validateMcpConfig(mcp);
   return { mcp, key };
 }
@@ -408,7 +412,8 @@ export function parseSharedMcpSecret(secretJson: string): Record<string, unknown
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
     throw new ApiError(400, "invalid_integration_secret", "The shared MCP credential is not a valid configuration.");
   }
-  const config = parsed as Record<string, unknown>;
+  const config = normalizePluginMcpConfig(parsed);
+  if (!config) throw new ApiError(400, "invalid_integration_secret", "The shared credential has no supported connector configuration.");
   validateMcpConfig(config);
   return config;
 }

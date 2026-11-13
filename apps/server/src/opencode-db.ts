@@ -101,6 +101,11 @@ export function findExistingOpencodeDbPath(): string | null {
   return candidateOpencodeDbPaths().find((candidate) => existsSync(candidate)) ?? null;
 }
 
+/** Search only a launcher's explicitly isolated data directory. */
+export function findExistingOpencodeDbIn(dataDirectory: string): string | null {
+  return preferredDbNames().map(name => join(dataDirectory, name)).find(candidate => existsSync(candidate)) ?? null;
+}
+
 /** Create template history atomically through the native import API. V2
  * rejects an existing ID, so a retried template import cannot overwrite a chat. */
 export async function createSeededOpencodeSession(input: {

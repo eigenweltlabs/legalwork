@@ -3,9 +3,9 @@ import { z } from "zod";
 import { isDeepStrictEqual } from "node:util";
 import { nativeTool } from "./native-tool.js";
 import { registerPrimaryContext } from "./native-review-worker.js";
-import { resolveWorkspaceId, serverUrl, workspaceToolHeaders, type OpenCodeContext } from "./office-plugin-shared.js";
+import { resolveWorkspaceId, resolveWorkspaceInfo, serverUrl, workspaceToolHeaders, type OpenCodeContext } from "./office-plugin-shared.js";
 import { canonicalFilePath } from "../file-write-lock.js";
-import { originalImageExportPath } from "../tool-image-original-path.js";
+import { originalImageExportLocation } from "../tool-image-original-path.js";
 import { toolImageOriginalListInput, toolImageOriginalPage, toolImageOriginalReference, toolImageOriginal, toolImageOriginalPayload,
   toolImageCropInput, toolImageCropPayload, toolImageCropMetadata, toolImageExportInput, toolImageExportOutput } from "../tool-image-original-schema.js";
 
@@ -64,7 +64,8 @@ export default Plugin.define({ id: "legalwork.tool-image-originals", async setup
       description: "Export exact retained original bytes to an explicitly named current-project file. Requires normal original-export and file-write permissions. Existing files are protected unless overwrite is explicitly true. Returns exact byte/hash provenance; no engine image normalization is applied to the exported file.",
       async execute(input, context) {
         if (!context.directory || !context.ask) throw new Error("Export requires the native project and file permission context.");
-        const destination = await canonicalFilePath(originalImageExportPath(context.directory, input.path));
+        const workspace = await resolveWorkspaceInfo(context, { requireDirectory: true });
+        const destination = await canonicalFilePath(originalImageExportLocation(workspace, input.path).path);
         await context.ask({ permission: "write", patterns: [destination], always: [destination], metadata: { path: input.path, overwrite: input.overwrite } });
         const output = toolImageExportOutput.parse(await request(context, "export", input.reference.sessionID, input, `original:${input.reference.id}`));
         if (!isDeepStrictEqual(output.image.reference, input.reference)) throw new Error("The server exported another original image.");

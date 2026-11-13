@@ -1,5 +1,6 @@
 /** @jsxImportSource react */
 import { useCallback, useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { connectorIsConnected } from "@legalwork/types/connectors";
 
 import type { McpDirectoryInfo } from "../../../app/constants";
@@ -8,6 +9,8 @@ import type { LegalworkServerClient } from "../../../app/lib/legalwork-server";
 import type { McpServerEntry } from "../../../app/types";
 import { getExtensionConfigSlot, getExtensionConnected, type ExtensionConfigContext } from "./extension-registry";
 import type { LocalProviderInstallInput } from "./openai-image-extension";
+import { connectorStatusQuery } from "./connector-status-query";
+import { risStatusQuery } from "./ris-status";
 
 type ProviderLike = {
   id: string;
@@ -25,7 +28,7 @@ type SettingsExtensionControllerInput = {
   setGoogleWorkspaceConnected: (connected: boolean) => void;
   restartLocalServer?: () => Promise<boolean>;
   connectMcp: (entry: McpDirectoryInfo) => Promise<boolean>;
-  removeMcp: (name: string) => void | Promise<void>;
+  removeMcp: (name: string) => void | Promise<void | false>;
   refreshMcpServers: () => void | Promise<void>;
   providers: ProviderLike[];
   providerConnectedIds: string[];
@@ -54,20 +57,18 @@ function hasOpenAiEnv(input: Pick<SettingsExtensionControllerInput, "providers" 
 
 export function useSettingsExtensionController(input: SettingsExtensionControllerInput) {
   const [connectorConnections, setConnectorConnections] = useState<Record<string, boolean>>({});
+  const ris = useQuery(risStatusQuery(input.legalworkServerClient));
+  const savedStatus = useQuery(connectorStatusQuery(input.legalworkServerClient));
   useEffect(() => {
-    let active = true;
-    setConnectorConnections({});
-    void input.legalworkServerClient?.connectorSavedStatus().then((status) => {
-      if (active) setConnectorConnections(Object.fromEntries(status.connectors.map((connector) => [connector.id, connectorIsConnected(connector)])));
-    }).catch(() => undefined);
-    return () => { active = false; };
-  }, [input.legalworkServerClient]);
+    setConnectorConnections(Object.fromEntries((savedStatus.data?.connectors ?? []).map(connector => [connector.id, connectorIsConnected(connector)])));
+  }, [savedStatus.data]);
   const configContextForEntry = useCallback((entry: McpDirectoryInfo): ExtensionConfigContext => ({
     legalworkServerClient: input.legalworkServerClient,
     hostLegalworkServerClient: input.hostLegalworkServerClient,
     restartLocalServer: input.restartLocalServer,
     extensionConnections: {
       ...connectorConnections,
+      ris: ris.data?.enabled === true && ris.data.allowed,
       "google-workspace": input.googleWorkspaceConnected,
     },
     onExtensionConnectionChange: (extensionId, connected) => {
@@ -77,7 +78,7 @@ export function useSettingsExtensionController(input: SettingsExtensionControlle
     actaport: {
       connected: input.mcpServers.some((server) => server.name === "actaport" && server.config.enabled !== false),
       onConnect: () => input.connectMcp(entry),
-      onDisconnect: () => input.removeMcp("actaport"),
+      onDisconnect: async () => { await input.removeMcp("actaport"); },
       onRefresh: input.refreshMcpServers,
     },
     imageExtension: {
@@ -92,7 +93,7 @@ export function useSettingsExtensionController(input: SettingsExtensionControlle
       onRefresh: input.refreshMcpServers,
     },
     localProvider: input.localProvider,
-  }), [input, connectorConnections]);
+  }), [input, connectorConnections, ris.data]);
 
   const configSlotForEntry = useCallback(
     (entry: McpDirectoryInfo) => getExtensionConfigSlot(entry, configContextForEntry(entry)),
@@ -107,15 +108,18 @@ export function useSettingsExtensionController(input: SettingsExtensionControlle
       legalworkServerClient: input.legalworkServerClient,
       extensionConnections: {
         ...connectorConnections,
+        ris: ris.data?.enabled === true && ris.data.allowed,
         "google-workspace": input.googleWorkspaceConnected,
       },
     });
     return runtimeConnected ?? false;
-  }, [input, connectorConnections]);
+  }, [input, connectorConnections, ris.data]);
 
   return {
     configContextForEntry,
     configSlotForEntry,
     isConnected,
+    refreshConnections: savedStatus.refetch,
+    connectionError: savedStatus.error?.message ?? null,
   };
 }

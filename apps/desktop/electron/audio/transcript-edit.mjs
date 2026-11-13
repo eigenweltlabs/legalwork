@@ -1,3 +1,11 @@
+/** Resolve legacy summary IDs only when a personal name is already known. */
+export function resolveSummarySpeakerNames(text, names) {
+  return text?.replace(/\[speaker:(\d+)\]|\b(?:speaker|sprecher)\s*[:#]?\s*(\d+)\b/gi, (label, bracketId, plainId) => {
+    const name = names?.[bracketId ?? plainId];
+    return name && !/^(?:(?:Microphone|System audio|App audio)(?: \d+)?|(?:Speaker|Sprecher) \d+)$/i.test(name) ? name : label;
+  });
+}
+
 /** Apply speaker corrections without changing transcript text or timestamps. */
 export function editTranscriptSpeakers(detail, edit) {
   if (!edit || typeof edit !== "object") throw new Error("Invalid transcript edit.");

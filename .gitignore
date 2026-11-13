@@ -21,6 +21,10 @@ apps/desktop/resources/sidecars/
 apps/desktop/resources/actaport-mcp/
 apps/desktop/server/
 
+# Browser JavaScript is compiled from the pinned TypeScript sources.
+apps/desktop/electron/browser-native/runtime/*.mjs
+!apps/desktop/electron/browser-native/runtime/ipc.mjs
+
 # SwiftPM build output (native audiotap helper)
 apps/desktop/native/audiotap/.build/
 
@@ -78,6 +82,11 @@ apns.json
 # Locked plugin SDK staged at build time for offline engine startup.
 apps/desktop/resources/opencode-sdk/
 
+# Bundled skills and help are generated from their sources at build time.
+apps/server/src/core-skills.ts
+docs/user-guide/i18n.json
+apps/server/src/help-i18n.generated.ts
+
 # Digest-verified OpenCode download archives used by local builds/tests.
 /.cache/opencode/
 /.cache/opencode-v2-release/
@@ -85,7 +94,8 @@ apps/desktop/resources/opencode-sdk/
 # Engine source-build outputs; reviewed source policy stays tracked.
 /packages/opencode-release/generated/
 /.legalwork/opencode-build/
+/.cache/opencode-derivative/
+/apps/desktop/resources/opencode-engine/
 
-# Full help translations are generated from the app's locale tables at build time.
-docs/user-guide/i18n.json
-apps/server/src/help-i18n.generated.ts
+# Same-run portable renderer/Office build receipt.
+/apps/app/portable-ui-receipt.json

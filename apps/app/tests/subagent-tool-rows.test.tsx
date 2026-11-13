@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { DynamicToolUIPart, UIMessage } from "ai";
 import type { ToolPart } from "../src/app/lib/opencode-view";
 import type { OpenCodeEvent } from "@opencode/client";
+import { projectTool } from "../src/app/lib/opencode-view";
 import type { WorkspaceSessionGroup } from "../src/app/types";
 import { getReactQueryClient } from "../src/react-app/infra/query-client";
 import { SubagentRow } from "../src/components/chat/subagent-tool-row";
@@ -97,6 +98,27 @@ test("waiting and failed agents remain distinct, and a background launch does no
   expect(subagentStatus(completed, "idle", true)).toBe("waiting");
   expect(subagentStatus({ ...task, state: "output-error", errorText: "Interrupted" }, "idle", false)).toBe("error");
   expect(subagentStatus({ ...completed, callProviderMetadata: { opencode: { sessionId: "child-1", background: true } } }, undefined, false)).toBe("thinking");
+});
+
+test("native v2 subagent launches show clickable child rows and stay running after background admission", () => {
+  for (const background of [false, true]) {
+    const part = parseDynamicToolUIPart(projectTool("parent", "assistant", {
+      type: "tool", name: "subagent", id: "native-child", time: { created: 1, ran: 1, completed: 2 },
+      state: { status: "completed", input: { agent: "general", description: "Create a Word file", background },
+        content: [{ type: "text", text: background ? "Working in the background" : "Finished" }],
+        metadata: { sessionID: "child-v2", status: background ? "running" : "completed" } },
+    }));
+    if (!part) throw new Error("Missing native subagent part");
+    expect(getAssistantRenderGroups([part], false)).toEqual([{ kind: "subagents", parts: [part] }]);
+    expect(subagentSessionId(part)).toBe("child-v2");
+    expect(subagentDescription(part)).toBe("Create a Word file");
+    expect(subagentStatus(part, undefined, false)).toBe(background ? "thinking" : "idle");
+  }
+  const resumed = parseDynamicToolUIPart({
+    type: "tool", id: "resume", callID: "resume", messageID: "assistant", sessionID: "parent", tool: "subagent",
+    state: { status: "running", input: { sessionID: "resumed-child" }, time: { start: 1 } },
+  });
+  expect(resumed && subagentSessionId(resumed)).toBe("resumed-child");
 });
 
 test("session ids survive both the tool mapper and live updates, so rows can open the child before and after completion", () => {

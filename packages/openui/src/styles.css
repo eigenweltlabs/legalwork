@@ -1,6 +1,7 @@
+@layer theme, base, openui, components, utilities;
 @import "@openuidev/react-ui/layered/styles/index.css";
-/* Stock OpenUI owns component appearance. These rules only arrange the local
-   data adapters and keep them usable inside tabs and embedded page blocks. */
+/* Keep stock OpenUI above the app reset, then arrange the data adapters and
+   strengthen metric hierarchy for tabs and embedded page blocks. */
 .lw-openui { min-width: 0; container-type: inline-size; color: var(--openui-text-neutral-primary); font: var(--openui-text-body-default); }
 .lw-view-stack { display: grid; gap: var(--openui-space-xl); }
 .lw-view-stack-item, .lw-view-card-body > *, .lw-view-chart { min-width: 0; }
@@ -8,6 +9,9 @@
 .lw-view-title { font: var(--openui-text-heading-xl); letter-spacing: var(--openui-text-heading-xl-letter-spacing); margin: 0; }
 .lw-view-heading { font: var(--openui-text-heading-md); margin: 0; }
 .lw-view-prose { white-space: pre-wrap; margin: 0; }
+.lw-view-metric .openui-overview-card { min-width: 0; padding: 16px; }
+.lw-view-metric .openui-overview-card__slot--top { font: var(--openui-text-body-sm); color: var(--openui-text-neutral-secondary); }
+.lw-view-metric .openui-metric-indicator__main-value { font-size: 28px; font-weight: 600; line-height: 1.15; font-variant-numeric: tabular-nums; }
 .lw-view-source { cursor: pointer; text-align: left; color: inherit; }
 .lw-view-source:hover { text-decoration: underline; text-underline-offset: 3px; }
 .lw-view-source:focus-visible { outline: 2px solid var(--openui-border-interactive-selected); outline-offset: 3px; border-radius: 3px; }
@@ -36,3 +40,51 @@
 .lw-view-chart summary { cursor: pointer; margin-bottom: var(--openui-space-s); }
 @container (max-width: 520px) { .lw-view-stack { grid-template-columns: 1fr !important; } }
 @media (prefers-reduced-motion: reduce) { .lw-openui *, .lw-openui *::before, .lw-openui *::after { animation: none !important; transition: none !important; } }
+
+.lw-view-actions { list-style: none; padding: 0; margin: 0; display: grid; gap: 0; }
+.lw-view-actions li { min-width: 0; padding: 16px 0; border-bottom: 1px solid var(--openui-border-default); display: grid; gap: 6px; overflow-wrap: anywhere; }
+.lw-view-actions li:first-child { padding-top: 0; }
+.lw-view-actions li:last-child { border-bottom: 0; padding-bottom: 0; }
+.lw-view-action-heading { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 8px; font-weight: 600; }
+.lw-view-actions p { margin: 0; }
+
+.lw-view-chart {
+  padding: clamp(14px, 2cqi, 24px);
+  border: 1px solid var(--openui-border-default);
+  border-radius: 16px;
+  background: var(--openui-foreground);
+}
+.lw-view-card .lw-view-chart { padding: 0; border: 0; background: transparent; }
+.lw-view-chart h3 { margin-bottom: 20px; }
+.lw-view-metric, .lw-view-metric .openui-small-card-block__grid, .lw-view-metric .openui-overview-card { height: 100%; }
+.lw-view-metric .openui-small-card-block__row { flex: 1; }
+.lw-view-metric .openui-metric-indicator__row { flex-direction: column; align-items: flex-start; gap: var(--openui-space-3xs); }
+.lw-view-metric .openui-overview-card { background: var(--openui-foreground); }
+.lw-view-stack-item:has(> .lw-view-chart, > .lw-view-card) { display: grid; }
+@container (min-width: 521px) and (max-width: 820px) {
+  .lw-view-stack:has(> :nth-child(3)):has(> .lw-view-stack-item > .lw-view-metric) { grid-template-columns: repeat(2, minmax(0,1fr)) !important; }
+}
+
+@container (min-width: 320px) and (max-width: 520px) {
+  .lw-view-stack:has(> :nth-child(3)):has(> .lw-view-stack-item > .lw-view-metric) {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    grid-auto-flow: dense;
+    gap: 10px;
+  }
+  .lw-view-stack-item:has(> .lw-view-metric-money) { grid-column: span 2; order: 1; }
+  .lw-view-metric .openui-overview-card { padding: 12px 14px; }
+  .lw-view-metric .openui-overview-card__vertical { gap: 8px; }
+}
+
+/* Paired ranking components share the same visible plot height, including across cards. */
+@container (min-width: 521px) {
+  .lw-view-stack:not([data-columns="1"]):has(.lw-view-ranking):has([data-chart="horizontal"]) > .lw-view-stack-item {
+    --lw-ranking-height: 420px;
+  }
+}
+.lw-view-ranking-plot { height: var(--lw-ranking-height, 264px); }
+.lw-view-ranking { height: var(--lw-ranking-height, auto); align-content: start; list-style: none; padding: 0; margin: 0; display: grid; gap: 11px; max-height: 420px; overflow-y: auto; }
+.lw-view-rank-label { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; font: var(--openui-text-body-sm); }
+.lw-view-rank-label strong { font-variant-numeric: tabular-nums; white-space: nowrap; font-weight: 600; }
+.lw-view-rank-track { height: 7px; position: relative; border-radius: 5px; margin-top: 5px; background: color-mix(in srgb, #7465df 13%, transparent); }
+.lw-view-rank-track span { position: absolute; inset-block: 0; background: #7465df; border-radius: inherit; }

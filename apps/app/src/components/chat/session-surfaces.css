@@ -38,6 +38,9 @@
     transform-origin: bottom left;
   }
 
+  [data-assistant-chat] [data-assistant-message-bubble] > :first-child { margin-top: 0; }
+  [data-assistant-chat] [data-assistant-message-bubble] > :last-child { margin-bottom: 0; }
+
   @keyframes assistant-bubble-arrive {
     from { opacity: 0; transform: translateY(5px) scale(0.98); }
     to { opacity: 1; transform: translateY(0) scale(1); }
@@ -206,6 +209,11 @@
 
   .lw-task-illustration { --lw-illustration-accent: var(--lw-task-accent); }
 
+  .assistant-typing-bubble { animation: assistant-typing-appear 120ms ease-out both; }
+  @keyframes assistant-typing-appear {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
   .assistant-typing-dot { animation: assistant-typing 1100ms ease-in-out infinite; }
   @keyframes assistant-typing {
     0%, 60%, 100% { transform: translateY(0); opacity: .45; }
@@ -216,5 +224,5 @@
   [data-assistant-chat] [data-legalwork-file-badge] > a { padding: 0; color: var(--color-blue-10); text-decoration: underline; text-underline-offset: 3px; }
   [data-assistant-chat] [data-legalwork-file-badge] :is(svg, button) { display: none; }
   @media (prefers-reduced-motion: reduce) {
-    .assistant-typing-dot, [data-assistant-reaction] { animation: none; }
+    .assistant-typing-bubble, .assistant-typing-dot, [data-assistant-reaction] { animation: none; }
   }

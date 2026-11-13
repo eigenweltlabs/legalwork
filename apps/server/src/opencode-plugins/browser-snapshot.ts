@@ -1,3 +1,28 @@
+import { z } from "zod";
+import { ApiError } from "../errors.js";
+
+export const browserConnectionOutput = z.object({
+  tabID: z.string(),
+  browser_url: z.string(),
+  url: z.string(),
+  snapshot: z.object({
+    content: z.string(), truncated: z.boolean(),
+    tab: z.object({ id: z.string(), url: z.string(), generation: z.number() }).passthrough(),
+  }).passthrough(),
+}).passthrough();
+
+/** The UI bridge envelope is transport detail, not the browser tool contract. */
+export function browserConnectionResult(value: unknown) {
+  const failure = z.object({ ok: z.literal(false), error: z.string(), code: z.string().optional() }).safeParse(value);
+  if (failure.success) throw new ApiError(502, failure.data.code ?? "browser_connection_failed", failure.data.error);
+  const envelope = z.object({ ok: z.literal(true), result: z.object({ tab_id: z.string() }).passthrough() }).safeParse(value);
+  if (!envelope.success) throw new ApiError(502, "browser_connection_invalid", "The browser returned an invalid connection response.");
+  const { tab_id, ...result } = envelope.data.result;
+  const output = browserConnectionOutput.safeParse({ ...result, tabID: tab_id });
+  if (!output.success) throw new ApiError(502, "browser_connection_invalid", "The browser returned an invalid connection response.");
+  return output.data;
+}
+
 /** Keep tool results valid JSON and below the engine's generic truncation limit.
  * Detail remains available through the next snapshotOffset/controlsOffset. */
 function splitNames(items: unknown[]) {

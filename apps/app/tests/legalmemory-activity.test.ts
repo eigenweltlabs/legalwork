@@ -5,6 +5,8 @@ import { isLegalMemoryToolPart } from "@/lib/build-in-tools";
 describe("legalMemoryToolName", () => {
   test("strips whichever server name the firm connected under", () => {
     expect(legalMemoryToolName("legalmemory_search_semantic")).toBe("search_semantic");
+    expect(legalMemoryToolName("legalmemory.search_semantic")).toBe("search_semantic");
+    expect(legalMemoryToolName("knowledge-index.get_document")).toBe("get_document");
     expect(legalMemoryToolName("knowledge-index_search_semantic")).toBe("search_semantic");
     expect(legalMemoryToolName("search_semantic")).toBe("search_semantic");
   });

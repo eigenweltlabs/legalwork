@@ -1,3 +1,4 @@
+import { requireAssistantSubscription } from "../assistant-subscription.js";
 import { resolve } from "node:path";
 import { z } from "zod";
 import { ApiError } from "../errors.js";
@@ -57,6 +58,7 @@ export function registerAssistantSessionRoutes(options: Parameters<typeof regist
       action: z.enum(["stop", "send", "redirect", "list_queue", "edit_queued", "cancel_queued", "resume_queued"]),
       prompt: promptSchema.optional(), messageId: z.string().min(1).optional(),
     }), await options.readJsonBodyLimited(ctx.request, 20000));
+    if (!["stop", "cancel_queued", "list_queue"].includes(input.action)) await requireAssistantSubscription(config);
     const source = config.workspaces.find(isMainAssistant);
     if (!source) throw new ApiError(404, "assistant_missing", "The Assistant is unavailable.");
     await options.resolveWorkspace(config, source.id);

@@ -1,46 +1,80 @@
 import { expect, test } from "bun:test";
-import { QueryClient } from "@tanstack/react-query";
+import { QueryClient, QueryObserver } from "@tanstack/react-query";
+import type { AssistantConversation } from "@legalwork/types/launcher";
+import { assistantShellQueryKey, localAssistantDate, resolveAssistantConversation, type AssistantShellState } from "../src/react-app/launcher/assistant-navigation";
 import type { LegalworkServerClient } from "../src/app/lib/legalwork-server";
-import { resolveAssistantChat } from "../src/react-app/shell/assistant-navigation";
+import { currentAssistantQuery, resolveAssistantChat, seedSavedAssistant } from "../src/react-app/shell/assistant-navigation";
 
-function current(date: string, sessionId: string): Awaited<ReturnType<LegalworkServerClient["mainAssistantCurrent"]>> {
-  return { workspace: { id: "assistant", path: "/projects/Assistant", name: "Assistant", preset: "main-assistant", workspaceType: "local" }, day: { date, sessionId }, profile: { name: "Josi", icon: "cat" } };
-}
-
-test("opening today's known Assistant never waits for another provisioning request", async () => {
-  const cache = new QueryClient();
-  const client = { baseUrl: "http://server", mainAssistantCurrent: async () => { throw new Error("Navigation must use the existing chat"); } };
-  const today = current("2026-10-07", "today");
-  cache.setQueryData(["main-assistant", client.baseUrl], today);
+test("background Assistant observation never provisions, and a timed-out open can be retried explicitly", async () => {
+  const cache = new QueryClient({ defaultOptions: { queries: { retry: 3, retryDelay: 1 } } });
+  let requests = 0;
+  const today = current("2026-11-07", "recovered");
+  const client = { baseUrl: "http://server", mainAssistantCurrent: async () => {
+    requests++;
+    if (requests === 1) throw new Error("Assistant setup timed out");
+    return today;
+  } };
+  const observer = new QueryObserver(cache, currentAssistantQuery(client));
+  const unsubscribe = observer.subscribe(() => {});
   try {
-    expect(await resolveAssistantChat(client, cache, new Date(2026, 9, 7, 23, 59))).toEqual(today);
-  } finally { cache.clear(); }
+    await Bun.sleep(10);
+    expect(requests).toBe(0);
+    await expect(resolveAssistantChat(client, cache, new Date(2026, 10, 7))).rejects.toThrow("timed out");
+    await Bun.sleep(30);
+    expect(requests).toBe(1);
+    expect(await resolveAssistantChat(client, cache, new Date(2026, 10, 7))).toEqual(today);
+    expect(observer.getCurrentResult().data).toEqual(today);
+    expect(requests).toBe(2);
+  } finally { unsubscribe(); cache.clear(); }
 });
 
-test("midnight resolves the new daily chat and concurrent navigation shares one request", async () => {
+test("saved status advances the daily chat without initializing and never rolls it back", async () => {
   const cache = new QueryClient();
   let requests = 0;
-  const tomorrow = current("2026-10-08", "tomorrow");
-  const client = { baseUrl: "http://server", mainAssistantCurrent: async () => { requests++; return tomorrow; } };
-  cache.setQueryData(["main-assistant", client.baseUrl], current("2026-10-07", "yesterday"));
+  const client = { baseUrl: "http://server", mainAssistantCurrent: async () => { requests++; throw new Error("Not needed"); } };
   try {
-    expect(await Promise.all([
-      resolveAssistantChat(client, cache, new Date(2026, 9, 8, 0, 0)),
-      resolveAssistantChat(client, cache, new Date(2026, 9, 8, 0, 0)),
-    ])).toEqual([tomorrow, tomorrow]);
-    expect(requests).toBe(1);
-    expect(cache.getQueryData(["main-assistant", client.baseUrl])).toEqual(tomorrow);
+    seedSavedAssistant(cache, client.baseUrl, current("2026-11-06", "yesterday"));
+    seedSavedAssistant(cache, client.baseUrl, current("2026-11-07", "today"));
+    seedSavedAssistant(cache, client.baseUrl, current("2026-11-06", "stale-response"));
+    expect(await resolveAssistantChat(client, cache, new Date(2026, 10, 7))).toEqual(current("2026-11-07", "today"));
+    expect(requests).toBe(0);
   } finally { cache.clear(); }
 });
 
-test("a different server cannot reuse the previous server's daily Assistant", async () => {
+test("on-demand Assistant initialization preserves project field defaults", async () => {
   const cache = new QueryClient();
-  let requests = 0;
-  const next = current("2026-10-07", "other-server-chat");
-  cache.setQueryData(["main-assistant", "http://previous-server"], current("2026-10-07", "previous-chat"));
-  const client = { baseUrl: "http://new-server", mainAssistantCurrent: async () => { requests++; return next; } };
+  const fields: Parameters<LegalworkServerClient["mainAssistantCurrent"]>[0] = [{ id: "client", label: "Client", type: "text", value: null }];
+  let received: typeof fields;
+  const client = { baseUrl: "http://server", mainAssistantCurrent: async (input?: typeof fields) => { received = input; return current("2026-11-07", "today"); } };
   try {
-    expect(await resolveAssistantChat(client, cache, new Date(2026, 9, 7))).toEqual(next);
-    expect(requests).toBe(1);
+    await resolveAssistantChat(client, cache, new Date(2026, 10, 7), fields);
+    expect(received).toEqual(fields);
   } finally { cache.clear(); }
 });
+
+const workspace = { id: "assistant", path: "/projects/Assistant", name: "Assistant", preset: "main-assistant", workspaceType: "local" as const };
+const profile = { name: "Josi", icon: "cat" as const };
+const conversation = (id: string, updatedAt: number): AssistantConversation => ({ id, workspaceId: "assistant", sessionId: `ses_${id}`, title: id, kind: "conversation", date: null, createdAt: updatedAt, updatedAt, pinned: false, archivedAt: null, origin: "panel" });
+
+test("navigation resumes the current conversation without creating one, and creates only when none exists", async () => {
+  const cache = new QueryClient();
+  let created = 0;
+  const existing = conversation("conv_1", 10);
+  const client = { baseUrl: "http://server", ensureAssistantWorkspace: async () => { throw new Error("not set up"); }, assistantConversationCurrent: async () => ({ workspace, conversation: existing, day: null, profile }), createAssistantConversation: async () => { created++; return { conversation: conversation("conv_new", 20) }; } };
+  try {
+    expect((await resolveAssistantConversation(client, cache)).sessionId).toBe("ses_conv_1");
+    expect(created).toBe(0);
+    expect(cache.getQueryData<AssistantShellState>(assistantShellQueryKey(client.baseUrl))?.conversation?.id).toBe("conv_1");
+    const fresh = { ...client, assistantConversationCurrent: async () => ({ workspace, conversation: null, day: { date: "2026-10-21", sessionId: "day-21" }, profile }) };
+    expect((await resolveAssistantConversation(fresh, cache, "navigation")).sessionId).toBe("ses_conv_new");
+    expect(created).toBe(1);
+    await expect(resolveAssistantConversation({ ...client, assistantConversationCurrent: async () => ({ workspace: null, conversation: null, day: null, profile }) }, cache)).rejects.toThrow("not set up");
+  } finally { cache.clear(); }
+});
+
+test("the local calendar date keys daily history, including just after midnight", () => {
+  expect(localAssistantDate(new Date(2026, 9, 22, 0, 1))).toBe("2026-10-22");
+  expect(localAssistantDate(new Date(2026, 0, 5, 23, 59))).toBe("2026-01-05");
+});
+
+function current(date: string, sessionId: string) { return { workspace, day: { date, sessionId }, profile }; }

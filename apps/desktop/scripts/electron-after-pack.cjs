@@ -101,7 +101,7 @@ async function afterPack(context) {
   }
 
   const versionsAlias = "versions.json";
-  const versionsTarget = `versions.json-${triple}${executableSuffix}`;
+  const versionsTarget = `versions.json-${triple}`;
   const versionsTargetPath = path.join(sidecarsDir, versionsTarget);
   if (!fs.existsSync(versionsTargetPath)) {
     throw new Error(`Missing packaged sidecar metadata for target: ${versionsTarget}`);

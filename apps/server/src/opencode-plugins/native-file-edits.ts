@@ -1,15 +1,19 @@
 import { relative, resolve, isAbsolute } from "node:path";
 import { beginFileEditorHandoff } from "../file-editor-handoff.js";
+import { cancelUiBridgeRequests } from "../inapp-document-bridge.js";
+import { canonicalFilePath } from "../file-write-lock.js";
 
 /** Native file tools have no execution wrapper, so pair the before/after hooks
  * and the engine's error event. Shell processes are coordinated at execution. */
-export function nativeFileEdits(directory?: string, begin = beginFileEditorHandoff) {
-  const active = new Map<string, { sessionID: string; finish: () => Promise<void>; pending?: Promise<void> }>();
+export function nativeFileEdits(directory?: string, begin = beginFileEditorHandoff, cancel = cancelUiBridgeRequests) {
+  type Operation = { sessionID: string; controller: AbortController; ready: Promise<void>; finish?: () => Promise<void>; pending?: Promise<void> };
+  const active = new Map<string, Operation>();
   const key = (sessionID: string, callID: string) => `${sessionID}:${callID}`;
   const finish = async (sessionID: string, callID: string) => {
     const id = key(sessionID, callID), operation = active.get(id);
     if (!operation) return;
-    operation.pending ??= operation.finish().finally(() => active.delete(id));
+    operation.controller.abort();
+    operation.pending ??= operation.ready.catch(() => {}).then(() => operation.finish?.()).finally(() => active.delete(id));
     await operation.pending;
   };
   return {
@@ -19,19 +23,27 @@ export function nativeFileEdits(directory?: string, begin = beginFileEditorHando
       const raw = output.args.filePath ?? output.args.path;
       let paths: string[] | undefined;
       if (typeof raw === "string" && directory) {
-        const path = relative(directory, resolve(directory, raw)).replace(/\\/g, "/");
-        if (path === ".." || path.startsWith("../") || isAbsolute(path)) return;
-        paths = [path];
+        const absolute = resolve(directory, raw);
+        const path = relative(directory, absolute).replace(/\\/g, "/");
+        // Linked aliases can name an editor through a different path. In that
+        // case retain the existing all-editors handoff instead of missing it.
+        if (path !== ".." && !path.startsWith("../") && !isAbsolute(path) && await canonicalFilePath(absolute) === absolute) paths = [path];
       }
       await finish(input.sessionID, input.callID);
-      const handoff = begin(input.sessionID, paths);
       const id = key(input.sessionID, input.callID);
-      active.set(id, { sessionID: input.sessionID, finish: async () => { await (await handoff)(); } });
-      try { await handoff; }
-      catch (error) { active.delete(id); throw error; }
+      const operation: Operation = { sessionID: input.sessionID, controller: new AbortController(), ready: Promise.resolve() };
+      active.set(id, operation);
+      operation.ready = (async () => {
+        operation.finish = await begin(input.sessionID, paths, undefined, operation.controller.signal);
+        operation.controller.signal.throwIfAborted();
+      })();
+      try { await operation.ready; }
+      catch (error) { await finish(input.sessionID, input.callID); throw error; }
     },
     after: finish,
     async finishSession(sessionID: string) {
+      for (const operation of active.values()) if (operation.sessionID === sessionID) operation.controller.abort();
+      if (process.env.LEGALWORK_UI_CONTROL_DISCOVERY) await cancel(sessionID);
       await Promise.all([...active].filter(([, operation]) => operation.sessionID === sessionID).map(([id]) => finish(sessionID, id.slice(sessionID.length + 1))));
     },
     async dispose() {

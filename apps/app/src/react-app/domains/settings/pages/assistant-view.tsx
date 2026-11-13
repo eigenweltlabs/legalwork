@@ -7,9 +7,11 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Surface } from "@/react-app/design-system/surface";
 import { t } from "@/i18n";
+import { savedAssistantQuery } from "../../../shell/assistant-navigation";
 import { AssistantAppearanceFields, AssistantAvatar } from "../../session/sidebar/assistant-appearance";
 import { useAssistantNotificationPreferences } from "../../session/sidebar/assistant-notification-preferences";
 import { AssistantBehaviorFields } from "./assistant-behavior-settings";
+import { AssistantBrowserModelField, type AssistantBrowserModelPicker } from "./assistant-browser-model";
 import { createAssistantSettingsAutosave, getAssistantSettingsAutosave, type AssistantSettingsDraft } from "./assistant-settings-autosave";
 import { CloudAssistantSettings } from "../../session/sidebar/cloud-assistant-settings";
 import { SettingsNotice } from "../settings-section";
@@ -19,12 +21,13 @@ import {
   LayoutSectionItemHeaderActions,
 } from "../settings-layout";
 
-export function AssistantSettingsView({ client, onSignIn, onModels }: {
+export function AssistantSettingsView({ client, onSignIn, onModels, browserModelPicker }: {
   client: LegalworkServerClient | null; onSignIn: () => void; onModels: () => void;
+  browserModelPicker: AssistantBrowserModelPicker;
 }) {
   const cache = useQueryClient();
-  const profile = useQuery({ queryKey: ["main-assistant-profile", client?.baseUrl], enabled: Boolean(client),
-    queryFn: () => { if (!client) throw new Error(t("assistant.unavailable")); return client.mainAssistantProfile(); } });
+  const profileQuery = savedAssistantQuery(client);
+  const profile = useQuery(profileQuery);
   const settings = useQuery({ queryKey: ["assistant-settings", client?.baseUrl], enabled: Boolean(client),
     queryFn: () => { if (!client) throw new Error(t("assistant.unavailable")); return client.assistantSettings(); } });
   const catalog = useQuery({ queryKey: ["assistant-settings-catalog", client?.baseUrl], enabled: Boolean(client),
@@ -35,12 +38,13 @@ export function AssistantSettingsView({ client, onSignIn, onModels }: {
   if (profile.isError || settings.isError || catalog.isError) return <div role="alert" className="space-y-3"><p className="text-sm text-destructive">{t("assistant.settings_load_failed")}</p><Button variant="outline" onClick={() => { void profile.refetch(); void settings.refetch(); void catalog.refetch(); }}>{t("assistant.attention_retry")}</Button></div>;
   return <><AssistantSettingsEditor key={`${client.baseUrl}:${profile.data.workspace?.id ?? "new"}`}
     autosaveKey={client.baseUrl}
+    browserModelPicker={browserModelPicker}
     profile={profile.data.profile} settings={settings.data.settings} catalog={catalog.data} notifications={notifications} onModels={onModels}
     onSave={async draft => {
-      const currentProfile = cache.getQueryData<typeof profile.data>(["main-assistant-profile", client.baseUrl]) ?? profile.data;
+      const currentProfile = cache.getQueryData(profileQuery.queryKey) ?? profile.data;
       if (JSON.stringify(draft.profile) !== JSON.stringify(currentProfile.profile)) {
         const saved = await client.updateAssistantProfile(draft.profile);
-        cache.setQueryData(["main-assistant-profile", client.baseUrl], { ...currentProfile, profile: saved.profile });
+        cache.setQueryData(profileQuery.queryKey, { ...currentProfile, profile: saved.profile });
         await Promise.all(["main-assistant", "assistant-onboarding"].map(name => cache.invalidateQueries({ queryKey: [name, client.baseUrl] })));
       }
       const currentSettings = cache.getQueryData<typeof settings.data>(["assistant-settings", client.baseUrl]) ?? settings.data;
@@ -52,8 +56,9 @@ export function AssistantSettingsView({ client, onSignIn, onModels }: {
     }} /><CloudAssistantSettings client={client} profile={profile.data.profile} onSignIn={onSignIn} /></>;
 }
 
-export function AssistantSettingsEditor({ profile, settings, catalog, notifications, onSave, onModels, autosaveKey }: AssistantSettingsDraft & {
+export function AssistantSettingsEditor({ profile, settings, catalog, notifications, onSave, onModels, autosaveKey, browserModelPicker }: AssistantSettingsDraft & {
   catalog: AssistantSettingsCatalog; onSave: (draft: AssistantSettingsDraft) => Promise<void>; onModels: () => void; autosaveKey?: string;
+  browserModelPicker: AssistantBrowserModelPicker;
 }) {
   const [autosave] = useState(() => {
     const options = { initialValue: { profile, settings, notifications }, onSave, onStatus: () => {} };
@@ -79,6 +84,7 @@ export function AssistantSettingsEditor({ profile, settings, catalog, notificati
         </LayoutSection>
         <AssistantBehaviorFields settings={draft.settings} catalog={catalog} onChange={value => change({ ...draft, settings: value }, value.systemPromptAddition === draft.settings.systemPromptAddition)} onInstructionsBlur={() => change(draft)} />
         <AssistantPreferences notifications={draft.notifications} onNotificationsChange={value => change({ ...draft, notifications: value })} onModels={onModels} />
+        <Surface className="p-5"><AssistantBrowserModelField picker={browserModelPicker} value={draft.settings.browserModel} onChange={browserModel => change({ ...draft, settings: { ...draft.settings, browserModel } })} /></Surface>
       </div>
   </LayoutStack>;
 }

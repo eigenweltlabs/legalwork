@@ -1,4 +1,7 @@
+import { workspaceContentPath } from "../project-storage.js";
 import { registerAssistantChatRoutes } from "./assistant-chat.js";
+import type { LauncherFolders } from "../launcher-folders.js";
+import { projectBackOfficeReferences, projectReferenceDirectory } from "../back-office/project-references.js";
 import { registerAssistantSessionRoutes } from "./assistant-sessions.js";
 import type { AssistantSessionQueue } from "../assistant-session-queue.js";
 import { join, resolve } from "node:path";
@@ -6,12 +9,13 @@ import { z } from "zod";
 import type { createAssistantEngineClient } from "../assistant-engine.js";
 import { ApiError } from "../errors.js";
 import { isMainAssistant, type MainAssistant } from "../main-assistant.js";
-import { createDefaultProjectFolder, defaultProjectRoot, readProjectDetails } from "../project-store.js";
+import { readProjectDetails } from "../project-store.js";
 import type { ApprovalRequest, ServerConfig, TokenScope, WorkspaceInfo } from "../types.js";
-import { registerLocalProject } from "./workspaces.js";
+import { registerLocalProject, createLocalProjectFolder } from "./workspaces.js";
 import { addRoute, matchRoute, type RequestContext, type Route } from "./registry.js";
 import { AssistantAvatarIconSchema, AssistantProfileSchema, AssistantSettingsSchema } from "../assistant-schema.js";
 import { assistantSettingsCatalog, createAssistantSettingsContext } from "../assistant-settings.js";
+import { assistantProactivityStore } from "../assistant-proactivity-store.js";
 import { assertAssistantToolAccess } from "../assistant-tool-access.js";
 import { projectMatch } from "../assistant-project-search.js";
 import { searchFingerprint } from "../assistant-session-search.js";
@@ -27,6 +31,16 @@ import { assistantHandoffParts } from "../assistant-handoff-message.js";
 import { registerAssistantAttentionRoutes } from "./assistant-attention.js";
 import { assistantRequestAuthority, assertAssistantDispatchAuthority, type AssistantSessionAccess } from "../assistant-session-access.js";
 import { withSessionExecution } from "../session-execution-gate.js";
+import { registerAssistantConversationRoutes } from "./assistant-conversations.js";
+import { registerLauncherRoutes } from "./launcher.js";
+import type { AssistantConversations } from "../assistant-conversations.js";
+import type { AssistantSubmissions } from "../assistant-submissions.js";
+import type { QuickActionStore } from "../launcher-actions.js";
+import type { LauncherContextStore } from "../launcher-context.js";
+import type { LauncherFileIndex } from "../launcher-file-index.js";
+import type { DocumentPreparation } from "../document-preparation/service.js";
+import { nativeDeliveryRejection } from "../native-delivery.js";
+import { randomBytes } from "node:crypto";
 
 const delegationSchema = z.object({
   workspaceId: z.string().min(1), sourceWorkspaceId: z.string().min(1), sourceSessionId: z.string().min(1),
@@ -44,6 +58,13 @@ export function registerMainAssistantRoutes(options: {
   sessionQueue: AssistantSessionQueue;
   sessionAccess: AssistantSessionAccess;
   preparePrompt: (workspace: WorkspaceInfo, directory: string) => Promise<void>;
+  conversations: AssistantConversations;
+  submissions: AssistantSubmissions;
+  quickActions: QuickActionStore;
+  stagedContext: LauncherContextStore;
+  fileIndex: LauncherFileIndex;
+  searchFolders: LauncherFolders;
+  preparation: DocumentPreparation;
   jsonResponse: (value: unknown, status?: number) => Response;
   readJsonBodyLimited: (request: Request, maxBytes: number) => Promise<Record<string, unknown>>;
   ensureWritable: (config: ServerConfig) => void;
@@ -61,9 +82,11 @@ export function registerMainAssistantRoutes(options: {
   registerAssistantAttentionRoutes(options);
   registerAssistantChatRoutes(options);
   registerAssistantSessionRoutes(options);
+  registerAssistantConversationRoutes(options);
+  registerLauncherRoutes(options);
   const accessible = (id: string) => options.resolveWorkspace(config, id);
   const write = (ctx: RequestContext) => { options.ensureWritable(config); options.requireClientScope(ctx, "collaborator"); };
-  const summary = (workspace: WorkspaceInfo) => ({ id: workspace.id, name: (isMainAssistant(workspace) ? assistant.profile().name : null) ?? (workspace.displayName || workspace.name), path: workspace.path, preset: workspace.preset, workspaceType: workspace.workspaceType });
+  const summary = (workspace: WorkspaceInfo) => ({ id: workspace.id, name: (isMainAssistant(workspace) ? assistant.profile().name : null) ?? (workspace.displayName || workspace.name), path: workspace.path, contentPath: workspaceContentPath(workspace), preset: workspace.preset, workspaceType: workspace.workspaceType });
   const settingsContext = createAssistantSettingsContext(config, assistant);
   addRoute(routes, "POST", "/assistant/tool-access", "client", async ctx => {
     options.requireClientScope(ctx, "viewer");
@@ -91,7 +114,7 @@ export function registerMainAssistantRoutes(options: {
   });
   addRoute(routes, "GET", "/assistant/settings/context", "client", async ctx => {
     options.requireClientScope(ctx, "viewer");
-    return jsonResponse({ context: settingsContext() });
+    return jsonResponse({ context: `${await settingsContext()}\n\n${(await assistantProactivityStore(config)).context()}` });
   });
   addRoute(routes, "GET", "/assistant/access", "client", async ctx => {
     options.requireClientScope(ctx, "viewer");
@@ -111,10 +134,10 @@ export function registerMainAssistantRoutes(options: {
       return route.handler({ ...ctx, params: route.params });
     });
   }
-  for (const path of ["calendar/:itemId", "search/files"]) {
+  for (const path of ["calendar/:itemId", "search/files", "back-office/context", "project/metadata/:fieldId/options"]) {
     addRoute(routes, "GET", `/assistant/projects/:id/${path}`, "client", async ctx => {
       await accessible(ctx.params.id);
-      const suffix = path.replace(":itemId", encodeURIComponent(ctx.params.itemId ?? ""));
+      const suffix = path.replace(":itemId", encodeURIComponent(ctx.params.itemId ?? "")).replace(":fieldId", encodeURIComponent(ctx.params.fieldId ?? ""));
       const route = matchRoute(routes, "GET", `/workspace/${encodeURIComponent(ctx.params.id)}/${suffix}`);
       if (!route) throw new ApiError(404, "not_found", "Project tool unavailable.");
       return route.handler({ ...ctx, params: route.params });
@@ -123,13 +146,23 @@ export function registerMainAssistantRoutes(options: {
   addRoute(routes, "GET", "/assistant", "client", async ctx => {
     options.requireClientScope(ctx, "viewer");
     const workspace = config.workspaces.find(isMainAssistant);
-    return jsonResponse({ workspace: workspace ? summary(workspace) : null, profile: assistant.profile(), onboarding: await assistant.onboarding() });
+    return jsonResponse({ workspace: workspace ? summary(workspace) : null, day: assistant.savedDay(), profile: assistant.profile(), onboarding: await assistant.onboarding() });
   });
   addRoute(routes, "GET", "/assistant/activity", "client", async ctx => {
     options.requireClientScope(ctx, "viewer");
     const workspace = config.workspaces.find(isMainAssistant);
     if (workspace) await accessible(workspace.id);
     return jsonResponse({ pending: workspace ? options.delegations.hasPendingWork(workspace.id) : false });
+  });
+  // Setup only: the Assistant project exists after this, but no conversation or daily session is created.
+  addRoute(routes, "POST", "/assistant/workspace", "client", async ctx => {
+    write(ctx);
+    if (ctx.request.body) {
+      const body = await options.readJsonBodyLimited(ctx.request, 256 * 1024);
+      if (body.projectFields !== undefined) assistant.updateProjectDefaults(body.projectFields);
+    }
+    const workspace = await assistant.workspace();
+    return jsonResponse({ workspace: summary(workspace), profile: assistant.profile() });
   });
   addRoute(routes, "POST", "/assistant/current", "client", async ctx => {
     write(ctx);
@@ -176,11 +209,11 @@ export function registerMainAssistantRoutes(options: {
   addRoute(routes, "GET", "/assistant/history", "client", async ctx => {
     options.requireClientScope(ctx, "viewer");
     const workspace = config.workspaces.find(isMainAssistant);
-    const query = z.object({ before: z.iso.date().optional(), limit: z.coerce.number().int().min(1).max(31).default(14) }).safeParse(Object.fromEntries(ctx.url.searchParams));
+    const query = z.object({ before: z.iso.date().optional(), after: z.iso.date().optional(), limit: z.coerce.number().int().min(1).max(31).default(14) }).safeParse(Object.fromEntries(ctx.url.searchParams));
     if (!query.success) throw new ApiError(400, "assistant_history_query", "Use a date and a page size from 1 to 31.");
     if (!workspace) return jsonResponse({ days: [], nextBefore: null });
     await accessible(workspace.id);
-    return jsonResponse({ workspaceId: workspace.id, ...assistant.history(workspace.id, query.data.before, query.data.limit) });
+    return jsonResponse({ workspaceId: workspace.id, ...assistant.history(workspace.id, query.data.before, query.data.limit, query.data.after) });
   });
   addRoute(routes, "GET", "/assistant/projects", "client", async ctx => {
     options.requireClientScope(ctx, "viewer");
@@ -196,6 +229,8 @@ export function registerMainAssistantRoutes(options: {
     const projects = [];
     const unavailable: string[] = [];
     const matches: { entry: WorkspaceInfo; score: number; match: string }[] = [];
+    let referenceDirectory: ReturnType<typeof projectReferenceDirectory> | undefined;
+    let backOfficeUnavailable = false;
     const local = config.workspaces.filter(entry => assistant.canAccessProject(entry.id));
     // Search matter/client metadata as well as names, with bounded filesystem concurrency.
     for (let offset = 0; offset < local.length; offset += 16) {
@@ -205,7 +240,15 @@ export function registerMainAssistantRoutes(options: {
           try {
             const allowed = await accessible(entry.id);
             const details = await readProjectDetails(allowed.path);
-            match = projectMatch(summary(entry), query.data.query, details.fields.map(field => field.value ?? "").join(" "));
+            let metadata = details.fields.filter(field => field.type !== "backoffice").map(field => field.value ?? "").join(" ");
+            if (details.fields.some(field => field.type === "backoffice" && field.value)) {
+              try {
+                referenceDirectory ??= projectReferenceDirectory(config);
+                const linked = projectBackOfficeReferences(await referenceDirectory, details.fields);
+                metadata += " " + linked.records.flatMap(record => Object.values(record.values).filter(value => typeof value === "string" || typeof value === "number")).join(" ");
+              } catch { backOfficeUnavailable = true; }
+            }
+            match = projectMatch(summary(entry), query.data.query, metadata);
           } catch { unavailable.push(entry.id); }
         }
         return match ? { entry, ...match } : null;
@@ -221,7 +264,7 @@ export function registerMainAssistantRoutes(options: {
     const items = projects.slice(0, query.data.limit);
     const last = items.at(-1);
     return jsonResponse({ projects: items, nextCursor: projects.length > query.data.limit && last ? Buffer.from(JSON.stringify({ fingerprint, score: last.score, id: last.id })).toString("base64url") : null,
-      unavailable, note: "Approximate matches are spelling suggestions, not confirmed identities. For a read-only status question, inspect the likely project's overview and state which project you used. Clarify genuinely ambiguous matches before starting or changing work. An empty task search does not mean a project is absent." });
+      unavailable, backOfficeUnavailable, note: "Approximate matches are spelling suggestions, not confirmed identities. For a read-only status question, inspect the likely project's overview and state which project you used. Clarify genuinely ambiguous matches before starting or changing work. An empty task search does not mean a project is absent. If backOfficeUnavailable is true, linked-record metadata could not be searched; do not conclude no matching project exists." });
   });
   addRoute(routes, "GET", "/assistant/projects/:id/overview", "client", async ctx => {
     options.requireClientScope(ctx, "viewer");
@@ -246,10 +289,13 @@ export function registerMainAssistantRoutes(options: {
     write(ctx);
     const access = assistant.settings().projectAccess;
     if (access.mode === "none" || access.mode === "include") throw new ApiError(403, "assistant_project_access_denied", "Allow access to new projects in Settings → Assistant before creating a project.");
-    const parsed = z.object({ name: z.string().trim().min(1).max(120) }).safeParse(await options.readJsonBodyLimited(ctx.request, 2000));
+    const parsed = z.object({ name: z.string().trim().min(1).max(120), sourceSessionId: z.string().min(1).max(200).optional() }).safeParse(await options.readJsonBodyLimited(ctx.request, 2000));
     if (!parsed.success) throw new ApiError(400, "project_name", "A project name is required.");
-    const folderPath = await createDefaultProjectFolder(parsed.data.name, defaultProjectRoot(config.projectsDirectory));
-    const { workspace } = await registerLocalProject(config, { folderPath, name: parsed.data.name, preset: "starter", position: "last", projectFields: assistant.projectDefaults() });
+    // A request bound to an existing project cannot create another one, whatever captured material suggests.
+    const bound = parsed.data.sourceSessionId ? await options.submissions.activeConstraint(parsed.data.sourceSessionId) : null;
+    if (bound?.kind === "project") throw new ApiError(409, "delegation_target_constraint", "The user bound this request to an existing project. Work there instead of creating a new project.");
+    const folder = await createLocalProjectFolder(config, parsed.data.name);
+    const { workspace } = await registerLocalProject(config, { ...folder, name: parsed.data.name, preset: "starter", position: "last", projectFields: assistant.projectDefaults() });
     options.changed();
     return jsonResponse({ project: summary(workspace), details: await readProjectDetails(workspace.path) }, 201);
   });
@@ -264,22 +310,25 @@ export function registerMainAssistantRoutes(options: {
     assertAssistantDispatchAuthority(authority, workspace.id);
     await options.sessionAccess.checkDirectory(workspace.path, authority);
     if (isMainAssistant(workspace)) throw new ApiError(400, "delegation_project", "Delegate project work to a project, not back to the assistant.");
+    // An explicitly chosen project is an execution constraint enforced here, not a prompt suggestion.
+    const bound = await options.submissions.activeConstraint(input.sourceSessionId);
+    if (bound?.kind === "project" && bound.workspaceId !== workspace.id) throw new ApiError(409, "delegation_target_constraint", `The user bound this request to project ${bound.workspaceId}. Delegate there or ask the user to change the target.`);
     const sourceResult = await options.client(source).session.get({ sessionID: input.sourceSessionId }, { signal: AbortSignal.timeout(10000) });
     if (!sourceResult.data || resolve(sourceResult.data.directory) !== resolve(source.path)) throw new ApiError(400, "delegation_source", "The source chat is not in this project.");
     authority = await options.sessionAccess.captureSource(input.sourceSessionId, sourceResult.data.directory, authority);
     const previous = await options.client(source).session.messages({ sessionID: input.sourceSessionId, limit: 1 }, { signal: AbortSignal.timeout(10000) });
     const last = previous.data?.at(-1)?.info;
     const model = input.model ?? (last?.role === "assistant" ? { providerID: last.providerID, modelID: last.modelID } : last?.model);
-    const files = await copyAssistantFiles(source.path, workspace.path, input.files ?? [], paths => options.requireApproval(ctx, {
+    const files = await copyAssistantFiles(source.path, workspaceContentPath(workspace), input.files ?? [], paths => options.requireApproval(ctx, {
       workspaceId: workspace.id, action: "workspace.file.write", summary: `Copy ${paths.length} attached files into ${workspace.displayName || workspace.name}`,
-      paths: paths.map(path => join(workspace.path, path)),
-    }));
+      paths: paths.map(path => join(workspaceContentPath(workspace), path)),
+    }), workspaceContentPath(source));
     for (const file of files) await recordAudit(workspace.path, {
       id: shortId(), workspaceId: workspace.id, actor: ctx.actor ?? { type: "remote" }, action: "workspace.file.write",
-      target: join(workspace.path, file.path), summary: `Copied from ${source.id}: ${file.sourcePath}`, timestamp: Date.now(),
+      target: join(workspaceContentPath(workspace), file.path), summary: `Copied from ${source.id}: ${file.sourcePath}`, timestamp: Date.now(),
     });
     // Metadata capture must not depend on the coordinator remembering a setup flag.
-    const setupContext = `\n\n${input.initializeProject ? "This is a newly created project. " : ""}First use legalwork_project_get_details to discover its configured metadata fields and existing values. Read the provided source files and established client/perspective in the task. Fill missing source-supported client and matter metadata with legalwork_project_set_metadata using exact field IDs, types, options and the latest revision. Preserve existing values and leave uncertain fields empty. Cite the evidence in your result; do not invent a client relationship or legal deadline. Do not delay the requested work for optional unknown metadata. Then carry out the user's task below.`;
+    const setupContext = `\n\n${input.initializeProject ? "This is a newly created project. " : ""}First use legalwork_project_get_details to discover its configured metadata fields and existing values. Read the provided source files and established client/perspective in the task. Fill missing source-supported client and matter metadata with legalwork_project_set_metadata using exact field IDs, types, options and the latest revision. For Back Office fields, use legalwork_back_office_discover to inspect the current model, reuse matching accessible records or create only missing evidence-backed items, use legalwork_project_reference_options, and save {directoryId,recordIds}. Never copy record names into reference values or create projectLinks records. Verify links with legalwork_project_back_office_context. Preserve existing values and leave uncertain fields empty. Cite the evidence in your result; do not invent a client relationship or legal deadline. Do not delay the requested work for optional unknown metadata. Then carry out the user's task below.`;
     const client = options.client(workspace);
     const created = await client.session.create({ title: input.title }, { signal: AbortSignal.timeout(10000) });
     if (!created.data) throw new ApiError(502, "delegation_create", "Could not create the project chat.");
@@ -287,21 +336,29 @@ export function registerMainAssistantRoutes(options: {
     if (resolve(session.directory) !== resolve(workspace.path)) throw new ApiError(502, "delegation_scope", "The engine created the chat outside the requested project.");
     const delegation = { workspaceId: workspace.id, projectName: workspace.displayName || workspace.name, sessionId: session.id, title: input.title, scope: input.scope, sourceSessionId: input.sourceSessionId, conversationLanguage: input.conversationLanguage };
     await options.sessionAccess.authorize(session.id, session.directory, authority);
-    options.delegations.track({ ...delegation, sourceWorkspaceId: source.id, model: model ?? null, authority });
+    const messageTime = BigInt.asUintN(48, BigInt(Date.now()) * 4096n).toString(16).padStart(12, "0");
+    const initialMessageId = `msg_${messageTime}${randomBytes(7).toString("hex")}`;
+    options.delegations.track({ ...delegation, sourceWorkspaceId: source.id, model: model ?? null, authority, initialMessageId });
     try {
       const sent = await withSessionExecution(config, session.id, async () => {
         assertAssistantDispatchAuthority(await options.sessionAccess.prepare(session.id, session.directory, authority), workspace.id);
         await options.preparePrompt(workspace, session.directory);
-        return client.session.promptAsync({ sessionID: session.id, agent: "legalwork", model,
-        parts: assistantHandoffParts({ ...input, files, setupContext, ...(isMainAssistant(source) ? { sender: assistant.profile() } : {}) }) }, { signal: AbortSignal.timeout(30000) });
+        return client.session.promptAsync({ sessionID: session.id, messageID: initialMessageId, agent: "legalwork", model,
+        parts: assistantHandoffParts({ ...input, files, setupContext, ...(isMainAssistant(source) ? { sender: assistant.profile() } : {}) }) }, { signal: AbortSignal.timeout(30000), throwOnError: true });
       });
       if (!sent.response.ok) throw new Error("Delivery was not confirmed.");
       options.changed();
       return jsonResponse({ ok: true, delegation: { ...delegation, status: "started" }, files,
         resultDelivery: "automatic", nextAction: ASSISTANT_DELEGATION_WAIT_INSTRUCTIONS });
-    } catch {
+    } catch (error) {
+      const rejected = nativeDeliveryRejection(error);
+      if (rejected) {
+        options.delegations.rejectInitial(session.id, initialMessageId);
+        options.changed();
+        return jsonResponse({ ok: false, delegation: { ...delegation, status: "rejected", messageId: initialMessageId }, error: rejected.message, code: rejected.code }, rejected.status);
+      }
       // Return the created chat even on an ambiguous delivery, so it can be inspected without duplicating work.
-      return jsonResponse({ ok: false, delegation: { ...delegation, status: "delivery-unconfirmed" }, error: "Inspect this chat before retrying. Delivery could not be confirmed." });
+      return jsonResponse({ ok: false, delegation: { ...delegation, status: "delivery-unconfirmed", messageId: initialMessageId }, error: "Inspect this chat before retrying. Delivery could not be confirmed." });
     }
   });
 }

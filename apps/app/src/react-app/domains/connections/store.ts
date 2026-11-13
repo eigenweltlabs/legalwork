@@ -800,7 +800,7 @@ export function createConnectionsStore(options: {
     }
   }
 
-  async function removeMcp(name: string) {
+  async function removeMcp(name: string): Promise<void | false> {
     try {
       setStateField("mcpStatus", null);
 
@@ -813,7 +813,7 @@ export function createConnectionsStore(options: {
         await legalworkClient.removeMcp(legalworkWorkspaceId, name);
       } else {
         setStateField("mcpStatus", t("mcp.settings_readonly"));
-        return;
+        return false;
       }
 
       await refreshMcpServers();
@@ -835,6 +835,7 @@ export function createConnectionsStore(options: {
         "mcpStatus",
         error instanceof Error ? error.message : t("mcp.remove_failed"),
       );
+      return false;
     }
   }
 
@@ -932,14 +933,15 @@ export function createConnectionsStore(options: {
 
   /** Import completion means its saved connectors are available to open, not just a finished request. */
   async function refreshImportedConnectors(names: readonly string[]) {
-    if (!names.length) return;
+    // An empty list follows removal: still invalidate older reads and load the
+    // saved list so deleted connectors cannot survive as unowned UI entries.
     const workspaceKey = getMcpAuthWorkspaceKey();
     for (let attempt = 0; attempt < 10; attempt += 1) {
       if (disposed || workspaceKey !== getMcpAuthWorkspaceKey()) break;
       await refreshMcpServers({ includeStatus: false });
       if (disposed || workspaceKey !== getMcpAuthWorkspaceKey()) break;
-      if (names.every(name => state.mcpServers.some(entry => entry.name === name))) return;
       if (state.mcpStatus) throw new Error(state.mcpStatus);
+      if (names.every(name => state.mcpServers.some(entry => entry.name === name))) return;
       if (attempt < 9) await new Promise<void>(resolve => setTimeout(resolve, 200));
     }
     throw new Error(t("extensions.import_library_failed"));

@@ -1,7 +1,14 @@
 #!/usr/bin/env bun
+import { stopManagedOpencodeService } from "./managed-opencode-service.js";
+import { completeProjectMigrationProgress, localProjectsDirectory, prepareLocalProjects } from "./project-storage.js";
+import { updateMigrationProgress } from "./migration-progress.js";
+import { projectSessionMovesPending } from "./project-storage-sessions.js";
+import { persistServerWorkspaceState } from "./routes/workspaces.js";
 
 import { mkdir } from "node:fs/promises";
 import { connectorRuntimeCapability } from "./connectors/capability.js";
+import { prepareConnectorStorage } from "./connectors/store.js";
+import { bootstrapRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
 import { join, resolve } from "node:path";
 import { resolveServerOpencodeExecutable } from "./server-opencode-executable.js";
 import { engineStorageDir } from "./engine-storage.js";
@@ -26,9 +33,11 @@ import { prepareManagedOpencodeDependencies } from "./managed-opencode-dependenc
 import { prepareManagedOpencodeEngineDb } from "./managed-opencode-db.js";
 import { refreshEigenweltProviderModels } from "./eigenwelt-auth.js";
 import { ensureWikiAgentToken } from "./wiki/agent-access.js";
+import { WikiStore } from "./wiki/store.js";
 import pkg from "../package.json" with { type: "json" };
 import { orgPolicyEngineDir } from "./org-policy-engine.js";
 import { createConfiguredManagedEngine, startManagedEngineLifecycle } from "./managed-engine-lifecycle.js";
+import { legacyMcpAuthPath } from "./legacy-mcp-credentials.js";
 import { bootCloudSync } from "./cloud-sync/lifecycle.js";
 import { runCloudSyncCli } from "./cloud-sync/cli.js";
 
@@ -53,7 +62,8 @@ const config = await resolveServerConfig(args);
 const managedEngine = process.env.LEGALWORK_MANAGE_OPENCODE === "1" && !config.opencodeBaseUrl;
 config.agentSandboxEnabled = managedEngine && process.env.LEGALWORK_MANAGED_OPENCODE_SANDBOX !== "0";
 config.engineProjectTrustRequired = managedEngine;
-config.engineConfigurationMode = managedEngine ? "managed" : "native-project";
+config.engineConfigurationMode = "native-project";
+if (managedEngine) config.projectsDirectory = localProjectsDirectory();
 const logger = createServerLogger(config);
 let managedOpencode: ManagedOpencodeServer | null = null;
 let managedLifecycle: Awaited<ReturnType<typeof startManagedEngineLifecycle>> | null = null;
@@ -63,16 +73,33 @@ if (config.cloudSync) config.cloudSync.onLeaseLost = () => { void managedOpencod
 
 if (cloudSync?.replica.settings.role === "executor" && process.env.LEGALWORK_MANAGE_OPENCODE !== "1")
   throw new Error("A cloud execution owner requires LEGALWORK_MANAGE_OPENCODE=1");
+// Complete private storage upgrades before any provider or connector producer
+// reads settings. Ordinary reads never fall back to the retired storage.
+const startupWikis = new WikiStore(config);
+try { await startupWikis.list({ publish: false }); } finally { await startupWikis.close(); }
+if (managedEngine) for (const workspace of config.workspaces) workspace.directory = workspace.path;
+await bootstrapRuntimeOpencodeConfig(config);
+await prepareConnectorStorage(config);
+const storageMigrationPending = managedEngine && !config.readOnly && config.workspaces.some(workspace => !workspace.contentPath);
+config.projectStorageMigrating = storageMigrationPending;
+if (storageMigrationPending || managedEngine && await projectSessionMovesPending(config)) {
+  updateMigrationProgress(config, { status: "running", phase: "history", deferredProjects: 0 });
+}
+if (storageMigrationPending) {
+  // Stop the predecessor before the original OpenCode history upgrade.
+  await stopManagedOpencodeService({ configDirectory: orgPolicyEngineDir(config), stateDirectory: join(engineStorageDir(config), "engine-home", "state") });
+}
+
 if (!config.readOnly) {
   await retireSharedLegacyReview(globalSkillsDir());
   await ensureBundledWorkflows();
   for (const workspace of config.workspaces) {
     if (config.cloudSync && !config.cloudSync.shouldSyncFiles(workspace.id)) continue;
-    await ensureWorkspaceFiles(workspace.path, workspace.preset ?? "starter", { bundledCore: config.engineConfigurationMode !== "managed" });
+    await ensureWorkspaceFiles(workspace.path, workspace.preset ?? "starter", { skipCloudPin: managedEngine && !workspace.contentPath });
   }
 }
-// Drop retired / unparsable provider blocks from the runtime DB BEFORE the
-// engine config file is built: one bad stored block takes the engine down.
+// Validate saved providers before building engine configuration. Only retired
+// app-owned definitions are removed; invalid user connections remain intact.
 await repairAllWorkspaceRuntimeProviders(config);
 // Connectors are shared by every workspace; fold what earlier builds stored
 // per workspace or in files into the shared row before the engine config
@@ -94,9 +121,6 @@ const server = await startServer(config, { onListening: async (port) => {
       // on every runtime-DB write — so disposes always pick up current state.
       const runtimeConfigPath = await writeLegalworkRuntimeConfigFile(config, workspace.id);
       stopConfigRefresh = keepLegalworkRuntimeConfigFileFresh(config, workspace.id);
-      // Fire-and-forget: pick up models added on the Eigenwelt gateway since the
-      // provider was connected (no-op unless provider.eigenwelt is configured).
-      void refreshEigenweltProviderModels(config, workspace.id);
       const managedOpencodeCwd = process.env.LEGALWORK_MANAGED_OPENCODE_CWD?.trim() || workspace.path;
       await mkdir(managedOpencodeCwd, { recursive: true });
       // Private engine DB (see managed-opencode-db.ts): keep the managed engine
@@ -112,7 +136,13 @@ const server = await startServer(config, { onListening: async (port) => {
       const service = { configDirectory: orgPolicyEngineDir(config), stateDirectory: join(engineHome, "state") };
       const dependencies = await prepareManagedOpencodeDependencies(config);
       if (dependencies.reason === "bundle-unavailable") console.warn("[legalwork-server] Prepare desktop resources to validate the released engine's bundled runtime declaration.");
-      managedLifecycle = await startManagedEngineLifecycle({ config, database, service, create: async (mode, beforeSpawn) => {
+      managedLifecycle = await startManagedEngineLifecycle({ config, database, service, legacyMcpAuthPath: legacyMcpAuthPath(),
+        ...(storageMigrationPending ? { migrateProjectFolders: async () => {
+          await stopConfigRefresh?.(); stopConfigRefresh = null;
+          if (await prepareLocalProjects(config)) await persistServerWorkspaceState(config);
+          await writeLegalworkRuntimeConfigFile(config, workspace.id);
+          stopConfigRefresh = keepLegalworkRuntimeConfigFileFresh(config, workspace.id);
+        } } : {}), create: async (mode, beforeSpawn) => {
         const engine = await createConfiguredManagedEngine(config, {
         bin: await resolveServerOpencodeExecutable(process.env.LEGALWORK_OPENCODE_BIN),
         ...(process.env.LEGALWORK_MANAGED_OPENCODE_PORT ? { port: Number(process.env.LEGALWORK_MANAGED_OPENCODE_PORT) } : {}),
@@ -129,7 +159,7 @@ const server = await startServer(config, { onListening: async (port) => {
           LEGALWORK_WIKI_AGENT_TOKEN: await ensureWikiAgentToken(config),
           LEGALWORK_CONNECTOR_TOKEN: connectorRuntimeCapability(config),
           OPENCODE_CONFIG: runtimeConfigPath,
-          OPENCODE_CONFIG_PROJECT_DISABLE: "1",
+          OPENCODE_CONFIG_PROJECT_DISABLE: "",
           OPENCODE_TEST_HOME: engineHome,
           XDG_CONFIG_HOME: join(engineHome, "config"),
           OPENCODE_CONFIG_DIR: orgPolicyEngineDir(config),
@@ -143,10 +173,14 @@ const server = await startServer(config, { onListening: async (port) => {
         managedOpencode = engine;
         return engine;
       } });
+      // Refresh catalogs only after history and project paths are ready.
+      void refreshEigenweltProviderModels(config, workspace.id);
       logger.log("info", `Managed OpenCode listening on ${managedLifecycle.engine.url}`);
     }
   }
+  await completeProjectMigrationProgress(config);
 } }).catch(async (error: unknown) => {
+  if (config.migrationProgress) updateMigrationProgress(config, { status: "error" });
   await stopConfigRefresh?.();
   if (managedLifecycle) await managedLifecycle.close(); else await managedOpencode?.close();
   await cloudSync?.stop();

@@ -5,16 +5,13 @@ import { Button } from "@/components/ui/button";
 import { IconTile, Surface } from "@/react-app/design-system/surface";
 import { workspaceSessionRoute } from "@/react-app/shell/workspace-routes";
 import { t } from "@/i18n";
+import { AssistantDelegationResultSchema } from "@legalwork/types/main-assistant";
 
 export const isDelegationTool = (part: ToolUIPart | DynamicToolUIPart) => getToolName(part) === "legalwork_assistant_delegate";
 export function parseDelegationCard(output: unknown) {
   try {
-    const payload: unknown = typeof output === "string" ? JSON.parse(output) : output;
-    if (!payload || typeof payload !== "object" || !("delegation" in payload)) return null;
-    const value = payload.delegation;
-    if (!value || typeof value !== "object" || !("workspaceId" in value) || !("sessionId" in value) || !("projectName" in value) || !("title" in value) || !("scope" in value) || !("status" in value)) return null;
-    if (typeof value.workspaceId !== "string" || !value.workspaceId || typeof value.sessionId !== "string" || !value.sessionId || typeof value.projectName !== "string" || typeof value.title !== "string" || typeof value.scope !== "string" || (value.status !== "started" && value.status !== "delivery-unconfirmed")) return null;
-    return { workspaceId: value.workspaceId, sessionId: value.sessionId, projectName: value.projectName, title: value.title, scope: value.scope, status: value.status };
+    const result = AssistantDelegationResultSchema.safeParse(typeof output === "string" ? JSON.parse(output) : output);
+    return result.success ? result.data.delegation : null;
   } catch { return null; }
 }
 export function DelegationCard({ part }: { part: ToolUIPart | DynamicToolUIPart }) {

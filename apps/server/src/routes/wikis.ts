@@ -1,7 +1,10 @@
+import { isBackOfficeQuery } from "../views/schema.js";
+import { isViewFile, copyViewFile } from "../views/schema.js";
 import { viewSaveSource, recordViewSaveSource } from "../views/save-source.js";
 import { registerWikiProjectRoutes } from "./wiki-projects.js";
 import { registerWikiSuggestionRoutes } from "./wiki-suggestions.js";
 import { z } from "zod";
+import { legalResearchCountries } from "../native-shared-values.js";
 import { ViewSaveInputSchema, WikiDataQuerySchema } from "../views/schema.js";
 import { ViewRepository } from "../views/repository.js";
 import { queryWikiPages, wikiPageFields } from "../wiki/data-query.js";
@@ -41,10 +44,12 @@ type Options = {
 const sharingSchema = z.object({ access: z.enum(["org", "members"]), memberIds: z.array(z.string().min(1).max(200)).max(500) });
 const createSchema = z.object({
   name: z.string().trim().min(1).max(200), root: z.string().trim().min(1).max(4096).optional(),
-  template: z.enum(["firm", "blank"]).optional(), sharing: sharingSchema.optional(), attach: z.boolean().optional(),
+  template: z.enum(["firm", "blank", "legal-research"]).optional(), sharing: sharingSchema.optional(), attach: z.boolean().optional(),
+  language: z.enum(["en", "de"]).optional(),
+  country: z.string().refine(value => value === "OTHER" || legalResearchCountries.includes(value)).optional(),
 }).strict();
 const updateSchema = z.object({
-  name: z.string().trim().min(1).max(200).optional(), allowInProjects: z.boolean().optional(), projectWorkspaceIds: z.array(z.string().min(1).max(200)).max(1000).nullable().optional(),
+  name: z.string().trim().min(1).max(200).optional(), allowInProjects: z.boolean().optional(), requireAgentApproval: z.boolean().optional(), projectWorkspaceIds: z.array(z.string().min(1).max(200)).max(1000).nullable().optional(),
 }).strict();
 const writeSchema = z.object({ path: z.string().min(1), content: z.string(), baseRevision: z.string().max(100).nullable().optional() });
 const deleteSchema = z.object({ path: z.string().min(1), baseRevision: z.string().min(1).max(100) });
@@ -104,6 +109,16 @@ export function registerWikiRoutes(options: Options): WikiStore {
     return path;
   };
   const sharingUnavailable = () => new ApiError(503, "wiki_sharing_unavailable", "Wiki sharing is unavailable on this server.");
+  addRoute(routes, "POST", "/wikis/legal-research/ensure", "host-token", async ctx => {
+    requireClientScope(ctx, "owner");
+    ensureWritable(config);
+    const input = z.object({ language: z.enum(["en", "de"]), country: z.string().refine(value => value === "OTHER" || legalResearchCountries.includes(value)).optional() }).strict().safeParse(await readJsonBodyLimited(ctx.request, 1024));
+    if (!input.success) throw new ApiError(400, "invalid_wiki_language", "Choose English or German for the research wiki.");
+    const result = await store.ensureLegalResearch(input.data.language, input.data.country);
+    if (result.created) options.onWorkspacesChanged?.();
+    if ((result.created || result.updated) && result.wiki) change(result.wiki.id);
+    return jsonResponse(result);
+  });
   addRoute(routes, "GET", "/wikis/deleted", "client", async ctx => {
     requireClientScope(ctx, "owner");
     return jsonResponse({ items: await store.deleted() });
@@ -178,7 +193,12 @@ export function registerWikiRoutes(options: Options): WikiStore {
     const wiki = await selected(ctx, true), input = await viewInput(ctx);
     if (input.mode === "report" && Object.keys(input.queries).length) {
       const pages = await store.indexedPages(wiki.id);
-      input.datasets = { ...input.datasets, ...Object.fromEntries(Object.entries(input.queries).map(([name, query]) => [name, input.datasets?.[name] ?? { ...queryWikiPages(pages, query), sourceOwner: { kind: "wiki", id: wiki.id } }])) };
+      input.datasets = { ...input.datasets };
+      for (const [name, query] of Object.entries(input.queries)) {
+        if (input.datasets[name]) continue;
+        if (isBackOfficeQuery(query)) throw new ApiError(400, "report_snapshot_missing", "Refresh the Back Office report before saving its snapshot.");
+        input.datasets[name] = { ...queryWikiPages(pages, query), sourceOwner: { kind: "wiki", id: wiki.id } };
+      }
     }
     const source = viewSaveSource(ctx.request);
     await authorize(ctx, wiki, "wiki.view.create", [input.mode === "report" ? "Reports" : "Dashboards"], input);
@@ -226,7 +246,7 @@ export function registerWikiRoutes(options: Options): WikiStore {
       catch (error) {
         // A disconnected local folder must not hide the other wikis or prevent reconnecting it.
         const status = options.getSyncStatus ? await options.getSyncStatus(wiki.id) : { state: "error", lastSyncedAt: null, error: error instanceof Error ? error.message : "Wiki folder unavailable.", conflicts: [] };
-        items.push({ ...wiki, writable: false, pageCount: 0, totalBytes: 0, syncStatus: { ...status, state: "error", error: error instanceof Error ? error.message : "Wiki folder unavailable." } });
+        items.push({ ...wiki, engineDirectory: config.workspaces.find(item => item.id === wiki.workspaceId)?.path || wiki.root, writable: false, pageCount: 0, totalBytes: 0, syncStatus: { ...status, state: "error", error: error instanceof Error ? error.message : "Wiki folder unavailable." } });
       }
     }
     return jsonResponse({ items });
@@ -402,7 +422,12 @@ export function registerWikiRoutes(options: Options): WikiStore {
     const parsed = assetSchema.safeParse(await readJsonBodyLimited(ctx.request, Math.ceil(WIKI_MAX_ASSET_BYTES * 4 / 3) + 32 * 1024));
     if (!parsed.success || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(parsed.data.dataBase64)) throw new ApiError(400, "invalid_wiki_asset", "Provide a file path and valid base64 data.");
     await authorize(ctx, wiki, "wiki.attach", [parsed.data.path]);
-    const result = await store.writeAsset(wiki.id, parsed.data.path, Buffer.from(parsed.data.dataBase64, "base64"), parsed.data.baseRevision ?? "");
+    let bytes = Buffer.from(parsed.data.dataBase64, "base64");
+    if (isViewFile(parsed.data.path) && !parsed.data.baseRevision) {
+      try { bytes = Buffer.from(copyViewFile(bytes)); }
+      catch (error) { throw new ApiError(400, "invalid_view_import", error instanceof Error ? error.message : "Invalid dashboard file."); }
+    }
+    const result = await store.writeAsset(wiki.id, parsed.data.path, bytes, parsed.data.baseRevision ?? "");
     change(wiki.id);
     return jsonResponse(result);
   });

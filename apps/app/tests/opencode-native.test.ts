@@ -199,6 +199,61 @@ test("native transcript hides reminders, retains full tools, citations and model
   expect(view[1].native).toEqual(messages[2]);
 });
 
+test("native system notices stay out of chat without removing ordinary messages about Code Mode", () => {
+  const instructions: SessionMessageInfo = {
+    id: "catalog", type: "system", time: { created: 1 },
+    text: "The Code Mode tool catalog has changed. Use execute to call these tools.",
+    metadata: { notice: "instructions", instructionSources: ["core/codemode"] },
+  };
+  const original = JSON.stringify(instructions);
+  expect(projectMessage(session.id, instructions)).toEqual([]);
+  expect(projectMessage(session.id, { ...instructions, metadata: undefined })).toEqual([]);
+  expect(JSON.stringify(instructions)).toBe(original);
+  const visible = projectMessages(session.id, [
+    instructions,
+    { id: "question", type: "user", time: { created: 2 }, text: "What is Code Mode?" },
+    { id: "reply", type: "assistant", agent: "legalwork", model: { providerID: "fixture", id: "model" },
+      time: { created: 3, completed: 4 }, content: [{ type: "text", text: "Code Mode calls tools." }] },
+  ]);
+  expect(visible.map(message => message.info.id)).toEqual(["question", "reply"]);
+  expect(snapshotToUIMessages({ session: projectSession(session), messages: visible, todos: [], status: { type: "idle" } })
+    .flatMap(message => message.parts)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "text", text: "What is Code Mode?" }),
+      expect.objectContaining({ type: "text", text: "Code Mode calls tools." }),
+    ]));
+});
+
+test("native instruction updates stay model-visible without appearing as assistant replies", () => {
+  const notice: SessionMessageInfo = {
+    id: "catalog-update", type: "system", time: { created: 2 },
+    metadata: { notice: "instructions", instructionSources: ["core/codemode"] },
+    description: "Instructions updated: core/codemode",
+    text: "The Code Mode tool catalog has changed.\n\nINTERNAL TOOL CATALOG",
+  };
+  const messages: SessionMessageInfo[] = [
+    { id: "user", type: "user", time: { created: 1 }, text: "Can you access cloud storage?" },
+    notice,
+    { ...notice, id: "connection", metadata: { notice: "connection" }, text: "Cloud storage connected." },
+    {
+      id: "assistant", type: "assistant", time: { created: 3, completed: 4 },
+      agent: "legalwork", model: { providerID: "fixture", id: "model" },
+      tokens, cost: 0, content: [{ type: "text", text: "I can access the test storage." }],
+    },
+  ];
+  const original = structuredClone(messages);
+  // Live message publication and snapshot reads share this native projection.
+  expect(projectMessage(session.id, notice)).toEqual([]);
+  const view = projectMessages(session.id, messages);
+  expect(view.map(message => message.info.id)).toEqual(["user", "assistant"]);
+  const ui = snapshotToUIMessages({
+    session: projectSession(session), messages: view, todos: [], status: { type: "idle" },
+  });
+  expect(JSON.stringify(ui)).not.toContain("INTERNAL TOOL CATALOG");
+  expect(JSON.stringify(ui)).not.toContain("Cloud storage connected.");
+  expect(JSON.stringify(ui)).toContain("I can access the test storage.");
+  expect(messages).toEqual(original);
+});
+
 test("native write transport sends native routes, archive restoration, model variant and atomic text", async () => {
   const calls: Array<{ path: string; body: unknown }> = [];
   const client = server(async (request) => {

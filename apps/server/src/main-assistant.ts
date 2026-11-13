@@ -1,13 +1,14 @@
 import { mkdir, stat } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { ApiError } from "./errors.js";
-import { createDefaultProjectFolder, defaultProjectRoot, parseProjectFieldDefaults } from "./project-store.js";
-import { registerLocalProject } from "./routes/workspaces.js";
+import { parseProjectFieldDefaults } from "./project-store.js";
+import { createLocalProjectFolder, registerLocalProject } from "./routes/workspaces.js";
 import { openSqlite, type SqliteHandle } from "./runtime-db.js";
 import type { ServerConfig, WorkspaceInfo } from "./types.js";
 import { AssistantProfileSchema, DEFAULT_ASSISTANT_PROFILE, AssistantResourceSchema, AssistantSettingsSchema, DEFAULT_ASSISTANT_SETTINGS } from "./assistant-schema.js";
 import type { AssistantAvatarIcon, AssistantOnboardingState, AssistantProfile, AssistantSettings, AssistantResource } from "@legalwork/types/main-assistant";
 import { hasAssistantInteraction } from "./assistant-onboarding.js";
+import { projectChatMigrationPending } from "./project-storage.js";
 
 export const MAIN_ASSISTANT_PRESET = "main-assistant";
 export const isMainAssistant = (workspace: { preset?: string }) => workspace.preset === MAIN_ASSISTANT_PRESET;
@@ -111,7 +112,7 @@ export class MainAssistant {
   }
 
   async onboarding(): Promise<AssistantOnboardingState> {
-    const complete: AssistantOnboardingState = { needed: false, greetingUnread: false, step: "complete", sessionId: null, ...DEFAULT_ASSISTANT_PROFILE };
+    const complete: AssistantOnboardingState = { needed: false, greetingUnread: false, step: "complete", sessionId: null, ...this.profile() };
     if (this.config.readOnly) return complete;
     const workspace = this.config.workspaces.find(isMainAssistant);
     const row = workspace && this.db.get("SELECT session_id, name, icon, agent_named FROM assistant_onboarding WHERE workspace_id = ?", [workspace.id]);
@@ -178,8 +179,8 @@ export class MainAssistant {
       return existing;
     }
     if (this.config.readOnly) throw new ApiError(403, "read_only", "The main assistant requires a writable server.");
-    const folderPath = await createDefaultProjectFolder("Assistant", defaultProjectRoot(this.config.projectsDirectory));
-    const { workspace } = await registerLocalProject(this.config, { folderPath, name: "Assistant", preset: MAIN_ASSISTANT_PRESET, position: "last" });
+    const folder = await createLocalProjectFolder(this.config, "Assistant");
+    const { workspace } = await registerLocalProject(this.config, { ...folder, name: "Assistant", preset: MAIN_ASSISTANT_PRESET, position: "last" });
     this.changed();
     return workspace;
   }
@@ -189,9 +190,34 @@ export class MainAssistant {
     return this.pending;
   }
 
+  /** Today's daily session as recorded, without creating one: window focus and refreshes must not provision sessions. */
+  peek(): AssistantDay | null {
+    const workspace = this.config.workspaces.find(isMainAssistant);
+    if (!workspace) return null;
+    const date = assistantDate(this.now());
+    const row = this.db.get("SELECT session_id FROM assistant_days WHERE workspace_id = ? AND date = ?", [workspace.id, date]);
+    return row ? { date, sessionId: String(row.session_id) } : null;
+  }
+
+  engineFor(workspace: WorkspaceInfo) { return this.engine(workspace); }
+
+  /** Every recorded daily session, newest first, for the conversation list and origin lookups. */
+  days(workspaceId: string): AssistantDay[] {
+    return this.db.all("SELECT date, session_id FROM assistant_days WHERE workspace_id = ? ORDER BY date DESC", [workspaceId]).map(row => ({ date: String(row.date), sessionId: String(row.session_id) }));
+  }
+
+  /** Reading saved history must not wait for subscription refresh or engine startup. */
+  savedDay(): AssistantDay | null {
+    const workspace = this.config.workspaces.find(isMainAssistant);
+    if (!workspace) return null;
+    const row = this.db.get("SELECT date, session_id FROM assistant_days WHERE workspace_id = ? AND date <= ? ORDER BY date DESC LIMIT 1", [workspace.id, assistantDate(this.now())]);
+    return row ? { date: String(row.date), sessionId: String(row.session_id) } : null;
+  }
+
   private async ensureDay() {
     if (this.config.readOnly) throw new ApiError(403, "read_only", "The main assistant requires a writable server.");
     const workspace = await this.workspace();
+    if (await projectChatMigrationPending(this.config, workspace)) throw new ApiError(503, "project_storage_migrating", "The Assistant's saved chats are moving to local storage. Keep this conversation; it will be available when migration finishes.");
     const date = assistantDate(this.now());
     const engine = this.engine(workspace);
     const row = this.db.get("SELECT session_id FROM assistant_days WHERE workspace_id = ? AND date = ?", [workspace.id, date]);
@@ -208,19 +234,21 @@ export class MainAssistant {
     return { workspace, day: { date, sessionId: session.id } };
   }
 
-  history(workspaceId: string, before?: string, limit = 14) {
-    const rows = this.db.all("SELECT date, session_id FROM assistant_days WHERE workspace_id = ? AND date < ? ORDER BY date DESC LIMIT ?", [workspaceId, before ?? "9999-99-99", limit + 1]);
+  history(workspaceId: string, before?: string, limit = 14, after?: string) {
+    const rows = this.db.all(after
+      ? "SELECT date, session_id FROM assistant_days WHERE workspace_id = ? AND date > ? ORDER BY date ASC LIMIT ?"
+      : "SELECT date, session_id FROM assistant_days WHERE workspace_id = ? AND date < ? ORDER BY date DESC LIMIT ?", [workspaceId, after ?? before ?? "9999-99-99", limit + 1]);
     const days = rows.slice(0, limit).map(row => ({ date: String(row.date), sessionId: String(row.session_id) }));
     return { days, nextBefore: rows.length > limit ? days[days.length - 1].date : null };
   }
 
-  start(afterDay?: () => Promise<unknown>) {
+  start(afterDay?: () => Promise<unknown>, enabled = async () => true) {
     let stopped = false;
     // Check at midnight, and at least every minute to catch wake and clock changes.
     let timer: ReturnType<typeof setTimeout>;
     const tick = async () => {
       try {
-        if (!this.config.cloudSync || this.config.cloudSync.canExecute()) {
+        if ((!this.config.cloudSync || this.config.cloudSync.canExecute()) && await enabled()) {
           if (this.config.workspaces.some(isMainAssistant)) await this.current();
           if (!stopped) await afterDay?.();
         }

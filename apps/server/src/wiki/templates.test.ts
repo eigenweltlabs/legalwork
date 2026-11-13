@@ -13,9 +13,17 @@ describe("portable wiki starters", () => {
     expect(files["Structure.md"]).toContain("clickable evidence is not required to complete onboarding");
     expect(files["Structure.md"]).toContain("Colleagues may not have the same drive connection or permissions");
     for (const path of ["AGENTS.md", "Structure.md", template === "firm" ? "Skills/wiki-setup/SKILL.md" : "Skills/Bootstrap.md"]) {
-      expect(files[path]).toContain("Only clean, reusable templates may be copied");
+      expect(files[path]).toContain("Clean, reusable templates may be copied");
       expect(files[path]).toContain("Never copy original client or matter documents");
+      expect(files[path]).toContain("supporting legal sources");
+      expect(files[path]).toContain("requireAgentApproval");
+      expect(files[path]).toContain("waits for Save to wiki or is published in the background");
     }
+    const capture = files[template === "firm" ? "Skills/wiki-capture/SKILL.md" : "Skills/Capture.md"];
+    expect(capture).toContain("When requireAgentApproval is on");
+    expect(capture).toContain("When it is off, wiki_suggest publishes in the background");
+    expect(capture).toContain("Never bypass required review with file tools");
+    expect(Object.values(files).join("\n")).not.toMatch(/only the user clicks Save to wiki|only a user Save publishes|Never publish it yourself/);
     expect(files["Structure.md"]).toContain("including their properties, code blocks and Sources/ pages");
     expect(files["Structure.md"]).toContain("Do not create a provenance catalog, import log or evidence dump");
     expect(Object.values(files).join("\n")).not.toMatch(/with a tested link|Verify that (readers|a colleague) can open|copy the selected supporting document into Sources|copy only attachments needed|provenance behind readable references/);
@@ -41,7 +49,7 @@ describe("portable wiki starters", () => {
     expect(files["Firm/About.md"]).toBeUndefined();
     expect(files["Sources/Import.md"]).toBeUndefined();
     for (const retired of ["Instructions.md", "Templates.md", "Views.md", "Skills/Bootstrap.md"]) expect(files[retired]).toBeUndefined();
-    expect(files["Skills/wiki-setup/SKILL.md"]).toContain("only a user Save publishes");
+    expect(files["Skills/wiki-setup/SKILL.md"]).toContain("requireAgentApproval controls whether publication waits for Save to wiki or happens in the background");
     expect(files["Skills/wiki-use/SKILL.md"]).toContain("server groupBy/metrics");
     expect(files["Skills/wiki-use/SKILL.md"]).toContain("view_create");
     expect(files["Skills/wiki-use/SKILL.md"]).toContain("legalwork-view");

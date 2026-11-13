@@ -49,8 +49,11 @@ export function createBrowserPane(input: {
   readonly network?: () => BrowserNetwork
   readonly authorize?: (binding: string) => Promise<void>
   readonly downloadDirectory?: (binding: string) => string | undefined
+  readonly fileRoots?: (binding: string) => string[]
   readonly page?: (binding: string, page: BrowserPage) => void
   readonly capture?: BrowserCapture
+  /** Keep pages across reloads of a trusted host app, never navigation to another origin. */
+  readonly retainOnNavigation?: (url: string) => boolean
   readonly windows: Windows
   readonly serverEndpoints: ServerEndpoints
   readonly storage: Storage
@@ -133,8 +136,8 @@ export function createBrowserPane(input: {
       let attached = false
       const stop = () => close(entry, reason)
 
-      const navigate = (event: Electron.Event<{ isMainFrame: boolean; isSameDocument: boolean }>) => {
-        if (event.isMainFrame && !event.isSameDocument) stop()
+      const navigate = (event: Electron.Event<{ isMainFrame: boolean; isSameDocument: boolean; url: string }>) => {
+        if (event.isMainFrame && !event.isSameDocument && !input.retainOnNavigation?.(event.url)) stop()
       }
 
       win.webContents.once("destroyed", stop)
@@ -165,7 +168,7 @@ export function createBrowserPane(input: {
             const session = yield* client.session.get({ sessionID })
 
             // The agent can already read this workspace, so showing its files adds no access.
-            if (server.local) entry.fileRoots = [session.location.directory]
+            if (server.local) entry.fileRoots = input.fileRoots?.(binding) ?? [session.location.directory]
 
             const options = {
               location: { directory: session.location.directory, workspace: session.location.workspaceID },

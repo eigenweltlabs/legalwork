@@ -1,7 +1,8 @@
+import { nativeFixtureDirectory, removeNativeFixtureDirectory } from "../native-fixture-directory.test-support.js";
 import { expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { z } from "zod";
@@ -22,7 +23,7 @@ const approvalSchema = z.object({ items: z.array(z.object({ id: z.string(), sess
 test.skipIf(!binary)("compiled Code Mode fetch obeys production session policy with complete private transport and Stop", async () => {
   const childRoot = process.env.LEGALWORK_RAW_HTTP_ENGINE_FIXTURE;
   if (!childRoot) {
-    const root = await realpath(await mkdtemp(join(tmpdir(), "legalwork-native-raw-http-")));
+    const root = await realpath(await nativeFixtureDirectory(join(tmpdir(), "legalwork-native-raw-http-")));
     // Full-server stores live for the process. Reap their owner before deleting
     // the profile, matching the existing full-server fixtures on Windows.
     try {
@@ -33,9 +34,9 @@ test.skipIf(!binary)("compiled Code Mode fetch obeys production session policy w
       });
       expect(await child.exited).toBe(0);
     } finally {
-      await rm(root, { recursive: true, force: true });
+      await removeNativeFixtureDirectory(root);
     }
-    expect(existsSync(root)).toBe(false);
+    expect(existsSync(root)).toBe(Boolean(process.env.LEGALWORK_TEST_NATIVE_FIXTURE_PARENT));
     return;
   }
   const providerRequests: unknown[] = [], hits: Array<{ path: string; method: string; headers: Record<string, string>; bytes: number; sha256: string }> = [];
@@ -87,7 +88,7 @@ test.skipIf(!binary)("compiled Code Mode fetch obeys production session policy w
       config = { host: "127.0.0.1", port: 0, token: "http-fixture-client", hostToken: "http-fixture-host", configPath: join(root, "server.json"),
         workspaces: [{ id: "matter", name: "Matter", path: directory, workspaceType: "local", preset: "starter" }], authorizedRoots: [directory], agentSandboxEnabled: true,
         readOnly: false, approval: { mode: "manual", timeoutMs: 30000 }, corsOrigins: [], startedAt: 0, tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false };
-      await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permission: { "*": "allow", webfetch: "allow" } }));
+      await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permissions: [{ action: "*", resource: "*", effect: "allow" }, { action: "webfetch", resource: "*", effect: "allow" }] }));
       await writeSandboxDefault(config, { enabled: true, networkMode: "block" });
       server = await startServer(config);
       process.env.LEGALWORK_SERVER_URL = `http://127.0.0.1:${server.port}`; process.env.LEGALWORK_SERVER_TOKEN = config.token;
@@ -151,7 +152,7 @@ test.skipIf(!binary)("compiled Code Mode fetch obeys production session policy w
     const allowed = await run("allow", "allow", `const r=await fetch(${url("/allow")},{method:"POST",body:new URLSearchParams({a:"value space"})});return {status:r.status,result:await r.json()};`);
     expect(allowed.text).toContain("value+space"); expect(hits.at(-1)).toMatchObject({ path: "/allow", method: "POST" });
     formContentType = hits.at(-1)?.headers["content-type"];
-    await writeRuntimeOpencodeConfig(managedConfig, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permission: { "*": "allow", webfetch: "ask" } }));
+    await writeRuntimeOpencodeConfig(managedConfig, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permissions: [{ action: "*", resource: "*", effect: "allow" }, { action: "webfetch", resource: "*", effect: "ask" }] }));
     await run("permission-allow", "allow", `return await (await fetch(${url("/permission-allow")},{method:"POST",body:"r".repeat(40000)})).json();`, async session => {
       const pending = await waitForNativeFixture(approvals, items => items.some(item => item.sessionID === session.id), "full HTTP request review");
       const item = pending.find(item => item.sessionID === session.id); if (!item?.network) throw new Error("No complete request review");
@@ -160,15 +161,15 @@ test.skipIf(!binary)("compiled Code Mode fetch obeys production session policy w
       expect((await fetch(`${base}/approvals/${item.id}`, { method: "POST", headers: hostHeaders, body: JSON.stringify({ reply: "allow", workspaceId: "matter", sessionID: session.id }) })).ok).toBe(true);
     });
     expect(hits.at(-1)).toMatchObject({ path: "/permission-allow", bytes: 40000 });
-    await writeRuntimeOpencodeConfig(managedConfig, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permission: { "*": "allow", webfetch: "allow" } }));
+    await writeRuntimeOpencodeConfig(managedConfig, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permissions: [{ action: "*", resource: "*", effect: "allow" }, { action: "webfetch", resource: "*", effect: "allow" }] }));
     const redirect = await run("redirect", "allow", `const r=await fetch(${url("/redirect")},{method:"POST",headers:{authorization:"request-secret"},body:"preserved"});return {url:r.url,redirected:r.redirected,body:await r.json()};`);
     expect(redirect.text).toContain('redirected'); expect(hits.at(-2)).toMatchObject({ path: "/redirect", method: "POST", headers: { authorization: "request-secret" }, bytes: 9 });
     expect(hits.at(-1)).toMatchObject({ path: "/redirect-final", method: "POST", bytes: 9 }); expect(hits.at(-1)?.headers.authorization).toBeUndefined();
-    await writeRuntimeOpencodeConfig(managedConfig, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permission: { "*": "allow", webfetch: { "*": "allow", [`http://localhost:${target.port}/redirect-final`]: "deny" } } }));
+    await writeRuntimeOpencodeConfig(managedConfig, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permissions: [{ action: "*", resource: "*", effect: "allow" }, { action: "webfetch", resource: "*", effect: "allow" }, { action: "webfetch", resource: `http://localhost:${target.port}/redirect-final`, effect: "deny" }] }));
     const beforeRedirectDeny = hits.length;
     await run("redirect-denied", "allow", `return await(await fetch(${url("/redirect")})).text();`);
     expect(hits.slice(beforeRedirectDeny).map(hit => hit.path)).toEqual(["/redirect"]);
-    await writeRuntimeOpencodeConfig(managedConfig, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permission: { "*": "allow", webfetch: "allow" } }));
+    await writeRuntimeOpencodeConfig(managedConfig, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permissions: [{ action: "*", resource: "*", effect: "allow" }, { action: "webfetch", resource: "*", effect: "allow" }] }));
     const large = await run("large", "allow", `const r=await fetch(${url("/large")},{method:"POST",body:"q".repeat(${5 * 1024 * 1024 + 37})});const b=await r.bytes();return {length:b.length,last:b[b.length-1],status:r.status,header:r.headers.get("x-result")};`);
     expect(hits.at(-1)?.bytes).toBe(5 * 1024 * 1024 + 37);
     expect(JSON.parse(large.content[0])).toEqual({ length: responseBytes.length, last: 99, status: 422, header: "complete" });

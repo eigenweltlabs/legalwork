@@ -1,14 +1,14 @@
 # Skills and workflows
 
-Open in LegalWork: [Workflows](legalwork://app/workflows), [Skills](legalwork://app/settings/extensions/skills).
+Open in LegalWork: [Workflows](legalwork://app/workflows), [Skills](legalwork://app/settings/workflows/skills).
 
 ## Choose the right reusable resource
 
 A **workflow** is a saved set of instructions and supporting files for work you repeat. For example, an NDA-review workflow can describe the firm's preferred positions, require clause citations and use an attached playbook. Each run applies those instructions to the documents and facts you provide. The workflow is the reusable procedure; the chat and its output are one execution of it.
 
-A **skill** supplies instructions or a specialized capability the assistant can load when relevant. A **plugin** adds runtime capabilities and can include tools. An MCP connector connects a service. A **task** tracks a particular piece of work, while a **scheduled task** decides when the assistant should run. Creating a workflow does not automatically schedule it or connect it to client documents.
+A **skill** supplies instructions or a specialized capability the assistant can load when relevant. A **connection** gives the assistant access to a service. A **task** tracks a particular piece of work, while a **scheduled task** decides when the assistant should run. Creating a workflow does not automatically schedule it or connect it to client documents.
 
-Open **Workflows** in the main sidebar for the workflow library. Open **Settings > Integrations > Skills** for ordinary skills, and **Integrations > Plugins** for plugins. Older instructions mentioning separate top-level Settings > Workflows or Settings > Extensions can be misleading in this build.
+Open **Workflows** in the main sidebar. Use its **Workflows**, **Review prompts** and **Skills** tabs. Skills retain their search, import, creation, editing and team-sharing controls. Connections are managed under **Settings > Integrations**. Older links to Integrations > Skills open the Skills tab in Workflows.
 
 ## Create and edit
 
@@ -18,11 +18,17 @@ Open **Workflows** in the main sidebar for the workflow library. Open **Settings
 4. In **Files**, attach reusable templates, playbooks and examples. Keep matter-specific agreements in the project or run's inputs unless deliberately making them reusable.
 5. Select **Create** or **Save**. Resolve validation errors and the unsaved-changes prompt before leaving. Test the workflow on a representative document and inspect the result.
 
-Older libraries offer **Assistant workflow** and **Tabular workflow** types. Newer libraries create ordinary workflows and provide **Tabular Review Prompts** separately for reusable question sets. Existing tabular workflows can remain editable, but the native review implementation uses saved reviews rather than generating a standalone HTML grid. Follow the controls actually present in your library.
+Opening a saved workflow, moving the cursor, or switching between **Rich text**, **Source mode** and **Diff mode** keeps its **Saved** status. Editing the instructions or details marks it as **Unsaved changes**. Select **Save** to store those edits.
+
+Updating an existing project skill keeps it in its current library location, including a visible `Skills` folder in the connected document folder. New project skills use the local hidden library. Reusable corrections can extend an existing skill from either project location.
+
+Older libraries offer **Assistant workflow** and **Tabular workflow** types. Newer libraries create ordinary workflows and provide **Review prompts** separately for reusable question sets. Existing tabular workflows can remain editable, but the native review implementation uses saved reviews rather than generating a standalone HTML grid. Follow the controls actually present in your library.
 
 Attach the firm's templates, playbooks and examples as workflow resources. Resource files can be opened and edited in their supported editor; saving an edited resource updates the library copy. Generating a workflow from templates is available through the template generation action. Inspect the generated instructions before treating them as a firm standard.
 
 You can also ask the assistant to create or save a skill/workflow. The `legalwork_skill_create` tool adds it to the shared library and can attach resource files. `legalwork_skill_list` checks existing entries. Writing a loose `SKILL.md` into an arbitrary folder does not by itself add it to the library shown in the app. Accept the app's reload prompt when required for the engine to see updated skills or tools.
+
+When creating a skill, an invalid or already-used name shows a red hint below **Name**. Correct the name before selecting **Create skill**.
 
 ## Run a workflow
 
@@ -36,6 +42,8 @@ For document-by-document tables, read [Tabular Review](reviews.md). The native p
 
 Use the library's supported import controls for a skill/workflow package or repository, and export a workflow as a ZIP when you need its reusable files. The **Team** view and sharing actions are available when the firm's connection and permissions allow them. Sharing a library item is different from sharing the source matter documents. Inspect imported instructions and resource files before running them against a matter.
 
-Bundled skills, including `legalwork-help`, are installed centrally with the app and refreshed when the bundled version changes. New projects do not need their own copies. Save a separately named custom skill for firm-specific adaptations instead of relying on modifications to an app-managed copy.
+Bundled skills, including the Word/PDF helpers, research skills and `legalwork-help`, are installed once in local app storage and shared by all projects. Creating or opening a project does not install or update separate bundled copies inside it.
+
+Older project folders can still contain those copies. When LegalWork can verify that a whole skill package matches its originally shipped version, it uses the maintained shared version and leaves the old files untouched. A changed instruction, helper script, added resource or unverifiable package keeps its project-specific selection. Custom project skills remain available and can override a bundled skill with the same name. Explicitly editing a bundled skill creates a complete custom copy with its helper files; later app updates maintain the shared default. Create that custom copy before changing attached files. Your documents, attachments, editable working copies and scratch files stay in the project. Save a separately named custom skill for firm-specific adaptations when you want to keep both versions available.
 
 Related: [Tasks](tasks-intake.md), [Scheduled tasks](scheduled-tasks.md), [Tabular Review](reviews.md), [Integrations](integrations.md), [Files](files-documents.md).

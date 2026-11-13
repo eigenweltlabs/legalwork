@@ -273,6 +273,9 @@ test("the desktop loader uses the server vault module, config override and write
     assert.equal(loaded.lock, shared.vaultLock);
     assert.equal(loaded.vault.path, shared.oauthVaultPath({ configPath: process.env.LEGALWORK_SERVER_CONFIG }));
     assert.equal(loaded.vault.path, path.join(directory, "shared", "storage-oauth.vault"));
+    assert.equal(loaded.browserPasswords.vault, loaded.vault);
+    const browserPassword = await loaded.browserPasswords.save({ label: "Browser fixture", origin: "https://example.org", username: "user", password: "synthetic-browser-password" });
+    assert.equal((await loaded.browserPasswords.get(browserPassword.id)).password, "synthetic-browser-password");
     const grant = { accessToken: "fixture-access", refreshToken: "fixture-refresh", expiresAt: 123 };
     await loaded.vault.set("loader-test", grant);
     assert.deepEqual(await new shared.OAuthVault(loaded.vault.path).get("loader-test"), grant);

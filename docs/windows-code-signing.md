@@ -1,97 +1,127 @@
 # Windows code signing
 
-LegalWork's x64 and ARM64 NSIS installers are signed through SignPath from
-GitHub-hosted runners. The signed installer replaces the unsigned installer
-before regenerating its blockmap and updater SHA-512/size metadata. Release
-checksums are generated from the final signed bytes. This integration signs
-the installer; it does not separately sign the installed application,
-uninstaller, or bundled third-party binaries.
+The stable and alpha workflows sign Windows x64 and ARM64 builds with
+Microsoft Azure Artifact Signing. The CI-only
+[`electron-builder.azure.yml`](../apps/desktop/electron-builder.azure.yml)
+overlay uses Electron Builder 26's native `win.azureSignOptions` integration.
+It signs the app and selected bundled executables, the NSIS uninstaller, and
+the installer before blockmaps and updater metadata are generated. Signing
+is mandatory in CI; local packaging still uses `electron-builder.yml`.
 
-## SignPath account
+The packaged `opencode.exe` is excluded from re-signing. Its exact bytes are
+independently pinned by the engine distribution manifest and verified during
+packaging and startup. Authenticode changes those bytes, so re-signing it would
+invalidate the engine's integrity checks. This internal executable retains its
+producer's bytes and signing state; the app, installer, uninstaller and other
+selected bundled executables still use Azure signing. Signing the engine itself
+would need to happen before generating the distribution's hashes and provenance.
 
-- Organization: `LegalWork [OSS]`, ID `2fbfaf77-75ec-4655-a68c-ab1a8397d4f1`.
-- Project: `legalwork`, linked to `https://github.com/eigenweltlabs/legalwork.git`.
-- Trusted build system: `GitHub.com`.
-- Artifact configuration: `windows-installer`. Its XML is maintained in
-  [`scripts/release/signpath-windows-installer.xml`](../scripts/release/signpath-windows-installer.xml).
-  GitHub uploads a ZIP containing exactly one installer per architecture.
-  Requests supply the stamped package version and architecture. SignPath
-  requires that filename and PE product metadata match those values.
-- CI user: `CI builds`, a submitter for `test-signing` and `release-signing`.
-- The initial test certificate is self-signed. Its SHA-1 thumbprint is
-  `8D1A630DC86683F8A02A86594E8D3E6A3547A7D6`. It is never installed as a trusted root.
+## Company resources
 
-SignPath Foundation approved the project on October 8, 2026. The production
-certificate is pending. Their onboarding process requires a successful test
-and review of the GitHub integration before they issue it.
-
-## First integration test
-
-1. Confirm the CI user's notification address using the SignPath email.
-2. In SignPath, open **Users and Groups → CI builds**. If the generated API
-   token was not saved, regenerate it manually. Store it as the repository
-   Actions secret `SIGNPATH_API_TOKEN` in `eigenweltlabs/legalwork`. Do not put
-   it in a repository variable, source file, PR, or chat message.
-3. Set repository variable `SIGNPATH_ORGANIZATION_ID` to the organization ID above.
-4. Install the official [SignPath GitHub App](https://github.com/apps/signpath)
-   on `eigenweltlabs`, selecting only `legalwork`. The connector requires this
-   installation. Review its requested Actions/code read access and repository/
-   organization administration permissions before installing it.
-5. Dispatch **Alpha Channel (Windows x64 + ARM64)** with `signing_test=true`:
-
-   ```sh
-   gh workflow run alpha-windows-x64.yml --ref <integration-branch> -f signing_test=true
-   ```
-
-   This forces `test-signing` and `windows-installer`, verifies the expected
-   test signer, signature status, timestamp, and rejection of tampered bytes,
-   regenerates updater metadata,
-   and stores the resulting installers as `signpath-test-windows-x64` and
-   `signpath-test-windows-arm64` workflow artifacts for seven days. It does not
-   create a GitHub release or change the alpha updater pointer.
-6. Give SignPath support the successful GitHub run and signing-request links
-   so they can verify origin metadata and issue the production certificate.
-
-Do not distribute test-signed installers as trusted releases. They do not
-remove Windows certificate trust warnings.
-
-## Enable production signing
-
-After SignPath imports the production certificate and the `release-signing`
-policy is valid, configure these repository Actions variables:
-
-| Variable | Value |
+| Setting | Value |
 | --- | --- |
-| `SIGNPATH_ORGANIZATION_ID` | `2fbfaf77-75ec-4655-a68c-ab1a8397d4f1` |
-| `SIGNPATH_SIGNING_POLICY_SLUG` | `release-signing` |
-| `SIGNPATH_ARTIFACT_CONFIGURATION_SLUG` | `windows-installer` |
-| `SIGNPATH_PROJECT_SLUG` | `legalwork` |
+| Tenant | `e2fd8f91-6a4c-4705-a16b-10383242a69a` |
+| Subscription | `85e54d85-5b74-472a-85d3-84eae7fd0ffc` |
+| Resource group | `rg-legalwork-signing` |
+| Signing account | `eigenweltlabslegalwork` |
+| Certificate profile | `legalwork` (PublicTrust) |
+| Endpoint | `https://neu.codesigning.azure.net/` |
+| Publisher | `Eigenwelt Labs UG (haftungsbeschränkt)` |
+| CI application | `LegalWork GitHub Signing` |
+| CI client ID | `2691255f-2047-4b7c-9202-d09b43951b6f` |
 
-Set the project slug last: it activates signing in both stable and alpha
-workflows. Prefer variables for these public identifiers; existing secrets
-of the same name take precedence. Keep the API token in `SIGNPATH_API_TOKEN`.
-Once enabled, incomplete configuration or signing failures stop publication.
-Public builds require the `release-signing` policy and a Windows-trusted,
-timestamped Authenticode signature. Test signing is restricted to the explicit
-test mode.
+These are public resource identifiers, not login credentials.
 
-The production policy requires GitHub origin verification and one approval
-from Johann Frederik Machemer. Approve production signing requests in
-SignPath; the workflow waits up to one hour for the signed result.
-GitHub draft-release publication remains a separate release approval step.
+## Authentication and automatic signing
 
-## Verification
+The GitHub environment **windows-signing** holds `AZURE_CLIENT_ID` and
+`AZURE_TENANT_ID`. `azure/login@v2` requests a GitHub OIDC token immediately
+after the build and before packaging. The signing module uses the resulting
+Azure CLI login. No subscription selection is needed for the signing data
+endpoint; `AZURE_SUBSCRIPTION_ID` is retained in the environment for account
+administration but is not required by packaging.
+
+Azure trusts only this federation:
+
+- Issuer: `https://token.actions.githubusercontent.com`
+- Subject: `repo:eigenweltlabs/legalwork:environment:windows-signing`
+- Audience: `api://AzureADTokenExchange`
+
+The service principal has **Artifact Signing Certificate Profile Signer**
+scoped to `eigenweltlabslegalwork/certificateProfiles/legalwork`, without
+subscription-wide administration or identity-validation permissions. The
+GitHub environment allows only the `dev` branch and `v*` tags. It has no
+required reviewer or waiting period, as signing is automatic. Changes to
+these environment rules or workflows should receive maintainer review.
+
+Windows signing jobs alone receive `id-token: write`. Stable macOS and Linux
+packaging use a separate job without the signing environment. SignPath
+configuration and API tokens are no longer used by these workflows; the
+legacy SignPath scripts remain for historical builds.
+
+## Verification and the first real signing test
+
+Local checks:
 
 ```sh
-node --test scripts/release/*.test.mjs
-actionlint -shellcheck= .github/workflows/alpha-windows-x64.yml .github/workflows/release-macos-aarch64.yml
+node --test scripts/release/*.test.mjs scripts/ci/*.test.mjs
+actionlint -shellcheck= .github/workflows/alpha-windows-x64.yml .github/workflows/release-macos-aarch64.yml .github/workflows/ci-tests.yml
 ```
 
-The Authenticode checks run on Windows in CI. To repeat them there:
+`windows-signing.test.mjs` validates the overlay with the installed packager,
+checks the workflow signing/publication gates, and tests the verifier with
+substituted Authenticode results. The verifier tests require PowerShell;
+they run on Windows PR CI, or locally with `PWSH_PATH=/path/to/pwsh`.
+These unit tests do not prove Azure can sign an actual installer.
+
+A PR branch cannot use the signing environment. After the change is reviewed
+and merged into `dev`, run a real signing test without publication:
+
+```sh
+gh workflow run alpha-windows-x64.yml --ref dev -f signing_test=true
+```
+
+This builds both architectures, uses the production public-trust profile,
+checks the real Windows Authenticode results and packaged startup, and stores
+`azure-signing-test-windows-x64` and `azure-signing-test-windows-arm64`
+workflow artifacts for seven days. It creates no GitHub release and does not
+change the updater feed. Do not create a `v*` tag to test signing; that starts
+the stable release workflow. A merge to `dev` also triggers the normal alpha
+workflow, which retains its existing automatic publication behavior.
+
+The real verifier requires exactly one architecture-specific installer and
+checks both it and the unpacked `LegalWork.exe` for:
+
+- Windows signature status `Valid`;
+- an Authenticode timestamp;
+- certificate common name `Eigenwelt Labs UG (haftungsbeschränkt)`;
+- rejection of modified installer bytes with `HashMismatch`.
+
+It does not pin the short-lived certificate thumbprint, which rotates.
+To repeat verification on a Windows machine after downloading the build:
 
 ```powershell
-./scripts/release/verify-windows-signature.ps1 -ArtifactDirectory <signed-artifact-directory>
+./scripts/release/verify-windows-signature.ps1 -ArtifactDirectory apps/desktop/dist-electron -AppExecutable apps/desktop/dist-electron/win-unpacked/LegalWork.exe
 ```
 
-References: [SignPath GitHub integration](https://docs.signpath.io/trusted-build-systems/github),
-[artifact configuration syntax](https://docs.signpath.io/artifact-configuration/syntax).
+For ARM64, use `win-arm64-unpacked/LegalWork.exe`. Before the first public
+rollout, install the matching smoke-test installer on a clean Windows machine,
+confirm the publisher in installer properties/UAC, launch LegalWork and check
+uninstallation. The unpacked app is checked on the runner and is not included
+in the downloadable smoke-test artifact. The installed uninstaller is signed
+by Electron Builder but is not separately extracted for the CI verifier.
+
+Signing establishes publisher identity; Microsoft Defender SmartScreen can
+still show reputation warnings for new downloads.
+
+## Publication
+
+A failed signing or signature check blocks asset upload for that architecture.
+Stable updater-manifest publication and the final release-ready job also
+require the Windows signing matrix to succeed. Stable releases remain drafts
+for a separate manual publication. Alpha publication remains automatic unless
+`signing_test=true` is selected.
+
+References: [Artifact Signing GitHub OIDC setup](https://github.com/Azure/artifact-signing-action/blob/main/docs/OIDC.md),
+[Artifact Signing roles](https://learn.microsoft.com/en-us/azure/artifact-signing/tutorial-assign-roles),
+[Electron Builder Windows signing](https://github.com/electron-userland/electron-builder/blob/v26.16.1/packages/app-builder-lib/src/codeSign/windowsSignAzureManager.ts).

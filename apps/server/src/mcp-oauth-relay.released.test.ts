@@ -28,7 +28,7 @@ test.skipIf(!nativeMcpBinary)("released native OAuth accepts only its owner's ex
     expect(JSON.stringify(started)).not.toContain(connection.password);
     expect((await call("status", identity, config.token, "project", true)).status).toBe(403);
     expect((await call("status", identity, config.token, "other")).status).toBe(403);
-    const saved = await fetch(`http://127.0.0.1:${server.port}/workspace/project/config`, { method: "PATCH", headers: { authorization: `Bearer ${config.token}`, "content-type": "application/json" }, body: JSON.stringify({ opencode: { permission: { legalwork_calendar_read: "ask" } } }) });
+    const saved = await fetch(`http://127.0.0.1:${server.port}/workspace/project/config`, { method: "PATCH", headers: { authorization: `Bearer ${config.token}`, "content-type": "application/json" }, body: JSON.stringify({ opencode: { permissions: [{ action: "legalwork_calendar_read", resource: "*", effect: "ask" }] } }) });
     expect(saved.status).toBe(200);
     await writeLegalworkRuntimeConfigFile(config, "project");
     await waitForNativeFixture(async () => engine.client().config.get({ location: engine.location }), entries => entries.some(entry => entry.type === "document" && entry.info.permissions?.some(rule => rule.action === "legalwork_calendar_read" && rule.effect === "ask")), "saved unrelated permission");

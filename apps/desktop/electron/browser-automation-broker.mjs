@@ -29,7 +29,7 @@ async function readBody(request, maximum = 64000) {
 }
 
 /** A capability URL grants access to one explicitly registered browser tab. */
-export function createBrowserAutomationBroker({ authorize, capture = createBrowserCaptureQueue() }) {
+export function createBrowserAutomationBroker({ authorize, capture = createBrowserCaptureQueue(), captured = undefined }) {
   if (typeof authorize !== "function") throw new Error("Browser automation requires a network policy check.");
   const grants = new Map();
   const websocketServer = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 });
@@ -92,6 +92,7 @@ export function createBrowserAutomationBroker({ authorize, capture = createBrows
     // Cancelling a caller does not cancel Chromium's screenshot or its temporary
     // viewport. Keep the page lease until that native operation actually settles.
     const result = method === "Page.captureScreenshot" ? await operation() : await browserAbortable(operation, signal);
+    if (method === "Page.captureScreenshot" && result.data) captured?.(grant.webContents, Buffer.from(result.data, "base64"));
     return method === "Accessibility.getFullAXTree" ? normalizeAccessibilityTree(result) : result;
   }
 
@@ -112,13 +113,10 @@ export function createBrowserAutomationBroker({ authorize, capture = createBrows
     return capture(grant.webContents, stopping, active => withDebugger(grant, async send => {
       active.throwIfAborted();
       const cleanup = prepare?.();
-      const restoreOnStop = () => cleanup?.();
-      active.addEventListener("abort", restoreOnStop, { once: true });
       try {
         active.throwIfAborted();
         return await action(send);
       } finally {
-        active.removeEventListener("abort", restoreOnStop);
         cleanup?.();
       }
     }, active, activity));
@@ -131,7 +129,7 @@ export function createBrowserAutomationBroker({ authorize, capture = createBrows
     if (!resolved) { response.writeHead(403).end(); return; }
     const { grant, route } = resolved;
     const callingSession = request.headers["x-legalwork-browser-session"];
-    if ((callingSession !== undefined && callingSession !== grant.context?.sessionId) || (["capture", "upload", "download"].includes(route) && callingSession !== grant.context?.sessionId)) {
+    if ((callingSession !== undefined && callingSession !== grant.context?.sessionId) || (["capture", "upload", "download", "passwords", "fill-password"].includes(route) && callingSession !== grant.context?.sessionId)) {
       response.writeHead(403).end(); return;
     }
     const abort = new AbortController();
@@ -140,7 +138,18 @@ export function createBrowserAutomationBroker({ authorize, capture = createBrows
     try { await authorizeGrant(grant); }
     catch (error) { response.writeHead(403).end(JSON.stringify({ ok: false, error: error.message })); return; }
     try {
-      if (request.method === "GET" && route === "json/list") {
+      if (request.method === "GET" && route === "passwords") {
+        if (!grant.passwords) throw new Error("Browser passwords require the local desktop browser.");
+        response.end(JSON.stringify(await grant.passwords.list(AbortSignal.any([abort.signal, grant.abort.signal]))));
+      } else if (request.method === "POST" && route === "fill-password") {
+        if (!grant.passwords) throw new Error("Browser passwords require the local desktop browser.");
+        if (grant.busy) throw new Error("A browser mutation is already running in this tab.");
+        grant.busy = true;
+        try {
+          const body = await readBody(request);
+          response.end(JSON.stringify(await grant.passwords.fill(body, AbortSignal.any([abort.signal, grant.abort.signal]))));
+        } finally { grant.busy = false; }
+      } else if (request.method === "GET" && route === "json/list") {
         response.end(JSON.stringify([{
           id: grant.targetId, type: "page", title: grant.webContents.getTitle(), url: grant.webContents.getURL(),
           webSocketDebuggerUrl: `ws://${authority}/${grant.token}/devtools/page/${grant.targetId}`,
@@ -289,13 +298,13 @@ export function createBrowserAutomationBroker({ authorize, capture = createBrows
   }
 
   return {
-    async grant(webContents, getDownloads = () => [], context, onActivity, prepareCapture) {
+    async grant(webContents, getDownloads = () => [], context, onActivity, prepareCapture, passwords) {
       await authorize(context);
       await start();
       if (closed || webContents.isDestroyed()) throw new Error("Browser tab is closed");
       const token = randomBytes(32).toString("hex");
       const grant = {
-        token, targetId: String(webContents.id), webContents, getDownloads, context, onActivity, prepareCapture, uploads: new Set(),
+        token, targetId: String(webContents.id), webContents, getDownloads, context, onActivity, prepareCapture, passwords, uploads: new Set(),
         clients: new Set(), users: 0, busy: false, checking: false, abort: new AbortController(), onDestroyed: () => revoke(grant),
       };
       grants.set(token, grant);

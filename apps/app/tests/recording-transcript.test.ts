@@ -1,4 +1,5 @@
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, beforeEach, expect, test } from "bun:test";
+import DOMPurify from "dompurify";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -21,6 +22,16 @@ Object.defineProperty(events, "localStorage", { value: storage });
 Object.defineProperty(events, "sessionStorage", { value: storage });
 const initialState = { ...useRecorderStore.getInitialState() };
 const setRenderState = (state: Partial<typeof initialState>) => Object.assign(useRecorderStore.getInitialState(), state);
+// Bun has no browser DOM. Follow the Markdown renderer tests' scoped stand-in;
+// these assertions cover the summary structure, not browser sanitization.
+const previousSanitize = Object.getOwnPropertyDescriptor(DOMPurify, "sanitize");
+beforeAll(() => Object.defineProperty(DOMPurify, "sanitize", {
+  configurable: true, value: (html: string) => html,
+}));
+afterAll(() => {
+  if (previousSanitize) Object.defineProperty(DOMPurify, "sanitize", previousSanitize);
+  else Reflect.deleteProperty(DOMPurify, "sanitize");
+});
 beforeEach(() => {
   previousWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
   previousStorage = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
@@ -63,6 +74,66 @@ const render = (detail?: AudioRecordingDetail, surface: "panel" | "inline" | "pa
         : React.createElement(RecordingTranscriptPanel, { sessionId: "session", tab: recordingTranscriptTab(recording), onClose: () => {} })));
   } finally { client.clear(); }
 };
+
+test("saved cloud transcripts offer Summarize even when automatic processing is disabled", () => {
+  setRenderState({ meetingNotes: { enabled: false, model: "", instructions: "" } });
+  const detail = { meta: { ...recording, status: "complete", transcriptionSource: "cloud", modelId: "gemini-transcribe-live-eu" },
+    segments: [segment("saved", "Review the contract.", 0)] } satisfies AudioRecordingDetail;
+  for (const surface of ["panel", "inline", "page"] satisfies Array<"panel" | "inline" | "page">) {
+    const html = render(detail, surface);
+    const button = html.match(/<button[^>]*aria-label="Summarize"[^>]*>/)?.[0];
+    expect(button).toBeDefined();
+    expect(button).not.toContain('disabled=""');
+  }
+  expect(render({ ...detail, meta: { ...detail.meta, summary: "Existing summary" } })).not.toContain("Summarize");
+  expect(render({ ...detail, meta: { ...detail.meta, transcriptionSource: "local" } })).not.toContain("Summarize");
+  expect(render({ ...detail, segments: [] })).not.toContain("Summarize");
+});
+
+test("caption reconnection is visible in every transcript surface and clears when recovered", () => {
+  setRenderState({ recording, transcriptionReconnecting: true });
+  for (const surface of ["panel", "inline", "page"] satisfies Array<"panel" | "inline" | "page">) {
+    expect(render(undefined, surface)).toContain("Audio is still recording. Reconnecting live transcription...");
+  }
+  setRenderState({ transcriptionReconnecting: false });
+  expect(render()).not.toContain("Reconnecting live transcription");
+  setRenderState({ recording: null });
+  expect(render({ meta: { ...recording, status: "complete", error: "Some speech may be missing from the transcript." }, segments: [] }))
+    .toContain("Some speech may be missing from the transcript.");
+});
+
+test("Summarize is disabled while processing is in progress", () => {
+  for (const processing of [{ summaryProcessing: true }, { speakerProcessing: true }]) {
+    const html = render({ meta: { ...recording, status: "complete", transcriptionSource: "cloud", ...processing }, segments: [segment("saved", "Words", 0)] });
+    const button = html.match(/<button[^>]*aria-label="Summarize"[^>]*>/)?.[0];
+    expect(button).toContain('disabled=""');
+  }
+});
+
+test("an interrupted cloud recording exposes an enabled summary retry and its connection error", () => {
+  const detail = { meta: { ...recording, status: "error", transcriptionSource: "cloud", modelId: "gemini-transcribe-live-eu",
+    speakerProcessing: false, summaryProcessing: false, speakerError: "fetch failed",
+    summaryError: "LegalWork is disconnected. Open Settings to reconnect, then try again." },
+    segments: [segment("saved", "Saved before the interruption.", 0)] } satisfies AudioRecordingDetail;
+  for (const surface of ["panel", "inline", "page"] satisfies Array<"panel" | "inline" | "page">) {
+    const html = render(detail, surface);
+    const button = html.match(/<button[^>]*aria-label="Retry summary"[^>]*>/)?.[0];
+    expect(button).toBeDefined();
+    expect(button).not.toContain('disabled=""');
+    expect(html).toContain('role="alert">LegalWork is disconnected.');
+  }
+});
+
+test("speaker detection and summary generation are shown as successive stages", () => {
+  const detail = { meta: { ...recording, status: "complete", transcriptionSource: "cloud", summaryProcessing: true },
+    segments: [segment("saved", "Words", 0)] } satisfies AudioRecordingDetail;
+  const waiting = render({ ...detail, meta: { ...detail.meta, speakerProcessing: true } });
+  expect(waiting).not.toContain("Preparing meeting notes");
+  expect(waiting).not.toContain("Summarizing");
+  const generating = render({ ...detail, meta: { ...detail.meta, speakerProcessing: false } });
+  expect(generating).toContain("Preparing meeting notes");
+  expect(generating).toContain("Summarizing");
+});
 
 test("speaker turns group consecutive speech without changing input segments", () => {
   const segments = [segment("a", "First", 0), segment("b", "continued", 0), segment("c", "Reply", 1), segment("d", "Again", 0)];
@@ -248,4 +319,34 @@ test("a split recording shows both simultaneous input labels in chronological or
   expect(html).toContain("Microphone");
   expect(html).toContain("System audio");
   expect(html.indexOf("Local words")).toBeLessThan(html.indexOf("Remote words"));
+});
+
+test("long monologues and pauses start readable new transcript turns", () => {
+  const words = Array.from({ length: 20 }, (_, i) => ({ ...segment(String(i), "A complete sentence. ".repeat(5), 0), startMs: i * 2000, endMs: (i + 1) * 2000 }));
+  const turns = transcriptTurns(words, null);
+  expect(turns.length).toBeGreaterThan(1);
+  expect(turns.every(turn => turn.segments.reduce((n, part) => n + part.text.length, 0) <= 600)).toBe(true);
+  expect(turns.flatMap(turn => turn.segments)).toEqual(words);
+  expect(transcriptTurns([words[0], { ...words[1], startMs: 10000, endMs: 12000 }], null)).toHaveLength(2);
+});
+
+test("saved meeting summaries render separately from the verbatim transcript", () => {
+  const html = render({ meta: { ...recording, status: "complete", summary: "Review the draft by Friday." }, segments: [segment("saved", "Um, Friday would work.", 0)] });
+  expect(html).toContain("Summary");
+  expect(html).toContain("Review the draft by Friday.");
+  expect(html).toContain("Um, Friday would work.");
+  expect(html.indexOf("Review the draft")).toBeLessThan(html.indexOf("Um, Friday"));
+});
+
+test("meeting notes render takeaways, actions and summary paragraphs as structured Markdown", () => {
+  const summary = "### Main takeaways\n\n- **Decision:** proceed with the pilot.\n\n### Action items\n\n- Chris will send the draft by Friday.\n\n### Summary\n\nThe team agreed to evaluate the pilot.\n\nResults will inform the next review.";
+  const html = render({ meta: { ...recording, status: "complete", summary }, segments: [segment("saved", "Let's proceed.", 0)] });
+  expect(html).toMatch(/<h3[^>]*>Main takeaways<\/h3>/);
+  expect(html).toMatch(/<h3[^>]*>Action items<\/h3>/);
+  expect(html).toMatch(/<h3[^>]*>Summary<\/h3>/);
+  expect(html).toContain("<strong>Decision:</strong>");
+  expect(html).toMatch(/<li[^>]*>[\s\S]*Chris will send the draft by Friday\./);
+  expect(html).toMatch(/<p[^>]*>The team agreed to evaluate the pilot\.<\/p>/);
+  expect(html).toMatch(/<p[^>]*>Results will inform the next review\.<\/p>/);
+  expect(html).not.toContain("### Main takeaways");
 });

@@ -1,0 +1,3 @@
+/* Vendor :root palettes must not override the app's light/dark colors when this
+ * lazy-loaded editor opens. Keep its styles below the app's theme and overrides. */
+@import "@mdxeditor/editor/style.css" layer(markdown-editor);

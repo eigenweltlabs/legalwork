@@ -1,10 +1,11 @@
 /** @jsxImportSource react */
-import { useState } from "react";
+import { useId, useState } from "react";
 import { CircleAlert, Info } from "lucide-react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { ConfirmModal } from "../../../design-system/modals/confirm-modal";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Progress, ProgressLabel, ProgressValue } from "@/components/ui/progress";
 import {
   Select,
@@ -15,7 +16,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { supportBundleCollect } from "../../../../app/lib/desktop";
+import { supportBundleCollect, technicalSupportBundleCollect } from "../../../../app/lib/desktop";
 import { formatBytes, formatRelativeTime, isDesktopRuntime } from "../../../../app/utils";
 import { t } from "../../../../i18n";
 import type { ReleaseChannel } from "../../../../app/types";
@@ -67,15 +68,20 @@ function UpdateDownloadProgress(props: UpdateDownloadProgressProps) {
  * Saves the support bundle (same as Help > Collect Support Logs...). Lives in
  * Settings because the native menu bar is hidden on Windows.
  */
-function SupportLogsSection() {
+function SupportLogsSection({ technical = false }: { technical?: boolean }) {
+  const daysId = useId();
+  const [days, setDays] = useState("7");
+  const selectedDays = Number(days);
+  const validDays = Number.isInteger(selectedDays) && selectedDays >= 1 && selectedDays <= 365;
   const [state, setState] = useState<
     { status: "idle" | "collecting" | "failed" } | { status: "saved"; path: string }
   >({ status: "idle" });
 
   const collect = async () => {
+    if (technical && !validDays) return;
     setState({ status: "collecting" });
     try {
-      const { path } = await supportBundleCollect();
+      const { path } = await (technical ? technicalSupportBundleCollect({ days: selectedDays }) : supportBundleCollect());
       // No path: the save dialog was canceled.
       setState(path ? { status: "saved", path } : { status: "idle" });
     } catch {
@@ -87,15 +93,24 @@ function SupportLogsSection() {
     <LayoutSection>
       <LayoutSectionItem>
         <LayoutSectionItemHeader>
-          <LayoutSectionItemTitle>{t("updates.support_logs_title")}</LayoutSectionItemTitle>
-          <LayoutSectionItemDescription>{t("updates.support_logs_desc")}</LayoutSectionItemDescription>
+          <LayoutSectionItemTitle>{t(technical ? "updates.technical_diagnostics_title" : "updates.support_logs_title")}</LayoutSectionItemTitle>
+          <LayoutSectionItemDescription>{t(technical ? "updates.technical_diagnostics_desc" : "updates.support_logs_desc")}</LayoutSectionItemDescription>
           <LayoutSectionItemHeaderActions>
-            <Button variant="outline" onClick={() => void collect()} disabled={state.status === "collecting"}>
+            {technical ? (
+              <div className="flex items-center gap-2">
+                <label htmlFor={daysId} className="text-sm text-muted-foreground">{t("updates.technical_diagnostics_days")}</label>
+                <Input id={daysId} type="number" min={1} max={365} step={1} value={days}
+                  onChange={(event) => setDays(event.target.value)} disabled={state.status === "collecting"}
+                  aria-invalid={!validDays} aria-describedby={!validDays ? `${daysId}-error` : undefined} className="w-20" />
+              </div>
+            ) : null}
+            <Button variant="outline" onClick={() => void collect()} disabled={state.status === "collecting" || (technical && !validDays)}>
               {state.status === "collecting" ? <Spinner className="size-4" /> : null}
-              {t("boot.collect_logs")}
+              {t(technical ? "updates.technical_diagnostics_export" : "boot.collect_logs")}
             </Button>
           </LayoutSectionItemHeaderActions>
         </LayoutSectionItemHeader>
+        {technical && !validDays ? <p id={`${daysId}-error`} className="text-sm text-destructive">{t("updates.technical_diagnostics_days_invalid")}</p> : null}
         {state.status === "saved" ? (
           <Alert>
             <Info />
@@ -358,6 +373,7 @@ export function UpdatesView(props: UpdatesViewProps) {
       )}
 
       {isDesktopRuntime() ? <SupportLogsSection /> : null}
+      {isDesktopRuntime() ? <SupportLogsSection technical /> : null}
     </LayoutStack>
   );
 }

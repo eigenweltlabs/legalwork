@@ -1,3 +1,5 @@
+import type { ViewSummary } from "@legalwork/types/views";
+import { ViewRenameDialog } from "../../views/view-rename-dialog";
 import { useId, useRef, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { FolderOpen, FolderPlus, Loader2, Pencil, RefreshCw, Trash2, Upload } from "lucide-react";
@@ -9,18 +11,20 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { t } from "@/i18n";
 import { isDesktopRuntime, isWindowsPlatform } from "@/app/utils";
-import { joinDesktopPath, revealDesktopItemInDir } from "@/app/lib/desktop";
+import { revealDesktopItemInDir } from "@/app/lib/desktop";
+import { resolveLocalFilePath } from "@/app/lib/local-file-path.impl.js";
 import { toast } from "@/components/ui/sonner";
 import { useProjectFileImport } from "../../workspace/use-project-file-import";
 import { useProjectFiles } from "../../workspace/project-file-context";
 
-export function WorkspaceEntryMenu({ client, workspaceId, workspaceRoot, isRemoteWorkspace, folderPath, entry, children, className, onOpen, onRefresh, toolbar, contextOnly }: {
+export function WorkspaceEntryMenu({ client, workspaceId, workspaceRoot, isRemoteWorkspace, folderPath, entry, view, children, className, onOpen, onRefresh, toolbar, contextOnly }: {
   client: LegalworkServerClient | null;
   workspaceId: string | null;
   workspaceRoot: string;
   isRemoteWorkspace: boolean;
   folderPath: string;
   entry?: LegalworkWorkspaceDirectoryEntry;
+  view?: ViewSummary;
   children?: ReactNode;
   className?: string;
   onOpen?: () => void;
@@ -52,14 +56,14 @@ export function WorkspaceEntryMenu({ client, workspaceId, workspaceRoot, isRemot
   };
 
   return <>
-    <FileEntryActions name={entry?.name ?? t("workspace_files.files")} className={className} toolbar={toolbar} contextOnly={contextOnly}
+    <FileEntryActions name={view?.title ?? entry?.name ?? t("workspace_files.files")} className={className} toolbar={toolbar} contextOnly={contextOnly}
       source={source ?? undefined} onOpen={entry?.kind === "file" ? onOpen : undefined}
       file={entry?.kind === "file" && client && workspaceId ? { client, workspaceId, path: entry.path, isRemoteWorkspace } : undefined}
       pin={entry?.kind === "file" && workspaceId ? { workspaceId, source: "local", path: entry.path, name: entry.name } : undefined}
       actions={[
         ...(onOpen ? [{ label: t("storage.open"), icon: <FolderOpen />, onClick: onOpen }] : []),
         ...(!isRemoteWorkspace && isDesktopRuntime() ? [{ label: t(isWindowsPlatform() ? "workspace_list.reveal_explorer" : "workspace_list.reveal_finder"), icon: <FolderOpen />, disabled: !workspaceRoot, onClick: () => {
-          void joinDesktopPath(workspaceRoot, ...(entry?.path ?? folderPath).split("/").filter(Boolean)).then(revealDesktopItemInDir).catch(() => toast.error(t("workspace_files.open_failed_title")));
+          void revealDesktopItemInDir(resolveLocalFilePath(workspaceRoot, entry?.path ?? folderPath)).catch(() => toast.error(t("workspace_files.open_failed_title")));
         } }] : []),
         ...(isFolder ? [{ label: t("workspace_files.refresh_folder"), icon: <RefreshCw />, onClick: () => { void queryClient.invalidateQueries({ queryKey: ["workspace-files", workspaceId, targetFolder] }); onRefresh(); } }] : []),
         "separator",
@@ -75,7 +79,8 @@ export function WorkspaceEntryMenu({ client, workspaceId, workspaceRoot, isRemot
       event.target.value = "";
       void copyFiles(files, targetFolder);
     }} />}
-    <Dialog open={action !== null} onOpenChange={(open) => { if (!busy && !open) setAction(null); }}>
+    {action === "rename" && view && client && <ViewRenameDialog client={client} view={view} onClose={() => { setAction(null); onRefresh(); }} />}
+    <Dialog open={action !== null && !(action === "rename" && view)} onOpenChange={(open) => { if (!busy && !open) setAction(null); }}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{label}</DialogTitle>

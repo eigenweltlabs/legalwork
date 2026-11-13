@@ -12,12 +12,14 @@ This manual is bundled with the app. Ask the assistant a question about LegalWor
 | How do I get started? | [Getting started](getting-started.md) |
 | What does each screen do, and where is it? | [Screen map](screens.md) |
 | How do folders, workspaces, chats and connected services work? | [Workspaces and chats](workspaces-chats.md) |
+| How do I manage clients, matters and the Back Office data model? | [Back Office](back-office.md) |
 | How do I create a matter, link folders, set project details or share it? | [Projects and sharing](projects-sharing.md) |
 | How do I connect a model, change reasoning, or use Fusion? | [Models and Fusion](models-fusion.md) |
 | How do I open, edit, redline or export files? | [Files and document editors](files-documents.md) |
 | How do I connect cloud storage or a network share? | [Connected storage](connected-storage.md) |
 | How do I create, import, edit or share a reusable workflow? | [Skills and workflows](skills-workflows.md) |
 | How do connectors, plugins, browser tools and Computer Use work? | [Integrations](integrations.md) |
+| How do I use Austrian RIS without an account? | [Austrian RIS](integrations.md#austrian-ris) |
 | How do I add Gmail or Outlook email? | [Email setup](email.md) |
 | Where is my work list or intake submission? | [Tasks and intake](tasks-intake.md) |
 | How do Calendar, deadlines, reminders and subscriptions work? | [Calendar](calendar.md) |

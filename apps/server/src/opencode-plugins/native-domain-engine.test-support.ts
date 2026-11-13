@@ -9,13 +9,15 @@ import { buildNativePluginFixture } from "./native-plugin-build.test-support.js"
 import { ensureWikiAgentToken } from "../wiki/agent-access.js";
 
 /** A real released host and real LegalWork domain routes. Direct tool exposure
- * keeps these permission/resource scenarios independent of Code Mode, whose
- * structured batching contract has a separate released-host test. */
+ * defaults on for permission/resource scenarios; disable it to check normal
+ * Code Mode exposure against the released host. */
 export async function nativeDomainEngine(options: {
   binary: string;
   plugins: string[];
   modelURL: string;
   configuration?: Record<string, unknown>;
+  /** Keep normal Code Mode exposure when false; domain-only fixtures default to direct tools. */
+  directTools?: boolean;
   setup?: (config: ServerConfig, root: string) => Promise<void>;
   /** Exercise the managed session-origin credential rather than bearer-only tools. */
   scopedRuntime?: boolean;
@@ -25,7 +27,9 @@ export async function nativeDomainEngine(options: {
   if (options.evidenceDirectory) await mkdir(options.evidenceDirectory, { recursive: true, mode: 0o700 });
   const root = await realpath(await mkdtemp(join(options.evidenceDirectory ?? tmpdir(), "legalwork-native-domain-")));
   const previousConfig = process.env.XDG_CONFIG_HOME;
+  const previousDb = process.env.OPENCODE_DB;
   process.env.XDG_CONFIG_HOME = join(root, "library-config");
+  process.env.OPENCODE_DB = join(root, "engine.db");
   for (const name of ["project", "home", "config", "data", "state", "cache", "plugins", "library-config"]) await mkdir(join(root, name));
   const directory = join(root, "project"), location = { directory };
   const config: ServerConfig = {
@@ -39,6 +43,7 @@ export async function nativeDomainEngine(options: {
   const close = async () => {
     await engine?.close(); await server?.stop();
     if (previousConfig === undefined) delete process.env.XDG_CONFIG_HOME; else process.env.XDG_CONFIG_HOME = previousConfig;
+    if (previousDb === undefined) delete process.env.OPENCODE_DB; else process.env.OPENCODE_DB = previousDb;
     if (!options.evidenceDirectory) await rm(root, { recursive: true, force: true });
   };
   try {
@@ -50,7 +55,7 @@ export async function nativeDomainEngine(options: {
       await buildNativePluginFixture(source, join(directory, "index.js")); plugins.push(directory);
     }
     const probe = join(root, "plugins", "probe"); await mkdir(probe);
-    await writeFile(join(probe, "index.js"), `import {Plugin} from "@opencode/plugin";export default Plugin.define({id:"legalwork.domain-fixture",async setup(ctx){await ctx.tool.transform(editor=>{for(const item of editor.list())editor.update(item.id,tool=>{tool.options={...tool.options,codemode:false}})});await ctx.rpc.register({id:"legalwork.domain-fixture",methods:{tools:{input:{type:"object"},output:{type:"array",items:{type:"string"}}}},events:{}},{async tools(){return (await ctx.tool.list()).map(tool=>tool.id)}})}});`);
+    await writeFile(join(probe, "index.js"), `import {Plugin} from "@opencode/plugin";export default Plugin.define({id:"legalwork.domain-fixture",async setup(ctx){if(${options.directTools !== false})await ctx.tool.transform(editor=>{for(const item of editor.list())editor.update(item.id,tool=>{tool.options={...tool.options,codemode:false}})});await ctx.rpc.register({id:"legalwork.domain-fixture",methods:{tools:{input:{type:"object"},output:{type:"array",items:{type:"string"}}}},events:{}},{async tools(){return (await ctx.tool.list()).map(tool=>tool.id)}})}});`);
     plugins.push(probe);
     engine = await createManagedOpencodeServer({ bin: options.binary, cwd: directory, timeoutMs: 30_000, env: {
       HOME: join(root, "home"), USERPROFILE: join(root, "home"), XDG_CONFIG_HOME: join(root, "config"), XDG_DATA_HOME: join(root, "data"), XDG_STATE_HOME: join(root, "state"), XDG_CACHE_HOME: join(root, "cache"),
@@ -92,7 +97,7 @@ export async function nativeDomainEngine(options: {
       native: await client.server.info(), enginePid: engine.pid, execution: engine.execution, appProxy: `http://127.0.0.1:${server.port}/workspace/matter/opencode`,
       originRegistration: "ordinary authenticated app proxy; no manual grant",
     }, null, 2));
-    return { root, directory, location, config, client, appClient, close,
+    return { root, directory, location, config, client, appClient, close, serverURL: `http://127.0.0.1:${server.port}`,
       tools: async () => (await client.rpc.call({ location, rpcID: "legalwork.domain-fixture", method: "tools", input: {} })).output,
     };
   } catch (error) { await close(); throw error; }

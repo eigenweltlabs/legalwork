@@ -1,3 +1,7 @@
+import { projectPathKey } from "../workspace-path-match.js";
+import { primaryContentFolderRules, projectFilePermissionRules } from "../project-storage.js";
+import { stat } from "node:fs/promises";
+import { managedCoreLibraryRoot } from "../managed-core-library.js";
 import { verifiedWikiSessionOrigin } from "../wiki/agent-access.js";
 import { wikiProjectAccessSignal, validWikiProjectGrants, wikiProjectSandboxMounts } from "../wiki/project-access.js";
 import { within } from "./files.js";
@@ -15,11 +19,11 @@ import type { Actor, ApprovalRequest, ServerConfig, WorkspaceInfo } from "../typ
 import { ApiError } from "../errors.js";
 import {
   GLOBAL_TOOL_PERMISSIONS_ID, onRuntimeOpencodeConfigWrite, readGlobalToolPermissions,
-  readRuntimeOpencodeConfig, runtimeExternalDirectory, runtimeStorageDir,
+  readRuntimeOpencodeConfig, runtimeExternalDirectory, runtimeStorageDir, applyGlobalToolPermissions,
 } from "../runtime-opencode-config-store.js";
 import { VmSandbox, validateMounts, type SandboxMount, type SandboxResult } from "./vm.js";
-import { permissionAction, permissionPatternMatches, type PermissionAction } from "./permissions.js";
-import { effectiveSandbox, onSandboxSettingsChange, writeSandboxNetworkMode, type NetworkMode } from "./settings.js";
+import { permissionAction, permissionPatternMatches, type PermissionAction, type NativePermissionRule } from "./permissions.js";
+import { effectiveSandbox, onSandboxSettingsChange, sandboxSettingsWorkspace, writeSandboxNetworkMode, type NetworkMode } from "./settings.js";
 import { runHostCommand } from "./host.js";
 import { brokerRequest, prepareOutboundRequest, type OutboundRequest } from "./network.js";
 import { webRequest, webResult, type WebInput } from "./web.js";
@@ -29,24 +33,24 @@ import { assertWikiWorkspaceAccess, ownsWikis, wikiAgentCanAccess, wikiForDirect
 import { buildWikiFilePolicy, wikiContentPath, wikiSafeSandboxMounts } from "../wiki/file-access-policy.js";
 import { canonicalFolderPath } from "../wiki/workspace-safety.js";
 import { rawHttpRequest, type RawHttpInput, type RawHttpNetwork } from "./raw-http.js";
+import { rememberedProjectFolderRules, projectPermissionEffect } from "../project-permission-approvals.js";
 
 export type SandboxCommand = { command: string; description?: string; sessionID?: string; workdir?: string; skills?: string[]; write: boolean; timeoutMs: number | null; capture?: "complete" };
-export type AgentPermissionRule = { permission: string; pattern: string; action: PermissionAction };
+export type AgentPermissionRule = { permission: string; pattern: string; action: PermissionAction; session?: boolean };
 
 function restrictive(actions: PermissionAction[]): PermissionAction {
   return actions.includes("deny") ? "deny" : actions.includes("ask") ? "ask" : "allow";
 }
 
-function wholeCommandAction(permissions: Record<string, unknown>, tool: string): PermissionAction {
+function wholeCommandAction(permissions: readonly NativePermissionRule[], tool: string): PermissionAction {
   const rules: AgentPermissionRule[] = [];
   // A script can run arbitrary descendants and inspect every mounted file.
   // Conservatively apply scoped restrictions to the whole command. Matching
   // only the outer command would let `python script.py` bypass inner rules.
-  for (const [name, rule] of Object.entries(permissions)) {
-    if (!permissionPatternMatches(tool, name)) continue;
-    for (const [pattern, value] of Object.entries(rule && typeof rule === "object" ? rule : { "*": rule })) {
-      rules.push({ permission: name, pattern, action: value === "allow" || value === "ask" ? value : "deny" });
-    }
+  const nativeTool = tool === "bash" ? "shell" : tool;
+  for (const rule of permissions) {
+    if (!permissionPatternMatches(nativeTool, rule.action)) continue;
+    rules.push({ permission: tool, pattern: rule.resource, action: rule.effect });
   }
   return wholeAgentAction(rules, tool);
 }
@@ -70,15 +74,16 @@ function agentAction(rules: AgentPermissionRule[], permission: string, pattern: 
   return action;
 }
 
-function authorizedFolders(entries: Record<string, unknown>): string[] {
+function authorizedFolders(entries: readonly NativePermissionRule[]): string[] {
   const folders: string[] = [];
-  for (const [pattern, action] of Object.entries(entries)) {
+  for (const { resource: pattern, effect: action } of entries) {
     if (action !== "allow" || !pattern.endsWith("/*")) continue;
     let folder = pattern.slice(0, -2) || "/";
     if (folder.startsWith("~/")) folder = join(homedir(), folder.slice(2));
     if (!isAbsolute(folder) || /[*?]/.test(folder)) continue;
     // Re-evaluate the ordered rules, so a later denial revokes an old grant.
-    if (permissionAction({ external_directory: entries }, "external_directory", `${folder}/__sandbox__`, "deny") !== "allow") continue;
+    const expanded = entries.map(rule => ({ ...rule, resource: rule.resource.startsWith("~/") ? join(homedir(), rule.resource.slice(2)) : rule.resource }));
+    if (permissionAction(expanded, "external_directory", `${folder}/__sandbox__`, "deny") !== "allow") continue;
     folders.push(folder);
   }
   return [...new Set(folders)];
@@ -92,16 +97,19 @@ export class AgentSandboxService {
     readonly backend: Pick<VmSandbox, "run" | "prepare" | "status"> = new VmSandbox(),
     private readonly rawHttpSend?: RawHttpNetwork["send"]) {
     this.clearRemembered = [
-      onRuntimeOpencodeConfigWrite((config, id) => { if (config === this.config) approvals.forgetRemembered(id === GLOBAL_TOOL_PERMISSIONS_ID ? undefined : id); }),
-      onSandboxSettingsChange(async config => { if (config === this.config) approvals.forgetRemembered(); }),
-      onOrgPolicyChange(config, scopes => { if (scopes.has("engine")) approvals.forgetRemembered(); }),
+      onRuntimeOpencodeConfigWrite((config, id, change) => { if (config === this.config && change?.permissionsChanged) approvals.forgetRemembered(id === GLOBAL_TOOL_PERMISSIONS_ID ? undefined : id); }),
+      onSandboxSettingsChange(async (config, id) => { if (config === this.config) approvals.forgetRemembered(sandboxSettingsWorkspace(id)); }),
+      onOrgPolicyChange(config, scopes => {
+        if (!scopes.has("engine")) return;
+        for (const controller of this.active.keys()) controller.abort(new Error("Organization policy changed. Try again with the current permissions."));
+        approvals.forgetRemembered();
+      }),
     ];
   }
 
   async stop(): Promise<void> {
     this.stopping = true;
     this.clearRemembered.splice(0).forEach(unsubscribe => unsubscribe());
-    this.approvals.forgetRemembered();
     const pending = [...this.active.values()];
     for (const controller of this.active.keys()) controller.abort(new Error("LegalWork is stopping."));
     await Promise.all(pending);
@@ -123,9 +131,9 @@ export class AgentSandboxService {
       const wikiStore = new WikiStore(this.config);
       const wikis = await wikiStore.list();
       const privateRoots = [wikiStore.baseDir, runtimeStorageDir(this.config)];
-      const wikiPolicy = await buildWikiFilePolicy(wikis, workspace.path, privateRoots);
+      const wikiPolicy = await buildWikiFilePolicy(wikis, workspace.path, privateRoots, this.config.workspaces);
       const wikiAccess = new WikiSync(this.config, wikiStore);
-      const ownWiki = wikiForDirectory(wikis, wikiPolicy.directory);
+      const ownWiki = wikiForDirectory(wikis, wikiPolicy.directory, this.config.workspaces);
       if (ownWiki && !settings.enabled) throw new ApiError(403, "wiki_sandbox_required", "Enable protected execution to run commands in a wiki chat. Approved projects remain available through the read-only project tools.");
       const projectOrigin = ownWiki && command.sessionID ? await verifiedWikiSessionOrigin(this.config, workspace, command.sessionID, actor.scope ?? "owner", signal) : undefined;
       const projectGrants = ownWiki && command.sessionID && projectOrigin ? await validWikiProjectGrants(this.config, command.sessionID, ownWiki.id, projectOrigin.generation, projectOrigin.scope) : [];
@@ -156,10 +164,13 @@ export class AgentSandboxService {
         await ask("read", "*", "Allow this command to read files on this computer? Sandboxing is off.", [workspace.path], commandAction("read"));
         await ask("edit", "*", "Allow this command to change files on this computer? Sandboxing is off, so file access is not confined to shared folders.", [workspace.path], commandAction("edit"));
         await ask("webfetch", "*", "Allow this command to contact websites or the local network? Sandboxing is off, so individual requests cannot be restricted.", [], commandAction("webfetch"));
-        await ask("external_directory", "*", "Allow this command to access folders outside the project? Sandboxing is off, so folder boundaries cannot be enforced.", [workspace.path],
-          restrictive([wholeCommandAction({ external_directory: runtimeExternalDirectory(runtime) }, "external_directory"), wholeAgentAction(agentRules, "external_directory")]));
+        // Disabling sandboxing does not add a separate host-access approval.
+        // Explicit folder denials still cannot be enforced by unrestricted commands.
+        if (restrictive([wholeCommandAction((runtime.permissions ?? []).filter(rule => rule.action === "external_directory"), "external_directory"), wholeAgentAction(agentRules, "external_directory")]) === "deny") {
+          throw new ApiError(403, "sandbox_permission_denied", "external_directory is blocked by your permissions. Enable sandboxing to enforce folder restrictions.");
+        }
         if (command.skills?.length) {
-          const skills = await listSkills(workspace.path, true);
+          const skills = await listSkills(workspace, true, undefined, managedCoreLibraryRoot(this.config));
           for (const name of command.skills) {
             const skill = skills.find(item => item.name === name);
             if (!skill) throw new ApiError(400, "sandbox_skill_missing", `Installed skill not found: ${name}`);
@@ -168,25 +179,31 @@ export class AgentSandboxService {
         }
         const cwd = command.workdir || workspace.path;
         if (!isAbsolute(cwd)) throw new ApiError(400, "command_directory", "Use an absolute folder path on this computer.");
-        return { ...await withFileEditorHandoff(command, () => { signal.throwIfAborted(); return runHostCommand({ command: command.command, cwd, timeoutMs: command.timeoutMs, capture: command.capture, signal }); }), sandbox: "host" };
+        return { ...await withFileEditorHandoff({ ...command, signal }, () => { signal.throwIfAborted(); return runHostCommand({ command: command.command, cwd, timeoutMs: command.timeoutMs, capture: command.capture, signal }); }), sandbox: "host" };
       }
       const writeAction = commandAction("edit");
-      const externalRules = runtimeExternalDirectory(runtime);
-      const sources = [...new Set(await Promise.all([workspace.path, ...authorizedFolders(externalRules), ...projectGrants.map(grant => grant.root)].map(source => ownWiki ? realpath(source).catch(() => { throw new ApiError(403, "wiki_project_mount_unavailable", "A shared folder is unavailable. Review this chat's project access."); }) : Promise.resolve(source))))];
-      if (sources.length > 1 && Object.entries(externalRules).some(([pattern, action]) => pattern !== "*" && action === "deny")) {
+      const externalRules = [...primaryContentFolderRules(workspace), ...runtimeExternalDirectory(runtime)];
+      const folderPermissions = { ...runtime, permissions, projectPermissionApprovals: [...runtime.projectPermissionApprovals ?? [],
+        ...agentRules.filter(rule => rule.session && rule.permission === "external_directory" && rule.action === "allow")
+          .map(rule => ({ action: rule.permission, resources: [rule.pattern] }))] };
+      const rememberedFolders = rememberedProjectFolderRules(folderPermissions);
+      const sources = [...new Set(await Promise.all([workspace.path, ...(workspace.contentPath && !within(workspace.path, workspace.contentPath) && (await stat(workspace.contentPath).catch(() => undefined))?.isDirectory() ? [workspace.contentPath] : []), ...authorizedFolders(externalRules).filter(folder => !workspace.contentPath || projectPathKey(folder) !== projectPathKey(workspace.contentPath)), ...authorizedFolders(rememberedFolders), ...projectGrants.map(grant => grant.root)].map(source => ownWiki ? realpath(source).catch(() => { throw new ApiError(403, "wiki_project_mount_unavailable", "A shared folder is unavailable. Review this chat's project access."); }) : Promise.resolve(source))))];
+      if (sources.length > 1 && externalRules.some(rule => rule.resource !== "*" && rule.effect === "deny")) {
         throw new ApiError(403, "sandbox_directory_scope", "A scoped folder denial cannot be enforced by sharing the whole folder. Choose narrower authorized folders.");
       }
       // An allowed parent can contain a child that still requires approval.
       // The guest can read every exposed file, so ask before sharing it.
-      const folderAction = Object.entries(externalRules).some(([pattern, action]) => pattern !== "*" && action === "ask") ? "ask" : "allow";
+      const folderAction = externalRules.some(rule => rule.resource !== "*" && rule.effect === "ask") ? "ask" : "allow";
       for (const source of sources.slice(1)) {
+        const resource = `${source}/__sandbox__`;
+        const effect = projectPermissionEffect(folderPermissions, "external_directory", [resource], permissionAction(permissions, "external_directory", resource));
         await ask("external_directory", `${source}/__sandbox__`, "Allow this command to access all files in this authorized folder, including files covered by individual folder rules?", [source],
-          restrictive([folderAction, ...agentRules.filter((rule) => permissionPatternMatches("external_directory", rule.permission) && rule.pattern !== "*").map((rule) => rule.action)]));
+          restrictive([folderAction, effect, ...agentRules.filter((rule) => permissionPatternMatches("external_directory", rule.permission) && rule.pattern !== "*").map((rule) => rule.action)]));
       }
       const mounts: SandboxMount[] = sources.map((source, index) => ({ source,
         target: index === 0 ? "/workspace" : `/authorized/${index - 1}`, writable: command.write }));
       if (command.skills?.length) {
-        const installed = await listSkills(workspace.path, true);
+        const installed = await listSkills(workspace, true, undefined, managedCoreLibraryRoot(this.config));
         for (const [index, name] of command.skills.entries()) {
           const skill = installed.find((item) => item.name === name);
           if (!skill) throw new ApiError(400, "sandbox_skill_missing", `Installed skill not found: ${name}`);
@@ -199,7 +216,9 @@ export class AgentSandboxService {
       if (command.write) await ask("edit", "*", `Allow this command to change files in the listed folders?\n\n${command.command}`, sources, writeAction);
       const wikiMounts = await projectMounts(await wikiSafeSandboxMounts(wikiPolicy, mounts));
       for (const mount of wikiMounts) for (const wiki of wikis) {
-        if (wiki.id === ownWiki?.id || !within(mount.source, wiki.root) && !within(wiki.root, mount.source)) continue;
+        const engineRoot = this.config.workspaces.find(item => item.id === wiki.workspaceId)?.path;
+        const wikiRoots = engineRoot ? [wiki.root, engineRoot] : [wiki.root];
+        if (wiki.id === ownWiki?.id || !wikiRoots.some(root => within(mount.source, root) || within(root, mount.source))) continue;
         assertWikiWorkspaceAccess(actor, wiki);
         if (!await wikiAgentCanAccess(this.config, wikis, wiki, wikiPolicy.directory))
           throw new ApiError(403, "wiki_access_denied", "This wiki is not available to this project. Remove it from the command's authorized folders.");
@@ -214,13 +233,14 @@ export class AgentSandboxService {
       const sharedSkillsRoot = join(await canonicalFolderPath(globalOpencodeConfigDir()), "skills");
       for (const mount of wikiMounts) {
         const sharedSkill = mount.target.startsWith("/skills/") && mount.source !== sharedSkillsRoot && within(sharedSkillsRoot, mount.source);
-        const protectedPaths = wikiContentPath(wikiPolicy, mount.source) ? [] : sharedSkill ? privateRoots : wikiPolicy.runtimeRoots;
+        const ownSupport = workspace.contentPath && within(await canonicalFolderPath(workspace.path), mount.source);
+        const protectedPaths = wikiContentPath(wikiPolicy, mount.source) || ownSupport ? [] : sharedSkill ? privateRoots : wikiPolicy.runtimeRoots;
         const checked = await validateMounts([{ ...mount, target: "/workspace" }], protectedPaths);
         safeMounts.push({ ...checked[0], target: mount.target });
       }
-      const cwd = sandboxPaths(command.workdir || "/workspace", safeMounts);
+      const cwd = sandboxPaths(command.workdir || "/workspace", safeMounts, { directory: true });
       if (!cwd.startsWith("/")) throw new ApiError(400, "sandbox_directory", "Use /workspace or an authorized sandbox folder.");
-      const result = await withFileEditorHandoff(command, () => { executionSignal.throwIfAborted(); return this.backend.run({ command: sandboxPaths(command.command, safeMounts), cwd, mounts: safeMounts,
+      const result = await withFileEditorHandoff({ ...command, signal: executionSignal }, () => { executionSignal.throwIfAborted(); return this.backend.run({ command: sandboxPaths(command.command, safeMounts), cwd, mounts: safeMounts,
         timeoutMs: command.timeoutMs, capture: command.capture, signal: executionSignal,
         // Scoped tool/agent rules require the request broker even in allow mode.
         networkMode: networkMode === "allow" && commandAction("webfetch") !== "allow" ? "approve" : networkMode,
@@ -230,7 +250,7 @@ export class AgentSandboxService {
           if (currentProjectMounts.some((mount, index) => mount.writable !== safeMounts[index].writable))
             throw new ApiError(403, "wiki_project_access_changed", "A shared folder became a read-only project while this command ran. Its file changes were not saved.");
           if (ownWiki && command.write) await wikiAccess.ensureWritable(await wikiStore.get(ownWiki.id), ownsWikis(actor));
-          const current = await buildWikiFilePolicy(await wikiStore.list(), workspace.path, wikiPolicy.runtimeRoots);
+          const current = await buildWikiFilePolicy(await wikiStore.list(), workspace.path, wikiPolicy.runtimeRoots, this.config.workspaces);
           const checked = await wikiSafeSandboxMounts(current, safeMounts);
           if (checked.some((mount, index) => mount.writable !== safeMounts[index].writable))
             throw new ApiError(403, "wiki_sandbox_policy_changed", "A shared folder became a protected wiki while this command ran. Its file changes were not saved. Use approved wiki tools.");
@@ -283,10 +303,10 @@ export class AgentSandboxService {
         { allowPrivate: !settings.enabled || settings.networkMode === "allow", network, send: this.rawHttpSend }));
   }
 
-  private async withPolicy<T>(workspace: WorkspaceInfo, operation: { sessionID?: string; description?: string }, actor: Actor,
+  private async withPolicy<T>(workspace: WorkspaceInfo, operation: { sessionID?: string; description?: string; workdir?: string; skills?: string[]; write?: boolean }, actor: Actor,
     parentSignal: AbortSignal, agentRules: AgentPermissionRule[], lineage: string[], work: (scope: {
       settings: Awaited<ReturnType<typeof effectiveSandbox>>;
-      permissions: Record<string, unknown>;
+      permissions: readonly NativePermissionRule[];
       signal: AbortSignal;
       ask: (permission: string, pattern: string, summary: string, paths: string[], override?: PermissionAction, reviewable?: boolean, network?: ApprovalRequest["network"]) => Promise<void>;
       authorizeNetwork: (request: OutboundRequest, completeReview?: boolean) => Promise<boolean>;
@@ -296,25 +316,29 @@ export class AgentSandboxService {
     let stopped: () => void = () => {};
     this.active.set(controller, new Promise<void>((resolve) => { stopped = resolve; }));
     const signal = AbortSignal.any([parentSignal, controller.signal]);
-    const unsubscribe = onRuntimeOpencodeConfigWrite((config, id) => {
+    const unsubscribe = onRuntimeOpencodeConfigWrite((config, id, change) => {
       if (config === this.config && (id === workspace.id || id === GLOBAL_TOOL_PERMISSIONS_ID)) {
-        this.approvals.forgetRemembered(workspace.id);
         controller.abort(new Error("Permissions changed. Try again with the current permissions."));
+        if (change?.permissionsChanged) this.approvals.forgetRemembered(workspace.id);
       }
     });
     let dependencies: string[] | undefined;
     const unsubscribeSandbox = onSandboxSettingsChange(async (config, id) => {
       if (config !== this.config || (dependencies && !dependencies.includes(id))) return;
-      this.approvals.forgetRemembered(workspace.id);
       controller.abort(new Error("Sandbox settings changed. Try again with the current settings."));
+      this.approvals.forgetRemembered(workspace.id);
       await this.active.get(controller);
     });
     const unsubscribePolicy = onOrgPolicyChange(this.config, (scopes) => {
-      if (scopes.has("engine")) { this.approvals.forgetRemembered(workspace.id); controller.abort(new Error("Organization policy changed. Try again with the current permissions.")); }
+      if (scopes.has("engine")) { controller.abort(new Error("Organization policy changed. Try again with the current permissions.")); this.approvals.forgetRemembered(workspace.id); }
     });
     try {
-      const { permission: permissions } = await orgPolicyPermissions(this.config, await readGlobalToolPermissions(this.config));
+      const runtime = await readRuntimeOpencodeConfig(this.config, workspace.id);
+      const nativePermissions = [...primaryContentFolderRules(workspace), ...applyGlobalToolPermissions(runtime, await readGlobalToolPermissions(this.config)).permissions ?? []];
+      const { permission: configured } = await orgPolicyPermissions(this.config, nativePermissions);
+      const permissions = projectFilePermissionRules(workspace, configured);
       const settings = await effectiveSandbox(this.config, workspace.id, lineage);
+      const root = await realpath(workspace.path);
       dependencies = settings.dependencies;
       signal.throwIfAborted();
       const ask = async (permission: string, pattern: string, summary: string, paths: string[], override?: PermissionAction, reviewable = true, network?: ApprovalRequest["network"]) => {
@@ -323,10 +347,21 @@ export class AgentSandboxService {
         if (action === "deny") throw new ApiError(403, "sandbox_permission_denied", `${permission} is blocked by your permissions.`);
         if (action === "ask") {
           if (!reviewable) throw new ApiError(403, "sandbox_review_limit", "This request is too large to review in the approval dialog. Send a smaller request.");
+          const rememberContext = [root, actor, this.config.readOnly, permission, pattern, paths, network, permissions];
+          const commandScope = permission === "bash" ? { workdir: operation.workdir, skills: operation.skills, write: operation.write } : undefined;
           const result = await this.approvals.requestApproval({ workspaceId: workspace.id, actor,
-            action: `sandbox.${permission}`, summary, paths, sessionID: operation.sessionID, description: operation.description,
-            ...(network ? { network } : {}) }, signal, true, operation.sessionID ? JSON.stringify([workspace.id, operation.sessionID, permission, pattern, paths, network, permissions, agentRules, settings.enabled, settings.networkMode]) : undefined);
-          if (!result.allowed) throw new ApiError(403, "sandbox_permission_denied", "Sandbox permission was declined.");
+            action: `sandbox.${permission}`,
+            summary, paths, sessionID: operation.sessionID, description: operation.description,
+            ...(network ? { network } : {}) }, signal, true, operation.sessionID ? JSON.stringify([...rememberContext,
+              agentRules.map(({ session: _, ...rule }) => rule), settings.enabled, settings.networkMode]) : undefined,
+            operation.sessionID ? { sessionID: lineage.at(-1) ?? operation.sessionID,
+              // Agent restrictions were checked above. Different helper rule
+              // lists must not change the identity of the approved operation.
+              key: JSON.stringify([...rememberContext, commandScope, settings.enabled, settings.networkMode]) } : undefined);
+          if (!result.allowed) {
+            if (result.reason === "approval_storage_unavailable") throw new ApiError(503, "approval_storage_unavailable", "LegalWork's approval storage is unavailable. No access was granted.");
+            throw new ApiError(403, "sandbox_permission_denied", "Sandbox permission was declined.");
+          }
         }
         signal.throwIfAborted();
       };
@@ -337,7 +372,7 @@ export class AgentSandboxService {
         const text = bytes.toString("utf8");
         const bodyFormat = Buffer.from(text).equals(bytes) && !/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/.test(text) ? "text" : "base64";
         const body = bodyFormat === "text" ? text : `Base64: ${request.bodyBase64}`;
-        // The approval is bound to the in-memory immutable request. A changed
+        // The approval is bound to the exact immutable request. A changed
         // body, URL or header necessarily produces a separate request.
         const preview = completeReview ? `${request.method} ${request.url}\n\nRequest SHA-256: ${request.sha256}`
           : `${request.method} ${request.url}\n\nHeaders:\n${JSON.stringify(request.headers, null, 2)}\n\nBody (${request.bodyBytes} bytes):\n${body}\n\nRequest SHA-256: ${request.sha256}`;

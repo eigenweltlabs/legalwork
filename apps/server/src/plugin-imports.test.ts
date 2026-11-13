@@ -1,3 +1,4 @@
+import type { NativeMcpDefinition } from "./native-mcp-config.js";
 import { describe, expect, test } from "bun:test";
 import { mkdtemp, mkdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -52,7 +53,7 @@ describe("complete plugin imports", () => {
   test("creation lists personal items without project skills or credential values", async () => temp(async (root, config) => {
     await writeFixture(globalSkillsDir(), { "claim-review/SKILL.md": "---\nname: claim-review\ndescription: Review patent claims\n---\nReview." });
     await writeFixture(join(root, ".opencode/skills"), { "project-only/SKILL.md": "---\nname: project-only\ndescription: Project only\n---\nProject." });
-    await writeRuntimeOpencodeConfig(config, GLOBAL_MCP_ID, () => ({ mcp: { linear: { type: "remote", url: "https://linear.example/mcp", headers: { Authorization: "secret" } } } }));
+    await writeRuntimeOpencodeConfig(config, GLOBAL_MCP_ID, () => ({ mcp: { servers: { linear: { type: "remote", url: "https://linear.example/mcp", headers: { Authorization: "secret" } } } } }));
     const options = await pluginCreateOptions(config);
     expect(options.skills.map(item => item.name)).toEqual(["claim-review"]);
     expect(options.connectors).toEqual([{ name: "linear" }]);
@@ -62,7 +63,7 @@ describe("complete plugin imports", () => {
   test("created plugins own complete skill copies and connectors; removal preserves the originals", async () => temp(async (root, config) => {
     const source = { "claim-review/SKILL.md": "---\nname: claim-review\ndescription: Review claims\nmetadata:\n  jurisdiction: EU\n---\nRead [guide](./references/guide.md).", "claim-review/references/guide.md": "Review guide", "claim-review/scripts/run.py": "print('review')" };
     await writeFixture(globalSkillsDir(), source);
-    await writeRuntimeOpencodeConfig(config, GLOBAL_MCP_ID, () => ({ mcp: { linear: { type: "remote", url: "https://linear.example/mcp", enabled: true, oauth: {} } } }));
+    await writeRuntimeOpencodeConfig(config, GLOBAL_MCP_ID, () => ({ mcp: { servers: { linear: { type: "remote", url: "https://linear.example/mcp", disabled: false, oauth: {} } } } }));
     const plan = await planPluginCreation(config, root, parsePluginCreateRequest({ name: "Patent Toolkit", description: "Draft and review", skills: ["claim-review"], connectors: ["linear"] }));
     expect(plan.preview.id).toBe("local:patent-toolkit:global");
     expect(plan.resolved.plugin.sourceKind).toBe("plugin");
@@ -75,10 +76,10 @@ describe("complete plugin imports", () => {
     const skillFolder = join(globalSkillsDir(), namespace, copiedSkill.installedName);
     expect(await readFile(join(skillFolder, "references/guide.md"), "utf8")).toBe("Review guide");
     expect(await readFile(join(skillFolder, "SKILL.md"), "utf8")).toContain("jurisdiction: EU");
-    expect((await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID)).mcp?.[copiedConnector.installedName]?.enabled).toBe(false);
+    expect((await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID)).mcp?.servers?.[copiedConnector.installedName]?.disabled).toBe(true);
     await removeCloudPlugin({ serverConfig: config, workspaceId: GLOBAL_MCP_ID, workspaceRoot: root, pluginId: installed.pluginId, scope: "global" });
     expect(await readFile(join(globalSkillsDir(), "claim-review/SKILL.md"), "utf8")).toBe(source["claim-review/SKILL.md"]);
-    expect(Object.keys((await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID)).mcp ?? {})).toEqual(["linear"]);
+    expect(Object.keys((await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID)).mcp?.servers ?? {})).toEqual(["linear"]);
     expect((await readInstalledCloudPlugins(config, GLOBAL_MCP_ID)).plugins[installed.pluginId]).toBeUndefined();
   }));
 
@@ -239,7 +240,7 @@ describe("complete plugin imports", () => {
     await removeCloudPlugin({ serverConfig: config, workspaceId: "test", workspaceRoot: root, pluginId: plan!.preview.id });
     await expect(stat(join(root, ".opencode/imported-plugins", ns))).rejects.toThrow();
     await expect(stat(join(root, skillPath))).rejects.toThrow();
-    expect(Object.keys((await readRuntimeOpencodeConfig(config, "test")).mcp ?? {})).toHaveLength(0);
+    expect(Object.keys((await readRuntimeOpencodeConfig(config, "test")).mcp?.servers ?? {})).toHaveLength(0);
   }));
   test("global imports are visible in other project engines and can be removed there", async () => temp(async (root, config) => {
     const [plan] = await resolvePluginImports({ ...request(), scope: "global" }, root);
@@ -256,20 +257,20 @@ describe("complete plugin imports", () => {
   test("package removal retains independent connectors and a same-named connection in another scope", async () => temp(async (root, config) => {
     const [plan] = await resolvePluginImports(request(), root);
     await installPluginImport(config, "test", root, plan!, false);
-    const [ownedName] = Object.keys((await readRuntimeOpencodeConfig(config, "test")).mcp ?? {});
+    const [ownedName] = Object.keys((await readRuntimeOpencodeConfig(config, "test")).mcp?.servers ?? {});
     if (!ownedName) throw new Error("Missing imported connector fixture");
-    const independent = { type: "remote", url: "https://independent.example/mcp", headers: { Authorization: "synthetic-private-value" } };
-    await writeRuntimeOpencodeConfig(config, "test", current => ({ ...current, mcp: { ...current.mcp, independent } }));
-    await writeRuntimeOpencodeConfig(config, GLOBAL_MCP_ID, current => ({ ...current, mcp: { ...current.mcp, [ownedName]: independent } }));
+    const independent = { type: "remote", url: "https://independent.example/mcp", headers: { Authorization: "synthetic-private-value" } } satisfies NativeMcpDefinition;
+    await writeRuntimeOpencodeConfig(config, "test", current => ({ ...current, mcp: { servers: { ...current.mcp?.servers, independent } } }));
+    await writeRuntimeOpencodeConfig(config, GLOBAL_MCP_ID, current => ({ ...current, mcp: { servers: { ...current.mcp?.servers, [ownedName]: independent } } }));
     await removeCloudPlugin({ serverConfig: config, workspaceId: "test", workspaceRoot: root, pluginId: plan!.preview.id, scope: "workspace" });
-    expect((await readRuntimeOpencodeConfig(config, "test")).mcp).toEqual({ independent });
-    expect((await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID)).mcp).toEqual({ [ownedName]: independent });
+    expect((await readRuntimeOpencodeConfig(config, "test")).mcp?.servers).toEqual({ independent });
+    expect((await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID)).mcp?.servers).toEqual({ [ownedName]: independent });
   }));
   test("preserves exact MCP arguments, empty environment values and headers", async () => temp(async (root, config) => {
     const files = { ".claude-plugin/plugin.json": '{"name":"arguments"}', ".mcp.json": JSON.stringify({ mcpServers: { local: { command: "node", args: ["script.js", "", "  a b  "], env: { EMPTY: "", PADDED: "  value  " } }, remote: { url: "https://example.com/mcp", headers: { "X-Value": "  value  " } } } }), "script.js": "console.log('test')" };
     const [plan] = await resolvePluginImports(request(files), root);
     await installPluginImport(config, "test", root, plan!, false);
-    const values = Object.values((await readRuntimeOpencodeConfig(config, "test")).mcp ?? {});
+    const values = Object.values((await readRuntimeOpencodeConfig(config, "test")).mcp?.servers ?? {});
     const local = values.find(value => value.type === "local");
     expect(local?.command).toEqual(["node", expect.stringContaining("script.js"), "", "  a b  "]);
     expect(local?.environment).toMatchObject({ EMPTY: "", PADDED: "  value  " });
@@ -295,7 +296,7 @@ describe("complete plugin imports", () => {
     const [replacement] = await resolvePluginImports(request(files), root); await installPluginImport(config, "test", root, replacement!, false);
     await expect(stat(join(root, ".opencode/imported-plugins", ns, "server.js"))).rejects.toThrow();
     await expect(stat(join(root, ".opencode/skills", ns, original!.preview.components.find(c => c.type === "skill")!.installedName))).rejects.toThrow();
-    expect(Object.keys((await readRuntimeOpencodeConfig(config, "test")).mcp ?? {})).toHaveLength(0);
+    expect(Object.keys((await readRuntimeOpencodeConfig(config, "test")).mcp?.servers ?? {})).toHaveLength(0);
   }));
   test("a failed connector install restores the previous files and config", async () => temp(async (root, config) => {
     const [original] = await resolvePluginImports(request(), root); await installPluginImport(config, "test", root, original!, false);
@@ -309,7 +310,7 @@ describe("complete plugin imports", () => {
     await expect(installPluginImport(config, "test", root, broken!, false)).rejects.toThrow();
     const ns = pluginNamespace("patent", original!.preview.id);
     expect(await readFile(join(root, ".opencode/imported-plugins", ns, "server.js"), "utf8")).toBe("console.log('server')");
-    expect((await readRuntimeOpencodeConfig(config, "test")).mcp).toEqual(before.mcp);
+    expect((await readRuntimeOpencodeConfig(config, "test")).mcp?.servers).toEqual(before.mcp?.servers);
     expect((await readInstalledCloudPlugins(config, "test")).plugins[original!.preview.id]!.files.map(f => f.path)).toContain(original!.resourceFiles[0]!.path.split("/").slice(0, 3).join("/"));
   }));
   test("rejects source/destination links, traversal, duplicate/case paths and oversized archives", async () => temp(async (root, config) => {
@@ -480,7 +481,7 @@ test("new connector-only plugins persist URL authentication without requiring a 
     expect(JSON.stringify(plan.preview)).not.toContain("synthetic-key");
     await installPluginImport(config, "test", root, plan, true);
     const installed = plan.preview.components[0]!;
-    expect((await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID)).mcp?.[installed.installedName]).toMatchObject({ type: "remote", url: "https://example.invalid/mcp", oauth, ...(Object.keys(headers).length ? { headers } : {}), enabled: true });
+    expect((await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID)).mcp?.servers?.[installed.installedName]).toMatchObject({ type: "remote", url: "https://example.invalid/mcp", oauth: oauth === false ? false : { client_id: oauth.clientId, client_secret: oauth.clientSecret }, ...(Object.keys(headers).length ? { headers } : {}), disabled: false });
   }
 }));
 
@@ -491,7 +492,7 @@ test("new local plugin retains exact arguments, credentials and optional skill c
   expect(plan.preview.components.map(item => item.type).sort()).toEqual(["mcp", "skill"]);
   await installPluginImport(config, "test", root, plan, true);
   const connector = plan.preview.components.find(item => item.type === "mcp")!;
-  expect((await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID)).mcp?.[connector.installedName]).toMatchObject({ ...connection, enabled: true });
+  expect((await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID)).mcp?.servers?.[connector.installedName]).toMatchObject({ ...connection, disabled: false });
 }));
 
 test("new MCP definitions reject invalid transport, credentials in URLs and malformed commands", () => {

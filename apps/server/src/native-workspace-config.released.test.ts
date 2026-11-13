@@ -1,13 +1,13 @@
 import { expect, test } from "bun:test";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { approveEngineProject, writeNativeProjectProjection } from "./engine-project.js";
+import { writeNativeProjectProjection } from "./engine-project.js";
 import { nativeMcpBinary, nativeMcpEngine } from "./native-mcp-engine.test-support.js";
 import { startServer } from "./server.js";
 import { writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
 import type { ServerConfig } from "./types.js";
 
-test.skipIf(!nativeMcpBinary)("config reads leave authored enum references unresolved until approval and use native expansion afterwards", async () => {
+test.skipIf(!nativeMcpBinary)("native config loads without project approval and public reads redact expanded secrets", async () => {
   const previous = { ...process.env };
   let setup: { config: ServerConfig; source: string; original: string; effectPath: string; secretPath: string } | undefined;
   let server: Awaited<ReturnType<typeof startServer>> | undefined;
@@ -18,9 +18,7 @@ test.skipIf(!nativeMcpBinary)("config reads leave authored enum references unres
       process.env.LEGALWORK_TOKEN_STORE = join(root, "tokens.json");
       const directory = join(root, "project"), source = join(directory, "opencode.jsonc");
       const effectPath = join(root, "private-effect.txt"), secretPath = join(root, "private-key.txt");
-      // A strict raw-file decoder or pre-approval native expansion would fail
-      // this enum. The before-approval request must not inspect its value.
-      await writeFile(effectPath, "synthetic-private-not-an-effect");
+      await writeFile(effectPath, "ask");
       await writeFile(secretPath, "synthetic-private-provider-key");
       const original = `// Preserve authored JSONC and native macro semantics.\n${JSON.stringify({
         permissions: [{ action: "read", resource: "*", effect: `{file:${effectPath}}` }],
@@ -41,17 +39,6 @@ test.skipIf(!nativeMcpBinary)("config reads leave authored enum references unres
     config.opencodeBaseUrl = connection.url; config.opencodeUsername = connection.username; config.opencodePassword = connection.password;
     server = await startServer(config);
     const read = (path = "config") => fetch(`http://127.0.0.1:${server!.port}/workspace/matter/${path}`, { headers: { authorization: `Bearer ${config.token}` } });
-    const before = await read(); expect(before.status).toBe(200);
-    const pending: unknown = await before.json();
-    expect(pending).toMatchObject({ authoredConfig: { status: "approval_required", paths: [source] }, opencode: { providers: { owned: { name: "Saved app provider" } } }, providerDisplay: { owned: { editable: false } } });
-    expect(JSON.stringify(pending)).not.toContain("Authored native provider");
-    for (const privateValue of [effectPath, secretPath, "synthetic-private-not-an-effect", "synthetic-private-provider-key", "synthetic-owned-key", "synthetic-owned.invalid"]) expect(JSON.stringify(pending)).not.toContain(privateValue);
-    const pendingDiagnostic = await read("runtime-config"); expect(pendingDiagnostic.status).toBe(200);
-    const pendingSources: unknown = await pendingDiagnostic.json();
-    expect(pendingSources).toMatchObject({ sources: { projectOpencode: { status: "approval_required" } } });
-    for (const privateValue of [effectPath, secretPath, "synthetic-private-not-an-effect", "synthetic-private-provider-key", "synthetic-owned-key"]) expect(JSON.stringify(pendingSources)).not.toContain(privateValue);
-    await writeFile(effectPath, "ask");
-    await approveEngineProject(config, config.workspaces[0]!, engine.directory, []);
     const after = await read(); expect(after.status).toBe(200);
     const ready: unknown = await after.json();
     expect(ready).toMatchObject({ authoredConfig: { status: "resolved", paths: [source] },

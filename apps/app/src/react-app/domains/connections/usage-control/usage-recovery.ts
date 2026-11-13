@@ -43,7 +43,7 @@ export type TopUpRecovery = {
 export const CHECKING_TOP_UP: TopUpRecovery = { status: "checking", view: null, refreshFailed: false };
 
 export function isCardTopUpAction(action: UsageControlAction) {
-  return action.action === "topUp" || action.action === "resumeTopUp" || action.action === "cancelTopUp";
+  return action.action === "topUp" || action.action === "quoteTopUp" || action.action === "resumeTopUp" || action.action === "cancelTopUp";
 }
 
 /** A paid operation leaves the pending list only after its verified credit grant is applied.

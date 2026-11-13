@@ -1,6 +1,7 @@
 import { Plugin } from "@opencode/plugin";
 import { nativeProviderRequest } from "./native-provider-request.js";
 import { createHash } from "node:crypto";
+import { checkModelResponse } from "./model-request-errors.js";
 
 // LiteLLM carries Gemini thought signatures in tool IDs. Replaying those IDs
 // after switching to OpenAI exceeds its 64-character limit. Rewrite only the
@@ -61,6 +62,16 @@ export default Plugin.define({id:"legalwork.openai.tool-call-ids",async setup(ct
     const path=new URL(event.request.url).pathname;
     if(!/\/(?:responses|chat\/completions)\/?$/.test(path))return;
     event.request=await nativeProviderRequest(event.request,body=>normalizeBody(body,path));
+  });
+  await ctx.session.hook("http.response", async event => {
+    if (event.response.status !== 413) return;
+    const bytes = event.request.method === "POST" ? (await event.request.clone().arrayBuffer()).byteLength : undefined;
+    try { await checkModelResponse(event.response, bytes); }
+    catch (error) {
+      // Native hooks mutate the response; throwing here is a plugin defect.
+      // A byte-limit rejection must be an ordinary non-retryable model error.
+      event.response = Response.json({ error: { code: "legalwork_request_byte_limit", message: (error instanceof Error ? error.message : String(error)).replace("request_too_large:", "Request byte limit:") } }, { status: 400 });
+    }
   });
   await ctx.session.hook("experimental.ws.send",event=>{
     // Native Responses WebSocket requests are flattened response.create frames.

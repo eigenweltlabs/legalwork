@@ -14,6 +14,8 @@ RUN python3 -I -S /opt/legalwork/bootstrap-pip.py --seed \
 COPY requirements.txt /opt/legalwork/requirements.txt
 RUN pip install --no-cache-dir -r /opt/legalwork/requirements.txt \
     && pip freeze > /opt/legalwork/python-packages.txt
+COPY test_pypdf.py /opt/legalwork/test_pypdf.py
+RUN python3 -B /opt/legalwork/test_pypdf.py && rm /opt/legalwork/test_pypdf.py
 COPY relay.py supervisor.py network.py protocol.py /opt/legalwork/
 COPY filesystem.py /opt/legalwork/filesystem.py
 COPY test_relay.py /opt/legalwork/test_relay.py

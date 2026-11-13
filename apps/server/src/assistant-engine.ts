@@ -42,7 +42,7 @@ export function assistantEngineClient(native: OpenCodeClient, directory: string)
       });
     });
   }
-  const history = async (sessionID: string, limit?: number, options: Options = {}) => {
+  const history = async (sessionID: string, limit?: number, options: Options = {}, untilMessageID?: string) => {
     const records: SessionMessageInfo[] = [];
     const seen = new Set<string>();
     let cursor: string | undefined;
@@ -54,7 +54,8 @@ export function assistantEngineClient(native: OpenCodeClient, directory: string)
       if (cursor) seen.add(cursor);
       // Read through the human turn boundary so parent identity remains exact,
       // without downloading the rest of a long daily chat for every receipt.
-      if (limit !== undefined && records.length >= limit && records.some(record => record.type === "user")) break;
+      if (untilMessageID && records.some(record => record.id === untilMessageID)) break;
+      if (!untilMessageID && limit !== undefined && records.length >= limit && records.some(record => record.type === "user")) break;
     } while (cursor);
     const session = await native.session.get({ sessionID }, options);
     const projected = messages(sessionID, records).map(message => {
@@ -101,14 +102,14 @@ export function assistantEngineClient(native: OpenCodeClient, directory: string)
     session: {
       get: (input: { sessionID: string }, options: Options = {}) => result(async () => projectSession(await native.session.get(input, options)), options),
       list: (input: { limit?: number; search?: string } = {}, options: Options = {}) => result(async () =>
-        (await listEngineSessions(native, { directory, ...input })).map(projectSession), options),
+        (await listEngineSessions(native, { directory, ...input }, options)).map(projectSession), options),
       create: (input: { title?: string; parentID?: string }, options: Options = {}) => result(async () =>
         projectSession(await native.session.create({ ...input, location: { directory } }, options)), options),
       children: (input: { sessionID: string }, options: Options = {}) => result(async () =>
-        (await listEngineSessions(native, { directory })).filter(session => session.parentID === input.sessionID).map(projectSession), options),
+        (await listEngineSessions(native, { directory }, options)).filter(session => session.parentID === input.sessionID).map(projectSession), options),
       status: (_input: object = {}, options: Options = {}) => result(async () =>
         Object.fromEntries(Object.keys(await native.session.active(options)).map(id => [id, { type: "busy" }])), options),
-      messages: (input: { sessionID: string; limit?: number }, options: Options = {}) => result(() => history(input.sessionID, input.limit, options), options),
+      messages: (input: { sessionID: string; limit?: number; untilMessageID?: string }, options: Options = {}) => result(() => history(input.sessionID, input.limit, options, input.untilMessageID), options),
       message: (input: { sessionID: string; messageID: string }, options: Options = {}) => result(async () => {
         const record = await native.session.message.get(input, options);
         const found = messages(input.sessionID, [record])[0];
@@ -124,19 +125,21 @@ export function assistantEngineClient(native: OpenCodeClient, directory: string)
         }
         return [];
       }, options),
-      promptAsync: (input: { sessionID: string; messageID?: string; agent?: string; model?: Model | null; parts: PromptPart[];
+      promptAsync: (input: { sessionID: string; messageID?: string; agent?: string; model?: Model | null; variant?: string; parts: PromptPart[];
         tools?: unknown; system?: unknown; format?: unknown }, options: Options = {}) => result(async () => {
         // Replay of an already admitted item wakes its durable inbox; it never
         // inserts a second user message or mutates the original history.
         if (input.agent) await native.session.switchAgent({ sessionID: input.sessionID, agent: input.agent }, options);
-        if (input.model) await native.session.switchModel({ sessionID: input.sessionID, model: { providerID: input.model.providerID, id: input.model.modelID } }, options);
+        if (input.model) await native.session.switchModel({ sessionID: input.sessionID, model: { providerID: input.model.providerID, id: input.model.modelID, ...(input.variant ? { variant: input.variant } : {}) } }, options);
         const files = input.parts.flatMap(part => part.type === "file" ? [{ uri: part.url, ...(part.filename ? { name: part.filename } : {}) }] : []);
         const visibleText = input.parts.flatMap(part => part.type === "text" && !part.synthetic && !part.ignored ? [part.text] : []).join("\n");
         const reminders = input.parts.flatMap(part => part.type === "text" && part.synthetic ? [part.text] : []);
         const text = [visibleText, ...reminders].filter(Boolean).join("\n\n");
         const metadata = Object.assign({}, ...input.parts.flatMap(part => part.type === "text" && part.metadata ? [z.record(z.string(), z.json()).parse(part.metadata)] : []));
         const admitted = await native.session.prompt({ sessionID: input.sessionID, ...(input.messageID ? { id: input.messageID } : {}),
-          text, metadata: { ...metadata, ...(reminders.length && !visibleText ? { legalworkSystemReminder: true } : {}), legalworkPrompt: { visibleText, reminders } }, ...(files.length ? { files } : {}), delivery: "queue", resume: true }, options);
+          text, metadata: { ...metadata, ...(reminders.length && !visibleText ? { legalworkSystemReminder: true } : {}), legalworkPrompt: { visibleText, reminders } }, ...(files.length ? { files } : {}),
+          agents: input.parts.flatMap(part => part.type === "agent" ? [{ name: part.name }] : []),
+          skills: input.parts.flatMap(part => part.type === "skill" ? [{ id: part.id }] : []), delivery: "queue", resume: true }, options);
         if (input.messageID && admitted.id !== input.messageID) throw new Error("Native admission returned a different message identity.");
         return admitted;
       }, options),

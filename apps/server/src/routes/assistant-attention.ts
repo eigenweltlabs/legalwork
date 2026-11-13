@@ -20,7 +20,14 @@ export function registerAssistantAttentionRoutes(options: Parameters<typeof regi
     const source = config.workspaces.find(isMainAssistant);
     if (!source) return [];
     await options.resolveWorkspace(config, source.id);
-    return delegations.list(source.id).filter(item => options.assistant.canAccessProject(item.workspaceId));
+    const own = [];
+    let cursor: string | undefined;
+    do {
+      const page = options.conversations.list(source.id, { cursor, limit: 100, includeArchived: true });
+      own.push(...page.items.map(conversation => ({ workspaceId: source.id, sessionId: conversation.sessionId })));
+      cursor = page.nextCursor ?? undefined;
+    } while (cursor);
+    return [...delegations.list(source.id).filter(item => delegations.isWatching(item.sessionId) && options.assistant.canAccessProject(item.workspaceId)), ...own];
   };
   const read = async (workspaceId: string, sessionId: string) => {
     const delegation = (await tracked()).find(item => item.workspaceId === workspaceId && item.sessionId === sessionId);

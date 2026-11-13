@@ -12,6 +12,19 @@
  * Nothing here asks the model for anything.
  */
 
+import { isToolUIPart, type UIMessage } from "ai";
+import { legalMemoryToolName } from "./legalmemory-activity";
+import { getCodeModeToolNames } from "./tool-activity";
+
+/** V2 wraps MCP calls in execute; only recorded successful retrievals contribute sources. */
+export function legalMemoryOutputsOf(parts: UIMessage["parts"]): unknown[] {
+  return parts.flatMap(part => {
+    if (!isToolUIPart(part) || part.state !== "output-available") return [];
+    const name = part.type === "dynamic-tool" ? part.toolName : part.type.slice(5);
+    return legalMemoryToolName(name) || getCodeModeToolNames(part, true).some(name => legalMemoryToolName(name)) ? [part.output] : [];
+  });
+}
+
 export type LegalMemoryDocument = {
   documentId: string;
   title: string;

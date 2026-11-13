@@ -1,7 +1,7 @@
 import { basename } from "node:path";
 import type { TextPartInput } from "./assistant-engine.js";
 import type { AssistantProfile } from "@legalwork/types/main-assistant";
-import { delegationLanguageInstructions } from "./assistant-handoff.js";
+import { ASSISTANT_PREPARATION_INSTRUCTIONS, delegationLanguageInstructions } from "./assistant-handoff.js";
 
 /** Present a readable handoff and attachments; keep routing details in model context. */
 export function assistantHandoffParts(input: {
@@ -16,6 +16,6 @@ export function assistantHandoffParts(input: {
       ...(input.sender ? { legalworkAssistantSender: input.sender } : {}),
       ...(files.length ? { legalworkSharedFiles: files } : {}),
     } },
-    { type: "text", synthetic: true, text: `${input.setupContext}\n\nTask:\n${input.prompt}\n\nWork in this project's context and follow its instructions. Report progress and results in this chat. Stay within the user's authorized scope.\n\n${delegationLanguageInstructions(input.conversationLanguage)}${fileContext}`.trim() },
+    { type: "text", synthetic: true, text: `${input.setupContext}\n\nTask:\n${input.prompt}\n\nWork in this project's context and follow its instructions. Report progress and results in this chat. Stay within the user's authorized scope.\n\n${ASSISTANT_PREPARATION_INSTRUCTIONS}\n\nInclude the triggering source's sender, subject, request and link in your return when available, plus the completed output and remaining user decisions.\n\n${delegationLanguageInstructions(input.conversationLanguage)}${fileContext}`.trim() },
   ];
 }

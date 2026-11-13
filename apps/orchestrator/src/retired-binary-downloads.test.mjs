@@ -1,5 +1,6 @@
+import { cliFixture } from "./cli-test-fixture.mjs";
 import { expect, test } from "bun:test";
-import { copyFile, mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -12,7 +13,8 @@ async function fixture(run) {
 }
 const childEnv = root => ({ PATH: process.env.PATH, HOME: root, XDG_CONFIG_HOME: path.join(root, "config"), XDG_DATA_HOME: path.join(root, "data") });
 async function execute(entry, args, env, runtimeArguments = []) {
-  const child = Bun.spawn([process.execPath, ...runtimeArguments, entry, ...args], { stdout: "pipe", stderr: "pipe", env });
+  // Missing fixture packages must fail locally, never invoke Bun's installer.
+  const child = Bun.spawn([process.execPath, "--no-install", ...runtimeArguments, entry, ...args], { stdout: "pipe", stderr: "pipe", env });
   const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
   return { stdout, stderr, code };
 }
@@ -39,16 +41,6 @@ test("local bundled/external preferences and unrelated connection fields remain 
   }
   expect(() => assertNoRetiredBinaryDownloads(new Map([["sidecar-source", "external"]]), { LEGALWORK_SIDECAR_SOURCE: "downloaded" })).not.toThrow();
 });
-
-async function cliFixture(root) {
-  const source = path.join(root, "src"); await mkdir(source);
-  for (const name of ["cli.ts", "legacy-developer-launcher.ts", "retired-messaging-tools.ts", "retired-binary-downloads.ts"])
-    await copyFile(new URL(name, import.meta.url), path.join(source, name));
-  await writeFixtureReleaseLibrary(path.join(root, "node_modules/@legalwork/opencode-release"));
-  await mkdir(path.join(root, "node_modules/@opencode"), { recursive: true });
-  await symlink(await realpath(new URL("../node_modules/@opencode/client", import.meta.url)), path.join(root, "node_modules/@opencode/client"), process.platform === "win32" ? "junction" : "dir");
-  return path.join(source, "cli.ts");
-}
 
 test("the actual CLI rejects retired input before runtime/profile work and never calls the URL", () => fixture(async root => {
   const entry = await cliFixture(root);
@@ -82,12 +74,21 @@ test("the actual CLI retains authenticated manual host-token API connections", (
 test("postinstall uses an installed npm platform package and never fetches a fallback", () => fixture(async root => {
   const entry = await write(root, "postinstall.mjs", await readFile(new URL("../scripts/postinstall.mjs", import.meta.url), "utf8"));
   const forbidFetch = await write(root, "forbid-fetch.mjs", "console.error('FETCH_GUARD_INSTALLED');globalThis.fetch=()=>{throw Error('NETWORK_MUST_NOT_RUN')};");
-  const missing = await execute(entry, [], { ...childEnv(root), LEGALWORK_ORCHESTRATOR_DOWNLOAD_BASE_URL: "http://127.0.0.1:1" }, ["--preload", forbidFetch]);
-  expect(missing.code).toBe(1); expect(missing.stderr).toContain("FETCH_GUARD_INSTALLED"); expect(missing.stderr).toContain("Enable optionalDependencies"); expect(missing.stderr).not.toContain("NETWORK_MUST_NOT_RUN");
-  const platform = process.platform === "win32" ? "windows" : process.platform;
-  await write(root, `node_modules/legalwork-orchestrator-${platform}-${process.arch}/package.json`, '{"name":"fixture-only"}');
-  const installed = await execute(entry, [], childEnv(root));
-  expect(installed.code, installed.stderr).toBe(0); expect(installed.stdout).toContain("installed platform package");
+  let registryRequests = 0;
+  const registry = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch() { registryRequests++; return new Response("not installed", { status: 404 }); } });
+  try {
+    // Bun's native auto-installer bypasses globalThis.fetch. Use a cold cache
+    // and a local registry to catch that path without contacting a real one.
+    const env = { ...childEnv(root), BUN_INSTALL_CACHE_DIR: path.join(root, "bun-cache"), NPM_CONFIG_REGISTRY: `http://127.0.0.1:${registry.port}` };
+    const missing = await execute(entry, [], { ...env, LEGALWORK_ORCHESTRATOR_DOWNLOAD_BASE_URL: "http://127.0.0.1:1" }, ["--preload", forbidFetch]);
+    expect(missing.code).toBe(1); expect(missing.stderr).toContain("FETCH_GUARD_INSTALLED"); expect(missing.stderr).toContain("Enable optionalDependencies"); expect(missing.stderr).not.toContain("NETWORK_MUST_NOT_RUN");
+    expect(registryRequests).toBe(0);
+    const platform = process.platform === "win32" ? "windows" : process.platform;
+    await write(root, `node_modules/legalwork-orchestrator-${platform}-${process.arch}/package.json`, '{"name":"fixture-only"}');
+    const installed = await execute(entry, [], env);
+    expect(installed.code, installed.stderr).toBe(0); expect(installed.stdout).toContain("installed platform package");
+    expect(registryRequests).toBe(0);
+  } finally { await registry.stop(true); }
 }));
 
 

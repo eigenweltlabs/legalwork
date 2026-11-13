@@ -1,10 +1,11 @@
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, realpath, rm } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startServer } from "./server.js";
 import type { ServerConfig } from "./types.js";
 import { writeNativeProjectProjection } from "./engine-project.js";
+import { writeLegalworkRuntimeConfigFile } from "./legalwork-runtime-config.js";
 import { GLOBAL_TOOL_PERMISSIONS_ID, writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
 
 test("recovery controls reject retired credentials and expose only the selected project's recovery state", async () => {
@@ -22,7 +23,7 @@ test("recovery controls reject retired credentials and expose only the selected 
       error: { code: "private_failure", message: "secret-other-project private credentials" } }),
   };
   const retiredViewerToken = "owt_retired_viewer";
-  await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permission: { read: "ask" } }));
+  await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permissions: [{ action: "read", resource: "*", effect: "ask" }] }));
   const projection = await writeNativeProjectProjection(config, config.workspaces[0]!, {
     permissions: [{ action: "read", resource: "*", effect: "ask" }],
   });
@@ -45,6 +46,7 @@ test("recovery controls reject retired credentials and expose only the selected 
     expect((await request("matter/engine-project", retiredViewerToken)).status).toBe(401);
     const visible = await request("matter/engine-project", config.token);
     expect(visible.status).toBe(200);
+    expect((await request("matter/engine-project/approve", config.token, "POST")).status).toBe(404);
     expect(visible.headers.get("cache-control")).toBe("no-store");
     const state = await visible.text();
     expect(state).toContain("own-held-chat");
@@ -64,6 +66,43 @@ test("recovery controls reject retired credentials and expose only the selected 
     expect(retried).toBe(1);
   } finally {
     await server.stop();
+    if (previousTokens === undefined) delete process.env.LEGALWORK_TOKEN_STORE; else process.env.LEGALWORK_TOKEN_STORE = previousTokens;
+    if (previousDb === undefined) delete process.env.LEGALWORK_RUNTIME_DB; else process.env.LEGALWORK_RUNTIME_DB = previousDb;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test.skipIf(process.platform === "win32" || process.getuid?.() === 0)("an unwritable project leaves the server available and Refresh repairs it once writable", async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "legalwork-project-write-recovery-")));
+  const project = join(root, "project");
+  const settings = join(project, ".opencode");
+  await mkdir(settings, { recursive: true });
+  const previousTokens = process.env.LEGALWORK_TOKEN_STORE, previousDb = process.env.LEGALWORK_RUNTIME_DB;
+  process.env.LEGALWORK_TOKEN_STORE = join(root, "tokens.json");
+  process.env.LEGALWORK_RUNTIME_DB = join(root, "runtime.sqlite");
+  const config: ServerConfig = { host: "127.0.0.1", port: 0, configPath: join(root, "server.json"), token: "synthetic-owner", hostToken: "synthetic-host",
+    approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: [], workspaces: [{ id: "project", name: "Project", path: project, preset: "starter", workspaceType: "local" }],
+    authorizedRoots: [project], readOnly: false, startedAt: Date.now(), tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false,
+    engineProjectTrustRequired: true, retryManagedEngineRecovery: async () => {}, managedEngineRecoveryState: () => ({ mode: "service", heldSessions: [] }),
+  };
+  let server: Awaited<ReturnType<typeof startServer>> | undefined;
+  try {
+    await chmod(settings, 0o500);
+    await writeLegalworkRuntimeConfigFile(config, "project");
+    server = await startServer(config);
+    const url = `http://127.0.0.1:${server.port}/workspace/project/engine-project`;
+    const headers = { authorization: `Bearer ${config.token}` };
+    const unavailable = await fetch(url, { headers });
+    expect({ status: unavailable.status, body: await unavailable.json() }).toMatchObject({ status: 200,
+      body: { projection: { diagnostic: expect.stringContaining("Other projects remain available") } } });
+    await chmod(settings, 0o700);
+    const recovered = await fetch(`${url}/retry-recovery`, { method: "POST", headers });
+    expect(recovered.status).toBe(200);
+    expect(await recovered.json()).toMatchObject({ state: "ready" });
+    expect(await readFile(join(settings, "opencode.json"), "utf8")).toContain('"permissions"');
+  } finally {
+    await server?.stop();
+    await chmod(settings, 0o700);
     if (previousTokens === undefined) delete process.env.LEGALWORK_TOKEN_STORE; else process.env.LEGALWORK_TOKEN_STORE = previousTokens;
     if (previousDb === undefined) delete process.env.LEGALWORK_RUNTIME_DB; else process.env.LEGALWORK_RUNTIME_DB = previousDb;
     await rm(root, { recursive: true, force: true });

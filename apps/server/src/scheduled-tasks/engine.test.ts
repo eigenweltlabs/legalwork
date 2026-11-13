@@ -39,6 +39,7 @@ test.skipIf(!binary)("real native engine preserves scheduled project scope, full
   const token = randomBytes(32).toString("hex");
   const fixture = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
     const url = new URL(request.url), path = url.pathname;
+    if (path === "/assistant") return Response.json({ workspace: null });
     if (path === "/snapshot") return Response.json({ ok: true, route: "/unrelated-chat" });
     if (path === "/execute") {
       const input = z.object({ actionId: z.string(), args: z.unknown().optional() }).parse(await request.json());
@@ -122,8 +123,8 @@ test.skipIf(!binary)("real native engine preserves scheduled project scope, full
       providers: { openai: { settings: { baseURL: `${fixture.url.origin}/v1`, apiKey: "fixture", transport: "http" }, models: { fixture: { modelID: "fixture", limit: { context: 200000, output: 32000 }, capabilities: { tools: true } } } } },
       permissions: nativePermissions("allow"),
       agents: {
-        [PROJECT_TASK_AGENT]: { mode: "primary", hidden: true, permissions: nativePermissions(projectTaskPermissions()) },
-        [ALL_PROJECTS_TASK_AGENT]: { mode: "primary", hidden: true, permissions: nativePermissions(allProjectTaskPermissions("allow")) },
+        [PROJECT_TASK_AGENT]: { mode: "primary", hidden: true, permissions: projectTaskPermissions() },
+        [ALL_PROJECTS_TASK_AGENT]: { mode: "primary", hidden: true, permissions: allProjectTaskPermissions([{ action: "*", resource: "*", effect: "allow" }]) },
         legalwork: { mode: "primary", permissions: nativePermissions("allow") },
       },
     };

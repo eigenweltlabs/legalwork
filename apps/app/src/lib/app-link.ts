@@ -2,10 +2,13 @@
 export const APP_LINK_EVENT = "legalwork:open-app-link";
 
 const pages = new Set(["home", "calendar", "projects", "workflows", "tasks", "scheduled", "recorder", "wikis", "evals"]);
-const settings = new Set(["general", "account", "ai", "tabular-review", "recorder", "office-addins", "extensions", "personalisation", "notifications", "safety", "shell", "environment", "preferences", "updates", "permissions"]);
+const settings = new Set(["general", "account", "ai", "tabular-review", "workflows", "recorder", "office-addins", "extensions", "personalisation", "notifications", "safety", "shell", "environment", "preferences", "updates", "permissions"]);
 const integrationSections = new Set(["mcp", "storage", "skills", "plugins"]);
+const workflowSections = new Set(["skills", "prompts"]);
 
 export function parseAppLink(href: string): string | null {
+  const record = /^legalwork:\/\/app\/back-office\/([a-zA-Z][a-zA-Z0-9_-]{0,99})\?record=([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(&archived=true)?$/i.exec(href.trim());
+  if (record) return `/back-office/${record[1]}?record=${record[2]}${record[3] ?? ""}`;
   // Match the authored form before URL normalization can hide traversal or escapes.
   const match = /^legalwork:\/\/app\/([a-z-]+(?:\/[a-z-]+){0,2})$/.exec(href.trim());
   if (!match) return null;
@@ -14,7 +17,7 @@ export function parseAppLink(href: string): string | null {
   if (page !== "settings") return null;
   if (!section) return "/settings/general";
   if (!settings.has(section)) return null;
-  if (detail && (section !== "extensions" || !integrationSections.has(detail))) return null;
+  if (detail && !(section === "extensions" && integrationSections.has(detail) || section === "workflows" && workflowSections.has(detail))) return null;
   return `/${match[1]}`;
 }
 

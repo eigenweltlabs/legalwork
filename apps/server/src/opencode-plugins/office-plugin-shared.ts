@@ -8,9 +8,9 @@
  * that relay -> Office.js -> result back through the same chain.
  */
 
-import { isAbsolute, relative, resolve, sep } from "node:path";
 import { realpath } from "node:fs/promises";
 import { z } from "zod";
+import { findProjectForDirectory } from "../workspace-path-match.js";
 
 export type OpenCodeContext = {
   agent?: string;
@@ -50,13 +50,30 @@ export async function workspaceToolHeaders(context?: OpenCodeContext): Promise<R
   return headers;
 }
 
-const workspaceListSchema = z.object({ items: z.array(z.object({ id: z.string(), path: z.string() })) });
+const fileWorkspaceSchema = z.object({
+  workspaceId: z.string().min(1).nullable(),
+  wiki: z.object({ root: z.string().min(1), engineDirectory: z.string().min(1) }).nullable(),
+});
+
+export async function sessionFileWorkspace(context: OpenCodeContext) {
+  if (!process.env.LEGALWORK_WIKI_AGENT_TOKEN?.trim()) return undefined;
+  const timeout = AbortSignal.timeout(30_000);
+  const response = await fetch(`${serverUrl()}/agent/file-workspace`, {
+    headers: await workspaceToolHeaders(context),
+    signal: context.abort ? AbortSignal.any([context.abort, timeout]) : timeout,
+  });
+  if (!response.ok) throw new Error(`Workspace lookup failed: HTTP ${response.status}`);
+  return fileWorkspaceSchema.parse(await response.json());
+}
+
+const workspaceListSchema = z.object({ items: z.array(z.object({ id: z.string(), path: z.string(), contentPath: z.string().nullable().optional(), previousPath: z.string().nullable().optional() })) });
+type ToolWorkspace = z.infer<typeof workspaceListSchema>["items"][number];
 
 // Keyed by server URL: the cached ids belong to one server, so an engine
 // pointed at a different LegalWork server must not read the previous one's.
-let workspaceCache: { at: number; url: string; items: Array<{ id: string; path: string }> } | null = null;
+let workspaceCache: { at: number; url: string; items: ToolWorkspace[] } | null = null;
 
-export async function listWorkspaces(context?: OpenCodeContext): Promise<Array<{ id: string; path: string }>> {
+export async function listWorkspaces(context?: OpenCodeContext): Promise<ToolWorkspace[]> {
   const url = serverUrl();
   const headers = await workspaceToolHeaders(context);
   const sessionScoped = Boolean(headers["x-legalwork-wiki-agent-token"]);
@@ -73,23 +90,25 @@ export async function listWorkspaces(context?: OpenCodeContext): Promise<Array<{
   return items;
 }
 
-export async function resolveWorkspaceId(context: OpenCodeContext, options: { requireDirectory?: boolean } = {}): Promise<string> {
+export async function resolveWorkspaceInfo(context: OpenCodeContext, options: { requireDirectory?: boolean } = {}): Promise<ToolWorkspace> {
   const directory = context.directory?.trim() ?? "";
   const items = await listWorkspaces(context);
   if (directory) {
-    const match = [...items].sort((a, b) => b.path.length - a.path.length).find((item) => {
-      if (!item.path) return false;
-      const path = relative(resolve(item.path), resolve(directory));
-      return path === "" || (!isAbsolute(path) && path !== ".." && !path.startsWith(`..${sep}`));
-    });
-    if (match) return match.id;
+    // Mapped drives (P:\…) and their UNC form (\\server\share\…) are the same
+    // project; a lexical relative() check treats them as unrelated folders.
+    const match = await findProjectForDirectory(items, directory);
+    if (match) return match;
   }
-  if (!options.requireDirectory && items.length === 1) return items[0]!.id;
+  if (!options.requireDirectory && items.length === 1) return items[0]!;
   throw new Error(
     directory
       ? `No LegalWork workspace matches the working directory ${directory}.`
       : "Cannot determine the LegalWork workspace for this session.",
   );
+}
+
+export async function resolveWorkspaceId(context: OpenCodeContext, options: { requireDirectory?: boolean } = {}): Promise<string> {
+  return (await resolveWorkspaceInfo(context, options)).id;
 }
 
 export async function callOfficeTool(
@@ -168,12 +187,8 @@ export async function officePaneStatus(directory?: string): Promise<OfficePaneSt
     const token = serverToken();
     if (url && token) {
       const items = await listWorkspaces();
-      const candidates = normalizedDirectory
-        ? items.filter((item) => {
-            const path = relative(resolve(item.path), resolve(normalizedDirectory));
-            return path === "" || (!isAbsolute(path) && path !== ".." && !path.startsWith(`..${sep}`));
-          }).sort((a, b) => b.path.length - a.path.length).slice(0, 1)
-        : items.slice(0, 5);
+      const match = normalizedDirectory ? await findProjectForDirectory(items, normalizedDirectory) : undefined;
+      const candidates = normalizedDirectory ? (match ? [match] : []) : items.slice(0, 5);
       for (const item of candidates) {
         const response = await fetch(
           `${url}/workspace/${encodeURIComponent(item.id)}/office-tools/status`,

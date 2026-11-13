@@ -6,6 +6,7 @@ import {
   deriveOpenTargets,
   isCollectibleArtifactTarget,
   resolveHrefOpenTarget,
+  resolvePathOpenTarget,
   selectAutoOpenTarget,
 } from "../src/react-app/domains/session/artifacts/open-target";
 
@@ -360,4 +361,11 @@ describe("deriveOpenTargets", () => {
 
     expect(selectAutoOpenTarget(targets)).toBeNull();
   });
+});
+
+it("an absolute engine-file link never selects a content file with the same basename", () => {
+  const content = { id: "content", kind: "file" as const, value: "report.docx", name: "report.docx", preview: "word" as const, confidence: 100, reason: "content" };
+  const engine = { ...content, id: "engine", value: "/LegalWork/Projects/123/report.docx" };
+  expect(resolvePathOpenTarget(engine.value, [content, engine])).toBe(engine);
+  expect(resolvePathOpenTarget(engine.value, [content])?.value).toBe(engine.value);
 });

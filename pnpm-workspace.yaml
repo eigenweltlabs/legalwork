@@ -9,7 +9,7 @@ minimumReleaseAgeExclude:
   - "@opencode/ai@2.1.4"
   - "@opencode/util@2.1.4"
   # Explicitly allow the reviewed Electron security update.
-  - "electron@43.8.3"
+  - "electron@43.8.8"
   # Pinned standalone OpenUI runtime reviewed for the reversible wiki prototype.
   - "@openuidev/react-lang@0.4.1"
   - "@openuidev/lang-core@0.4.1"
@@ -20,6 +20,8 @@ minimumReleaseAgeExclude:
 packages:
   - "apps/*"
   - "packages/*"
+  # The Raycast extension is built by Raycast's own tooling; install it inside its folder.
+  - "!apps/raycast-legalwork"
 
 catalog:
   react: 19.2.4
@@ -66,5 +68,6 @@ patchedDependencies:
   '@eigenpal/docx-editor-agents@1.8.3': patches/@eigenpal__docx-editor-agents@1.8.3.patch
   '@eigenpal/docx-editor-core@1.8.3': patches/@eigenpal__docx-editor-core@1.8.3.patch
   '@eigenpal/docx-editor-react@1.8.3': patches/@eigenpal__docx-editor-react@1.8.3.patch
+  electron-updater@6.8.3: patches/electron-updater@6.8.3.patch
   pptx-react-viewer@3.5.4: patches/pptx-react-viewer@3.5.4.patch
   smb3-client@0.2.0: patches/smb3-client@0.2.0.patch

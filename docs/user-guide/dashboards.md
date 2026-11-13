@@ -1,19 +1,54 @@
 # Dashboards and reports
 
-A dashboard presents current structured information, such as matters grouped by status. A report stores a snapshot for a particular point in time. Builds with saved views show them in **Project Dashboards**, wiki pages and document tabs.
+Dashboards and reports are saved files in your project or wiki. Project Files and the file sidebar show their readable titles and dashboard icons. The **Dashboards** folder has a dashboard badge; reports use **Reports**. A live dashboard reads current Back Office records or indexed wiki fields. A snapshot keeps the reviewed data from a particular time.
 
-## Create and save a view
+## Create and save
 
-Ask the assistant for a view and identify its sources: for example, "Create a dashboard of matters from this wiki, grouped by responsible lawyer and status." Inspect the preview and its underlying records. A graph or total is only as complete as the source fields and query.
+1. Open a chat in the intended project or wiki. Ask for a dashboard and identify its sources, for example, "Create a dashboard of matters from this wiki, grouped by responsible lawyer and status."
+2. The agent chooses a layout from your question and the available data. You can ask for related figures side by side, a trend over time, or a ranking by client. You can also ask for changes after reviewing the preview and its source records. Generation alone does not save a file.
+3. To revise a preview, keep its tab beside the chat and describe the change. The edit streams into that tab. If you have several dashboards in the chat, you can name the one you want to change.
+   LegalWork checks the finished layout and sends any component errors back to the agent so it can correct the same preview.
+4. Choose **Save** to save directly into the originating project or wiki. An update preview saves back to its original file, provided that version has not changed.
+5. Reopen the file from the project's **Files > Dashboards**, the file sidebar or the wiki explorer. Both file explorers refresh after saving.
 
-Use the view's save controls to choose a project or writable wiki. Saving into a shared wiki makes it available to that wiki's members. Reopen it from the project's **Dashboards** page or its saved file. A preview is not necessarily a saved deliverable.
+To chart a CSV, attach the file in chat and ask for the comparisons you want. The dashboard keeps a snapshot of the supplied rows. To update it with a newer CSV, attach that file and ask the agent to revise the dashboard.
 
-Live wiki dashboards query that wiki's indexed properties. Reports use frozen datasets. Saving a view outside its source wiki creates a snapshot with the original source links, rather than granting live access through the destination. Check which kind you are opening before treating its figures as current.
+## Back Office dashboards
 
-## Edit and recover
+Ask in a project chat or the Assistant, for example, “Chart all my matters by practice area and value in dispute.” The agent can use any accessible Back Office model, including models your firm adds. A dashboard can combine several models in separate charts or tables. Grouped counts and totals cover all matching records even when the register displays only a page. Monetary totals use a specified currency.
 
-Some dashboard boards allow property changes; those edits update the source records and are subject to access and revision checks. Reports and generation previews are read-only. If a saved view changed while your preview was open, save a separate copy or reopen the current version before updating it.
+A saved live dashboard reads the original directory with the current viewer’s permissions. Local records work offline. Changes appear while the dashboard is open, and **Refresh data** requests an immediate update. A different local directory cannot supply the original records.
 
-An empty dashboard can mean missing fields or no matching records. A load error is not an empty dataset. Follow source links and inspect the query's scope before asking the assistant to change the presentation.
+## Assistant briefings and embedded charts
+
+In the Personal Assistant, requested reports and scheduled briefings can be saved directly in its own workspace. They appear as document cards that you select to open beside the chat. This does not publish to a shared wiki or another project. Ordinary project and wiki generation continues to offer a preview with **Save**.
+
+A Markdown briefing can embed a saved chart while keeping the summary, email links and task checkboxes editable. Select the embedded chart's **Open in tab** button to expand it. Report and dashboard cards use their readable titles rather than internal filenames. Priority email links open the original message in its provider; task links open the task in LegalWork.
+
+Cards labelled **Dashboard** or **Report**, including cards from links in a reply, open the rendered document beside the chat. The underlying `.view.json` file is its saved format, not a code document. Ordinary JSON files still open in the text editor.
+
+To embed an existing saved view, ask the Assistant to add it to your Markdown file. The file keeps a `legalwork-view` fenced reference, so reopening the document loads that same view. Source mode preserves the reference. Removing the block removes the embed, not the saved report file. An unsaved preview cannot be embedded as a saved chart.
+
+## Save an independent copy
+
+Select the arrow beside **Save** or **Saved** to open **Save a copy**. Enter a title, choose **Projects** or **Wikis**, select a destination and choose **Save a copy**. Saving into a shared wiki makes the copy available to its members. Only writable wikis are offered as new destinations.
+
+Verified existing copies appear under **Already saved in** and are excluded from new destination choices. Choose **Open** beside a location to switch to that project or wiki and select the saved dashboard. Copies are independent: editing one does not update the others. Edited, deleted or inaccessible copies no longer count as the same saved version. If locations cannot be checked, use **Retry**. Clearing local copy history does not delete saved files; externally copied files are not automatically associated with that history.
+
+## Rename, export and import
+
+Use the file's menu in Project Files, the sidebar or the wiki explorer and choose **Rename**. This changes the visible dashboard title while preserving its program, data and `.view.json` filename. A heading inside the dashboard content is separate from its file title.
+
+Use **Export snapshot** to download a portable `.view.json` file with frozen data. Import it using the project's add-files or drop action, or add it to a wiki. Explicit imports and copies through LegalWork receive independent identities, including repeated imports and folder copies. Keep the `.view.json` extension. Raw operating-system or synchronization copies retain their identities and may be reported as conflicts.
+
+## Refresh and resolve conflicts
+
+Saved dashboard tabs reconnect automatically when you restart the desktop app. A loading indicator appears while the local connection starts. If a view belongs to another server, open it from its original project or wiki to reconnect.
+
+**Live dashboard** and **Refresh data** mean the view queries its Back Office directory or source wiki. **Snapshot** with its data timestamp and **Reload saved file** mean the data is frozen. Cross-owner copies retain snapshots and source attribution; copies in the same project or wiki can retain live queries. Imported files never silently run another wiki's queries against the destination. If an import requests a snapshot, export one from its source first. Source links can be unavailable when the original server is not connected, while the saved data remains readable.
+
+If the original changes before an update preview is saved, LegalWork preserves the existing file. Choose **Open latest version** to inspect it or **Save a copy** to keep your preview separately. Some live dashboard boards allow property changes; those update source records and require access and matching revisions. Reports and generation previews are read-only.
+
+An empty dashboard can mean missing fields or no matching records. A load error is not an empty dataset. Inspect the source records and query scope before changing the presentation.
 
 Related: [Wiki](wiki.md), [Projects](projects-sharing.md), [Files](files-documents.md).

@@ -6,11 +6,14 @@ import { z } from "zod";
 import type { ServerConfig } from "../types.js";
 import { startServer } from "../server.js";
 import { writeEigenweltConnection } from "../eigenwelt-connection-store.js";
+import { bootstrapRuntimeOpencodeConfig } from "../runtime-opencode-config-store.js";
+import { prepareConnectorStorage } from "../connectors/store.js";
 import { writeConnectorConnections } from "../connectors/store.js";
 import { saveConnectorWriteSetting } from "../connectors/settings.js";
 import { savedConnectorStatus } from "../connectors/broker.js";
 import { StorageStore } from "./store.js";
 import { storageInputSchema } from "./schema.js";
+import { storageTransferEventSchema } from "@legalwork/types/file-storage";
 import { connectorRuntimeCapability } from "../connectors/capability.js";
 import { ConnectorStorageAccounts } from "./connector-accounts.js";
 import { updateProjectRemote, readProjectDetails } from "../project-store.js";
@@ -35,6 +38,8 @@ beforeEach(async () => {
   const workspace = join(root, "project"); await mkdir(workspace);
   config = { host: "127.0.0.1", port: 0, token: "fixture-owner", hostToken: "fixture-host", configPath: join(root, "server.json"), approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: [],
     workspaces: [{ id: "project", name: "Project", path: workspace, workspaceType: "local", preset: "default" }], authorizedRoots: [root], readOnly: false, startedAt: Date.now(), tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false };
+  await bootstrapRuntimeOpencodeConfig(config);
+  await prepareConnectorStorage(config);
   await writeEigenweltConnection(config, { platformToken: "fixture-platform-token", platformURL: "https://storage-broker.test", account: { userId: "alice", userName: "Alice", userEmail: "alice@example.test", orgId: "firm", orgName: "Firm" } });
   await writeConnectorConnections(config, owner, "google-drive", [account]); calls = [];
   globalThis.fetch = Object.assign(async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
@@ -69,6 +74,111 @@ test("saved account status and root discovery never request Nango status or toke
     expect(data.roots).toContainEqual(expect.objectContaining({ id: `connector:google-drive:${account.id}`, writable: false, provider: "google-drive" }));
   }
   expect(calls.some((path) => path.startsWith("/api/connectors"))).toBe(false);
+});
+
+test("the sidebar streaming transfer endpoint completes a native Google copy without transferring file contents", async () => {
+  await saveConnectorWriteSetting(config, "google-drive", { writeAccess: true });
+  const archive = { ...googleRoot, id: "archive", name: "Archive", parents: [googleRoot.id] };
+  const file = { id: "source", name: "Report.txt", mimeType: "text/plain", parents: [googleRoot.id], size: "1024", md5Checksum: "same-hash" };
+  const copied = { ...file, id: "copy", parents: [archive.id] };
+  let copies = 0, contentRequests = 0;
+  const previous = globalThis.fetch;
+  globalThis.fetch = Object.assign(async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+    const url = new URL(input instanceof Request ? input.url : String(input));
+    if (url.hostname !== "www.googleapis.com") return previous(input, init);
+    if (url.searchParams.get("alt") === "media" || url.pathname.includes("/upload/") || url.pathname.endsWith("/export")) {
+      contentRequests++; throw new Error("Unexpected file-content transfer");
+    }
+    if (url.pathname.endsWith("/copy") && init?.method === "POST") {
+      expect(JSON.parse(String(init.body))).toEqual({ name: file.name, parents: [archive.id] });
+      copies++; return Response.json({ id: copied.id });
+    }
+    if (url.pathname.endsWith("/files")) {
+      const parent = /'([^']+)' in parents/.exec(url.searchParams.get("q") ?? "")?.[1];
+      return Response.json({ files: parent === archive.id ? copies ? [copied] : [] : [archive, file] });
+    }
+    return Response.json(url.pathname.endsWith("/archive") ? archive : url.pathname.endsWith("/source") ? file : url.pathname.endsWith("/copy") ? copied : googleRoot, { headers: { etag: '"fixture-version"' } });
+  }, { preconnect: nativeFetch.preconnect });
+  await serve();
+  const rootPath = nativeSegment({ id: googleRoot.id, name: "My Drive" });
+  const id = `connector:google-drive:${account.id}`;
+  const response = await nativeFetch(`${base}/workspace/project/storage/${encodeURIComponent(id)}/transfer`, {
+    method: "POST", headers: { Authorization: `Bearer ${config.token}`, "x-legalwork-host-token": config.hostToken, "Content-Type": "application/json", Accept: "text/event-stream" },
+    body: JSON.stringify({ path: `${rootPath}/${nativeSegment(file)}`, kind: "file", destinationId: id, destinationPath: `${rootPath}/${nativeSegment(archive)}`, mode: "copy" }),
+  });
+  expect(response.status).toBe(200);
+  const events = (await response.text()).split("\n").filter(line => line.startsWith("data: ")).map(line => storageTransferEventSchema.parse(JSON.parse(line.slice(6))));
+  expect(events.some(event => event.type === "result")).toBe(true);
+  expect(events.some(event => event.type === "error")).toBe(false);
+  expect(events.filter(event => event.type === "progress").at(-1)).toMatchObject({ type: "progress", progress: { phase: "completed", completedFiles: 1, totalFiles: 1 } });
+  expect(copies).toBe(1); expect(contentRequests).toBe(0);
+});
+
+test("whole-account sidebar file reads and checkouts use two metadata requests without resolving display ancestors", async () => {
+  const file = { id: "source", name: "Report.txt", mimeType: "text/plain", parents: ["current-parent"], size: "15", version: "7" };
+  const previous = globalThis.fetch;
+  let metadata = 0, content = 0;
+  globalThis.fetch = Object.assign(async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+    const url = new URL(input instanceof Request ? input.url : String(input));
+    if (url.hostname !== "www.googleapis.com") return previous(input, init);
+    expect(url.pathname).toBe("/drive/v3/files/source");
+    expect(init?.method).toBe("GET");
+    if (url.searchParams.get("alt") === "media") { content++; return new Response("fixture-content"); }
+    metadata++; return Response.json(file);
+  }, { preconnect: nativeFetch.preconnect });
+  await serve();
+  const id = encodeURIComponent(`connector:google-drive:${account.id}`);
+  const path = `${nativeSegment({ id: "old-parent", name: "Old folder" })}/${nativeSegment(file)}`;
+  for (const checkout of [false, true]) {
+    metadata = 0; content = 0;
+    const response = await nativeFetch(`${base}/workspace/project/storage/${id}/${checkout ? "checkout" : `file?${new URLSearchParams({ path })}`}`, {
+      method: checkout ? "POST" : "GET", headers: { Authorization: `Bearer ${config.token}`, "x-legalwork-host-token": config.hostToken, "Content-Type": "application/json" },
+      ...(checkout ? { body: JSON.stringify({ path }) } : {}),
+    });
+    expect(response.status).toBe(200);
+    const result = await response.json();
+    expect(result).toMatchObject({ version: "sha256:7", ...(checkout ? { size: 15 } : { dataBase64: Buffer.from("fixture-content").toString("base64") }) });
+    if (checkout) {
+      const copy = z.object({ localPath: z.string() }).parse(result);
+      expect(copy.localPath).toEndWith("/Report.txt");
+      expect(copy.localPath).not.toContain("~lw~");
+    }
+    expect(metadata).toBe(2); expect(content).toBe(1);
+  }
+});
+
+test("sidebar delete endpoints trash Google files and nonempty folders with real conditional tokens, surfacing conflicts without retry", async () => {
+  await saveConnectorWriteSetting(config, "google-drive", { writeAccess: true });
+  await serve();
+  const rootPath = nativeSegment({ id: googleRoot.id, name: "My Drive" });
+  const id = encodeURIComponent(`connector:google-drive:${account.id}`);
+  const previous = globalThis.fetch;
+  for (const kind of ["file", "folder"]) for (const changed of [false, true]) {
+    const source = { ...googleRoot, id: "source", name: "Invoice", version: "7", parents: [googleRoot.id], mimeType: kind === "folder" ? googleRoot.mimeType : "application/pdf" };
+    let writes = 0;
+    globalThis.fetch = Object.assign(async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+      const url = new URL(input instanceof Request ? input.url : String(input));
+      if (url.hostname !== "www.googleapis.com") return previous(input, init);
+      if (init?.method && init.method !== "GET") {
+        writes++;
+        expect(init.method).toBe("PATCH"); expect(url.pathname).toBe("/drive/v2/files/source");
+        expect(url.searchParams.get("supportsAllDrives")).toBe("true");
+        expect(new Headers(init.headers).get("If-Match")).toBe('"provider-version-7"');
+        expect(JSON.parse(String(init.body))).toEqual({ labels: { trashed: true } });
+        return changed ? new Response(null, { status: 412 }) : Response.json({ id: source.id });
+      }
+      if (url.pathname.startsWith("/drive/v2/")) return Response.json({ id: source.id, version: "7", etag: '"provider-version-7"' });
+      if (url.pathname.endsWith("/files")) return Response.json({ files: [{ ...source, id: "child", parents: [source.id] }] });
+      return Response.json(url.pathname.endsWith("/source") ? source : googleRoot);
+    }, { preconnect: nativeFetch.preconnect });
+    const query = new URLSearchParams({ path: `${rootPath}/${nativeSegment(source)}`, ...(kind === "folder" ? { recursive: "true" } : {}) });
+    const response = await nativeFetch(`${base}/workspace/project/storage/${id}/${kind === "file" ? "file" : "folders"}?${query}`, {
+      method: "DELETE", headers: { Authorization: `Bearer ${config.token}`, "x-legalwork-host-token": config.hostToken },
+    });
+    expect(response.status).toBe(changed ? 409 : 200);
+    expect(writes).toBe(1);
+    if (!changed) expect(await response.json()).toEqual({ ok: true });
+  }
 });
 
 test("the managed agent storage routes search and read a shared-drive-only file using the existing account", async () => {

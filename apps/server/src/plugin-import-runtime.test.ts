@@ -1,3 +1,4 @@
+import type { NativeMcpDefinition } from "./native-mcp-config.js";
 import { expect, test } from "bun:test";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -38,7 +39,7 @@ test("a Claude Context7 import installs the canonical OAuth callback into the en
   await installPluginImport(config, "test", root, imported, true);
   const entries = Object.values(await runtimeMcpMapForWorkspace(config, "test"));
   expect(entries).toHaveLength(1);
-  expect(entries[0]).toMatchObject({ type: "remote", url, oauth: { redirectUri: "http://localhost:19876/mcp/oauth/callback" } });
+  expect(entries[0]).toMatchObject({ type: "remote", url, oauth: { redirect_uri: "http://localhost:19876/mcp/oauth/callback" } });
 }));
 test("plugin runtime retains Codex headers, token requirements, callback URL and launch settings", () => fixture(async (root, config) => {
   const imported = await plan(root, {
@@ -51,17 +52,21 @@ test("plugin runtime retains Codex headers, token requirements, callback URL and
     "server.js": "console.log('fixture')",
   }, "chatgpt");
   await installPluginImport(config, "test", root, imported, true);
-  const runtime = (await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID)).mcp ?? {};
+  const runtime = (await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID)).mcp?.servers ?? {};
   const get = (name: string) => runtime[imported.preview.components.find(item => item.name === name)!.installedName];
-  expect(get("token")).toMatchObject({ headers: { "X-Tenant": "tenant", Authorization: "Bearer ${PLUGIN_TOKEN}" }, oauth: false, timeout: 25000, enabled: false });
-  expect(get("oauth")?.oauth).toEqual({ clientId: "client", redirectUri: "http://127.0.0.1:4321/callback/registered", callbackPort: 4321 });
-  expect(get("local")).toMatchObject({ cwd: expect.stringContaining("imported-plugins/runtime-"), timeout: 45000, environment: { PLUGIN_SECRET: "${PLUGIN_SECRET}" } });
+  expect(get("token")).toMatchObject({ headers: { "X-Tenant": "tenant", Authorization: "Bearer ${PLUGIN_TOKEN}" }, oauth: false, timeout: { startup: 25000, catalog: 25000, execution: 25000 }, disabled: true });
+  const oauth = get("oauth");
+  if (oauth?.type !== "remote") throw new Error("Missing remote OAuth fixture");
+  expect(oauth.oauth).toEqual({ client_id: "client", redirect_uri: "http://127.0.0.1:4321/callback/registered", callback_port: 4321 });
+  expect(get("local")).toMatchObject({ cwd: expect.stringContaining("imported-plugins/runtime-"), timeout: { startup: 45000, catalog: 45000, execution: 45000 }, environment: { PLUGIN_SECRET: "${PLUGIN_SECRET}" } });
 }));
 test("templated endpoints remain editable but unresolved credentials cannot be activated", () => fixture(async (root, config) => {
   const imported = await plan(root, { ".claude-plugin/plugin.json": '{"name":"tenant"}', ".mcp.json": JSON.stringify({ mcpServers: { tenant: { url: "https://${TENANT}.example.com/mcp", headers: { Authorization: "Bearer ${TOKEN}" } } } }) });
   await installPluginImport(config, "test", root, imported, true);
   const name = imported.preview.components[0]!.installedName;
-  expect((await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID)).mcp?.[name]?.url).toBe("https://${TENANT}.example.com/mcp");
+  const saved = (await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID)).mcp?.servers?.[name];
+  if (saved?.type !== "remote") throw new Error("Missing remote connector fixture");
+  expect(saved.url).toBe("https://${TENANT}.example.com/mcp");
   expect(await setMcpEnabled(config, "test", name, true)).toBe(false);
 }));
 test("commands refer to the engine's folder-qualified agent identity and remain listable", () => fixture(async (root, config) => {
@@ -79,13 +84,17 @@ test("re-import keeps user setup while updating untouched defaults and prevents 
   const original = await plan(root, files);
   await installPluginImport(config, "test", root, original, true);
   const name = original.preview.components[0]!.installedName;
-  await writeRuntimeOpencodeConfig(config, GLOBAL_MCP_ID, current => ({ ...current, mcp: { ...current.mcp, [name]: { ...current.mcp?.[name], enabled: true, headers: { Authorization: "Bearer synthetic-user-token", "X-Version": "1" } } } }));
+  await writeRuntimeOpencodeConfig(config, GLOBAL_MCP_ID, current => {
+    const saved = current.mcp?.servers?.[name];
+    if (saved?.type !== "remote") throw new Error("Missing remote connector fixture");
+    return { ...current, mcp: { servers: { ...current.mcp?.servers, [name]: { ...saved, disabled: false, headers: { Authorization: "Bearer synthetic-user-token", "X-Version": "1" } } } } };
+  });
   const update = await plan(root, { ...files, ".mcp.json": JSON.stringify({ mcpServers: { remote: { url: "https://example.invalid/mcp", headers: { Authorization: "Bearer ${TOKEN}", "X-Version": "2" }, timeout: 45000 } } }) });
   await installPluginImport(config, "test", root, update, true);
-  expect((await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID)).mcp?.[name]).toMatchObject({ enabled: true, timeout: 45000, headers: { Authorization: "Bearer synthetic-user-token", "X-Version": "2" } });
+  expect((await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID)).mcp?.servers?.[name]).toMatchObject({ disabled: false, timeout: { startup: 45000, catalog: 45000, execution: 45000 }, headers: { Authorization: "Bearer synthetic-user-token", "X-Version": "2" } });
   const changed = await plan(root, { ...files, ".mcp.json": JSON.stringify({ mcpServers: { remote: { url: "https://different.invalid/mcp", headers: { Authorization: "Bearer ${TOKEN}" } } } }) });
   await installPluginImport(config, "test", root, changed, true);
-  expect((await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID)).mcp?.[name]).toMatchObject({ enabled: false, headers: { Authorization: "Bearer ${TOKEN}" } });
+  expect((await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID)).mcp?.servers?.[name]).toMatchObject({ disabled: true, headers: { Authorization: "Bearer ${TOKEN}" } });
 }));
 
 test("configuration API updates the connector in its owned scope and cannot recreate a removed item", () => fixture(async (root, config) => {
@@ -98,10 +107,10 @@ test("configuration API updates the connector in its owned scope and cannot recr
   const headers = { Authorization: "Bearer test", "X-LegalWork-Host-Token": "host", "Content-Type": "application/json" };
   try {
     const endpoint = `http://127.0.0.1:${server.port}/workspace/test/mcp`;
-    const connection = { type: "remote", url: "https://example.invalid/mcp", oauth: false, enabled: true, headers: { Authorization: "Bearer synthetic-token" } };
+    const connection = { type: "remote", url: "https://example.invalid/mcp", oauth: false, disabled: false, headers: { Authorization: "Bearer synthetic-token" } } satisfies NativeMcpDefinition;
     expect((await fetch(endpoint, { method: "POST", headers, body: JSON.stringify({ name, config: connection, preserveScope: true }) })).status).toBe(200);
-    expect((await readRuntimeOpencodeConfig(config, "test")).mcp?.[name]).toEqual(connection);
-    expect((await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID)).mcp?.[name]).toBeUndefined();
+    expect((await readRuntimeOpencodeConfig(config, "test")).mcp?.servers?.[name]).toEqual(connection);
+    expect((await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID)).mcp?.servers?.[name]).toBeUndefined();
     expect((await fetch(endpoint, { method: "POST", headers, body: JSON.stringify({ name: "removed", config: connection, preserveScope: true }) })).status).toBe(404);
   } finally { await server.stop(); }
 }));
@@ -116,21 +125,23 @@ test("upgrading an older import recovers dropped launch fields while retaining c
     return { ...current, plugins: { ...current.plugins, [imported.preview.id]: legacy } };
   });
   await writeRuntimeOpencodeConfig(config, GLOBAL_MCP_ID, current => {
-    const { cwd, timeout, ...old } = current.mcp?.[name] ?? {};
-    return { ...current, mcp: { ...current.mcp, [name]: { ...old, enabled: true, environment: { KEY: "synthetic-user-key" } } } };
+    const saved = current.mcp?.servers?.[name];
+    if (saved?.type !== "local") throw new Error("Missing local connector fixture");
+    const { cwd, timeout, ...old } = saved;
+    return { ...current, mcp: { servers: { ...current.mcp?.servers, [name]: { ...old, disabled: false, environment: { KEY: "synthetic-user-key" } } } } };
   });
   await installPluginImport(config, "test", root, imported, true);
-  expect((await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID)).mcp?.[name]).toMatchObject({ enabled: true, cwd: expect.stringContaining("imported-plugins/legacy-"), timeout: 45000, environment: { KEY: "synthetic-user-key" } });
+  expect((await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID)).mcp?.servers?.[name]).toMatchObject({ disabled: false, cwd: expect.stringContaining("imported-plugins/legacy-"), timeout: { startup: 45000, catalog: 45000, execution: 45000 }, environment: { KEY: "synthetic-user-key" } });
 }));
 
 test("old already-enabled imports cannot send unresolved credentials or a dummy endpoint to the engine", () => fixture(async (root, config) => {
-  await writeRuntimeOpencodeConfig(config, GLOBAL_MCP_ID, () => ({ mcp: {
-    old: { type: "remote", url: "https://example.invalid/mcp", enabled: true, headers: { Authorization: "Bearer ${TOKEN}" } },
-    dummy: { type: "remote", url: "https://configure-before-connecting.invalid/mcp", enabled: true },
-    ready: { type: "remote", url: "https://ready.invalid/mcp", enabled: true },
-  } }));
+  await writeRuntimeOpencodeConfig(config, GLOBAL_MCP_ID, () => ({ mcp: { servers: {
+    old: { type: "remote", url: "https://example.invalid/mcp", disabled: false, headers: { Authorization: "Bearer ${TOKEN}" } },
+    dummy: { type: "remote", url: "https://configure-before-connecting.invalid/mcp", disabled: false },
+    ready: { type: "remote", url: "https://ready.invalid/mcp", disabled: false },
+  } } }));
   const engine = await runtimeMcpMapForWorkspace(config, "test");
-  expect(engine.old?.enabled).toBe(false);
-  expect(engine.dummy?.enabled).toBe(false);
-  expect(engine.ready?.enabled).toBe(true);
+  expect(engine.old?.disabled).toBe(true);
+  expect(engine.dummy?.disabled).toBe(true);
+  expect(engine.ready?.disabled).toBe(false);
 }));

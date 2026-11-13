@@ -25,6 +25,13 @@ test("two desktop API hosts create, discover and edit a wiki without projects; r
   expect(owner.config.workspaces).toHaveLength(0);
   expect(member.config.workspaces).toHaveLength(0);
   const a = await host(owner.config), b = await host(member.config);
+  // Exercise the background discovery explicitly instead of relying on when
+  // its timer happens to run during the complete server suite.
+  for (const api of [a, b]) {
+    const discovery = await api("/project-sync", "POST");
+    expect(discovery.status).toBe(200);
+    expect(await discovery.json()).toMatchObject({ round: { error: null, pulled: 0, arrived: 0 } });
+  }
   const response = await a("/wikis", "POST", { name: "Independent knowledge", sharing: { access: "members", memberIds: ["member"] } });
   expect(response.status).toBe(201);
   const original = createdSchema.parse(await response.json()).wiki;
@@ -62,5 +69,9 @@ test("two desktop API hosts create, discover and edit a wiki without projects; r
   expect((await b(`/wikis/${joined.id}/page?path=Process.md`)).status).toBe(401);
   expect((await b(`/wikis/${joined.id}`, "DELETE")).status).toBe(200);
   expect(owner.config.workspaces.every((workspace) => workspace.preset === "wiki")).toBe(true);
-  expect(cloud.requests.every((request) => !request.path.startsWith("/api/projects"))).toBe(true);
+  // The desktop may list the empty registry in the background. Wiki sharing
+  // must never create a project or access an individual project's resources.
+  const projectRequests = cloud.requests.filter((request) => request.path.startsWith("/api/projects"));
+  expect(projectRequests.length).toBeGreaterThanOrEqual(2);
+  expect(projectRequests.filter((request) => request.method !== "GET" || request.path !== "/api/projects")).toEqual([]);
 });

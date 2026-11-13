@@ -73,6 +73,8 @@ export function useShellShortcuts(input: UseShellShortcutsInput) {
     const handler = (event: KeyboardEvent) => handleGlobalShortcut(event);
     // Rich-text pages own their link shortcut; elsewhere Cmd/Ctrl+K opens search.
     const captureSearch = (event: KeyboardEvent) => {
+      // Inside the launcher, Cmd/Ctrl+K opens the result's actions; the panel handles it itself.
+      if (event.target instanceof HTMLElement && event.target.closest(".launcher-root")) return;
       if (!event.isComposing && event.key.toLowerCase() === "k") handleGlobalShortcut(event);
     };
     window.addEventListener("keydown", captureSearch, true);

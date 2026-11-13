@@ -1,19 +1,16 @@
-import { z } from "zod";
 import type { AgentInfo } from "@opencode/client";
-type PermissionConfig = string | Record<string, "allow" | "ask" | "deny" | Record<string, "allow" | "ask" | "deny">>;
+import { Config } from "@opencode/schema/config";
+import { Schema } from "effect";
+import { permissionPatternMatches } from "../agent-sandbox/permissions.js";
+type PermissionConfig = Array<NonNullable<(typeof Config.Info.Type)["permissions"]>[number]>;
 
 export const PROJECT_TASK_AGENT = "legalwork-scheduled-project";
 export const ALL_PROJECTS_TASK_AGENT = "legalwork-scheduled-all";
 
 /** Background reviews read data directly and must not take over the user's UI. */
-export function allProjectTaskPermissions(input: unknown = {}): PermissionConfig {
-  const global = permissionSchema.parse(input);
-  const permissions: Exclude<PermissionConfig, string> = typeof global === "string" ? { "*": global } : { ...global };
-  for (const tool of ["legalwork_ui_snapshot", "legalwork_ui_list_actions", "legalwork_ui_execute_action"]) {
-    delete permissions[tool];
-    permissions[tool] = "deny";
-  }
-  return permissions;
+export function allProjectTaskPermissions(input: PermissionConfig = []): PermissionConfig {
+  const permissions = Schema.decodeUnknownSync(Config.Info)({ permissions: input }).permissions ?? [];
+  return [...permissions, ...["legalwork_ui_snapshot", "legalwork_ui_list_actions", "legalwork_ui_execute_action"].map(action => ({ action, resource: "*", effect: "deny" } satisfies PermissionConfig[number]))];
 }
 
 // These tools resolve the project from the engine's trusted execution context.
@@ -30,22 +27,13 @@ export const PROJECT_TASK_TOOLS = new Set([
   "execute",
 ]);
 
-const actionSchema = z.enum(["allow", "ask", "deny"]);
-const permissionSchema = z.union([actionSchema, z.record(z.string(), z.union([actionSchema, z.record(z.string(), actionSchema)]))]);
-
-function matches(pattern: string, name: string) {
-  return new RegExp(`^${pattern.split("*").map(part => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join(".*")}$`).test(name);
-}
-
 /** Preserve the user's existing denials and approval rules for allowed tools. */
-export function projectTaskPermissions(input: unknown = {}): PermissionConfig {
-  const global = permissionSchema.parse(input);
-  const permissions: Exclude<PermissionConfig, string> = { "*": "deny" };
+export function projectTaskPermissions(input: PermissionConfig = []): PermissionConfig {
+  const global = Schema.decodeUnknownSync(Config.Info)({ permissions: input }).permissions ?? [];
+  const permissions: PermissionConfig = [{ action: "*", resource: "*", effect: "deny" }];
   for (const tool of PROJECT_TASK_TOOLS) {
-    if (typeof global === "string") { permissions[tool] = global; continue; }
-    let action: Exclude<PermissionConfig, string>[string] = "allow";
-    for (const [name, value] of Object.entries(global)) if (matches(name, tool)) action = value;
-    permissions[tool] = action;
+    const rules = global.filter(rule => permissionPatternMatches(tool, rule.action));
+    permissions.push({ action: tool, resource: "*", effect: "allow" }, ...rules.map(rule => ({ ...rule, action: tool })));
   }
   return permissions;
 }

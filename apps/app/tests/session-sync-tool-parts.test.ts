@@ -20,6 +20,7 @@ import {
   seedSessionState,
 } from "../src/react-app/domains/session/sync/session-sync";
 import {
+  visibleToolAttachments,
   parseDynamicToolUIPart,
   parseStructuredOutputUIPart,
 } from "../src/react-app/domains/session/sync/parse-tool-parts";
@@ -191,7 +192,7 @@ describe("tool part mapper", () => {
     try {
       const event = (type: string, data: object) => __applySessionSyncEventForTest(input, { type, id: "event", created: 1,
         durable: { aggregateID: part.sessionID, seq: "1", version: 1 }, data: { sessionID: part.sessionID, assistantMessageID: part.messageID, ...data } });
-      event("session.step.started", {});
+      event("session.step.started", { model: { providerID: "fixture", id: "fixture" } });
       event("session.tool.input.started", { id: part.callID, name: part.tool });
       event("session.tool.called", { id: part.callID, input: part.state.input });
       event("session.tool.success", { id: part.callID, content: [{ type: "text", text: output }], metadata: {} });
@@ -276,4 +277,21 @@ test("finishing an agent run refreshes its project file list without invalidatin
     expect(cache.getQueryState(own)?.isInvalidated).toBe(true);
     expect(cache.getQueryState(other)?.isInvalidated).toBe(false);
   } finally { cleanup(); }
+});
+
+
+test("Word inspection images stay in model history but are hidden from chat, including Code Mode", () => {
+  const part = writeToolPart("completed", {}, { tool: "execute" });
+  if (part.state.status !== "completed") throw new Error("Expected completed tool");
+  part.state.metadata = {toolCalls: [{tool: "inapp_docx_preview", status: "completed"}]};
+  const file = { type: "file" satisfies "file", id: "inspection", sessionID: part.sessionID, messageID: part.messageID, mime: "image/png", url: "data:image/png;base64,AA==", filename: "page-1.png" };
+  part.state.attachments = [file, {...file, id: "deliverable", filename: "requested-chart.png"}];
+  expect(visibleToolAttachments(part).map(item => item.filename)).toEqual(["requested-chart.png"]);
+  expect(part.state.attachments).toHaveLength(2);
+  part.state.metadata = {toolCalls: [{tool: "inapp_docx_preview", status: "completed"}, {tool: "other", status: "completed"}]};
+  part.state.attachments[0] = {...file, filename: "docx-inspection-page-1.png"};
+  expect(visibleToolAttachments(part).map(item => item.filename)).toEqual(["requested-chart.png"]);
+  part.tool = "inapp_docx_preview"; part.state.attachments = [file];
+  expect(visibleToolAttachments(part)).toEqual([]);
+  part.tool = "other"; expect(visibleToolAttachments(part)).toEqual([file]);
 });

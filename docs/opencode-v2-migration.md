@@ -2,18 +2,20 @@
 
 ## Agreed target
 
-The implementation checkout, `codex/opencode-v2-migration`, now includes
-`eigenweltlabs/legalwork` dev commit
-`3b214a80c6df6739d34e5c14506406e2c75cd149`, fetched again on
-2026-10-26. Firecrawl, Office pairing, retirement of unused sharing/messaging,
-checkout/sign-in expiry and Mac updater shutdown changes are preserved. Earlier
-comparison packages retain their frozen `fdb89d9e06990fd7fa9517c59b5709d8857453a7`
-source; final7 and final8 retain their exact later `9c278ff0` base and captured
-migration changes. Current CI uses the latest-dev integration. The original detached v1
-baseline at `4cd058941a96752ce7aca97ea71c97341f56a84b` and all earlier receipts
-remain immutable historical evidence. Comparison-source differences must be
-reported explicitly; passing an older comparison does not close final-package
-acceptance. Existing user working copies are not migration inputs.
+On 28 October 2026 the user requested rebasing `codex/opencode-v2-migration`
+onto current `dev` and integrating PR #329. The branch now includes `dev`
+`15b52ba294b7034518b45af323065f8b5f439d1f` and PR #329's request-performance changes from
+`c6616c77893b69c253bef22148565ba3436d56d8`. The engine target remains
+OpenCode 2.1.4; this does not adopt a newer engine release.
+
+The new dev integration includes recording/speaker changes, dashboard files,
+technical support exports, mail/calendar organization, PDF reading/selective OCR
+and chat math. Native PDF hooks and v2 support-history export are adapted as
+part of the integration. Earlier comparison packages retain their exact frozen
+sources and receipts; their passing results do not establish acceptance of this
+new combined source. The original detached v1 baseline at
+`4cd058941a96752ce7aca97ea71c97341f56a84b` and all historical evidence remain
+unchanged. Existing user working copies are not migration inputs.
 
 For current results and remaining gates, use the
 [acceptance register](opencode-v2-capability-status.md). Historical test
@@ -43,22 +45,25 @@ checkpoints below retain their original failures and do not override that regist
 - **Configuration boundary, approved:** use native connection/execution APIs and
   typed LegalWork managed-setting APIs. Remove the automatic standalone file-editing
   fallback. Standalone OpenCode-only connections own their settings externally.
-- **One engine, confirmed:** one released server for all local projects, matching
-  the current LegalWork and upstream desktop architecture. On 2026-10-27 the user
-  approved shared LegalWork-managed configuration with automatic native project and
-  ancestor configuration discovery disabled. Normal UI skills, workflows and plugin
-  imports use the shared library. Preserve actual project provider controls through
-  supported native APIs, and retain project instructions, folder permissions and
-  case context through their existing services. This replaces the earlier native
-  project-discovery choice; no additional engine patch is authorized or required
-  for disabling discovery.
-- **Project admission, revised 2026-10-27:** registered, available managed projects
-  do not require a folder-trust prompt. Admission must still reject unknown engine
-  locations and protect internal moves and restart recovery. User-authored files
-  remain intact and inactive as engine configuration in managed mode. Retire only
-  verified unchanged LegalWork-generated selection files, preserving a private copy.
-  Existing native-project fixtures describe the separate explicit native mode;
-  managed-mode acceptance requires its own discovery, capability and isolation tests.
+- **One engine, revised 2026-10-28 (LW-287):** one released server for all local
+  projects, following upstream's native configuration loader. The user selected
+  native project files instead of a new private-configuration engine patch.
+  Shared capabilities and secret strings stay in LegalWork's private library;
+  generated selections live in `.opencode/opencode.json` or `.jsonc`. Preserve
+  authored files and detect edits to generated files before overwriting them.
+  This supersedes the 27 October shared-only reconstruction/discovery-disabled
+  design. Normal UI skills and workflows still use the shared library.
+- **Project admission, confirmed 2026-10-28:** remove the project-automation
+  approval UI, approval endpoint and separate custom-plugin approval registry
+  from the normal load path. Registered, available projects load their native
+  configuration directly. Unknown engine locations and actual configuration
+  conflicts remain blocked. Firm restrictions, chat approvals, project folder
+  grants and sandbox policy remain enforced independently.
+- **Permission preservation:** retain chat rules in their original chats and
+  project/sandbox grants in their projects. Migrate identifiable old native
+  saved approvals only while the engine is stopped; privately archive ambiguous
+  records and ask again when that access is needed. Durable import receipts
+  prevent a restart or interrupted migration from restoring a revoked grant.
 - **Commands, approved:** preserve configured commands, routing executable expansion
   through normal permissions and sandboxes. Keep complete command output and the
   upstream absence of a default command execution deadline; Stop/revocation remain.
@@ -150,7 +155,7 @@ provider. Confirmed charges and conservative reservations are separate figures.
 Notify on budget exhaustion or an accounting-related pause.
 The ordinary gateway key budget alone is not a strict in-flight spending gate.
 
-See [budget operation and every introduced accounting limit](../scripts/benchmarks/budget.md).
+See [budget operation and every introduced accounting limit](https://github.com/eigenweltlabs/legalwork/blob/codex/v2-benchmark-tooling/scripts/benchmarks/budget.md).
 The guard preserves natural model capacity, refuses an unaffordable whole request
 before dispatch, and keeps unresolved costs reserved. It is conditional on audited
 gateway tariffs and all test traffic crossing that guard; supplier invoices and
@@ -162,7 +167,7 @@ Catalog/backend/fixture differences invalidate automatic parity unless explicitl
 reviewed. Clean OS profiles belong in the platform matrix. The user authorized
 `gcloud` VMs for later Linux/Windows testing; reserve their bounded cost and clean
 them up after use. The first isolated Linux V1 VM has now been allocated under
-the reviewed [isolation plan](opencode-v2-isolated-vm-plan.md), with a four-hour
+the reviewed [isolation plan](https://github.com/eigenweltlabs/legalwork/blob/23db1a2f142972297e023c6e598f62915f14ed76/docs/opencode-v2-isolated-vm-plan.md), with a four-hour
 automatic deletion lease and no attached cloud service account. Its source is
 the exact frozen dev archive; Linux runtime assets are regenerated there. Paid
 inference remains held until its filesystem/control/transport proof passes.

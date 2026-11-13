@@ -71,6 +71,7 @@ app.whenReady().then(async () => {
           const tab = await open(id);
           assert.equal(tab.snapshot.error, undefined);
           assert.ok(hits.includes(`/${id}`));
+          invoke("dismissTab", tab.tab_id);
           invoke("releaseSession", id);
         }
       }

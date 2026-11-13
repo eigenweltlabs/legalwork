@@ -8,11 +8,11 @@ import { isScheduledTaskTool } from "./scheduled-task-card";
 import { isCalculationTool } from "./calculation/calculation-card";
 import { shouldRenderJevSearchCard, jevSearchIdentity, withLatestJevSearchProgress } from "./review/jev-search-card";
 import { isReviewCardTool, reviewCardIdentity } from "./review/review-tool";
-import { isProjectListTool, suppressProjectCard } from "./project/project-tool";
 import { isSubagentTool } from "./subagent-tool";
 import { isReasoningUIPart, isToolUIPart, type DynamicToolUIPart, type FileUIPart, type ReasoningUIPart, type ToolUIPart, type UIMessage } from "ai"
 import type { ThreadStatus } from "@/lib/messages"
 import { t } from "@/i18n";
+import { attachmentFilename } from "@/app/lib/attachment-filename";
 
 interface MessageGroup {
   messages: UIMessageWithIndex[]
@@ -44,14 +44,14 @@ export function getLastTextPart(message: UIMessage): UIMessage | null {
 
 export function getFileTitle(part: FileUIPart) {
   if (part.filename) {
-    return part.filename
+    return attachmentFilename(part.filename.replaceAll("\\", "/"))
   }
 
   if (part.url.startsWith("data:")) {
     return t("tool.attached_file")
   }
 
-  return part.url || "File"
+  return attachmentFilename(part.url.replaceAll("\\", "/")) || "File"
 }
 
 export function getMediaBadge(part: FileUIPart) {
@@ -144,7 +144,6 @@ type AssistantRenderGroup =
   | { kind: "assistant-name"; part: ToolUIPart | DynamicToolUIPart }
   | { kind: "scheduled-task"; part: ToolUIPart | DynamicToolUIPart }
   | { kind: "calculation"; part: ToolUIPart | DynamicToolUIPart }
-  | { kind: "project"; part: ToolUIPart | DynamicToolUIPart }
   | { kind: "wiki-suggestion"; part: DynamicToolUIPart }
   | { kind: "view"; part: DynamicToolUIPart }
   | { kind: "subagents"; parts: Array<ToolUIPart | DynamicToolUIPart> }
@@ -152,7 +151,6 @@ type AssistantRenderGroup =
 
 /** Combine consecutive activity across engine messages, retaining prose boundaries. */
 export function groupAssistantToolRuns(items: UIMessageWithIndex[], showThinking: boolean): UIMessageWithIndex[] {
-  const reviewSetup = items.some(item => item.message.parts.some(part => isToolUIPart(part) && isReviewCardTool(part)));
   // A create → prose → start sequence still represents one live review card.
   const latestReviewActions = new Map<string, string>();
   const searchCards = new Map<string, ToolUIPart | DynamicToolUIPart>();
@@ -204,8 +202,7 @@ export function groupAssistantToolRuns(items: UIMessageWithIndex[], showThinking
           if (!reviewsPlaced) { activity.message.parts.push(...reviewParts); reviewsPlaced = true; }
           continue;
         }
-        activity.message.parts.push(searchId ? searchCards.get(searchId) ?? part
-          : reviewSetup && isToolUIPart(part) && isProjectListTool(part) ? suppressProjectCard(part) : part)
+        activity.message.parts.push(searchId ? searchCards.get(searchId) ?? part : part)
       } else {
         activity = undefined
         if (!prose) {
@@ -217,6 +214,12 @@ export function groupAssistantToolRuns(items: UIMessageWithIndex[], showThinking
     }
   }
   return result
+}
+
+/** Only a trailing tool row can carry the live status in place. Rich cards cannot. */
+export function hasToolRunTail(items: UIMessageWithIndex[], showThinking: boolean): boolean {
+  const tail = groupAssistantToolRuns(items, showThinking).at(-1);
+  return Boolean(tail && getAssistantRenderGroups(tail.message.parts, showThinking).at(-1)?.kind === "tools");
 }
 
 export function getAssistantRenderGroups(
@@ -321,7 +324,6 @@ export function getAssistantRenderGroups(
       if (isAssistantNameTool(part)) { groups.push({ kind: "assistant-name", part }); continue; }
       if (isScheduledTaskTool(part)) { groups.push({ kind: "scheduled-task", part }); continue; }
       if (isCalculationTool(part)) { groups.push({ kind: "calculation", part }); continue; }
-      if (isProjectListTool(part)) { groups.push({ kind: "project", part }); continue; }
       const previous = groups.at(-1)
       if (previous?.kind === "tools") previous.parts.push(part)
       else if (previous?.kind === "reasoning") {

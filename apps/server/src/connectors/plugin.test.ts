@@ -21,7 +21,7 @@ test("passes the runtime capability only for registered connector actions and ne
   }, { preconnect: originalFetch.preconnect });
   const plugin = await nativePluginTools(LegalWorkExtensionsPreview);
   for (const extensionId of [...connectorDefinitions.map((item) => item.id), "google-workspace"]) {
-    const result = await plugin.tool.legalwork_extension_call.execute({ extensionId, action: "status" }, { sessionID: "session" });
+    const result = await plugin.tool.legalwork_extension_call.execute({ extensionId, action: "status", args: {} }, { sessionID: "session" });
     expect(result).not.toContain("private-mail-capability");
   }
   expect(headers.map((header) => header.get("x-legalwork-connector-token"))).toEqual([...connectorDefinitions.map(() => "private-mail-capability"), null]);

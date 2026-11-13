@@ -5,11 +5,12 @@ import { chmod, lstat, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { opencodeArchiveTarExecutable, opencodeReleaseTarget } from "../index.mjs";
-import { applyReviewedPatch, assertBuildReady, buildCandidate, verifyCompiler, verifyInputs } from "./candidate.mjs";
+import { applyReviewedPatch, assertBuildReady, buildCandidate, verifyCompiler, verifyInputs, verifyUpstreamSource } from "./candidate.mjs";
 import { assembleDerivativeDistribution } from "./distribution.mjs";
 import { validateMacSigningConfiguration } from "./mac-signing.mjs";
 import { sourceBuildPolicy } from "../build-policy.mjs";
 import recipe from "./recipe.json" with { type: "json" };
+import { performance } from 'node:perf_hooks';
 
 const repository = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 
@@ -57,8 +58,26 @@ export function sourceInstallArguments(targets, hostTarget = opencodeReleaseTarg
 }
 
 /** The official frozen Bun graph is the reviewed, narrow package-manager exception. */
-export async function buildOpencodeDistribution({ outputDirectory, targets, mode, macSigning, onProgress = console.log }) {
+export async function runBuildWorkers(targets, concurrency, build) {
+  assert.ok(Number.isInteger(concurrency) && concurrency >= 1 && concurrency <= 4, 'Engine workers must be an integer from 1 to 4');
+  let next = 0, failure;
+  const results = new Array(targets.length);
+  const workers = Array.from({ length: Math.min(concurrency, targets.length) }, async (_, worker) => {
+    while (!failure && next < targets.length) {
+      const index = next++;
+      try { results[index] = await build(targets[index], worker); }
+      catch (error) { failure ??= error; }
+    }
+  });
+  // Let already-running native/signing work settle before returning a failure.
+  await Promise.all(workers);
+  if (failure) throw failure;
+  return results;
+}
+
+export async function buildOpencodeDistribution({ outputDirectory, targets, mode, macSigning, workers = 2, onProgress = console.log }) {
   const selected = validateSourceBuildRequest({ mode, targets, macSigning, requireSigning: true });
+  assert.ok(Number.isInteger(workers) && workers >= 1 && workers <= 4, 'Engine workers must be an integer from 1 to 4');
   await verifyInputs(recipe); assertBuildReady(recipe);
   if (typeof outputDirectory !== "string" || !path.isAbsolute(outputDirectory)) throw new Error("A new absolute engine build directory is required.");
   const root = path.resolve(outputDirectory);
@@ -76,27 +95,29 @@ export async function buildOpencodeDistribution({ outputDirectory, targets, mode
   verifyCompiler(recipe, await readFile(bun)); await chmod(bun, 0o755);
   const prepared = path.join(root, "upstream");
   await run("git", ["clone", "--config", "core.autocrlf=false", "--config", "core.eol=lf", "--depth=1", "--branch", recipe.upstream.tag, recipe.upstream.repository, prepared]);
-  if (await run("git", ["rev-parse", "HEAD"], prepared, undefined, true) !== recipe.upstream.commit) throw new Error("Cloned upstream tag does not match the exact reviewed commit.");
+  await verifyUpstreamSource(recipe, prepared);
   await applyReviewedPatch(prepared, path.join(repository, recipe.inputs.patch.path));
-  for (const [name, filename] of [["rootPackage", "package.json"], ["lockfile", "bun.lock"]]) {
-    if (createHash("sha256").update(await readFile(path.join(prepared, filename))).digest("hex") !== recipe.inputs[name].sha256) throw new Error(`Frozen upstream dependency input changed: ${filename}`);
-  }
+  await verifyUpstreamSource(recipe, prepared);
   // Child build commands resolve exactly this already-hashed compiler.
   const env = { ...process.env, PATH: `${path.dirname(bun)}${path.delimiter}${process.env.PATH ?? ""}` };
   await run(bun, sourceInstallArguments(selected), prepared, env);
-  const builds = [];
-  let first;
-  for (const target of selected) {
+  // Each worker owns a separate copied staging tree. Reuse is serial within
+  // that worker; no concurrent build mutates another worker's native assets.
+  const firstByWorker = new Map();
+  const builds = await runBuildWorkers(selected, workers, async (target, worker) => {
+    const started = performance.now();
+    const first = firstByWorker.get(worker);
     const output = path.join(root, `build-${target}`);
     const built = await buildCandidate({ output, bun, target, preparedSource: prepared, macSigning,
       ...(first ? { reuseArtifact: first.artifact, reuseProvenanceSha256: first.provenanceSha256 } : {}) });
-    first ??= built;
-    builds.push({ target, directory: built.artifact, provenanceSha256: built.provenanceSha256 });
+    if (!first) firstByWorker.set(worker, built);
     await writeFile(path.join(output, "result.json"), `${JSON.stringify(built, null, 2)}\n`, { flag: "wx" });
     // Retain the complete verified artifacts, source and receipts, as before.
     await rm(path.join(output, "compiled"), { recursive: true });
-    if (built !== first) await rm(path.join(output, "source-review"), { recursive: true });
-  }
+    if (first) await rm(path.join(output, "source-review"), { recursive: true });
+    onProgress(JSON.stringify({ kind: 'ci-span', name: 'engine-target', target, worker, durationMs: Math.round(performance.now() - started) }));
+    return { target, directory: built.artifact, provenanceSha256: built.provenanceSha256 };
+  });
   const distribution = path.join(root, "distribution"); await mkdir(distribution, { mode: 0o700 });
   const partial = selected.length !== recipe.targets.length;
   const result = await assembleDerivativeDistribution({ builds, outputDirectory: path.join(distribution, "archives"), manifestPath: path.join(distribution, "derivative-release.json"), onProgress,

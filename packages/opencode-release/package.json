@@ -17,7 +17,6 @@
       "types": "./derivative.d.mts",
       "import": "./derivative.mjs"
     },
-    "./derivative-release.json": "./derivative-release.json",
     "./selection": {
       "types": "./selection.d.mts",
       "import": "./selection.mjs"
@@ -32,7 +31,6 @@
     "build/recipe.json",
     "derivative.mjs",
     "derivative.d.mts",
-    "derivative-release.json",
     "build-policy.mjs",
     "selection.json",
     "generated/selection.json",

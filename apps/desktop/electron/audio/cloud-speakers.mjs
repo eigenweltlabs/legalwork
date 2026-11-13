@@ -11,8 +11,9 @@ const GAP = Buffer.alloc(RATE / 2); // 250 ms between references
 const overlap = (a, b) => Math.max(0, Math.min(a.endMs, b.endMs) - Math.max(a.startMs, b.startMs));
 
 export class CloudSpeakerPass {
-  constructor({ recognize, onTurns, onError, chunkMs = 20000 }) {
+  constructor({ recognize, onTurns, onError, verifyVoices = null, chunkMs = 20000 }) {
     this.recognize = recognize;
+    this.verifyVoices = verifyVoices;
     this.onTurns = onTurns;
     this.onError = onError;
     this.chunkMs = chunkMs;
@@ -29,6 +30,7 @@ export class CloudSpeakerPass {
     this.ending = false;
     this.stopped = false;
     this.pending = null;
+    this.consecutiveFailures = 0;
     this.controller = new AbortController();
   }
 
@@ -103,16 +105,36 @@ export class CloudSpeakerPass {
         parts.push(clip);
         for (const anchor of present) references.push({ speaker: anchor.speaker,
           startMs: prefixMs + anchor.startMs - startMs, endMs: prefixMs + anchor.endMs - startMs, inWindow: true });
-        const words = await this.recognize(Buffer.concat(parts), this.controller.signal);
+        let words;
+        try {
+          words = await this.recognize(Buffer.concat(parts), this.controller.signal);
+          this.consecutiveFailures = 0;
+        } catch (error) {
+          if (this.stopped) return;
+          if (!error.recoverable || ++this.consecutiveFailures >= 3) throw error;
+          // Keep source labels for this window and continue with later audio.
+          // Never replay a paid request whose response may have been lost.
+          this.onError("Speaker detection missed part of the recording. Those words keep their input labels.", true);
+          words = [];
+        }
         if (this.stopped) return;
         const turns = this.match(words, references, clip, prefixMs, startMs);
         const alignedWords = words.filter(word => word.startMs >= prefixMs && word.endMs <= prefixMs + clip.length / BYTES_PER_MS + 1)
           .map(word => ({ ...word, startMs: word.startMs - prefixMs + startMs, endMs: word.endMs - prefixMs + startMs }))
           .map(word => ({ ...word, speaker: dominantSpeaker(word, turns) }));
+        const verification = this.verifyVoices ? await this.verifyVoices(clip, startMs, turns) : null;
+        const verifiedTurns = verification?.turns ?? null;
+        if (this.stopped) return;
         // A newly encountered voice needs confirmation in another chunk. Once
         // confirmed, backfill its earlier labels without changing any words.
-        for (const previous of this.recent) this.publish(previous);
-        const current = { startMs, endMs, turns, words: alignedWords, published: null };
+        for (const previous of this.recent) {
+          if (previous.verifiedTurns && verification?.corrections.length) {
+            previous.verifiedTurns = previous.verifiedTurns.map(turn => verification.corrections.find(correction =>
+              correction.startMs === turn.startMs && correction.endMs === turn.endMs) ?? turn);
+          }
+          this.publish(previous);
+        }
+        const current = { startMs, endMs, turns, verifiedTurns, words: alignedWords, published: null };
         this.publish(current);
         this.recent = [...this.recent, current].slice(-2);
       }
@@ -127,12 +149,13 @@ export class CloudSpeakerPass {
   publish(result) {
     const turns = result.turns.map(turn => ({ ...turn, speaker: this.anchors.some(anchor =>
       anchor.speaker === turn.speaker && anchor.confirmed !== false) ? turn.speaker : null }));
-    const published = JSON.stringify(turns);
+    const published = JSON.stringify([turns, result.verifiedTurns]);
     if (published !== result.published) {
       result.published = published;
       this.timeline = mergeSpeakerTurns(this.timeline, { ...result, turns });
-      const words = result.words.map(word => ({ ...word, speaker: dominantSpeaker(word, this.timeline) }));
-      this.onTurns({ startMs: result.startMs, endMs: result.endMs, turns, words });
+      const output = result.verifiedTurns ?? turns;
+      const words = result.words.map(word => ({ ...word, speaker: dominantSpeaker(word, result.verifiedTurns ?? this.timeline) }));
+      this.onTurns({ startMs: result.startMs, endMs: result.endMs, turns: output, words, voicesVerified: result.verifiedTurns != null });
     }
   }
 
@@ -192,7 +215,11 @@ export class CloudSpeakerPass {
       conflicts.delete(match.label);
     }
     const identified = new Set(known.values());
-    const canEnroll = references.every(reference => identified.has(reference.speaker));
+    // A replayed reference can be labelled differently from the same person's
+    // current speech. A new identity needs a known voice in the actual window,
+    // not just in the prepended references, so that difference is observable.
+    const canEnroll = references.every(reference => identified.has(reference.speaker))
+      && (!this.anchors.length || current.some(word => known.has(word.speaker)));
     const runs = [];
     for (const word of current) {
       const previous = runs.at(-1);

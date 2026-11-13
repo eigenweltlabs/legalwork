@@ -1,8 +1,14 @@
 # System-wide dictation
 
-LegalWork can record the microphone, transcribe locally, and paste the result
+LegalWork can record the microphone, transcribe it, and paste the result
 at the active cursor in another application. The setting is under **Settings >
 Recorder > Dictate anywhere**. It is off by default.
+
+Local transcription stays on-device. With a cloud transcription model selected,
+dictation uses Gemini Transcribe `SMART` mode to remove fillers, apply spoken
+corrections and format text. This is a mode of the same regional live transport;
+meeting recording keeps `VERBATIM` mode. It does not add a separate cleanup LLM
+call or generate meeting notes for ephemeral dictation.
 
 System dictations are ephemeral. LegalWork deletes their temporary audio and
 transcript files after insertion, so they do not appear in Recorder history.

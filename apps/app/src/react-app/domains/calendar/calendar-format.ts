@@ -1,7 +1,7 @@
 import type { CalendarItem, CalendarOccurrence } from "@legalwork/types/calendar";
 import { currentLocale, t } from "@/i18n";
 
-export type CalendarViewMode = "week" | "month" | "agenda";
+export type CalendarViewMode = "day" | "week" | "month" | "agenda";
 
 export function calendarDay(day: Date) {
   return `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}`;
@@ -12,14 +12,14 @@ export function shiftDay(day: Date, offset: number) {
 }
 
 export function calendarRange(anchor: Date, view: CalendarViewMode) {
-  const first = view === "week" ? shiftDay(anchor, 0) : new Date(anchor.getFullYear(), anchor.getMonth(), 1);
-  const start = view === "agenda" ? first : shiftDay(first, -((first.getDay() + 6) % 7));
-  const end = view === "agenda" ? new Date(anchor.getFullYear(), anchor.getMonth() + 1, 1) : shiftDay(start, view === "week" ? 7 : 42);
+  const first = view === "week" || view === "day" ? shiftDay(anchor, 0) : new Date(anchor.getFullYear(), anchor.getMonth(), 1);
+  const start = view === "agenda" || view === "day" ? first : shiftDay(first, -((first.getDay() + 6) % 7));
+  const end = view === "agenda" ? new Date(anchor.getFullYear(), anchor.getMonth() + 1, 1) : shiftDay(start, view === "day" ? 1 : view === "week" ? 7 : 42);
   return { start, end, from: calendarDay(start), to: calendarDay(end) };
 }
 
 export function moveCalendar(anchor: Date, view: CalendarViewMode, direction: number) {
-  return view === "week" ? shiftDay(anchor, direction * 7) : new Date(anchor.getFullYear(), anchor.getMonth() + direction, 1);
+  return view === "day" ? shiftDay(anchor, direction) : view === "week" ? shiftDay(anchor, direction * 7) : new Date(anchor.getFullYear(), anchor.getMonth() + direction, 1);
 }
 
 function zonedDay(value: string, timeZone: string) {
@@ -43,6 +43,11 @@ export function occursOnDay(item: CalendarOccurrence, day: string) {
   return day < end || (!midnight && day === end) || day === start;
 }
 
+export function occursInRange(item: CalendarOccurrence, from: string, to: string) {
+  const start = occurrenceDay(item);
+  return start < to && (start >= from || occursOnDay(item, from));
+}
+
 export function formatCalendarDay(value: string, options: Intl.DateTimeFormatOptions = { day: "numeric", month: "short" }) {
   const [year, month, day] = value.slice(0, 10).split("-").map(Number);
   return new Date(year, month - 1, day).toLocaleDateString(currentLocale(), options);
@@ -52,6 +57,12 @@ export function occurrenceTime(item: CalendarOccurrence) {
   if (item.allDay) return t("calendar.all_day");
   if (item.start.length === 19) return item.start.slice(11, 16);
   return new Intl.DateTimeFormat(currentLocale(), { timeZone: item.timeZone, hour: "numeric", minute: "2-digit" }).format(new Date(item.start));
+}
+
+export function occurrenceTimeRange(item: CalendarOccurrence) {
+  const start = occurrenceTime(item);
+  if (item.allDay || !item.end || item.end <= item.start) return start;
+  return `${start} – ${occurrenceTime({ ...item, start: item.end })}`;
 }
 
 export function isCompleted(item: CalendarOccurrence) { return item.status === "done" || item.status === "completed"; }

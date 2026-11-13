@@ -2,7 +2,7 @@ import { buildStorageRefUri, parseStorageRef, type StorageRef } from "@/componen
 import { taskReference } from "@/react-app/domains/tasks/task-reference";
 
 /** What a composer `@token` refers to: an agent, a workspace file, an uploaded file, a LegalMemory file, a connected-storage file, a macOS app, or an intake task. */
-export type ComposerMentionKind = "agent" | "file" | "memory" | "upload" | "storage" | "app" | "task" | "review" | "calendar" | "plugin";
+export type ComposerMentionKind = "agent" | "file" | "memory" | "upload" | "storage" | "app" | "task" | "review" | "calendar" | "plugin" | "integration";
 
 /** Store identity, not a snapshot of instructions or connector credentials. */
 export function createPluginComposerMention(pluginId: string, label: string): string {

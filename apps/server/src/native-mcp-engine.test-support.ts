@@ -1,6 +1,7 @@
+import { nativeFixtureDirectory, removeNativeFixtureDirectory } from "./native-fixture-directory.test-support.js";
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readdir, realpath, rm } from "node:fs/promises";
+import { mkdir, readdir, realpath } from "node:fs/promises";
 import { isAbsolute, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
@@ -28,12 +29,14 @@ export async function nativeOAuthProvider(environment: Record<string, string> = 
 
 export async function nativeMcpEngine(configuration: Record<string, unknown> | ((root: string) => Promise<Record<string, unknown>>), parentOwnedRoot?: string) {
   if (!nativeMcpBinary) throw new Error("Released OpenCode binary is required");
-  const root = await realpath(parentOwnedRoot ?? await mkdtemp(join(tmpdir(), "legalwork-native-mcp-")));
+  const root = await realpath(parentOwnedRoot ?? await nativeFixtureDirectory(join(tmpdir(), "legalwork-native-mcp-")));
   for (const name of ["home", "config", "data", "cache", "state", "project", "other"]) await mkdir(join(root, name));
   const directory = join(root, "project"), other = join(root, "other");
   const prepared = typeof configuration === "function" ? await configuration(root) : configuration;
   // Match embedded/CLI stdin-lease shutdown before removing the private fixture.
   const options = { bin: nativeMcpBinary, cwd: directory, timeoutMs: 30_000, parentLease: true, env: {
+    // Connection fixtures must start without a developer's shell credential.
+    OPENAI_API_KEY: undefined,
     HOME: join(root, "home"), USERPROFILE: join(root, "home"), XDG_CONFIG_HOME: join(root, "config"), XDG_DATA_HOME: join(root, "data"), XDG_CACHE_HOME: join(root, "cache"), XDG_STATE_HOME: join(root, "state"),
     OPENCODE_CONFIG_DIR: join(root, "config"), OPENCODE_DB: join(root, "engine.db"), OPENCODE_DISABLE_CLAUDE_CODE: "1", OPENCODE_DISABLE_MODELS_FETCH: "1",
     OPENCODE_CONFIG_CONTENT: JSON.stringify({ update: "disable", warming: false, ...prepared }),
@@ -47,7 +50,7 @@ export async function nativeMcpEngine(configuration: Record<string, unknown> | (
       await engine.close();
       // An external fixture owner removes its root after this process exits.
       if (parentOwnedRoot !== undefined) return;
-      try { await rm(root, { recursive: true, force: true }); }
+      try { await removeNativeFixtureDirectory(root); }
       catch (error) {
         // Observe the original cleanup failure without retrying or masking it.
         try {

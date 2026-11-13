@@ -26,9 +26,10 @@ type Element = { backendID: number; frameID: string; sessionID?: string }
 /** State every page of the pane shares: the element ref allocator and the app-wide trace recording. */
 export type Shared = { ref: () => string; recording?: Recording }
 
-// Captures and downloads belong to the tab, not whichever document it now shows; navigate replaces it anyway.
+// These operations have no document refs. A condition wait must follow the navigation it is waiting for.
 const retainedOperations: readonly Browser.Method[] = [
   "navigate",
+  "wait",
   "files.list",
   "files.get",
   "trace.stop",
@@ -125,6 +126,8 @@ export type BrowserCapture = {
   <T>(contents: WebContents, signal: AbortSignal | undefined, operation: (signal: AbortSignal) => Promise<T>): Promise<T>
   /** Close capture admission before asynchronous native page disposal begins. */
   close?: (contents: WebContents) => void
+  /** Reuse successful native pixels for the host's cached tab preview. */
+  record?: (contents: WebContents, image: Electron.NativeImage | Buffer) => void
 }
 
 export type BrowserPage = ReturnType<typeof createBrowserPage>
@@ -702,7 +705,10 @@ export function createBrowserPage(
     transfers: readonly Browser.File[],
     signal: AbortSignal,
     approved?: Browser.Target,
+    captureHeld = false,
   ): Promise<Browser.Result> {
+    if (options.capture && !captureHeld && pointerOperations.includes(action.type))
+      return options.capture(contents, signal, active => execute(action, transfers, active, approved, true))
     const captureSources = sourceURLs()
     const transfer = (id: Browser.FileID) => files.transfer(id, approved?.resources)
 
@@ -809,16 +815,16 @@ export function createBrowserPage(
       }
 
       case "click":
-        await click(target(action.ref), action.button ?? "left", action.count ?? 1, action.modifiers, signal)
+        await click(target(action.ref), action.button ?? "left", action.count ?? 1, action.modifiers, signal, captureHeld)
         break
       case "hover":
-        await cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", ...(await point(target(action.ref), signal)) })
+        await cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", ...(await point(target(action.ref), signal, captureHeld)) })
         break
       case "drag": {
         const source = target(action.from)
         const destination = target(action.to)
-        await point(destination, signal)
-        const from = await point(source, signal)
+        await point(destination, signal, captureHeld)
+        const from = await point(source, signal, captureHeld)
         const box = await rect(destination)
         const to = { x: box.x + box.width / 2, y: box.y + box.height / 2 }
         const html5 = await call(source, "function() { return this.draggable; }")
@@ -876,7 +882,7 @@ export function createBrowserPage(
 
           if (field.type === "select") await select(target(field.ref), field.values)
 
-          if (field.type === "check") await check(target(field.ref), field.checked, signal)
+          if (field.type === "check") await check(target(field.ref), field.checked, signal, captureHeld)
         }
 
         break
@@ -884,7 +890,7 @@ export function createBrowserPage(
         await select(target(action.ref), action.values)
         break
       case "check":
-        await check(target(action.ref), action.checked, signal)
+        await check(target(action.ref), action.checked, signal, captureHeld)
         break
       case "press":
         await key(action.key)
@@ -909,6 +915,7 @@ export function createBrowserPage(
         await waitFor(
           async () => {
             if (action.condition === "load") return !contents.isLoading()
+            if (contents.isLoading()) return false
             const context = action.frameID ? contexts.get(action.frameID) : undefined
 
             if (action.frameID && !context)
@@ -916,6 +923,7 @@ export function createBrowserPage(
                 "Frame context is unavailable. Call browser.frames({tabID}) and use a frameID from this tab.",
               )
 
+            const observedGeneration = generation
             const value = await cdp.send(
               "Runtime.evaluate",
               {
@@ -924,9 +932,14 @@ export function createBrowserPage(
                 contextId: context?.id,
               },
               context?.sessionID,
-            )
+            ).catch((error) => {
+              // A main-document condition follows redirects. An explicit frame
+              // remains exact and must be observed again if it disappears.
+              if (!action.frameID && (observedGeneration !== generation || contents.isLoading())) return undefined
+              throw error
+            })
 
-            return Boolean(value.result.value) === (action.condition === "text")
+            return value !== undefined && Boolean(value.result.value) === (action.condition === "text")
           },
           signal,
           action.timeoutMs,
@@ -992,7 +1005,9 @@ export function createBrowserPage(
             clip: { ...bounds, scale },
           })
 
-          const id = await files.save(`screenshot.${format}`, `image/${format}`, Buffer.from(capture.data, "base64"), [
+          const data = Buffer.from(capture.data, "base64")
+          options.capture?.record?.(contents, data)
+          const id = await files.save(`screenshot.${format}`, `image/${format}`, data, [
             ...captureSources,
             ...sourceURLs(),
           ])
@@ -1035,7 +1050,7 @@ export function createBrowserPage(
           await cdp.send("DOM.setFileInputFiles", { files: local, backendNodeId: element.backendID }, element.sessionID)
 
         if (action.type === "files.drop") {
-          const position = await point(element, signal)
+          const position = await point(element, signal, captureHeld)
 
           for (const type of ["dragEnter", "dragOver", "drop"])
             await cdp.send("Input.dispatchDragEvent", {
@@ -1273,7 +1288,8 @@ export function createBrowserPage(
       if (signal) abortError(signal)
       // Force a compositor update after scrolling. requestAnimationFrame can
       // stall in a hidden WebContentsView, even with background throttling off.
-      await contents.capturePage(undefined, { stayHidden: false, stayAwake: true })
+      const image = await cdp.send("Page.captureScreenshot", { format: "png", captureBeyondViewport: false })
+      options.capture?.record?.(contents, Buffer.from(image.data, "base64"))
       if (signal) abortError(signal)
     }
 
@@ -1324,14 +1340,14 @@ export function createBrowserPage(
     return id ? sessions.get(id) : undefined
   }
 
-  async function point(element: Element, signal?: AbortSignal) {
-    const box = await rect(element, true, signal)
+  async function point(element: Element, signal?: AbortSignal, captureHeld = false) {
+    const box = await rect(element, true, signal, captureHeld)
 
     return { x: box.x + box.width / 2, y: box.y + box.height / 2 }
   }
 
-  async function click(element: Element, button = "left", count = 1, modifiers: readonly string[] = [], signal?: AbortSignal) {
-    const position = await point(element, signal)
+  async function click(element: Element, button = "left", count = 1, modifiers: readonly string[] = [], signal?: AbortSignal, captureHeld = false) {
+    const position = await point(element, signal, captureHeld)
     const flags = modifiers.reduce((mask, key) => mask | ({ Alt: 1, Control: 2, Meta: 4, Shift: 8 }[key] ?? 0), 0)
     await cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", ...position, modifiers: flags })
 
@@ -1392,14 +1408,14 @@ export function createBrowserPage(
     )
   }
 
-  async function check(element: Element, checked: boolean, signal: AbortSignal) {
+  async function check(element: Element, checked: boolean, signal: AbortSignal, captureHeld = false) {
     const current = await call(
       element,
       "function(checked) { if (!(this instanceof HTMLInputElement) || !['checkbox','radio'].includes(this.type) || this.disabled) throw new Error('Target is not an enabled checkbox or radio. Take a fresh snapshot and choose the correct ref.'); if (this.type === 'radio' && this.checked && !checked) throw new Error('A selected radio cannot be cleared by clicking it. Select a different radio in its group instead.'); return this.checked; }",
       [checked],
     )
 
-    if (current !== checked) await click(element, "left", 1, [], signal)
+    if (current !== checked) await click(element, "left", 1, [], signal, captureHeld)
 
     if ((await call(element, "function() { return this.checked; }")) !== checked)
       throw new Error(
@@ -1475,8 +1491,10 @@ export function createBrowserPage(
         "Frame is unavailable. Call browser.frames({tabID}) and use a current frameID from this tab; omit frameID for the main frame.",
       )
     const sessionID = sessionFor(frameID, tree)
-    const depth = action.type === "snapshot" ? (action.depth ?? 8) : 8
-    const ax = await cdp.send("Accessibility.getFullAXTree", { frameId: frameID, depth }, sessionID)
+    // DOM/AX nesting is layout detail: deeply nested application editors still belong
+    // in the initial observation. Bound the rendered result, not Chromium's tree.
+    const depth = action.type === "snapshot" ? (action.depth ?? Infinity) : Infinity
+    const ax = await cdp.send("Accessibility.getFullAXTree", { frameId: frameID }, sessionID)
     const nodes = new Map(ax.nodes.map((node) => [node.nodeId, node]))
     const root = selected ? ax.nodes.find((node) => node.backendDOMNodeId === selected.backendID) : ax.nodes[0]
 
@@ -1501,51 +1519,49 @@ export function createBrowserPage(
         .slice(0, 40)
 
       const properties = new Map(node.properties?.map((property) => [property.name, property.value.value]) ?? [])
+      const actionable = role !== "RootWebArea" &&
+        (properties.get("focusable") || /^(button|link|textbox|searchbox|combobox|checkbox|radio|option)$/.test(role))
+      const name = String(node.name?.value ?? "").replace(/\s+/g, " ").slice(0, 300)
+      const known = node.backendDOMNodeId ? pinned.get(`${frameID}:${node.backendDOMNodeId}`) : undefined
+      const structural = !known && !actionable && !name && ["generic", "none", "presentation", "group", "node"].includes(role)
+      const visible = !node.ignored && (role !== "InlineTextBox" || Boolean(known)) && !structural
 
-      if (!node.ignored) {
-        const actionable =
-          role !== "RootWebArea" &&
-          (properties.get("focusable") || /^(button|link|textbox|combobox|checkbox|radio|option)$/.test(role))
-
+      if (visible) {
         // A picked element keeps the ref its comment names, even when it is not otherwise actionable.
-        const known = node.backendDOMNodeId ? pinned.get(`${frameID}:${node.backendDOMNodeId}`) : undefined
         const ref = known ?? (actionable && node.backendDOMNodeId ? options.shared.ref() : "")
         const element = node.backendDOMNodeId ? { backendID: node.backendDOMNodeId, frameID, sessionID } : undefined
 
         if (ref && element && !known) refs.set(ref, element)
 
-        const flags = (["checked", "disabled", "expanded", "selected"] as const).flatMap((name) =>
+        const flags = (["checked", "disabled", "expanded", "selected", "readonly"] as const).flatMap((name) =>
           properties.has(name) ? [`${name}=${properties.get(name)}`] : [],
         )
+        const value = !properties.get("protected") && node.value?.value !== undefined
+          ? ` value=${JSON.stringify(String(node.value.value).replace(/\s+/g, " ").slice(0, 600))}` : ""
+        const matches = action.type !== "find" || `${role} ${name}${value} ${flags.join(" ")}`.toLowerCase().includes(action.text.toLowerCase())
 
         const box =
           action.type === "snapshot" && action.boxes && ref && element
             ? await rect(element).catch(() => undefined)
             : undefined
 
-        lines.push(
-          `${"  ".repeat(level)}${ref ? `@${ref} ` : ""}[${role}] ${JSON.stringify(
-            String(node.name?.value ?? "")
-              .replace(/\s+/g, " ")
-              .slice(0, 300),
-          )} ${flags.join(" ")}${box ? ` box=${JSON.stringify(box)}` : ""}`,
+        if (matches) lines.push(
+          `${"  ".repeat(Math.min(level, 12))}${ref ? `@${ref} ` : ""}[${role}] ${JSON.stringify(name)}${value} ${flags.join(" ")}${box ? ` box=${JSON.stringify(box)}` : ""}`,
         )
       }
 
-      if (["textbox", "searchbox"].includes(role) || properties.get("editable")) return
+      if (node.value?.value !== undefined && (["textbox", "searchbox"].includes(role) || properties.get("editable"))) return
 
       for (const childID of node.childIds ?? []) {
         const child = nodes.get(childID)
 
-        if (child) await walk(child, level + 1)
+        if (child) await walk(child, level + (visible ? 1 : 0))
       }
     }
 
     await walk(root, 0)
 
-    const content = (
-      action.type === "find" ? lines.filter((line) => line.toLowerCase().includes(action.text.toLowerCase())) : lines
-    ).join("\n")
+    const content = lines.join("\n")
 
     return { content: content.slice(0, Browser.MAX_TEXT), truncated: truncated || content.length > Browser.MAX_TEXT }
   }

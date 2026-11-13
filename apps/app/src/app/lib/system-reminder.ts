@@ -1,4 +1,5 @@
 import {ensureNativeCatalogReady} from "./opencode-catalog-ready";
+import { integrationReferencesFromDraft } from "@/react-app/domains/session/surface/composer/integration-message";
 import type { QueuedDraftSnapshot } from "@legalwork/types/session-queue";
 import { getClientContext, resolveLegalworkWorkspaceMount } from "./opencode";
 import { createLegalworkServerClient } from "./legalwork-server";
@@ -58,6 +59,7 @@ export function buildSessionPromptRequest(
   };
 }
 export function nativePrompt(input: PromptIntent) {
+  const integrations = integrationReferencesFromDraft(input.draft?.text ?? "");
   const visibleText = input.parts
     .flatMap((part) =>
       part.type === "text" && !part.synthetic && !part.ignored
@@ -85,7 +87,7 @@ export function nativePrompt(input: PromptIntent) {
     skills: input.parts.flatMap((part) =>
       part.type === "skill" ? [{ id: part.id }] : [],
     ),
-    metadata: { legalworkPrompt: { visibleText, reminders } },
+    metadata: { legalworkPrompt: { visibleText, reminders, ...(integrations.length ? { integrations } : {}) } },
   } satisfies SessionPromptInput;
 }
 export function nativeModel(model: ModelRef, variant?: string): NativeModelRef {

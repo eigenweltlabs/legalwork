@@ -27,7 +27,7 @@ import { dirname, join } from "node:path";
 import type { ServerConfig } from "./types.js";
 import { SessionV1 } from "@opencode/schema/session-v1";
 import { Schema } from "effect";
-import { findExistingOpencodeDbPath } from "./opencode-db.js";
+import { findExistingOpencodeDbIn, findExistingOpencodeDbPath } from "./opencode-db.js";
 import { engineStorageDir } from "./engine-storage.js";
 import { ensureLegacyHistoryBackup, readLegacyHistoryBackup } from "./history-v1-backup.js";
 
@@ -257,7 +257,7 @@ export async function inventoryLegacyHistory(source: string, destination: string
  * A failed copy of existing managed history stops startup; silently starting
  * against another database would hide the user's chats.
  */
-export async function prepareManagedOpencodeEngineDb(config: ServerConfig): Promise<ManagedEngineDb | null> {
+async function prepareManagedOpencodeEngineDbFiles(config: ServerConfig): Promise<ManagedEngineDb | null> {
     if (process.env.OPENCODE_DB?.trim()) return null;
 
     const storageDir = engineStorageDir(config);
@@ -266,7 +266,7 @@ export async function prepareManagedOpencodeEngineDb(config: ServerConfig): Prom
     if (existsSync(privatePath)) {
       // Earlier development migrations retained original v1 rows. Freeze
       // them before a future engine can clean up those tables.
-      if (!(await readLegacyHistoryBackup(config))) {
+      if (!existsSync(join(storageDir, "history-import-state.json")) && !(await readLegacyHistoryBackup(config))) {
         const db = await openSqliteReadonly(privatePath);
         try {
           const tables = new Set(db.all("SELECT name FROM sqlite_master WHERE type='table'").map(row => row.name));
@@ -278,18 +278,23 @@ export async function prepareManagedOpencodeEngineDb(config: ServerConfig): Prom
       return { path: privatePath, seededFrom: null, sharedDbCompatibility: null };
     }
 
-    if (process.env.LEGALWORK_DEV_MODE === "1") return { path: privatePath, seededFrom: null, sharedDbCompatibility: null };
+    if (existsSync(join(storageDir, "history-import-state.json"))) throw new Error("The migrated engine history database is missing. Restore its private recovery copy before starting.");
 
     // A separate v2 file makes rollback safe: the old released app can still
-    // open its untouched v1 history. Never migrate the user's standalone DB.
+    // open its untouched v1 history. Development only adopts its own explicit
+    // profile directory, never the user's standalone or production history.
     const legacyPath = join(storageDir, LEGACY_MANAGED_ENGINE_DB_FILENAME);
-    const sharedPath = existsSync(legacyPath) ? legacyPath : findExistingOpencodeDbPath();
+    const development = process.env.LEGALWORK_DEV_MODE === "1";
+    const devDataDirectory = process.env.LEGALWORK_DEV_OPENCODE_DATA_DIR?.trim();
+    const sharedPath = existsSync(legacyPath) ? legacyPath
+      : development ? (devDataDirectory ? findExistingOpencodeDbIn(devDataDirectory) : null)
+      : findExistingOpencodeDbPath();
     if (!sharedPath) {
       return { path: privatePath, seededFrom: null, sharedDbCompatibility: null };
     }
 
     const compatibility = await classifySharedOpencodeDb(sharedPath);
-    if (existsSync(legacyPath) && compatibility !== "compatible") throw new Error(`The existing LegalWork history cannot be migrated safely (${compatibility}): ${legacyPath}`);
+    if ((existsSync(legacyPath) || development) && compatibility !== "compatible") throw new Error(`The existing LegalWork history cannot be migrated safely (${compatibility}): ${sharedPath}`);
     const backup = compatibility === "compatible" ? await ensureLegacyHistoryBackup(config, sharedPath, async destination => {
       const db = await openSqliteReadonly(sharedPath);
       try { db.run("VACUUM INTO ?", [destination]); } finally { db.close(); }
@@ -310,4 +315,14 @@ export async function prepareManagedOpencodeEngineDb(config: ServerConfig): Prom
       sharedDbCompatibility: compatibility,
       ...(migrationReport ? { migrationReport } : {}),
     };
+}
+
+/** Import application-owned history metadata once, before the engine can resume work. */
+export async function prepareManagedOpencodeEngineDb(config: ServerConfig): Promise<ManagedEngineDb | null> {
+  const result = await prepareManagedOpencodeEngineDbFiles(config);
+  if (result) {
+    const { readCurrentHistory } = await import("./current-history-state.js");
+    await readCurrentHistory(config);
+  }
+  return result;
 }

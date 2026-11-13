@@ -2,13 +2,14 @@
 // bad ASAR integrity metadata, missing native modules, and startup regressions.
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { setTimeout } from "node:timers/promises";
 import { assertPackagedServerImports } from "./check-packaged-server-imports.mjs";
 import { assertPackagedOpencodeSdk } from "./packaged-opencode-sdk.cjs";
 import { createWorkspaceStore } from "../electron/workspace-store.mjs";
+import { createUpdaterPreferences } from "../electron/updater-preferences.mjs";
 import { opencodeEngineSelection } from "@legalwork/opencode-release/selection";
 import { Service } from "@opencode/client/service";
 import { collectStartupFailure, snapshotStartupLogs } from "./packaged-startup-diagnostics.mjs";
@@ -18,12 +19,15 @@ if (!target) throw new Error("Usage: node packaged-startup-regression.mjs <packa
 const resources = path.resolve(path.dirname(target), process.platform === "darwin" ? "../Resources" : "resources");
 assertPackagedServerImports(path.join(resources, "app.asar"));
 assertPackagedOpencodeSdk(resources);
-const root = await mkdtemp(path.join(tmpdir(), "legalwork-packaged-startup-"));
+const root = await realpath(await mkdtemp(path.join(tmpdir(), "legalwork-packaged-startup-")));
 const userData = path.join(root, "userdata");
 const runtime = path.join(root, "runtime");
 await mkdir(userData);
+// Startup verification must not contact release feeds automatically.
+await createUpdaterPreferences({ getPath: () => userData }).write({ autoCheck: false, autoDownload: false });
 await mkdir(runtime);
 const workspace = path.join(root, "workspace");
+const projectsDirectory = path.join(root, "projects");
 await mkdir(workspace);
 for (const name of ["home", "config", "data", "state", "cache", "appdata", "localappdata"]) await mkdir(path.join(root, name));
 // Windows verifies that the isolated profile's Documents known folder exists.
@@ -62,6 +66,7 @@ const child = spawn(path.resolve(target), args, {
     LEGALWORK_SERVER_CONFIG: path.join(runtime, "server.json"),
     LEGALWORK_RUNTIME_DB: path.join(runtime, "runtime.db"),
     LEGALWORK_ENGINE_STORAGE_DIR: runtime,
+    LEGALWORK_PROJECT_DATA_DIR: projectsDirectory,
     OPENCODE_DB: path.join(runtime, "opencode.db"),
     LEGALWORK_WORKSPACES: workspace,
     LEGALWORK_WORD_ADDIN: "0",
@@ -112,9 +117,11 @@ try {
         return response.json();
       };
       const list = await get("/workspaces");
-      const matches = list.items.filter((item) => path.resolve(item.path) === path.resolve(workspace));
+      const matches = list.items.filter((item) => item.contentPath === workspace);
       assert.equal(matches.length, 1, "Exact packaged workspace is required");
       const selected = matches[0];
+      assert.equal(selected.path, await realpath(path.join(projectsDirectory, selected.id)), "Engine home must belong to this isolated project");
+      assert.equal(selected.opencode?.directory, selected.path, "Native engine must use the registered local home");
       assert.equal(selected.opencodeUsername, undefined); assert.equal(selected.opencodePassword, undefined);
       assert.equal(selected.opencode?.username, undefined); assert.equal(selected.opencode?.password, undefined);
       const native = `/workspace/${selected.id}/opencode`;
@@ -130,8 +137,10 @@ try {
   await setTimeout(3000);
   assert.equal(child.exitCode, null, "Packaged app must remain running");
   assert.equal(child.signalCode, null);
+  assert.deepEqual(await createUpdaterPreferences({ getPath: () => userData }).read(),
+    { autoCheck: false, autoDownload: false }, "Packaged test profiles must keep automatic updates disabled");
   if (process.platform !== "win32") assert.equal((await stat(discoveryPath)).mode & 0o777, 0o600);
-  console.log(`PASS: packaged app, renderer and actual ${opencodeEngineSelection.version} engine start; workspace metadata contains no engine credentials`);
+  console.log(`PASS: packaged app, renderer and actual ${opencodeEngineSelection.version} engine start; automatic updates stay disabled; workspace metadata contains no engine credentials`);
   passed = true;
 } catch (error) {
   try {

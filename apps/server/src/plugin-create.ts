@@ -4,6 +4,7 @@ import { basename, dirname, relative, resolve } from "node:path";
 import { z } from "zod";
 import type { PluginCreateOptions, PluginCreateRequest } from "@legalwork/types/plugin-import";
 import { ApiError } from "./errors.js";
+import { connectorCommandFields } from "./native-mcp-config.js";
 import { listSkillsInDir } from "./skills.js";
 import { globalOpencodeConfigDir, globalSkillsDir } from "./workspace-files.js";
 import { GLOBAL_MCP_ID, readRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
@@ -51,7 +52,7 @@ async function library(config: ServerConfig) {
   // Use only LegalWork's personal library, never an unrelated Claude directory
   // or project skill that would unexpectedly become available to every project.
   const skills = await listSkillsInDir(globalSkillsDir(), "global");
-  const all = (await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID)).mcp ?? {};
+  const all = (await readRuntimeOpencodeConfig(config, GLOBAL_MCP_ID)).mcp?.servers ?? {};
   const connectors = Object.fromEntries(Object.entries(all).filter(([, item]) => item && typeof item === "object" && !Array.isArray(item) && (item.type === "local" || item.type === "remote")));
   return { skills, connectors };
 }
@@ -102,12 +103,12 @@ export async function planPluginCreation(config: ServerConfig, workspaceRoot: st
     const owner = await copyOwnerSource(`opencode.jsonc#mcp.${name}`);
     // Rebase command/argument paths into the new bundle without touching OAuth
     // sessions, which are stored separately and never read by the creator.
-    connectorEntries.push([name, owner ? rebasePaths({ ...connector, enabled: false }, owner.source, owner.destination) : { ...connector, enabled: false }]);
+    connectorEntries.push([name, owner ? rebasePaths({ ...connector, disabled: true }, owner.source, owner.destination) : { ...connector, disabled: true }]);
   }
   if (input.newConnector) {
     const name = pluginSlug(input.name);
     if (connectorEntries.some(([existing]) => existing === name)) throw new ApiError(400, "duplicate_connector", "The new connector has the same name as a selected connector.");
-    connectorEntries.push([name, { ...input.newConnector, enabled: true }]);
+    connectorEntries.push([name, connectorCommandFields({ ...input.newConnector, enabled: true })]);
   }
   const manifest = { name: pluginSlug(input.name), description: input.description || undefined, version: "1.0.0", interface: { displayName: input.name } };
   for (const [path, value] of Object.entries({ "plugin.json": manifest, "mcp.json": { mcpServers: Object.fromEntries(connectorEntries) } })) addFile({ path, bytes: Buffer.from(JSON.stringify(value, null, 2)), mode: 0o600 });

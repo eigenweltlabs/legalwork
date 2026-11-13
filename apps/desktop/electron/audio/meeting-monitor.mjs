@@ -10,14 +10,15 @@ const NATIVE_APPS = [
   ["com.microsoft.teams", "Microsoft Teams"], ["com.tinyspeck.slackmacgap", "Slack"],
   ["com.cisco.webexmeetingsapp", "Webex"], ["com.cisco.webex", "Webex"],
 ];
-const BROWSERS = ["com.google.Chrome", "com.microsoft.edgemac", "company.thebrowser.Browser", "company.thebrowser.dia", "com.apple.Safari", "org.mozilla.firefox"];
+const BROWSERS = ["com.google.Chrome", "com.microsoft.edgemac", "company.thebrowser.Browser", "company.thebrowser.dia", "com.apple.Safari", "org.mozilla.firefox", "com.brave.Browser", "com.vivaldi.Vivaldi", "com.operasoftware.Opera", "org.chromium.Chromium"];
 
 /** Match metadata only; never open a microphone or read meeting conversation. */
 export function meetingCandidate(processes) {
+  let browserCall = null;
   for (const process of processes) {
-    if (!process || !process.inputActive || typeof process.bundleId !== "string") continue;
+    if (!process || typeof process.bundleId !== "string") continue;
     const native = NATIVE_APPS.find(([id]) => process.bundleId === id || process.bundleId.startsWith(id + "."));
-    if (native) return { id: native[0], app: native[1], title: native[1] };
+    if (native && process.inputActive) return { id: native[0], app: native[1], title: native[1] };
     if (!BROWSERS.some(id => process.bundleId === id || process.bundleId.startsWith(id + "."))) continue;
     for (const document of process.documents ?? []) {
       if (!document || typeof document !== "object") continue;
@@ -25,14 +26,19 @@ export function meetingCandidate(processes) {
       try { url = new URL(document.url); } catch { /* Some apps expose titles only. */ }
       const host = url?.hostname.toLowerCase();
       let provider = null;
-      if (host === "meet.google.com" && /^\/[a-z]{3}-[a-z]{4}-[a-z]{3}(?:\/|$)/.test(url.pathname)) provider = "Google Meet";
+      if (host === "meet.google.com" && /^\/(?:meet\/)?[a-z]{3}-[a-z]{4}-[a-z]{3}(?:\/|$)/.test(url.pathname)) provider = "Google Meet";
       else if (host && (host === "teams.microsoft.com" || host === "teams.live.com") && /\/meet(?:ing|up-join)?\//.test(url.pathname)) provider = "Microsoft Teams";
       else if (host && (host === "zoom.us" || host.endsWith(".zoom.us")) && /\/(?:wc|j)\//.test(url.pathname)) provider = "Zoom";
-      else if (/^(?:Google Meet(?:$| [–-] )|Meet [–-] [a-z]{3}-[a-z]{4}-[a-z]{3}\b)/i.test(document.title ?? "")) provider = "Google Meet";
+      else if ((!host || host === "meet.google.com") && /^(?:Google Meet(?:$| [–-] )|Meet [–-] [a-z]{3}-[a-z]{4}-[a-z]{3}\b)/i.test(document.title ?? "")) provider = "Google Meet";
+      // The prompt is an offer to record, not an automatic recording. A
+      // meeting page is enough, including joining muted or listening silently.
       if (provider) return { id: `${process.bundleId}:${url ? url.origin + url.pathname : provider}`, app: provider, title: provider };
     }
+    // Browser metadata may be unavailable without Accessibility permission.
+    // Sustained browser microphone activity can still offer a recording.
+    if (process.inputActive) browserCall ??= { id: process.bundleId, app: "Browser call", title: "Browser call" };
   }
-  return null;
+  return browserCall;
 }
 
 export class MeetingMonitor {

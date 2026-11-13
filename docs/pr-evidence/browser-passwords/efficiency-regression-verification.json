@@ -1,0 +1,95 @@
+{
+  "date": "2026-10-27",
+  "scope": "Browser tool-contract and controller regressions after the reported 25-round DeepL session. These are component/integration checks, not a new model benchmark.",
+  "reportedSession": {
+    "toolRounds": 25,
+    "underlyingCalls": 34,
+    "elapsedMs": 251773,
+    "credentialCardCalls": 1,
+    "credentialCardWaitMs": 93015,
+    "otherToolExecutionMs": 4761,
+    "outsideToolExecutionMs": 153997,
+    "tokens": {
+      "input": 197126,
+      "output": 3632,
+      "reasoning": 4295,
+      "cacheRead": 1282427,
+      "cacheWrite": 0
+    }
+  },
+  "regressions": {
+    "typedResults": {
+      "passed": true,
+      "coverage": "Registered open/connect results expose direct typed tabID, browser_url and native snapshot; canonical and legacy connect arguments both work; open/list can compose without another open."
+    },
+    "observations": {
+      "passed": true,
+      "priorController": "Failed the new deep-shadow-editor assertion using an isolated copy of HEAD before this fix.",
+      "coverage": [
+        "Default native refs can fill an editor behind 25 layout wrappers and a shadow root",
+        "Edited and read-only output text appears in native observations; protected password values do not",
+        "Explicit depth and ref scope remain bounded",
+        "Focused find reaches a matching control beyond the 500-line default result",
+        "Waits follow document generation changes; stale mutations remain rejected"
+      ],
+      "snapshotChars": 18604
+    },
+    "rendererReload": {
+      "passed": true,
+      "coverage": [
+        "Released v2 engine and actual panel IPC",
+        "Trusted renderer reload retains exact page, unsaved input, refs and generation",
+        "Untrusted host navigation still closes attachment",
+        "Existing chat ownership and sequential username/vault-password/submit continue to pass"
+      ],
+      "modelCalls": 0
+    },
+    "passwords": {
+      "passed": true,
+      "coverage": "Isolated synthetic vault; same native page, no submission, no secret in observations/results, explicit unrestricted readback unchanged, stale refs rejected",
+      "modelCalls": 0
+    },
+    "liveDeepL": {
+      "passed": true,
+      "website": "https://www.deepl.com",
+      "editorObservedInNativeSnapshot": true,
+      "usedNativeFill": true,
+      "resultInNativeSnapshot": true,
+      "initialObservations": 2,
+      "observations": 8,
+      "elapsedMs": 2588,
+      "windowsHidden": true,
+      "modelCalls": 0,
+      "realCredentials": false
+    }
+  },
+  "checks": {
+    "server": {
+      "command": "pnpm --filter legalwork-server exec bun test src/opencode-plugins/legalwork-browser-tools.test.ts src/opencode-plugins/browser-snapshot.test.ts src/opencode-plugins/browser-network-policy.test.ts src/opencode-plugins/browser-password-request.test.ts src/opencode-plugins/native-tool.test.ts src/opencode-plugins/legalwork-extensions-preview.test.ts src/browser-passwords.test.ts",
+      "passed": 63,
+      "failed": 0
+    },
+    "desktop": {
+      "command": "node --test apps/desktop/electron/browser-native-host.test.mjs apps/desktop/electron/browser-panel.test.mjs apps/desktop/electron/browser-passwords.test.mjs apps/desktop/electron/browser-network-policy.test.mjs",
+      "passed": 23,
+      "failed": 0
+    },
+    "build": "pnpm --filter legalwork-server build: passed",
+    "typecheck": "Server and Electron noEmit: passed",
+    "docs": "pnpm docs:generate and pnpm docs:check: passed",
+    "controller": "node apps/desktop/scripts/build-browser-controller.mjs --check: passed",
+    "bridge": "pnpm --filter @legalwork/desktop check:electron: passed"
+  },
+  "freshAgentBenchmark": {
+    "status": "not run",
+    "reason": "The configured local model-api gateway at localhost:8080 did not respond; a Docker status probe also stalled. No gateway restart or alternative paid endpoint was used.",
+    "modelCalls": 0,
+    "providerBill": null
+  },
+  "limits": [
+    "Fresh same-model DeepL login/widget call-count and latency remain unverified",
+    "Live DeepL check is a logged-out public translator workflow with no real credentials",
+    "Hidden login fixture uses native evaluation on an observed submit button; native mouse/compositor limitations are not resolved",
+    "The already-running development app requires a full restart to load the main-process controller changes"
+  ]
+}

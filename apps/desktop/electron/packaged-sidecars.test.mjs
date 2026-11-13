@@ -1,14 +1,18 @@
 import assert from "node:assert/strict";
-import { copyFile, cp, mkdtemp, mkdir, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
+import { appendFile, copyFile, cp, mkdtemp, mkdir, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
+import { createHash } from "node:crypto";
 import { opencodeReleaseTarget } from "@legalwork/opencode-release";
 import { officialFixtureSelection, writeFixtureDerivativeDistribution, writeFixtureReleaseLibrary } from "../../../packages/opencode-release/test-fixture.mjs";
 
 const require = createRequire(import.meta.url);
 const { Arch } = require("electron-builder");
+const builderRequire = createRequire(require.resolve("electron-builder"));
+const { WinPackager } = builderRequire("app-builder-lib/out/winPackager.js");
+const { parse } = require("yaml");
 const matrix = [
   ["darwin", "arm64", "aarch64-apple-darwin"],
   ["darwin", "x64", "x86_64-apple-darwin"],
@@ -37,9 +41,21 @@ async function fixture(platform, arch, kind, run) {
     await writeFixtureReleaseLibrary(join(root, "node_modules", "@legalwork", "opencode-release"), selection);
     await symlink(dirname(require.resolve("electron-builder/package.json")), join(root, "node_modules", "electron-builder"), "junction");
     await mkdir(join(root, "scripts"));
-    for (const name of ["electron-after-pack.cjs", "packaged-ocr.cjs", "packaged-opencode-sdk.cjs"]) {
+    for (const name of ["electron-after-pack.cjs", "packaged-ocr.cjs", "packaged-opencode-sdk.cjs", "windows-vc-runtime.cjs"]) {
       await copyFile(new URL(`../scripts/${name}`, import.meta.url), join(root, "scripts", name));
     }
+    const vcPin = JSON.parse(await readFile(new URL("../build/windows-vc-runtime.json", import.meta.url), "utf8"));
+    await mkdir(join(root, "build"));
+    if (platform === "win32") {
+      const crt = join(modules, "onnxruntime-node/bin/napi-v6", platform, arch);
+      await mkdir(crt, { recursive: true });
+      for (const name of Object.keys(vcPin.targets[arch].files)) {
+        const bytes = Buffer.from(`${arch}:${name}`);
+        await writeFile(join(crt, name), bytes);
+        vcPin.targets[arch].files[name] = createHash("sha256").update(bytes).digest("hex");
+      }
+    }
+    await writeFile(join(root, "build", "windows-vc-runtime.json"), JSON.stringify(vcPin));
     const afterPack = require(join(root, "scripts", "electron-after-pack.cjs"));
     for (const name of ["onnxruntime-node", "onnxruntime-common", "@napi-rs/canvas", "paddleocr", "image-size"]) {
       const directory = join(modules, name);
@@ -51,7 +67,7 @@ async function fixture(platform, arch, kind, run) {
     await mkdir(binding, { recursive: true });
     await writeFile(join(binding, "onnxruntime_binding.node"), "fixture");
     for (const directory of ["ocr", "node", "opencode-sdk", "sidecars"]) await mkdir(join(resources, directory), { recursive: true });
-    for (const name of ["native-worker.cjs", "layout-worker.cjs"]) await writeFile(join(resources, "ocr", name), "fixture");
+    for (const name of ["native-worker.cjs", "layout-worker.cjs", "llama-launcher.cjs"]) await writeFile(join(resources, "ocr", name), "fixture");
     await writeFile(join(resources, "node", platform === "win32" ? "node.exe" : "node"), "fixture");
     await writeFile(join(resources, "opencode-sdk", "package.json"), JSON.stringify({ opencode: { version: "2.1.4", runtime: "released-cli", providedModules: ["@opencode/plugin", "effect"] } }));
     await run({ resources, engineDirectory, selection, afterPack, context: { appOutDir: root, electronPlatformName: platform, packager: { appInfo: { productFilename: "LegalWork" } } } });
@@ -70,13 +86,15 @@ for (const kind of ["official", "derivative"]) test(`normal afterPack preserves 
         await writeFile(join(directory, alias), "stale alias");
         if (bases.includes(base)) expected.push(target, alias);
       }
-      const metadata = `versions.json-${triple}${suffix}`;
+      const metadata = `versions.json-${triple}`;
       await writeFile(join(directory, metadata), JSON.stringify({ target: triple }));
+      if (platform === "win32") await writeFile(join(directory, `${metadata}.exe`), "stale JSON with executable suffix");
       await writeFile(join(directory, "wrong-architecture-binary"), "must be pruned");
       await writeFile(join(directory, `legalwork-server${suffix}`), "retired");
       const pinned = engineDirectory && await readFile(join(engineDirectory, `opencode${suffix}`));
       await afterPack({ ...context, arch: architecture });
       assert.deepEqual((await readdir(directory)).sort(), [...expected, metadata, "versions.json"].sort(), `${platform}/${architecture}`);
+      if (platform === "win32") assert.deepEqual((await readdir(directory)).filter(name => name.endsWith(".exe")).sort(), expected.sort(), "Only actual sidecar binaries may enter Windows signing");
       for (const base of bases) assert.equal(await readFile(join(directory, `${base}${suffix}`), "utf8"), `${base}-${triple}${suffix}`);
       assert.deepEqual(JSON.parse(await readFile(join(directory, "versions.json"), "utf8")), { target: triple });
       if (engineDirectory) {
@@ -94,5 +112,43 @@ for (const kind of ["official", "derivative"]) test(`${kind} afterPack rejects a
     await writeFile(join(resources, "sidecars", "opencode"), "stale wrong-target alias");
     if (engineDirectory) await rm(engineDirectory, { recursive: true });
     await assert.rejects(afterPack({ ...context, arch: Arch.x64 }), kind === "official" ? /Missing packaged sidecar for target: opencode-x86_64-unknown-linux-gnu/ : /ENOENT/);
+  });
+});
+
+for (const arch of ["x64", "arm64"]) test(`Azure packaging preserves pinned Windows ${arch} engine bytes and rejects tampering`, async () => {
+  const config = parse(await readFile(new URL("../electron-builder.azure.yml", import.meta.url), "utf8"));
+  await fixture("win32", arch, "derivative", async ({ resources, engineDirectory, afterPack, context }) => {
+    const signed = [];
+    // Exercise electron-builder's actual extraResources transformer: signing
+    // runs during copying, before our afterPack integrity verification.
+    const packager = {
+      platformSpecificBuildOptions: config.win,
+      shouldSignFile: WinPackager.prototype.shouldSignFile,
+      async signIf(file) {
+        signed.push(file);
+        await appendFile(file, "simulated Authenticode certificate bytes");
+      },
+    };
+    const transform = WinPackager.prototype.createTransformerForExtraFiles.call(packager, context);
+    const engine = join(engineDirectory, "opencode.exe");
+    const original = await readFile(engine);
+    const triple = matrix.find(([platform, targetArch]) => platform === "win32" && targetArch === arch)[2];
+    const orchestrator = join(resources, "sidecars", `legalwork-orchestrator-${triple}.exe`);
+    await writeFile(orchestrator, "orchestrator fixture");
+    await writeFile(join(resources, "sidecars", `versions.json-${triple}`), "{}");
+    const files = [engine, orchestrator, join(resources, "node", "node.exe")];
+    for (const file of files) await transform(file)?.afterCopyTransformer(file);
+    await afterPack({ ...context, arch: Arch[arch] });
+    assert.deepEqual(await readFile(engine), original, "The independently pinned engine cannot be re-signed during packaging");
+    assert.deepEqual(signed, files.slice(1), "Other bundled executables still enter signing");
+    for (const file of ["LegalWork.exe", "LegalWork-Setup.exe", "__uninstaller-nsis.exe"]) {
+      assert.equal(packager.shouldSignFile(file, true), true, `${file} must remain signed`);
+    }
+    await appendFile(engine, "unexpected executable modification");
+    await assert.rejects(afterPack({ ...context, arch: Arch[arch] }), /Installed derivative file changed: opencode.exe/);
+    const modified = Buffer.from(original);
+    modified[0] ^= 1;
+    await writeFile(engine, modified);
+    await assert.rejects(afterPack({ ...context, arch: Arch[arch] }), /Candidate binary changed/);
   });
 });

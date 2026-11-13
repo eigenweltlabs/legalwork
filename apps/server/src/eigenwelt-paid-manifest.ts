@@ -9,9 +9,7 @@ import { SystemOneConfigurationSchema, type SystemOneConfiguration } from "./sys
  * writes the cache; "Refresh models" and background refresh update the model
  * list around the kept key; signing out clears it.
  *
- * The key is carried in the provider block's
- * Authorization header (opencode passes provider `options` verbatim to
- * createOpenAICompatible and ignores a bare `apiKey`), never in auth.json.
+ * The key is carried in the native provider block's Authorization header.
  */
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
@@ -27,7 +25,7 @@ import {
 import { EIGENWELT_ANALYTICS_ID_HEADER, launchAnalyticsId } from "./launch-analytics-id.js";
 import { runtimeStorageDir } from "./runtime-opencode-config-store.js";
 import type { ServerConfig } from "./types.js";
-import { OpenCodeModelConfigSchema } from "./opencode-model-config.js";
+import { OpenCodeModelConfigSchema, nativeProviderDefinition, type NativeProviderDefinition } from "./opencode-model-config.js";
 
 /** Provider id of the connected (paid) Eigenwelt Model API. Keep in sync with
  *  the app's EIGENWELT_PROVIDER_ID. */
@@ -174,19 +172,17 @@ export function eigenweltPaidManifestRevision(manifest: EigenweltPaidManifest | 
  * The key travels in the Authorization header (see file header); mirrors
  * the standard OpenAI-compatible provider block shape.
  */
-export function buildEigenweltPaidProviderBlock(manifest: EigenweltPaidManifest): Record<string, unknown> {
-  return {
-    npm: "@ai-sdk/openai-compatible",
+export function buildEigenweltPaidProviderBlock(manifest: EigenweltPaidManifest): NativeProviderDefinition {
+  return nativeProviderDefinition({
+    package: "@opencode/ai/providers/openai-compatible",
     name: "Eigenwelt Subscription",
-    options: {
-      baseURL: manifest.baseURL,
-      headers: {
+    settings: { baseURL: manifest.baseURL },
+    headers: {
         Authorization: `Bearer ${manifest.apiKey}`,
         [EIGENWELT_ANALYTICS_ID_HEADER]: launchAnalyticsId(),
-      },
     },
     models: buildEigenweltModelsMap(manifest.models),
-  };
+  });
 }
 
 export async function applyEigenweltSystemOne(config: ServerConfig, value: unknown): Promise<void> {

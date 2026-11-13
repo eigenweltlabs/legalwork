@@ -13,7 +13,7 @@ import type { ServerConfig } from "./types.js";
  * what it covers.
  */
 
-type Change = "projects" | "tasks" | "policy" | "hub" | "sessions" | "approvals" | "connectors";
+type Change = "backOffice" | "projects" | "tasks" | "policy" | "hub" | "sessions" | "approvals" | "groups" | "reload" | "reviews" | "suggestions" | "sandbox" | "views" | "queues" | "connectors";
 
 /** Changes close together go as one event: a round that brought ten notes reloads once. */
 const COALESCE_MS = 250;
@@ -77,7 +77,7 @@ export function syncEventStream(config: ServerConfig, signal: AbortSignal): Resp
       };
       signal.addEventListener("abort", () => stop(), { once: true });
       if (signal.aborted) stop();
-      send({ resync: true });
+      send({ resync: true, metadata: true });
     },
     cancel() {
       stop(true);

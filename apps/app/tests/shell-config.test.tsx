@@ -27,6 +27,24 @@ test("new sidebars enable pinned projects beside pinned chats", () => {
   expect(config?.chatSectionOrder).toEqual(["navNewChat", "sectionPinned", "sectionPinnedProjects", "sectionSharedProjects", "sectionProjects", "sectionRecent"]);
 });
 
+test("Assistant is placed below Home in new and existing navigation orders", () => {
+  expect(readConfig(null)?.navAssistant).toBe(true);
+  expect(readConfig(null)?.navOrder.slice(0, 2)).toEqual(["navHome", "navAssistant"]);
+  const savedOrder = ["navProjects", "navCalendar", "navHome", "navTasks", "navScheduled", "navWorkflows", "navRecorder", "navWikis", "navEvaluations"];
+  const config = readConfig({ navOrder: savedOrder });
+  expect(config?.navAssistant).toBe(true);
+  expect(config?.navOrder.filter(key => key !== "navAssistant")).toEqual(savedOrder);
+  expect(config?.navOrder.slice(2, 4)).toEqual(["navHome", "navAssistant"]);
+});
+
+test("Assistant keeps its saved position and visibility on reload", () => {
+  const defaults = readConfig(null)?.navOrder ?? [];
+  const savedOrder = [...defaults.filter(key => key !== "navAssistant"), "navAssistant"];
+  const config = readConfig({ navOrder: savedOrder, navAssistant: false });
+  expect(config?.navOrder).toEqual(savedOrder);
+  expect(config?.navAssistant).toBe(false);
+});
+
 test("older sidebar preferences gain pinned projects without reordering saved sections", () => {
   const savedOrder = ["sectionRecent", "sectionProjects", "navNewChat", "sectionPinned"];
   const config = readConfig({ chatSectionOrder: savedOrder, sectionProjects: false });
@@ -46,7 +64,7 @@ test("the saved visibility and position of pinned projects survive a reload", ()
 
 
 test("older sidebar preferences gain Wiki without changing existing choices", () => {
-  const savedOrder = ["navHome", "navRecorder", "navEvaluations", "navProjects", "navCalendar", "navTasks", "navScheduled", "navWorkflows"];
+  const savedOrder = ["navHome", "navAssistant", "navRecorder", "navEvaluations", "navProjects", "navCalendar", "navTasks", "navScheduled", "navWorkflows"];
   const config = readConfig({ navOrder: savedOrder, navRecorder: false, navTasks: false });
   expect(config?.navWikis).toBe(true);
   expect(config?.navOrder.filter(key => key !== "navWikis")).toEqual(savedOrder);

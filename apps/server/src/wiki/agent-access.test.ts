@@ -37,6 +37,19 @@ test("runtime credential is stable per running server and never an owner/host cr
   await expect(authenticateWikiAgentRequest(config, request("/wikis", { token: config.hostToken }))).rejects.toMatchObject({ code: "wiki_agent_unauthorized" });
 });
 
+test("Assistant report saves retain the authenticated chat and its current permission scope", async () => {
+  const { config, root, request } = await fixture();
+  const save = (sourceSessionId: string) => new Request(request("/assistant/save-report", { method: "POST" }), {
+    body: JSON.stringify({ sourceSessionId }),
+  });
+  await grantWikiAgentSession(config, { sessionId: "session-1", directory: root, scope: "collaborator" });
+  expect(await authenticateWikiAgentRequest(config, save("session-1"))).toMatchObject({ sessionId: "session-1", actor: { scope: "collaborator" } });
+  await expect(authenticateWikiAgentRequest(config, save("another-chat"))).rejects.toMatchObject({ code: "wiki_agent_session_mismatch" });
+  await grantWikiAgentSession(config, { sessionId: "session-1", directory: root, scope: "viewer" });
+  expect((await authenticateWikiAgentRequest(config, save("session-1")))?.actor.scope).toBe("viewer");
+  await expect(authenticateWikiAgentRequest(config, request("/assistant/save-report"))).rejects.toMatchObject({ code: "wiki_agent_endpoint_denied" });
+});
+
 test("server-recorded origin controls actor scope and collaborator takeover downgrades immediately", async () => {
   const { config, root, request } = await fixture();
   await grantWikiAgentSession(config, { sessionId: "session-1", directory: root, scope: "owner" });
@@ -83,6 +96,20 @@ test("runtime auth permits only the page tool endpoints and refuses broader mana
     ["/wikis/team", "GET"], ["/wikis/join", "POST"], ["/wikis/wiki-id/share", "POST"],
     ["/wikis/wiki-id/share", "PATCH"], ["/wikis/wiki-id/share", "DELETE"]])
     await expect(authenticateWikiAgentRequest(config, request(path, { method }))).rejects.toMatchObject({ code: "wiki_agent_endpoint_denied" });
+});
+
+test("website metadata additions are limited to the admitted chat's workspace and exact endpoint", async () => {
+  const { config, root, request } = await fixture();
+  const path = "/workspace/project/browser-connections/saved-id/websites";
+  await expect(authenticateWikiAgentRequest(config, request(path, { method: "POST" }))).rejects.toMatchObject({ code: "wiki_agent_session_unknown" });
+  await grantWikiAgentSession(config, { sessionId: "session-1", directory: root, scope: "owner" });
+  expect(await authenticateWikiAgentRequest(config, request(path, { method: "POST" }))).toMatchObject({ actor: { scope: "owner" } });
+  await expect(authenticateWikiAgentRequest(config, request(path.replace("/project/", "/other-project/"), { method: "POST" }))).rejects.toMatchObject({ code: "wiki_agent_workspace_denied" });
+  for (const [deniedPath, method] of [[path, "GET"], [path, "DELETE"], [path, "PUT"], ["/browser-passwords", "GET"], ["/browser-passwords", "PUT"],
+    ["/browser-passwords/saved-id/websites", "POST"], ["/workspace/project/browser-connections/saved-id", "DELETE"]])
+    await expect(authenticateWikiAgentRequest(config, request(deniedPath, { method }))).rejects.toMatchObject({ code: "wiki_agent_endpoint_denied" });
+  await revokeWikiAgentSession(config, "session-1");
+  await expect(authenticateWikiAgentRequest(config, request(path, { method: "POST" }))).rejects.toMatchObject({ code: "wiki_agent_session_unknown" });
 });
 
 test("engine-verified descendants inherit current ancestor scope without becoming independent grants", async () => {
@@ -205,6 +232,21 @@ test("skill tools keep the session origin and stay limited to their own workspac
     expect((await authenticateWikiAgentRequest(config, request(path, { method })))?.actor.scope).toBe("owner");
   await expect(authenticateWikiAgentRequest(config, request("/workspace/wiki/skills/vertrag/composed"))).rejects.toMatchObject({ code: "wiki_agent_workspace_denied" });
   for (const [path, method] of [["/workspace/project/skills/vertrag", "DELETE"], ["/workspace/project/skills/hub/resources", "POST"], ["/workspace/project/skills/vertrag/promote-workflow", "POST"]])
+    await expect(authenticateWikiAgentRequest(config, request(path, { method }))).rejects.toMatchObject({ code: "wiki_agent_endpoint_denied" });
+});
+
+test("storage transfers keep the session's scope and cannot borrow another workspace", async () => {
+  const { config, root, request } = await fixture();
+  const nested = join(root, "other"); await mkdir(nested);
+  config.workspaces.push({ id: "other", name: "Other", path: nested, preset: "starter", workspaceType: "local" });
+  const path = "/workspace/project/storage/source/transfer";
+  for (const scope of ["owner", "collaborator", "viewer"] satisfies Array<"owner" | "collaborator" | "viewer">) {
+    await grantWikiAgentSession(config, { sessionId: "session-1", directory: root, scope });
+    expect(await authenticateWikiAgentRequest(config, request(path, { method: "POST" }))).toMatchObject({ sessionId: "session-1", actor: { scope } });
+  }
+  await expect(authenticateWikiAgentRequest(config, request("/workspace/other/storage/source/transfer", { method: "POST" }))).rejects.toMatchObject({ code: "wiki_agent_workspace_denied" });
+  await expect(authenticateWikiAgentRequest(config, request(path, { method: "POST", session: "unregistered" }))).rejects.toMatchObject({ code: "wiki_agent_session_unknown" });
+  for (const method of ["GET", "DELETE", "PATCH"])
     await expect(authenticateWikiAgentRequest(config, request(path, { method }))).rejects.toMatchObject({ code: "wiki_agent_endpoint_denied" });
 });
 

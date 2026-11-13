@@ -1,5 +1,5 @@
 import { isWorkspacePanelScope } from "./panel-scope";
-import { suggestionIdFromFile } from "@legalwork/types/wiki-suggestions";
+import { suggestionIdFromFile, WikiSuggestionSourceSchema, type WikiSuggestionSource } from "@legalwork/types/wiki-suggestions";
 import { useViewGenerationStore, replaceGenerationTab, type ViewDraftTab } from "../../views/view-generation";
 import { parseViewReference, viewPanelTab, type ViewPanelTab } from "../../views/view-reference";
 import { projectFileSourceSchema, type ProjectFileSource } from "@legalwork/types/project-files";
@@ -11,7 +11,7 @@ import type { AssistantFileSource } from "@legalwork/types/main-assistant";
 import { create } from "zustand";
 import type { ReviewSourceReference } from "@legalwork/types/reviews";
 import { hasUnsavedSessionDocument, confirmDiscardSessionDocuments } from "../artifacts/docx-document-state";
-import { createJSONStorage, persist } from "zustand/middleware";
+import { createJSONStorage, persist, type StateStorage } from "zustand/middleware";
 
 import { classifyOpenTarget, isCollectibleArtifactTarget, type OpenTarget, type OpenTargetPreview } from "../artifacts/open-target";
 import type { StorageFileSource } from "./storage-file-tab";
@@ -44,10 +44,10 @@ export type ProjectViewTab = { id: string; type: "project-view"; view: ProjectVi
 export function projectViewTab(view: ProjectView, label: string): ProjectViewTab {
   return { id: `project-view:${view}`, type: "project-view", view, label };
 }
-export type ChatPanelTab = { id: string; type: "chat"; sessionId: string; label: string };
+export type ChatPanelTab = { id: string; type: "chat"; sessionId: string; label: string; parentID?: string };
 export type ReviewPanelTab = { id: string; type: "review"; reviewId: string; label: string };
-export function chatPanelTab(sessionId: string, label: string): ChatPanelTab {
-  return { id: `chat:${sessionId}`, type: "chat", sessionId, label };
+export function chatPanelTab(sessionId: string, label: string, parentID?: string): ChatPanelTab {
+  return { id: `chat:${sessionId}`, type: "chat", sessionId, label, ...(parentID ? { parentID } : {}) };
 }
 
 export type { BrowserPanelTab } from "../../../../app/lib/desktop-types";
@@ -59,6 +59,7 @@ export type ArtifactPanelTab = {
   label: string;
   preview: OpenTargetPreview;
   sourceSessionId?: string;
+  wikiSource?: WikiSuggestionSource;
   wikiSuggestion?: { workspaceId: string; id: string };
   sourceProject?: ProjectFileSource;
   // Workspace-relative path for tabs opened directly from the workspace file
@@ -123,6 +124,10 @@ function restoredTab(value: unknown): PanelTab | null {
     if (location.kind === "graph") return wikiPanelTab(value.serverUrl, value.wikiId, { kind: "graph", focus: typeof location.focus === "string" ? location.focus : undefined }, value.label);
     return null;
   }
+  if (value.type === "artifact" && value.wikiSource && typeof value.label === "string" && typeof value.value === "string") {
+    const source = WikiSuggestionSourceSchema.safeParse(value.wikiSource);
+    return source.success ? { id: value.id, type: "artifact", label: value.label, value: value.value, preview: classifyOpenTarget(value.label, "file"), wikiSource: source.data } : null;
+  }
   if (value.type === "artifact" && value.sourceProject) {
     const source = projectFileSourceSchema.safeParse(value.sourceProject);
     return source.success ? { ...projectFileTab(source.data), id: value.id } : null;
@@ -137,7 +142,7 @@ function restoredTab(value: unknown): PanelTab | null {
   if (typeof value.label === "string") {
     if (value.type === "recording" && typeof value.recordingId === "string" && value.recordingId) return { id: value.id, type: "recording", recordingId: value.recordingId, label: value.label };
     if (value.type === "project-view" && isProjectView(value.view)) return projectViewTab(value.view, value.label);
-    if (value.type === "chat" && typeof value.sessionId === "string") return chatPanelTab(value.sessionId, value.label);
+    if (value.type === "chat" && typeof value.sessionId === "string") return chatPanelTab(value.sessionId, value.label, typeof value.parentID === "string" ? value.parentID : undefined);
     if (value.type === "review" && typeof value.reviewId === "string") return { id: value.id, type: "review", reviewId: value.reviewId, label: value.label };
     if (value.type === "task" && typeof value.taskId === "string") return { id: value.id, type: "task", taskId: value.taskId, label: value.label };
   }
@@ -154,7 +159,7 @@ export type PanelTabStore = {
   readLayout: (value: unknown) => SessionPanelState | null;
   migrateWorkspace: (workspaceId: string) => void;
   setAssistantWorkspace: (workspaceId: string) => void;
-  adoptChat: (scope: string, sessionId: string, label: string, options?: { preserveLayout: boolean }) => void;
+  adoptChat: (scope: string, sessionId: string, label: string, options?: { preserveLayout?: boolean; parentID?: string }) => void;
   updateTabLabel: (scope: string, tabId: string, label: string) => void;
   transcriptArtifactTargets: Record<string, OpenTarget[]>;
   openTab: (sessionId: string, tab: PanelTab, pane?: string, edge?: DocumentDropEdge, options?: { preview?: boolean; besideChat?: boolean }) => void;
@@ -163,7 +168,7 @@ export type PanelTabStore = {
   finishFileImport: (id: string, file: { path: string; size?: number; updatedAt?: number }) => void;
   setStorageWorkingPath: (sessionId: string, tabId: string, path: string) => void;
   updateWikiPaths: (serverUrl: string, wikiId: string, path: string, destination: string | null) => void;
-  reconnectWikiTabs: (serverUrl: string, wikiIds: string[]) => void;
+  reconnectLocalTabs: (serverUrl: string, wikiIds: string[], workspaceIds?: string[]) => void;
   closeTab: (sessionId: string, tabId: string) => void;
   selectTab: (sessionId: string, tabId: string) => void;
   restoreNavigationTab: (scope: string, tab: unknown, paneId: string) => void;
@@ -194,7 +199,7 @@ function updateSession(state: PanelTabStore, sessionId: string, session: Session
 
 function singleAssistantChat(session: SessionPanelState, replacement?: ChatPanelTab): SessionPanelState {
   if (!session.assistant) return session;
-  const chats = session.tabs.filter(tab => tab.type === "chat");
+  const chats = session.tabs.filter(tab => tab.type === "chat" && !tab.parentID);
   const focused = session.panes.find(pane => pane.id === session.focusedPaneId)?.activeTabId;
   const current = chats.find(tab => tab.id === focused) ?? chats[0];
   if (!current || (chats.length === 1 && !replacement)) return session;
@@ -272,7 +277,11 @@ export function samePanelTab(scope: string, tab: PanelTab, other: PanelTab) {
 /** A drop is one transaction: validate capacity and any displaced draft before
  * changing membership or geometry. A lone source can relocate at the pane limit. */
 function dockTab(sessionId: string, session: SessionPanelState, tab: PanelTab, paneId?: string, edge?: DocumentDropEdge, retry?: () => void): SessionPanelState {
-  if (session.assistant && tab.type === "chat" && session.tabs.some(entry => entry.type === "chat" && entry.id !== tab.id)) {
+  if (tab.type === "chat" && !tab.parentID) {
+    const existing = session.tabs.find(entry => entry.type === "chat" && entry.id === tab.id);
+    if (existing?.type === "chat" && existing.parentID) tab = { ...tab, parentID: existing.parentID };
+  }
+  if (session.assistant && tab.type === "chat" && !tab.parentID && session.tabs.some(entry => entry.type === "chat" && !entry.parentID && entry.id !== tab.id)) {
     session = normalizeSession(singleAssistantChat(session, tab));
     // Day changes and history navigation replace the conversation in place.
     // Even a dropped historical session must not create another chat group.
@@ -387,7 +396,7 @@ function isSameTab(left: PanelTab, right: PanelTab) {
   }
 
   if (left.type === "project-view" && right.type === "project-view") return left.view === right.view && left.label === right.label;
-  if (left.type === "chat" && right.type === "chat") return left.label === right.label && left.sessionId === right.sessionId;
+  if (left.type === "chat" && right.type === "chat") return left.label === right.label && left.sessionId === right.sessionId && left.parentID === right.parentID;
   if (left.type === "review" && right.type === "review") return left.label === right.label && left.reviewId === right.reviewId;
   if (left.type === "task" && right.type === "task") {
     return left.label === right.label && left.taskId === right.taskId;
@@ -445,7 +454,7 @@ function mergePersistedSessions(
   };
 }
 
-export const createPanelTabStore = () => create<PanelTabStore>()(
+export const createPanelTabStore = (storage?: () => StateStorage) => create<PanelTabStore>()(
   persist(
     (set, get) => ({
       sessions: {},
@@ -494,7 +503,7 @@ export const createPanelTabStore = () => create<PanelTabStore>()(
           if (!session.tabs.length) session = normalizeSession({ ...legacy, assistant: session.assistant || legacy.assistant, tabs: resolved });
           else for (const tab of resolved) session = dockTab(scope, session, tab);
         }
-        const chat = chatPanelTab(sessionId, label);
+        const chat = chatPanelTab(sessionId, label, options?.parentID);
         // Opening a recent chat in another project must keep that project's
         // geometry. Reuse its chat group (or focused group) instead of splitting.
         const chatPane = session.panes.find(pane => pane.tabIds.some(id => session.tabs.some(tab => tab.id === id && tab.type === "chat")));
@@ -504,20 +513,21 @@ export const createPanelTabStore = () => create<PanelTabStore>()(
         if (scope !== sessionId) delete sessions[sessionId];
         return { sessions };
       }),
-      reconnectWikiTabs: (serverUrl, wikiIds) => set(state => {
+      reconnectLocalTabs: (serverUrl, wikiIds, workspaceIds = []) => set(state => {
         if (!isLoopbackLegalworkServerUrl(serverUrl)) return state;
-        const known = new Set(wikiIds);
+        const knownWikis = new Set(wikiIds), knownWorkspaces = new Set(workspaceIds);
         const sessions = { ...state.sessions };
         let changed = false;
         for (const [scope, session] of Object.entries(sessions)) {
           const renamed = new Map<string, string>();
           const tabs = session.tabs.map(tab => {
             if (tab.type !== "wiki" && tab.type !== "view") return tab;
-            const wikiId = tab.type === "wiki" ? tab.wikiId : tab.owner.kind === "wiki" ? tab.owner.id : null;
-            // A desktop restart can change its port. Reconnect only wiki IDs
+            const known = tab.type === "wiki" ? knownWikis.has(tab.wikiId)
+              : tab.owner.kind === "wiki" ? knownWikis.has(tab.owner.id) : knownWorkspaces.has(tab.owner.id);
+            // A desktop restart can change its port. Reconnect only owners
             // confirmed by the current local server, never remote tabs.
-            if (!wikiId || !known.has(wikiId) || tab.serverUrl === serverUrl || !isLoopbackLegalworkServerUrl(tab.serverUrl)) return tab;
-            const next = tab.type === "wiki" ? wikiPanelTab(serverUrl, wikiId, tab.location, tab.label) : viewPanelTab(serverUrl, tab, tab.label);
+            if (!known || tab.serverUrl === serverUrl || !isLoopbackLegalworkServerUrl(tab.serverUrl)) return tab;
+            const next = tab.type === "wiki" ? wikiPanelTab(serverUrl, tab.wikiId, tab.location, tab.label) : viewPanelTab(serverUrl, tab, tab.label);
             renamed.set(tab.id, next.id);
             return next;
           });
@@ -811,7 +821,7 @@ export const createPanelTabStore = () => create<PanelTabStore>()(
     }),
     {
       name: PERSISTED_PANEL_TAB_STORE_KEY,
-      storage: createJSONStorage(() => {
+      storage: createJSONStorage(storage ?? (() => {
         if (typeof window === "undefined") return localStorage;
         // A detached window keeps its own layout even after navigation removes
         // the initial query parameter, including after a renderer reload.
@@ -823,7 +833,7 @@ export const createPanelTabStore = () => create<PanelTabStore>()(
           setItem: (key, value) => sessionStorage.setItem(key, value),
           removeItem: key => sessionStorage.removeItem(key),
         };
-      }),
+      })),
       partialize: (state) => ({
         opening: state.opening,
         sessions: Object.fromEntries(
@@ -838,7 +848,7 @@ export const createPanelTabStore = () => create<PanelTabStore>()(
                 // Restore original workspace files, not downloaded credentials,
                 // cached storage working copies or ephemeral evidence viewers.
                 if (tab.type === "artifact" && tab.value && !tab.storage && !tab.searchSources && !tab.reviewCitation && !tab.reviewRecognition)
-                  return [{ id: tab.id, type: tab.type, label: tab.label, value: tab.value, ...(tab.wikiSuggestion ? { wikiSuggestion: tab.wikiSuggestion } : {}) }];
+                  return [{ id: tab.id, type: tab.type, label: tab.label, value: tab.value, ...(tab.wikiSuggestion ? { wikiSuggestion: tab.wikiSuggestion } : {}), ...(tab.wikiSource ? { wikiSource: tab.wikiSource } : {}) }];
                 return [];
               });
 

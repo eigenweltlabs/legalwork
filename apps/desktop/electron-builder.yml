@@ -14,6 +14,8 @@ files:
   - server/**/*
   - "!server/dist/opencode-plugins/**"
   - package.json
+  # Build downloads are not runtime files; the installed engine ships below.
+  - "!node_modules/@legalwork/opencode-release/generated/archive-cache{,/**/*}"
 extraResources:
   # Cloud dictation detects silence locally before opening a paid session.
   - from: node_modules/@ricky0123/vad-web/dist/silero_vad_legacy.onnx
@@ -168,6 +170,15 @@ linux:
 win:
   icon: resources/icons/icon.ico
   extraResources:
+    # Keep the signed Microsoft CRT beside the ONNX native addon. These
+    # app-local dependencies require neither a system install nor admin rights.
+    - from: resources/node
+      to: app.asar.unpacked/node_modules/onnxruntime-node/bin/napi-v6/win32/${arch}
+      filter:
+        - msvcp140.dll
+        - msvcp140_1.dll
+        - vcruntime140.dll
+        - vcruntime140_1.dll
     - from: resources/sidecars
       to: sidecars
       filter:
@@ -178,8 +189,8 @@ win:
         - legalwork-orchestrator-aarch64-pc-windows-msvc.exe
         - legalwork-orchestrator-x86_64-pc-windows-msvc.exe
         - versions.json
-        - versions.json-aarch64-pc-windows-msvc.exe
-        - versions.json-x86_64-pc-windows-msvc.exe
+        - versions.json-aarch64-pc-windows-msvc
+        - versions.json-x86_64-pc-windows-msvc
   target:
     - nsis
 # Uninstall cleanup for the Office add-in (registry sideload entries and the

@@ -13,8 +13,23 @@ export const WikiDataQuerySchema = z.object({
   limit: z.number().int().min(1).max(200).optional(),
   cursor: z.string().max(300).optional(),
 }).strict();
+export const BackOfficeDataQuerySchema = WikiDataQuerySchema.omit({ pageType: true, cursor: true }).extend({
+  source: z.literal("backOffice"),
+  directoryId: z.string().min(1).max(512),
+  objectId: field,
+  currency: z.string().regex(/^[A-Z]{3}$/).optional(),
+  includeArchived: z.boolean().optional(),
+}).strict();
+export const BackOfficeQueryPageSchema = BackOfficeDataQuerySchema.extend({ cursor: WikiDataQuerySchema.shape.cursor });
+export type BackOfficeDataQuery = z.infer<typeof BackOfficeDataQuerySchema>;
+export const ViewQuerySchema = z.union([BackOfficeDataQuerySchema, WikiDataQuerySchema.omit({ cursor: true })]);
+export type ViewQuery = z.infer<typeof ViewQuerySchema>;
+export function isBackOfficeQuery(query: ViewQuery): query is BackOfficeDataQuery {
+  return "source" in query && query.source === "backOffice";
+}
 export const WikiDataResultSchema = z.object({
   rows: z.array(z.record(field, value)).max(1000),
+  sourceKind: z.literal("backOffice").optional(),
   total: z.number().int().nonnegative(),
   revision: z.string().min(1).max(200),
   asOf: z.number().nonnegative(),
@@ -22,6 +37,8 @@ export const WikiDataResultSchema = z.object({
   nextCursor: z.string().max(300).optional(),
   sources: z.array(z.object({ path: z.string().max(4096), revision: z.string().max(200) }).strict()).max(1000).optional(),
   sourceOwner: ViewOwnerSchema.optional(),
+  /** Empty means the imported file's original server is unknown. Never rebind its links. */
+  sourceServerUrl: z.string().max(4096).optional(),
 }).strict();
 export const ViewInputSchema = z.object({
   version: z.literal(1),
@@ -29,10 +46,20 @@ export const ViewInputSchema = z.object({
   mode: z.enum(["report", "dashboard"]),
   catalog: z.literal("legalwork-1"),
   program: z.string().min(1).max(100_000),
-  queries: z.record(field, WikiDataQuerySchema.omit({ cursor: true })).refine(queries => Object.keys(queries).length <= 20),
+  queries: z.record(field, ViewQuerySchema).refine(queries => Object.keys(queries).length <= 20),
   datasets: z.record(field, WikiDataResultSchema).refine(datasets => Object.keys(datasets).length <= 20).optional(),
+  /** Default source context for paths embedded directly in the program. */
+  sourceOwner: ViewOwnerSchema.optional(),
+  sourceServerUrl: z.string().max(4096).optional(),
   fallbackMarkdown: z.string().max(100_000).optional(),
 }).strict();
+/** Deliberate Assistant deliverables, confined to its own workspace. */
+export const AssistantSaveReportSchema = z.object({
+  key: z.string().regex(/^[a-z0-9][a-z0-9-]{0,119}$/).describe("Stable report key, e.g. morning-briefing-2026-10-28. Reuse it on retries."),
+  input: ViewInputSchema,
+  baseRevision: z.string().min(1).max(200).optional().describe("Exact revision from view_read when updating a previously saved report."),
+}).strict();
+
 export const ViewSaveSourceSchema = z.object({ workspaceId: z.string().min(1).max(200), sessionId: z.string().min(1).max(200), callId: z.string().min(1).max(200) }).strict();
 export type ViewSaveSource = z.infer<typeof ViewSaveSourceSchema>;
 export const ViewSaveInputSchema = ViewInputSchema;
@@ -48,6 +75,29 @@ export type ViewInput = z.infer<typeof ViewInputSchema>;
 export type ViewRecord = z.infer<typeof ViewRecordSchema>;
 export type ViewSummary = Pick<ViewRecord, "id" | "title" | "mode" | "updatedAt" | "revision" | "owner"> & { path?: string };
 export type ViewIssue = { path: string; id?: string; code: string; message: string };
+
+export const isViewFile = (path: string) => /\.view\.json$/i.test(path);
+
+/** A transfer freezes queries and preserves their origin; it never queries the destination. */
+export function viewCopyInput(input: ViewInput, source?: { owner: ViewOwner; serverUrl?: string }, keepQueries = false): ViewInput {
+  if (keepQueries && !source) return input;
+  if (!keepQueries && Object.keys(input.queries).some(name => !input.datasets?.[name])) throw new Error("This live dashboard needs a data snapshot. Export it from LegalWork, then import that file.");
+  return { ...input, sourceOwner: input.sourceOwner ?? source?.owner, sourceServerUrl: input.sourceServerUrl ?? source?.serverUrl ?? "", queries: keepQueries ? input.queries : {}, datasets: Object.fromEntries(Object.entries(input.datasets ?? {}).map(([name, data]) => [name, {
+    ...data, sourceOwner: data.sourceOwner ?? input.sourceOwner ?? source?.owner,
+    sourceServerUrl: data.sourceServerUrl ?? input.sourceServerUrl ?? source?.serverUrl ?? "",
+  }])) };
+}
+
+/** Explicit imports are new files. Sync and restore paths must keep their original identity. */
+export function copyViewFile(bytes: Uint8Array, source?: { owner: ViewOwner; serverUrl?: string }, keepQueries = false): Uint8Array {
+  if (bytes.byteLength > 2 * 1024 * 1024) throw new Error("A dashboard file can contain up to 2 MB.");
+  const { savedFrom: _legacy, ...raw } = z.object({ savedFrom: z.unknown().optional() }).passthrough().parse(JSON.parse(new TextDecoder().decode(bytes)));
+  const { id: _id, updatedAt: _updatedAt, ...input } = StoredViewSchema.parse(raw);
+  const copy = { ...viewCopyInput(input, source, keepQueries), id: crypto.randomUUID(), updatedAt: Date.now() };
+  const result = new TextEncoder().encode(`${JSON.stringify(copy, null, 2)}\n`);
+  if (result.byteLength > 2 * 1024 * 1024) throw new Error("A dashboard file can contain up to 2 MB.");
+  return result;
+}
 export type WikiDataQuery = z.infer<typeof WikiDataQuerySchema>;
 export type WikiDataResult = z.infer<typeof WikiDataResultSchema>;
 export type WikiFields = z.infer<typeof WikiFieldsSchema>;
@@ -64,6 +114,7 @@ export const ViewPreviewSchema = z.object({
   status: z.literal("preview"),
   owner: ViewOwnerSchema,
   input: ViewInputSchema,
+  replacesCallId: z.string().min(1).max(200).optional(),
   target: z.object({ viewId: z.string().uuid(), baseRevision: z.string().min(1).max(200) }).strict().optional(),
 }).strict();
 export type ViewPreview = z.infer<typeof ViewPreviewSchema>;

@@ -1,62 +1,43 @@
 import { Config } from "@opencode/schema/config";
 import { Schema } from "effect";
-import type { NativeConfig } from "./native-opencode-config.js";
+import type { NativeRuntimeConfiguration } from "./runtime-config-upgrade.js";
 
 function record(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
-const atomic = (key: string) => ["model", "reasoning", "mcp"].includes(key);
-function common(values: unknown[], key = ""): unknown {
-  const first = values[0];
-  if (!atomic(key) && record(first) && values.every(record)) return Object.fromEntries(Object.keys(first).flatMap(key => {
-    const value = common(values.map(item => record(item) ? item[key] : undefined), key);
-    return value === undefined ? [] : [[key, value]];
-  }));
-  return values.length && values.every(value => JSON.stringify(value) === JSON.stringify(first)) ? first : undefined;
+const same = (left: unknown, right: unknown) => JSON.stringify(left) === JSON.stringify(right);
+const declarations = new Set(["providers", "agents", "commands"]);
+
+/** Share complete identical native declarations only. Project permission
+ * grants and custom plugins stay project-scoped, even with one project. */
+export function commonManagedConfiguration(configurations: readonly NativeRuntimeConfiguration[]): NativeRuntimeConfiguration {
+  const first = configurations[0];
+  if (!first) return {};
+  const result: Record<string, unknown> = {};
+  const documents: readonly Record<string, unknown>[] = configurations;
+  for (const [key, value] of Object.entries(first)) {
+    // Folder-specific paths stay in each project's native document.
+    if (key === "permissions" || key === "plugins" || key === "skills" || key === "instructions") continue;
+    if (declarations.has(key) && record(value)) {
+      const shared = Object.fromEntries(Object.entries(value).filter(([id, entry]) => documents.every(document => record(document[key]) && same(document[key][id], entry))));
+      if (Object.keys(shared).length) result[key] = shared;
+    } else if (documents.every(document => same(document[key], value))) result[key] = value;
+  }
+  return Schema.decodeUnknownSync(Config.Info)(result, { onExcessProperty: "error" });
 }
 
-/** Native loads shared provider/model definitions, including distinct custom
- * models. Only conflicting fields stay in per-location transforms; presence,
- * activation and model selection remain per-location controls. */
-export function commonManagedConfiguration(configurations: NativeConfig[]): NativeConfig {
-  const result = configurations.length ? common(configurations) : {};
-  if (!record(result)) return Schema.decodeUnknownSync(Config.Info)({});
-  // The native location-scoped MCP transform owns the complete managed set.
-  // A second file-backed source would retain a deleted connector until its
-  // asynchronous watcher catches up, after the removal API has returned.
-  delete result.mcp;
-  const providerIDs = new Set(configurations.flatMap(configuration => Object.keys(configuration.providers ?? {})));
-  result.providers = Object.fromEntries([...providerIDs].map(id => {
-    const definitions = configurations.flatMap(configuration => configuration.providers?.[id] ? [configuration.providers[id]] : []);
-    const provider = common(definitions);
-    if (!record(provider)) throw new Error("A managed provider definition must be an object.");
-    const modelIDs = new Set(definitions.flatMap(provider => Object.keys(provider.models ?? {})));
-    provider.models = Object.fromEntries([...modelIDs].map(modelID => {
-      const models = definitions.flatMap(provider => provider.models?.[modelID] ? [provider.models[modelID]] : []);
-      const model = common(models);
-      if (!record(model)) throw new Error("A managed model definition must be an object.");
-      // A late native disabled:false would otherwise undo a location's filter.
-      // The managed transform applies every saved enablement before the fold.
-      delete model.disabled;
-      if (record(model.capabilities) && models.some(value => record(value) && JSON.stringify(value.variants) !== JSON.stringify(record(models[0]) ? models[0].variants : undefined))) {
-        // A late shared reasoning fold would erase this location's variants.
-        delete model.capabilities.reasoning;
-      }
-      return [modelID, model];
-    }));
-    return [id, provider];
-  }));
-  return Schema.decodeUnknownSync(Config.Info)(result);
-}
-
-export function managedConfigurationDiff(configuration: NativeConfig, shared: NativeConfig): NativeConfig {
-  const difference = (value: unknown, baseline: unknown, key = ""): unknown => {
-    if (JSON.stringify(value) === JSON.stringify(baseline)) return undefined;
-    if (!atomic(key) && record(value) && record(baseline)) return Object.fromEntries(Object.entries(value).flatMap(([key, item]) => {
-      const delta = difference(item, baseline[key], key);
-      return delta === undefined ? [] : [[key, delta]];
-    }));
-    return value;
-  };
-  return Schema.decodeUnknownSync(Config.Info)(difference(configuration, shared) ?? {});
+/** Generation-time document selection. The native engine loads and merges the
+ * resulting project file; no per-location runtime reconstruction is involved. */
+export function managedConfigurationDiff(configuration: NativeRuntimeConfiguration, shared: NativeRuntimeConfiguration): NativeRuntimeConfiguration {
+  const baseline: Record<string, unknown> = shared;
+  const result: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(configuration)) {
+    if (same(value, baseline[key])) continue;
+    if (declarations.has(key) && record(value) && record(baseline[key])) {
+      const common = baseline[key];
+      const local = Object.fromEntries(Object.entries(value).filter(([id, entry]) => !same(entry, common[id])));
+      if (Object.keys(local).length) result[key] = local;
+    } else result[key] = value;
+  }
+  return Schema.decodeUnknownSync(Config.Info)(result, { onExcessProperty: "error" });
 }

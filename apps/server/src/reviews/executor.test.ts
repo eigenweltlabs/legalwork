@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { reviewWorkerClaims } from "./worker.js";
-import { afterAll, beforeEach, expect, test } from "bun:test";
+import { afterAll, beforeEach, expect, spyOn, test } from "bun:test";
 import { ReviewExecutor, isTextReviewModel } from "./executor.js";
 import { ReviewColumnSchema, SavedReviewSchema, type ReviewResult } from "./schema.js";
 import { SystemOneProviderSchema, SystemOneResponseSchema, type SystemOneRequest, type SystemOneSettings } from "../systemone-schema.js";
@@ -64,7 +64,7 @@ const engine = Bun.serve({ port: 0, async fetch(request) {
   return new Response("Unknown", { status: 404 });
 } });
 const workspace: WorkspaceInfo = { id: "qa", name: "QA", path: root, preset: "starter", workspaceType: "local" };
-const config: ServerConfig = { host: "127.0.0.1", port: 0, token: "test", hostToken: "test-host", configPath: "/unused-fixture", approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: [], workspaces: [workspace], authorizedRoots: [workspace.path], readOnly: false, startedAt: 0, tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false, opencodeBaseUrl: engine.url.origin };
+const config: ServerConfig = { host: "127.0.0.1", port: 0, token: "test", hostToken: "test-host", configPath: join(root, "server.json"), approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: [], workspaces: [workspace], authorizedRoots: [workspace.path], readOnly: false, startedAt: 0, tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false, opencodeBaseUrl: engine.url.origin };
 const settings: SystemOneSettings = { selection: { providerId: "firm-jev", model: "jev" }, providers: [SystemOneProviderSchema.parse({ id: "firm-jev", name: "Firm JEV", endpoint: "http://localhost/v1/systemone", enabled: true, managed: false, status: "ready", models: [{ id: "jev", name: "JEV", questionTypes: ["noul", "choice"], source: "configured" }] })] };
 const executor = new ReviewExecutor(config, { settings: async () => structuredClone(settings), infer: async (_config, request, options) => {
   decisions.push(request); expect(options?.providerId).toBe("firm-jev"); if (fail) throw new Error("JEV unavailable");
@@ -212,14 +212,31 @@ test("provider billing errors fail promptly rather than leaving cells in an endl
 
 test("stalled LLM calls release their session and retry within a bounded request deadline", async () => {
   const bounded = new ReviewExecutor(config, { settings: async () => structuredClone(settings), infer: async () => { throw new Error("Unexpected JEV"); } }, new ReviewRequests({ cells: 1, documents: 1 }, { retryDelayMs: 1, jitterMs: 0 }), 60);
-  stalledPrompts = 1;
-  expect((await bounded.execute(workspace, review("llm"), column, evidence, new AbortController().signal, actor)).value).toBe("Yes");
-  expect(calls.filter(call => call.path.endsWith("/prompt"))).toHaveLength(2);
-  expect(calls.filter(call => call.method === "DELETE")).toHaveLength(2);
-  calls.length = 0; stalledPrompts = 3;
-  await expect(bounded.execute(workspace, review("llm"), column, evidence, new AbortController().signal, actor)).rejects.toThrow("request time limit");
-  expect(calls.filter(call => call.path.endsWith("/prompt"))).toHaveLength(3);
-  expect(calls.filter(call => call.method === "DELETE")).toHaveLength(3);
+  const timeout = AbortSignal.timeout;
+  let deadline: AbortController | undefined;
+  const clock = spyOn(AbortSignal, "timeout").mockImplementation(ms => {
+    if (ms !== 60) return timeout(ms);
+    deadline = new AbortController();
+    return deadline.signal;
+  });
+  // Expire only stalled inference, not setup or a successful retry on a busy runner.
+  onStalledPrompt = () => {
+    if (!deadline) throw new Error("Missing inference deadline");
+    deadline.abort(new DOMException("Request timed out", "TimeoutError"));
+  };
+  try {
+    stalledPrompts = 1;
+    expect((await bounded.execute(workspace, review("llm"), column, evidence, new AbortController().signal, actor)).value).toBe("Yes");
+    expect(calls.filter(call => call.path.endsWith("/prompt"))).toHaveLength(2);
+    expect(calls.filter(call => call.method === "DELETE")).toHaveLength(2);
+    calls.length = 0; stalledPrompts = 3;
+    await expect(bounded.execute(workspace, review("llm"), column, evidence, new AbortController().signal, actor)).rejects.toThrow("request time limit");
+    expect(calls.filter(call => call.path.endsWith("/prompt"))).toHaveLength(3);
+    expect(calls.filter(call => call.method === "DELETE")).toHaveLength(3);
+  } finally {
+    onStalledPrompt = undefined;
+    clock.mockRestore();
+  }
 });
 
 test("stopping a stalled LLM request releases its session without retrying", async () => {

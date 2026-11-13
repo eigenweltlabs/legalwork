@@ -224,9 +224,9 @@ test("existing project grants and authorized folders permit transcripts without 
   expect((await f.call("/other")).status).toBe(200);
   // A new generation drops the old grant; an existing folder authorization still applies.
   await f.grant(["ws_1"]); await f.grant();
-  await writeRuntimeOpencodeConfig(f.config, "ws_1", () => ({ permission: { external_directory: { [`${f.other}/*`]: "allow" } } }));
+  await writeRuntimeOpencodeConfig(f.config, "ws_1", () => ({ permissions: [{ action: "external_directory", resource: `${f.other}/*`, effect: "allow" }] }));
   expect((await f.call("/other")).status).toBe(200);
-  await writeRuntimeOpencodeConfig(f.config, "ws_1", () => ({ permission: { external_directory: { [`${f.other}/*`]: "deny" } } }));
+  await writeRuntimeOpencodeConfig(f.config, "ws_1", () => ({ permissions: [{ action: "external_directory", resource: `${f.other}/*`, effect: "deny" }] }));
   expect((await f.call("/other")).status).toBe(403);
   expect(await f.pending()).toEqual([]);
 });
@@ -269,7 +269,7 @@ test("permission changes revoke recording approval and in-flight library reads",
   const f = await libraryFixture();
   const response = f.call("/other"); await f.decide("allow");
   expect((await response).status).toBe(200);
-  await writeRuntimeOpencodeConfig(f.config, "ws_1", () => ({ permission: { external_directory: { [`${f.other}/*`]: "deny" } } }));
+  await writeRuntimeOpencodeConfig(f.config, "ws_1", () => ({ permissions: [{ action: "external_directory", resource: `${f.other}/*`, effect: "deny" }] }));
   expect((await f.call("/other")).status).toBe(403);
   if (!f.config.recorder) throw new Error("Recorder fixture missing");
   f.config.recorder.listRecordings = async () => {

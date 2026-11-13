@@ -15,6 +15,7 @@ type ReactSessionRuntimeProps = {
   activeSessionIds?: string[];
   opencodeBaseUrl: string;
   legalworkToken: string;
+  legalworkHostToken?: string;
   onSessionLoaded?: (session: Session) => void;
   onSessionUpdated?: (update: { sessionId: string; info: Record<string, unknown> }) => void;
   onSessionStatus?: (update: { sessionId: string; status: SessionStatus }) => void;
@@ -26,6 +27,7 @@ export function ReactSessionRuntime(props: ReactSessionRuntimeProps) {
       workspaceId: props.workspaceId,
       baseUrl: props.opencodeBaseUrl,
       legalworkToken: props.legalworkToken,
+      legalworkHostToken: props.legalworkHostToken,
       onSessionUpdated: props.onSessionUpdated,
       onSessionStatus: props.onSessionStatus,
     };
@@ -35,7 +37,7 @@ export function ReactSessionRuntime(props: ReactSessionRuntimeProps) {
       releaseSessions();
       releaseWorkspace();
     };
-  }, [props.workspaceId, props.sessionId, props.activeSessionIds, props.opencodeBaseUrl, props.legalworkToken, props.onSessionUpdated, props.onSessionStatus]);
+  }, [props.workspaceId, props.sessionId, props.activeSessionIds, props.opencodeBaseUrl, props.legalworkToken, props.legalworkHostToken, props.onSessionUpdated, props.onSessionStatus]);
 
   // Only a loaded chat in the foreground is read. Sidebar expansion/prefetch is not reading.
   useEffect(() => {

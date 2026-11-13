@@ -8,7 +8,7 @@ import { z } from "zod";
 
 import { CORE_OPENCODE_FILES } from "./core-skills.js";
 import { listSkills } from "./skills.js";
-import { ensureWorkspaceFiles } from "./workspace-init.js";
+import { ensureCoreOpencodeFiles } from "./workspace-init.js";
 import LegalWorkCapabilitiesKnowledge from "./opencode-plugins/legalwork-capabilities-knowledge.js";
 import { nativePluginTestRuntime } from "./opencode-plugins/native-plugin-test-support.js";
 import { readSkillPackageFile, skillPackageDirectory } from "./skill-package.js";
@@ -117,9 +117,9 @@ describe("bundled LegalWork help", () => {
     }
   });
 
-  test("is discoverable and supports localized lookups after seeding a workspace", async () => {
+  test("is discoverable and supports localized lookups in the private capability library", async () => {
     await withWorkspace(async (root) => {
-      await ensureWorkspaceFiles(root, "starter");
+      await ensureCoreOpencodeFiles(root);
       const skill = (await listSkills(root, false)).find((item) => item.name === "legalwork-help");
       expect(skill?.path).toBe(join(root, skillRoot, "SKILL.md"));
       expect(skill?.scope).toBe("project");
@@ -154,24 +154,24 @@ describe("bundled LegalWork help", () => {
       expect(JSON.parse(missing.stdout).matches).toEqual([]);
       const invalid = spawnSync("node", [helper, "unknown", "Save"], { encoding: "utf8" });
       expect(invalid.status).toBe(1);
-      expect(await ensureWorkspaceFiles(root, "starter")).toEqual({ changed: false, reloadReasons: [] });
+      expect(await ensureCoreOpencodeFiles(root)).toEqual([]);
     });
   });
 
-  test("refreshes existing workspaces and repairs a missing reference without touching custom skills", async () => {
+  test("refreshes the private library and repairs a missing reference without touching custom skills", async () => {
     await withWorkspace(async (root) => {
-      await ensureWorkspaceFiles(root, "starter");
+      await ensureCoreOpencodeFiles(root);
       const index = join(root, skillRoot, "references/index.md");
       const custom = join(root, ".opencode/skills/my-firm/SKILL.md");
       await mkdir(dirname(custom), { recursive: true });
       await writeFile(custom, "Firm-owned instructions");
       await writeFile(index, "Old manual");
       await writeFile(join(root, ".opencode/.legalwork-core"), "previous-release");
-      expect((await ensureWorkspaceFiles(root, "starter")).reloadReasons).toContain("skills");
+      expect(await ensureCoreOpencodeFiles(root)).toContain("skills");
       expect(await readFile(index, "utf8")).toBe(bundled("references/index.md"));
       expect(await readFile(custom, "utf8")).toBe("Firm-owned instructions");
       await rm(join(root, skillRoot, "references/i18n.json"));
-      expect((await ensureWorkspaceFiles(root, "starter")).reloadReasons).toContain("skills");
+      expect(await ensureCoreOpencodeFiles(root)).toContain("skills");
       expect(await readFile(join(root, skillRoot, "references/i18n.json"), "utf8")).toBe(bundled("references/i18n.json"));
     });
   });
@@ -180,10 +180,10 @@ describe("bundled LegalWork help", () => {
     const plugin = nativePluginTestRuntime();
     try {
       await plugin.start(LegalWorkCapabilitiesKnowledge);
-      const output: { system: Array<{ text: string }> } = { system: [] };
+      const output: { sessionID: string; agent: string; system: Array<{ type: "text"; text: string }> } = { sessionID: "help", agent: "build", system: [] };
       await plugin.hook("session", "context", output);
       await withWorkspace(async (root) => {
-        await ensureWorkspaceFiles(root, "starter");
+        await ensureCoreOpencodeFiles(root);
         const skills = await listSkills(root, false);
         const help = skills.find((skill) => skill.name === "legalwork-help");
         expect(help).toBeDefined();

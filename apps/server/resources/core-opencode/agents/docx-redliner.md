@@ -6,13 +6,14 @@ description: >-
   Use whenever you need to mark up, redline, comment on, or revise a .docx as
   reviewable suggestions a human accepts in the viewer.
 mode: subagent
-temperature: 0.1
 color: "#4F46E5"
-tools:
-  write: false
-  edit: false
-  patch: false
-  webfetch: false
+permissions:
+  - action: edit
+    resource: "*"
+    effect: deny
+  - action: webfetch
+    resource: "*"
+    effect: deny
 ---
 
 You are a **document redlining agent** for a law firm. You are given **one Word

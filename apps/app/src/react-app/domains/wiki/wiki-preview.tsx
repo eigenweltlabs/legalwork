@@ -1,3 +1,5 @@
+import { withoutWikiSourceMarkers } from "@legalwork/types/wiki-suggestions";
+import { WikiResearchIndex } from "./wiki-research-index";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { InlineView } from "../views/view-inline";
 import { useViewPortals } from "../views/view-portals";
@@ -37,7 +39,7 @@ parser.use({ extensions: [{
 }] });
 
 export function renderWikiMarkdown(content: string) {
-  return DOMPurify.sanitize(parser.parse(wikiMarkdownBody(content), { async: false }), {
+  return DOMPurify.sanitize(parser.parse(withoutWikiSourceMarkers(wikiMarkdownBody(content)), { async: false }), {
     ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|tel|wiki|legalwork-view):|[^a-z]|[a-z+.-]+(?:[^a-z+.:\-]|$))/i,
     FORBID_TAGS: ["script", "style", "iframe", "object", "embed", "form", "input", "button", "svg", "math", "video", "audio", "source", "track", "picture"],
     FORBID_ATTR: ["style", "srcset", "src"],
@@ -115,7 +117,7 @@ export function WikiPreview(props: {
   }, [html, props.imagePreview]);
 
   const showOutline = outline.length >= 3;
-  return <div className={`wiki-reader${showOutline ? " wiki-reader-with-outline" : ""}`}><div
+  return <div className={`wiki-reader${showOutline ? " wiki-reader-with-outline" : ""}`}><div className="min-w-0"><div
     ref={element}
     className="lw-markdown-page wiki-preview"
     dangerouslySetInnerHTML={markup}
@@ -146,5 +148,5 @@ export function WikiPreview(props: {
       else if (href.startsWith("wiki:") || /\.md(?:#.*)?$/i.test(href)) props.onMissing(target);
       else props.onAsset(target);
     }}
-  />{viewPortals}{historicalLink && <Dialog open onOpenChange={open => { if (!open) setHistoricalLink(null); }}><DialogContent className="max-h-[85vh] overflow-auto sm:max-w-4xl"><DialogTitle>{t("wiki.views_at_revision")}</DialogTitle><InlineView source={historicalLink} /></DialogContent></Dialog>}{showOutline ? <aside className="wiki-reader-outline"><nav aria-label={t("wiki.on_this_page")}><p className="wiki-outline-title">{t("wiki.on_this_page")}</p>{outline.map((heading) => <a key={heading.id} className={`wiki-outline-link${heading.nested ? " wiki-outline-subsection" : ""}`} href={`#${heading.id}`} onClick={(event) => { event.preventDefault(); scrollToHeading(heading.id); }}>{heading.title}</a>)}</nav></aside> : null}</div>;
+  />{!host?.historicalViews && <WikiResearchIndex key={props.path} content={props.content} pages={props.pages} onOpen={props.onOpen} />}</div>{viewPortals}{historicalLink && <Dialog open onOpenChange={open => { if (!open) setHistoricalLink(null); }}><DialogContent className="max-h-[85vh] overflow-auto sm:max-w-4xl"><DialogTitle>{t("wiki.views_at_revision")}</DialogTitle><InlineView source={historicalLink} /></DialogContent></Dialog>}{showOutline ? <aside className="wiki-reader-outline"><nav aria-label={t("wiki.on_this_page")}><p className="wiki-outline-title">{t("wiki.on_this_page")}</p>{outline.map((heading) => <a key={heading.id} className={`wiki-outline-link${heading.nested ? " wiki-outline-subsection" : ""}`} href={`#${heading.id}`} onClick={(event) => { event.preventDefault(); scrollToHeading(heading.id); }}>{heading.title}</a>)}</nav></aside> : null}</div>;
 }

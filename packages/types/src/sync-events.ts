@@ -9,6 +9,7 @@ import { z } from "zod";
  */
 const SyncPokeSchema = z.object({
   projects: z.boolean().optional(),
+  backOffice: z.boolean().optional(),
   tasks: z.boolean().optional(),
   policy: z.boolean().optional(),
   hub: z.boolean().optional(),
@@ -16,6 +17,14 @@ const SyncPokeSchema = z.object({
   sessions: z.boolean().optional(),
   approvals: z.boolean().optional(),
   resync: z.boolean().optional(),
+  groups: z.boolean().optional(),
+  reload: z.boolean().optional(),
+  metadata: z.boolean().optional(),
+  reviews: z.boolean().optional(),
+  suggestions: z.boolean().optional(),
+  sandbox: z.boolean().optional(),
+  views: z.boolean().optional(),
+  queues: z.boolean().optional(),
 });
 export type SyncPoke = z.infer<typeof SyncPokeSchema>;
 

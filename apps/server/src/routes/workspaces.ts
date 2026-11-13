@@ -1,13 +1,20 @@
+import { randomUUID } from "node:crypto";
+import { join } from "node:path";
+import { localProjectIdForContent, markLocalProjectPublished, prepareLocalProject, projectHome, recoverLocalProject, workspaceContentPath } from "../project-storage.js";
+import { prepareManagedCoreLibrary } from "../managed-core-library.js";
+import { validateProjectReferences, projectReferenceOptions } from "../back-office/project-references.js";
 import type { registerProjectFolderRoutes } from "./project-folders.js";
-import { readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
-import { withFileWriteLock } from "../file-write-lock.js";
+import { canonicalFilePath, withFileWriteLock } from "../file-write-lock.js";
 import { recordAudit } from "../audit.js";
 import { readProjectTemplates, saveProjectTemplates, localizeProjectTemplates, projectFieldsFromTemplate } from "../project-templates.js";
+import { projectRecordReferenceSchema, withProjectMatters } from "../project-schema.js";
 import { ApiError } from "../errors.js";
 import { inheritWorkspaceOpencodeConnection } from "../opencode-connection.js";
 import type { ProjectField } from "@legalwork/types/workspace";
 import type { ServerConfig, TokenScope, WorkspaceInfo } from "../types.js";
+import { commitRegisteredEngineProjects } from "../project-engine-registration.js";
 import { ensureDir, exists, shortId } from "../utils.js";
 import { ensureWorkspaceFiles } from "../workspace-init.js";
 import { workspaceIdForPath } from "../workspaces.js";
@@ -75,6 +82,8 @@ async function readServerConfigFile(configPath: string): Promise<Record<string, 
 function serializeWorkspaceConfigEntry(workspace: WorkspaceInfo): Record<string, unknown> {
   return {
     id: workspace.id, path: workspace.path, name: workspace.name,
+    ...(workspace.contentPath ? { contentPath: workspace.contentPath } : {}),
+    ...(workspace.previousPath ? { previousPath: workspace.previousPath } : {}),
     preset: workspace.preset, workspaceType: "local",
     ...(workspace.displayName ? { displayName: workspace.displayName } : {}),
     ...(workspace.sandboxBackend ? { sandboxBackend: workspace.sandboxBackend } : {}),
@@ -83,7 +92,7 @@ function serializeWorkspaceConfigEntry(workspace: WorkspaceInfo): Record<string,
   };
 }
 
-export async function persistServerWorkspaceState(config: ServerConfig): Promise<boolean> {
+export async function persistServerWorkspaceState(config: ServerConfig, published = config.workspaces): Promise<boolean> {
   const configPath = config.configPath?.trim() ?? "";
   if (!configPath) return false;
 
@@ -103,6 +112,7 @@ export async function persistServerWorkspaceState(config: ServerConfig): Promise
     try {
       await writeFile(tmpPath, `${JSON.stringify(next, null, 2)}\n`, "utf8");
       await rename(tmpPath, configPath);
+      for (const workspace of published) await markLocalProjectPublished(workspace);
       return true;
     } finally {
       try {
@@ -123,34 +133,53 @@ export async function registerLocalProject(
   config: ServerConfig,
   input: {
     folderPath: string;
+    id?: string;
     name: string;
     preset: string;
     projectFields?: ReturnType<typeof parseProjectFields> | null;
     position?: "first" | "last";
   },
 ): Promise<{ workspace: WorkspaceInfo; persisted: boolean }> {
-  const workspacePath = resolve(input.folderPath);
-  await assertProjectFolderIndependent(workspacePath, await new WikiStore(config).list());
+  if (config.projectStorageMigrating) throw new ApiError(503, "project_storage_migrating", "Project storage is being upgraded. Retry when startup finishes.");
+  const workspacePath = await canonicalFilePath(resolve(input.folderPath));
+  await assertProjectFolderIndependent(workspacePath, await new WikiStore(config).list({ registrationsOnly: true }));
   await ensureDir(workspacePath);
-  await ensureWorkspaceFiles(workspacePath, input.preset, { bundledCore: config.engineConfigurationMode !== "managed" });
-  if (input.projectFields) await initializeProjectFields(workspacePath, input.projectFields);
+  await prepareManagedCoreLibrary(config);
 
-  const workspace: WorkspaceInfo = {
-    id: workspaceIdForPath(workspacePath),
+
+  const existing = config.workspaces.find(entry => resolve(workspaceContentPath(entry)) === workspacePath);
+  const retainedId = !existing && !input.id ? await localProjectIdForContent(config, workspacePath, config.workspaces.map(item => item.id)) : undefined;
+  let workspace: WorkspaceInfo = {
+    id: existing?.id || input.id || retainedId || (config.projectsDirectory ? `ws_${randomUUID().replaceAll("-", "")}` : workspaceIdForPath(workspacePath)),
     name: input.name,
     path: workspacePath,
     preset: input.preset,
     workspaceType: "local",
     ...inheritWorkspaceOpencodeConnection(config),
   };
+  if (existing?.contentPath) workspace = { ...workspace, path: existing.path, contentPath: existing.contentPath, previousPath: existing.previousPath };
+  else if (config.projectsDirectory) workspace = await recoverLocalProject(config, workspace) ?? await prepareLocalProject(config, workspace);
+  await ensureWorkspaceFiles(workspace.path, input.preset);
+  if (input.projectFields) await initializeProjectFields(workspace.path, input.projectFields);
   const previous = config.workspaces.find(entry => entry.id === workspace.id);
   if (previous && (previous.workspaceType !== workspace.workspaceType || (previous.directory || previous.path) !== workspace.path)) revokeWikiProjectEverywhere(config, workspace.id);
   const others = config.workspaces.filter((entry) => entry.id !== workspace.id);
   config.workspaces = input.position === "last" ? [...others, workspace] : [workspace, ...others];
-  if (!config.authorizedRoots.some((root) => resolve(root) === workspacePath)) {
-    config.authorizedRoots = [...config.authorizedRoots, workspacePath];
+  if (!config.authorizedRoots.some((root) => resolve(root) === workspace.path)) {
+    config.authorizedRoots = [...config.authorizedRoots, workspace.path];
   }
-  return { workspace, persisted: await persistServerWorkspaceState(config) };
+  const persisted = await commitRegisteredEngineProjects(config, () => persistServerWorkspaceState(config, [workspace]), workspace);
+  return { workspace, persisted };
+}
+
+/** Allocate the same local layout for UI, assistant and sync-created projects. */
+export async function createLocalProjectFolder(config: ServerConfig, name: string): Promise<{ folderPath: string; id?: string }> {
+  if (config.projectStorageMigrating) throw new ApiError(503, "project_storage_migrating", "Project storage is being upgraded. Retry when startup finishes.");
+  if (!config.projectsDirectory) return { folderPath: await createDefaultProjectFolder(name, defaultProjectRoot()) };
+  const id = `ws_${randomUUID().replaceAll("-", "")}`;
+  const folderPath = join(projectHome(config, id), "files");
+  await mkdir(folderPath, { recursive: true, mode: 0o700 });
+  return { folderPath, id };
 }
 
 /** Change a workspace's display name and persist the registry; false when there is no such workspace. */
@@ -159,7 +188,7 @@ export async function renameRegisteredWorkspace(config: ServerConfig, id: string
   config.workspaces = config.workspaces.map((entry) =>
     entry.id === id ? { ...entry, displayName, name: displayName ?? entry.name } : entry,
   );
-  await persistServerWorkspaceState(config);
+  await commitRegisteredEngineProjects(config, () => persistServerWorkspaceState(config));
   return true;
 }
 
@@ -173,7 +202,8 @@ export async function unregisterWorkspace(config: ServerConfig, workspace: Works
     // Only remove exact matches; authorizedRoots can contain broader entries.
     config.authorizedRoots = config.authorizedRoots.filter((root) => resolve(root) !== resolve(workspace.path));
   }
-  return { deleted, persisted: await persistServerWorkspaceState(config) };
+  const persisted = await commitRegisteredEngineProjects(config, () => persistServerWorkspaceState(config));
+  return { deleted, persisted };
 }
 
 export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions): void {
@@ -243,7 +273,7 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
 
   addRoute(routes, "PUT", "/workspaces/project-templates", "host", async (ctx) => {
     ensureWritable(config);
-    return jsonResponse(await saveProjectTemplates(config, await readJsonBodyLimited(ctx.request, 2 * 1024 * 1024)));
+    return jsonResponse(await saveProjectTemplates(config, await readJsonBodyLimited(ctx.request, 2 * 1024 * 1024), (before, after) => validateProjectReferences(config, before, after)));
   });
 
   addRoute(routes, "GET", "/workspace/:id/project", "client", async (ctx) => {
@@ -256,7 +286,7 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
     const workspace = await resolveWorkspace(config, ctx.params.id);
     requireClientScope(ctx, "collaborator");
     const before = await readProjectDetails(workspace.path);
-    const updated = await updateProjectDetails(workspace.path, await readJsonBodyLimited(ctx.request, 512 * 1024));
+    const updated = await updateProjectDetails(workspace.path, await readJsonBodyLimited(ctx.request, 512 * 1024), (before, after) => validateProjectReferences(config, before, after));
     await onProjectDetailsSaved(workspace.id, before.fields, updated.fields);
     return jsonResponse(updated);
   });
@@ -266,9 +296,18 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
     requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const before = await readProjectDetails(workspace.path);
-    const updated = await updateProjectFieldValues(workspace.path, await readJsonBodyLimited(ctx.request, 256 * 1024));
+    const updated = await updateProjectFieldValues(workspace.path, await readJsonBodyLimited(ctx.request, 256 * 1024), (before, after) => validateProjectReferences(config, before, after));
     await onProjectDetailsSaved(workspace.id, before.fields, updated.fields);
     return jsonResponse(updated);
+  });
+
+  addRoute(routes, "GET", "/workspace/:id/project/metadata/:fieldId/options", "client", async ctx => {
+    requireClientScope(ctx, "viewer");
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const field = (await readProjectDetails(workspace.path)).fields.find(field => field.id === ctx.params.fieldId);
+    if (field?.type !== "backoffice") throw new ApiError(404, "project_reference_field", "Choose an existing Back Office metadata field.");
+    const query = (ctx.url.searchParams.get("query") ?? "").slice(0, 500);
+    return jsonResponse(await projectReferenceOptions(config, field, query));
   });
 
   const createLocalWorkspace = async (ctx: RequestContext, newProjectOnly = false) => {
@@ -276,8 +315,8 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
     const body = await readJsonBody(ctx.request);
     if (newProjectOnly) {
       requireClientScope(ctx, "collaborator");
-      if (Object.keys(body).some((key) => !["name", "templateId", "templateLanguage", "projectFields"].includes(key)))
-        throw new ApiError(400, "invalid_payload", "This endpoint creates a new project folder. Only name, templateId, templateLanguage and projectFields are supported.");
+      if (Object.keys(body).some((key) => !["name", "templateId", "templateLanguage", "projectFields", "matters"].includes(key)))
+        throw new ApiError(400, "invalid_payload", "This endpoint creates a new project folder. Only name, templateId, templateLanguage, projectFields and matters are supported.");
       body.folderMode = "default";
       body.preset = "starter";
     }
@@ -285,8 +324,14 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
     if (body.fromRemoteFolder && !preparedFolders?.length) throw new ApiError(400, "project_folder_required", "Select a remote folder first.");
     if (body.projectFields !== undefined && body.templateId !== undefined)
       throw new ApiError(400, "invalid_project_template", "Choose either a template or explicit fields.");
-    const projectFields = body.projectFields === undefined
+    let projectFields = body.projectFields === undefined
       ? await projectFieldsFromTemplate(config, body) : parseProjectFields(body.projectFields);
+    if (body.matters !== undefined) {
+      const matters = projectRecordReferenceSchema.safeParse(body.matters);
+      if (!matters.success) throw new ApiError(400, "invalid_project_metadata", "Choose available matters for the project.");
+      projectFields = parseProjectFields(withProjectMatters(projectFields, matters.data, body.templateLanguage === "de" ? "de" : "en"));
+    }
+    await validateProjectReferences(config, [], projectFields);
     let folderPath = typeof body.folderPath === "string" ? body.folderPath.trim() : "";
     const initializeFromFolders = body.initializeFromFolders === true || body.fromRemoteFolder === true;
     if (initializeFromFolders && !folderPath && !preparedFolders?.length)
@@ -294,10 +339,17 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
     const name = typeof body.name === "string" && body.name.trim() ? body.name.trim() : basename(folderPath || "Workspace");
     const preset = typeof body.preset === "string" && body.preset.trim() ? body.preset.trim() : "starter";
 
+    const hasRecordLinks = projectFields.some(field => field.type === "backoffice" && field.value?.recordIds.length);
+    if ((body.matters !== undefined || hasRecordLinks) && folderPath && (await readProjectDetails(folderPath)).revision > 0)
+      throw new ApiError(409, "project_already_initialized", "This folder already has project details. Open its Project Home to change its linked records, or choose a new folder.");
+
+    let newProjectId: string | undefined;
     if (body.folderMode === "default") {
       if (folderPath || !readStringField(body, "name")) throw new ApiError(400, "invalid_payload", "A default-folder project needs a name and no selected path.");
       try {
-        folderPath = await createDefaultProjectFolder(name, defaultProjectRoot(config.projectsDirectory));
+        const created = await createLocalProjectFolder(config, name);
+        newProjectId = created.id;
+        folderPath = created.folderPath;
       } catch (error) {
         if (error instanceof ApiError) throw error;
         throw new ApiError(422, "project_folder_unavailable", "The project folder could not be created. Check folder access or choose your own folder.");
@@ -307,7 +359,7 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
       throw new ApiError(400, "invalid_payload", "folderPath is required");
     }
 
-    const { workspace, persisted } = await registerLocalProject(config, { folderPath, name, preset, projectFields });
+    const { workspace, persisted } = await registerLocalProject(config, { folderPath, id: newProjectId, name, preset, projectFields });
     if (preparedFolders?.length || initializeFromFolders)
       await options.projectFolders?.attach(workspace, preparedFolders ?? [], initializeFromFolders);
     onWorkspacesChanged();
@@ -324,7 +376,7 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
 
     if (newProjectOnly) return jsonResponse({
       activeId: workspace.id,
-      project: { id: workspace.id, name: workspace.name, localFolder: workspace.path, ...await readProjectDetails(workspace.path) },
+      project: { id: workspace.id, name: workspace.name, localFolder: workspaceContentPath(workspace), engineFolder: workspace.path, ...await readProjectDetails(workspace.path) },
       persisted,
     }, 201);
     return jsonResponse({
@@ -379,8 +431,7 @@ export function registerWorkspaceRoutes(options: RegisterWorkspaceRoutesOptions)
       workspace,
       ...config.workspaces.filter((entry) => entry.id !== workspace.id),
     ];
-    const persisted = persist ? await persistServerWorkspaceState(config) : false;
-    if (persist) onWorkspacesChanged();
+    const persisted = persist ? await persistServerWorkspaceState(config, []) : false;
     await recordAudit(workspace.path, {
       id: shortId(),
       workspaceId: workspace.id,

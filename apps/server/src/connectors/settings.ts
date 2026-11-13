@@ -1,5 +1,5 @@
-import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { readFile, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { z } from "zod";
 import { connectorDefinitions, connectorSettingsSchema } from "./schema.js";
@@ -8,10 +8,39 @@ import { ApiError } from "../errors.js";
 import { oauthVaultPath, vaultLock } from "../file-storage/oauth/vault.js";
 import { connectorDefinition } from "./definition.js";
 import { synchronizeConnectorBindings } from "./sync.js";
+import { atomicPrivateFile, connectorStorageStatePath, missingFile, requireConnectorStorageState, writeConnectorStorageState } from "./storage-state.js";
+import { invalidateConnectorCredentials } from "./credential-cache.js";
 
 export const connectorSettingsPath = (config: ServerConfig) => join(dirname(oauthVaultPath(config)), "connector-settings.json");
 const defaults = () => connectorSettingsSchema.parse({ writeAccess: {} });
 const legacyGlobalSetting = z.object({ writeAccess: z.boolean() }).strict();
+/** Explicit startup import; ordinary settings reads accept only today's format. */
+export async function prepareConnectorSettings(config: ServerConfig, expected: boolean, allowLegacy = false) {
+  const path = connectorSettingsPath(config);
+  let original: string;
+  try { original = await readFile(path, "utf8"); }
+  catch (error) {
+    if (missingFile(error) && !expected) return false;
+    throw new ApiError(503, "connector_settings_missing", "The established connector permission settings are missing. Restore the original settings before using connectors.");
+  }
+  let saved: unknown;
+  try { saved = JSON.parse(original); } catch { throw new ApiError(500, "connector_settings_unreadable", "Connector settings could not be read."); }
+  const legacy = legacyGlobalSetting.safeParse(saved);
+  if (!legacy.success) {
+    if (!connectorSettingsSchema.safeParse(saved).success) throw new ApiError(500, "connector_settings_unreadable", "Connector settings could not be read.");
+    return true;
+  }
+  if (!allowLegacy) throw new ApiError(503, "connector_settings_unreadable", "Current connector settings were replaced by a retired format. Restore the current settings; the original file has been preserved.");
+  const hash = createHash("sha256").update(original).digest("hex");
+  const backup = `${path}.legacy-${hash}.json`;
+  try { if (await readFile(backup, "utf8") !== original) throw new Error("Source backup conflict"); }
+  catch (error) { if (!missingFile(error)) throw error; await atomicPrivateFile(backup, original); }
+  await atomicPrivateFile(`${backup}.import.json`, JSON.stringify({ version: 1, sourceDigest: hash,
+    previousFormat: "global-write-access", currentFormat: "per-connector-write-access", effectiveAccess: "all-deny",
+    note: "The retired global flag never authorized an individual connector. Migration preserves that effective behavior; permissions remain independently configurable." }));
+  await atomicPrivateFile(path, JSON.stringify(defaults()));
+  return true;
+}
 export async function connectorSettings(config: ServerConfig) {
   if (config.cloudSync?.role === "executor") {
     const bindings = await synchronizeConnectorBindings(config);
@@ -23,13 +52,12 @@ export async function connectorSettings(config: ServerConfig) {
     }
     return connectorSettingsSchema.parse(result);
   }
-  try {
-    const saved: unknown = JSON.parse(await readFile(connectorSettingsPath(config), "utf8"));
-    // A prior global flag never authorizes an individual connector.
-    return legacyGlobalSetting.safeParse(saved).success ? defaults() : connectorSettingsSchema.parse(saved);
-  }
+
+  const state = await requireConnectorStorageState(config);
+  try { return connectorSettingsSchema.parse(JSON.parse(await readFile(connectorSettingsPath(config), "utf8"))); }
   catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") return defaults();
+    if (missingFile(error) && !state.settingsExpected) return defaults();
+    if (missingFile(error)) throw new ApiError(503, "connector_settings_missing", "The established connector permission settings are missing. Restore the original settings before using connectors.");
     throw new ApiError(500, "connector_settings_unreadable", "Connector settings could not be read.");
   }
 }
@@ -38,14 +66,15 @@ export async function saveConnectorSettings(config: ServerConfig, input: unknown
   if (config.readOnly) throw new ApiError(403, "read_only", "This server is read-only.");
   const parsed = connectorSettingsSchema.safeParse(input);
   if (!parsed.success) throw new ApiError(400, "invalid_payload", "Invalid connector settings.");
-  const path = connectorSettingsPath(config);
-  return vaultLock(path, async () => {
-    await mkdir(dirname(path), { recursive: true, mode: 0o700 });
-    const temporary = `${path}.${randomUUID()}.tmp`;
-    try {
-      await writeFile(temporary, JSON.stringify(parsed.data), { mode: 0o600 });
-      await rename(temporary, path);
-    } finally { await rm(temporary, { force: true }); }
+  return vaultLock(connectorStorageStatePath(config), async () => {
+    const state = await requireConnectorStorageState(config);
+    if (state.settingsExpected) {
+      try { await stat(connectorSettingsPath(config)); }
+      catch { throw new ApiError(503, "connector_settings_missing", "The established connector permission settings are missing. Restore the original settings before using connectors."); }
+    }
+    await writeConnectorStorageState(config, { ...state, settingsExpected: true });
+    invalidateConnectorCredentials(config);
+    await atomicPrivateFile(connectorSettingsPath(config), JSON.stringify(parsed.data));
     return parsed.data;
   });
 }

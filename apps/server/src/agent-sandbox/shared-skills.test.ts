@@ -52,7 +52,7 @@ async function setup(runtimeInsideSkill = false) {
     await rm(root, { recursive: true, force: true });
   });
   await writeSandboxDefault(config, { enabled: true, networkMode: "block" });
-  await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permission: { bash: "allow", read: "allow", edit: "allow", skill: "allow" } }));
+  await writeRuntimeOpencodeConfig(config, GLOBAL_TOOL_PERMISSIONS_ID, () => ({ permissions: [{ action: "shell", resource: "*", effect: "allow" }, { action: "read", resource: "*", effect: "allow" }, { action: "edit", resource: "*", effect: "allow" }, { action: "skill", resource: "*", effect: "allow" }] }));
   await store.create({ name: "Knowledge", template: "blank" });
   const run = () => service.run(workspace, { command: "cat /skills/0/resources/template.txt", skills: ["template-helper"], write: true, timeoutMs: 1000 },
     { type: "host" }, new AbortController().signal);
@@ -72,7 +72,7 @@ test("a registered wiki does not block a selected shared skill's resources", asy
 test("sharing the engine configuration or entire skill library still fails with an actionable error", async () => {
   const state = await setup();
   for (const folder of [state.engine, state.library]) {
-    await writeRuntimeOpencodeConfig(state.config, state.workspace.id, () => ({ permission: { external_directory: { [`${folder}/*`]: "allow" } } }));
+    await writeRuntimeOpencodeConfig(state.config, state.workspace.id, () => ({ permissions: [{ action: "external_directory", resource: `${folder}/*`, effect: "allow" }] }));
     await expect(state.run()).rejects.toMatchObject({ status: 403, code: "sandbox_private_runtime" });
   }
   expect(state.executions).toHaveLength(0);

@@ -1,14 +1,17 @@
 import { join } from "node:path";
 import { mkdir } from "node:fs/promises";
 import { CORE_OPENCODE_FILES } from "./core-skills.js";
-import { engineStorageDir } from "./engine-storage.js";
+import { runtimeStorageDir } from "./runtime-opencode-config-store.js";
 import { parseFrontmatter } from "./frontmatter.js";
-import { nativeOpencodeConfig } from "./native-opencode-config.js";
+import { Config } from "@opencode/schema/config";
+import { Schema } from "effect";
 import { ensureCoreOpencodeFiles } from "./workspace-init.js";
 import type { ServerConfig } from "./types.js";
+import { rememberCoreManifest } from "./core-bundle.js";
 
 export function managedCoreLibraryRoot(config: ServerConfig) {
-  return join(engineStorageDir(config), "capability-library");
+  // A project shared by the desktop and CLI must reference the same skill files.
+  return join(runtimeStorageDir(config), "capability-library");
 }
 
 /** App-owned bundled files have one private home. Project and personal files
@@ -16,18 +19,19 @@ export function managedCoreLibraryRoot(config: ServerConfig) {
 export async function prepareManagedCoreLibrary(config: ServerConfig) {
   const root = managedCoreLibraryRoot(config);
   await mkdir(root, { recursive: true, mode: 0o700 });
+  await rememberCoreManifest(root);
   await ensureCoreOpencodeFiles(root);
 }
 
 export function managedCoreConfiguration() {
-  const agent: Record<string, unknown> = {}, command: Record<string, unknown> = {};
+  const agents: Record<string, unknown> = {}, commands: Record<string, unknown> = {};
   for (const file of CORE_OPENCODE_FILES) {
     const match = /^\.opencode\/(agents|commands)\/(.+)\.md$/.exec(file.path);
     if (!match) continue;
     const parsed = parseFrontmatter(file.content);
-    const value = match[1] === "agents" ? { ...parsed.data, prompt: parsed.body.trim() }
+    const value = match[1] === "agents" ? { ...parsed.data, system: parsed.body.trim() }
       : { ...parsed.data, template: parsed.body.trim() };
-    (match[1] === "agents" ? agent : command)[match[2]!] = value;
+    (match[1] === "agents" ? agents : commands)[match[2]!] = value;
   }
-  return nativeOpencodeConfig({ agent, commands: command });
+  return { config: Schema.decodeUnknownSync(Config.Info)({ agents, commands }, { onExcessProperty: "error" }) };
 }

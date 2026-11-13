@@ -16,15 +16,19 @@ import { createLegalworkServerClient, type LegalworkServerClient } from "../../a
 import { writeActiveWorkspaceId } from "./session-memory";
 import { homeRoute } from "./workspace-routes";
 import { ensureDesktopLocalLegalworkConnection } from "./desktop-local-legalwork";
+import { useBootState } from "./boot-state";
 
 /** First launch creates a named project, then continues the in-app setup. */
 export function WelcomeRoute() {
   const navigate = useNavigate();
   const local = useLocal();
+  const { markRouteReady } = useBootState();
   const creating = useRef(false);
   const [client, setClient] = useState<LegalworkServerClient | null>(null);
   const [connectionAttempt, setConnectionAttempt] = useState(0);
   useEffect(() => {
+    // The welcome form can open while its server connection is being resolved.
+    markRouteReady();
     let cancelled = false;
     const connect = () => {
       void resolveLegalworkConnection().then(({ normalizedBaseUrl, resolvedToken, resolvedHostToken }) => {
@@ -37,7 +41,7 @@ export function WelcomeRoute() {
     connect();
     window.addEventListener("legalwork-server-settings-changed", connect);
     return () => { cancelled = true; window.removeEventListener("legalwork-server-settings-changed", connect); };
-  }, [connectionAttempt]);
+  }, [connectionAttempt, markRouteReady]);
   const createdProjectId = useRef<string | null>(null);
   const [createPhase, setCreatePhase] = useState<ProjectCreatePhase | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -110,7 +114,7 @@ export function WelcomeRoute() {
       busy={createPhase !== null}
       busyPhase={createPhase}
       error={error}
-      totalSteps={isDesktopRuntime() ? 6 : 3}
+      totalSteps={isDesktopRuntime() ? 7 : 4}
       analyticsEnabled={analyticsEnabled}
       onAnalyticsChange={setAnalyticsEnabled}
     />

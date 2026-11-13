@@ -4,16 +4,21 @@ import { WorkspaceWindowButton } from "./react-app/domains/session/panel/workspa
 import { DocumentDiscardDialog } from "./react-app/domains/session/artifacts/document-discard-dialog";
 import { projectFileTab } from "./react-app/domains/workspace/project-file-tab";
 import type { ProjectFileLink } from "@legalwork/types/project-files";
+import type { WikiVault } from "@legalwork/types/wiki";
+import type { ViewInput, ViewOwner, ViewRecord } from "@legalwork/types/views";
+import { useViewGenerationStore, viewDraftTab, viewGenerationId, type ViewGeneration } from "./react-app/domains/views/view-generation";
+import { sameViewOwner, viewInput } from "./react-app/domains/views/view-save";
 import type { Part, ToolPart } from "@/app/lib/opencode-view";
 import { registerEmptySession } from "./react-app/domains/session/sidebar/session-list-visibility";
 import { projectViewFromPath, workspaceSessionRoute } from "./react-app/shell/workspace-routes";
-import { DEFAULT_ASSISTANT_PROFILE, type AssistantOnboardingState, type AssistantProfile } from "@legalwork/types/main-assistant";
+import { AssistantSettingsSchema, DEFAULT_ASSISTANT_SETTINGS, DEFAULT_ASSISTANT_PROFILE, type AssistantOnboardingState, type AssistantProfile } from "@legalwork/types/main-assistant";
 /** @jsxImportSource react */
 // Dev-only fixture: deliberately absent from the production Vite inputs.
 // Uses the real session, composer, navigation, files, and Memory Drive views.
 import { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { MemoryRouter, useLocation, useNavigate } from "react-router-dom";
+import { HashRouter, MemoryRouter, useLocation, useNavigate } from "react-router-dom";
+import { AssistantUpgradeModal } from "@/react-app/shell/assistant-upgrade";
 import { AssistantIntroModal } from "@/react-app/shell/assistant-intro";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { MotionConfig } from "motion/react";
@@ -65,6 +70,7 @@ initLocale();
 
 const now = Date.now();
 const previewParams = new URLSearchParams(window.location.search);
+const dashboardExplorer = previewParams.has("dashboard-explorer");
 const platform = previewParams.get("platform");
 const captionHeight = previewParams.has("tall-titlebar") ? 64 : 44;
 if (platform === "mac" || platform === "windows") document.documentElement.classList.add("legalwork-electron", `legalwork-platform-${platform}`);
@@ -87,6 +93,7 @@ const topUpPreview = previewParams.get("topup") ?? (trialPreview ? "success" : n
 const intentPreview = requestTooLarge ? "request" : fundedTrialPreview ? "personal" : previewParams.get("intent");
 let topUpPending: { operationId: string; amountCents: number } | null = null;
 let topUpReadyAt = 0;
+let topUpQuote: { status: "requires_confirmation"; operationId: string; amountCents: number; taxCents: number; totalCents: number } | null = null;
 let failNextUsageRead = false;
 let hostedUpgrade: { plan: "plus" | "pro"; readyAt: number } | null = null;
 if (upgradePreview) limitFixture.usage.me.blockedReason = "wallet_empty";
@@ -109,6 +116,9 @@ const workspace: WorkspaceInfo = {
 const otherWorkspace: WorkspaceInfo = {
   ...workspace, id: "visual-personal", name: "Personal", displayName: "Personal", path: "/workspaces/personal",
 };
+const fixtureWiki: WikiVault = { id: "visual-wiki", workspaceId: "visual-wiki-workspace", name: "Firm knowledge", root: "/synthetic/wiki", allowInProjects: true, sync: null, writable: true, pageCount: 0, totalBytes: 0, syncStatus: { state: "local", lastSyncedAt: null, error: null, conflicts: [] } };
+const wikiWorkspace: WorkspaceInfo = { ...workspace, id: fixtureWiki.workspaceId, name: fixtureWiki.name, displayName: fixtureWiki.name, path: fixtureWiki.root, preset: "wiki" };
+const fixtureWorkspaces = [workspace, otherWorkspace, ...(dashboardExplorer ? [wikiWorkspace] : []), ...(previewParams.has("many-destinations") ? Array.from({ length: 18 }, (_, index) => ({ ...otherWorkspace, id: `visual-destination-${index}`, name: `Project ${String(index + 1).padStart(2, "0")}`, displayName: `Project ${String(index + 1).padStart(2, "0")}`, path: `/synthetic/project-${index}` })) : [])];
 const welcomeId = "visual-welcome";
 const reply = "I've reviewed the sample terms and organized the key points.\n\n### Review priorities\n\n1. **Liability:** confirm the agreed cap applies consistently.\n2. **Termination:** align the notice periods for both parties.\n3. **Data handling:** make the return and deletion process explicit.\n\nThe next step is to compare these points against your standard playbook. This is a simulated response for visual review.";
 const snapshots = new Map<string, LegalworkSessionSnapshot>();
@@ -156,17 +166,18 @@ async function previewCopyDelay() {
   if (!copyFailed) { copyFailed = true; throw new Error("Simulated interrupted copy. Retry to finish."); }
 }
 
-if (modelSettingsPreview) queryClient.setQueryData(providerListQueryKey({ baseUrl: "https://legalwork-preview.invalid/opencode", directory: workspace.path }), {
+if (modelSettingsPreview || assistantPreview) queryClient.setQueryData(providerListQueryKey({ baseUrl: "https://legalwork-preview.invalid/opencode", directory: workspace.path }), {
   connected: [model.providerID],
   all: [{ id: model.providerID, name: "Preview provider", models: {
-    [model.modelID]: { name: model.modelID },
-    "Another preview model": { name: "Another preview model" },
+    [model.modelID]: { name: model.modelID, variants: [] },
+    "Another preview model": { name: "Another preview model", variants: [] },
+    "gpt-6.1-terra": { name: "GPT-6.1 Terra", variants: [] },
   } }],
 });
 
-function snapshot(id: string, title: string, prompt?: string, response = reply): LegalworkSessionSnapshot {
+function snapshot(id: string, title: string, prompt?: string, response = reply, submittedId?: string): LegalworkSessionSnapshot {
   const turn = snapshots.get(id)?.messages.length ?? 0;
-  const userId = `${id}-user-${turn}`;
+  const userId = submittedId ?? `${id}-user-${turn}`;
   const assistantId = `${id}-assistant-${turn}`;
   return {
     session: { id, title, slug: id, projectID: workspace.id, directory: workspace.path, version: "1", time: { created: now, updated: now } },
@@ -252,8 +263,55 @@ if (assistantPreview) {
     last.parts.push({ id: "delegation-part", sessionID: prior.session.id, messageID: last.info.id, type: "tool", callID: "delegate-fixture", tool: "legalwork_assistant_delegate", state: { status: "completed", input: {}, time: { start: now, end: now }, title: "Review supplier terms", output: JSON.stringify({ ok: true, delegation: { workspaceId: otherWorkspace.id, sessionId: "delegated-review", title: "Review supplier terms", projectName: "Northstar Legal", scope: "Review liability and termination against our playbook. Save a draft for partner review.", status: "started" } }) } });
     saveSnapshot(prior);
   }
+  if (previewParams.has("codemode-cards")) {
+    for (const item of snapshots.values()) {
+      for (const message of item.messages) message.parts = message.parts.map(part => {
+        if (part.type !== "tool" || part.state.status !== "completed" || !["legalwork_assistant_share_file", "legalwork_assistant_delegate", "legalwork_assistant_set_name"].includes(part.tool)) return part;
+        return { ...part, tool: "execute", state: { ...part.state, input: { code: "return result;" },
+          metadata: { toolCalls: [{ tool: part.tool, status: "completed", input: part.state.input }] },
+        } };
+      });
+      saveSnapshot(item);
+    }
+  }
 }
 saveSnapshot(snapshot("visual-review", "Review supplier agreement", "Review the supplier agreement against our standard playbook and highlight the clauses that need attention."));
+// Deterministic status transitions for layout/scroll regression checks, without model calls.
+if (previewParams.has("activity")) {
+  const history = snapshots.get("visual-review");
+  if (!history) throw new Error("Missing activity preview history");
+  for (const message of history.messages) {
+    message.info.time.created -= 120_000;
+    if (message.info.role === "assistant") for (const part of message.parts) {
+      if (part.type === "text") part.text = Array(5).fill(reply).join("\n\n");
+    }
+  }
+  const turn = snapshot("visual-review", "Browser activity", "Inspect the page and check the result.", "");
+  const user = turn.messages[0];
+  const assistant = turn.messages[1];
+  function activityStep(step: number) {
+    const parts: Part[] = [];
+    if (step > 0) {
+      for (let index = 0; index < (step >= 3 ? 2 : 1); index++) {
+        const running = (step === 1 && index === 0) || (step === 3 && index === 1);
+        const input = { code: "await tools.browser.snapshot();" };
+        const metadata = { toolCalls: ["browser.click", "browser.snapshot"].map(tool => ({ tool, status: running ? "running" : "completed", input: {} })) };
+        parts.push({ id: `activity-tool-${index}`, messageID: assistant.info.id, sessionID: turn.session.id, type: "tool", tool: "execute", callID: `activity-call-${index}`,
+          state: running
+            ? { status: "running", input, metadata, time: { start: now } }
+            : { status: "completed", input, output: "Page inspected.", title: "Browser", metadata, time: { start: now, end: now + 1 } } });
+      }
+    }
+    if (step === 2) parts.push({ id: "activity-reasoning", messageID: assistant.info.id, sessionID: turn.session.id, type: "reasoning", text: "Checking the page result.", time: { start: now } });
+    const info = assistant.info;
+    if (info.role !== "assistant") return;
+    saveSnapshot({ ...turn, status: { type: step === 4 ? "idle" : "busy" }, messages: [...history.messages, user, { ...assistant, info: { ...info, time: { created: now, ...(step === 4 ? { completed: now + 2 } : {}) } }, parts }] });
+  }
+  activityStep(1);
+  window.addEventListener("legalwork-preview-activity", event => {
+    if (event instanceof CustomEvent && typeof event.detail === "number") activityStep(event.detail);
+  });
+}
 if (previewParams.has("sent-by")) {
   const delegated = snapshots.get("visual-review");
   const prompt = delegated?.messages[0]?.parts[0];
@@ -304,14 +362,16 @@ if (limitParam) {
 // `?subagentApprovals` exercises the real descendant selectors and approval
 // panels. Decisions are simulated locally, like the rest of this fixture.
 const subagentApprovals = new URLSearchParams(window.location.search).has("subagentApprovals");
-if (subagentApprovals) {
+const subagentTabs = new URLSearchParams(window.location.search).has("subagentTabs");
+const PreviewRouter = subagentTabs ? HashRouter : MemoryRouter;
+if (subagentApprovals || subagentTabs) {
   for (const { id, parentID, title } of [
     { id: "visual-research", parentID: "visual-review", title: "Research contract history" },
     { id: "visual-reference", parentID: "visual-research", title: "Compare policy references" },
   ]) {
     const item = snapshot(id, title);
     saveSnapshot({ ...item, session: { ...item.session, parentID } });
-    seedPermissionState(workspace.id, id, [{
+    if (subagentApprovals) seedPermissionState(workspace.id, id, [{
       id: `approval-${id}`, sessionID: id, permission: "external_directory",
       patterns: ["/Shared/Client precedents/*"], metadata: { path: "/Shared/Client precedents", description: "Read the precedents used for this review" }, always: [],
     }]);
@@ -340,13 +400,13 @@ if (subagentApprovals) {
     }));
     return { ...message, parts: [...tools, ...message.parts] };
   }) });
-  seedQuestionState(workspace.id, "visual-reference", [{
+  if (subagentApprovals) seedQuestionState(workspace.id, "visual-reference", [{
     id: "reference-question", sessionID: "visual-reference", questions: [{
       header: "Reference version", question: "Which policy version should I use for the comparison?",
       options: [{ label: "Current policy", description: "Use the approved policy" }, { label: "Draft policy", description: "Compare against the latest draft" }],
     }],
   }]);
-  seedPermissionState(workspace.id, "visual-board", [{
+  if (subagentApprovals) seedPermissionState(workspace.id, "visual-board", [{
     id: "unrelated-approval", sessionID: "visual-board", permission: "bash", patterns: ["echo unrelated"], metadata: {}, always: [],
   }]);
   // Each workspace chat owns its reply handlers. Simulate the transport so
@@ -364,6 +424,25 @@ if (subagentApprovals) {
   };
 }
 
+const explorerDashboard: ViewRecord = {
+  version: 1, id: "11111111-1111-4111-8111-111111111111", title: "Matter overview", mode: "dashboard", catalog: "legalwork-1",
+  owner: { kind: "workspace", id: workspace.id }, revision: "fixture-1", updatedAt: now, queries: {},
+  datasets: { priorities: { rows: [{ matter: "Supplier agreement", status: "In review" }, { matter: "Office lease", status: "Ready" }], total: 2, revision: "fixture-data-1", asOf: now, truncated: false } },
+  program: 'priorities = Query("data",{name:"priorities"})\nroot = Stack([Heading("Matter overview",1),Text("Synthetic project dashboard"),Stack([Metric("Open matters",12),Metric("Due this week",3)],2),Card("Priorities",[Table(priorities.rows,[{field:"matter",label:"Matter"},{field:"status",label:"Status"}])])])',
+};
+const explorerDashboardPath = `Dashboards/${explorerDashboard.id}.view.json`;
+const explorerViews = new Map([[explorerDashboard.id, explorerDashboard]]);
+function saveExplorerView(owner: ViewOwner, input: ViewInput, id = crypto.randomUUID()): ViewRecord {
+  const view = { ...input, owner, id, revision: crypto.randomUUID(), updatedAt: Date.now() };
+  explorerViews.set(id, view);
+  if (owner.kind === "workspace") {
+    const folder = input.mode === "dashboard" ? "Dashboards" : "Reports";
+    if (!files.some(file => file.path === folder)) files.push({ name: folder, path: folder, kind: "dir", empty: false });
+    const path = `${folder}/${id}.view.json`;
+    if (!files.some(file => file.path === path)) files.push({ name: `${id}.view.json`, path, kind: "file", size: 850, updatedAt: view.updatedAt });
+  }
+  return view;
+}
 let files: LegalworkWorkspaceDirectoryEntry[] = [
   { name: "Contracts", path: "Contracts", kind: "dir" },
   { name: "Policies", path: "Policies", kind: "dir" },
@@ -374,6 +453,10 @@ let files: LegalworkWorkspaceDirectoryEntry[] = [
   { name: "Annual report.pdf", path: "Annual report.pdf", kind: "file", size: 2480000, updatedAt: now },
   { name: ".workspace.json", path: ".workspace.json", kind: "file", size: 320, updatedAt: now },
 ];
+if (dashboardExplorer) files.unshift(
+  { name: "Dashboards", path: "Dashboards", kind: "dir", empty: false },
+  { name: `${explorerDashboard.id}.view.json`, path: explorerDashboardPath, kind: "file", size: 850, updatedAt: now },
+);
 const memoryFiles: LegalMemoryTreeFile[] = files.filter((file) => file.kind === "file" && !file.name.startsWith(".")).map((file) => ({
   source_object_id: file.path, source_id: "visual-drive", name: file.name, path: file.path,
   mime_type: null, size_bytes: file.size ?? null, mtime: new Date(now).toISOString(), document_id: file.path,
@@ -415,6 +498,7 @@ function PlansPreview() {
   return (
     <>
       <AiPlansOverlay
+        assistantUpgrade={previewParams.has("assistant-plans")}
         mode={plans.onboarding ? "onboarding" : "gate"}
         variant={plans.variant}
         account={plans.variant === "new" ? null : previewAccount}
@@ -435,7 +519,7 @@ function PlansPreview() {
           return true;
         }}
         onUseOtherAccount={async () => setPlans({ ...plans, variant: "new" })}
-        onBack={plans.onboarding ? previewNotice : undefined}
+        onBack={plans.onboarding || previewParams.has("assistant-plans") ? previewNotice : undefined}
         onOpenUpdates={previewNotice}
       />
       {providersOpen ? (
@@ -498,8 +582,24 @@ function previewFile(path: string): { content: string; updatedAt: number } {
   const saved = localStorage.getItem(`legalwork:synthetic-file:${path}`);
   return saved ? JSON.parse(saved) : { content: `# Review notes\n\n${reply}`, updatedAt: now };
 }
+let previewAssistantSettings = { ...DEFAULT_ASSISTANT_SETTINGS };
 const fixtureClient: LegalworkServerClient = {
   ...createLegalworkServerClient({ baseUrl: "https://legalwork-preview.invalid", token: "visual-fixture" }),
+  assistantSettings: async () => ({ settings: previewAssistantSettings }),
+  updateAssistantSettings: async settings => ({ settings: previewAssistantSettings = AssistantSettingsSchema.parse(settings) }),
+  ...(dashboardExplorer ? {
+    listWorkspaces: async () => ({ items: fixtureWorkspaces }),
+    listWikis: async () => ({ items: [fixtureWiki] }),
+    wikiContributions: async () => ({ items: [], unavailableProjects: [] }),
+    wikiSnapshot: async () => ({ wiki: fixtureWiki, pages: [], assets: [], folders: ["Dashboards"], warnings: [] }),
+    listViews: async (owner: ViewOwner) => ({ items: [...explorerViews.values()].filter(view => sameViewOwner(view.owner, owner)).map(view => ({ ...view, path: `${view.mode === "dashboard" ? "Dashboards" : "Reports"}/${view.id}.view.json` })), issues: [] }),
+    readView: async (owner: ViewOwner, id: string) => { const view = explorerViews.get(id); if (!view || !sameViewOwner(view.owner, owner)) throw new LegalworkServerError(404, "view_not_found", "Synthetic dashboard not found"); return view; },
+    createView: async (owner: ViewOwner, input: ViewInput) => saveExplorerView(owner, input),
+    updateView: async (owner: ViewOwner, id: string, change: { baseRevision: string; input: ViewInput }) => {
+      if (explorerViews.get(id)?.revision !== change.baseRevision) throw new LegalworkServerError(409, "view_revision_conflict", "Synthetic dashboard changed on disk");
+      return saveExplorerView(owner, change.input, id);
+    },
+  } : {}),
   reviewLibrary: async (_workspaceId, language) => ({ entries: [{
     id: "11111111-1111-4111-8111-111111111112", kind: "set", version: 1,
     name: "Supplier terms", description: "Compare notice requirements across supplier agreements.",
@@ -577,15 +677,37 @@ const fixtureClient: LegalworkServerClient = {
       }
       return {
         card: { id: "visual-card", brand: "visa", last4: "4242", expMonth: 9, expYear: 2027 },
-        pendingTopUps: topUpPending ? [topUpPending] : [],
+        pendingTopUps: topUpPending ? [topUpPending] : topUpQuote ? [topUpQuote] : [],
       };
     }
     // Explicit dev-only simulation. No payment service, account, or credentials are used.
     if (action.action === "topUp" && topUpPreview) {
-      topUpPending = { operationId: action.operationId, amountCents: action.amountCents };
+      topUpPending = { operationId: action.operationId, amountCents: Math.round(action.amountCents / 1.19) };
+      topUpReadyAt = Date.now();
+      return { status: "paid", operationId: action.operationId };
+    }
+    if (action.action === "quoteTopUp" && topUpPreview) {
+      if (topUpPending) return { status: "paid", operationId: topUpPending.operationId };
+      const taxCents = Math.round(action.amountCents * 0.19);
+      topUpQuote = { status: "requires_confirmation", operationId: action.operationId,
+        amountCents: action.amountCents, taxCents, totalCents: action.amountCents + taxCents };
+      return topUpQuote;
+    }
+    if (action.action === "resumeTopUp" && topUpQuote) {
+      if (action.expectedTotalCents === undefined) {
+        if (!action.preview) throw new Error("top_up_confirmation_required");
+        return topUpQuote;
+      }
+      if (action.expectedTotalCents !== topUpQuote.totalCents) throw new Error("top_up_amount_changed");
+      topUpPending = { operationId: topUpQuote.operationId, amountCents: topUpQuote.amountCents };
+      topUpQuote = null;
       topUpReadyAt = Date.now() + (topUpPreview === "delayed" ? 10_000 : 0);
       failNextUsageRead = topUpPreview === "refresh-failed";
       return { status: "paid", operationId: action.operationId };
+    }
+    if (action.action === "cancelTopUp" && topUpQuote) {
+      topUpQuote = null;
+      return { status: "canceled", operationId: action.operationId };
     }
     if (action.action === "memberChange" && action.preview) return {
       quoteId: "visual-quote", amountCents: 1500, recurringAmountCents: 12800, billingInterval: "month",
@@ -719,7 +841,7 @@ function SessionPreview() {
     useSessionInboxStore.getState().receive([{ workspaceId: workspace.id, sessionId: welcomeId, updatedAt: Date.now(), assistantAt: 0,
       automation: { runId: "briefing-preview", at: Date.now(), pinRunId: null } }]);
   }, []);
-  const [announcementOpen, setAnnouncementOpen] = useState(previewParams.has("assistant-announcement"));
+  const [announcementOpen, setAnnouncementOpen] = useState(previewParams.has("assistant-announcement") || previewParams.has("assistant-upgrade"));
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [selectedModel, setSelectedModel] = useState(model);
   const [modelVariant, setModelVariant] = useState<string | null>("balanced");
@@ -729,7 +851,7 @@ function SessionPreview() {
   } : undefined);
   // Repaint on language change, the way AppRoot does in the real app.
   useLocale();
-  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(window.location.hash.includes("view=workspace") ? null : subagentApprovals || previewParams.has("sent-by") ? "visual-review" : limitParam ? "visual-limit" : emptyChatId ?? welcomeId);
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(window.location.hash.includes("view=workspace") ? null : subagentApprovals || subagentTabs || previewParams.has("sent-by") || previewParams.has("activity") ? "visual-review" : limitParam ? "visual-limit" : emptyChatId ?? welcomeId);
   const [activeWorkspace, setActiveWorkspace] = useState(workspace);
   const location = useLocation();
   const navigate = useNavigate();
@@ -742,8 +864,10 @@ function SessionPreview() {
   const [projectOrder, setProjectOrder] = useState([workspace.id, otherWorkspace.id]);
   const [showWorkflows, setShowWorkflows] = useState(new URLSearchParams(window.location.search).has("workflows"));
   useEffect(() => {
-    const projectRoute = location.pathname.match(/^\/workspace\/([^/]+)/);
-    if (projectRoute) setActiveWorkspace(decodeURIComponent(projectRoute[1]) === workspace.id ? workspace : otherWorkspace);
+    const projectRoute = location.pathname.match(/^\/(?:workspace|wikis)\/([^/]+)/);
+    const routedWorkspace = projectRoute && fixtureWorkspaces.find(item => item.id === decodeURIComponent(projectRoute[1]));
+    if (routedWorkspace) setActiveWorkspace(routedWorkspace);
+    if (location.pathname.startsWith("/wikis/")) { setSelectedSessionId(null); setShowHome(false); setShowWorkflows(false); return; }
     if (location.pathname === "/home") { setShowHome(true); setShowWorkflows(false); return; }
     const route = location.pathname.match(/^\/workspace\/[^/]+\/session(?:\/([^/]+))?$/);
     if (projectPage) { setShowHome(false); setShowWorkflows(false); }
@@ -771,9 +895,13 @@ function SessionPreview() {
     setRevision((value) => value + 1);
     return id;
   };
-  const sendDraft = (draft: ComposerDraft, sessionId: string) => {
+  const failSend = useRef(previewParams.has("send-fail"));
+  const sendDraft = async (draft: ComposerDraft, sessionId: string, options?: { queue?: { id: string } }) => {
+    const delay = Number(previewParams.get("send-delay"));
+    if (delay > 0) await new Promise(resolve => setTimeout(resolve, delay));
+    if (failSend.current) { failSend.current = false; throw new Error("Simulated interrupted send. Your draft is still available."); }
     const previous = snapshots.get(sessionId);
-    const next = snapshot(sessionId, draft.resolvedText.slice(0, 44) || "Sample review", draft.resolvedText, previewParams.has("messenger") ? "I've checked. Your next steps are ready." : reply);
+    const next = snapshot(sessionId, draft.resolvedText.slice(0, 44) || "Sample review", draft.resolvedText, previewParams.has("messenger") ? "I've checked. Your next steps are ready." : reply, options?.queue ? `msg_${options.queue.id.replaceAll("-", "")}` : undefined);
     next.session.directory = previous?.session.directory ?? activeWorkspace.path;
     const sentAt = Date.now();
     for (const message of next.messages) {
@@ -794,10 +922,26 @@ function SessionPreview() {
     saveSnapshot({ ...next, messages: [...(previous?.messages ?? []), ...next.messages] });
     setRevision((value) => value + 1);
   };
+  const openDashboardPreview = (mode: "new" | "edit" | "conflict" | "wiki") => {
+    const callId = crypto.randomUUID();
+    const id = viewGenerationId(fixtureClient.baseUrl, welcomeId, callId);
+    const current = explorerViews.get(explorerDashboard.id)!;
+    const generation: ViewGeneration = {
+      serverUrl: fixtureClient.baseUrl, workspaceId: workspace.id, sessionId: welcomeId, toolCallId: callId,
+      title: "Matter overview", program: current.program, status: "preview",
+      preview: { status: "preview", owner: mode === "wiki" ? { kind: "wiki", id: "visual-wiki" } : current.owner,
+        input: { ...viewInput(current), title: mode === "new" ? "New matter dashboard" : current.title },
+        ...(mode === "edit" || mode === "conflict" ? { target: { viewId: current.id, baseRevision: mode === "conflict" ? "outdated" : current.revision } } : {}),
+      },
+    };
+    useViewGenerationStore.getState().update(id, generation);
+    requestPanelTab(viewDraftTab(id, generation), { kind: "workspace", workspaceId: workspace.id });
+  };
 
   return (
     <div className="flex h-dvh flex-col" data-preview-revision={revision}>
-      <AssistantIntroModal open={announcementOpen} onDismiss={() => setAnnouncementOpen(false)} onOpenAssistant={() => { setAnnouncementOpen(false); setShowHome(false); setSelectedSessionId(welcomeId); setOnboarding(state => state && { ...state, greetingUnread: false }); }} />
+      <AssistantUpgradeModal open={previewParams.has("assistant-upgrade") && announcementOpen} onDismiss={() => setAnnouncementOpen(false)} onUpgrade={() => { window.location.href = "session-preview.html?assistant&messenger&assistant-plans&plans=new&lang=" + (previewParams.get("lang") ?? "en"); }} />
+      <AssistantIntroModal open={!previewParams.has("assistant-upgrade") && announcementOpen} onDismiss={() => setAnnouncementOpen(false)} onOpenAssistant={() => { setAnnouncementOpen(false); setShowHome(false); setSelectedSessionId(welcomeId); setOnboarding(state => state && { ...state, greetingUnread: false }); }} />
       {platform === "windows" && <>
         {captionHeight === 64 && <style>{"html.legalwork-electron.legalwork-platform-windows .lw-window-frame { --lw-window-bar-height: 64px; }"}</style>}
         <div data-preview-caption-controls aria-hidden style={{ height: captionHeight }} className="fixed right-0 top-0 z-[2147483647] flex w-[138px] items-center justify-around bg-background text-foreground"><span>−</span><span>□</span><span>×</span></div>
@@ -805,6 +949,19 @@ function SessionPreview() {
 
       <div className="shrink-0 border-b border-border bg-muted/40 px-4 py-1.5 text-center text-[11px] text-muted-foreground">
         Interactive visual preview · Sample data and simulated replies · No connected services
+        {previewParams.has("activity") && <span className="ml-4 inline-flex gap-3">
+          {["Thinking", "Run tool", "Review results", "Next tool", "Complete"].map((label, step) => <button key={label} className="underline" onClick={() => window.dispatchEvent(new CustomEvent("legalwork-preview-activity", { detail: step }))}>{label}</button>)}
+        </span>}
+        {subagentTabs && <button className="ml-3" onClick={() => {
+          const item = snapshots.get("visual-drafting");
+          if (item) saveSnapshot({ ...item, status: { type: "idle" } });
+        }}>Finish sample subagent</button>}
+        {dashboardExplorer && <span className="ml-3 inline-flex gap-3">
+          <button onClick={() => openDashboardPreview("new")}>New dashboard preview</button>
+          <button onClick={() => openDashboardPreview("edit")}>Updated preview</button>
+          <button onClick={() => openDashboardPreview("conflict")}>Conflicting preview</button>
+          <button onClick={() => openDashboardPreview("wiki")}>Wiki preview</button>
+        </span>}
         {previewParams.has("unified") && <span className="ml-3 inline-flex gap-3">
           <button onClick={() => requestPanelTab({ id: `review:${previewReview.id}`, type: "review", reviewId: previewReview.id, label: previewReview.name })}>Open sample review</button>
           <button onClick={() => requestPanelTab({ id: "task:visual-task", type: "task", taskId: "visual-task", label: "Review supplier notice" })}>Open sample task</button>
@@ -849,11 +1006,13 @@ function SessionPreview() {
             }}
           /> : showWorkflows ? <WorkflowsPreview reviewClient={fixtureClient} /> : undefined}
           selectedSessionId={selectedSessionId} selectedWorkspaceId={activeWorkspace.id} selectedWorkspaceDisplay={{ ...activeWorkspace, displayName: activeWorkspace.displayName ?? activeWorkspace.name }}
-          selectedWorkspaceRoot={activeWorkspace.path} runtimeWorkspaceId={activeWorkspace.id} workspaces={[workspace, otherWorkspace]}
-          clientConnected legalworkServerStatus="connected" legalworkServerClient={fixtureClient} environmentClient={fixtureClient}
+          selectedWorkspaceRoot={activeWorkspace.path} runtimeWorkspaceId={activeWorkspace.id} workspaces={fixtureWorkspaces}
+          wikiWorkspace={activeWorkspace.id === wikiWorkspace.id ? fixtureWiki : undefined}
+          wiki={dashboardExplorer ? { client: fixtureClient, serverUrl: fixtureClient.baseUrl, workspaceId: activeWorkspace.id, workspaces: fixtureWorkspaces, selectedWikiId: fixtureWiki.id, onOpenWiki: wiki => navigate(`/wikis/${wiki.workspaceId}`), onOpenWikiSession: async () => { previewNotice(); } } : undefined}
+          clientConnected legalworkServerClient={fixtureClient} environmentClient={fixtureClient}
           legalworkServerToken="visual-fixture" opencodeBaseUrl="https://legalwork-preview.invalid/opencode"
           developerMode={false} headerStatus="Ready" busyHint={null} startupPhase="ready" providerConnectedIds={[model.providerID]}
-          mcpConnectedCount={0} onOpenSettings={previewNotice} onStartProjectRecording={previewNotice} todos={[]} sessionLoadingById={() => false}
+          onOpenSettings={previewNotice} onStartProjectRecording={previewNotice} todos={[]} sessionLoadingById={() => false}
           onCreateProjectSession={() => { newTask(); }}
           onArchiveSession={(id, archived) => {
             const item = snapshots.get(id);
@@ -870,8 +1029,9 @@ function SessionPreview() {
             assistantGreetingUnread: onboarding?.greetingUnread,
             assistantProfile, onSaveAssistantProfile: async profile => setAssistantProfile(profile),
             assistantWorkspaceId: assistantPreview ? workspace.id : undefined,
+            assistantDay: assistantPreview ? { sessionId: welcomeId, date: assistantToday } : undefined,
             onOpenAssistant: assistantPreview ? () => { setOnboarding(state => state && { ...state, greetingUnread: false }); setSelectedSessionId(welcomeId); useSessionInboxStore.getState().open(welcomeId, workspace.id); } : undefined, assistantActive: assistantPreview && selectedSessionId === welcomeId,
-            workspaceSessionGroups: projectOrder.flatMap(id => groups.filter(group => group.workspace.id === id)), onReorderWorkspaces: setProjectOrder, selectedWorkspaceId: activeWorkspace.id, selectedSessionId, developerMode: false,
+            workspaceSessionGroups: activeWorkspace.id === wikiWorkspace.id ? [{ workspace: wikiWorkspace, status: "ready", sessions: [] }] : projectOrder.flatMap(id => groups.filter(group => group.workspace.id === id)), onReorderWorkspaces: setProjectOrder, selectedWorkspaceId: activeWorkspace.id, selectedSessionId, developerMode: false,
             sessionStatusById: statusStatesById, connectingWorkspaceId: null, workspaceConnectionStateById: {}, newChatDisabled: false,
             sidebarHydratedFromCache: true, startupPhase: "ready", onSelectWorkspace: id => {
               setActiveWorkspace(id === workspace.id ? workspace : otherWorkspace);
@@ -882,7 +1042,7 @@ function SessionPreview() {
             onOpenCreateWorkspace: previewNotice, onCreateChatInNewWorkspace: previewNotice,
             onShowProjects: () => { setShowHome(false); setShowWorkflows(false); navigate("/projects"); },
             onShowChats: () => { setShowHome(true); setShowWorkflows(false); }, onShowEvals: previewNotice, onShowWorkflows: () => { setShowHome(false); setShowWorkflows(true); navigate("/workflows"); }, onShowExtensions: previewNotice, onShowRecorder: previewNotice,
-            activeNav: showWorkflows ? "workflows" : null,
+            activeNav: showWorkflows ? "workflows" : activeWorkspace.id === wikiWorkspace.id ? "wikis" : null,
           }}
           surface={{
             assistantOnboarding: onboarding ? {
@@ -928,8 +1088,8 @@ previewRoot.render(
         <LocalProvider>
           <ShellConfigProvider>
             <ReloadCoordinatorProvider>
-              <WorkspaceProvider client={null} selectedWorkspaceRoot={workspace.path} workspaces={[]} baseUrl="https://legalwork-preview.invalid" token="visual-fixture" opencodeBaseUrl="https://legalwork-preview.invalid/opencode" onOpenSession={previewNotice}>
-                <MemoryRouter initialEntries={[window.location.hash.slice(1) || "/"]}>
+              <WorkspaceProvider client={null} selectedWorkspaceRoot={workspace.path} workspaces={fixtureWorkspaces.map(item => ({ ...item, displayNameResolved: item.displayName ?? item.name }))} baseUrl="https://legalwork-preview.invalid" token="visual-fixture" opencodeBaseUrl="https://legalwork-preview.invalid/opencode" onOpenSession={previewNotice}>
+                <PreviewRouter initialEntries={[window.location.hash.slice(1) || "/"]}>
                   <LegalworkControlProvider>
                     <ProjectFileImportContext value={async (_projectId, imported, folder) => { await previewCopyDelay(); return { files: await Promise.all(imported.map(async file => {
                       const path = folder ? `${folder}/${file.name}` : file.name;
@@ -941,7 +1101,7 @@ previewRoot.render(
                     <PlansPreview />
                     <Toaster /><DocumentDiscardDialog />
                   </LegalworkControlProvider>
-                </MemoryRouter>
+                </PreviewRouter>
               </WorkspaceProvider>
             </ReloadCoordinatorProvider>
           </ShellConfigProvider>

@@ -105,6 +105,47 @@ describe("one Assistant conversation tab", () => {
     expect(panels.getState().sessions["project:assistant"]).toBeUndefined();
   });
 
+  test("subagents open beside the Assistant and survive day changes while only daily chats are replaced", () => {
+    const panels = createStore();
+    const store = panels.getState();
+    store.setAssistantWorkspace("assistant");
+    store.adoptChat(scope, "today", "Johannes");
+    const child = chatPanelTab("research", "Research", "today");
+    store.adoptChat(scope, child.sessionId, child.label, { parentID: child.parentID });
+    store.openTab(scope, child, "main", "right");
+    store.openTab(scope, chatPanelTab("nested", "Verify sources", "research"));
+    const before = panels.getState().sessions[scope];
+    expect(before.tabs).toEqual([chatPanelTab("today", "Johannes"), child, chatPanelTab("nested", "Verify sources", "research")]);
+    expect(before.panes).toHaveLength(2);
+    // Reopening a child through an older link must not lose its identity.
+    store.openTab(scope, chatPanelTab("research", "Research"));
+    store.adoptChat(scope, "tomorrow", "Renamed assistant");
+    const after = panels.getState().sessions[scope];
+    expect(after.tabs).toEqual([chatPanelTab("tomorrow", "Renamed assistant"), child, chatPanelTab("nested", "Verify sources", "research")]);
+    expect(after.tree).toEqual(before.tree);
+    expect(after.panes[1].tabIds).toEqual(before.panes[1].tabIds);
+  });
+
+  test("restore, history and normalization retain child tabs alongside one daily Assistant", async () => {
+    const panels = createStore();
+    const store = panels.getState();
+    store.setAssistantWorkspace("assistant");
+    store.adoptChat(scope, "today", "Johannes");
+    const child = chatPanelTab("research", "Research", "today");
+    store.openTab(scope, child, "main", "right");
+    store.openTab(scope, file);
+    const restored = store.readLayout(panels.getState().sessions[scope]);
+    expect(restored?.tabs).toContainEqual(child);
+    panels.setState({ sessions: restored ? { [scope]: restored } : {} });
+    await panels.persist.rehydrate();
+    store.restoreNavigationTab(scope, child, "main");
+    store.setAssistantWorkspace("assistant");
+    store.openTab(scope, chatPanelTab("yesterday", "Johannes"), "main", "bottom");
+    const after = panels.getState().sessions[scope];
+    expect(after.tabs).toEqual([chatPanelTab("yesterday", "Johannes"), child, file]);
+    expect(after.tabs.filter(tab => tab.type === "chat" && !tab.parentID)).toHaveLength(1);
+  });
+
   test("normal projects still support several chats and split groups", () => {
     const panels = createStore();
     const project = workspacePanelKey("project");

@@ -25,6 +25,7 @@ export type OpenTarget = {
   value: string;
   name: string;
   preview: OpenTargetPreview;
+  documentType?: "report" | "dashboard";
   confidence: number;
   reason: string;
   exists?: boolean;
@@ -226,9 +227,12 @@ export function resolvePathOpenTarget(
   openTargets: OpenTarget[],
   reason = "mention",
 ): OpenTarget | null {
-  const match = openTargets.find(
-    (target) => target.kind === "file" && filePathMatchesTarget(path, target.value),
-  );
+  const normalized = normalizePath(path);
+  const exact = openTargets.find(target => target.kind === "file" && normalizePath(target.value) === normalized);
+  if (exact) return exact;
+  const absolute = /^(?:[/\\]|[A-Za-z]:[/\\]|file:)/i.test(path);
+  const matches = absolute ? [] : openTargets.filter(target => target.kind === "file" && filePathMatchesTarget(path, target.value));
+  const match = matches.length === 1 ? matches[0] : undefined;
   if (match) return match;
   const built = targetFromFile(path, 95, reason);
   return built ? { ...built, exists: true } : null;

@@ -1,3 +1,7 @@
+@layer theme, base, markdown-editor, openui, twenty-ui, components, utilities;
+@import "twenty-ui/style.css";
+@import "twenty-ui/theme-light.css";
+@import "twenty-ui/theme-dark.css";
 @import "tailwindcss";
 @config "../../tailwind.config.ts";
 
@@ -96,6 +100,8 @@
   --input: var(--lw-border);
   --ring: var(--lw-accent);
   --radius: 0.625rem;
+  /* Twenty's global corner rule must not reshape the rest of LegalWork. */
+  --t-corner-shape: round;
 
   --chart-1: var(--sky-9);
   --chart-2: var(--blue-9);
