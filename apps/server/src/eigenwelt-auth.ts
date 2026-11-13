@@ -148,8 +148,8 @@ export type EigenweltUsage = {
  * treat "no entitlements" as the free/legacy tier and not break.
  */
 export type EigenweltEntitlements = {
-  /** The plan id doubles as its marketed name: "plus" (€29) or "pro" (€69). */
-  plan: "sync" | "plus" | "pro" | null;
+  /** Stable plan ID; usage and billing depend on the firm's purchased offer. */
+  plan: "sync" | "plus" | "pro" | "max" | null;
   subscriptionStatus: string | null;
   /**
    * ISO timestamp when the 7-day trial ends (or ended — compare against now);
@@ -280,7 +280,7 @@ function toFiniteNumber(value: unknown, fallback = 0): number {
 export function parseEigenweltEntitlements(value: unknown): EigenweltEntitlements | undefined {
   if (!isRecord(value)) return undefined;
   const plan =
-    value.plan === "sync" || value.plan === "plus" || value.plan === "pro" ? value.plan : null;
+    value.plan === "sync" || value.plan === "plus" || value.plan === "pro" || value.plan === "max" ? value.plan : null;
   const subscriptionStatus = typeof value.subscriptionStatus === "string" ? value.subscriptionStatus : null;
   const trialEndsAt =
     typeof value.trialEndsAt === "string" && Number.isFinite(Date.parse(value.trialEndsAt))
@@ -390,10 +390,10 @@ async function bindLoopback(handler: LoopbackHandler): Promise<{ server: Server;
 }
 
 /** The plans the platform's checkout sells (model-api's PlanId). */
-export type EigenweltSignInPlan = "sync" | "plus" | "pro";
+export type EigenweltSignInPlan = "sync" | "plus" | "pro" | "max";
 
 export function isEigenweltSignInPlan(value: unknown): value is EigenweltSignInPlan {
-  return value === "sync" || value === "plus" || value === "pro";
+  return value === "sync" || value === "plus" || value === "pro" || value === "max";
 }
 
 /**

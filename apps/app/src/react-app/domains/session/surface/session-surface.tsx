@@ -191,7 +191,7 @@ export type SessionSurfaceProps = {
   selectedModel: ModelRef;
   /** Open the connect-AI flow from the notice above the composer. */
   onConnectAi?: (action: ConnectAiAction) => void;
-  onChooseAiPlan?: (plan: "plus" | "pro") => Promise<void>;
+  onChooseAiPlan?: (plan: "plus" | "pro" | "max") => Promise<void>;
   /**
    * The route lays the plan screen over the app whenever no model is usable,
    * so the notice above the composer only covers what that screen leaves

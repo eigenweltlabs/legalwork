@@ -2,8 +2,8 @@
 /**
  * The plan screen. LegalWork has no free model tier, so while no model is
  * usable (see aiAccessState) this screen lies over the blurred app, and it is
- * the last onboarding step. Three cards: a free own-model option, Sync, and
- * a combined Plus/Pro card with the same tiers as the platform.
+ * the last onboarding step. A free own-model banner above Plus, Pro and Max cards
+ * with the same tiers as the platform.
  *
  *  - Own model is free and opens the provider connection. Closing that
  *    without connecting lands back here: the route keeps the screen up until
@@ -18,7 +18,7 @@
  * Analytics (in memory only, like every other app event): the route sends
  * ai_plans_viewed, ai_plans_own_model_closed and ai_plans_completed; this
  * screen sends what happens on it. Every event carries `mode` and `variant`.
- *   ai_plans_option_selected     { choice, previous_choice } own_model | sync | plus | pro | sign_in;
+ *   ai_plans_option_selected     { choice, previous_choice } own_model | plus | pro | max | sign_in;
  *                                previous_choice is the earlier choice on this
  *                                screen, e.g. own_model before plus
  *   ai_plans_sign_in_started     { choice } the browser opened
@@ -40,7 +40,6 @@ import type { EigenweltCheckoutSelection } from "@legalwork/types/eigenwelt-chec
 import {
   ArrowLeft,
   Check,
-  KeyRound,
   Loader2,
   RefreshCcw,
   type LucideIcon,
@@ -48,7 +47,6 @@ import {
 
 import legalworkMark from "@/assets/legalwork-mark-dark.svg";
 import { Button } from "@/components/ui/button";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { captureAnalyticsEvent } from "@/app/lib/analytics";
 import { openDesktopUrl } from "@/app/lib/desktop";
 import type { AiPlansVariant } from "@/app/lib/eigenwelt-access";
@@ -139,38 +137,21 @@ const UPGRADE_TIMEOUT_MS = 10 * 60_000;
 /** A sign-in that connected but never made a model usable falls back to the choices. */
 const CONNECTING_TIMEOUT_MS = 20_000;
 
-const TAGLINE: Record<EigenweltPlanId, string> = {
-  sync: "ai_plans.tagline_sync",
+const TAGLINE: Record<EigenweltPlan["id"], string> = {
   plus: "ai_plans.tagline_plus",
   pro: "ai_plans.tagline_pro",
+  max: "ai_plans.tagline_max",
 };
 
-/** What each plan lists, in order; "usage" is the included amount. */
-const FEATURES: Record<EigenweltPlanId, string[]> = {
-  sync: [
-    "ai_plans.sync_no_usage",
-    "ai_plans.sync_own_ai",
-    "ai_plans.feature_hub",
-    "ai_plans.feature_admin",
-    "ai_plans.feature_priority_support",
-  ],
-  plus: [
-    "ai_plans.everything_in_sync",
-    "usage",
-    "ai_plans.feature_models",
-    "ai_plans.feature_ai_tasks",
-    "ai_plans.feature_model_controls",
-    "ai_plans.feature_hosting_retention",
-  ],
-  pro: [
-    "ai_plans.everything_in_sync",
-    "usage",
-    "ai_plans.feature_models",
-    "ai_plans.feature_ai_tasks",
-    "ai_plans.feature_model_controls",
-    "ai_plans.feature_hosting_retention",
-  ],
-};
+const FEATURES = [
+  "usage",
+  "ai_plans.feature_models",
+  "ai_plans.feature_ai_tasks",
+  "ai_plans.feature_hub",
+  "ai_plans.feature_matter_management",
+  "ai_plans.feature_office",
+  "ai_plans.feature_hosting_retention",
+];
 
 // Side by side, each card spans the row's five tracks (name, tagline, price,
 // action, features), so the buttons line up across the cards whatever the
@@ -291,6 +272,11 @@ function PlanCard(props: {
   switcher?: ReactNode;
 }) {
   const { plan, locale } = props;
+  const features = [...FEATURES];
+  if (plan.id !== "plus") features.push(
+    "ai_plans.feature_admin",
+    "ai_plans.feature_priority_support",
+  );
   return (
     <CardFrame
       testId={`ai-plan-${plan.id}`}
@@ -315,8 +301,8 @@ function PlanCard(props: {
       }
       features={
         <>
-          {FEATURES[plan.id].map((key) => (
-            <FeatureRow key={key} icon={key === "ai_plans.everything_in_sync" ? RefreshCcw : undefined}>
+          {features.map((key) => (
+            <FeatureRow key={key}>
               {key === "usage"
                 ? t("ai_plans.feature_usage", {
                     amount: formatEuroCents(
@@ -333,34 +319,17 @@ function PlanCard(props: {
   );
 }
 
-function OwnModelCard(props: { disabled: boolean; onChoose: () => void }) {
+function OwnModelBanner(props: { disabled: boolean; onChoose: () => void }) {
   return (
-    <CardFrame
-      testId="ai-plan-byo"
-      name={t("ai_plans.byo_name")}
-      tagline={t("ai_plans.byo_tagline")}
-      price={t("ai_plans.byo_price")}
-      priceSuffix={t("ai_plans.byo_price_suffix")}
-      action={
-        <Button
-          variant="secondary"
-          size="lg"
-          className={planButtonClass}
-          disabled={props.disabled}
-          onClick={props.onChoose}
-        >
-          {t("ai_plans.byo_cta")}
-        </Button>
-      }
-      features={
-        <>
-          {/* The one thing to know before choosing this card: it needs a provider. */}
-          <FeatureRow strong icon={KeyRound}>
-            {t("ai_plans.byo_feature_requirement")}
-          </FeatureRow>
-        </>
-      }
-    />
+    <aside data-testid="ai-plan-byo" className="mt-8 flex flex-col items-start justify-between gap-4 rounded-2xl border border-dls-border bg-dls-surface p-5 md:flex-row md:items-center xl:p-6">
+      <div>
+        <h2 className="text-lg font-medium text-dls-text">{t("ai_plans.free_banner")}</h2>
+        <p className="mt-1 text-sm text-dls-secondary">{t("ai_plans.free_description")}</p>
+      </div>
+      <Button variant="secondary" className="shrink-0 rounded-full" disabled={props.disabled} onClick={props.onChoose}>
+        {t("ai_plans.byo_cta")}
+      </Button>
+    </aside>
   );
 }
 
@@ -435,7 +404,6 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
   useEffect(() => () => { transitionRef.current?.skipTransition(); delete document.documentElement.dataset.aiPlanTransition; }, []);
   // "signed-out" starts on the sign-in card; this shows the cards instead.
   const [showPlans, setShowPlans] = useState(false);
-  const [aiTier, setAiTier] = useState("plus");
   const [error, setError] = useState<string | null>(null);
   const [switchingAccount, setSwitchingAccount] = useState(false);
   // Bumping cancels whatever flow is running (a sign-in wait, the upgrade poll).
@@ -588,7 +556,7 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
   };
 
   const choosePlan = (plan: EigenweltPlanId) => {
-    if (variant === "no-models" && plan !== "sync") upgrade(plan);
+    if (variant === "no-models") upgrade(plan);
     else { setError(null); trackChoice(plan); confirmPlan(plan); }
   };
 
@@ -858,11 +826,9 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
           </p>
           {notice ? <div className="mt-4">{notice}</div> : null}
         </header>
-        <div className={cn("mt-10 grid gap-4 md:gap-x-4 md:gap-y-0 xl:gap-x-5 roomy:mt-14 roomy:gap-x-7", props.assistantUpgrade ? "mx-auto w-full max-w-[800px] md:grid-cols-2" : "md:grid-cols-3")}>
-          {!props.assistantUpgrade && <OwnModelCard disabled={disabled} onChoose={bringOwnModel} />}
-          {EIGENWELT_PLANS.filter(
-            (plan) => props.assistantUpgrade ? plan.id !== "sync" : plan.id === "sync" || plan.id === aiTier,
-          ).map((plan) => (
+        {!props.assistantUpgrade && <OwnModelBanner disabled={disabled} onChoose={bringOwnModel} />}
+        <div className="mt-6 grid gap-4 md:grid-cols-3 md:gap-x-4 md:gap-y-0 xl:gap-x-5 roomy:mt-8 roomy:gap-x-7">
+          {EIGENWELT_PLANS.map((plan) => (
             <PlanCard
               key={plan.id}
               plan={plan}
@@ -870,34 +836,6 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
               label={planLabel(plan)}
               disabled={disabled}
               onChoose={() => choosePlan(plan.id)}
-              switcher={
-                props.assistantUpgrade || plan.id === "sync" ? undefined : (
-                  <Tabs
-                    value={aiTier}
-                    onValueChange={(value) => {
-                      if (value === "plus" || value === "pro") setAiTier(value);
-                    }}
-                  >
-                    <TabsList
-                      className="h-8 rounded-full"
-                      aria-label={t("ai_plans.ai_tier")}
-                    >
-                      <TabsTrigger
-                        className="rounded-full px-3 text-xs"
-                        value="plus"
-                      >
-                        Plus
-                      </TabsTrigger>
-                      <TabsTrigger
-                        className="rounded-full px-3 text-xs"
-                        value="pro"
-                      >
-                        Pro
-                      </TabsTrigger>
-                    </TabsList>
-                  </Tabs>
-                )
-              }
             />
           ))}
         </div>

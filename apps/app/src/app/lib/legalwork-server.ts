@@ -230,7 +230,7 @@ export type EigenweltUsage = {
 /** Subscription entitlements. OPTIONAL — absent means the free/legacy tier. */
 export type EigenweltEntitlements = {
   /** The plan id doubles as its marketed name: "plus" (€29) or "pro" (€69). */
-  plan: "sync" | "plus" | "pro" | null;
+  plan: "sync" | "plus" | "pro" | "max" | null;
   subscriptionStatus: string | null;
   /**
    * ISO timestamp when the 7-day trial ends (or ended — compare against now);

@@ -95,8 +95,8 @@ export function providerFromUsageLimitError(
   return parseProviderUsageLimit(error)?.providerId ?? null;
 }
 
-export function usageLimitOptions(plan: "sync" | "plus" | "pro" | null) {
-  const plans: Array<"plus" | "pro"> =
-    plan === "pro" ? [] : plan === "plus" ? ["pro"] : ["plus", "pro"];
+export function usageLimitOptions(plan: "sync" | "plus" | "pro" | "max" | null) {
+  const plans: Array<"plus" | "pro" | "max"> =
+    plan === "max" ? [] : plan === "pro" ? ["max"] : plan === "plus" ? ["pro", "max"] : ["plus", "pro", "max"];
   return { plans, topUp: plan !== null };
 }

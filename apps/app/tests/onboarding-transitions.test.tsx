@@ -39,6 +39,30 @@ describe("onboarding transitions", () => {
       }),
     );
 
+  test("offers a free banner above Plus, Pro and Max with the new prices", () => {
+    const html = plans("onboarding");
+    expect(html.indexOf("Use LegalWork for free")).toBeLessThan(html.indexOf('data-testid="ai-plan-plus"'));
+    for (const plan of ["plus", "pro", "max"]) expect(html).toContain('data-testid="ai-plan-' + plan + '"');
+    expect(html).not.toContain('data-testid="ai-plan-sync"');
+    expect(html).not.toContain('role="tablist"');
+    expect(html).toContain("€190");
+    expect(html).toContain("€200/month");
+    expect(html).toContain("€210 of AI usage");
+    const cards = html.split("<article").slice(1).map(card => card.split("</article>")[0]);
+    for (const card of cards) {
+      expect(card).toContain("Team sync: Tasks, Workflows and files");
+      expect(card).toContain("Matter management: clients, matter references, status and responsibilities in one place");
+      expect(card).toContain("Word add-in, Excel add-in and Outlook integration");
+    }
+    expect(cards[0]).not.toContain("Standard support");
+    expect(cards[0]).not.toContain("Priority support");
+    expect(cards[0]).not.toContain("Admin dashboard");
+    expect(cards[1]).toContain("Admin dashboard");
+    expect(cards[2]).toContain("Admin dashboard");
+    expect(cards[1]).toContain("Priority support");
+    expect(cards[2]).toContain("Priority support");
+  });
+
   test("the plan screen appears at once as the onboarding step before permissions and research", () => {
     const html = plans("onboarding");
     expect(html).toContain('data-testid="ai-plans-overlay"');

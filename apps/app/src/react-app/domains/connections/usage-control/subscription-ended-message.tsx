@@ -17,7 +17,7 @@ import { eigenweltBillingUrl, useEigenweltEntitlements } from "../eigenwelt-enti
 export function SubscriptionEndedMessage({ client, workspaceId, onChoosePlan, resolved = false }: {
   client: LegalworkServerClient;
   workspaceId: string;
-  onChoosePlan?: (plan: "plus" | "pro") => Promise<void>;
+  onChoosePlan?: (plan: "plus" | "pro" | "max") => Promise<void>;
   resolved?: boolean;
 }) {
   const locale = useLocale();
@@ -55,7 +55,7 @@ export function SubscriptionEndedMessage({ client, workspaceId, onChoosePlan, re
           <DialogDescription>{t("subscription_ended.admin_body", { firm })}</DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
-          {EIGENWELT_PLANS.filter(item => item.id !== "sync").map(item => <div key={item.id} className="flex items-center justify-between gap-4 rounded-xl border p-4">
+          {EIGENWELT_PLANS.map(item => <div key={item.id} className="flex items-center justify-between gap-4 rounded-xl border p-4">
             <div>
               <p className="font-medium">{item.name}</p>
               <p className="mt-1 text-xs text-muted-foreground">{t("provider_limit.plan_price", {
@@ -64,7 +64,6 @@ export function SubscriptionEndedMessage({ client, workspaceId, onChoosePlan, re
               })}</p>
             </div>
             <Button disabled={busy || !onChoosePlan} onClick={() => {
-              if (item.id === "sync") return;
               setBusy(true); setError("");
               void onChoosePlan?.(item.id).then(() => setOpen(false))
                 .catch(() => setError(t("provider_limit.error"))).finally(() => setBusy(false));
