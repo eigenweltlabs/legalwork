@@ -70,5 +70,6 @@ export function createBrowserCaptureQueue() {
     page.active?.cancel(reason);
     for (const item of page.waiting) item.cancel(reason);
   };
+  capture.isBusy = contents => Boolean(pages.get(contents)?.active || pages.get(contents)?.waiting.size);
   return capture;
 }

@@ -59,16 +59,20 @@ export function createNativeBrowserHost(options) {
         if (!entry) throw new Error("The browser session no longer has a desktop owner.");
         await authorize(entry.context);
       },
+      activity: binding => {
+        const entry = ownerEntry(binding);
+        return entry && options.activity?.(entry.owner, entry.context);
+      },
       downloadDirectory: binding => ownerEntry(binding)?.downloadDirectory,
       fileRoots: binding => {
         const entry = ownerEntry(binding);
         return entry && !entry.context.remote ? [entry.engineDirectory, entry.downloadDirectory].filter(Boolean) : [];
       },
-      page: (binding, page) => {
+      page: (binding, page, popup) => {
         const entry = ownerEntry(binding);
         if (!entry) throw new Error("The browser page has no owning chat.");
         pageOwners.set(page.contents, entry);
-        options.adoptPage(entry.owner, page, entry.context, entry.downloadDirectory);
+        options.adoptPage(entry.owner, page, entry.context, entry.downloadDirectory, popup);
       },
       capture: capturePage,
       windows: { get: id => [...entries.values()].find(entry => entry.owner.id === id)?.owner },
@@ -218,7 +222,7 @@ export function createNativeBrowserHost(options) {
             else throw new Error("Invalid browser extension request.");
           }
         } catch { abort.abort(); }
-        finally { extensionChannels.delete(id); await fetch(endpoint, { method: "DELETE", headers, redirect: "error" }).catch(() => undefined); }
+        finally { if (extensionChannels.get(id) === channel) extensionChannels.delete(id); await fetch(endpoint, { method: "DELETE", headers, redirect: "error" }).catch(() => undefined); }
       })();
       return channel.url;
     },
@@ -231,6 +235,19 @@ export function createNativeBrowserHost(options) {
       const entry = entries.get(key(owner, context));
       if (!entry || entry.closed) throw new Error("The browser is not attached to this chat.");
       return (await getPane()).command(owner.id, entry.binding, command);
+    },
+    async suspend(owner, context, tabID, valid) {
+      const entry = entries.get(key(owner, context)), pane = await getPane();
+      if (!entry || entry.closed || !valid()) return;
+      const channel = extensionChannels.get(`${entry.binding}:${tabID}`);
+      channel?.abort.abort();
+      await pane.suspendPage(owner.id, entry.binding, tabID);
+    },
+    preview(contents, signal) {
+      return capturePage(contents, signal, async () => {
+        const image = await contents.debugger.sendCommand("Page.captureScreenshot", { format: "png", captureBeyondViewport: false });
+        return Buffer.from(image.data, "base64");
+      });
     },
     async destroy(owner) { for (const entry of [...entries.values()]) if (!owner || entry.owner === owner) await close(entry); for (const [id, connection] of connections) if (!owner || connection.owner === owner) connections.delete(id); },
     async dispose() { disposed = true; clearInterval(timer); await Promise.all([...entries.values()].map(close)); connections.clear(); endpoints.clear(); if (loading) await (await loading).dispose(); },

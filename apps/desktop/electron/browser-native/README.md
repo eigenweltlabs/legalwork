@@ -29,6 +29,9 @@ Adapted source:
   URLs against their owning WebContents; return native UI command results; forward
   the optional host screenshot queue into each page. A host callback retains live
   pages during trusted app reloads; other host navigation still closes the pane.
+  Forward popup opener information so visible website popups join their opener's
+  pane. Report command activity to the host's idle timer and suspend expired pages
+  while retaining their URLs with a new document generation for lazy reload.
 - `chromium.ts`: reserve the existing project-bound download destination; preserve
   complete locally retained downloads above the native RPC transfer limit;
   read the complete frame accessibility tree, omit empty layout wrappers and
@@ -44,8 +47,8 @@ Adapted source:
   layout and loses right-edge pixels. Full-page and element capture keep the
   upstream setting. Screenshot limits remain unchanged.
   Native pointer operations retain that lease through mouse dispatch. Their post-scroll
-  compositor update uses a viewport CDP screenshot, reusing its pixels for the host's
-  cached preview; screenshots and other successful captures also publish existing pixels.
+  compositor update uses a private viewport CDP screenshot. Explicit agent screenshots
+  still publish their pixels to the host's cached preview.
   Default accessibility observations traverse nested controls without an AX depth
   cutoff, omit unnamed layout wrappers and retain the existing rendered output
   limits. Explicit depth bounds the displayed tree. Focused find filters during
@@ -75,4 +78,10 @@ destroyed when the physical operation finishes. Other platforms attach the view
 outside the app's visible bounds; Electron does not support window opacity on Linux.
 A user-opened tab keeps its current parent and bounds. The card only displays the
 last successful capture; reading its preview never starts another screenshot.
-No independent preview page, screenshot polling or platform flags are used.
+Navigation readiness, load completion and in-page navigation request a preview
+after a 300 ms debounce outside the capture queue. Busy input defers the refresh;
+only one refresh runs at a time, and newer navigation invalidates stale results.
+No independent preview page, fixed-interval screenshot polling or platform flags are used.
+After a finished task has been idle for 15 minutes, the host releases background
+pages and their previews. Expanded user tabs and active tasks remain live; later
+agent use reloads suspended URLs with the shared profile's stored cookies.

@@ -5,6 +5,7 @@
  */
 
 const ACTIVE_WORKSPACE_KEY = "legalwork.react.activeWorkspace";
+const LAST_PROJECT_KEY = "legalwork.react.lastProject";
 const SESSION_BY_WORKSPACE_KEY = "legalwork.react.sessionByWorkspace";
 const WORKSPACE_ORDER_KEY = "legalwork.react.workspaceOrder";
 
@@ -37,6 +38,14 @@ export function readActiveWorkspaceId(): string | null {
 
 export function writeActiveWorkspaceId(id: string | null): void {
   safeSet(ACTIVE_WORKSPACE_KEY, id?.trim() || null);
+}
+
+export function readLastProjectId(): string | null {
+  return safeGet(LAST_PROJECT_KEY)?.trim() || null;
+}
+
+export function writeLastProjectId(id: string | null): void {
+  safeSet(LAST_PROJECT_KEY, id?.trim() || null);
 }
 
 export function readWorkspaceOrderIds(): string[] {
@@ -115,6 +124,7 @@ export function forgetWorkspaceMemory(workspaceId: string): void {
   }
   const active = readActiveWorkspaceId();
   if (active === wsId) writeActiveWorkspaceId(null);
+  if (readLastProjectId() === wsId) writeLastProjectId(null);
   const workspaceOrderIds = readWorkspaceOrderIds();
   if (workspaceOrderIds.includes(wsId)) {
     writeWorkspaceOrderIds(workspaceOrderIds.filter((id) => id !== wsId));
