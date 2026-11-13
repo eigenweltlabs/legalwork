@@ -32,6 +32,8 @@ Project menus provide the actions available in this context, including renaming 
 
 ## Conversations
 
+Long conversations load older messages automatically as you scroll up. LegalWork keeps only a few nearby batches loaded to keep memory use under control. Messages outside that window stay saved and load again when you scroll back. Loading another batch keeps the message you are reading in place. Use **Jump to latest** to return to the newest messages.
+
 In a project, **New Chat** starts a conversation in that project. From the Personal Assistant, it opens a project picker so you can choose where the new conversation belongs. The Assistant conversation stays available. **Cmd/Ctrl+N** follows the same behavior.
 
 Ask “What is in this project?” or “Which files are here?” to get an answer directly in chat. The agent can look up the project’s files, notes, tasks, recordings and chats and summarize what it finds.

@@ -37,7 +37,7 @@ function auth(token: string) {
   return { Authorization: `Bearer ${token}` };
 }
 
-function startMockOpencode(input: { messagePage?: (url: URL) => { data: SessionMessageInfo[]; cursor: { next?: string } }; directory: string; sessionDirectory?: string; invalidList?: boolean; holdCommand?: Promise<void>; idle?: () => boolean; retry?: () => { type: "retry"; attempt: number; message: string; next: number } | null; commands?: () => Array<{ name: string; template: string }>; promptOutcome?: () => "failed" | "interrupted" | undefined; providerId?: string; managedCommands?: () => boolean }) {
+function startMockOpencode(input: { revertMessageId?: string; messagePage?: (url: URL) => { data: SessionMessageInfo[]; cursor: { next?: string } }; directory: string; sessionDirectory?: string; invalidList?: boolean; holdCommand?: Promise<void>; idle?: () => boolean; retry?: () => { type: "retry"; attempt: number; message: string; next: number } | null; commands?: () => Array<{ name: string; template: string }>; promptOutcome?: () => "failed" | "interrupted" | undefined; providerId?: string; managedCommands?: () => boolean }) {
   const requests: Array<{ pathname: string; search: string; directory: string | null; method: string; body?: unknown }> = [];
   let outcome: string | undefined;
   const messages = () => {
@@ -47,7 +47,7 @@ function startMockOpencode(input: { messagePage?: (url: URL) => { data: SessionM
       ...(retry ? { retry: { attempt: retry.attempt, at: retry.next, error: { type: "service-unavailable", message: retry.message } } } : {}),
       content: [{ type: "text", text: "hostname: mock-host" }, { type: "tool", id: "call_todos", name: "todowrite", time: { created: 200, ran: 200, completed: 201 }, state: { status: "completed", input: {}, content: [], metadata: { todos: [{ content: "Validate session reads", status: "completed", priority: "high" }] } } }] }];
   };
-  const session = () => ({ id: "ses_1", projectID: "project", title: "Hostname Check", location: { directory: input.sessionDirectory ?? input.directory }, time: { created: 100, updated: 200 }, ...(outcome ? { outcome } : {}) });
+  const session = () => ({ id: "ses_1", projectID: "project", title: "Hostname Check", location: { directory: input.sessionDirectory ?? input.directory }, time: { created: 100, updated: 200 }, ...(outcome ? { outcome } : {}), ...(input.revertMessageId ? { revert: { messageID: input.revertMessageId, files: [] } } : {}) });
   const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
     const url = new URL(request.url), pathname = url.pathname;
     const received = { pathname, method: request.method, search: url.search, directory: url.searchParams.get("directory") ?? url.searchParams.get("location[directory]"), ...(request.method === "POST" || request.method === "PATCH" ? { body: JSON.parse((await request.text()) || "null") } : {}) };
@@ -126,6 +126,67 @@ async function waitUntil(predicate: () => boolean | Promise<boolean>) {
 }
 
 describe("workspace session read APIs", () => {
+  test.each([101, 141])("the latest page respects an undo point outside the last batch (%s)", async (boundary) => {
+    const workspaceRoot = await createWorkspaceRoot();
+    const mock = startMockOpencode({ directory: workspaceRoot, revertMessageId: `msg_${boundary}`, messagePage: url => {
+      if (url.searchParams.has("type")) return { data: [], cursor: {} };
+      const offset = Number(url.searchParams.get("cursor") ?? 0);
+      const data: SessionMessageInfo[] = Array.from({ length: Math.min(140, 420 - offset) }, (_, index) => ({
+        id: `msg_${420 - offset - index}`, type: "user", text: "Synthetic undo probe", time: { created: 420 - offset - index },
+      }));
+      return { data, cursor: offset + data.length < 420 ? { next: String(offset + data.length) } : {} };
+    } });
+    const legalwork = await startLegalworkServer({ workspaceRoot, opencodeBaseUrl: `http://127.0.0.1:${mock.server.port}` });
+    const response = await fetch(`http://127.0.0.1:${legalwork.server.port}/workspace/ws_1/sessions/ses_1/snapshot?page=true`, { headers: auth(legalwork.token) });
+    const { item } = await response.json();
+    expect(item.messages.length).toBeGreaterThan(0);
+    expect(item.messages.length).toBeLessThanOrEqual(140);
+    expect(item.messages.at(-1).id).toBe(`msg_${boundary - 1}`);
+    expect(item.messages.every((message: { time: { created: number } }) => message.time.created < boundary)).toBe(true);
+  });
+
+  test("an ascending history window preserves chronology and cursors in both directions", async () => {
+    const workspaceRoot = await createWorkspaceRoot();
+    const mock = startMockOpencode({ directory: workspaceRoot, messagePage: url => {
+      if (url.searchParams.get("type")) return { data: [], cursor: {} };
+      const data: SessionMessageInfo[] = [1, 2].map(index => ({ id: `msg_${index}`, type: "user", text: `Question ${index}`, time: { created: index } }));
+      return { data, cursor: { previous: "earlier", next: "later" } };
+    } });
+    const legalwork = await startLegalworkServer({ workspaceRoot, opencodeBaseUrl: `http://127.0.0.1:${mock.server.port}` });
+    const response = await fetch(`http://127.0.0.1:${legalwork.server.port}/workspace/ws_1/sessions/ses_1/snapshot?page=true&pageOrder=asc`, { headers: auth(legalwork.token) });
+    const { item } = await response.json();
+    expect(item.messages.map((message: { id: string }) => message.id)).toEqual(["msg_1", "msg_2"]);
+    expect(item.historyPage).toEqual({ olderCursor: "earlier", newerCursor: "later", count: 2, order: "asc" });
+  });
+
+  test("display snapshots expose native history cursors and bound each batch without aggregating history", async () => {
+    const workspaceRoot = await createWorkspaceRoot();
+    const mock = startMockOpencode({ directory: workspaceRoot, messagePage: url => {
+      if (url.searchParams.get("type") === "assistant") return { data: [], cursor: {} };
+      const offset = Number(url.searchParams.get("cursor")?.replace("older-", "") ?? 0);
+      const limit = Number(url.searchParams.get("limit"));
+      const data: SessionMessageInfo[] = Array.from({ length: Math.min(limit, 1000 - offset) }, (_, index) => ({
+        id: `msg_${1000 - offset - index}`, type: "user", text: `Synthetic question ${1000 - offset - index}`, time: { created: 1000 - offset - index },
+      }));
+      return { data, cursor: { next: `older-${offset + data.length}` } };
+    } });
+    const legalwork = await startLegalworkServer({ workspaceRoot, opencodeBaseUrl: `http://127.0.0.1:${mock.server.port}` });
+    const base = `http://127.0.0.1:${legalwork.server.port}/workspace/ws_1/sessions/ses_1/snapshot`;
+    const headers = auth(legalwork.token);
+    const latest = await fetch(`${base}?page=true&limit=1000&files=references`, { headers }).then(response => response.json());
+    expect(latest.item.messages).toHaveLength(140);
+    expect(latest.item.messages[0].id).toBe("msg_861");
+    expect(latest.item.messages.at(-1).id).toBe("msg_1000");
+    expect(latest.item.historyPage).toEqual({ olderCursor: "older-140", count: 140, order: "desc" });
+    const older = await fetch(`${base}?page=true&limit=140&files=references&cursor=older-140`, { headers }).then(response => response.json());
+    expect(older.item.messages[0].id).toBe("msg_721");
+    expect(older.item.messages.at(-1).id).toBe("msg_860");
+    const pages = mock.requests.filter(request => request.pathname.endsWith("/message") && !new URLSearchParams(request.search).has("type"));
+    expect(pages).toHaveLength(2);
+    expect(new URLSearchParams(pages[1]?.search).has("order")).toBe(false);
+    expect(pages.every(request => new URLSearchParams(request.search).get("files") === "references")).toBe(true);
+  });
+
   test("persistent retry stops once bounded and its reason survives transcript reload", async () => {
     const workspaceRoot = await createWorkspaceRoot();
     let attempt = 2; const retryAt = Date.now() + 60_000;

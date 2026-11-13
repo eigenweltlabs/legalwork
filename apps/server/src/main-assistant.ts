@@ -218,8 +218,10 @@ export class MainAssistant {
     return { workspace, day: { date, sessionId: session.id } };
   }
 
-  history(workspaceId: string, before?: string, limit = 14) {
-    const rows = this.db.all("SELECT date, session_id FROM assistant_days WHERE workspace_id = ? AND date < ? ORDER BY date DESC LIMIT ?", [workspaceId, before ?? "9999-99-99", limit + 1]);
+  history(workspaceId: string, before?: string, limit = 14, after?: string) {
+    const rows = this.db.all(after
+      ? "SELECT date, session_id FROM assistant_days WHERE workspace_id = ? AND date > ? ORDER BY date ASC LIMIT ?"
+      : "SELECT date, session_id FROM assistant_days WHERE workspace_id = ? AND date < ? ORDER BY date DESC LIMIT ?", [workspaceId, after ?? before ?? "9999-99-99", limit + 1]);
     const days = rows.slice(0, limit).map(row => ({ date: String(row.date), sessionId: String(row.session_id) }));
     return { days, nextBefore: rows.length > limit ? days[days.length - 1].date : null };
   }
