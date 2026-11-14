@@ -21,6 +21,7 @@ export function AdminUsageIntent({ intent, view, transport, t, onSaved, onUpdate
   const current = intent === "personal" ? view.me.baseExtraLimitCents : view.orgExtraLimitCents;
   const used = intent === "personal" ? view.me.extraUsedCents : view.orgExtraUsedCents ?? 0;
   const suggested = Math.min(5_000_000, Math.max(current ?? 0, used) + 3000) / 100;
+  const restricted = intent === "organization" && view.canManageUsage === false;
   const setWorking = (value: boolean) => { setBusy(value); onBusyChange(value); };
   async function checkUsage() {
     try {
@@ -30,7 +31,7 @@ export function AdminUsageIntent({ intent, view, transport, t, onSaved, onUpdate
   }
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (busy || saved) return;
+    if (busy || saved || restricted) return;
     setError("");
     let action: ReturnType<typeof usageIntentAction>;
     try { action = usageIntentAction(view, intent, intent === "enable" ? 0 : parseUsageAmount(new FormData(event.currentTarget).get("limit"))); }
@@ -52,12 +53,13 @@ export function AdminUsageIntent({ intent, view, transport, t, onSaved, onUpdate
       }}>{busy && <Loader2 className="size-4 animate-spin" />}{t("limits.refresh")}</Button>}
       <Button disabled={busy} onClick={onClose}>{t("limits.back_to_chat")}</Button>
     </div> : <form className="space-y-4" onSubmit={event => void submit(event)} aria-busy={busy}>
+      {restricted && <p className="text-sm text-muted-foreground">{t("limits.admin_plan_required")}</p>}
       {intent !== "enable" && <>
         <p className="text-sm text-muted-foreground">{t("limits.intent_current")}: {current === null ? t("limits.intent_unlimited") : new Intl.NumberFormat(undefined, { style: "currency", currency: "EUR" }).format(current / 100)}</p>
-        <label className="grid gap-2 text-sm">{t("limits.intent_new_limit")}<Input name="limit" inputMode="decimal" defaultValue={suggested} disabled={busy} /></label>
+        <label className="grid gap-2 text-sm">{t("limits.intent_new_limit")}<Input name="limit" inputMode="decimal" defaultValue={suggested} disabled={busy || restricted} /></label>
       </>}
       {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
-      <Button type="submit" disabled={busy}>{busy && <Loader2 className="size-4 animate-spin" />}{t(intent === "enable" ? "limits.intent_enable" : "limits.intent_increase")}</Button>
+      <Button type="submit" disabled={busy || restricted}>{busy && <Loader2 className="size-4 animate-spin" />}{t(intent === "enable" ? "limits.intent_enable" : "limits.intent_increase")}</Button>
     </form>}
     <Button variant="link" className="h-auto p-0 text-muted-foreground" disabled={busy} onClick={() => void openManagement()}><ExternalLink className="size-4" />{t("limits.manage_platform")}</Button>
   </div>;

@@ -97,7 +97,7 @@ let topUpPending: { operationId: string; amountCents: number } | null = null;
 let topUpReadyAt = 0;
 let topUpQuote: { status: "requires_confirmation"; operationId: string; amountCents: number; taxCents: number; totalCents: number } | null = null;
 let failNextUsageRead = false;
-let hostedUpgrade: { plan: "plus" | "pro"; readyAt: number } | null = null;
+let hostedUpgrade: { plan: "plus" | "pro" | "max"; readyAt: number } | null = null;
 if (upgradePreview) limitFixture.usage.me.blockedReason = "wallet_empty";
 if (topUpPreview) {
   limitFixture.usage.walletCents = 0;

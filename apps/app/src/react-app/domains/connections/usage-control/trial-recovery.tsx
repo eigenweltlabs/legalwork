@@ -34,7 +34,7 @@ export function TrialRecovery({ view, transport, onRefresh, limit }: {
   return <div role="status" className="not-prose my-2 space-y-4 rounded-xl border bg-card p-5 text-sm">
     <div className="space-y-1.5">
       <p className="font-medium">{t("limits.trial_used_title")}</p>
-      <p className="leading-relaxed text-muted-foreground">{t("limits.trial_used_body", { amount: formatEuroCents(view.me.allowanceCents, locale), plan: view.me.plan === "pro" ? "Pro" : "Plus" })}</p>
+      <p className="leading-relaxed text-muted-foreground">{t("limits.trial_used_body", { amount: formatEuroCents(view.me.allowanceCents, locale), plan: view.me.plan === "max" ? "Max" : view.me.plan === "pro" ? "Pro" : "Plus" })}</p>
     </div>
     {view.isAdmin ? <>
       <div className="flex flex-wrap gap-2">

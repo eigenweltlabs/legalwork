@@ -11,7 +11,7 @@ const eigenweltBudgetExceededTitle = () => t("budget.exceeded_title");
 const eigenweltBudgetExceededBody = () => t("budget.exceeded_body");
 const eigenweltBudgetUpgradeLabel = () => t("budget.upgrade_label");
 
-export type EigenweltBudgetPlan = "sync" | "plus" | "pro" | null;
+export type EigenweltBudgetPlan = "sync" | "plus" | "pro" | "max" | null;
 
 /** Terminal-card copy when the monthly allowance is used up. Plus and Pro
  *  see the same copy (the plan param is kept for callers and future use). */
