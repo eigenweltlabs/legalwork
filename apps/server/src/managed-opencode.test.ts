@@ -25,7 +25,7 @@ if (process.env.LEGALWORK_MANAGED_EXECUTABLE_FIXTURE !== "1") {
       const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
       const output = stdout + stderr;
       expect(code, output).toBe(0);
-      expect(output).toContain("17 pass");
+      expect(output).toContain("18 pass");
       expect(output).toContain("0 fail");
     } finally {
       clearTimeout(timeout);
@@ -53,7 +53,10 @@ fs.writeFileSync(counter + ".system-ca", process.env.NODE_USE_SYSTEM_CA || "");
 const portIdx = process.argv.indexOf("--port");
 const port = portIdx >= 0 ? process.argv[portIdx + 1] : "0";
 if (n <= failUntil) {
-  process.stderr.write("Error: Unexpected error\\n\\ndatabase is locked\\n");
+  if (process.env.FAKE_OPENCODE_PORT_CONFLICT) {
+    fs.writeFileSync(counter + ".busy-port", port);
+    process.stderr.write("Failed to start server. Is port " + port + " in use?\\n");
+  } else process.stderr.write("Error: Unexpected error\\n\\ndatabase is locked\\n");
   process.exit(1);
 }
 const stdio = process.argv.includes("--stdio");
@@ -145,6 +148,19 @@ for (const relative of [false, true]) test(relative ? "an explicit relative engi
   try { expect(server.execution.command).toBe(await realpath(bin)); expect(server.running()).toBe(true); }
   finally { await server.close(); }
 });
+
+test("a port claimed after discovery is replaced, while a requested port is preserved", async () => {
+  const { bin, counter, candidateBuild } = await fakeBin();
+  const options = { bin, candidateBuild, cwd: dir!, env: { FAKE_OPENCODE_COUNTER: counter, FAKE_OPENCODE_FAIL_UNTIL: "1", FAKE_OPENCODE_PORT_CONFLICT: "1" } };
+  const engine = await createManagedOpencodeServer(options);
+  try {
+    expect(new URL(engine.url).port).not.toBe(readFileSync(counter + ".busy-port", "utf8"));
+    expect(readFileSync(counter, "utf8")).toBe("2");
+  } finally { await engine.close(); }
+  writeFileSync(counter, "0");
+  await expect(createManagedOpencodeServer({ ...options, port: 37999 })).rejects.toThrow("Is port 37999 in use?");
+  expect(readFileSync(counter, "utf8")).toBe("1");
+}, 20000);
 
 test("retries the engine spawn while the DB is locked, then succeeds", async () => {
   const { bin, counter, candidateBuild } = await fakeBin(); // fail twice, succeed on the 3rd
