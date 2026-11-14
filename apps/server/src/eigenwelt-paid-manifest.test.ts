@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,9 +9,11 @@ import {
   eigenweltPaidManifestRevision,
   parseManifestModels,
   readCachedEigenweltPaidManifest,
+  refreshEigenweltPaidManifest,
   writeCachedEigenweltPaidManifest,
 } from "./eigenwelt-paid-manifest.js";
 import type { ServerConfig } from "./types.js";
+import { writeEigenweltConnection } from "./eigenwelt-connection-store.js";
 
 const previousRuntimeDb = process.env.LEGALWORK_RUNTIME_DB;
 const cleanups: Array<() => Promise<void> | void> = [];
@@ -50,6 +52,31 @@ async function setup(): Promise<ServerConfig> {
 
 const EUROPE = { id: "Eigenwelt Europe", name: "Eigenwelt Europe", region: "EU", hostedIn: "Europe" };
 const US = { id: "Eigenwelt US", name: "Eigenwelt US", region: "US", hostedIn: "United States" };
+
+test.each([false, true])("model refresh uses the saved region and rejects a concurrent firm switch (%s)", async (switchFirm) => {
+  const config = await setup();
+  const previousOverride = process.env.EIGENWELT_PLATFORM_URL;
+  delete process.env.EIGENWELT_PLATFORM_URL;
+  cleanups.push(() => {
+    if (previousOverride === undefined) delete process.env.EIGENWELT_PLATFORM_URL;
+    else process.env.EIGENWELT_PLATFORM_URL = previousOverride;
+  });
+  const platformURL = "https://eu.platform.eigenweltlabs.com";
+  await writeEigenweltConnection(config, { platformURL, platformToken: "eu-token" });
+  await writeCachedEigenweltPaidManifest(config, { baseURL: `${platformURL}/v1`, apiKey: "eu-key", models: [EUROPE] });
+  const originalFetch = globalThis.fetch;
+  const mock = spyOn(globalThis, "fetch").mockImplementation(Object.assign(async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+    expect(String(input)).toBe(`${platformURL}/api/desktop/models`);
+    expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer eu-token");
+    expect(init?.redirect).toBe("error");
+    if (switchFirm) await writeEigenweltConnection(config, { platformURL: "https://us.platform.eigenweltlabs.com", platformToken: "us-token" });
+    return Response.json({ baseURL: `${platformURL}/v1`, models: [EUROPE, US] });
+  }, { preconnect: originalFetch.preconnect }));
+  cleanups.push(() => mock.mockRestore());
+  if (switchFirm) await expect(refreshEigenweltPaidManifest(config)).rejects.toThrow("account changed during model refresh");
+  else expect(await refreshEigenweltPaidManifest(config)).toEqual({ modelCount: 2, changed: true });
+  expect((await readCachedEigenweltPaidManifest(config))?.models).toEqual(switchFirm ? [EUROPE] : [EUROPE, US]);
+});
 
 describe("parseManifestModels", () => {
   test("keeps the hosting facts and drops malformed entries", () => {

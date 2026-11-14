@@ -22,7 +22,9 @@ export function prepareElectronDev(desktopRoot) {
   const identifier = process.env.LEGALWORK_ELECTRON_APP_IDENTIFIER?.trim() || "com.eigenweltlabs.legalwork.dev";
   const name = process.env.LEGALWORK_ELECTRON_APP_NAME?.trim() || "LegalWork - Dev";
   const signing = findNotificationSigning(identifier);
-  const cache = resolve(desktopRoot, "dist-electron/dev-runtime");
+  // Distinct dev identities need distinct bundle URLs. Reusing one .app path
+  // leaves macOS Launch Services pointing at the previous profile's identity.
+  const cache = resolve(desktopRoot, "dist-electron/dev-runtime", identifier);
   const appPath = resolve(cache, "LegalWork Dev.app");
   const markerPath = resolve(cache, "runtime.json");
   const signature = JSON.stringify({ sourceApp, modified: statSync(resolve(sourceApp, "Contents/Info.plist")).mtimeMs, identifier, name, signing, revision: 4 });

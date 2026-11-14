@@ -1,3 +1,4 @@
+import { eigenweltPlatformUrl } from "../../eigenwelt-endpoints.js";
 import { createHash } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 import { z } from "zod";
@@ -219,7 +220,7 @@ export async function boxAdapter(config: OAuthConfig, token: AccessToken): Promi
   };
 }
 
-const broker = process.env.LEGALWORK_STORAGE_BOX_OAUTH_URL ?? "https://platform.eigenweltlabs.com/api/storage-oauth/box/";
+const broker = process.env.LEGALWORK_STORAGE_BOX_OAUTH_URL ?? `${eigenweltPlatformUrl()}/api/storage-oauth/box/`;
 export const boxProvider: OAuthProvider = {
   id: "box", name: "Box", rootHint: "Leave empty for all files, or paste a Box folder link.",
   clientId: process.env.LEGALWORK_STORAGE_BOX_CLIENT_ID ?? "tyhmry12o9qcqaeubaueuypyxiu859iv",

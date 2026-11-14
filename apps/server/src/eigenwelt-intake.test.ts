@@ -80,15 +80,11 @@ const TASK = {
 };
 
 describe("requireIntakeClient", () => {
-  test("returns a client for an entitled connection and pins the configured platform", () => {
+  test("rejects a stored URL outside the trusted deployment allowlist", () => {
     process.env.EIGENWELT_PLATFORM_URL = "https://platform.test";
-    expect(
-      requireIntakeClient({
-        // A stored (display-only) URL never becomes the fetch destination.
-        platformURL: "https://evil.example",
-        platformToken: "tok_secret",
-      }),
-    ).toEqual({ platformURL: "https://platform.test", platformToken: "tok_secret" });
+    expect(() => requireIntakeClient({ platformURL: "https://evil.example", platformToken: "tok_secret" })).toThrow();
+    expect(requireIntakeClient({ platformURL: "https://platform.test", platformToken: "tok_secret" }))
+      .toEqual({ platformURL: "https://platform.test", platformToken: "tok_secret" });
   });
 
   test("does not gate on the plan: a signed-in firm without intake still syncs its own tasks", () => {

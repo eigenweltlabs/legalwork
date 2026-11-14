@@ -1,3 +1,4 @@
+import { readEigenweltConnection, withEigenweltConnectionLock } from "./eigenwelt-connection-store.js";
 import { SystemOneConfigurationSchema, type SystemOneConfiguration } from "./systemone-schema.js";
 /**
  * Global (account-level) manifest for the PAID Eigenwelt Model API provider.
@@ -133,10 +134,20 @@ export async function refreshEigenweltPaidManifest(
   const cached = await readCachedEigenweltPaidManifest(config);
   if (!cached) return { modelCount: 0, changed: false };
 
-  const { baseURL, models, systemOne } = await fetchEigenweltManifest(options); // throws on unreachable
+  const connection = await readEigenweltConnection(config);
+  if (options?.platformToken && options.platformToken !== connection.platformToken) throw new Error("The Eigenwelt account changed before model refresh.");
+  const { baseURL, models, systemOne } = await fetchEigenweltManifest({ platformToken: connection.platformToken, platformURL: connection.platformURL }); // throws on unreachable
   const next: EigenweltPaidManifest = { ...cached, baseURL, models, ...(systemOne ? { systemOne } : {}) };
   const changed = JSON.stringify(cached) !== JSON.stringify(next);
-  if (changed) await writeCachedEigenweltPaidManifest(config, next);
+  if (changed) await withEigenweltConnectionLock(config, async () => {
+    const current = await readEigenweltConnection(config);
+    const latest = await readCachedEigenweltPaidManifest(config);
+    if (current.platformURL !== connection.platformURL || current.account?.orgId !== connection.account?.orgId ||
+      current.account?.userId !== connection.account?.userId || latest?.apiKey !== cached.apiKey) {
+      throw new Error("The Eigenwelt account changed during model refresh.");
+    }
+    await writeCachedEigenweltPaidManifest(config, next);
+  });
   return { modelCount: next.models.length, changed };
 }
 

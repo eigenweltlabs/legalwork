@@ -1,10 +1,12 @@
+import { eigenweltPlatformUrl, validateEigenweltPlatformUrl } from "./eigenwelt-endpoints.js";
 import { z } from "zod";
 
 export function modelCatalogBaseURL(): string {
   const baseURL = process.env.OPENCODE_MODELS_URL?.trim().replace(/\/+$/, "") ||
-    "https://platform.eigenweltlabs.com/api/public/model-catalog";
+    `${eigenweltPlatformUrl()}/api/public/model-catalog`;
   const url = new URL(baseURL);
-  const ownHost = url.hostname === "platform.eigenweltlabs.com";
+  let ownHost = false;
+  try { ownHost = Boolean(validateEigenweltPlatformUrl(url.origin)); } catch { /* allow only trusted origins */ }
   const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
   if (url.username || url.password || url.search || url.hash ||
     !(url.protocol === "https:" && ownHost || loopback && ["http:", "https:"].includes(url.protocol))) {

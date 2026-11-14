@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import type { WikiSharingInput, WikiTeamOverview, WikiTeamRecord, WikiTeamSyncSettings } from "@legalwork/types/wiki";
-import { eigenweltPlatformUrl } from "../eigenwelt-auth.js";
+import { eigenweltConnectionPlatformUrl } from "../eigenwelt-endpoints.js";
 import { readEigenweltConnection } from "../eigenwelt-connection-store.js";
 import { ensureFreshPlatformToken } from "../eigenwelt-refresh.js";
 import { ApiError } from "../errors.js";
@@ -21,7 +21,7 @@ const hashSchema = z.string().regex(/^[a-f0-9]{64}$/);
 const sizeSchema = z.number().int().min(0).max(WIKI_MAX_ASSET_BYTES);
 const fileSchema = z.object({ path: z.string().refine(isWikiPath), sha256: hashSchema, size: sizeSchema, contentType: z.string(), updatedByUserId: z.string(), updatedAt: z.string().datetime() }).refine(file => !/\.md$/i.test(file.path) || file.size <= WIKI_MAX_PAGE_BYTES);
 export type WikiTeamFile = z.infer<typeof fileSchema>;
-type Identity = { orgId: string; userId: string; orgName: string | null; token: string };
+type Identity = { platformURL: string; orgId: string; userId: string; orgName: string | null; token: string };
 type Lease = { identity: Identity; record: WikiTeamRecord; at: number };
 const base = (id: string) => `/api/wikis/${encodeURIComponent(z.string().uuid().parse(id))}`;
 function parsed<T>(schema: z.ZodType<T>, value: unknown): T {
@@ -36,18 +36,19 @@ export class WikiTeamClient {
   private leases = new Map<string, Lease>();
   constructor(private config: ServerConfig) {}
   private async identity(orgId?: string): Promise<Identity> {
-    const token = await ensureFreshPlatformToken(this.config);
+    await ensureFreshPlatformToken(this.config);
     const connection = await readEigenweltConnection(this.config);
     const account = connection.account;
+    const token = connection.platformToken;
     if (!token || !account) { this.leases.clear(); throw new ApiError(401, "wiki_team_sign_in", "Sign in with your firm to share or open team wikis."); }
     if (orgId !== undefined && account.orgId !== orgId) throw new ApiError(403, "wiki_team_wrong_firm", "This wiki belongs to a different firm. Sign in with that firm to sync it.");
-    return { token, orgId: account.orgId, userId: account.userId, orgName: account.orgName };
+    return { platformURL: eigenweltConnectionPlatformUrl(connection), token, orgId: account.orgId, userId: account.userId, orgName: account.orgName };
   }
   private async request(method: string, path: string, body?: unknown, orgId?: string): Promise<unknown> {
     const identity = await this.identity(orgId);
     let response: Response;
     try {
-      response = await fetch(`${eigenweltPlatformUrl()}${path}`, {
+      response = await fetch(`${identity.platformURL}${path}`, {
         method, redirect: "error", signal: AbortSignal.timeout(15_000),
         headers: { Authorization: `Bearer ${identity.token}`, Accept: "application/json", ...(body === undefined ? {} : { "Content-Type": "application/json" }) },
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
@@ -56,7 +57,7 @@ export class WikiTeamClient {
     // A sign-out or firm switch during a transfer must not authorize its result.
     const current = await readEigenweltConnection(this.config);
     if (!current.account || !current.platformToken) { this.leases.clear(); throw new ApiError(401, "wiki_team_sign_in", "Sign in with your firm to open this wiki."); }
-    if (current.account.orgId !== identity.orgId || current.account.userId !== identity.userId) throw new ApiError(403, "wiki_team_identity_changed", "Your signed-in firm changed during wiki sync. Local files are retained.");
+    if (current.account.orgId !== identity.orgId || current.account.userId !== identity.userId || eigenweltConnectionPlatformUrl(current) !== identity.platformURL) throw new ApiError(403, "wiki_team_identity_changed", "Your signed-in firm changed during wiki sync. Local files are retained.");
     if (!response.ok) {
       const details = await response.json().catch(() => null);
       const failure = z.object({ reason: z.string().optional(), details: z.object({ reason: z.string().optional() }).optional() }).safeParse(details);
@@ -93,12 +94,12 @@ export class WikiTeamClient {
   }
   async cached(binding: WikiTeamSyncSettings): Promise<WikiTeamRecord | null> {
     const identity = await this.identity(binding.orgId), lease = this.leases.get(binding.wikiId);
-    return lease && lease.identity.orgId === identity.orgId && lease.identity.userId === identity.userId && lease.identity.token === identity.token && Date.now() - lease.at < LEASE_MS ? lease.record : null;
+    return lease && lease.identity.platformURL === identity.platformURL && lease.identity.orgId === identity.orgId && lease.identity.userId === identity.userId && lease.identity.token === identity.token && Date.now() - lease.at < LEASE_MS ? lease.record : null;
   }
   async ownerOffline(binding: WikiTeamSyncSettings): Promise<boolean> {
     // Sign-out, another firm, and a revoked membership are never offline access.
     const identity = await this.identity(binding.orgId), lease = this.leases.get(binding.wikiId);
-    return Boolean(lease && lease.record.role === "owner" && lease.identity.orgId === identity.orgId && lease.identity.userId === identity.userId);
+    return Boolean(lease && lease.record.role === "owner" && lease.identity.platformURL === identity.platformURL && lease.identity.orgId === identity.orgId && lease.identity.userId === identity.userId);
   }
   async record(binding: WikiTeamSyncSettings, fresh = true): Promise<WikiTeamRecord> {
     if (!fresh) { const cached = await this.cached(binding); if (cached) return cached; }

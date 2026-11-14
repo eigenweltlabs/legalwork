@@ -2,7 +2,7 @@ import { lstat, mkdir, readdir, readFile, realpath, writeFile } from "node:fs/pr
 import { dirname, join, resolve } from "node:path";
 
 import { ApiError } from "./errors.js";
-import { eigenweltPlatformUrl } from "./eigenwelt-auth.js";
+import { eigenweltConnectionPlatformUrl } from "./eigenwelt-endpoints.js";
 import { sanitizeIntegrationMcp } from "./hub-sanitize.js";
 import { nativeMcpDefinition } from "./native-mcp-config.js";
 import { normalizePluginMcpConfig } from "./cloud-plugins.js";
@@ -429,10 +429,7 @@ export function requireHubClient(connection: {
   platformURL: string | null;
   platformToken: string | null;
 }): HubClient {
-  // Hub traffic always targets the configured trusted platform. The stored URL
-  // is display metadata from OAuth and must never become a server-side fetch
-  // destination.
-  const platformURL = eigenweltPlatformUrl();
+  const platformURL = eigenweltConnectionPlatformUrl(connection);
   const platformToken = connection.platformToken ?? "";
   if (!platformURL || !platformToken) {
     throw new ApiError(
@@ -453,6 +450,7 @@ async function hubRequest(
   let response: Response;
   try {
     response = await fetch(`${client.platformURL}${path}`, {
+      redirect: "error",
       method,
       headers: {
         Authorization: `Bearer ${client.platformToken}`,

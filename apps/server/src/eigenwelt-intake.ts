@@ -1,5 +1,5 @@
 import { ApiError } from "./errors.js";
-import { eigenweltPlatformUrl } from "./eigenwelt-auth.js";
+import { eigenweltConnectionPlatformUrl } from "./eigenwelt-endpoints.js";
 
 /**
  * Client for the Eigenwelt platform "Intake" — the firm's shared inbox, where
@@ -196,10 +196,7 @@ export function requireIntakeClient(connection: {
   platformURL: string | null;
   platformToken: string | null;
 }): IntakeClient {
-  // Platform traffic always targets the configured trusted platform. The stored
-  // URL is display metadata from OAuth and must never become a server-side
-  // fetch destination.
-  const platformURL = eigenweltPlatformUrl();
+  const platformURL = eigenweltConnectionPlatformUrl(connection);
   const platformToken = connection.platformToken ?? "";
   if (!platformURL || !platformToken) {
     throw new ApiError(
