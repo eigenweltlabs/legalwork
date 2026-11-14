@@ -893,17 +893,19 @@ export function LauncherPanel() {
     openInApp(launcherFileRoute({ projectId: result.workspaceId, workspaceId: result.workspaceId, path: result.path, name: result.title }, destination, paneId));
     setOpenChoice(null);
   };
-  const openCreate = (kind: LauncherCreate["kind"], name?: string, format?: LauncherCreate["format"], destination?: { workspaceId: string; folder: string }) => {
+  const openCreate = (kind: LauncherCreate["kind"], options: { name?: string; format?: LauncherCreate["format"]; fromSelection?: boolean } = {}) => {
     if (childForm.current.busy) return;
+    const { name, format, fromSelection } = options;
     const state = useLauncherStore.getState();
-    const detail = state.view === "detail" ? state.detail : null;
-    const workspaceId = destination?.workspaceId ?? detail?.result.workspaceId ?? state.scope?.id ?? (state.target.kind === "project" ? state.target.workspaceId : state.workspaceContext?.workspaceId ?? "");
-    const folder = detail?.result.fileType === "folder" && !detail.result.folderId && detail.result.workspaceId === workspaceId ? detail.result.path ?? ""
-      : detail?.result.kind === "projects" ? "" : workspaceId === state.workspaceContext?.workspaceId ? state.workspaceContext.folder ?? "" : "";
-    const context = destination ? creationContext(invocationContext ?? null, workspaceId, state.context, state.workspaceContext) : state.context;
+    const detail = state.view === "detail" ? state.detail?.result : null;
+    const origin = fromSelection ? state.workspaceContext : invocationContext;
+    const workspaceId = detail?.workspaceId ?? state.scope?.id ?? (fromSelection && state.target.kind === "project" ? state.target.workspaceId : origin?.workspaceId ?? "");
+    const folder = detail?.fileType === "folder" && !detail.folderId && detail.workspaceId === workspaceId ? detail.path ?? ""
+      : detail?.kind === "projects" ? "" : origin?.workspaceId === workspaceId ? origin.folder ?? "" : "";
+    const context = fromSelection ? state.context : creationContext(origin ?? null, workspaceId, state.context, state.workspaceContext);
     const text = kind === "document" ? "" : excerptText(context);
     if (kind === "attach") attachmentOperation.current = { key: "", id: crypto.randomUUID() };
-    setCreation({ kind, workspaceId, folder: destination?.folder ?? folder, format,
+    setCreation({ kind, workspaceId, folder, format,
       name: name ?? (kind === "document" ? searchText.trim() : context.some(item => item.type === "selection") ? text.split("\n\n").at(-1)?.slice(0, 70).replace(/[/\\\n]/g, " ") ?? "" : ""), text, context: [...context] });
   };
   const selectionAction = (kind: "explain" | "translate" | "rewrite") => {
@@ -1013,13 +1015,13 @@ export function LauncherPanel() {
   const sortRow: NavigationRow = { id: "search:sort", title: t("launcher.sort.title"), Icon: ArrowDownUp, run: () => store.setOverlay({ kind: "sort" }) };
   const sourceFilters = searchCategory === "files" && store.view !== "detail" ? fileSourceSuggestions(store.input) : [];
   const filterSuggestions = [...sourceFilters, ...typedFilterSuggestions(store.input, workspaces, new Date(), {
-    currentProjectId: store.workspaceContext?.workspaceId,
+    currentProjectId: invocationContext?.workspaceId,
     recentProjectIds: [...new Set([...recents].sort((a, b) => b.openedAt - a.openedAt).flatMap(item => item.result.workspaceId ? [item.result.workspaceId] : []))],
   })];
   const detailCategory = store.view === "detail" ? store.detail?.result.fileType === "folder" ? "files" : store.detail?.result.kind === "projects" ? store.detail.category ?? null : null : null;
   const creationName = (detailCategory ?? searchCategory) && !filterSuggestions.length ? (store.view === "detail" ? store.input : searchText).trim() : "";
-  const createDocumentRow: NavigationRow = { id: "create:document", title: creationName ? t("launcher.flow.create_named", { name: creationName }) : t("launcher.flow.create_document"), Icon: FilePlus2, run: () => openCreate("document", creationName) };
-  const createTaskRow: NavigationRow = { id: "create:task", title: creationName ? t("launcher.suggest.create_task_named", { name: creationName }) : t("launcher.flow.create_task"), Icon: ListChecks, run: () => openCreate("task", creationName) };
+  const createDocumentRow: NavigationRow = { id: "create:document", title: creationName ? t("launcher.flow.create_named", { name: creationName }) : t("launcher.flow.create_document"), Icon: FilePlus2, run: () => openCreate("document", { name: creationName }) };
+  const createTaskRow: NavigationRow = { id: "create:task", title: creationName ? t("launcher.suggest.create_task_named", { name: creationName }) : t("launcher.flow.create_task"), Icon: ListChecks, run: () => openCreate("task", { name: creationName }) };
   const recordMeetingRow: NavigationRow = { id: "action:record-meeting", title: t("launcher.suggest.record_meeting"), Icon: Mic, run: () => launcherVoice("record") };
   const projectName = activeProject?.name;
   const appChatRow: NavigationRow = {
@@ -1031,13 +1033,12 @@ export function LauncherPanel() {
     Icon: MessageSquare, avatar: activeProject ? undefined : <AssistantAvatar icon={assistant?.profile.icon} className="size-5" />,
     run: () => startNewChat("mini", activeProject?.id),
   };
-  const creationDestination = { workspaceId: activeProject?.id ?? "", folder: activeProject ? invocationContext?.folder ?? "" : "" };
   const newRows: Record<LauncherCreationAction, NavigationRow> = {
     "project-chat": appChatRow, "mini-chat": miniChatRow,
-    document: { ...createDocumentRow, title: t("launcher.new.document"), run: () => openCreate("document", "", "md", creationDestination) },
-    docx: { id: "create:docx", title: t("launcher.new.word"), Icon: FilePlus2, run: () => openCreate("document", "", "docx", creationDestination) },
-    text: { id: "create:text", title: t("launcher.new.text"), Icon: FilePlus2, run: () => openCreate("document", "", "txt", creationDestination) },
-    task: { ...createTaskRow, title: t("launcher.new.task"), run: () => openCreate("task", "", undefined, creationDestination) },
+    document: { ...createDocumentRow, title: t("launcher.new.document"), run: () => openCreate("document", { name: "", format: "md" }) },
+    docx: { id: "create:docx", title: t("launcher.new.word"), Icon: FilePlus2, run: () => openCreate("document", { name: "", format: "docx" }) },
+    text: { id: "create:text", title: t("launcher.new.text"), Icon: FilePlus2, run: () => openCreate("document", { name: "", format: "txt" }) },
+    task: { ...createTaskRow, title: t("launcher.new.task"), run: () => openCreate("task", { name: "" }) },
     project: { id: "create:project", title: t("launcher.action.new-project"), Icon: Folder, run: () => openInApp("/projects?create=project") },
     recording: recordMeetingRow,
   };
@@ -1098,7 +1099,7 @@ export function LauncherPanel() {
     })),
     ...searchRoots.filter(visibleResult).map(result => ({ id: `home:folder:${result.id}`, title: result.title, Icon: Folder, result, run: () => showDetail(result) })),
     ...categoryRows.map(row => ({ ...row, subtitle: row.id !== "category:projects" ? invocationContext?.workspaceName : undefined, meta: row.id !== "category:projects" && invocationContext ? workspaceOrigin(invocationContext.workspaceId, invocationContext.workspaceName) : undefined, run: () => { const context = invocationContext; store.setScope(context && row.id !== "category:projects" ? { id: context.workspaceId, name: context.workspaceName } : null); return row.run(); } })),
-    ...(invocationContext ? [{ id: "home:create-task", title: t("launcher.flow.create_task"), subtitle: invocationContext.workspaceName, meta: workspaceOrigin(invocationContext.workspaceId, invocationContext.workspaceName), Icon: ListChecks, run: () => openCreate("task", "", undefined, creationDestination) }] : []),
+    ...(invocationContext ? [{ id: "home:create-task", title: t("launcher.flow.create_task"), subtitle: invocationContext.workspaceName, meta: workspaceOrigin(invocationContext.workspaceId, invocationContext.workspaceName), Icon: ListChecks, run: () => openCreate("task", { name: "" }) }] : []),
     ...(desktop && !voice?.meeting ? [recordMeetingRow] : []),
     ...(desktop ? [{ id: "home:capture-region", title: t("launcher.context.capture_region"), Icon: ScanLine, run: captureActions.region }] : []),
     ...(store.attentionCount ? [{ id: "home:work", title: t("launcher.flow.work"), subtitle: t("launcher.work.pending", { count: store.attentionCount }), Icon: ListChecks, run: () => openWork() }] : []),
@@ -1196,7 +1197,7 @@ export function LauncherPanel() {
     if (key === "Enter" && event.repeat && !(event.shiftKey && !modifier && (mode === "ask" || mode === "conversation"))) { event.preventDefault(); return; }
     if (hasSelectedText && modifier && !event.altKey && !event.shiftKey && ["1", "2", "3", "4"].includes(key)) {
       event.preventDefault(); event.stopPropagation();
-      if (key === "4") openCreate("attach");
+      if (key === "4") openCreate("attach", { fromSelection: true });
       else selectionAction(key === "1" ? "explain" : key === "2" ? "translate" : "rewrite");
       return;
     }
@@ -1362,8 +1363,8 @@ export function LauncherPanel() {
           <option value="system">{t("launcher.flow.translation_system")}</option><option value="English">English</option><option value="German">Deutsch</option><option value="French">Français</option><option value="Spanish">Español</option><option value="Italian">Italiano</option>
         </select>
         <Button variant="ghost" size="sm" disabled={sending} onClick={() => selectionAction("rewrite")}>{t("launcher.flow.rewrite")}<kbd>{mod}3</kbd></Button>
-        <Button variant="ghost" size="sm" onClick={() => openCreate("attach")}>{t("launcher.flow.create_attach")}<kbd>{mod}4</kbd></Button>
-        <DropdownMenu><DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label={t("launcher.footer.actions")} title={t("launcher.footer.actions")} />}><MoreHorizontal className="size-4" /></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem onClick={() => openCreate("excerpt")}>{t("launcher.flow.create_excerpt")}</DropdownMenuItem><DropdownMenuItem onClick={() => openCreate("task")}>{t("launcher.flow.create_task")}</DropdownMenuItem></DropdownMenuContent></DropdownMenu>
+        <Button variant="ghost" size="sm" onClick={() => openCreate("attach", { fromSelection: true })}>{t("launcher.flow.create_attach")}<kbd>{mod}4</kbd></Button>
+        <DropdownMenu><DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label={t("launcher.footer.actions")} title={t("launcher.footer.actions")} />}><MoreHorizontal className="size-4" /></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem onClick={() => openCreate("excerpt", { fromSelection: true })}>{t("launcher.flow.create_excerpt")}</DropdownMenuItem><DropdownMenuItem onClick={() => openCreate("task", { fromSelection: true })}>{t("launcher.flow.create_task")}</DropdownMenuItem></DropdownMenuContent></DropdownMenu>
       </div>}
       {store.view !== "conversation" && attentionItems.length > 0 && <AttentionCards items={attentionItems} busy={attentionBusy} onReply={replyAttention} onOpen={item => openInApp(workspaceSessionRoute(item.workspaceId, item.sessionId))} />}
       <div ref={bodyRef} className="launcher-body" onScroll={event => { if (event.currentTarget.scrollTop > 48 && !expandedByScroll) setScrollExpansion({ view: store.view, category: store.category }); }}>

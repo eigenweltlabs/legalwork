@@ -2463,7 +2463,7 @@ export function SessionRoute() {
     : location.pathname.startsWith("/workspace/") && selectedWorkspace?.id === routeWorkspaceId ? selectedWorkspace : null;
   const projectPage = projectViewFromPath(location.pathname);
   const launcherWorkspace: LauncherViewedProject | null = viewedProject && viewedProject.preset !== "main-assistant" && viewedProject.preset !== "wiki"
-    ? { id: viewedProject.id, name: viewedProject.displayName || viewedProject.name, view: projectPage === "files" ? "files" : homePage || projectPage ? "project" : undefined } : null;
+    ? { id: viewedProject.id, name: viewedProject.displayName || viewedProject.name, view: projectPage === "files" ? "files" : homePage || projectPage || mainPage === "evals" ? "project" : undefined } : null;
   usePublishLauncherContext(launcherWorkspace, client?.baseUrl);
   const homeModel = useChatModelPreferences(homeAssistant, homePage ? providerListQuery.data : undefined);
   const homeModelBehavior = useModelBehavior({ providerList: providerListQuery.data, defaultModel: homeModel.model, modelVariant: homeModel.variant });
