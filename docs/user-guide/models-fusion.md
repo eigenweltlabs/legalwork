@@ -33,7 +33,7 @@ Keys can originate from a settings connection, environment variables or managed 
 
 ## Choose an Eigenwelt plan or use your own AI
 
-During setup, **Use LegalWork for free** appears above the three paid plans: **Plus**, **Pro** and **Max**. Choose **I bring my own model** to connect your own AI subscription, API key or local model; your provider bills its usage separately.
+During setup, **Use LegalWork for free** appears below the three paid plans: **Plus**, **Pro** and **Max**. Choose **I bring my own model** to connect your own AI subscription, API key or local model; your provider bills its usage separately.
 
 All three paid plans include collaboration and hosted AI. Per seat, Plus includes €30 of monthly AI usage, Pro €100 and Max €210. The monthly subscription prices are €40, €100 and €200. With yearly billing, the monthly equivalents are €30, €90 and €190, charged as €360, €1,080 and €2,280 per seat per year. Subscription prices exclude VAT.
 

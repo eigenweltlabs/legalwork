@@ -2,7 +2,7 @@
 /**
  * The plan screen. LegalWork has no free model tier, so while no model is
  * usable (see aiAccessState) this screen lies over the blurred app, and it is
- * the last onboarding step. A free own-model banner above Plus, Pro and Max cards
+ * the last onboarding step. A free own-model banner below Plus, Pro and Max cards
  * with the same tiers as the platform.
  *
  *  - Own model is free and opens the provider connection. Closing that
@@ -847,7 +847,6 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
             </button>)}
           </div>
         </div>
-        {!props.assistantUpgrade && <OwnModelBanner disabled={disabled} onChoose={bringOwnModel} />}
         <div className="mt-4 grid gap-4 md:grid-cols-3 md:gap-x-4 md:gap-y-0 xl:gap-x-5 roomy:mt-5 roomy:gap-x-7">
           {EIGENWELT_PLANS.map((plan) => (
             <PlanCard
@@ -861,6 +860,7 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
             />
           ))}
         </div>
+        {!props.assistantUpgrade && <OwnModelBanner disabled={disabled} onChoose={bringOwnModel} />}
       </>
     );
     footerCenter = (

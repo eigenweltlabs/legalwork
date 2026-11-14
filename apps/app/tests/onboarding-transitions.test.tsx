@@ -39,9 +39,9 @@ describe("onboarding transitions", () => {
       }),
     );
 
-  test("offers a free banner above Plus, Pro and Max with the new prices", () => {
+  test("offers a free banner below Plus, Pro and Max with the new prices", () => {
     const html = plans("onboarding");
-    expect(html.indexOf("Use LegalWork for free")).toBeLessThan(html.indexOf('data-testid="ai-plan-plus"'));
+    expect(html.indexOf("Use LegalWork for free")).toBeGreaterThan(html.indexOf('data-testid="ai-plan-max"'));
     for (const plan of ["plus", "pro", "max"]) expect(html).toContain('data-testid="ai-plan-' + plan + '"');
     expect(html).not.toContain('data-testid="ai-plan-sync"');
     expect(html).not.toContain('role="tablist"');
