@@ -5544,7 +5544,6 @@ const de = {
   "ai_plans.everything_in_plus": "Alles aus Plus und:",
   "ai_plans.feature_usage": "{amount} KI-Nutzung pro Nutzer und Monat inklusive",
   "ai_plans.included_usage": "Enthaltene KI-Nutzung",
-  "ai_plans.summary_ai": "Premium-Modelle & KI-Werkzeuge",
   "ai_plans.summary_team": "Team-Sync & Mandatsverwaltung",
   "ai_plans.summary_admin": "Admin-Dashboard & priorisierter Support",
   "ai_plans.view_features": "Alle Funktionen ansehen",

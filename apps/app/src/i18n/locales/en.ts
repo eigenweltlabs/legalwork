@@ -5293,7 +5293,6 @@ export default {
   "ai_plans.everything_in_plus": "Everything in Plus and:",
   "ai_plans.feature_usage": "{amount} of AI usage included per seat each month",
   "ai_plans.included_usage": "Included AI usage",
-  "ai_plans.summary_ai": "Premium models & AI tools",
   "ai_plans.summary_team": "Team sync & matter management",
   "ai_plans.summary_admin": "Admin dashboard & priority support",
   "ai_plans.view_features": "View all features",

@@ -308,7 +308,7 @@ function PlanCard(props: {
       features={
         <div className="mt-3 flex flex-col border-t border-dls-border pt-3 text-[12px] leading-[18px] text-dls-text roomy:text-[13px] roomy:leading-5">
           <ul className="mb-2 space-y-1.5">
-            <FeatureRow>{t("ai_plans.summary_ai")}</FeatureRow>
+            <FeatureRow>{t("ai_plans.feature_models")}</FeatureRow>
             <FeatureRow>{t("ai_plans.summary_team")}</FeatureRow>
             {plan.id !== "plus" && <FeatureRow>{t("ai_plans.summary_admin")}</FeatureRow>}
           </ul>
@@ -934,7 +934,7 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto flex min-h-full w-full max-w-[1200px] flex-col px-6 lg:px-8 roomy:max-w-[1360px] roomy:px-12">
           {props.projectApproval}
-          <div className={cn("flex flex-1 flex-col justify-center", phase.kind === "choose" && !signInFirst ? "py-4 roomy:py-6" : "py-8 roomy:py-10", phase.kind === "confirm" && "[@media(max-height:780px)]:py-4")}>
+          <div className={cn("flex flex-1 flex-col justify-center", phase.kind === "choose" && !signInFirst ? "py-3 roomy:py-6" : "py-8 roomy:py-10", phase.kind === "confirm" && "[@media(max-height:780px)]:py-4")}>
             {body}
           </div>
           {backRow || footerCenter || updatesLink ? (

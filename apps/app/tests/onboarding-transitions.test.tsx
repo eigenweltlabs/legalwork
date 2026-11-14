@@ -58,7 +58,7 @@ describe("onboarding transitions", () => {
       const featureList = card.split("<ul")[1];
       expect(featureList).not.toContain("AI usage");
       expect(featureList).not.toContain("203 StGB");
-      expect(card).toContain("Premium models &amp; AI tools");
+      for (const model of ["GPT-6.1 Sol", "Claude Opus 5.5", "Gemini 3.8 Flash", "Mistral Large 4"]) expect(card).toContain(model);
       expect(card).toContain("Team sync &amp; matter management");
       expect(card).toContain("View all features");
     }
