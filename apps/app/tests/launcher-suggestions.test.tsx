@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { compareLauncherResults, LauncherSortSchema } from "@legalwork/types/launcher";
 import { launcherCreationActions, matchesAssistantSuggestion, matchesSortSuggestion, prioritizeLauncherSuggestions } from "../src/react-app/launcher/launcher-suggestions";
+import { hasRecentSource } from "../src/react-app/launcher/launcher-recents";
 import { LauncherRowMenu } from "../src/react-app/launcher/launcher-row-menu";
 import { t } from "../src/i18n";
 
@@ -51,4 +52,13 @@ test("New lists creation actions in the foreground context and narrows by Englis
   expect(launcherCreationActions("New File", true)).toEqual(["document"]);
   expect(launcherCreationActions("neue Textdatei", true)).toEqual(["text"]);
   for (const query of ["", "newsletter", "new york", "neural", "NDA", "new.docx"]) expect(launcherCreationActions(query, true)).toEqual([]);
+});
+
+test("a validated Wiki file appears in recents without being listed as a project", () => {
+  const projects = [{ id: "project-a" }];
+  const wikiFile = { kind: "files" as const, workspaceId: "wiki-library", sourceId: "files" };
+  expect(hasRecentSource(wikiFile, projects, true)).toBe(true);
+  expect(hasRecentSource(wikiFile, projects, false)).toBe(false);
+  expect(hasRecentSource({ kind: "tasks", workspaceId: "deleted", sourceId: "tasks" }, projects, false)).toBe(false);
+  expect(hasRecentSource({ kind: "tasks", workspaceId: "project-a", sourceId: "tasks" }, projects, false)).toBe(true);
 });

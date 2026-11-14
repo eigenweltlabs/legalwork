@@ -2,8 +2,12 @@ import type { LauncherWorkspaceContext } from "@legalwork/types/launcher";
 import type { SessionPanelState } from "@/react-app/domains/session/panel/panel-tab-store";
 import { documentControlTarget } from "@/react-app/domains/session/panel/document-control-target";
 
-export function workspaceContextSnapshot(input: { workspace: { id: string; name: string }; panel?: Pick<SessionPanelState, "tabs" | "panes" | "focusedPaneId">; folder?: string; selection?: string; lastDocumentId?: string | null; now: number }): { context: LauncherWorkspaceContext; documentId: string | null } {
+export type LauncherViewedProject = { id: string; name: string; view?: "project" | "files" };
+
+export function workspaceContextSnapshot(input: { workspace: LauncherViewedProject; panel?: Pick<SessionPanelState, "tabs" | "panes" | "focusedPaneId">; folder?: string; selection?: string; lastDocumentId?: string | null; now: number }): { context: LauncherWorkspaceContext; documentId: string | null } {
   const { workspace, panel } = input;
+  if (workspace.view) return { documentId: null, context: { workspaceId: workspace.id, workspaceName: workspace.name,
+    folder: workspace.view === "files" ? input.folder : undefined, capturedAt: input.now } };
   const pane = panel?.panes.find(item => item.id === panel.focusedPaneId) ?? panel?.panes[0];
   const focused = panel?.tabs.find(item => item.id === pane?.activeTabId);
   const visible = panel?.panes.flatMap(pane => panel.tabs.filter(tab => tab.id === pane.activeTabId && tab.type === "artifact").map(tab => tab.id)) ?? [];

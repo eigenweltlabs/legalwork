@@ -1,6 +1,7 @@
+import { AssistantConversationPatchSchema, AssistantSubmitInputSchema } from "../native-shared-values.js";
 import { resolve } from "node:path";
 import { z } from "zod";
-import { AssistantConversationPatchSchema, AssistantSubmitInputSchema, type AssistantContextEnvelope } from "@legalwork/types/launcher";
+import type { AssistantContextEnvelope } from "@legalwork/types/launcher";
 import { ApiError } from "../errors.js";
 import { requireAssistantWorkspaceSubscription } from "../assistant-subscription.js";
 import { assistantRequestAuthority, assertAssistantDispatchAuthority } from "../assistant-session-access.js";

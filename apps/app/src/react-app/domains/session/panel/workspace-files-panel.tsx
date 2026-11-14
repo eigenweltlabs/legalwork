@@ -117,12 +117,12 @@ function WorkspaceFilesPanelContent({
 
 
   React.useEffect(() => {
-    if (workspaceId) {
+    if (workspaceId && active) {
       lastPathByWorkspace.set(scope, path);
       lastPathByWorkspace.set(workspaceId, path);
       window.dispatchEvent(new Event("legalwork:folder-changed"));
     }
-  }, [path, workspaceId, scope]);
+  }, [path, workspaceId, scope, active]);
   const breadcrumbsRef = React.useRef<HTMLElement>(null);
   const listRef = React.useRef<HTMLDivElement>(null);
 

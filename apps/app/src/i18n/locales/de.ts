@@ -8190,6 +8190,8 @@ const de = {
   "launcher.flow.ask": "Assistant fragen",
   "launcher.flow.project_chat": "Chat für {project}",
   "launcher.new.choose_project": "Neuer Chat in einem Projekt…",
+  "launcher.new.loading_context": "Fensterkontext wird geladen…",
+  "launcher.new.opening_chat": "Chat wird geöffnet…",
   "launcher.new.main_window": "Eigenwelt-Hauptfenster",
   "launcher.new.mini_chat": "Neuer Chat in der Mini-Bar",
   "launcher.new.document": "Neues Dokument",

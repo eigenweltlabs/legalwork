@@ -186,8 +186,8 @@ const pty = require(["node", "pty"].join("-"));
 const NATIVE_DEEP_LINK_EVENT = "legalwork:deep-link-native";
 const APP_BUNDLE_IDENTIFIER = "com.eigenweltlabs.legalwork";
 const DEV_APP_IDENTIFIER = "com.eigenweltlabs.legalwork.dev";
-const DESKTOP_PROTOCOL_SCHEME = "legalwork";
-const isDevMode = process.env.LEGALWORK_DEV_MODE === "1";
+const isDevMode = process.env.LEGALWORK_DEV_MODE === "1" || (process.defaultApp && process.argv.includes("--legalwork-dev"));
+const DESKTOP_PROTOCOL_SCHEME = isDevMode ? "legalwork-dev" : "legalwork";
 const APP_NAME =
   process.env.LEGALWORK_ELECTRON_APP_NAME?.trim() ||
   (isDevMode ? "LegalWork - Dev" : "LegalWork");
@@ -507,8 +507,12 @@ if (process.platform === "darwin") {
 }
 const userDataOverride = process.env.LEGALWORK_ELECTRON_USERDATA?.trim();
 // Isolated test profiles must not take over the installed app's deep links.
-if (app.isPackaged && !userDataOverride) {
-  app.setAsDefaultProtocolClient(DESKTOP_PROTOCOL_SCHEME);
+if (!userDataOverride) {
+  if (app.isPackaged || isDevMode && process.platform === "darwin") {
+    app.setAsDefaultProtocolClient(DESKTOP_PROTOCOL_SCHEME);
+  } else if (isDevMode && process.platform === "win32") {
+    app.setAsDefaultProtocolClient(DESKTOP_PROTOCOL_SCHEME, process.execPath, [fileURLToPath(import.meta.url), "--legalwork-dev"]);
+  }
 }
 if (userDataOverride) {
   app.setPath("userData", userDataOverride);
@@ -972,9 +976,9 @@ const launcherOutputs = new LauncherOutputQueue({
 });
 const raycastPairing = new RaycastPairing({ userDataDir: app.getPath("userData"), scheme: DESKTOP_PROTOCOL_SCHEME, serverInfo: () => runtimeManager.legalworkServerInfo() });
 /** @type {Map<number, import("@legalwork/types/launcher").LauncherWorkspaceContext>} */
-const launcherWorkspaceContexts = new Map();
+const launcherWorkspaceContexts = new WeakMap();
 const launcherService = new LauncherService({
-  workspaceContext: () => { const window = BrowserWindow.getFocusedWindow(); return window ? launcherWorkspaceContexts.get(window.webContents.id) ?? null : null; },
+  workspaceContext: () => { const window = BrowserWindow.getFocusedWindow(); return window ? launcherWorkspaceContexts.get(window.webContents) ?? null : null; },
   app, globalShortcut, userDataDir: app.getPath("userData"), window: launcherWindow, origin: originService, capture: screenCapture, pairing: raycastPairing,
   dictation: () => ({ ...systemDictation.status(), runtimeState: systemDictation.runtimeState }),
   meeting: () => meetingMonitor.status(),
@@ -2856,11 +2860,8 @@ const desktopCommandHandlers = {
   },
   "launcherWindowControl": async (event, ...args) => {
       if (args[0] === "context") {
-        if (args[1]?.context) {
-          if (!launcherWorkspaceContexts.has(event.sender.id)) event.sender.once("destroyed", () => launcherWorkspaceContexts.delete(event.sender.id));
-          launcherWorkspaceContexts.set(event.sender.id, args[1].context);
-        }
-        else launcherWorkspaceContexts.delete(event.sender.id);
+        if (args[1]?.context) launcherWorkspaceContexts.set(event.sender, args[1].context);
+        else launcherWorkspaceContexts.delete(event.sender);
         return launcherWindow.state();
       }
       return launcherService.windowControl(/** @type {"show" | "hide" | "pin" | "unpin" | "expand" | "resize" | "state"} */ (String(args[0] ?? "state")), args[1] && typeof args[1] === "object" ? args[1] : undefined);

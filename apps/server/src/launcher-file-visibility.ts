@@ -1,6 +1,7 @@
+import { isLauncherInternalPath } from "./native-shared-values.js";
 import { realpath, stat } from "node:fs/promises";
 import { isAbsolute, resolve, sep } from "node:path";
-import { isLauncherInternalPath, type LauncherSearchResult } from "@legalwork/types/launcher";
+import type { LauncherSearchResult } from "@legalwork/types/launcher";
 
 /** Like the main file browser, verify the current filesystem, not cached index
  * or recent-use metadata. This never repairs or changes deletion state. */

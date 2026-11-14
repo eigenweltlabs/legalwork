@@ -122,7 +122,11 @@ export function LauncherRoute() {
         seen.current.add(event.invocation.id);
         const revision = ++deliveryRevision.current;
         const deliver = () => { if (!cancelled && deliveryRevision.current === revision) store.setInvocation(event.invocation); };
-        if (client) void client.registerLauncherInvocation(event.invocation).then(result => { if (!result.duplicate) deliver(); }).catch(deliver);
+        // The native service deduplicates ordinary opens before showing the panel. Apply the foreground
+        // snapshot immediately; execution-bearing invocations still use server-side deduplication.
+        if (event.invocation.action === "open" && !event.invocation.result && !event.invocation.contextId && !event.invocation.conversationId && !event.invocation.projectId) {
+          deliver();
+        } else if (client) void client.registerLauncherInvocation(event.invocation).then(result => { if (!result.duplicate) deliver(); }).catch(deliver);
         else deliver();
       } else if (event.type === "visibility") { stateRevision++; store.setVisible(event.visible); store.setPinned(event.pinned); if (!event.visible) { deliveryRevision.current++; store.setInvocation(null); store.reset(); } }
       else if (event.type === "position") { stateRevision++; store.setPositionMoved(event.moved); }

@@ -77,3 +77,21 @@ test("explicit hide preserves an in-flight task editor, then ordinary dismissal 
   expect(useLauncherStore.getState()).toMatchObject({ view: "idle", detail: null, formBusy: false, notice: null });
   store.setVisible(true);
 });
+
+test("each opening distinguishes a pending origin, a foreground project and an external app", () => {
+  const store = useLauncherStore.getState();
+  const project = { workspaceId: "B", workspaceName: "Second project", capturedAt: 12 };
+  store.setVisible(false);
+  store.setVisible(true);
+  expect(useLauncherStore.getState().invocationContext).toBeUndefined();
+  store.setInvocation({ id: "cold", source: "shortcut", action: "open", workspaceContext: project });
+  expect(useLauncherStore.getState().invocationContext).toEqual(project);
+  store.setInvocation(null);
+  expect(useLauncherStore.getState().invocationContext).toEqual(project);
+  store.setVisible(false);
+  store.setVisible(true);
+  expect(useLauncherStore.getState().invocationContext).toBeUndefined();
+  store.setInvocation({ id: "external", source: "shortcut", action: "open" });
+  expect(useLauncherStore.getState().invocationContext).toBeNull();
+  store.setInvocation(null);
+});

@@ -7841,6 +7841,8 @@ export default {
   "launcher.flow.ask": "Ask Assistant",
   "launcher.flow.project_chat": "Chat in {project}",
   "launcher.new.choose_project": "New chat in a project…",
+  "launcher.new.loading_context": "Loading window context…",
+  "launcher.new.opening_chat": "Opening chat…",
   "launcher.new.main_window": "Eigenwelt main window",
   "launcher.new.mini_chat": "New chat in mini-bar",
   "launcher.new.document": "New document",

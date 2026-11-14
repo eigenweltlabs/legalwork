@@ -1,7 +1,6 @@
+import { launcherResultActions, compareLauncherResults, isLauncherInternalPath } from "./native-shared-values.js";
 import { workspaceContentPath } from "./project-storage-paths.js";
-import { launcherResultActions } from "@legalwork/types/launcher";
 import { existingLauncherFiles } from "./launcher-file-visibility.js";
-import { compareLauncherResults, isLauncherInternalPath } from "@legalwork/types/launcher";
 import { basename, extname } from "node:path";
 import { matchesSearch, searchExcerpt, type ContentSearchResponse, type ContentSearchResult } from "./search-schema.js";
 import { projectMatch } from "./assistant-project-search.js";

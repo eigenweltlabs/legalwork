@@ -182,7 +182,7 @@ The same folder picker is available when copying or moving files. Finish those
 forms with **Copy** or **Move**, or use the same Command/Ctrl+Enter shortcut.
 
 File search, templates and recent items are checked against the files that
-currently exist. Deleted files and folders drop out of the mini-bar; browsing
+currently exist. Recently opened Wiki files also appear here with their Wiki icon. Deleted files and folders drop out of the mini-bar; browsing
 and open folder pickers refresh while visible. These checks do not repair or
 change file deletion or sync behavior.
 
@@ -196,12 +196,17 @@ the Eigenwelt main window. Choose **New chat in mini-bar** to start a fresh chat
 in the same project and keep typing in the floating window. When invoked from
 another app, the mini-bar chat uses the general Assistant. **New chat in a project…**
 lets you type a project name, choose it with the arrow keys and press **Enter** to
-open the chat in Eigenwelt. **Open in app** still moves an existing mini-bar
+open the chat in Eigenwelt. A separate Assistant conversation shows only its own
+messages when you scroll up. In the daily Assistant, scrolling up loads earlier days.
+**Open in app** still moves an existing mini-bar
 conversation and its draft into the main window.
 
 Narrow the creation list by typing **new docx**, **new file**, **new task** or
 **new project**. Word and plain-text entries preselect their file format.
-Documents and tasks use the current project when available.
+Documents and tasks use the current project when available. If you open the mini-bar
+from the project’s tasks or calendar, a new task starts without a document attachment.
+From the Files page, a new document starts in the folder you are browsing.
+A draft parked in another project keeps its attachments there.
 
 Inside a chat, or after starting a question with **?**, **Shift+Enter** adds a
 new line; **Command+Enter** (**Ctrl+Enter** on Windows) sends it. Messages wait

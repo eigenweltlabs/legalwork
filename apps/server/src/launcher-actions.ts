@@ -1,7 +1,8 @@
+import { QuickActionInputSchema } from "./native-shared-values.js";
 import { randomBytes } from "node:crypto";
 import { openSqlite, type Row, type SqliteHandle } from "./runtime-db.js";
 import { ApiError } from "./errors.js";
-import { QuickActionInputSchema, type LauncherCatalogEntry, type QuickAction, type QuickActionInput } from "@legalwork/types/launcher";
+import type { LauncherCatalogEntry, QuickAction, QuickActionInput } from "@legalwork/types/launcher";
 
 /** Saved quick actions: named prompts with declared inputs and output policy, shared by every entry point. */
 export class QuickActionStore {

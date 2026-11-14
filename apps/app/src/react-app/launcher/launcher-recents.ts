@@ -27,6 +27,12 @@ export function rememberLauncherOpen(server: string, result: LauncherSearchResul
   try { localStorage.setItem(key(server), JSON.stringify(next)); window.dispatchEvent(new Event("legalwork:launcher-recents")); } catch { /* Storage may be unavailable. */ }
 }
 
+/** File visibility also covers Wiki and linked folders, which can be absent from the project list. */
+export function hasRecentSource(result: Pick<LauncherSearchResult, "kind" | "workspaceId" | "sourceId">, projects: readonly { id: string }[], visibleFile: boolean) {
+  if (result.kind === "files") return visibleFile;
+  return !result.workspaceId || result.sourceId === "assistant" || projects.some(project => project.id === result.workspaceId);
+}
+
 /** Recent use wins; a related project and repeated use provide bounded boosts. */
 export function suggestedRecents(items: LauncherRecent[], projectId: string | undefined, now = Date.now()) {
   const score = (item: LauncherRecent) => {

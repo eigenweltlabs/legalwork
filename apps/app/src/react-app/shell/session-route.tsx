@@ -2,7 +2,7 @@ import { submissionKeys } from "@/react-app/launcher/launcher-labels";
 import { openLauncherFolder } from "@/react-app/domains/session/panel/workspace-files-panel";
 import { acceptLauncherBrowser, acceptLauncherFile } from "@/react-app/launcher/launcher-handoff";
 import { useLauncherStore } from "@/react-app/launcher/launcher-store";
-import { usePublishLauncherContext } from "@/react-app/launcher/workspace-context";
+import { usePublishLauncherContext, type LauncherViewedProject } from "@/react-app/launcher/workspace-context";
 import { workspaceFileRoot } from "@legalwork/types/workspace";
 import { BackOfficePage } from "../domains/back-office/back-office-page";
 import { defaultProjectFields, useProjectDefaultsStore } from "@/react-app/domains/workspace/project-defaults-store";
@@ -26,7 +26,7 @@ import { usePanelTabStore, workspacePanelKey } from "@/react-app/domains/session
 import type { QueueInput } from "@legalwork/types/session-queue";
 import { buildFusionDelegationSystemPrompt } from "@/react-app/domains/session/fusion/fusion-prompt";
 import type { AssistantAvatarIcon, AssistantProfile } from "@legalwork/types/main-assistant";
-import { assistantChatIdentity, assistantShellQueryKey, localAssistantDate, resolveAssistantConversation, type AssistantShellState } from "@/react-app/launcher/assistant-navigation";
+import { assistantChatIdentity, assistantShellQueryKey, resolveAssistantConversation, type AssistantShellState } from "@/react-app/launcher/assistant-navigation";
 import { useHomeDraftSync, flushHomeDraft } from "@/react-app/launcher/home-draft-sync";
 import { sharedDraftCoordinator, windowOwnerId } from "@/react-app/launcher/launcher-route";
 import { submitAssistantDraft } from "@/react-app/launcher/submit-draft";
@@ -1585,7 +1585,6 @@ export function SessionRoute() {
     // local server's, and remote workspaces silently end up calling the
     // local server with the local `rem_*` id.
     return {
-      assistantDate: assistantActive ? (assistant.data?.conversation?.sessionId === selectedSessionId ? assistant.data.conversation.date ?? localAssistantDate() : assistant.data?.day?.sessionId === selectedSessionId ? assistant.data.day.date : localAssistantDate()) : undefined,
       assistantOnboarding: assistantActive && assistantOnboarding.data ? {
         state: assistantOnboarding.data,
         onIcon: (icon: AssistantAvatarIcon) => answerAssistantOnboarding({ icon }),
@@ -1880,7 +1879,7 @@ export function SessionRoute() {
         : undefined,
     };
   }, [
-    assistantIncluded, assistantActive, assistant.data?.conversation, assistant.data?.day, selectedSessionId, assistantOnboarding.data, answerAssistantOnboarding,
+    assistantIncluded, assistantActive, selectedSessionId, assistantOnboarding.data, answerAssistantOnboarding,
     client,
     modelPicker.compactOpen,
     handleOpenSettings,
@@ -2462,8 +2461,9 @@ export function SessionRoute() {
   const homeAssistant = !homeProjectId || workspaces.find(item => item.id === homeProjectId)?.preset === "main-assistant";
   const viewedProject = homePage ? sidebarWorkspaces.find(project => project.id === homeProjectId)
     : location.pathname.startsWith("/workspace/") && selectedWorkspace?.id === routeWorkspaceId ? selectedWorkspace : null;
-  const launcherWorkspace = viewedProject && viewedProject.preset !== "main-assistant" && viewedProject.preset !== "wiki"
-    ? { id: viewedProject.id, name: viewedProject.displayName || viewedProject.name, projectOnly: homePage } : null;
+  const projectPage = projectViewFromPath(location.pathname);
+  const launcherWorkspace: LauncherViewedProject | null = viewedProject && viewedProject.preset !== "main-assistant" && viewedProject.preset !== "wiki"
+    ? { id: viewedProject.id, name: viewedProject.displayName || viewedProject.name, view: projectPage === "files" ? "files" : homePage || projectPage ? "project" : undefined } : null;
   usePublishLauncherContext(launcherWorkspace, client?.baseUrl);
   const homeModel = useChatModelPreferences(homeAssistant, homePage ? providerListQuery.data : undefined);
   const homeModelBehavior = useModelBehavior({ providerList: providerListQuery.data, defaultModel: homeModel.model, modelVariant: homeModel.variant });
@@ -2818,7 +2818,7 @@ export function SessionRoute() {
         onClose: () => sessionProviderAuthStore.closeProviderAuthModal(),
       } : null}
       projectsPage={mainPage === "projects"}
-      projectPage={projectViewFromPath(location.pathname)}
+      projectPage={projectPage}
       onRenameProject={(name) => handleRenameWorkspace(selectedWorkspaceId, name)}
       onCreateProjectSession={async (shareRecording) => {
         if (recordingSessionStarting.current) return;

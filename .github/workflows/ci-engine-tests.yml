@@ -118,6 +118,8 @@ jobs:
 
       - name: Build server and native plugins
         if: inputs.engine-required
+        env:
+          NODE_OPTIONS: --max-old-space-size=8192
         run: pnpm --filter legalwork-server build
 
       - uses: ./.github/actions/prepare-sandbox-runtime

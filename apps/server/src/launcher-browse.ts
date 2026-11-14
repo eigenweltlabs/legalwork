@@ -1,7 +1,7 @@
-import { launcherResultActions } from "@legalwork/types/launcher";
+import { launcherResultActions, isLauncherInternalPath } from "./native-shared-values.js";
 import { readdir, realpath, stat } from "node:fs/promises";
 import { extname, isAbsolute, resolve, sep } from "node:path";
-import { isLauncherInternalPath, type LauncherSearchResult } from "@legalwork/types/launcher";
+import type { LauncherSearchResult } from "@legalwork/types/launcher";
 import { ApiError } from "./errors.js";
 
 /** Read one directory, with the same root boundary as file opening. Never follow listed symlinks. */

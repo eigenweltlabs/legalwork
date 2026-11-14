@@ -6,22 +6,16 @@ import type { LegalworkServerClient, LegalworkWorkspaceInfo } from "@/app/lib/le
 export type AssistantShellState = { workspace: LegalworkWorkspaceInfo; profile: AssistantProfile; conversation: AssistantConversation | null; day: { date: string; sessionId: string } | null };
 export const assistantShellQueryKey = (baseUrl: string) => ["launcher-assistant-shell", baseUrl];
 
-/** Local calendar date, the way daily history is keyed. */
-export function localAssistantDate(now = new Date()) {
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-}
-
 /** Identify the Assistant chat for the workspace pane, including explicit conversations. */
 export function assistantChatIdentity(
   state: AssistantShellState | null | undefined,
   sessionId: string | null,
   resolved: AssistantConversation | null | undefined,
-  now = new Date(),
 ) {
   const conversation = [resolved, state?.conversation].find(item =>
     item?.sessionId === sessionId && item.workspaceId === state?.workspace.id,
   );
-  if (conversation) return { sessionId: conversation.sessionId, date: conversation.date ?? localAssistantDate(now) };
+  if (conversation) return { sessionId: conversation.sessionId, date: conversation.kind === "day" ? conversation.date : null };
   return state?.day ?? undefined;
 }
 

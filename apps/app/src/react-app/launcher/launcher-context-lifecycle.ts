@@ -18,8 +18,8 @@ export function handoffContext(items: AssistantContextItem[]): AssistantContextI
   } : item);
 }
 
-/** A new chat takes the current view and selection, not attachments from a previous draft. */
-export function newChatContext(invocation: LauncherWorkspaceContext | null, projectId: string | undefined,
+/** A new item starts with the foreground view and selection. Draft attachments belong to the original conversation. */
+export function creationContext(invocation: LauncherWorkspaceContext | null, projectId: string | undefined,
   items: AssistantContextItem[], previous: LauncherWorkspaceContext | null): AssistantContextItem[] {
   if (!invocation) return previous ? [] : items.filter(isCapturedSelection);
   if (invocation.workspaceId !== projectId) return [];

@@ -1,7 +1,8 @@
+import { LauncherSearchFolderSchema } from "./native-shared-values.js";
 import { randomUUID } from "node:crypto";
 import { realpath, stat } from "node:fs/promises";
 import { basename, isAbsolute, resolve, sep } from "node:path";
-import { LauncherSearchFolderSchema, type LauncherSearchFolder } from "@legalwork/types/launcher";
+import type { LauncherSearchFolder } from "@legalwork/types/launcher";
 import { openSqlite, type SqliteHandle } from "./runtime-db.js";
 import { ApiError } from "./errors.js";
 

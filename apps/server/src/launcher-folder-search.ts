@@ -1,6 +1,5 @@
-import { launcherResultActions } from "@legalwork/types/launcher";
+import { launcherResultActions, isLauncherInternalPath } from "./native-shared-values.js";
 import { existingLauncherFiles } from "./launcher-file-visibility.js";
-import { isLauncherInternalPath } from "@legalwork/types/launcher";
 import { basename, extname } from "node:path";
 import type { LauncherSearchResponse, LauncherSearchResult } from "@legalwork/types/launcher";
 import type { LauncherFolders } from "./launcher-folders.js";

@@ -1,5 +1,5 @@
-import { workspaceContextSnapshot } from "./workspace-context-model";
-import { useEffect, useRef } from "react";
+import { workspaceContextSnapshot, type LauncherViewedProject } from "./workspace-context-model";
+import { useLayoutEffect, useRef } from "react";
 import type { LauncherWorkspaceContext } from "@legalwork/types/launcher";
 import { launcherWindowControl } from "@/app/lib/desktop";
 import { isDesktopRuntime } from "@/app/lib/runtime-env";
@@ -7,12 +7,11 @@ import { usePanelTabStore, workspacePanelKey } from "@/react-app/domains/session
 import { launcherFolderForWorkspace } from "@/react-app/domains/session/panel/workspace-files-panel";
 import { rememberLauncherOpen } from "./launcher-recents";
 
-export type LauncherViewedProject = { id: string; name: string; projectOnly?: boolean };
+export type { LauncherViewedProject } from "./workspace-context-model";
 
 const lastDocument = new Map<string, string | null>();
 export function readWorkspaceContext(workspace: LauncherViewedProject | null): LauncherWorkspaceContext | null {
   if (!workspace) return null;
-  if (workspace.projectOnly) return { workspaceId: workspace.id, workspaceName: workspace.name, capturedAt: Date.now() };
   const result = workspaceContextSnapshot({ workspace, panel: usePanelTabStore.getState().sessions[workspacePanelKey(workspace.id)], folder: launcherFolderForWorkspace(workspace.id), selection: window.getSelection()?.toString(), lastDocumentId: lastDocument.get(workspace.id), now: Date.now() });
   lastDocument.set(workspace.id, result.documentId);
   return result.context;
@@ -23,13 +22,13 @@ export function usePublishLauncherContext(workspace: LauncherViewedProject | nul
   const latest = useRef(workspace);
   const lastOpened = useRef("");
   latest.current = workspace;
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!isDesktopRuntime()) return;
     const publish = () => {
       if (!document.hasFocus()) return;
       const context = readWorkspaceContext(latest.current);
       void launcherWindowControl("context", { context }).catch(() => undefined);
-      if (!context || !server || latest.current?.projectOnly) { lastOpened.current = ""; return; }
+      if (!context || !server || latest.current?.view) { lastOpened.current = ""; return; }
       const file = context.sessionId ? undefined : context.document;
       const sessionTitle = usePanelTabStore.getState().sessions[workspacePanelKey(context.workspaceId)]?.tabs.find(tab => tab.type === "chat" && tab.sessionId === context.sessionId)?.label;
       const id = `${server}:${context.workspaceId}:${file?.path ?? context.sessionId ?? "project"}`;
@@ -45,6 +44,12 @@ export function usePublishLauncherContext(workspace: LauncherViewedProject | nul
     window.addEventListener("focus", publish);
     document.addEventListener("selectionchange", publish);
     window.addEventListener("legalwork:folder-changed", publish);
-    return () => { unsubscribe(); window.removeEventListener("focus", publish); document.removeEventListener("selectionchange", publish); window.removeEventListener("legalwork:folder-changed", publish); };
-  }, [workspace?.id, workspace?.name, workspace?.projectOnly, server]);
+    return () => {
+      unsubscribe();
+      window.removeEventListener("focus", publish);
+      document.removeEventListener("selectionchange", publish);
+      window.removeEventListener("legalwork:folder-changed", publish);
+      void launcherWindowControl("context", { context: null }).catch(() => undefined);
+    };
+  }, [workspace?.id, workspace?.name, workspace?.view, server]);
 }

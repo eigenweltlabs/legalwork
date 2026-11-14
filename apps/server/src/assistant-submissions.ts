@@ -1,9 +1,10 @@
+import { AssistantExecutionTargetSchema, AssistantSubmissionStateSchema, AssistantSubmissionPartSchema, AssistantSubmitInputSchema } from "./native-shared-values.js";
 import { z } from "zod";
 import { SessionAuthoritySchema, type SessionAuthority } from "./wiki/agent-access.js";
 import type { QueueEntry } from "./session-queue-schema.js";
 import { ApiError } from "./errors.js";
 import { openSqlite, type Row, type SqliteHandle } from "./runtime-db.js";
-import { AssistantExecutionTargetSchema, AssistantSubmissionStateSchema, AssistantSubmissionPartSchema, AssistantSubmitInputSchema, type AssistantExecutionTarget, type AssistantSubmission, type AssistantSubmitInput } from "@legalwork/types/launcher";
+import type { AssistantExecutionTarget, AssistantSubmission, AssistantSubmitInput } from "@legalwork/types/launcher";
 
 export type SubmissionTarget = { workspaceId: string; sessionId: string };
 export type SubmissionPart = z.infer<typeof AssistantSubmissionPartSchema>;

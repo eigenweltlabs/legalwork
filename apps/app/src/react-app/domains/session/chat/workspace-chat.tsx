@@ -29,18 +29,18 @@ export function WorkspaceChat(props: SessionSurfaceProps & { renderAssistantHead
   const key = chatModelKey(props.opencodeBaseUrl, props.workspaceId, props.sessionId);
   const stored = useSessionModelStore(state => state.selections[key]);
   const providers = useProviderListQuery({ client, baseUrl: props.opencodeBaseUrl, directory: props.workspaceRoot || undefined });
-  const assistant = useChatModelPreferences(Boolean(props.assistantDate), providers.data);
-  const selection = props.assistantDate
+  const assistant = useChatModelPreferences(Boolean(props.assistantChat), providers.data);
+  const selection = props.assistantChat
     ? { model: assistant.model ?? { providerID: "", modelID: "" }, variant: assistant.variant }
     : stored ?? { model: props.selectedModel, variant: props.modelVariant };
   useEffect(() => {
-    if (!props.assistantDate && props.selectedModel.providerID && props.selectedModel.modelID) useSessionModelStore.getState().initialize(key, { model: props.selectedModel, variant: props.modelVariant });
-  }, [key, props.assistantDate, props.selectedModel, props.modelVariant]);
+    if (!props.assistantChat && props.selectedModel.providerID && props.selectedModel.modelID) useSessionModelStore.getState().initialize(key, { model: props.selectedModel, variant: props.modelVariant });
+  }, [key, props.assistantChat, props.selectedModel, props.modelVariant]);
   const picker = useModelPicker({ client, baseUrl: props.opencodeBaseUrl, workspaceRoot: props.workspaceRoot, listenForDefaults: false });
   const unavailable = Boolean(providers.data && !isModelAvailableInConnectedProviders(providers.data, selection.model));
   const behavior = useModelBehavior({ providerList: providers.data, defaultModel: selection.model, modelVariant: selection.variant });
   const select = (model: ModelRef) => {
-    if (props.assistantDate) assistant.onModelChange(model);
+    if (props.assistantChat) assistant.onModelChange(model);
     else {
       useSessionModelStore.getState().select(key, { model, variant: selection.model.providerID === model.providerID && selection.model.modelID === model.modelID ? selection.variant : null });
       props.onModelChange(model);
@@ -48,7 +48,7 @@ export function WorkspaceChat(props: SessionSurfaceProps & { renderAssistantHead
     picker.setCompactOpen(false); picker.setOpen(false);
   };
   const selectBehavior = (model: ModelRef, variant: string | null) => {
-    if (props.assistantDate) assistant.onSelectionChange({ model, variant });
+    if (props.assistantChat) assistant.onSelectionChange({ model, variant });
     else useSessionModelStore.getState().select(key, { model, variant });
   };
   const modelSettings: ModelSettings = {

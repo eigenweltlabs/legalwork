@@ -1,8 +1,9 @@
+import { compareLauncherResults, isLauncherInternalPath } from "./native-shared-values.js";
 import { watch, type FSWatcher } from "node:fs";
 import { opendir, realpath, stat } from "node:fs/promises";
 import { basename, extname, join, relative } from "node:path";
 import { setImmediate } from "node:timers/promises";
-import { compareLauncherResults, isLauncherInternalPath, type LauncherSort } from "@legalwork/types/launcher";
+import type { LauncherSort } from "@legalwork/types/launcher";
 
 const SKIP_DIRECTORIES = new Set(["node_modules", "vendor", "dist", "build", "coverage", "__pycache__"]);
 export type IndexedFile = { path: string; name: string; folded: string; mtimeMs: number; size: number; ext: string; directory?: boolean };

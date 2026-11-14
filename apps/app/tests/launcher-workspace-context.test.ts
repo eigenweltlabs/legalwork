@@ -34,3 +34,13 @@ test("file handoff validates destination data and category queries keep their ty
   expect(categorySuggestions("do", normalizeLauncherAliases(null))).toContain("files");
   expect(namedCategoryQuery("doctrine")).toBeNull();
 });
+
+test("project pages drop the hidden document, selection and pane; Files keeps its folder", () => {
+  const snapshot = { panel, folder: "Public", selection: "old clause", lastDocumentId: "foreign", now: 5 };
+  const workspace = { id: "A", name: "Matter A" };
+  const overview = workspaceContextSnapshot({ ...snapshot, workspace: { ...workspace, view: "project" } });
+  expect(overview.documentId).toBeNull();
+  expect(overview.context).toEqual({ workspaceId: "A", workspaceName: "Matter A", capturedAt: 5, folder: undefined });
+  const files = workspaceContextSnapshot({ ...snapshot, workspace: { ...workspace, view: "files" } });
+  expect(files.context).toEqual({ ...overview.context, folder: "Public" });
+});

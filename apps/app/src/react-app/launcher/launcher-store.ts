@@ -12,6 +12,8 @@ export type LauncherConversationBinding = { conversationId: string; sessionId: s
 export type StagedPreview = { id: string; dataUrl: string };
 
 export type LauncherState = {
+  /** undefined until the native invocation arrives; null when invoked outside a project. */
+  invocationContext: LauncherWorkspaceContext | null | undefined;
   workspaceContext: LauncherWorkspaceContext | null;
   view: LauncherView;
   detail: LauncherDetail | null;
@@ -77,6 +79,7 @@ export type LauncherState = {
 
 const initial = {
   detail: null as LauncherDetail | null,
+  invocationContext: undefined,
   workspaceContext: null as LauncherWorkspaceContext | null,
   view: "idle" as LauncherView, input: "", category: null, fileFilter: { types: null, modifiedAfter: null, sourceKind: null } as LauncherFileFilter, scope: null, target: { kind: "assistant" } as AssistantExecutionTarget, results: [], sources: [], searchPending: false, searchError: null, catalog: [],
   selection: { id: null, source: "auto" } as LauncherSelection, multiSelect: new Set<string>(), overlay: null as LauncherOverlay, context: [], previews: [], conversation: null, origin: null, pinned: false, positionMoved: false, attentionCount: 0, approval: null as LauncherApprovalRequest | null, voice: null as LauncherVoiceState | null, notice: null,
@@ -85,8 +88,8 @@ const initial = {
 
 export const useLauncherStore = create<LauncherState>((set) => ({
   ...initial,
-  setInvocation: invocation => set({ invocation }),
-  setVisible: visible => set({ visible }),
+  setInvocation: invocation => set(invocation ? { invocation, invocationContext: invocation.workspaceContext ?? null } : { invocation }),
+  setVisible: visible => set(visible ? { visible } : { visible, invocationContext: undefined }),
   setInput: input => set(state => ({ input, ...(state.input !== input ? { selection: { id: null, source: "auto" }, ...(state.view !== "conversation" ? { multiSelect: new Set<string>(), overlay: null } : {}) } : {}) })),
   setCategory: category => set(state => ({ category, fileFilter: category && category !== "files" ? { ...state.fileFilter, types: null, sourceKind: null } : state.fileFilter })),
   setFileFilter: filter => set(state => ({ fileFilter: { ...state.fileFilter, ...filter } })),

@@ -1,4 +1,4 @@
-import { newChatContext, handoffContext } from "../src/react-app/launcher/launcher-context-lifecycle";
+import { creationContext, handoffContext } from "../src/react-app/launcher/launcher-context-lifecycle";
 import { expect, test } from "bun:test";
 import type { AssistantConversation, AssistantExecutionTarget } from "@legalwork/types/launcher";
 import { conversationTarget, resultChatProject, startLauncherResultChat } from "../src/react-app/launcher/launcher-result-chat";
@@ -71,14 +71,23 @@ test("new chat keeps only the invoked view and selection, even if the bar retain
   const active = { workspaceId: "alpha", workspaceName: "Alpha", capturedAt: 10, document: { workspaceId: "alpha", path: "contract.docx", name: "Contract" }, selection: "Selected clause" };
   const earlier = { workspaceId: "beta", workspaceName: "Beta", capturedAt: 1 };
   const saved = [{ type: "clipboard" as const, id: "old", text: "Old draft", capturedAt: 1 }];
-  const fresh = newChatContext(active, "alpha", saved, earlier);
+  const fresh = creationContext(active, "alpha", saved, earlier);
   expect(fresh.map(item => item.type)).toEqual(["file", "selection"]);
   expect(handoffContext(fresh)[1]).toMatchObject({ type: "clipboard", text: expect.stringContaining("Selected clause") });
-  expect(newChatContext(active, "alpha", [...fresh, ...saved], active)).toEqual(fresh);
-  expect(newChatContext(active, "alpha", saved, active).map(item => item.type)).toEqual(["file", "selection"]);
-  expect(newChatContext({ ...active, selection: undefined }, "alpha", fresh, active)).toEqual([fresh[0]]);
-  expect(newChatContext(active, "beta", fresh, active)).toEqual([]);
-  expect(newChatContext(null, "beta", fresh, active)).toEqual([]);
+  expect(creationContext(active, "alpha", [...fresh, ...saved], active)).toEqual(fresh);
+  expect(creationContext(active, "alpha", saved, active).map(item => item.type)).toEqual(["file", "selection"]);
+  expect(creationContext({ ...active, selection: undefined }, "alpha", fresh, active)).toEqual([fresh[0]]);
+  expect(creationContext(active, "beta", fresh, active)).toEqual([]);
+  expect(creationContext(null, "beta", fresh, active)).toEqual([]);
   const selected = { type: "selection" as const, id: "selection_x", text: "Safari", capturedAt: 10, sourceApp: "Safari", sourceWindow: null };
-  expect(newChatContext(null, undefined, [...saved, selected], null)).toEqual([selected]);
+  expect(creationContext(null, undefined, [...saved, selected], null)).toEqual([selected]);
+});
+
+test("creating in B from its task list cannot use the parked clipboard or file from A", () => {
+  const previous = { workspaceId: "A", workspaceName: "First", capturedAt: 1 };
+  const current = { workspaceId: "B", workspaceName: "Second", capturedAt: 2 };
+  expect(creationContext(current, "B", [
+    { id: "draft_clip", type: "clipboard", text: "A's draft", capturedAt: 1 },
+    { id: "old", type: "file", workspaceId: "A", path: "private.txt", name: "private", revision: null, sourceLabel: "First" },
+  ], previous)).toEqual([]);
 });

@@ -24,6 +24,8 @@ jobs:
           version: 11.4.0
       - name: Install extension dependencies
         run: pnpm --dir apps/raycast-legalwork install --ignore-workspace --frozen-lockfile --ignore-scripts
+      - name: Check desktop pairing discovery
+        run: node --test apps/raycast-legalwork/tests/pairing.test.ts
       - name: Check extension types
         working-directory: apps/raycast-legalwork
         run: node node_modules/typescript/bin/tsc --noEmit

@@ -6,7 +6,8 @@ An optional entry point into the same LegalWork Assistant: the panel, files, act
 
 1. In LegalWork open Settings, Assistant launcher, and enable Raycast pairing.
 2. LegalWork writes `launcher-pairing.json` into its application-support folder with the local server URL and a per-session token. Only your user account can read it; the token changes on every app start and the file is removed when pairing is disabled.
-3. The commands read that file on every call. Launch URLs (`legalwork://assistant/...`) carry identifiers only; selected text travels over the paired loopback connection as a one-time staged context that expires after five minutes.
+3. From Raycast, run **Search LegalWork** to check the connection. The extension discovers the installed app’s profile automatically. When only the development profile is paired, commands open that instance.
+4. The commands read that file on every call. Launch URLs (`legalwork://assistant/...`) carry identifiers only; selected text travels over the paired loopback connection as a one-time staged context that expires after five minutes.
 
 ## Commands
 

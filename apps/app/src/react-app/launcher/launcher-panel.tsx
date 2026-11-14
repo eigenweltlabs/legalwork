@@ -30,7 +30,7 @@ import { appActionEntries, launcherActionSelection, resultActionMenu, catalogArg
 import { captureClipboard, captureScreen, captureSelection, fileReferenceItem, taskReferenceItem, stageFiles, type CaptureOutcome } from "./context-capture";
 import { LauncherApprovalCard } from "./launcher-approval";
 import { LauncherContextBar } from "./launcher-context-bar";
-import { handoffContext, newChatContext, isCapturedSelection, persistentContext } from "./launcher-context-lifecycle";
+import { handoffContext, creationContext, isCapturedSelection, persistentContext } from "./launcher-context-lifecycle";
 import { AttentionCards, LauncherConversation, SubmissionStatusRow, useSubmissionStatus, type PendingOutput } from "./launcher-conversation";
 import { enterTarget, escapeAction, footerVerb, isAskShortcut, isComposingKeyEvent, moveSelection, optionId, reconcileSelection, type SelectableItem } from "./launcher-keyboard";
 import { activateCategoryAlias, categorySuggestions, isBrowseActionQuery, matchesOpenBrowser, namedCategoryQuery, normalizeLauncherAliases, parseLauncherEntry } from "./launcher-query";
@@ -55,7 +55,7 @@ import { handleLauncherFocusKey, launcherControls } from "./launcher-focus";
 import { readHiddenItems, writeHiddenItems, type HiddenLauncherItem } from "./launcher-hidden";
 import { LauncherRowMenu } from "./launcher-row-menu";
 import { LauncherTaskDetail, useLauncherDetailItems, type LauncherDetail } from "./launcher-details";
-import { readLauncherRecents, updateLauncherRecent, rememberLauncherOpen, suggestedRecents } from "./launcher-recents";
+import { hasRecentSource, readLauncherRecents, updateLauncherRecent, rememberLauncherOpen, suggestedRecents } from "./launcher-recents";
 import { canCopyLauncherResult, copyLauncherText, isDesktopLauncherServer, launcherClipboardText, launcherLocalPaths } from "./launcher-clipboard";
 import { useLauncherFileDrag } from "./launcher-file-drag";
 import { launcherInvocationResultAction, resolveLauncherInvocationResult } from "./launcher-invocation-result";
@@ -146,12 +146,12 @@ export function LauncherPanel() {
   const projectOperation = useRef(crypto.randomUUID());
   const attachmentOperation = useRef({ key: "", id: crypto.randomUUID() });
   const [pendingContext, setPendingContext] = useState<{ context: LauncherWorkspaceContext | null } | null>(null);
-  const [invocationContext, setInvocationContext] = useState<LauncherWorkspaceContext | null>(null);
+  const invocationContext = surface === "panel" && desktop ? store.invocationContext : store.invocationContext ?? null;
   const [transfer, setTransfer] = useState<LauncherTransfer | null>(null);
   const [creation, setCreation] = useState<LauncherCreate | null>(null);
   const [quickActionRequest, setQuickActionRequest] = useState<LauncherQuickActionRequest | null>(null);
   const [openChoice, setOpenChoice] = useState<LauncherSearchResult | null>(null);
-  const [openChoiceContext, setOpenChoiceContext] = useState<LauncherWorkspaceContext | null>(null);
+  const [openChoiceContext, setOpenChoiceContext] = useState<LauncherWorkspaceContext | null | undefined>(surface === "panel" && desktop ? undefined : null);
   const [pickingChatProject, setPickingChatProject] = useState(false);
   const newChatOperation = useRef<{ workspaceId: string; id: string } | null>(null);
   const [actionProject, setActionProject] = useState<{ result: LauncherSearchResult; action: ResultChatAction; items: LauncherSearchResult[] } | null>(null);
@@ -170,6 +170,7 @@ export function LauncherPanel() {
   const [scrollExpansion, setScrollExpansion] = useState<{ view: string; category: LauncherSearchKind | null } | null>(null);
   const [sending, setSending] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [openingChat, setOpeningChat] = useState(false);
   const uploadingRef = useRef(false);
   const uploadConversation = useRef<string | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -189,7 +190,7 @@ export function LauncherPanel() {
     setParkedDrafts(items => items.map(item => ({ ...item, context: persistentContext(item.context) })));
     if (!childForm.current.busy) { setCreation(null); setQuickActionRequest(null); }
     setPickingChatProject(false); newChatOperation.current = null;
-    setActionProject(null); setPendingContext(null); setInvocationContext(null);
+    setActionProject(null); setPendingContext(null);
   }, [store.visible]);
   const status = useQuery({ queryKey: ["launcher-desktop-status"], queryFn: () => launcherStatus(), enabled: desktop, refetchInterval: 15_000 });
   const aliases = useMemo(() => normalizeLauncherAliases(status.data?.aliases), [status.data?.aliases]);
@@ -197,7 +198,9 @@ export function LauncherPanel() {
   const mode: "search" | "command" | "ask" | "conversation" = store.view === "conversation" ? "conversation" : store.view === "hidden" ? "search" : entry.mode;
   const singleLineInput = mode !== "conversation" && mode !== "ask";
   const hasSearchChips = Boolean(store.category || store.scope || store.fileFilter.types?.length || store.fileFilter.modifiedAfter || store.fileFilter.sourceKind || store.fileFilter.sort && store.fileFilter.sort !== "relevance");
-  const activeProject = workspaces.find(project => project.id === invocationContext?.workspaceId);
+  // A missing project catalogue on startup does not turn a native project invocation into an external one.
+  const activeProject = invocationContext ? { id: invocationContext.workspaceId, name: invocationContext.workspaceName } : null;
+  const awaitingOrigin = invocationContext === undefined;
   const creationChoices = !hasSearchChips && mode === "search" && (store.view === "idle" || store.view === "results")
     ? launcherCreationActions(store.input, Boolean(activeProject)).filter(key => key !== "recording" || desktop && !store.voice?.meeting) : [];
   const showingCreationChoices = creationChoices.length > 0;
@@ -802,7 +805,6 @@ export function LauncherPanel() {
     const live = useLauncherStore.getState();
     if (invocation.action === "open" || invocation.captureSelection) live.replaceContext(persistentContext(live.context));
     const incoming = invocation.workspaceContext ?? null;
-    setInvocationContext(incoming);
     const changed = incoming?.workspaceId !== live.workspaceContext?.workspaceId || incoming?.sessionId !== live.workspaceContext?.sessionId || JSON.stringify(incoming?.document) !== JSON.stringify(live.workspaceContext?.document);
     if (!changed) useLauncherStore.setState({ workspaceContext: incoming });
     if (changed) {
@@ -863,7 +865,7 @@ export function LauncherPanel() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspaces, client, catalog, bindCurrent, adoptDraft]);
   useEffect(() => {
-    if (!store.invocation || shell.workspacesPending || invocationRunning.current || sendingRef.current || uploadingRef.current || childFormState.active) return;
+    if (!store.invocation || (shell.workspacesPending && (store.invocation.action !== "open" || store.invocation.result || store.invocation.projectId)) || invocationRunning.current || sendingRef.current || uploadingRef.current || childFormState.active) return;
     const invocation = store.invocation;
     invocationRunning.current = invocation.id;
     void applyInvocation(invocation).catch(error => notify({ tone: "error", text: error instanceof Error ? error.message : String(error) })).finally(() => {
@@ -898,10 +900,11 @@ export function LauncherPanel() {
     const workspaceId = destination?.workspaceId ?? detail?.result.workspaceId ?? state.scope?.id ?? (state.target.kind === "project" ? state.target.workspaceId : state.workspaceContext?.workspaceId ?? "");
     const folder = detail?.result.fileType === "folder" && !detail.result.folderId && detail.result.workspaceId === workspaceId ? detail.result.path ?? ""
       : detail?.result.kind === "projects" ? "" : workspaceId === state.workspaceContext?.workspaceId ? state.workspaceContext.folder ?? "" : "";
-    const text = kind === "document" ? "" : excerptText(state.context);
+    const context = destination ? creationContext(invocationContext ?? null, workspaceId, state.context, state.workspaceContext) : state.context;
+    const text = kind === "document" ? "" : excerptText(context);
     if (kind === "attach") attachmentOperation.current = { key: "", id: crypto.randomUUID() };
     setCreation({ kind, workspaceId, folder: destination?.folder ?? folder, format,
-      name: name ?? (kind === "document" ? searchText.trim() : state.context.some(item => item.type === "selection") ? text.split("\n\n").at(-1)?.slice(0, 70).replace(/[/\\\n]/g, " ") ?? "" : ""), text, context: [...state.context] });
+      name: name ?? (kind === "document" ? searchText.trim() : context.some(item => item.type === "selection") ? text.split("\n\n").at(-1)?.slice(0, 70).replace(/[/\\\n]/g, " ") ?? "" : ""), text, context: [...context] });
   };
   const selectionAction = (kind: "explain" | "translate" | "rewrite") => {
     const language = translationLanguage === "system" ? currentLocale() === "de" ? "German" : "English" : translationLanguage;
@@ -945,6 +948,7 @@ export function LauncherPanel() {
   };
   const startNewChat = async (destination: "app" | "mini", workspaceId?: string) => {
     if (sendingRef.current || uploadingRef.current) return;
+    if (awaitingOrigin) return;
     if (destination === "app" && !workspaceId) {
       if (workspaces.length) setPickingChatProject(true);
       else notify({ tone: "info", text: t("launcher.chat.project_required") });
@@ -954,8 +958,8 @@ export function LauncherPanel() {
     const generation = captureGeneration.current;
     const isCurrent = () => useLauncherStore.getState().visible && captureGeneration.current === generation
       && useLauncherStore.getState().input === initial.input && useLauncherStore.getState().view === initial.view;
-    const context = handoffContext(newChatContext(invocationContext, workspaceId, initial.context, initial.workspaceContext));
-    uploadingRef.current = true; setUploading(true);
+    const context = handoffContext(creationContext(invocationContext ?? null, workspaceId, initial.context, initial.workspaceContext));
+    uploadingRef.current = true; setUploading(true); setOpeningChat(true);
     try {
       if (workspaceId && newChatOperation.current?.workspaceId !== workspaceId) newChatOperation.current = { workspaceId, id: crypto.randomUUID() };
       const operation = newChatOperation.current;
@@ -976,7 +980,7 @@ export function LauncherPanel() {
         if (invocationContext?.paneId && invocationContext.workspaceId === workspaceId) params.set("pane", invocationContext.paneId);
         await openInApp(`${workspaceSessionRoute(found.workspaceId, found.sessionId)}?${params}`);
       } else {
-        useLauncherStore.setState({ workspaceContext: invocationContext });
+        useLauncherStore.setState({ workspaceContext: invocationContext ?? null });
         setPendingContext(null);
         store.bindConversation(found);
         store.replaceContext(context); store.setTarget(target); store.setInput("");
@@ -985,10 +989,10 @@ export function LauncherPanel() {
       }
       setPickingChatProject(false);
       newChatOperation.current = null;
-    } finally { uploadingRef.current = false; setUploading(false); }
+    } finally { uploadingRef.current = false; setUploading(false); setOpeningChat(false); }
   };
   const summarizeDocument = () => {
-    const document = useLauncherStore.getState().workspaceContext?.document;
+    const document = invocationContext?.document;
     if (!document) return;
     const result: LauncherSearchResult = { id: document.path, kind: "files", workspaceId: document.workspaceId, sourceId: `local:${document.workspaceId}`, title: document.name, path: document.path, updatedAt: 0, score: 0, match: "recent", actions: ["open", "summarize"] };
     return runResultAction(result, "summarize", undefined, [result]);
@@ -1017,7 +1021,7 @@ export function LauncherPanel() {
   const createDocumentRow: NavigationRow = { id: "create:document", title: creationName ? t("launcher.flow.create_named", { name: creationName }) : t("launcher.flow.create_document"), Icon: FilePlus2, run: () => openCreate("document", creationName) };
   const createTaskRow: NavigationRow = { id: "create:task", title: creationName ? t("launcher.suggest.create_task_named", { name: creationName }) : t("launcher.flow.create_task"), Icon: ListChecks, run: () => openCreate("task", creationName) };
   const recordMeetingRow: NavigationRow = { id: "action:record-meeting", title: t("launcher.suggest.record_meeting"), Icon: Mic, run: () => launcherVoice("record") };
-  const projectName = activeProject?.displayName || activeProject?.name;
+  const projectName = activeProject?.name;
   const appChatRow: NavigationRow = {
     id: "home:project-chat", title: projectName ? t("launcher.suggest.project_chat", { project: projectName }) : t("launcher.new.choose_project"),
     subtitle: t("launcher.new.main_window"), Icon: MessageSquare, run: () => startNewChat("app", activeProject?.id),
@@ -1037,7 +1041,7 @@ export function LauncherPanel() {
     project: { id: "create:project", title: t("launcher.action.new-project"), Icon: Folder, run: () => openInApp("/projects?create=project") },
     recording: recordMeetingRow,
   };
-  const creationRows = creationChoices.map(key => newRows[key]);
+  const creationRows = awaitingOrigin ? [] : creationChoices.map(key => newRows[key]);
   const typedFilters: NavigationRow[] = filterSuggestions.map(filter => ({
     id: filter.id, title: filter.title, Icon: filter.files?.sourceKind === "wiki" ? BookOpen : filter.project || filter.files?.sourceKind ? Folder : filter.files?.types?.length ? fileTypeIcon(filter.files.types[0]) : CalendarDays, run: () => {
       if (filter.project) {
@@ -1058,7 +1062,7 @@ export function LauncherPanel() {
       inputRef.current?.focus();
     },
   }));
-  const suggestionRows: NavigationRow[] = creationRows.length ? creationRows : mode === "search" && !calculation ? prioritizeLauncherSuggestions([
+  const suggestionRows: NavigationRow[] = showingCreationChoices ? creationRows : mode === "search" && !calculation ? prioritizeLauncherSuggestions([
     ...(sortSuggestion ? [sortRow] : []),
     ...browserRows,
     ...typedFilters,
@@ -1079,16 +1083,22 @@ export function LauncherPanel() {
     { id: "command-context:assistant", title: assistant?.profile.name ?? t("assistant.title"), Icon: MessageSquare, avatar: <AssistantAvatar icon={assistant?.profile.icon} className="size-5" />, run: () => chooseCommandContext() },
     ...workspaces.map(workspace => ({ id: `command-context:${workspace.id}`, title: workspace.displayName || workspace.name, Icon: Folder, run: () => chooseCommandContext(workspace.id) })),
   ];
+  const recentItems = recents.filter(({ result }) => {
+    if (hiddenIds.has(resultKey(result))) return false;
+    const current = invocationContext?.document;
+    if (current && result.workspaceId === current.workspaceId && result.path === current.path) return false;
+    return hasRecentSource(result, workspaces, result.kind === "files" && visibleResult(result));
+  }).map(item => ({ ...item, result: withResultOrigin(item.result) }));
   const homeRows: NavigationRow[] = [
     ...(activeProject ? [appChatRow, miniChatRow] : []),
     ...parkedDrafts.map((draft, index) => ({ id: `home:parked-draft:${index}`, title: t("launcher.flow.continue_draft"), subtitle: draft.workspaceContext?.workspaceName ?? t("assistant.title"), meta: draft.workspaceContext ? workspaceOrigin(draft.workspaceContext.workspaceId, draft.workspaceContext.workspaceName) : undefined, Icon: MessageSquare, run: async () => { useLauncherStore.setState({ ...draft, view: "conversation" }); if (draft.conversation) await adoptDraft(draft.conversation.conversationId, true); setParkedDrafts(previous => previous.filter(item => item !== draft)); } })),
-    ...(store.workspaceContext?.document ? [{ id: "home:summarize-view", title: t("launcher.suggest.summarize_document"), subtitle: store.workspaceContext.document.name, Icon: FilePlus2, run: summarizeDocument }] : []),
-    ...suggestedRecents(recents.map(item => ({ ...item, result: withResultOrigin(item.result) })).filter(item => visibleResult(item.result) && (!item.result.workspaceId || workspaces.some(workspace => workspace.id === item.result.workspaceId) || item.result.sourceId === "assistant") && !(store.workspaceContext?.document && item.result.workspaceId === store.workspaceContext.document.workspaceId && item.result.path === store.workspaceContext.document.path)), store.workspaceContext?.workspaceId).map(item => ({
+    ...(invocationContext?.document ? [{ id: "home:summarize-view", title: t("launcher.suggest.summarize_document"), subtitle: invocationContext.document.name, Icon: FilePlus2, run: summarizeDocument }] : []),
+    ...suggestedRecents(recentItems, invocationContext?.workspaceId).map(item => ({
       id: `home:recent:${resultKey(item.result)}`, result: item.result, title: item.result.title, subtitle: [t("launcher.suggest.recent"), item.result.subtitle].filter(Boolean).join(" · "), meta: <>{item.result.subtitle && <><LauncherResultOrigin item={item.result} /> · </>}{t("launcher.suggest.recent")}</>, Icon: resultIcon(item.result), run: () => runResultAction(item.result, "open"),
     })),
     ...searchRoots.filter(visibleResult).map(result => ({ id: `home:folder:${result.id}`, title: result.title, Icon: Folder, result, run: () => showDetail(result) })),
-    ...categoryRows.map(row => ({ ...row, subtitle: row.id !== "category:projects" ? store.workspaceContext?.workspaceName : undefined, meta: row.id !== "category:projects" && store.workspaceContext ? workspaceOrigin(store.workspaceContext.workspaceId, store.workspaceContext.workspaceName) : undefined, run: () => { const context = store.workspaceContext; store.setScope(context && row.id !== "category:projects" ? { id: context.workspaceId, name: context.workspaceName } : null); return row.run(); } })),
-    ...(store.workspaceContext ? [{ id: "home:create-task", title: t("launcher.flow.create_task"), subtitle: store.workspaceContext.workspaceName, meta: workspaceOrigin(store.workspaceContext.workspaceId, store.workspaceContext.workspaceName), Icon: ListChecks, run: () => openCreate("task", "") }] : []),
+    ...categoryRows.map(row => ({ ...row, subtitle: row.id !== "category:projects" ? invocationContext?.workspaceName : undefined, meta: row.id !== "category:projects" && invocationContext ? workspaceOrigin(invocationContext.workspaceId, invocationContext.workspaceName) : undefined, run: () => { const context = invocationContext; store.setScope(context && row.id !== "category:projects" ? { id: context.workspaceId, name: context.workspaceName } : null); return row.run(); } })),
+    ...(invocationContext ? [{ id: "home:create-task", title: t("launcher.flow.create_task"), subtitle: invocationContext.workspaceName, meta: workspaceOrigin(invocationContext.workspaceId, invocationContext.workspaceName), Icon: ListChecks, run: () => openCreate("task", "", undefined, creationDestination) }] : []),
     ...(desktop && !voice?.meeting ? [recordMeetingRow] : []),
     ...(desktop ? [{ id: "home:capture-region", title: t("launcher.context.capture_region"), Icon: ScanLine, run: captureActions.region }] : []),
     ...(store.attentionCount ? [{ id: "home:work", title: t("launcher.flow.work"), subtitle: t("launcher.work.pending", { count: store.attentionCount }), Icon: ListChecks, run: () => openWork() }] : []),
@@ -1239,6 +1249,7 @@ export function LauncherPanel() {
     if (showCommands) { const item = commandItems.find(item => item.id === selected?.id); if (item) void runCatalogEntry(item, catalogArguments(item, entry.text)); return; }
     if (mode === "ask" || mode === "conversation") { void submitAsk(mode === "ask" ? entry.text : store.input); return; }
     if (calculation) { void copyCalculation(); return; }
+    if (showingCreationChoices) return;
     const result = store.results.find(item => resultKey(item) === selected?.id);
     if (result) void runResultAction(result, primaryResultAction(result));
   };
@@ -1290,7 +1301,7 @@ export function LauncherPanel() {
     onDragLeave={event => { if (!event.dataTransfer.types.includes("Files") || !dragDepth.current) return; event.preventDefault(); if (--dragDepth.current === 0) { setDragging(false); holdPanel(false); } }}
     onDrop={event => { if (!event.dataTransfer.types.includes("Files")) return; event.preventDefault(); if (dragDepth.current) holdPanel(false); dragDepth.current = 0; setDragging(false); const dropped = droppedFiles(event.dataTransfer); if (dropped.folders) notify({ tone: "error", text: t("launcher.drop.folders") }); void uploadFiles(dropped.files); }}>
     <div className="launcher-panel" role="dialog" aria-label={t("launcher.title")}>
-      {(dragging || uploading) && <div className="launcher-drop-status" role="status">{uploading ? <Loader2 className="size-4 animate-spin" /> : <Paperclip className="size-4" />}{t(uploading ? "launcher.drop.busy" : "launcher.drop.hint")}</div>}
+      {(dragging || uploading) && <div className="launcher-drop-status" role="status">{uploading ? <Loader2 className="size-4 animate-spin" /> : <Paperclip className="size-4" />}{t(openingChat ? "launcher.new.opening_chat" : uploading ? "launcher.drop.busy" : "launcher.drop.hint")}</div>}
       {pendingContext && <div className="launcher-notice launcher-context-switch">{t("launcher.flow.new_context", { project: pendingContext.context?.workspaceName ?? t("assistant.title") })}<Button size="sm" variant="ghost" disabled={formActive} onClick={() => void useContext(pendingContext.context)}>{t("launcher.flow.use_context")}</Button><Button size="sm" variant="ghost" onClick={() => setPendingContext(null)}>{t("launcher.flow.keep_context")}</Button></div>}
 
       <div className="launcher-entry">
@@ -1366,6 +1377,7 @@ export function LauncherPanel() {
         </div> : <>
         {showCommands && store.view === "conversation" && <SubmissionStatusRow submission={submission} onRetry={retrySubmission} />}
         {store.view === "results" && !calculation && <div id="launcher-options" role="listbox" aria-label={t("launcher.results.title")} aria-multiselectable>
+          {showingCreationChoices && awaitingOrigin && <p role="status" className="launcher-empty">{t("launcher.new.loading_context")}</p>}
           {renderNavigationRows(suggestionRows)}
           {!showingCreationChoices && <LauncherResultList canDrag={fileDrag.canDrag} onDragStart={fileDrag.start} items={visibleResults} sources={store.sources} query={searchText} selectedKey={store.selection.id} multiSelect={store.multiSelect} pins={pinnedKeys} pending={store.searchPending} hideEmpty={navigationRows.length > 0}
             onSelect={key => { if (store.overlay?.kind !== "actions") store.select({ id: key, source: "user" }); }} onRun={(result, action) => void runResultAction(result, action)} onToggleMulti={store.toggleMultiSelect} onOpenActions={key => store.setOverlay({ kind: "actions", resultKey: key })} />}

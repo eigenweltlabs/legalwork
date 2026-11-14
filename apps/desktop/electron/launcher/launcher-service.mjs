@@ -206,7 +206,7 @@ export class LauncherService {
   async windowControl(command, payload) {
     const window = this.options.window;
     switch (command) {
-      case "show": return window.show();
+      case "show": return window.isVisible() ? window.show() : this.invoke({ id: crypto.randomUUID(), action: "open", source: "home" });
       case "invoke": return this.invoke(payload?.invocation ?? { id: `home_${Date.now()}`, action: "open", source: "home", workspaceContext: payload?.context ?? undefined });
       case "reset-position": return window.resetPosition();
       case "hide": return this.hide();

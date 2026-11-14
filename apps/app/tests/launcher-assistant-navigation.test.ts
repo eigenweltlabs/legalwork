@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { QueryClient } from "@tanstack/react-query";
 import type { AssistantConversation } from "@legalwork/types/launcher";
-import { assistantChatIdentity, assistantShellQueryKey, localAssistantDate, resolveAssistantConversation, type AssistantShellState } from "../src/react-app/launcher/assistant-navigation";
+import { assistantChatIdentity, assistantShellQueryKey, resolveAssistantConversation, type AssistantShellState } from "../src/react-app/launcher/assistant-navigation";
 import { isAssistantConversation } from "../src/react-app/domains/session/chat/assistant-conversation";
 import { createPanelTabStore, workspacePanelKey } from "../src/react-app/domains/session/panel/panel-tab-store";
 import { syncRouteChatTab } from "../src/react-app/domains/session/panel/route-chat-tab";
@@ -28,17 +28,12 @@ test("navigation resumes the current conversation without creating one, and crea
   } finally { cache.clear(); }
 });
 
-test("the local calendar date keys daily history, including just after midnight", () => {
-  expect(localAssistantDate(new Date(2026, 9, 22, 0, 1))).toBe("2026-10-22");
-  expect(localAssistantDate(new Date(2026, 0, 5, 23, 59))).toBe("2026-01-05");
-});
-
 test("a resolved launcher conversation opens its Assistant tab without a daily chat or session-list metadata", () => {
   const opened = conversation("opened", 10);
   const state: AssistantShellState = { workspace, profile, day: null, conversation: conversation("newest", 20) };
-  const identity = assistantChatIdentity(state, opened.sessionId, opened, new Date(2026, 10, 13));
+  const identity = assistantChatIdentity(state, opened.sessionId, opened);
   expect(isAssistantConversation(opened.sessionId, identity?.sessionId)).toBe(true);
-  expect(identity?.date).toBe("2026-11-13");
+  expect(identity?.date).toBeNull();
   const panels = createPanelTabStore();
   const scope = workspacePanelKey(workspace.id);
   panels.getState().setAssistantWorkspace(workspace.id);
@@ -52,7 +47,7 @@ test("Assistant identity recognizes the current explicit conversation and preser
   const current = conversation("current", 20);
   const state: AssistantShellState = { workspace, profile, day: null, conversation: current };
   expect(assistantChatIdentity(state, current.sessionId, null)?.sessionId).toBe(current.sessionId);
-  const history: AssistantConversation = { ...conversation("history", 1), kind: "daily", date: "2026-10-21" };
+  const history: AssistantConversation = { ...conversation("history", 1), kind: "day", date: "2026-10-21" };
   expect(assistantChatIdentity(state, history.sessionId, history)).toEqual({ sessionId: history.sessionId, date: "2026-10-21" });
 });
 

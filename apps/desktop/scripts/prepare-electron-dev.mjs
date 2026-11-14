@@ -25,7 +25,7 @@ export function prepareElectronDev(desktopRoot) {
   const cache = resolve(desktopRoot, "dist-electron/dev-runtime");
   const appPath = resolve(cache, "LegalWork Dev.app");
   const markerPath = resolve(cache, "runtime.json");
-  const signature = JSON.stringify({ sourceApp, modified: statSync(resolve(sourceApp, "Contents/Info.plist")).mtimeMs, identifier, name, signing, revision: 4 });
+  const signature = JSON.stringify({ sourceApp, modified: statSync(resolve(sourceApp, "Contents/Info.plist")).mtimeMs, identifier, name, signing, revision: 5 });
   const devExecutable = resolve(appPath, "Contents/MacOS/Electron");
   if (existsSync(devExecutable) && existsSync(markerPath) && readFileSync(markerPath, "utf8") === signature) return devExecutable;
 
@@ -38,6 +38,7 @@ export function prepareElectronDev(desktopRoot) {
   for (const [key, value] of Object.entries({ CFBundleIdentifier: identifier, CFBundleName: name, CFBundleDisplayName: name })) {
     run("/usr/bin/plutil", ["-replace", key, "-string", value, plist]);
   }
+  run("/usr/bin/plutil", ["-replace", "CFBundleURLTypes", "-json", JSON.stringify([{ CFBundleURLName: identifier, CFBundleURLSchemes: ["legalwork-dev"] }]), plist]);
   copyFileSync(resolve(desktopRoot, "resources/icons/dev/icon-dev.icns"), resolve(appPath, "Contents/Resources/electron.icns"));
   run("/usr/bin/plutil", ["-replace", "NSUserActivityTypes", "-json", '["INSendMessageIntent"]', plist]);
   // Sign nested Electron code without the main app's restricted capability.
