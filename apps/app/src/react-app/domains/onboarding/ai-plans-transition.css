@@ -24,3 +24,10 @@ html[data-ai-plan-transition]::view-transition-new(ai-plan-price-plus),
 html[data-ai-plan-transition]::view-transition-new(ai-plan-price-pro) { animation: none; }
 @keyframes ai-plan-fade-out { to { opacity: 0; } }
 @keyframes ai-plan-fade-in { from { opacity: 0; } }
+
+/* Keep the decision visible in short desktop windows. Full features stay in the details dialog. */
+@media (min-width: 768px) and (max-height: 740px) {
+  .ai-plan-tagline,.ai-plans-subtitle { display:none; }
+  .ai-plans-billing { margin-top:8px; }
+  .ai-plan-own { margin-top:12px; }
+}

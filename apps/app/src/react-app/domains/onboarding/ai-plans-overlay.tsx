@@ -47,6 +47,7 @@ import {
 
 import legalworkMark from "@/assets/legalwork-mark-dark.svg";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { captureAnalyticsEvent } from "@/app/lib/analytics";
 import { openDesktopUrl } from "@/app/lib/desktop";
 import type { AiPlansVariant } from "@/app/lib/eigenwelt-access";
@@ -156,9 +157,9 @@ const FEATURES = [
 // action, features), so the buttons line up across the cards whatever the
 // length of the text above them.
 const cardClass =
-  "flex flex-col rounded-2xl border border-dls-border bg-dls-surface p-5 md:row-span-6 md:grid md:grid-rows-subgrid md:gap-y-0 xl:p-6 roomy:p-7";
+  "flex flex-col rounded-2xl border border-dls-border bg-dls-surface p-4 md:row-span-6 md:grid md:grid-rows-subgrid md:gap-y-0 roomy:p-5";
 const planButtonClass =
-  "h-11 w-full rounded-full text-[14px] roomy:h-12 roomy:text-[15px]";
+  "h-10 w-full rounded-full text-[14px] roomy:h-11 roomy:text-[15px]";
 const textLinkClass =
   "font-medium text-dls-text underline underline-offset-2 transition-opacity hover:opacity-80 disabled:pointer-events-none disabled:opacity-45";
 
@@ -226,7 +227,7 @@ function CardFrame(props: {
 }) {
   return (
     <article className={cardClass} data-testid={props.testId} style={{ viewTransitionName: props.testId.replace("ai-plan-", "ai-plan-card-") }}>
-      <div className="flex min-h-9 items-center justify-between gap-2">
+      <div className="flex min-h-8 items-center justify-between gap-2">
         <h2 className="flex items-center gap-2 text-[26px] font-medium leading-none tracking-[-0.03em] text-dls-text roomy:gap-2.5 roomy:text-[30px]" style={{ viewTransitionName: props.testId.replace("ai-plan-", "ai-plan-name-") }}>
           {props.icon ? (
             <span
@@ -240,10 +241,10 @@ function CardFrame(props: {
         </h2>
         {props.switcher}
       </div>
-      <p className="mt-2 text-[13.5px] leading-5 text-dls-secondary roomy:mt-2.5 roomy:text-[14.5px] roomy:leading-[22px]">
+      <p className="ai-plan-tagline mt-2 text-[12px] leading-[18px] text-dls-secondary roomy:text-[13.5px] roomy:leading-5">
         {props.tagline}
       </p>
-      <div className="mt-4 roomy:mt-5">
+      <div className="mt-3 roomy:mt-4">
         <div className="text-[34px] font-medium leading-none tracking-[-0.04em] text-dls-text tabular-nums roomy:text-[44px]" style={{ viewTransitionName: props.testId.replace("ai-plan-", "ai-plan-price-") }}>
           {props.price}
         </div>
@@ -252,10 +253,8 @@ function CardFrame(props: {
         </div>
       </div>
       {props.usage}
-      <div className="mt-5 roomy:mt-6">{props.action}</div>
-      <ul className="mt-5 space-y-2 border-t border-dls-border pt-5 text-[13px] leading-[18px] text-dls-text roomy:mt-6 roomy:space-y-2.5 roomy:pt-6 roomy:text-[14px] roomy:leading-5">
-        {props.features}
-      </ul>
+      <div className="mt-3 roomy:mt-4">{props.action}</div>
+      {props.features}
     </article>
   );
 }
@@ -287,7 +286,7 @@ function PlanCard(props: {
       price={formatEuroCents(price, locale)}
       priceSuffix={t("ai_plans.per_seat_month")}
       usage={
-        <div className="mt-5 rounded-xl bg-muted/65 p-4 roomy:mt-6" role="group" aria-label={t("ai_plans.included_usage")}>
+        <div className="mt-3 rounded-xl bg-muted/65 p-3 roomy:mt-4" role="group" aria-label={t("ai_plans.included_usage")}>
           <p className="text-xs text-dls-secondary">{t("ai_plans.included_usage")}</p>
           <p className="mt-2 flex flex-wrap items-baseline gap-2 tabular-nums">
             {plan.includedMonthlyUsageCents > price && <s aria-hidden="true" className="text-sm text-dls-secondary">{formatEuroCents(price, locale)}</s>}
@@ -307,13 +306,27 @@ function PlanCard(props: {
         </Button>
       }
       features={
-        <>
-          {features.map((key) => (
-            <FeatureRow key={key}>
-              {t(key)}
-            </FeatureRow>
-          ))}
-        </>
+        <div className="mt-3 flex flex-col border-t border-dls-border pt-3 text-[12px] leading-[18px] text-dls-text roomy:text-[13px] roomy:leading-5">
+          <ul className="mb-2 space-y-1.5">
+            <FeatureRow>{t("ai_plans.summary_ai")}</FeatureRow>
+            <FeatureRow>{t("ai_plans.summary_team")}</FeatureRow>
+            {plan.id !== "plus" && <FeatureRow>{t("ai_plans.summary_admin")}</FeatureRow>}
+          </ul>
+          <Dialog>
+            <DialogTrigger render={<button type="button" className="mt-auto self-start rounded-sm text-xs font-medium text-dls-secondary underline underline-offset-4 transition-colors hover:text-dls-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30" />}>
+              {t("ai_plans.view_features")}
+            </DialogTrigger>
+            <DialogContent className="max-h-[calc(100dvh-3rem)] grid-rows-[auto_minmax(0,1fr)] sm:max-w-lg">
+              <DialogHeader>
+                <DialogTitle>{t("ai_plans.features_title", { plan: plan.name })}</DialogTitle>
+                <DialogDescription>{t(TAGLINE[plan.id])}</DialogDescription>
+              </DialogHeader>
+              <ul className="min-h-0 space-y-3 overflow-y-auto text-[13px] leading-5">
+                {features.map(key => <FeatureRow key={key}>{t(key)}</FeatureRow>)}
+              </ul>
+            </DialogContent>
+          </Dialog>
+        </div>
       }
     />
   );
@@ -321,12 +334,12 @@ function PlanCard(props: {
 
 function OwnModelBanner(props: { disabled: boolean; onChoose: () => void }) {
   return (
-    <aside data-testid="ai-plan-byo" className="mt-8 flex flex-col items-start justify-between gap-4 rounded-2xl border border-dls-border bg-dls-surface p-5 md:flex-row md:items-center xl:p-6">
+    <aside data-testid="ai-plan-byo" className="ai-plan-own mt-4 flex flex-col items-start justify-between gap-3 rounded-2xl border border-dls-border bg-dls-surface px-4 py-3 md:flex-row md:items-center">
       <div>
-        <h2 className="text-lg font-medium text-dls-text">{t("ai_plans.free_banner")}</h2>
-        <p className="mt-1 text-sm text-dls-secondary">{t("ai_plans.free_description")}</p>
+        <h2 className="text-base font-medium text-dls-text">{t("ai_plans.free_banner")}</h2>
+        <p className="mt-1 text-xs leading-[18px] text-dls-secondary">{t("ai_plans.free_description")}</p>
       </div>
-      <Button variant="secondary" className="shrink-0 rounded-full" disabled={props.disabled} onClick={props.onChoose}>
+      <Button variant="secondary" className="h-9 shrink-0 rounded-full text-xs" disabled={props.disabled} onClick={props.onChoose}>
         {t("ai_plans.byo_cta")}
       </Button>
     </aside>
@@ -817,17 +830,17 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
           {stepDots}
           <h1
             id={titleId}
-            className="text-[30px] font-medium leading-[1.08] tracking-[-0.035em] text-dls-text lg:text-[32px] roomy:text-[38px]"
+            className="text-[28px] font-medium leading-[1.08] tracking-[-0.035em] text-dls-text lg:text-[30px] roomy:text-[34px]"
           >
             {title}
           </h1>
-          <p className="mx-auto mt-2.5 max-w-[740px] text-[14px] leading-[1.6] text-dls-secondary roomy:mt-3 roomy:max-w-[860px] roomy:text-[15.5px]">
+          <p className="ai-plans-subtitle mx-auto mt-1.5 max-w-[740px] text-[13px] leading-[1.5] text-dls-secondary roomy:max-w-[860px] roomy:text-[14px]">
             {subtitle}
           </p>
           {notice ? <div className="mt-4">{notice}</div> : null}
         </header>
-        <div className="mt-5 flex justify-center">
-          <div role="radiogroup" aria-label={t("ai_plans.confirm_interval")} className="inline-grid h-9 grid-cols-2 gap-1 rounded-full border border-dls-border/60 bg-muted/65 p-1">
+        <div className="ai-plans-billing mt-3 flex justify-center">
+          <div role="radiogroup" aria-label={t("ai_plans.confirm_interval")} className="inline-grid h-8 grid-cols-2 gap-1 rounded-full border border-dls-border/60 bg-muted/65 p-1">
             {(["year", "month"] satisfies EigenweltCheckoutSelection["interval"][]).map(interval => <button type="button" role="radio" key={interval} aria-checked={checkout.interval === interval} disabled={disabled} onClick={() => changeCheckout({ ...checkout, interval })}
               className={`rounded-full border px-5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 ${checkout.interval === interval ? "border-dls-border/70 bg-dls-surface text-dls-text" : "border-transparent text-dls-secondary hover:text-dls-text"}`}>
               {t(interval === "year" ? "ai_plans.confirm_yearly" : "ai_plans.confirm_monthly")}
@@ -835,7 +848,7 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
           </div>
         </div>
         {!props.assistantUpgrade && <OwnModelBanner disabled={disabled} onChoose={bringOwnModel} />}
-        <div className="mt-6 grid gap-4 md:grid-cols-3 md:gap-x-4 md:gap-y-0 xl:gap-x-5 roomy:mt-8 roomy:gap-x-7">
+        <div className="mt-4 grid gap-4 md:grid-cols-3 md:gap-x-4 md:gap-y-0 xl:gap-x-5 roomy:mt-5 roomy:gap-x-7">
           {EIGENWELT_PLANS.map((plan) => (
             <PlanCard
               key={plan.id}
@@ -848,13 +861,13 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
             />
           ))}
         </div>
-        <p className="mt-5 text-center text-xs leading-5 text-dls-secondary">
+        <p className="mt-3 text-center text-[11px] leading-4 text-dls-secondary roomy:text-xs">
           {t("ai_plans.confirm_footnote")}{offerTrial ? ` ${t("ai_plans.confirm_trial_footnote")}` : ""}
         </p>
       </>
     );
     footerCenter = (
-      <p className="text-center text-[13px] text-dls-secondary roomy:text-[14px]">
+      <p className="text-center text-xs text-dls-secondary roomy:text-[13px]">
         {variant === "new" ? (
           <>
             {t("ai_plans.sign_in_prompt")}{" "}
@@ -921,11 +934,11 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto flex min-h-full w-full max-w-[1200px] flex-col px-6 lg:px-8 roomy:max-w-[1360px] roomy:px-12">
           {props.projectApproval}
-          <div className={cn("flex flex-1 flex-col justify-center py-8 roomy:py-10", phase.kind === "confirm" && "[@media(max-height:780px)]:py-4")}>
+          <div className={cn("flex flex-1 flex-col justify-center", phase.kind === "choose" && !signInFirst ? "py-4 roomy:py-6" : "py-8 roomy:py-10", phase.kind === "confirm" && "[@media(max-height:780px)]:py-4")}>
             {body}
           </div>
           {backRow || footerCenter || updatesLink ? (
-            <footer className="flex flex-col items-center gap-3 pb-6 pt-2 md:grid md:grid-cols-[1fr_auto_1fr] roomy:pb-8">
+            <footer className={cn("flex flex-col items-center gap-3 pt-2 md:grid md:grid-cols-[1fr_auto_1fr]", phase.kind === "choose" && !signInFirst ? "pb-3 roomy:pb-4" : "pb-6 roomy:pb-8")}>
               <div className="justify-self-start">{backRow}</div>
               {footerCenter ?? <div />}
               <div className="justify-self-end">{updatesLink}</div>

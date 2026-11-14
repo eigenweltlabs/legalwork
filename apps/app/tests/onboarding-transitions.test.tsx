@@ -58,17 +58,17 @@ describe("onboarding transitions", () => {
       const featureList = card.split("<ul")[1];
       expect(featureList).not.toContain("AI usage");
       expect(featureList).not.toContain("203 StGB");
-      expect(card).toContain("Team sync: Tasks, Workflows and files");
-      expect(card).toContain("Matter management: clients, matter references, status and responsibilities in one place");
-      expect(card).toContain("Word add-in, Excel add-in and Outlook integration");
+      expect(card).toContain("Premium models &amp; AI tools");
+      expect(card).toContain("Team sync &amp; matter management");
+      expect(card).toContain("View all features");
     }
     expect(cards[0]).not.toContain("Standard support");
-    expect(cards[0]).not.toContain("Priority support");
+    expect(cards[0]).not.toContain("priority support");
     expect(cards[0]).not.toContain("Admin dashboard");
     expect(cards[1]).toContain("Admin dashboard");
     expect(cards[2]).toContain("Admin dashboard");
-    expect(cards[1]).toContain("Priority support");
-    expect(cards[2]).toContain("Priority support");
+    expect(cards[1]).toContain("priority support");
+    expect(cards[2]).toContain("priority support");
   });
 
   test("the plan screen appears at once as the onboarding step before permissions and research", () => {
