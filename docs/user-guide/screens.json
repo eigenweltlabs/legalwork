@@ -41,6 +41,26 @@
   ],
   "panels": [
     {
+      "id": "timesheet-ledger",
+      "guide": "back-office.md",
+      "source": "apps/app/src/react-app/domains/back-office/timesheet-ledger.tsx"
+    },
+    {
+      "id": "private-workday",
+      "guide": "back-office.md",
+      "source": "apps/app/src/react-app/domains/back-office/timesheet-workday.tsx"
+    },
+    {
+      "id": "billing-review",
+      "guide": "back-office.md",
+      "source": "apps/app/src/react-app/domains/back-office/billing-review.tsx"
+    },
+    {
+      "id": "billing-preferences",
+      "guide": "back-office.md",
+      "source": "apps/app/src/react-app/domains/back-office/billing-preferences.tsx"
+    },
+    {
       "id": "project-field-editor",
       "guide": "projects-sharing.md",
       "source": "apps/app/src/react-app/domains/workspace/project-field-editor.tsx"

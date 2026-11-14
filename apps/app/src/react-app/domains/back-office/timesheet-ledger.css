@@ -1,0 +1,169 @@
+.bo-time-toolbar {
+  flex-wrap: wrap;
+  height: auto;
+  min-height: 34px;
+  padding-block: 3px;
+}
+.bo-time-toolbar select,
+.bo-time-toolbar input,
+.bo-time-toolbar > button,
+.bo-time-week button,
+.bo-time-state button,
+.bo-time-new button {
+  font-size: 12px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  padding: 3px 5px;
+}
+.bo-time-toolbar select {
+  font-weight: 600;
+}
+.bo-time-toolbar button:hover,
+.bo-time-new button:hover,
+.bo-time-week button:hover,
+.bo-time-state button:hover {
+  background: var(--bo-surface);
+}
+.bo-time-totals,
+.bo-time-footer,
+.bo-time-week {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 15px;
+  padding: 3px 18px 6px;
+  font-size: 11px;
+  color: var(--bo-muted);
+  font-variant-numeric: tabular-nums;
+}
+.bo-time-totals span {
+  white-space: nowrap;
+}
+.bo-time-totals b {
+  font-weight: 500;
+  color: var(--t-font-color-primary);
+}
+.bo-time-week {
+  gap: 4px;
+}
+.bo-time-week button[aria-pressed="true"] {
+  background: var(--bo-surface);
+  color: var(--t-font-color-primary);
+}
+.bo-time-scroll {
+  padding-bottom: 12px;
+}
+.bo-time-scroll .bo-grid-row,
+.bo-time-scroll .bo-grid-header {
+  grid-template-columns:
+    28px 104px minmax(116px, 1.15fr) 78px 63px minmax(150px, 1.5fr) minmax(104px, 1fr)
+    56px 72px 80px 110px;
+  width: 100%;
+  min-width: 961px;
+}
+.bo-time-new {
+  position: sticky;
+  top: 32px;
+  z-index: 2;
+  background: var(--bo-bg);
+}
+.bo-time-input-cell {
+  padding: 0 2px;
+}
+.bo-time-input-cell input:not([type="checkbox"]) {
+  width: 100%;
+  height: 28px;
+  padding: 2px 5px;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  background: transparent;
+}
+.bo-time-input-cell input:focus-visible,
+.bo-time-value:focus-visible {
+  outline: 2px solid var(--t-color-blue8, currentColor);
+  outline-offset: -2px;
+}
+.bo-time-input-cell input:disabled {
+  color: var(--bo-muted);
+}
+.bo-time-input-cell input[type="checkbox"] {
+  margin-left: 6px;
+}
+.bo-time-value {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  display: block;
+  line-height: 24px;
+}
+.bo-time-state {
+  gap: 4px;
+  color: var(--bo-muted);
+  font-size: 11px;
+}
+.bo-time-state > button:last-child {
+  margin-inline-start: auto;
+}
+.bo-time-history {
+  list-style: none;
+  margin: 0;
+  padding: 8px 16px 8px 42px;
+  border-bottom: 1px solid var(--bo-border);
+  color: var(--bo-muted);
+  font-size: 12px;
+}
+.bo-time-history li + li {
+  margin-top: 5px;
+}
+.bo-time-footer {
+  justify-content: space-between;
+  border-top: 1px solid var(--bo-border);
+  padding-block: 4px;
+}
+
+.bo-time-original {
+  padding: 6px 16px 0 42px;
+  color: var(--bo-muted);
+  font-size: 12px;
+}
+.bo-time-original dl {
+  display: grid;
+  gap: 6px;
+}
+.bo-time-original dt {
+  font-weight: 600;
+}
+.bo-time-original dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.bo-time-cap {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding: 2px 17px 6px;
+  font-size: 11px;
+  color: var(--t-color-orange11, #905a20);
+}
+.bo-time-cap-icon {
+  color: var(--t-color-orange11, #905a20);
+}
+
+.bo-time-new-product {
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 3px;
+  width: 20px;
+  height: 20px;
+  color: var(--bo-muted);
+}
+.bo-time-new-product:hover,
+.bo-time-new-product[aria-pressed="true"] {
+  background: var(--t-color-blue3);
+  color: var(--t-color-blue11);
+}

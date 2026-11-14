@@ -1,0 +1,156 @@
+.bo-time-secondary {
+  font-size: 12px;
+  color: var(--muted-foreground);
+  text-decoration: none;
+}
+.bo-time-secondary:hover {
+  text-decoration: underline;
+}
+.bo-workday {
+  overflow: auto;
+  padding: 12px 16px;
+}
+.bo-workday-controls,
+.bo-workday-options,
+.bo-workday-controls label,
+.bo-workday-options label,
+.bo-workday summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.bo-workday details {
+  margin: 12px 0;
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+.bo-workday summary {
+  cursor: pointer;
+  width: fit-content;
+}
+.bo-workday-options {
+  margin-top: 8px;
+  gap: 18px;
+}
+.bo-workday-controls input,
+.bo-workday select {
+  color: inherit;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px 6px;
+}
+.bo-workday-list {
+  border-top: 1px solid var(--border);
+  font-size: 13px;
+}
+.bo-workday-row {
+  display: grid;
+  grid-template-columns: 100px minmax(100px, 1fr) auto auto;
+  gap: 10px;
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+  padding: 7px 0;
+}
+.bo-workday-row time,
+.bo-workday-row small {
+  display: block;
+  font-size: 11px;
+  color: var(--muted-foreground);
+}
+@media (max-width: 650px) {
+  .bo-workday-row {
+    grid-template-columns: 80px 1fr;
+  }
+}
+
+.bo-workday-axis {
+  display: grid;
+  overflow-x: auto;
+  margin: 16px 0;
+  border: 1px solid var(--bo-border);
+  max-height: 420px;
+  overflow-y: auto;
+}
+.bo-workday-axis-heading,
+.bo-workday-axis-label {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--bo-bg);
+  padding: 5px;
+  border-bottom: 1px solid var(--bo-border);
+  font-size: 11px;
+  font-weight: 500;
+}
+.bo-workday-axis-times time {
+  display: block;
+  font-size: 10px;
+  color: var(--bo-muted);
+  height: 54px;
+  padding: 2px 4px;
+}
+.bo-workday-axis-column {
+  position: relative;
+  border-inline-start: 1px solid var(--bo-border);
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent 53px,
+    var(--bo-border) 53px,
+    var(--bo-border) 54px
+  );
+}
+.bo-workday-axis-event {
+  position: absolute;
+  font-size: 11px;
+  text-align: left;
+  overflow: hidden;
+  padding: 1px 4px;
+  background: var(--t-color-blue3, #e7eef6);
+  color: var(--t-color-blue11, #284c6d);
+  border-inline-start: 2px solid currentColor;
+}
+.bo-workday-axis-event.booked {
+  background: var(--t-color-green3, #e6f0e7);
+  color: var(--t-color-green11, #315539);
+}
+.bo-workday-correction {
+  display: flex;
+  align-items: end;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  padding: 12px;
+  margin: 12px 0;
+  border: 1px solid var(--bo-border);
+  background: var(--bo-surface);
+  font-size: 12px;
+}
+.bo-workday-correction label {
+  display: grid;
+  gap: 3px;
+}
+.bo-workday-correction label.bo-workday-split {
+  display: flex;
+  align-items: center;
+}
+.bo-workday-correction input:not([type="checkbox"]),
+.bo-workday-correction select {
+  border: 1px solid var(--bo-border);
+  border-radius: 3px;
+  padding: 4px;
+  color: inherit;
+  background: var(--bo-bg);
+}
+.bo-workday-correction input[type="number"] {
+  width: 75px;
+}
+.bo-workday-narrative {
+  flex: 1 1 270px;
+}
+.bo-workday-correction p {
+  flex-basis: 100%;
+  font-size: 11px;
+  color: var(--bo-muted);
+}

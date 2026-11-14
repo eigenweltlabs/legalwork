@@ -1,3 +1,5 @@
+import { TimesheetWorkspace, isTimesheetPage } from "./timesheet-workspace";
+import { Clock3 } from "lucide-react";
 import { NativeTable } from "./native-table";
 import { nativeKind, nativeModel } from "./native-model";
 import { NativeBacklinks } from "./native-backlinks";
@@ -77,7 +79,8 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
     cache = useQueryClient();
   const selected = location.pathname.split("/")[2] ?? "matters";
   const native = nativeKind(selected);
-  const moreSelected = !primaryObjectIcons.has(selected) && selected !== "data-model";
+  const timesheet = isTimesheetPage(selected);
+  const moreSelected = !timesheet && !primaryObjectIcons.has(selected) && selected !== "data-model";
   const [detailId, setDetailId] = useState<string | null>(
       new URLSearchParams(location.search).get("record"),
     ),
@@ -371,6 +374,10 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
                 {tabName(id)}
               </Button>
             ))}
+            <Button size="sm" variant={timesheet ? "soft" : "ghost"} startIcon={<Clock3 size={15}/>}
+              aria-current={timesheet ? "page" : undefined} onClick={() => show("timesheets")}>
+              {t("timesheets.title")}
+            </Button>
             <DirectoryMenu
               open={menu}
               onOpenChange={setMenu}
@@ -428,6 +435,8 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
               )}
             </div>
           )}
+          {data && timesheet && <TimesheetWorkspace key={[client.baseUrl,data.scope,data.directoryId,data.permissions.principalKey,data.permissions.replicaId,data.permissions.finance,data.permissions.edit].join(":")}
+            client={client} directory={data} page={selected}/>}
           {data && native && <NativeTable key={selected} client={client} state={data} kind={native}/>}
           {data && selected === "data-model" && (
             <ModelEditor
@@ -452,7 +461,7 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
               onRecords={show}
             />
           )}
-          {data && object && (
+          {data && object && !timesheet && (
             <>
               <header className="bo-object-header">
                 <h1>

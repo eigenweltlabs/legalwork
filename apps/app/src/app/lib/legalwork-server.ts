@@ -37,6 +37,7 @@ import type {
   ProjectSyncStatus,
 } from "@legalwork/types/workspace";
 import type { SystemOneConfiguration, SystemOneOptions, SystemOneProviderInput, SystemOneQuestions, SystemOneRequest, SystemOneResult, SystemOneSelection, SystemOneSettings } from "@legalwork/types/systemone";
+import type { CaptureAction, CaptureState, CaptureProposal } from "@legalwork/types/time-capture";
 import type { OcrServerInput, OcrSettingsView } from "@legalwork/types/ocr";
 import { serverSentEvents, syncPokeOf, type SyncPoke } from "@legalwork/types/sync-events";
 import type { StorageOAuthProvider, StorageOAuthStatus } from "@legalwork/types/file-storage";
@@ -1751,6 +1752,8 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
 
   return {
     backOffice: (path = "", options: { method?: string; body?: unknown; team?: boolean } = {}) => requestJson<unknown>(baseUrl, `/back-office${path}${path.includes("?") ? "&" : "?"}scope=${options.team === undefined ? "auto" : options.team ? "team" : "local"}`, { token, hostToken, method: options.method, body: options.body, timeoutMs: timeouts.binary }),
+    downloadTimesheetAdjustment: (id: string, scope: string) => requestBinary(baseUrl, `/back-office/timesheet/adjustments/${encodeURIComponent(id)}/document?scope=${encodeURIComponent(scope)}`, { token, hostToken, timeoutMs: timeouts.binary }),
+    downloadTimesheetInvoice: (id: string, scope: string) => requestBinary(baseUrl, `/back-office/timesheet/invoices/${encodeURIComponent(id)}/document?scope=${encodeURIComponent(scope)}`, { token, hostToken, timeoutMs: timeouts.binary }),
     downloadBackOfficeFile: (recordId: string, fieldId: string, fileId: string, options: { team?: boolean; eventId?: string } = {}) => requestBinary(baseUrl, `/back-office/records/${encodeURIComponent(recordId)}/files/${encodeURIComponent(fieldId)}/${encodeURIComponent(fileId)}?scope=${options.team === undefined ? "auto" : options.team ? "team" : "local"}${options.eventId ? `&eventId=${encodeURIComponent(options.eventId)}` : ""}`, { token, hostToken, timeoutMs: timeouts.binary }),
     uploadBackOfficeFile: (recordId: string, fieldId: string, name: string, data: ArrayBuffer, objectId: string) => requestJson<unknown>(baseUrl, `/back-office/records/${encodeURIComponent(recordId)}/files/${encodeURIComponent(fieldId)}?scope=auto`, { token, hostToken, method: "POST", body: { name, dataBase64: arrayBufferToBase64(data), objectId }, timeoutMs: timeouts.binary }),
 
@@ -1842,6 +1845,13 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         token,
         hostToken,
         timeoutMs: timeouts.config,
+      }),
+    privateWorkdayOriginal: (digest: string, context: {scope:string;user:string;principal:string}) =>
+      requestJson<Pick<CaptureProposal,"date"|"activity"|"narrative"|"workedMinutes"|"digest">>(baseUrl,
+        "/private-timesheet/original/"+encodeURIComponent(digest)+"?"+new URLSearchParams(context),{token,hostToken}),
+    privateWorkday: (context: {date:string;user:string;principal:string;scope:string}, action?: CaptureAction) =>
+      requestJson<CaptureState>(baseUrl, "/private-timesheet/workday?" + new URLSearchParams(context), {
+        token, hostToken, method: action ? "POST" : "GET", body: action, timeoutMs: 180_000,
       }),
     getOcrSettings: () => requestJson<OcrSettingsView>(baseUrl, "/ocr/settings", { token, hostToken, timeoutMs: timeouts.config }),
     setOcrAutoDownload: (enabled: boolean) => requestJson<OcrSettingsView>(baseUrl, "/ocr/auto-download", { token, hostToken, method: "PUT", body: { enabled }, timeoutMs: timeouts.config }),

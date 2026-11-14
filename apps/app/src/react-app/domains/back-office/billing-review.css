@@ -1,0 +1,232 @@
+.bo-billing {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  color: var(--bo-text);
+  font-variant-numeric: tabular-nums;
+}
+.bo-billing .bo-view-toolbar {
+  min-height: 40px;
+  height: auto;
+  padding-block: 5px;
+  flex-wrap: wrap;
+}
+.bo-billing .bo-view-toolbar label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--bo-muted);
+}
+.bo-billing input:not([type="checkbox"]),
+.bo-billing select,
+.bo-billing textarea {
+  font: inherit;
+  border: 1px solid var(--bo-border);
+  border-radius: 4px;
+  padding: 3px 5px;
+  background: var(--bo-bg);
+  color: var(--bo-text);
+  min-width: 0;
+}
+.bo-billing button:focus-visible,
+.bo-billing input:focus-visible,
+.bo-billing select:focus-visible,
+.bo-billing textarea:focus-visible {
+  outline: 2px solid var(--bo-blue);
+  outline-offset: -1px;
+}
+.bo-billing select {
+  max-width: 220px;
+}
+.bo-billing-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+.bo-billing table {
+  width: 100%;
+  border-spacing: 0;
+  border-collapse: separate;
+  font-size: 12px;
+}
+.bo-billing th,
+.bo-billing td {
+  padding: 4px 8px;
+  height: 32px;
+  text-align: left;
+  border-bottom: 1px solid var(--bo-border);
+}
+.bo-billing th {
+  background: var(--bo-bg);
+  color: var(--bo-muted);
+  font-weight: 500;
+  white-space: nowrap;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.bo-billing td.bo-billing-number,
+.bo-billing th.bo-billing-number {
+  text-align: right;
+  white-space: nowrap;
+}
+.bo-billing tr:hover td {
+  background: var(--bo-hover);
+}
+.bo-billing td input:not([type="checkbox"]) {
+  width: 100%;
+  min-width: 40px;
+}
+.bo-billing input[type="checkbox"] {
+  accent-color: var(--bo-blue);
+}
+.bo-billing-cell {
+  width: 100%;
+  text-align: inherit;
+  border-radius: 3px;
+}
+.bo-billing-cell:hover {
+  background: var(--bo-surface);
+  outline: 1px solid var(--bo-border);
+}
+.bo-billing-muted {
+  color: var(--bo-muted);
+  font-size: 12px;
+}
+.bo-billing-footer {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+  padding: 7px 14px;
+  min-height: 32px;
+  border-top: 1px solid var(--bo-border);
+  color: var(--bo-muted);
+  font-size: 12px;
+}
+.bo-billing-subrow {
+  padding: 8px 12px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.bo-billing-subrow strong,
+.bo-billing-rules h2 {
+  font-weight: 600;
+}
+.bo-billing-subrow small {
+  display: block;
+  color: var(--bo-muted);
+}
+.bo-billing-notice {
+  padding: 12px 16px;
+  color: var(--bo-muted);
+}
+.bo-billing-error {
+  color: var(--destructive, var(--t-color-red11));
+  white-space: normal;
+}
+.bo-billing td small.bo-billing-error {
+  display: block;
+}
+.bo-billing-cell-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  min-height: 24px;
+}
+.bo-billing-rules {
+  max-width: 750px;
+  display: grid;
+  padding: 8px 16px 24px;
+  gap: 4px;
+}
+.bo-billing-rules fieldset {
+  border: 0;
+  display: grid;
+  gap: 4px;
+  padding: 8px 0;
+}
+.bo-billing-rule {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) minmax(110px, 1fr);
+  align-items: center;
+  gap: 12px;
+  min-height: 36px;
+  border-bottom: 1px solid var(--bo-border);
+}
+.bo-billing-rule > div {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.bo-billing-rules .bo-billing-multiline {
+  display: grid;
+  align-items: start;
+  gap: 4px;
+}
+.bo-billing-rules .bo-billing-multiline textarea {
+  width: 100%;
+  min-height: 52px;
+  resize: vertical;
+}
+.bo-billing-header {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 14px;
+  border-bottom: 1px solid var(--bo-border);
+  min-height: 38px;
+}
+.bo-billing-header h2 {
+  font-size: 13px;
+  font-weight: 600;
+  margin-right: auto;
+}
+.bo-billing-error[role="alert"] {
+  padding: 4px;
+}
+
+.bo-invoice-template {
+  padding: 12px 16px;
+}
+.bo-invoice-template summary {
+  cursor: pointer;
+}
+.bo-invoice-template label {
+  display: grid;
+  gap: 4px;
+}
+.bo-invoice-preview {
+  width: 100%;
+  min-height: 280px;
+  background: white;
+  border: 1px solid var(--border);
+  grid-column: 1/-1;
+  flex-basis: 100%;
+}
+
+.bo-billing-cap {
+  color: var(--t-color-red11);
+  font-weight: 600;
+}
+.bo-billing-binding {
+  display: grid;
+  gap: 4px;
+  background: var(--bo-surface);
+  padding: 8px;
+  border: 1px solid var(--bo-border);
+}
+.bo-billing-binding label {
+  display: grid;
+  gap: 3px;
+}
+.bo-billing-rules details {
+  padding-block: 4px;
+}

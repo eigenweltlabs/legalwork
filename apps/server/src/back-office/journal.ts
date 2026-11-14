@@ -36,7 +36,7 @@ const JsonSchema = z.json();
 const PendingSchema = z.object({
   seq: z.number(),
   scope: z.string(),
-  kind: z.enum(["record", "model", "view", "proposal", "replica", "file"]),
+  kind: z.enum(["record", "model", "view", "proposal", "replica", "file", "timesheet"]),
   target: z.string(),
   before_data: z.string().nullable(),
   after_data: z.string().nullable(),
@@ -88,6 +88,7 @@ const auditedTables = [
   { table: "bo_views", kind: "view", target: "id" },
   { table: "bo_outbox", kind: "proposal", target: "id" },
   { table: "bo_replicas", kind: "replica", target: "'replica'" },
+  { table: "bo_timesheets", kind: "timesheet", target: "id" },
   { table: "bo_files", kind: "file", target: "id" },
 ] satisfies { table: string; kind: Pending["kind"]; target: string }[];
 type Pending = z.infer<typeof PendingSchema>;
@@ -156,6 +157,7 @@ export class BackOfficeJournal {
   } | null = null;
   private established = false;
   private filesEstablished = false;
+  private timesheetsEstablished = false;
   constructor(
     private readonly db: SqliteHandle,
     readonly storage: BackOfficeAuditStorage,
@@ -192,6 +194,9 @@ export class BackOfficeJournal {
       ),
     );
     this.established = initialized;
+    this.timesheetsEstablished = Boolean(db.get("SELECT version FROM bo_migrations WHERE version=5"));
+    if (initialized && !this.timesheetsEstablished && db.get("SELECT 1 FROM bo_journal_entries WHERE json_extract(proof,'$.entityType')='timesheet' LIMIT 1"))
+      throw new Error("Back Office timesheet migration evidence is missing.");
     this.filesEstablished = Boolean(db.get("SELECT version FROM bo_migrations WHERE version=4"));
     if (initialized && !this.filesEstablished && db.get("SELECT sequence FROM bo_journal_entries WHERE json_extract(proof,'$.entityType')='file' LIMIT 1"))
       throw new Error("Back Office attachment migration evidence is missing. Preserve this database before recovery.");
@@ -238,6 +243,7 @@ export class BackOfficeJournal {
       throw new Error("Back Office audit nonce storage was changed or removed. Preserve this database before recovery.");
     for (const [name, sql] of this.expectedTriggers) {
       if (!initialized && name.startsWith("bo_journal_legacy_")) continue;
+      if (!this.timesheetsEstablished && name.startsWith("bo_timesheets_journal_")) continue;
       if (!this.filesEstablished && name.startsWith("bo_files_journal_")) continue;
       if (found.get(name) !== sql)
         throw new Error(
@@ -754,7 +760,7 @@ export class BackOfficeJournal {
     try {
       this.begin("audit.initialize");
       for (const row of this.db.all(
-        "SELECT scope FROM bo_models UNION SELECT scope FROM bo_records UNION SELECT scope FROM bo_views UNION SELECT scope FROM bo_outbox UNION SELECT scope FROM bo_audit UNION SELECT scope FROM bo_replicas UNION SELECT scope FROM bo_files",
+        "SELECT scope FROM bo_models UNION SELECT scope FROM bo_records UNION SELECT scope FROM bo_views UNION SELECT scope FROM bo_outbox UNION SELECT scope FROM bo_audit UNION SELECT scope FROM bo_replicas UNION SELECT scope FROM bo_files UNION SELECT scope FROM bo_timesheets",
       )) {
         const scope = String(row.scope);
         if (
@@ -779,6 +785,8 @@ export class BackOfficeJournal {
       this.established = true;
       this.db.run("INSERT OR IGNORE INTO bo_migrations VALUES(4,datetime('now'))");
       this.filesEstablished = true;
+      this.db.run("INSERT OR IGNORE INTO bo_migrations VALUES(5,datetime('now'))");
+      this.timesheetsEstablished = true;
       this.db.run("DELETE FROM bo_journal_context");
       this.preparedStamp = this.stamp();
       this.db.exec("COMMIT");

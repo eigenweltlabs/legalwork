@@ -72,6 +72,10 @@
     "./opencode-view": "./src/opencode-view.ts",
     "./legal-research": "./src/legal-research.ts",
     "./legal-research-wiki": "./src/legal-research-wiki.ts",
+    "./invoice-template": "./src/invoice-template.ts",
+    "./time-capture": "./src/time-capture.ts",
+    "./billing-narrative": "./src/billing-narrative.ts",
+    "./timesheet": "./src/timesheet.ts",
     "./back-office": "./src/back-office.ts"
   },
   "files": [
