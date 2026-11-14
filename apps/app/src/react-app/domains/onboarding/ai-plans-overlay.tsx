@@ -861,9 +861,6 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
             />
           ))}
         </div>
-        <p className="mt-3 text-center text-[11px] leading-4 text-dls-secondary roomy:text-xs">
-          {t("ai_plans.confirm_footnote")}{offerTrial ? ` ${t("ai_plans.confirm_trial_footnote")}` : ""}
-        </p>
       </>
     );
     footerCenter = (
