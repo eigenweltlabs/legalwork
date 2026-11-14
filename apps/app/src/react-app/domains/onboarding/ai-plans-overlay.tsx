@@ -633,7 +633,7 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
       ? t("ai_plans.subtitle_ended", { firm })
       : variant === "no-models"
         ? t("ai_plans.subtitle_no_models", { firm })
-        : t("ai_plans.subtitle");
+        : null;
   const account = accountLabel(props.account);
 
   const notice = error ? (
@@ -834,9 +834,9 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
           >
             {title}
           </h1>
-          <p className="ai-plans-subtitle mx-auto mt-1.5 max-w-[740px] text-[13px] leading-[1.5] text-dls-secondary roomy:max-w-[860px] roomy:text-[14px]">
+          {subtitle && <p className="ai-plans-subtitle mx-auto mt-1.5 max-w-[740px] text-[13px] leading-[1.5] text-dls-secondary roomy:max-w-[860px] roomy:text-[14px]">
             {subtitle}
-          </p>
+          </p>}
           {notice ? <div className="mt-4">{notice}</div> : null}
         </header>
         <div className="ai-plans-billing mt-3 flex justify-center">
