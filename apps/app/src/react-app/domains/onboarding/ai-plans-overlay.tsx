@@ -144,7 +144,6 @@ const TAGLINE: Record<EigenweltPlan["id"], string> = {
 };
 
 const FEATURES = [
-  "usage",
   "ai_plans.feature_models",
   "ai_plans.feature_ai_tasks",
   "ai_plans.feature_hub",
@@ -153,11 +152,11 @@ const FEATURES = [
   "ai_plans.feature_hosting_retention",
 ];
 
-// Side by side, each card spans the row's five tracks (name, tagline, price,
+// Side by side, each card spans six tracks (name, tagline, price, usage,
 // action, features), so the buttons line up across the cards whatever the
 // length of the text above them.
 const cardClass =
-  "flex flex-col rounded-2xl border border-dls-border bg-dls-surface p-5 md:row-span-5 md:grid md:grid-rows-subgrid md:gap-y-0 xl:p-6 roomy:p-7";
+  "flex flex-col rounded-2xl border border-dls-border bg-dls-surface p-5 md:row-span-6 md:grid md:grid-rows-subgrid md:gap-y-0 xl:p-6 roomy:p-7";
 const planButtonClass =
   "h-11 w-full rounded-full text-[14px] roomy:h-12 roomy:text-[15px]";
 const textLinkClass =
@@ -212,7 +211,7 @@ function FeatureRow(props: {
   );
 }
 
-/** Name, tagline, price with its terms below, action, features: the platform's card, in the app's tokens. Five children, one per track. */
+/** Name, tagline, price, included usage, action and features in the app's tokens. */
 function CardFrame(props: {
   icon?: ReactNode;
   name: string;
@@ -221,9 +220,9 @@ function CardFrame(props: {
   priceSuffix: string;
   action: ReactNode;
   features: ReactNode;
+  usage: ReactNode;
   testId: string;
   switcher?: ReactNode;
-  priceNote?: string;
 }) {
   return (
     <article className={cardClass} data-testid={props.testId} style={{ viewTransitionName: props.testId.replace("ai-plan-", "ai-plan-card-") }}>
@@ -251,10 +250,8 @@ function CardFrame(props: {
         <div className="mt-1.5 text-[13px] leading-[18px] text-dls-secondary roomy:mt-2 roomy:text-[15px] roomy:leading-[22px]">
           {props.priceSuffix}
         </div>
-        {props.priceNote && (
-          <p className="mt-1 text-xs text-dls-secondary">{props.priceNote}</p>
-        )}
       </div>
+      {props.usage}
       <div className="mt-5 roomy:mt-6">{props.action}</div>
       <ul className="mt-5 space-y-2 border-t border-dls-border pt-5 text-[13px] leading-[18px] text-dls-text roomy:mt-6 roomy:space-y-2.5 roomy:pt-6 roomy:text-[14px] roomy:leading-5">
         {props.features}
@@ -269,10 +266,13 @@ function PlanCard(props: {
   label: string;
   disabled: boolean;
   onChoose: () => void;
+  interval: EigenweltCheckoutSelection["interval"];
   switcher?: ReactNode;
 }) {
   const { plan, locale } = props;
+  const price = props.interval === "year" ? plan.yearlyPerMonthCents : plan.monthlyCents;
   const features = [...FEATURES];
+  if (locale === "de") features.push("ai_plans.feature_confidentiality");
   if (plan.id !== "plus") features.push(
     "ai_plans.feature_admin",
     "ai_plans.feature_priority_support",
@@ -281,14 +281,21 @@ function PlanCard(props: {
     <CardFrame
       testId={`ai-plan-${plan.id}`}
       switcher={props.switcher}
-      priceNote={t("ai_plans.price_note", {
-        amount: formatEuroCents(plan.monthlyCents, locale),
-      })}
       icon={<BrandMark size={28} className="size-6 roomy:size-7" />}
       name={plan.name}
       tagline={t(TAGLINE[plan.id])}
-      price={formatEuroCents(plan.yearlyPerMonthCents, locale)}
+      price={formatEuroCents(price, locale)}
       priceSuffix={t("ai_plans.per_seat_month")}
+      usage={
+        <div className="mt-5 rounded-xl bg-muted/65 p-4 roomy:mt-6" role="group" aria-label={t("ai_plans.included_usage")}>
+          <p className="text-xs text-dls-secondary">{t("ai_plans.included_usage")}</p>
+          <p className="mt-2 flex flex-wrap items-baseline gap-2 tabular-nums">
+            {plan.includedMonthlyUsageCents > price && <s aria-hidden="true" className="text-sm text-dls-secondary">{formatEuroCents(price, locale)}</s>}
+            <strong className="text-2xl font-medium tracking-tight text-dls-text roomy:text-[28px]">{formatEuroCents(plan.includedMonthlyUsageCents, locale)}</strong>
+            <span className="text-xs text-dls-secondary">{t("ai_plans.per_month")}</span>
+          </p>
+        </div>
+      }
       action={
         <Button
           size="lg"
@@ -303,14 +310,7 @@ function PlanCard(props: {
         <>
           {features.map((key) => (
             <FeatureRow key={key}>
-              {key === "usage"
-                ? t("ai_plans.feature_usage", {
-                    amount: formatEuroCents(
-                      plan.includedMonthlyUsageCents,
-                      locale,
-                    ),
-                  })
-                : t(key)}
+              {t(key)}
             </FeatureRow>
           ))}
         </>
@@ -430,12 +430,12 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
   }, [phase, checkout.interval, checkout.seats, offerTrial, mode, variant]);
 
   const changeCheckout = (selection: EigenweltCheckoutSelection) => {
-    if (phase.kind !== "confirm") return;
+    const plan = phase.kind === "confirm" ? phase.plan : null;
     if (selection.interval !== checkout.interval) {
-      captureAnalyticsEvent("ai_plans_billing_interval_changed", { plan: phase.plan, from: checkout.interval, to: selection.interval, seats: selection.seats, mode, variant });
+      captureAnalyticsEvent("ai_plans_billing_interval_changed", { plan, from: checkout.interval, to: selection.interval, seats: selection.seats, mode, variant });
     }
     if (selection.seats !== checkout.seats) {
-      captureAnalyticsEvent("ai_plans_seats_adjusted", { plan: phase.plan, from: checkout.seats, to: selection.seats, interval: selection.interval, mode, variant });
+      captureAnalyticsEvent("ai_plans_seats_adjusted", { plan, from: checkout.seats, to: selection.seats, interval: selection.interval, mode, variant });
     }
     setCheckout(selection);
   };
@@ -826,6 +826,14 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
           </p>
           {notice ? <div className="mt-4">{notice}</div> : null}
         </header>
+        <div className="mt-5 flex justify-center">
+          <div role="radiogroup" aria-label={t("ai_plans.confirm_interval")} className="inline-grid h-9 grid-cols-2 gap-1 rounded-full border border-dls-border/60 bg-muted/65 p-1">
+            {(["year", "month"] satisfies EigenweltCheckoutSelection["interval"][]).map(interval => <button type="button" role="radio" key={interval} aria-checked={checkout.interval === interval} disabled={disabled} onClick={() => changeCheckout({ ...checkout, interval })}
+              className={`rounded-full border px-5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 ${checkout.interval === interval ? "border-dls-border/70 bg-dls-surface text-dls-text" : "border-transparent text-dls-secondary hover:text-dls-text"}`}>
+              {t(interval === "year" ? "ai_plans.confirm_yearly" : "ai_plans.confirm_monthly")}
+            </button>)}
+          </div>
+        </div>
         {!props.assistantUpgrade && <OwnModelBanner disabled={disabled} onChoose={bringOwnModel} />}
         <div className="mt-6 grid gap-4 md:grid-cols-3 md:gap-x-4 md:gap-y-0 xl:gap-x-5 roomy:mt-8 roomy:gap-x-7">
           {EIGENWELT_PLANS.map((plan) => (
@@ -836,9 +844,13 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
               label={planLabel(plan)}
               disabled={disabled}
               onChoose={() => choosePlan(plan.id)}
+              interval={checkout.interval}
             />
           ))}
         </div>
+        <p className="mt-5 text-center text-xs leading-5 text-dls-secondary">
+          {t("ai_plans.confirm_footnote")}{offerTrial ? ` ${t("ai_plans.confirm_trial_footnote")}` : ""}
+        </p>
       </>
     );
     footerCenter = (

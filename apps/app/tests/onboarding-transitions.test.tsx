@@ -46,10 +46,18 @@ describe("onboarding transitions", () => {
     expect(html).not.toContain('data-testid="ai-plan-sync"');
     expect(html).not.toContain('role="tablist"');
     expect(html).toContain("€190");
-    expect(html).toContain("€200/month");
-    expect(html).toContain("€210 of AI usage");
+    expect(html).not.toContain("Billed yearly, or");
+    expect(html.match(/aria-label="Included AI usage"/g)).toHaveLength(3);
+    for (const amount of ["€30", "€100", "€210"]) expect(html).toMatch(new RegExp(`<strong[^>]*>${amount}</strong>`));
+    expect(html).toMatch(/<s[^>]*>€90<\/s>/);
+    expect(html).toMatch(/<s[^>]*>€190<\/s>/);
+    expect(html).toContain('aria-label="Billing period"');
+    expect(html).toContain("Try Pro for €1");
     const cards = html.split("<article").slice(1).map(card => card.split("</article>")[0]);
     for (const card of cards) {
+      const featureList = card.split("<ul")[1];
+      expect(featureList).not.toContain("AI usage");
+      expect(featureList).not.toContain("203 StGB");
       expect(card).toContain("Team sync: Tasks, Workflows and files");
       expect(card).toContain("Matter management: clients, matter references, status and responsibilities in one place");
       expect(card).toContain("Word add-in, Excel add-in and Outlook integration");
