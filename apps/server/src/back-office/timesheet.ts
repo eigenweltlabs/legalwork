@@ -1,10 +1,13 @@
 import { adjustTime, decideAdjustment, invoiceLines } from "./timesheet-adjustment.js";
 import { authorizeIncrement } from "./timesheet-policy.js";
-import { suggestBillingNarrative } from "@legalwork/types/billing-narrative";
-import { renderInvoice, standardInvoice } from "@legalwork/types/invoice-template";
 import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import {
+  currencyScale,
+  timeFeeMinor,
+  renderInvoice,
+  standardInvoice,
+  suggestBillingNarrative,
   timeActivities,
   resolveTimePolicy,
   timePolicyError,
@@ -15,7 +18,7 @@ import {
   type TimeInvoice,
   type TimesheetCommand,
   type TimesheetState,
-} from "@legalwork/types/timesheet";
+} from "./timesheet-schema.js";
 import { BackOfficeRecordSchema, canonicalBackOfficeAudit, type BackOfficeActor } from "./schema.js";
 import {
   readTimesheet,
@@ -83,16 +86,6 @@ function snapshotRate(state: TimesheetState, e: TimeEntry) {
     policyDigest: digest(p),
   };
 }
-const scaleFor = (currency: string) =>
-  10 **
-  (new Intl.NumberFormat("en", {
-    style: "currency",
-    currency,
-  }).resolvedOptions().maximumFractionDigits ?? 2);
-function lineAmount(e: TimeEntry) {
-  const scale = scaleFor(e.currency!);
-  return Math.round((e.billableMinutes * e.hourlyRate! * scale) / 60) / scale;
-}
 function issue(
   store: BackOfficeStore,
   state: TimesheetState,
@@ -143,7 +136,7 @@ function issue(
   let number = 1;
   for (const n of numbers) number = Math.max(number, n + 1);
   if (!Number.isSafeInteger(number)) timeError("The invoice sequence is exhausted.", 409);
-  const scale = scaleFor(currency),
+  const scale = currencyScale(currency),
     invoice: TimeInvoice = {
       id: randomUUID(),
       number,
@@ -157,7 +150,8 @@ function issue(
         proposalDigest: undefined,
         suggestion: undefined,
       })),
-      total: entries.reduce((n, e) => n + Math.round(lineAmount(e) * scale), 0) / scale,
+      total:
+        entries.reduce((n, e) => n + timeFeeMinor(e.billableMinutes, e.hourlyRate!, scale), 0) / scale,
     };
   writeTimeDocument(store, scope, {
     id: invoice.id,
@@ -417,6 +411,15 @@ function apply(
       status =
         command.type === "submit" ? "submitted" : command.type === "confirm" ? "confirmed" : "declined";
     }
+    if (
+      e.billable &&
+      (status === "submitted" || status === "approved") &&
+      policyFor(state, e).ambiguousAgreement
+    )
+      timeError(
+        "Several fee agreements apply. Link the intended agreement in Project details and choose that project before submitting.",
+        409,
+      );
     if (["approved", "submitted", "confirmed"].includes(status) && command.type !== "return")
       validateDraft(state, e, status === "approved");
     const next: TimeEntry = {

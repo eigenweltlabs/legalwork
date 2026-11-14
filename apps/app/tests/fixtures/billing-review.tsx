@@ -104,8 +104,8 @@ const client = {
 };
 const render = async (node: ReactNode) =>
   act(async () => root.render(<BackOfficeTheme>{node}</BackOfficeTheme>));
-const draw = (state: TimesheetState) =>
-  render(<BillingReview state={state} onCommand={command} client={client} />);
+const draw = (state: TimesheetState, canEdit = true) =>
+  render(<BillingReview canEdit={canEdit} state={state} onCommand={command} client={client} />);
 const match = (s: string) => {
   const el = Array.from(host.querySelectorAll<HTMLButtonElement>("button")).find(
     (e) => e.textContent === s,
@@ -139,7 +139,10 @@ async function key(el: HTMLElement, key: string) {
   await act(async () => el.dispatchEvent(new window.KeyboardEvent("keydown", { key, bubbles: true })));
 }
 try {
-  await draw(actor);
+  await draw(actor, false);
+  assert.ok(field('input[aria-label="Select all eligible positions"]').disabled);
+  await draw({ ...actor, canManage: false });
+
   await click(field('input[aria-label="Select all eligible positions"]'));
   assert.match(host.textContent ?? "", /Selected: 1/);
   const changed = {
@@ -171,7 +174,21 @@ try {
     narrative: "Brief amended",
     reason: "Capped by agreement",
   });
+  const narrative = host.querySelector<HTMLButtonElement>('button[aria-label="Narrative"]');
+  assert.ok(narrative);
+  await click(narrative);
+  const revisedText = field('input[aria-label="Narrative"]');
+  await write(revisedText, "New narrative");
+  await select("Client", "c");
+  await click(field('input[aria-label="Select all eligible positions"]'));
+  assert.ok(match("Approve selection").disabled, "Filtering must keep a visible draft blocking approval");
+  await draw({ ...actor, entries: [{ ...row, revision: 3, workedMinutes: 60 }] });
+  await key(revisedText, "Enter");
+  assert.equal(calls.length, 2, "Editing a superseded revision must not write to its replacement");
+  await key(revisedText, "Escape");
+  await select("Client", "");
   await draw({ ...actor, entries: [{ ...row, status: "approved" }] });
+
   await select("View", "approved");
   await click(field('input[aria-label="Select all eligible positions"]'));
   await click(match("Preview invoice"));
@@ -216,6 +233,7 @@ try {
   };
   const locked = {
     ...actor,
+    canManage: false,
     entries: [{ ...row, status: "approved" as const }],
     adjustments: [correction],
   };

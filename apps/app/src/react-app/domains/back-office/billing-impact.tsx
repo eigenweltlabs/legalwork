@@ -44,7 +44,7 @@ const labels = {
 function applicable(policies: TimePolicy[], c: BillingContext) {
   const scopes = { firm: "firm", client: c.clientId, matter: c.matterId, project: c.projectId };
   return (["firm", "client", "matter", "project"] as const).flatMap((scope) =>
-    appliedTimePolicies(policies, scope, scopes[scope], c.date, c.clientId),
+    appliedTimePolicies(policies, scope, scopes[scope], c.date, c.clientId, c.projectId),
   );
 }
 function valueOf(key: Field, effective: Effective, state: TimesheetState) {
@@ -204,7 +204,7 @@ export function projectBindingTerms(state: TimesheetState, policy: TimePolicy) {
     state.matters.filter((m) => project.matterIds.includes(m.id)).flatMap((m) => m.clientIds),
   );
   return [...clients].flatMap((id) => {
-    const term = bindingTimeTerm(state.policies, id, policy.effectiveFrom);
+    const term = bindingTimeTerm(state.policies, id, policy.effectiveFrom, policy.targetId);
     return term && projectRelaxesTerm(policy, term) ? [term] : [];
   });
 }

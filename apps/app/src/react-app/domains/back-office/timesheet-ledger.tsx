@@ -60,11 +60,12 @@ type Props = {
   state: TimesheetState;
   onCommand: (command: TimesheetCommand) => Promise<unknown>;
   initialDraft?: InitialTimesheetDraft;
+  onDiscardProposal?: () => void;
   initialDate?: string;
   onOriginal?: (digest: string) => Promise<OriginalProposal>;
   canEdit?: boolean;
 };
-type Edit = { entry: TimeEntry; values: RowValues };
+type Edit = { entry: TimeEntry; initial: RowValues; values: RowValues };
 function changes(entry: TimeEntry, person: (id: string) => string, locale: string) {
   return (
     <ol className="bo-time-history">
@@ -150,6 +151,7 @@ export function TimesheetLedger({
   state,
   onCommand,
   initialDraft,
+  onDiscardProposal,
   initialDate,
   canEdit = true,
   onOriginal,
@@ -224,8 +226,8 @@ export function TimesheetLedger({
       if (element.tagName === "INPUT" && element.type === "text") element.select();
     });
   function chooseDate(next: string) {
-    if (!next) return;
-    if (edit) {
+    if (!next || next === date) return;
+    if (edit || draftChanged || provenance) {
       setError(t("timesheets.ledger.finish_edit"));
       return;
     }
@@ -305,6 +307,22 @@ export function TimesheetLedger({
       setBusy(false);
     }
   }
+  function openEditor(entry: TimeEntry) {
+    const values = fromDraft(entry, person(entry.workerId), date, state, matters);
+    setEdit({ entry, initial: values, values });
+    setSelected(entry.id);
+  }
+  function closeEditor(row: string, nextFocus: boolean, tabToNext: boolean) {
+    setEdit(null);
+    if (!nextFocus) return;
+    if (tabToNext) {
+      const next = rows
+        .slice(rows.findIndex((entry) => entry.id === row) + 1)
+        .find((entry) => ["pending", "confirmed", "submitted"].includes(entry.status));
+      if (next) openEditor(next);
+      focus(next?.id ?? "new", "matter");
+    } else focus(row, "narrative");
+  }
   async function save(row: string, nextFocus = true, tabToNext = false) {
     if (!canEdit || pending.current) return false;
     if (row === "new" && edit) {
@@ -313,6 +331,17 @@ export function TimesheetLedger({
     }
     const current = row === "new" ? draft : edit?.values;
     if (!current) return false;
+    if (
+      row !== "new" && edit &&
+      rowColumns.every((key) => current[key] === edit.initial[key]) &&
+      current.productId === edit.initial.productId &&
+      Boolean(current.createProduct) === Boolean(edit.initial.createProduct)
+    ) {
+      closeEditor(row, nextFocus, tabToNext);
+      setError("");
+      setNotice("");
+      return true;
+    }
     const result = parseRow(current, state);
     if ("error" in result) {
       setError(result.error);
@@ -372,17 +401,7 @@ export function TimesheetLedger({
     } else if (edit) {
       if (!(await run({ type: "update", id: edit.entry.id, revision: edit.entry.revision, entry })))
         return false;
-      setEdit(null);
-      if (nextFocus && tabToNext) {
-        const next = rows
-          .slice(rows.findIndex((entry) => entry.id === row) + 1)
-          .find((entry) => ["pending", "confirmed", "submitted"].includes(entry.status));
-        if (next) {
-          setEdit({ entry: next, values: fromDraft(next, person(next.workerId), date, state, matters) });
-          setSelected(next.id);
-        }
-        focus(next?.id ?? "new", "matter");
-      } else if (nextFocus) focus(row, "narrative");
+      closeEditor(row, nextFocus, tabToNext);
     }
     const limit = capFor(entry);
     setNotice(limit === null ? t("timesheets.ledger.saved") : t("timesheets.ledger.cap_review", { minutes: limit }));
@@ -402,8 +421,7 @@ export function TimesheetLedger({
       });
     } else open();
     function open() {
-      setEdit({ entry: row, values: fromDraft(row, person(row.workerId), date, state, matters) });
-      setSelected(row.id);
+      openEditor(row);
       setError("");
       setNotice(row.status === "submitted" ? t("timesheets.ledger.reopens") : "");
       focus(row.id, column);
@@ -437,6 +455,7 @@ export function TimesheetLedger({
     setNotice(t("timesheets.ledger.pasted"));
   }
   function resetComposer() {
+    if (provenance) onDiscardProposal?.();
     setDraftChanged(false);
     setDraft(emptyRow(date, own));
     setRequestId(crypto.randomUUID());
@@ -715,7 +734,7 @@ export function TimesheetLedger({
               disabled={busy}
               startIcon={<Send size={13} />}
               onClick={async () => {
-                if (edit) {
+                if (edit || draftChanged || provenance) {
                   setError(t("timesheets.ledger.finish_edit"));
                   return;
                 }

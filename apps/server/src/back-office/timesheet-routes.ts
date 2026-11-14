@@ -1,6 +1,6 @@
 import { acceptPrivateProposal } from "../time-capture/routes.js";
 import { z } from "zod";
-import { TimesheetCommandSchema, TimesheetStateSchema } from "@legalwork/types/timesheet";
+import { TimesheetCommandSchema, TimesheetStateSchema } from "./timesheet-schema.js";
 import type { ServerConfig } from "../types.js";
 import type { RequestContext } from "../routes/registry.js";
 import { ApiError } from "../errors.js";
@@ -74,7 +74,14 @@ export function registerTimesheetRoutes(
                 ? f.value.recordIds
                 : [],
             );
-            return { id: w.id, name: w.displayName || w.name, matterIds };
+            const agreementIds = details.fields.flatMap((f) =>
+              f.type === "backoffice" &&
+              f.objectId === "feeAgreements" &&
+              f.value?.directoryId === directoryId
+                ? f.value.recordIds
+                : [],
+            );
+            return { id: w.id, name: w.displayName || w.name, matterIds, agreementIds };
           }),
         );
         await assertIdentity(ctx, store, access);
@@ -87,7 +94,12 @@ export function registerTimesheetRoutes(
       if (!command.proposalDigest) timeError("A suggestion must reference its private original.");
       return acceptPrivateProposal(
         config,
-        { user: access.actor.userId, scope: access.scope, principal: access.actor.principalKey ?? "" },
+        {
+          user: access.actor.userId,
+          scope: access.scope,
+          principal: access.actor.principalKey ?? "",
+          profileId: ctx.url.searchParams.get("profileId"),
+        },
         command.requestId,
         command.proposalDigest,
         execute,
@@ -112,14 +124,15 @@ export function registerTimesheetRoutes(
         number = String(result.number);
       } else {
         const d = readTimeDocument(store, access.scope, id);
-        const canReadMatter = (id: string) => {
+        const canReadRecord = (id: string) => {
           const m = store.raw(access.scope, id);
-          return m && store.canRead(access.scope, m, access.actor);
+          return m && !m.archivedAt && store.canRead(access.scope, m, access.actor);
         };
         if (
           isInvoice &&
           d?.kind === "invoice" &&
-          d.value.entries.every((e) => canReadMatter(e.matterId))
+          canReadRecord(d.value.clientId) &&
+          d.value.entries.every((e) => canReadRecord(e.matterId))
         ) {
           document = d.document;
           number = String(d.value.number);
@@ -128,8 +141,12 @@ export function registerTimesheetRoutes(
           d?.kind === "adjustment" &&
           d.document &&
           d.value.noteNumber &&
-          canReadMatter(d.value.matterId)
+          canReadRecord(d.value.matterId) &&
+          d.value.invoiceId
         ) {
+          const original = readTimeDocument(store, access.scope, d.value.invoiceId);
+          if (original?.kind !== "invoice" || !canReadRecord(original.value.clientId))
+            timeError("The issued document is unavailable.", 404);
           document = d.document;
           number = d.value.noteNumber;
         } else timeError("The issued document is unavailable.", 404);

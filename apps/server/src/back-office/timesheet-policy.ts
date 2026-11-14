@@ -3,7 +3,7 @@ import {
   projectRelaxesTerm,
   type TimePolicy,
   type TimesheetState,
-} from "@legalwork/types/timesheet";
+} from "./timesheet-schema.js";
 import type { BackOfficeActor } from "./schema.js";
 import { timeError } from "./timesheet-data.js";
 
@@ -15,6 +15,9 @@ export function authorizeIncrement(
 ): TimePolicy {
   const {
     agreementClientId: _legacyClient,
+    agreementId: _legacyId,
+    agreementProjects: _legacyProjects,
+    allocationUnavailable: _legacyAllocation,
     incrementException: _untrusted,
     incrementExceptionReason: reason,
     ...rule
@@ -34,7 +37,12 @@ export function authorizeIncrement(
         );
   const clients = [...new Set(matters.flatMap((m) => m.clientIds))];
   const terms = clients.flatMap((id) => {
-    const term = bindingTimeTerm(state.policies, id, rule.effectiveFrom);
+    const term = bindingTimeTerm(
+      state.policies,
+      id,
+      rule.effectiveFrom,
+      rule.scope === "project" ? rule.targetId : undefined,
+    );
     return term && projectRelaxesTerm(rule, term) ? [term] : [];
   });
   if (!terms.length) return rule;

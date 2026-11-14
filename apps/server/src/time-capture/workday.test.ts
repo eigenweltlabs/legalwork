@@ -53,3 +53,23 @@ test("completed task only provides context without invented working time", () =>
     workdayEvidence([task, { ...task, status: "open" }], "2026-11-12", settings).map((x) => x.proposal),
   ).toMatchObject([{ workedMinutes: null, startAt: null, endAt: null }]);
 });
+
+test("a workday clips overnight meetings in the worker's zone and excludes other assignees", () => {
+  const meeting = {
+    ...sample,
+    start: "2026-11-12T22:30:00Z",
+    end: "2026-11-13T00:15:00Z",
+    timeZone: "UTC",
+  };
+  const settings = { calendar: true, tasks: true, intervalMinutes: 0 as const };
+  const get = (day: string) =>
+    workdayEvidence(
+      [meeting, { ...meeting, kind: "task", status: "done", assigneeUserId: "other" }],
+      day,
+      settings,
+      "worker",
+      "Europe/Vienna",
+    );
+  expect(get("2026-11-12").map((x) => x.proposal.workedMinutes)).toEqual([30]);
+  expect(get("2026-11-13").map((x) => x.proposal.workedMinutes)).toEqual([75]);
+});

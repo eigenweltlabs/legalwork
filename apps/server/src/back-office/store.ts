@@ -3,6 +3,7 @@ import type { DirectoryPosition } from "./paged-sync.js";
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { validateGenericTime } from "./timesheet-data.js";
 import { BackOfficeJournal } from "./journal.js";
 import { backOfficeAuthorKey, backOfficePrincipalKey } from "./principal.js";
 import {
@@ -568,8 +569,6 @@ export class BackOfficeStore {
             "The object is unavailable.",
           );
         const existing = parsed.id ? this.raw(scope, parsed.id) : null;
-        if (existing && this.db.get("SELECT 1 FROM bo_timesheets WHERE scope=? AND id=?", [scope,existing.id]))
-          throw new ApiError(409,"timesheet_managed","Edit this entry in Timesheets to preserve its reviewed revision.");
         if (parsed.id && !existing && !parsed.create)
           throw new ApiError(
             404,
@@ -586,6 +585,8 @@ export class BackOfficeStore {
             "back_office_record",
             "The record is unavailable.",
           );
+        if (existing && this.db.get("SELECT 1 FROM bo_timesheets WHERE scope=? AND id=?", [scope,existing.id]))
+          throw new ApiError(409,"timesheet_managed","Edit this entry in Timesheets to preserve its reviewed revision.");
         if (parsed.create && existing) {
           if (parsed.revision === 0 && existing.revision === 1 && existing.ownerId === actor.userId &&
               parsed.sourceId === undefined && existing.sourceId == null && existing.access === (parsed.access ?? "org") &&
@@ -709,6 +710,8 @@ export class BackOfficeStore {
             error instanceof Error ? error.message : "Check the values.",
           );
         }
+        if (scope === "local" && object.id === "timeEntries")
+          validateGenericTime(this, scope, actor, existing, values);
         if (
           object.id === "projectLinks" &&
           (!values.matter ||

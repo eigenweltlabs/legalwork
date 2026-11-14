@@ -1,4 +1,4 @@
-import { useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { t } from "@/i18n";
 
 export function BillingEditCell({
@@ -7,6 +7,8 @@ export function BillingEditCell({
   numeric,
   disabled,
   requireReason,
+  cellId,
+  revision,
   onEditing,
   onSave,
 }: {
@@ -15,10 +17,12 @@ export function BillingEditCell({
   numeric?: boolean;
   disabled?: boolean;
   requireReason?: boolean;
-  onEditing?: (active: boolean) => void;
+  cellId?: string;
+  revision?: number;
+  onEditing?: (cellId: string, active: boolean) => void;
   onSave: (value: string, reason?: string) => Promise<void>;
 }) {
-  const [edit, setEdit] = useState<{ initial: string; value: string } | null>(null);
+  const [edit, setEdit] = useState<{ initial: string; revision?: number; value: string } | null>(null);
   const [message, setMessage] = useState("");
   const [reason, setReason] = useState("");
   const [saving, setSaving] = useState(false);
@@ -26,6 +30,12 @@ export function BillingEditCell({
   const anchor = useRef<HTMLButtonElement>(null);
   const reasonInput = useRef<HTMLInputElement>(null);
   const cancel = useRef(false);
+  const editing = !!edit && !disabled;
+  useEffect(() => {
+    if (!editing || !cellId || !onEditing) return;
+    onEditing(cellId, true);
+    return () => onEditing(cellId, false);
+  }, [editing, cellId, onEditing]);
   async function finish(returnFocus: boolean) {
     if (!edit || cancel.current || pending.current) return;
     const next = edit.value.trim();
@@ -35,7 +45,7 @@ export function BillingEditCell({
       );
       return;
     }
-    if (value !== edit.initial) {
+    if (value !== edit.initial || revision !== edit.revision) {
       setMessage(t("back_office.billing.stale"));
       return;
     }
@@ -50,7 +60,6 @@ export function BillingEditCell({
     try {
       if (next !== value) await onSave(next, reason.trim() || undefined);
       setEdit(null);
-      onEditing?.(false);
       if (returnFocus) requestAnimationFrame(() => anchor.current?.focus());
     } catch (error) {
       setMessage(error instanceof Error ? error.message : t("back_office.billing.save_failed"));
@@ -60,6 +69,7 @@ export function BillingEditCell({
     }
   }
   function keys(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.nativeEvent.isComposing) return;
     if (event.key === "Enter") {
       event.preventDefault();
       void finish(true);
@@ -68,7 +78,6 @@ export function BillingEditCell({
       event.preventDefault();
       cancel.current = true;
       setEdit(null);
-      onEditing?.(false);
       setMessage("");
       requestAnimationFrame(() => anchor.current?.focus());
     }
@@ -116,11 +125,10 @@ export function BillingEditCell({
       aria-label={label}
       title={value}
       onClick={() => {
-        onEditing?.(true);
         cancel.current = false;
         setMessage("");
         setReason("");
-        setEdit({ initial: value, value });
+        setEdit({ initial: value, revision, value });
       }}
     >
       {value}

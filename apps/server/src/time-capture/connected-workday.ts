@@ -5,7 +5,7 @@ import {
   sameCaptureAccount,
   type CaptureAccount,
   type CaptureProposal,
-} from "@legalwork/types/time-capture";
+} from "../back-office/timesheet-schema.js";
 import { addDays, zonedInstant } from "../calendar/dates.js";
 import { savedConnectorConnections } from "../connectors/broker.js";
 import { nativePagePath } from "../connectors/native.js";
@@ -166,7 +166,8 @@ export async function accountWorkdayEvidence(
           to = googleDate.parse(event.end);
         const uid = typeof event.iCalUID === "string" ? event.iCalUID : undefined;
         if (from.date) {
-          if (from.date === date) append(event.id, event.summary, null, null, uid);
+          if (from.date <= date && (!to.date || date < to.date))
+            append(event.id, event.summary, null, null, uid);
           continue;
         }
         addMeeting(event.id, event.summary, from.dateTime, to.dateTime, uid);

@@ -1846,10 +1846,10 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         hostToken,
         timeoutMs: timeouts.config,
       }),
-    privateWorkdayOriginal: (digest: string, context: {scope:string;user:string;principal:string}) =>
+    privateWorkdayOriginal: (digest: string, context: {scope:string;user:string;principal:string;profileId?:string}) =>
       requestJson<Pick<CaptureProposal,"date"|"activity"|"narrative"|"workedMinutes"|"digest">>(baseUrl,
         "/private-timesheet/original/"+encodeURIComponent(digest)+"?"+new URLSearchParams(context),{token,hostToken}),
-    privateWorkday: (context: {date:string;user:string;principal:string;scope:string}, action?: CaptureAction) =>
+    privateWorkday: (context: {date:string;user:string;principal:string;scope:string;profileId?:string}, action?: CaptureAction) =>
       requestJson<CaptureState>(baseUrl, "/private-timesheet/workday?" + new URLSearchParams(context), {
         token, hostToken, method: action ? "POST" : "GET", body: action, timeoutMs: 180_000,
       }),

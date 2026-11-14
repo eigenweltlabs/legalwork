@@ -9,7 +9,7 @@ import {
   workdayCorrectionSchema,
   captureProposalSchema,
   captureSettingsSchema,
-} from "@legalwork/types/time-capture";
+} from "../back-office/timesheet-schema.js";
 import { backOfficeAccess } from "../back-office/access.js";
 import { addDays } from "../calendar/dates.js";
 import { globalCalendarOccurrences } from "../calendar/service.js";
@@ -46,8 +46,10 @@ const defaults = (): Saved => ({
   documentSaves: {},
   documentEpoch: 0,
 });
-async function profile(config: ServerConfig) {
-  const { actor, scope } = await backOfficeAccess(config);
+export async function captureProfile(
+  config: ServerConfig,
+  { actor, scope }: Awaited<ReturnType<typeof backOfficeAccess>>,
+) {
   const connection = scope === "local" ? await readEigenweltConnection(config) : undefined;
   // The local directory uses one finance identity even when different firm
   // users sign in. Private opt-ins and document names belong to the actual account.
@@ -59,11 +61,16 @@ async function profile(config: ServerConfig) {
     : (actor.principalKey ?? actor.userId);
   const owner = digest([scope, identity]);
   return {
+    profileId: owner,
+    captureUser: account?.userId ?? actor.userId,
     user: actor.userId,
     principal: actor.principalKey ?? "",
     scope,
     path: join(dirname(runtimeDbPath(config)), "private-timesheets", owner + ".json"),
   };
+}
+async function profile(config: ServerConfig) {
+  return captureProfile(config, await backOfficeAccess(config));
 }
 async function load(path: string): Promise<Saved> {
   try {
@@ -125,7 +132,7 @@ export async function beginDocumentCapture(
 /** Serialize acceptance with range edits so a stale composer cannot also bill a split-off interval. */
 export async function acceptPrivateProposal<T>(
   config: ServerConfig,
-  identity: { user: string; scope: string; principal: string },
+  identity: { user: string; scope: string; principal: string; profileId: string | null },
   key: string,
   hash: string,
   write: () => Promise<T>,
@@ -135,6 +142,7 @@ export async function acceptPrivateProposal<T>(
   const prof = await profile(config),
     path = prof.path;
   if (
+    prof.profileId !== identity.profileId ||
     prof.user !== identity.user ||
     prof.scope !== identity.scope ||
     prof.principal !== identity.principal
@@ -190,12 +198,14 @@ async function prepare(config: ServerConfig, path: string, date: string, withMod
   try {
     const initial = await load(path);
     if (!captureEnabled(initial.settings)) return;
+    const currentProfile = await profile(config);
+    if (currentProfile.path !== path) return;
     const events =
       initial.settings.calendar || initial.settings.tasks
         ? await globalCalendarOccurrences(
             config,
-            date,
-            addDays(date, 1),
+            addDays(date, -1),
+            addDays(date, 2),
             config.workspaces,
             initial.settings,
           )
@@ -208,7 +218,10 @@ async function prepare(config: ServerConfig, path: string, date: string, withMod
     );
     const byEvidence = new Map<string, WorkdayEvidence>();
     // Prefer a project-linked local event when the same iCalendar occurrence appears in both feeds.
-    for (const item of [...imported, ...workdayEvidence(events, date, initial.settings)])
+    for (const item of [
+      ...imported,
+      ...workdayEvidence(events, date, initial.settings, currentProfile.captureUser),
+    ])
       byEvidence.set(item.eventKey, item);
     if (initial.settings.documents)
       for (const [eventKey, proposal] of Object.entries(initial.documentSaves[date] ?? {}))
@@ -235,12 +248,6 @@ async function prepare(config: ServerConfig, path: string, date: string, withMod
         if (previous) {
           current.originals[previous.proposal.digest] = previous.proposal;
           if (previous.proposal.parentDigest || current.accepted[previous.proposal.key]) return previous;
-          if (
-            !withModel &&
-            previous.proposal.source === next.proposal.source &&
-            previous.proposal.account === next.proposal.account
-          )
-            return previous;
           next.proposal.key = previous.proposal.key;
           next.proposal.dismissed = previous.proposal.dismissed;
         }
@@ -251,7 +258,9 @@ async function prepare(config: ServerConfig, path: string, date: string, withMod
       for (const previous of old)
         if (
           !available.has(previous.eventKey) &&
-          (previous.proposal.dismissed || previous.proposal.parentDigest)
+          (previous.proposal.dismissed ||
+            previous.proposal.parentDigest ||
+            current.accepted[previous.proposal.key])
         )
           current.days[date].push(previous);
       current.lastRun = Date.now();
@@ -311,8 +320,9 @@ export function registerWorkdayRoutes(options: {
   addRoute(routes, "GET", "/private-timesheet/original/:digest", "host", async (ctx) => {
     if (!loopback(config) || ctx.agentAccess)
       throw new ApiError(403, "private_workday", "Open the original on the local device.");
-    const { path, user, principal, scope } = await profile(config);
+    const { path, user, principal, scope, profileId } = await profile(config);
     if (
+      ctx.url.searchParams.get("profileId") !== profileId ||
       ctx.url.searchParams.get("user") !== user ||
       ctx.url.searchParams.get("principal") !== principal ||
       ctx.url.searchParams.get("scope") !== scope
@@ -335,8 +345,9 @@ export function registerWorkdayRoutes(options: {
     addRoute(routes, method, "/private-timesheet/workday", "host", async (ctx) => {
       if (!loopback(config) || ctx.agentAccess)
         throw new ApiError(403, "private_workday", "Open the workday on your local LegalWork server.");
-      const { path, user, principal, scope } = await profile(config);
+      const { path, user, principal, scope, profileId } = await profile(config);
       if (
+        ctx.url.searchParams.get("profileId") !== profileId ||
         ctx.url.searchParams.get("user") !== user ||
         ctx.url.searchParams.get("principal") !== principal ||
         ctx.url.searchParams.get("scope") !== scope
@@ -379,12 +390,15 @@ export function registerWorkdayRoutes(options: {
               const p = s.days[date]?.find((row) => row.proposal.key === action.key);
               if (p) p.proposal.dismissed = true;
             }
+            if ((await profile(config)).path !== path)
+              throw new ApiError(
+                409,
+                "private_workday_changed",
+                "The active Back Office account changed.",
+              );
             await save(path, s);
           });
       }
-      const current = await profile(config);
-      if (current.path !== path)
-        throw new ApiError(409, "private_workday_changed", "The active Back Office account changed.");
       const s = await load(path);
       const connections = (await connectedWorkdayAccounts(config)).map(({ provider, account }) => ({
         provider,
@@ -403,6 +417,8 @@ export function registerWorkdayRoutes(options: {
           }))
           .filter((p) => sourceAvailable(p, connections, s.settings) && !p.dismissed),
       });
+      if ((await profile(config)).path !== path)
+        throw new ApiError(409, "private_workday_changed", "The active Back Office account changed.");
       result.headers.set("Cache-Control", "no-store");
       return result;
     });

@@ -10,9 +10,11 @@ import { useBillingAction, type BillingProps } from "./billing-components";
 export function BillingAdjustments({
   rows,
   state,
+  canEdit,
   onCommand,
   download,
 }: BillingProps & {
+  canEdit: boolean;
   rows: TimeEntry[];
   download: (id: string) => Promise<void>;
 }) {
@@ -74,7 +76,8 @@ export function BillingAdjustments({
               );
               const solo = state.scope === "local" && policy.soloApproval;
               const eligible =
-                state.canManage &&
+                state.canReview &&
+                canEdit &&
                 (policy.reviewerId === state.userId || (solo && !policy.reviewerId)) &&
                 (a.authorId !== state.userId || solo) &&
                 (line.workerId !== state.userId || solo);

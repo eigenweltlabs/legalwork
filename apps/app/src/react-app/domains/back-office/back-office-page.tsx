@@ -101,10 +101,11 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
   const [menu, setMenu] = useState(false),
     [more, setMore] = useState(false),
     [archived, setArchived] = useState(() => new URLSearchParams(location.search).get("archived") === "true");
-  const key = ["back-office", client.baseUrl, "auto", selected];
+  const directoryView = timesheet ? "timesheets" : selected;
+  const key = ["back-office", client.baseUrl, "auto", directoryView];
   const query = useQuery({
     queryKey: key,
-    queryFn: ({signal}) => loadBackOfficeState(client, cache.getQueryData<BackOfficeState>(key), signal, undefined, selected),
+    queryFn: ({signal}) => loadBackOfficeState(client, cache.getQueryData<BackOfficeState>(key), signal, undefined, timesheet ? undefined : selected),
     refetchInterval: 30_000,
   });
   const data = query.isError ? undefined : query.data;
@@ -435,7 +436,7 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
               )}
             </div>
           )}
-          {data && timesheet && <TimesheetWorkspace key={[client.baseUrl,data.scope,data.directoryId,data.permissions.principalKey,data.permissions.replicaId,data.permissions.finance,data.permissions.edit].join(":")}
+          {data && timesheet && <TimesheetWorkspace key={[client.baseUrl,data.scope,data.directoryId,data.captureProfileId,data.permissions.userId,data.permissions.model,data.permissions.principalKey,data.permissions.replicaId,data.permissions.finance,data.permissions.edit].join(":")}
             client={client} directory={data} page={selected}/>}
           {data && native && <NativeTable key={selected} client={client} state={data} kind={native}/>}
           {data && selected === "data-model" && (

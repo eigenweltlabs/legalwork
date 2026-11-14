@@ -76,6 +76,9 @@ export const TimePolicySchema = z.strictObject({
   rounding: z.enum(roundingModes).optional(),
   bindingIncrement: z.boolean().optional(),
   agreementClientId: id.optional(),
+  agreementId: id.optional(),
+  agreementProjects: z.array(id).optional(),
+  allocationUnavailable: z.boolean().optional(),
   incrementExceptionReason: text.optional(),
   incrementException: incrementExceptionSchema.optional(),
   maxMinutes: minutes.min(1).optional(),
@@ -100,6 +103,7 @@ export function appliedTimePolicies(
   target: string | undefined,
   date: string,
   billingClient?: string,
+  projectId?: string,
 ): TimePolicy[] {
   const candidates = policies.filter(
     (p) =>
@@ -110,13 +114,27 @@ export function appliedTimePolicies(
   );
   const legacy = (p: TimePolicy) =>
     p.revision === 0 && p.effectiveFrom === "0001-01-01" && (scope === "matter" || scope === "client");
-  const agreements = candidates
-    .filter(legacy)
-    .sort((a, b) => Number(Boolean(a.agreementClientId)) - Number(Boolean(b.agreementClientId)));
+  const agreements = candidates.filter(legacy);
+  const applicable: TimePolicy[] = [];
+  for (const targeted of [false, true]) {
+    const group = agreements.filter((p) => Boolean(p.agreementClientId) === targeted);
+    const linked = projectId ? group.filter((p) => p.agreementProjects?.includes(projectId)) : [];
+    const choices = linked.length ? linked : group;
+    if (choices.length === 1) applicable.push(choices[0]);
+    if (choices.length > 1)
+      applicable.push({
+        scope,
+        targetId: choices[0].targetId,
+        effectiveFrom: "0001-01-01",
+        revision: 0,
+        allocationUnavailable: true,
+        agreementClientId: targeted ? billingClient : undefined,
+      });
+  }
   const policy = candidates
     .filter((p) => !legacy(p))
     .sort((a, b) => b.effectiveFrom.localeCompare(a.effectiveFrom) || b.revision - a.revision)[0];
-  return policy ? [...agreements, policy] : agreements;
+  return policy ? [...applicable, policy] : applicable;
 }
 export function activeTimePolicy(
   policies: TimePolicy[],
@@ -131,8 +149,9 @@ export function bindingTimeTerm(
   policies: TimePolicy[],
   clientId: string,
   date: string,
+  projectId?: string,
 ): BindingTimeTerm | undefined {
-  const layers = appliedTimePolicies(policies, "client", clientId, date);
+  const layers = appliedTimePolicies(policies, "client", clientId, date, clientId, projectId);
   const binding = layers.filter((p) => p.bindingIncrement !== undefined).at(-1);
   if (!binding?.bindingIncrement) return undefined;
   const issuer = layers.at(-1)!;
@@ -163,7 +182,7 @@ export function resolveTimePolicy(
   projectId?: string,
 ) {
   const baseline = {
-    bindingClientTerm: bindingTimeTerm(policies, clientId, date),
+    bindingClientTerm: bindingTimeTerm(policies, clientId, date, projectId),
     incrementException: undefined as IncrementException | undefined,
     incrementMinutes: 10,
     enforceIncrement: true,
@@ -182,6 +201,8 @@ export function resolveTimePolicy(
     hourlyRate: undefined as number | undefined,
     currency: "",
   };
+  let unavailable = false,
+    ambiguous = false;
   const targets = {
     firm: "firm",
     client: clientId,
@@ -189,7 +210,14 @@ export function resolveTimePolicy(
     project: projectId,
   };
   for (const scope of ["firm", "client", "matter", "project"] as const) {
-    for (const policy of appliedTimePolicies(policies, scope, targets[scope], date, clientId)) {
+    for (const policy of appliedTimePolicies(
+      policies,
+      scope,
+      targets[scope],
+      date,
+      clientId,
+      projectId,
+    )) {
       const {
         scope: _scope,
         targetId: _id,
@@ -201,11 +229,16 @@ export function resolveTimePolicy(
         actionWords,
         narrativeCorrections,
         agreementClientId: _agreementClient,
+        agreementId,
+        agreementProjects: _agreementProjects,
+        allocationUnavailable,
         bindingIncrement: _binding,
         incrementExceptionReason: _reason,
         incrementException,
         ...values
       } = policy;
+      if (allocationUnavailable && !agreementId) ambiguous = true;
+      if (agreementId) unavailable = Boolean(allocationUnavailable);
       Object.assign(baseline, values);
       Object.assign(baseline.activityLimits, activityLimits);
       Object.assign(baseline.activityLabels, activityLabels);
@@ -233,7 +266,11 @@ export function resolveTimePolicy(
       }
     }
   }
-  return baseline;
+  if (unavailable || ambiguous) {
+    baseline.hourlyRate = undefined;
+    baseline.workerRates = {};
+  }
+  return { ...baseline, ...(ambiguous ? { ambiguousAgreement: true } : {}) };
 }
 export function timeEntryError(draft: TimeDraft, policy: ReturnType<typeof resolveTimePolicy>) {
   if (
@@ -241,6 +278,12 @@ export function timeEntryError(draft: TimeDraft, policy: ReturnType<typeof resol
     (draft.startAt && draft.endAt && Date.parse(draft.endAt) <= Date.parse(draft.startAt))
   )
     return "Choose a valid start and end together.";
+  if (
+    draft.startAt &&
+    draft.endAt &&
+    Math.round((Date.parse(draft.endAt) - Date.parse(draft.startAt)) / 60000) !== draft.workedMinutes
+  )
+    return "Worked minutes must match the recorded start and end.";
   if (!draft.billable && draft.billableMinutes)
     return "Non-billable work must have zero chargeable minutes.";
   if (policy.enforceIncrement && draft.billableMinutes % policy.incrementMinutes)
@@ -461,7 +504,7 @@ export const TimesheetStateSchema = z.object({
       createdAt: z.iso.datetime().optional(),
     }),
   ),
-  projects: z.array(entity.extend({ matterIds: z.array(id) })),
+  projects: z.array(entity.extend({ matterIds: z.array(id), agreementIds: z.array(id).optional() })),
   policies: z.array(TimePolicySchema),
   invoices: z.array(invoiceSchema),
 });

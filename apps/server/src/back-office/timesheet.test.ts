@@ -191,7 +191,7 @@ test("issued numbers follow legacy, pins approvals, download is reproducible and
 });
 test("old approved generic rows need a workflow review and audit failure rolls back entries and products", async () => {
   const { store, run, state, d } = await fixture();
-  store.saveRecord("local", owner, {
+  const saved = store.saveRecord("local", owner, {
     objectId: "timeEntries",
     revision: 0,
     values: {
@@ -200,11 +200,23 @@ test("old approved generic rows need a workflow review and audit failure rolls b
       client: d.clientId,
       startedAt: "2026-11-12T12:00:00Z",
       billingNarrative: "Legacy description",
-      status: "Approved",
+      status: "Draft",
       recordedMinutes: 10,
       billableMinutes: 10,
     },
   });
+  // A populated pre-workflow database already has approved rows.
+  store.transaction(
+    () => {
+      const record = { ...saved, values: { ...saved.values, status: "Approved" } };
+      store.db.run("UPDATE bo_records SET data=? WHERE scope=? AND id=?", [
+        JSON.stringify(record),
+        "local",
+        saved.id,
+      ]);
+    },
+    { action: "test.preexisting-record" },
+  );
   const legacy = state(owner).entries[0];
   expect(legacy.legacy).toBe(true);
   expect(() =>
@@ -688,4 +700,113 @@ test("rounding suggests the configured charge without changing worked time or th
       enforceIncrement: false,
     }),
   ).toBe(17);
+});
+
+test("finance editors can review assigned work without appointing themselves or changing its rate", async () => {
+  const { run, state, d } = await fixture();
+  const editor = { ...eva, model: false };
+  const policy = state(editor).policies[0];
+  expect(state(editor).canManage).toBe(false);
+  expect(() =>
+    run(editor, { type: "policy", policy: { ...policy, reviewerId: editor.userId } }),
+  ).toThrow(/access/);
+  const row = run(owner, { type: "create", requestId: randomUUID(), entry: d }).entries[0];
+  const sent = run(owner, { type: "submit", entries: sel(row) }).entries[0];
+  expect(run(editor, { type: "approve", entries: sel(sent) }).entries[0].status).toBe("approved");
+});
+
+test("conflicting matter agreements require a linked selection and flat fees have no hourly allocation", async () => {
+  const { store, d, matter, run } = await fixture();
+  const agreement = (name: string, basis: string, rate: number) =>
+    store.saveRecord("local", owner, {
+      objectId: "feeAgreements",
+      revision: 0,
+      values: { name, matter: matter.id, basis, hourlyRate: { amountMinor: rate, currency: "EUR" } },
+    });
+  const hourly = agreement("Hourly", "Hourly", 18200);
+  const flat = agreement("Fixed", "Flat fee", 25000);
+  const row = run(owner, { type: "create", requestId: randomUUID(), entry: d }).entries[0];
+  expect(row.hourlyRate).toBeUndefined();
+  expect(() => run(owner, { type: "submit", entries: sel(row) })).toThrow(/Several fee agreements/);
+  const projects = [hourly, flat].map((a) => ({
+    id: a.id,
+    name: a.id,
+    matterIds: [matter.id],
+    agreementIds: [a.id],
+  }));
+  const selected = (projectId: string) =>
+    commandTimesheet(
+      store,
+      "local",
+      owner,
+      people,
+      {
+        type: "create",
+        requestId: randomUUID(),
+        entry: { ...d, projectId },
+      },
+      projects,
+    ).entries.find((e) => e.projectId === projectId)!;
+  expect(selected(hourly.id).hourlyRate).toBe(182);
+  const unpriced = selected(flat.id);
+  expect(unpriced.hourlyRate).toBeUndefined();
+  expect(store.raw("local", unpriced.id)?.values.hourlyRate).toBeNull();
+});
+
+test("worked minutes must match a supplied clock range", async () => {
+  const { run, d } = await fixture();
+  const timed = { ...d, startAt: "2026-11-12T22:00:00+01:00", endAt: "2026-11-12T22:17:00+01:00" };
+  const row = run(owner, { type: "create", entry: timed, requestId: randomUUID() }).entries[0];
+  expect(row.workedMinutes).toBe(17);
+  expect(() =>
+    run(owner, { type: "update", ...sel(row)[0], entry: { ...timed, workedMinutes: 180 } }),
+  ).toThrow(/must match/);
+});
+
+test("generic draft imports enforce client units and leave submission to the worker", async () => {
+  const { store, d } = await fixture();
+  const record = { objectId: "timeEntries", revision: 0 };
+  const line = {
+    name: "Imported",
+    matter: d.matterId,
+    client: d.clientId,
+    startedAt: d.date + "T09:00:00Z",
+    recordedMinutes: 10,
+    billableMinutes: 10,
+    status: "Draft",
+  };
+  expect(() =>
+    store.saveRecord("local", owner, { ...record, values: { ...line, billableMinutes: 4 } }),
+  ).toThrow(/multiple/);
+  const imported = store.saveRecord("local", owner, { ...record, values: line });
+  expect(() =>
+    store.saveRecord("local", owner, {
+      ...record,
+      revision: imported.revision,
+      id: imported.id,
+      values: { status: "Submitted" },
+    }),
+  ).toThrow(/Timesheets/);
+});
+
+test("a new reviewer sees only the parts of an entry history belonging to accessible matters", async () => {
+  const { store, d, run, state } = await fixture();
+  const restricted = store.saveRecord("local", owner, {
+    objectId: "matters",
+    revision: 0,
+    access: "members",
+    values: { name: "Restricted matter", clients: [d.clientId] },
+  });
+  const original = run(owner, {
+    type: "create",
+    requestId: randomUUID(),
+    entry: { ...d, matterId: restricted.id, narrative: "Private analysis" },
+  }).entries[0];
+  const moved = run(owner, { type: "update", ...sel(original)[0], entry: d }).entries[0];
+  run(owner, { type: "submit", entries: sel(moved) });
+  const history = state(eva).entries[0].history;
+  expect(history.map((h) => h.action)).toEqual(["update", "submit"]);
+  expect(history[0].before).toBeNull();
+  expect(JSON.stringify(history)).not.toContain("Private analysis");
+  expect(state(owner).entries[0].history[0].after.narrative).toBe("Private analysis");
 });

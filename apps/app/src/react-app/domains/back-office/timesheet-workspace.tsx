@@ -64,10 +64,12 @@ export function TimesheetWorkspace({
     directory.permissions.finance,
   ];
   const initialDate = CalendarDaySchema.safeParse(params.get("date")).data;
-  const identity = new URLSearchParams({ expectedUserId: userId });
-  if (directory.directoryId) identity.set("directoryId", directory.directoryId);
-  if (principalKey) identity.set("expectedPrincipalKey", principalKey);
   async function request(command?: TimesheetCommand) {
+    const identity = new URLSearchParams({ expectedUserId: userId });
+    if (directory.directoryId) identity.set("directoryId", directory.directoryId);
+    if (principalKey) identity.set("expectedPrincipalKey", principalKey);
+    if (command?.type === "create" && command.source === "suggestion" && directory.captureProfileId)
+      identity.set("profileId", directory.captureProfileId);
     const state = TimesheetStateSchema.parse(
       await client.backOffice("/timesheet?" + identity, {
         team,
@@ -197,6 +199,7 @@ export function TimesheetWorkspace({
                     scope: directory.scope,
                     user: userId,
                     principal: principalKey ?? "",
+                    ...(directory.captureProfileId ? { profileId: directory.captureProfileId } : {}),
                   })
               : undefined
           }
@@ -204,11 +207,18 @@ export function TimesheetWorkspace({
           state={state}
           onCommand={send}
           initialDate={initialDate}
+          onDiscardProposal={() => setProposal(undefined)}
           initialDraft={proposal}
         />
       )}
       {page === "billing-review" && (
-        <BillingReview initialDate={initialDate} client={client} state={state} onCommand={send} />
+        <BillingReview
+          canEdit={directory.permissions.edit}
+          initialDate={initialDate}
+          client={client}
+          state={state}
+          onCommand={send}
+        />
       )}
       {page === "billing-settings" && (
         <BillingPreferences

@@ -29,6 +29,25 @@ type InvoiceFields = {
   entries: InvoiceRow[];
 };
 
+export function currencyScale(currency: string) {
+  return (
+    10 **
+    (new Intl.NumberFormat("en", { style: "currency", currency }).resolvedOptions()
+      .maximumFractionDigits ?? 2)
+  );
+}
+
+/** Round each decimal hourly rate once, at the currency's minor unit. */
+export function timeFeeMinor(minutes: number, hourlyRate: number, scale: number) {
+  const [decimal, power = "0"] = hourlyRate.toString().split("e");
+  const [whole, fraction = ""] = decimal.split(".");
+  const exponent = Number(power) - fraction.length;
+  const numerator =
+    BigInt(whole + fraction) * BigInt(minutes) * BigInt(scale) * 10n ** BigInt(Math.max(0, exponent));
+  const denominator = 60n * 10n ** BigInt(Math.max(0, -exponent));
+  return Number((numerator + denominator / 2n) / denominator);
+}
+
 function escape(value: string) {
   return value
     .replaceAll("&", "&amp;")
@@ -48,7 +67,7 @@ export function renderInvoice(
     });
   const scale = 10 ** (money.resolvedOptions().maximumFractionDigits ?? 2);
   const amount = (r: InvoiceRow) =>
-    r.amountMinor ?? Math.round((r.billableMinutes * (r.hourlyRate ?? 0) * scale) / 60);
+    r.amountMinor ?? timeFeeMinor(r.billableMinutes, r.hourlyRate ?? 0, scale);
   const heading = escape(template.title) + (number === undefined ? "" : " " + number);
   const rows = entries
     .map(

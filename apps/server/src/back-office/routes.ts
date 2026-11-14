@@ -1,3 +1,4 @@
+import { captureProfile } from "../time-capture/routes.js";
 import { registerTimesheetRoutes } from "./timesheet-routes.js";
 import { writeNative } from "./native-write.js";
 import { nativeRows } from "./native-rows.js";
@@ -178,7 +179,8 @@ export function registerBackOfficeRoutes(options: {
       }
     },
   );
-  route("GET", "", async (ctx, store, { scope, actor }) => {
+  route("GET", "", async (ctx, store, access) => {
+    const { scope, actor } = access;
     if (scope !== "local" && ctx.url.searchParams.has("manifest")) {
       scheduleBackOfficeSync(options.config);
     } else if (scope !== "local") {
@@ -187,6 +189,7 @@ export function registerBackOfficeRoutes(options: {
     }
     const metadata = {
       scope,
+      captureProfileId: (await captureProfile(options.config, access)).profileId,
       directoryId: await directoryIdentity(options.config, scope, store),
       model: store.model(scope),
       permissions: actor,

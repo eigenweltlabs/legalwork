@@ -1,12 +1,15 @@
 import { randomUUID } from "node:crypto";
 import {
   adjustedTimeEntry,
+  currencyScale,
+  timeFeeMinor,
+  renderInvoice,
+  standardInvoice,
   type TimeAdjustment,
   type TimeEntry,
   type TimesheetCommand,
   type TimesheetState,
-} from "@legalwork/types/timesheet";
-import { renderInvoice, standardInvoice } from "@legalwork/types/invoice-template";
+} from "./timesheet-schema.js";
 import { type BackOfficeActor } from "./schema.js";
 import type { BackOfficeStore } from "./store.js";
 import { readTimeDocument, writeTimeDocument, timeError } from "./timesheet-data.js";
@@ -28,17 +31,10 @@ export function invoiceLines(
     timeError("The approved corrections changed. Preview the invoice again.", 409);
   return entries.map((e) => adjustedTimeEntry(e, approved));
 }
-const scaleFor = (currency: string) =>
-  10 **
-  (new Intl.NumberFormat("en", {
-    style: "currency",
-    currency,
-  }).resolvedOptions().maximumFractionDigits ?? 2);
 function delta(e: TimeEntry, from: number, to: number) {
   if (e.hourlyRate === undefined || !e.currency) return null;
-  const scale = scaleFor(e.currency),
-    perMinute = (e.hourlyRate * scale) / 60;
-  return (Math.round(to * perMinute) - Math.round(from * perMinute)) / scale;
+  const scale = currencyScale(e.currency);
+  return (timeFeeMinor(to, e.hourlyRate, scale) - timeFeeMinor(from, e.hourlyRate, scale)) / scale;
 }
 export function adjustTime(
   store: BackOfficeStore,
@@ -132,7 +128,7 @@ export function decideAdjustment(
             date: entry.date,
             narrative: value.narrative,
             billableMinutes: value.toMinutes - value.fromMinutes,
-            amountMinor: Math.round(value.deltaAmount * scaleFor(value.currency)),
+            amountMinor: Math.round(value.deltaAmount * currencyScale(value.currency)),
           },
         ],
       },

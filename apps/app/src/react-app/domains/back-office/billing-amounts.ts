@@ -1,14 +1,12 @@
+import { currencyScale, timeFeeMinor } from "@legalwork/types/invoice-template";
 import type { TimeEntry } from "@legalwork/types/timesheet";
 
 // Resolve fees in currency minor units before summing, as on a statement.
 export function entryFee(entry: Pick<TimeEntry, "billableMinutes" | "hourlyRate" | "currency">) {
   if (entry.hourlyRate === undefined || !entry.currency) return undefined;
-  const digits =
-    new Intl.NumberFormat("en", { style: "currency", currency: entry.currency }).resolvedOptions()
-      .maximumFractionDigits ?? 2;
-  const scale = 10 ** digits;
+  const scale = currencyScale(entry.currency);
   return {
-    amount: Math.round((entry.billableMinutes * entry.hourlyRate * scale) / 60) / scale,
+    amount: timeFeeMinor(entry.billableMinutes, entry.hourlyRate, scale) / scale,
     currency: entry.currency,
   };
 }

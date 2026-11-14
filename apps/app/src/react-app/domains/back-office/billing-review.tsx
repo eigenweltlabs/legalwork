@@ -1,6 +1,6 @@
 import { reviewViewKeys } from "./timesheet-labels";
 import { renderInvoice, standardInvoice } from "@legalwork/types/invoice-template";
-import { Fragment, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useMemo, useRef, useState } from "react";
 import { Button } from "twenty-ui/primitives/input";
 import { ChevronDown, ChevronRight, Download } from "lucide-react";
 import {
@@ -25,10 +25,16 @@ type Mode = "submitted" | "approved" | "invoices" | "costs" | "adjustments";
 function policyFor(state: TimesheetState, e: TimeEntry) {
   return resolveTimePolicy(state.policies, e.clientId, e.matterId, e.date, e.projectId);
 }
-function eligible(state: TimesheetState, entry: TimeEntry, p: ReturnType<typeof resolveTimePolicy>) {
+function eligible(
+  state: TimesheetState,
+  entry: TimeEntry,
+  p: ReturnType<typeof resolveTimePolicy>,
+  canEdit: boolean,
+) {
   const solo = state.scope === "local" && p.soloApproval;
   return (
-    state.canManage &&
+    state.canReview &&
+    canEdit &&
     (p.reviewerId === state.userId || (solo && !p.reviewerId)) &&
     (entry.workerId !== state.userId || solo)
   );
@@ -69,8 +75,10 @@ export function BillingReview({
   state,
   onCommand,
   client,
+  canEdit,
   initialDate,
 }: BillingProps & {
+  canEdit: boolean;
   initialDate?: string;
   client: Pick<LegalworkServerClient, "downloadTimesheetInvoice" | "downloadTimesheetAdjustment">;
 }) {
@@ -86,13 +94,14 @@ export function BillingReview({
   const [detail, setDetail] = useState("");
   const [reason, setReason] = useState("");
   const [draftCells, setDraftCells] = useState(new Set<string>());
-  const editCell = (key: string, active: boolean) =>
+  const editCell = useCallback((key: string, active: boolean) => {
     setDraftCells((previous) => {
       const next = new Set(previous);
       if (active) next.add(key);
       else next.delete(key);
       return next;
     });
+  }, []);
   const [previewKey, setPreview] = useState("");
   const [downloadError, setDownloadError] = useState("");
   const request = useRef({ key: "", id: "" });
@@ -123,12 +132,12 @@ export function BillingReview({
               policy,
               overCap: Boolean(timeCapWarning(entry, policy)),
               error: timePolicyError(entry, policy),
-              eligible: eligible(state, entry, policy),
+              eligible: eligible(state, entry, policy, canEdit),
             },
           ] as const;
         }),
       ),
-    [state.entries, state.policies, state.userId, state.canManage, state.scope],
+    [state.entries, state.policies, state.userId, state.canReview, canEdit, state.scope],
   );
   const issues = (e: TimeEntry) => e.suggestion || reviewInfo.get(e.id)?.error;
   const rows = all
@@ -141,7 +150,7 @@ export function BillingReview({
       return priority || a.date.localeCompare(b.date) || a.id.localeCompare(b.id);
     });
   const eligibleRows = rows.filter((e) =>
-    mode === "approved" ? state.canReview : reviewInfo.get(e.id)?.eligible,
+    mode === "approved" ? state.canReview && canEdit : reviewInfo.get(e.id)?.eligible,
   );
   const selected = eligibleRows.filter((e) => revisionPick.get(e.id) === e.revision);
   const adjustments = state.adjustments ?? [];
@@ -167,7 +176,6 @@ export function BillingReview({
   };
   const reset = () => {
     setRevisionPick(new Map());
-    setDraftCells(new Set());
     setPreview("");
     setDetail("");
     setReason("");
@@ -320,6 +328,7 @@ export function BillingReview({
       {mode === "adjustments" ? (
         <BillingAdjustments
           rows={all}
+          canEdit={canEdit}
           state={state}
           onCommand={onCommand}
           download={(id) => download(id)}
@@ -405,7 +414,7 @@ export function BillingReview({
               <tbody>
                 {rows.map((e) => {
                   const info = reviewInfo.get(e.id)!;
-                  const canEdit = info.eligible && mode === "submitted",
+                  const canEditLine = info.eligible && mode === "submitted",
                     open = detail === e.id,
                     detailLabel = e.suggestion
                       ? t("back_office.billing.suggestion")
@@ -422,7 +431,7 @@ export function BillingReview({
                             type="checkbox"
                             aria-label={t("back_office.billing.select_line", { label: e.narrative })}
                             checked={revisionPick.get(e.id) === e.revision}
-                            disabled={pending || !(mode === "approved" ? state.canReview : canEdit)}
+                            disabled={pending || !(mode === "approved" ? state.canReview && canEdit : canEditLine)}
                             onChange={(v) => pick(e, v.target.checked)}
                           />
                         </td>
@@ -432,10 +441,12 @@ export function BillingReview({
                         <td>{e.activity}</td>
                         <td>
                           <BillingEditCell
-                            onEditing={(active) => editCell(e.id + "/text", active)}
+                            cellId={e.id + "/text"}
+                            revision={e.revision}
+                            onEditing={editCell}
                             label={t("back_office.billing.narrative")}
                             value={effective(e).narrative}
-                            disabled={!canEdit}
+                            disabled={!canEditLine}
                             onSave={(narrative) =>
                               send({
                                 type: "review",
@@ -449,11 +460,13 @@ export function BillingReview({
                         </td>
                         <td className="bo-billing-number">
                           <BillingEditCell
-                            onEditing={(active) => editCell(e.id + "/minutes", active)}
+                            cellId={e.id + "/minutes"}
+                            revision={e.revision}
+                            onEditing={editCell}
                             label={t("back_office.billing.charge")}
                             numeric
                             value={String(effective(e).billableMinutes)}
-                            disabled={!canEdit}
+                            disabled={!canEditLine}
                             requireReason
                             onSave={(next, reason) =>
                               send({
@@ -507,7 +520,7 @@ export function BillingReview({
                                     <small>{t("back_office.billing.suggestion")}</small>
                                     {e.suggestion}
                                   </div>
-                                  {canEdit && (
+                                  {canEditLine && (
                                     <Button
                                       size="sm"
                                       variant="outline"
@@ -526,7 +539,7 @@ export function BillingReview({
                                       {t("back_office.billing.apply")}
                                     </Button>
                                   )}
-                                  {canEdit && (
+                                  {canEditLine && (
                                     <Button
                                       size="sm"
                                       variant="ghost"

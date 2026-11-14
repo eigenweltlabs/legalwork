@@ -50,6 +50,7 @@ export function TimesheetWorkday({
     scope: directory.scope,
     user: directory.permissions.userId,
     principal: directory.permissions.principalKey ?? "",
+    ...(directory.captureProfileId ? { profileId: directory.captureProfileId } : {}),
   };
   const key = ["back-office", ...calendarClientScope(client), "workday", context];
   const query = useQuery({
@@ -247,7 +248,7 @@ export function TimesheetWorkday({
                   </Button>
                   <Button
                     size="sm"
-                    disabled={running || !!selected || (overlaps.has(p.key) && !p.parentDigest)}
+                    disabled={!directory.permissions.edit || running || !!selected || (overlaps.has(p.key) && !p.parentDigest)}
                     onClick={() => {
                       onDraft(p);
                       navigate("/back-office/timesheets");

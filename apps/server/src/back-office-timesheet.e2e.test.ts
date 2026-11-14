@@ -145,6 +145,46 @@ test("HTTP uses the active Back Office identity for writes, protects accepted en
     expect(await (await api("/timesheet/invoices/" + inv.id + "/document" + query)).text()).toBe(
       original,
     );
+
+    const another = async (narrative: string) => {
+      const state = await command({
+        ...create,
+        requestId: crypto.randomUUID(),
+        entry: { ...create.entry, narrative },
+      });
+      return state.entries.find((row) => row.narrative === narrative)!;
+    };
+    const rows = await Promise.all([another("Consultation"), another("Research")]);
+    const refs = rows.map(({ id, revision }) => ({ id, revision }));
+    const sent = await command({ type: "submit", entries: refs });
+    const approvedBatch = await command({
+      type: "approve",
+      entries: sent.entries
+        .filter((e) => e.status === "submitted")
+        .map(({ id, revision }) => ({ id, revision })),
+    });
+    const commands = approvedBatch.entries
+      .filter((e) => e.status === "approved")
+      .map(({ id, revision }) => ({
+        type: "invoice",
+        requestId: crypto.randomUUID(),
+        entries: [{ id, revision }],
+      }));
+    await Promise.all([...commands, commands[0]].map(command));
+    const finalState = TimesheetStateSchema.parse(await (await api(path)).json());
+    expect(finalState.invoices.map((i) => i.number).sort()).toEqual([1, 2, 3]);
+    expect(new Set(finalState.invoices.flatMap((i) => i.entries.map((e) => e.id))).size).toBe(3);
+    await api("/records?scope=local", {
+      id: client.id,
+      objectId: "clients",
+      revision: client.revision,
+      archived: true,
+      values: {},
+    });
+    expect((await api("/timesheet/invoices/" + inv.id + "/document" + query)).status).toBe(404);
+    expect((await api("/timesheet/adjustments/" + correction.id + "/document" + query)).status).toBe(
+      404,
+    );
   } finally {
     await server.stop();
     for (const [key, value] of Object.entries(previous)) {

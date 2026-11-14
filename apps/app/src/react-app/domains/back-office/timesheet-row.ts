@@ -69,9 +69,12 @@ export function matterOptions(state: LedgerDirectory) {
     );
   });
   const counts = new Map<string, number>();
-  matches.forEach((item) => counts.set(item.label, (counts.get(item.label) ?? 0) + 1));
+  for (const item of matches) {
+    const key = item.label.toLocaleLowerCase();
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
   return matches.map((item) =>
-    counts.get(item.label) === 1
+    counts.get(item.label.toLocaleLowerCase()) === 1
       ? item
       : {
           ...item,
@@ -91,7 +94,9 @@ export function workerOptions(state: LedgerDirectory) {
     people.unshift({ id: state.userId, name: t("timesheets.ledger.me") });
   return people.map((person) => ({
     id: person.id,
-    label: people.some((other) => other.id !== person.id && person.name === other.name)
+    label: people.some(
+      (other) => other.id !== person.id && person.name.toLocaleLowerCase() === other.name.toLocaleLowerCase(),
+    )
       ? person.name + " (" + person.id + ")"
       : person.name || person.id,
   }));

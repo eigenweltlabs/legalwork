@@ -1,7 +1,7 @@
-import { invoiceTemplateSchema } from "@legalwork/types/invoice-template";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import {
+  invoiceTemplateSchema,
   TimeAdjustmentSchema,
   TimeEntrySchema,
   TimePolicySchema,
@@ -10,7 +10,7 @@ import {
   type TimePolicy,
   type TimeEntry,
   type TimesheetState,
-} from "@legalwork/types/timesheet";
+} from "./timesheet-schema.js";
 import { ApiError } from "../errors.js";
 import {
   BackOfficeRecordSchema,
@@ -128,7 +128,7 @@ function legacyEntry(record: BackOfficeRecord): TimeEntry | null {
   const status = (
     {
       Draft: "confirmed",
-      Submitted: "submitted",
+      Submitted: "confirmed", // The worker must submit a signed workflow revision.
       Approved: "approved",
       Invoiced: "invoiced",
       "Written off": "approved",
@@ -198,24 +198,20 @@ export function readTimesheet(
     .filter((r) => r.access === "org" || r.ownerId === actor.userId || r.members.includes(actor.userId));
   for (const r of agreements) {
     const { client, matter, hourlyRate, incrementMinutes, basis } = r.values;
-    if ((!client && !matter) || (basis && basis !== "Hourly")) continue;
+    if (!client && !matter) continue;
     if (
       (typeof client === "string" && !clients.has(client)) ||
       (typeof matter === "string" && !matters.has(matter))
     )
       continue;
-    const found = policies.some(
-      (p) =>
-        p.scope === (matter ? "matter" : "client") &&
-        p.targetId === (matter || client) &&
-        p.agreementClientId === (matter && typeof client === "string" ? client : undefined) &&
-        p.revision === 0 &&
-        p.effectiveFrom === "0001-01-01",
-    );
-    if (found) continue;
     const values = TimePolicySchema.safeParse({
       scope: matter ? "matter" : "client",
       targetId: matter || client,
+      agreementId: r.id,
+      agreementProjects: directory.projects
+        .filter((p) => p.agreementIds?.includes(r.id))
+        .map((p) => p.id),
+      allocationUnavailable: Boolean(basis && basis !== "Hourly") || !hourlyRate,
       ...(matter && typeof client === "string" ? { agreementClientId: client } : {}),
       effectiveFrom: "0001-01-01",
       revision: 0,
@@ -241,10 +237,11 @@ export function readTimesheet(
     const legacy = !managed.has(r.id) && legacyEntry(r);
     if (legacy) entries.push(legacy);
   }
+  const canSeeReferences = (e: Pick<TimeEntry, "clientId" | "matterId">) =>
+    matters.has(e.matterId) && (!e.clientId || clients.has(e.clientId));
   const visible = entries.filter(
     (e) =>
-      matters.has(e.matterId) &&
-      (!e.clientId || clients.has(e.clientId)) &&
+      canSeeReferences(e) &&
       (e.workerId === actor.userId ||
         (actor.finance &&
           ["submitted", "approved", "invoiced"].includes(e.status) &&
@@ -255,9 +252,10 @@ export function readTimesheet(
     scope,
     template: actor.finance ? docs.find((doc) => doc.kind === "template")?.value : undefined,
     userId: actor.userId,
-    canManage: actor.finance && actor.edit,
+    canManage: actor.model && actor.finance && actor.edit,
     canReview: actor.finance,
     ...directory,
+    projects: directory.projects.map(({ agreementIds: _, ...project }) => project),
     policies:
       actor.finance || forMutation
         ? policies
@@ -276,19 +274,22 @@ export function readTimesheet(
     products: docs.flatMap((d) =>
       d.kind === "product" && matters.has(d.value.matterId) ? [d.value] : [],
     ),
-    entries:
-      actor.finance || forMutation
-        ? visible
-        : visible.map((e) => ({
+    entries: forMutation
+      ? visible
+      : visible.map((e) => {
+          const financial = actor.finance ? {} : { hourlyRate: undefined, currency: undefined };
+          return {
             ...e,
-            hourlyRate: undefined,
-            currency: undefined,
-            history: e.history.map((h) => ({
-              ...h,
-              before: h.before ? { ...h.before, hourlyRate: undefined, currency: undefined } : null,
-              after: { ...h.after, hourlyRate: undefined, currency: undefined },
-            })),
-          })),
+            ...financial,
+            history: e.history
+              .filter((h) => canSeeReferences(h.after))
+              .map((h) => ({
+                ...h,
+                before: h.before && canSeeReferences(h.before) ? { ...h.before, ...financial } : null,
+                after: { ...h.after, ...financial },
+              })),
+          };
+        }),
     invoices: docs.flatMap((d) =>
       actor.finance &&
       d.kind === "invoice" &&
@@ -297,6 +298,64 @@ export function readTimesheet(
         : [],
     ),
   };
+}
+
+/** Generic imports and record edits may stage draft time. Workflow decisions belong to Timesheets. */
+export function validateGenericTime(
+  store: BackOfficeStore,
+  scope: string,
+  actor: BackOfficeActor,
+  previous: BackOfficeRecord | null,
+  values: BackOfficeRecord["values"],
+) {
+  const old = previous?.values;
+  if (
+    (values.status && values.status !== "Draft" && values.status !== old?.status) ||
+    (old?.status && old.status !== "Draft" && values.status !== old.status) ||
+    (values.invoice ?? null) !== (old?.invoice ?? null)
+  )
+    timeError("Submit, review and invoice time in Timesheets.", 409);
+  const changed = [
+    "billableMinutes",
+    "recordedMinutes",
+    "startedAt",
+    "endedAt",
+    "client",
+    "matter",
+    "billingNarrative",
+    "hourlyRate",
+    "timekeeper",
+    "name",
+  ].some((field) => JSON.stringify(old?.[field]) !== JSON.stringify(values[field]));
+  if (!changed) return;
+  if (old?.status && !["Draft", "Submitted"].includes(String(old.status)))
+    timeError("Previously approved or billed time cannot be rewritten.", 409);
+  const minutes = values.billableMinutes;
+  if (minutes == null || minutes === 0) return;
+  if (typeof minutes !== "number" || !Number.isInteger(minutes) || minutes < 0 || minutes > 1440)
+    timeError("Enter whole chargeable minutes between zero and 1440.");
+  if (
+    typeof values.matter !== "string" ||
+    typeof values.client !== "string" ||
+    typeof values.startedAt !== "string"
+  )
+    timeError(
+      "Billable imports need a matter, billing client and service date. Use Timesheets for duration-only entries.",
+    );
+  const state = readTimesheet(store, scope, actor, [], [], true);
+  if (
+    !state.matters.some((m) => m.id === values.matter && m.clientIds.includes(String(values.client))) ||
+    !state.clients.some((c) => c.id === values.client)
+  )
+    timeError("Choose a billing client associated with this matter.");
+  const policy = resolveTimePolicy(
+    state.policies,
+    values.client,
+    values.matter,
+    values.startedAt.slice(0, 10),
+  );
+  if (policy.enforceIncrement && minutes % policy.incrementMinutes)
+    timeError(`Chargeable time must be a multiple of ${policy.incrementMinutes} minutes.`);
 }
 
 const productForActivity: Readonly<
@@ -423,14 +482,10 @@ export function writeEntry(
     recordedMinutes: entry.workedMinutes,
     billableMinutes: entry.billableMinutes,
     status,
-    ...(entry.hourlyRate !== undefined && entry.currency
-      ? {
-          hourlyRate: {
-            amountMinor: Math.round(entry.hourlyRate * 100),
-            currency: entry.currency,
-          },
-        }
-      : {}),
+    hourlyRate:
+      entry.hourlyRate !== undefined && entry.currency
+        ? { amountMinor: Math.round(entry.hourlyRate * 100), currency: entry.currency }
+        : null,
   });
 }
 

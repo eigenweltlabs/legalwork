@@ -98,7 +98,7 @@ export default {
   "timesheets.ledger.saved": "Entry saved.",
   "timesheets.ledger.failed": "The entry could not be saved.",
   "timesheets.ledger.unfinished": "Save or discard your open entry before pasting another row.",
-  "timesheets.ledger.finish_edit": "Save the open changes before submitting.",
+  "timesheets.ledger.finish_edit": "Save or cancel the open entry first.",
   "timesheets.ledger.increment": "The charge must be a multiple of {minutes} minutes.",
   "timesheets.ledger.cap": "This activity allows up to {minutes} chargeable minutes.",
   "timesheets.ledger.valid_date": "Enter a valid work date.",

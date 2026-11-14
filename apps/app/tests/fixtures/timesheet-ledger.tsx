@@ -8,6 +8,7 @@ Object.entries({
   window,
   document: window.document,
   navigator: window.navigator,
+  localStorage: window.localStorage,
   CSS: window.CSS,
   HTMLElement: window.HTMLElement,
   HTMLInputElement: window.HTMLInputElement,
@@ -17,6 +18,7 @@ Object.entries({
   MutationObserver: window.MutationObserver,
   ResizeObserver: window.ResizeObserver,
   requestAnimationFrame: (callback: FrameRequestCallback) => setTimeout(() => callback(0), 0),
+  cancelAnimationFrame: window.cancelAnimationFrame.bind(window),
   getComputedStyle: window.getComputedStyle.bind(window),
   IS_REACT_ACT_ENVIRONMENT: true,
 }).forEach(([key, value]) => Object.defineProperty(globalThis, key, { value, configurable: true }));
@@ -180,6 +182,9 @@ try {
   assert.equal(cell("new", "narrative").value, "Original");
   assert.equal(cell("new", "date").value, "2026-11-13");
   await input(cell("new", "narrative"), "Edited copy");
+  await input(date, "2026-11-14");
+  assert.equal(date.value, "2026-11-13");
+  assert.equal(cell("new", "date").value, "2026-11-13", "Navigation must not redate an unfinished row");
   await clip(cell("new", "narrative"), "paste", clipboard);
   assert.equal(cell("new", "narrative").value, "Edited copy");
   failOnce = true;
@@ -272,7 +277,7 @@ try {
   const submitted = commands.at(-1);
   assert.ok(submitted?.type === "submit");
   assert.deepEqual(submitted.entries, [{ id: long.id, revision: long.revision }]);
-  const entry: TimeEntry = { ...base, status: "confirmed" };
+  const entry: TimeEntry = { ...base, status: "submitted" };
   await act(async () =>
     root.render(
       <MemoryRouter>
@@ -286,6 +291,15 @@ try {
   const existing = area(base.id).querySelector<HTMLElement>('[data-column="narrative"]');
   assert.ok(existing);
   await act(async () => existing.click());
+  const beforeEdit = commands.length;
+  await key(cell(base.id, "narrative"), "Enter");
+  assert.equal(commands.length, beforeEdit, "Inspecting a submitted cell must not reopen the entry");
+  await act(async () => area(base.id).querySelector<HTMLElement>('[data-column="narrative"]')?.click());
+  await input(cell(base.id, "narrative"), "Cancelled");
+  await key(cell(base.id, "narrative"), "Escape");
+  assert.equal(commands.length, beforeEdit);
+  assert.equal(area(base.id).querySelector('[data-column="narrative"]')?.textContent, "Original");
+  await act(async () => area(base.id).querySelector<HTMLElement>('[data-column="narrative"]')?.click());
   await input(cell(base.id, "narrative"), "Corrected");
   await key(cell(base.id, "billable"), "Tab");
   const update = commands.at(-1);
@@ -316,6 +330,24 @@ try {
   const meeting = commands.at(-1);
   assert.ok(meeting?.type === "create");
   assert.deepEqual(meeting.workerIds, ["anna", "ben"]);
+  const { fromDraft, matterOptions, parseRow, workerOptions } = await import(
+    "../../src/react-app/domains/back-office/timesheet-row"
+  );
+  const caseMatches = {
+    ...state,
+    people: [...state.people, { id: "second", name: "ANNA" }],
+    matters: [...state.matters, { ...state.matters[0], id: "second-matter", name: "m" }],
+  };
+  const distinctWorker = workerOptions(caseMatches).find((p) => p.id === "second");
+  const distinctMatter = matterOptions(caseMatches).find((m) => m.matterId === "second-matter");
+  assert.ok(distinctWorker && distinctMatter);
+  const chosen = parseRow({
+    ...fromDraft({ ...base, workProductId: undefined, workProductTitle: undefined }, distinctWorker.label, base.date, caseMatches),
+    matter: distinctMatter.label,
+  }, caseMatches);
+  assert.ok("entry" in chosen);
+  assert.deepEqual(chosen.workerIds, ["second"]);
+  assert.equal(chosen.entry.matterId, "second-matter");
   await act(async () =>
     root.render(
       <MemoryRouter>
@@ -444,6 +476,75 @@ try {
     correction.dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true })),
   );
   assert.equal(correctedMinutes, null);
+  // A first visit from Workday must carry the proposal through the real Back Office route.
+  const { defaultBackOfficeModel } = await import("@legalwork/types/back-office");
+  const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
+  const { BackOfficePage } = await import("../../src/react-app/domains/back-office/back-office-page");
+  const { createLegalworkServerClient } = await import("../../src/app/lib/legalwork-server");
+  const cache = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+  const writes: unknown[] = [];
+  let captureProfileId = "profile-a";
+  const client = {
+    ...createLegalworkServerClient({ baseUrl: "http://localhost" }),
+    privateWorkday: async (context: { profileId?: string }) => {
+      assert.equal(context.profileId, "profile-a");
+      return {
+        settings: { calendar: true, tasks: false, intervalMinutes: 0 as const },
+        proposals: [capture],
+        connections: [],
+        modelReady: false,
+      };
+    },
+    backOffice: async (path: string, options?: { body?: unknown }) => {
+      if (path === "/projects") return { projects: [] };
+      if (path.startsWith("/timesheet?")) {
+        if (options?.body) {
+          assert.equal(new URL(path, "http://localhost").searchParams.get("profileId"), "profile-a");
+          writes.push(options.body);
+        }
+        return { ...state, entries: [] };
+      }
+      assert.ok(path.startsWith("?manifest="), path);
+      return {
+        scope: "local",
+        directoryId: "synthetic",
+        captureProfileId,
+        model: defaultBackOfficeModel(),
+        records: [],
+        permissions: { userId: state.userId, edit: true, model: true, finance: true },
+        views: [],
+        sync: { enabled: false, cursor: 0, pending: 0, error: null },
+      };
+    },
+  };
+  await act(async () =>
+    root.render(
+      <QueryClientProvider client={cache}>
+        <MemoryRouter initialEntries={["/back-office/timesheet-workday?date=" + base.date]}>
+          <BackOfficePage client={client} />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    ),
+  );
+  const settle = () => act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  });
+  for (let i = 0; i < 20 && !button("Edit in list"); i++) await settle();
+  const prepare = button("Edit in list");
+  assert.ok(prepare, document.body.textContent?.slice(-800));
+  await act(async () => prepare.click());
+  for (let i = 0; i < 20 && !document.querySelector('[data-time-row="new"]'); i++) await settle();
+  assert.equal(cell("new", "narrative").value, capture.narrative);
+  assert.equal(cell("new", "date").value, capture.date);
+  await input(cell("new", "charge"), "30");
+  await key(cell("new", "charge"), "Enter");
+  assert.equal(writes.length, 1);
+  await input(cell("new", "narrative"), "First profile's unfinished line");
+  captureProfileId = "profile-b";
+  await act(async () => cache.invalidateQueries({ queryKey: ["back-office"] }));
+  await settle();
+  assert.equal(cell("new", "narrative").value, "");
+  cache.clear();
   console.log("Timesheet ledger passed");
 } finally {
   await act(async () => root.unmount());

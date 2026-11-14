@@ -108,7 +108,7 @@ const de = {
   "timesheets.ledger.saved": "Leistung gespeichert.",
   "timesheets.ledger.failed": "Die Leistung konnte nicht gespeichert werden.",
   "timesheets.ledger.unfinished": "Speichern oder verwerfen Sie den offenen Eintrag, bevor Sie eine Zeile einfügen.",
-  "timesheets.ledger.finish_edit": "Speichern Sie die offenen Änderungen vor der Einreichung.",
+  "timesheets.ledger.finish_edit": "Speichern oder verwerfen Sie zuerst den offenen Eintrag.",
   "timesheets.ledger.increment": "Der Ansatz muss ein Vielfaches von {minutes} Minuten sein.",
   "timesheets.ledger.cap": "Für diese Tätigkeit sind bis zu {minutes} verrechenbare Minuten zulässig.",
   "timesheets.ledger.valid_date": "Geben Sie ein gültiges Leistungsdatum ein.",

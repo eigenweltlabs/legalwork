@@ -128,7 +128,12 @@ test("booking only the current private segment serializes a stale draft, preserv
         settings: { calendar: true, tasks: false, intervalMinutes: 0 },
       }),
     );
-    const identity = { user: "local", principal: "", scope: "local" },
+    const identity = {
+        user: "local",
+        principal: "",
+        scope: "local",
+        profileId: digest(["local", "local"]),
+      },
       booked = new Set<string>();
     const issue = (key: string, hash: string) =>
       acceptPrivateProposal(config, identity, key, hash, async () => {

@@ -6,6 +6,7 @@ import type { CaptureAction } from "@legalwork/types/time-capture";
 import { captureStateSchema } from "@legalwork/types/time-capture";
 import { registerFileRoutes } from "../routes/files.js";
 import { matchRoute, type Route } from "../routes/registry.js";
+import { backOfficeAccess } from "../back-office/access.js";
 import { ApprovalService } from "../approvals.js";
 import { ReloadEventStore } from "../events.js";
 import { TokenService } from "../tokens.js";
@@ -13,7 +14,12 @@ import { ApiError } from "../errors.js";
 import { backOfficeTestConfig } from "../back-office/config.test-support.js";
 import { eigenweltPlatformUrl } from "../eigenwelt-auth.js";
 import { runtimeDbPath, writeEigenweltConnection } from "../eigenwelt-connection-store.js";
-import { beginDocumentCapture, registerWorkdayRoutes } from "./routes.js";
+import {
+  acceptPrivateProposal,
+  beginDocumentCapture,
+  captureProfile,
+  registerWorkdayRoutes,
+} from "./routes.js";
 import { documentEvidence } from "./document-workday.js";
 
 test("document evidence keeps one stable key per path, project and day; timestamps are not a duration", () => {
@@ -120,6 +126,9 @@ test("only successful opted-in local editor saves yield a private workday sugges
       String(date.getMonth() + 1).padStart(2, "0"),
       String(date.getDate()).padStart(2, "0"),
     ].join("-");
+    const getProfileId = async () =>
+      (await captureProfile(config, await backOfficeAccess(config))).profileId;
+    let profileId = await getProfileId();
     const endpoint =
       base +
       "/private-timesheet/workday?" +
@@ -128,7 +137,11 @@ test("only successful opted-in local editor saves yield a private workday sugges
     const customer = { Authorization: "Bearer " + config.token, "Content-Type": "application/json" };
     const workday = async (action: CaptureAction) => {
       const response = await dispatch(
-        new Request(endpoint, { method: "POST", headers: host, body: JSON.stringify(action) }),
+        new Request(endpoint + "&profileId=" + profileId, {
+          method: "POST",
+          headers: host,
+          body: JSON.stringify(action),
+        }),
       );
       const raw = await response.json();
       expect(response.status).toBe(200);
@@ -203,6 +216,25 @@ test("only successful opted-in local editor saves yield a private workday sugges
       "After.md",
     ])
       expect(profile).not.toContain(excluded);
+    const accepted = resumed.proposals[0];
+    await acceptPrivateProposal(
+      config,
+      { user: "local", scope: "local", principal: "", profileId },
+      accepted.key,
+      accepted.digest,
+      async () => true,
+    );
+    await workday({
+      type: "settings",
+      settings: { calendar: false, tasks: true, documents: false, intervalMinutes: 0 },
+    });
+    expect((await workday({ type: "calendar" })).proposals).toHaveLength(0);
+    await settings(true);
+    const restored = await workday({ type: "calendar" });
+    expect(restored.proposals.find((p) => p.narrative === accepted.narrative)).toMatchObject({
+      key: accepted.key,
+      digest: accepted.digest,
+    });
     const crossAccount = await beginDocumentCapture(
       config,
       { actor: { type: "host" } },
@@ -221,10 +253,20 @@ test("only successful opted-in local editor saves yield a private workday sugges
       },
     });
     await crossAccount?.(false);
+    const stale = await dispatch(
+      new Request(endpoint + "&profileId=" + profileId, {
+        method: "POST",
+        headers: host,
+        body: JSON.stringify({ type: "settings", settings: initial.settings }),
+      }),
+    );
+    expect(stale.status).toBe(409);
+    profileId = await getProfileId();
     const newProfile = await workday({ type: "calendar" });
     expect(newProfile.settings.documents).not.toBe(true);
     expect(newProfile.proposals).toEqual([]);
     await writeEigenweltConnection(config, { account: null, platformURL: null });
+    profileId = await getProfileId();
     const previous = await workday({ type: "calendar" });
     expect(previous.proposals.map((p) => p.narrative).sort()).toEqual(["Existing.md", "Synthetic.docx"]);
   } finally {
