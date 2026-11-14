@@ -1,8 +1,25 @@
-import type { AssistantContextItem, LauncherCapture, LauncherOrigin } from "@legalwork/types/launcher";
+import { type TranslationKey } from "./launcher-labels";
+import type { LauncherCaptureResult, LauncherSelectionResult, AssistantContextItem, LauncherCapture, LauncherOrigin } from "@legalwork/types/launcher";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { launcherCaptureRegion, launcherCaptureWindow, launcherClipboardRead, launcherOriginSelection } from "@/app/lib/desktop";
 import { isDesktopRuntime } from "@/app/lib/runtime-env";
 import { t } from "@/i18n";
+
+const captureErrorKeys = {
+  denied: "launcher.capture.denied",
+  unsupported: "launcher.capture.unsupported",
+  failed: "launcher.capture.failed",
+  cancelled: "launcher.capture.cancelled",
+} satisfies Record<Extract<LauncherCaptureResult, { ok: false }>["reason"], TranslationKey>;
+
+const selectionErrorKeys = {
+  "no-origin": "launcher.capture.selection_no-origin",
+  unsupported: "launcher.capture.selection_unsupported",
+  empty: "launcher.capture.selection_empty",
+  changed: "launcher.capture.selection_changed",
+  denied: "launcher.capture.selection_denied",
+  failed: "launcher.capture.selection_failed",
+} satisfies Record<Extract<LauncherSelectionResult, { ok: false }>["reason"], TranslationKey>;
 
 export type CaptureOutcome = { ok: true; item: AssistantContextItem } | { ok: false; message: string; cancelled?: boolean };
 const id = (prefix: string) => `${prefix}_${crypto.randomUUID().slice(0, 12)}`;
@@ -12,7 +29,7 @@ export async function captureSelection(origin: LauncherOrigin | null): Promise<C
   if (!isDesktopRuntime()) return { ok: false, message: t("launcher.capture.desktop_only") };
   if (!origin) return { ok: false, message: t("launcher.capture.no_origin") };
   const result = await launcherOriginSelection(origin.id);
-  if (!result.ok) return { ok: false, message: result.message || t(`launcher.capture.selection_${result.reason}`) };
+  if (!result.ok) return { ok: false, message: result.message || t(selectionErrorKeys[result.reason]) };
   if (!result.text.trim()) return { ok: false, message: t("launcher.capture.selection_empty") };
   return { ok: true, item: { id: id("sel"), type: "selection", text: result.text, sourceApp: result.origin.app, sourceWindow: result.origin.window, capturedAt: Date.now() } };
 }
@@ -40,7 +57,7 @@ export async function stageCapture(client: Pick<LegalworkServerClient, "writeWor
 export async function captureScreen(kind: "window" | "region", client: Pick<LegalworkServerClient, "writeWorkspaceBinaryFile">, workspaceId: string): Promise<CaptureOutcome & { preview?: string }> {
   if (!isDesktopRuntime()) return { ok: false, message: t("launcher.capture.desktop_only") };
   const result = kind === "window" ? await launcherCaptureWindow() : await launcherCaptureRegion();
-  if (!result.ok) return { ok: false, cancelled: result.reason === "cancelled", message: result.reason === "cancelled" ? t("launcher.capture.cancelled") : result.message || t(`launcher.capture.${result.reason}`) };
+  if (!result.ok) return { ok: false, cancelled: result.reason === "cancelled", message: result.reason === "cancelled" ? t("launcher.capture.cancelled") : result.message || t(captureErrorKeys[result.reason]) };
   try { return { ok: true, item: await stageCapture(client, workspaceId, result.capture), preview: result.capture.dataUrl }; }
   catch (error) { return { ok: false, message: error instanceof Error ? error.message : String(error) }; }
 }

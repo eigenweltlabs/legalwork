@@ -1,3 +1,4 @@
+import { submissionKeys } from "@/react-app/launcher/launcher-labels";
 import { openLauncherFolder } from "@/react-app/domains/session/panel/workspace-files-panel";
 import { acceptLauncherBrowser, acceptLauncherFile } from "@/react-app/launcher/launcher-handoff";
 import { useLauncherStore } from "@/react-app/launcher/launcher-store";
@@ -1672,7 +1673,7 @@ export function SessionRoute() {
             text, parts, queue: options?.queue, command: draft.command, model: sendModel, variant: sendVariant ?? undefined, agent: selectedAgent ?? undefined,
             context: { items: shared.context, target: shared.target, searchScope: shared.searchScope, capturedAt: Date.now() },
           } });
-          if (submission.state === "unconfirmed" || submission.state === "failed") throw new Error(submission.error ?? t(`launcher.submission.${submission.state}`));
+          if (submission.state === "unconfirmed" || submission.state === "failed") throw new Error(submission.error ?? t(submissionKeys[submission.state]));
           const remaining = drafts.get(assistantConversationId);
           return { preserveDraft: Boolean(remaining.text || remaining.context.length) };
         }
@@ -2523,7 +2524,7 @@ export function SessionRoute() {
                 parts: [{ type: "text", text: prompt }, ...(turnContext ? [systemReminderPart(turnContext)] : [])],
                 context: { items: shared.context, target: shared.target, searchScope: shared.searchScope, capturedAt: Date.now() },
               } });
-            if (submission.state === "unconfirmed" || submission.state === "failed") throw new Error(submission.error ?? t(`launcher.submission.${submission.state}`));
+            if (submission.state === "unconfirmed" || submission.state === "failed") throw new Error(submission.error ?? t(submissionKeys[submission.state]));
           } else {
           const result = await sendSessionPrompt(workspaceClient,{
             sessionID: sessionId,

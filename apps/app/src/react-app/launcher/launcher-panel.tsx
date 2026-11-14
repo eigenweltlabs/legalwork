@@ -1,3 +1,4 @@
+import { categoryKeys, sourceKeys, inputKeys, type TranslationKey } from "./launcher-labels";
 import { workspaceContentPath } from "@legalwork/types/workspace";
 import { conversationTarget, resultChatProject, startLauncherResultChat, type ResultChatAction } from "./launcher-result-chat";
 import { matchesAssistantSuggestion, matchesSortSuggestion, prioritizeLauncherSuggestions } from "./launcher-suggestions";
@@ -11,7 +12,7 @@ import { launcherBrowserRoute, launcherFileRoute } from "./launcher-handoff";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, BookOpen, ArrowDownUp, Calculator, CalendarDays, Clipboard, Folder, Globe, MessageSquare, FilePlus2, EyeOff, Eye, ListChecks, Loader2, Mic, MoreHorizontal, MousePointerSquareDashed, Paperclip, Plus, RotateCcw, ScanLine, Sparkles, X } from "lucide-react";
-import type { LauncherWorkspaceContext, AssistantContextItem, AssistantSubmission, LauncherCatalogEntry, LauncherFileFilter, LauncherInvocation, LauncherResultAction, LauncherSearchKind, LauncherSearchResult } from "@legalwork/types/launcher";
+import type { LauncherActionKind, LauncherSort, LauncherWorkspaceContext, AssistantContextItem, AssistantSubmission, LauncherCatalogEntry, LauncherFileFilter, LauncherInvocation, LauncherResultAction, LauncherSearchKind, LauncherSearchResult } from "@legalwork/types/launcher";
 import { LauncherSortSchema, LAUNCHER_SEARCH_KINDS, isLauncherInternalPath } from "@legalwork/types/launcher";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -48,7 +49,7 @@ import { voiceCoordinator } from "./voice-coordinator";
 import { LauncherNavigationHistory } from "./launcher-navigation";
 import { calculate } from "./launcher-calculator";
 import { LauncherNavigationRows, type NavigationRow } from "./launcher-navigation-rows";
-import { typedFilterSuggestions, fileSourceSuggestions, dateFilterLabel, FILE_TYPE_PRESETS, namedFileTypeFilter } from "./launcher-typed-filters";
+import { typedFilterSuggestions, fileSourceSuggestions, dateFilterLabel, matchingFileTypePreset, namedFileTypeFilter } from "./launcher-typed-filters";
 import { handleLauncherFocusKey, launcherControls } from "./launcher-focus";
 import { readHiddenItems, writeHiddenItems, type HiddenLauncherItem } from "./launcher-hidden";
 import { LauncherRowMenu } from "./launcher-row-menu";
@@ -59,12 +60,25 @@ import { useLauncherFileDrag } from "./launcher-file-drag";
 import { launcherInvocationResultAction, resolveLauncherInvocationResult } from "./launcher-invocation-result";
 import "./launcher.css";
 
-const KIND_HINT: Record<LauncherSearchKind, string> = { files: "launcher.kind.files", projects: "launcher.kind.projects", chats: "launcher.kind.chats", tasks: "launcher.kind.tasks", recordings: "launcher.kind.recordings" };
+const sortKeys = {
+  relevance: "launcher.sort.relevance",
+  "name-asc": "launcher.sort.name-asc",
+  "name-desc": "launcher.sort.name-desc",
+  recent: "launcher.sort.recent",
+  oldest: "launcher.sort.oldest",
+} satisfies Record<LauncherSort, TranslationKey>;
+
+const actionKindKeys = {
+  navigation: "launcher.action_kind.navigation",
+  native: "launcher.action_kind.native",
+  agent: "launcher.action_kind.agent",
+} satisfies Record<LauncherActionKind, TranslationKey>;
+
 const TRANSLATION_LANGUAGE_KEY = "legalwork.launcher.translation-language";
 /** File finder filters: source, extensions, modification floor and result order, shown as removable chips. */
 function fileFilterLabels(filter: LauncherFileFilter) {
-  const type = filter.types ? Object.entries(FILE_TYPE_PRESETS).find(([, types]) => types.join() === filter.types?.join())?.[0] : null;
-  return { type: filter.types ? (type ? t(`launcher.typed.${type}`) : filter.types.join(", ")) : null, modified: filter.modifiedAfter === null ? null : dateFilterLabel(filter.modifiedAfter), source: filter.sourceKind ? t(`launcher.typed.source_${filter.sourceKind}`) : null, sort: filter.sort && filter.sort !== "relevance" ? t(`launcher.sort.${filter.sort}`) : null };
+  const type = filter.types ? matchingFileTypePreset(filter.types) : null;
+  return { type: filter.types ? (type ? t(type.labelKey) : filter.types.join(", ")) : null, modified: filter.modifiedAfter === null ? null : dateFilterLabel(filter.modifiedAfter), source: filter.sourceKind ? t(sourceKeys[filter.sourceKind]) : null, sort: filter.sort && filter.sort !== "relevance" ? t(sortKeys[filter.sort]) : null };
 }
 
 export function LauncherPanel() {
@@ -694,7 +708,7 @@ export function LauncherPanel() {
         const missing = missingLauncherQuickActionInputs(item.quickAction.requires, inputs);
         const actionProjectId = item.quickAction.target === "project" ? collected?.projectId ?? item.quickAction.projectId ?? (initial.target.kind === "project" ? initial.target.workspaceId : null) : null;
         if (missing.length || item.quickAction.target === "project" && !actionProjectId) {
-          if (collected) throw new Error(missing.length ? t("launcher.requires", { inputs: missing.map(input => t(`launcher.input.${input}`)).join(", ") }) : t("launcher.notice.needs_project"));
+          if (collected) throw new Error(missing.length ? t("launcher.requires", { inputs: missing.map(input => t(inputKeys[input])).join(", ") }) : t("launcher.notice.needs_project"));
           if (initial.view === "conversation" && initial.conversation && drafts.owns(initial.conversation.conversationId, owner)) await saveDraft(initial.conversation.conversationId, owner, { text: initial.input, context: initial.context, target: initial.target, searchScope: initial.scope?.id ?? null });
           if (captureScope() !== scope || useLauncherStore.getState().input !== initial.input) return;
           setQuickActionRequest({ item, args, context: initial.context, projectId: actionProjectId });
@@ -884,7 +898,7 @@ export function LauncherPanel() {
   const selectionAction = (kind: "explain" | "translate" | "rewrite") => {
     const language = translationLanguage === "system" ? currentLocale() === "de" ? "German" : "English" : translationLanguage;
     const fallback = language === "English" ? "German" : "English";
-    const prompt = kind === "translate" ? t("launcher.flow.translate_prompt", { language, fallback }) : t(`launcher.flow.${kind}_prompt`);
+    const prompt = kind === "translate" ? t("launcher.flow.translate_prompt", { language, fallback }) : t(kind === "explain" ? "launcher.flow.explain_prompt" : "launcher.flow.rewrite_prompt");
     void submitAsk([store.input.trim(), prompt].filter(Boolean).join("\n\n"));
   };
   const hasSelectedText = store.context.some(item => item.type === "selection" || item.type === "clipboard");
@@ -937,7 +951,7 @@ export function LauncherPanel() {
   }] : [];
   const shortcutCategory = suggestedCategories.find(kind => aliases[kind] === store.input.trim().toLocaleLowerCase());
   const categoryRows: NavigationRow[] = suggestedCategories.map(kind => ({
-    id: `category:${kind}`, title: t("launcher.suggest.browse", { category: t(KIND_HINT[kind]) }), Icon: CATEGORY_ICONS[kind], shortcut: aliases[kind], run: () => browseCategory(kind), openInApp: () => openInApp(kind === "files" ? store.workspaceContext ? `/workspace/${encodeURIComponent(store.workspaceContext.workspaceId)}/files` : "/projects" : kind === "recordings" ? "/recorder" : kind === "chats" ? store.workspaceContext ? `/workspace/${encodeURIComponent(store.workspaceContext.workspaceId)}/sessions` : "/home" : `/${kind}`),
+    id: `category:${kind}`, title: t("launcher.suggest.browse", { category: t(categoryKeys[kind]) }), Icon: CATEGORY_ICONS[kind], shortcut: aliases[kind], run: () => browseCategory(kind), openInApp: () => openInApp(kind === "files" ? store.workspaceContext ? `/workspace/${encodeURIComponent(store.workspaceContext.workspaceId)}/files` : "/projects" : kind === "recordings" ? "/recorder" : kind === "chats" ? store.workspaceContext ? `/workspace/${encodeURIComponent(store.workspaceContext.workspaceId)}/sessions` : "/home" : `/${kind}`),
   }));
   const assistantRow: NavigationRow = { id: "search:assistant", title: assistant?.profile.name ?? t("assistant.title"), Icon: MessageSquare, avatar: <AssistantAvatar icon={assistant?.profile.icon} className="size-5" />, run: resumeConversation, openInApp: () => { void client.assistantConversationCurrent().then(({ conversation }) => openInApp(conversation ? workspaceSessionRoute(conversation.workspaceId, conversation.sessionId) : "/home")).catch(error => notify({ tone: "error", text: String(error) })); } };
   const assistantSuggestion = matchesAssistantSuggestion(store.input, assistant?.profile.name);
@@ -1011,7 +1025,7 @@ export function LauncherPanel() {
   const detailRows: NavigationRow[] = store.detail?.result.kind === "projects" && !store.detail.category
     ? ["files", "tasks", "chats", "recordings"].flatMap(kind => {
       const category = LAUNCHER_SEARCH_KINDS.find(item => item === kind);
-      return category && (t(KIND_HINT[category]).toLocaleLowerCase().includes(store.input.toLocaleLowerCase()) || categorySuggestions(store.input, aliases).includes(category) || namedCategoryQuery(store.input)?.category === category) ? [{ id: `detail:${category}`, title: t("launcher.suggest.browse", { category: t(KIND_HINT[category]) }), Icon: CATEGORY_ICONS[category], run: () => { if (store.detail) showDetail(store.detail.result, category); }, openInApp: () => { if (store.detail) void openDetailInApp({ result: store.detail.result, category }).catch(error => notify({ tone: "error", text: String(error) })); } }] : [];
+      return category && (t(categoryKeys[category]).toLocaleLowerCase().includes(store.input.toLocaleLowerCase()) || categorySuggestions(store.input, aliases).includes(category) || namedCategoryQuery(store.input)?.category === category) ? [{ id: `detail:${category}`, title: t("launcher.suggest.browse", { category: t(categoryKeys[category]) }), Icon: CATEGORY_ICONS[category], run: () => { if (store.detail) showDetail(store.detail.result, category); }, openInApp: () => { if (store.detail) void openDetailInApp({ result: store.detail.result, category }).catch(error => notify({ tone: "error", text: String(error) })); } }] : [];
     })
     : (detailItems.isError ? [] : detailItems.data?.items ?? []).filter(item => !hiddenIds.has(resultKey(item)) && !isLauncherInternalPath(item.path ?? item.id)).map(withResultOrigin).map(result => ({ id: resultKey(result), title: result.title, subtitle: result.fileType === "folder" ? t("launcher.detail.folder") : result.subtitle, meta: result.subtitle ? <LauncherResultOrigin item={result} /> : undefined, Icon: resultIcon(result), result, run: () => runResultAction(result, "open") }));
   const hiddenRows: NavigationRow[] = hidden.filter(item => item.title.toLocaleLowerCase().includes(store.input.toLocaleLowerCase())).map(item => ({ id: `restore:${item.id}`, title: item.title, subtitle: t("launcher.result_action.unhide"), Icon: Eye, restorable: true, run: () => restoreItem(item.id) }));
@@ -1194,7 +1208,7 @@ export function LauncherPanel() {
   const verb = footerVerb(selected, showCommands ? "command" : mode);
   const pinnedKeys = useMemo(() => new Set(pins.map(pin => `${pin.kind}\u0000${pin.sourceId}\u0000${pin.id}`)), [pins]);
   const chatTargetName = store.target.kind === "project" ? workspaces.find(item => item.id === (store.target.kind === "project" ? store.target.workspaceId : ""))?.name ?? "" : assistant?.profile.name ?? t("assistant.title");
-  const placeholder = mode === "conversation" ? t("launcher.placeholder.conversation", { name: chatTargetName }) : store.category ? t("launcher.placeholder.category", { kind: t(KIND_HINT[store.category]) }) : t("launcher.placeholder.search");
+  const placeholder = mode === "conversation" ? t("launcher.placeholder.conversation", { name: chatTargetName }) : store.category ? t("launcher.placeholder.category", { kind: t(categoryKeys[store.category]) }) : t("launcher.placeholder.search");
 
   return <div className="launcher-root" data-surface={surface} data-view={store.view} data-expanded={expanded || undefined} data-form-active={formActive || undefined} onKeyDown={onKeyDown}
     onPointerDownCapture={fileDrag.resetClickSuppression}
@@ -1211,7 +1225,7 @@ export function LauncherPanel() {
         {(["conversation", "work", "detail", "hidden"].includes(store.view)) ? <Button variant="ghost" size="icon-sm" aria-label={t("launcher.back")} title={t("launcher.back")} onClick={() => void goBack()}><ArrowLeft className="size-4" /></Button> : <AssistantAvatar icon={assistant?.profile.icon} className="size-6" motion={sending ? "thinking" : undefined} />}
         <div className="launcher-entry-main">
         {hasSearchChips && <div className="launcher-chips">
-        {store.category && !(store.category === "files" && store.fileFilter.types?.length) && <span className="launcher-chip" data-kind="category" title={t(KIND_HINT[store.category])}><span>{t(KIND_HINT[store.category])}</span><button type="button" aria-label={t("launcher.chip.remove_category")} onClick={() => { store.setCategory(null); inputRef.current?.focus(); }}><X className="size-3" /></button></span>}
+        {store.category && !(store.category === "files" && store.fileFilter.types?.length) && <span className="launcher-chip" data-kind="category" title={t(categoryKeys[store.category])}><span>{t(categoryKeys[store.category])}</span><button type="button" aria-label={t("launcher.chip.remove_category")} onClick={() => { store.setCategory(null); inputRef.current?.focus(); }}><X className="size-3" /></button></span>}
         {store.scope && <span className="launcher-chip" data-kind="scope" title={store.scope.name}><span>{store.scope.name}</span><button type="button" aria-label={t("launcher.chip.remove_scope")} onClick={() => { store.setScope(null); inputRef.current?.focus(); }}><X className="size-3" /></button></span>}
 
         {(() => { const labels = fileFilterLabels(store.fileFilter); return <>
@@ -1293,7 +1307,7 @@ export function LauncherPanel() {
         {showCommands && store.view !== "conversation" && <><p className="launcher-section-title">{t("launcher.commands.choose_context")}</p><div id="launcher-options" role="listbox" aria-label={t("launcher.commands.choose_context")}>{renderNavigationRows(commandContextRows)}</div></>}
         {showCommands && store.view === "conversation" && (commandItems.length ? <div id="launcher-options" role="listbox" aria-label={t("launcher.commands.title")}>{commandItems.map(item => <div key={item.id} id={optionId(item.id)} data-launcher-item role="option" aria-selected={store.selection.id === item.id} data-selected={store.selection.id === item.id} className="launcher-row" onMouseMove={() => store.select({ id: item.id, source: "user" })} onClick={() => void runCatalogEntry(item)}>
           <span className="launcher-row-icon"><Sparkles className="size-4" /></span>
-          <div className="launcher-row-main"><div className="launcher-row-title">{item.label}{item.favorite ? " ★" : ""}</div><div className="launcher-row-meta">{[t(`launcher.action_kind.${item.kind}`), item.source === "quick-action" ? t("launcher.source.quick_action") : item.source === "command" ? t("launcher.source.command") : item.source === "skill" ? t("launcher.source.skill") : null, item.requires.length ? t("launcher.requires", { inputs: item.requires.map(input => t(`launcher.input.${input}`)).join(", ") }) : null, item.description].filter(Boolean).join(" · ")}</div></div>
+          <div className="launcher-row-main"><div className="launcher-row-title">{item.label}{item.favorite ? " ★" : ""}</div><div className="launcher-row-meta">{[t(actionKindKeys[item.kind]), item.source === "quick-action" ? t("launcher.source.quick_action") : item.source === "command" ? t("launcher.source.command") : item.source === "skill" ? t("launcher.source.skill") : null, item.requires.length ? t("launcher.requires", { inputs: item.requires.map(input => t(inputKeys[input])).join(", ") }) : null, item.description].filter(Boolean).join(" · ")}</div></div>
           <span className="launcher-row-hint">{item.shortcut}</span>
         </div>)}</div> : <div className="launcher-empty">{t(catalogQuery.isPending || skillsQuery.isLoading ? "launcher.coverage.searching" : "launcher.commands_empty")}</div>)}
         {store.view === "conversation" && !showCommands && conversation && <LauncherConversation onSave={text => setCreation({ kind: "document", workspaceId: store.target.kind === "project" ? store.target.workspaceId : "", folder: store.target.kind === "project" && store.target.workspaceId === store.workspaceContext?.workspaceId ? store.workspaceContext.folder ?? "" : "", name: conversation.title.replace(/[/\\]/g, " ").slice(0, 120), text, context: [] })} conversation={conversation} handoffBusy={sending || uploading} onOpenApp={() => void openConversationInApp().catch(error => notify({ tone: "error", text: String(error) }))} submission={submission} pendingOutput={pendingOutput} onRetry={retrySubmission} onOutputApplied={() => setPendingOutput(null)}
@@ -1301,7 +1315,7 @@ export function LauncherPanel() {
         {store.view === "conversation" && !showCommands && !conversation && <div className="launcher-empty">{t("launcher.conversation.new_hint")}</div>}
         {store.view === "work" && <LauncherWork onOpenConversation={id => { if (sendingRef.current || uploadingRef.current) return; void client.assistantConversation(id).then(async ({ conversation: found }) => { store.bindConversation(found); await adoptDraft(found.id, true); store.setView("conversation"); }).catch(() => notify({ tone: "error", text: t("launcher.conversation.unavailable") })); }} />}
         {(store.view === "detail" || store.view === "hidden") && <>
-          <div className="launcher-detail-heading"><strong>{store.view === "hidden" ? t("launcher.hidden.title", { count: hidden.length }) : store.detail?.result.kind === "tasks" ? t("tasks.column_title") : [store.detail?.result.title, store.detail?.category ? t(KIND_HINT[store.detail.category]) : null].filter(Boolean).join(" / ")}</strong>
+          <div className="launcher-detail-heading"><strong>{store.view === "hidden" ? t("launcher.hidden.title", { count: hidden.length }) : store.detail?.result.kind === "tasks" ? t("tasks.column_title") : [store.detail?.result.title, store.detail?.category ? t(categoryKeys[store.detail.category]) : null].filter(Boolean).join(" / ")}</strong>
             {store.view === "detail" && store.detail && !childFormState.active && <Button variant="ghost" size="icon-sm" aria-label={t("launcher.footer.actions")} onClick={() => { if (store.detail) store.setOverlay({ kind: "actions", resultKey: resultKey(store.detail.result) }); }}><MoreHorizontal className="size-4" /></Button>}
             {store.view === "hidden" && hidden.length > 0 ? <Button size="sm" variant="ghost" onClick={() => { restoreItem(); inputRef.current?.focus(); }}>{t("launcher.hidden.restore_all")}</Button> : store.view === "detail" && store.detail && store.detail.result.kind !== "tasks" && (!store.detail.result.folderId || localFiles) && <Button size="sm" variant="ghost" onClick={() => { if (store.detail) void openDetailInApp(store.detail).catch(error => notify({ tone: "error", text: String(error) })); }}>{t(store.detail.result.folderId ? "launcher.result_action.open-external" : "launcher.result_action.open-in-app")}</Button>}
           </div>
@@ -1318,7 +1332,7 @@ export function LauncherPanel() {
             onTransfer={(action, projectId) => { store.setOverlay(null); void transferFiles(selectedResult, action, projectId); }}
             onRun={action => { store.setOverlay(null); void runResultAction(selectedResult, action); inputRef.current?.focus(); }} onExtra={action => { store.setOverlay(null); if (action === "open-in-app") void openResultInApp(selectedResult).catch(error => notify({ tone: "error", text: String(error) })); if (action === "copy-to-clipboard") void copyResult(selectedResult); if (action === "hide") hideItem({ id: resultKey(selectedResult), title: selectedResult.title }); inputRef.current?.focus(); }} onClose={() => { store.setOverlay(null); inputRef.current?.focus(); }} />}
       {store.overlay?.kind === "sort" && <LauncherRowMenu title={t("launcher.sort.title")} onClose={() => { store.setOverlay(null); inputRef.current?.focus(); }} actions={LauncherSortSchema.options.map(sort => ({
-        id: sort, title: t(`launcher.sort.${sort}`), checked: (store.fileFilter.sort ?? "relevance") === sort,
+        id: sort, title: t(sortKeys[sort]), checked: (store.fileFilter.sort ?? "relevance") === sort,
         run: () => { store.setFileFilter({ sort }); if (sortSuggestion) store.setInput(""); store.setOverlay(null); inputRef.current?.focus(); },
       }))} />}
       {actionProject && <LauncherRowMenu title={t("launcher.chat.choose_project")} onClose={() => { setActionProject(null); inputRef.current?.focus(); }} actions={workspaces.filter(workspace => workspace.preset !== "wiki" && workspace.preset !== "main-assistant").map(project => ({

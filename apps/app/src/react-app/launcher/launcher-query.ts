@@ -1,3 +1,4 @@
+import { categoryKeys } from "./launcher-labels";
 import { DEFAULT_LAUNCHER_ALIASES, LAUNCHER_SEARCH_KINDS, type LauncherSearchKind } from "@legalwork/types/launcher";
 import { LANGUAGES, t } from "@/i18n";
 
@@ -7,7 +8,7 @@ export type ParsedLauncherEntry = { mode: LauncherEntryMode; text: string };
 
 const ALIAS_PATTERN = /^[a-z0-9]{1,3}$/;
 const normalize = (value: string) => value.normalize("NFKD").replace(/\p{M}/gu, "").toLocaleLowerCase().trim();
-const browseLabels = (kind: LauncherSearchKind) => LANGUAGES.map(lng => t("launcher.suggest.browse", { lng, category: t(`launcher.kind.${kind}`, lng) }));
+const browseLabels = (kind: LauncherSearchKind) => LANGUAGES.map(lng => t("launcher.suggest.browse", { lng, category: t(categoryKeys[kind], lng) }));
 export const CATEGORY_WORDS: Record<LauncherSearchKind, string[]> = {
   files: ["files", "file", "dateien", "datei", "doc", "docs", "document", "documents", "dokument", "dokumente"], projects: ["projects", "project", "projekte", "projekt"],
   chats: ["chats", "chat", "conversations", "gespräche"], tasks: ["tasks", "task", "aufgaben", "aufgabe", "todos"],

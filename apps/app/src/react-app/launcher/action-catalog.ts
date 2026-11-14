@@ -1,3 +1,4 @@
+import { appActionKeys } from "./launcher-labels";
 import { resultKey } from "./launcher-search-session";
 import { launcherResultActions } from "@legalwork/types/launcher";
 import type { LauncherCatalogEntry, LauncherInvocationAction, LauncherSearchResult } from "@legalwork/types/launcher";
@@ -35,7 +36,7 @@ const APP_ACTIONS: { id: AppActionId; kind: LauncherCatalogEntry["kind"]; invoca
 ];
 export function appActionEntries(options: { desktop: boolean; favorites: Set<string>; recent: Map<string, number>; shortcuts: Record<string, string> }): LauncherCatalogEntry[] {
   return APP_ACTIONS.filter(action => options.desktop || !action.desktopOnly).map(action => ({
-    id: action.id, label: t(`launcher.action.${action.id.slice(4)}`), description: null, aliases: action.aliases, kind: action.kind, source: "app", requires: action.id === "app.add-selection" ? ["selection"] : [],
+    id: action.id, label: t(appActionKeys[action.id]), description: null, aliases: action.aliases, kind: action.kind, source: "app", requires: action.id === "app.add-selection" ? ["selection"] : [],
     target: "none", outputs: [], workspaceId: null, shortcut: options.shortcuts[action.id] ?? null, favorite: options.favorites.has(action.id), usedAt: options.recent.get(action.id) ?? null, command: null, quickAction: null,
   }));
 }

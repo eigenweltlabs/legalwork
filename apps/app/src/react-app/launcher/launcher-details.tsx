@@ -1,3 +1,4 @@
+import { taskStatusLabel } from "../domains/tasks/task-format";
 import { compareLauncherResults } from "@legalwork/types/launcher";
 import { useLayoutEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -72,7 +73,7 @@ export function LauncherTaskDetail({ result, onOpenChat, onOpenApp, onUpdated, o
     <fieldset disabled={busy} className="contents">
       <label>{t("tasks.field_title")}<Input autoFocus required maxLength={200} value={editing.title} onChange={event => setEditing({ ...editing, title: event.target.value })} /></label>
       <div className="launcher-form-row">
-        <label>{t("tasks.column_status")}<select value={editing.status} onChange={event => { const status = statuses.find(status => status === event.target.value); if (status) setEditing({ ...editing, status }); }}>{statuses.map(status => <option key={status} value={status}>{t(`tasks.status_${status}`)}</option>)}</select></label>
+        <label>{t("tasks.column_status")}<select value={editing.status} onChange={event => { const status = statuses.find(status => status === event.target.value); if (status) setEditing({ ...editing, status }); }}>{statuses.map(status => <option key={status} value={status}>{taskStatusLabel(status)}</option>)}</select></label>
         <label>{t("tasks.sort_due")}<Input type="date" value={editing.dueDate} onChange={event => setEditing({ ...editing, dueDate: event.target.value })} /></label>
       </div>
       <label>{t("tasks.field_description")}<textarea rows={4} value={editing.description} onChange={event => setEditing({ ...editing, description: event.target.value })} /></label>
@@ -90,7 +91,7 @@ export function LauncherTaskDetail({ result, onOpenChat, onOpenApp, onUpdated, o
     }}>
     <strong>{item?.title ?? result.title}</strong>
     {task.isPending ? <p>{t("launcher.preview.loading")}</p> : task.isError ? <><p role="alert">{String(task.error)}</p><Button onClick={() => void task.refetch()}>{t("launcher.submission.retry")}</Button></> : <>
-      <p className="text-muted-foreground">{[item && t(`tasks.status_${item.status}`), item?.dueDate, item?.assigneeName].filter(Boolean).join(" · ")}</p>
+      <p className="text-muted-foreground">{[item && taskStatusLabel(item.status), item?.dueDate, item?.assigneeName].filter(Boolean).join(" · ")}</p>
       <div className="launcher-detail-controls">
         <Button ref={editButton} variant="outline" size="sm" disabled={busy || !item} onClick={() => { if (item) { setError(null); setEditing({ title: item.title, description: item.description, status: item.status, dueDate: item.dueDate?.slice(0, 10) ?? "" }); } }}>{t("common.edit")}<kbd>↵</kbd></Button>
         <Button variant="outline" size="sm" disabled={busy || !item} onClick={changeStatus}>{t(item?.status === "done" ? "launcher.detail.reopen_task" : "launcher.result_action.complete")}<LauncherSubmitHint /></Button>

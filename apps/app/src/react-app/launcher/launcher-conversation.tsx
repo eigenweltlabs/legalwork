@@ -1,8 +1,9 @@
+import { submissionKeys } from "./launcher-labels";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Archive, ArrowUpRight, ClipboardPaste, Copy, Loader2, RefreshCw, ShieldCheck } from "lucide-react";
 import type { AssistantAttentionItem, AssistantAttentionReply } from "@legalwork/types/main-assistant";
-import type { AssistantSubmission } from "@legalwork/types/launcher";
+import { AssistantSubmissionStateSchema, type AssistantSubmission } from "@legalwork/types/launcher";
 import { Button } from "@/components/ui/button";
 import { launcherOriginInsert } from "@/app/lib/desktop";
 import { MessageList } from "@/components/chat/message-list";
@@ -41,10 +42,11 @@ export function useSubmissionStatus(requestId: string | null, onChange: (submiss
 
 export function SubmissionStatusRow({ submission, onRetry }: { submission: { requestId: string; state: string; error?: string | null } | null; onRetry: () => void }) {
   if (!submission || submission.state === "completed") return null;
+  const state = AssistantSubmissionStateSchema.safeParse(submission.state);
   const busy = submission.state === "sending" || submission.state === "accepted" || submission.state === "running";
   return <div className="launcher-status" role="status" aria-live="polite">
     {busy ? <Loader2 className="size-3.5 animate-spin motion-reduce:animate-none" /> : <AlertTriangle className="size-3.5" />}
-    <span>{submission.state === "failed" && submission.error ? submission.error : t(`launcher.submission.${submission.state}`)}</span>
+    <span>{submission.state === "failed" && submission.error ? submission.error : t(state.success ? submissionKeys[state.data] : "launcher.submission.unconfirmed")}</span>
     {(submission.state === "unconfirmed" || submission.state === "failed") && <Button variant="ghost" size="sm" onClick={onRetry}><RefreshCw className="size-3.5" />{t("launcher.submission.retry")}</Button>}
   </div>;
 }

@@ -1,3 +1,4 @@
+import { categoryKeys, type TranslationKey } from "./launcher-labels";
 import { AssistantAvatar } from "@/react-app/domains/session/sidebar/assistant-appearance";
 import type { AssistantIcon } from "@legalwork/types/main-assistant";
 import { LauncherResultOrigin } from "./launcher-result-origin";
@@ -11,8 +12,34 @@ import { primaryResultAction, resultActionMenu } from "./action-catalog";
 import { resultKey } from "./launcher-search-session";
 import { handleLauncherFocusKey } from "./launcher-focus";
 import { FILE_TYPE_PRESETS } from "./launcher-typed-filters";
-
 import { optionId, RESULT_KIND_ORDER } from "./launcher-keyboard";
+
+const resultActionKeys = {
+  open: "launcher.result_action.open",
+  reveal: "launcher.result_action.reveal",
+  "open-external": "launcher.result_action.open-external",
+  "chat-with-assistant": "launcher.result_action.chat-with-assistant",
+  attach: "launcher.result_action.attach",
+  ask: "launcher.result_action.ask",
+  compare: "launcher.result_action.compare",
+  summarize: "launcher.result_action.summarize",
+  "copy-path": "launcher.result_action.copy-path",
+  "copy-reference": "launcher.result_action.copy-reference",
+  pin: "launcher.result_action.pin",
+  complete: "launcher.result_action.complete",
+  reopen: "launcher.result_action.reopen",
+  play: "launcher.result_action.play",
+  resume: "launcher.result_action.resume",
+  "hand-to-assistant": "launcher.result_action.hand-to-assistant",
+  "copy-to-project": "launcher.result_action.copy-to-project",
+  "move-to-project": "launcher.result_action.move-to-project",
+  run: "launcher.result_action.run",
+  "open-conversation": "launcher.result_action.open-conversation",
+  "open-in-app": "launcher.result_action.open-in-app",
+  "copy-to-clipboard": "launcher.result_action.copy-to-clipboard",
+  hide: "launcher.result_action.hide",
+} satisfies Record<LauncherResultAction | LauncherExtraAction | "run" | "open-conversation", TranslationKey>;
+
 export const CATEGORY_ICONS = { projects: Folder, files: FileText, chats: MessageSquare, tasks: ListTodo, recordings: Mic };
 export function fileTypeIcon(extension: string) {
   const type = extension.toLowerCase().replace(/^\./, "");
@@ -49,7 +76,7 @@ export function launcherExtraActions(result: LauncherSearchResult, copyable: boo
   actions.push("hide");
   return actions;
 }
-export function actionLabel(action: LauncherResultAction | "run" | "open-conversation" | LauncherExtraAction) { return t(`launcher.result_action.${action}`); }
+export function actionLabel(action: LauncherResultAction | "run" | "open-conversation" | LauncherExtraAction) { return t(resultActionKeys[action]); }
 
 export function LauncherResultList(props: {
   items: LauncherSearchResult[]; sources: LauncherSourceState[]; query: string; selectedKey: string | null; multiSelect: Set<string>; pins: Set<string>; pending: boolean; hideEmpty?: boolean;
@@ -60,7 +87,7 @@ export function LauncherResultList(props: {
   if (!groups.length) return props.hideEmpty ? null : <div className="launcher-empty">{props.pending ? t("launcher.coverage.searching") : props.query.length === 1 ? t("content_search.keep_typing") : t("content_search.no_results")}</div>;
   return <>
     {groups.map(group => <section key={group.kind}>
-      <div className="launcher-section-title"><span>{t(`launcher.kind.${group.kind}`)}</span><span className="launcher-coverage">{coverageLabel(group.sources)}</span></div>
+      <div className="launcher-section-title"><span>{t(categoryKeys[group.kind])}</span><span className="launcher-coverage">{coverageLabel(group.sources)}</span></div>
       {group.items.map(item => {
         const key = resultKey(item);
         const Icon = resultIcon(item);
