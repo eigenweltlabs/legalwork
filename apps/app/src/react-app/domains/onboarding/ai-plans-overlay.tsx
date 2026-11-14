@@ -157,7 +157,7 @@ const FEATURES = [
 // action, features), so the buttons line up across the cards whatever the
 // length of the text above them.
 const cardClass =
-  "flex flex-col rounded-2xl border border-dls-border bg-dls-surface p-4 md:row-span-6 md:grid md:grid-rows-subgrid md:gap-y-0 roomy:p-5";
+  "flex flex-col rounded-2xl border border-dls-border bg-dls-surface p-4 md:row-span-6 md:grid md:grid-rows-subgrid md:gap-y-0 roomy:p-6";
 const planButtonClass =
   "h-10 w-full rounded-full text-[14px] roomy:h-11 roomy:text-[15px]";
 const textLinkClass =
@@ -241,10 +241,10 @@ function CardFrame(props: {
         </h2>
         {props.switcher}
       </div>
-      <p className="ai-plan-tagline mt-2 text-[12px] leading-[18px] text-dls-secondary roomy:text-[13.5px] roomy:leading-5">
+      <p className="ai-plan-tagline mt-2 text-[12px] leading-[18px] text-dls-secondary roomy:mt-3 roomy:text-[13.5px] roomy:leading-5">
         {props.tagline}
       </p>
-      <div className="mt-3 roomy:mt-4">
+      <div className="mt-3 roomy:mt-6">
         <div className="text-[34px] font-medium leading-none tracking-[-0.04em] text-dls-text tabular-nums roomy:text-[44px]" style={{ viewTransitionName: props.testId.replace("ai-plan-", "ai-plan-price-") }}>
           {props.price}
         </div>
@@ -253,7 +253,7 @@ function CardFrame(props: {
         </div>
       </div>
       {props.usage}
-      <div className="mt-3 roomy:mt-4">{props.action}</div>
+      <div className="mt-3 roomy:mt-5">{props.action}</div>
       {props.features}
     </article>
   );
@@ -286,7 +286,7 @@ function PlanCard(props: {
       price={formatEuroCents(price, locale)}
       priceSuffix={t("ai_plans.per_seat_month")}
       usage={
-        <div className="mt-3 rounded-xl bg-muted/65 p-3 roomy:mt-4" role="group" aria-label={t("ai_plans.included_usage")}>
+        <div className="mt-3 rounded-xl bg-muted/65 p-3 roomy:mt-6 roomy:p-4" role="group" aria-label={t("ai_plans.included_usage")}>
           <p className="text-xs text-dls-secondary">{t("ai_plans.included_usage")}</p>
           <p className="mt-2 flex flex-wrap items-baseline gap-2 tabular-nums">
             {plan.includedMonthlyUsageCents > price && <s aria-hidden="true" className="text-sm text-dls-secondary">{formatEuroCents(price, locale)}</s>}
@@ -306,8 +306,8 @@ function PlanCard(props: {
         </Button>
       }
       features={
-        <div className="mt-3 flex flex-col border-t border-dls-border pt-3 text-[12px] leading-[18px] text-dls-text roomy:text-[13px] roomy:leading-5">
-          <ul className="mb-2 space-y-1.5">
+        <div className="mt-3 flex flex-col border-t border-dls-border pt-3 text-[12px] leading-[18px] text-dls-text roomy:mt-5 roomy:pt-4 roomy:text-[13px] roomy:leading-5">
+          <ul className="mb-2 space-y-1.5 roomy:mb-3 roomy:space-y-2">
             <FeatureRow>{t("ai_plans.feature_models")}</FeatureRow>
             <FeatureRow>{t("ai_plans.summary_team")}</FeatureRow>
             {plan.id !== "plus" && <FeatureRow>{t("ai_plans.summary_admin")}</FeatureRow>}
@@ -334,7 +334,7 @@ function PlanCard(props: {
 
 function OwnModelBanner(props: { disabled: boolean; onChoose: () => void }) {
   return (
-    <aside data-testid="ai-plan-byo" className="ai-plan-own mt-4 flex flex-col items-start justify-between gap-3 rounded-2xl border border-dls-border bg-dls-surface px-4 py-3 md:flex-row md:items-center">
+    <aside data-testid="ai-plan-byo" className="ai-plan-own mt-4 flex flex-col items-start justify-between gap-3 rounded-2xl border border-dls-border bg-dls-surface px-4 py-3 md:flex-row md:items-center roomy:mt-6 roomy:px-6 roomy:py-4">
       <div>
         <h2 className="text-base font-medium text-dls-text">{t("ai_plans.free_banner")}</h2>
         <p className="mt-1 text-xs leading-[18px] text-dls-secondary">{t("ai_plans.free_description")}</p>
@@ -839,7 +839,7 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
           </p>}
           {notice ? <div className="mt-4">{notice}</div> : null}
         </header>
-        <div className="ai-plans-billing mt-3 flex justify-center">
+        <div className="ai-plans-billing mt-3 flex justify-center roomy:mt-6">
           <div role="radiogroup" aria-label={t("ai_plans.confirm_interval")} className="inline-grid h-8 grid-cols-2 gap-1 rounded-full border border-dls-border/60 bg-muted/65 p-1">
             {(["year", "month"] satisfies EigenweltCheckoutSelection["interval"][]).map(interval => <button type="button" role="radio" key={interval} aria-checked={checkout.interval === interval} disabled={disabled} onClick={() => changeCheckout({ ...checkout, interval })}
               className={`rounded-full border px-5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 ${checkout.interval === interval ? "border-dls-border/70 bg-dls-surface text-dls-text" : "border-transparent text-dls-secondary hover:text-dls-text"}`}>
@@ -847,7 +847,7 @@ export function AiPlansOverlay(props: AiPlansOverlayProps) {
             </button>)}
           </div>
         </div>
-        <div className="mt-4 grid gap-4 md:grid-cols-3 md:gap-x-4 md:gap-y-0 xl:gap-x-5 roomy:mt-5 roomy:gap-x-7">
+        <div className="mt-4 grid gap-4 md:grid-cols-3 md:gap-x-4 md:gap-y-0 xl:gap-x-5 roomy:mt-8 roomy:gap-x-8">
           {EIGENWELT_PLANS.map((plan) => (
             <PlanCard
               key={plan.id}
