@@ -331,10 +331,11 @@ export async function createManagedOpencodeServer(options: {
     .sort((left, right) => left.name.localeCompare(right.name));
 
   let lastError: unknown;
+  const excludedPorts = [...(options.excludedPorts ?? [])];
   for (let attempt = 0; attempt < START_MAX_ATTEMPTS; attempt += 1) {
     // Fresh free port each attempt: a start failure never bound a port, and a
     // retry should steer clear of one a slow-dying predecessor may still hold.
-    const port = options.port ?? (await findFreePort(hostname, options.excludedPorts));
+    const port = options.port ?? (await findFreePort(hostname, excludedPorts));
     const args = ["serve", ...(options.service ? ["--service"] : options.parentLease ? ["--stdio"] : []), "--hostname", hostname, "--port", String(port), "--cors", "*"];
     if (options.logLevel) args.push("--log-level", options.logLevel);
     const expectedVersion = await verifyOpencodeForExecution(command, options.candidateBuild);
@@ -387,8 +388,14 @@ export async function createManagedOpencodeServer(options: {
       // Make sure this attempt's child is fully gone before retrying or giving
       // up, so it never lingers holding the port or the DB lock.
       await terminate();
-      const locked = error instanceof Error && DB_LOCKED_PATTERN.test(error.message);
-      if (!locked || attempt === START_MAX_ATTEMPTS - 1) throw error;
+      if (!(error instanceof Error) || attempt === START_MAX_ATTEMPTS - 1) throw error;
+      options.signal?.throwIfAborted();
+      // A port can be claimed after our probe closes and before the engine binds.
+      if (options.port === undefined && /EADDRINUSE|is port \d+ in use\?/i.test(error.message)) {
+        excludedPorts.push(port);
+        continue;
+      }
+      if (!DB_LOCKED_PATTERN.test(error.message)) throw error;
       const backoff = START_RETRY_BASE_MS * 2 ** attempt; // 500ms, 1s, 2s
       console.warn(
         `[managed-opencode] engine DB locked on start (attempt ${attempt + 1}/${START_MAX_ATTEMPTS}); retrying in ${backoff}ms`,

@@ -31,7 +31,7 @@ export class AppTray {
   }
 
   /**
-   * @param {{ dictationEnabled: boolean, shortcutLabel: string | null }} state
+   * @param {{ dictationEnabled: boolean, shortcutLabel: string | null, launcher?: { shortcutLabel: string | null, onOpen: () => void, onFiles: () => void, onAsk: () => void, onWork: () => void } | null }} state
    */
   ensure(state) {
     if (!this.tray) {
@@ -55,11 +55,19 @@ export class AppTray {
         ? `Dictation ready (${state.shortcutLabel})`
         : "Dictation ready"
       : "Dictation off";
+    const launcher = state.launcher;
     const menu = Menu.buildFromTemplate([
       { label: `Open ${this.appName}`, click: () => this.onOpen() },
-      { type: "separator" },
+      ...(launcher ? [
+        { type: /** @type {const} */ ("separator") },
+        { label: launcher.shortcutLabel ? `Open Assistant (${launcher.shortcutLabel})` : "Open Assistant", click: () => launcher.onOpen() },
+        { label: "Search files", click: () => launcher.onFiles() },
+        { label: "New question", click: () => launcher.onAsk() },
+        { label: "Work needing attention", click: () => launcher.onWork() },
+      ] : []),
+      { type: /** @type {const} */ ("separator") },
       { label: dictationLabel, enabled: false },
-      { type: "separator" },
+      { type: /** @type {const} */ ("separator") },
       { label: `Quit ${this.appName}`, click: () => this.onQuit() },
     ]);
     this.tray.setContextMenu(menu);

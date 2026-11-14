@@ -8,6 +8,7 @@ Use this map when you know what you want to do but not where to start. The assis
 | --- | --- | --- |
 | Welcome | First-run account, folder, audio and integration setup | [Getting started](getting-started.md) |
 | Save logins for the in-app browser | Save your own logins for legal research websites so you and your agent can use them | [Research databases](integrations.md#research-databases) |
+| Mini-bar > New | Start a chat in the main window or mini-bar, or create a document, task or project | [Assistant](assistant.md#mini-bar-search-and-act-from-any-app) |
 | Home / New Chat | Start an assistant conversation, attach inputs and choose a model | [Chats](workspaces-chats.md) |
 | Chat and document tabs, View > Select Tab | Continue work, switch tabs with Cmd/Ctrl+1–9, respond to approvals, inspect files and use the terminal | [Chats](workspaces-chats.md), [Files](files-documents.md) |
 | Shield icon in the top-right of a chat | Choose the chat's sandbox and network settings, restore inheritance or retry a status check | [Sandboxing](settings-privacy.md#sandboxing) |

@@ -1,0 +1,20 @@
+{
+  "$schema": "https://www.raycast.com/schemas/extension.json",
+  "name": "legalwork",
+  "title": "LegalWork",
+  "description": "Open the LegalWork Assistant, ask it about your selection, search files and projects, run quick actions and see work that needs you.",
+  "icon": "icon.png",
+  "author": "legalwork",
+  "license": "MIT",
+  "categories": ["Productivity"],
+  "commands": [
+    { "name": "open-assistant", "title": "Open LegalWork Assistant", "subtitle": "LegalWork", "description": "Resume the current conversation or start a new question in the quick panel.", "mode": "no-view", "arguments": [{ "name": "question", "placeholder": "Question (optional)", "type": "text", "required": false }] },
+    { "name": "ask-with-selection", "title": "Ask LegalWork with Selection", "subtitle": "LegalWork", "description": "Stage the selected text as context and open the Assistant.", "mode": "no-view" },
+    { "name": "search", "title": "Search LegalWork", "subtitle": "LegalWork", "description": "Search files, projects, chats, tasks and recordings; open or attach a result.", "mode": "view" },
+    { "name": "quick-action", "title": "Run LegalWork Quick Action", "subtitle": "LegalWork", "description": "Run a saved quick action on the selected text or clipboard.", "mode": "view" },
+    { "name": "work", "title": "LegalWork Work", "subtitle": "LegalWork", "description": "Show delegated work and what needs your decision.", "mode": "view" }
+  ],
+  "dependencies": { "@raycast/api": "^1.100.0", "@legalwork/types": "file:../../packages/types", "react": "19.2.4" },
+  "devDependencies": { "@types/node": "^22.0.0", "@types/react": "^19.2.2", "typescript": "^5.6.0" },
+  "scripts": { "build": "ray build -e dist", "dev": "ray develop", "lint": "ray lint", "typecheck": "tsc --noEmit" }
+}

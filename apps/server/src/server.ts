@@ -915,7 +915,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
     requireUnmanaged: () => requireOrgPolicyUnmanaged(config, "reviews.defaults"),
   }));
   const scheduledTasks = await ScheduledTaskStore.open(runtimeDbPath(config), () => announceSyncChange(config, "sessions"));
-  const assistantRuntime = await createAssistantRuntime(config, { scheduledTasks, deferStart: true, resolveWorkspace: id => resolveWorkspace(config, id),
+  const assistantRuntime = await createAssistantRuntime(config, { scheduledTasks, preparation, deferStart: true, resolveWorkspace: id => resolveWorkspace(config, id),
     changed: restartReloadWatchers, tokenActive: hash => tokens.isActiveHash(hash) });
   const scheduledWorkspace = async (task: ScheduledTask) => {
     const workspace = await resolveWorkspace(config, task.workspaceId);
@@ -969,7 +969,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
       if (entry?.status === "failed" || entry?.status === "uncertain") throw new ApiError(409, "schedule_send", entry.error ?? "Check the chat before resuming this task.");
     },
   });
-  const routes = createRoutes(config, approvals, tokens, env, officeTools, restartReloadWatchers, benchmarkRunner, ocr, preparation, reviews, corpus, scheduledTasks, wikiStore, wikiSync);
+  const routes = createRoutes(config, approvals, tokens, env, officeTools, restartReloadWatchers, benchmarkRunner, ocr, preparation, reviews, corpus, scheduledTasks, wikiStore, wikiSync, assistantRuntime.prepareQueuedSubmission);
   await assistantRuntime.register(routes, { jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, requireApproval });
   registerToolImageOriginalRoutes({ routes, config, raster: toolImageRaster, jsonResponse, resolveWorkspace, ensureWritable, requireClientScope, requireApproval });
   configureWikiAgentSessionLookup(config, async (workspace, sessionID, directory, signal) => {
@@ -1926,6 +1926,7 @@ function createRoutes(
   scheduledTasks: ScheduledTaskStore,
   wikiStore: WikiStore,
   wikiSync: WikiSync,
+  prepareQueuedSubmission: Awaited<ReturnType<typeof createAssistantRuntime>>["prepareQueuedSubmission"],
 ): Route[] {
   const routes: Route[] = [];
   registerCloudTranscriptionRoutes({ routes, config, jsonResponse, readJsonBody, ensureWritable, requireClientScope });
@@ -2073,6 +2074,7 @@ function createRoutes(
   });
 
   registerSessionRoutes({
+    prepareQueuedSubmission,
     routes,
     config,
     jsonResponse,

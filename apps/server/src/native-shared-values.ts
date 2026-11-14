@@ -16,3 +16,26 @@ export { automaticAssistantBrowserModel, hasAssistantSubscription, AssistantReso
 
 export { legalResearchProviders, legalResearchCountries, researchDatabaseSetupSchema } from "@legalwork/types/legal-research";
 export { researchLawAreas, researchJurisdictionLabel } from "@legalwork/types/legal-research-wiki";
+
+export {
+  AssistantContextItemSchema,
+  AssistantConversationPatchSchema,
+  AssistantExecutionTargetSchema,
+  AssistantSubmissionPartSchema,
+  AssistantSubmissionStateSchema,
+  AssistantSubmitInputSchema,
+  AssistantWorkStatusSchema,
+  LAUNCHER_SEARCH_KINDS,
+  LauncherFileSourceKindSchema,
+  LauncherFileTransferInputSchema,
+  LauncherInvocationSchema,
+  LauncherInvocationSourceSchema,
+  LauncherSearchFolderSchema,
+  LauncherSearchKindSchema,
+  LauncherSearchResultSchema,
+  LauncherSortSchema,
+  QuickActionInputSchema,
+  compareLauncherResults,
+  isLauncherInternalPath,
+  launcherResultActions,
+} from "@legalwork/types/launcher";

@@ -22,9 +22,11 @@ test("Assistant follows Plus/Pro subscriptions without an extra feature flag", (
 test("Assistant routes gate work but leave saved history and stop controls reachable", () => {
   for (const path of ["/assistant/current", "/assistant/delegate", "/assistant/follow-up", "/assistant/briefing", "/assistant/tool-access"])
     expect(assistantRouteRequiresSubscription("POST", path)).toBe(true);
-  for (const path of ["/assistant/projects", "/assistant/tasks", "/assistant/sessions/search"])
-    expect(assistantRouteRequiresSubscription("GET", path)).toBe(true);
+  for (const path of ["/assistant/conversations/conv_project/messages", "/assistant/conversations/conv_project/attention/reply"])
+    expect(assistantRouteRequiresSubscription("POST", path)).toBe(false);
+  expect(assistantRouteRequiresSubscription("PATCH", "/assistant/conversations/conv_project")).toBe(false);
+  expect(assistantRouteRequiresSubscription("POST", "/assistant/conversations")).toBe(true);
   expect(assistantRouteRequiresSubscription("POST", "/assistant/session-control")).toBe(false);
-  for (const path of ["/assistant", "/assistant/history", "/assistant/settings", "/assistant/activity", "/workspaces"])
+  for (const path of ["/assistant", "/assistant/history", "/assistant/settings", "/assistant/activity", "/assistant/conversations", "/assistant/conversations/current", "/assistant/attention", "/assistant/conversations/conv_project/attention", "/assistant/conversation-for-session/session", "/assistant/submissions/request", "/assistant/submissions/request/output", "/assistant/projects", "/assistant/tasks", "/assistant/sessions/search", "/launcher/search", "/workspaces"])
     expect(assistantRouteRequiresSubscription("GET", path)).toBe(false);
 });
