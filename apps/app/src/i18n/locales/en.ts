@@ -5,6 +5,10 @@ import { projectTemplateStrings } from "@legalwork/types/workspace";
  */
 
 export default {
+  "timesheets.ledger.status.declined": "Declined",
+  "timesheets.ledger.change.activityLabel": "Activity name",
+  "timesheets.ledger.change.policyDigest": "Billing policy version",
+  "timesheets.ledger.event.declineSuggestion": "Wording suggestion declined",
   "timesheets.ledger.new_product": "Create a separate work product",
   "timesheets.ledger.new_product_title": "Enter a new work product title.",
   "timesheets.ledger.product_ambiguous": "Several work products have this title. Select the particular result or use + to create another.",

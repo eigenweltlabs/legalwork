@@ -1,3 +1,4 @@
+import { labelForCode, ledgerColumnKeys, placeholderKeys, activityKeys, entryStatusKeys, historyActionKeys, historyFieldKeys } from "./timesheet-labels";
 import { Link } from "react-router-dom";
 import { useId, useMemo, useRef, useState, type ClipboardEvent, type KeyboardEvent } from "react";
 import {
@@ -64,20 +65,19 @@ type Props = {
   canEdit?: boolean;
 };
 type Edit = { entry: TimeEntry; values: RowValues };
-const label = (key: string) => t("timesheets.ledger." + key);
 function changes(entry: TimeEntry, person: (id: string) => string, locale: string) {
   return (
     <ol className="bo-time-history">
       {entry.history.map((event) => (
         <li key={event.revision}>
           <b>{person(event.actorId)}</b> · {new Date(event.at).toLocaleString(locale)} ·{" "}
-          {label("event." + event.action)}
+          {labelForCode(historyActionKeys, event.action)}
           {event.before &&
             (Object.keys(event.after) as (keyof typeof event.after)[])
               .filter((key) => event.before?.[key] !== event.after[key])
               .map((key) => (
                 <div key={key}>
-                  {label("change." + key)} · <del>{String(event.before?.[key] ?? "—")}</del> →{" "}
+                  {labelForCode(historyFieldKeys, key)} · <del>{String(event.before?.[key] ?? "—")}</del> →{" "}
                   {String(event.after[key] ?? "—")}
                 </div>
               ))}
@@ -106,10 +106,10 @@ function PrivateOriginal({
     setError("");
     try {
       const proposal = await load(digest);
-      if (proposal.digest !== digest) throw Error(label("original_unavailable"));
+      if (proposal.digest !== digest) throw Error(t("timesheets.ledger.original_unavailable"));
       setOriginal(proposal);
     } catch (e) {
-      setError(e instanceof Error ? e.message : label("original_unavailable"));
+      setError(e instanceof Error ? e.message : t("timesheets.ledger.original_unavailable"));
     } finally {
       setPending(false);
     }
@@ -119,17 +119,17 @@ function PrivateOriginal({
       {original ? (
         <dl>
           <div>
-            <dt>{label("original")}</dt>
+            <dt>{t("timesheets.ledger.original")}</dt>
             <dd>
               {original.date} · {original.activity} · {original.narrative} ·{" "}
               {original.workedMinutes === null
-                ? label("unknown_minutes")
+                ? t("timesheets.ledger.unknown_minutes")
                 : duration(original.workedMinutes) + " h"}
             </dd>
           </div>
           {first && (
             <div>
-              <dt>{label("first_saved")}</dt>
+              <dt>{t("timesheets.ledger.first_saved")}</dt>
               <dd>
                 {first.date} · {first.activity} · {first.narrative} · {duration(first.workedMinutes)} h
               </dd>
@@ -138,7 +138,7 @@ function PrivateOriginal({
         </dl>
       ) : (
         <Button variant="ghost" size="sm" disabled={pending} onClick={() => void open()}>
-          {label("compare_original")}
+          {t("timesheets.ledger.compare_original")}
         </Button>
       )}
       {error && <span role="alert">{error}</span>}
@@ -226,7 +226,7 @@ export function TimesheetLedger({
   function chooseDate(next: string) {
     if (!next) return;
     if (edit) {
-      setError(label("finish_edit"));
+      setError(t("timesheets.ledger.finish_edit"));
       return;
     }
     setDate(next);
@@ -298,7 +298,7 @@ export function TimesheetLedger({
       await onCommand(command);
       return true;
     } catch (err) {
-      setError(err instanceof Error ? err.message : label("failed"));
+      setError(err instanceof Error ? err.message : t("timesheets.ledger.failed"));
       return false;
     } finally {
       pending.current = false;
@@ -308,7 +308,7 @@ export function TimesheetLedger({
   async function save(row: string, nextFocus = true, tabToNext = false) {
     if (!canEdit || pending.current) return false;
     if (row === "new" && edit) {
-      setError(label("finish_edit"));
+      setError(t("timesheets.ledger.finish_edit"));
       return false;
     }
     const current = row === "new" ? draft : edit?.values;
@@ -385,7 +385,7 @@ export function TimesheetLedger({
       } else if (nextFocus) focus(row, "narrative");
     }
     const limit = capFor(entry);
-    setNotice(limit === null ? label("saved") : t("timesheets.ledger.cap_review", { minutes: limit }));
+    setNotice(limit === null ? t("timesheets.ledger.saved") : t("timesheets.ledger.cap_review", { minutes: limit }));
     return true;
   }
   function startEdit(row: TimeEntry, column: RowColumn) {
@@ -405,7 +405,7 @@ export function TimesheetLedger({
       setEdit({ entry: row, values: fromDraft(row, person(row.workerId), date, state, matters) });
       setSelected(row.id);
       setError("");
-      setNotice(row.status === "submitted" ? label("reopens") : "");
+      setNotice(row.status === "submitted" ? t("timesheets.ledger.reopens") : "");
       focus(row.id, column);
     }
   }
@@ -423,7 +423,7 @@ export function TimesheetLedger({
       !draft.billable ||
       provenance
     ) {
-      setError(label("unfinished"));
+      setError(t("timesheets.ledger.unfinished"));
       return;
     }
     setEdit(null);
@@ -434,7 +434,7 @@ export function TimesheetLedger({
     setDraftChanged(true);
     setDraft(fromDraft({ ...entry, date }, own, date, state, matters));
     focus("new", "narrative");
-    setNotice(label("pasted"));
+    setNotice(t("timesheets.ledger.pasted"));
   }
   function resetComposer() {
     setDraftChanged(false);
@@ -459,7 +459,7 @@ export function TimesheetLedger({
       /* Some WebViews only accept text. */
     }
     event.preventDefault();
-    setNotice(label("copied"));
+    setNotice(t("timesheets.ledger.copied"));
   }
   function clipboardPaste(event: ClipboardEvent) {
     const entry = decodeTimeRow(
@@ -502,7 +502,7 @@ export function TimesheetLedger({
       values.date,
       localMatter?.projectId,
     ).activityLabels;
-    const activityName = (code: string) => catalog[code] || label("activity." + code);
+    const activityName = (code: string) => catalog[code] || labelForCode(activityKeys, code);
     const choices: Partial<Record<RowColumn, string[]>> = {
       matter: matters.map((m) => m.label),
       workers: people.map((p) => p.label),
@@ -522,7 +522,7 @@ export function TimesheetLedger({
           {column === "billable" ? (
             <input
               data-column={column}
-              aria-label={label(column)}
+              aria-label={t(ledgerColumnKeys[column])}
               type="checkbox"
               checked={values.billable}
               disabled={busy}
@@ -532,19 +532,19 @@ export function TimesheetLedger({
           ) : (
             <input
               data-column={column}
-              aria-label={label(column)}
+              aria-label={t(ledgerColumnKeys[column])}
               type={column === "date" ? "date" : "text"}
               disabled={
                 busy ||
                 (column === "workers" && row !== "new") ||
                 (column === "charge" && !values.billable)
               }
-              title={column === "workers" ? label("worker_hint") : undefined}
+              title={column === "workers" ? t("timesheets.ledger.worker_hint") : undefined}
               autoComplete="off"
               placeholder={
                 column === "product" && values.createProduct
-                  ? label("new_product_title")
-                  : label("placeholder." + column)
+                  ? t("timesheets.ledger.new_product_title")
+                  : t(placeholderKeys[column])
               }
               value={String(column === "charge" && !values.billable ? "0" : value)}
               list={list ? uid + row + column : undefined}
@@ -572,8 +572,8 @@ export function TimesheetLedger({
             <button
               type="button"
               className="bo-time-new-product"
-              aria-label={label("new_product")}
-              title={label("new_product")}
+              aria-label={t("timesheets.ledger.new_product")}
+              title={t("timesheets.ledger.new_product")}
               aria-pressed={!!values.createProduct}
               disabled={busy}
               onClick={() => toggleProductCreation(row, values, localMatter?.matterId)}
@@ -606,7 +606,7 @@ export function TimesheetLedger({
           title={
             entry.activityLabel ??
             (Object.hasOwn(timeActivities, entry.activity)
-              ? label("activity." + entry.activity)
+              ? labelForCode(activityKeys, entry.activity)
               : entry.activity)
           }
         >
@@ -615,9 +615,9 @@ export function TimesheetLedger({
       );
     if (column === "billable")
       return entry.billable ? (
-        <Check size={13} aria-label={label("billable")} />
+        <Check size={13} aria-label={t("timesheets.ledger.billable")} />
       ) : (
-        <span aria-label={label("nonbillable")}>–</span>
+        <span aria-label={t("timesheets.ledger.nonbillable")}>–</span>
       );
     return row[column];
   }
@@ -641,42 +641,42 @@ export function TimesheetLedger({
     >
       <div className="bo-view-toolbar bo-time-toolbar">
         <select
-          aria-label={label("period")}
+          aria-label={t("timesheets.ledger.period")}
           value={period}
           onChange={(e) =>
-            edit ? setError(label("finish_edit")) : setPeriod(e.target.value === "week" ? "week" : "day")
+            edit ? setError(t("timesheets.ledger.finish_edit")) : setPeriod(e.target.value === "week" ? "week" : "day")
           }
         >
-          <option value="day">{label("day")}</option>
-          <option value="week">{label("week")}</option>
+          <option value="day">{t("timesheets.ledger.day")}</option>
+          <option value="week">{t("timesheets.ledger.week")}</option>
         </select>
         <button
           type="button"
-          title={label("previous")}
-          aria-label={label("previous")}
+          title={t("timesheets.ledger.previous")}
+          aria-label={t("timesheets.ledger.previous")}
           onClick={() => chooseDate(offsetDate(date, period === "day" ? -1 : -7))}
         >
           <ChevronLeft size={14} />
         </button>
         <input
           type="date"
-          aria-label={label("period_date")}
+          aria-label={t("timesheets.ledger.period_date")}
           value={date}
           onChange={(e) => chooseDate(e.currentTarget.value)}
         />
         <button
           type="button"
-          title={label("next")}
-          aria-label={label("next")}
+          title={t("timesheets.ledger.next")}
+          aria-label={t("timesheets.ledger.next")}
           onClick={() => chooseDate(offsetDate(date, period === "day" ? 1 : 7))}
         >
           <ChevronRight size={14} />
         </button>
         <button type="button" onClick={() => chooseDate(offsetDate(localDate(new Date()), -1))}>
-          {label("yesterday")}
+          {t("timesheets.ledger.yesterday")}
         </button>
         <button type="button" onClick={() => chooseDate(localDate(new Date()))}>
-          {label("today")}
+          {t("timesheets.ledger.today")}
         </button>
         <div className="bo-view-actions">
           {copied && (
@@ -688,13 +688,13 @@ export function TimesheetLedger({
                 onClick={async () => {
                   try {
                     await navigator.clipboard.writeText(encodeTimeRow(copied).plain);
-                    setNotice(label("copied"));
+                    setNotice(t("timesheets.ledger.copied"));
                   } catch {
-                    setError(label("use_shortcut"));
+                    setError(t("timesheets.ledger.use_shortcut"));
                   }
                 }}
               >
-                {label("copy")}
+                {t("timesheets.ledger.copy")}
               </Button>
               {canEdit && (
                 <Button
@@ -703,7 +703,7 @@ export function TimesheetLedger({
                   startIcon={<CopyPlus size={14} />}
                   onClick={() => pasteEntry(copied)}
                 >
-                  {label("duplicate")}
+                  {t("timesheets.ledger.duplicate")}
                 </Button>
               )}
             </>
@@ -716,7 +716,7 @@ export function TimesheetLedger({
               startIcon={<Send size={13} />}
               onClick={async () => {
                 if (edit) {
-                  setError(label("finish_edit"));
+                  setError(t("timesheets.ledger.finish_edit"));
                   return;
                 }
                 if (
@@ -725,20 +725,20 @@ export function TimesheetLedger({
                     entries: ready.map((e) => ({ id: e.id, revision: e.revision })),
                   })
                 )
-                  setNotice(label("submitted"));
+                  setNotice(t("timesheets.ledger.submitted"));
               }}
             >
-              {label("submit")}
+              {t("timesheets.ledger.submit")}
             </Button>
           )}
         </div>
       </div>
-      <div className="bo-time-totals" aria-label={label("totals")}>
+      <div className="bo-time-totals" aria-label={t("timesheets.ledger.totals")}>
         {[
-          [label("worked_total"), totals.worked],
-          [label("billable"), totals.billable],
-          [label("nonbillable"), totals.worked - totals.billable],
-          [label("charge_total"), totals.charge],
+          [t("timesheets.ledger.worked_total"), totals.worked],
+          [t("timesheets.ledger.billable"), totals.billable],
+          [t("timesheets.ledger.nonbillable"), totals.worked - totals.billable],
+          [t("timesheets.ledger.charge_total"), totals.charge],
         ].map(([key, value]) => (
           <span key={key}>
             {key} <b>{duration(Number(value))} h</b>
@@ -774,35 +774,35 @@ export function TimesheetLedger({
           {error}
         </div>
       )}
-      <div role="grid" aria-label={label("title")} className="bo-grid-scroll bo-time-scroll">
+      <div role="grid" aria-label={t("timesheets.ledger.title")} className="bo-grid-scroll bo-time-scroll">
         <div role="row" className="bo-grid-header">
           <div role="columnheader" className="bo-check-cell">
-            <span className="sr-only">{label("select")}</span>
+            <span className="sr-only">{t("timesheets.ledger.select")}</span>
           </div>
           {rowColumns.map((column) => (
             <div role="columnheader" className="bo-grid-heading" key={column}>
-              {label(column)}
+              {t(ledgerColumnKeys[column])}
             </div>
           ))}
           <div role="columnheader" className="bo-grid-heading">
-            {label("status")}
+            {t("timesheets.ledger.status")}
           </div>
         </div>
         {canEdit && (
           <div role="row" className="bo-grid-row bo-time-new" data-time-row="new">
-            <div className="bo-check-cell" title={label("new")}>
+            <div className="bo-check-cell" title={t("timesheets.ledger.new")}>
               <Plus size={13} />
             </div>
             {editors("new", draft)}
             <div role="gridcell" className="bo-grid-cell">
               <button type="button" disabled={busy} onClick={() => void save("new")}>
-                {label("book")}
+                {t("timesheets.ledger.book")}
               </button>
               {(draftChanged || draft.activity || draft.narrative || draft.worked || provenance) && (
                 <button
                   type="button"
                   disabled={busy}
-                  aria-label={label("cancel")}
+                  aria-label={t("timesheets.ledger.cancel")}
                   onClick={resetComposer}
                 >
                   <X size={12} />
@@ -872,11 +872,11 @@ export function TimesheetLedger({
                   )}
                   {editing ? (
                     <>
-                      <button aria-label={label("save")} onClick={() => void save(entry.id)}>
+                      <button aria-label={t("timesheets.ledger.save")} onClick={() => void save(entry.id)}>
                         <Check size={14} />
                       </button>
                       <button
-                        aria-label={label("cancel")}
+                        aria-label={t("timesheets.ledger.cancel")}
                         onClick={() => {
                           setEdit(null);
                           setError("");
@@ -897,11 +897,11 @@ export function TimesheetLedger({
                           })
                         }
                       >
-                        {label("confirm")}
+                        {t("timesheets.ledger.confirm")}
                       </button>
                       <button
                         disabled={busy}
-                        aria-label={label("decline")}
+                        aria-label={t("timesheets.ledger.decline")}
                         onClick={() =>
                           void run({
                             type: "decline",
@@ -913,12 +913,12 @@ export function TimesheetLedger({
                       </button>
                     </>
                   ) : (
-                    <span>{label("status." + entry.status)}</span>
+                    <span>{t(entryStatusKeys[entry.status])}</span>
                   )}
                   <button
                     type="button"
                     aria-expanded={history === entry.id}
-                    aria-label={label("history")}
+                    aria-label={t("timesheets.ledger.history")}
                     onClick={() => setHistory(history === entry.id ? "" : entry.id)}
                   >
                     <History size={12} />
@@ -947,7 +947,7 @@ export function TimesheetLedger({
                     className="bo-time-original"
                     to={"/back-office/timeEntries?record=" + encodeURIComponent(entry.id)}
                   >
-                    {label("signed_history")}
+                    {t("timesheets.ledger.signed_history")}
                   </Link>
                 </>
               )}
@@ -956,7 +956,7 @@ export function TimesheetLedger({
         })}
       </div>
       <div className="bo-time-footer">
-        {canEdit && <span>{label("keyboard")}</span>}
+        {canEdit && <span>{t("timesheets.ledger.keyboard")}</span>}
         <span role="status">{notice}</span>
       </div>
     </div>

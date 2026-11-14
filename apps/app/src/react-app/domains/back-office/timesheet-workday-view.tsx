@@ -13,7 +13,6 @@ import { layoutCalendarDay } from "../calendar/calendar-layout";
 import { formatCalendarDay } from "../calendar/calendar-format";
 
 type Directory = Pick<TimesheetState, "matters" | "projects" | "policies">;
-const msg = (key: string) => t("timesheets.workday." + key);
 function matterFor(p: CaptureProposal, state: Directory) {
   if (p.matterId) return state.matters.find((m) => m.id === p.matterId);
   const linked = state.projects.find((project) => project.id === p.projectId)?.matterIds;
@@ -60,7 +59,7 @@ export function WorkdayTimeline({
   confirmed: TimeEntry[];
   onOpen: (p: CaptureProposal) => void;
 }) {
-  const loose = msg("unassigned");
+  const loose = t("timesheets.workday.unassigned");
   const groups = new Map<string, { title: string; blocks: Block[] }>();
   function add(id: string, title: string, block: Block) {
     const group = groups.get(id) ?? { title, blocks: [] };
@@ -87,7 +86,7 @@ export function WorkdayTimeline({
   for (const entry of accepted)
     if (entry.startAt && entry.endAt) {
       const matter = state.matters.find((m) => m.id === entry.matterId)?.name ?? "";
-      add("confirmed", msg("booked"), {
+      add("confirmed", t("timesheets.workday.booked"), {
         key: entry.id,
         title: entry.narrative,
         startAt: entry.startAt,
@@ -132,7 +131,7 @@ export function WorkdayTimeline({
   return (
     <div
       className="bo-workday-axis"
-      aria-label={msg("timeline")}
+      aria-label={t("timesheets.workday.timeline")}
       style={{ gridTemplateColumns: "52px repeat(" + columns.length + ",minmax(125px,1fr))" }}
     >
       <div className="bo-workday-axis-label">{formatCalendarDay(date)}</div>
@@ -264,7 +263,7 @@ export function WorkdayCorrectionForm({
           (total !== null && (!Number.isInteger(total) || total < 1 || total > 1440)) ||
           !narrative.trim()
         ) {
-          setError(msg("invalid"));
+          setError(t("timesheets.workday.invalid"));
           return;
         }
         if (
@@ -277,7 +276,7 @@ export function WorkdayCorrectionForm({
             +minutes <= 0 ||
             +minutes >= total)
         ) {
-          setError(msg("split_invalid"));
+          setError(t("timesheets.workday.split_invalid"));
           return;
         }
         if (
@@ -305,22 +304,22 @@ export function WorkdayCorrectionForm({
       }}
     >
       <label>
-        {msg("matter")}
+        {t("timesheets.workday.matter")}
         <select value={matter} onChange={(e) => setMatter(e.target.value)}>
-          <option value="">{msg("unassigned")}</option>
+          <option value="">{t("timesheets.workday.unassigned")}</option>
           {options}
         </select>
       </label>
       <label>
-        {msg("start")}
+        {t("timesheets.workday.start")}
         <input type="time" value={start} onChange={(e) => setStart(e.target.value)} />
       </label>
       <label>
-        {msg("end")}
+        {t("timesheets.workday.end")}
         <input type="time" value={end} onChange={(e) => setEnd(e.target.value)} />
       </label>
       <label>
-        {msg("worked")}
+        {t("timesheets.workday.worked")}
         <input
           type="number"
           min="1"
@@ -331,17 +330,17 @@ export function WorkdayCorrectionForm({
         />
       </label>
       <label className="bo-workday-narrative">
-        {msg("description")}
+        {t("timesheets.workday.description")}
         <input value={narrative} maxLength={2000} onChange={(e) => setNarrative(e.target.value)} />
       </label>
       <label className="bo-workday-split">
         <input type="checkbox" checked={split} onChange={(e) => setSplit(e.target.checked)} />
-        {msg("split")}
+        {t("timesheets.workday.split")}
       </label>
       {split && (
         <>
           <label>
-            {msg("last_minutes")}
+            {t("timesheets.workday.last_minutes")}
             <input
               type="number"
               min="1"
@@ -351,9 +350,9 @@ export function WorkdayCorrectionForm({
             />
           </label>
           <label>
-            {msg("target")}
+            {t("timesheets.workday.target")}
             <select value={target} onChange={(e) => setTarget(e.target.value)}>
-              <option value="">{msg("choose")}</option>
+              <option value="">{t("timesheets.workday.choose")}</option>
               {options}
             </select>
           </label>
@@ -364,14 +363,14 @@ export function WorkdayCorrectionForm({
           )}
         </>
       )}
-      <p>{msg("dictation")}</p>
+      <p>{t("timesheets.workday.dictation")}</p>
       {error && <p role="alert">{error}</p>}
       <div>
         <Button type="submit" size="sm" disabled={pending}>
-          {msg("apply")}
+          {t("timesheets.workday.apply")}
         </Button>
         <Button size="sm" type="button" variant="ghost" onClick={close}>
-          {msg("cancel")}
+          {t("timesheets.workday.cancel")}
         </Button>
       </div>
     </form>

@@ -1,3 +1,4 @@
+import { roundingKeys, scopeKeys, impactKeys } from "./timesheet-labels";
 import { useMemo } from "react";
 import {
   bindingTimeTerm,
@@ -28,17 +29,17 @@ const fields = [
 ] as const;
 type Field = (typeof fields)[number];
 const labels = {
-  enforceIncrement: "enforce",
-  incrementMinutes: "increment",
-  rounding: "rounding",
-  maxMinutes: "maximum",
-  language: "language",
-  actionFirst: "action_first",
-  narrativeExample: "example",
-  soloApproval: "solo",
-  reviewerId: "reviewer",
-  hourlyRate: "hourly_rate",
-  currency: "currency",
+  enforceIncrement: "back_office.billing.enforce",
+  incrementMinutes: "back_office.billing.increment",
+  rounding: "back_office.billing.rounding",
+  maxMinutes: "back_office.billing.maximum",
+  language: "back_office.billing.language",
+  actionFirst: "back_office.billing.action_first",
+  narrativeExample: "back_office.billing.example",
+  soloApproval: "back_office.billing.solo",
+  reviewerId: "back_office.billing.reviewer",
+  hourlyRate: "back_office.billing.hourly_rate",
+  currency: "back_office.billing.currency",
 };
 function applicable(policies: TimePolicy[], c: BillingContext) {
   const scopes = { firm: "firm", client: c.clientId, matter: c.matterId, project: c.projectId };
@@ -48,7 +49,7 @@ function applicable(policies: TimePolicy[], c: BillingContext) {
 }
 function valueOf(key: Field, effective: Effective, state: TimesheetState) {
   const value = effective[key];
-  if (key === "rounding") return t("back_office.billing.round_" + value);
+  if (key === "rounding") return t(roundingKeys[effective.rounding]);
   if (typeof value === "boolean") return t(value ? "back_office.billing.on" : "back_office.billing.off");
   if (key === "reviewerId" && value)
     return state.people.find((p) => p.id === value)?.name || String(value);
@@ -84,16 +85,16 @@ export function EffectiveTerms({ state, context }: { state: TimesheetState; cont
   );
   const display = fields.map((key) => ({
     id: key as string,
-    label: t("back_office.billing." + labels[key]),
+    label: t(labels[key]),
     value: valueOf(key, effective, state),
     from: origin(key, sources, effective),
   }));
   const maps = {
-    activityLimits: "exceptions",
-    workerRates: "hourly_rate",
-    actionWords: "action_word",
-    narrativeCorrections: "preferred",
-    activityLabels: "activity_label",
+    activityLimits: "back_office.billing.exceptions",
+    workerRates: "back_office.billing.hourly_rate",
+    actionWords: "back_office.billing.action_word",
+    narrativeCorrections: "back_office.billing.preferred",
+    activityLabels: "back_office.billing.activity_label",
   } as const;
   for (const map of Object.keys(maps) as (keyof typeof maps)[]) {
     for (const [key, val] of Object.entries(effective[map])) {
@@ -102,7 +103,7 @@ export function EffectiveTerms({ state, context }: { state: TimesheetState; cont
         map === "workerRates" ? (state.people.find((p) => p.id === key)?.name ?? key) : key;
       display.push({
         id: map + "/" + key,
-        label: t("back_office.billing." + maps[map]) + " · " + context,
+        label: t(maps[map]) + " · " + context,
         value: String(val),
         from,
       });
@@ -114,8 +115,8 @@ export function EffectiveTerms({ state, context }: { state: TimesheetState; cont
       <table>
         <thead>
           <tr>
-            {["rule", "value", "source", "effective"].map((k) => (
-              <th key={k}>{t("back_office.billing." + k)}</th>
+            {["back_office.billing.rule", "back_office.billing.value", "back_office.billing.source", "back_office.billing.effective"].map((k) => (
+              <th key={k}>{t(k)}</th>
             ))}
           </tr>
         </thead>
@@ -134,7 +135,7 @@ export function EffectiveTerms({ state, context }: { state: TimesheetState; cont
             const source = legacyAgreement
               ? t("back_office.feeAgreements.singular")
               : from
-                ? t("back_office.billing.scope_" + from.scope)
+                ? t(scopeKeys[from.scope])
                 : t("back_office.billing.default");
             return (
               <tr key={id}>
@@ -173,7 +174,7 @@ function boundText(term: BindingTimeTerm) {
 function signature(entry: TimeEntry, policy: Effective) {
   return {
     grid: policy.enforceIncrement ? String(policy.incrementMinutes) : t("back_office.billing.free"),
-    rounding: policy.enforceIncrement ? t("back_office.billing.round_" + policy.rounding) : "–",
+    rounding: policy.enforceIncrement ? t(roundingKeys[policy.rounding]) : "–",
     cap: String(policy.activityLimits[entry.activity] ?? policy.maxMinutes),
     binding: policy.bindingClientTerm
       ? policy.incrementException
@@ -309,8 +310,8 @@ export function BillingImpact({
         <table>
           <thead>
             <tr>
-              {["date", "narrative", "changed_rules"].map((k) => (
-                <th key={k}>{t("back_office.billing." + k)}</th>
+              {["back_office.billing.date", "back_office.billing.narrative", "back_office.billing.changed_rules"].map((k) => (
+                <th key={k}>{t(k)}</th>
               ))}
             </tr>
           </thead>
@@ -329,7 +330,7 @@ export function BillingImpact({
                         {t(
                           d.key === "rounding"
                             ? "back_office.billing.rounding"
-                            : "back_office.billing.change_" + d.key,
+                            : impactKeys[d.key],
                         )}
                         {d.key !== "words" && " · " + format(d.from) + " → " + format(d.to)}
                       </div>

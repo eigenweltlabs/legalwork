@@ -15,6 +15,10 @@ import { projectTemplateStrings } from "@legalwork/types/workspace";
  */
 
 const de = {
+  "timesheets.ledger.status.declined": "Abgelehnt",
+  "timesheets.ledger.change.activityLabel": "Tätigkeitsbezeichnung",
+  "timesheets.ledger.change.policyDigest": "Version der Abrechnungsregeln",
+  "timesheets.ledger.event.declineSuggestion": "Textvorschlag abgelehnt",
   "timesheets.ledger.new_product": "Eigenes Arbeitsergebnis anlegen",
   "timesheets.ledger.new_product_title": "Titel des neuen Arbeitsergebnisses eingeben.",
   "timesheets.ledger.product_ambiguous": "Mehrere Arbeitsergebnisse tragen diesen Titel. Wählen Sie das konkrete Ergebnis oder legen Sie mit + ein weiteres an.",

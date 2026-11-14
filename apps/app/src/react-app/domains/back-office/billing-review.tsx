@@ -1,3 +1,4 @@
+import { reviewViewKeys } from "./timesheet-labels";
 import { renderInvoice, standardInvoice } from "@legalwork/types/invoice-template";
 import { Fragment, useMemo, useRef, useState } from "react";
 import { Button } from "twenty-ui/primitives/input";
@@ -251,7 +252,7 @@ export function BillingReview({
         >
           {(["submitted", "approved", "adjustments", "invoices", "costs"] as const).map((k) => (
             <option key={k} value={k}>
-              {t("back_office.billing.view_" + k)}
+              {t(reviewViewKeys[k])}
             </option>
           ))}
         </select>
@@ -330,8 +331,8 @@ export function BillingReview({
           <table>
             <thead>
               <tr>
-                {["invoice_number", "issued", "client", "positions", "fees", "document"].map((k) => (
-                  <th key={k}>{t("back_office.billing." + k)}</th>
+                {["back_office.billing.invoice_number", "back_office.billing.issued", "back_office.billing.client", "back_office.billing.positions", "back_office.billing.fees", "back_office.billing.document"].map((k) => (
+                  <th key={k}>{t(k)}</th>
                 ))}
               </tr>
             </thead>
@@ -388,16 +389,16 @@ export function BillingReview({
                     />
                   </th>
                   {[
-                    "date",
-                    "matter",
-                    "worker",
-                    "activity_code",
-                    "narrative",
-                    "charge",
-                    "fees",
-                    "detail",
+                    "back_office.billing.date",
+                    "back_office.billing.matter",
+                    "back_office.billing.worker",
+                    "back_office.billing.activity_code",
+                    "back_office.billing.narrative",
+                    "back_office.billing.charge",
+                    "back_office.billing.fees",
+                    "back_office.billing.detail",
                   ].map((k) => (
-                    <th key={k}>{t("back_office.billing." + k)}</th>
+                    <th key={k}>{t(k)}</th>
                   ))}
                 </tr>
               </thead>

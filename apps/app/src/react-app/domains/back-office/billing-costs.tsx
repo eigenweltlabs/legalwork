@@ -11,10 +11,10 @@ export function BillingCosts({ rows, state, onCommand }: BillingProps & { rows: 
   const [group, setGroup] = useState<Group>("workProductId");
   const [expand, setExpand] = useState("");
   const labels = {
-    workProductId: "work_product",
-    clientId: "client",
-    matterId: "matter",
-    workerId: "worker",
+    workProductId: "back_office.billing.work_product",
+    clientId: "back_office.billing.client",
+    matterId: "back_office.billing.matter",
+    workerId: "back_office.billing.worker",
   };
   const grouped = new Map<string, TimeEntry[]>();
   const entityNames = new Map(
@@ -50,7 +50,7 @@ export function BillingCosts({ rows, state, onCommand }: BillingProps & { rows: 
           >
             {Object.entries(labels).map(([key, name]) => (
               <option key={key} value={key}>
-                {t("back_office.billing." + name)}
+                {t(name)}
               </option>
             ))}
           </select>
@@ -60,8 +60,8 @@ export function BillingCosts({ rows, state, onCommand }: BillingProps & { rows: 
         <table>
           <thead>
             <tr>
-              {[labels[group], "worked", "charge", "fees", "approved", "invoiced"].map((key) => (
-                <th key={key}>{t("back_office.billing." + key)}</th>
+              {[labels[group], "back_office.billing.worked", "back_office.billing.charge", "back_office.billing.fees", "back_office.billing.approved", "back_office.billing.invoiced"].map((key) => (
+                <th key={key}>{t(key)}</th>
               ))}
             </tr>
           </thead>

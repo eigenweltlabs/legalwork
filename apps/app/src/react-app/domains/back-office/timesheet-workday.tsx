@@ -1,3 +1,4 @@
+import { sourceKeys } from "./timesheet-labels";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
@@ -173,7 +174,7 @@ export function TimesheetWorkday({
                       });
                     }}
                   />
-                  {t("timesheets.source." + account.provider)}
+                  {t(sourceKeys[account.provider])}
                 </label>
               );
             })}
@@ -237,11 +238,7 @@ export function TimesheetWorkday({
                   {p.narrative}
                   {overlaps.has(p.key) && <small>{t("timesheets.workday.overlap")}</small>}
                   <small>
-                    {p.source === "calendar"
-                      ? t("timesheets.calendar")
-                      : p.source === "tasks"
-                        ? t("timesheets.tasks")
-                        : t("timesheets.source." + p.source)}
+                    {t(sourceKeys[p.source])}
                   </small>
                 </span>
                 <div>

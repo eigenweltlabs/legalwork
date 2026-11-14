@@ -1,3 +1,4 @@
+import { productTypeKeys } from "./timesheet-labels";
 import { useState } from "react";
 import { workProductTypes, type TimesheetState } from "@legalwork/types/timesheet";
 import { currentLocale, t } from "@/i18n";
@@ -36,7 +37,7 @@ export function BillingProductDetails({
         >
           {workProductTypes.map((value) => (
             <option key={value} value={value}>
-              {t("back_office.billing.kind_" + value)}
+              {t(productTypeKeys[value])}
             </option>
           ))}
         </select>

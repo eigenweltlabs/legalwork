@@ -1,3 +1,4 @@
+import { adjustmentStatusKeys } from "./timesheet-labels";
 import { Fragment, useState } from "react";
 import { Button } from "twenty-ui/primitives/input";
 import { Download } from "lucide-react";
@@ -49,15 +50,15 @@ export function BillingAdjustments({
           <thead>
             <tr>
               {[
-                "date",
-                "worker",
-                "original_charge",
-                "new_charge",
-                "difference",
-                "change_reason",
-                "detail",
+                "back_office.billing.date",
+                "back_office.billing.worker",
+                "back_office.billing.original_charge",
+                "back_office.billing.new_charge",
+                "back_office.billing.difference",
+                "back_office.billing.change_reason",
+                "back_office.billing.detail",
               ].map((k) => (
-                <th key={k}>{t("back_office.billing." + k)}</th>
+                <th key={k}>{t(k)}</th>
               ))}
             </tr>
           </thead>
@@ -120,7 +121,7 @@ export function BillingAdjustments({
                           </Button>
                         </div>
                       ) : (
-                        t("back_office.billing.adjustment_" + a.status)
+                        t(adjustmentStatusKeys[a.status])
                       )}
                       {a.status === "approved" && a.invoiceId && (
                         <button

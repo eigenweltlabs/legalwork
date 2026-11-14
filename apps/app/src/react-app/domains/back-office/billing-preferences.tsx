@@ -1,3 +1,4 @@
+import { roundingKeys, scopeKeys } from "./timesheet-labels";
 import { BillingTemplate } from "./billing-template";
 import { useState, type ReactNode } from "react";
 import { Button } from "twenty-ui/primitives/input";
@@ -218,12 +219,12 @@ function PolicyForm({
           >
             <option value="">
               {t("back_office.billing.inherit_value", {
-                value: t("back_office.billing.round_" + inherited.rounding),
+                value: t(roundingKeys[inherited.rounding]),
               })}
             </option>
             {roundingModes.map((mode) => (
               <option key={mode} value={mode}>
-                {t("back_office.billing.round_" + mode)}
+                {t(roundingKeys[mode])}
               </option>
             ))}
           </select>
@@ -497,7 +498,7 @@ export function BillingPreferences({
         >
           {(["firm", "client", "matter", "project"] as const).map((k) => (
             <option key={k} value={k}>
-              {t("back_office.billing.scope_" + k)}
+              {t(scopeKeys[k])}
             </option>
           ))}
         </select>
