@@ -15,3 +15,13 @@ test("continues to handle payment confirmation and bank verification responses",
   expect(parseTopUpResult({ status: "paid", operationId: "purchase" })).toEqual({ status: "paid", operationId: "purchase" });
   expect(parseTopUpResult({ status: "requires_action", operationId: "purchase", url: "https://hooks.stripe.com/test" })).toMatchObject({ status: "requires_action" });
 });
+
+test("parses an invoiced saved-card confirmation and rejects missing credentials or changed totals", () => {
+  const payment = { ...quote, status: "requires_client_confirmation", clientSecret: "cs_synthetic_secret",
+    publishableKey: "pk_test_synthetic", paymentMethodId: "pm_saved" };
+  expect(parseTopUpResult(payment)).toEqual(payment);
+  for (const bad of [{ ...payment, totalCents: 5000 }, { ...payment, clientSecret: undefined },
+    { ...payment, publishableKey: "sk_test_secret" }, { ...payment, paymentMethodId: "other" },
+    { ...payment, balanceCents: 4875, totalCents: 1075 }])
+    expect(() => parseTopUpResult(bad)).toThrow("response");
+});

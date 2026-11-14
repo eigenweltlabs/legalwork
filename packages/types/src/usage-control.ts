@@ -105,9 +105,11 @@ export type UsageControlAction =
       /** Usable credits for quoteTopUp; confirmed total for legacy topUp. */
       amountCents: number;
       paymentMethodId: string;
+      /** This client can confirm an invoiced purchase with Stripe.js. */
+      clientConfirmation?: boolean;
     }
   | { action: "cancelTopUp"; operationId: string }
-  | { action: "resumeTopUp"; operationId: string; preview?: boolean; expectedTotalCents?: number }
+  | { action: "resumeTopUp"; operationId: string; preview?: boolean; expectedTotalCents?: number; clientConfirmation?: boolean }
   | {
       action: "memberChange";
       target: MemberPlanTarget;
@@ -163,6 +165,8 @@ export type BillingPaymentDetails = {
 };
 export type TopUpResult =
   | { status: "requires_confirmation"; operationId: string; amountCents: number; taxCents: number; totalCents: number }
+  | { status: "requires_client_confirmation"; operationId: string; amountCents: number; taxCents: number; totalCents: number;
+      clientSecret: string; publishableKey: string; paymentMethodId: string }
   | {
       status: "paid" | "canceled" | "failed" | "processing";
       operationId: string;

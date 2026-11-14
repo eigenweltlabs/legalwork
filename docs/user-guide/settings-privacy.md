@@ -35,6 +35,10 @@ Closing the dialog before confirming payment leaves your balance unchanged. The 
 
 The saved card is charged directly after confirmation; complete any bank verification that is requested. Without a saved card, use the offered payment or card-setup action. **Use another payment method or promo code** opens Stripe Checkout for normal top-ups. Adding credits does not change the subscription or remove separate spending limits. Trial top-ups enable the explicitly requested extra usage only after verified payment, with limits based on usable credits.
 
+Successful top-ups create a paid invoice, including applicable tax. Open the account's billing management page and its invoice history to download it. Saved-card payments keep the same confirmation inside the app. The charge is the selected usable credits plus tax; separate Stripe billing credits or debts do not change it.
+
+To find invoices, open **Account → Billing**, then select **Invoices** in the billing view. Organization admins see subscription, trial and credit top-up invoices with their date, status and total. Select **Download PDF** to save an invoice, **Load more invoices** for older entries, or **Refresh** to check for new ones. PDFs become available after Stripe generates them. If a PDF is not available yet, refresh later. If a download fails, select **Download PDF** again.
+
 If a price expires, review the amount again. Older LegalWork versions still charge saved cards directly, but treat the amount they confirm as the total including tax: a €100 payment with 19% VAT adds €84.03 of credits. Update LegalWork to select the usable credit amount and review tax added on top. A payment already submitted keeps its original agreed amounts.
 
 Firm policies can supply models, connectors or settings and can lock individual controls. A disabled control with a firm-policy note requires an administrator change; replacing a personal key does not override it. Signing into the firm, connecting a personal model provider and signing into file storage are separate operations.
