@@ -1,4 +1,5 @@
 import { Plugin } from "@opencode/plugin";
+import { Error as ToolError } from "@opencode/plugin/promise/tool";
 import { z } from "zod";
 import { webFetchArgs, webSearchArgs } from "../agent-sandbox/web.js";
 import { resolveWorkspaceId, serverUrl, workspaceToolHeaders } from "./office-plugin-shared.js";
@@ -8,6 +9,7 @@ import { registerAppStateReminders } from "./native-app-state-reminders.js";
 import { registerPrimaryContext } from "./native-review-worker.js";
 import { nativeHostExecutionActions } from "../agent-sandbox/engine-policy.js";
 import { rawHttpInputSchema, rawHttpOutputSchema, rawHttpToolName } from "../agent-sandbox/raw-http-schema.js";
+import { usageLimitDetailsSchema } from "../provider-usage-limit.js";
 
 const args = z.object({
   command: z.string().min(1).max(128000).describe("Command to execute using the shell and paths in the latest sandbox-settings reminder."),
@@ -83,7 +85,7 @@ export const LegalWorkSandbox = Plugin.define({
       for (const kind of webKinds) {
         editor.add(nativeTool(ctx, {
           name: kind === "fetch" ? "legalwork_webfetch" : "legalwork_websearch",
-          description: kind === "fetch" ? "Read a web page using this chat's network setting and web permissions. Approval appears in the chat before contacting the website. Redirects require separate approval." : "Search the web using Exa, following this chat's network setting and web permissions. The query is sent only after any required approval.",
+          description: kind === "fetch" ? "Read a web page using this chat's network setting and web permissions. Approval appears in the chat before contacting the website. Redirects require separate approval." : "Search the web using regional AWS search for paid LegalWork accounts or Exa for free accounts, following this chat's network setting and web permissions. The firm's Model API region policy controls search location. If both EU and US are enabled, the hosted chat model supplies a preference; BYOK or unknown models default to EU. The query is sent only after any required approval. Paid queries must be at most 200 characters; use the default type and livecrawl. Use legalwork_webfetch to read complete source pages.",
           schema: kind === "fetch" ? webFetchArgs : webSearchArgs,
           outputSchema: webResult,
           permission: "domain",
@@ -94,7 +96,17 @@ export const LegalWorkSandbox = Plugin.define({
               method: "POST", headers: { ...await workspaceToolHeaders(context), "Content-Type": "application/json" },
               body: JSON.stringify({ ...input, kind, sessionID: context.sessionID, agent: context.agent }), signal: nativeToolSignal(900000, context),
             });
-            if (!response.ok) throw new Error(`Web access failed (${response.status}): ${await response.text()}`);
+            if (!response.ok) {
+              const body = await response.text();
+              if (kind === "search" && response.status === 429) {
+                let payload: unknown;
+                try { payload = JSON.parse(body); } catch { /* Preserve the normal web error. */ }
+                const error = z.object({ code: z.literal("web_search_usage_limit"), message: z.string(), details: usageLimitDetailsSchema }).safeParse(payload);
+                if (error.success) throw new ToolError({ message: error.data.message,
+                  metadata: { legalworkWebSearchUsageLimit: error.data.details } });
+              }
+              throw new Error(`Web access failed (${response.status}): ${body}`);
+            }
             const result = webResult.parse(await response.json());
             return { output: result, metadata: { ...result.metadata, title: result.title },
               content: [{ type: "text", text: result.output }, ...(result.attachments ?? []).map(file => ({ type: file.type, mime: file.mime, uri: file.url }))] };

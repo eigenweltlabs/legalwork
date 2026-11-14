@@ -8,6 +8,20 @@ export const usageLimitDetailsSchema = z.object({
 }).refine(value => value.requiredMicros > value.availableMicros);
 export type UsageLimitDetails = z.infer<typeof usageLimitDetailsSchema>;
 
+/** Only validated admission fields may cross from a gateway error into recovery UI. */
+export function eigenweltUsageLimitFromText(text: string | null | undefined) {
+  if (typeof text !== "string") return null;
+  const marker = "Eigenwelt usage limit: ";
+  const index = text.indexOf(marker);
+  if (index < 0) return null;
+  const json = text.slice(index + marker.length).match(/^\{[^{}]{1,400}\}/)?.[0];
+  if (!json) return null;
+  try {
+    const parsed = usageLimitDetailsSchema.safeParse(JSON.parse(json));
+    return parsed.success ? parsed.data : null;
+  } catch { return null; }
+}
+
 const MARKER = "LegalWork provider usage limit: ";
 export function providerUsageLimitErrorText(providerId: string, limit?: UsageLimitDetails | null) {
   return MARKER + encodeURIComponent(providerId) + (limit ? " " + encodeURIComponent(JSON.stringify(limit)) : "");

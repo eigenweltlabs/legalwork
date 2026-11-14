@@ -2081,7 +2081,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
                       <MessageList
                         showWelcome={!props.assistantDate}
                         eigenweltPlan={eigenweltPlan}
-                        renderUsageLimit={(error, messageId) => {
+                        renderUsageLimit={(error, messageId, scope) => {
                           const subscriptionRecovery = renderSubscriptionRecovery(error,
                             messageId ? hasAssistantReplyAfter(renderedMessages, messageId) : false);
                           if (subscriptionRecovery) return subscriptionRecovery;
@@ -2093,6 +2093,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
                             workspaceId={props.workspaceId}
                             plan={eigenweltPlan}
                             providerId={provider || (legacyBudget ? "eigenwelt" : props.selectedModel.providerID)}
+                            scope={props.selectedModel.providerID === "eigenwelt" ? undefined : scope}
                             limit={parseProviderUsageLimit(error)?.limit ?? (props.selectedModel.providerID === "eigenwelt" ? eigenweltUsageLimitFromError(error) : null)}
                             onChoosePlan={props.onChooseAiPlan}
                             resolved={messageId ? hasAssistantReplyAfter(renderedMessages, messageId) : false}

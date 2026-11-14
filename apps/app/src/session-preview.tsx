@@ -64,6 +64,7 @@ import { AppHome } from "@/react-app/domains/session/home/app-home";
 import { submitHomeMessage, type PendingHomeMessage } from "@/react-app/domains/session/home/home-submission";
 import { providerUsageLimitErrorText } from "@/app/lib/provider-usage-limit";
 import { organizationRequestLimit, usageLimitFixture } from "@/react-app/design-system/usage-limit-fixture";
+import { chatModelKey, useSessionModelStore } from "@/react-app/domains/session/chat/session-model-store";
 
 if (!import.meta.env.DEV) throw new Error("The session fixture is available only in development.");
 initLocale();
@@ -87,7 +88,8 @@ const assistantToday = "2026-10-07";
 const limitPlan = limitParam === "sync" || limitParam === "plus" || limitParam === "pro" ? limitParam : null;
 const model = { providerID: previewParams.get("provider") ?? (trialPreview ? "eigenwelt" : "openai"), modelID: previewParams.has("composer-layout") ? "GPT-5.6 Terra" : "Preview model" };
 const requestTooLarge = previewParams.has("requestTooLarge");
-const limitFixture = usageLimitFixture(limitPlan, previewParams.get("role") !== "member", model.providerID, requestTooLarge);
+const searchLimitPreview = previewParams.has("search-limit");
+const limitFixture = usageLimitFixture(limitPlan, previewParams.get("role") !== "member", searchLimitPreview ? "eigenwelt" : model.providerID, requestTooLarge);
 const upgradePreview = previewParams.get("upgrade");
 const topUpPreview = previewParams.get("topup") ?? (trialPreview ? "success" : null);
 const intentPreview = requestTooLarge ? "request" : fundedTrialPreview ? "personal" : previewParams.get("intent");
@@ -342,10 +344,16 @@ if (previewParams.has("statusStates")) {
   });
 }
 if (limitParam) {
+  // Keep provider variants deterministic when the same preview chat was opened before.
+  if (searchLimitPreview) useSessionModelStore.getState().select(chatModelKey("https://legalwork-preview.invalid/opencode", workspace.id, "visual-limit"), { model, variant: null });
   const item = snapshot("visual-limit", "Review supplier agreement", "Review the supplier agreement and highlight the clauses that need attention.");
   saveSnapshot({
     ...item,
-    messages: item.messages.map(message => message.info.role === "assistant" ? {
+    messages: item.messages.map(message => message.info.role === "assistant" && searchLimitPreview ? {
+      ...message, parts: [{ id: "search-limit-tool", sessionID: item.session.id, messageID: message.info.id, type: "tool", callID: "search-limit-call", tool: "legalwork_websearch",
+        state: { status: "error", input: { query: "§ 203 StGB" }, time: { start: now, end: now + 1 },
+          error: 'Web search is blocked because your AI allowance or spending limit has been reached. Eigenwelt usage limit: {"reason":"member_limit","requiredMicros":1,"availableMicros":0}' } }],
+    } : message.info.role === "assistant" ? {
       ...message, parts: [], info: { ...message.info, error: subscriptionPreview ? {
         name: "APIError", data: { statusCode: 403, providerID: "eigenwelt", message: "Forbidden",
           responseBody: '{"error":{"message":"team not allowed to access model","type":"team_model_access_denied"}}' },

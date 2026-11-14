@@ -1,4 +1,4 @@
-import { parseProviderUsageLimit, usageLimitDetailsSchema } from "@legalwork/types/provider-usage-limit";
+import { eigenweltUsageLimitFromText, parseProviderUsageLimit } from "@legalwork/types/provider-usage-limit";
 export { providerUsageLimitErrorText, parseProviderUsageLimit } from "@legalwork/types/provider-usage-limit";
 /** Permanent quota failures need user action; temporary throttling still retries. */
 const QUOTA_PATTERN =
@@ -76,15 +76,8 @@ export function eigenweltUsageLimitFromError(error: unknown) {
   const texts = [typeof error === "string" ? error : data?.message, isRecord(body?.error) ? body.error.message : null];
   for (const text of texts) {
     if (typeof text !== "string") continue;
-    const marker = "Eigenwelt usage limit: ";
-    const index = text.indexOf(marker);
-    if (index < 0) continue;
-    const json = text.slice(index + marker.length).match(/^\{[^{}]{1,400}\}/)?.[0];
-    if (!json) continue;
-    try {
-      const parsed = usageLimitDetailsSchema.safeParse(JSON.parse(json));
-      if (parsed.success) return parsed.data;
-    } catch { /* A malformed upstream detail keeps the generic recovery path. */ }
+    const limit = eigenweltUsageLimitFromText(text);
+    if (limit) return limit;
   }
   return null;
 }

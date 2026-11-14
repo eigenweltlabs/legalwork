@@ -2,6 +2,7 @@ import type { DynamicToolUIPart, TextUIPart } from "ai";
 import type { FilePart, ToolPart } from "@/app/lib/opencode-view";
 import { ViewPreviewSchema } from "@legalwork/types/views";
 import { codeModeWidgetResults } from "@legalwork/types/chat-tool-results";
+import { usageLimitDetailsSchema } from "@legalwork/types/provider-usage-limit";
 
 import { safeStringify } from "@/app/utils";
 
@@ -77,11 +78,17 @@ export function parseDynamicToolUIPart(part: ToolPart): DynamicToolUIPart | null
   }
 
   const metadata = "metadata" in part.state ? part.state.metadata : undefined;
+  const searchLimit = usageLimitDetailsSchema.safeParse(metadata?.legalworkWebSearchUsageLimit);
   const childSessionId = part.tool === "subagent" ? metadata?.sessionID : part.tool === "task" ? metadata?.sessionId : undefined;
   const executedTools = part.tool === "execute" && Array.isArray(metadata?.toolCalls)
     ? metadata.toolCalls.flatMap((call: unknown) =>
         call && typeof call === "object" && "tool" in call && typeof call.tool === "string"
           && "status" in call && call.status === "completed" ? [call.tool] : [])
+    : [];
+  const failedTools = part.tool === "execute" && Array.isArray(metadata?.toolCalls)
+    ? metadata.toolCalls.flatMap((call: unknown) =>
+        call && typeof call === "object" && "tool" in call && typeof call.tool === "string"
+          && "status" in call && call.status === "error" ? [call.tool] : [])
     : [];
   const toolNames = part.tool === "execute" && Array.isArray(metadata?.toolCalls)
     ? metadata.toolCalls.flatMap((call: unknown) =>
@@ -91,6 +98,9 @@ export function parseDynamicToolUIPart(part: ToolPart): DynamicToolUIPart | null
   const callProviderMetadata = { opencode: {
     partId: part.id,
     ...(executedTools.length ? { executedTools } : {}),
+    ...(failedTools.length ? { failedTools } : {}),
+    ...(metadata && Object.hasOwn(metadata, "legalworkWebSearchUsageLimit")
+      ? { legalworkWebSearchUsageLimit: searchLimit.success ? searchLimit.data : null } : {}),
     ...(toolNames.length ? { toolNames } : {}),
     ...((part.tool === "view_create" || part.tool === "view_update") && part.state.status === "pending" && part.state.raw ? { rawInput: part.state.raw.slice(0, 200_000) } : {}),
     ...(typeof childSessionId === "string" ? { sessionId: childSessionId } : {}),

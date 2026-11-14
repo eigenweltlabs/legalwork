@@ -855,7 +855,8 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
   const approvals = new ApprovalService(config.approval, config.requestHostApproval, () => announceSyncChange(config, "approvals"), await openRememberedApprovalStore(config));
   const rawHttpTransport = runtimeOptions.rawHttpNodeExecutable ? createNodeRawHttpTransport(runtimeOptions.rawHttpNodeExecutable) : undefined;
   const toolImageRaster = createToolImageRaster(runtimeOptions.toolImageRasterRuntime ?? resolveNodeToolImageRasterRuntime);
-  const agentSandbox = new AgentSandboxService(config, approvals, undefined, rawHttpTransport?.send);
+  const agentSandbox = new AgentSandboxService(config, approvals, undefined, rawHttpTransport?.send,
+    async (workspace, sessionID) => (await getWorkspaceEngineSession(createWorkspaceOpencodeClient(config, workspace), workspace, sessionID)).model);
   const officeTls = config.wordAddin?.enabled ? await loadWordAddinTls(config.wordAddin) : null;
   const officeConnection = new OfficeConnectionService(officeTls ? await loadOfficeConnectionToken(officeTls.keyPath) : undefined);
   const reloadEvents = new ReloadEventStore(200, () => announceSyncChange(config, "reload"));
