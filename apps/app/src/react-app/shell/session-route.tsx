@@ -1588,7 +1588,7 @@ export function SessionRoute() {
         }
         void sessionProviderAuthStore.openProviderAuthModal({ returnFocusTarget: "composer" });
       },
-      onChooseAiPlan: async (plan: "plus" | "pro") => {
+      onChooseAiPlan: async (plan: "plus" | "pro" | "max") => {
         const started = await sessionProviderAuthStore.startEigenweltSignIn({ plan });
         await openDesktopUrl(started.authorizeUrl);
         const result = await sessionProviderAuthStore.completeEigenweltSignIn(started.sessionId);

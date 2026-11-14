@@ -57,7 +57,7 @@ export function ProviderLimitMessage({
   providerId: string;
   scope?: "web-search";
   limit?: UsageLimitDetails | null;
-  onChoosePlan?: (plan: "plus" | "pro") => Promise<void>;
+  onChoosePlan?: (plan: "plus" | "pro" | "max") => Promise<void>;
   resolved?: boolean;
 }) {
   const limit = useMemo(() => suppliedLimit, [suppliedLimit?.reason, suppliedLimit?.requiredMicros, suppliedLimit?.availableMicros]);
@@ -74,8 +74,8 @@ export function ProviderLimitMessage({
   const [adminIntent, setAdminIntent] = useState<UsageIntent | null>(null);
   const [settingUpdated, setSettingUpdated] = useState(false);
   const [settingChecking, setSettingChecking] = useState(false);
-  const [offeredPlans, setOfferedPlans] = useState<Array<"plus" | "pro">>([]);
-  const [upgradedPlan, setUpgradedPlan] = useState<"plus" | "pro" | null>(null);
+  const [offeredPlans, setOfferedPlans] = useState<Array<"plus" | "pro" | "max">>([]);
+  const [upgradedPlan, setUpgradedPlan] = useState<"plus" | "pro" | "max" | null>(null);
   const [requestSent, setRequestSent] = useState(false);
   const [topUpRecovery, setTopUpRecovery] = useState<TopUpRecovery | null>(null);
   const [refreshFailed, setRefreshFailed] = useState(false);
@@ -339,7 +339,7 @@ export function ProviderLimitMessage({
           ) : (
             <div className="space-y-3">
               {EIGENWELT_PLANS.filter(
-                (item) => item.id !== "sync" && offeredPlans.includes(item.id),
+                (item) => offeredPlans.includes(item.id),
               ).map((item) => (
                 <div
                   key={item.id}
@@ -360,8 +360,7 @@ export function ProviderLimitMessage({
                   <Button
                     disabled={busy || !onChoosePlan}
                     onClick={() => {
-                      if (item.id === "sync") return;
-                      setBusy(true);
+                              setBusy(true);
                       setError("");
                       void onChoosePlan?.(item.id)
                         .then(() => setOpen(null))

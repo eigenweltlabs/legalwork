@@ -39,6 +39,38 @@ describe("onboarding transitions", () => {
       }),
     );
 
+  test("offers a free banner below Plus, Pro and Max with the new prices", () => {
+    const html = plans("onboarding");
+    expect(html.indexOf("Use LegalWork for free")).toBeGreaterThan(html.indexOf('data-testid="ai-plan-max"'));
+    for (const plan of ["plus", "pro", "max"]) expect(html).toContain('data-testid="ai-plan-' + plan + '"');
+    expect(html).not.toContain('data-testid="ai-plan-sync"');
+    expect(html).not.toContain('role="tablist"');
+    expect(html).toContain("€190");
+    expect(html).not.toContain("Billed yearly, or");
+    expect(html.match(/aria-label="Included AI usage"/g)).toHaveLength(3);
+    for (const amount of ["€30", "€100", "€210"]) expect(html).toMatch(new RegExp(`<strong[^>]*>${amount}</strong>`));
+    expect(html).toMatch(/<s[^>]*>€90<\/s>/);
+    expect(html).toMatch(/<s[^>]*>€190<\/s>/);
+    expect(html).toContain('aria-label="Billing period"');
+    expect(html).toContain("Try Pro for €1");
+    const cards = html.split("<article").slice(1).map(card => card.split("</article>")[0]);
+    for (const card of cards) {
+      const featureList = card.split("<ul")[1];
+      expect(featureList).not.toContain("AI usage");
+      expect(featureList).not.toContain("203 StGB");
+      for (const model of ["GPT-6.1 Sol", "Claude Opus 5.5", "Gemini 3.8 Flash", "Mistral Large 4"]) expect(card).toContain(model);
+      expect(card).toContain("Team sync &amp; matter management");
+      expect(card).toContain("View all features");
+    }
+    expect(cards[0]).not.toContain("Standard support");
+    expect(cards[0]).not.toContain("priority support");
+    expect(cards[0]).not.toContain("Admin dashboard");
+    expect(cards[1]).toContain("Admin dashboard");
+    expect(cards[2]).toContain("Admin dashboard");
+    expect(cards[1]).toContain("priority support");
+    expect(cards[2]).toContain("priority support");
+  });
+
   test("the plan screen appears at once as the onboarding step before permissions and research", () => {
     const html = plans("onboarding");
     expect(html).toContain('data-testid="ai-plans-overlay"');
