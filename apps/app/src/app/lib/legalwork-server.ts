@@ -3362,6 +3362,19 @@ export function createLegalworkServerClient(options: { baseUrl: string; token?: 
         { token, hostToken },
       ),
 
+    searchWorkspaceFilenames: async (workspaceId: string, query: string) => {
+      if (!query.trim()) return [];
+      const paths: string[] = [];
+      let cursor: string | undefined;
+      do {
+        const page = await requestJson<StorageFilenameSearchPage>(baseUrl, `/workspace/${encodeURIComponent(workspaceId)}/files/filename-search`, {
+          token, hostToken, method: "POST", body: { query: query.trim(), path: "", match: "path", cursor },
+        });
+        paths.push(...page.entries.map(entry => entry.path)); cursor = page.nextCursor;
+      } while (cursor && paths.length < 50);
+      return paths.slice(0, 50);
+    },
+
     listWorkspaceDirectory: (workspaceId: string, path: string) =>
       requestJson<LegalworkWorkspaceDirectoryList>(
         baseUrl,

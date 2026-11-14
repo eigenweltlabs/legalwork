@@ -4,6 +4,8 @@
 
 Use **Memory Drive** to browse workspace files and configured storage roots. Open a file into the side panel, or attach it to the composer so the assistant has a concrete target. File links in chat also open supported artifacts. Tabs allow documents to stay beside the conversation. Available context-menu actions depend on the file and runtime, including opening externally, revealing the file, downloading or saving a copy.
 
+In a project chat, type **@** followed by part of a filename or folder path to find a file in the project's document folder, including its subfolders. Select the file to include it in your message.
+
 Give an exact filename or attach the document when several copies exist. "This document" should mean the document actually open beside the chat. Check that the assistant is working on that version. Save pending edits before switching to a conflicting copy or accepting a discard prompt.
 
 File cards in chat show the filename without its folder path. Select a card to open the referenced file.

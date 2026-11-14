@@ -1,4 +1,7 @@
 import { resolveWorkspaceFile } from "../project-storage-paths.js";
+import { storageFilenameSearchSchema } from "../file-storage/schema.js";
+import { searchFilenames } from "../file-storage/filename-search.js";
+import { within } from "../reviews/storage.js";
 import { workspaceContentPath, workspaceFileRoot } from "../project-storage.js";
 import { projectFileLinkSchema, projectFileSourceSchema, projectFilePath } from "../project-file-schema.js";
 import { workspaceViewFiles } from "../views/repository.js";
@@ -1204,6 +1207,25 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
       size: info.size,
       updatedAt: info.mtimeMs,
     });
+  });
+
+  addRoute(routes, "POST", "/workspace/:id/files/filename-search", "client", async (ctx) => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const input = storageFilenameSearchSchema.safeParse(await readJsonBody(ctx.request));
+    if (!input.success) throw new ApiError(400, "invalid_file_search", "Enter a filename or path to search for.");
+    const root = await canonicalFilePath(workspaceContentPath(workspace));
+    return jsonResponse(await searchFilenames({
+      async list(path) {
+        const directory = await canonicalFilePath(resolve(root, path));
+        if (!within(root, directory) || path.split("/").some(part => part.startsWith(".")))
+          throw new ApiError(403, "file_access_denied", "Choose a folder inside the project's documents.");
+        const entries = await readdir(directory, { withFileTypes: true });
+        return { entries: entries.filter(entry => !entry.name.startsWith(".") && !entry.isSymbolicLink() && (entry.isFile() || entry.isDirectory()))
+          .sort((a, b) => fileNameCollator.compare(a.name, b.name))
+          .map(entry => ({ name: entry.name, path: path ? `${path}/${entry.name}` : entry.name,
+            kind: entry.isDirectory() ? "folder" : "file", size: null, modifiedAt: null })) };
+      },
+    }, input.data, root, ctx.request.signal));
   });
 
   addRoute(routes, "GET", "/workspace/:id/files/list", "client", async (ctx) => {

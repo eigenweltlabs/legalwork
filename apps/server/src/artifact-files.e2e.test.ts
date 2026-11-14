@@ -28,7 +28,7 @@ async function createWorkspaceRoot() {
   return root;
 }
 
-async function startLegalworkServer(workspaceRoot: string) {
+async function startLegalworkServer(workspaceRoot: string, contentPath?: string) {
   const config: ServerConfig = {
     host: "127.0.0.1",
     port: 0,
@@ -36,7 +36,7 @@ async function startLegalworkServer(workspaceRoot: string) {
     hostToken: "owt_host_token",
     approval: { mode: "auto", timeoutMs: 1000 },
     corsOrigins: ["*"],
-    workspaces: [{ id: "ws_1", name: "Workspace", path: workspaceRoot, preset: "starter", workspaceType: "local" }],
+    workspaces: [{ id: "ws_1", name: "Workspace", path: workspaceRoot, contentPath, preset: "starter", workspaceType: "local" }],
     authorizedRoots: [workspaceRoot],
     readOnly: false,
     startedAt: Date.now(),
@@ -55,6 +55,26 @@ function auth(token: string) {
 }
 
 describe("artifact file routes", () => {
+  test("filename search uses the document folder rather than the separate engine folder", async () => {
+    const engine = await createWorkspaceRoot(), documents = await createWorkspaceRoot();
+    await writeFile(join(engine, "internal.pdf"), "Internal file");
+    for (const name of ["Contract.pdf", "Contract.docx", "Contract.md"])
+      await writeFile(join(documents, "reports", name), "Filename search must not parse document contents.");
+    await symlink(engine, join(documents, "outside"), "dir");
+    const { base, token } = await startLegalworkServer(engine, documents);
+    const search = (query: string, path = "") => fetch(`${base}/workspace/ws_1/files/filename-search`, {
+      method: "POST", headers: auth(token), body: JSON.stringify({ query, path, match: "path" }),
+    });
+    const response = await search("contract");
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ entries: [
+      { path: "reports/Contract.docx" }, { path: "reports/Contract.md" }, { path: "reports/Contract.pdf" },
+    ], complete: true });
+    expect(await (await search("internal")).json()).toMatchObject({ entries: [] });
+    const outside = await search("internal", "outside");
+    expect(outside.status).toBe(403); await outside.arrayBuffer();
+  });
+
   test("code editor extensions round-trip through the text API without enabling binary files", async () => {
     const root = await createWorkspaceRoot();
     const { base, token } = await startLegalworkServer(root);
