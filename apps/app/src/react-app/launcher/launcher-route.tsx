@@ -154,7 +154,7 @@ export function LauncherRoute() {
   }, []);
   const shell = useMemo<LauncherShellValue | null>(() => client ? {
     client, assistant, workspaces, drafts, owner, surface: "panel", conversationId: null, desktop,
-    openInApp: route => { if (desktop) void launcherWindowControl("expand", { route }); else navigate(route); },
+    openInApp: async route => { if (desktop) await launcherWindowControl("expand", { route }); else navigate(route); },
     dismiss: () => { if (desktop) void launcherWindowControl("hide"); else navigate("/home"); },
     refresh, bootstrapError, workspacesPending: workspaceQuery.isPending,
   } : null, [client, assistant, workspaces, drafts, owner, desktop, navigate, refresh, bootstrapError, workspaceQuery.isPending]);

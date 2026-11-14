@@ -608,7 +608,6 @@ export function SessionRoute() {
     retry: false, refetchInterval: 30_000, refetchOnWindowFocus: "always",
   });
   const savedAssistant = useQuery({ ...savedAssistantQuery(client), enabled: Boolean(client) && !isOfficeAddinRuntime(), staleTime: 30_000 });
-  usePublishLauncherContext(selectedWorkspace && selectedWorkspace.preset !== "main-assistant" && !mainPage && !backOfficePage && location.pathname !== "/home" ? { id: selectedWorkspace.id, name: selectedWorkspace.displayName || selectedWorkspace.name } : null, client?.baseUrl);
   const launcherHandoff = useRef<string | null>(null);
   useEffect(() => {
     const params = new URLSearchParams(location.search), file = params.get("launcherOpen"), folder = params.get("launcherFolder"), browser = params.get("launcherBrowser");
@@ -628,6 +627,20 @@ export function SessionRoute() {
       navigate(`${location.pathname}${params.size ? `?${params}` : ""}`, { replace: true });
     })();
   }, [location.pathname, location.search, selectedWorkspaceId, routeWorkspaceId, navigate, client]);
+  // A chat created by the mini-bar follows the same empty-tab and focus rules as New Chat in the app.
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    if (params.get("newChat") !== "1" || !selectedSessionId || !routeWorkspaceId || !params.get("conversation")) return;
+    registerEmptySession(selectedSessionId);
+    rememberPendingCreatedSession(routeWorkspaceId, selectedSessionId);
+    const panels = usePanelTabStore.getState(), scope = workspacePanelKey(routeWorkspaceId), pane = params.get("pane");
+    if (pane && panels.sessions[scope]?.panes.some(item => item.id === pane)) {
+      panels.openTab(scope, { id: `chat:${selectedSessionId}`, type: "chat", sessionId: selectedSessionId, label: t("session.new_task") }, pane);
+    }
+    params.delete("newChat"); params.delete("pane");
+    navigate({ pathname: location.pathname, search: params.toString() }, { replace: true });
+    focusPromptSoon();
+  }, [location.pathname, location.search, selectedSessionId, routeWorkspaceId, rememberPendingCreatedSession, navigate]);
   const assistantActive = selectedWorkspace?.preset === "main-assistant" && !mainPage && !backOfficePage && Boolean(selectedSessionId);
   const assistantSessionConversation = useQuery({ queryKey: ["assistant-conversation-for-session", client?.baseUrl, selectedSessionId], enabled: Boolean(selectedSessionId && client),
     queryFn: async () => {
@@ -1904,6 +1917,16 @@ export function SessionRoute() {
     setCreateWorkspaceOpen(true);
   }, []);
 
+  useEffect(() => {
+    if (location.pathname !== "/projects") return;
+    const params = new URLSearchParams(location.search);
+    if (params.get("create") !== "project") return;
+    setCreateWorkspaceError(null);
+    handleOpenCreateWorkspace();
+    params.delete("create");
+    navigate({ pathname: location.pathname, search: params.toString() }, { replace: true });
+  }, [location.pathname, location.search, navigate, handleOpenCreateWorkspace]);
+
   const handleOpenRenameWorkspace = useCallback((workspaceId: string) => {
     const workspace = workspaces.find((item) => item.id === workspaceId);
     if (!workspace) return;
@@ -2437,6 +2460,11 @@ export function SessionRoute() {
   const homeInitialProjectId = homeEntryProjectId ?? (new URLSearchParams(location.search).get("assistant") === "1" ? null : homeDefaultProjectId);
   const [homeProjectId, setHomeProjectId] = useState<string | null>(homeInitialProjectId);
   const homeAssistant = !homeProjectId || workspaces.find(item => item.id === homeProjectId)?.preset === "main-assistant";
+  const viewedProject = homePage ? sidebarWorkspaces.find(project => project.id === homeProjectId)
+    : location.pathname.startsWith("/workspace/") && selectedWorkspace?.id === routeWorkspaceId ? selectedWorkspace : null;
+  const launcherWorkspace = viewedProject && viewedProject.preset !== "main-assistant" && viewedProject.preset !== "wiki"
+    ? { id: viewedProject.id, name: viewedProject.displayName || viewedProject.name, projectOnly: homePage } : null;
+  usePublishLauncherContext(launcherWorkspace, client?.baseUrl);
   const homeModel = useChatModelPreferences(homeAssistant, homePage ? providerListQuery.data : undefined);
   const homeModelBehavior = useModelBehavior({ providerList: providerListQuery.data, defaultModel: homeModel.model, modelVariant: homeModel.variant });
   const homeSending = useRef(false);
@@ -3155,7 +3183,7 @@ export function SessionRoute() {
     />
     {client && <LauncherDialog
       open={commandPaletteOpen}
-      workspace={selectedWorkspace && selectedWorkspace.preset !== "main-assistant" && !mainPage && !backOfficePage && location.pathname !== "/home" ? { id: selectedWorkspace.id, name: selectedWorkspace.displayName || selectedWorkspace.name } : null}
+      workspace={launcherWorkspace}
       conversationId={assistantConversationId}
       onClose={() => setCommandPaletteOpen(false)}
       client={client}

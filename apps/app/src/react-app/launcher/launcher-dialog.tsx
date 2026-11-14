@@ -1,5 +1,5 @@
 import { launcherWindowControl } from "@/app/lib/desktop";
-import { readWorkspaceContext } from "./workspace-context";
+import { readWorkspaceContext, type LauncherViewedProject } from "./workspace-context";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { AssistantProfile } from "@legalwork/types/main-assistant";
@@ -14,7 +14,7 @@ import { useLauncherStore } from "./launcher-store";
 import "@/react-app/shell/command-palette.css";
 
 /** The same panel inside the main window (Cmd/Ctrl+K): identical results, actions and conversation. */
-export function LauncherDialog(props: { workspace?: { id: string; name: string } | null; open: boolean; onClose: () => void; client: LegalworkServerClient; assistant: { workspaceId: string; profile: AssistantProfile } | null; workspaces: LegalworkWorkspaceInfo[]; conversationId: string | null }) {
+export function LauncherDialog(props: { workspace?: LauncherViewedProject | null; open: boolean; onClose: () => void; client: LegalworkServerClient; assistant: { workspaceId: string; profile: AssistantProfile } | null; workspaces: LegalworkWorkspaceInfo[]; conversationId: string | null }) {
   const navigate = useNavigate();
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const drag = useRef<{ x: number; y: number; startX: number; startY: number } | null>(null);

@@ -7,16 +7,19 @@ import { usePanelTabStore, workspacePanelKey } from "@/react-app/domains/session
 import { launcherFolderForWorkspace } from "@/react-app/domains/session/panel/workspace-files-panel";
 import { rememberLauncherOpen } from "./launcher-recents";
 
+export type LauncherViewedProject = { id: string; name: string; projectOnly?: boolean };
+
 const lastDocument = new Map<string, string | null>();
-export function readWorkspaceContext(workspace: { id: string; name: string } | null): LauncherWorkspaceContext | null {
+export function readWorkspaceContext(workspace: LauncherViewedProject | null): LauncherWorkspaceContext | null {
   if (!workspace) return null;
+  if (workspace.projectOnly) return { workspaceId: workspace.id, workspaceName: workspace.name, capturedAt: Date.now() };
   const result = workspaceContextSnapshot({ workspace, panel: usePanelTabStore.getState().sessions[workspacePanelKey(workspace.id)], folder: launcherFolderForWorkspace(workspace.id), selection: window.getSelection()?.toString(), lastDocumentId: lastDocument.get(workspace.id), now: Date.now() });
   lastDocument.set(workspace.id, result.documentId);
   return result.context;
 }
 
 /** Publish only this window's state. The desktop chooses the focused window at invocation. */
-export function usePublishLauncherContext(workspace: { id: string; name: string } | null, server = "") {
+export function usePublishLauncherContext(workspace: LauncherViewedProject | null, server = "") {
   const latest = useRef(workspace);
   const lastOpened = useRef("");
   latest.current = workspace;
@@ -26,7 +29,7 @@ export function usePublishLauncherContext(workspace: { id: string; name: string 
       if (!document.hasFocus()) return;
       const context = readWorkspaceContext(latest.current);
       void launcherWindowControl("context", { context }).catch(() => undefined);
-      if (!context || !server) { lastOpened.current = ""; return; }
+      if (!context || !server || latest.current?.projectOnly) { lastOpened.current = ""; return; }
       const file = context.sessionId ? undefined : context.document;
       const sessionTitle = usePanelTabStore.getState().sessions[workspacePanelKey(context.workspaceId)]?.tabs.find(tab => tab.type === "chat" && tab.sessionId === context.sessionId)?.label;
       const id = `${server}:${context.workspaceId}:${file?.path ?? context.sessionId ?? "project"}`;
@@ -43,5 +46,5 @@ export function usePublishLauncherContext(workspace: { id: string; name: string 
     document.addEventListener("selectionchange", publish);
     window.addEventListener("legalwork:folder-changed", publish);
     return () => { unsubscribe(); window.removeEventListener("focus", publish); document.removeEventListener("selectionchange", publish); window.removeEventListener("legalwork:folder-changed", publish); };
-  }, [workspace?.id, workspace?.name, server]);
+  }, [workspace?.id, workspace?.name, workspace?.projectOnly, server]);
 }

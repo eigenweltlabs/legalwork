@@ -188,10 +188,21 @@ change file deletion or sync behavior.
 
 To ask a question, type it and press **Shift+Enter** or **Command+Enter**
 (**Ctrl+Enter** on Windows). You can send the same text from a search without
-retyping it. The general Assistant is the default. When you are working in a
-project, the suggestions include creating a new chat in that project; its
-conversation then continues inside the mini-bar. **Open in app** continues
-the same chat in the main window. Switching windows preserves the draft.
+retyping it. The general Assistant is the default for questions.
+
+Type **n**, **new** or **neu** for creation actions. In an active project, press
+**Enter** on **New chat in [project]** to open a fresh project chat directly in
+the Eigenwelt main window. Choose **New chat in mini-bar** to start a fresh chat
+in the same project and keep typing in the floating window. When invoked from
+another app, the mini-bar chat uses the general Assistant. **New chat in a project…**
+lets you type a project name, choose it with the arrow keys and press **Enter** to
+open the chat in Eigenwelt. **Open in app** still moves an existing mini-bar
+conversation and its draft into the main window.
+
+Narrow the creation list by typing **new docx**, **new file**, **new task** or
+**new project**. Word and plain-text entries preselect their file format.
+Documents and tasks use the current project when available.
+
 Inside a chat, or after starting a question with **?**, **Shift+Enter** adds a
 new line; **Command+Enter** (**Ctrl+Enter** on Windows) sends it. Messages wait
 for the current answer to finish and keep the model and agent selected when

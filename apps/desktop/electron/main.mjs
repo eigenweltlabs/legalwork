@@ -927,8 +927,6 @@ const systemDictation = new SystemDictationService({
 });
 
 // ── Global Assistant launcher (quick panel, shortcuts, origin, capture) ────
-/** @type {BrowserWindow | null} */
-let launcherSourceWindow = null;
 const launcherWindow = new LauncherWindow({
   appRoot: APP_ROOT, startUrl: APP_START_URL, preloadPath: path.join(__dirname, "preload.cjs"), icon: APP_ICON_IMAGE, userDataDir: app.getPath("userData"),
   focusedDisplay: () => {
@@ -940,8 +938,8 @@ const launcherWindow = new LauncherWindow({
   // While the panel has the keyboard, Escape works its layers; dictation's global Escape waits.
   onFocusChange: focused => { if (focused) systemDictation.suspendEscape(); else systemDictation.resumeEscape(); },
   onExpand: route => {
-    const destination = launcherSourceWindow && !launcherSourceWindow.isDestroyed() ? Promise.resolve(launcherSourceWindow) : createMainWindow();
-    void destination.then(win => {
+    // Only the main renderer listens for launcher navigation. Detached windows still supply the project context.
+    void createMainWindow().then(win => {
       if (win.isDestroyed()) return;
       if (win.isMinimized()) win.restore();
       win.show(); win.focus();
@@ -976,7 +974,7 @@ const raycastPairing = new RaycastPairing({ userDataDir: app.getPath("userData")
 /** @type {Map<number, import("@legalwork/types/launcher").LauncherWorkspaceContext>} */
 const launcherWorkspaceContexts = new Map();
 const launcherService = new LauncherService({
-  workspaceContext: () => { const window = BrowserWindow.getFocusedWindow(); launcherSourceWindow = window && window !== launcherWindow.window ? window : null; return window ? launcherWorkspaceContexts.get(window.webContents.id) ?? null : null; },
+  workspaceContext: () => { const window = BrowserWindow.getFocusedWindow(); return window ? launcherWorkspaceContexts.get(window.webContents.id) ?? null : null; },
   app, globalShortcut, userDataDir: app.getPath("userData"), window: launcherWindow, origin: originService, capture: screenCapture, pairing: raycastPairing,
   dictation: () => ({ ...systemDictation.status(), runtimeState: systemDictation.runtimeState }),
   meeting: () => meetingMonitor.status(),
@@ -2857,7 +2855,6 @@ const desktopCommandHandlers = {
       return launcherService.updateSettings(args[0] && typeof args[0] === "object" ? args[0] : {});
   },
   "launcherWindowControl": async (event, ...args) => {
-      if (args[0] === "invoke") launcherSourceWindow = BrowserWindow.fromWebContents(event.sender);
       if (args[0] === "context") {
         if (args[1]?.context) {
           if (!launcherWorkspaceContexts.has(event.sender.id)) event.sender.once("destroyed", () => launcherWorkspaceContexts.delete(event.sender.id));

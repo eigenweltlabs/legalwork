@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { compareLauncherResults, LauncherSortSchema } from "@legalwork/types/launcher";
-import { matchesAssistantSuggestion, matchesSortSuggestion, prioritizeLauncherSuggestions } from "../src/react-app/launcher/launcher-suggestions";
+import { launcherCreationActions, matchesAssistantSuggestion, matchesSortSuggestion, prioritizeLauncherSuggestions } from "../src/react-app/launcher/launcher-suggestions";
 import { LauncherRowMenu } from "../src/react-app/launcher/launcher-row-menu";
 import { t } from "../src/i18n";
 
@@ -37,4 +37,18 @@ test("explicit sorts override relevance with natural alphabetical order and actu
   expect(ordered("recent")).toEqual(["b", "a", "c"]);
   expect(ordered("oldest")).toEqual(["c", "a", "b"]);
   expect(ordered("relevance")).toEqual(["c", "a", "b"]);
+});
+
+test("New lists creation actions in the foreground context and narrows by English or German noun", () => {
+  for (const query of ["n", "NE", "new ", "neu", "Neuer Chat", "new chat"]) {
+    expect(launcherCreationActions(query, true).slice(0, 2)).toEqual(["project-chat", "mini-chat"]);
+    expect(launcherCreationActions(query, false).slice(0, 2)).toEqual(["mini-chat", "project-chat"]);
+  }
+  expect(launcherCreationActions("new", true)).toEqual(["project-chat", "mini-chat", "document", "docx", "text", "task", "project", "recording"]);
+  expect(launcherCreationActions("new doc", true)).toEqual(["document", "docx"]);
+  for (const query of ["new docx", "neues Word", "NEW WORD DOCUMENT"]) expect(launcherCreationActions(query, false)).toEqual(["docx"]);
+  expect(launcherCreationActions("neue aufg", true)).toEqual(["task"]);
+  expect(launcherCreationActions("New File", true)).toEqual(["document"]);
+  expect(launcherCreationActions("neue Textdatei", true)).toEqual(["text"]);
+  for (const query of ["", "newsletter", "new york", "neural", "NDA", "new.docx"]) expect(launcherCreationActions(query, true)).toEqual([]);
 });

@@ -14,7 +14,7 @@ export type LauncherShellValue = {
   /** The conversation this surface belongs to; null means the server's current one. */
   conversationId: string | null;
   desktop: boolean;
-  openInApp: (route: string) => void;
+  openInApp: (route: string) => void | Promise<void>;
   dismiss: () => void;
   refresh: () => Promise<void>;
   bootstrapError?: string | null;

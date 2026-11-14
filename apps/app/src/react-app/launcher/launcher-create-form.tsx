@@ -19,7 +19,7 @@ const createKeys = {
   attach: "launcher.flow.create_attach",
 } satisfies Record<LauncherCreate["kind"], TranslationKey>;
 
-export type LauncherCreate = { kind: "document" | "excerpt" | "task" | "attach"; workspaceId: string; folder: string; name: string; text: string; context: AssistantContextItem[] };
+export type LauncherCreate = { kind: "document" | "excerpt" | "task" | "attach"; workspaceId: string; folder: string; name: string; text: string; format?: "md" | "txt" | "docx"; context: AssistantContextItem[] };
 export function LauncherCreateForm({ initial, onClose, onAttach, onDraft, onTaskCreated, onFormStateChange }: { initial: LauncherCreate; onClose: () => void; onFormStateChange?: (state: LauncherFormState) => void;
   onAttach: (workspaceId: string, sessionId: string | undefined, items: AssistantContextItem[]) => Promise<void>;
   onDraft: (workspaceId: string, folder: string, name: string, format: string, instructions: string) => Promise<void>;
@@ -30,7 +30,7 @@ export function LauncherCreateForm({ initial, onClose, onAttach, onDraft, onTask
   const [folder, setFolder] = useState(initial.folder);
   const [name, setName] = useState(initial.name);
   const [text, setText] = useState(initial.text);
-  const [format, setFormat] = useState<"md" | "txt" | "docx">(initial.name.endsWith(".docx") ? "docx" : initial.name.endsWith(".txt") ? "txt" : "md");
+  const [format, setFormat] = useState<"md" | "txt" | "docx">(initial.format ?? (initial.name.endsWith(".docx") ? "docx" : initial.name.endsWith(".txt") ? "txt" : "md"));
   const [sessionId, setSession] = useState("");
   const [templatePath, setTemplate] = useState("");
   const [busy, setBusy] = useState(false);

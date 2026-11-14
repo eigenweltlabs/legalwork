@@ -1,3 +1,4 @@
+import { newChatContext, handoffContext } from "../src/react-app/launcher/launcher-context-lifecycle";
 import { expect, test } from "bun:test";
 import type { AssistantConversation, AssistantExecutionTarget } from "@legalwork/types/launcher";
 import { conversationTarget, resultChatProject, startLauncherResultChat } from "../src/react-app/launcher/launcher-result-chat";
@@ -64,4 +65,20 @@ test("missing project and failed attachment never fall through to the Assistant 
     ...fixture.operations, stage: async () => { throw new Error("File unavailable"); },
   })).rejects.toThrow("File unavailable");
   expect(fixture.steps).toEqual(["project:a"]);
+});
+
+test("new chat keeps only the invoked view and selection, even if the bar retains another project's draft", () => {
+  const active = { workspaceId: "alpha", workspaceName: "Alpha", capturedAt: 10, document: { workspaceId: "alpha", path: "contract.docx", name: "Contract" }, selection: "Selected clause" };
+  const earlier = { workspaceId: "beta", workspaceName: "Beta", capturedAt: 1 };
+  const saved = [{ type: "clipboard" as const, id: "old", text: "Old draft", capturedAt: 1 }];
+  const fresh = newChatContext(active, "alpha", saved, earlier);
+  expect(fresh.map(item => item.type)).toEqual(["file", "selection"]);
+  expect(handoffContext(fresh)[1]).toMatchObject({ type: "clipboard", text: expect.stringContaining("Selected clause") });
+  expect(newChatContext(active, "alpha", [...fresh, ...saved], active)).toEqual(fresh);
+  expect(newChatContext(active, "alpha", saved, active).map(item => item.type)).toEqual(["file", "selection"]);
+  expect(newChatContext({ ...active, selection: undefined }, "alpha", fresh, active)).toEqual([fresh[0]]);
+  expect(newChatContext(active, "beta", fresh, active)).toEqual([]);
+  expect(newChatContext(null, "beta", fresh, active)).toEqual([]);
+  const selected = { type: "selection" as const, id: "selection_x", text: "Safari", capturedAt: 10, sourceApp: "Safari", sourceWindow: null };
+  expect(newChatContext(null, undefined, [...saved, selected], null)).toEqual([selected]);
 });
