@@ -8,8 +8,10 @@ import { mergePublishModel } from "./publish-model.js";
 import { BackOfficeRecordSchema, isInternalBackOfficeObject, visibleBackOfficeRecord, readableBackOfficeRecord, canonicalBackOfficeAudit, validateBackOfficeValues, type BackOfficeActor, type BackOfficeModel, type BackOfficeRecord } from "./schema.js";
 import type { BackOfficeStore } from "./store.js";
 
-const unknownSource = " FROM bo_records r LEFT JOIN bo_first_sync s ON s.id=r.id WHERE r.scope='local' AND s.id IS NULL";
-const ownedSource = " FROM bo_first_sync s JOIN bo_records r ON r.scope='local' AND r.id=s.id WHERE s.principal=? AND (s.staged IS NULL OR s.staged<>json_extract(r.data,'$.revision'))";
+// Timesheet projections are local read models. The authoritative workflow owns sharing.
+const ordinary = " NOT EXISTS (SELECT 1 FROM bo_timesheets time WHERE time.scope=r.scope AND time.id=r.id)";
+const unknownSource = " FROM bo_records r LEFT JOIN bo_first_sync s ON s.id=r.id WHERE r.scope='local' AND s.id IS NULL AND" + ordinary;
+const ownedSource = " FROM bo_first_sync s JOIN bo_records r ON r.scope='local' AND r.id=s.id WHERE s.principal=? AND (s.staged IS NULL OR s.staged<>json_extract(r.data,'$.revision')) AND" + ordinary;
 
 export function unknownRecords(store: BackOfficeStore) {
   return store.db.all("SELECT r.id,json_extract(r.data,'$.revision') AS revision" + unknownSource + " ORDER BY r.id");
@@ -23,7 +25,7 @@ export function pendingLocalRows(store: BackOfficeStore, scope: string, actor: B
   const shared = store.model(scope).objects.find(o => o.id === objectId && !o.archived);
   if (!local || !shared) return [];
   const candidates = store.db.all(`SELECT r.data, s.principal FROM bo_records r LEFT JOIN bo_first_sync s ON s.id=r.id
-    WHERE r.scope='local' AND r.object_id=? AND (json_extract(r.data,'$.archivedAt') IS NOT NULL)=?
+    WHERE ${ordinary} AND r.scope='local' AND r.object_id=? AND (json_extract(r.data,'$.archivedAt') IS NOT NULL)=?
       AND (s.id IS NULL OR (s.principal=? AND s.staged IS NULL))
       AND NOT EXISTS (SELECT 1 FROM bo_records t WHERE t.scope=? AND t.id=r.id)`, [objectId, Number(archived), actor.principalKey, scope]);
   const readable = (record: BackOfficeRecord, principal: unknown) =>

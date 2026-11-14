@@ -57,6 +57,7 @@ CREATE INDEX IF NOT EXISTS bo_records_object ON bo_records(scope,object_id);
 CREATE TABLE IF NOT EXISTS native_directory_links (
   account TEXT NOT NULL, kind TEXT NOT NULL, sourceId TEXT NOT NULL, projectKey TEXT NOT NULL, recordId TEXT NOT NULL,
   present INTEGER NOT NULL, stamp TEXT, generation TEXT, PRIMARY KEY(account,kind,sourceId,projectKey,recordId));
+CREATE TABLE IF NOT EXISTS bo_timesheets (scope TEXT NOT NULL, id TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY(scope,id));
 CREATE TABLE IF NOT EXISTS bo_views (scope TEXT NOT NULL, id TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY(scope,id));
 CREATE TABLE IF NOT EXISTS bo_outbox (seq INTEGER PRIMARY KEY AUTOINCREMENT, scope TEXT NOT NULL, id TEXT NOT NULL UNIQUE, data TEXT NOT NULL, error TEXT);
 CREATE TABLE IF NOT EXISTS bo_replicas (scope TEXT PRIMARY KEY, data TEXT NOT NULL);
@@ -567,6 +568,8 @@ export class BackOfficeStore {
             "The object is unavailable.",
           );
         const existing = parsed.id ? this.raw(scope, parsed.id) : null;
+        if (existing && this.db.get("SELECT 1 FROM bo_timesheets WHERE scope=? AND id=?", [scope,existing.id]))
+          throw new ApiError(409,"timesheet_managed","Edit this entry in Timesheets to preserve its reviewed revision.");
         if (parsed.id && !existing && !parsed.create)
           throw new ApiError(
             404,
@@ -591,6 +594,13 @@ export class BackOfficeStore {
               canonicalBackOfficeAudit(existing.values) === canonicalBackOfficeAudit({ ...defaultBackOfficeValues(object), ...parsed.values }))
             return readableBackOfficeRecord(existing, object, actor);
           conflict("This record identity already exists.");
+        }
+        if (object.id === "invoices" && typeof parsed.values.invoiceNumber === "string") {
+          const number = parsed.values.invoiceNumber.trim();
+          if (/^\d+$/.test(number) && this.db.get(
+            "SELECT 1 FROM bo_timesheets WHERE scope=? AND json_extract(data,'$.kind')='invoice' AND json_extract(data,'$.value.number')=?",
+            [scope, Number(number)],
+          )) conflict("This invoice number has already been issued.");
         }
         const revision = existing?.revision ?? 0;
         const mergeable = existing && parsed.revision > 0 && parsed.revision <= revision &&

@@ -3,6 +3,7 @@ import { ProjectRemoteFolders } from "./project-remote-folders";
 import { useProjectPersonalisation } from "./project-personalisation-modal";
 import { useEffect, useState, type ReactNode } from "react";
 import type { AudioRecordingMeta } from "@legalwork/types/audio";
+import { useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight, MessageSquare, Mic, Pin, Plus, RefreshCw, Settings2, Square, SquareCheck, SquarePen, Star, StickyNote, WandSparkles } from "lucide-react";
 import { LegalworkServerError, type LegalworkServerClient, type LegalworkWorkspaceDirectoryEntry } from "@/app/lib/legalwork-server";
@@ -84,6 +85,7 @@ export function ProjectHome(props: {
   onRename?: (name: string) => Promise<boolean>;
 }) {
   const { client, workspaceId } = props;
+  const navigate = useNavigate();
   const requestTab = useRequestPanelTab({ kind: "workspace", workspaceId: props.projectId });
   const openRecordingTab = (recording: AudioRecordingMeta, preview = false) => requestTab(recordingTranscriptTab(recording), { preview, besideChat: true });
   const openRecording = (recording: AudioRecordingMeta) => openRecordingTab(recording, true);
@@ -200,6 +202,9 @@ export function ProjectHome(props: {
               <ChevronRight className={cn("size-3.5 transition-transform", detailsOpen && "rotate-90")} />
               {t("projects.metadata")}
             </CollapsibleTrigger>
+            <Button type="button" variant="ghost" size="sm" className="text-xs text-muted-foreground" onClick={() => navigate(`/back-office/billing-settings?project=${encodeURIComponent(workspaceId)}`)}>
+              {t("back_office.billing.settings")}
+            </Button>
             <Button type="button" variant="ghost" size="sm" className="text-xs text-muted-foreground" disabled={!details.data} onClick={() => setEditMetadata(details.data ?? null)}>
               <Settings2 className="size-3.5" />{t("projects.customize_connections")}
             </Button>

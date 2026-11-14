@@ -42,6 +42,12 @@ Removing or replacing a file reference does not overwrite the previous version. 
 
 Permission reductions remove inaccessible file manifests and erase their file keys only after the corresponding database commit and durable history checkpoint. Restart resumes key cleanup. Remaining authorized cached versions and separately scoped local originals survive. Legacy Back Office copies with retained readable references migrate to encrypted storage before the old plaintext cache is removed. Full DMS workflows and invoice issuance remain separate features.
 
+## Timesheets and issued invoices
+
+The desktop adds the `bo_timesheets` table to the existing Back Office journal in migration 5. A submitted line references its exact revision. Reviewing, approving, returning, issuing an invoice and approving a correction are recorded as separate actions. The same transaction writes the accounting change and its history. An issued invoice preserves its original document and template. A later correction has a separate decision and, after issuance, its own numbered adjustment note.
+
+Private workday evidence and unaccepted drafts are held in the local user profile. An accepted draft links to its private original by a salted digest. The local author can compare the versions when the original is available on that device. A connected firm requires the platform timesheet endpoint and authenticated reviewer access.
+
 ## Twenty comparison and licensing
 
 Inspected upstream commit `19a618dfe629c4a9ed5a0682ff7dd548567d7fbf` (7 November 2026). Twenty's [record timeline](https://github.com/twentyhq/twenty/blob/19a618dfe629c4a9ed5a0682ff7dd548567d7fbf/packages/twenty-server/src/modules/timeline/services/timeline-activity.service.ts) records authors and field differences and supports deleting linked activities. Its [event ingestion](https://github.com/twentyhq/twenty/blob/19a618dfe629c4a9ed5a0682ff7dd548567d7fbf/packages/twenty-server/src/engine/core-modules/event-logs/ingest/create-event-log-from-internal-event.ts) retries a transient ClickHouse failure once, then drops affected envelopes on another transient failure. Its [cleanup service](https://github.com/twentyhq/twenty/blob/19a618dfe629c4a9ed5a0682ff7dd548567d7fbf/packages/twenty-server/src/engine/core-modules/event-logs/cleanup/services/event-log-cleanup.service.ts) deletes older logs under retention settings and carries an Enterprise license marker.

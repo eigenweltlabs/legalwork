@@ -1,3 +1,4 @@
+import { beginDocumentCapture } from "../time-capture/routes.js";
 import { resolveWorkspaceFile } from "../project-storage-paths.js";
 import { workspaceContentPath, workspaceFileRoot } from "../project-storage.js";
 import { projectFileLinkSchema, projectFileSourceSchema, projectFilePath } from "../project-file-schema.js";
@@ -1331,6 +1332,7 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
       typeof baseUpdatedAtRaw === "number" && Number.isFinite(baseUpdatedAtRaw) ? baseUpdatedAtRaw : null;
     const force = body.force === true;
     const absPath = resolveProjectFile(workspace, relativePath);
+    const captureDocument = await beginDocumentCapture(config, ctx, workspace.id, relativePath);
     await requireApproval(ctx, {
       workspaceId: workspace.id,
       action: "workspace.file.write",
@@ -1365,6 +1367,7 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
         summary: `Wrote ${relativePath}`,
         timestamp: Date.now(),
       });
+      await captureDocument?.(!before);
       return jsonResponse({ ok: true, path: relativePath, bytes: bytes.byteLength, updatedAt: after.mtimeMs, revision });
     });
   });
@@ -1401,6 +1404,7 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
 
     const absPath = resolveProjectFile(workspace, relativePath);
 
+    const captureDocument = await beginDocumentCapture(config, ctx, workspace.id, relativePath);
     await requireApproval(ctx, {
       workspaceId: workspace.id,
       action: "workspace.file.write",
@@ -1455,6 +1459,7 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
         timestamp: Date.now(),
       });
 
+      await captureDocument?.(!before);
       return jsonResponse({
         ok: true,
         path: relativePath,

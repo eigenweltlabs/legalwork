@@ -1,3 +1,4 @@
+import { registerTimesheetRoutes } from "./timesheet-routes.js";
 import { writeNative } from "./native-write.js";
 import { nativeRows } from "./native-rows.js";
 import { changeNativeLinks, linkChangesSchema, nativeSources, sourceSchema, visibleNativeLinks } from "./native-links.js";
@@ -137,6 +138,7 @@ export function registerBackOfficeRoutes(options: {
       },
     );
   };
+  registerTimesheetRoutes(options.config, route, input);
   // Verifying an existing export remains available when the local database
   // cannot be opened. It does not read or mutate the Back Office store.
   addRoute(

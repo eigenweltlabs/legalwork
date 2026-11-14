@@ -21,7 +21,7 @@ For an ordinary how-to question, read the matching page with `legalwork_skill_re
 | Transcription models, recording setup, dictation shortcut, meeting detection or Meeting Summarisation | [recorder-settings.md](references/recorder-settings.md) |
 | Record, import, edit or summarize a transcript; speaker names; Voice Mode | [audio.md](references/audio.md) |
 | Projects, matter/client links, field names/types/content, More and Customize fields, templates, linked folders or sharing | [projects-sharing.md](references/projects-sharing.md) |
-| Back Office, clients, matters, people, companies, short creation forms, data models, record history, signed exports or history verification | [back-office.md](references/back-office.md) |
+| Back Office, timesheet lists, copying time entries, private workday, billing rules, work products, fee approval, invoices, clients, matters, people, companies, short creation forms, data models, record history, signed exports or history verification | [back-office.md](references/back-office.md) |
 | Chats, history, workspace tabs, keyboard shortcuts, folders or remote workers | [workspaces-chats.md](references/workspaces-chats.md) |
 | Model providers, Fusion, OCR or JEV | [models-fusion.md](references/models-fusion.md) |
 | Web search, AWS versus Exa, search costs, query length or search processing location | [models-fusion.md](references/models-fusion.md) |

@@ -163,6 +163,7 @@ import { ReviewExecutor } from "./reviews/executor.js";
 import { ReviewSessions } from "./reviews/sessions.js";
 import { registerCalendarEventDraftRoutes } from "./routes/calendar-event-drafts.js";
 import { registerEmailDraftRoutes } from "./routes/email-drafts.js";
+import { registerWorkdayRoutes, startWorkdaySchedule } from "./time-capture/routes.js";
 import { registerCalendarRoutes } from "./routes/calendar.js";
 import { registerReviewRoutes } from "./routes/reviews.js";
 import { ReviewDefaults } from "./reviews/storage.js";
@@ -1322,7 +1323,7 @@ export async function startServer(config: ServerConfig, runtimeOptions: ServerRu
     void scheduleFirmHubSync(config, { force: true });
     wikiSync.start();
     await assistantRuntime.start();
-    if (!config.readOnly) backgroundStops.push(scheduledRunner.start());
+    if (!config.readOnly) backgroundStops.push(scheduledRunner.start(), startWorkdaySchedule(config));
     await toolImageOriginalStore(config).retryReferenceDeletions().catch(error => {
       console.warn("[legalwork-server] An explicitly requested original image deletion remains pending.", error);
     });
@@ -1959,6 +1960,7 @@ function createRoutes(
   registerReviewRoutes({ routes, config, reviews, corpus, reviewSessions, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace });
   registerCalendarEventDraftRoutes({ routes, config, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace, requireApproval });
   registerEmailDraftRoutes({ routes, config, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace, requireApproval });
+  registerWorkdayRoutes({routes,config,jsonResponse,readJsonBodyLimited,ensureWritable});
   registerCalendarRoutes({ routes, config, preparation, jsonResponse, readJsonBodyLimited, ensureWritable, requireClientScope, resolveWorkspace, requireApproval,
     listSessions: async (workspace, search) => (await listEngineSessions(createWorkspaceOpencodeClient(config, workspace), { directory: workspaceEngineLocation(workspace).directory, limit: 200, search }))
       .map(session => ({ ...session, title: session.title ?? "New chat", directory: session.location.directory })),
