@@ -975,7 +975,7 @@ const launcherOutputs = new LauncherOutputQueue({
   },
 });
 const raycastPairing = new RaycastPairing({ userDataDir: app.getPath("userData"), scheme: DESKTOP_PROTOCOL_SCHEME, serverInfo: () => runtimeManager.legalworkServerInfo() });
-/** @type {Map<number, import("@legalwork/types/launcher").LauncherWorkspaceContext>} */
+/** @type {WeakMap<import("electron").WebContents, import("@legalwork/types/launcher").LauncherWorkspaceContext>} */
 const launcherWorkspaceContexts = new WeakMap();
 const launcherService = new LauncherService({
   workspaceContext: () => { const window = BrowserWindow.getFocusedWindow(); return window ? launcherWorkspaceContexts.get(window.webContents) ?? null : null; },
