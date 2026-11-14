@@ -6,12 +6,48 @@ import {
   parseWorkspaceAttachmentLink,
   WORKSPACE_ATTACHMENT_LINK_SOURCE,
   uploadWorkspaceAttachment,
+  uploadWorkspaceFileAttachment,
   workspaceAttachmentDisplayText,
   workspaceAttachmentInstruction,
 } from "../src/react-app/domains/session/surface/composer/workspace-attachment";
 import { decodeComposerMentionValue, encodeComposerMentionValue } from "../src/react-app/domains/session/surface/composer/mention-encoding";
+import { buildComposerDraft } from "../src/react-app/domains/session/surface/composer/composer-draft";
 
 describe("workspace attachments", () => {
+  test("file mentions save large originals through the drop upload and send only its reading reference", async () => {
+    const bytes = new Uint8Array(26 * 1024 * 1024).fill(65);
+    const path = "Contracts/Prüfung (final).pdf";
+    let uploads = 0;
+    const reference = await uploadWorkspaceFileAttachment({
+      downloadWorkspaceFile: async (workspace, requestedPath) => {
+        expect(workspace).toBe("ws-test"); expect(requestedPath).toBe(path);
+        return { data: bytes.buffer, filename: null, contentType: "application/pdf" };
+      },
+      writeWorkspaceBinaryFile: async (workspace, payload) => {
+        uploads++;
+        expect(workspace).toBe("ws-test"); expect(new Uint8Array(payload.data)).toEqual(bytes);
+        expect(payload.path).toStartWith(".legalwork/attachments/"); expect(payload.path).not.toBe(path);
+        return { ok: true, path: payload.path, bytes: payload.data.byteLength, updatedAt: 1 };
+      },
+    }, "ws-test", path);
+    expect(uploads).toBe(1);
+    expect(parseWorkspaceAttachmentMention(reference)?.name).toBe("Prüfung (final).pdf");
+    const draft = buildComposerDraft(`Read @${encodeComposerMentionValue(reference)} `, [], { [reference]: "upload" }, []);
+    expect(draft.parts.every(part => part.type === "text")).toBe(true);
+    expect(draft.attachments).toEqual([]);
+    expect(draft.modelContext).toBe(workspaceAttachmentInstruction(reference));
+    expect(draft.modelContext).toContain("Read this file with tools appropriate for its format");
+  });
+
+  test("failed mention copies do not produce an attachment or upload unreadable sources", async () => {
+    let uploads = 0;
+    await expect(uploadWorkspaceFileAttachment({
+      downloadWorkspaceFile: async () => { throw new Error("Source unavailable"); },
+      writeWorkspaceBinaryFile: async () => { uploads++; throw new Error("Must not upload"); },
+    }, "ws-test", "missing.pdf")).rejects.toThrow("Source unavailable");
+    expect(uploads).toBe(0);
+  });
+
   test("local project references preserve original paths with spaces, Unicode and parentheses", () => {
     const path = "Notes/Prüfung [A] (final) #1.md";
     const mention = createWorkspaceAttachmentMention("Prüfung [A]", path);

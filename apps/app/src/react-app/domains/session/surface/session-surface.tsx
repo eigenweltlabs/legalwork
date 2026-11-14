@@ -109,7 +109,7 @@ import { SessionDebugPanel } from "./debug-panel";
 import { deriveRenderedSessionMessages, resolveRenderedSessionSnapshot } from "./session-render-state";
 import { useLocal } from "@/react-app/kernel/local-provider";
 import { useRecorderStore } from "@/react-app/domains/recorder/recorder-store";
-import { parseWorkspaceAttachmentMention, createWorkspaceAttachmentMention, uploadWorkspaceAttachment } from "./composer/workspace-attachment";
+import { parseWorkspaceAttachmentMention, createWorkspaceAttachmentMention, uploadWorkspaceAttachment, uploadWorkspaceFileAttachment } from "./composer/workspace-attachment";
 import { deriveSessionRenderModel } from "@/react-app/domains/session/sync/transition-controller";
 import { useSessionScrollController } from "./scroll-controller";
 import { PendingStatus } from "@/components/chat/pending-status";
@@ -1412,7 +1412,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
 
   const [pendingAttachmentUploads, setPendingAttachmentUploads] = useState(0);
 
-  const handleAttachFiles = async (files: File[]) => {
+  const handleAttachFiles = async (files: (File | { path: string; name: string })[]) => {
     if (!props.attachmentsEnabled) {
       toast.warning(props.attachmentsDisabledReason ?? "Attachments are unavailable.");
       return;
@@ -1421,7 +1421,9 @@ export function SessionSurface(props: SessionSurfaceProps) {
     for (const file of files) {
       const notification = toast.info(`Attaching ${file.name}…`, { duration: Infinity });
       try {
-        const reference = await uploadWorkspaceAttachment(props.client, props.workspaceId, file);
+        const reference = "arrayBuffer" in file
+          ? await uploadWorkspaceAttachment(props.client, props.workspaceId, file)
+          : await uploadWorkspaceFileAttachment(props.client, props.workspaceId, file.path);
         const state = useComposerStateStore.getState();
         const currentDraft = getComposerDraft(state, props.sessionId);
         const currentMentions = getComposerMentions(state, props.sessionId);
@@ -1450,6 +1452,11 @@ export function SessionSurface(props: SessionSurfaceProps) {
   };
 
   const handleInsertMention = (kind: ComposerMentionKind, value: string) => {
+    if (kind === "file") {
+      if (props.attachmentsEnabled) setComposerDraft(props.sessionId, draft.replace(/@([^\s@]*)$/, ""));
+      void handleAttachFiles([{ path: value, name: value.split(/[\\/]/).pop() || value }]);
+      return;
+    }
     // @agent mentions switch the session agent instead of inserting an agent
     // part. Agent parts are treated as *subagent* (task tool) calls by the
     // engine, which silently fails for primary agents and left every reply

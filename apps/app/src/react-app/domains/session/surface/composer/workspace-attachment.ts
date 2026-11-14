@@ -1,5 +1,6 @@
 import { projectFileSourceSchema, type ProjectFileSource } from "@legalwork/types/project-files";
 import type { LegalworkServerClient } from "../../../../../app/lib/legalwork-server";
+import { attachmentFilename } from "@/app/lib/attachment-filename";
 import { t } from "@/i18n";
 
 const PREFIX = "attachment://workspace?";
@@ -46,6 +47,16 @@ export async function uploadWorkspaceAttachment(
   });
   if (!result.ok || !result.path) throw new Error(t("workspace.upload_incomplete"));
   return createWorkspaceAttachmentMention(displayName, result.path);
+}
+
+/** File mentions use the same saved copy and reference as dropped files. */
+export async function uploadWorkspaceFileAttachment(
+  client: Pick<LegalworkServerClient, "downloadWorkspaceFile" | "writeWorkspaceBinaryFile">,
+  workspaceId: string, path: string,
+) {
+  const saved = await client.downloadWorkspaceFile(workspaceId, path);
+  return uploadWorkspaceAttachment(client, workspaceId,
+    new File([saved.data], saved.filename ?? attachmentFilename(path), { type: saved.contentType ?? "application/octet-stream" }));
 }
 
 /** Ordinary workspace links already render as clickable file badges. */
