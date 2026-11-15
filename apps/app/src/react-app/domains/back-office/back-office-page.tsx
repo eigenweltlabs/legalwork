@@ -350,7 +350,7 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
     "--bo-detail-width": `${detailWidth}px`,
   };
   return (
-    <BackOfficeTheme>
+    <BackOfficeTheme time={Boolean(timesheet)}>
       <RecordCreationProvider client={client} state={data}>
       <RecordFilesProvider
         key={data?.scope}

@@ -3,8 +3,9 @@ import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { CalendarDays, Settings2, Sparkles } from "lucide-react";
-import { Switch } from "@/components/ui/switch";
-import { Button } from "twenty-ui/primitives/input";
+import { TimeSelect, TimeSetting, TimeSettingsGroup, TimeSwitch } from "./time-settings-controls";
+import { LayoutStack } from "../settings/settings-layout";
+import { Button } from "@/components/ui/button";
 import {
   captureEnabled,
   sameCaptureAccount,
@@ -121,17 +122,18 @@ export function TimesheetWorkday({
         <Button
           size="sm"
           disabled={running || !settings || !captureEnabled(settings)}
+          variant="outline"
           onClick={() => void act({ type: "calendar" })}
         >
           {t("timesheets.read_sources")}
         </Button>
         <Button
           size="sm"
-          startIcon={<Sparkles size={13} />}
           title={data?.modelReady ? undefined : t("timesheets.no_model")}
           disabled={running || !data?.modelReady || !settings || !captureEnabled(settings)}
           onClick={() => void act({ type: "run" })}
         >
+          <Sparkles size={14} />
           {t("timesheets.run_local")}
         </Button>
       </div>
@@ -141,34 +143,32 @@ export function TimesheetWorkday({
             <Settings2 size={14} />
             {t("timesheets.sources")}
           </summary>
-          <div className="bo-workday-options">
-            {(["calendar", "tasks", "documents"] as const).map((source) => (
-              <label key={source}>
-                <Switch
-                  size="sm"
-                  checked={Boolean(settings[source])}
-                  disabled={running}
-                  onCheckedChange={(checked) =>
-                    void act({ type: "settings", settings: { ...settings, [source]: checked } })
-                  }
-                />
-                {source === "documents"
-                  ? t("timesheets.source.documents")
-                  : source === "calendar"
-                    ? t("timesheets.calendar")
-                    : t("timesheets.tasks")}
-              </label>
-            ))}
-            {data?.connections.map((account) => {
-              const enabled =
-                settings.connections?.some((item) => sameCaptureAccount(item, account)) ?? false;
-              return (
-                <label key={account.provider + account.account}>
-                  <Switch
-                    size="sm"
+          <LayoutStack className="mt-3">
+            <TimeSettingsGroup>
+              {(["calendar", "tasks", "documents"] as const).map((source) => {
+                const label = t(sourceKeys[source]);
+                return (
+                  <TimeSwitch
+                    key={source}
+                    label={label}
+                    checked={Boolean(settings[source])}
+                    disabled={running}
+                    onChange={(checked) =>
+                      void act({ type: "settings", settings: { ...settings, [source]: checked } })
+                    }
+                  />
+                );
+              })}
+              {data?.connections.map((account) => {
+                const enabled =
+                  settings.connections?.some((item) => sameCaptureAccount(item, account)) ?? false;
+                return (
+                  <TimeSwitch
+                    key={account.provider + account.account}
+                    label={t(sourceKeys[account.provider])}
                     disabled={running}
                     checked={enabled}
-                    onCheckedChange={(checked) => {
+                    onChange={(checked) => {
                       const others = (settings.connections ?? []).filter(
                         (item) => !sameCaptureAccount(item, account),
                       );
@@ -181,30 +181,27 @@ export function TimesheetWorkday({
                       });
                     }}
                   />
-                  {t(sourceKeys[account.provider])}
-                </label>
-              );
-            })}
-            <label>
-              {t("timesheets.schedule")}{" "}
-              <select
-                disabled={running || !data?.modelReady}
-                value={settings.intervalMinutes}
-                onChange={(e) => {
-                  const interval = Number(e.target.value);
-                  if (interval === 0 || interval === 15 || interval === 30 || interval === 60)
-                    void act({ type: "settings", settings: { ...settings, intervalMinutes: interval } });
-                }}
-              >
-                <option value={0}>{t("timesheets.on_demand")}</option>
-                {[15, 30, 60].map((n) => (
-                  <option value={n} key={n}>
-                    {n} min
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
+                );
+              })}
+              <TimeSetting title={<label htmlFor="time-source-schedule">{t("timesheets.schedule")}</label>}>
+                <TimeSelect
+                  id="time-source-schedule"
+                  label={t("timesheets.schedule")}
+                  disabled={running || !data?.modelReady}
+                  value={String(settings.intervalMinutes)}
+                  options={[
+                    { id: "0", name: t("timesheets.on_demand") },
+                    ...[15, 30, 60].map((n) => ({ id: String(n), name: n + " min" })),
+                  ]}
+                  onChange={(value) => {
+                    const interval = Number(value);
+                    if (interval === 0 || interval === 15 || interval === 30 || interval === 60)
+                      void act({ type: "settings", settings: { ...settings, intervalMinutes: interval } });
+                  }}
+                />
+              </TimeSetting>
+            </TimeSettingsGroup>
+          </LayoutStack>
           <p>{t("timesheets.connector_context")}</p>
           {!data?.modelReady && <p>{t("timesheets.no_model")}</p>}
         </details>
@@ -242,9 +239,11 @@ export function TimesheetWorkday({
                   {p.endAt && " – " + at(p.endAt)}
                 </time>
                 <span>
-                  {p.source === "stopwatch" && !p.parentDigest ? t("timesheets.source.stopwatch") : p.narrative}
+                  {p.source === "stopwatch" && !p.parentDigest
+                    ? t("timesheets.source.stopwatch")
+                    : p.narrative}
                   {overlaps.has(p.key) && <small>{t("timesheets.workday.overlap")}</small>}
-                  <small>{t(sourceKeys[p.source])}</small>
+                  {(p.source !== "stopwatch" || p.parentDigest) && <small>{t(sourceKeys[p.source])}</small>}
                 </span>
                 <div>
                   <Button size="sm" variant="ghost" disabled={running} onClick={() => setEditing(p.key)}>

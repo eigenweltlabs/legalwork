@@ -549,6 +549,11 @@ try {
   for (let i = 0; i < 20 && !button("Edit in list"); i++) await settle();
   const prepare = button("Edit in list");
   assert.ok(prepare, document.body.textContent?.slice(-800));
+  const sourceSwitch = document.querySelector<HTMLElement>('.bo-workday [role="switch"]');
+  assert.ok(sourceSwitch);
+  assert.equal(sourceSwitch.dataset.size, "default");
+  assert.ok(sourceSwitch.closest('[data-slot="item-header-actions"]'));
+  assert.equal(sourceSwitch.closest<HTMLElement>(".bo-theme")?.style.getPropertyValue("--t-corner-shape"), "round");
   await act(async () => prepare.click());
   for (let i = 0; i < 20 && !document.querySelector('[data-time-row="new"]'); i++) await settle();
   assert.equal(cell("new", "narrative").value, capture.narrative);

@@ -279,6 +279,8 @@ try {
     '[role="switch"][aria-label="Enforce billing increment"]',
   );
   assert.ok(toggle);
+  assert.equal(toggle.dataset.size, "default");
+  assert.ok(toggle.closest('[data-slot="item-header-actions"]'));
   await click(toggle);
   await click(match("Save billing settings"));
   const saved = calls.at(-1);

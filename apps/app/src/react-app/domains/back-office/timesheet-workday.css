@@ -11,9 +11,7 @@
   padding: 12px 16px;
 }
 .bo-workday-controls,
-.bo-workday-options,
 .bo-workday-controls label,
-.bo-workday-options label,
 .bo-workday summary {
   display: flex;
   align-items: center;
@@ -28,10 +26,6 @@
 .bo-workday summary {
   cursor: pointer;
   width: fit-content;
-}
-.bo-workday-options {
-  margin-top: 8px;
-  gap: 18px;
 }
 .bo-workday-controls input,
 .bo-workday select {
