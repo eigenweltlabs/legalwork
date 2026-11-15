@@ -68,7 +68,10 @@ export function TimesheetWorkspace({
     const identity = new URLSearchParams({ expectedUserId: userId });
     if (directory.directoryId) identity.set("directoryId", directory.directoryId);
     if (principalKey) identity.set("expectedPrincipalKey", principalKey);
-    if (command?.type === "create" && command.source === "suggestion" && directory.captureProfileId)
+    if (directory.captureProfileId && (
+      (command?.type === "create" && command.source === "suggestion") ||
+      (command?.type === "submit" && command.entries.some((e) => e.shareOriginal))
+    ))
       identity.set("profileId", directory.captureProfileId);
     const state = TimesheetStateSchema.parse(
       await client.backOffice("/timesheet?" + identity, {

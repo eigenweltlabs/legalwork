@@ -19,6 +19,7 @@ import {
   beginDocumentCapture,
   captureProfile,
   registerWorkdayRoutes,
+  submissionOriginals,
 } from "./routes.js";
 import { documentEvidence } from "./document-workday.js";
 
@@ -224,6 +225,12 @@ test("only successful opted-in local editor saves yield a private workday sugges
       accepted.digest,
       async () => true,
     );
+    const identity = { user: "local", scope: "local", principal: "" };
+    expect((await submissionOriginals(config, profileId, identity, [accepted])).get(accepted.digest)).toEqual({
+      activity: accepted.activity, narrative: accepted.narrative, workedMinutes: accepted.workedMinutes,
+    });
+    await expect(submissionOriginals(config, "wrong", identity, [accepted])).rejects.toThrow(/account changed/);
+    await expect(submissionOriginals(config, profileId, identity, [{ ...accepted, key: "wrong" }])).rejects.toThrow(/unavailable/);
     await workday({
       type: "settings",
       settings: { calendar: false, tasks: true, documents: false, intervalMinutes: 0 },

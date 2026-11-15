@@ -91,14 +91,16 @@ function changes(entry: TimeEntry, person: (id: string) => string, locale: strin
 function PrivateOriginal({
   entry,
   load,
+  consent,
 }: {
   entry: TimeEntry;
+  consent?: { checked: boolean; onChange: (checked: boolean) => void };
   load: (digest: string) => Promise<OriginalProposal>;
 }) {
   const [original, setOriginal] = useState<OriginalProposal | null>(null);
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
-  const first = entry.history.find((event) => event.before === null)?.after;
+  const first = entry.history.find((event) => event.action === "create" && event.before === null)?.after;
   if (!entry.proposalDigest) return null;
   const digest = entry.proposalDigest;
   async function open() {
@@ -122,7 +124,7 @@ function PrivateOriginal({
           <div>
             <dt>{t("timesheets.ledger.original")}</dt>
             <dd>
-              {original.date} · {original.activity} · {original.narrative} ·{" "}
+              {!consent && original.date + " · "}{original.activity} · {original.narrative} ·{" "}
               {original.workedMinutes === null
                 ? t("timesheets.ledger.unknown_minutes")
                 : duration(original.workedMinutes) + " h"}
@@ -136,11 +138,23 @@ function PrivateOriginal({
               </dd>
             </div>
           )}
+          {consent && (
+            <div>
+              <dt>{t("timesheets.ledger.submitting")}</dt>
+              <dd>{entry.activity} · {entry.narrative} · {duration(entry.workedMinutes)} h</dd>
+            </div>
+          )}
         </dl>
       ) : (
         <Button variant="ghost" size="sm" disabled={pending} onClick={() => void open()}>
           {t("timesheets.ledger.compare_original")}
         </Button>
+      )}
+      {original && consent && (
+        <label>
+          <input type="checkbox" checked={consent.checked} onChange={(e) => consent.onChange(e.currentTarget.checked)} />
+          {t("timesheets.ledger.share_comparison")}
+        </label>
       )}
       {error && <span role="alert">{error}</span>}
     </div>
@@ -194,6 +208,7 @@ export function TimesheetLedger({
   const pending = useRef(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [shareRevisions, setShareRevisions] = useState(new Map<string, number>());
   const week = weekDates(date);
   const rows = state.entries
     .filter(
@@ -215,6 +230,9 @@ export function TimesheetLedger({
       { worked: 0, billable: 0, charge: 0 },
     );
   const ready = rows.filter((e) => e.status === "confirmed");
+  const shareable = ready.filter((e) =>
+    e.source === "suggestion" && e.authorId === state.userId && e.proposalDigest && e.groupId,
+  );
   const copied = rows.find((e) => e.id === selected);
   const focus = (row: string, column: RowColumn) =>
     requestAnimationFrame(() => {
@@ -232,6 +250,7 @@ export function TimesheetLedger({
       return;
     }
     setDate(next);
+    setShareRevisions(new Map());
     setDraft((current) => (current.date === date ? { ...current, date: next } : current));
     setSelected("");
     setHistory("");
@@ -662,9 +681,11 @@ export function TimesheetLedger({
         <select
           aria-label={t("timesheets.ledger.period")}
           value={period}
-          onChange={(e) =>
-            edit ? setError(t("timesheets.ledger.finish_edit")) : setPeriod(e.target.value === "week" ? "week" : "day")
-          }
+          onChange={(e) => {
+            if (edit) return setError(t("timesheets.ledger.finish_edit"));
+            setShareRevisions(new Map());
+            setPeriod(e.target.value === "week" ? "week" : "day");
+          }}
         >
           <option value="day">{t("timesheets.ledger.day")}</option>
           <option value="week">{t("timesheets.ledger.week")}</option>
@@ -741,10 +762,17 @@ export function TimesheetLedger({
                 if (
                   await run({
                     type: "submit",
-                    entries: ready.map((e) => ({ id: e.id, revision: e.revision })),
+                    entries: ready.map((e) => ({
+                      id: e.id, revision: e.revision,
+                      ...(e.proposalDigest && e.groupId && shareRevisions.get(e.id) === e.revision
+                        ? { shareOriginal: { key: e.groupId, digest: e.proposalDigest } }
+                        : {}),
+                    })),
                   })
-                )
+                ) {
+                  setShareRevisions(new Map());
                   setNotice(t("timesheets.ledger.submitted"));
+                }
               }}
             >
               {t("timesheets.ledger.submit")}
@@ -752,6 +780,25 @@ export function TimesheetLedger({
           )}
         </div>
       </div>
+      {canEdit && state.supportsBillingComparisons && onOriginal && shareable.length > 0 && (
+        <details className="bo-time-original">
+          <summary>{t("timesheets.ledger.submission_comparisons")}</summary>
+          {shareable.map((e) => (
+            <div key={e.id + ":" + e.revision}>
+              <strong>{e.narrative}</strong>
+              <PrivateOriginal entry={e} load={onOriginal} consent={{
+                checked: shareRevisions.get(e.id) === e.revision,
+                onChange: (checked) => setShareRevisions((previous) => {
+                  const next = new Map(previous);
+                  if (checked) next.set(e.id, e.revision);
+                  else next.delete(e.id);
+                  return next;
+                }),
+              }} />
+            </div>
+          ))}
+        </details>
+      )}
       <div className="bo-time-totals" aria-label={t("timesheets.ledger.totals")}>
         {[
           [t("timesheets.ledger.worked_total"), totals.worked],

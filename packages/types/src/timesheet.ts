@@ -335,6 +335,12 @@ const history = z.object({
   before: snapshot.nullable(),
   after: snapshot,
 });
+const sharedOriginal = z.strictObject({
+  activity: text,
+  narrative: text,
+  workedMinutes: minutes.nullable(),
+  submittedRevision: z.number().int().positive(),
+});
 export const TimeEntrySchema = TimeDraftSchema.extend({
   activityLabel: z.string().max(100).optional(),
   id,
@@ -349,6 +355,7 @@ export const TimeEntrySchema = TimeDraftSchema.extend({
   policyDigest: z.string().length(64).optional(),
   legacy: z.boolean().optional(),
   submittedNarrative: z.string().optional(),
+  sharedOriginal: sharedOriginal.optional(),
   suggestion: z.string().optional(),
   groupId: id.optional(),
   proposalDigest: z
@@ -413,6 +420,10 @@ export const TimesheetCommandSchema = z.discriminatedUnion("type", [
     entry: TimeDraftSchema,
   }),
   z.strictObject({
+    type: z.literal("applyWording"),
+    entries: z.array(ref.extend({ before: text, after: text })).min(1).max(1000),
+  }),
+  z.strictObject({
     type: z.literal("declineSuggestion"),
     id,
     revision: ref.shape.revision,
@@ -426,7 +437,17 @@ export const TimesheetCommandSchema = z.discriminatedUnion("type", [
     reason: text.optional(),
   }),
   z.strictObject({
-    type: z.enum(["confirm", "decline", "submit", "return", "approve"]),
+    type: z.literal("submit"),
+    entries: z.array(ref.extend({
+      shareOriginal: z.strictObject({
+        digest: z.string().regex(/^[a-f0-9]{64}$/),
+        key: z.uuid(),
+      }).optional(),
+    }).strict()).min(1).max(1000),
+    reason: text.optional(),
+  }),
+  z.strictObject({
+    type: z.enum(["confirm", "decline", "return", "approve"]),
     entries: selection,
     reason: text.optional(),
   }),
@@ -488,6 +509,7 @@ export const TimesheetStateSchema = z.object({
   userId: id,
   scope: z.string(),
   template: invoiceTemplateSchema.optional(),
+  supportsBillingComparisons: z.boolean().optional(),
   canManage: z.boolean(),
   canReview: z.boolean(),
   entries: z.array(TimeEntrySchema),

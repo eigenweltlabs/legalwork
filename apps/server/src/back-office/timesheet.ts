@@ -12,6 +12,7 @@ import {
   resolveTimePolicy,
   timePolicyError,
   timeEntryError,
+  TimeDraftSchema,
   TimesheetCommandSchema,
   type TimeDraft,
   type TimeEntry,
@@ -38,6 +39,8 @@ const digest = (v: unknown) =>
     .digest("hex");
 const policyFor = (s: TimesheetState, d: TimeDraft) =>
   resolveTimePolicy(s.policies, d.clientId, d.matterId, d.date, d.projectId);
+// Product identity is resolved before comparison. Its current display title may have changed.
+const editableFields = TimeDraftSchema.omit({ createWorkProduct: true, workProductTitle: true }).keyof().options;
 function validateDraft(state: TimesheetState, draft: TimeDraft, final = false) {
   const matter = state.matters.find((m) => m.id === draft.matterId);
   if (!matter) timeError("Choose an accessible matter.", 404);
@@ -148,6 +151,7 @@ function issue(
         ...e,
         history: [],
         proposalDigest: undefined,
+        sharedOriginal: undefined,
         suggestion: undefined,
       })),
       total:
@@ -181,11 +185,13 @@ function issue(
     });
   }
 }
+type Originals = ReadonlyMap<string, Omit<NonNullable<TimeEntry["sharedOriginal"]>, "submittedRevision">>;
 function apply(
   store: BackOfficeStore,
   state: TimesheetState,
   actor: BackOfficeActor,
   command: TimesheetCommand,
+  originals: Originals,
 ) {
   const scope = state.scope;
   if (!actor.edit) timeError("Directory edit permission is required.", 403);
@@ -347,6 +353,7 @@ function apply(
       workProductTitle: product?.name,
       status: e.status === "submitted" ? "confirmed" : e.status,
     };
+    if (!e.legacy && editableFields.every((key) => e[key] === next[key])) return;
     writeEntry(store, scope, actor, e, { ...next, ...snapshotRate(state, next) }, "update");
     return;
   }
@@ -388,6 +395,16 @@ function apply(
   const selection = command.entries.map((ref) => requireEntry(state, ref));
   if (new Set(selection.map((e) => e.id)).size !== selection.length)
     timeError("Select each revision once.");
+  if (command.type === "applyWording") {
+    for (const [index, entry] of selection.entries()) {
+      requireReviewer(state, entry, actor);
+      const { before, after } = command.entries[index];
+      if (entry.status !== "submitted" || entry.narrative !== before || suggestion(state, entry) !== after)
+        timeError("The entry or its wording rules changed. Check the billing text again.", 409);
+      writeEntry(store, scope, actor, entry, { ...entry, narrative: after, suggestion: undefined }, "review");
+    }
+    return;
+  }
   if (command.type === "invoice") {
     if (
       command.templateRevision !== undefined &&
@@ -428,6 +445,17 @@ function apply(
       suggestion: status === "submitted" ? suggestion(state, e) : undefined,
       submittedNarrative: status === "submitted" ? e.narrative : e.submittedNarrative,
     };
+    if (command.type === "submit") {
+      const consent = command.entries.find((ref) => ref.id === e.id)?.shareOriginal;
+      delete next.sharedOriginal;
+      if (consent) {
+        const original = originals.get(consent.digest);
+        if (e.authorId !== actor.userId || e.source !== "suggestion" || !original ||
+            consent.key !== e.groupId || consent.digest !== e.proposalDigest)
+          timeError("Refresh the verified original before sharing.", 409);
+        next.sharedOriginal = { ...original, submittedRevision: e.revision + 1 };
+      }
+    } else if (command.type === "return") delete next.sharedOriginal;
     if (status === "approved" && e.policyDigest !== snapshotRate(state, e).policyDigest)
       timeError(
         "The applicable billing terms changed. Review the entry again or return it for resubmission.",
@@ -445,6 +473,7 @@ export function commandTimesheet(
   people: TimeDirectory["people"],
   input: unknown,
   workspaces: TimeDirectory["projects"] = [],
+  originals: Originals = new Map(),
 ) {
   if (actor.agentId) timeError("A person must save or confirm billing workflow changes.", 403);
   const command = TimesheetCommandSchema.parse(input);
@@ -461,9 +490,9 @@ export function commandTimesheet(
             timeError("This request ID was already used for other data.", 409);
           return readTimesheet(store, scope, actor, people, workspaces);
         }
-        apply(store, state, actor, command);
+        apply(store, state, actor, command, originals);
         writeTimeDocument(store, scope, { kind: "request", id, digest: hash });
-      } else apply(store, state, actor, command);
+      } else apply(store, state, actor, command, originals);
       return readTimesheet(store, scope, actor, people, workspaces);
     },
     { actor, action: "timesheet." + command.type },

@@ -1,4 +1,4 @@
-import { reviewViewKeys } from "./timesheet-labels";
+import { historyActionKeys, historyFieldKeys, labelForCode, reviewViewKeys } from "./timesheet-labels";
 import { renderInvoice, standardInvoice } from "@legalwork/types/invoice-template";
 import { Fragment, useCallback, useMemo, useRef, useState } from "react";
 import { Button } from "twenty-ui/primitives/input";
@@ -14,6 +14,7 @@ import {
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { t } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
+import { BillingWordingCheck } from "./billing-wording-check";
 import { BillingEditCell } from "./billing-edit-cell";
 import { BillingAdjustments } from "./billing-adjustments";
 import { BillingCosts } from "./billing-costs";
@@ -42,27 +43,45 @@ function eligible(
 const refs = (entries: TimeEntry[]) => entries.map(({ id, revision }) => ({ id, revision }));
 
 function BillingHistory({ e, state }: { e: TimeEntry; state: TimesheetState }) {
+  const locale = useLocale();
   return (
     <details>
       <summary>{t("back_office.billing.history")}</summary>
+      {e.source === "suggestion" && (
+        <p>
+          <strong>{t("timesheets.ledger.original")}</strong>{" · "}
+          {e.sharedOriginal
+            ? <>{e.sharedOriginal.activity} · {e.sharedOriginal.narrative} · {
+                e.sharedOriginal.workedMinutes === null
+                  ? t("timesheets.ledger.unknown_minutes")
+                  : e.sharedOriginal.workedMinutes + " min"
+              } · {t("back_office.billing.version", { n: e.sharedOriginal.submittedRevision })}</>
+            : t("timesheets.ledger.original_private")}
+        </p>
+      )}
       <ol className="bo-billing-history">
         {e.history.map((h) => (
           <li key={h.revision}>
             <small>
-              {new Date(h.at).toLocaleString()} ·{" "}
+              {new Date(h.at).toLocaleString(locale)} ·{" "}
               {state.people.find((p) => p.id === h.actorId)?.name || h.actorId} ·{" "}
-              {t("back_office.billing.version", { n: h.revision })}
+              {t("back_office.billing.version", { n: h.revision })} · {labelForCode(historyActionKeys, h.action)}
             </small>
             <div>
               {h.before && h.before.narrative !== h.after.narrative && (
                 <del>{h.before.narrative} → </del>
               )}
-              {h.after.narrative} ·{" "}
-              {h.before && h.before.billableMinutes !== h.after.billableMinutes && (
-                <del>{h.before.billableMinutes} → </del>
-              )}
-              {h.after.billableMinutes} min · {h.action}
+              {h.after.narrative}
             </div>
+            <small>
+              {(["activity", "workedMinutes", "billableMinutes"] as const).map((field, index) => (
+                <Fragment key={field}>
+                  {index > 0 && " · "}{labelForCode(historyFieldKeys, field)}{" "}
+                  {h.before && h.before[field] !== h.after[field] && <del>{h.before[field]} → </del>}
+                  {h.after[field]}
+                </Fragment>
+              ))}
+            </small>
             {h.reason && <div>{h.reason}</div>}
           </li>
         ))}
@@ -597,6 +616,14 @@ export function BillingReview({
                 </strong>
                 {mode === "submitted" ? (
                   <>
+                    <BillingWordingCheck
+                      key={JSON.stringify(refs(selected))}
+                      selected={selected}
+                      policies={state.policies}
+                      people={groups.people}
+                      disabled={pending || draftCells.size > 0}
+                      apply={(entries) => send({ type: "applyWording", entries }).then(reset)}
+                    />
                     <Button
                       size="sm"
                       variant="outline"

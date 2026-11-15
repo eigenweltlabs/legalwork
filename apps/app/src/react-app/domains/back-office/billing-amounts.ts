@@ -1,24 +1,20 @@
 import { currencyScale, timeFeeMinor } from "@legalwork/types/invoice-template";
 import type { TimeEntry } from "@legalwork/types/timesheet";
 
-// Resolve fees in currency minor units before summing, as on a statement.
-export function entryFee(entry: Pick<TimeEntry, "billableMinutes" | "hourlyRate" | "currency">) {
-  if (entry.hourlyRate === undefined || !entry.currency) return undefined;
-  const scale = currencyScale(entry.currency);
-  return {
-    amount: timeFeeMinor(entry.billableMinutes, entry.hourlyRate, scale) / scale,
-    currency: entry.currency,
-  };
-}
-
 export function feeTotals(entries: TimeEntry[]) {
-  const byCurrency = new Map<string, number>();
+  const totals = new Map<string, { minor: number; scale: number }>();
   let unresolved = 0;
-  for (const entry of entries) {
-    const fee = entryFee(entry);
-    if (fee) byCurrency.set(fee.currency, (byCurrency.get(fee.currency) ?? 0) + fee.amount);
-    else if (entry.billableMinutes > 0) unresolved++;
+  for (const { billableMinutes, hourlyRate, currency } of entries) {
+    if (hourlyRate === undefined || !currency) {
+      if (billableMinutes > 0) unresolved++;
+      continue;
+    }
+    const total = totals.get(currency) ?? { minor: 0, scale: currencyScale(currency) };
+    total.minor += timeFeeMinor(billableMinutes, hourlyRate, total.scale);
+    totals.set(currency, total);
   }
+  const byCurrency = new Map<string, number>();
+  for (const [currency, { minor, scale }] of totals) byCurrency.set(currency, minor / scale);
   return { byCurrency, unresolved };
 }
 

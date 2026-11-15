@@ -11,6 +11,7 @@ import { openSqlite } from "../runtime-db.js";
 import { BackOfficeStore } from "./store.js";
 import { unknownRecords } from "./first-sync.js";
 import { commandTimesheet } from "./timesheet.js";
+import { submitFirmComparisons } from "./timesheet-sharing.js";
 import { readTimeDocument, readTimesheet } from "./timesheet-data.js";
 import type { BackOfficeActor } from "./schema.js";
 
@@ -93,6 +94,13 @@ test("entry rules, idempotent meetings, products, corrections and atomic indepen
   const submittedBen = run(ben, { type: "submit", entries: sel(confirmed) }).entries[0];
   const submitted = run(owner, { type: "submit", entries: sel(first) }).entries[0];
   expect(submitted.suggestion).toBe("Amending Memo");
+  const unchanged = run(owner, {
+    type: "update",
+    id: submitted.id,
+    revision: submitted.revision,
+    entry: { ...d, workProductId: first.workProductId },
+  }).entries[0];
+  expect(unchanged).toEqual(submitted);
   expect(state(eva).entries).toHaveLength(2);
   expect(() => run(owner, { type: "approve", entries: sel(submitted) })).toThrow(/independent/);
   expect(() =>
@@ -809,4 +817,88 @@ test("a new reviewer sees only the parts of an entry history belonging to access
   expect(history[0].before).toBeNull();
   expect(JSON.stringify(history)).not.toContain("Private analysis");
   expect(state(owner).entries[0].history[0].after.narrative).toBe("Private analysis");
+});
+
+test("batch wording acceptance checks reviewed text, revision and current rules atomically", async () => {
+  const { d, run, state } = await fixture();
+  for (const narrative of ["Brief amended", "Memo amended"])
+    run(ben, { type: "create", requestId: randomUUID(), entry: { ...d, narrative } });
+  run(ben, { type: "submit", entries: state(ben).entries.flatMap(sel) });
+  const before = state(eva).entries;
+  const entries = before.map((e) => ({
+    id: e.id, revision: e.revision, before: e.narrative, after: e.suggestion!,
+  }));
+  const [first, last] = entries;
+  const apply = (changes: typeof entries) => run(eva, { type: "applyWording", entries: changes });
+  expect(() => run(ben, { type: "applyWording", entries })).toThrow(/independent/);
+  expect(() => apply([first, { ...last, revision: last.revision - 1 }])).toThrow(/changed/);
+  expect(() => apply([first, { ...last, after: "Different service" }])).toThrow(/wording/);
+  expect(() => apply([first, { ...last, before: "Different input" }])).toThrow(/wording/);
+  expect(() => apply([first, first])).toThrow(/once/);
+  expect(state(eva).entries).toEqual(before);
+  const policy = state(owner).policies[0];
+  run(owner, { type: "policy", policy: { ...policy, actionWords: { DFT: "Revising" } } });
+  expect(() => apply(entries)).toThrow(/wording/);
+  const checked = entries.map((change) => ({ ...change, after: change.after.replace("Amending", "Revising") }));
+  const result = apply(checked).entries;
+  for (const line of before) {
+    const updated = result.find((row) => row.id === line.id)!;
+    const expected = checked.find((change) => change.id === line.id)!;
+    expect(updated.narrative).toBe(expected.after);
+    expect(updated.revision).toBe(line.revision + 1);
+    expect(updated.history.at(-1)?.before?.narrative).toBe(expected.before);
+    expect(updated.history.at(-1)?.actorId).toBe(eva.userId);
+    expect(updated).toMatchObject({
+      status: "submitted", submittedNarrative: line.narrative, workerId: line.workerId,
+      workedMinutes: line.workedMinutes, billableMinutes: line.billableMinutes,
+      workProductId: line.workProductId, hourlyRate: line.hourlyRate, policyDigest: line.policyDigest,
+    });
+  }
+  expect(() => apply(checked)).toThrow(/changed/);
+});
+
+test("workers share only verified billing fields on their chosen submission, with fresh consent after return", async () => {
+  const { store, d, run, state } = await fixture();
+  const key = randomUUID(), digest = "a".repeat(64);
+  const first = run(owner, {
+    type: "create", entry: d, source: "suggestion", requestId: key, proposalDigest: digest,
+  }).entries[0];
+  const original = { activity: "RES", narrative: "Original work", workedMinutes: null };
+  const originals = new Map([[digest, original]]);
+  const submit = { type: "submit", entries: [{ ...sel(first)[0], shareOriginal: { key, digest } }] } as const;
+  const share = () => commandTimesheet(store, "local", owner, people, submit, [], originals);
+
+  // The device must resolve the original from its own verified store, never from client-supplied fields.
+  expect(() => commandTimesheet(store, "local", owner, people, submit)).toThrow(/verified original/);
+  expect(() => commandTimesheet(store, "local", owner, people, { ...submit, sharedBillingOriginals: [original] })).toThrow();
+  expect(() => commandTimesheet(store, "local", owner, people, {
+    ...submit, entries: [{ ...submit.entries[0], shareOriginal: { key: randomUUID(), digest } }],
+  }, [], originals)).toThrow(/verified original/);
+  expect(state(eva).entries).toHaveLength(0);
+  const shared = share().entries[0];
+  expect(state(eva).entries[0].sharedOriginal).toEqual({ ...original, submittedRevision: shared.revision });
+  expect(state(ben).entries).toHaveLength(0);
+  expect(() => share()).toThrow(/changed/);
+  run(eva, { type: "return", entries: sel(shared), reason: "Check text" });
+  const resubmitted = run(owner, { type: "submit", entries: sel(state(owner).entries[0]) }).entries[0];
+  expect(resubmitted.sharedOriginal).toBeUndefined();
+  expect(state(eva).entries[0].sharedOriginal).toBeUndefined();
+
+  const current = { ...state(owner), entries: [first] };
+  const cmd: Extract<TimesheetCommand, { type: "submit" }> = { type: "submit", entries: [...submit.entries] };
+  let reads = 0, sent = 0;
+  const read = async () => { reads++; return originals; };
+  const post = async (body: unknown) => {
+    sent++;
+    expect(body).toEqual({
+      type: "submit", entries: sel(first), reason: undefined,
+      sharedBillingOriginals: [{ ...original, id: first.id, revision: first.revision, digest }],
+    });
+    return { ...current, entries: [shared] };
+  };
+  await expect(submitFirmComparisons(cmd, { ...current, supportsBillingComparisons: false }, read, post)).rejects.toThrow(/does not support/);
+  await expect(submitFirmComparisons(cmd, { ...current, entries: [shared] }, read, post)).rejects.toThrow(/Refresh/);
+  expect([reads, sent]).toEqual([0, 0]);
+  expect((await submitFirmComparisons(cmd, current, read, post)).entries[0].sharedOriginal).toEqual(shared.sharedOriginal);
+  await expect(submitFirmComparisons(cmd, current, read, async () => current)).rejects.toThrow(/did not confirm/);
 });

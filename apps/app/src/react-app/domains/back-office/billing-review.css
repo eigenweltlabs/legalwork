@@ -230,3 +230,13 @@
 .bo-billing-rules details {
   padding-block: 4px;
 }
+
+.bo-billing-wording-preview {
+  order: 1;
+  flex: 1 0 100%;
+  max-height: 30vh;
+  overflow: auto;
+}
+.bo-billing-wording-preview td {
+  overflow-wrap: anywhere;
+}

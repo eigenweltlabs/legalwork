@@ -1,4 +1,4 @@
-import { acceptPrivateProposal } from "../time-capture/routes.js";
+import { acceptPrivateProposal, captureProfile, submissionOriginals } from "../time-capture/routes.js";
 import { z } from "zod";
 import { TimesheetCommandSchema, TimesheetStateSchema } from "./timesheet-schema.js";
 import type { ServerConfig } from "../types.js";
@@ -12,6 +12,7 @@ import { backOfficeDirectoryIdentity, type backOfficeAccess } from "./access.js"
 import type { BackOfficeStore } from "./store.js";
 import { readTimeDocument, readTimesheet, timeError } from "./timesheet-data.js";
 import { commandTimesheet } from "./timesheet.js";
+import { submitFirmComparisons } from "./timesheet-sharing.js";
 
 type Access = Awaited<ReturnType<typeof backOfficeAccess>>;
 type Handler = (ctx: RequestContext, store: BackOfficeStore, access: Access) => Promise<unknown>;
@@ -21,9 +22,12 @@ export function registerTimesheetRoutes(
   route: (method: string, path: string, action: Handler) => void,
   input: (ctx: RequestContext) => Promise<unknown>,
 ) {
-  async function assertIdentity(ctx: RequestContext, store: BackOfficeStore, { scope, actor }: Access) {
+  async function assertIdentity(ctx: RequestContext, store: BackOfficeStore, access: Access) {
+    const { scope, actor } = access;
     const query = ctx.url.searchParams;
     if (
+      (query.has("profileId") &&
+        query.get("profileId") !== (await captureProfile(config, access)).profileId) ||
       (query.has("expectedUserId") && query.get("expectedUserId") !== actor.userId) ||
       (query.has("expectedPrincipalKey") && query.get("expectedPrincipalKey") !== actor.principalKey) ||
       (query.has("directoryId") &&
@@ -47,23 +51,34 @@ export function registerTimesheetRoutes(
       throw error;
     }
   }
+  async function platformState(access: Access, method: string, body?: unknown) {
+    const result = TimesheetStateSchema.safeParse(await platform(access, method, "", body));
+    if (!result.success || result.data.userId !== access.actor.userId || result.data.scope !== access.scope)
+      timeError("The connected firm server did not return this account’s timesheet.", 502);
+    return result.data;
+  }
   for (const method of ["GET", "POST"]) {
     route(method, "/timesheet", async (ctx, store, access) => {
       const command = method === "POST" ? TimesheetCommandSchema.parse(await input(ctx)) : undefined;
       await assertIdentity(ctx, store, access);
       if (command && (ctx.agentAccess || access.actor.agentId))
         timeError("A person must save or confirm billing workflow changes.", 403);
+      const consent = command?.type === "submit"
+        ? command.entries.flatMap((r) => r.shareOriginal ? [r.shareOriginal] : [])
+        : [];
+      if (consent.length && ctx.actor?.type !== "host")
+        timeError("Open the local device that holds the private originals.", 403);
+      const readOriginals = () => submissionOriginals(config, ctx.url.searchParams.get("profileId"), {
+        user: access.actor.userId, scope: access.scope, principal: access.actor.principalKey ?? "",
+      }, consent);
       const execute = async () => {
         if (access.scope !== "local") {
-          const raw = await platform(access, method, "", command),
-            result = TimesheetStateSchema.safeParse(raw);
-          if (
-            !result.success ||
-            result.data.userId !== access.actor.userId ||
-            result.data.scope !== access.scope
-          )
-            timeError("The connected firm server did not return this account’s timesheet.", 502);
-          return result.data;
+          if (!consent.length || command?.type !== "submit") return platformState(access, method, command);
+          const current = await platformState(access, "GET");
+          return submitFirmComparisons(command, current, readOriginals, async (submission) => {
+            await assertIdentity(ctx, store, access);
+            return platformState(access, method, submission);
+          });
         }
         const directoryId = await backOfficeDirectoryIdentity(config, access.scope, store);
         const workspaces = await Promise.all(
@@ -84,10 +99,11 @@ export function registerTimesheetRoutes(
             return { id: w.id, name: w.displayName || w.name, matterIds, agreementIds };
           }),
         );
+        const originals = consent.length ? await readOriginals() : undefined;
         await assertIdentity(ctx, store, access);
         const people = [{ id: access.actor.userId, name: "Local user" }];
         return command
-          ? commandTimesheet(store, access.scope, access.actor, people, command, workspaces)
+          ? commandTimesheet(store, access.scope, access.actor, people, command, workspaces, originals)
           : readTimesheet(store, access.scope, access.actor, people, workspaces);
       };
       if (command?.type !== "create" || command.source !== "suggestion") return execute();

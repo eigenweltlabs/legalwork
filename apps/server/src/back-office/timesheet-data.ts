@@ -252,6 +252,7 @@ export function readTimesheet(
     scope,
     template: actor.finance ? docs.find((doc) => doc.kind === "template")?.value : undefined,
     userId: actor.userId,
+    supportsBillingComparisons: true,
     canManage: actor.model && actor.finance && actor.edit,
     canReview: actor.finance,
     ...directory,
@@ -281,6 +282,9 @@ export function readTimesheet(
           return {
             ...e,
             ...financial,
+            sharedOriginal: e.sharedOriginal && e.history.some(
+              (h) => h.action === "create" && h.before === null && canSeeReferences(h.after),
+            ) ? e.sharedOriginal : undefined,
             history: e.history
               .filter((h) => canSeeReferences(h.after))
               .map((h) => ({

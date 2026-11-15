@@ -272,6 +272,8 @@ try {
   ]);
   assert.equal(mixed.byCurrency.get("JPY"), 40);
   assert.equal(mixed.unresolved, 1);
+  const smallFee = { ...row, currency: "EUR", billableMinutes: 60, hourlyRate: 0.1 };
+  assert.equal(feeTotals([smallFee, smallFee, smallFee]).byCurrency.get("EUR"), 0.3);
   await render(<BillingPreferences state={{ ...actor, scope: "local" }} onCommand={command} />);
   const toggle = host.querySelector<HTMLButtonElement>(
     '[role="switch"][aria-label="Enforce billing increment"]',
@@ -394,6 +396,39 @@ try {
     sub.entries.toSorted((a, b) => a.id.localeCompare(b.id)),
     [0, 1, 55].map((i) => ({ id: "period-" + i, revision: i + 1 })),
   );
+  const wordingEntries = [
+    { ...row, narrative: "Brief amended", suggestion: undefined },
+    { ...row, id: "b", narrative: "Memo amended", suggestion: undefined },
+    { ...row, id: "c", narrative: "Researching", suggestion: undefined },
+  ];
+  const wordingState = {
+    ...actor, entries: wordingEntries,
+    policies: [{ ...policy, actionFirst: true, language: "English" }],
+  };
+  await draw(wordingState);
+  await click(field('input[aria-label="Select all eligible positions"]'));
+  const previousCalls = calls.length;
+  await click(match("Check billing text"));
+  const previewRows = () => [...host.querySelectorAll(".bo-billing-wording-preview tbody tr")]
+    .map((tr) => [...tr.querySelectorAll("td")].slice(-2).map((cell) => cell.textContent));
+  assert.deepEqual(previewRows(), [["Brief amended", "Amending Brief"], ["Memo amended", "Amending Memo"]]);
+  assert.match(host.querySelector(".bo-billing-wording-preview")?.textContent ?? "", /Start with an action word/);
+  assert.equal(calls.length, previousCalls, "A wording preview is read-only");
+  await draw({ ...wordingState, entries: [wordingEntries[0], { ...wordingEntries[1], revision: 2 }, wordingEntries[2]] });
+  assert.equal(host.querySelector(".bo-billing-wording-preview"), null, "A changed revision invalidates the preview");
+  await click(field('input[aria-label="Select entry: Memo amended"]'));
+  await click(match("Check billing text"));
+  await click(match("Apply previewed changes (2)"));
+  assert.deepEqual(calls.at(-1), {
+    type: "applyWording",
+    entries: [
+      { id: "a", revision: 1, before: "Brief amended", after: "Amending Brief" },
+      { id: "b", revision: 2, before: "Memo amended", after: "Amending Memo" },
+    ],
+  });
+  await click(field('input[aria-label="Select entry: Researching"]'));
+  await click(match("Check billing text"));
+  assert.match(host.textContent ?? "", /No wording changes suggested/);
   console.log("Billing review passed");
 } finally {
   await act(async () => root.unmount());

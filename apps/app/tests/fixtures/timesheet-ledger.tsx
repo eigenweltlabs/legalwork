@@ -544,6 +544,45 @@ try {
   await act(async () => cache.invalidateQueries({ queryKey: ["back-office"] }));
   await settle();
   assert.equal(cell("new", "narrative").value, "");
+  const accepted: TimeEntry = {
+    ...base, status: "confirmed", source: "suggestion", groupId: capture.key,
+    proposalDigest: capture.digest, authorId: state.userId,
+  };
+  const renderSharing = async (revision: number) => act(async () =>
+    root.render(
+      <MemoryRouter><BackOfficeTheme><TimesheetLedger
+        state={{ ...state, supportsBillingComparisons: true, entries: [{ ...accepted, revision }] }}
+        initialDate={base.date} onCommand={send} onOriginal={async () => capture}
+      /></BackOfficeTheme></MemoryRouter>,
+    ),
+  );
+  await renderSharing(4);
+  const submitPeriod = () => {
+    const submit = button("Submit period");
+    assert.ok(submit);
+    return act(async () => submit.click());
+  };
+  const preview = async () => {
+    const show = button("Compare with private proposal");
+    assert.ok(show);
+    await act(async () => show.click());
+    const consent = document.querySelector<HTMLInputElement>("details.bo-time-original input");
+    assert.ok(consent);
+    assert.equal(consent.checked, false);
+    await act(async () => consent.click());
+  };
+  await submitPeriod();
+  assert.deepEqual(commands.at(-1), { type: "submit", entries: [{ id: base.id, revision: 4 }] });
+  await preview();
+  await submitPeriod();
+  assert.deepEqual(commands.at(-1), { type: "submit", entries: [{
+    id: base.id, revision: 4, shareOriginal: { key: capture.key, digest: capture.digest },
+  }] });
+  await renderSharing(5);
+  await preview();
+  await renderSharing(6);
+  await submitPeriod();
+  assert.deepEqual(commands.at(-1), { type: "submit", entries: [{ id: base.id, revision: 6 }] });
   cache.clear();
   console.log("Timesheet ledger passed");
 } finally {

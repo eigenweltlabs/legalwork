@@ -129,6 +129,32 @@ export async function beginDocumentCapture(
     return;
   }
 }
+/** Resolve only the worker-approved billing fields from this device's accepted private originals. */
+export async function submissionOriginals(
+  config: ServerConfig,
+  profileId: string | null,
+  actor: { user: string; scope: string; principal: string },
+  refs: { key: string; digest: string }[],
+) {
+  if (!loopback(config))
+    throw new ApiError(403, "private_workday", "Open the original on its local device.");
+  const prof = await profile(config);
+  if (prof.profileId !== profileId || prof.user !== actor.user ||
+      prof.scope !== actor.scope || prof.principal !== actor.principal)
+    throw new ApiError(409, "private_workday_changed", "The active Back Office account changed.");
+  const saved = await load(prof.path);
+  const originals = new Map<string, { activity: string; narrative: string; workedMinutes: number | null }>();
+  for (const { key, digest } of refs) {
+    if (saved.accepted[key] !== digest || saved.originals[digest]?.key !== key)
+      throw new ApiError(409, "private_workday_changed", "The accepted original is unavailable on this device.");
+    const { activity, narrative, workedMinutes } = originalBillingComparison(saved.originals[digest], digest, saved.originals);
+    originals.set(digest, { activity, narrative, workedMinutes });
+  }
+  if ((await profile(config)).path !== prof.path)
+    throw new ApiError(409, "private_workday_changed", "The active Back Office account changed.");
+  return originals;
+}
+
 /** Serialize acceptance with range edits so a stale composer cannot also bill a split-off interval. */
 export async function acceptPrivateProposal<T>(
   config: ServerConfig,
