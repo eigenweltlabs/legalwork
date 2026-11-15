@@ -63,6 +63,7 @@ const state: TimesheetState = {
   userId: "anna",
   scope: "local",
   canManage: true,
+  supportsTimeAllocations: true,
   canReview: true,
   entries: [base],
   policies: [],
@@ -142,6 +143,7 @@ try {
       </MemoryRouter>,
     ),
   );
+  assert.equal(document.querySelectorAll("[data-time-row]")[1]?.getAttribute("data-time-row"), "new");
   await key(cell("new", "narrative"), "Enter");
   const suggest = commands.at(-1);
   assert.ok(suggest?.type === "create");
@@ -188,9 +190,9 @@ try {
   await clip(cell("new", "narrative"), "paste", clipboard);
   assert.equal(cell("new", "narrative").value, "Edited copy");
   failOnce = true;
-  await key(cell("new", "billable"), "Tab");
+  await key(cell("new", "charge"), "Tab");
   assert.equal(cell("new", "narrative").value, "Edited copy");
-  await key(cell("new", "billable"), "Tab");
+  await key(cell("new", "charge"), "Tab");
   const pasted = commands.at(-1),
     retry = commands.at(-2);
   assert.ok(pasted?.type === "create" && retry?.type === "create");
@@ -202,30 +204,30 @@ try {
   assert.equal(pasted.entry.projectId, "p1");
   await input(cell("new", "activity"), "MOD");
   await input(cell("new", "narrative"), "More work");
-  await input(cell("new", "worked"), "20");
+  await input(cell("new", "billableWork"), "20");
   await input(cell("new", "product"), "Memo");
   const beforeDuplicate = commands.length;
-  await key(cell("new", "billable"), "Enter");
+  await key(cell("new", "charge"), "Enter");
   assert.equal(commands.length, beforeDuplicate);
   assert.match(document.querySelector('[role="alert"]')?.textContent ?? "", /Several work products/);
   const productOptions = Array.from(cell("new", "product").list?.querySelectorAll("option") ?? []);
   const chosenProduct = productOptions.find((o) => o.value.includes("Ben") && o.value.includes("wp2"));
   assert.ok(chosenProduct);
   await input(cell("new", "product"), chosenProduct.value);
-  await key(cell("new", "billable"), "Enter");
+  await key(cell("new", "charge"), "Enter");
   const modified = commands.at(-1);
   assert.ok(modified?.type === "create");
   assert.equal(modified.entry.workProductId, "wp2");
   await input(cell("new", "activity"), "DFT");
   await input(cell("new", "narrative"), "Separate brief");
-  await input(cell("new", "worked"), "20");
+  await input(cell("new", "billableWork"), "20");
   await input(cell("new", "product"), "Memo");
   const separate = area("new").querySelector<HTMLButtonElement>(
     'button[aria-label="Create a separate work product"]',
   );
   assert.ok(separate);
   await act(async () => separate.click());
-  await key(cell("new", "billable"), "Enter");
+  await key(cell("new", "charge"), "Enter");
   const fresh = commands.at(-1);
   assert.ok(fresh?.type === "create");
   assert.equal(fresh.entry.workProductId, undefined);
@@ -234,13 +236,13 @@ try {
   for (let i = 0; i < 14; i++) {
     await input(cell("new", "activity"), "RES");
     await input(cell("new", "narrative"), "Research " + i);
-    await input(cell("new", "worked"), "20");
-    await key(cell("new", "billable"), "Tab");
+    await input(cell("new", "billableWork"), "20");
+    await key(cell("new", "charge"), "Tab");
     assert.equal(document.activeElement, cell("new", "matter"));
   }
   await input(cell("new", "activity"), "RES");
   await input(cell("new", "narrative"), "Long session");
-  await input(cell("new", "worked"), "150");
+  await input(cell("new", "billableWork"), "150");
   await input(cell("new", "charge"), "149");
   const countBeforeCap = commands.length;
   await key(cell("new", "narrative"), "Enter");
@@ -301,35 +303,49 @@ try {
   assert.equal(area(base.id).querySelector('[data-column="narrative"]')?.textContent, "Original");
   await act(async () => area(base.id).querySelector<HTMLElement>('[data-column="narrative"]')?.click());
   await input(cell(base.id, "narrative"), "Corrected");
-  await key(cell(base.id, "billable"), "Tab");
+  await key(cell(base.id, "charge"), "Tab");
   const update = commands.at(-1);
   assert.ok(update?.type === "update");
   assert.equal(update.revision, 4);
   assert.equal(update.entry.narrative, "Corrected");
   assert.equal(update.entry.startAt, base.startAt);
-  await act(async () => area(base.id).querySelector<HTMLElement>('[data-column="worked"]')?.click());
-  await input(cell(base.id, "worked"), "55");
-  await key(cell(base.id, "billable"), "Tab");
+  await act(async () => area(base.id).querySelector<HTMLElement>('[data-column="billableWork"]')?.click());
+  await input(cell(base.id, "billableWork"), "55");
+  await key(cell(base.id, "charge"), "Tab");
   const resized = commands.at(-1);
   assert.ok(resized?.type === "update");
   assert.equal(resized.entry.startAt, undefined);
   // A shared meeting can be logged for both workers in a weekly list.
-  const period = document.querySelector<HTMLSelectElement>(".bo-time-toolbar select");
-  assert.ok(period);
-  await act(async () => {
-    period.value = "week";
-    period.dispatchEvent(new window.Event("change", { bubbles: true }));
-  });
+  const weekButton = document.querySelector<HTMLButtonElement>('.bo-time-period button:last-child');
+  assert.ok(weekButton);
+  await act(async () => weekButton.click());
   assert.equal(document.querySelectorAll(".bo-time-week button").length, 7);
   await input(cell("new", "matter"), "26/12 · Project");
-  await input(cell("new", "workers"), "Anna + Ben");
+  await input(cell("new", "workers"), "Anna");
   await input(cell("new", "activity"), "INM");
   await input(cell("new", "narrative"), "Meeting");
-  await input(cell("new", "worked"), "20");
-  await key(cell("new", "billable"), "Tab");
+  await input(cell("new", "billableWork"), "20");
+  await input(cell("new", "nonBillable"), "10");
+  const addPerson = document.querySelector<HTMLButtonElement>(".bo-time-add-person");
+  assert.ok(addPerson);
+  await act(async () => addPerson.click());
+  const participant = document.querySelector(".bo-time-participant");
+  const personSelect = participant?.querySelector("select");
+  assert.ok(personSelect);
+  await act(async () => {
+    personSelect.value = "ben";
+    personSelect.dispatchEvent(new window.Event("change", { bubbles: true }));
+  });
+  const extra = participant!.querySelectorAll("input");
+  await input(extra[0], "10");
+  await input(extra[1], "5");
+  await key(cell("new", "charge"), "Tab");
   const meeting = commands.at(-1);
   assert.ok(meeting?.type === "create");
   assert.deepEqual(meeting.workerIds, ["anna", "ben"]);
+  assert.equal(meeting.entry.workedMinutes, 30);
+  assert.equal(meeting.entry.nonBillableMinutes, 10);
+  assert.deepEqual(meeting.workerTimes, [{ workerId: "ben", workedMinutes: 15, nonBillableMinutes: 5, billableMinutes: 10 }]);
   const { fromDraft, matterOptions, parseRow, workerOptions } = await import(
     "../../src/react-app/domains/back-office/timesheet-row"
   );
@@ -358,8 +374,8 @@ try {
     ),
   );
   assert.equal(document.querySelector('[data-time-row="new"]'), null);
-  await act(async () => area(base.id).querySelector<HTMLElement>('[data-column="worked"]')?.click());
-  assert.equal(area(base.id).querySelector('[data-column="worked"] input'), null);
+  await act(async () => area(base.id).querySelector<HTMLElement>('[data-column="billableWork"]')?.click());
+  assert.equal(area(base.id).querySelector('[data-column="billableWork"] input'), null);
   await act(async () =>
     root.render(
       <MemoryRouter>
@@ -486,6 +502,7 @@ try {
   let captureProfileId = "profile-a";
   const client = {
     ...createLegalworkServerClient({ baseUrl: "http://localhost" }),
+    privateStopwatch: async () => ({ profileId: captureProfileId, active: null, lastStopped: null }),
     privateWorkday: async (context: { profileId?: string }) => {
       assert.equal(context.profileId, "profile-a");
       return {

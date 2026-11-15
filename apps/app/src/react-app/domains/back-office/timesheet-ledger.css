@@ -57,16 +57,12 @@
 }
 .bo-time-scroll .bo-grid-row,
 .bo-time-scroll .bo-grid-header {
-  grid-template-columns:
-    28px 104px minmax(116px, 1.15fr) 78px 63px minmax(150px, 1.5fr) minmax(104px, 1fr)
-    56px 72px 80px 110px;
+  grid-template-columns: var(--time-tracks);
   width: 100%;
-  min-width: 961px;
+  min-width: var(--time-min-width);
 }
 .bo-time-new {
-  position: sticky;
-  top: 32px;
-  z-index: 2;
+  border-bottom: 1px dashed var(--bo-border);
   background: var(--bo-bg);
 }
 .bo-time-input-cell {
@@ -166,4 +162,240 @@
 .bo-time-new-product[aria-pressed="true"] {
   background: var(--t-color-blue3);
   color: var(--t-color-blue11);
+}
+
+.time-section-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 8px 26px;
+  padding: 10px 18px;
+  border-bottom: 1px solid var(--bo-border);
+}
+.time-section-header h1 {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  white-space: nowrap;
+}
+.time-section-header h1 svg {
+  color: var(--bo-muted);
+}
+.time-section-header nav {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex-wrap: wrap;
+}
+.time-section-header nav a,
+.time-stopwatch button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 29px;
+  padding: 4px 9px;
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--t-font-color-secondary);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.time-section-header nav a:hover {
+  background: var(--bo-hover);
+  color: var(--bo-text);
+}
+.time-section-header nav a[aria-current="page"] {
+  background: var(--bo-surface);
+  color: var(--bo-text);
+  font-weight: 600;
+}
+.time-stopwatch {
+  margin-inline-start: auto;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.time-stopwatch button {
+  border: 1px solid var(--bo-border);
+  font-variant-numeric: tabular-nums;
+}
+.time-stopwatch button[aria-pressed="true"] {
+  color: var(--t-color-green11);
+}
+.time-stopwatch button:disabled {
+  opacity: 0.55;
+}
+.time-stopwatch [role="alert"] {
+  color: var(--destructive);
+  font-size: 11px;
+}
+.bo-time-toolbar {
+  padding: 10px 16px 4px;
+  gap: 5px;
+}
+.bo-time-period,
+.bo-time-date {
+  display: inline-flex;
+  align-items: center;
+}
+.bo-time-period {
+  padding: 2px;
+  border-radius: 6px;
+  background: var(--bo-surface);
+}
+.bo-time-period button,
+.bo-time-date button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 24px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  color: var(--t-font-color-secondary);
+}
+.bo-time-period button[aria-pressed="true"] {
+  color: var(--bo-text);
+  background: var(--bo-bg);
+  box-shadow: 0 1px 2px var(--bo-border);
+}
+.bo-time-date {
+  margin: 0 3px;
+}
+.bo-time-date input {
+  max-width: 120px;
+  font-variant-numeric: tabular-nums;
+}
+.bo-time-totals {
+  padding: 5px 18px 11px;
+  gap: 12px;
+}
+.bo-time-totals span + span {
+  border-inline-start: 1px solid var(--bo-border);
+  padding-inline-start: 12px;
+}
+.bo-time-new:focus-within {
+  background: var(--bo-hover);
+}
+.bo-time-scroll .bo-grid-heading {
+  overflow: hidden;
+  white-space: nowrap;
+  padding-inline: 6px;
+}
+.bo-time-scroll .bo-grid-heading,
+.bo-time-scroll .bo-grid-cell {
+  font-size: 12px;
+}
+.bo-time-scroll .bo-time-value {
+  min-width: 0;
+}
+.bo-time-input-cell {
+  min-width: 0;
+}
+.bo-time-input-cell input {
+  min-width: 0;
+}
+.bo-time-input-cell input::placeholder {
+  color: var(--bo-muted);
+}
+.bo-time-participants {
+  padding: 4px 0 8px 30px;
+}
+.bo-time-add-person,
+.bo-time-participant button {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  padding: 4px 6px;
+  color: var(--t-font-color-secondary);
+  font-size: 12px;
+  border-radius: 4px;
+}
+.bo-time-add-person:hover,
+.bo-time-participant button:hover {
+  background: var(--bo-surface);
+}
+.bo-time-participant {
+  display: flex;
+  gap: 8px;
+  align-items: end;
+  flex-wrap: wrap;
+  padding: 6px;
+}
+.bo-time-participant label {
+  display: grid;
+  gap: 2px;
+  font-size: 11px;
+  color: var(--t-font-color-secondary);
+}
+.bo-time-participant input,
+.bo-time-participant select {
+  background: var(--bo-bg);
+  border: 1px solid var(--bo-border);
+  border-radius: 4px;
+  height: 27px;
+  font-size: 12px;
+  padding: 2px 5px;
+  color: var(--bo-text);
+}
+.bo-time-participant input {
+  width: 80px;
+}
+.bo-time-delegated {
+  flex-shrink: 0;
+  max-height: 26%;
+  overflow: auto;
+  padding: 5px 17px;
+  font-size: 12px;
+  border-top: 1px solid var(--bo-border);
+}
+.bo-time-delegated summary {
+  cursor: pointer;
+}
+.bo-time-delegated small,
+.bo-time-delegated summary span {
+  color: var(--bo-muted);
+}
+.bo-time-delegated li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-top: 4px;
+}
+@media (max-width: 760px) {
+  .time-section-header {
+    padding: 9px 12px;
+    gap: 7px;
+  }
+  .time-section-header nav {
+    order: 2;
+    width: 100%;
+  }
+  .time-section-header nav a {
+    padding: 4px 6px;
+  }
+  .bo-time-toolbar {
+    padding-inline: 10px;
+  }
+  .bo-time-totals {
+    padding-inline: 12px;
+    gap: 4px 8px;
+  }
+}
+.time-ledger-pane:not([hidden]) {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+.time-stopwatch-saved {
+  margin-inline-start: 8px;
+  font-size: 11px;
+  color: var(--bo-muted);
+  text-decoration: underline;
 }

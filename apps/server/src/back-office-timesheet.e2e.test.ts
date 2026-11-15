@@ -174,6 +174,20 @@ test("HTTP uses the active Back Office identity for writes, protects accepted en
     const finalState = TimesheetStateSchema.parse(await (await api(path)).json());
     expect(finalState.invoices.map((i) => i.number).sort()).toEqual([1, 2, 3]);
     expect(new Set(finalState.invoices.flatMap((i) => i.entries.map((e) => e.id))).size).toBe(3);
+    const colleague = await object("people", { name: "Local associate", personType: "Associate", active: true });
+    const outsider = await object("people", { name: "External", personType: "External contact", active: true });
+    const inactive = await object("people", { name: "Former colleague", personType: "Partner", active: false });
+    const delegated = await command({ ...create, requestId: crypto.randomUUID(), workerIds: [colleague.id] });
+    expect(delegated.people).toContainEqual({ id: colleague.id, name: "Local associate", directoryOnly: true });
+    expect(delegated.people.some((p) => [outsider.id, inactive.id].includes(p.id))).toBe(false);
+    expect(delegated.delegatedEntries).toMatchObject([{ workerId: colleague.id, narrative: create.entry.narrative }]);
+    expect(delegated.entries.every((e) => e.workerId === "local")).toBe(true);
+    expect((await api(path, { ...create, requestId: crypto.randomUUID(), workerIds: [inactive.id] })).status).toBe(400);
+    expect((await api(path, { type: "policy", policy: {
+      scope: "firm", targetId: "firm", reviewerId: colleague.id, revision: 0, effectiveFrom: "2027-01-01",
+    } })).status).toBe(400);
+    await api("/records?scope=local", { id: colleague.id, objectId: "people", revision: colleague.revision, archived: true, values: {} });
+    expect(TimesheetStateSchema.parse(await (await api(path)).json()).delegatedEntries).toEqual([]);
     await api("/records?scope=local", {
       id: client.id,
       objectId: "clients",

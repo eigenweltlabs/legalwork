@@ -2,7 +2,7 @@
 
 _Product requirements   /   Revision 4   /   14 November 2026_
 
-> The repository findings below describe the pre-implementation review at `bd1dfc3f`. Page numbers refer to the paginated revision 4. The [review addendum](#review-addendum--14-november-2026) records the later list interaction decisions and the scope of this draft.
+> The repository findings below describe the pre-implementation review at `bd1dfc3f`. Page numbers refer to the paginated revision 4. The [review addendum](#review-addendum--14-november-2026) records the later list interaction decisions and the scope of this draft. The [15 November revision](#time-workspace-and-manual-capture--15-november-2026) updates navigation, entry composition and private capture.
 
 A lawyer records work in an editable day or week list, often that evening or the next morning. A private activity calendar helps reconstruct the day. The firm reviews submitted work across contributors, applies client billing terms and issues a numbered invoice from the approved statement.
 
@@ -261,3 +261,13 @@ Selecting a saved row and pressing **⌘C / Ctrl+C**, choosing a target day and 
 - **Correct several descriptions.** Select submitted positions and choose **Check billing text**. The preview shows the current and proposed wording and the rule behind each change. Applying the preview updates only those descriptions and records each revision. If an entry or its applicable wording has changed, refresh and check the selection again. The corrections leave time, fees and approval status intact.
 - **Share an original proposal.** Submission normally shares only the worker's recorded billing fields. The worker can open **Original comparisons for this submission**, preview one accepted proposal and opt in for that entry's current revision. Its reviewer can then see the original billing description, activity and worked minutes alongside the saved revisions. The comparison excludes clock ranges, accounts, private notes and event metadata. An unavailable original does not prevent ordinary submission. A connected firm must support this comparison before the worker can share it.
 - **Review with the right access.** The assigned reviewer needs record editing and finance permissions. Managing billing settings and reviewer assignments also requires model administration. A change of matter or client can restrict which prior revisions a reviewer sees. The source journal retains the signed history.
+
+## Time workspace and manual capture · 15 November 2026
+
+The clock below Back Office opens a dedicated Time workspace. My time, AI workday, the authorized billing review and billing settings have direct navigation. Earlier descriptions of a Back Office view selector are superseded. The ledger stays the default for manual entry and review stays a compact list. The calendar belongs to reconstruction of the private workday.
+
+Append entries at the bottom using the empty row or its plus button. Existing entries remain editable in place. Tab moves across visible columns, Enter books the row and a complete row can be copied, pasted and edited. Choose visible columns per user and directory on the device. Show day or week totals compactly above the list.
+
+A shared activity has a creator, a group ID and an individual entry for each participant. An author may record exclusively for others. Participants can have different durations, actual billable minutes, actual non-billable minutes and invoice quantities. Only invoice quantities follow the effective billing increment. Each individual draft, confirmation and later revision remains attributable. The creator can see their original delegated lines within current matter permissions. Subsequent private edits belong to the worker. An internal contact in a standalone local directory can be named, while cross-user confirmation requires a firm account.
+
+The private event stream gains a manually operated stopwatch in the desktop mini bar and Time workspace. A run is stored on the local device, survives restarts, and yields a dated workday proposal when stopped. Cross-midnight runs contribute to the relevant days. Manual timing requires neither an enabled calendar source nor a model. The worker supplies the matter and confirms the resulting billing record.

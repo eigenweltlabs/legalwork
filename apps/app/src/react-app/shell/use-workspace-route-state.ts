@@ -678,7 +678,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
       }
       return;
     }
-    if (pathname.startsWith("/back-office")) return;
+    if (pathname.startsWith("/back-office") || pathname === "/time" || pathname.startsWith("/time/")) return;
     if (["/home", "/scheduled", "/calendar", "/projects", "/tasks", "/workflows", "/recorder", "/evals"].includes(pathname)) return;
     if (!routeWorkspaceId && selectedWorkspaceId) {
       navigateToWorkspaceSession(selectedWorkspaceId, selectedSessionId, { replace: true });

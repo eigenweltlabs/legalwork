@@ -13,6 +13,7 @@ import {
   timePolicyError,
   timeEntryError,
   TimeDraftSchema,
+  nonBillableWork,
   TimesheetCommandSchema,
   type TimeDraft,
   type TimeEntry,
@@ -40,7 +41,7 @@ const digest = (v: unknown) =>
 const policyFor = (s: TimesheetState, d: TimeDraft) =>
   resolveTimePolicy(s.policies, d.clientId, d.matterId, d.date, d.projectId);
 // Product identity is resolved before comparison. Its current display title may have changed.
-const editableFields = TimeDraftSchema.omit({ createWorkProduct: true, workProductTitle: true }).keyof().options;
+const editableFields = TimeDraftSchema.omit({ createWorkProduct: true, workProductTitle: true, nonBillableMinutes: true }).keyof().options;
 function validateDraft(state: TimesheetState, draft: TimeDraft, final = false) {
   const matter = state.matters.find((m) => m.id === draft.matterId);
   if (!matter) timeError("Choose an accessible matter.", 404);
@@ -58,6 +59,11 @@ function validateDraft(state: TimesheetState, draft: TimeDraft, final = false) {
   const policy = policyFor(state, draft);
   const error = final ? timePolicyError(draft, policy) : timeEntryError(draft, policy);
   if (error) timeError(error);
+}
+// Date or duration alone cannot identify a meeting. Compare exact instants, also across offsets.
+function meetingSlot(entry: TimeDraft) {
+  if (!["EXM", "INM"].includes(entry.activity) || !entry.startAt || !entry.endAt) return null;
+  return JSON.stringify([entry.matterId, entry.clientId, Date.parse(entry.startAt), Date.parse(entry.endAt)]);
 }
 function suggestion(state: TimesheetState, entry: TimeEntry) {
   return suggestBillingNarrative(entry, policyFor(state, entry));
@@ -275,7 +281,7 @@ function apply(
             (v) => v.id === p.targetId,
           );
     if (!target) timeError("Choose an accessible policy target.");
-    if (p.reviewerId && !state.people.some((v) => v.id === p.reviewerId))
+    if (p.reviewerId && !state.people.some((v) => v.id === p.reviewerId && !v.directoryOnly))
       timeError("Choose a firm account as reviewer.");
     if (p.workerRates && Object.keys(p.workerRates).some((id) => !state.people.some((v) => v.id === id)))
       timeError("Choose a firm account for each worker rate.");
@@ -297,24 +303,40 @@ function apply(
   }
   if (command.type === "create") {
     const d = command.entry;
-    validateDraft(state, d);
-    if (command.source === "suggestion" && !command.proposalDigest)
-      timeError("A suggestion must reference its private original.");
-    if (
-      command.source === "suggestion" &&
-      state.entries.some(
-        (e) => e.authorId === actor.userId && e.proposalDigest === command.proposalDigest,
-      )
-    )
-      timeError("This suggestion has already been recorded.", 409);
+    if (command.source === "suggestion") {
+      if (!command.proposalDigest) timeError("A suggestion must reference its private original.");
+      const booked = store.db.get(
+        `SELECT 1 FROM bo_timesheets WHERE scope=? AND json_extract(data,'$.kind')='entry'
+          AND json_extract(data,'$.value.source')='suggestion' AND json_extract(data,'$.value.authorId')=?
+          AND json_extract(data,'$.value.proposalDigest')=? LIMIT 1`,
+        [scope, actor.userId, command.proposalDigest],
+      );
+      if (booked) timeError("This suggestion has already been recorded.", 409);
+    }
     const workers = [...new Set(command.workerIds ?? [actor.userId])];
     if (workers.some((id) => !state.people.some((p) => p.id === id)))
       timeError("Choose a current account for each participant.");
+    const overrides = new Map(command.workerTimes?.map((time) => [time.workerId, time]));
+    if (
+      overrides.size !== (command.workerTimes?.length ?? 0) ||
+      [...overrides.keys()].some((id) => !workers.includes(id))
+    ) timeError("Choose each participant once and enter their own duration.");
     const product = ensureProduct(store, scope, state, actor.userId, d);
     const { createWorkProduct: _create, ...billingFields } = d;
     for (const workerId of workers) {
+      const override = overrides.get(workerId);
+      const sameDuration = override?.workedMinutes === d.workedMinutes;
+      const allocation = override ? {
+        workedMinutes: override.workedMinutes,
+        nonBillableMinutes: override.nonBillableMinutes,
+        billableMinutes: override.billableMinutes,
+        billable: override.workedMinutes > override.nonBillableMinutes,
+        startAt: sameDuration ? d.startAt : undefined,
+        endAt: sameDuration ? d.endAt : undefined,
+      } : {};
       const e: TimeEntry = {
         ...billingFields,
+        ...allocation,
         id: randomUUID(),
         workProductId: product?.id,
         workProductTitle: product?.name,
@@ -327,6 +349,12 @@ function apply(
         groupId: command.requestId,
         history: [],
       };
+      validateDraft(state, e);
+      if (command.source === "suggestion" && workerId === actor.userId) {
+        const slot = meetingSlot(e);
+        if (slot && state.entries.some((row) => row.workerId === workerId && row.status !== "declined" && meetingSlot(row) === slot))
+          timeError("Your timesheet already has a meeting for this matter, client and time. Check the existing line.", 409);
+      }
       writeEntry(store, scope, actor, null, { ...e, ...snapshotRate(state, e) }, "create");
     }
     return;
@@ -335,9 +363,12 @@ function apply(
     const e = requireEntry(state, command);
     if (e.workerId !== actor.userId || !["pending", "confirmed", "submitted"].includes(e.status))
       timeError("This entry cannot be edited by this person.", 403);
-    validateDraft(state, command.entry);
-    const d = command.entry,
-      product = ensureProduct(store, scope, state, actor.userId, d);
+    // Older clients can edit text without knowing how to express a mixed allocation.
+    const d = command.entry.billable && command.entry.nonBillableMinutes === undefined && e.billable && e.nonBillableMinutes
+      ? { ...command.entry, nonBillableMinutes: e.nonBillableMinutes }
+      : command.entry;
+    validateDraft(state, d);
+    const product = ensureProduct(store, scope, state, actor.userId, d);
     const { createWorkProduct: _create, ...billingFields } = d;
     const next: TimeEntry = {
       ...billingFields,
@@ -353,7 +384,7 @@ function apply(
       workProductTitle: product?.name,
       status: e.status === "submitted" ? "confirmed" : e.status,
     };
-    if (!e.legacy && editableFields.every((key) => e[key] === next[key])) return;
+    if (!e.legacy && nonBillableWork(e) === nonBillableWork(next) && editableFields.every((key) => e[key] === next[key])) return;
     writeEntry(store, scope, actor, e, { ...next, ...snapshotRate(state, next) }, "update");
     return;
   }
@@ -414,6 +445,9 @@ function apply(
     issue(store, state, actor, selection, command.adjustmentVersions ?? []);
     return;
   }
+  const booked = new Set(command.type === "confirm"
+    ? state.entries.filter((e) => e.workerId === actor.userId && e.status !== "pending" && e.status !== "declined").map(meetingSlot)
+    : []);
   for (const e of selection) {
     let status: TimeEntry["status"];
     if (command.type === "approve" || command.type === "return") {
@@ -425,6 +459,12 @@ function apply(
         timeError("Only the worker can confirm or submit this entry.", 403);
       if (command.type === "submit" ? e.status !== "confirmed" : e.status !== "pending")
         timeError("The entry is no longer at this stage.", 409);
+      if (command.type === "confirm") {
+        const slot = meetingSlot(e);
+        if (slot && booked.has(slot))
+          timeError("Your timesheet already has a meeting for this matter, client and time. Check the existing line.", 409);
+        if (slot) booked.add(slot);
+      }
       status =
         command.type === "submit" ? "submitted" : command.type === "confirm" ? "confirmed" : "declined";
     }

@@ -17,11 +17,19 @@ let animationFrame = 0;
 let previousFrameAt = 0;
 let meterStartedAt = 0;
 let meetingStartedAt = null;
+const stopwatchControl = document.getElementById("stopwatch-control");
+const stopwatchButton = document.getElementById("stopwatch");
+const stopwatchTime = document.getElementById("stopwatch-time");
+const stopwatchFeedback = document.getElementById("stopwatch-feedback");
+let stopwatch = null;
+let stopwatchLabels;
 let idleNotice = "";
 let meetingStartNotice = "";
 const meteringStates = ["starting", "listening", "meeting-starting", "meeting-recording"];
 const translations = {
   en: {
+    stopwatchStart: "Start stopwatch", stopwatchStop: "Stop stopwatch and save time", stopwatchRetry: "Reconnect stopwatch",
+    stopwatchUnavailable: "Stopwatch unavailable · Retry", stopwatchFailed: "Time could not be updated. Try again.", stopwatchSaved: "Time saved in Workday",
     starting: "Starting dictation", listening: "Listening", transcribing: "Transcribing…", inserting: "Inserting…",
     copied: "Couldn’t insert text", copyInstructions: "Copied to clipboard. Select a text field and press {paste} to paste.",
     success: "Text inserted", cancelled: "Cancelled", error: "Dictation needs attention",
@@ -32,6 +40,8 @@ const translations = {
     meetingStart: "Record meeting", meetingStop: "Stop and save meeting", meetingOpen: "Open recording in LegalWork", meetingDetected: "Meeting detected", meetingDescription: "Record microphone and meeting audio", meetingDismiss: "Not now", meetingRecord: "Record",
   },
   de: {
+    stopwatchStart: "Stoppuhr starten", stopwatchStop: "Stoppuhr stoppen und Zeit speichern", stopwatchRetry: "Stoppuhr erneut verbinden",
+    stopwatchUnavailable: "Stoppuhr nicht verfügbar · Erneut versuchen", stopwatchFailed: "Zeit konnte nicht aktualisiert werden. Erneut versuchen.", stopwatchSaved: "Zeit im Arbeitstag gespeichert",
     starting: "Diktat starten", listening: "Hört zu", transcribing: "Wird transkribiert…", inserting: "Wird eingefügt…",
     copied: "Text konnte nicht eingefügt werden", copyInstructions: "In die Zwischenablage kopiert. Wähle ein Textfeld und drücke {paste}, um den Text einzufügen.",
     success: "Text eingefügt", cancelled: "Abgebrochen", error: "Diktat braucht Aufmerksamkeit",
@@ -73,6 +83,24 @@ function animateMeter(now) {
   animationFrame = requestAnimationFrame(animateMeter);
 }
 
+function renderStopwatch() {
+  if (!stopwatch) return;
+  const started = stopwatch.startedAt;
+  const elapsed = started ? Math.max(0, Math.floor((Date.now() - Date.parse(started)) / 1000)) : 0;
+  const hours = Math.floor(elapsed / 3600);
+  const minutes = Math.floor(elapsed / 60) % 60;
+  const display = (hours ? hours + ":" + String(minutes).padStart(2, "0") : minutes) + ":" + String(elapsed % 60).padStart(2, "0");
+  if (started && stopwatchTime.textContent !== display) stopwatchTime.textContent = display;
+  const feedback = stopwatch.failed ? stopwatchLabels.stopwatchFailed : stopwatch.savedUntil > Date.now() ? stopwatchLabels.stopwatchSaved : "";
+  if (stopwatchFeedback.textContent !== feedback) stopwatchFeedback.textContent = feedback;
+}
+
+stopwatchButton.addEventListener("click", () => {
+  if (!stopwatch || stopwatch.busy) return;
+  const action = stopwatch.unavailable ? "retry" : stopwatch.startedAt ? "stop" : "start";
+  bridge.action("stopwatch-" + action, stopwatch.version);
+});
+
 bridge.onState((value) => {
   document.documentElement.dataset.theme = value.dark ? "dark" : "light";
   document.documentElement.dataset.appearance = value.appearance || "app";
@@ -90,6 +118,22 @@ bridge.onState((value) => {
   document.documentElement.dataset.theme = value.dark ? "dark" : "light";
   const shortcut = shortcutLabel(value.accelerator, value.platform);
   const labels = translations[value.locale] || translations.en;
+  stopwatch = value.stopwatch;
+  stopwatchLabels = labels;
+  stopwatchControl.hidden = !stopwatch;
+  if (stopwatch) {
+    const running = Boolean(stopwatch.startedAt);
+    const action = stopwatch.unavailable ? labels.stopwatchRetry : running ? labels.stopwatchStop : labels.stopwatchStart;
+    stopwatchControl.dataset.running = String(running);
+    stopwatchControl.dataset.unavailable = String(stopwatch.unavailable);
+    stopwatchButton.disabled = stopwatch.busy;
+    stopwatchButton.title = stopwatch.unavailable ? labels.stopwatchUnavailable : action;
+    stopwatchButton.setAttribute("aria-label", action);
+    if (running) stopwatchButton.setAttribute("aria-describedby", "stopwatch-time");
+    else stopwatchButton.removeAttribute("aria-describedby");
+    stopwatchTime.hidden = !running;
+  }
+  renderStopwatch();
   meetingStartNotice = labels.meetingStart;
   meetingStartedAt = value.meeting?.startedAt;
   document.body.dataset.meetingAvailable = "true";
@@ -156,6 +200,7 @@ for (const action of ["meeting-start", "meeting-stop", "meeting-open", "meeting-
 document.getElementById("meeting-record").addEventListener("click", () => bridge.action("meeting-start"));
 document.getElementById("meeting-close").addEventListener("click", () => bridge.action("meeting-dismiss"));
 setInterval(() => {
+  renderStopwatch();
   const seconds = meetingStartedAt ? Math.max(0, Math.floor((Date.now() - meetingStartedAt) / 1000)) : 0;
   document.getElementById("meeting-time").textContent = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 }, 250);
@@ -166,7 +211,7 @@ let interactive = false;
 let pointerDrag = null;
 let suppressClick = false;
 function setHover(target) {
-  bar.dataset.hovered = String(Boolean(target?.closest("#bar")) && !pointerDrag?.moving);
+  bar.dataset.hovered = String(Boolean(target?.closest("#bar")) && !target?.closest("#stopwatch-control") && !pointerDrag?.moving);
   for (const id of ["start", "meeting-start"]) {
     document.getElementById(id).dataset.hovered = String(target?.closest("button")?.id === id && !pointerDrag?.moving);
   }

@@ -1,6 +1,6 @@
 import { acceptPrivateProposal, captureProfile, submissionOriginals } from "../time-capture/routes.js";
 import { z } from "zod";
-import { TimesheetCommandSchema, TimesheetStateSchema } from "./timesheet-schema.js";
+import { requiresTimeAllocations, TimesheetCommandSchema, TimesheetStateSchema } from "./timesheet-schema.js";
 import type { ServerConfig } from "../types.js";
 import type { RequestContext } from "../routes/registry.js";
 import { ApiError } from "../errors.js";
@@ -12,6 +12,7 @@ import { backOfficeDirectoryIdentity, type backOfficeAccess } from "./access.js"
 import type { BackOfficeStore } from "./store.js";
 import { readTimeDocument, readTimesheet, timeError } from "./timesheet-data.js";
 import { commandTimesheet } from "./timesheet.js";
+import { DEFAULT_INTERNAL_PERSON_TYPES } from "./schema.js";
 import { submitFirmComparisons } from "./timesheet-sharing.js";
 
 type Access = Awaited<ReturnType<typeof backOfficeAccess>>;
@@ -73,6 +74,12 @@ export function registerTimesheetRoutes(
       }, consent);
       const execute = async () => {
         if (access.scope !== "local") {
+          if (command && requiresTimeAllocations(command)) {
+            const current = await platformState(access, "GET");
+            if (!current.supportsTimeAllocations)
+              timeError("The connected firm does not support split or per-participant time. Update its timesheet service before saving.", 409);
+            await assertIdentity(ctx, store, access);
+          }
           if (!consent.length || command?.type !== "submit") return platformState(access, method, command);
           const current = await platformState(access, "GET");
           return submitFirmComparisons(command, current, readOriginals, async (submission) => {
@@ -101,7 +108,17 @@ export function registerTimesheetRoutes(
         );
         const originals = consent.length ? await readOriginals() : undefined;
         await assertIdentity(ctx, store, access);
-        const people = [{ id: access.actor.userId, name: "Local user" }];
+        const people = [
+          { id: access.actor.userId, name: "Local user" },
+          ...store.records(access.scope, access.actor, "people").flatMap(({ id, values }) => {
+            const { active, name, personType } = values;
+            if (
+              id === access.actor.userId || active !== true || typeof name !== "string" || !name ||
+              typeof personType !== "string" || !DEFAULT_INTERNAL_PERSON_TYPES.includes(personType)
+            ) return [];
+            return [{ id, name, directoryOnly: true as const }];
+          }),
+        ];
         return command
           ? commandTimesheet(store, access.scope, access.actor, people, command, workspaces, originals)
           : readTimesheet(store, access.scope, access.actor, people, workspaces);

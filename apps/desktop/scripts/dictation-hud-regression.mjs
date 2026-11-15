@@ -34,7 +34,21 @@ app.whenReady().then(async () => {
   let cursor = nativeCursor();
   // Simulate the OS pointer as well as Chromium input without moving the user's mouse.
   screen.getCursorScreenPoint = () => cursor;
-  const hud = new DictationHud({ onStart: () => actions.push("start"), onStop: () => actions.push("stop"), onCancel: () => actions.push("cancel"), onMicrophoneMenu: () => actions.push("microphone-menu"), onMeetingStart: () => actions.push("meeting-start"), onMeetingStop: () => actions.push("meeting-stop"), onMeetingDismiss: () => actions.push("meeting-dismiss"), onMeetingOpen: () => actions.push("meeting-open") });
+  const testingStopwatch = process.argv.includes("--stopwatch");
+  const timerState = { profileId: "fixture", active: null, lastStopped: null };
+  const stopwatchRequest = async (action, profile) => {
+    if (action) {
+      assert.equal(profile, "fixture");
+      if (action.type === "start") timerState.active = { id: action.id, startedAt: new Date().toISOString() };
+      else {
+        assert.equal(action.id, timerState.active.id);
+        timerState.active = null;
+        timerState.lastStopped = { id: action.id, stoppedAt: new Date().toISOString(), date: "2026-11-15" };
+      }
+    }
+    return structuredClone(timerState);
+  };
+  const hud = new DictationHud({ stopwatchRequest: testingStopwatch ? stopwatchRequest : undefined, onStart: () => actions.push("start"), onStop: () => actions.push("stop"), onCancel: () => actions.push("cancel"), onMicrophoneMenu: () => actions.push("microphone-menu"), onMeetingStart: () => actions.push("meeting-start"), onMeetingStop: () => actions.push("meeting-stop"), onMeetingDismiss: () => actions.push("meeting-dismiss"), onMeetingOpen: () => actions.push("meeting-open") });
   try {
     if (output) await mkdir(output, { recursive: true });
     await writeFile(hud.positionPath, JSON.stringify({ dock: "top" }));
@@ -84,6 +98,46 @@ app.whenReady().then(async () => {
       window.webContents.sendInputEvent({ ...event, globalX: cursor.x, globalY: cursor.y });
     };
     const center = id => window.webContents.executeJavaScript(`(() => {const r=document.getElementById('${id}').getBoundingClientRect();return {x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2)};})()`);
+    if (testingStopwatch) {
+      for (const dock of DOCKS) {
+        hud.dock = dock;
+        hud.positionWindow();
+        await hud.setState("idle", "", dock === "bottom" ? "en" : "de");
+        await delay(350);
+        const button = await center("stopwatch");
+        const click = async point => {
+          input({ type: "mouseMove", ...point });
+          await delay(150);
+          input({ type: "mouseDown", button: "left", clickCount: 1, ...point });
+          input({ type: "mouseUp", button: "left", clickCount: 1, ...point });
+          await delay(150);
+        };
+        await click(button);
+        assert.ok(timerState.active, dock + " starts the timer");
+        await delay(1100);
+        assert.match(await window.webContents.executeJavaScript('document.querySelector("#stopwatch-time").textContent'), /^0:0[1-3]$/);
+        await hud.setMeeting({ ...idleMeeting, state: "recording", startedAt: Date.now(), recordingId: "synthetic" });
+        await delay(350);
+        const running = await window.webContents.executeJavaScript(`(() => {
+          const b = document.querySelector("#stopwatch"), r = b.getBoundingClientRect();
+          const m = document.querySelector("#meeting-stop").getBoundingClientRect();
+          return {
+            visible: r.left >= 0 && r.top >= 0 && r.right <= innerWidth && r.bottom <= innerHeight,
+            hit: document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)?.closest("button")?.id,
+            meeting: document.elementFromPoint(m.x+m.width/2,m.y+m.height/2)?.closest("button")?.id,
+            label: b.getAttribute("aria-label")
+          };
+        })()`);
+        assert.deepEqual(running, { visible: true, hit: "stopwatch", meeting: "meeting-stop", label: dock === "bottom" ? "Stop stopwatch and save time" : "Stoppuhr stoppen und Zeit speichern" });
+        await click(await center("stopwatch"));
+        assert.equal(timerState.active, null);
+        assert.equal(hud.meeting.state, "recording");
+        assert.match(await window.webContents.executeJavaScript('document.querySelector("#stopwatch-feedback").textContent'), /Workday|Arbeitstag/);
+        await hud.setMeeting(idleMeeting);
+      }
+      console.log("PASS: stopwatch starts and ticks on all three docks, preserves meeting controls, stops and acknowledges the private draft");
+      return;
+    }
     const rendererErrors = [];
     window.webContents.on("console-message", (_event, level, message) => {
       if (level === 3) rendererErrors.push(message);

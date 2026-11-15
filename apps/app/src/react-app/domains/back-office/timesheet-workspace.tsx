@@ -1,9 +1,8 @@
 import { useState } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronDown } from "lucide-react";
-import { Dropdown } from "twenty-ui/components/navigation";
-import { Button } from "twenty-ui/primitives/input";
+import { List, Sparkles, ListChecks, Settings2, Timer } from "lucide-react";
+
 import {
   proposedCharge,
   resolveTimePolicy,
@@ -21,15 +20,13 @@ import {
 } from "@/app/lib/legalwork-server";
 import { calendarClientScope } from "../calendar/calendar-cache";
 import type { BackOfficeState } from "./api";
-import { DirectoryMenu } from "./twenty-controls";
+import { timeRoutes } from "./time-routes";
+import { TimesheetStopwatch } from "./timesheet-stopwatch";
 import { TimesheetLedger } from "./timesheet-ledger";
 import { BillingReview } from "./billing-review";
 import { BillingPreferences } from "./billing-preferences";
 import { TimesheetWorkday } from "./timesheet-workday";
 
-export function isTimesheetPage(page: string) {
-  return ["timesheets", "billing-review", "billing-settings", "timesheet-workday"].includes(page);
-}
 type SelectedProposal = {
   key: string;
   entry: Partial<TimeDraft>;
@@ -43,11 +40,10 @@ export function TimesheetWorkspace({
 }: {
   client: LegalworkServerClient;
   directory: BackOfficeState;
-  page: string;
+  page: keyof typeof timeRoutes;
 }) {
-  const [params] = useSearchParams(),
-    cache = useQueryClient(),
-    navigate = useNavigate();
+  const [params, setParams] = useSearchParams(),
+    cache = useQueryClient();
   const { userId, principalKey, replicaId } = directory.permissions;
   const team = directory.scope !== "local";
   const key = [
@@ -64,14 +60,26 @@ export function TimesheetWorkspace({
     directory.permissions.finance,
   ];
   const initialDate = CalendarDaySchema.safeParse(params.get("date")).data;
+  function selectDate(date: string) {
+    if (date === initialDate) return;
+    setParams(
+      (previous) => {
+        const next = new URLSearchParams(previous);
+        next.set("date", date);
+        return next;
+      },
+      { replace: true },
+    );
+  }
   async function request(command?: TimesheetCommand) {
     const identity = new URLSearchParams({ expectedUserId: userId });
     if (directory.directoryId) identity.set("directoryId", directory.directoryId);
     if (principalKey) identity.set("expectedPrincipalKey", principalKey);
-    if (directory.captureProfileId && (
-      (command?.type === "create" && command.source === "suggestion") ||
-      (command?.type === "submit" && command.entries.some((e) => e.shareOriginal))
-    ))
+    if (
+      directory.captureProfileId &&
+      ((command?.type === "create" && command.source === "suggestion") ||
+        (command?.type === "submit" && command.entries.some((e) => e.shareOriginal)))
+    )
       identity.set("profileId", directory.captureProfileId);
     const state = TimesheetStateSchema.parse(
       await client.backOffice("/timesheet?" + identity, {
@@ -88,9 +96,9 @@ export function TimesheetWorkspace({
     retry: false,
     refetchInterval: 30000,
   });
-  const [menu, setMenu] = useState(false),
-    [proposal, setProposal] = useState<SelectedProposal>();
-  const state = query.data;
+  const [proposal, setProposal] = useState<SelectedProposal>();
+  const [ledgerDirty, setLedgerDirty] = useState(false);
+  const state = query.isError ? undefined : query.data;
   async function send(command: TimesheetCommand) {
     try {
       const next = await request(command);
@@ -126,7 +134,7 @@ export function TimesheetWorkspace({
       entry: {
         date: p.date,
         activity: p.activity,
-        narrative: p.narrative,
+        narrative: p.source === "stopwatch" && !p.parentDigest ? "" : p.narrative,
         ...(project ? { projectId: project.id } : {}),
         ...(matter
           ? { matterId: matter.id, clientId: matter.clientIds.length === 1 ? matter.clientIds[0] : "" }
@@ -137,84 +145,81 @@ export function TimesheetWorkspace({
       },
     });
   };
-  if (query.isError)
-    return (
-      <div className="bo-empty" role="alert">
-        {team &&
-        query.error instanceof LegalworkServerError &&
-        [404, 501, 502].includes(query.error.status)
-          ? t("timesheets.hosted_unavailable")
-          : query.error.message}{" "}
-        <button type="button" onClick={() => void query.refetch()}>
-          {t("timesheets.retry")}
-        </button>
-      </div>
-    );
-  if (!state) return <div className="bo-loading">{t("timesheets.loading")}</div>;
-  const titles: Record<string, string> = {
-    timesheets: t("timesheets.mine"),
-    "timesheet-workday": t("timesheets.workday"),
-    "billing-review": t("timesheets.review"),
-    "billing-settings": t("timesheets.settings"),
-  };
-  const available = [
-    "timesheets",
-    "timesheet-workday",
-    ...(state.canReview || state.canManage ? ["billing-review"] : []),
-    "billing-settings",
-  ];
+  const tabs = [
+    { id: "timesheets", label: t("timesheets.mine"), Icon: List },
+    { id: "timesheet-workday", label: t("timesheets.ai_tab"), Icon: Sparkles },
+    { id: "billing-review", label: t("timesheets.review"), Icon: ListChecks },
+    { id: "billing-settings", label: t("timesheets.settings"), Icon: Settings2 },
+  ] as const;
   return (
     <>
-      <header className="bo-object-header">
-        <DirectoryMenu
-          open={menu}
-          onOpenChange={setMenu}
-          trigger={
-            <Button size="sm" endIcon={<ChevronDown size={14} />}>
-              {titles[page]}
-            </Button>
-          }
-        >
-          {available.map((id) => (
-            <Dropdown.ActionItem
-              key={id}
-              onClick={() => {
-                setMenu(false);
-                navigate("/back-office/" + id);
-              }}
-            >
-              {titles[id]}
-            </Dropdown.ActionItem>
-          ))}
-        </DirectoryMenu>
-        {page === "timesheets" && (
-          <Link className="bo-time-secondary" to="/back-office/timesheet-workday">
-            {t("timesheets.workday")}
-          </Link>
+      <header className="time-section-header">
+        <h1>
+          <Timer size={19} />
+          {t("timesheets.workspace_title")}
+        </h1>
+        <nav aria-label={t("timesheets.workspace_title")}>
+          {tabs
+            .filter(({ id }) => id !== "billing-review" || state?.canReview || state?.canManage)
+            .map(({ id, label, Icon }) => (
+              <Link
+                key={id}
+                to={timeRoutes[id] + (initialDate ? "?date=" + initialDate : "")}
+                aria-current={page === id ? "page" : undefined}
+              >
+                <Icon size={15} />
+                {label}
+              </Link>
+            ))}
+        </nav>
+        {directory.captureProfileId && isLoopbackLegalworkServerUrl(client.baseUrl) && (
+          <TimesheetStopwatch client={client} profileId={directory.captureProfileId} />
         )}
       </header>
-      {page === "timesheets" && (
-        <TimesheetLedger
-          onOriginal={
-            isLoopbackLegalworkServerUrl(client.baseUrl)
-              ? (digest) =>
-                  client.privateWorkdayOriginal(digest, {
-                    scope: directory.scope,
-                    user: userId,
-                    principal: principalKey ?? "",
-                    ...(directory.captureProfileId ? { profileId: directory.captureProfileId } : {}),
-                  })
-              : undefined
-          }
-          canEdit={directory.permissions.edit}
-          state={state}
-          onCommand={send}
-          initialDate={initialDate}
-          onDiscardProposal={() => setProposal(undefined)}
-          initialDraft={proposal}
-        />
+      {query.isError && (
+        <div className="bo-empty" role="alert">
+          {team && query.error instanceof LegalworkServerError && [404, 501, 502].includes(query.error.status)
+            ? t("timesheets.hosted_unavailable")
+            : query.error.message}{" "}
+          <button type="button" onClick={() => void query.refetch()}>
+            {t("timesheets.retry")}
+          </button>
+        </div>
       )}
-      {page === "billing-review" && (
+      {!query.isError && !state && <div className="bo-loading">{t("timesheets.loading")}</div>}
+      {state && (page === "timesheets" || ledgerDirty) && (
+        <div className="time-ledger-pane" hidden={page !== "timesheets"}>
+          <TimesheetLedger
+            onOriginal={
+              isLoopbackLegalworkServerUrl(client.baseUrl)
+                ? (digest) =>
+                    client.privateWorkdayOriginal(digest, {
+                      scope: directory.scope,
+                      user: userId,
+                      principal: principalKey ?? "",
+                      ...(directory.captureProfileId ? { profileId: directory.captureProfileId } : {}),
+                    })
+                : undefined
+            }
+            canEdit={directory.permissions.edit}
+            state={state}
+            onCommand={send}
+            columnScope={JSON.stringify([
+              client.baseUrl,
+              directory.directoryId,
+              directory.scope,
+              principalKey,
+              userId,
+            ])}
+            onEditingChange={setLedgerDirty}
+            onDateChange={selectDate}
+            initialDate={initialDate}
+            onDiscardProposal={() => setProposal(undefined)}
+            initialDraft={proposal}
+          />
+        </div>
+      )}
+      {state && page === "billing-review" && (
         <BillingReview
           canEdit={directory.permissions.edit}
           initialDate={initialDate}
@@ -223,7 +228,7 @@ export function TimesheetWorkspace({
           onCommand={send}
         />
       )}
-      {page === "billing-settings" && (
+      {state && page === "billing-settings" && (
         <BillingPreferences
           state={state}
           onCommand={send}
@@ -236,12 +241,14 @@ export function TimesheetWorkspace({
           initialClientId={params.get("client") ?? undefined}
         />
       )}
-      {page === "timesheet-workday" && (
+      {state && page === "timesheet-workday" && (
         <TimesheetWorkday
           initialDate={initialDate}
+          onDateChange={selectDate}
           client={client}
           directory={directory}
           state={state}
+          ledgerDirty={ledgerDirty}
           onDraft={draft}
         />
       )}

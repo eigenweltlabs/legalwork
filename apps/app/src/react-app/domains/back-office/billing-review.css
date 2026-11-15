@@ -240,3 +240,11 @@
 .bo-billing-wording-preview td {
   overflow-wrap: anywhere;
 }
+
+.bo-billing-rules fieldset { padding-top: 14px; gap: 6px; }
+.bo-billing-rules legend { font-size: 14px; font-weight: 600; padding: 0; }
+.bo-billing-rules .bo-billing-rule { min-height: 40px; }
+.bo-billing-rule > div:has([data-slot="switch"]) { gap: 10px; }
+.bo-billing-rule small { color: var(--bo-muted); font-size: 11px; }
+.bo-billing-rules h3 { font-size: 13px; font-weight: 600; margin-top: 16px; }
+.bo-billing-rules .bo-billing-subrow { padding-inline: 0; }

@@ -1,4 +1,5 @@
 import { workspaceFileRoot } from "@legalwork/types/workspace";
+import { timePage } from "../domains/back-office/time-routes";
 import { BackOfficePage } from "../domains/back-office/back-office-page";
 import { defaultProjectFields, useProjectDefaultsStore } from "@/react-app/domains/workspace/project-defaults-store";
 import {ensureNativeCatalogReady} from "@/app/lib/opencode-catalog-ready";
@@ -412,7 +413,8 @@ export function SessionRoute() {
   // Mirroring the URL in state lets urgent updates reopen the chat sidebar
   // while React Router is still committing a top-level navigation.
   const mainPage = sessionMainPage(location.pathname);
-  const backOfficePage = location.pathname === "/back-office" || location.pathname.startsWith("/back-office/");
+  const timeSection = timePage(location.pathname);
+  const backOfficePage = Boolean(timeSection) || location.pathname === "/back-office" || location.pathname.startsWith("/back-office/");
   const showWikis = mainPage === "wikis";
   const manageWikis = showWikis && new URLSearchParams(location.search).get("manage") === "1";
   const showEvals = mainPage === "evals";
@@ -2980,7 +2982,7 @@ export function SessionRoute() {
         // Tasks live on this machine, so the surface exists for everyone — a
         // connected firm additionally syncs them with its Eigenwelt account.
         onShowTasks: showTasksPane,
-        activeNav: backOfficePage ? "back-office" : mainPage === "projects" ? null : mainPage,
+        activeNav: timeSection ? "time" : backOfficePage ? "back-office" : mainPage === "projects" ? null : mainPage,
         workspaceSessionGroups,
         selectedWorkspaceId,
         selectedSessionId,

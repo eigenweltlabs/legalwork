@@ -1,3 +1,4 @@
+import { changeStopwatch, emptyStopwatch, privateStopwatchSchema } from "./stopwatch.js";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { originalBillingComparison, proposalCommitment } from "./original.js";
 import { correctWorkday } from "./correct-workday.js";
@@ -6,6 +7,8 @@ import { dirname, join } from "node:path";
 import { z } from "zod";
 import {
   captureEnabled,
+  stopwatchActionSchema,
+  stopwatchStateSchema,
   workdayCorrectionSchema,
   captureProposalSchema,
   captureSettingsSchema,
@@ -25,6 +28,7 @@ import { connectedWorkdayAccounts, readConnectedWorkday, sourceAvailable } from 
 import { draftWithLocalModel, localModel } from "./local-model.js";
 
 const savedSchema = z.object({
+  stopwatch: privateStopwatchSchema.default(emptyStopwatch),
   settings: captureSettingsSchema,
   lastRun: z.number(),
   days: z.record(
@@ -38,6 +42,7 @@ const savedSchema = z.object({
 });
 type Saved = z.infer<typeof savedSchema>;
 const defaults = (): Saved => ({
+  stopwatch: emptyStopwatch(),
   settings: { calendar: false, tasks: false, intervalMinutes: 0 },
   lastRun: 0,
   days: {},
@@ -284,7 +289,8 @@ async function prepare(config: ServerConfig, path: string, date: string, withMod
       for (const previous of old)
         if (
           !available.has(previous.eventKey) &&
-          (previous.proposal.dismissed ||
+          (previous.proposal.source === "stopwatch" ||
+            previous.proposal.dismissed ||
             previous.proposal.parentDigest ||
             current.accepted[previous.proposal.key])
         )
@@ -343,6 +349,33 @@ export function registerWorkdayRoutes(options: {
   readJsonBodyLimited: (request: Request, max: number) => Promise<Record<string, unknown>>;
 }) {
   const { routes, config } = options;
+  for (const method of ["GET", "POST"])
+    addRoute(routes, method, "/private-timesheet/stopwatch", "host-token", async (ctx) => {
+      if (!loopback(config) || ctx.agentAccess)
+        throw new ApiError(403, "private_workday", "Open the stopwatch on your local LegalWork server.");
+      const { path, profileId } = await profile(config);
+      const expected = ctx.url.searchParams.get("profileId");
+      if ((method === "POST" || expected !== null) && expected !== profileId)
+        throw new ApiError(409, "private_workday_changed", "The active Back Office account changed.");
+      let timer: Saved["stopwatch"];
+      if (method === "POST") {
+        options.ensureWritable(config);
+        const action = stopwatchActionSchema.parse(await options.readJsonBodyLimited(ctx.request, 512));
+        timer = await withFileWriteLock(path, async () => {
+          const saved = await load(path);
+          if ((await profile(config)).path !== path)
+            throw new ApiError(409, "private_workday_changed", "The active Back Office account changed.");
+          changeStopwatch(saved, action, new Date(), Intl.DateTimeFormat().resolvedOptions().timeZone);
+          await save(path, saved);
+          return saved.stopwatch;
+        });
+      } else timer = (await load(path)).stopwatch;
+      if ((await profile(config)).path !== path)
+        throw new ApiError(409, "private_workday_changed", "The active Back Office account changed.");
+      const response = options.jsonResponse(stopwatchStateSchema.parse({ ...timer, profileId }));
+      response.headers.set("Cache-Control", "no-store");
+      return response;
+    });
   addRoute(routes, "GET", "/private-timesheet/original/:digest", "host", async (ctx) => {
     if (!loopback(config) || ctx.agentAccess)
       throw new ApiError(403, "private_workday", "Open the original on the local device.");

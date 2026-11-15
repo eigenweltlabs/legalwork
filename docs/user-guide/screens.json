@@ -42,22 +42,22 @@
   "panels": [
     {
       "id": "timesheet-ledger",
-      "guide": "back-office.md",
+      "guide": "time-tracking.md",
       "source": "apps/app/src/react-app/domains/back-office/timesheet-ledger.tsx"
     },
     {
       "id": "private-workday",
-      "guide": "back-office.md",
+      "guide": "time-tracking.md",
       "source": "apps/app/src/react-app/domains/back-office/timesheet-workday.tsx"
     },
     {
       "id": "billing-review",
-      "guide": "back-office.md",
+      "guide": "time-tracking.md",
       "source": "apps/app/src/react-app/domains/back-office/billing-review.tsx"
     },
     {
       "id": "billing-preferences",
-      "guide": "back-office.md",
+      "guide": "time-tracking.md",
       "source": "apps/app/src/react-app/domains/back-office/billing-preferences.tsx"
     },
     {
@@ -155,6 +155,11 @@
     {
       "path": "/tasks",
       "guide": "tasks-intake.md",
+      "source": "apps/app/src/react-app/shell/app-root.tsx"
+    },
+    {
+      "path": "/time/*",
+      "guide": "time-tracking.md",
       "source": "apps/app/src/react-app/shell/app-root.tsx"
     },
     {

@@ -44,6 +44,7 @@ export const TimeDraftSchema = z.strictObject({
   activity: z.string().trim().min(1).max(100),
   narrative: text,
   workedMinutes: minutes.min(1),
+  nonBillableMinutes: minutes.optional(),
   billable: z.boolean(),
   billableMinutes: minutes,
   createWorkProduct: z.literal(true).optional(),
@@ -51,6 +52,19 @@ export const TimeDraftSchema = z.strictObject({
   workProductTitle: z.string().trim().min(1).max(240).optional(),
 });
 export type TimeDraft = z.infer<typeof TimeDraftSchema>;
+// Strip the review, pricing and workflow fields on a creation snapshot before returning it to its author.
+export const DelegatedTimeEntrySchema = z.object({
+  ...TimeDraftSchema.omit({ createWorkProduct: true }).shape,
+  id,
+  workerId: id,
+  groupId: id,
+  createdAt: z.iso.datetime(),
+});
+export type DelegatedTimeEntry = z.infer<typeof DelegatedTimeEntrySchema>;
+/** Older entries assigned all actual time to one category; invoice rounding never changes actual time. */
+export function nonBillableWork(entry: Pick<TimeDraft, "workedMinutes" | "billable" | "nonBillableMinutes">) {
+  return entry.nonBillableMinutes ?? (entry.billable ? 0 : entry.workedMinutes);
+}
 const bindingTermSchema = z.strictObject({
   clientId: id,
   effectiveFrom: date,
@@ -284,6 +298,9 @@ export function timeEntryError(draft: TimeDraft, policy: ReturnType<typeof resol
     Math.round((Date.parse(draft.endAt) - Date.parse(draft.startAt)) / 60000) !== draft.workedMinutes
   )
     return "Worked minutes must match the recorded start and end.";
+  const nonBillable = nonBillableWork(draft);
+  if (nonBillable > draft.workedMinutes || draft.billable !== (draft.workedMinutes > nonBillable))
+    return "Billable and non-billable work must add up to the actual duration.";
   if (!draft.billable && draft.billableMinutes)
     return "Non-billable work must have zero chargeable minutes.";
   if (policy.enforceIncrement && draft.billableMinutes % policy.incrementMinutes)
@@ -336,7 +353,7 @@ const history = z.object({
   after: snapshot,
 });
 const sharedOriginal = z.strictObject({
-  activity: text,
+  activity: z.string().trim().max(100),
   narrative: text,
   workedMinutes: minutes.nullable(),
   submittedRevision: z.number().int().positive(),
@@ -407,6 +424,9 @@ export const TimesheetCommandSchema = z.discriminatedUnion("type", [
     requestId: z.uuid(),
     entry: TimeDraftSchema,
     workerIds: z.array(id).min(1).max(100).optional(),
+    workerTimes: z.array(z.strictObject({
+      workerId: id, workedMinutes: minutes.min(1), nonBillableMinutes: minutes, billableMinutes: minutes,
+    })).min(1).max(100).optional(),
     source: source.optional(),
     proposalDigest: z
       .string()
@@ -494,6 +514,10 @@ export const TimesheetCommandSchema = z.discriminatedUnion("type", [
   }),
 ]);
 export type TimesheetCommand = z.infer<typeof TimesheetCommandSchema>;
+export function requiresTimeAllocations(command: TimesheetCommand) {
+  return (command.type === "create" && Boolean(command.workerTimes?.length)) ||
+    ((command.type === "create" || command.type === "update") && command.entry.nonBillableMinutes !== undefined);
+}
 const invoiceSchema = z.object({
   id,
   number: z.number().int().positive().safe(),
@@ -510,13 +534,15 @@ export const TimesheetStateSchema = z.object({
   scope: z.string(),
   template: invoiceTemplateSchema.optional(),
   supportsBillingComparisons: z.boolean().optional(),
+  supportsTimeAllocations: z.boolean().optional(),
   canManage: z.boolean(),
   canReview: z.boolean(),
   entries: z.array(TimeEntrySchema),
+  delegatedEntries: z.array(DelegatedTimeEntrySchema).optional(),
   adjustments: z.array(TimeAdjustmentSchema).optional(),
   matters: z.array(entity.extend({ clientIds: z.array(id), reference: z.string() })),
   clients: z.array(entity),
-  people: z.array(entity),
+  people: z.array(entity.extend({ directoryOnly: z.literal(true).optional() })),
   products: z.array(
     entity.extend({
       matterId: id,

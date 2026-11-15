@@ -1,7 +1,9 @@
 import { afterEach, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import {
+  nonBillableWork,
   proposedCharge,
+  requiresTimeAllocations,
   resolveTimePolicy,
   type TimeDraft,
   type TimesheetCommand,
@@ -901,4 +903,120 @@ test("workers share only verified billing fields on their chosen submission, wit
   expect([reads, sent]).toEqual([0, 0]);
   expect((await submitFirmComparisons(cmd, current, read, post)).entries[0].sharedOriginal).toEqual(shared.sharedOriginal);
   await expect(submitFirmComparisons(cmd, current, read, async () => current)).rejects.toThrow(/did not confirm/);
+});
+
+test("a meeting books independently rounded work for each participant and exposes only the author's original allocation", async () => {
+  const { store, client, d, run, state } = await fixture();
+  const groupId = randomUUID();
+  const policy = { rounding: "up" as const, enforceIncrement: true, incrementMinutes: 10 };
+  const times = [
+    { workerId: owner.userId, workedMinutes: 60, nonBillableMinutes: 13, billableMinutes: proposedCharge(47, policy) },
+    { workerId: ben.userId, workedMinutes: 37, nonBillableMinutes: 7, billableMinutes: proposedCharge(30, policy) },
+  ];
+  const booking: Extract<TimesheetCommand, { type: "create" }> = {
+    type: "create",
+    requestId: groupId,
+    entry: {
+      ...d, workedMinutes: 60, billableMinutes: 47, createWorkProduct: true,
+      startAt: d.date + "T09:00:00Z", endAt: d.date + "T10:00:00Z",
+    },
+    workerIds: [owner.userId, ben.userId],
+    workerTimes: times,
+  };
+  expect(requiresTimeAllocations(booking)).toBe(true);
+  expect(requiresTimeAllocations({ ...booking, workerTimes: undefined })).toBe(false);
+  for (const workerTimes of [
+    [times[0], { ...times[1], billableMinutes: 6 }],
+    [times[0], { ...times[1], nonBillableMinutes: 38 }],
+    [times[0], times[0]],
+    [times[0], { ...times[1], workerId: eva.userId }],
+  ]) {
+    expect(() => run(owner, { ...booking, workerTimes })).toThrow();
+    expect(state(owner).products).toHaveLength(0);
+    expect(state(ben).entries).toHaveLength(0);
+  }
+  const saved = run(owner, booking);
+  expect(saved.supportsTimeAllocations).toBe(true);
+  const self = saved.entries[0], other = state(ben).entries[0];
+  expect(self).toMatchObject({ status: "confirmed", groupId, workedMinutes: 60, nonBillableMinutes: 13,
+    billableMinutes: 50, startAt: booking.entry.startAt, endAt: booking.entry.endAt });
+  expect(other).toMatchObject({ status: "pending", groupId, workedMinutes: 37, nonBillableMinutes: 7, billableMinutes: 30 });
+  expect(other.startAt).toBeUndefined();
+  expect(other.endAt).toBeUndefined();
+  expect(saved.products).toHaveLength(1);
+  expect(other.workProductId).toBe(self.workProductId);
+  expect(self.workProductId).toBe(saved.products[0].id);
+  expect(run(owner, booking).delegatedEntries).toEqual(saved.delegatedEntries);
+  expect(state(ben).entries).toHaveLength(1);
+  expect(state(eva).delegatedEntries).toEqual([]);
+  expect(() => run(owner, { ...booking, workerTimes: [times[0]] })).toThrow(/already used/);
+  expect(saved.delegatedEntries).toHaveLength(1);
+  const receipt = saved.delegatedEntries![0];
+  expect(receipt).toMatchObject({ id: other.id, workerId: ben.userId, groupId, workedMinutes: 37, nonBillableMinutes: 7 });
+  for (const key of ["history", "revision", "status", "currency", "hourlyRate", "policyDigest"]) expect(receipt).not.toHaveProperty(key);
+  expect(() => run(owner, { type: "confirm", entries: sel(other) })).toThrow(/unavailable/);
+  const confirmed = run(ben, { type: "confirm", entries: sel(other) }).entries[0];
+  const olderClient = {
+    ...d, workedMinutes: 37, billableMinutes: 30,
+    workProductId: other.workProductId, narrative: "Revised privately by worker",
+  };
+  const updated = run(ben, { type: "update", ...sel(confirmed)[0], entry: olderClient }).entries[0];
+  expect(nonBillableWork(updated)).toBe(7);
+  expect(updated.history.at(-1)?.after.nonBillableMinutes).toBe(7);
+  const submitted = run(ben, { type: "submit", entries: sel(updated) }).entries[0];
+  const unmodified = run(ben, { type: "update", ...sel(submitted)[0], entry: olderClient }).entries[0];
+  expect(unmodified.revision).toBe(submitted.revision);
+  const changed = run(ben, {
+    type: "update", ...sel(submitted)[0], entry: { ...olderClient, nonBillableMinutes: 0 },
+  }).entries[0];
+  expect(changed.status).toBe("confirmed");
+  expect(changed.history.at(-1)?.before?.nonBillableMinutes).toBe(7);
+  expect(nonBillableWork(changed)).toBe(0);
+  expect(state(owner).delegatedEntries).toEqual([receipt]);
+  expect(JSON.stringify(state(owner).delegatedEntries)).not.toContain(olderClient.narrative);
+  expect(state(owner).entries[0].revision).toBe(self.revision);
+  store.saveRecord("local", owner, { id: client.id, objectId: "clients", revision: client.revision, archived: true, values: {} });
+  expect(state(owner).delegatedEntries).toEqual([]);
+});
+
+test("a delegated-only accepted proposal cannot be booked again under another request ID", async () => {
+  const { d, run, state } = await fixture();
+  const booking: TimesheetCommand = {
+    type: "create", requestId: randomUUID(), source: "suggestion", proposalDigest: "e".repeat(64),
+    workerIds: [ben.userId], entry: { ...d, billable: false, billableMinutes: 0 },
+    workerTimes: [{ workerId: ben.userId, workedMinutes: 7, nonBillableMinutes: 7, billableMinutes: 0 }],
+  };
+  const created = run(owner, booking);
+  expect(created.entries).toHaveLength(0);
+  expect(created.delegatedEntries).toHaveLength(1);
+  expect(nonBillableWork(state(ben).entries[0])).toBe(7);
+  expect(run(owner, booking).delegatedEntries).toEqual(created.delegatedEntries);
+  expect(() => run(owner, { ...booking, requestId: randomUUID() })).toThrow(/already been recorded/);
+  expect(state(ben).entries).toHaveLength(1);
+});
+
+test("an attendee cannot double-book the same timed meeting from a colleague and a workday suggestion", async () => {
+  const { run, d, state } = await fixture();
+  const meeting = {
+    ...d, activity: "INM", startAt: d.date + "T09:00:00Z", endAt: d.date + "T09:17:00Z",
+  };
+  const invite = () => run(owner, { type: "create", entry: meeting, workerIds: [ben.userId], requestId: randomUUID() });
+  invite();
+  const capture = {
+    type: "create" as const, source: "suggestion" as const, requestId: randomUUID(), proposalDigest: "7".repeat(64),
+    entry: { ...meeting, activity: "EXM", narrative: "Captured subject", startAt: d.date + "T10:00:00+01:00", endAt: d.date + "T10:17:00+01:00" },
+  };
+  expect(() => run(ben, capture)).toThrow(/already has a meeting/);
+  const pending = state(ben).entries[0];
+  run(ben, { type: "decline", entries: sel(pending) });
+  run(ben, capture);
+  invite();
+  const next = state(ben).entries.find((e) => e.status === "pending")!;
+  expect(() => run(ben, { type: "confirm", entries: sel(next) })).toThrow(/already has a meeting/);
+  expect(state(ben).entries.filter((e) => e.status === "confirmed")).toHaveLength(1);
+  const separate = run(ben, {
+    ...capture, requestId: randomUUID(), proposalDigest: "8".repeat(64),
+    entry: { ...meeting, startAt: d.date + "T11:00:00Z", endAt: d.date + "T11:17:00Z" },
+  });
+  expect(separate.entries.filter((e) => e.status === "confirmed")).toHaveLength(2);
 });

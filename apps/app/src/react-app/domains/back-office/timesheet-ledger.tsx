@@ -1,6 +1,14 @@
-import { labelForCode, ledgerColumnKeys, placeholderKeys, activityKeys, entryStatusKeys, historyActionKeys, historyFieldKeys } from "./timesheet-labels";
+import {
+  labelForCode,
+  ledgerColumnKeys,
+  placeholderKeys,
+  activityKeys,
+  entryStatusKeys,
+  historyActionKeys,
+  historyFieldKeys,
+} from "./timesheet-labels";
 import { Link } from "react-router-dom";
-import { useId, useMemo, useRef, useState, type ClipboardEvent, type KeyboardEvent } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type ClipboardEvent, type KeyboardEvent } from "react";
 import {
   AlertTriangle,
   Check,
@@ -11,11 +19,13 @@ import {
   History,
   Plus,
   Send,
+  UserRoundPlus,
   X,
 } from "lucide-react";
 import { Button } from "twenty-ui/primitives/input";
 import {
-  proposedCharge,
+  nonBillableWork,
+  requiresTimeAllocations,
   resolveTimePolicy,
   timeActivities,
   type TimeDraft,
@@ -28,6 +38,8 @@ import type { CaptureProposal } from "@legalwork/types/time-capture";
 import { useLocale } from "@/i18n/use-locale";
 import { decodeTimeRow, encodeTimeRow, timeRowMime } from "./timesheet-clipboard";
 import {
+  changeAmounts,
+  type TimeAmounts,
   duration,
   emptyRow,
   fromDraft,
@@ -43,6 +55,7 @@ import {
   type RowValues,
 } from "./timesheet-row";
 import { AdjustmentRequest } from "./timesheet-adjustment";
+import { useTimesheetColumns } from "./timesheet-columns";
 import "./timesheet-ledger.css";
 
 export type InitialTimesheetDraft = {
@@ -51,10 +64,7 @@ export type InitialTimesheetDraft = {
   source?: "suggestion";
   proposalDigest?: string;
 };
-type OriginalProposal = Pick<
-  CaptureProposal,
-  "date" | "activity" | "narrative" | "workedMinutes" | "digest"
->;
+type OriginalProposal = Pick<CaptureProposal, "date" | "activity" | "narrative" | "workedMinutes" | "digest">;
 
 type Props = {
   state: TimesheetState;
@@ -62,6 +72,9 @@ type Props = {
   initialDraft?: InitialTimesheetDraft;
   onDiscardProposal?: () => void;
   initialDate?: string;
+  onDateChange?: (date: string) => void;
+  columnScope?: string;
+  onEditingChange?: (dirty: boolean) => void;
   onOriginal?: (digest: string) => Promise<OriginalProposal>;
   canEdit?: boolean;
 };
@@ -124,7 +137,8 @@ function PrivateOriginal({
           <div>
             <dt>{t("timesheets.ledger.original")}</dt>
             <dd>
-              {!consent && original.date + " · "}{original.activity} · {original.narrative} ·{" "}
+              {!consent && original.date + " · "}
+              {original.activity} · {original.narrative} ·{" "}
               {original.workedMinutes === null
                 ? t("timesheets.ledger.unknown_minutes")
                 : duration(original.workedMinutes) + " h"}
@@ -141,7 +155,9 @@ function PrivateOriginal({
           {consent && (
             <div>
               <dt>{t("timesheets.ledger.submitting")}</dt>
-              <dd>{entry.activity} · {entry.narrative} · {duration(entry.workedMinutes)} h</dd>
+              <dd>
+                {entry.activity} · {entry.narrative} · {duration(entry.workedMinutes)} h
+              </dd>
             </div>
           )}
         </dl>
@@ -152,7 +168,11 @@ function PrivateOriginal({
       )}
       {original && consent && (
         <label>
-          <input type="checkbox" checked={consent.checked} onChange={(e) => consent.onChange(e.currentTarget.checked)} />
+          <input
+            type="checkbox"
+            checked={consent.checked}
+            onChange={(e) => consent.onChange(e.currentTarget.checked)}
+          />
           {t("timesheets.ledger.share_comparison")}
         </label>
       )}
@@ -167,11 +187,23 @@ export function TimesheetLedger({
   initialDraft,
   onDiscardProposal,
   initialDate,
+  onDateChange,
+  columnScope,
+  onEditingChange,
   canEdit = true,
   onOriginal,
 }: Props) {
   const locale = useLocale();
   const uid = useId();
+  const {
+    columns,
+    control: columnChooser,
+    layout,
+    reveal,
+  } = useTimesheetColumns(columnScope ?? state.scope + ":" + state.userId);
+  const [participants, setParticipants] = useState<
+    { key: string; workerId: string; amounts?: TimeAmounts }[]
+  >([]);
   const host = useRef<HTMLDivElement>(null);
   const matters = useMemo(() => matterOptions(state), [state.matters, state.clients, state.projects]);
   const people = useMemo(() => workerOptions(state), [state.people, state.userId, locale]);
@@ -179,10 +211,7 @@ export function TimesheetLedger({
   const [date, setDate] = useState(initialDraft?.entry.date ?? initialDate ?? localDate(new Date()));
   const [period, setPeriod] = useState<"day" | "week">("day");
   function capFor(
-    entry: Pick<
-      TimeDraft,
-      "clientId" | "matterId" | "projectId" | "date" | "activity" | "billableMinutes"
-    >,
+    entry: Pick<TimeDraft, "clientId" | "matterId" | "projectId" | "date" | "activity" | "billableMinutes">,
   ) {
     const policy = resolveTimePolicy(
       state.policies,
@@ -195,9 +224,7 @@ export function TimesheetLedger({
     return entry.billableMinutes > maximum ? maximum : null;
   }
   const own = person(state.userId);
-  const [draft, setDraft] = useState(() =>
-    fromDraft(initialDraft?.entry ?? {}, own, date, state, matters),
-  );
+  const [draft, setDraft] = useState(() => fromDraft(initialDraft?.entry ?? {}, own, date, state, matters));
   const [draftChanged, setDraftChanged] = useState(false);
   const [requestId, setRequestId] = useState(() => initialDraft?.key ?? crypto.randomUUID());
   const [provenance, setProvenance] = useState(initialDraft?.source);
@@ -209,6 +236,8 @@ export function TimesheetLedger({
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [shareRevisions, setShareRevisions] = useState(new Map<string, number>());
+  const editing = Boolean(edit || draftChanged || provenance);
+  useEffect(() => onEditingChange?.(editing), [editing, onEditingChange]);
   const week = weekDates(date);
   const rows = state.entries
     .filter(
@@ -217,24 +246,33 @@ export function TimesheetLedger({
         e.status !== "declined" &&
         (period === "day" ? e.date === date : e.date >= week[0] && e.date <= week[6]),
     )
-    .sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
+    .sort(
+      (a, b) =>
+        a.date.localeCompare(b.date) ||
+        (a.history[0]?.at ?? "").localeCompare(b.history[0]?.at ?? "") ||
+        a.id.localeCompare(b.id),
+    );
   const totals = rows
     .filter((row) => row.status !== "pending")
     .reduce(
       (sum, row) => {
         sum.worked += row.workedMinutes;
-        sum.billable += row.billable ? row.workedMinutes : 0;
+        sum.billable += row.workedMinutes - nonBillableWork(row);
         sum.charge += row.billableMinutes;
         return sum;
       },
       { worked: 0, billable: 0, charge: 0 },
     );
+  const delegated = (state.delegatedEntries ?? []).filter((e) =>
+    period === "day" ? e.date === date : e.date >= week[0] && e.date <= week[6],
+  );
   const ready = rows.filter((e) => e.status === "confirmed");
-  const shareable = ready.filter((e) =>
-    e.source === "suggestion" && e.authorId === state.userId && e.proposalDigest && e.groupId,
+  const shareable = ready.filter(
+    (e) => e.source === "suggestion" && e.authorId === state.userId && e.proposalDigest && e.groupId,
   );
   const copied = rows.find((e) => e.id === selected);
-  const focus = (row: string, column: RowColumn) =>
+  const focus = (row: string, column: RowColumn) => {
+    reveal(column);
     requestAnimationFrame(() => {
       const element = host.current?.querySelector<HTMLInputElement>(
         `[data-time-row="${CSS.escape(row)}"] [data-column="${column}"]`,
@@ -243,6 +281,7 @@ export function TimesheetLedger({
       element.focus();
       if (element.tagName === "INPUT" && element.type === "text") element.select();
     });
+  };
   function chooseDate(next: string) {
     if (!next || next === date) return;
     if (edit || draftChanged || provenance) {
@@ -250,27 +289,27 @@ export function TimesheetLedger({
       return;
     }
     setDate(next);
+    onDateChange?.(next);
     setShareRevisions(new Map());
     setDraft((current) => (current.date === date ? { ...current, date: next } : current));
     setSelected("");
     setHistory("");
   }
-  function field(row: string, key: RowColumn, value: string | boolean) {
+  function policyFor(values: RowValues) {
+    const matter = matters.find((m) => m.label === values.matter);
+    return resolveTimePolicy(
+      state.policies,
+      matter?.clientId ?? "",
+      matter?.matterId ?? "",
+      values.date,
+      matter?.projectId,
+    );
+  }
+  function field(row: string, key: RowColumn, value: string) {
     const update = (current: RowValues) => {
       const next = { ...current, [key]: value };
-      if (key === "worked" && typeof value === "string") {
-        const matter = matters.find((m) => m.label === current.matter);
-        const policy = resolveTimePolicy(
-          state.policies,
-          matter?.clientId ?? "",
-          matter?.matterId ?? "",
-          current.date,
-          matter?.projectId,
-        );
-        const autoCharge = (input: string) =>
-          /^\d+$/.test(input) ? String(proposedCharge(Number(input), policy)) : input;
-        if (!current.charge || current.charge === autoCharge(current.worked))
-          next.charge = autoCharge(value);
+      if (key === "worked" || key === "billableWork" || key === "nonBillable" || key === "charge") {
+        return { ...current, ...changeAmounts(current, key, value, policyFor(current)) };
       }
       if (key === "matter" && current.matter !== value) {
         next.product = "";
@@ -312,6 +351,10 @@ export function TimesheetLedger({
   }
   async function run(command: TimesheetCommand) {
     if (!canEdit || pending.current) return false;
+    if (!state.supportsTimeAllocations && requiresTimeAllocations(command)) {
+      setError(t("timesheets.allocation_upgrade"));
+      return false;
+    }
     pending.current = true;
     setBusy(true);
     setError("");
@@ -351,7 +394,8 @@ export function TimesheetLedger({
     const current = row === "new" ? draft : edit?.values;
     if (!current) return false;
     if (
-      row !== "new" && edit &&
+      row !== "new" &&
+      edit &&
       rowColumns.every((key) => current[key] === edit.initial[key]) &&
       current.productId === edit.initial.productId &&
       Boolean(current.createProduct) === Boolean(edit.initial.createProduct)
@@ -392,18 +436,48 @@ export function TimesheetLedger({
     }
 
     if (row === "new") {
+      const workerTimes = [];
+      for (const participant of participants) {
+        const worker = people.find((p) => p.id === participant.workerId);
+        if (!worker || workerIds.includes(worker.id)) {
+          setError(t("timesheets.distinct_people"));
+          return false;
+        }
+        const parsed = parseRow({ ...current, ...participant.amounts, workers: worker.label }, state);
+        if ("error" in parsed) {
+          setError(worker.label + " · " + parsed.error);
+          return false;
+        }
+        const item = parsed.entry;
+        if (policy.enforceIncrement && item.billableMinutes % policy.incrementMinutes) {
+          setError(
+            worker.label + " · " + t("timesheets.ledger.increment", { minutes: policy.incrementMinutes }),
+          );
+          return false;
+        }
+        workerIds.push(worker.id);
+        workerTimes.push({
+          workerId: worker.id,
+          workedMinutes: item.workedMinutes,
+          nonBillableMinutes: nonBillableWork(item),
+          billableMinutes: item.billableMinutes,
+        });
+      }
       const command: TimesheetCommand = {
         type: "create",
         requestId,
         entry,
         workerIds,
+        ...(workerTimes.length ? { workerTimes } : {}),
         ...(provenance ? { source: provenance, proposalDigest: initialDraft?.proposalDigest } : {}),
       };
       if (!(await run(command))) return false;
       setRequestId(crypto.randomUUID());
       setProvenance(undefined);
       setDraftChanged(false);
+      setParticipants([]);
       setDate(entry.date);
+      onDateChange?.(entry.date);
       setDraft(
         emptyRow(
           entry.date,
@@ -418,12 +492,19 @@ export function TimesheetLedger({
       );
       if (nextFocus) focus("new", "matter");
     } else if (edit) {
+      if (edit.entry.nonBillableMinutes !== undefined) entry.nonBillableMinutes = nonBillableWork(entry);
       if (!(await run({ type: "update", id: edit.entry.id, revision: edit.entry.revision, entry })))
         return false;
       closeEditor(row, nextFocus, tabToNext);
     }
     const limit = capFor(entry);
-    setNotice(limit === null ? t("timesheets.ledger.saved") : t("timesheets.ledger.cap_review", { minutes: limit }));
+    setNotice(
+      limit === null
+        ? row === "new" && workerIds.length > 1
+          ? t("timesheets.saved_people", { count: workerIds.length })
+          : t("timesheets.ledger.saved")
+        : t("timesheets.ledger.cap_review", { minutes: limit }),
+    );
     return true;
   }
   function startEdit(row: TimeEntry, column: RowColumn) {
@@ -476,6 +557,7 @@ export function TimesheetLedger({
   function resetComposer() {
     if (provenance) onDiscardProposal?.();
     setDraftChanged(false);
+    setParticipants([]);
     setDraft(emptyRow(date, own));
     setRequestId(crypto.randomUUID());
     setProvenance(undefined);
@@ -521,7 +603,7 @@ export function TimesheetLedger({
       }
     } else if (
       event.key === "Enter" ||
-      (event.key === "Tab" && !event.shiftKey && column === "billable")
+      (event.key === "Tab" && !event.shiftKey && column === columns[columns.length - 1])
     ) {
       event.preventDefault();
       void save(row, true, event.key === "Tab");
@@ -545,67 +627,52 @@ export function TimesheetLedger({
       matter: matters.map((m) => m.label),
       workers: people.map((p) => p.label),
       activity: Object.keys({ ...timeActivities, ...catalog }),
-      product: values.createProduct
-        ? []
-        : productOptions(state, localMatter?.matterId).map((p) => p.label),
+      product: values.createProduct ? [] : productOptions(state, localMatter?.matterId).map((p) => p.label),
     };
     const workerPrefix = values.workers.includes(" + ")
       ? values.workers.slice(0, values.workers.lastIndexOf(" + ") + 3)
       : "";
-    return rowColumns.map((column) => {
+    return columns.map((column) => {
       const value = values[column],
         list = choices[column];
       return (
         <div role="gridcell" className="bo-grid-cell bo-time-input-cell" key={column}>
-          {column === "billable" ? (
-            <input
-              data-column={column}
-              aria-label={t(ledgerColumnKeys[column])}
-              type="checkbox"
-              checked={values.billable}
-              disabled={busy}
-              onChange={(e) => field(row, column, e.currentTarget.checked)}
-              onKeyDown={(e) => onKey(e, row, column)}
-            />
-          ) : (
-            <input
-              data-column={column}
-              aria-label={t(ledgerColumnKeys[column])}
-              type={column === "date" ? "date" : "text"}
-              disabled={
-                busy ||
-                (column === "workers" && row !== "new") ||
-                (column === "charge" && !values.billable)
-              }
-              title={column === "workers" ? t("timesheets.ledger.worker_hint") : undefined}
-              autoComplete="off"
-              placeholder={
-                column === "product" && values.createProduct
-                  ? t("timesheets.ledger.new_product_title")
-                  : t(placeholderKeys[column])
-              }
-              value={String(column === "charge" && !values.billable ? "0" : value)}
-              list={list ? uid + row + column : undefined}
-              inputMode={column === "charge" || column === "worked" ? "numeric" : undefined}
-              onChange={(e) => field(row, column, e.currentTarget.value)}
-              onBlur={(e) => {
-                const query = e.currentTarget.value.trim().toLocaleLowerCase();
-                if (!query || !list || list.some((item) => item === e.currentTarget.value)) return;
-                const matches = list.filter((choice) => choice.toLocaleLowerCase().includes(query));
-                if (
-                  matches.length === 1 &&
-                  (column === "matter" ||
-                    column === "workers" ||
-                    (column === "activity" && matches[0].toLowerCase() === query))
-                )
-                  field(row, column, matches[0]);
-              }}
-              onFocus={(e) => {
-                if (e.currentTarget.type === "text") e.currentTarget.select();
-              }}
-              onKeyDown={(e) => onKey(e, row, column)}
-            />
-          )}
+          <input
+            data-column={column}
+            aria-label={t(ledgerColumnKeys[column])}
+            type={column === "date" ? "date" : "text"}
+            disabled={busy || (column === "workers" && row !== "new")}
+            readOnly={column === "charge" && !values.billable}
+            title={column === "workers" ? t("timesheets.ledger.worker_hint") : undefined}
+            autoComplete="off"
+            placeholder={
+              column === "product" && values.createProduct
+                ? t("timesheets.ledger.new_product_title")
+                : t(placeholderKeys[column])
+            }
+            value={String(column === "charge" && !values.billable ? "0" : value)}
+            list={list ? uid + row + column : undefined}
+            inputMode={
+              ["worked", "charge", "billableWork", "nonBillable"].includes(column) ? "numeric" : undefined
+            }
+            onChange={(e) => field(row, column, e.currentTarget.value)}
+            onBlur={(e) => {
+              const query = e.currentTarget.value.trim().toLocaleLowerCase();
+              if (!query || !list || list.some((item) => item === e.currentTarget.value)) return;
+              const matches = list.filter((choice) => choice.toLocaleLowerCase().includes(query));
+              if (
+                matches.length === 1 &&
+                (column === "matter" ||
+                  column === "workers" ||
+                  (column === "activity" && matches[0].toLowerCase() === query))
+              )
+                field(row, column, matches[0]);
+            }}
+            onFocus={(e) => {
+              if (e.currentTarget.type === "text") e.currentTarget.select();
+            }}
+            onKeyDown={(e) => onKey(e, row, column)}
+          />
           {column === "product" && (
             <button
               type="button"
@@ -651,12 +718,6 @@ export function TimesheetLedger({
           {entry.activity}
         </span>
       );
-    if (column === "billable")
-      return entry.billable ? (
-        <Check size={13} aria-label={t("timesheets.ledger.billable")} />
-      ) : (
-        <span aria-label={t("timesheets.ledger.nonbillable")}>–</span>
-      );
     return row[column];
   }
   const activeValues = edit?.values ?? draft,
@@ -673,45 +734,52 @@ export function TimesheetLedger({
   return (
     <div
       ref={host}
+      style={{ ...layout, width: "100%" }}
       className="bo-record-grid bo-time-ledger"
       onCopy={clipboardCopy}
       onPaste={clipboardPaste}
     >
       <div className="bo-view-toolbar bo-time-toolbar">
-        <select
-          aria-label={t("timesheets.ledger.period")}
-          value={period}
-          onChange={(e) => {
-            if (edit) return setError(t("timesheets.ledger.finish_edit"));
-            setShareRevisions(new Map());
-            setPeriod(e.target.value === "week" ? "week" : "day");
-          }}
-        >
-          <option value="day">{t("timesheets.ledger.day")}</option>
-          <option value="week">{t("timesheets.ledger.week")}</option>
-        </select>
-        <button
-          type="button"
-          title={t("timesheets.ledger.previous")}
-          aria-label={t("timesheets.ledger.previous")}
-          onClick={() => chooseDate(offsetDate(date, period === "day" ? -1 : -7))}
-        >
-          <ChevronLeft size={14} />
-        </button>
-        <input
-          type="date"
-          aria-label={t("timesheets.ledger.period_date")}
-          value={date}
-          onChange={(e) => chooseDate(e.currentTarget.value)}
-        />
-        <button
-          type="button"
-          title={t("timesheets.ledger.next")}
-          aria-label={t("timesheets.ledger.next")}
-          onClick={() => chooseDate(offsetDate(date, period === "day" ? 1 : 7))}
-        >
-          <ChevronRight size={14} />
-        </button>
+        <div className="bo-time-period" role="group" aria-label={t("timesheets.ledger.period")}>
+          {(["day", "week"] as const).map((value) => (
+            <button
+              type="button"
+              key={value}
+              aria-pressed={value === period}
+              onClick={() => {
+                if (edit) return setError(t("timesheets.ledger.finish_edit"));
+                setShareRevisions(new Map());
+                setPeriod(value);
+              }}
+            >
+              {value === "week" ? t("timesheets.ledger.week") : t("timesheets.ledger.day")}
+            </button>
+          ))}
+        </div>
+        <div className="bo-time-date">
+          <button
+            type="button"
+            title={t("timesheets.ledger.previous")}
+            aria-label={t("timesheets.ledger.previous")}
+            onClick={() => chooseDate(offsetDate(date, period === "day" ? -1 : -7))}
+          >
+            <ChevronLeft size={14} />
+          </button>
+          <input
+            type="date"
+            aria-label={t("timesheets.ledger.period_date")}
+            value={date}
+            onChange={(e) => chooseDate(e.currentTarget.value)}
+          />
+          <button
+            type="button"
+            title={t("timesheets.ledger.next")}
+            aria-label={t("timesheets.ledger.next")}
+            onClick={() => chooseDate(offsetDate(date, period === "day" ? 1 : 7))}
+          >
+            <ChevronRight size={14} />
+          </button>
+        </div>
         <button type="button" onClick={() => chooseDate(offsetDate(localDate(new Date()), -1))}>
           {t("timesheets.ledger.yesterday")}
         </button>
@@ -719,6 +787,7 @@ export function TimesheetLedger({
           {t("timesheets.ledger.today")}
         </button>
         <div className="bo-view-actions">
+          {columnChooser}
           {copied && (
             <>
               <Button
@@ -763,7 +832,8 @@ export function TimesheetLedger({
                   await run({
                     type: "submit",
                     entries: ready.map((e) => ({
-                      id: e.id, revision: e.revision,
+                      id: e.id,
+                      revision: e.revision,
                       ...(e.proposalDigest && e.groupId && shareRevisions.get(e.id) === e.revision
                         ? { shareOriginal: { key: e.groupId, digest: e.proposalDigest } }
                         : {}),
@@ -786,15 +856,20 @@ export function TimesheetLedger({
           {shareable.map((e) => (
             <div key={e.id + ":" + e.revision}>
               <strong>{e.narrative}</strong>
-              <PrivateOriginal entry={e} load={onOriginal} consent={{
-                checked: shareRevisions.get(e.id) === e.revision,
-                onChange: (checked) => setShareRevisions((previous) => {
-                  const next = new Map(previous);
-                  if (checked) next.set(e.id, e.revision);
-                  else next.delete(e.id);
-                  return next;
-                }),
-              }} />
+              <PrivateOriginal
+                entry={e}
+                load={onOriginal}
+                consent={{
+                  checked: shareRevisions.get(e.id) === e.revision,
+                  onChange: (checked) =>
+                    setShareRevisions((previous) => {
+                      const next = new Map(previous);
+                      if (checked) next.set(e.id, e.revision);
+                      else next.delete(e.id);
+                      return next;
+                    }),
+                }}
+              />
             </div>
           ))}
         </details>
@@ -845,8 +920,13 @@ export function TimesheetLedger({
           <div role="columnheader" className="bo-check-cell">
             <span className="sr-only">{t("timesheets.ledger.select")}</span>
           </div>
-          {rowColumns.map((column) => (
-            <div role="columnheader" className="bo-grid-heading" key={column}>
+          {columns.map((column) => (
+            <div
+              role="columnheader"
+              className="bo-grid-heading"
+              key={column}
+              title={t(ledgerColumnKeys[column])}
+            >
               {t(ledgerColumnKeys[column])}
             </div>
           ))}
@@ -854,29 +934,6 @@ export function TimesheetLedger({
             {t("timesheets.ledger.status")}
           </div>
         </div>
-        {canEdit && (
-          <div role="row" className="bo-grid-row bo-time-new" data-time-row="new">
-            <div className="bo-check-cell" title={t("timesheets.ledger.new")}>
-              <Plus size={13} />
-            </div>
-            {editors("new", draft)}
-            <div role="gridcell" className="bo-grid-cell">
-              <button type="button" disabled={busy} onClick={() => void save("new")}>
-                {t("timesheets.ledger.book")}
-              </button>
-              {(draftChanged || draft.activity || draft.narrative || draft.worked || provenance) && (
-                <button
-                  type="button"
-                  disabled={busy}
-                  aria-label={t("timesheets.ledger.cancel")}
-                  onClick={resetComposer}
-                >
-                  <X size={12} />
-                </button>
-              )}
-            </div>
-          </div>
-        )}
         {rows.map((entry) => {
           const limit = capFor(entry),
             editing = edit?.entry.id === entry.id,
@@ -905,7 +962,7 @@ export function TimesheetLedger({
                 </div>
                 {editing && edit
                   ? editors(entry.id, edit.values)
-                  : rowColumns.map((column) => (
+                  : columns.map((column) => (
                       <div
                         key={column}
                         role="gridcell"
@@ -1003,11 +1060,7 @@ export function TimesheetLedger({
                   {canEdit &&
                     entry.workerId === state.userId &&
                     ["approved", "invoiced"].includes(entry.status) && (
-                      <AdjustmentRequest
-                        entry={entry}
-                        adjustments={state.adjustments ?? []}
-                        submit={run}
-                      />
+                      <AdjustmentRequest entry={entry} adjustments={state.adjustments ?? []} submit={run} />
                     )}
                   <Link
                     className="bo-time-original"
@@ -1020,7 +1073,154 @@ export function TimesheetLedger({
             </div>
           );
         })}
+        {canEdit && (
+          <div role="row" className="bo-grid-row bo-time-new" data-time-row="new">
+            <div className="bo-check-cell" title={t("timesheets.ledger.new")}>
+              <button
+                type="button"
+                aria-label={t("timesheets.ledger.new")}
+                onClick={() => focus("new", "matter")}
+              >
+                <Plus size={15} />
+              </button>
+            </div>
+            {editors("new", draft)}
+            <div role="gridcell" className="bo-grid-cell">
+              <button type="button" disabled={busy} onClick={() => void save("new")}>
+                {t("timesheets.ledger.book")}
+              </button>
+              {(draftChanged || draft.activity || draft.narrative || draft.worked || provenance) && (
+                <button
+                  type="button"
+                  disabled={busy}
+                  aria-label={t("timesheets.ledger.cancel")}
+                  onClick={resetComposer}
+                >
+                  <X size={12} />
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+        {canEdit && (
+          <div className="bo-time-participants">
+            {participants.map((item) => (
+              <div
+                className="bo-time-participant"
+                key={item.key}
+                onKeyDown={(event) => {
+                  if (
+                    event.key === "Enter" &&
+                    event.target instanceof HTMLInputElement &&
+                    !event.nativeEvent.isComposing
+                  ) {
+                    event.preventDefault();
+                    void save("new");
+                  }
+                }}
+              >
+                <label>
+                  {t("timesheets.ledger.workers")}
+                  <select
+                    aria-label={t("timesheets.ledger.workers")}
+                    disabled={busy}
+                    value={item.workerId}
+                    onChange={(e) => {
+                      const workerId = e.currentTarget.value;
+                      setParticipants((items) =>
+                        items.map((p) => (p.key === item.key ? { ...p, workerId } : p)),
+                      );
+                    }}
+                  >
+                    <option value="">{t("timesheets.pick_person")}</option>
+                    {people.map((p) => (
+                      <option value={p.id} key={p.id}>
+                        {p.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {(["billableWork", "nonBillable", "charge"] as const).map((field) => (
+                  <label key={field}>
+                    {t(ledgerColumnKeys[field])}
+                    <input
+                      disabled={busy}
+                      readOnly={field === "charge" && !(item.amounts ?? draft).billable}
+                      inputMode="numeric"
+                      placeholder="0"
+                      value={(item.amounts ?? draft)[field]}
+                      onChange={(e) => {
+                        const value = e.currentTarget.value;
+                        setParticipants((items) =>
+                          items.map((p) =>
+                            p.key === item.key
+                              ? {
+                                  ...p,
+                                  amounts: changeAmounts(p.amounts ?? draft, field, value, policyFor(draft)),
+                                }
+                              : p,
+                          ),
+                        );
+                      }}
+                    />
+                  </label>
+                ))}
+                <button
+                  type="button"
+                  disabled={busy}
+                  aria-label={t("timesheets.remove_person")}
+                  onClick={() => setParticipants((items) => items.filter((p) => p.key !== item.key))}
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            ))}
+            {people.length > 1 && participants.length < people.length - 1 && (
+              <button
+                type="button"
+                className="bo-time-add-person"
+                disabled={busy}
+                onClick={() => {
+                  reveal("workers");
+                  setDraftChanged(true);
+                  const candidates = people.filter(
+                    (p) =>
+                      !draft.workers.split(" + ").includes(p.label) &&
+                      !participants.some((item) => item.workerId === p.id),
+                  );
+                  setParticipants((items) => [
+                    ...items,
+                    { key: crypto.randomUUID(), workerId: candidates.length === 1 ? candidates[0].id : "" },
+                  ]);
+                }}
+              >
+                <UserRoundPlus size={14} />
+                {t("timesheets.add_person")}
+              </button>
+            )}
+          </div>
+        )}
       </div>
+      {delegated.length > 0 && (
+        <details className="bo-time-delegated">
+          <summary>
+            {t("timesheets.delegated")} <span>{delegated.length}</span>
+          </summary>
+          <small>{t("timesheets.delegated_hint")}</small>
+          <ul>
+            {delegated.map((entry) => (
+              <li key={entry.id}>
+                <time>{entry.date}</time>
+                <strong>{person(entry.workerId)}</strong>
+                <span>{entry.narrative}</span>
+                <span>
+                  {entry.workedMinutes - nonBillableWork(entry)} / {nonBillableWork(entry)} min
+                </span>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
       <div className="bo-time-footer">
         {canEdit && <span>{t("timesheets.ledger.keyboard")}</span>}
         <span role="status">{notice}</span>

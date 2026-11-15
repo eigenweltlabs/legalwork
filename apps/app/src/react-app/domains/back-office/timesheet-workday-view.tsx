@@ -72,7 +72,7 @@ export function WorkdayTimeline({
         title = matter?.name ?? loose;
       add(matter?.id ?? "unassigned", title, {
         key: p.key,
-        title: p.narrative,
+        title: p.source === "stopwatch" && !p.parentDigest ? t("timesheets.source.stopwatch") : p.narrative,
         startAt: p.startAt,
         endAt: p.endAt,
         matter: title,

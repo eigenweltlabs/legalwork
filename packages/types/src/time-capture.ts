@@ -28,7 +28,7 @@ export const captureProposalSchema = z.object({
   key: z.uuid(),
   digest: z.string().length(64),
   date: z.iso.date(),
-  source: z.enum(["calendar", "tasks", "documents", ...captureProviders]),
+  source: z.enum(["calendar", "tasks", "documents", "stopwatch", ...captureProviders]),
   account: z.string().length(64).optional(),
   matterId: z.string().max(200).optional(),
   parentDigest: z
@@ -79,3 +79,15 @@ export const workdayCorrectionSchema = z.strictObject({
     .optional(),
 });
 export type WorkdayCorrection = z.infer<typeof workdayCorrectionSchema>;
+
+export const stopwatchActionSchema = z.strictObject({
+  type: z.enum(["start", "stop"]),
+  id: z.uuid(),
+});
+export const stopwatchStateSchema = z.object({
+  profileId: z.string().length(64),
+  active: z.object({ id: z.uuid(), startedAt: z.iso.datetime() }).nullable(),
+  lastStopped: z.object({ id: z.uuid(), stoppedAt: z.iso.datetime(), date: z.iso.date() }).nullable(),
+});
+export type StopwatchAction = z.infer<typeof stopwatchActionSchema>;
+export type StopwatchState = z.infer<typeof stopwatchStateSchema>;

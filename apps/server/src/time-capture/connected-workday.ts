@@ -256,6 +256,7 @@ export function sourceAvailable(
   accounts: CaptureAccount[],
   settings: { calendar: boolean; tasks: boolean; documents?: boolean; connections?: CaptureAccount[] },
 ) {
+  if (proposal.source === "stopwatch") return true;
   if (proposal.source === "documents") return settings.documents === true;
   if (proposal.source === "calendar" || proposal.source === "tasks") return settings[proposal.source];
   const target = { provider: proposal.source, account: proposal.account };

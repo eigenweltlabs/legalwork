@@ -328,6 +328,7 @@ function PolicyForm({
             onChange={(e) => update("narrativeExample", e.target.value || undefined)}
           />
         </Rule>
+        <h3>{t("timesheets.review")}</h3>
         <Rule name={t("back_office.billing.reviewer")}>
           <select
             value={policy.reviewerId ?? ""}
@@ -340,7 +341,7 @@ function PolicyForm({
                   t("back_office.billing.unassigned"),
               })}
             </option>
-            <BillingOptions options={state.people} />
+            <BillingOptions options={state.people.filter((p) => !p.directoryOnly)} />
           </select>
         </Rule>
         {scope === "firm" && state.scope === "local" && (

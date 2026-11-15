@@ -33,6 +33,7 @@ import { captureAuthStatus, openCapturePermissionSettings, requestCapturePermiss
 import { DictationPermissions } from "./audio/dictation-permissions.mjs";
 import { AppAudioTap } from "./audio/app-audio.mjs";
 import { CallOverlay } from "./audio/call-overlay.mjs";
+import { requestHudStopwatch } from "./audio/hud-stopwatch.mjs";
 import { DictationHud } from "./audio/dictation-hud.mjs";
 import { MeetingMonitor } from "./audio/meeting-monitor.mjs";
 import { DictationMicrophones } from "./audio/dictation-microphones.mjs";
@@ -804,6 +805,9 @@ const callOverlay = new CallOverlay({
 });
 
 const dictationHud = new DictationHud({
+  stopwatchRequest: process.platform === "darwin"
+    ? async (action, profileId) => requestHudStopwatch(await runtimeManager.legalworkServerInfo(), action, profileId)
+    : undefined,
   onStart: () => systemDictation.toggleHandsFree(),
   onStop: () => recorderService().broadcast({ type: "system-dictation-stop" }),
   onCancel: () => systemDictation.cancel(),
@@ -959,7 +963,7 @@ function trayShortcutLabel(status) {
 }
 
 function keepAliveOnClose() {
-  if (systemDictation.status().enabled) return true;
+  if (systemDictation.status().enabled || dictationHud.stopwatchState?.startedAt) return true;
   const meeting = meetingMonitor.status();
   if (meeting.detectionEnabled && meeting.detectionSupported) return true;
   // A call recording behind a closed window must finalize, not vanish.

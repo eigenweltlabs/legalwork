@@ -1,8 +1,9 @@
 import { sourceKeys } from "./timesheet-labels";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { CalendarDays, Settings2, Sparkles } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
 import { Button } from "twenty-ui/primitives/input";
 import {
   captureEnabled,
@@ -16,11 +17,7 @@ import { isLoopbackLegalworkServerUrl, type LegalworkServerClient } from "@/app/
 import { calendarDay } from "../calendar/calendar-format";
 import { calendarClientScope } from "../calendar/calendar-cache";
 import type { BackOfficeState } from "./api";
-import {
-  overlappingWorkdayRanges,
-  WorkdayCorrectionForm,
-  WorkdayTimeline,
-} from "./timesheet-workday-view";
+import { overlappingWorkdayRanges, WorkdayCorrectionForm, WorkdayTimeline } from "./timesheet-workday-view";
 import "./timesheet-workday.css";
 
 const at = (instant: string) =>
@@ -30,12 +27,16 @@ export function TimesheetWorkday({
   directory,
   state,
   onDraft,
+  ledgerDirty = false,
   initialDate,
+  onDateChange,
 }: {
   initialDate?: string;
+  onDateChange?: (value: string) => void;
   client: LegalworkServerClient;
   directory: BackOfficeState;
   state: TimesheetState;
+  ledgerDirty?: boolean;
   onDraft: (p: CaptureProposal) => void;
 }) {
   const [editing, setEditing] = useState("");
@@ -44,6 +45,9 @@ export function TimesheetWorkday({
     [running, setRunning] = useState(false);
   const navigate = useNavigate(),
     cache = useQueryClient();
+  useEffect(() => {
+    if (initialDate) setDate(initialDate);
+  }, [initialDate]);
   const local = isLoopbackLegalworkServerUrl(client.baseUrl);
   const context = {
     date,
@@ -107,7 +111,10 @@ export function TimesheetWorkday({
             aria-label={t("timesheets.date")}
             value={date}
             onChange={(e) => {
-              if (e.target.value) setDate(e.target.value);
+              if (e.target.value) {
+                setDate(e.target.value);
+                onDateChange?.(e.target.value);
+              }
             }}
           />
         </label>
@@ -118,16 +125,15 @@ export function TimesheetWorkday({
         >
           {t("timesheets.read_sources")}
         </Button>
-        {data?.modelReady && (
-          <Button
-            size="sm"
-            startIcon={<Sparkles size={13} />}
-            disabled={running || !settings || !captureEnabled(settings)}
-            onClick={() => void act({ type: "run" })}
-          >
-            {t("timesheets.run_local")}
-          </Button>
-        )}
+        <Button
+          size="sm"
+          startIcon={<Sparkles size={13} />}
+          title={data?.modelReady ? undefined : t("timesheets.no_model")}
+          disabled={running || !data?.modelReady || !settings || !captureEnabled(settings)}
+          onClick={() => void act({ type: "run" })}
+        >
+          {t("timesheets.run_local")}
+        </Button>
       </div>
       {settings && (
         <details open={!captureEnabled(settings) || undefined}>
@@ -138,12 +144,12 @@ export function TimesheetWorkday({
           <div className="bo-workday-options">
             {(["calendar", "tasks", "documents"] as const).map((source) => (
               <label key={source}>
-                <input
-                  type="checkbox"
+                <Switch
+                  size="sm"
                   checked={Boolean(settings[source])}
                   disabled={running}
-                  onChange={(e) =>
-                    void act({ type: "settings", settings: { ...settings, [source]: e.target.checked } })
+                  onCheckedChange={(checked) =>
+                    void act({ type: "settings", settings: { ...settings, [source]: checked } })
                   }
                 />
                 {source === "documents"
@@ -158,11 +164,11 @@ export function TimesheetWorkday({
                 settings.connections?.some((item) => sameCaptureAccount(item, account)) ?? false;
               return (
                 <label key={account.provider + account.account}>
-                  <input
-                    type="checkbox"
+                  <Switch
+                    size="sm"
                     disabled={running}
                     checked={enabled}
-                    onChange={(event) => {
+                    onCheckedChange={(checked) => {
                       const others = (settings.connections ?? []).filter(
                         (item) => !sameCaptureAccount(item, account),
                       );
@@ -170,7 +176,7 @@ export function TimesheetWorkday({
                         type: "settings",
                         settings: {
                           ...settings,
-                          connections: event.target.checked ? [...others, account] : others,
+                          connections: checked ? [...others, account] : others,
                         },
                       });
                     }}
@@ -236,11 +242,9 @@ export function TimesheetWorkday({
                   {p.endAt && " – " + at(p.endAt)}
                 </time>
                 <span>
-                  {p.narrative}
+                  {p.source === "stopwatch" && !p.parentDigest ? t("timesheets.source.stopwatch") : p.narrative}
                   {overlaps.has(p.key) && <small>{t("timesheets.workday.overlap")}</small>}
-                  <small>
-                    {t(sourceKeys[p.source])}
-                  </small>
+                  <small>{t(sourceKeys[p.source])}</small>
                 </span>
                 <div>
                   <Button size="sm" variant="ghost" disabled={running} onClick={() => setEditing(p.key)}>
@@ -248,10 +252,17 @@ export function TimesheetWorkday({
                   </Button>
                   <Button
                     size="sm"
-                    disabled={!directory.permissions.edit || running || !!selected || (overlaps.has(p.key) && !p.parentDigest)}
+                    title={ledgerDirty ? t("timesheets.ledger.finish_edit") : undefined}
+                    disabled={
+                      !directory.permissions.edit ||
+                      ledgerDirty ||
+                      running ||
+                      !!selected ||
+                      (overlaps.has(p.key) && !p.parentDigest)
+                    }
                     onClick={() => {
                       onDraft(p);
-                      navigate("/back-office/timesheets");
+                      navigate("/time?date=" + p.date);
                     }}
                   >
                     {t("timesheets.prepare_draft")}

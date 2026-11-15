@@ -1,4 +1,9 @@
-import type { TimeDraft, TimesheetState } from "@legalwork/types/timesheet";
+import {
+  nonBillableWork,
+  proposedCharge,
+  type TimeDraft,
+  type TimesheetState,
+} from "@legalwork/types/timesheet";
 import { t } from "@/i18n";
 
 export type LedgerDirectory = Pick<
@@ -17,6 +22,8 @@ export type RowValues = {
   createProduct?: boolean;
   worked: string;
   charge: string;
+  billableWork: string;
+  nonBillable: string;
   billable: boolean;
 };
 
@@ -28,8 +35,9 @@ export const rowColumns = [
   "narrative",
   "product",
   "worked",
+  "billableWork",
+  "nonBillable",
   "charge",
-  "billable",
 ] as const;
 export type RowColumn = (typeof rowColumns)[number];
 
@@ -109,8 +117,7 @@ export function productOptions(state: LedgerDirectory, matterId?: string) {
     counts.set(item.name.toLocaleLowerCase(), (counts.get(item.name.toLocaleLowerCase()) ?? 0) + 1);
   return items.map((item) => {
     const duplicate = (counts.get(item.name.toLocaleLowerCase()) ?? 0) > 1;
-    const author =
-      item.authorId && (state.people.find((p) => p.id === item.authorId)?.name ?? item.authorId);
+    const author = item.authorId && (state.people.find((p) => p.id === item.authorId)?.name ?? item.authorId);
     const details = [item.reference, author, item.createdAt?.slice(0, 10)].filter(Boolean).join(" · ");
     return {
       id: item.id,
@@ -130,6 +137,8 @@ export function emptyRow(date: string, worker: string, matter = ""): RowValues {
     product: "",
     worked: "",
     charge: "",
+    billableWork: "",
+    nonBillable: "",
     billable: true,
   };
 }
@@ -154,23 +163,66 @@ export function fromDraft(
     activity: entry.activity ?? "",
     narrative: entry.narrative ?? "",
     product:
-      productOptions(state, entry.matterId).find((product) => product.id === entry.workProductId)
-        ?.label ??
+      productOptions(state, entry.matterId).find((product) => product.id === entry.workProductId)?.label ??
       entry.workProductTitle ??
       "",
     productId: entry.workProductId,
     worked: entry.workedMinutes?.toString() ?? "",
+    billableWork: entry.workedMinutes
+      ? String(
+          entry.workedMinutes -
+            nonBillableWork({
+              workedMinutes: entry.workedMinutes,
+              billable: entry.billable ?? true,
+              nonBillableMinutes: entry.nonBillableMinutes,
+            }),
+        )
+      : "",
+    nonBillable: entry.workedMinutes
+      ? String(entry.nonBillableMinutes ?? (entry.billable === false ? entry.workedMinutes : 0))
+      : "",
     charge: (entry.billableMinutes ?? entry.workedMinutes)?.toString() ?? "",
     billable: entry.billable ?? true,
   };
 }
 
+export type TimeAmounts = Pick<RowValues, "worked" | "billableWork" | "nonBillable" | "billable" | "charge">;
+export type AmountField = "worked" | "billableWork" | "nonBillable" | "charge";
+type Rounding = Parameters<typeof proposedCharge>[1];
+const numeric = (value: string) => value === "" || /^\d+$/.test(value);
+export function changeAmounts(
+  previous: TimeAmounts,
+  field: AmountField,
+  value: string,
+  policy: Rounding,
+): TimeAmounts {
+  const { worked, billableWork, nonBillable, billable, charge } = previous;
+  const next = { worked, billableWork, nonBillable, billable, charge, [field]: value };
+  if (field === "charge" || !numeric(value)) return next;
+  if (field === "worked") {
+    const total = Number(value);
+    const non = Math.min(total, previous.billable ? Number(previous.nonBillable) : total);
+    next.nonBillable = value ? String(non) : "";
+    next.billableWork = value ? String(total - non) : "";
+  } else {
+    if (!numeric(next.billableWork) || !numeric(next.nonBillable)) return next;
+    next.worked = String(Number(next.billableWork) + Number(next.nonBillable));
+  }
+  next.billable = Number(next.billableWork) > 0 || !next.worked;
+  if (!next.billable) next.charge = "0";
+  else if (
+    !previous.charge ||
+    Number(previous.charge) === proposedCharge(Number(previous.billableWork), policy)
+  ) {
+    next.charge = next.worked ? String(proposedCharge(Number(next.billableWork), policy)) : "";
+  }
+  return next;
+}
 type ParsedRow = { entry: TimeDraft; workerIds: string[] };
 type RowError = { field: RowColumn; error: string };
 export function parseRow(values: RowValues, state: LedgerDirectory): ParsedRow | RowError {
   const validDate =
-    /^\d{4}-\d{2}-\d{2}$/.test(values.date) &&
-    localDate(new Date(values.date + "T12:00:00")) === values.date;
+    /^\d{4}-\d{2}-\d{2}$/.test(values.date) && localDate(new Date(values.date + "T12:00:00")) === values.date;
   if (!validDate) return { field: "date", error: t("timesheets.ledger.valid_date") };
   const options = matterOptions(state);
   const query = values.matter.trim().toLocaleLowerCase();
@@ -181,23 +233,23 @@ export function parseRow(values: RowValues, state: LedgerDirectory): ParsedRow |
   const people = workerOptions(state);
   // An exact match takes precedence over the separator in a person's name.
   const exactWorker = people.find((person) => person.label === values.workers.trim());
-  const names = exactWorker
-    ? [exactWorker.label]
-    : values.workers.split(" + ").map((name) => name.trim());
+  const names = exactWorker ? [exactWorker.label] : values.workers.split(" + ").map((name) => name.trim());
   const workerIds = new Set<string>();
   for (const name of names) {
-    const person = people.find(
-      (person) => person.label.toLocaleLowerCase() === name.toLocaleLowerCase(),
-    );
+    const person = people.find((person) => person.label.toLocaleLowerCase() === name.toLocaleLowerCase());
     if (!person) return { field: "workers", error: t("timesheets.ledger.choose_worker") };
     workerIds.add(person.id);
   }
-  if (!values.activity.trim())
-    return { field: "activity", error: t("timesheets.ledger.enter_activity") };
-  if (!values.narrative.trim())
-    return { field: "narrative", error: t("timesheets.ledger.enter_narrative") };
+  if (!values.activity.trim()) return { field: "activity", error: t("timesheets.ledger.enter_activity") };
+  if (!values.narrative.trim()) return { field: "narrative", error: t("timesheets.ledger.enter_narrative") };
   if (!/^\d+$/.test(values.worked) || +values.worked < 1 || +values.worked > 1440)
     return { field: "worked", error: t("timesheets.ledger.valid_worked") };
+  if (
+    !numeric(values.nonBillable) ||
+    !numeric(values.billableWork) ||
+    Number(values.nonBillable) + Number(values.billableWork) !== Number(values.worked)
+  )
+    return { field: "nonBillable", error: t("timesheets.split_error") };
   if (values.billable && (!/^\d+$/.test(values.charge) || +values.charge > 1440))
     return { field: "charge", error: t("timesheets.ledger.valid_charge") };
   const title = values.product.trim();
@@ -224,6 +276,9 @@ export function parseRow(values: RowValues, state: LedgerDirectory): ParsedRow |
     narrative: values.narrative.trim(),
     workedMinutes: Number(values.worked),
     billable: values.billable,
+    ...(values.billable && Number(values.nonBillable) > 0
+      ? { nonBillableMinutes: Number(values.nonBillable) }
+      : {}),
     billableMinutes: values.billable ? Number(values.charge) : 0,
     ...(values.createProduct
       ? { workProductTitle: title, createWorkProduct: true as const }

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import {
   invoiceTemplateSchema,
+  DelegatedTimeEntrySchema,
   TimeAdjustmentSchema,
   TimeEntrySchema,
   TimePolicySchema,
@@ -253,6 +254,7 @@ export function readTimesheet(
     template: actor.finance ? docs.find((doc) => doc.kind === "template")?.value : undefined,
     userId: actor.userId,
     supportsBillingComparisons: true,
+    supportsTimeAllocations: true,
     canManage: actor.model && actor.finance && actor.edit,
     canReview: actor.finance,
     ...directory,
@@ -275,6 +277,26 @@ export function readTimesheet(
     products: docs.flatMap((d) =>
       d.kind === "product" && matters.has(d.value.matterId) ? [d.value] : [],
     ),
+    delegatedEntries: forMutation ? undefined : entries.flatMap((entry) => {
+      if (entry.authorId !== actor.userId || entry.workerId === actor.userId || !entry.groupId) return [];
+      const created = entry.history[0];
+      if (
+        !created || created.revision !== 1 || created.action !== "create" ||
+        created.actorId !== actor.userId || created.before !== null ||
+        !canSeeReferences(created.after) || (created.after.projectId && !projects.has(created.after.projectId))
+      ) return [];
+      if (scope === "local" && !directory.people.some((person) => person.id === entry.workerId)) {
+        const worker = store.raw(scope, entry.workerId);
+        if (worker?.objectId === "people" && (worker.archivedAt || !store.canRead(scope, worker, actor))) return [];
+      }
+      return [DelegatedTimeEntrySchema.parse({
+        ...created.after,
+        id: entry.id,
+        groupId: entry.groupId,
+        workerId: entry.workerId,
+        createdAt: created.at,
+      })];
+    }),
     entries: forMutation
       ? visible
       : visible.map((e) => {
@@ -438,6 +460,7 @@ export function writeEntry(
     activityLabel: e.activityLabel,
     narrative: e.narrative,
     workedMinutes: e.workedMinutes,
+    nonBillableMinutes: e.nonBillableMinutes,
     billable: e.billable,
     billableMinutes: e.billableMinutes,
     workProductId: e.workProductId,

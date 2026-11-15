@@ -1,5 +1,5 @@
-import { TimesheetWorkspace, isTimesheetPage } from "./timesheet-workspace";
-import { Clock3 } from "lucide-react";
+import { timePage } from "./time-routes";
+import { TimesheetWorkspace } from "./timesheet-workspace";
 import { NativeTable } from "./native-table";
 import { nativeKind, nativeModel } from "./native-model";
 import { NativeBacklinks } from "./native-backlinks";
@@ -77,9 +77,9 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
   const location = useLocation(),
     navigate = useNavigate(),
     cache = useQueryClient();
-  const selected = location.pathname.split("/")[2] ?? "matters";
+  const timesheet = timePage(location.pathname);
+  const selected = timesheet ?? location.pathname.split("/")[2] ?? "matters";
   const native = nativeKind(selected);
-  const timesheet = isTimesheetPage(selected);
   const moreSelected = !timesheet && !primaryObjectIcons.has(selected) && selected !== "data-model";
   const [detailId, setDetailId] = useState<string | null>(
       new URLSearchParams(location.search).get("record"),
@@ -362,7 +362,7 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
           className={`bo ${detail ? "bo-has-detail" : ""}`}
           style={directoryStyle}
         >
-          <nav className="bo-tabs" aria-label="Back Office">
+          {!timesheet && <nav className="bo-tabs" aria-label="Back Office">
             {Array.from(primaryObjectIcons.keys(), id => (
               <Button
                 key={id}
@@ -375,10 +375,6 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
                 {tabName(id)}
               </Button>
             ))}
-            <Button size="sm" variant={timesheet ? "soft" : "ghost"} startIcon={<Clock3 size={15}/>}
-              aria-current={timesheet ? "page" : undefined} onClick={() => show("timesheets")}>
-              {t("timesheets.title")}
-            </Button>
             <DirectoryMenu
               open={menu}
               onOpenChange={setMenu}
@@ -421,7 +417,7 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
             >
               {t("back_office.data_model")}
             </Button>
-          </nav>
+          </nav>}
           {!data && (
             <div className="bo-loading">
               {query.error ? (
@@ -431,13 +427,13 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
               ) : (
                 <>
                   <RefreshCw size={18} className="animate-spin" />
-                  Loading Back Office…
+                  {timesheet ? t("timesheets.loading") : "Loading Back Office…"}
                 </>
               )}
             </div>
           )}
           {data && timesheet && <TimesheetWorkspace key={[client.baseUrl,data.scope,data.directoryId,data.captureProfileId,data.permissions.userId,data.permissions.model,data.permissions.principalKey,data.permissions.replicaId,data.permissions.finance,data.permissions.edit].join(":")}
-            client={client} directory={data} page={selected}/>}
+            client={client} directory={data} page={timesheet}/>}
           {data && native && <NativeTable key={selected} client={client} state={data} kind={native}/>}
           {data && selected === "data-model" && (
             <ModelEditor

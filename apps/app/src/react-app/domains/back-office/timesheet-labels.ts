@@ -12,7 +12,8 @@ export const ledgerColumnKeys = {
   product: "timesheets.ledger.product",
   worked: "timesheets.ledger.worked",
   charge: "timesheets.ledger.charge",
-  billable: "timesheets.ledger.billable",
+  billableWork: "timesheets.billable_minutes",
+  nonBillable: "timesheets.nonbillable_minutes",
 };
 
 export const placeholderKeys = {
@@ -24,6 +25,8 @@ export const placeholderKeys = {
   product: "timesheets.ledger.placeholder.product",
   worked: "timesheets.ledger.placeholder.worked",
   charge: "timesheets.ledger.placeholder.charge",
+  billableWork: "timesheets.ledger.placeholder.worked",
+  nonBillable: "timesheets.ledger.placeholder.worked",
 };
 
 export const activityKeys: Readonly<Record<string, string | undefined>> = {
@@ -79,6 +82,7 @@ export const historyFieldKeys: Readonly<Record<string, string | undefined>> = {
   activity: "timesheets.ledger.change.activity",
   narrative: "timesheets.ledger.change.narrative",
   workedMinutes: "timesheets.ledger.change.workedMinutes",
+  nonBillableMinutes: "timesheets.nonbillable_minutes",
   billable: "timesheets.ledger.change.billable",
   billableMinutes: "timesheets.ledger.change.billableMinutes",
   workProductId: "timesheets.ledger.change.workProductId",
@@ -138,6 +142,7 @@ export const impactKeys = {
 };
 
 export const sourceKeys = {
+  stopwatch: "timesheets.source.stopwatch",
   documents: "timesheets.source.documents",
   gmail: "timesheets.source.gmail",
   outlook: "timesheets.source.outlook",
