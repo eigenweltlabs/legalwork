@@ -16,6 +16,8 @@ import { recordAudit } from "../audit.js";
 import { keepWorkspaceCopy } from "../file-storage/working-copy.js";
 import { providerError, storagePath } from "../file-storage/common.js";
 import { ApiError } from "../errors.js";
+import { receiveRequestFile } from "../file-upload.js";
+import { PDF_MAX_BYTES } from "../pdf-read-schema.js";
 import { canonicalFilePath, withFileWriteLock, withFileWriteLocks } from "../file-write-lock.js";
 import { FileSessionStore } from "../file-sessions.js";
 import type { ApprovalRequest, ServerConfig, TokenScope, WorkspaceInfo } from "../types.js";
@@ -1336,15 +1338,21 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id);
-    const body = await readJsonBody(ctx.request);
+    const binary = ctx.request.headers.get("content-type")?.split(";")[0] === "application/octet-stream";
+    const body = binary ? {
+      path: ctx.url.searchParams.get("path"),
+      baseUpdatedAt: ctx.url.searchParams.has("baseUpdatedAt") ? Number(ctx.url.searchParams.get("baseUpdatedAt")) : undefined,
+      force: ctx.url.searchParams.get("force") === "true", createOnly: ctx.url.searchParams.get("createOnly") === "true",
+      dataBase64: undefined,
+    } : await readJsonBody(ctx.request);
     const requestedPath = String(body.path ?? "");
     const relativePath = normalizeProjectFileReference(workspace, requestedPath, { allowSubdirs: true });
-    if (typeof body.dataBase64 !== "string") {
+    if (!binary && typeof body.dataBase64 !== "string") {
       throw new ApiError(400, "invalid_payload", "dataBase64 must be a string");
     }
-    let bytes: Buffer;
+    let bytes: Buffer | undefined;
     try {
-      bytes = Buffer.from(body.dataBase64, "base64");
+      if (typeof body.dataBase64 === "string") bytes = Buffer.from(body.dataBase64, "base64");
     } catch {
       throw new ApiError(400, "invalid_payload", "dataBase64 is invalid");
     }
@@ -1373,8 +1381,11 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
 
       await ensureDir(dirname(absPath));
       const tmp = `${absPath}.tmp-${shortId()}`;
-      await writeFile(tmp, bytes);
-      await rename(tmp, absPath);
+      try {
+        if (binary) await receiveRequestFile(ctx.request, tmp, PDF_MAX_BYTES);
+        else if (bytes) await writeFile(tmp, bytes);
+        await rename(tmp, absPath);
+      } finally { await rm(tmp, { force: true }); }
       const after = await stat(absPath);
       const revision = fileRevision(after);
       recordWorkspaceFileEvent(workspace.id, { type: "write", path: relativePath, revision });
@@ -1387,7 +1398,7 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
         summary: `Wrote ${relativePath}`,
         timestamp: Date.now(),
       });
-      return jsonResponse({ ok: true, path: relativePath, bytes: bytes.byteLength, updatedAt: after.mtimeMs, revision });
+      return jsonResponse({ ok: true, path: relativePath, bytes: after.size, updatedAt: after.mtimeMs, revision });
     });
   });
 

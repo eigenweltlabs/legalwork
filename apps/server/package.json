@@ -57,6 +57,7 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1127.0",
     "@azure/storage-blob": "^12.33.0",
+    "@embedpdf/pdfium": "2.15.1",
     "@google-cloud/storage": "^8.0.1",
     "@legalwork/opencode-release": "workspace:*",
     "@napi-rs/canvas": "1.0.9",

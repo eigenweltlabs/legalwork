@@ -1,11 +1,15 @@
 import { workspaceContentPath } from "../project-storage.js";
 import { z } from "zod";
+import { mkdtemp, rm } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { readPreparedDocument } from "../document-preparation/read.js";
 import { ApiError } from "../errors.js";
 import { DocumentPreparation } from "../document-preparation/service.js";
 import type { OcrManager } from "../ocr/manager.js";
 import { PdfReader } from "../pdf-reader.js";
-import { PDF_MAX_BYTES, pdfReadOptions } from "../pdf-read-schema.js";
+import { PDF_MAX_BYTES, PDF_IN_MEMORY_MAX_BYTES, pdfReadOptions } from "../pdf-read-schema.js";
+import { receiveRequestFile } from "../file-upload.js";
 import type { ServerConfig, TokenScope, WorkspaceInfo } from "../types.js";
 import { addRoute, type RequestContext, type Route } from "./registry.js";
 
@@ -24,14 +28,25 @@ export function registerDocumentPreparationRoutes(options: {
   addRoute(routes, "POST", "/workspace/:id/pdf/read", "client", async ctx => {
     options.requireClientScope(ctx, "collaborator");
     await options.resolveWorkspace(config, ctx.params.id);
-    const input = pdfReadOptions.extend({ dataBase64: z.string().min(1).max(Math.ceil(PDF_MAX_BYTES / 3) * 4) })
-      .parse(await options.readJsonBodyLimited(ctx.request, Math.ceil(PDF_MAX_BYTES / 3) * 4 + 64 * 1024));
-    try { return jsonResponse(await pdfReader.read(new Uint8Array(Buffer.from(input.dataBase64, "base64")), input, ctx.request.signal)); }
+    let temporary: string | undefined;
+    try {
+      if (ctx.request.headers.get("content-type")?.split(";")[0] === "application/pdf") {
+        const input = pdfReadOptions.parse(JSON.parse(ctx.url.searchParams.get("options") ?? "{}"));
+        temporary = await mkdtemp(join(tmpdir(), "legalwork-pdf-read-"));
+        const path = join(temporary, "source.pdf");
+        const received = await receiveRequestFile(ctx.request, path, PDF_MAX_BYTES);
+        return jsonResponse(await pdfReader.readFile(path, input, ctx.request.signal, received.sha256));
+      }
+      const input = pdfReadOptions.extend({ dataBase64: z.string().min(1).max(Math.ceil(PDF_IN_MEMORY_MAX_BYTES / 3) * 4) })
+        .parse(await options.readJsonBodyLimited(ctx.request, Math.ceil(PDF_IN_MEMORY_MAX_BYTES / 3) * 4 + 64 * 1024));
+      return jsonResponse(await pdfReader.read(new Uint8Array(Buffer.from(input.dataBase64, "base64")), input, ctx.request.signal));
+    }
     catch (error) {
       if (error instanceof ApiError) throw error;
       if (ctx.request.signal.aborted) throw error;
       throw new ApiError(400, "pdf_unreadable", "Could not read this PDF. Check that it is valid and not password-protected. Repeating the same read will not repair it.");
     }
+    finally { if (temporary) await rm(temporary, { recursive: true, force: true }); }
   });
   const base = "/workspace/:id/document-preparations";
   const route = (method: string, path: string, action: (ctx: RequestContext, workspace: string, contentPath: string) => Promise<unknown>) => {

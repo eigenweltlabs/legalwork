@@ -5,6 +5,7 @@ import { join } from "node:path";
 
 import { startServer } from "./server.js";
 import type { ServerConfig } from "./types.js";
+import { largePdf } from "./pdf-file.test-support.js";
 
 type Served = { port: number; stop: (closeActiveConnections?: boolean) => void | Promise<void> };
 
@@ -55,6 +56,29 @@ function auth(token: string) {
 }
 
 describe("artifact file routes", () => {
+  test("large attachment upload, snapshot and PDF extraction stream bytes through the real API", async () => {
+    const engine = await createWorkspaceRoot(), documents = await createWorkspaceRoot();
+    const source = join(documents, "reports", "large.pdf"), size = 70 * 1024 * 1024;
+    await largePdf(source, size);
+    const { base, token } = await startLegalworkServer(engine, documents);
+    const target = ".legalwork/attachments/upload/large.pdf";
+    const upload = await fetch(`${base}/workspace/ws_1/files/raw?path=${encodeURIComponent(target)}&createOnly=true`, {
+      method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/octet-stream" }, body: Bun.file(source),
+    });
+    expect(upload.status).toBe(200); expect(await upload.json()).toMatchObject({ ok: true, path: target, bytes: size });
+    const copy = await fetch(`${base}/workspace/ws_1/files/copy`, { method: "POST", headers: auth(token),
+      body: JSON.stringify({ path: "reports/large.pdf", targetPath: ".legalwork/attachments/mention/large.pdf" }) });
+    expect(copy.status).toBe(201); expect(await copy.json()).toMatchObject({ ok: true, bytes: size });
+    const read = await fetch(`${base}/workspace/ws_1/pdf/read?options=${encodeURIComponent(JSON.stringify({ pages: [1] }))}`, {
+      method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/pdf" }, body: Bun.file(source),
+    });
+    expect(read.status).toBe(200); expect(await read.json()).toMatchObject({ page_count: 2, pages: [{ page: 1, text: "Large source contract marker" }] });
+    const existing = await fetch(`${base}/workspace/ws_1/files/raw?path=${encodeURIComponent(target)}&createOnly=true`, {
+      method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/octet-stream" }, body: "replacement",
+    });
+    expect(existing.status).toBe(409); await existing.arrayBuffer();
+  }, 30_000);
+
   test("filename search uses the document folder rather than the separate engine folder", async () => {
     const engine = await createWorkspaceRoot(), documents = await createWorkspaceRoot();
     await writeFile(join(engine, "internal.pdf"), "Internal file");
