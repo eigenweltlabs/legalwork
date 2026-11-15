@@ -419,7 +419,7 @@ html[lang=de] body[data-state=error] #bar {
   width:250px
 }
 
-#meeting-start,#meeting-open,#meeting-stop,#meeting-close,#meeting-time { display:none }
+#stopwatch,#meeting-start,#meeting-open,#meeting-stop,#meeting-close,#meeting-time { display:none }
 
 #meeting-prompt {
   display:grid;
@@ -441,9 +441,11 @@ html[lang=de] body[data-state=error] #bar {
 #meeting-description { display:block; margin-top:4px; font-size:11px; color:var(--muted) }
 #meeting-record { width:auto; height:28px; padding:0 10px; border-radius:7px; background:var(--primary); color:var(--primary-fg); font-size:11px; font-weight:600 }
 
+body { --action-space:32px }
+body[data-stopwatch-available=true] { --action-space:64px }
 body[data-state=idle][data-meeting-available=true] #bar { gap:0 }
 body[data-state=idle][data-meeting-available=true] #start { flex:1; min-width:0; width:auto }
-body[data-state=idle][data-meeting-available=true] #meeting-start {
+body[data-state=idle][data-meeting-available=true] :is(#meeting-start,#stopwatch:not([hidden])) {
   display:flex;
   flex:none;
   width:0;
@@ -454,24 +456,24 @@ body[data-state=idle][data-meeting-available=true] #meeting-start {
   pointer-events:none;
   transition:width 300ms var(--ease),margin 300ms var(--ease),opacity 140ms
 }
-body[data-state=idle][data-meeting-available=true] #bar[data-hovered=true] #meeting-start {
+body[data-state=idle][data-meeting-available=true] #bar[data-hovered=true] :is(#meeting-start,#stopwatch:not([hidden])) {
   width:28px;
   margin-left:4px;
   opacity:1;
   pointer-events:auto;
   transition-delay:0ms,0ms,70ms
 }
-#meeting-start { gap:6px; border-radius:7px }
-#meeting-start-label { flex:none; font-size:11px; font-weight:500; white-space:nowrap }
-#meeting-start svg { flex:none; width:16px; height:16px }
+:is(#meeting-start,#stopwatch:not([hidden])) { gap:6px; border-radius:7px }
+.action-hint { flex:none; font-size:11px; font-weight:500; white-space:nowrap }
+:is(#meeting-start,#stopwatch) svg { flex:none; width:16px; height:16px }
 #meeting-start svg circle:last-child { fill:currentColor; stroke:none }
 
-/* Reveal only the second icon; keep both buttons compact and the mic anchored. */
+/* Grow away from the microphone so it stays under the pointer. */
 body[data-dock=bottom][data-state=idle][data-meeting-available=true] #start {
   flex:none; width:28px;
 }
 body[data-dock=bottom][data-state=idle][data-meeting-available=true] #bar[data-hovered=true] {
-  width:62px; transform:translateX(16px);
+  width:calc(30px + var(--action-space)); transform:translateX(calc(var(--action-space) / 2));
 }
 
 /* Side docks keep the microphone anchored and reveal a vertical icon stack. */
@@ -479,25 +481,25 @@ html body:is([data-dock=left],[data-dock=right])[data-state=idle][data-meeting-a
   flex-direction:column; justify-content:flex-start; border-radius:999px;
 }
 html body:is([data-dock=left],[data-dock=right])[data-state=idle][data-meeting-available=true] #bar[data-hovered=true] {
-  height:62px; margin-top:34px; gap:4px;
+  height:calc(30px + var(--action-space)); margin-top:calc(2px + var(--action-space)); gap:4px;
 }
 html body:is([data-dock=left],[data-dock=right])[data-state=idle][data-meeting-available=true] #bar #start {
   flex:none; width:28px; height:26px; border:0; background:transparent; box-shadow:none;
 }
-html body:is([data-dock=left],[data-dock=right])[data-state=idle][data-meeting-available=true] #bar #meeting-start {
+html body:is([data-dock=left],[data-dock=right])[data-state=idle][data-meeting-available=true] #bar :is(#meeting-start,#stopwatch:not([hidden])) {
   width:28px; height:0; margin:0; overflow:visible; border-radius:50%; background:transparent; box-shadow:none;
 }
-html body:is([data-dock=left],[data-dock=right])[data-state=idle][data-meeting-available=true] #bar[data-hovered=true] #meeting-start {
+html body:is([data-dock=left],[data-dock=right])[data-state=idle][data-meeting-available=true] #bar[data-hovered=true] :is(#meeting-start,#stopwatch:not([hidden])) {
   width:28px; height:28px; margin:0; border:0;
 }
-html body[data-state=idle][data-meeting-available=true] #bar :is(#start-label,#meeting-start-label) {
+#bar .action-hint {
   position:absolute; top:50%; max-width:none; margin:0; padding:7px 10px; border:1px solid var(--border); border-radius:9px;
   background:var(--surface); color:var(--ink); box-shadow:0 2px 8px rgba(16,24,40,.12); opacity:0; transform:translateY(-50%); pointer-events:none; transition:opacity 140ms;
 }
-body[data-dock=left][data-state=idle] #bar :is(#start-label,#meeting-start-label) { left:calc(100% + 8px) }
-body[data-dock=right][data-state=idle] #bar :is(#start-label,#meeting-start-label) { right:calc(100% + 8px) }
-html body[data-dock=bottom][data-state=idle] #bar :is(#start-label,#meeting-start-label) { top:auto; bottom:calc(100% + 8px); left:50%; transform:translateX(-50%) }
-html body[data-state=idle][data-meeting-available=true] #bar button[data-hovered=true] :is(#start-label,#meeting-start-label) { opacity:1 }
+body[data-dock=left] #bar .action-hint { left:calc(100% + 8px) }
+body[data-dock=right] #bar .action-hint { right:calc(100% + 8px) }
+body[data-dock=bottom] #bar .action-hint { top:auto; bottom:calc(100% + 8px); left:50%; transform:translateX(-50%) }
+#bar button[data-hovered=true] .action-hint { opacity:1 }
 html body:is([data-dock=left],[data-dock=right])[data-state=idle][data-meeting-available=true] #notice { display:none }
 body[data-dock=bottom][data-state=idle]:not([data-hint=true]) #notice { display:none }
 
@@ -588,46 +590,24 @@ body[data-state=copied] #copy-instructions {
 }
 body[data-state=copied] #dismiss { display:flex; grid-column:3; grid-row:1; align-self:start }
 
-#stopwatch-control {
-  position:absolute;
-  right:calc(100% + 5px);
-  bottom:-1px;
-  z-index:2;
+/* Keep the timer accessible while the bar shows a recording or its result. */
+body:not([data-state=idle]) #bar[data-hovered=true] #stopwatch:not([hidden]) {
+  position:relative; display:flex; order:1;
 }
-#stopwatch-control[hidden], #stopwatch-time[hidden], .watch-stop { display:none }
-#stopwatch {
-  width:auto;
-  min-width:30px;
-  height:28px;
-  padding:3px 6px;
-  gap:4px;
-  border-radius:9px;
-  border:1px solid var(--border);
-  background:var(--surface);
-  box-shadow:0 2px 6px rgba(16,24,40,.12);
-  color:var(--ink);
+body[data-state=copied] #stopwatch { grid-column:1; grid-row:2 }
+body[data-dock=bottom][data-stopwatch-available=true]:not([data-state=idle],[data-state=copied],[data-state=error],[data-state=meeting-error]) #bar[data-hovered=true] {
+  min-width:max-content;
 }
+html body:has(#bar #stopwatch[data-hovered=true]) #notice { opacity:0 }
 #stopwatch:disabled { cursor:wait }
-#stopwatch-control[data-running=true] #stopwatch { color:var(--success) }
-#stopwatch-control[data-running=true] .watch-stop { display:block; fill:currentColor; stroke:none }
-#stopwatch-control[data-running=true] .watch-hand { display:none }
-#stopwatch-control[data-unavailable=true] #stopwatch { color:var(--warning) }
-#stopwatch-time { font-size:11px; font-variant-numeric:tabular-nums; white-space:nowrap }
-#stopwatch-feedback:not(:empty) {
-  position:absolute; bottom:calc(100% + 6px); left:0;
-  width:max-content; max-width:180px; padding:6px 8px; border-radius:7px;
-  border:1px solid var(--border); background:var(--surface); color:var(--ink); font-size:11px;
+.watch-stop, #stopwatch-feedback:empty { display:none }
+#stopwatch[aria-pressed=true] { color:var(--success) }
+#stopwatch[aria-pressed=true] .watch-stop { display:block; fill:currentColor; stroke:none }
+#stopwatch[aria-pressed=true] .watch-hand { display:none }
+#stopwatch[data-unavailable=true] { color:var(--warning) }
+#stopwatch-time { padding-inline-start:5px; font-variant-numeric:tabular-nums }
+body[data-state=idle][data-stopwatch-running=true] #bar:not([data-hovered=true])::after {
+  content:""; position:absolute; top:2px; right:2px; width:5px; height:5px; border-radius:50%;
+  background:var(--success); pointer-events:none;
 }
-body[data-dock=bottom]:is([data-state=copied],[data-state=error],[data-state=meeting-error]) #stopwatch-control {
-  bottom:calc(100% + 5px); right:0;
-}
-body:is([data-dock=left],[data-dock=right]) #stopwatch-control {
-  bottom:calc(100% + 5px); right:auto; left:-1px;
-}
-body[data-dock=right] #stopwatch-control { left:auto; right:-1px }
-body[data-dock=right] #stopwatch-feedback:not(:empty) { left:auto; right:0 }
-body:is([data-dock=left],[data-dock=right]):has(#stopwatch-control:not([hidden])) #meeting-prompt {
-  top:4px; bottom:auto; width:calc(100% - 100px);
-}
-body[data-dock=left]:has(#stopwatch-control:not([hidden])) #meeting-prompt { left:92px }
-body[data-dock=right]:has(#stopwatch-control:not([hidden])) #meeting-prompt { right:92px }
+#stopwatch-feedback:not(:empty) { display:block; margin-top:3px; color:var(--muted) }

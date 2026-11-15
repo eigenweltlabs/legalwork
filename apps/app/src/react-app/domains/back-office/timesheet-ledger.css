@@ -192,8 +192,7 @@
   gap: 3px;
   flex-wrap: wrap;
 }
-.time-section-header nav a,
-.time-stopwatch button {
+.time-section-header nav a {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -213,26 +212,6 @@
   background: var(--bo-surface);
   color: var(--bo-text);
   font-weight: 600;
-}
-.time-stopwatch {
-  margin-inline-start: auto;
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-}
-.time-stopwatch button {
-  border: 1px solid var(--bo-border);
-  font-variant-numeric: tabular-nums;
-}
-.time-stopwatch button[aria-pressed="true"] {
-  color: var(--t-color-green11);
-}
-.time-stopwatch button:disabled {
-  opacity: 0.55;
-}
-.time-stopwatch [role="alert"] {
-  color: var(--destructive);
-  font-size: 11px;
 }
 .bo-time-toolbar {
   padding: 10px 16px 4px;
@@ -392,10 +371,4 @@
   flex: 1;
   min-width: 0;
   min-height: 0;
-}
-.time-stopwatch-saved {
-  margin-inline-start: 8px;
-  font-size: 11px;
-  color: var(--bo-muted);
-  text-decoration: underline;
 }

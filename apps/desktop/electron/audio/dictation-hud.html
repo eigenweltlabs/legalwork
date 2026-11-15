@@ -17,16 +17,13 @@
     <button id="meeting-dismiss" type="button"><svg viewBox="0 0 24 24"><path d="m7 7 10 10M17 7 7 17"/></svg></button>
   </aside>
   <main id="bar" aria-label="Dictate anywhere">
-    <div id="stopwatch-control" hidden>
-      <button id="stopwatch" type="button" aria-label="Start stopwatch">
-        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M9 2h6m-3 0v3m5 2 2-2"/><circle cx="12" cy="14" r="8"/><path class="watch-hand" d="M12 9v5l3 2"/><rect class="watch-stop" x="9.5" y="11.5" width="5" height="5" rx="1"/></svg>
-        <span id="stopwatch-time" role="timer" aria-live="off" hidden></span>
-      </button>
-      <span id="stopwatch-feedback" role="status"></span>
-    </div>
     <button id="cancel" aria-label="Cancel dictation" title="Cancel · Esc"><svg viewBox="0 0 24 24"><path d="m7 7 10 10M17 7 7 17"/></svg></button>
-    <button id="start" aria-label="Start dictation"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3M8 22h8"/></svg><span id="start-label" aria-hidden="true">Dictate</span></button>
-    <button id="meeting-start" type="button" aria-label="Record meeting"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="4"/></svg><span id="meeting-start-label">Record meeting</span></button>
+    <button id="start" aria-label="Start dictation"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3M8 22h8"/></svg><span id="start-label" class="action-hint" aria-hidden="true">Dictate</span></button>
+    <button id="meeting-start" type="button" aria-label="Record meeting"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="4"/></svg><span id="meeting-start-label" class="action-hint">Record meeting</span></button>
+    <button id="stopwatch" type="button" aria-label="Start stopwatch" hidden>
+      <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M9 2h6m-3 0v3m5 2 2-2"/><circle cx="12" cy="14" r="8"/><path class="watch-hand" d="M12 9v5l3 2"/><rect class="watch-stop" x="9.5" y="11.5" width="5" height="5" rx="1"/></svg>
+      <span id="stopwatch-label" class="action-hint"><span id="stopwatch-action">Start stopwatch</span><span id="stopwatch-time" role="timer" aria-live="off" hidden></span><span id="stopwatch-feedback" role="status"></span></span>
+    </button>
     <button id="meeting-open" type="button" aria-label="Open recording"><svg viewBox="0 0 24 24"><rect x="5" y="4" width="15" height="17" rx="2"/><path d="M9 2v4M15 2v4M3 9h4M3 15h4M10 10h6M10 14h6"/></svg></button>
     <span id="meeting-time" aria-hidden="true">0:00</span>
     <div id="visual" aria-hidden="true">

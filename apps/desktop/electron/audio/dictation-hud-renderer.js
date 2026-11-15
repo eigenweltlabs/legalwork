@@ -17,7 +17,7 @@ let animationFrame = 0;
 let previousFrameAt = 0;
 let meterStartedAt = 0;
 let meetingStartedAt = null;
-const stopwatchControl = document.getElementById("stopwatch-control");
+const stopwatchAction = document.getElementById("stopwatch-action");
 const stopwatchButton = document.getElementById("stopwatch");
 const stopwatchTime = document.getElementById("stopwatch-time");
 const stopwatchFeedback = document.getElementById("stopwatch-feedback");
@@ -120,14 +120,16 @@ bridge.onState((value) => {
   const labels = translations[value.locale] || translations.en;
   stopwatch = value.stopwatch;
   stopwatchLabels = labels;
-  stopwatchControl.hidden = !stopwatch;
+  stopwatchButton.hidden = !stopwatch;
+  document.body.dataset.stopwatchAvailable = String(Boolean(stopwatch));
+  document.body.dataset.stopwatchRunning = String(Boolean(stopwatch?.startedAt));
   if (stopwatch) {
     const running = Boolean(stopwatch.startedAt);
     const action = stopwatch.unavailable ? labels.stopwatchRetry : running ? labels.stopwatchStop : labels.stopwatchStart;
-    stopwatchControl.dataset.running = String(running);
-    stopwatchControl.dataset.unavailable = String(stopwatch.unavailable);
+    stopwatchButton.dataset.unavailable = String(stopwatch.unavailable);
     stopwatchButton.disabled = stopwatch.busy;
-    stopwatchButton.title = stopwatch.unavailable ? labels.stopwatchUnavailable : action;
+    stopwatchAction.textContent = stopwatch.unavailable ? labels.stopwatchUnavailable : action;
+    stopwatchButton.setAttribute("aria-pressed", String(running));
     stopwatchButton.setAttribute("aria-label", action);
     if (running) stopwatchButton.setAttribute("aria-describedby", "stopwatch-time");
     else stopwatchButton.removeAttribute("aria-describedby");
@@ -211,8 +213,8 @@ let interactive = false;
 let pointerDrag = null;
 let suppressClick = false;
 function setHover(target) {
-  bar.dataset.hovered = String(Boolean(target?.closest("#bar")) && !target?.closest("#stopwatch-control") && !pointerDrag?.moving);
-  for (const id of ["start", "meeting-start"]) {
+  bar.dataset.hovered = String(Boolean(target?.closest("#bar")) && !pointerDrag?.moving);
+  for (const id of ["start", "meeting-start", "stopwatch"]) {
     document.getElementById(id).dataset.hovered = String(target?.closest("button")?.id === id && !pointerDrag?.moving);
   }
   if (currentState === "idle") notice.textContent = target?.closest("#meeting-start") ? meetingStartNotice : idleNotice;

@@ -65,6 +65,19 @@ export function TimesheetWorkday({
     retry: false,
     refetchInterval: 60000,
   });
+  const profileId = directory.captureProfileId;
+  const { data: lastStoppedId } = useQuery({
+    queryKey: ["private-stopwatch", ...calendarClientScope(client), profileId],
+    queryFn: () => client.privateStopwatch(undefined, profileId),
+    select: (status) => status.lastStopped?.id,
+    enabled: local && Boolean(profileId),
+    retry: false,
+    refetchInterval: 5000,
+  });
+  const refetchWorkday = query.refetch;
+  useEffect(() => {
+    if (local && profileId && lastStoppedId) void refetchWorkday();
+  }, [local, profileId, lastStoppedId, refetchWorkday]);
   async function act(action: CaptureAction) {
     setError("");
     setRunning(true);

@@ -21,7 +21,6 @@ import {
 import { calendarClientScope } from "../calendar/calendar-cache";
 import type { BackOfficeState } from "./api";
 import { timeRoutes } from "./time-routes";
-import { TimesheetStopwatch } from "./timesheet-stopwatch";
 import { TimesheetLedger } from "./timesheet-ledger";
 import { BillingReview } from "./billing-review";
 import { BillingPreferences } from "./billing-preferences";
@@ -172,9 +171,6 @@ export function TimesheetWorkspace({
               </Link>
             ))}
         </nav>
-        {directory.captureProfileId && isLoopbackLegalworkServerUrl(client.baseUrl) && (
-          <TimesheetStopwatch client={client} profileId={directory.captureProfileId} />
-        )}
       </header>
       {query.isError && (
         <div className="bo-empty" role="alert">

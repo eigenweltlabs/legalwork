@@ -500,11 +500,19 @@ try {
   const cache = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
   const writes: unknown[] = [];
   let captureProfileId = "profile-a";
+  const overlayRunId = crypto.randomUUID();
+  let stopped = false;
+  let workdayReads = 0;
   const client = {
     ...createLegalworkServerClient({ baseUrl: "http://localhost" }),
-    privateStopwatch: async () => ({ profileId: captureProfileId, active: null, lastStopped: null }),
+    privateStopwatch: async () => ({
+      profileId: captureProfileId,
+      active: null,
+      lastStopped: stopped ? { id: overlayRunId, date: base.date, stoppedAt: base.date + "T12:00:00Z" } : null,
+    }),
     privateWorkday: async (context: { profileId?: string }) => {
       assert.equal(context.profileId, "profile-a");
+      workdayReads++;
       return {
         settings: { calendar: true, tasks: false, intervalMinutes: 0 as const },
         proposals: [capture],
@@ -549,6 +557,12 @@ try {
   for (let i = 0; i < 20 && !button("Edit in list"); i++) await settle();
   const prepare = button("Edit in list");
   assert.ok(prepare, document.body.textContent?.slice(-800));
+  assert.equal(document.querySelector('header button[aria-label="Start stopwatch"]'), null);
+  const initialReads = workdayReads;
+  stopped = true;
+  await act(async () => cache.invalidateQueries({ queryKey: ["private-stopwatch"] }));
+  for (let i = 0; i < 20 && workdayReads === initialReads; i++) await settle();
+  assert.ok(workdayReads > initialReads, "a stop in the desktop overlay refreshes the open workday");
   const sourceSwitch = document.querySelector<HTMLElement>('.bo-workday [role="switch"]');
   assert.ok(sourceSwitch);
   assert.equal(sourceSwitch.dataset.size, "default");

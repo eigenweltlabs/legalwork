@@ -805,9 +805,7 @@ const callOverlay = new CallOverlay({
 });
 
 const dictationHud = new DictationHud({
-  stopwatchRequest: process.platform === "darwin"
-    ? async (action, profileId) => requestHudStopwatch(await runtimeManager.legalworkServerInfo(), action, profileId)
-    : undefined,
+  stopwatchRequest: async (action, profileId) => requestHudStopwatch(await runtimeManager.legalworkServerInfo(), action, profileId),
   onStart: () => systemDictation.toggleHandsFree(),
   onStop: () => recorderService().broadcast({ type: "system-dictation-stop" }),
   onCancel: () => systemDictation.cancel(),
