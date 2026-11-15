@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AssistantConversations } from "./assistant-conversations.js";
 import { AssistantSubmissions, type SubmissionPayload } from "./assistant-submissions.js";
+import { registerLauncherRoutes } from "./routes/launcher.js";
 import { registerAssistantConversationRoutes } from "./routes/assistant-conversations.js";
 import type { ServerConfig, WorkspaceInfo } from "./types.js";
 import { AssistantSessionAccess } from "./assistant-session-access.js";
@@ -84,16 +85,21 @@ test("project conversations submit without an Assistant plan while Assistant exe
       hasMessage: async () => sent > 0, outcome: async () => "accepted", send: async (_entry, payload) => { payloads.push(payload); sent++; },
     });
     const routes: Route[] = [];
-    registerAssistantConversationRoutes({ routes, config, conversations, submissions, sessionAccess,
+    const routeOptions = { routes, config, conversations, submissions, sessionAccess,
       ensureWritable: () => {}, requireClientScope: () => {}, changed: () => {}, assistant: {},
       jsonResponse: (body: unknown, status = 200) => Response.json(body, { status }), readJsonBodyLimited: (request: Request) => request.json(),
       resolveWorkspace: async (_config: unknown, id: string) => id === project.id ? project : assistant,
       client: () => ({ session: { get: async () => ({ data: { directory: root, model: { providerID: "native", id: "selected-model", variant: "deep" }, agent: "selected-agent", time: {} } }), messages: async () => ({ data: [] }) } }),
-    } as unknown as Parameters<typeof registerAssistantConversationRoutes>[0]);
+    } as unknown as Parameters<typeof registerAssistantConversationRoutes>[0];
+    registerAssistantConversationRoutes(routeOptions);
+    registerLauncherRoutes(routeOptions);
     const send = (id: string) => {
       const request = new Request(`http://localhost/assistant/conversations/${id}/messages`, { method: "POST", body: JSON.stringify({ requestId: `request_${id}`, messageId: `msg_${id.replaceAll("_", "")}`, text: "Review the file" }) });
       return matchRoute(routes, "POST", new URL(request.url).pathname)!.handler({ request, url: new URL(request.url), params: { id }, actor: { type: "host" } } as unknown as RequestContext);
     };
+    const request = new Request("http://localhost/launcher/assistant-availability");
+    const availability = await matchRoute(routes, "GET", new URL(request.url).pathname)!.handler({ request, url: new URL(request.url), params: {}, actor: { type: "host" } } as RequestContext);
+    expect(await availability.json()).toEqual({ included: false });
     expect((await send(projectChat.id)).status).toBe(202);
     expect(currentWikiAgentSession(config, projectChat.sessionId)?.scope).toBe("owner");
     await expect(send(assistantChat.id)).rejects.toMatchObject({ status: 403, code: "assistant_subscription_required" });

@@ -188,13 +188,14 @@ change file deletion or sync behavior.
 
 To ask a question, type it and press **Shift+Enter** or **Command+Enter**
 (**Ctrl+Enter** on Windows). You can send the same text from a search without
-retyping it. The general Assistant is the default for questions.
+retyping it. A new question from inside a project opens a fresh chat in that
+project. A follow-up typed in an open mini-bar chat stays in that chat.
 
 Type **n**, **new** or **neu** for creation actions. In an active project, press
 **Enter** on **New chat in [project]** to open a fresh project chat directly in
 the Eigenwelt main window. Choose **New chat in mini-bar** to start a fresh chat
 in the same project and keep typing in the floating window. When invoked from
-another app, the mini-bar chat uses the general Assistant. **New chat in a project…**
+another app, the new mini-bar chat opens as a blank composer. Choose a destination when you send, as described below. **New chat in a project…**
 lets you type a project name, choose it with the arrow keys and press **Enter** to
 open the chat in Eigenwelt. A separate Assistant conversation shows only its own
 messages when you scroll up. In the daily Assistant, scrolling up loads earlier days.
@@ -281,8 +282,18 @@ Project chats use the same access rules as in the main window. If part of the
 mini-bar cannot load, its error includes **Retry** while available results stay
 usable.
 
-Selected text from another app can be attached for actions such as explanation
-or translation. Capture controls can also attach a screenshot. These captures
+Select text in Safari or another app and press **Command+Shift+Space** (Windows:
+**Ctrl+Shift+Space**). Choose **Explain**, **Translate** or **Rewrite**, or type
+a question and press **Command+Enter** (**Ctrl+Enter** on Windows). In Raycast,
+**Ask LegalWork with Selection** opens the same question composer. Opening the
+mini-bar with a selection starts with that passage and keeps existing chats separate.
+
+From another app, an eligible AI plan starts a fresh general Assistant chat.
+Without that plan, type a project name, use the arrow keys and press **Enter**.
+The mini-bar sends your question and selection together using the project's
+connected model, including a provider connected with your own key. **Esc**
+returns to your question. If the project has no model, **Connect a provider**
+opens AI settings before a chat is created. Capture controls can also attach a screenshot. These captures
 are context for the chosen request; a later invocation does not silently reuse
 an old selection. You can drop files into the mini-bar, or configure additional
 search folders under **Settings > Assistant launcher**. Adding a search folder

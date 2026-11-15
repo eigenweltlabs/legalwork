@@ -1,5 +1,6 @@
 import { AssistantContextItemSchema, AssistantWorkStatusSchema, LAUNCHER_SEARCH_KINDS, LauncherFileTransferInputSchema, LauncherFileSourceKindSchema, LauncherSortSchema, compareLauncherResults, LauncherInvocationSchema, LauncherInvocationSourceSchema, LauncherSearchKindSchema, LauncherSearchResultSchema, QuickActionInputSchema } from "../native-shared-values.js";
 import { workspaceContentPath, workspaceFileRoot } from "../project-storage-paths.js";
+import { assistantSubscriptionAvailable } from "../assistant-subscription.js";
 import { existingLauncherFiles } from "../launcher-file-visibility.js";
 import { createLauncherDocument } from "../launcher-document.js";
 import { browseLauncherDirectory } from "../launcher-browse.js";
@@ -42,6 +43,10 @@ export function registerLauncherRoutes(options: Parameters<typeof registerMainAs
   const read = (ctx: RequestContext) => options.requireClientScope(ctx, "viewer");
   const write = (ctx: RequestContext) => { options.ensureWritable(config); options.requireClientScope(ctx, "collaborator"); };
   const projectName = (workspace: WorkspaceInfo) => (isMainAssistant(workspace) ? options.assistant.profile().name : null) ?? (workspace.displayName || workspace.name);
+  addRoute(routes, "GET", "/launcher/assistant-availability", "client", async ctx => {
+    read(ctx);
+    return jsonResponse({ included: await assistantSubscriptionAvailable(config) });
+  });
   addRoute(routes, "POST", "/launcher/documents", "client", async ctx => {
     write(ctx);
     const input = parse(z.object({ workspaceId: z.string().min(1), operationId: z.string().regex(/^[a-zA-Z0-9_-]{8,100}$/), folder: z.string().max(4096), name: z.string().trim().min(1).max(200), format: z.enum(["md", "txt", "docx"]), templatePath: z.string().max(4096).optional(), text: z.string().max(500_000) }), await options.readJsonBodyLimited(ctx.request, 2_100_000), "document_input", "Choose a project, folder and document name.");

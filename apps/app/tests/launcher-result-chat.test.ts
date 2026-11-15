@@ -1,3 +1,4 @@
+import { launcherChatModel, opensQuestionComposer, questionDestination } from "../src/react-app/launcher/launcher-question";
 import { creationContext, handoffContext } from "../src/react-app/launcher/launcher-context-lifecycle";
 import { expect, test } from "bun:test";
 import type { AssistantConversation, AssistantExecutionTarget } from "@legalwork/types/launcher";
@@ -90,4 +91,31 @@ test("creating in B from its task list cannot use the parked clipboard or file f
     { id: "draft_clip", type: "clipboard", text: "A's draft", capturedAt: 1 },
     { id: "old", type: "file", workspaceId: "A", path: "private.txt", name: "private", revision: null, sourceLabel: "First" },
   ], previous)).toEqual([]);
+});
+
+test("selection questions keep explicit project routing independent of an Assistant plan", async () => {
+  const unavailable = () => { throw new Error("Account unreachable"); };
+  expect(await questionDestination("project-b", unavailable)).toEqual({ kind: "project", workspaceId: "project-b" });
+  expect(await questionDestination(undefined, async () => false)).toEqual({ kind: "choose-project" });
+  expect(await questionDestination(undefined, async () => true)).toEqual({ kind: "assistant" });
+  await expect(questionDestination(undefined, unavailable)).rejects.toThrow("Account unreachable");
+});
+
+test("a new selection opens a blank composer, while only an explicitly addressed chat resumes", () => {
+  expect(opensQuestionComposer({ action: "ask" }, true)).toBe(true);
+  expect(opensQuestionComposer({ action: "open" }, true)).toBe(true);
+  expect(opensQuestionComposer({ action: "new-conversation" }, false)).toBe(true);
+  expect(opensQuestionComposer({ action: "open" }, false)).toBe(false);
+  expect(opensQuestionComposer({ action: "resume" }, true)).toBe(false);
+  expect(opensQuestionComposer({ action: "ask", conversationId: "chosen-chat" }, true)).toBe(false);
+});
+
+test("a project question and its follow-up retain the project's own model without changing the Assistant default", () => {
+  const defaults = { defaultModel: { providerID: "eigenwelt", modelID: "managed" }, modelVariant: "fast" };
+  const ownModel = { providerID: "private", modelID: "local" };
+  const project = { kind: "project" as const, workspaceId: "matter" };
+  const first = launcherChatModel(project, { model: null, variant: null }, defaults, ownModel);
+  expect(first).toEqual({ model: ownModel, variant: null });
+  expect(launcherChatModel(project, first, defaults)).toEqual(first);
+  expect(launcherChatModel({ kind: "assistant" }, first, defaults)).toEqual({ model: defaults.defaultModel, variant: "fast" });
 });
