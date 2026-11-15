@@ -15,7 +15,7 @@ function heap(engine: WrappedPdfiumModule) {
   return bytes;
 }
 type ReadBudget = { remaining: number; exceeded: boolean };
-const processingError = () => new ApiError(400, "pdf_processing_size", "The selected PDF content exceeds the 32 MiB processing budget. Select fewer pages; if one page still exceeds it, optimize that page before reading.");
+const processingError = () => new ApiError(400, "pdf_processing_size", "The selected PDF content exceeds the 64 MiB processing budget. Select fewer pages; if one page still exceeds it, optimize that page before reading.");
 
 /** PDFium reads only requested blocks from an already authorized, open file.
  * Unlike PDF.js range loading, this does not allocate a source-sized buffer. */
@@ -50,7 +50,7 @@ export class PdfFile {
     let document = 0;
     try {
       document = engine.FPDF_LoadCustomDocument(access, "");
-      if (budget.exceeded) throw new ApiError(400, "pdf_processing_size", "PDF structure exceeds the 32 MiB processing budget. Optimize or split this PDF before reading.");
+      if (budget.exceeded) throw new ApiError(400, "pdf_processing_size", "PDF structure exceeds the 64 MiB processing budget. Optimize or split this PDF before reading.");
       if (!document) throw new ApiError(400, "pdf_unreadable", "Could not read this PDF. Check that it is valid and not password-protected.");
       const pageCount = engine.FPDF_GetPageCount(document);
       if (pageCount > 1000) throw new ApiError(400, "pdf_page_count", "PDFs must contain at most 1000 pages. Split the source into smaller PDFs before reading.");
@@ -93,10 +93,14 @@ export class PdfFile {
         if (!textPage) throw new ApiError(400, "pdf_page", `Could not extract text from PDF page ${number}.`);
         const count = this.engine.FPDFText_CountChars(textPage);
         if (count < 0 || size + count > 2_000_000) throw new ApiError(400, "pdf_text_size", "PDF text exceeds 2 million characters. Select fewer source pages with pages.");
-        buffer = this.engine.pdfium.wasmExports.malloc((count + 1) * 2);
-        this.engine.FPDFText_GetText(textPage, 0, count, buffer);
+        let text = "";
+        if (count) {
+          buffer = this.engine.pdfium.wasmExports.malloc((count + 1) * 2);
+          const written = this.engine.FPDFText_GetText(textPage, 0, count, buffer);
+          if (!written) throw new ApiError(400, "pdf_page", `Could not extract text from PDF page ${number}.`);
+          text = this.engine.pdfium.UTF16ToString(buffer, Math.min(written, count + 1) * 2).replaceAll("\r\n", "\n");
+        }
         this.checkBudget();
-        const text = this.engine.pdfium.UTF16ToString(buffer).replaceAll("\r\n", "\n");
         size += text.length; pages.push({ page: number, text });
       } finally {
         if (!this.budget.exceeded) {

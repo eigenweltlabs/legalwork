@@ -1,14 +1,29 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { mkdtemp, open, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PDFDocument } from "pdf-lib";
 import { PdfReader } from "./pdf-reader.js";
-import { PDF_MAX_BYTES } from "./pdf-read-schema.js";
+import { PDF_MAX_BYTES, PDF_IN_MEMORY_MAX_BYTES } from "./pdf-read-schema.js";
+import { PdfFile } from "./pdf-file.js";
 import { spawnSync } from "node:child_process";
 import { OcrService } from "./ocr/service.js";
 
 import { largePdf } from "./pdf-file.test-support.js";
+
+test("disk-backed PDF reading starts at exactly 64 MiB", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "legalwork-pdf-threshold-test-")), path = join(directory, "threshold.pdf");
+  const reader = new PdfReader({ async serviceSnapshot() { throw new Error("OCR not requested"); } });
+  const disk = spyOn(PdfFile, "open");
+  try {
+    for (const size of [PDF_IN_MEMORY_MAX_BYTES - 1, PDF_IN_MEMORY_MAX_BYTES]) {
+      await largePdf(path, size);
+      const result = await reader.readFile(path, { pages: [1] }, new AbortController().signal);
+      expect(result.pages[0]?.text).toContain("Large source contract marker");
+      expect(disk.mock.calls.length).toBe(size < PDF_IN_MEMORY_MAX_BYTES ? 0 : 1);
+    }
+  } finally { disk.mockRestore(); await rm(directory, { recursive: true, force: true }); }
+});
 
 test("1 GiB PDFs use disk-backed text, selected visual pages and OCR with bounded memory", async () => {
   const directory = await mkdtemp(join(tmpdir(), "legalwork-large-pdf-test-"));
@@ -27,8 +42,9 @@ test("1 GiB PDFs use disk-backed text, selected visual pages and OCR with bounde
   const signal = new AbortController().signal;
   try {
     await largePdf(path, PDF_MAX_BYTES);
-    const native = await reader.readFile(path, { pages: [1] }, signal);
+    const native = await reader.readFile(path, { pages: [1, 2] }, signal);
     expect(native.page_count).toBe(2); expect(native.pages[0]?.text).toContain("Large source contract marker");
+    expect(native.pages[1]).toMatchObject({ text: "", embedded_text_chars: 0 });
     expect(calls).toBe(0);
     const attached = await reader.readFile(path, { pages: [1], attach: true }, signal);
     if (!("visual" in attached)) throw new Error("Missing PDF attachment");

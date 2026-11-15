@@ -31,8 +31,8 @@ export class PdfReader {
 
   async read(bytes: Uint8Array, options: z.infer<typeof pdfReadOptions>, signal: AbortSignal): Promise<PdfTextResult> {
     signal.throwIfAborted();
-    if (!bytes.length || bytes.length > PDF_IN_MEMORY_MAX_BYTES || !Buffer.from(bytes.subarray(0, 1024)).includes(Buffer.from("%PDF-")))
-      throw new ApiError(400, "pdf_input", "Provide a readable PDF. PDFs above 32 MiB must use the streamed file reader (maximum 1 GiB).");
+    if (!bytes.length || bytes.length >= PDF_IN_MEMORY_MAX_BYTES || !Buffer.from(bytes.subarray(0, 1024)).includes(Buffer.from("%PDF-")))
+      throw new ApiError(400, "pdf_input", "Provide a readable PDF. PDFs of 64 MiB or more must use the streamed file reader (maximum 1 GiB).");
     const source_hash = createHash("sha256").update(bytes).digest("hex");
     const native = await extractPdfText(bytes, signal, options.pages);
     return this.recognize(source_hash, native, () => openDocument(bytes, "pdf"), options, signal);
@@ -52,7 +52,7 @@ export class PdfReader {
         for await (const chunk of handle.createReadStream({ start: 0, autoClose: false, signal })) hash.update(chunk);
         sourceHash = hash.digest("hex");
       }
-      if (info.size > PDF_IN_MEMORY_MAX_BYTES || options.attach) pdf = await PdfFile.open(handle, info.size, signal);
+      if (info.size >= PDF_IN_MEMORY_MAX_BYTES || options.attach) pdf = await PdfFile.open(handle, info.size, signal);
       const selected = pdf?.select(options.pages);
       // Bound candidate output before encoding. The plugin counts the complete
       // serialized file envelope against the 2 MB model limit before attaching.

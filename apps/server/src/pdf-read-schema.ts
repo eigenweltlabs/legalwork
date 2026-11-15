@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 export const PDF_MAX_BYTES = 1024 * 1024 * 1024;
-export const PDF_IN_MEMORY_MAX_BYTES = 32 * 1024 * 1024;
+export const PDF_IN_MEMORY_MAX_BYTES = 64 * 1024 * 1024;
 export const PDF_ATTACHMENT_MAX_BYTES = 2_000_000;
 export const PDF_READING_RECOVERY = "Choose a built-in PDF reading mode suited to the task: text, attach or ocr. If the first chosen mode fails or leaves a specific uncertainty relevant to the answer, such as missing page content or garbled, implausible or inconsistent information, use another applicable built-in PDF mode to resolve the affected content. Use shell only if the applicable built-in modes fail, are unavailable, or leave the relevant uncertainty unresolved. Stop once the information is clear and sufficient to answer.";
 export const pdfReadOptions = z.object({
