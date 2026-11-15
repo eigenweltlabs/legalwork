@@ -160,7 +160,9 @@ not when you last opened it. Sources with partial coverage remain marked as such
 Type **as** and continue toward **assistant** to put your personalized Assistant
 first, ahead of matching projects, files and recent items. Press **Enter** to open it.
 
-Use **Up/Down** to select a result and **Enter** to open it. Chats, tasks,
+Hover over a row to highlight it. If more results are below, moving the pointer
+to the bottom edge of the list expands the mini-bar. You can also scroll or use
+**Up/Down** to reach those results. Press **Enter** to open the selected row. Chats, tasks,
 projects and folders open inside the mini-bar where supported; files open in
 their document workspace. Press **Right** for actions such as **Open in app**,
 copying a file or reference, or **Hide**. **Esc** goes back one step. Hidden

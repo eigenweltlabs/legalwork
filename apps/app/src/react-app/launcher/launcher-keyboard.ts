@@ -1,22 +1,28 @@
 import type { LauncherResultAction, LauncherSearchResult } from "@legalwork/types/launcher";
 
-export type LauncherSelection = { id: string | null; source: "auto" | "user" };
+export type LauncherSelection = { id: string | null; source: "auto" | "keyboard" | "pointer" };
 export type SelectableItem = { id: string; primaryAction?: LauncherResultAction | "run" | "open-conversation" | "resume" | null };
 
 /** Arriving results never move a selection the user made; a vanished item requires a new selection. */
 export function reconcileSelection(previous: LauncherSelection, items: SelectableItem[]): LauncherSelection {
-  if (previous.source === "user") {
+  if (previous.source !== "auto") {
     if (previous.id && items.some(item => item.id === previous.id)) return previous;
-    return { id: null, source: "user" };
+    return { id: null, source: previous.source };
   }
   return { id: items[0]?.id ?? null, source: "auto" };
 }
 export function moveSelection(current: LauncherSelection, items: SelectableItem[], delta: 1 | -1): LauncherSelection {
-  if (!items.length) return { id: null, source: "user" };
+  if (!items.length) return { id: null, source: "keyboard" };
   const index = current.id ? items.findIndex(item => item.id === current.id) : -1;
   const next = index < 0 ? (delta > 0 ? 0 : items.length - 1) : Math.min(items.length - 1, Math.max(0, index + delta));
-  return { id: items[next].id, source: "user" };
+  return { id: items[next].id, source: "keyboard" };
 }
+/** Hovering only expands at the lower edge, while more content is still out of sight. */
+export function shouldExpandLauncherList(body: Pick<HTMLElement, "scrollTop" | "scrollHeight" | "clientHeight">, distanceToBottom?: number) {
+  if (distanceToBottom === undefined) return body.scrollTop > 48;
+  return distanceToBottom >= 0 && distanceToBottom <= 12 && body.scrollHeight - body.clientHeight - body.scrollTop > 1;
+}
+
 /** Enter runs the selected row's visible primary action. No selection means no implicit request. */
 export function enterTarget(selection: LauncherSelection, items: SelectableItem[]): SelectableItem | null {
   return selection.id ? items.find(item => item.id === selection.id) ?? null : null;

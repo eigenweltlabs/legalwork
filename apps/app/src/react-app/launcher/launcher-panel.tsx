@@ -22,6 +22,7 @@ import { launcherApprovalReply, launcherAttentionSet, launcherClipboardCopyFiles
 import { currentLocale, t } from "@/i18n";
 import { useLocale } from "@/i18n/use-locale";
 import { useLocal } from "@/react-app/kernel/local-provider";
+import eigenweltMark from "@/assets/legalwork-mark-dark.svg";
 import { AssistantAvatar } from "@/react-app/domains/session/sidebar/assistant-appearance";
 import { appendDictatedText, useComposerDictation } from "@/react-app/domains/session/surface/composer/use-composer-dictation";
 import { ComposerDictationBar } from "@/react-app/domains/session/surface/composer/composer-dictation";
@@ -32,7 +33,7 @@ import { LauncherApprovalCard } from "./launcher-approval";
 import { LauncherContextBar } from "./launcher-context-bar";
 import { handoffContext, creationContext, isCapturedSelection, persistentContext } from "./launcher-context-lifecycle";
 import { AttentionCards, LauncherConversation, SubmissionStatusRow, useSubmissionStatus, type PendingOutput } from "./launcher-conversation";
-import { enterTarget, escapeAction, footerVerb, isAskShortcut, isComposingKeyEvent, moveSelection, optionId, reconcileSelection, type SelectableItem } from "./launcher-keyboard";
+import { enterTarget, escapeAction, footerVerb, isAskShortcut, isComposingKeyEvent, moveSelection, optionId, reconcileSelection, shouldExpandLauncherList, type SelectableItem } from "./launcher-keyboard";
 import { activateCategoryAlias, categorySuggestions, isBrowseActionQuery, matchesOpenBrowser, namedCategoryQuery, normalizeLauncherAliases, parseLauncherEntry } from "./launcher-query";
 import { readPins, togglePin as togglePinnedResult } from "./launcher-pins";
 import { LauncherPreviewPane } from "./launcher-preview";
@@ -1248,13 +1249,18 @@ export function LauncherPanel() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectionSignature, store.view, store.selection.id, store.selection.source]);
   useEffect(() => {
+    if (store.selection.source === "pointer") return;
     bodyRef.current?.querySelector<HTMLElement>('[data-selected="true"]')?.scrollIntoView({ block: "nearest" });
-  }, [store.selection.id, store.view, selectionSignature]);
+  }, [store.selection.id, store.selection.source, store.view]);
+  const selectPointerRow = (id: string) => {
+    if (store.overlay || actionProject || (store.selection.id === id && store.selection.source === "pointer")) return;
+    store.select({ id, source: "pointer" });
+  };
   const selected = enterTarget(store.selection, selectable);
   const selectedNavigation = navigationRows.find(item => item.id === selected?.id);
   const runNavigation = (row: NavigationRow) => { if (sendingRef.current || uploadingRef.current || childForm.current.busy) return; return void Promise.resolve().then(row.run).catch(error => notify({ tone: "error", text: String(error) })); };
   const fileDrag = useLauncherFileDrag([...(store.view === "results" && !showCommands && !calculation ? visibleResults : []), ...navigationRows.flatMap(row => row.result ? [row.result] : [])], localFiles && store.visible && !sending && !uploading, selectedNavigation?.result ?? visibleResults.find(item => resultKey(item) === selected?.id));
-  const renderNavigationRows = (rows: NavigationRow[]) => <LauncherNavigationRows canDrag={fileDrag.canDrag} onDragStart={fileDrag.start} onOpenActions={id => openActions(id)} rows={rows.filter(row => navigationRows.some(visible => visible.id === row.id)).map(row => ({ ...row, run: () => { if (!sendingRef.current && !uploadingRef.current && !childForm.current.busy) return row.run(); } }))} selected={selected?.id ?? null} onSelect={id => store.select({ id, source: "user" })} onError={error => notify({ tone: "error", text: String(error) })} />;
+  const renderNavigationRows = (rows: NavigationRow[]) => <LauncherNavigationRows canDrag={fileDrag.canDrag} onDragStart={fileDrag.start} onOpenActions={id => openActions(id)} rows={rows.filter(row => navigationRows.some(visible => visible.id === row.id)).map(row => ({ ...row, run: () => { if (!sendingRef.current && !uploadingRef.current && !childForm.current.busy) return row.run(); } }))} selected={selected?.id ?? null} onSelect={selectPointerRow} onError={error => notify({ tone: "error", text: String(error) })} />;
   const copyCalculation = async () => {
     if (calculation?.value === null || !calculation) return;
     try { await copyLauncherText(calculation.value); notify({ tone: "info", text: t("launcher.notice.copied") }); }
@@ -1430,7 +1436,11 @@ export function LauncherPanel() {
       {pendingContext && <div className="launcher-notice launcher-context-switch">{t("launcher.flow.new_context", { project: pendingContext.context?.workspaceName ?? t("assistant.title") })}<Button size="sm" variant="ghost" disabled={formActive} onClick={() => void useContext(pendingContext.context)}>{t("launcher.flow.use_context")}</Button><Button size="sm" variant="ghost" onClick={() => setPendingContext(null)}>{t("launcher.flow.keep_context")}</Button></div>}
 
       <div className="launcher-entry">
-        {(["conversation", "work", "detail", "hidden"].includes(store.view)) ? <Button variant="ghost" size="icon-sm" aria-label={t("launcher.back")} title={t("launcher.back")} onClick={() => void goBack()}><ArrowLeft className="size-4" /></Button> : <AssistantAvatar icon={assistant?.profile.icon} className="size-6" motion={sending ? "thinking" : undefined} />}
+        {["conversation", "work", "detail", "hidden"].includes(store.view) ? (
+          <Button variant="ghost" size="icon-sm" aria-label={t("launcher.back")} title={t("launcher.back")} onClick={() => void goBack()}><ArrowLeft className="size-4" /></Button>
+        ) : (
+          <img src={eigenweltMark} alt="Eigenwelt" draggable={false} className="size-6 object-contain" />
+        )}
         <div className="launcher-entry-main">
         {hasSearchChips && <div className="launcher-chips">
         {store.category && !(store.category === "files" && store.fileFilter.types?.length) && <span className="launcher-chip" data-kind="category" title={t(categoryKeys[store.category])}><span>{t(categoryKeys[store.category])}</span><button type="button" aria-label={t("launcher.chip.remove_category")} onClick={() => { store.setCategory(null); inputRef.current?.focus(); }}><X className="size-3" /></button></span>}
@@ -1491,7 +1501,17 @@ export function LauncherPanel() {
         <DropdownMenu><DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label={t("launcher.footer.actions")} title={t("launcher.footer.actions")} />}><MoreHorizontal className="size-4" /></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem onClick={() => openCreate("excerpt", { fromSelection: true })}>{t("launcher.flow.create_excerpt")}</DropdownMenuItem><DropdownMenuItem onClick={() => openCreate("task", { fromSelection: true })}>{t("launcher.flow.create_task")}</DropdownMenuItem></DropdownMenuContent></DropdownMenu>
       </div>}
       {store.view !== "conversation" && attentionItems.length > 0 && <AttentionCards items={attentionItems} busy={attentionBusy} onReply={replyAttention} onOpen={item => openInApp(workspaceSessionRoute(item.workspaceId, item.sessionId))} />}
-      <div ref={bodyRef} className="launcher-body" onScroll={event => { if (event.currentTarget.scrollTop > 48 && !expandedByScroll) setScrollExpansion({ view: store.view, category: store.category }); }}>
+      <div ref={bodyRef} className="launcher-body"
+        onMouseMove={event => {
+          if (expanded || store.overlay || actionProject || event.buttons !== 0) return;
+          const body = event.currentTarget;
+          if (shouldExpandLauncherList(body, body.getBoundingClientRect().bottom - event.clientY)) {
+            setScrollExpansion({ view: store.view, category: store.category });
+          }
+        }}
+        onScroll={event => {
+          if (!expanded && shouldExpandLauncherList(event.currentTarget)) setScrollExpansion({ view: store.view, category: store.category });
+        }}>
         {pendingQuestion ? <div onKeyDown={event => { if (event.key === "Escape") { event.preventDefault(); void goBack(); } }}>
           <p className="px-3 py-2 text-sm" role="status">{modelSetup ? t("launcher.question.no_model", { project: modelSetup }) : t(workspaces.length ? "launcher.question.project_prompt" : "launcher.question.no_projects")}</p>
           {modelSetup || !workspaces.length ? <div className="flex gap-2 px-3 pb-2">
@@ -1512,7 +1532,7 @@ export function LauncherPanel() {
           {showingCreationChoices && awaitingOrigin && <p role="status" className="launcher-empty">{t("launcher.new.loading_context")}</p>}
           {renderNavigationRows(suggestionRows)}
           {!showingCreationChoices && <LauncherResultList canDrag={fileDrag.canDrag} onDragStart={fileDrag.start} items={visibleResults} sources={store.sources} query={searchText} selectedKey={store.selection.id} multiSelect={store.multiSelect} pins={pinnedKeys} pending={store.searchPending} hideEmpty={navigationRows.length > 0}
-            onSelect={key => { if (store.overlay?.kind !== "actions") store.select({ id: key, source: "user" }); }} onRun={(result, action) => void runResultAction(result, action)} onToggleMulti={store.toggleMultiSelect} onOpenActions={key => store.setOverlay({ kind: "actions", resultKey: key })} />}
+            onSelect={selectPointerRow} onRun={(result, action) => void runResultAction(result, action)} onToggleMulti={store.toggleMultiSelect} onOpenActions={key => store.setOverlay({ kind: "actions", resultKey: key })} />}
 
           {!showingCreationChoices && store.searchError && <p className="launcher-notice" data-tone="error">{store.searchError}</p>}
         </div>}
@@ -1522,7 +1542,7 @@ export function LauncherPanel() {
           </div> : <div className="launcher-empty">{t(calculation.error === "undefined" ? "launcher.calculator.undefined" : "launcher.calculator.incomplete")}</div>}
         </div>}
         {showCommands && store.view !== "conversation" && <><p className="launcher-section-title">{t("launcher.commands.choose_context")}</p><div id="launcher-options" role="listbox" aria-label={t("launcher.commands.choose_context")}>{renderNavigationRows(commandContextRows)}</div></>}
-        {showCommands && store.view === "conversation" && (commandItems.length ? <div id="launcher-options" role="listbox" aria-label={t("launcher.commands.title")}>{commandItems.map(item => <div key={item.id} id={optionId(item.id)} data-launcher-item role="option" aria-selected={store.selection.id === item.id} data-selected={store.selection.id === item.id} className="launcher-row" onMouseMove={() => store.select({ id: item.id, source: "user" })} onClick={() => void runCatalogEntry(item)}>
+        {showCommands && store.view === "conversation" && (commandItems.length ? <div id="launcher-options" role="listbox" aria-label={t("launcher.commands.title")}>{commandItems.map(item => <div key={item.id} id={optionId(item.id)} data-launcher-item role="option" aria-selected={store.selection.id === item.id} data-selected={store.selection.id === item.id} className="launcher-row" onMouseMove={() => selectPointerRow(item.id)} onClick={() => void runCatalogEntry(item)}>
           <span className="launcher-row-icon"><Sparkles className="size-4" /></span>
           <div className="launcher-row-main"><div className="launcher-row-title">{item.label}{item.favorite ? " ★" : ""}</div><div className="launcher-row-meta">{[t(actionKindKeys[item.kind]), item.source === "quick-action" ? t("launcher.source.quick_action") : item.source === "command" ? t("launcher.source.command") : item.source === "skill" ? t("launcher.source.skill") : null, item.requires.length ? t("launcher.requires", { inputs: item.requires.map(input => t(inputKeys[input])).join(", ") }) : null, item.description].filter(Boolean).join(" · ")}</div></div>
           <span className="launcher-row-hint">{item.shortcut}</span>

@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { LauncherNavigationHistory, type NavigationEntry } from "../src/react-app/launcher/launcher-navigation";
 
-const home: NavigationEntry = { view: "idle", detail: null, input: "", category: null, fileFilter: { types: null, modifiedAfter: null }, scope: null, selection: { id: "home:new", source: "user" }, conversation: null, context: [], target: { kind: "assistant" }, previews: [] };
+const home: NavigationEntry = { view: "idle", detail: null, input: "", category: null, fileFilter: { types: null, modifiedAfter: null }, scope: null, selection: { id: "home:new", source: "keyboard" }, conversation: null, context: [], target: { kind: "assistant" }, previews: [] };
 const conversation = (id: string): NavigationEntry["conversation"] => ({ conversationId: id, workspaceId: "assistant", sessionId: `session-${id}`, title: id, archived: false, pinned: false });
 
 test("refreshing a task's action state does not add a fake navigation step", () => {
@@ -16,7 +16,7 @@ test("refreshing a task's action state does not add a fake navigation step", () 
 
 test("Escape restores the search and selected row underneath a chat", () => {
   const history = new LauncherNavigationHistory();
-  const search: NavigationEntry = { ...home, view: "results", input: "lease", category: "files", selection: { id: "file-b", source: "user" } };
+  const search: NavigationEntry = { ...home, view: "results", input: "lease", category: "files", selection: { id: "file-b", source: "keyboard" } };
   history.observe(search);
   const chat: NavigationEntry = { ...home, view: "conversation", input: "Compare these", conversation: conversation("new") };
   history.observe(chat);

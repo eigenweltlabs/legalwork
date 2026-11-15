@@ -18,7 +18,7 @@ test("late search updates cannot steal a home, command or calculator selection",
   const store = useLauncherStore.getState();
   for (const view of ["idle", "commands", "results"] as const) {
     store.setView(view);
-    store.select({ id: view === "results" ? "calculator" : "home:new", source: "user" });
+    store.select({ id: view === "results" ? "calculator" : "home:new", source: "keyboard" });
     const selection = useLauncherStore.getState().selection;
     store.setResults([], [], false, null);
     expect(useLauncherStore.getState().selection).toEqual(selection);
@@ -27,12 +27,12 @@ test("late search updates cannot steal a home, command or calculator selection",
 
 test("typing a new search resets selection, while restoring a view keeps its chosen row", () => {
   const store = useLauncherStore.getState();
-  store.setView("results"); store.select({ id: "old", source: "user" });
+  store.setView("results"); store.select({ id: "old", source: "keyboard" });
   store.setInput("different query");
   expect(useLauncherStore.getState().selection).toEqual({ id: null, source: "auto" });
-  store.setView("conversation"); store.setView("results"); store.select({ id: "restored", source: "user" });
+  store.setView("conversation"); store.setView("results"); store.select({ id: "restored", source: "keyboard" });
   expect(useLauncherStore.getState().selection.id).toBe("restored");
-  store.setView("conversation"); store.select({ id: "command:old", source: "user" }); store.setInput("/new");
+  store.setView("conversation"); store.select({ id: "command:old", source: "keyboard" }); store.setInput("/new");
   expect(useLauncherStore.getState().selection).toEqual({ id: null, source: "auto" });
 });
 

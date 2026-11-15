@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { enterTarget, escapeAction, footerVerb, isAskShortcut, isComposingKeyEvent, isLauncherConfirmKey, moveSelection, optionId, orderLauncherResults, reconcileSelection } from "../src/react-app/launcher/launcher-keyboard";
+import { enterTarget, escapeAction, footerVerb, isAskShortcut, isComposingKeyEvent, isLauncherConfirmKey, moveSelection, optionId, orderLauncherResults, reconcileSelection, shouldExpandLauncherList } from "../src/react-app/launcher/launcher-keyboard";
 import type { LauncherSearchResult } from "@legalwork/types/launcher";
 
 const items = [{ id: "a", primaryAction: "open" as const }, { id: "b", primaryAction: "attach" as const }, { id: "c", primaryAction: "run" as const }];
@@ -25,14 +25,31 @@ test("search can be sent directly while explicit Ask and chat drafts keep Shift+
 test("streaming results cannot move a user selection or change the action under Enter", () => {
   expect(reconcileSelection({ id: null, source: "auto" }, items)).toEqual({ id: "a", source: "auto" });
   const user = moveSelection({ id: "a", source: "auto" }, items, 1);
-  expect(user).toEqual({ id: "b", source: "user" });
+  expect(user).toEqual({ id: "b", source: "keyboard" });
   expect(reconcileSelection(user, [{ id: "z" }, ...items])).toEqual(user);
-  expect(reconcileSelection(user, [{ id: "a" }, { id: "c" }])).toEqual({ id: null, source: "user" });
-  expect(enterTarget({ id: null, source: "user" }, items)).toBeNull();
+  expect(reconcileSelection(user, [{ id: "a" }, { id: "c" }])).toEqual({ id: null, source: "keyboard" });
+  expect(enterTarget({ id: null, source: "keyboard" }, items)).toBeNull();
   expect(enterTarget(user, items)?.id).toBe("b");
-  expect(moveSelection({ id: "c", source: "user" }, items, 1).id).toBe("c");
-  expect(moveSelection({ id: null, source: "user" }, items, -1).id).toBe("c");
-  expect(moveSelection({ id: "a", source: "user" }, [], 1)).toEqual({ id: null, source: "user" });
+  expect(moveSelection({ id: "c", source: "keyboard" }, items, 1).id).toBe("c");
+  expect(moveSelection({ id: null, source: "keyboard" }, items, -1).id).toBe("c");
+  expect(moveSelection({ id: "a", source: "keyboard" }, [], 1)).toEqual({ id: null, source: "keyboard" });
+});
+
+test("hover keeps its selection through updates and arrow keys resume keyboard navigation", () => {
+  const pointer = reconcileSelection({ id: "b", source: "pointer" }, items);
+  expect(pointer).toEqual({ id: "b", source: "pointer" });
+  expect(reconcileSelection(pointer, [])).toEqual({ id: null, source: "pointer" });
+  expect(moveSelection(pointer, items, 1)).toEqual({ id: "c", source: "keyboard" });
+});
+
+test("compact lists expand only at the lower hover edge with more results, or after scrolling past 48px", () => {
+  const body = { scrollTop: 0, clientHeight: 240, scrollHeight: 270 };
+  expect(shouldExpandLauncherList(body, 13)).toBe(false);
+  expect(shouldExpandLauncherList(body, 12)).toBe(true);
+  expect(shouldExpandLauncherList({ ...body, scrollHeight: 240 }, 1)).toBe(false);
+  expect(shouldExpandLauncherList({ ...body, scrollTop: 30 }, 1)).toBe(false);
+  expect(shouldExpandLauncherList({ ...body, scrollHeight: 600, scrollTop: 48 })).toBe(false);
+  expect(shouldExpandLauncherList({ ...body, scrollHeight: 600, scrollTop: 49 })).toBe(true);
 });
 
 test("Escape goes back through menu, conversation, query and filter before closing", () => {
@@ -54,7 +71,7 @@ test("keyboard selection follows displayed groups even when responses arrive out
   const result = (id: string, kind: LauncherSearchResult["kind"]): LauncherSearchResult => ({ id, kind, sourceId: "local", workspaceId: "w", title: id, match: "prefix", score: 1, actions: ["open"] });
   const ordered = orderLauncherResults([result("chat", "chats"), result("file-a", "files"), result("project", "projects"), result("file-b", "files")]);
   expect(ordered.map(item => item.id)).toEqual(["project", "file-a", "file-b", "chat"]);
-  expect(moveSelection({ id: "file-a", source: "user" }, ordered, 1).id).toBe("file-b");
+  expect(moveSelection({ id: "file-a", source: "keyboard" }, ordered, 1).id).toBe("file-b");
   expect(optionId("files\u0000local\u0000Müller.pdf")).not.toContain("\u0000");
 });
 
