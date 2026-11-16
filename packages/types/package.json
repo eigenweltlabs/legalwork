@@ -51,6 +51,7 @@
     "./email-draft": "./src/email-draft.ts",
     "./calculation": "./src/calculation.ts",
     "./session-queue": "./src/session-queue.ts",
+    "./session-cost": "./src/session-cost.ts",
     "./main-assistant": "./src/main-assistant.ts",
     "./browser-password-request": "./src/browser-password-request.ts",
     "./session-history": "./src/session-history.ts",

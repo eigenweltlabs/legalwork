@@ -1,4 +1,5 @@
 import { requireAssistantWorkspaceSubscription } from "../assistant-subscription.js";
+import { readSessionCosts } from "../session-costs.js";
 import { sessionDispatchSchema } from "../session-queue-schema.js";
 import { dispatchQueueAction } from "../session-dispatch.js";
 import { announceSyncChange } from "../app-sync-events.js";
@@ -446,6 +447,11 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
     });
     const session = await readWorkspaceSession(workspace, sessionId);
     return jsonResponse({ items, historyProvenance: await readSessionHistoryProvenance(config, workspace, session, items) });
+  });
+
+  addRoute(routes, "GET", "/workspace/:id/sessions/:sessionId/costs", "client", async ctx => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    return jsonResponse(await readSessionCosts(createEngineClient(config, workspace, { fileReferences: true }), workspace, ctx.params.sessionId, ctx.request.signal));
   });
 
   addRoute(routes, "GET", "/workspace/:id/sessions/:sessionId/snapshot", "client", async (ctx) => {

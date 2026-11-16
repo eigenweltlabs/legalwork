@@ -109,6 +109,17 @@ The Memory section can contain cleanup controls for legacy local memories. The a
 
 Change the display language in **Customization**. Use the appearance selector to choose light, dark or system appearance. Task suggestions controls starter suggestions; showing model reasoning changes what is displayed, not the model's reasoning budget.
 
+### Show prompt and conversation costs
+
+1. Open **Settings > Customization**.
+2. Under **Model**, turn on **Show costs**. This is off by default and is saved on this device.
+3. Open a chat. The top-right amount shows the conversation's estimated model cost. A smaller amount below each response shows the cost of that prompt, including its model calls and linked delegated agents.
+4. Click an amount to see the models, model calls, cached input and **Token breakdown**. While the agent is working, **so far** means completed calls are included; the current call is added when usage is reported.
+
+Costs use US dollars and the model prices available to the agent engine. Conversation totals include background work such as titles and context compaction, even when older messages are not on screen. Undoing a message does not refund usage, and a new branch does not charge again for copied history.
+
+**Cost unavailable** means usage or model pricing is missing. A **≥** amount is the known subtotal when some usage cannot be priced. Existing conversations can show costs where the engine retained their usage. These are estimates of model usage: your provider invoice or subscription allowance may differ, and paid external services such as transcription or research are not included. Turning off **Show costs** hides the display; it does not change model usage or anonymous usage-sharing preferences.
+
 **Projects** offers defaults for matter fields and a new-window preference to ask, open empty or copy the current context. Project defaults apply when creating a project; they do not overwrite every existing matter.
 
 ## App updates

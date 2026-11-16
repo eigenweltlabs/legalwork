@@ -140,6 +140,8 @@ import { t } from "@/i18n";
 import { AssistantAvatar } from "@/react-app/domains/session/sidebar/assistant-appearance";
 import { assistantMessageSender } from "@/react-app/domains/session/sync/assistant-message-sender";
 
+import { PromptCostIndicator } from "./cost-indicator";
+
 function MessageTimestamp({ message, className }: { message: UIMessage; className?: string }) {
   const created = getMessageCreated(message)
   if (created === null) return null
@@ -1079,6 +1081,8 @@ function MessageGroup({
           {/* <MessageSources messages={items.map((item) => item.message)} /> */}
         </div>
       )}
+      <PromptCostIndicator messageIds={items.map(item => item.message.id)}
+        promptId={messages.slice(0, items[0]?.index ?? 0).findLast(message => message.role === "user")?.id} busy={isLiveGroup} />
       </div>
   )
 }
