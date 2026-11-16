@@ -26,6 +26,7 @@ import { DirectoryEditorPopup, DirectoryMenu } from "./twenty-controls";
 import { HistoryPanel } from "./history-panel";
 import type { LegalworkServerClient } from "@/app/lib/legalwork-server";
 import { t } from "@/i18n";
+import { useLocale } from "@/i18n/use-locale";
 
 export function RecordDetail({
   client,
@@ -68,6 +69,7 @@ export function RecordDetail({
     archived?: boolean,
   ) => Promise<void>;
 }) {
+  const locale = useLocale();
   const [edit, setEdit] = useState<{ field: string; base: BackOfficeRecord } | null>(null),
     [error, setError] = useState("");
   const [tab, setTab] = useState<"home" | "history">("home");
@@ -87,13 +89,13 @@ export function RecordDetail({
       await onSave(nameDraft.base, { name: nameDraft.text.trim() });
       setNameDraft(current => current === nameDraft ? null : current);
     } catch (error) {
-      setError(error instanceof Error ? error.message : "Could not save the value.");
+      setError(error instanceof Error ? error.message : t("back_office.value_failed"));
     } finally {
       savingName.current = false;
     }
   };
   const date = (value: string) =>
-    new Date(value).toLocaleString(undefined, {
+    new Date(value).toLocaleString(locale, {
       month: "short",
       day: "numeric",
       year: "numeric",
@@ -101,11 +103,11 @@ export function RecordDetail({
       minute: "2-digit",
     });
   return (
-    <aside className="bo-detail" aria-label={`${object.label} details`}>
+    <aside className="bo-detail" aria-label={t("back_office.record_details", { name: object.label })}>
       <div
         className="bo-detail-resize"
         role="separator"
-        aria-label="Resize record panel"
+        aria-label={t("back_office.resize_panel")}
         aria-orientation="vertical"
         onPointerDown={(event) => {
           const start = event.clientX;
@@ -133,7 +135,7 @@ export function RecordDetail({
           className="bo-detail-name"
           variant="plain"
           size="sm"
-          aria-label={`${object.label} name`}
+          aria-label={t("back_office.record_name", { name: object.label })}
           placeholder={object.fields.find(field => field.id === "name")?.label}
           autoFocus={focusName}
           disabled={!editable}
@@ -170,14 +172,14 @@ export function RecordDetail({
         <Button
           size="sm"
           variant="ghost"
-          aria-label="Expand record"
+          aria-label={t("back_office.expand_record")}
           onClick={() => onWidthChange(width === 800 ? 400 : 800)}
           startIcon={<Maximize2 size={14} />}
         />
         <Button
           size="sm"
           variant="ghost"
-          aria-label="Close record"
+          aria-label={t("back_office.close_record")}
           onClick={onClose}
           startIcon={<X size={16} />}
         />
@@ -225,14 +227,14 @@ export function RecordDetail({
             <div className="bo-property bo-system-property">
               <label>
                 <CalendarDays size={13} />
-                Creation date
+                {t("back_office.creation_date")}
               </label>
               <span>{date(record.createdAt)}</span>
             </div>
             <div className="bo-property bo-system-property">
               <label>
                 <CalendarDays size={13} />
-                Last update
+                {t("back_office.last_update")}
               </label>
               <span>{date(record.updatedAt)}</span>
             </div>
@@ -264,7 +266,7 @@ export function RecordDetail({
                             variant="ghost"
                             fullWidth
                             disabled={!canEdit}
-                            aria-label={`Edit ${field.label}`}
+                            aria-label={t("projects.edit_value", { name: field.label })}
                           />
                         }
                       >
@@ -317,14 +319,14 @@ export function RecordDetail({
           )}
           <div className="bo-detail-bottom">
             <span className="bo-muted">
-              {record.archivedAt ? "Archived" : object.label}
+              {record.archivedAt ? t("project_browser.archived") : object.label}
             </span>
             <DirectoryMenu
               trigger={
                 <Button
                   size="sm"
                   variant="ghost"
-                  aria-label="Record options"
+                  aria-label={t("back_office.record_options")}
                   startIcon={<MoreVertical size={14} />}
                 />
               }
@@ -344,7 +346,7 @@ export function RecordDetail({
                   )
                 }
               >
-                {record.archivedAt ? "Restore record" : "Archive record"}
+                {record.archivedAt ? t("back_office.restore_record") : t("back_office.archive_record")}
               </Dropdown.ActionItem>
             </DirectoryMenu>
           </div>

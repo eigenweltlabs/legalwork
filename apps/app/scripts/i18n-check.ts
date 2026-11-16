@@ -37,6 +37,8 @@ const placeholders = (value: string): string[] =>
  * Everything else matching English is an untranslated string.
  */
 const GERMAN_KEEPS_ENGLISH = new Set<string>([
+  // Shared law-firm titles, statutory abbreviation and team label.
+  "back_office.sync_team_value", "back_office.option.partner", "back_office.option.counsel", "back_office.option.associate", "back_office.option.rvg",
   "back_office.kanban", "back_office.icon.kanban", // Shared name for the Kanban view.
   "back_office.people.singular", // Person is the same noun in German and English.
   "back_office.organisations.singular", "back_office.icon.building", // Organisation has the same spelling in both languages.
