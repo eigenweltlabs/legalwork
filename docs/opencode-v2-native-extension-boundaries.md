@@ -106,6 +106,15 @@ another engine's same-session-ID404 or deletion event from purging unrelated dat
 
 ## Native response-token defaults
 
+LegalWork caps automatic compaction at 500,000 context tokens. A model's
+existing buffered ceiling still wins when it is lower, including models with
+smaller input limits. The cap also applies when an explicit buffer would allow
+more than 500,000 tokens. It does not change advertised model limits, response
+allocation, recent-history retention, summary prompts or an explicit
+`compaction.auto: false`. Unknown windows retain provider-overflow recovery.
+The [source receipt](patches/opencode-2.1.4-compaction-500k.receipt.json) records
+boundary, native-compaction and model-limit preservation regressions.
+
 Pinned native1.18.29 normally chose the lesser of the catalog output limit and
 32,000 tokens, falling back to32,000 when unspecified. Native2.1.4 uses the
 catalog limit with a256,000-token maximum, retains the32,000 fallback, and fits

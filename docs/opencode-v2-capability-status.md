@@ -1,5 +1,12 @@
 # Engine and capability acceptance status
 
+Compaction follow-up, 16 November: derivative `2.1.4-legalwork.compaction.1`
+caps automatic compaction at 500,000 tokens while keeping earlier buffered
+thresholds and the full model context windows. Summary retention and prompts
+remain unchanged. The [source receipt](patches/opencode-2.1.4-compaction-500k.receipt.json)
+records the new boundary regressions and native core type check. Earlier
+acceptance checkpoints below describe their own snapshots.
+
 History-loading follow-up, 10 November: derivative `2.1.4-legalwork.http-policy.6` adds an opt-in display representation for source-backed PDFs in completed read-tool history. Both chat snapshots and their checklist scan use it; canonical history, single-message reads and model context remain complete. Images and inline-only PDFs retain their data. The [source receipt](patches/opencode-2.1.4-history-file-references.receipt.json) records 218 passing source regressions and both native type checks. Actual Windows app acceptance is recorded with the history-loading PR. Earlier checkpoints below describe their own snapshots.
 
 Project-storage follow-up, 8 November: the reviewed derivative is now

@@ -34,6 +34,8 @@ Project menus provide the actions available in this context, including renaming 
 
 Long conversations load older messages automatically as you scroll up. LegalWork keeps only a few nearby batches loaded to keep memory use under control. Messages outside that window stay saved and load again when you scroll back. Loading another batch keeps the message you are reading in place. Use **Jump to latest** to return to the newest messages.
 
+During long-running work, LegalWork automatically summarizes older conversation when the model's active context reaches 500,000 tokens, or earlier when its context limit requires more free space. The next model request uses the summary and recent conversation so work can continue. The model's full context window remains available for large requests. Earlier chat messages stay saved and can still be read by scrolling up. A summary can omit details, so keep important source documents and precise requirements in the project where the agent can read them again.
+
 In a project, **New Chat** starts a conversation in that project. From the Personal Assistant, it opens a project picker so you can choose where the new conversation belongs. The Assistant conversation stays available. **Cmd/Ctrl+N** follows the same behavior.
 
 **Home** selects the project you most recently worked in for new messages. Visiting the Personal Assistant or Wiki keeps that project remembered. Use the project picker below the composer to choose another project or explicitly send a message to your Assistant. If the remembered project is no longer available, Home selects an available project; with no projects, it uses the Assistant.

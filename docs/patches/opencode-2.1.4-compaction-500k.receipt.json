@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "upstreamCommit": "68bc26b7da1990ce10ffecfbc1e09eb13aa5d824",
+  "patchSha256": "25bee43f190a49f7c4c8bec9b0a7dfedb324d01e7c93c11b55d18d348610db03",
+  "priorPatch": {
+    "path": "docs/patches/opencode-2.1.4-history-file-references.patch",
+    "sha256": "75cc4c142ca62ae82999f235a91506164e0bd3bd5503a9e98ddf82e2854652c2",
+    "unchangedPrefix": true
+  },
+  "priorReceipt": {
+    "path": "docs/patches/opencode-2.1.4-history-file-references.receipt.json",
+    "sha256": "9d82b599f3cb63dc6d76eb9b3440b3543d57586250c9934a94a4242feb2db45d"
+  },
+  "runtime": {
+    "bun": "1.4.4"
+  },
+  "tests": [
+    {
+      "cwd": "packages/core",
+      "command": "bun run script/test.ts test/session-compaction.test.ts test/session-model-request.test.ts test/session-execution.test.ts",
+      "passed": 71,
+      "failed": 0,
+      "assertions": 358
+    },
+    {
+      "cwd": "packages/core",
+      "command": "bun run script/test.ts test/session-compaction.test.ts --rerun-each 10",
+      "passed": 260,
+      "failed": 0,
+      "assertions": 1640
+    },
+    {
+      "cwd": "packages/core",
+      "command": "bun run typecheck",
+      "exitCode": 0,
+      "files": 1637
+    }
+  ],
+  "contract": "Cap automatic compaction at 500000 tokens while preserving earlier buffered ceilings, configured auto=false, unknown-window behavior and the full native model input/context/output limits. The same ceiling is used for native and text-summary compaction. Recent-history retention and summary prompts are unchanged."
+}

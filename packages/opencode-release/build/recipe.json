@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "kind": "legalwork-patched-source-build",
   "baseVersion": "2.1.4",
-  "version": "2.1.4-legalwork.http-policy.6",
+  "version": "2.1.4-legalwork.compaction.1",
   "channel": "legalwork",
   "upstream": {
     "repository": "https://github.com/anomalyco/opencode.git",
@@ -72,8 +72,8 @@
   ],
   "inputs": {
     "patch": {
-      "path": "docs/patches/opencode-2.1.4-history-file-references.patch",
-      "sha256": "75cc4c142ca62ae82999f235a91506164e0bd3bd5503a9e98ddf82e2854652c2"
+      "path": "docs/patches/opencode-2.1.4-compaction-500k.patch",
+      "sha256": "25bee43f190a49f7c4c8bec9b0a7dfedb324d01e7c93c11b55d18d348610db03"
     },
     "lockfile": {
       "upstreamPath": "bun.lock",
@@ -84,15 +84,15 @@
       "sha256": "1767628e91b25f3b730c39edf67069a4575ff2d5509b0e494fa95ec6b693e246"
     },
     "testReceipt": {
-      "path": "docs/patches/opencode-2.1.4-history-file-references.receipt.json",
-      "sha256": "9d82b599f3cb63dc6d76eb9b3440b3543d57586250c9934a94a4242feb2db45d"
+      "path": "docs/patches/opencode-2.1.4-compaction-500k.receipt.json",
+      "sha256": "edc7fabe08b7dcb322feeaf58c80e4a152ba1ead7df413560c319fcd5f082d04"
     }
   },
   "buildStatus": "tested-source-lock",
   "testEvidence": {
-    "receiptSha256": "9d82b599f3cb63dc6d76eb9b3440b3543d57586250c9934a94a4242feb2db45d",
+    "receiptSha256": "edc7fabe08b7dcb322feeaf58c80e4a152ba1ead7df413560c319fcd5f082d04",
     "lockfileSha256": "47359ba0731b02d14b9a93a6b71b2db104cf9b9716ab0b6371fe96f02c6d71b2",
-    "patchSha256": "75cc4c142ca62ae82999f235a91506164e0bd3bd5503a9e98ddf82e2854652c2",
+    "patchSha256": "25bee43f190a49f7c4c8bec9b0a7dfedb324d01e7c93c11b55d18d348610db03",
     "bun": "1.4.4",
     "migrationTestsPassed": 38,
     "migrationTestsFailed": 0,
@@ -102,6 +102,10 @@
     "relocationSourceTestsFailed": 0,
     "serverTypecheckPassed": true,
     "historySourceTestsPassed": 218,
-    "historySourceTestsFailed": 0
+    "historySourceTestsFailed": 0,
+    "compactionSourceTestsPassed": 71,
+    "compactionSourceTestsFailed": 0,
+    "compactionRepeatTestsPassed": 260,
+    "compactionRepeatTestsFailed": 0
   }
 }
