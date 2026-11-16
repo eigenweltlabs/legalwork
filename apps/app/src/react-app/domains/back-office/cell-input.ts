@@ -1,3 +1,4 @@
+import { t } from "@/i18n";
 import type { BackOfficeField, BackOfficeValue } from "@legalwork/types/back-office";
 
 function isCurrency(value: BackOfficeValue | undefined): value is Extract<BackOfficeValue, { amountMinor: number }> {
@@ -17,7 +18,7 @@ export function parseCellInput(type: BackOfficeField["type"], text: string, prev
   if (type !== "number" && type !== "currency") return text;
 
   const number = Number(text);
-  if (!Number.isFinite(number)) throw new Error("Enter a number.");
+  if (!Number.isFinite(number)) throw new Error(t("back_office.enter_number"));
   if (type === "number") return number;
   return { amountMinor: Math.round(number * 100), currency: isCurrency(previous) ? previous.currency : "EUR" };
 }

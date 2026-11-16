@@ -169,7 +169,7 @@ export function RecordFilesProvider({
                     preview: classifyOpenTarget(preview.name, "file"),
                     exists: true,
                     confidence: 100,
-                    reason: "Back Office attachment",
+                    reason: t("back_office.attachment"),
                     size: preview.size,
                   }}
                   loadFile={() =>

@@ -5,6 +5,7 @@ import { toast } from "@/components/ui/sonner";
 import { defaultRangeExtractor, useVirtualizer, type Range } from "@tanstack/react-virtual";
 import { useSearchParams } from "react-router-dom";
 import { t } from "@/i18n";
+import { useLocale } from "@/i18n/use-locale";
 import {
   useCallback,
   useLayoutEffect,
@@ -142,6 +143,7 @@ export function RecordGrid({
   archived: boolean;
   onArchivedChange: (archived: boolean) => void;
 }) {
+  const locale = useLocale();
   const [searchParams, setSearchParams] = useSearchParams();
   const urlViewId = searchParams.get("viewId");
   const initialView = views.find(
@@ -313,7 +315,7 @@ export function RecordGrid({
           await onSave(record, {}, !archived);
           setSelected(ids => ids.filter(id => id !== record.id));
         } catch (error) {
-          failures.push(String(record.values.name) + ": " + (error instanceof Error ? error.message : "The update failed."));
+          failures.push(String(record.values.name) + ": " + (error instanceof Error ? error.message : t("back_office.update_failed")));
         }
       }
       if (failures.length) toast.error(failures.join("\n"));
@@ -348,7 +350,7 @@ export function RecordGrid({
       applyView(saved);
       setSavingView(false);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Could not save view.");
+      toast.error(error instanceof Error ? error.message : t("back_office.view_failed"));
     }
   };
   const applyView = (view?: BackOfficeView, updateUrl = true) => {
@@ -448,9 +450,9 @@ export function RecordGrid({
     return (
       <div key={field.id}>
         {field.id === "name" ? (
-          <span className="bo-muted">{rows.length} records</span>
+          <span className="bo-muted">{t("back_office.records_count", { count: rows.length })}</span>
         ) : field.type === "currency" && currencies.length === 1 ? (
-          new Intl.NumberFormat(undefined, {
+          new Intl.NumberFormat(locale, {
             style: "currency",
             currency: currencies[0],
           }).format(
@@ -462,7 +464,7 @@ export function RecordGrid({
         ) : null}
       </div>
     );
-  }), [layout, rows, visibleFields]);
+  }), [layout, rows, visibleFields, locale]);
   const renderRow = (record: BackOfficeRecord, index: number, top?: number) => (
     <RecordGridRow key={record.id} record={record} index={index} top={top}
       measure={windowed ? rowWindow.measureElement : undefined} template={template}
@@ -578,12 +580,12 @@ export function RecordGrid({
           <DirectoryMenu
             trigger={
               <Button size="sm" variant="ghost">
-                Sort
+                {t("back_office.sort")}
               </Button>
             }
           >
             <Dropdown.Header>
-              <Dropdown.Title>Sort by</Dropdown.Title>
+              <Dropdown.Title>{t("review.sort_by")}</Dropdown.Title>
             </Dropdown.Header>
             {visibleFields.map((field) => (
               <Dropdown.ActionItem
@@ -606,7 +608,7 @@ export function RecordGrid({
                 setSort((current) => ({ ...current, direction: "asc" }))
               }
             >
-              Ascending
+              {t("review.sort_asc")}
             </Dropdown.ActionItem>
             <Dropdown.ActionItem
               startIcon={<ArrowDown size={14} />}
@@ -614,18 +616,18 @@ export function RecordGrid({
                 setSort((current) => ({ ...current, direction: "desc" }))
               }
             >
-              Descending
+              {t("review.sort_desc")}
             </Dropdown.ActionItem>
           </DirectoryMenu>
           <DirectoryMenu
             trigger={
               <Button size="sm" variant="ghost">
-                Options
+                {t("back_office.options")}
               </Button>
             }
           >
             <Dropdown.Header>
-              <Dropdown.Title>Visible fields</Dropdown.Title>
+              <Dropdown.Title>{t("back_office.visible_fields")}</Dropdown.Title>
             </Dropdown.Header>
             {activeView && viewBase && editable && (
               <Dropdown.ActionItem
@@ -673,7 +675,7 @@ export function RecordGrid({
               ))}
             <Dropdown.Separator />
             <Dropdown.ActionItem onClick={() => onArchivedChange(!archived)}>
-              {archived ? "Show active records" : "Show archive"}
+              {archived ? t("back_office.show_active_records") : t("back_office.show_archive")}
             </Dropdown.ActionItem>
             {editable && (
               <Dropdown.ActionItem onClick={() => beginView()}>
@@ -685,7 +687,7 @@ export function RecordGrid({
       </div>
       {selectedCount > 0 && (
         <div className="bo-selection-bar">
-          <span>{selectedCount} selected</span>
+          <span>{t("back_office.selected_count", { count: selectedCount })}</span>
           {editable && (
             <Button
               size="sm"
@@ -693,11 +695,11 @@ export function RecordGrid({
               disabled={archiving}
               onClick={() => void bulkArchive()}
             >
-              {archived ? "Restore" : "Archive"}
+              {archived ? t("calendar.restore") : t("back_office.archive")}
             </Button>
           )}
           <Button size="sm" variant="ghost" onClick={() => setSelected([])}>
-            Clear selection
+            {t("project_browser.clear_selection")}
           </Button>
         </div>
       )}
@@ -743,7 +745,7 @@ export function RecordGrid({
             <div className="bo-check-cell">
               <Checkbox
                 size="sm"
-                aria-label="Select all rows"
+                aria-label={t("back_office.select_all")}
                 disabled={!selectable.length}
                 checked={
                   selectable.length > 0 &&
@@ -835,7 +837,7 @@ export function RecordGrid({
               {!lockedSchema && <Button
                 size="sm"
                 variant="ghost"
-                aria-label="Add field"
+                aria-label={t("projects.add_field")}
                 startIcon={<Plus size={14} />}
                 onClick={() =>
                   (window.location.hash = "/back-office/data-model")
@@ -856,13 +858,13 @@ export function RecordGrid({
               <Columns3 size={26} />
               <strong>
                 {query || filters.conditions.length > 0
-                  ? "No matching records"
-                  : `Start with your ${object.plural.toLocaleLowerCase()}`}
+                  ? t("back_office.no_matches")
+                  : t("back_office.start_records", { name: object.plural })}
               </strong>
               <span>
                 {query || filters.conditions.length > 0
-                  ? "Adjust your search or filters."
-                  : `Add your first ${object.label.toLocaleLowerCase()} or import a CSV file.`}
+                  ? t("back_office.adjust_search")
+                  : t("back_office.first_record", { name: object.plural })}
               </span>
               {editable && !query && (
                 <Button
@@ -872,7 +874,7 @@ export function RecordGrid({
                   startIcon={<Plus size={14} />}
                   onClick={() => onCreate()}
                 >
-                  Create {object.label}
+                  {t("back_office.create.title", { name: object.label })}
                 </Button>
               )}
             </div>
@@ -880,7 +882,7 @@ export function RecordGrid({
           {editable && !archived && (
             <button className="bo-add-row" onClick={() => onCreate()}>
               <Plus size={15} />
-              Add New
+              {t("back_office.add_new")}
             </button>
           )}
           <div
