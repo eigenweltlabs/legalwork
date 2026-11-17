@@ -7,7 +7,7 @@ import { toast } from "@/components/ui/sonner";
 import { RecordCreationProvider } from "./record-creation-context";
 import { RecordFilesProvider } from "./record-files";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "@legalwork/types/back-office";
 import {
@@ -582,7 +582,17 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
               onClose={() => { setDetailId(null); setDraft(null); setFocusNameId(null); }}
               onSave={save}
               onOpen={openRecord}
-            >{!pendingDetail && detail.revision > 0 && !detail.archivedAt && <NativeBacklinks client={client} state={data} id={detail.id}/>}</RecordDetail>
+            >
+              {!pendingDetail && detail.revision > 0 && !detail.archivedAt && <>
+                {object && data.directoryId && ["matters", "clients"].includes(object.id) && (
+                  <Link className="bo-time-secondary" to={"/time/settings?" + new URLSearchParams({
+                    [object.id === "matters" ? "matter" : "client"]: detail.id,
+                    directory: data.directoryId,
+                  })}>{t("timesheets.review_rules")}</Link>
+                )}
+                <NativeBacklinks client={client} state={data} id={detail.id}/>
+              </>}
+            </RecordDetail>
           )}
           {syncDetailsOpen && data && team && (
             <DirectoryDialog title={t("back_office.team_sync")} onClose={() => { setSyncDetailsOpen(false); setError(""); }}>

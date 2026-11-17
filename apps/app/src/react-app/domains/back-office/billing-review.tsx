@@ -1,5 +1,6 @@
 import { historyActionKeys, historyFieldKeys, labelForCode, reviewViewKeys } from "./timesheet-labels";
 import { renderInvoice, standardInvoice } from "@legalwork/types/invoice-template";
+import { Link } from "react-router-dom";
 import { Fragment, useCallback, useMemo, useRef, useState } from "react";
 import { Button } from "twenty-ui/primitives/input";
 import { ChevronDown, ChevronRight, Download } from "lucide-react";
@@ -330,6 +331,12 @@ export function BillingReview({
             options={state.matters.filter((m) => !billTo || m.clientIds.includes(billTo))}
           />
         </select>
+        {(matter || billTo) && (
+          <Link className="bo-time-secondary" to={"/time/settings?" + new URLSearchParams({
+            ...(matter ? { matter } : { client: billTo }),
+            date: dates.from || reviewPeriod().to,
+          })}>{t("timesheets.review_rules")}</Link>
+        )}
         {mode === "submitted" && (
           <label>
             <input

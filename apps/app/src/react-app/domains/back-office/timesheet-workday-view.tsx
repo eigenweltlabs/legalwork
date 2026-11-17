@@ -68,9 +68,10 @@ export function WorkdayTimeline({
   }
   for (const p of proposals)
     if (p.startAt && p.endAt) {
-      const matter = matterFor(p, state),
-        title = matter?.name ?? loose;
-      add(matter?.id ?? "unassigned", title, {
+      const matter = matterFor(p, state);
+      const project = state.projects.find(project => project.id === p.projectId);
+      const title = matter?.name ?? project?.name ?? loose;
+      add(matter?.id ?? project?.id ?? "unassigned", title, {
         key: p.key,
         title: p.source === "stopwatch" && !p.parentDigest ? t("timesheets.source.stopwatch") : p.narrative,
         startAt: p.startAt,
@@ -223,7 +224,7 @@ export function WorkdayCorrectionForm({
   function assignment(id: string) {
     const m = state.matters.find((x) => x.id === id);
     const project = state.projects.find((x) => x.id === p.projectId && x.matterIds.includes(id));
-    return { matterId: m?.id ?? null, projectId: project?.id ?? null };
+    return { matterId: m?.id ?? null, projectId: id ? project?.id ?? null : p.projectId };
   }
   const targetMatch = assignment(target);
   const sourceMatch = assignment(matter);

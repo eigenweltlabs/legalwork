@@ -1,7 +1,7 @@
 import { sourceKeys } from "./timesheet-labels";
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { CalendarDays, Settings2, Sparkles } from "lucide-react";
 import { TimeSelect, TimeSetting, TimeSettingsGroup, TimeSwitch } from "./time-settings-controls";
 import { LayoutStack } from "../settings/settings-layout";
@@ -132,6 +132,12 @@ export function TimesheetWorkday({
             }}
           />
         </label>
+        <Button size="sm" variant="ghost" onClick={() => {
+          const today = calendarDay(new Date());
+          setDate(today);
+          onDateChange?.(today);
+        }}>{t("timesheets.today")}</Button>
+        <span className="bo-workday-toolbar-space" />
         <Button
           size="sm"
           disabled={running || !settings || !captureEnabled(settings)}
@@ -150,6 +156,7 @@ export function TimesheetWorkday({
           {t("timesheets.run_local")}
         </Button>
       </div>
+      <p className="bo-workday-intro">{t("timesheets.activity_hint")}</p>
       {settings && (
         <details open={!captureEnabled(settings) || undefined}>
           <summary>
@@ -215,13 +222,19 @@ export function TimesheetWorkday({
               </TimeSetting>
             </TimeSettingsGroup>
           </LayoutStack>
-          <p>{t("timesheets.connector_context")}</p>
+          <p>{t("timesheets.sources_hint")}</p>
+          <div className="bo-workday-links">
+            <Link to="/settings/extensions">{t("timesheets.connect_sources")}</Link>
+            <Link to="/workflows">{t("timesheets.workflow_settings")}</Link>
+          </div>
           {!data?.modelReady && <p>{t("timesheets.no_model")}</p>}
         </details>
       )}
       {(error || query.error) && <p role="alert">{error || query.error?.message}</p>}
       {running && <p role="status">{t("timesheets.preparing")}</p>}
-      {data && (
+      {data && (shown.some(p => p.startAt && p.endAt) || ownEntries.some(e => e.startAt && e.endAt)) && (
+        <details className="bo-workday-timeline" open>
+        <summary>{t("timesheets.timeline")}</summary>
         <WorkdayTimeline
           date={date}
           proposals={shown}
@@ -229,6 +242,7 @@ export function TimesheetWorkday({
           confirmed={ownEntries}
           onOpen={(p) => setEditing(p.key)}
         />
+        </details>
       )}
       {selected && (
         <WorkdayCorrectionForm
@@ -243,20 +257,26 @@ export function TimesheetWorkday({
       {data && (
         <div className="bo-workday-list">
           {!shown.length ? (
-            <p>{t("timesheets.no_proposals")}</p>
+            <p className="bo-workday-empty">{t("timesheets.activity_empty")}</p>
           ) : (
             shown.map((p) => (
               <div className="bo-workday-row" key={p.key}>
                 <time>
                   {p.startAt ? at(p.startAt) : t("timesheets.workday.no_clock")}
                   {p.endAt && " – " + at(p.endAt)}
+                  <span className="bo-workday-duration">{p.workedMinutes === null ? "–" : p.workedMinutes + " min"}</span>
                 </time>
                 <span>
                   {p.source === "stopwatch" && !p.parentDigest
                     ? t("timesheets.source.stopwatch")
                     : p.narrative}
                   {overlaps.has(p.key) && <small>{t("timesheets.workday.overlap")}</small>}
-                  {(p.source !== "stopwatch" || p.parentDigest) && <small>{t(sourceKeys[p.source])}</small>}
+                  <small>
+                    {state.projects.find(project => project.id === p.projectId)?.name
+                      || state.matters.find(matter => matter.id === p.matterId)?.name
+                      || t("timesheets.project_missing")}
+                    {" · "}{t(sourceKeys[p.source])}
+                  </small>
                 </span>
                 <div>
                   <Button size="sm" variant="ghost" disabled={running} onClick={() => setEditing(p.key)}>
@@ -279,7 +299,6 @@ export function TimesheetWorkday({
                   >
                     {t("timesheets.prepare_draft")}
                   </Button>
-                </div>
                 <Button
                   size="sm"
                   variant="ghost"
@@ -288,6 +307,7 @@ export function TimesheetWorkday({
                 >
                   {t("timesheets.dismiss")}
                 </Button>
+                </div>
               </div>
             ))
           )}

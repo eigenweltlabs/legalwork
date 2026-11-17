@@ -360,7 +360,9 @@ export function registerWorkdayRoutes(options: {
       let timer: Saved["stopwatch"];
       if (method === "POST") {
         options.ensureWritable(config);
-        const action = stopwatchActionSchema.parse(await options.readJsonBodyLimited(ctx.request, 512));
+        const action = stopwatchActionSchema.parse(await options.readJsonBodyLimited(ctx.request, 1024));
+        if (action.type !== "stop" && action.projectId && !config.workspaces.some((project) => project.id === action.projectId))
+          throw new ApiError(404, "stopwatch_project", "Choose an available project.");
         timer = await withFileWriteLock(path, async () => {
           const saved = await load(path);
           if ((await profile(config)).path !== path)
@@ -372,7 +374,10 @@ export function registerWorkdayRoutes(options: {
       } else timer = (await load(path)).stopwatch;
       if ((await profile(config)).path !== path)
         throw new ApiError(409, "private_workday_changed", "The active Back Office account changed.");
-      const response = options.jsonResponse(stopwatchStateSchema.parse({ ...timer, profileId }));
+      const projects = config.workspaces.map((project) => ({
+        id: project.id, name: project.displayName || project.name,
+      }));
+      const response = options.jsonResponse(stopwatchStateSchema.parse({ ...timer, profileId, projects }));
       response.headers.set("Cache-Control", "no-store");
       return response;
     });

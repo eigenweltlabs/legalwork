@@ -271,3 +271,24 @@ Append entries at the bottom using the empty row or its plus button. Existing en
 A shared activity has a creator, a group ID and an individual entry for each participant. An author may record exclusively for others. Participants can have different durations, actual billable minutes, actual non-billable minutes and invoice quantities. Only invoice quantities follow the effective billing increment. Each individual draft, confirmation and later revision remains attributable. The creator can see their original delegated lines within current matter permissions. Subsequent private edits belong to the worker. An internal contact in a standalone local directory can be named, while cross-user confirmation requires a firm account.
 
 The private event stream gains a manually operated stopwatch. The revised placement consolidates the previously specified mini bar and Time workspace controls into the third action in the persistent desktop mini bar. Hovering over the microphone reveals Dictate, Record meeting and the stopwatch in sequence. Collapsing the bar while timing leaves a running indicator. A run is stored on the local device, survives restarts, and yields a dated workday proposal when stopped. Cross-midnight runs contribute to the relevant days. Manual timing requires neither an enabled calendar source nor a model. The worker supplies the matter and confirms the resulting billing record.
+
+
+## 17 November 2026 — navigation, stopwatch context and source audit
+
+The stopwatch panel proposes the project from the last active LegalWork window route. A screen outside a project opens the project chooser. The user can change the project before starting or reassign the whole running interval. The server validates the project against its registered projects and retains its ID across restart, midnight splitting and private proposal creation. Existing intervals without a project remain readable.
+
+The time workspace uses **My time**, **AI suggestions**, **Billing review** and **Billing settings**. **Suggest with AI** names the action. The current runner processes the opted-in activity on the device. A configured chat provider or subscription is independent of access to time tracking. Saved client and matter records, a filtered billing review and Project Home lead to the applicable billing rules. Responsibility and approval appears first.
+
+The source audit retains the original requirements and records the following implementation boundaries.
+
+| PRD requirement | Current evidence and remaining work |
+| --- | --- |
+| Selected calendar and completed-task sources | Project events and primary Google/Microsoft calendars supply dated suggestions. Completed dated tasks supply context, with unknown duration preserved. Automated cases cover overnight clipping, cancellations, assignees and duplicate calendar occurrences. |
+| Mail | Opted-in sent-message subjects are supported for Gmail and Outlook. Reading, composing and external-client foreground activity remain outside this collector. Live connected-account verification remains pending. |
+| Document activity | Successful opted-in document saves through LegalWork create project-linked DFT/MOD evidence. External Word/PDF reading and editing, typing and OS-wide foreground application activity remain pending. A file save does not establish elapsed working time. |
+| Stopwatch | A private measured interval now carries its selected project into suggestions. A bare interval establishes duration and project. Its activity description still requires the worker. |
+| Overlap and confirmation | Overlaps are flagged for correction. Automatic cross-source reconstruction into a single narrative remains pending. Acceptance, submission and reviewer approval remain separate, and repeated preparation retains accepted or corrected proposals and their original versions. |
+| Scheduled AI | The configured interval prepares the current day while the server runs. Fully unattended reconstruction of missed prior days remains pending. |
+| Responsibility | Effective-dated reviewer assignment exists at firm, client, matter and project level. A distinct billing-manager assignment per matter remains pending. |
+
+The proposed stopwatch-specific rounding default is recorded for discussion. Existing billing policy still offers manual selection, up, down and nearest, applied through the effective billing increment. Actual interval timestamps remain available and displayed worked minutes use nearest-minute conversion. This revision changes no rounding behavior.

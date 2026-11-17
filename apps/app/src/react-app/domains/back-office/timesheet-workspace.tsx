@@ -226,6 +226,8 @@ export function TimesheetWorkspace({
       )}
       {state && page === "billing-settings" && (
         <BillingPreferences
+          key={[params.get("project"), params.get("matter"), params.get("client"), params.get("date")].join("/")}
+          initialDate={initialDate}
           state={state}
           onCommand={send}
           initialProjectId={params.get("project") ?? undefined}
@@ -234,7 +236,11 @@ export function TimesheetWorkspace({
               ? (params.get("matter") ?? undefined)
               : undefined
           }
-          initialClientId={params.get("client") ?? undefined}
+          initialClientId={
+            !params.has("directory") || params.get("directory") === directory.directoryId
+              ? (params.get("client") ?? undefined)
+              : undefined
+          }
         />
       )}
       {state && page === "timesheet-workday" && (

@@ -1250,6 +1250,7 @@ export function SessionRoute() {
   // Expiry stays in the conversation with role-aware inline renewal actions.
   const aiPlansGateVisible =
     aiPlansGateEnabled && onboardingStage === "done" && aiPlansVariant !== null && aiPlansVariant !== "ended" &&
+    !location.pathname.startsWith("/time") && !location.pathname.startsWith("/back-office") &&
     location.pathname !== "/scheduled" && location.pathname !== "/projects" && !location.pathname.endsWith("/project") && !location.pathname.endsWith("/tasks") && !location.pathname.endsWith("/calendar") && !createWorkspaceOpen;
   const assistantPlansOpen = assistantUpgrade === "plans" && !assistantIncluded;
   const aiPlansScreenVisible = onboardingStage === "ai" || aiPlansGateVisible || assistantPlansOpen;

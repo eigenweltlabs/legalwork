@@ -256,3 +256,7 @@
 .bo-time-policy [data-slot="item-header-actions"] input[type="number"] { width: 96px; }
 .bo-time-preferences > .bo-view-toolbar { padding-inline: clamp(12px, 3vw, 32px); border-bottom: 1px solid var(--border); }
 .bo-time-preferences .bo-billing-subrow { padding: 0; }
+
+.bo-time-preferences > .bo-view-toolbar { gap:12px; padding-block:12px; align-items:end }
+.bo-time-preferences > .bo-view-toolbar > label { display:grid; gap:5px; font-size:12px }
+.bo-time-preferences > .bo-view-toolbar [data-slot="select-trigger"] { min-width:180px }

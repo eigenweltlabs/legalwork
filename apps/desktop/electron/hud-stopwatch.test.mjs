@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { HudStopwatch, requestHudStopwatch } from "./audio/hud-stopwatch.mjs";
+import { HudStopwatch, requestHudStopwatch, stopwatchProjectFromUrl } from "./audio/hud-stopwatch.mjs";
 
 test("restores authoritative time, reconciles lost replies and ignores superseded controls", async () => {
   let state = { profileId: "first", active: null, lastStopped: null };
@@ -51,4 +51,42 @@ test("private stopwatch refuses remote or non-host connections before transport"
   const info = { running: true, baseUrl: "https://example.invalid", ownerToken: "fixture", hostToken: "fixture" };
   await assert.rejects(requestHudStopwatch(info), /local server/);
   await assert.rejects(requestHudStopwatch({ ...info, baseUrl: "http://127.0.0.1", hostToken: null }), /unavailable/);
+});
+
+
+test("project context follows the actual window route and only registered projects", () => {
+  const projects = [{ id: "one", name: "Test project" }];
+  assert.equal(stopwatchProjectFromUrl("http://localhost/#/workspace/one/project", projects), "one");
+  assert.equal(stopwatchProjectFromUrl("http://localhost/workspace/one/session/test", projects), "one");
+  assert.equal(stopwatchProjectFromUrl("http://localhost/#/time", projects), null);
+  assert.equal(stopwatchProjectFromUrl("http://localhost/#/workspace/missing/project", projects), null);
+  assert.equal(stopwatchProjectFromUrl("http://localhost/#/workspace/%xx/project", projects), null);
+});
+
+test("project reassignment reconciles a lost reply and prevents a stale stop", async () => {
+  const state = {
+    profileId: "fixture",
+    projects: [{ id: "one", name: "First" }, { id: "two", name: "Second" }],
+    active: { id: "run", projectId: "one", startedAt: "2026-11-17T10:00:00Z" },
+    lastStopped: null,
+  };
+  const writes = [];
+  const observed = [];
+  const watch = new HudStopwatch(async action => {
+    if (action) {
+      writes.push(action);
+      state.active.projectId = action.projectId;
+      throw Error("Lost reply after committed assignment");
+    }
+    return structuredClone(state);
+  }, value => observed.push(value));
+  await watch.refresh();
+  const oldVersion = watch.version;
+  await watch.act("assign", oldVersion, "unknown");
+  assert.equal(writes.length, 0);
+  await watch.act("assign", oldVersion, "two");
+  assert.equal(observed.at(-1).projectId, "two");
+  assert.equal(observed.at(-1).failed, false);
+  await watch.act("stop", oldVersion);
+  assert.equal(writes.length, 1);
 });

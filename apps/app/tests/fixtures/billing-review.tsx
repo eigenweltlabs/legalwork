@@ -32,6 +32,7 @@ import type {
 
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
+const { MemoryRouter } = await import("react-router-dom");
 const { BillingReview } = await import("../../src/react-app/domains/back-office/billing-review");
 const { BillingPreferences } = await import(
   "../../src/react-app/domains/back-office/billing-preferences"
@@ -103,7 +104,7 @@ const client = {
   },
 };
 const render = async (node: ReactNode) =>
-  act(async () => root.render(<BackOfficeTheme>{node}</BackOfficeTheme>));
+  act(async () => root.render(<MemoryRouter><BackOfficeTheme>{node}</BackOfficeTheme></MemoryRouter>));
 const draw = (state: TimesheetState, canEdit = true) =>
   render(<BillingReview canEdit={canEdit} state={state} onCommand={command} client={client} />);
 const match = (s: string) => {

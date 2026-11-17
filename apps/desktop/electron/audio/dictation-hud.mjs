@@ -57,12 +57,12 @@ export class DictationHud {
     this.onDisplayChange = () => {
       if (!this.drag && this.window && !this.window.isDestroyed()) { this.followDisplay(); this.positionWindow(); }
     };
-    this.onAction = (event, action, version) => {
+    this.onAction = (event, action, version, projectId) => {
       if (!this.window || event.sender !== this.window.webContents) return;
       if (action === "ready") this.sendState();
       if (!this.status.miniBarEnabled) return;
-      if (["stopwatch-start", "stopwatch-stop", "stopwatch-retry"].includes(action))
-        void this.stopwatch?.act(action.slice("stopwatch-".length), version);
+      if (["stopwatch-start", "stopwatch-stop", "stopwatch-retry", "stopwatch-prepare", "stopwatch-assign"].includes(action))
+        void this.stopwatch?.act(action.slice("stopwatch-".length), version, typeof projectId === "string" ? projectId : undefined);
       if (action === "meeting-start" && ["idle", "meeting-error"].includes(this.displayState)) this.actions.onMeetingStart?.();
       if (action === "meeting-stop" && this.displayState === "meeting-recording") this.actions.onMeetingStop?.();
       if (action === "meeting-dismiss") this.actions.onMeetingDismiss?.();

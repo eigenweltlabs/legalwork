@@ -169,6 +169,36 @@ function PolicyForm({
     >
       <fieldset disabled={readOnly} aria-label={t("timesheets.settings")}>
         <LayoutStack>
+          <TimeSettingsGroup title={t("timesheets.review_assignment")}>
+            <Rule name={t("back_office.billing.reviewer")} description={t("timesheets.assignment_hint")}>
+              <TimeSelect
+                label={t("back_office.billing.reviewer")}
+                disabled={readOnly}
+                value={policy.reviewerId ?? ""}
+                options={[
+                  {
+                    id: "",
+                    name: t("back_office.billing.inherit_value", {
+                      value:
+                        state.people.find((p) => p.id === inherited.reviewerId)?.name ||
+                        t("back_office.billing.unassigned"),
+                    }),
+                  },
+                  ...state.people.filter((p) => !p.directoryOnly),
+                ]}
+                onChange={(next) => update("reviewerId", next || undefined)}
+              />
+            </Rule>
+            {scope === "firm" && state.scope === "local" && (
+              <InheritableToggle
+                label={t("back_office.billing.solo")}
+                disabled={readOnly}
+                value={policy.soloApproval}
+                inherited={false}
+                onChange={(v) => update("soloApproval", v)}
+              />
+            )}
+          </TimeSettingsGroup>
           <TimeSettingsGroup title={t("back_office.billing.time_rules")}>
             {scope === "client" && (
               <TimeSwitch
@@ -353,36 +383,6 @@ function PolicyForm({
               />
             </Rule>
           </TimeSettingsGroup>
-          <TimeSettingsGroup title={t("timesheets.review")}>
-            <Rule name={t("back_office.billing.reviewer")}>
-              <TimeSelect
-                label={t("back_office.billing.reviewer")}
-                disabled={readOnly}
-                value={policy.reviewerId ?? ""}
-                options={[
-                  {
-                    id: "",
-                    name: t("back_office.billing.inherit_value", {
-                      value:
-                        state.people.find((p) => p.id === inherited.reviewerId)?.name ||
-                        t("back_office.billing.unassigned"),
-                    }),
-                  },
-                  ...state.people.filter((p) => !p.directoryOnly),
-                ]}
-                onChange={(next) => update("reviewerId", next || undefined)}
-              />
-            </Rule>
-            {scope === "firm" && state.scope === "local" && (
-              <InheritableToggle
-                label={t("back_office.billing.solo")}
-                disabled={readOnly}
-                value={policy.soloApproval}
-                inherited={false}
-                onChange={(v) => update("soloApproval", v)}
-              />
-            )}
-          </TimeSettingsGroup>
           <TimeSettingsGroup title={t("back_office.billing.fees")}>
             <Rule name={t("back_office.billing.currency")}>
               <Input
@@ -466,16 +466,18 @@ export function BillingPreferences({
   initialProjectId,
   initialMatterId,
   initialClientId,
+  initialDate,
 }: BillingProps & {
   initialProjectId?: string;
   initialMatterId?: string;
   initialClientId?: string;
+  initialDate?: string;
 }) {
   const [scope, setScope] = useState<Scope>(
     initialProjectId ? "project" : initialMatterId ? "matter" : initialClientId ? "client" : "firm",
   );
   const [target, setTarget] = useState(initialProjectId || initialMatterId || initialClientId || "");
-  const [date, setDate] = useState(() => reviewPeriod().to);
+  const [date, setDate] = useState(() => initialDate ?? reviewPeriod().to);
   const [matterContext, setMatterContext] = useState("");
   const [clientContext, setClientContext] = useState("");
   const options = (s: Scope) =>
@@ -510,6 +512,7 @@ export function BillingPreferences({
   return (
     <section className="bo-billing bo-time-preferences">
       <div className="bo-view-toolbar">
+        <label>{t("back_office.billing.scope")}
         <TimeSelect
           label={t("back_office.billing.scope")}
           value={scope}
@@ -523,8 +526,9 @@ export function BillingPreferences({
             setMatterContext("");
           }}
         />
+        </label>
         {scope !== "firm" && (
-          <TimeSelect
+          <label>{t("back_office.billing.target")}<TimeSelect
             label={t("back_office.billing.target")}
             value={target}
             options={
@@ -537,7 +541,7 @@ export function BillingPreferences({
               setClientContext("");
               setMatterContext("");
             }}
-          />
+          /></label>
         )}
         {matters.length > 1 && (
           <TimeSelect

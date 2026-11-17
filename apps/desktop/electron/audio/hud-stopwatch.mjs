@@ -15,6 +15,16 @@ export async function requestHudStopwatch(info, action, profileId) {
   return result;
 }
 
+export function stopwatchProjectFromUrl(windowUrl, projects) {
+  try {
+    const url = new URL(windowUrl);
+    const route = url.hash.startsWith("#/") ? url.hash.slice(1) : url.pathname;
+    const match = /^\/workspace\/([^/?#]+)/.exec(route);
+    const id = match && decodeURIComponent(match[1]);
+    return projects.some(project => project.id === id) ? id : null;
+  } catch { return null; }
+}
+
 export class HudStopwatch {
   constructor(request, publish) {
     this.request = request;
@@ -29,14 +39,16 @@ export class HudStopwatch {
   }
 
   update(state) {
-    if (state?.profileId !== this.state?.profileId || state?.active?.id !== this.state?.active?.id) {
+    if (state?.profileId !== this.state?.profileId || state?.active?.id !== this.state?.active?.id || state?.active?.projectId !== this.state?.active?.projectId) {
       this.version++;
       this.failed = false;
       this.savedUntil = 0;
     }
     this.state = state;
     if (state && this.retry && (state.profileId !== this.retry.profileId ||
-        state.active?.id === this.retry.action.id || state.lastStopped?.id === this.retry.action.id))
+        (this.retry.action.type === "assign"
+          ? state.active?.id === this.retry.action.id && state.active?.projectId === this.retry.action.projectId
+          : state.active?.id === this.retry.action.id || state.lastStopped?.id === this.retry.action.id)))
       this.retry = null;
   }
 
@@ -45,6 +57,9 @@ export class HudStopwatch {
     this.publish({
       version: this.version,
       startedAt: this.state?.active?.startedAt ?? null,
+      projectId: this.state?.active?.projectId ?? null,
+      suggestedProjectId: this.state?.suggestedProjectId ?? null,
+      projects: this.state?.projects ?? [],
       unavailable: !this.state,
       busy: this.mutation,
       failed: this.failed,
@@ -63,15 +78,18 @@ export class HudStopwatch {
     return this.reading;
   }
 
-  async act(type, version) {
+  async act(type, version, projectId) {
     if (this.reading) await this.reading;
     if (this.mutation || version !== this.version) return;
-    if (type === "retry" || !this.state) return this.refresh();
-    if ((type === "stop") !== Boolean(this.state.active)) return;
+    if (type === "retry" || type === "prepare" || !this.state) return this.refresh();
+    if (!["start", "stop", "assign"].includes(type)) return;
+    if (projectId !== undefined && !this.state.projects?.some(project => project.id === projectId)) return;
+    if ((type !== "start") !== Boolean(this.state.active)) return;
     const profileId = this.state.profileId;
     const action = type === "stop" ? { type, id: this.state.active.id }
-      : this.retry?.profileId === profileId && this.retry.action.type === type
-        ? this.retry.action : { type, id: randomUUID() };
+      : type === "assign" ? { type, id: this.state.active.id, projectId }
+      : this.retry?.profileId === profileId && this.retry.action.type === type && this.retry.action.projectId === projectId
+        ? this.retry.action : { type, id: randomUUID(), ...(projectId ? { projectId } : {}) };
     this.retry = { profileId, action };
     this.mutation = true;
     this.savedUntil = 0;
@@ -84,7 +102,9 @@ export class HudStopwatch {
       // Read back before offering a retry. The first write may already have committed.
       try { this.update(await this.request()); } catch { this.update(null); }
       this.failed = this.state?.profileId === profileId &&
-        (type === "start" ? this.state.active?.id !== action.id : this.state.lastStopped?.id !== action.id);
+        (type === "start" ? this.state.active?.id !== action.id
+          : type === "assign" ? this.state.active?.projectId !== action.projectId
+          : this.state.lastStopped?.id !== action.id);
     } finally {
       if (type === "stop" && this.state?.profileId === profileId && this.state.lastStopped?.id === action.id)
         this.savedUntil = Date.now() + 5000;

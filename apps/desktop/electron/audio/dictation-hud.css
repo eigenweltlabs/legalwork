@@ -611,3 +611,33 @@ body[data-state=idle][data-stopwatch-running=true] #bar:not([data-hovered=true])
   background:var(--success); pointer-events:none;
 }
 #stopwatch-feedback:not(:empty) { display:block; margin-top:3px; color:var(--muted) }
+
+/* Identical enabled hover treatment for all three idle actions. */
+body[data-state=idle] #bar button:is(#start,#meeting-start,#stopwatch):not(:disabled)[data-hovered=true] {
+  background:var(--hover); color:var(--ink); box-shadow:none;
+}
+#stopwatch-panel {
+  position:absolute; z-index:3; width:296px; max-height:208px; padding:10px;
+  border:1px solid var(--border); border-radius:12px; background:var(--surface);
+  box-shadow:0 4px 12px rgba(16,24,40,.12); display:flex; flex-direction:column; gap:8px;
+}
+#stopwatch-panel[hidden], #stopwatch-projects[hidden] { display:none }
+body[data-dock=bottom] #stopwatch-panel { bottom:42px; left:50%; transform:translateX(-50%) }
+body[data-dock=left] #stopwatch-panel { left:44px; top:6px }
+body[data-dock=right] #stopwatch-panel { right:44px; top:6px }
+#stopwatch-panel header { display:flex; align-items:center; gap:8px }
+#stopwatch-heading { flex:1; font-weight:600 }
+#stopwatch-panel-time { font-variant-numeric:tabular-nums; color:var(--muted) }
+#stopwatch-project, #stopwatch-confirm, #stopwatch-projects button {
+  width:100%; height:auto; min-height:28px; padding:5px 8px; border-radius:6px; font:inherit; text-align:left;
+}
+#stopwatch-project { justify-content:space-between; border:1px solid var(--border); color:var(--ink) }
+#stopwatch-project span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+#stopwatch-projects { overflow:auto; min-height:0; max-height:76px; flex-shrink:1 }
+#stopwatch-projects button { justify-content:flex-start; white-space:nowrap; overflow:hidden; text-overflow:ellipsis }
+#stopwatch-projects button[aria-pressed=true] { background:var(--hover); color:var(--ink) }
+#stopwatch-confirm { background:var(--primary); color:var(--primary-fg) }
+#stopwatch-confirm:disabled { opacity:.45; cursor:default }
+#stopwatch-panel-error { margin:0; font-size:11px; line-height:1.4; color:var(--muted) }
+#stopwatch-panel-error:empty { display:none }
+body:has(#stopwatch-panel:not([hidden])) :is(#notice,.action-hint,#meeting-prompt) { visibility:hidden }

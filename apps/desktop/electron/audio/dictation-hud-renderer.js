@@ -23,13 +23,22 @@ const stopwatchTime = document.getElementById("stopwatch-time");
 const stopwatchFeedback = document.getElementById("stopwatch-feedback");
 let stopwatch = null;
 let stopwatchLabels;
+const stopwatchPanel = document.getElementById("stopwatch-panel");
+const stopwatchProject = document.getElementById("stopwatch-project");
+const stopwatchProjects = document.getElementById("stopwatch-projects");
+const stopwatchConfirm = document.getElementById("stopwatch-confirm");
+let selectedStopwatchProject = null;
+let pendingStopwatchAction = null;
+let awaitingProjectContext = false;
+let projectListSignature = "";
 let idleNotice = "";
 let meetingStartNotice = "";
 const meteringStates = ["starting", "listening", "meeting-starting", "meeting-recording"];
 const translations = {
   en: {
+    stopwatchTitle: "Stopwatch", stopwatchProject: "Choose project", stopwatchEmpty: "Open or create a project in LegalWork to start timing.",
     stopwatchStart: "Start stopwatch", stopwatchStop: "Stop stopwatch and save time", stopwatchRetry: "Reconnect stopwatch",
-    stopwatchUnavailable: "Stopwatch unavailable · Retry", stopwatchFailed: "Time could not be updated. Try again.", stopwatchSaved: "Time saved in Workday",
+    stopwatchUnavailable: "Stopwatch unavailable · Retry", stopwatchFailed: "Time could not be updated. Try again.", stopwatchSaved: "Time saved in AI suggestions",
     starting: "Starting dictation", listening: "Listening", transcribing: "Transcribing…", inserting: "Inserting…",
     copied: "Couldn’t insert text", copyInstructions: "Copied to clipboard. Select a text field and press {paste} to paste.",
     success: "Text inserted", cancelled: "Cancelled", error: "Dictation needs attention",
@@ -40,8 +49,9 @@ const translations = {
     meetingStart: "Record meeting", meetingStop: "Stop and save meeting", meetingOpen: "Open recording in LegalWork", meetingDetected: "Meeting detected", meetingDescription: "Record microphone and meeting audio", meetingDismiss: "Not now", meetingRecord: "Record",
   },
   de: {
+    stopwatchTitle: "Stoppuhr", stopwatchProject: "Projekt auswählen", stopwatchEmpty: "Öffnen oder erstellen Sie ein Projekt in LegalWork, um Zeit zu erfassen.",
     stopwatchStart: "Stoppuhr starten", stopwatchStop: "Stoppuhr stoppen und Zeit speichern", stopwatchRetry: "Stoppuhr erneut verbinden",
-    stopwatchUnavailable: "Stoppuhr nicht verfügbar · Erneut versuchen", stopwatchFailed: "Zeit konnte nicht aktualisiert werden. Erneut versuchen.", stopwatchSaved: "Zeit im Arbeitstag gespeichert",
+    stopwatchUnavailable: "Stoppuhr nicht verfügbar · Erneut versuchen", stopwatchFailed: "Zeit konnte nicht aktualisiert werden. Erneut versuchen.", stopwatchSaved: "Zeit unter KI-Vorschläge gespeichert",
     starting: "Diktat starten", listening: "Hört zu", transcribing: "Wird transkribiert…", inserting: "Wird eingefügt…",
     copied: "Text konnte nicht eingefügt werden", copyInstructions: "In die Zwischenablage kopiert. Wähle ein Textfeld und drücke {paste}, um den Text einzufügen.",
     success: "Text eingefügt", cancelled: "Abgebrochen", error: "Diktat braucht Aufmerksamkeit",
@@ -91,14 +101,76 @@ function renderStopwatch() {
   const minutes = Math.floor(elapsed / 60) % 60;
   const display = (hours ? hours + ":" + String(minutes).padStart(2, "0") : minutes) + ":" + String(elapsed % 60).padStart(2, "0");
   if (started && stopwatchTime.textContent !== display) stopwatchTime.textContent = display;
+  document.getElementById("stopwatch-panel-time").textContent = started ? display : "";
   const feedback = stopwatch.failed ? stopwatchLabels.stopwatchFailed : stopwatch.savedUntil > Date.now() ? stopwatchLabels.stopwatchSaved : "";
   if (stopwatchFeedback.textContent !== feedback) stopwatchFeedback.textContent = feedback;
 }
 
+function closeStopwatchPanel() {
+  stopwatchPanel.hidden = true;
+  stopwatchProjects.hidden = true;
+  stopwatchProject.setAttribute("aria-expanded", "false");
+  setHover(null);
+}
+function renderStopwatchPanel() {
+  if (!stopwatch || !stopwatchLabels) return;
+  const projects = stopwatch.projects ?? [];
+  const selected = projects.find(project => project.id === selectedStopwatchProject);
+  stopwatchProject.querySelector("span").textContent = selected?.name || stopwatchLabels.stopwatchProject;
+  stopwatchProject.setAttribute("aria-label", stopwatchLabels.stopwatchProject);
+  document.getElementById("stopwatch-heading").textContent = stopwatchLabels.stopwatchTitle;
+  document.getElementById("stopwatch-close").setAttribute("aria-label", stopwatchLabels.dismiss);
+  const signature = JSON.stringify([projects, selectedStopwatchProject]);
+  if (signature !== projectListSignature) {
+    projectListSignature = signature;
+    stopwatchProjects.replaceChildren(...projects.map(project => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = project.name;
+      button.setAttribute("aria-pressed", String(project.id === selectedStopwatchProject));
+      button.addEventListener("click", () => {
+        awaitingProjectContext = false;
+        selectedStopwatchProject = project.id;
+        stopwatchProjects.hidden = true;
+        stopwatchProject.setAttribute("aria-expanded", "false");
+        if (stopwatch.startedAt) bridge.action("stopwatch-assign", stopwatch.version, project.id);
+        renderStopwatchPanel();
+      });
+      return button;
+    }));
+  }
+  document.getElementById("stopwatch-panel-error").textContent = stopwatch.failed
+    ? stopwatchLabels.stopwatchFailed
+    : stopwatch.unavailable ? stopwatchLabels.stopwatchUnavailable
+    : !projects.length ? stopwatchLabels.stopwatchEmpty : "";
+  stopwatchConfirm.textContent = stopwatch.unavailable ? stopwatchLabels.stopwatchRetry
+    : stopwatch.startedAt ? stopwatchLabels.stopwatchStop : stopwatchLabels.stopwatchStart;
+  stopwatchConfirm.disabled = stopwatch.busy || (!stopwatch.startedAt && !selected && !stopwatch.unavailable);
+  stopwatchProject.disabled = stopwatch.busy || !projects.length;
+}
+stopwatchProject.addEventListener("click", () => {
+  stopwatchProjects.hidden = !stopwatchProjects.hidden;
+  stopwatchProject.setAttribute("aria-expanded", String(!stopwatchProjects.hidden));
+});
+document.getElementById("stopwatch-close").addEventListener("click", closeStopwatchPanel);
+stopwatchConfirm.addEventListener("click", () => {
+  if (!stopwatch || stopwatch.busy) return;
+  pendingStopwatchAction = stopwatch.unavailable ? "retry" : stopwatch.startedAt ? "stop" : "start";
+  bridge.action("stopwatch-" + pendingStopwatchAction, stopwatch.version, pendingStopwatchAction === "start" ? selectedStopwatchProject : undefined);
+});
 stopwatchButton.addEventListener("click", () => {
   if (!stopwatch || stopwatch.busy) return;
-  const action = stopwatch.unavailable ? "retry" : stopwatch.startedAt ? "stop" : "start";
-  bridge.action("stopwatch-" + action, stopwatch.version);
+  if (!stopwatchPanel.hidden) return closeStopwatchPanel();
+  awaitingProjectContext = true;
+  selectedStopwatchProject = stopwatch.projectId || stopwatch.suggestedProjectId;
+  stopwatchPanel.hidden = false;
+  stopwatchProjects.hidden = Boolean(selectedStopwatchProject);
+  stopwatchProject.setAttribute("aria-expanded", String(!stopwatchProjects.hidden));
+  renderStopwatchPanel();
+  bridge.action("stopwatch-prepare", stopwatch.version);
+});
+document.addEventListener("keydown", event => {
+  if (event.key === "Escape") closeStopwatchPanel();
 });
 
 bridge.onState((value) => {
@@ -118,7 +190,23 @@ bridge.onState((value) => {
   document.documentElement.dataset.theme = value.dark ? "dark" : "light";
   const shortcut = shortcutLabel(value.accelerator, value.platform);
   const labels = translations[value.locale] || translations.en;
+  const previousStopwatch = stopwatch;
   stopwatch = value.stopwatch;
+  if (stopwatch && (awaitingProjectContext || previousStopwatch?.version !== stopwatch.version)) {
+    selectedStopwatchProject = stopwatch.projectId || stopwatch.suggestedProjectId;
+    if (awaitingProjectContext && !selectedStopwatchProject && !stopwatchPanel.hidden) {
+      stopwatchProjects.hidden = false;
+      stopwatchProject.setAttribute("aria-expanded", "true");
+    }
+    awaitingProjectContext = false;
+  }
+  if (stopwatch && !stopwatch.startedAt && !selectedStopwatchProject)
+    selectedStopwatchProject = stopwatch.suggestedProjectId;
+  if (!stopwatch) closeStopwatchPanel();
+  if (pendingStopwatchAction && previousStopwatch?.busy && !stopwatch?.busy) {
+    if (!stopwatch?.failed && !stopwatch?.unavailable && pendingStopwatchAction !== "retry") closeStopwatchPanel();
+    pendingStopwatchAction = null;
+  }
   stopwatchLabels = labels;
   stopwatchButton.hidden = !stopwatch;
   document.body.dataset.stopwatchAvailable = String(Boolean(stopwatch));
@@ -136,6 +224,7 @@ bridge.onState((value) => {
     stopwatchTime.hidden = !running;
   }
   renderStopwatch();
+  renderStopwatchPanel();
   meetingStartNotice = labels.meetingStart;
   meetingStartedAt = value.meeting?.startedAt;
   document.body.dataset.meetingAvailable = "true";
@@ -213,12 +302,12 @@ let interactive = false;
 let pointerDrag = null;
 let suppressClick = false;
 function setHover(target) {
-  bar.dataset.hovered = String(Boolean(target?.closest("#bar")) && !pointerDrag?.moving);
+  bar.dataset.hovered = String((Boolean(target?.closest("#bar")) || !stopwatchPanel.hidden) && !pointerDrag?.moving);
   for (const id of ["start", "meeting-start", "stopwatch"]) {
     document.getElementById(id).dataset.hovered = String(target?.closest("button")?.id === id && !pointerDrag?.moving);
   }
   if (currentState === "idle") notice.textContent = target?.closest("#meeting-start") ? meetingStartNotice : idleNotice;
-  const next = Boolean(pointerDrag || target?.closest("#bar, #meeting-prompt"));
+  const next = Boolean(pointerDrag || target?.closest("#bar, #meeting-prompt, #stopwatch-panel"));
   if (interactive !== next) { interactive = next; bridge.pointer(next); }
 }
 function updatePointer(x, y) {

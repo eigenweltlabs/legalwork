@@ -33,7 +33,7 @@ import { captureAuthStatus, openCapturePermissionSettings, requestCapturePermiss
 import { DictationPermissions } from "./audio/dictation-permissions.mjs";
 import { AppAudioTap } from "./audio/app-audio.mjs";
 import { CallOverlay } from "./audio/call-overlay.mjs";
-import { requestHudStopwatch } from "./audio/hud-stopwatch.mjs";
+import { requestHudStopwatch, stopwatchProjectFromUrl } from "./audio/hud-stopwatch.mjs";
 import { DictationHud } from "./audio/dictation-hud.mjs";
 import { MeetingMonitor } from "./audio/meeting-monitor.mjs";
 import { DictationMicrophones } from "./audio/dictation-microphones.mjs";
@@ -701,6 +701,10 @@ const IDLE_ROUTER_INFO = Object.freeze({
 
 let mainWindow = null;
 const secondaryWindows = new Set();
+let lastProjectWindow = null;
+app.on("browser-window-focus", (_event, window) => {
+  if (window === mainWindow || secondaryWindows.has(window)) lastProjectWindow = window;
+});
 const eventStreams = createEventStreams();
 const httpRequests = createHttpRequests();
 const pendingDeepLinks = [];
@@ -805,7 +809,11 @@ const callOverlay = new CallOverlay({
 });
 
 const dictationHud = new DictationHud({
-  stopwatchRequest: async (action, profileId) => requestHudStopwatch(await runtimeManager.legalworkServerInfo(), action, profileId),
+  stopwatchRequest: async (action, profileId) => {
+    const state = await requestHudStopwatch(await runtimeManager.legalworkServerInfo(), action, profileId);
+    const window = lastProjectWindow && !lastProjectWindow.isDestroyed() ? lastProjectWindow : mainWindow;
+    return { ...state, suggestedProjectId: stopwatchProjectFromUrl(window?.webContents.getURL(), state.projects ?? []) };
+  },
   onStart: () => systemDictation.toggleHandsFree(),
   onStop: () => recorderService().broadcast({ type: "system-dictation-stop" }),
   onCancel: () => systemDictation.cancel(),

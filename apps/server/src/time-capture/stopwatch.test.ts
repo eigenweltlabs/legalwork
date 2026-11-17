@@ -22,7 +22,8 @@ test("stopwatch uses the start zone through midnight and the autumn clock change
     originals: {},
   };
   const id = randomUUID();
-  changeStopwatch(saved, { type: "start", id }, new Date("2026-10-24T21:50:00Z"), "Europe/Vienna");
+  changeStopwatch(saved, { type: "start", id, projectId: "project-one" }, new Date("2026-10-24T21:50:00Z"), "Europe/Vienna");
+  changeStopwatch(saved, { type: "assign", id, projectId: "project-two" }, new Date("2026-10-24T22:00:00Z"), "Europe/Vienna");
   changeStopwatch(saved, { type: "stop", id }, new Date("2026-10-26T00:05:00Z"), "America/New_York");
   expect(Object.keys(saved.days)).toEqual(["2026-10-24", "2026-10-25", "2026-10-26"]);
   const proposals = Object.values(saved.days)
@@ -37,6 +38,7 @@ test("stopwatch uses the start zone through midnight and the autumn clock change
       workedMinutes: p.workedMinutes,
     });
     expect(p.source).toBe("stopwatch");
+    expect(p.projectId).toBe("project-two");
   }
   for (const type of ["stop", "start"] as const) changeStopwatch(saved, { type, id }, new Date(), "UTC");
   expect(saved.stopwatch.active).toBeNull();
@@ -45,7 +47,10 @@ test("stopwatch uses the start zone through midnight and the autumn clock change
 
 test("private stopwatch survives restart, concurrent stops and workday regeneration without enabling capture", async () => {
   const root = await mkdtemp(join(tmpdir(), "legalwork-timer-"));
-  const config = backOfficeTestConfig(root);
+  const config = backOfficeTestConfig(root, {
+    workspaces: [{ id: "timer-project", name: "Timer test", workspaceType: "local", path: root, preset: "starter" }],
+    authorizedRoots: [root],
+  });
   let server = await startServer(config);
   const api = (suffix: string, action?: unknown, authorized = true) =>
     fetch("http://127.0.0.1:" + server.port + "/private-timesheet/" + suffix, {
@@ -59,11 +64,13 @@ test("private stopwatch survives restart, concurrent stops and workday regenerat
     expect((await api("stopwatch", undefined, false)).status).toBe(401);
     const initial = await api("stopwatch");
     expect(initial.headers.get("Cache-Control")).toBe("no-store");
-    const { profileId, active } = stopwatchStateSchema.parse(await initial.json());
+    const { profileId, active, projects } = stopwatchStateSchema.parse(await initial.json());
+    expect(projects).toEqual([{ id: "timer-project", name: "Timer test" }]);
     expect(active).toBeNull();
     const endpoint = "stopwatch?profileId=" + profileId;
-    const start: StopwatchAction = { type: "start", id: randomUUID() };
+    const start: StopwatchAction = { type: "start", id: randomUUID(), projectId: "timer-project" };
     expect((await api("stopwatch?profileId=other", start)).status).toBe(409);
+    expect((await api(endpoint, { ...start, projectId: "unregistered-project" })).status).toBe(404);
     const running = stopwatchStateSchema.parse(await (await api(endpoint, start)).json());
     expect(running.active?.id).toBe(start.id);
     expect((await api(endpoint, { ...start, id: randomUUID() })).status).toBe(409);
@@ -87,6 +94,7 @@ test("private stopwatch survives restart, concurrent stops and workday regenerat
     expect(result.proposals).toHaveLength(1);
     expect(result.proposals[0]).toMatchObject({
       source: "stopwatch",
+      projectId: "timer-project",
       workedMinutes: null,
       activity: "",
       startAt: running.active!.startedAt,

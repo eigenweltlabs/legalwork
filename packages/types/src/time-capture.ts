@@ -81,13 +81,15 @@ export const workdayCorrectionSchema = z.strictObject({
 export type WorkdayCorrection = z.infer<typeof workdayCorrectionSchema>;
 
 export const stopwatchActionSchema = z.strictObject({
-  type: z.enum(["start", "stop"]),
+  type: z.enum(["start", "stop", "assign"]),
   id: z.uuid(),
+  projectId: z.string().min(1).max(200).optional(),
 });
 export const stopwatchStateSchema = z.object({
   profileId: z.string().length(64),
-  active: z.object({ id: z.uuid(), startedAt: z.iso.datetime() }).nullable(),
+  active: z.object({ id: z.uuid(), startedAt: z.iso.datetime(), projectId: z.string().nullable().default(null) }).nullable(),
   lastStopped: z.object({ id: z.uuid(), stoppedAt: z.iso.datetime(), date: z.iso.date() }).nullable(),
+  projects: z.array(z.object({ id: z.string(), name: z.string() })).default([]),
 });
 export type StopwatchAction = z.infer<typeof stopwatchActionSchema>;
 export type StopwatchState = z.infer<typeof stopwatchStateSchema>;

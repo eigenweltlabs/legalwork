@@ -59,11 +59,15 @@ export function changeStopwatch(
   if (action.type === "start") {
     if (timer.active?.id === action.id) return;
     if (timer.active) throw new ApiError(409, "stopwatch_running", "A stopwatch is already running.");
-    timer.active = { id: action.id, startedAt: now.toISOString(), zone };
+    timer.active = { id: action.id, startedAt: now.toISOString(), projectId: action.projectId ?? null, zone };
     return;
   }
   if (timer.active?.id !== action.id)
     throw new ApiError(409, "stopwatch_changed", "This stopwatch is no longer running.");
+  if (action.type === "assign") {
+    timer.active.projectId = action.projectId ?? null;
+    return;
+  }
   const start = Date.parse(timer.active.startedAt);
   const end = now.getTime();
   if (end < start)
@@ -80,7 +84,7 @@ export function changeStopwatch(
       date: span.date,
       digest: "",
       source: "stopwatch",
-      projectId: null,
+      projectId: timer.active.projectId,
       narrative: "Stopwatch",
       activity: "",
       dismissed: false,
