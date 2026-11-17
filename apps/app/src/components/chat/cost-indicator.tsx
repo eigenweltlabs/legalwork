@@ -1,7 +1,6 @@
 import { Coins, ChevronDown, RotateCw } from "lucide-react";
 import { useId, useState, type ReactNode } from "react";
 import type { CostAmount, CostUsage } from "@legalwork/types/session-cost";
-import { Popover, PopoverTrigger, PopoverContent, PopoverTitle, PopoverDescription } from "@/components/ui/popover";
 import { useSessionCosts } from "@/react-app/domains/session/surface/session-costs";
 import { cn } from "@/lib/utils";
 import { currentLocale, t } from "@/i18n";
@@ -27,16 +26,15 @@ function costSource(usage: CostUsage) {
 }
 const hasCost = (usage: CostUsage) => usage.amounts.some(amount => amount.knownCost > 0) || usage.unpricedCalls > 0;
 
-export function CostBreakdown({ usage, title, busy = false, conversation, background, delegated, inline = false }: {
-  usage: CostUsage; title: string; busy?: boolean; conversation?: CostUsage; background?: CostUsage; delegated?: CostUsage; inline?: boolean;
+export function CostBreakdown({ usage, title, busy = false, conversation, background, delegated }: {
+  usage: CostUsage; title: string; busy?: boolean; conversation?: CostUsage; background?: CostUsage; delegated?: CostUsage;
 }) {
-  const Title = inline ? "h3" : PopoverTitle;
   const locale = currentLocale();
   const numbers = new Intl.NumberFormat(locale);
   const newInput = usage.tokens.input + usage.tokens.cache.write;
   const estimated = [usage, ...(conversation ? [conversation] : [])].some(item => item.amounts.some(amount => amount.source === "estimate"));
   return <>
-    <Title className="text-sm font-medium">{t(estimated ? "cost.ai_estimate" : "cost.ai_cost")}</Title>
+    <h3 className="text-sm font-medium">{t(estimated ? "cost.ai_estimate" : "cost.ai_cost")}</h3>
     <dl className="space-y-3 rounded-xl bg-muted/40 px-3 py-3 text-sm">
       {[{ label: title, value: usage }, ...(conversation ? [{ label: t("cost.session_title"), value: conversation }] : [])].map(row =>
         <div key={row.label} className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
@@ -90,36 +88,6 @@ export function CostBreakdown({ usage, title, busy = false, conversation, backgr
   </>;
 }
 
-function SessionCostPopover({ usage, busy = false, pending = false, failed = false, refresh, background, delegated }: {
-  usage?: CostUsage; busy?: boolean; pending?: boolean; failed?: boolean; refresh?: () => void; background?: CostUsage; delegated?: CostUsage;
-}) {
-  const title = t("cost.session_title");
-  const amount = pending ? t("cost.loading") : usage ? costLabel(usage, currentLocale()) : t("cost.unavailable");
-  return <Popover>
-    <PopoverTrigger aria-label={`${title}: ${amount}`} className="inline-flex min-h-7 max-w-full shrink-0 items-center gap-1.5 rounded-md border border-border/60 bg-background/90 px-2.5 text-[11px] text-muted-foreground shadow-xs backdrop-blur-md transition-colors hover:bg-muted/65 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-      <Coins className="size-3 shrink-0 opacity-65" aria-hidden />
-      {usage && !pending && <span className="truncate">{t("cost.session")} ·</span>}
-      <span className="min-w-0 whitespace-normal text-left tabular-nums">{amount}</span>
-      {busy && usage && <span className="text-muted-foreground/70">{t("cost.so_far")}</span>}
-      <ChevronDown className="size-2.5 shrink-0 opacity-50" aria-hidden />
-    </PopoverTrigger>
-    <PopoverContent align="end" sideOffset={8}
-      className="max-h-[min(28rem,calc(100dvh-2rem))] w-80 max-w-[calc(100vw-2rem)] gap-4 overflow-y-auto overscroll-contain p-4">
-      {usage ? <CostBreakdown usage={usage} title={title} busy={busy} background={background} delegated={delegated} /> : <>
-        <PopoverTitle className="text-sm font-medium">{title}</PopoverTitle>
-        <PopoverDescription className="text-xs leading-relaxed">{t(pending ? "cost.loading" : failed ? "cost.load_failed" : "cost.partial_help")}</PopoverDescription>
-      </>}
-      {failed && refresh && <div className="space-y-2"><p role="status" className="text-xs text-muted-foreground">{t("cost.load_failed")}</p><button type="button" onClick={refresh} className="inline-flex items-center gap-1.5 self-start text-xs text-muted-foreground hover:text-foreground"><RotateCw className="size-3" aria-hidden />{t("cost.retry")}</button></div>}
-    </PopoverContent>
-  </Popover>;
-}
-
-export function SessionCostIndicator({ busy }: { busy: boolean }) {
-  const costs = useSessionCosts();
-  if (!costs) return null;
-  return <div className="absolute right-12 top-2 z-20 max-w-[calc(100%_-_5rem)]"><SessionCostPopover busy={busy} usage={costs.summary?.total} background={costs.summary?.background} delegated={costs.summary?.delegated} pending={costs.pending} failed={costs.failed} refresh={costs.refresh} /></div>;
-}
-
 export function CostRow({ children, className, usage, conversation, busy, pending, failed, refresh }: {
   children: ReactNode; className?: string; usage?: CostUsage; conversation?: CostUsage; busy: boolean; pending: boolean; failed: boolean; refresh: () => void;
 }) {
@@ -139,7 +107,7 @@ export function CostRow({ children, className, usage, conversation, busy, pendin
       </button>
     </div>
     {open && <section id={detailsId} aria-label={title} className="flex w-full max-w-sm flex-col gap-4 rounded-xl border border-border/70 bg-background p-4">
-      {usage ? <CostBreakdown inline usage={usage} conversation={conversation} title={title} busy={busy} /> : <>
+      {usage ? <CostBreakdown usage={usage} conversation={conversation} title={title} busy={busy} /> : <>
         <h3 className="text-sm font-medium">{title}</h3>
         {!failed && <p className="text-xs leading-relaxed text-muted-foreground">{t(pending ? "cost.loading" : "cost.partial_help")}</p>}
       </>}

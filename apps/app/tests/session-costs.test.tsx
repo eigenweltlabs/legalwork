@@ -3,7 +3,6 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { CostUsage } from "@legalwork/types/session-cost";
 import { CostBreakdown, costLabel, formatCost } from "../src/components/chat/cost-indicator";
-import { Popover } from "../src/components/ui/popover";
 
 const usage: CostUsage = { amounts: [{ currency: "USD", cost: 0.032, knownCost: 0.032, source: "estimate" }], calls: 3, unpricedCalls: 0, pendingCalls: 0,
   tokens: { input: 100, output: 40, reasoning: 10, cache: { read: 900, write: 200 } },
@@ -25,7 +24,7 @@ describe("cost display", () => {
     expect(costLabel({ amounts: [{ currency: "USD", cost: null, knownCost: 0.1, source: "estimate" }] })).toBe("Partial ~$0.10");
   });
   test("cost overview keeps precise model usage and token categories in collapsed details", () => {
-    const html = renderToStaticMarkup(React.createElement(Popover, {}, React.createElement(CostBreakdown, { usage, conversation: usage, title: "This answer", busy: true })));
+    const html = renderToStaticMarkup(React.createElement(CostBreakdown, { usage, conversation: usage, title: "This answer", busy: true }));
     for (const text of ["Estimated AI cost", "This answer", "This conversation", "$0.03", "View usage details", "Sample model", "$0.032", "Advanced details", "Model calls", "Input tokens", "1,200", "New input", "300", "Not saved", "Reasoning", "Reused input", "Saved for reuse", "so far", "ESTIMATE"]) expect(html).toContain(text);
     for (const text of ["new input stored for later reuse", "output excludes reasoning", "External service charges", "without conversion", "Input from cache", "Other input"]) expect(html).not.toContain(text);
     expect(html).not.toContain("internal-model-route");
@@ -38,7 +37,7 @@ test("mixed currencies are displayed separately with provenance and tiny EUR nev
     { currency: "USD", cost: 0.02, knownCost: 0.02, source: "estimate" },
   ] })).toBe("€0.03 + ~$0.02");
   expect(formatCost(0.000008, "EUR")).toBe("<€0.01");
-  const html = renderToStaticMarkup(React.createElement(CostBreakdown, { inline: true, title: "This answer", usage: { ...usage,
+  const html = renderToStaticMarkup(React.createElement(CostBreakdown, { title: "This answer", usage: { ...usage,
     pendingCalls: 1, amounts: [{ currency: "EUR", cost: 0.03, knownCost: 0.03, source: "gateway" }] } }));
   expect(html).toContain("GATEWAY · EUR");
   expect(html).toContain("Updating costs");

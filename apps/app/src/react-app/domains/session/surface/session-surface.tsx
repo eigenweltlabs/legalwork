@@ -20,7 +20,6 @@ import { AssistantOnboardingConversation, type AssistantOnboardingControls } fro
 import { useSearchNavigation } from "@/react-app/shell/search-navigation";
 import { SessionSandbox } from "./session-sandbox";
 import { SessionCostProvider } from "./session-costs";
-import { SessionCostIndicator } from "@/components/chat/cost-indicator";
 /** @jsxImportSource react */
 import { ProviderLimitMessage } from "@/react-app/domains/connections/usage-control/provider-limit-message";
 import { SubscriptionEndedMessage } from "@/react-app/domains/connections/usage-control/subscription-ended-message";
@@ -1978,7 +1977,6 @@ export function SessionSurface(props: SessionSurfaceProps) {
     <SessionCostProvider client={props.client} workspaceId={props.workspaceId} sessionId={props.sessionId} busy={chatStreaming}>
     <div className="lw-session-typography relative flex h-full min-h-0 flex-col" data-assistant-chat={props.assistantDate ? "" : undefined}>
       <SessionSandbox key={`${props.workspaceId}:${props.sessionId}`} client={props.client} workspaceId={props.workspaceId} sessionId={props.sessionId} />
-      <SessionCostIndicator busy={chatStreaming} />
       {chatWorkspace === "wiki" && <WikiProjectFilesDialog open={projectPickerOpen} onOpenChange={setProjectPickerOpen} client={props.client} wikiId={chatWiki?.id} workspaceId={props.workspaceId} sessionId={props.sessionId} />}
       <SessionSubagents key={`subagents:${props.workspaceId}:${props.sessionId}`} workspaceId={props.workspaceId} workspaceRoot={props.workspaceRoot} sessionId={props.sessionId} client={opencodeClient} serverClient={props.client} waiting={props.pendingInteractionSessionIds} onOpen={props.onOpenInteractionSession} />
       <MarkdownStreamLinks workspaceId={props.workspaceId} sessionId={props.sessionId} onOpen={target => props.onOpenTarget?.(target, undefined, props.sessionId)} />

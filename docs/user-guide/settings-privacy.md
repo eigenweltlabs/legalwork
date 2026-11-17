@@ -113,8 +113,8 @@ Change the display language in **Customization**. Use the appearance selector to
 
 1. Open **Settings > Customization**.
 2. Under **Model**, turn on **Show costs**. This is off by default and is saved on this device.
-3. Open a chat. The top-right amount shows the conversation's AI cost. The amount next to the answer timestamp shares the copy, branch and undo row.
-4. Click an answer amount to see **This answer** and **This conversation**. Click it again to collapse the card. The conversation amount opens its own summary. Amounts use cents; positive costs below one cent show **<€0.01** or **<$0.01** rather than zero. A **~** marks an estimate.
+3. Open a chat. The amount next to the answer timestamp shares the copy, branch and undo row.
+4. Click an answer amount to see **This answer** and **This conversation**. Click it again to collapse the card. Amounts use cents; positive costs below one cent show **<€0.01** or **<$0.01** rather than zero. A **~** marks an estimate.
 5. Expand **View usage details** for models and precise amounts. Model names match the model picker. **Advanced details** contains model calls and token counts. These sections start collapsed.
 
 Eigenwelt gateway models use **EUR**; direct providers use **USD** estimates. A conversation using both shows separate amounts without conversion. Advanced details identifies estimates and settled gateway charges. Recent costs update automatically. While the agent is working, **so far** means the reported usage is still accumulating.
