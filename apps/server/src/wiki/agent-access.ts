@@ -288,9 +288,6 @@ export async function authenticateWikiAgentRequest(config: ServerConfig, request
     const preview = pathname.match(/\/sessions\/([^/]+)\/view-previews$/);
     if (preview && decodeURIComponent(preview[1]) !== sessionId)
       throw new ApiError(403, "wiki_agent_session_mismatch", "Read dashboard previews from the originating chat.");
-    const toolOutput = pathname.match(/\/sessions\/([^/]+)\/tool-output\/authorize$/);
-    if (toolOutput && decodeURIComponent(toolOutput[1]) !== sessionId)
-      throw new ApiError(403, "wiki_agent_session_mismatch", "Read saved tool outputs only through this chat's history scope.");
     const historyImages = pathname.match(/\/sessions\/([^/]+)\/history-images(?:\/read)?$/);
     if (historyImages && decodeURIComponent(historyImages[1]) !== sessionId)
       throw new ApiError(403, "wiki_agent_session_mismatch", "Read stored images only through this chat's history scope.");

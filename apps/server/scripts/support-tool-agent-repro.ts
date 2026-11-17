@@ -39,10 +39,12 @@ const fixture = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request)
   const failing = child && invalidCalls < 12 && !(mode === "recover" && recoveryWarning);
   if (failing) invalidCalls++;
   const call = !tools.length ? undefined : failing
-    ? toolCase === "word" ? { name: "inapp_docx_read_document", arguments: JSON.stringify({ path: "test-file.docx", view: "invalid-test-view" }) } : toolCase === "native" ? { name: "read", arguments: JSON.stringify({ path: 42 }) } : toolCase === "mcp" ? { name: "fixture_validate", arguments: JSON.stringify({ limit: 0 }) } : { name: "legalwork_tool_output_read", arguments: JSON.stringify({ outputPath: "" }) }
+    ? toolCase === "word" ? { name: "inapp_docx_read_document", arguments: JSON.stringify({ path: "test-file.docx", view: "invalid-test-view" }) } : toolCase === "native" ? { name: "read", arguments: JSON.stringify({ path: 42 }) } : toolCase === "mcp" ? { name: "fixture_validate", arguments: JSON.stringify({ limit: 0 }) } : { name: "read", arguments: JSON.stringify({ path: [".legalwork/tool-output/synthetic.txt"] }) }
     : !child && tools.includes("subagent") && !results.length
       ? { name: "subagent", arguments: JSON.stringify({ description: "Check the argument-loop guard", agent: "general", background: false, prompt: "CHILD_GUARD: exercise the synthetic invalid-input tool fixture." }) } : undefined;
-  const effectiveCall = nested && call && call.name !== "subagent"
+  // Native file tools remain direct tools when Code Mode is enabled; only
+  // registered plugin/MCP tools belong in the execute namespace.
+  const effectiveCall = nested && call && call.name !== "subagent" && call.name !== "read"
     ? { name: "execute", arguments: JSON.stringify({ code: `return await tools.${call.name}(${call.arguments});` }) } : call;
   const chunk = (delta: unknown, finish_reason: string | null) => `data: ${JSON.stringify({ id: "fixture", object: "chat.completion.chunk", created: 1, model: "fixture", choices: [{ index: 0, delta, finish_reason }] })}\n\n`;
   return new Response(chunk({ role: "assistant", ...(effectiveCall ? { tool_calls: [{ index: 0, id: `fixture_${requests.length}`, type: "function", function: effectiveCall }] } : { content: recoveryWarning ? "Fixture accepted correction guidance and changed approach." : "The child fixture has settled." }) }, null) + chunk({}, call ? "tool_calls" : "stop") + "data: [DONE]\n\n", { headers: { "content-type": "text/event-stream" } });

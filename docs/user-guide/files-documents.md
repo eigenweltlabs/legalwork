@@ -64,6 +64,8 @@ Ask to annotate, fill a form or stamp a signature to use the bundled `pdf-tools`
 
 Memory Drive’s project files come from the connected document folder, or the local `files` folder for a project created without a chosen folder. Saved chat attachments and connected-storage working copies live in the project’s local `.legalwork` folder. File links and editors select the corresponding location automatically. Saving a working copy does not move your source documents.
 
+OpenCode retains large tool results as internal project working files, with a bounded preview in the conversation. The assistant can read or search the saved result when it needs more detail without repeating the original operation. These working files preserve the original output, are organized by chat, follow the project's file permissions, and stay outside the document list. OpenCode removes retained outputs older than seven days; save lasting deliverables as ordinary project documents.
+
 Check the returned output path and open the saved file. Local editor saves update workspace files or working copies. A connected-storage working copy requires **Save to [connection]** to publish changes back; automatic local saving does not publish it. See [Connected storage](connected-storage.md). Files created for a task can also be attached back to that task so they are discoverable from the work list.
 
 Markdown files can include saved report and dashboard blocks. The chart renders within the document, and its **Open in tab** control opens a larger view. Assistant document cards open the file only when selected. See [Dashboards and reports](dashboards.md).

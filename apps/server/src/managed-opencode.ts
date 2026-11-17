@@ -308,6 +308,8 @@ export async function createManagedOpencodeServer(options: {
     ...serviceEnv,
     // FFF's background scan reads document contents; filename lookup can use ripgrep.
     OPENCODE_DISABLE_FFF: "true",
+    // Use the native saver inside each project, grouped by chat.
+    OPENCODE_PROJECT_TOOL_OUTPUT: "1",
     // Use the runtime's supported OS trust store for native provider/MCP TLS.
     NODE_USE_SYSTEM_CA: "1",
     ...(options.service ? {} : { OPENCODE_PASSWORD: password }),
@@ -319,6 +321,7 @@ export async function createManagedOpencodeServer(options: {
     ...(options.env ?? {}),
     ...serviceEnv,
     OPENCODE_DISABLE_FFF: "true",
+    OPENCODE_PROJECT_TOOL_OUTPUT: "1",
     NODE_USE_SYSTEM_CA: "1",
     ...(options.service ? {} : { OPENCODE_PASSWORD: password }),
   })

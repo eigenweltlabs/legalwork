@@ -291,8 +291,6 @@ export async function buildLegalworkRuntimeSettings(
   const registered = config?.workspaces.find((item) => item.id === workspaceId);
   const workspace = registered ? await localProjectReferenceRoots(registered) : undefined;
   const permission = [
-    { action: "legalwork_tool_output_read", resource: "*", effect: "allow" },
-    { action: "legalwork_tool_output_search", resource: "*", effect: "allow" },
     { action: "external_directory", resource: "*", effect: "ask" },
     { action: "legalwork_jev_corpus_question", resource: "*", effect: jevSearchEnabled ? "allow" : "deny" },
     ...(workspace ? primaryContentFolderRules(workspace) : []),

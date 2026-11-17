@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "upstreamCommit": "68bc26b7da1990ce10ffecfbc1e09eb13aa5d824",
+  "patchSha256": "1329400f9522720df0364d03bd0ac2ea996b6599764c7fac69affdda2e7e49ad",
+  "priorPatch": {
+    "path": "docs/patches/opencode-2.1.4-history-file-references.patch",
+    "sha256": "75cc4c142ca62ae82999f235a91506164e0bd3bd5503a9e98ddf82e2854652c2",
+    "unchangedPrefix": true
+  },
+  "priorReceipt": {
+    "path": "docs/patches/opencode-2.1.4-history-file-references.receipt.json",
+    "sha256": "9d82b599f3cb63dc6d76eb9b3440b3543d57586250c9934a94a4242feb2db45d"
+  },
+  "runtime": {
+    "bun": "1.4.4"
+  },
+  "tests": [
+    {
+      "cwd": "packages/core",
+      "command": "bun run script/test.ts test/tool-output.test.ts test/config/tool-output.test.ts test/session-step.test.ts test/mcp.test.ts test/codemode-http.test.ts test/session-execution.test.ts test/session-model-request.test.ts",
+      "passed": 146,
+      "failed": 0,
+      "assertions": 681
+    },
+    {
+      "cwd": "packages/core",
+      "command": "bun run typecheck",
+      "exitCode": 0,
+      "files": 1637
+    },
+    {
+      "cwd": "packages/server",
+      "command": "bun run typecheck",
+      "exitCode": 0,
+      "files": 1273
+    }
+  ],
+  "contract": "OPENCODE_PROJECT_TOOL_OUTPUT=1 changes only native text/binary output destinations to <Location.directory>/.legalwork/tool-output/<sessionID>/<native filename>. Native limits, previews, payloads, mixed content, pagination ownership and seven-day retention remain unchanged. Default OpenCode storage remains global. Chat folders only organize files; ordinary project permissions apply. Existing global retention still cleans legacy files."
+}
