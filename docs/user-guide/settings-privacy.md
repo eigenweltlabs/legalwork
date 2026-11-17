@@ -118,7 +118,7 @@ Change the display language in **Customization**. Use the appearance selector to
 
 Costs use US dollars and the model prices available to the agent engine. Conversation totals include background work such as titles and context compaction, even when older messages are not on screen. Undoing a message does not refund usage, and a new branch does not charge again for copied history.
 
-Token counts are added across every model call in the prompt. **Uncached input**, **Cache reads** and **Cache writes** are separate buckets; **Output** excludes the separately listed **Reasoning** tokens. A small uncached input count can be normal when most input came from the cache.
+Token counts are added across every model call in the prompt. **Total input** is the sum of **Other input**, **Reused from cache** and **Saved to cache**. Tokens saved to the cache are newly processed input stored for later reuse; tokens reused from the cache were processed earlier. A request can save most of its input to the cache while reusing none. **Other input** is the remainder outside both cache categories. Input includes the agent's instructions, tool definitions and conversation context as well as your message. **Output** excludes the separately listed **Reasoning** tokens.
 
 **Cost unavailable** means usage or model pricing is missing. A **≥** amount is the known subtotal when some usage cannot be priced. Existing conversations can show costs where the engine retained their usage. These are estimates of model usage: your provider invoice or subscription allowance may differ, and paid external services such as transcription or research are not included. Turning off **Show costs** hides the display; it does not change model usage or anonymous usage-sharing preferences.
 

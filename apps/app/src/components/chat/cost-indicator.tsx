@@ -24,10 +24,8 @@ export function CostBreakdown({ usage, title, busy = false, background, delegate
   const numbers = new Intl.NumberFormat(locale);
   const input = usage.tokens.input + usage.tokens.cache.read + usage.tokens.cache.write;
   const cachePercent = input > 0 ? Math.round(usage.tokens.cache.read / input * 100) : 0;
-  const buckets = [
+  const inputBuckets = [
     { label: t("cost.input"), value: usage.tokens.input },
-    { label: t("cost.output"), value: usage.tokens.output },
-    { label: t("cost.reasoning"), value: usage.tokens.reasoning },
     { label: t("cost.cache_read"), value: usage.tokens.cache.read },
     { label: t("cost.cache_write"), value: usage.tokens.cache.write },
   ];
@@ -62,7 +60,12 @@ export function CostBreakdown({ usage, title, busy = false, background, delegate
         <ChevronDown className="size-3 -rotate-90 transition-transform group-open/tokens:rotate-0" aria-hidden />
         {t("cost.token_breakdown")}
       </summary>
-      <dl className="mt-3 space-y-2">{buckets.map(bucket => <div key={bucket.label} className="flex justify-between gap-4"><dt className="text-muted-foreground">{bucket.label}</dt><dd className="tabular-nums">{numbers.format(bucket.value)}</dd></div>)}</dl>
+      <dl className="mt-3 space-y-2">
+        <div className="flex justify-between gap-4 font-medium"><dt>{t("cost.total_input")}</dt><dd className="tabular-nums">{numbers.format(input)}</dd></div>
+        {inputBuckets.map(bucket => <div key={bucket.label} className="flex justify-between gap-4 pl-3"><dt className="text-muted-foreground">{bucket.label}</dt><dd className="tabular-nums">{numbers.format(bucket.value)}</dd></div>)}
+        <div className="flex justify-between gap-4 border-t border-border/50 pt-2"><dt className="text-muted-foreground">{t("cost.output")}</dt><dd className="tabular-nums">{numbers.format(usage.tokens.output)}</dd></div>
+        <div className="flex justify-between gap-4"><dt className="text-muted-foreground">{t("cost.reasoning")}</dt><dd className="tabular-nums">{numbers.format(usage.tokens.reasoning)}</dd></div>
+      </dl>
       <p className="mt-3 text-[11px] leading-relaxed text-muted-foreground">{t("cost.token_help")}</p>
     </details>
     <Description className="border-t border-border/70 pt-3 text-[11px] leading-relaxed text-muted-foreground">
