@@ -6,8 +6,9 @@ import { PdfReader } from "../src/pdf-reader.js";
 import { OcrService } from "../src/ocr/service.js";
 import { createServerOcrEngine } from "../src/ocr/server-engine.js";
 
-const [file, output] = process.argv.slice(2);
-if (!file || !output) throw new Error("Usage: bun scripts/benchmark-ocr-pages.ts /path/to/synthetic-scan.pdf /private/results.json");
+const [file, output, ...requestedLevels] = process.argv.slice(2);
+if (!file || !output) throw new Error("Usage: bun scripts/benchmark-ocr-pages.ts /path/to/synthetic-scan.pdf /private/results.json [concurrency ...]");
+const levels = z.array(z.coerce.number().int().min(1).max(8)).min(1).parse(requestedLevels.length ? requestedLevels : [1, 2, 4, 8]);
 const directory = process.env.OCR_DEV_DIRECTORY || join(homedir(), ".config/eigenwelt-ocr-dev");
 const config = z.object({ endpoint: z.string(), model: z.string(), apiKey: z.string() }).parse(JSON.parse(await readFile(join(directory, "legalwork.json"), "utf8")));
 const expected = z.object({ pages: z.number(), markers: z.array(z.string()) }).parse(JSON.parse(await readFile(join(directory, "scan-test-expectations.json"), "utf8")));
@@ -33,9 +34,10 @@ async function run(concurrency: number) {
   return { concurrency, seconds: Math.round(performance.now() - started) / 1000, pages: result.pages.length, markers };
 }
 
-console.log(JSON.stringify({ phase: "warmup", concurrency: 8 }));
-console.log(JSON.stringify({ warmup: await run(8) }));
-for (const concurrency of [1, 2, 4, 8]) {
+const warmup = Math.max(...levels);
+console.log(JSON.stringify({ phase: "warmup", concurrency: warmup }));
+console.log(JSON.stringify({ warmup: await run(warmup) }));
+for (const concurrency of levels) {
   console.log(JSON.stringify({ phase: "measure", concurrency }));
   const result = await run(concurrency);
   results.push(result);
