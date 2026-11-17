@@ -1,5 +1,5 @@
 import { nativeKind,nativeModel } from "./native-model";
-import { displayBackOfficeObject } from "./labels";
+import { displayBackOfficeObject, displayBackOfficeField, backOfficeFieldTypeLabel } from "./labels";
 import { useState } from "react";
 import {
   ArrowUpRight,
@@ -31,18 +31,18 @@ import { DirectoryDialog, DirectorySelect } from "./twenty-controls";
 import { quickCreateFieldIds } from "./record-creation-values";
 import { t } from "@/i18n";
 
-const basicFieldTypes = [
-  ["text", "Text"],
-  ["number", "Number"],
-  ["boolean", "True/False"],
-  ["datetime", "Date and Time"],
-  ["date", "Date"],
-  ["select", "Select"],
-  ["multiselect", "Multi-select"],
-  ["currency", "Currency"],
-  ["email", "Email"],
-  ["file", "File"],
-] satisfies [BackOfficeField["type"], string][];
+const basicFieldTypes: BackOfficeField["type"][] = [
+  "text",
+  "number",
+  "boolean",
+  "datetime",
+  "date",
+  "select",
+  "multiselect",
+  "currency",
+  "email",
+  "file",
+];
 
 export function ModelEditor({
   model,
@@ -83,6 +83,7 @@ export function ModelEditor({
   } | null>(null);
   const shownObjects = [...model.objects,nativeModel("task"),nativeModel("deadline")];
   const object = shownObjects.find(o => o.id === objectId);
+  const displayedObject = object && displayBackOfficeObject(object);
   const editable = canEditModel && !nativeKind(objectId ?? "");
   const commit = async (next: BackOfficeModel) => {
     setSaving(true);
@@ -94,7 +95,7 @@ export function ModelEditor({
       setReview(null);
     } catch (error) {
       setError(
-        error instanceof Error ? error.message : "Could not save the model.",
+        error instanceof Error ? error.message : t("back_office.model_failed"),
       );
     } finally {
       setSaving(false);
@@ -114,7 +115,7 @@ export function ModelEditor({
       } else await commit(next);
     } catch (error) {
       setError(
-        error instanceof Error ? error.message : "Could not review the change.",
+        error instanceof Error ? error.message : t("back_office.review_failed"),
       );
     }
   };
@@ -141,7 +142,7 @@ export function ModelEditor({
     setAdding("field");
     setSelectingType(false);
     setEditing(field);
-    setLabel(field.label);
+    setLabel(object ? displayBackOfficeField(field, object.id).label : field.label);
     setFieldType(field.type);
     setOptions(field.options.join(", "));
     setTarget(field.target ?? "");
@@ -157,17 +158,26 @@ export function ModelEditor({
     setError("");
   };
   const rows = object?.fields.filter((field) =>
-    field.label.toLocaleLowerCase().includes(query.toLocaleLowerCase()),
+    displayBackOfficeField(field, object.id).label.toLocaleLowerCase().includes(query.toLocaleLowerCase()),
   );
-  const editorTitle = adding === "object" ? "New object" : editing ? "Edit field" : "New field";
+  const editorTitle = adding === "object" ? t("back_office.new_object") : editing ? t("back_office.edit_field") : t("back_office.new_field");
+  const changeLabel = (action: string) => {
+    const labels: Record<string, string> = {
+      "Add object": t("back_office.add_object"),
+      "Archive object": t("back_office.archive_object"),
+      "Restore object": t("back_office.restore_object"),
+      "Update fields or labels": t("back_office.update_fields"),
+    };
+    return labels[action] ?? action;
+  };
   return (
     <div className="bo-model">
       <header className="bo-model-header">
         <Breadcrumb
           links={[
-            { children: "Workspace" },
+            { children: t("workspace.workbench") },
             {
-              children: "Objects",
+              children: t("back_office.objects"),
               onClick: () => {
                 setObjectId(null);
                 setQuery("");
@@ -180,7 +190,7 @@ export function ModelEditor({
         />
         <h2>
           <ObjectIcon id={object?.id ?? ""} />
-          {object?.plural ?? "Data model"}
+          {displayedObject?.plural ?? t("back_office.data_model")}
         </h2>
         <div>
           {object && (
@@ -190,7 +200,7 @@ export function ModelEditor({
               onClick={() => onRecords(object.id)}
               startIcon={<ArrowUpRight size={13} />}
             >
-              See records
+              {t("back_office.see_records")}
             </Button>
           )}
           <Button
@@ -201,7 +211,7 @@ export function ModelEditor({
             onClick={() => add(object ? "field" : "object")}
             startIcon={<Plus size={14} />}
           >
-            {object ? "New field" : "Add object"}
+            {object ? t("back_office.new_field") : t("back_office.add_object")}
           </Button>
         </div>
       </header>
@@ -211,13 +221,9 @@ export function ModelEditor({
           onValueChange={(value) => {
             if (typeof value === "string") {
               setTab(value);
-              setLabel(object.label);
+              setLabel(displayBackOfficeObject(object).label);
               setQuickFields(quickCreateFieldIds(object));
-              setPlural(
-                object.plural === "Clients · Mandanten"
-                  ? displayBackOfficeObject(object).plural
-                  : object.plural,
-              );
+              setPlural(displayBackOfficeObject(object).plural);
             }
           }}
         >
@@ -227,14 +233,14 @@ export function ModelEditor({
               size="sm"
               startIcon={<SlidersHorizontal size={14} />}
             >
-              Fields
+              {t("back_office.fields")}
             </Tabs.Tab>
             <Tabs.Tab
               value="settings"
               size="sm"
               startIcon={<Settings2 size={14} />}
             >
-              Settings
+              {t("settings.tab_general")}
             </Tabs.Tab>
             <Tabs.Indicator />
           </Tabs.List>
@@ -246,12 +252,16 @@ export function ModelEditor({
             className="bo-form"
             onSubmit={(event) => {
               event.preventDefault();
-              void applyObject({ ...object, label, plural, quickCreateFields: quickFields });
+              void applyObject({ ...object,
+                label: label === displayedObject?.label ? object.label : label,
+                plural: plural === displayedObject?.plural ? object.plural : plural,
+                quickCreateFields: quickFields,
+              });
             }}
           >
-            <h3>Object settings</h3>
+            <h3>{t("back_office.object_settings")}</h3>
             <label>
-              Name
+              {t("plugin_create.name")}
               <Input
                 required
                 value={label}
@@ -260,7 +270,7 @@ export function ModelEditor({
               />
             </label>
             <label>
-              Plural name
+              {t("back_office.plural_name")}
               <Input
                 required
                 value={plural}
@@ -274,14 +284,14 @@ export function ModelEditor({
               {object.fields.map(field => <label key={field.id} className="flex items-center gap-2">
                 <Checkbox checked={field.required || quickFields.includes(field.id)} disabled={!editable || saving || field.required}
                   onCheckedChange={checked => setQuickFields(current => checked ? [...current.filter(id => id !== field.id), field.id] : current.filter(id => id !== field.id))} />
-                <FieldIcon field={field} />{field.label}{field.required ? " *" : ""}
+                <FieldIcon field={field} />{displayBackOfficeField(field, object.id).label}{field.required ? " *" : ""}
               </label>)}
             </fieldset>
             <p className="bo-model-notice">
               <LockKeyhole size={13} />
               {object.protected
-                ? "This object is part of LegalWork’s protected core model."
-                : "Archiving hides this object while keeping its records."}
+                ? t("back_office.protected_object")
+                : t("back_office.archive_object_hint")}
             </p>
             <div className="bo-modal-footer">
               {!object.protected && (
@@ -294,7 +304,7 @@ export function ModelEditor({
                     void applyObject({ ...object, archived: !object.archived }).then(() => setObjectId(null));
                   }}
                 >
-                  {object.archived ? "Restore object" : "Archive object"}
+                  {object.archived ? t("back_office.restore_object") : t("back_office.archive_object")}
                 </Button>
               )}
               <Button
@@ -304,30 +314,30 @@ export function ModelEditor({
                 color="accent"
                 disabled={!editable || saving}
               >
-                Save
+                {t("scheduled.save")}
               </Button>
             </div>
           </form>
         ) : object ? (
           <>
-            <h3>Relations</h3>
+            <h3>{t("back_office.relations")}</h3>
             <p className="bo-muted">
-              Relations between this object and other objects.
+              {t("back_office.relations_hint")}
             </p>
             <label className="bo-model-search">
               <Search size={14} />
               <Input
                 variant="plain"
                 size="sm"
-                placeholder="Search a field…"
-                aria-label="Search a field"
+                placeholder={t("back_office.search_field")}
+                aria-label={t("back_office.search_field_label")}
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
               />
             </label>
             <div className="bo-schema-heading">
-              <span>Name</span>
-              <span>Type</span>
+              <span>{t("plugin_create.name")}</span>
+              <span>{t("mcp.server_type")}</span>
               <span />
             </div>
             <div className="bo-field-list">
@@ -343,7 +353,7 @@ export function ModelEditor({
                     actions={
                       <>
                         <span className="bo-schema-type">
-                          {field.multiple ? "Many records" : "One record"}
+                          {field.multiple ? t("back_office.many_records") : t("back_office.one_record")}
                         </span>
                         {field.protected && <LockKeyhole size={12} />}
                         <ChevronRight size={14} />
@@ -353,9 +363,9 @@ export function ModelEditor({
                     <span>
                       {
                         field.target === "@directory" ? t("native.all_models") : field.target === "@member" ? t("tasks.column_assignee") :
-                          model.objects.find(candidate => candidate.id === field.target)?.plural
+                          model.objects.map(displayBackOfficeObject).find(candidate => candidate.id === field.target)?.plural
                       }
-                      <span className="bo-muted"> · {field.label}</span>
+                      <span className="bo-muted"> · {displayBackOfficeField(field, object.id).label}</span>
                     </span>
                   </ListItem>
                 ))}
@@ -367,18 +377,17 @@ export function ModelEditor({
                   startIcon={<Plus size={13} />}
                   onClick={() => add("field", true)}
                 >
-                  Add relation
+                  {t("back_office.add_relation")}
                 </Button>
               </div>
             )}
-            <h3>Fields</h3>
+            <h3>{t("back_office.fields")}</h3>
             <p className="bo-muted">
-              Customize properties in {object.label.toLocaleLowerCase()} views
-              and record details.
+              {t("back_office.customize_hint", { name: displayedObject?.plural ?? "" })}
             </p>
             <div className="bo-schema-heading">
-              <span>Name</span>
-              <span>Data type</span>
+              <span>{t("plugin_create.name")}</span>
+              <span>{t("back_office.data_type")}</span>
               <span />
             </div>
             <div className="bo-field-list">
@@ -393,37 +402,37 @@ export function ModelEditor({
                     actionsVisibility="always"
                     actions={
                       <>
-                        <span className="bo-schema-type">{field.type}</span>
+                        <span className="bo-schema-type">{backOfficeFieldTypeLabel(field.type)}</span>
                         {field.protected && <LockKeyhole size={12} />}
                         <ChevronRight size={14} />
                       </>
                     }
                   >
-                    {field.label}
+                    {displayBackOfficeField(field, object.id).label}
                   </ListItem>
                 ))}
             </div>
           </>
         ) : (
           <>
-            <h3>Objects</h3>
+            <h3>{t("back_office.objects")}</h3>
             <p className="bo-muted">
-              Manage your firm’s objects, fields and relationships.
+              {t("back_office.objects_hint")}
             </p>
             <label className="bo-model-search">
               <Search size={14} />
               <Input
                 variant="plain"
                 size="sm"
-                placeholder="Search for an object…"
-                aria-label="Search for an object"
+                placeholder={t("back_office.search_object")}
+                aria-label={t("back_office.search_object_label")}
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
               />
             </label>
             <div className="bo-schema-heading">
-              <span>Name</span>
-              <span>Fields</span>
+              <span>{t("plugin_create.name")}</span>
+              <span>{t("back_office.fields")}</span>
               <span />
             </div>
             <div className="bo-field-list">
@@ -446,7 +455,7 @@ export function ModelEditor({
                     actions={
                       <>
                         <span className="bo-schema-type">
-                          {object.fields.length} fields
+                          {t("back_office.fields_count", { count: object.fields.length })}
                         </span>
                         {object.protected && <LockKeyhole size={12} />}
                         <ChevronRight size={14} />
@@ -463,9 +472,9 @@ export function ModelEditor({
                 variant="ghost"
                 onClick={() => setShowArchived(!showArchived)}
               >
-                {showArchived ? "Show active objects" : "Show archived objects"}
+                {showArchived ? t("back_office.show_active_objects") : t("back_office.show_archived_objects")}
               </Button>
-              <Tag color="gray">Template {model.templateVersion}</Tag>
+              <Tag color="gray">{t("back_office.template_version", { version: model.templateVersion })}</Tag>
             </div>
           </>
         )}
@@ -483,9 +492,9 @@ export function ModelEditor({
           <header className="bo-model-header">
             <Breadcrumb
               links={[
-                { children: "Workspace" },
+                { children: t("workspace.workbench") },
                 {
-                  children: "Objects",
+                  children: t("back_office.objects"),
                   onClick: () => {
                     setAdding(null);
                     setObjectId(null);
@@ -506,14 +515,14 @@ export function ModelEditor({
             />
             <h2>
               <ObjectIcon id={object?.id ?? ""} />
-              {object?.plural ?? "Data model"}
+              {displayedObject?.plural ?? t("back_office.data_model")}
             </h2>
           </header>
           <div className="bo-field-step">
             <Button
               size="sm"
               variant="ghost"
-              aria-label="Previous"
+              aria-label={t("jev_search.previous")}
               startIcon={<ArrowLeft size={14} />}
               onClick={() => {
                 if (adding === "field" && !editing && !selectingType)
@@ -523,12 +532,12 @@ export function ModelEditor({
             />
             <strong>
               {adding === "object"
-                ? "Configure object"
+                ? t("back_office.configure_object")
                 : selectingType
-                  ? "1. Select a field type"
+                  ? t("back_office.select_type")
                   : editing
-                    ? "Edit field"
-                    : "2. Configure field"}
+                    ? t("back_office.edit_field")
+                    : t("back_office.configure_field")}
             </strong>
             {!selectingType && (
               <Button
@@ -539,7 +548,7 @@ export function ModelEditor({
                 form="bo-field-form"
                 disabled={!label.trim() || saving || !editable}
               >
-                Save
+                {t("scheduled.save")}
               </Button>
             )}
           </div>
@@ -550,19 +559,19 @@ export function ModelEditor({
                 <Input
                   variant="plain"
                   size="sm"
-                  placeholder="Search a type"
+                  placeholder={t("back_office.search_type")}
                   value={typeQuery}
                   onChange={(event) => setTypeQuery(event.target.value)}
                 />
               </label>
-              <h3>Basic</h3>
+              <h3>{t("back_office.basic")}</h3>
               <p className="bo-muted">
-                All the basic field types you need to start
+                {t("back_office.basic_hint")}
               </p>
               <div className="bo-type-grid">
                 {basicFieldTypes
-                  .filter(([type]) => type.includes(typeQuery.toLowerCase()))
-                  .map(([type, typeLabel]) => (
+                  .filter(type => backOfficeFieldTypeLabel(type).toLocaleLowerCase().includes(typeQuery.toLocaleLowerCase()))
+                  .map(type => (
                     <ListItem
                       key={type}
                       render={<button />}
@@ -573,12 +582,12 @@ export function ModelEditor({
                         setSelectingType(false);
                       }}
                     >
-                      {typeLabel}
+                      {backOfficeFieldTypeLabel(type)}
                     </ListItem>
                   ))}
               </div>
-              <h3>Relation</h3>
-              <p className="bo-muted">Create a relation with other objects</p>
+              <h3>{t("back_office.field_type.relation")}</h3>
+              <p className="bo-muted">{t("back_office.relation_hint")}</p>
               <div className="bo-type-grid">
                 <ListItem
                   render={<button />}
@@ -589,7 +598,7 @@ export function ModelEditor({
                     setSelectingType(false);
                   }}
                 >
-                  Relation
+                  {t("back_office.field_type.relation")}
                 </ListItem>
               </div>
             </div>
@@ -629,7 +638,7 @@ export function ModelEditor({
                     id:
                       editing?.id ??
                       "custom_" + crypto.randomUUID().replaceAll("-", ""),
-                    label,
+                    label: editing && label === displayBackOfficeField(editing, object.id).label ? editing.label : label,
                     type: fieldType,
                     target: fieldType === "relation" ? target : undefined,
                     multiple,
@@ -648,44 +657,44 @@ export function ModelEditor({
                   setError(
                     error instanceof Error
                       ? error.message
-                      : "Check this field.",
+                      : t("back_office.check_field"),
                   );
                 }
               }}
             >
               <div>
-                <h3>Icon and Name</h3>
+                <h3>{t("back_office.icon_name")}</h3>
                 <p className="bo-muted">
-                  The name of this {adding === "object" ? "object" : "field"}
+                  {t(adding === "object" ? "back_office.object_name_hint" : "back_office.field_name_hint")}
                 </p>
               </div>
               <label>
-                Name
+                {t("plugin_create.name")}
                 <Input
                   required
                   autoFocus
                   value={label}
-                  aria-label="Field name"
+                  aria-label={t("projects.field_name")}
                   onChange={(event) => setLabel(event.target.value)}
                   disabled={!editable}
                 />
               </label>
               {adding === "object" ? (
                 <label>
-                  Plural name
+                  {t("back_office.plural_name")}
                   <Input
                     value={plural}
                     onChange={(event) => setPlural(event.target.value)}
                     required
-                    aria-label="Plural name"
+                    aria-label={t("back_office.plural_name")}
                   />
                 </label>
               ) : (
                 <>
                   <label>
-                    Field type
+                    {t("projects.field_type")}
                     <DirectorySelect
-                      label="Field type"
+                      label={t("projects.field_type")}
                       value={fieldType}
                       disabled={editing?.protected || !editable}
                       onChange={(value) => {
@@ -694,13 +703,13 @@ export function ModelEditor({
                         if (parsed.success) setFieldType(parsed.data);
                       }}
                       options={BackOfficeFieldSchema.shape.type.options.map(
-                        (type) => ({ value: type, label: type }),
+                        (type) => ({ value: type, label: backOfficeFieldTypeLabel(type) }),
                       )}
                     />
                   </label>
                   {(fieldType === "select" || fieldType === "multiselect") && (
                     <label>
-                      Options, separated by commas
+                      {t("projects.options")}
                       <Input
                         value={options}
                         onChange={(event) => setOptions(event.target.value)}
@@ -711,15 +720,15 @@ export function ModelEditor({
                   {fieldType === "relation" && (
                     <>
                       <label>
-                        Related object
+                        {t("back_office.related_object")}
                         <DirectorySelect
                           required
-                          label="Related object"
+                          label={t("back_office.related_object")}
                           value={target}
                           disabled={editing?.protected || !editable}
                           onChange={setTarget}
                           options={[
-                            { value: "", label: "Choose an object" },
+                            { value: "", label: t("back_office.choose_object") },
                             ...model.objects
                               .filter(
                                 (object) =>
@@ -740,7 +749,7 @@ export function ModelEditor({
                           disabled={editing?.protected || !editable}
                           onCheckedChange={setMultiple}
                         />
-                        Allow several records
+                        {t("back_office.several_records")}
                       </label>
                     </>
                   )}
@@ -752,13 +761,13 @@ export function ModelEditor({
                         disabled={editing?.protected || !editable}
                         onCheckedChange={setMultiple}
                       />
-                      Allow several files
+                      {t("back_office.several_files")}
                     </label>
                   )}
                   <label>
-                    Visibility
+                    {t("back_office.visibility")}
                     <DirectorySelect
-                      label="Field visibility"
+                      label={t("back_office.field_visibility")}
                       value={visibility}
                       disabled={editing?.protected || !editable}
                       onChange={(value) => {
@@ -769,9 +778,9 @@ export function ModelEditor({
                         if (parsed.success) setVisibility(parsed.data);
                       }}
                       options={[
-                        { value: "normal", label: "Directory members" },
-                        { value: "private", label: "Record owner only" },
-                        { value: "finance", label: "Billing members only" },
+                        { value: "normal", label: t("back_office.directory_members") },
+                        { value: "private", label: t("back_office.record_owner") },
+                        { value: "finance", label: t("back_office.billing_members") },
                       ]}
                     />
                   </label>
@@ -782,14 +791,14 @@ export function ModelEditor({
                       disabled={editing?.protected || !editable}
                       onCheckedChange={setRequired}
                     />
-                    Required field
+                    {t("back_office.required")}
                   </label>
                 </>
               )}
               {editing?.protected && (
                 <p className="bo-model-notice">
                   <LockKeyhole size={13} />
-                  This field is part of the protected core model.
+                  {t("back_office.protected_field")}
                 </p>
               )}
               {error && (
@@ -811,7 +820,7 @@ export function ModelEditor({
                         ...(object.quickCreateFields ? { quickCreateFields: object.quickCreateFields.filter(id => id !== editing.id) } : {}) })
                     }
                   >
-                    Remove field
+                    {t("back_office.remove_field")}
                   </Button>
                 )}
               </div>
@@ -821,22 +830,24 @@ export function ModelEditor({
       )}
       {review && (
         <DirectoryDialog
-          title="Review model change"
+          title={t("back_office.review_title")}
           onClose={() => setReview(null)}
         >
           <div className="bo-form">
             <p>
-              Existing records keep their IDs and values. Review the affected
-              objects before applying this change.
+              {t("back_office.review_hint")}
             </p>
-            {review.preview.changes.map((change) => (
-              <div key={change.object}>
-                <strong>{change.object}</strong>
-                <p className="bo-muted">
-                  {change.action} · {change.records} existing records
-                </p>
-              </div>
-            ))}
+            {review.preview.changes.map((change) => {
+              const changedObject = review.model.objects.find(object => object.plural === change.object);
+              return (
+                <div key={change.object}>
+                  <strong>{changedObject ? displayBackOfficeObject(changedObject).plural : change.object}</strong>
+                  <p className="bo-muted">
+                    {changeLabel(change.action)} · {t("back_office.existing_count", { count: change.records })}
+                  </p>
+                </div>
+              );
+            })}
             {error && (
               <p className="bo-error" role="alert">
                 {error}
@@ -844,7 +855,7 @@ export function ModelEditor({
             )}
             <div className="bo-modal-footer">
               <Button size="sm" onClick={() => setReview(null)}>
-                Cancel
+                {t("back_office.files.cancel")}
               </Button>
               <Button
                 size="sm"
@@ -853,7 +864,7 @@ export function ModelEditor({
                 disabled={saving}
                 onClick={() => void commit(review.model)}
               >
-                Apply change
+                {t("back_office.apply_change")}
               </Button>
             </div>
           </div>

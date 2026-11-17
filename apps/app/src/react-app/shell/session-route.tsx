@@ -1769,18 +1769,7 @@ export function SessionRoute() {
       onSelectAgent: (agent: string | null) => setSelectedAgent(agent),
       listCommands: listSlashCommands,
       recentFiles: [],
-      searchFiles: async (query: string) => {
-        const trimmed = query.trim();
-        if (!trimmed) return [];
-        const result = unwrap(
-          await opencodeClient.file.find({
-            query: trimmed,
-            limit: 50,
-            location: selectedWorkspaceRoot ? {directory:selectedWorkspaceRoot}:undefined,
-          }),
-        );
-        return result.data.map(file=>file.path);
-      },
+      searchFiles: (query: string) => client.searchWorkspaceFilenames(selectedWorkspaceId, query),
       isRemoteWorkspace: false,
       isSandboxWorkspace: false,
       onRevertToMessage: async (messageId: string, sessionId: string) => {

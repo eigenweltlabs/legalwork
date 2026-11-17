@@ -5,7 +5,7 @@ import {
   connectorConnectionSchema, connectorDefinitions, connectorTokenSchema, type ConnectorConnection,
 } from "./schema.js";
 import { ApiError } from "../errors.js";
-import { eigenweltPlatformUrl } from "../eigenwelt-auth.js";
+import { eigenweltConnectionPlatformUrl } from "../eigenwelt-endpoints.js";
 import { readEigenweltConnection } from "../eigenwelt-connection-store.js";
 import { ensureFreshPlatformToken } from "../eigenwelt-refresh.js";
 import type { ServerConfig } from "../types.js";
@@ -23,15 +23,16 @@ const statusSchema = z.object({ connection: connectorConnectionSchema });
 const sessionSchema = z.object({ sessionToken: z.string().min(1), integrationId: z.string().min(1), expiresAt: z.number().finite() });
 const catalogSchema = z.object({ configured: z.boolean(), providers: z.array(z.object({ id: z.string() })) });
 
-function ownerKey(account: { orgId: string; userId: string }) {
-  return JSON.stringify([eigenweltPlatformUrl(), account.orgId, account.userId]);
+function ownerKey(account: { orgId: string; userId: string }, platformURL: string) {
+  return JSON.stringify([platformURL, account.orgId, account.userId]);
 }
 
 async function brokerIdentity(config: ServerConfig) {
-  const token = await ensureFreshPlatformToken(config);
+  await ensureFreshPlatformToken(config);
   const connection = await readEigenweltConnection(config);
-  if (!token || !connection.account) throw new ApiError(403, "connector_signin_required", "Sign in with Eigenwelt to connect an account.");
-  return { token, owner: ownerKey(connection.account) };
+  if (!connection.platformToken || !connection.account) throw new ApiError(403, "connector_signin_required", "Sign in with Eigenwelt to connect an account.");
+  const platformURL = eigenweltConnectionPlatformUrl(connection);
+  return { token: connection.platformToken, platformURL, owner: ownerKey(connection.account, platformURL) };
 }
 
 async function brokerRequest(config: ServerConfig, method: string, path: string, body?: unknown, expectedOwner?: string): Promise<unknown> {
@@ -39,7 +40,7 @@ async function brokerRequest(config: ServerConfig, method: string, path: string,
   if (expectedOwner && identity.owner !== expectedOwner) throw new ApiError(409, "connector_account_changed", "Your Eigenwelt account changed. Start again.");
   const request = async (token: string) => {
     try {
-      return await fetch(`${eigenweltPlatformUrl()}/api/connectors${path}`, {
+      return await fetch(`${identity.platformURL}/api/connectors${path}`, {
         method, redirect: "error", signal: AbortSignal.timeout(35_000),
         headers: { Authorization: `Bearer ${token}`, Accept: "application/json", ...(body === undefined ? {} : { "Content-Type": "application/json" }) },
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
@@ -120,7 +121,7 @@ export async function listConnectorConnections(config: ServerConfig, id: string,
   const platform = await readEigenweltConnection(config);
   const account = platform.account;
   if (!account || (!platform.platformToken && !platform.refreshToken)) return local;
-  const owner = ownerKey(account);
+  const owner = ownerKey(account, eigenweltConnectionPlatformUrl(platform));
   const scope = connectorCredentialScope(config), generation = connectorCredentials.generation(scope);
   const provider = connectionProvider(id);
   const savedState = await readConnectorState(config, owner, provider);
@@ -128,8 +129,8 @@ export async function listConnectorConnections(config: ServerConfig, id: string,
   if (connections.some((connection) => !connection.needsReconnect)) {
     const refreshed = await Promise.all(connections.map((connection) => refreshConnection(config, owner, id, connection, forceRefresh)));
     if (connectorCredentials.generation(scope) !== generation) {
-      const current = (await readEigenweltConnection(config)).account;
-      return [...(current && ownerKey(current) === owner ? await readConnectorConnections(config, owner, provider) : []), ...await localOAuthConnections(config, id)];
+      const current = await readEigenweltConnection(config);
+      return [...(current.account && ownerKey(current.account, eigenweltConnectionPlatformUrl(current)) === owner ? await readConnectorConnections(config, owner, provider) : []), ...await localOAuthConnections(config, id)];
     }
     connections = refreshed.filter((connection) => connection !== null);
     if (JSON.stringify(connections) === JSON.stringify(savedState.connections) ||
@@ -145,7 +146,7 @@ export async function savedConnectorConnections(config: ServerConfig, id: string
   const local = await localOAuthConnections(config, id);
   const platform = await readEigenweltConnection(config);
   if (!platform.account || (!platform.platformToken && !platform.refreshToken)) return local;
-  const managed = await readConnectorConnections(config, ownerKey(platform.account), connectionProvider(id));
+  const managed = await readConnectorConnections(config, ownerKey(platform.account, eigenweltConnectionPlatformUrl(platform)), connectionProvider(id));
   return [...managed.map((connection) => connectorConnectionSchema.parse(connection)), ...local];
 }
 /** Only the explicit owner-only team-promotion route may export this capability
@@ -227,7 +228,7 @@ export async function connectorAccessToken(config: ServerConfig, id: string, con
   const session = await readEigenweltConnection(config);
   const account = session.account;
   if (!account) throw new ApiError(403, "connector_signin_required", "Sign in with Eigenwelt to connect an account.");
-  const owner = ownerKey(account);
+  const owner = ownerKey(account, eigenweltConnectionPlatformUrl(session));
   const saved = await readConnectorConnections(config, owner, connectionProvider(id));
   const connection = saved.find((connection) => connection.id === connectionId && !connection.needsReconnect);
   if (!connection) throw new ApiError(409, "connector_not_connected", "Connect this account in Integrations before using it.");
@@ -237,7 +238,7 @@ export async function connectorAccessToken(config: ServerConfig, id: string, con
     const credential = parse(connectorTokenSchema, await brokerRequest(config, "POST",
       `/${encodeURIComponent(id)}/connection/token`, { connectionId: connection.nangoConnectionId, forceRefresh }, owner));
     const current = await readEigenweltConnection(config);
-    if (!current.account || ownerKey(current.account) !== owner)
+    if (!current.account || ownerKey(current.account, eigenweltConnectionPlatformUrl(current)) !== owner)
       throw new ApiError(409, "connector_account_changed", "This account changed while credentials were being retrieved.");
     await requireConnectorActivated(config, id, connectionId);
     const latest = await readConnectorConnections(config, owner, connectionProvider(id));
@@ -343,7 +344,7 @@ export function createConnectorFlows(config: ServerConfig, authorize = createNan
         const managed = flows.get(flowId);
         if (managed) {
           const platform = await readEigenweltConnection(config);
-          if (!platform.account || ownerKey(platform.account) !== managed.owner) throw new ApiError(403, "connector_flow_forbidden", "This connection belongs to another Eigenwelt account.");
+          if (!platform.account || ownerKey(platform.account, eigenweltConnectionPlatformUrl(platform)) !== managed.owner) throw new ApiError(403, "connector_flow_forbidden", "This connection belongs to another Eigenwelt account.");
         }
         if (Date.now() < admission.expiresAt) requireConnectorConnectSlot(await savedConnectorConnections(config, admission.id), admission.connectionId, admission.method);
         const result = await implementation.status(flowId);

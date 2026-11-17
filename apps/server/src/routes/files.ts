@@ -1,5 +1,8 @@
 import { beginDocumentCapture } from "../time-capture/routes.js";
 import { resolveWorkspaceFile } from "../project-storage-paths.js";
+import { storageFilenameSearchSchema } from "../file-storage/schema.js";
+import { searchFilenames } from "../file-storage/filename-search.js";
+import { within } from "../reviews/storage.js";
 import { workspaceContentPath, workspaceFileRoot } from "../project-storage.js";
 import { projectFileLinkSchema, projectFileSourceSchema, projectFilePath } from "../project-file-schema.js";
 import { workspaceViewFiles } from "../views/repository.js";
@@ -14,6 +17,8 @@ import { recordAudit } from "../audit.js";
 import { keepWorkspaceCopy } from "../file-storage/working-copy.js";
 import { providerError, storagePath } from "../file-storage/common.js";
 import { ApiError } from "../errors.js";
+import { receiveRequestFile } from "../file-upload.js";
+import { PDF_MAX_BYTES } from "../pdf-read-schema.js";
 import { canonicalFilePath, withFileWriteLock, withFileWriteLocks } from "../file-write-lock.js";
 import { FileSessionStore } from "../file-sessions.js";
 import type { ApprovalRequest, ServerConfig, TokenScope, WorkspaceInfo } from "../types.js";
@@ -1207,6 +1212,25 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
     });
   });
 
+  addRoute(routes, "POST", "/workspace/:id/files/filename-search", "client", async (ctx) => {
+    const workspace = await resolveWorkspace(config, ctx.params.id);
+    const input = storageFilenameSearchSchema.safeParse(await readJsonBody(ctx.request));
+    if (!input.success) throw new ApiError(400, "invalid_file_search", "Enter a filename or path to search for.");
+    const root = await canonicalFilePath(workspaceContentPath(workspace));
+    return jsonResponse(await searchFilenames({
+      async list(path) {
+        const directory = await canonicalFilePath(resolve(root, path));
+        if (!within(root, directory) || path.split("/").some(part => part.startsWith(".")))
+          throw new ApiError(403, "file_access_denied", "Choose a folder inside the project's documents.");
+        const entries = await readdir(directory, { withFileTypes: true });
+        return { entries: entries.filter(entry => !entry.name.startsWith(".") && !entry.isSymbolicLink() && (entry.isFile() || entry.isDirectory()))
+          .sort((a, b) => fileNameCollator.compare(a.name, b.name))
+          .map(entry => ({ name: entry.name, path: path ? `${path}/${entry.name}` : entry.name,
+            kind: entry.isDirectory() ? "folder" : "file", size: null, modifiedAt: null })) };
+      },
+    }, input.data, root, ctx.request.signal));
+  });
+
   addRoute(routes, "GET", "/workspace/:id/files/list", "client", async (ctx) => {
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const requested = (ctx.url.searchParams.get("path") ?? "").trim();
@@ -1315,15 +1339,21 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");
     const workspace = await resolveWorkspace(config, ctx.params.id);
-    const body = await readJsonBody(ctx.request);
+    const binary = ctx.request.headers.get("content-type")?.split(";")[0] === "application/octet-stream";
+    const body = binary ? {
+      path: ctx.url.searchParams.get("path"),
+      baseUpdatedAt: ctx.url.searchParams.has("baseUpdatedAt") ? Number(ctx.url.searchParams.get("baseUpdatedAt")) : undefined,
+      force: ctx.url.searchParams.get("force") === "true", createOnly: ctx.url.searchParams.get("createOnly") === "true",
+      dataBase64: undefined,
+    } : await readJsonBody(ctx.request);
     const requestedPath = String(body.path ?? "");
     const relativePath = normalizeProjectFileReference(workspace, requestedPath, { allowSubdirs: true });
-    if (typeof body.dataBase64 !== "string") {
+    if (!binary && typeof body.dataBase64 !== "string") {
       throw new ApiError(400, "invalid_payload", "dataBase64 must be a string");
     }
-    let bytes: Buffer;
+    let bytes: Buffer | undefined;
     try {
-      bytes = Buffer.from(body.dataBase64, "base64");
+      if (typeof body.dataBase64 === "string") bytes = Buffer.from(body.dataBase64, "base64");
     } catch {
       throw new ApiError(400, "invalid_payload", "dataBase64 is invalid");
     }
@@ -1353,8 +1383,11 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
 
       await ensureDir(dirname(absPath));
       const tmp = `${absPath}.tmp-${shortId()}`;
-      await writeFile(tmp, bytes);
-      await rename(tmp, absPath);
+      try {
+        if (binary) await receiveRequestFile(ctx.request, tmp, PDF_MAX_BYTES);
+        else if (bytes) await writeFile(tmp, bytes);
+        await rename(tmp, absPath);
+      } finally { await rm(tmp, { force: true }); }
       const after = await stat(absPath);
       const revision = fileRevision(after);
       recordWorkspaceFileEvent(workspace.id, { type: "write", path: relativePath, revision });
@@ -1368,7 +1401,7 @@ export function registerFileRoutes(options: RegisterFileRoutesOptions): void {
         timestamp: Date.now(),
       });
       await captureDocument?.(!before);
-      return jsonResponse({ ok: true, path: relativePath, bytes: bytes.byteLength, updatedAt: after.mtimeMs, revision });
+      return jsonResponse({ ok: true, path: relativePath, bytes: after.size, updatedAt: after.mtimeMs, revision });
     });
   });
 

@@ -29,7 +29,7 @@ describe("Home file references", () => {
     await submitHomeMessage({
       workspaceId: "project", text: `Review ${homeAttachmentToken(attachment)} carefully.`, files: [file], attachments: [attachment],
       pending: { sessionId: null, uploads: new Map() },
-      client: client({ writeWorkspaceBinaryFile: async (_workspace, payload) => ({ ok: true, path: payload.path, bytes: payload.data.byteLength, updatedAt: 0 }) }),
+      client: client({ writeWorkspaceBinaryFile: async (_workspace, payload) => ({ ok: true, path: payload.path, bytes: "size" in payload.data ? payload.data.size : payload.data.byteLength, updatedAt: 0 }) }),
       createSession: async () => ({ id: "session" }),
       sendPrompt: async (_session, prompt, context) => {
         expect(prompt).toStartWith("Review [Local.pdf](.legalwork/attachments/");
@@ -63,7 +63,7 @@ describe("Home file references", () => {
       },
       writeWorkspaceBinaryFile: async (workspaceId, payload) => {
         expect(workspaceId).toBe("new-project");
-        expect(payload.data).toEqual(bytes);
+        expect("arrayBuffer" in payload.data ? await payload.data.arrayBuffer() : payload.data).toEqual(bytes);
         return { ok: true, path: payload.path, bytes: bytes.byteLength, updatedAt: 0 };
       },
     }), "new-project", workspaceFile);

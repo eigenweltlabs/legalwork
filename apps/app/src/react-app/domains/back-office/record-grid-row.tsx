@@ -49,7 +49,7 @@ export const RecordGridRow = memo(function RecordGridRow({
       style={{ gridTemplateColumns: template, transform: top === undefined ? undefined : `translateY(${top}px)` }}
     >
       <div className="bo-check-cell">
-        <Checkbox size="sm" disabled={record.revision === 0} aria-label={`Select ${record.values.name}`} checked={selected}
+        <Checkbox size="sm" disabled={record.revision === 0} aria-label={t("back_office.select_record", { name: String(record.values.name) })} checked={selected}
           onCheckedChange={checked => onSelect(record.id, checked)} />
       </div>
       {fields.map((field, column) => {

@@ -2,12 +2,13 @@ import { useContext, useEffect, useRef, useState } from "react";
 import { ArrowLeft, ChevronDown, Plus } from "lucide-react";
 import { Button, Input } from "twenty-ui/primitives/input";
 import { Popover } from "twenty-ui/primitives/surfaces";
-import { z, BackOfficeRecordSchema, validateBackOfficeValues, type BackOfficeObject, type BackOfficeRecord, type BackOfficeValue } from "@legalwork/types/back-office";
+import { z, BackOfficeRecordSchema, validateBackOfficeValues, type BackOfficeField, type BackOfficeObject, type BackOfficeRecord, type BackOfficeValue } from "@legalwork/types/back-office";
 import type { ProjectReferenceFilters } from "@legalwork/types/workspace";
 import { useQuery } from "@tanstack/react-query";
 import { t } from "@/i18n";
 import { isMacPlatform } from "@/app/utils";
 import { CellEditor } from "./cell-editor";
+import { backOfficeOptionLabel } from "./labels";
 import { FieldIcon } from "./record-values";
 import { ObjectIcon } from "./object-icon";
 import { RecordFilesProvider } from "./record-files";
@@ -18,12 +19,12 @@ import { RecordCreateRelation } from "./record-create-relation";
 
 function focusName(input: HTMLInputElement | null) { input?.focus({ preventScroll: true }); }
 
-function displayValue(value: BackOfficeValue | undefined): string {
+function displayValue(value: BackOfficeValue | undefined, field: BackOfficeField): string {
   if (value === undefined || value === null || value === "") return t("projects.empty_value");
   if (Array.isArray(value)) return value.map(item => typeof item === "string" ? item : item.name).join(", ");
   if (typeof value === "object") return `${value.amountMinor / 100} ${value.currency}`;
   if (typeof value === "boolean") return t(value ? "projects.reference.filter_true" : "projects.reference.filter_false");
-  return String(value);
+  return backOfficeOptionLabel(field, String(value));
 }
 
 export function RecordCreateForm({ object, name, filters, persistenceNotice, onCancel, onCreated }: {
@@ -86,7 +87,7 @@ export function RecordCreateForm({ object, name, filters, persistenceNotice, onC
           : field.type === "text" || field.type === "email" ? <Input size="sm" aria-label={field.label} value={String(draft.values[field.id] ?? "")} disabled={busy} onChange={event => values({ [field.id]: event.target.value })} onKeyDown={event => { if (event.key === "Enter" && !event.metaKey && !event.ctrlKey && !event.nativeEvent.isComposing) event.preventDefault(); }} />
           : <Popover.Root open={edit === field.id} onOpenChange={open => setEdit(open ? field.id : null)}>
           <Popover.Trigger render={<Button type="button" size="sm" variant="ghost" disabled={busy} aria-label={t("projects.edit_value", { name: field.label })} endIcon={<ChevronDown size={12} />} />}>
-            <span className="bo-create-value">{displayValue(draft.values[field.id])}</span>
+            <span className="bo-create-value">{displayValue(draft.values[field.id], field)}</span>
           </Popover.Trigger>
           <Popover.Portal><Popover.Positioner align="start" sideOffset={4}><DirectoryEditorPopup style={{ width: field.type === "date" ? "max-content" : 260 }}>
             <CellEditor key={draft.id + field.id} record={draft} field={editorField} records={creation.state.records} value={draft.values[field.id]} onCancel={() => setEdit(null)} onSave={async value => values({ [field.id]: value })} />

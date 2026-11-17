@@ -61,9 +61,9 @@ test("cloud project attachments keep the checked-out filename while storage call
   const saved = await access.readSaved({ ...source, connectionId: "connector:google-drive:account", path: remotePath, name: "Rechnung (Signatur).pdf" });
   expect(saved.filename).toBe("Rechnung (Signatur).pdf");
   const mention = await uploadWorkspaceAttachment({ writeWorkspaceBinaryFile: async (_workspace, input) => {
-    expect(new Uint8Array(input.data)).toEqual(bytes);
+    expect(new Uint8Array("arrayBuffer" in input.data ? await input.data.arrayBuffer() : input.data)).toEqual(bytes);
     expect(input.path).not.toContain("~lw~"); expect(input.path).not.toContain("_lw_");
-    return { ok: true, path: input.path, bytes: input.data.byteLength, updatedAt: 1 };
+    return { ok: true, path: input.path, bytes: "size" in input.data ? input.data.size : input.data.byteLength, updatedAt: 1 };
   } }, "b", new File([saved.data], saved.filename, { type: saved.contentType }));
   expect(parseWorkspaceAttachmentMention(mention)?.name).toBe("Rechnung (Signatur).pdf");
   expect(workspaceAttachmentDisplayText(mention)).toStartWith("[Rechnung (Signatur).pdf](");

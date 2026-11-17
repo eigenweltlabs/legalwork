@@ -1,3 +1,6 @@
+import { t } from "@/i18n";
+import { useLocale } from "@/i18n/use-locale";
+import { backOfficeOptionLabel } from "./labels";
 import { memo } from "react";
 import { FileValue } from "./record-files";
 import {
@@ -101,9 +104,10 @@ export function ValueDisplay({
 }
 
 const FieldValue = memo(function FieldValue({ field, value }: { field: BackOfficeField; value: NonNullable<BackOfficeValue> }) {
+  const locale = useLocale();
   if (field.type === "file") return <FileValue value={value} />;
   if (field.type === "select")
-    return <Tag color={selectColor(String(value))}>{String(value)}</Tag>;
+    return <Tag color={selectColor(String(value))}>{backOfficeOptionLabel(field, String(value))}</Tag>;
   if (
     field.type === "currency" &&
     typeof value === "object" &&
@@ -111,7 +115,7 @@ const FieldValue = memo(function FieldValue({ field, value }: { field: BackOffic
   )
     return (
       <span className="bo-number">
-        {new Intl.NumberFormat(undefined, {
+        {new Intl.NumberFormat(locale, {
           style: "currency",
           currency: value.currency,
         }).format(value.amountMinor / 100)}
@@ -120,7 +124,7 @@ const FieldValue = memo(function FieldValue({ field, value }: { field: BackOffic
   if ((field.type === "date" || (field.type === "datetime" && typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value))) && typeof value === "string")
     return (
       <span>
-        {new Date(value + "T12:00:00").toLocaleDateString(undefined, {
+        {new Date(value + "T12:00:00").toLocaleDateString(locale, {
           day: "numeric",
           month: "short",
           year: "numeric",
@@ -128,9 +132,9 @@ const FieldValue = memo(function FieldValue({ field, value }: { field: BackOffic
       </span>
     );
   if (field.type === "datetime" && typeof value === "string")
-    return <span>{new Date(value).toLocaleString()}</span>;
+    return <span>{new Date(value).toLocaleString(locale)}</span>;
   if (field.type === "boolean")
-    return value ? <Check size={14} /> : <span className="bo-muted">No</span>;
+    return value ? <Check size={14} /> : <span className="bo-muted">{t("projects.reference.filter_false")}</span>;
   if (Array.isArray(value))
     return (
       <div className="bo-relation-values">

@@ -16,3 +16,5 @@ export { automaticAssistantBrowserModel, hasAssistantSubscription, AssistantReso
 
 export { legalResearchProviders, legalResearchCountries, researchDatabaseSetupSchema } from "@legalwork/types/legal-research";
 export { researchLawAreas, researchJurisdictionLabel } from "@legalwork/types/legal-research-wiki";
+export { EIGENWELT_BOOTSTRAP_PLATFORM_URL, EIGENWELT_DEPLOYMENTS, EIGENWELT_LEGACY_GATEWAY_URL } from "@legalwork/types/eigenwelt-deployment";
+export type { EigenweltDeploymentRegion } from "@legalwork/types/eigenwelt-deployment";

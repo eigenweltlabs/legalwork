@@ -427,7 +427,7 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
               ) : (
                 <>
                   <RefreshCw size={18} className="animate-spin" />
-                  {timesheet ? t("timesheets.loading") : "Loading Back Office…"}
+                  {timesheet ? t("timesheets.loading") : t("back_office.loading")}
                 </>
               )}
             </div>
@@ -474,7 +474,7 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
                     onClick={() => void beginCreate()}
                     disabled={!data.permissions.edit}
                   >
-                    Create
+                    {t("welcome.project_create")}
                   </Button>
                   <DirectoryMenu
                     open={more}
@@ -482,7 +482,7 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
                     trigger={
                       <Button
                         size="sm"
-                        aria-label="More actions"
+                        aria-label={t("integrations.more_actions")}
                         startIcon={<MoreHorizontal size={16} />}
                       />
                     }
@@ -491,7 +491,7 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
                       onClick={exportCsv}
                       startIcon={<ArrowDownToLine size={14} />}
                     >
-                      Export CSV
+                      {t("review.export")}
                     </Dropdown.ActionItem>
                     {team && (
                       <Dropdown.ActionItem startIcon={<Cloud size={14} />} onClick={() => {
@@ -506,13 +506,13 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
                       onClick={() => setArchived(!archived)}
                       startIcon={<Archive size={14} />}
                     >
-                      {archived ? "Show active" : "Show archive"}
+                      {archived ? t("back_office.show_active") : t("back_office.show_archive")}
                     </Dropdown.ActionItem>
                     <Dropdown.ActionItem
                       onClick={() => show("data-model")}
                       startIcon={<Database size={14} />}
                     >
-                      Edit data model
+                      {t("back_office.edit_model")}
                     </Dropdown.ActionItem>
                   </DirectoryMenu>
                 </div>
@@ -617,7 +617,7 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
                   <div key={change.id} className="bo-pending-change">
                     <strong>{change.summary}</strong>
                     <p className="bo-muted">
-                      {change.error ?? "Waiting to sync"}
+                      {change.error ?? t("back_office.waiting_sync")}
                     </p>
                     <dl className="bo-conflict-comparison">
                       {change.comparison.map((item) => (
@@ -625,11 +625,10 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
                           <dt>{item.field}</dt>
                           <dd>
                             <span className="bo-muted">
-                              Team:{" "}
-                              {item.current ?? "Unavailable while offline"}
+                              {t("back_office.sync_team_value", { value: item.current ?? t("back_office.offline_value") })}
                             </span>
                             <br />
-                            Your edit: {item.proposed}
+                            {t("back_office.sync_your_value", { value: item.proposed })}
                           </dd>
                         </div>
                       ))}
@@ -651,7 +650,7 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
                             .catch((error) => setError(error.message))
                         }
                       >
-                        Apply my changes
+                        {t("back_office.apply_changes")}
                       </Button>
                     )}
                     {change.error && (
@@ -660,7 +659,7 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
                         size="sm"
                         onClick={() => setDiscardChange(change.id)}
                       >
-                        Discard queued edit
+                        {t("back_office.discard_queued")}
                       </Button>
                     )}
                   </div>
@@ -670,17 +669,16 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
           )}
           {discardChange && (
             <DirectoryDialog
-              title="Discard queued edits?"
+              title={t("back_office.discard_title")}
               onClose={() => setDiscardChange(null)}
             >
               <div className="bo-form">
                 <p>
-                  This removes your queued edits for this record and reloads the
-                  team version.
+                  {t("back_office.discard_hint")}
                 </p>
                 <div className="bo-modal-footer">
                   <Button size="sm" onClick={() => setDiscardChange(null)}>
-                    Cancel
+                    {t("back_office.files.cancel")}
                   </Button>
                   <Button
                     size="sm"
@@ -696,7 +694,7 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
                         .catch((error) => setError(error.message))
                     }
                   >
-                    Discard edits
+                    {t("back_office.discard")}
                   </Button>
                 </div>
               </div>

@@ -5,6 +5,7 @@ import { Popover } from "twenty-ui/primitives/surfaces";
 import { backOfficeFilterError, backOfficeFilterFields, backOfficeFilterOperators, compileBackOfficeFilters, type BackOfficeField, type BackOfficeObject, type BackOfficeRecord, type BackOfficeFilterCondition, type BackOfficeFilterCriteria } from "@legalwork/types/back-office";
 import { currentLocale, t } from "@/i18n";
 import { DirectoryEditorPopup, DirectorySelect } from "./twenty-controls";
+import { backOfficeOptionLabel } from "./labels";
 import { CellEditor } from "./cell-editor";
 
 export function recordFilterOperatorLabel(operator: BackOfficeFilterCondition["operator"], field?: BackOfficeField) {
@@ -16,7 +17,7 @@ export function recordFilterValueLabel(condition: BackOfficeFilterCondition, obj
   return new Intl.ListFormat(currentLocale(), { type: "disjunction" }).format(condition.values.map(value => typeof value === "object"
     ? new Intl.NumberFormat(currentLocale(), { style: "currency", currency: value.currency }).format(value.amountMinor / 100)
     : typeof value === "boolean" ? t(value ? "projects.reference.filter_true" : "projects.reference.filter_false")
-    : field?.type === "relation" ? String(records.find(record => record.id === value && (record.objectId === field.target || field.target === "@directory" && !record.objectId.startsWith("@")))?.values.name ?? t("projects.reference.unavailable")) : String(value)));
+    : field?.type === "relation" ? String(records.find(record => record.id === value && (record.objectId === field.target || field.target === "@directory" && !record.objectId.startsWith("@")))?.values.name ?? t("projects.reference.unavailable")) : field?.type === "select" || field?.type === "multiselect" ? backOfficeOptionLabel(field, String(value)) : String(value)));
 }
 
 export function RecordFilterEditor({ object, records, rows, finance, value, onApply, onCancel }: {

@@ -1,5 +1,6 @@
 import { projectFileSourceSchema, type ProjectFileSource } from "@legalwork/types/project-files";
 import type { LegalworkServerClient } from "../../../../../app/lib/legalwork-server";
+import { attachmentFilename } from "@/app/lib/attachment-filename";
 import { t } from "@/i18n";
 
 const PREFIX = "attachment://workspace?";
@@ -42,10 +43,21 @@ export async function uploadWorkspaceAttachment(
   const filename = file.name.replace(/[^a-zA-Z0-9._-]/g, "_") || "file";
   const result = await client.writeWorkspaceBinaryFile(workspaceId, {
     path: `.legalwork/attachments/${crypto.randomUUID()}/${filename}`,
-    data: await file.arrayBuffer(),
+    data: file,
   });
   if (!result.ok || !result.path) throw new Error(t("workspace.upload_incomplete"));
   return createWorkspaceAttachmentMention(displayName, result.path);
+}
+
+/** File mentions use the same saved copy and reference as dropped files. */
+export async function uploadWorkspaceFileAttachment(
+  client: Pick<LegalworkServerClient, "copyWorkspaceFile">,
+  workspaceId: string, path: string,
+) {
+  const name = attachmentFilename(path), filename = name.replace(/[^a-zA-Z0-9._-]/g, "_") || "file";
+  const saved = await client.copyWorkspaceFile(workspaceId, path, `.legalwork/attachments/${crypto.randomUUID()}/${filename}`);
+  if (!saved.ok || !saved.path) throw new Error(t("workspace.upload_incomplete"));
+  return createWorkspaceAttachmentMention(name, saved.path);
 }
 
 /** Ordinary workspace links already render as clickable file badges. */

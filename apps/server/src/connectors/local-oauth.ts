@@ -1,3 +1,5 @@
+import { readEigenweltConnection } from "../eigenwelt-connection-store.js";
+import { eigenweltConnectionPlatformUrl } from "../eigenwelt-endpoints.js";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { connectorConnectionSchema, connectorOAuthClientInputSchema, connectorOAuthClientSchema, type ConnectorOAuthClientInput } from "./schema.js";
@@ -23,7 +25,7 @@ const sessions = new WeakMap<ServerConfig, StorageOAuth>();
 const activeFlows = new WeakMap<ServerConfig, Map<string, LocalFlow>>();
 function session(config: ServerConfig) {
   let oauth = sessions.get(config);
-  if (!oauth) { oauth = new StorageOAuth(oauthVaultPath(config)); sessions.set(config, oauth); }
+  if (!oauth) { oauth = new StorageOAuth(oauthVaultPath(config), async () => eigenweltConnectionPlatformUrl(await readEigenweltConnection(config))); sessions.set(config, oauth); }
   return oauth;
 }
 const stateKey = (id: string) => JSON.stringify(["connector-oauth-app", connectionProvider(id)]);

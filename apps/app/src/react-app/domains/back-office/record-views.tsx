@@ -23,6 +23,7 @@ import { useLocale } from "@/i18n/use-locale";
 import { FieldIcon, ValueDisplay } from "./record-values";
 import { CellEditor } from "./cell-editor";
 import { DirectorySelect, DirectoryEditorPopup } from "./twenty-controls";
+import { backOfficeOptionLabel } from "./labels";
 import { selectColor } from "./select-colors";
 import {
   calendarDays,
@@ -289,13 +290,13 @@ export function RecordKanban(props: Props & { field: BackOfficeField }) {
             data-bo-drop={
               props.editable ? JSON.stringify(group.value) : undefined
             }
-            aria-label={group.label || t("back_office.no_value")}
+            aria-label={group.label ? backOfficeOptionLabel(field, group.label) : t("back_office.no_value")}
           >
             <header>
               {group.value === null ? (
                 <span className="bo-no-value">{t("back_office.no_value")}</span>
               ) : field.type === "select" ? (
-                <Tag color={selectColor(group.label)}>{group.label}</Tag>
+                <Tag color={selectColor(group.label)}>{backOfficeOptionLabel(field, group.label)}</Tag>
               ) : (
                 <span>{group.label || t("back_office.unavailable")}</span>
               )}

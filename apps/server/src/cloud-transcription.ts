@@ -1,3 +1,4 @@
+import { eigenweltConnectionPlatformUrl } from "./eigenwelt-endpoints.js";
 import { z } from "zod";
 import { ApiError } from "./errors.js";
 import { readEigenweltConnection } from "./eigenwelt-connection-store.js";
@@ -18,10 +19,11 @@ export function defaultMeetingNotesModel(models: EigenweltManifestModel[], regio
 }
 
 async function remoteConfiguration(config: ServerConfig) {
-  const token = await ensureFreshPlatformToken(config);
+  await ensureFreshPlatformToken(config);
   const connection = await readEigenweltConnection(config);
+  const token = connection.platformToken;
   if (!token || !connection.platformURL) return null;
-  const response = await fetch(`${connection.platformURL}/api/desktop/transcription`, {
+  const response = await fetch(`${eigenweltConnectionPlatformUrl(connection)}/api/desktop/transcription`, {
     headers: { Authorization: `Bearer ${token}` }, redirect: "error", signal: AbortSignal.timeout(5000),
   });
   if (!response.ok) { await response.body?.cancel(); return null; }

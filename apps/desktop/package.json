@@ -49,6 +49,7 @@
     "build:browser": "node scripts/build-browser-controller.mjs"
   },
   "dependencies": {
+    "@embedpdf/pdfium": "2.15.1",
     "@aws-sdk/client-s3": "^3.1127.0",
     "@azure/storage-blob": "^12.33.0",
     "@google-cloud/storage": "^8.0.1",
