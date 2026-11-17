@@ -7,7 +7,7 @@ import { Popover } from "../src/components/ui/popover";
 
 const usage: CostUsage = { amounts: [{ currency: "USD", cost: 0.032, knownCost: 0.032, source: "estimate" }], calls: 3, unpricedCalls: 0, pendingCalls: 0,
   tokens: { input: 100, output: 40, reasoning: 10, cache: { read: 900, write: 200 } },
-  models: [{ providerId: "example", modelId: "Sample model", amounts: [{ currency: "USD", cost: 0.032, knownCost: 0.032, source: "estimate" }], calls: 3,
+  models: [{ providerId: "example", modelId: "internal-model-route", modelName: "Sample model", amounts: [{ currency: "USD", cost: 0.032, knownCost: 0.032, source: "estimate" }], calls: 3,
     tokens: { input: 100, output: 40, reasoning: 10, cache: { read: 900, write: 200 } } }],
 };
 describe("cost display", () => {
@@ -25,6 +25,7 @@ describe("cost display", () => {
   test("breakdown shows total input including cache writes, its categories and estimate wording", () => {
     const html = renderToStaticMarkup(React.createElement(Popover, {}, React.createElement(CostBreakdown, { usage, title: "Prompt cost", busy: true })));
     for (const text of ["Sample model", "$0.032", "75%", "Model calls", "Token breakdown", "Total input", "1,200", "Other input", "Reasoning", "Reused from cache", "Saved to cache", "new input stored for later reuse", "output excludes reasoning", "so far", "ESTIMATE", "External service charges are excluded"]) expect(html).toContain(text);
+    expect(html).not.toContain("internal-model-route");
   });
 });
 

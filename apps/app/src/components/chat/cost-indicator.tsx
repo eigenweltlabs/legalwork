@@ -5,6 +5,7 @@ import { Popover, PopoverTrigger, PopoverContent, PopoverTitle, PopoverDescripti
 import { useSessionCosts } from "@/react-app/domains/session/surface/session-costs";
 import { cn } from "@/lib/utils";
 import { currentLocale, t } from "@/i18n";
+import { modelDisplayName } from "@/app/utils/models";
 
 export function formatCost(value: number, currency: CostAmount["currency"], locale = "en") {
   if (value > 0 && value < 0.001) return `<${new Intl.NumberFormat(locale, { style: "currency", currency, minimumFractionDigits: 3, maximumFractionDigits: 3 }).format(0.001)}`;
@@ -53,11 +54,14 @@ export function CostBreakdown({ usage, title, busy = false, background, delegate
       <div><p className="text-[11px] text-muted-foreground">{t("cost.cached_input")}</p><p className="mt-0.5 text-sm font-medium tabular-nums">{cachePercent}%</p></div>
     </div>
     {usage.models.length > 0 && <div className="space-y-3">
-      {[...usage.models].sort((a, b) => b.calls - a.calls || a.modelId.localeCompare(b.modelId)).map(model => <div key={`${model.providerId}/${model.modelId}`} className="flex items-center justify-between gap-4 text-xs">
-        <div className="min-w-0"><p className="truncate font-medium" title={model.modelId}>{model.modelId || t("cost.background")}</p>
-          {model.providerId && <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{model.providerId}</p>}</div>
-        <span className="shrink-0 tabular-nums text-muted-foreground">{costLabel(model, locale)}</span>
-      </div>)}
+      {[...usage.models].sort((a, b) => b.calls - a.calls || (a.modelName ?? a.modelId).localeCompare(b.modelName ?? b.modelId)).map(model => {
+        const name = model.modelId ? modelDisplayName(model.modelId, model.modelName) : t("cost.background");
+        return <div key={`${model.providerId}/${model.modelId}`} className="flex items-center justify-between gap-4 text-xs">
+          <div className="min-w-0"><p className="truncate font-medium" title={name}>{name}</p>
+            {model.providerId && <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{model.providerId}</p>}</div>
+          <span className="shrink-0 tabular-nums text-muted-foreground">{costLabel(model, locale)}</span>
+        </div>;
+      })}
     </div>}
     {(Boolean(delegated?.calls) || Boolean(background && hasCost(background))) && <dl className="space-y-2 border-t border-border/70 pt-3 text-xs">
       {delegated && delegated.calls > 0 && <div className="flex justify-between gap-4"><dt className="text-muted-foreground">{t("cost.delegated")}</dt><dd className="tabular-nums">{costLabel(delegated, locale)}</dd></div>}

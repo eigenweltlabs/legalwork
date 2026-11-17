@@ -46,7 +46,7 @@ describe("session cost accounting", () => {
       if (path.endsWith("/log")) return new Response(`data: ${JSON.stringify({ type: "log.synced", aggregateID: nativeSession.id, seq: 10 })}\n\n`, { headers: { "content-type": "text/event-stream" } });
       if (path.endsWith("/message")) return Response.json({ data: nativeMessages, cursor: {} });
       if (path === "/api/session") return Response.json({ data: [], cursor: {} });
-      if (path === "/api/model") return Response.json({ data: [] });
+      if (path === "/api/model") return Response.json({ data: [{ id: "model", providerID: "test", name: "Catalog display name", cost: [] }] });
       if (path === `/api/session/${nativeSession.id}`) return Response.json({ data: nativeSession });
       throw new Error(`Unexpected native request: ${path}`);
     }, { preconnect: fetch.preconnect }) });
@@ -54,6 +54,8 @@ describe("session cost accounting", () => {
     expect(amount(result.total)).toBe(nativeSession.cost);
     expect(result.total.tokens).toEqual(nativeSession.tokens);
     expect(result.total.calls).toBe(3);
+    expect(result.total.models.find(model => model.providerId === "test")?.modelName).toBe("Catalog display name");
+    for (const prompt of result.prompts) expect(prompt.models[0]?.modelName).toBe("Catalog display name");
     expect(result.prompts.map(prompt => prompt.calls)).toEqual([2, 1]);
     for (const prompt of result.prompts) expect(amount(prompt)).toBeCloseTo(0.03);
     expect(amount(result.background)).toBeCloseTo(0.001);

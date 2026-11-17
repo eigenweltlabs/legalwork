@@ -277,7 +277,12 @@ export async function readSessionCosts(client: OpenCodeClient, workspace: Worksp
     } else ledgers.push(ledger);
     pending.push(...children);
   }
-  return buildSessionCostSummary(sessionId, ledgers);
+  const summary = buildSessionCostSummary(sessionId, ledgers);
+  const names = new Map(catalog?.data.map(model => [modelKey({ providerID: model.providerID, id: model.id }), model.name]));
+  for (const usage of [summary.total, summary.background, summary.delegated, ...summary.prompts]) {
+    for (const model of usage.models) model.modelName = names.get(modelKey({ providerID: model.providerId, id: model.modelId }));
+  }
+  return summary;
 }
 
 // Cache numbers and IDs only. Unchanged long histories need not be downloaded

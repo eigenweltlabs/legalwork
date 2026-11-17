@@ -16,6 +16,7 @@ export type CostAmount = {
 export type CostModel = {
   providerId: string;
   modelId: string;
+  modelName?: string;
   amounts: CostAmount[];
   calls: number;
   tokens: CostTokens;
