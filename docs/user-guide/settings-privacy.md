@@ -113,10 +113,12 @@ Change the display language in **Customization**. Use the appearance selector to
 
 1. Open **Settings > Customization**.
 2. Under **Model**, turn on **Show costs**. This is off by default and is saved on this device.
-3. Open a chat. The top-right amount shows the conversation's estimated model cost. A smaller amount below each response shows the cost of that prompt, including its model calls and linked delegated agents.
-4. Click an amount to see the models, model calls, cached input and **Token breakdown**. While the agent is working, **so far** means completed calls are included; the current call is added when usage is reported.
+3. Open a chat. The top-right amount shows the conversation's estimated model cost. The amount next to the response timestamp, in the same row as copy, branch and undo, shows the cost of that prompt, including its model calls and linked delegated agents.
+4. Click a prompt amount to expand its models, model calls, cached input and **Token breakdown** below the action row. Click it again to collapse it. The conversation amount opens a summary. While the agent is working, **so far** means completed calls are included; the current call is added when usage is reported.
 
 Costs use US dollars and the model prices available to the agent engine. Conversation totals include background work such as titles and context compaction, even when older messages are not on screen. Undoing a message does not refund usage, and a new branch does not charge again for copied history.
+
+Token counts are added across every model call in the prompt. **Uncached input**, **Cache reads** and **Cache writes** are separate buckets; **Output** excludes the separately listed **Reasoning** tokens. A small uncached input count can be normal when most input came from the cache.
 
 **Cost unavailable** means usage or model pricing is missing. A **≥** amount is the known subtotal when some usage cannot be priced. Existing conversations can show costs where the engine retained their usage. These are estimates of model usage: your provider invoice or subscription allowance may differ, and paid external services such as transcription or research are not included. Turning off **Show costs** hides the display; it does not change model usage or anonymous usage-sharing preferences.
 

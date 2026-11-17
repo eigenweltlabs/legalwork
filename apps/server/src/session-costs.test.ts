@@ -30,6 +30,33 @@ const stepEvents: SessionLogOutput[] = [
 ];
 
 describe("session cost accounting", () => {
+  test("native API totals and message usage reconcile when only the log watermark is retained", async () => {
+    const callTokens = { input: 10, output: 20, reasoning: 5, cache: { read: 100, write: 50 } };
+    const nativeSession = session({ id: "ses_native_audit", location: { directory: "/tmp/cost-native-audit" }, cost: 0.061,
+      tokens: { input: 36, output: 61, reasoning: 15, cache: { read: 300, write: 150 } } });
+    const assistant = (id: string, cost: number): SessionMessageInfo => ({ type: "assistant", id,
+      agent: "build", model: { providerID: "test", id: "model" }, content: [], time: { created: 2 }, cost, tokens: callTokens });
+    const nativeMessages: SessionMessageInfo[] = [messages[0]!, assistant("msg_first", 0.01), assistant("msg_second", 0.02),
+      messages[2]!, assistant("msg_third", 0.03)];
+    const client = OpenCode.make({ baseUrl: "http://cost-audit.invalid", fetch: Object.assign(async (request: Parameters<typeof fetch>[0]) => {
+      const path = new URL(typeof request === "string" ? request : request instanceof URL ? request.href : request.url).pathname;
+      if (path.endsWith("/log")) return new Response(`data: ${JSON.stringify({ type: "log.synced", aggregateID: nativeSession.id, seq: 10 })}\n\n`, { headers: { "content-type": "text/event-stream" } });
+      if (path.endsWith("/message")) return Response.json({ data: nativeMessages, cursor: {} });
+      if (path === "/api/session") return Response.json({ data: [], cursor: {} });
+      if (path === "/api/model") return Response.json({ data: [] });
+      if (path === `/api/session/${nativeSession.id}`) return Response.json({ data: nativeSession });
+      throw new Error(`Unexpected native request: ${path}`);
+    }, { preconnect: fetch.preconnect }) });
+    const result = await readSessionCosts(client, { id: "cost-native-audit", name: "Sample", path: "/tmp/cost-native-audit", preset: "starter", workspaceType: "local" }, nativeSession.id);
+    expect(result.total.costUsd).toBe(nativeSession.cost);
+    expect(result.total.tokens).toEqual(nativeSession.tokens);
+    expect(result.total.calls).toBe(3);
+    expect(result.prompts.map(prompt => prompt.calls)).toEqual([2, 1]);
+    for (const prompt of result.prompts) expect(prompt.costUsd).toBeCloseTo(0.03);
+    expect(result.background.costUsd).toBeCloseTo(0.001);
+    expect(result.background.tokens.input).toBe(6);
+  });
+
   test("rejects another project's session before reading its messages, log or models", async () => {
     let requests = 0;
     const client = OpenCode.make({ baseUrl: "http://cost-engine.invalid", fetch: Object.assign(async () => {

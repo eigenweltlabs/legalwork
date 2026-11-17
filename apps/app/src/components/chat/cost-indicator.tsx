@@ -1,4 +1,5 @@
 import { Coins, ChevronDown, RotateCw } from "lucide-react";
+import { useId, useState, type ReactNode } from "react";
 import type { CostUsage } from "@legalwork/types/session-cost";
 import { Popover, PopoverTrigger, PopoverContent, PopoverTitle, PopoverDescription } from "@/components/ui/popover";
 import { useSessionCosts } from "@/react-app/domains/session/surface/session-costs";
@@ -14,9 +15,11 @@ export function costLabel(usage: Pick<CostUsage, "costUsd" | "knownCostUsd">, lo
   return usage.knownCostUsd > 0 ? `≥ ${formatCostUsd(usage.knownCostUsd, locale)}` : t("cost.unavailable");
 }
 
-export function CostBreakdown({ usage, title, busy = false, background, delegated }: {
-  usage: CostUsage; title: string; busy?: boolean; background?: CostUsage; delegated?: CostUsage;
+export function CostBreakdown({ usage, title, busy = false, background, delegated, inline = false }: {
+  usage: CostUsage; title: string; busy?: boolean; background?: CostUsage; delegated?: CostUsage; inline?: boolean;
 }) {
+  const Title = inline ? "h3" : PopoverTitle;
+  const Description = inline ? "p" : PopoverDescription;
   const locale = currentLocale();
   const numbers = new Intl.NumberFormat(locale);
   const input = usage.tokens.input + usage.tokens.cache.read + usage.tokens.cache.write;
@@ -31,7 +34,7 @@ export function CostBreakdown({ usage, title, busy = false, background, delegate
   return <>
     <div className="space-y-2">
       <div className="flex items-center justify-between gap-3">
-        <PopoverTitle className="text-sm font-medium">{title}</PopoverTitle>
+        <Title className="text-sm font-medium">{title}</Title>
         <span className="text-[10px] font-medium tracking-wide text-muted-foreground">{t("cost.estimate_usd")}</span>
       </div>
       <div className="flex items-baseline gap-2">
@@ -54,32 +57,35 @@ export function CostBreakdown({ usage, title, busy = false, background, delegate
       {delegated && delegated.calls > 0 && <div className="flex justify-between gap-4"><dt className="text-muted-foreground">{t("cost.delegated")}</dt><dd className="tabular-nums">{costLabel(delegated, locale)}</dd></div>}
       {background && (background.knownCostUsd > 0 || background.unpricedCalls > 0) && <div className="flex justify-between gap-4"><dt className="text-muted-foreground">{t("cost.background")}</dt><dd className="tabular-nums">{costLabel(background, locale)}</dd></div>}
     </dl>}
-    <details className="border-t border-border/70 pt-3 text-xs">
-      <summary className="cursor-pointer text-muted-foreground transition-colors hover:text-foreground">{t("cost.token_breakdown")}</summary>
+    <details className="group/tokens border-t border-border/70 pt-3 text-xs">
+      <summary className="flex cursor-pointer list-none items-center gap-1.5 rounded-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
+        <ChevronDown className="size-3 -rotate-90 transition-transform group-open/tokens:rotate-0" aria-hidden />
+        {t("cost.token_breakdown")}
+      </summary>
       <dl className="mt-3 space-y-2">{buckets.map(bucket => <div key={bucket.label} className="flex justify-between gap-4"><dt className="text-muted-foreground">{bucket.label}</dt><dd className="tabular-nums">{numbers.format(bucket.value)}</dd></div>)}</dl>
+      <p className="mt-3 text-[11px] leading-relaxed text-muted-foreground">{t("cost.token_help")}</p>
     </details>
-    <PopoverDescription className="border-t border-border/70 pt-3 text-[11px] leading-relaxed">
+    <Description className="border-t border-border/70 pt-3 text-[11px] leading-relaxed text-muted-foreground">
       {usage.costUsd === null ? `${t("cost.partial_help")} ` : ""}{t("cost.estimate_help")}
-    </PopoverDescription>
+    </Description>
   </>;
 }
 
-function CostIndicator({ usage, session = false, busy = false, pending = false, failed = false, refresh, background, delegated }: {
-  usage?: CostUsage; session?: boolean; busy?: boolean; pending?: boolean; failed?: boolean; refresh?: () => void; background?: CostUsage; delegated?: CostUsage;
+function SessionCostPopover({ usage, busy = false, pending = false, failed = false, refresh, background, delegated }: {
+  usage?: CostUsage; busy?: boolean; pending?: boolean; failed?: boolean; refresh?: () => void; background?: CostUsage; delegated?: CostUsage;
 }) {
-  const title = t(session ? "cost.session_title" : "cost.prompt_title");
+  const title = t("cost.session_title");
   const amount = pending ? t("cost.loading") : usage ? costLabel(usage, currentLocale()) : t("cost.unavailable");
   return <Popover>
-    <PopoverTrigger aria-label={`${title}: ${amount}`} className={cn(
-      "inline-flex max-w-full items-center gap-1.5 rounded-md text-[11px] text-muted-foreground transition-colors hover:bg-muted/65 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-      session ? "h-7 border border-border/60 bg-background/90 px-2.5 shadow-xs backdrop-blur-md" : "px-1.5 py-1 -ml-1.5",
-    )}>
+    <PopoverTrigger aria-label={`${title}: ${amount}`} className="inline-flex h-7 max-w-full shrink-0 items-center gap-1.5 rounded-md border border-border/60 bg-background/90 px-2.5 text-[11px] text-muted-foreground shadow-xs backdrop-blur-md transition-colors hover:bg-muted/65 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
       <Coins className="size-3 shrink-0 opacity-65" aria-hidden />
-      <span className="truncate tabular-nums">{session && usage && !pending ? `${t("cost.session")} · ` : ""}{usage?.costUsd !== null && usage && !pending ? "~" : ""}{amount}</span>
+      {usage && !pending && <span className="truncate">{t("cost.session")} ·</span>}
+      <span className="shrink-0 whitespace-nowrap tabular-nums">{usage?.costUsd !== null && usage && !pending ? "~" : ""}{amount}</span>
       {busy && usage && <span className="text-muted-foreground/70">{t("cost.so_far")}</span>}
       <ChevronDown className="size-2.5 shrink-0 opacity-50" aria-hidden />
     </PopoverTrigger>
-    <PopoverContent align={session ? "end" : "start"} sideOffset={8} className="max-h-[min(80dvh,36rem)] w-80 max-w-[calc(100vw-2rem)] gap-4 overflow-y-auto p-4">
+    <PopoverContent align="end" sideOffset={8}
+      className="max-h-[min(28rem,calc(100dvh-2rem))] w-80 max-w-[calc(100vw-2rem)] gap-4 overflow-y-auto overscroll-contain p-4">
       {usage ? <CostBreakdown usage={usage} title={title} busy={busy} background={background} delegated={delegated} /> : <>
         <PopoverTitle className="text-sm font-medium">{title}</PopoverTitle>
         <PopoverDescription className="text-xs leading-relaxed">{t(pending ? "cost.loading" : failed ? "cost.load_failed" : "cost.partial_help")}</PopoverDescription>
@@ -92,13 +98,45 @@ function CostIndicator({ usage, session = false, busy = false, pending = false, 
 export function SessionCostIndicator({ busy }: { busy: boolean }) {
   const costs = useSessionCosts();
   if (!costs) return null;
-  return <div className="absolute right-12 top-2 z-20 max-w-[calc(100%_-_5rem)]"><CostIndicator session busy={busy} usage={costs.summary?.total} background={costs.summary?.background} delegated={costs.summary?.delegated} pending={costs.pending} failed={costs.failed} refresh={costs.refresh} /></div>;
+  return <div className="absolute right-12 top-2 z-20 max-w-[calc(100%_-_5rem)]"><SessionCostPopover busy={busy} usage={costs.summary?.total} background={costs.summary?.background} delegated={costs.summary?.delegated} pending={costs.pending} failed={costs.failed} refresh={costs.refresh} /></div>;
 }
 
-export function PromptCostIndicator({ messageIds, promptId, busy }: { messageIds: string[]; promptId?: string; busy: boolean }) {
+export function CostRow({ children, className, usage, busy, pending, failed, refresh }: {
+  children: ReactNode; className?: string; usage?: CostUsage; busy: boolean; pending: boolean; failed: boolean; refresh: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const detailsId = useId();
+  const title = t("cost.prompt_title");
+  const amount = pending ? t("cost.loading") : usage ? costLabel(usage, currentLocale()) : t("cost.unavailable");
+  return <>
+    <div className={className}>
+      {children}
+      <button type="button" aria-label={`${title}: ${amount}`} aria-expanded={open} aria-controls={detailsId}
+        onClick={() => setOpen(previous => !previous)}
+        className="inline-flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-1.5 text-[11px] text-muted-foreground transition-colors hover:bg-muted/65 hover:text-foreground aria-expanded:bg-muted/65 aria-expanded:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+        <Coins className="size-3 shrink-0 opacity-65" aria-hidden />
+        <span className="shrink-0 tabular-nums">{usage?.costUsd !== null && usage && !pending ? "~" : ""}{amount}</span>
+        <ChevronDown className={cn("size-2.5 shrink-0 opacity-50 transition-transform", open && "rotate-180")} aria-hidden />
+      </button>
+    </div>
+    {open && <section id={detailsId} aria-label={title} className="flex w-full max-w-sm flex-col gap-4 rounded-xl border border-border/70 bg-background p-4">
+      {usage ? <CostBreakdown inline usage={usage} title={title} busy={busy} /> : <>
+        <h3 className="text-sm font-medium">{title}</h3>
+        {!failed && <p className="text-xs leading-relaxed text-muted-foreground">{t(pending ? "cost.loading" : "cost.partial_help")}</p>}
+      </>}
+      {failed && <div className="space-y-2 text-xs text-muted-foreground"><p role="status">{t("cost.load_failed")}</p>
+        <button type="button" onClick={refresh} className="inline-flex items-center gap-1.5 hover:text-foreground"><RotateCw className="size-3" aria-hidden />{t("cost.retry")}</button>
+      </div>}
+    </section>}
+  </>;
+}
+
+export function PromptCostRow({ messageIds, promptId, busy, children, className }: {
+  messageIds: string[]; promptId?: string; busy: boolean; children: ReactNode; className?: string;
+}) {
   const costs = useSessionCosts();
-  if (!costs) return null;
+  if (!costs) return <div className={className}>{children}</div>;
   const prompt = costs.summary?.prompts.find(prompt => prompt.messageId === promptId || prompt.assistantMessageIds.some(id => messageIds.includes(id)));
-  if (!prompt && busy) return null;
-  return <div className="mt-1 w-fit"><CostIndicator usage={prompt} busy={busy} pending={costs.pending} failed={costs.failed} refresh={costs.refresh} /></div>;
+  if (!prompt && busy) return <div className={className}>{children}</div>;
+  return <CostRow className={className} usage={prompt} busy={busy} pending={costs.pending} failed={costs.failed} refresh={costs.refresh}>{children}</CostRow>;
 }

@@ -24,6 +24,6 @@ describe("cost display", () => {
   });
   test("breakdown exposes cache, model calls, all five token buckets and estimate wording", () => {
     const html = renderToStaticMarkup(React.createElement(Popover, {}, React.createElement(CostBreakdown, { usage, title: "Prompt cost", busy: true })));
-    for (const text of ["Sample model", "$0.032", "90%", "Model calls", "Token breakdown", "Reasoning", "Cache reads", "Cache writes", "so far", "ESTIMATE", "subscription allowance"]) expect(html).toContain(text);
+    for (const text of ["Sample model", "$0.032", "90%", "Model calls", "Token breakdown", "Uncached input", "Reasoning", "Cache reads", "Cache writes", "Output excludes reasoning", "so far", "ESTIMATE", "subscription allowance"]) expect(html).toContain(text);
   });
 });
