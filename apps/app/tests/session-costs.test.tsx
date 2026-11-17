@@ -15,7 +15,7 @@ describe("cost display", () => {
     expect(formatCost(0.00002, "USD")).toBe("<$0.01");
     expect(formatCost(0.032, "USD")).toBe("$0.03");
     expect(formatCost(0.00938955, "EUR")).toBe("<€0.01");
-    expect(formatCost(0.00938955, "EUR", "en", true)).toBe("€0.00938955");
+    expect(formatCost(0.00938955, "EUR", "en", true)).toBe("€0.0094");
     expect(formatCost(1.234, "USD")).toBe("$1.23");
     expect(formatCost(0.032, "USD", "de")).toContain("0,03");
   });
@@ -25,8 +25,8 @@ describe("cost display", () => {
   });
   test("cost overview keeps model usage and token categories in one collapsed dropdown", () => {
     const html = renderToStaticMarkup(React.createElement(CostBreakdown, { usage, conversation: usage, title: "This answer", busy: true }));
-    for (const text of ["Estimated AI cost", "This answer", "This conversation", "$0.03", "View usage details", "Sample model", "$0.032", "Model calls", "Input tokens", "1,200", "New input", "300", "Not saved", "Reasoning", "Reused input", "Saved for reuse", "so far", "ESTIMATE"]) expect(html).toContain(text);
-    for (const text of ["new input stored for later reuse", "output excludes reasoning", "External service charges", "without conversion", "Input from cache", "Other input", "Advanced details"]) expect(html).not.toContain(text);
+    for (const text of ["Estimated AI cost", "This answer", "This conversation", "$0.03", "View usage details", "Sample model", "$0.032", "3 calls", "Input tokens", "1,200", "New input", "300", "Reasoning", "Reused input", "so far"]) expect(html).toContain(text);
+    for (const text of ["new input stored for later reuse", "output excludes reasoning", "External service charges", "without conversion", "Input from cache", "Other input", "Advanced details", "Saved for reuse", "Not saved", "ESTIMATE ·"]) expect(html).not.toContain(text);
     expect(html).not.toContain("internal-model-route");
   });
 });
@@ -39,7 +39,8 @@ test("mixed currencies are displayed separately with provenance and tiny EUR nev
   expect(formatCost(0.000008, "EUR")).toBe("<€0.01");
   const html = renderToStaticMarkup(React.createElement(CostBreakdown, { title: "This answer", usage: { ...usage,
     pendingCalls: 1, amounts: [{ currency: "EUR", cost: 0.03, knownCost: 0.03, source: "gateway" }] } }));
-  expect(html).toContain("GATEWAY · EUR");
+  expect(html).toContain("AI cost");
+  expect(html).not.toContain("Estimated AI cost");
   expect(html).toContain("Updating costs");
   expect(html).not.toContain("without conversion");
 });
