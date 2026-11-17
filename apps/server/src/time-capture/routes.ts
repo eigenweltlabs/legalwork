@@ -39,6 +39,7 @@ const savedSchema = z.object({
   documentSaves: z.record(z.iso.date(), z.record(z.string(), captureProposalSchema)).default({}),
   originals: z.record(z.string(), captureProposalSchema).default({}),
   accepted: z.record(z.string(), z.string()).default({}),
+  bookingTargets: z.record(z.string(), z.enum(["workflow", "record"])).default({}),
 });
 type Saved = z.infer<typeof savedSchema>;
 const defaults = (): Saved => ({
@@ -48,6 +49,7 @@ const defaults = (): Saved => ({
   days: {},
   originals: {},
   accepted: {},
+  bookingTargets: {},
   documentSaves: {},
   documentEpoch: 0,
 });
@@ -167,6 +169,7 @@ export async function acceptPrivateProposal<T>(
   key: string,
   hash: string,
   write: () => Promise<T>,
+  target: "workflow" | "record" = "workflow",
 ) {
   if (!loopback(config))
     throw new ApiError(403, "private_workday", "Open the proposal on its local device.");
@@ -184,6 +187,8 @@ export async function acceptPrivateProposal<T>(
       prior = saved.accepted[key];
     if (prior && prior !== hash)
       throw new ApiError(409, "private_workday_changed", "This proposal has already been booked.");
+    if (prior && (saved.bookingTargets[key] ?? "workflow") !== target)
+      throw new ApiError(409, "private_workday_changed", "This proposal was already booked through another entry workflow.");
     const original = saved.originals[hash];
     const candidate =
       original && saved.days[original.date]?.find((item) => item.proposal.key === key)?.proposal;
@@ -207,6 +212,7 @@ export async function acceptPrivateProposal<T>(
     // Retrying the same proposal uses its idempotent request key. Keep the reservation on ambiguous failures.
     if (!prior) {
       saved.accepted[key] = hash;
+      saved.bookingTargets[key] = target;
       await save(path, saved);
     }
     try {
@@ -214,6 +220,7 @@ export async function acceptPrivateProposal<T>(
     } catch (error) {
       if (!prior && error instanceof ApiError && error.status >= 400 && error.status < 500) {
         delete saved.accepted[key];
+        delete saved.bookingTargets[key];
         await save(path, saved);
       }
       throw error;

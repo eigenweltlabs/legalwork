@@ -47,8 +47,8 @@ export function registerTimesheetRoutes(
       await requireBackOfficePrincipal(config, principal);
       return value;
     } catch (error) {
-      if (error instanceof ApiError && (error.status === 404 || error.code === "intake_bad_response"))
-        timeError("Shared timesheets are not available on the connected firm server.", 503);
+      if (error instanceof ApiError && [404, 501].includes(error.status))
+        throw new ApiError(501, "timesheet_service_unavailable", "The connected firm supports Back Office records, but not the timesheet approval service.");
       throw error;
     }
   }
@@ -73,7 +73,17 @@ export function registerTimesheetRoutes(
         user: access.actor.userId, scope: access.scope, principal: access.actor.principalKey ?? "",
       }, consent);
       const execute = async () => {
-        if (access.scope !== "local") {
+        let recordsOnly = false;
+        if (access.scope !== "local" && !command) {
+          try { return await platformState(access, "GET"); }
+          catch (error) {
+            // Only a missing capability selects the existing directory. Never mask
+            // expired credentials, invalid responses, or a service outage as a mode change.
+            if (!(error instanceof ApiError) || error.code !== "timesheet_service_unavailable") throw error;
+            recordsOnly = true;
+          }
+        }
+        if (access.scope !== "local" && !recordsOnly) {
           if (command && requiresTimeAllocations(command)) {
             const current = await platformState(access, "GET");
             if (!current.supportsTimeAllocations)
@@ -109,7 +119,7 @@ export function registerTimesheetRoutes(
         const originals = consent.length ? await readOriginals() : undefined;
         await assertIdentity(ctx, store, access);
         const people = [
-          { id: access.actor.userId, name: "Local user" },
+          { id: access.actor.userId, name: access.scope === "local" ? "Local user" : access.actor.userId },
           ...store.records(access.scope, access.actor, "people").flatMap(({ id, values }) => {
             const { active, name, personType } = values;
             if (
@@ -119,6 +129,13 @@ export function registerTimesheetRoutes(
             return [{ id, name, directoryOnly: true as const }];
           }),
         ];
+        if (recordsOnly) {
+          const state = readTimesheet(store, access.scope, access.actor, people, workspaces);
+          return { ...state, service: "records", canManage: false, canReview: false,
+            supportsBillingComparisons: false, supportsTimeAllocations: false,
+            entries: state.entries.filter(entry => entry.legacy),
+            delegatedEntries: [], adjustments: [], products: [], invoices: [], template: undefined };
+        }
         return command
           ? commandTimesheet(store, access.scope, access.actor, people, command, workspaces, originals)
           : readTimesheet(store, access.scope, access.actor, people, workspaces);

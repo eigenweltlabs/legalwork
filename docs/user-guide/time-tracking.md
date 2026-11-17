@@ -1,5 +1,27 @@
 # Time tracking and billing
 
+## Which features does my firm support?
+
+Open the clock below **Back Office**. If your firm has not enabled the timesheet approval service, **Time entries** opens the existing Back Office table inside Time tracking. You can create and edit the same records you see under **Back Office > More > Time entries**, with the same fields, sharing, history and synchronization. No second copy is created. The normal table saves a valid new record when you choose **Create** or **+** and saves inline edits when you commit the cell; there is no later Submit step that keeps those rows private. **Invoices** opens the existing invoice table for users with billing access. **Billing settings** explains which service is missing and links to **Fee agreements**. Partner approval, work-product tracking, individual meeting allocations and project stopwatch-rounding overrides require the timesheet service. A connection error or expired login is shown as an error; it does not silently select a different storage mode.
+
+In **AI suggestions**, sources, corrections and the stopwatch still work without that service. Choose **Prepare entry** to review a normal Back Office form. Review the proposed description, matter, client, actual minutes and chargeable minutes, then choose **Create and select**. Nothing is saved by opening the form. Missing times and durations stay blank. The existing record model needs a real service start date/time for a positive charge; do not invent one to represent duration-only work. Its fields do not capture activity codes, work-product identity or separate actual billable/non-billable allocations. The original suggestion remains on this device. Once saved, the entry appears in **Time entries** and leaves the suggestion list. Retrying the same save does not create a duplicate.
+
+To store an existing invoice PDF, open **Time tracking > Invoices**, open the invoice, choose **Invoice PDF** and attach the file, then save the field. The file is versioned and linked to this invoice and its matter. Use a file up to 10 MB. The existing Back Office synchronization uploads the file before publishing its record reference. Attaching a PDF does not generate, number, approve or issue the invoice. If there is no **Invoices** tab, you need billing access. The automatic issue-and-attach-PDF flow requires additional server support; it is not implemented by the directory-only mode.
+
+## Where is my time saved, and who can see it?
+
+| Stage | Storage and visibility |
+| --- | --- |
+| Stopwatch, source events, AI suggestions and original proposal versions | Private workday storage on the device running the local LegalWork server. Not sent to the firm by preparing or correcting a proposal. Connected calendars/mail are read from their providers; the optional drafting model runs locally. |
+| An open suggestion form, before Create and select | In the app until saved; opening a proposal does not publish it. |
+| A saved ordinary Back Office entry in a connected firm | Saved in the local sync queue, then sent to the firm automatically. Offline or failed sync means it is pending, not permanently private. Default sharing allows billing members with access to the matter to see even Draft records. The current table has no private-before-submission mode; Draft status does not restrict sharing. The row's owner is the creating account; a timekeeper contact is not an authenticated colleague's confirmation. |
+| A booked entry with the full timesheet approval service | Sent to that service when booked, before submission. The workflow separates the worker's entries from the assigned reviewer's submitted queue. Source originals remain private; sharing a billing comparison is a separate opt-in. |
+| An entry in the local directory | Saved on the LegalWork server serving that directory (on this device for a desktop installation). The generic Back Office first-sync/publishing controls are separate from submitting a timesheet. |
+
+**Draft does not mean local-only.** Storage location, record sharing and approval status are separate. Back Office's existing history records saved revisions; private source storage is not an independently witnessed audit service. The private workday file uses operating-system access permissions, not application-level encryption. People with access to that device account or its backups may be able to read it. A firm administrator's technical server access is separate from what the app exposes to reviewers.
+
+The following sections describe the full timesheet workflow available in the local directory or on a firm server that implements it.
+
 ## Enter, copy and correct time
 
 Choose the clock directly below **Back Office** in the left navigation. Open **My time**, select a work date, then use **Day** or **Week** to change the period. **Yesterday** takes you directly to the previous day. The small figures above the list show worked time, billable and non-billable work, and the chargeable quantity after billing adjustments.

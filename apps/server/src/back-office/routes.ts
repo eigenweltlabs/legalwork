@@ -1,4 +1,4 @@
-import { captureProfile } from "../time-capture/routes.js";
+import { acceptPrivateProposal, captureProfile } from "../time-capture/routes.js";
 import { registerTimesheetRoutes } from "./timesheet-routes.js";
 import { writeNative } from "./native-write.js";
 import { nativeRows } from "./native-rows.js";
@@ -364,13 +364,25 @@ export function registerBackOfficeRoutes(options: {
     },
   );
   route("POST", "/records", async (ctx, store, { scope, actor }) => {
-    const { directoryId, expectedUserId, expectedPrincipalKey, expectedReplicaId, ...body } = await input(ctx);
+    const { directoryId, expectedUserId, expectedPrincipalKey, expectedReplicaId, privateProposal, ...body } = await input(ctx);
     if ((expectedUserId !== undefined && actor.userId !== expectedUserId) ||
         (expectedPrincipalKey !== undefined && actor.principalKey !== expectedPrincipalKey) ||
         (directoryId !== undefined && directoryId !== await directoryIdentity(options.config, scope, store)))
       throw new ApiError(409, "back_office_directory_changed", "These changes could not be saved with the current account.");
     if (expectedReplicaId !== undefined && actor.replicaId !== expectedReplicaId)
       throw new ApiError(409, "back_office_replica_changed", "The directory is updating.");
+    if (privateProposal !== undefined) {
+      if (ctx.actor?.type !== "host" || ctx.agentAccess || actor.agentId)
+        throw new ApiError(403, "private_workday", "Confirm the proposal on its local device.");
+      const proposal = z.strictObject({ key: z.uuid(), digest: z.string().regex(/^[a-f0-9]{64}$/), profileId: z.string() }).parse(privateProposal);
+      const record = z.strictObject({ id: z.literal(proposal.key), create: z.literal(true), revision: z.literal(0),
+        objectId: z.literal("timeEntries"), values: z.record(z.string(), BackOfficeValueSchema) }).parse(body);
+      // Reuse directory persistence, permissions, audit and sync. Only the confirmed
+      // record fields and stable row ID are shared; the original and digest stay private.
+      return acceptPrivateProposal(options.config, { user: actor.userId, scope, principal: actor.principalKey ?? "",
+        profileId: proposal.profileId }, proposal.key, proposal.digest,
+      async () => ({ record: store.saveRecord(scope, actor, record) }), "record");
+    }
     if (body.localSource !== undefined) {
       const source = z.object({ id: z.string().uuid(), objectId: z.string(), fields: z.array(z.string()).min(1).max(16) }).parse(body.localSource);
       return createLocalRelated(store, scope, actor, source, z.object({ id: z.string().uuid(), objectId: z.string(), values: z.record(z.string(), BackOfficeValueSchema) }).parse(body));

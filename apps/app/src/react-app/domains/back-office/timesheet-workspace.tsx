@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { List, Sparkles, ListChecks, Settings2, Timer } from "lucide-react";
@@ -16,7 +16,6 @@ import { captureChargeMinutes, type CaptureProposal } from "@legalwork/types/tim
 import { t } from "@/i18n";
 import {
   isLoopbackLegalworkServerUrl,
-  LegalworkServerError,
   type LegalworkServerClient,
 } from "@/app/lib/legalwork-server";
 import { calendarClientScope } from "../calendar/calendar-cache";
@@ -26,6 +25,7 @@ import { TimesheetLedger } from "./timesheet-ledger";
 import { BillingReview } from "./billing-review";
 import { BillingPreferences } from "./billing-preferences";
 import { TimesheetWorkday } from "./timesheet-workday";
+import { TimesheetRecordDraft } from "./timesheet-record-draft";
 
 type SelectedProposal = {
   key: string;
@@ -38,10 +38,12 @@ export function TimesheetWorkspace({
   client,
   directory,
   page,
+  renderRecords,
 }: {
   client: LegalworkServerClient;
   directory: BackOfficeState;
   page: keyof typeof timeRoutes;
+  renderRecords: (objectId: "timeEntries" | "invoices") => ReactNode;
 }) {
   const [params, setParams] = useSearchParams(),
     cache = useQueryClient();
@@ -98,8 +100,10 @@ export function TimesheetWorkspace({
     refetchInterval: 30000,
   });
   const [proposal, setProposal] = useState<SelectedProposal>();
+  const [recordProposal, setRecordProposal] = useState<CaptureProposal>();
   const [ledgerDirty, setLedgerDirty] = useState(false);
   const state = query.isError ? undefined : query.data;
+  const recordsOnly = state?.service === "records";
   async function send(command: TimesheetCommand) {
     try {
       const next = await request(command);
@@ -114,6 +118,7 @@ export function TimesheetWorkspace({
   }
   const draft = (p: CaptureProposal) => {
     if (!state) return;
+    if (recordsOnly) { setRecordProposal(p); return; }
     const project = state.projects.find((x) => x.id === p.projectId);
     const matter = p.matterId
       ? state.matters.find((x) => x.id === p.matterId)
@@ -146,9 +151,9 @@ export function TimesheetWorkspace({
     });
   };
   const tabs = [
-    { id: "timesheets", label: t("timesheets.mine"), Icon: List },
+    { id: "timesheets", label: t(recordsOnly ? "back_office.timeEntries.plural" : "timesheets.mine"), Icon: List },
     { id: "timesheet-workday", label: t("timesheets.ai_tab"), Icon: Sparkles },
-    { id: "billing-review", label: t("timesheets.review"), Icon: ListChecks },
+    { id: "billing-review", label: t(recordsOnly ? "back_office.invoices.plural" : "timesheets.review"), Icon: ListChecks },
     { id: "billing-settings", label: t("timesheets.settings"), Icon: Settings2 },
   ] as const;
   return (
@@ -160,7 +165,7 @@ export function TimesheetWorkspace({
         </h1>
         <nav aria-label={t("timesheets.workspace_title")}>
           {tabs
-            .filter(({ id }) => id !== "billing-review" || state?.canReview || state?.canManage)
+            .filter(({ id }) => id !== "billing-review" || state?.canReview || state?.canManage || (recordsOnly && directory.permissions.finance))
             .map(({ id, label, Icon }) => (
               <Link
                 key={id}
@@ -173,18 +178,25 @@ export function TimesheetWorkspace({
             ))}
         </nav>
       </header>
+      {recordsOnly && (
+        <details className="time-storage-notice">
+          <summary>{t("timesheets.records_notice")}</summary>
+          <p>{t("timesheets.records_visibility")}</p>
+        </details>
+      )}
+      {state && page === "timesheets" && !recordsOnly && (
+        <p className="time-storage-notice">{t(team ? "timesheets.storage_firm" : "timesheets.storage_host")}</p>
+      )}
       {query.isError && (
         <div className="bo-empty" role="alert">
-          {team && query.error instanceof LegalworkServerError && [404, 501, 502].includes(query.error.status)
-            ? t("timesheets.hosted_unavailable")
-            : query.error.message}{" "}
+          {query.error.message}{" "}
           <button type="button" onClick={() => void query.refetch()}>
             {t("timesheets.retry")}
           </button>
         </div>
       )}
       {!query.isError && !state && <div className="bo-loading">{t("timesheets.loading")}</div>}
-      {state && (page === "timesheets" || ledgerDirty) && (
+      {state && !recordsOnly && (page === "timesheets" || ledgerDirty) && (
         <div className="time-ledger-pane" hidden={page !== "timesheets"}>
           <TimesheetLedger
             onOriginal={
@@ -216,7 +228,21 @@ export function TimesheetWorkspace({
           />
         </div>
       )}
-      {state && page === "billing-review" && (
+      {recordsOnly && page === "timesheets" && (recordProposal && state ?
+        <TimesheetRecordDraft key={recordProposal.key} client={client} directory={directory}
+          state={state} proposal={recordProposal} onClose={() => setRecordProposal(undefined)} />
+        : renderRecords("timeEntries"))}
+      {recordsOnly && page === "billing-review" && directory.permissions.finance && <>
+        <p className="time-storage-notice">{t("timesheets.records_invoices")}</p>
+        {renderRecords("invoices")}
+      </>}
+      {recordsOnly && page === "billing-settings" && (
+        <div className="bo-empty">
+          <p>{t("timesheets.records_settings")}</p>
+          <Link to="/back-office/feeAgreements">{t("back_office.feeAgreements.plural")}</Link>
+        </div>
+      )}
+      {state && !recordsOnly && page === "billing-review" && (
         <BillingReview
           canEdit={directory.permissions.edit}
           initialDate={initialDate}
@@ -225,7 +251,7 @@ export function TimesheetWorkspace({
           onCommand={send}
         />
       )}
-      {state && page === "billing-settings" && (
+      {state && !recordsOnly && page === "billing-settings" && (
         <BillingPreferences
           key={[params.get("project"), params.get("matter"), params.get("client"), params.get("date")].join("/")}
           initialDate={initialDate}

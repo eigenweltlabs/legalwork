@@ -27,16 +27,19 @@ function displayValue(value: BackOfficeValue | undefined, field: BackOfficeField
   return backOfficeOptionLabel(field, String(value));
 }
 
-export function RecordCreateForm({ object, name, filters, persistenceNotice, onCancel, onCreated }: {
+export function RecordCreateForm({ object, name, filters, persistenceNotice, initialValues, initialRecordId, onSave, onCancel, onCreated }: {
   object: BackOfficeObject; name: string; filters?: ProjectReferenceFilters | null;
   persistenceNotice?: string;
+  initialValues?: Record<string, BackOfficeValue>;
+  initialRecordId?: string;
+  onSave?: (record: BackOfficeRecord) => Promise<BackOfficeRecord>;
   onCancel: () => void; onCreated: (record: BackOfficeRecord) => Promise<void>;
 }) {
   const creation = useRecordCreation();
   const localSource = useContext(LocalCreationScope);
   const [draft, setDraft] = useState(() => {
     const now = new Date().toISOString();
-    return BackOfficeRecordSchema.parse({ id: crypto.randomUUID(), objectId: object.id, values: recordCreationValues(object, name, filters), revision: 0, schemaRevision: creation?.state.model.revision ?? 0,
+    return BackOfficeRecordSchema.parse({ id: initialRecordId ?? crypto.randomUUID(), objectId: object.id, values: { ...recordCreationValues(object, name, filters), ...initialValues }, revision: 0, schemaRevision: creation?.state.model.revision ?? 0,
       ownerId: creation?.state.permissions.userId ?? "local", createdAt: now, updatedAt: now, archivedAt: null });
   });
   const [edit, setEdit] = useState<string | null>(null), [more, setMore] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState("");
@@ -55,7 +58,7 @@ export function RecordCreateForm({ object, name, filters, persistenceNotice, onC
       validateBackOfficeValues(object, draft.values);
       saving.current = true;
       setBusy(true);
-      const record = await creation.create(draft, filters, localSource);
+      const record = onSave ? await onSave(draft) : await creation.create(draft, filters, localSource);
       if (mounted.current) await onCreated(record);
     } catch (error) { if (mounted.current) setError(error instanceof Error ? error.message : t("back_office.create.failed")); }
     finally { saving.current = false; if (mounted.current) setBusy(false); }
@@ -66,7 +69,7 @@ export function RecordCreateForm({ object, name, filters, persistenceNotice, onC
   const fields = object.fields.filter(field => field.id !== "name" && (field.visibility !== "finance" || creation.state.permissions.finance));
   const rank = (id: string) => quickFields.includes(id) ? quickFields.indexOf(id) : quickFields.length;
   fields.sort((a, b) => rank(a.id) - rank(b.id));
-  const primary = (field: typeof fields[number]) => field.required || quickFields.includes(field.id) || filters?.conditions.some(condition => condition.fieldId === field.id);
+  const primary = (field: typeof fields[number]) => field.required || quickFields.includes(field.id) || initialValues?.[field.id] !== undefined || filters?.conditions.some(condition => condition.fieldId === field.id);
   const visible = fields.filter(field => more || primary(field));
   return <RecordFilesProvider client={creation.client} records={[...creation.state.records, draft]} projects={projects.data?.projects ?? []}>
     <div className="bo-create-record bo-cell-form" role="form" aria-label={t("back_office.create.title", { name: object.label })} onKeyDown={event => {

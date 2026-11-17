@@ -99,6 +99,7 @@ export function TimesheetWorkday({
     shown =
       data?.proposals.filter(
         (p) =>
+          !directory.records.some(record => record.objectId === "timeEntries" && record.id === p.key) &&
           !state.entries.some(
             (e) =>
               (e.groupId === p.key ||
@@ -115,8 +116,11 @@ export function TimesheetWorkday({
       ["confirmed", "submitted", "approved", "invoiced"].includes(e.status),
   );
   const overlaps = overlappingWorkdayRanges(shown, ownEntries);
+  const recordsOnly = state.service === "records";
   return (
     <section className="bo-workday">
+      <p className="time-storage-notice">{t("timesheets.storage_proposals")}</p>
+      {recordsOnly && <p className="time-storage-notice">{t("timesheets.records_proposals")}</p>}
       <div className="bo-workday-controls">
         <label>
           <CalendarDays size={14} />
@@ -297,7 +301,7 @@ export function TimesheetWorkday({
                       navigate("/time?date=" + p.date);
                     }}
                   >
-                    {t("timesheets.prepare_draft")}
+                    {t(recordsOnly ? "timesheets.prepare_record" : "timesheets.prepare_draft")}
                   </Button>
                 <Button
                   size="sm"

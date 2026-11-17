@@ -72,13 +72,16 @@ const pendingChangesSchema = z.object({
   })),
 });
 
-export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
+export function BackOfficePage({ client, embeddedObject }: {
+  client: LegalworkServerClient;
+  embeddedObject?: "timeEntries" | "invoices";
+}) {
   const locale = useLocale();
   const location = useLocation(),
     navigate = useNavigate(),
     cache = useQueryClient();
-  const timesheet = timePage(location.pathname);
-  const selected = timesheet ?? location.pathname.split("/")[2] ?? "matters";
+  const timesheet = embeddedObject ? undefined : timePage(location.pathname);
+  const selected = embeddedObject ?? timesheet ?? location.pathname.split("/")[2] ?? "matters";
   const native = nativeKind(selected);
   const moreSelected = !timesheet && !primaryObjectIcons.has(selected) && selected !== "data-model";
   const [detailId, setDetailId] = useState<string | null>(
@@ -362,7 +365,7 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
           className={`bo ${detail ? "bo-has-detail" : ""}`}
           style={directoryStyle}
         >
-          {!timesheet && <nav className="bo-tabs" aria-label="Back Office">
+          {!timesheet && !embeddedObject && <nav className="bo-tabs" aria-label="Back Office">
             {Array.from(primaryObjectIcons.keys(), id => (
               <Button
                 key={id}
@@ -433,7 +436,8 @@ export function BackOfficePage({ client }: { client: LegalworkServerClient }) {
             </div>
           )}
           {data && timesheet && <TimesheetWorkspace key={[client.baseUrl,data.scope,data.directoryId,data.captureProfileId,data.permissions.userId,data.permissions.model,data.permissions.principalKey,data.permissions.replicaId,data.permissions.finance,data.permissions.edit].join(":")}
-            client={client} directory={data} page={timesheet}/>}
+            client={client} directory={data} page={timesheet}
+            renderRecords={objectId => <BackOfficePage key={objectId} client={client} embeddedObject={objectId}/>}/>}
           {data && native && <NativeTable key={selected} client={client} state={data} kind={native}/>}
           {data && selected === "data-model" && (
             <ModelEditor

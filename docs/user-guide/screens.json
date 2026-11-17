@@ -41,6 +41,11 @@
   ],
   "panels": [
     {
+      "id": "timesheet-directory-proposal",
+      "guide": "time-tracking.md",
+      "source": "apps/app/src/react-app/domains/back-office/timesheet-record-draft.tsx"
+    },
+    {
       "id": "timesheet-ledger",
       "guide": "time-tracking.md",
       "source": "apps/app/src/react-app/domains/back-office/timesheet-ledger.tsx"

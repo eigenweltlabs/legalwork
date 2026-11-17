@@ -541,6 +541,7 @@ const invoiceSchema = z.object({
 });
 export type TimeInvoice = z.infer<typeof invoiceSchema>;
 export const TimesheetStateSchema = z.object({
+  service: z.enum(["workflow", "records"]).optional(),
   userId: id,
   scope: z.string(),
   template: invoiceTemplateSchema.optional(),

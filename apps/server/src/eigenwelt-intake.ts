@@ -312,6 +312,8 @@ async function intakeFailure(response: Response, path: string): Promise<ApiError
   }
   const { code, message } = errorFrom(text);
   const json = text ? safeParseJson(text) : null;
+  if (response.status === 501 && (path === "/api/back-office/timesheet" || path.startsWith("/api/back-office/timesheet/")))
+    return new ApiError(501, "timesheet_service_unavailable", "The firm has not implemented the timesheet service.");
   // Checked before the status switch: the plan gate is the one 403 the app
   // renders differently (an upsell rather than "you can't do that").
   if (code === "not_entitled") {
