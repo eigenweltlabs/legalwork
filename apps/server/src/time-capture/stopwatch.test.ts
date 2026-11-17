@@ -5,15 +5,41 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   captureStateSchema,
+  captureChargeMinutes,
   stopwatchStateSchema,
   type StopwatchAction,
 } from "@legalwork/types/time-capture";
-import { TimesheetStateSchema } from "@legalwork/types/timesheet";
+import { proposedStopwatchCharge, resolveTimePolicy, TimesheetStateSchema } from "@legalwork/types/timesheet";
 import { BackOfficeRecordSchema } from "../back-office/schema.js";
 import { startServer } from "../server.js";
 import { backOfficeTestConfig } from "../back-office/config.test-support.js";
 import { originalBillingComparison } from "./original.js";
 import { changeStopwatch, emptyStopwatch } from "./stopwatch.js";
+
+test("stopwatch invoices round the exact interval once, retaining its raw timestamps and worked minutes", () => {
+  const policy = resolveTimePolicy([], "", "", "2026-11-17");
+  for (const { seconds, worked, up, nearest } of [
+    { seconds: 601, worked: 10, up: 20, nearest: 10 },
+    { seconds: 899, worked: 15, up: 20, nearest: 10 },
+    { seconds: 900, worked: 15, up: 20, nearest: 20 },
+    { seconds: 10, worked: null, up: 10, nearest: 0 },
+  ]) {
+    const saved: Parameters<typeof changeStopwatch>[0] = { stopwatch: emptyStopwatch(), days: {}, originals: {} };
+    const id = randomUUID(), start = new Date("2026-11-17T10:00:00Z");
+    const end = new Date(start.getTime() + seconds * 1000);
+    changeStopwatch(saved, { type: "start", id, projectId: "p" }, start, "UTC");
+    changeStopwatch(saved, { type: "stop", id }, end, "UTC");
+    const proposal = saved.days["2026-11-17"][0].proposal;
+    const minutes = captureChargeMinutes(proposal);
+    expect(minutes).not.toBeNull();
+    if (minutes === null) throw Error("Missing measured time");
+    expect(proposedStopwatchCharge(minutes, policy)).toBe(up);
+    expect(proposedStopwatchCharge(minutes, { ...policy, stopwatchRoundUp: false })).toBe(nearest);
+    expect(proposal.workedMinutes).toBe(worked);
+    expect(proposal.startAt).toBe(start.toISOString());
+    expect(proposal.endAt).toBe(end.toISOString());
+  }
+});
 
 test("stopwatch uses the start zone through midnight and the autumn clock change", () => {
   const saved: Parameters<typeof changeStopwatch>[0] = {

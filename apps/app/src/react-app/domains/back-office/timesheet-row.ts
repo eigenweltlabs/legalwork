@@ -195,6 +195,7 @@ export function changeAmounts(
   field: AmountField,
   value: string,
   policy: Rounding,
+  chargeFor = (amounts: TimeAmounts) => proposedCharge(Number(amounts.billableWork), policy),
 ): TimeAmounts {
   const { worked, billableWork, nonBillable, billable, charge } = previous;
   const next = { worked, billableWork, nonBillable, billable, charge, [field]: value };
@@ -212,9 +213,9 @@ export function changeAmounts(
   if (!next.billable) next.charge = "0";
   else if (
     !previous.charge ||
-    Number(previous.charge) === proposedCharge(Number(previous.billableWork), policy)
+    Number(previous.charge) === chargeFor(previous)
   ) {
-    next.charge = next.worked ? String(proposedCharge(Number(next.billableWork), policy)) : "";
+    next.charge = next.worked ? String(chargeFor(next)) : "";
   }
   return next;
 }

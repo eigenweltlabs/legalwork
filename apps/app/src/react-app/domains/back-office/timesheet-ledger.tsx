@@ -25,6 +25,7 @@ import {
 import { Button } from "twenty-ui/primitives/input";
 import {
   nonBillableWork,
+  proposedStopwatchCharge,
   requiresTimeAllocations,
   resolveTimePolicy,
   timeActivities,
@@ -34,7 +35,7 @@ import {
   type TimesheetState,
 } from "@legalwork/types/timesheet";
 import { t } from "@/i18n";
-import type { CaptureProposal } from "@legalwork/types/time-capture";
+import { captureChargeMinutes, type CaptureProposal } from "@legalwork/types/time-capture";
 import { useLocale } from "@/i18n/use-locale";
 import { decodeTimeRow, encodeTimeRow, timeRowMime } from "./timesheet-clipboard";
 import {
@@ -63,6 +64,7 @@ export type InitialTimesheetDraft = {
   entry: Partial<TimeDraft>;
   source?: "suggestion";
   proposalDigest?: string;
+  captureSource?: CaptureProposal["source"];
 };
 type OriginalProposal = Pick<CaptureProposal, "date" | "activity" | "narrative" | "workedMinutes" | "digest">;
 
@@ -302,14 +304,25 @@ export function TimesheetLedger({
       matter?.clientId ?? "",
       matter?.matterId ?? "",
       values.date,
-      matter?.projectId,
+      matter?.projectId ?? (!values.matter && provenance ? initialDraft?.entry.projectId : undefined),
     );
+  }
+  const stopwatchDraft = provenance && initialDraft?.captureSource === "stopwatch";
+  function stopwatchCharge(values: RowValues) {
+    if (!Number(values.billableWork)) return 0;
+    const original = initialDraft?.entry;
+    const measured = original?.workedMinutes === Number(values.worked)
+      ? captureChargeMinutes({ source: "stopwatch", workedMinutes: Number(values.worked),
+          startAt: original.startAt ?? null, endAt: original.endAt ?? null })
+      : Number(values.worked);
+    return proposedStopwatchCharge(Math.max(0, (measured ?? 0) - Number(values.nonBillable)), policyFor(values));
   }
   function field(row: string, key: RowColumn, value: string) {
     const update = (current: RowValues) => {
       const next = { ...current, [key]: value };
       if (key === "worked" || key === "billableWork" || key === "nonBillable" || key === "charge") {
-        return { ...current, ...changeAmounts(current, key, value, policyFor(current)) };
+        return { ...current, ...changeAmounts(current, key, value, policyFor(current),
+          row === "new" && stopwatchDraft ? (amounts) => stopwatchCharge({ ...current, ...amounts }) : undefined) };
       }
       if (key === "matter" && current.matter !== value) {
         next.product = "";
@@ -322,9 +335,20 @@ export function TimesheetLedger({
           ? undefined
           : productOptions(state, matter?.matterId).find((p) => p.label === value)?.id;
       }
+      if (row === "new" && stopwatchDraft && (key === "matter" || key === "date") &&
+          (!current.charge || Number(current.charge) === stopwatchCharge(current)))
+        next.charge = next.worked ? String(stopwatchCharge(next)) : "";
       return next;
     };
     if (row === "new") {
+      if (stopwatchDraft && (key === "matter" || key === "date"))
+        setParticipants((items) => items.map((item) => {
+          if (!item.amounts) return item;
+          const previous = { ...draft, ...item.amounts };
+          return Number(previous.charge) === stopwatchCharge(previous)
+            ? { ...item, amounts: { ...item.amounts, charge: String(stopwatchCharge({ ...previous, [key]: value })) } }
+            : item;
+        }));
       setDraft(update);
       setDraftChanged(true);
     } else setEdit((current) => current && { ...current, values: update(current.values) });
@@ -1156,7 +1180,8 @@ export function TimesheetLedger({
                             p.key === item.key
                               ? {
                                   ...p,
-                                  amounts: changeAmounts(p.amounts ?? draft, field, value, policyFor(draft)),
+                                  amounts: changeAmounts(p.amounts ?? draft, field, value, policyFor(draft),
+                                    stopwatchDraft ? (amounts) => stopwatchCharge({ ...draft, ...amounts }) : undefined),
                                 }
                               : p,
                           ),

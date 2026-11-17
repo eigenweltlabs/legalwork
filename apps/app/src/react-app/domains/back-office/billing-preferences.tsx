@@ -269,6 +269,15 @@ function PolicyForm({
                 }
               />
             </Rule>
+            {scope === "project" && (
+              <TimeSwitch
+                label={t("back_office.billing.stopwatch_round_up")}
+                description={t("back_office.billing.stopwatch_round_hint")}
+                disabled={readOnly}
+                checked={policy.stopwatchRoundUp ?? inherited.stopwatchRoundUp}
+                onChange={(value) => update("stopwatchRoundUp", value)}
+              />
+            )}
             <Rule name={t("back_office.billing.maximum")}>
               <Input
                 type="number"

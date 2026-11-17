@@ -51,6 +51,14 @@ export const captureStateSchema = z.object({
   connections: z.array(captureAccountSchema).default([]),
 });
 export type CaptureProposal = z.infer<typeof captureProposalSchema>;
+/** Keep sub-minute stopwatch evidence when proposing invoice units, avoiding double rounding. */
+export function captureChargeMinutes(p: Pick<CaptureProposal, "source" | "workedMinutes" | "startAt" | "endAt">) {
+  if (p.source === "stopwatch" && p.startAt && p.endAt) {
+    const minutes = (Date.parse(p.endAt) - Date.parse(p.startAt)) / 60000;
+    if (Number.isFinite(minutes) && minutes > 0) return minutes;
+  }
+  return p.workedMinutes;
+}
 export type CaptureSettings = z.infer<typeof captureSettingsSchema>;
 export type CaptureState = z.infer<typeof captureStateSchema>;
 

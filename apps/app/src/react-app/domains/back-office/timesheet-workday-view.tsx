@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { Button } from "twenty-ui/primitives/input";
 import type { CalendarOccurrence } from "@legalwork/types/calendar";
-import type { CaptureProposal, WorkdayCorrection } from "@legalwork/types/time-capture";
+import { captureChargeMinutes, type CaptureProposal, type WorkdayCorrection } from "@legalwork/types/time-capture";
 import {
   proposedCharge,
+  proposedStopwatchCharge,
   resolveTimePolicy,
   type TimeEntry,
   type TimesheetState,
@@ -228,12 +229,17 @@ export function WorkdayCorrectionForm({
   }
   const targetMatch = assignment(target);
   const sourceMatch = assignment(matter);
-  function preview(id: string, minutes: number) {
+  const chargeMinutes = captureChargeMinutes({ ...p, startAt, endAt, workedMinutes: total });
+  function preview(id: string, minutes: number, measured = minutes) {
     const m = state.matters.find((x) => x.id === id);
     if (!m) return "";
     const project = assignment(id).projectId ?? undefined;
     if (m.clientIds.length !== 1) return t("timesheets.workday.choose_client_preview", { minutes });
     const policy = resolveTimePolicy(state.policies, m.clientIds[0], id, p.date, project);
+    if (p.source === "stopwatch")
+      return t("timesheets.workday.minutes_rounded", {
+        minutes, charge: proposedStopwatchCharge(measured, policy),
+      });
     if (!policy.enforceIncrement || minutes % policy.incrementMinutes === 0)
       return t("timesheets.workday.minutes_exact", { minutes });
     if (policy.rounding !== "choose")
@@ -359,11 +365,12 @@ export function WorkdayCorrectionForm({
           </label>
           {total && +minutes > 0 && +minutes < total && target && target !== matter && (
             <p>
-              {preview(matter, total - Number(minutes))} / {preview(target, Number(minutes))}
+              {preview(matter, total - Number(minutes), (chargeMinutes ?? total) - Number(minutes))} / {preview(target, Number(minutes))}
             </p>
           )}
         </>
       )}
+      {!split && total && p.source === "stopwatch" && <p>{preview(matter, total, chargeMinutes ?? total)}</p>}
       <p>{t("timesheets.workday.dictation")}</p>
       {error && <p role="alert">{error}</p>}
       <div>

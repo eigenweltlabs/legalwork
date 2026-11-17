@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { Window } from "happy-dom";
-import type { TimesheetCommand, TimesheetState, TimeEntry } from "@legalwork/types/timesheet";
+import type { TimesheetCommand, TimesheetState, TimeEntry, TimePolicy } from "@legalwork/types/timesheet";
 
 const window = new Window({ url: "http://localhost" });
 window.document.write("<!doctype html><html><body><div id='root'></div></body></html>");
@@ -15,6 +15,7 @@ Object.entries({
   Element: window.Element,
   Node: window.Node,
   Event: window.Event,
+  PointerEvent: window.PointerEvent,
   MutationObserver: window.MutationObserver,
   ResizeObserver: window.ResizeObserver,
   requestAnimationFrame: (callback: FrameRequestCallback) => setTimeout(() => callback(0), 0),
@@ -620,6 +621,77 @@ try {
   await submitPeriod();
   assert.deepEqual(commands.at(-1), { type: "submit", entries: [{ id: base.id, revision: 6 }] });
   cache.clear();
+  const nearestPolicy = {
+    scope: "project", targetId: "p2", effectiveFrom: "2026-01-01", revision: 1, stopwatchRoundUp: false,
+  } satisfies TimePolicy;
+  const timerState = { ...state, entries: [], policies: [nearestPolicy], projects: [
+    ...state.projects, { id: "p2", name: "Nearest", matterIds: ["matter"] },
+  ] };
+  await act(async () => root.render(
+    <MemoryRouter><BackOfficeTheme><TimesheetLedger key="timer" state={timerState} onCommand={send}
+      initialDraft={{ key: crypto.randomUUID(), source: "suggestion", captureSource: "stopwatch",
+        proposalDigest: "b".repeat(64), entry: { ...base, workedMinutes: 10, billableMinutes: 20,
+          endAt: "2026-11-12T09:10:01Z" } }}
+    /></BackOfficeTheme></MemoryRouter>,
+  ));
+  assert.equal(cell("new", "charge").value, "20");
+  await input(cell("new", "matter"), "Client · M · 26/12 · Nearest");
+  assert.equal(cell("new", "charge").value, "10", "project switch recalculates the stopwatch proposal");
+  await input(cell("new", "matter"), "Client · M · 26/12 · Project");
+  assert.equal(cell("new", "charge").value, "20", "seconds survive the project switch");
+  await key(cell("new", "narrative"), "Enter");
+  const timed = commands.at(-1);
+  assert.ok(timed?.type === "create");
+  assert.equal(timed.entry.workedMinutes, 10);
+  assert.equal(timed.entry.billableMinutes, 20);
+  assert.equal(timed.entry.endAt, "2026-11-12T09:10:01Z");
+  await act(async () => root.render(
+    <MemoryRouter><BackOfficeTheme><TimesheetLedger key="timer-edit" state={timerState} onCommand={send}
+      initialDraft={{ key: crypto.randomUUID(), source: "suggestion", captureSource: "stopwatch",
+        proposalDigest: "b".repeat(64), entry: { ...base, workedMinutes: 13, billableMinutes: 20,
+          endAt: "2026-11-12T09:13:00Z" } }}
+    /></BackOfficeTheme></MemoryRouter>,
+  ));
+  const addTimerPerson = button("Add person");
+  assert.ok(addTimerPerson);
+  await act(async () => addTimerPerson.click());
+  const participantInputs = document.querySelectorAll<HTMLInputElement>(".bo-time-participant input");
+  assert.equal(participantInputs.length, 3);
+  await input(participantInputs[0], "21");
+  assert.equal(participantInputs[2].value, "30");
+  await input(cell("new", "matter"), "Client · M · 26/12 · Nearest");
+  assert.equal(participantInputs[2].value, "20");
+  await input(participantInputs[2], "40");
+  await input(cell("new", "matter"), "Client · M · 26/12 · Project");
+  assert.equal(participantInputs[2].value, "40");
+  await input(cell("new", "billableWork"), "21");
+  assert.equal(cell("new", "charge").value, "30");
+  await input(cell("new", "charge"), "40");
+  await input(cell("new", "matter"), "Client · M · 26/12 · Nearest");
+  await input(cell("new", "billableWork"), "13");
+  assert.equal(cell("new", "charge").value, "40", "explicit charge edits remain intentional");
+  await input(cell("new", "nonBillable"), "4");
+  await input(cell("new", "billableWork"), "0");
+  assert.equal(cell("new", "charge").value, "0", "non-billable work is never rounded into a charge");
+  const { BillingPreferences } = await import("../../src/react-app/domains/back-office/billing-preferences");
+  await act(async () => root.render(
+    <MemoryRouter><BackOfficeTheme><BillingPreferences state={timerState} onCommand={send}
+      initialProjectId="p1" initialDate={base.date}
+    /></BackOfficeTheme></MemoryRouter>,
+  ));
+  const roundSwitch = document.querySelector<HTMLElement>('[role="switch"][aria-label="Round stopwatch time up"]');
+  assert.ok(roundSwitch);
+  assert.equal(roundSwitch.getAttribute("aria-checked"), "true");
+  assert.equal(roundSwitch.dataset.size, "default");
+  await act(async () => roundSwitch.click());
+  const savePolicy = button("Save billing settings");
+  assert.ok(savePolicy);
+  await act(async () => savePolicy.click());
+  const savedPolicy = commands.at(-1);
+  assert.ok(savedPolicy?.type === "policy");
+  assert.equal(savedPolicy.policy.scope, "project");
+  assert.equal(savedPolicy.policy.targetId, "p1");
+  assert.equal(savedPolicy.policy.stopwatchRoundUp, false);
   console.log("Timesheet ledger passed");
 } finally {
   await act(async () => root.unmount());

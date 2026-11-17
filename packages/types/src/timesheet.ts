@@ -88,6 +88,7 @@ export const TimePolicySchema = z.strictObject({
   incrementMinutes: minutes.min(1).optional(),
   enforceIncrement: z.boolean().optional(),
   rounding: z.enum(roundingModes).optional(),
+  stopwatchRoundUp: z.boolean().optional(),
   bindingIncrement: z.boolean().optional(),
   agreementClientId: id.optional(),
   agreementId: id.optional(),
@@ -201,6 +202,7 @@ export function resolveTimePolicy(
     incrementMinutes: 10,
     enforceIncrement: true,
     rounding: "choose" as (typeof roundingModes)[number],
+    stopwatchRoundUp: true,
     maxMinutes: 120,
     activityLimits: {} as Record<string, number>,
     activityLabels: {} as Record<string, string>,
@@ -329,6 +331,15 @@ export function proposedCharge(
         ? Math.floor(scale)
         : Math.ceil(scale);
   return units * policy.incrementMinutes;
+}
+
+/** Stopwatch proposals use the billing increment even when arbitrary invoice quantities are allowed. */
+export function proposedStopwatchCharge(
+  minutes: number,
+  policy: Pick<ReturnType<typeof resolveTimePolicy>, "incrementMinutes" | "stopwatchRoundUp">,
+) {
+  const units = minutes / policy.incrementMinutes;
+  return (policy.stopwatchRoundUp ? Math.ceil(units) : Math.round(units)) * policy.incrementMinutes;
 }
 
 export function timePolicyError(draft: TimeDraft, policy: ReturnType<typeof resolveTimePolicy>) {

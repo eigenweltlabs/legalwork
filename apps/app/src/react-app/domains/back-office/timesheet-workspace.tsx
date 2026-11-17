@@ -5,13 +5,14 @@ import { List, Sparkles, ListChecks, Settings2, Timer } from "lucide-react";
 
 import {
   proposedCharge,
+  proposedStopwatchCharge,
   resolveTimePolicy,
   TimesheetStateSchema,
   type TimesheetCommand,
   type TimeDraft,
 } from "@legalwork/types/timesheet";
 import { CalendarDaySchema } from "@legalwork/types/calendar";
-import type { CaptureProposal } from "@legalwork/types/time-capture";
+import { captureChargeMinutes, type CaptureProposal } from "@legalwork/types/time-capture";
 import { t } from "@/i18n";
 import {
   isLoopbackLegalworkServerUrl,
@@ -31,6 +32,7 @@ type SelectedProposal = {
   entry: Partial<TimeDraft>;
   proposalDigest: string;
   source: "suggestion";
+  captureSource: CaptureProposal["source"];
 };
 export function TimesheetWorkspace({
   client,
@@ -119,16 +121,15 @@ export function TimesheetWorkspace({
         ? state.matters.find((x) => x.id === project.matterIds[0])
         : undefined;
     const billTo = matter?.clientIds.length === 1 ? matter.clientIds[0] : undefined;
-    const charge =
-      p.workedMinutes && billTo && matter
-        ? proposedCharge(
-            p.workedMinutes,
-            resolveTimePolicy(state.policies, billTo, matter.id, p.date, project?.id),
-          )
-        : undefined;
+    const minutes = captureChargeMinutes(p);
+    const policy = resolveTimePolicy(state.policies, billTo ?? "", matter?.id ?? "", p.date, project?.id);
+    const charge = minutes === null ? undefined
+      : p.source === "stopwatch" ? proposedStopwatchCharge(minutes, policy)
+      : billTo && matter ? proposedCharge(minutes, policy) : undefined;
     setProposal({
       key: p.key,
       source: "suggestion",
+      captureSource: p.source,
       proposalDigest: p.digest,
       entry: {
         date: p.date,

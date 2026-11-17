@@ -3,11 +3,13 @@ import { randomUUID } from "node:crypto";
 import {
   nonBillableWork,
   proposedCharge,
+  proposedStopwatchCharge,
   requiresTimeAllocations,
   resolveTimePolicy,
   type TimeDraft,
   type TimesheetCommand,
   type TimeEntry,
+  type TimePolicy,
 } from "@legalwork/types/timesheet";
 import { openSqlite } from "../runtime-db.js";
 import { BackOfficeStore } from "./store.js";
@@ -710,6 +712,35 @@ test("rounding suggests the configured charge without changing worked time or th
       enforceIncrement: false,
     }),
   ).toBe(17);
+});
+
+test("stopwatch rounding is project-specific, dated, persisted and does not rewrite recorded work", async () => {
+  const { store, d, matter } = await fixture();
+  const projects = [{ id: "p", name: "Project", matterIds: [matter.id] }];
+  const invoke = (actor: BackOfficeActor, cmd: TimesheetCommand) =>
+    commandTimesheet(store, "local", actor, people, cmd, projects);
+  const original = invoke(owner, { type: "create", requestId: randomUUID(), entry: { ...d, projectId: "p" } }).entries[0];
+  const policy: TimePolicy = {
+    scope: "project", targetId: "p", effectiveFrom: d.date, revision: 0,
+    stopwatchRoundUp: false, incrementMinutes: 10, enforceIncrement: false,
+  };
+  expect(() => invoke(ben, { type: "policy", policy })).toThrow(/access/);
+  expect(() => invoke(owner, { type: "policy", policy: { ...policy, scope: "firm", targetId: "firm" } })).toThrow(/project/);
+  invoke(owner, { type: "policy", policy });
+  const saved = readTimesheet(store, "local", owner, people, projects);
+  const current = resolveTimePolicy(saved.policies, d.clientId, d.matterId, d.date, "p");
+  expect(current.stopwatchRoundUp).toBe(false);
+  expect(proposedStopwatchCharge(13, current)).toBe(10);
+  expect(proposedStopwatchCharge(17, current)).toBe(20);
+  expect(proposedStopwatchCharge(15, current)).toBe(20);
+  expect(proposedStopwatchCharge(4, current)).toBe(0);
+  expect(proposedStopwatchCharge(13, resolveTimePolicy(saved.policies, d.clientId, d.matterId, "2026-11-11", "p"))).toBe(20);
+  expect(proposedStopwatchCharge(13, resolveTimePolicy(saved.policies, d.clientId, d.matterId, d.date, "other"))).toBe(20);
+  expect(proposedStopwatchCharge(13, { ...current, incrementMinutes: 6, stopwatchRoundUp: true })).toBe(18);
+  expect(proposedStopwatchCharge(13, { ...current, incrementMinutes: 6 })).toBe(12);
+  expect(proposedStopwatchCharge(10, { ...current, stopwatchRoundUp: true })).toBe(10);
+  expect(proposedCharge(13, current)).toBe(13);
+  expect(saved.entries.find(e => e.id === original.id)).toEqual(original);
 });
 
 test("finance editors can review assigned work without appointing themselves or changing its rate", async () => {

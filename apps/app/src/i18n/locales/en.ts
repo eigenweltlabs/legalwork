@@ -237,6 +237,8 @@ export default {
   "back_office.billing.activity_labels": "Activity codes and labels",
   "back_office.billing.activity_label": "Activity name",
   "back_office.billing.rounding": "Proposed rounding",
+  "back_office.billing.stopwatch_round_up": "Round stopwatch time up",
+  "back_office.billing.stopwatch_round_hint": "On: round up to the next billing increment. Off: round to the nearest increment, rounding exact halves up. Applies to new stopwatch proposals, even without increment enforcement. Measured time is preserved.",
   "back_office.billing.round_choose": "Choose manually",
   "back_office.billing.round_up": "Round up",
   "back_office.billing.round_down": "Round down",

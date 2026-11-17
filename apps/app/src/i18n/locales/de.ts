@@ -247,6 +247,8 @@ const de = {
   "back_office.billing.activity_labels": "Tätigkeitskürzel und Bezeichnungen",
   "back_office.billing.activity_label": "Tätigkeitsname",
   "back_office.billing.rounding": "Rundungsvorschlag",
+  "back_office.billing.stopwatch_round_up": "Stoppuhr-Zeiten aufrunden",
+  "back_office.billing.stopwatch_round_hint": "Ein: zum nächsten Abrechnungstakt aufrunden. Aus: zum nächstgelegenen Takt auf- oder abrunden, bei genau halbem Takt aufrunden. Gilt für neue Stoppuhr-Vorschläge, auch ohne Taktpflicht. Die gemessene Zeit bleibt erhalten.",
   "back_office.billing.round_choose": "Manuell wählen",
   "back_office.billing.round_up": "Aufrunden",
   "back_office.billing.round_down": "Abrunden",

@@ -51,3 +51,5 @@ Open the profile menu and choose **Show mini bar** or **Hide mini bar** to contr
 **Hide app** offers **Never**, **During recording** and **Always** where supported. It controls app visibility during screen sharing, not audio capture, model-provider access or whether a recording is being made.
 
 Related: [Recording and transcripts](audio.md), [Privacy](settings-privacy.md), [Troubleshooting](troubleshooting.md).
+
+Stopwatch invoice quantities round up to the project’s billing increment by default. Under **Time tracking > Billing settings**, select **Project** and the project, then turn **Time rules > Round stopwatch time up** off and choose **Save billing settings** to use the nearest increment instead. Exact halves round up. The measured interval is preserved; see [Time tracking](time-tracking.md) for billing and effective-date details.

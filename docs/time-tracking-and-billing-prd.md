@@ -292,3 +292,12 @@ The source audit retains the original requirements and records the following imp
 | Responsibility | Effective-dated reviewer assignment exists at firm, client, matter and project level. A distinct billing-manager assignment per matter remains pending. |
 
 The proposed stopwatch-specific rounding default is recorded for discussion. Existing billing policy still offers manual selection, up, down and nearest, applied through the effective billing increment. Actual interval timestamps remain available and displayed worked minutes use nearest-minute conversion. This revision changes no rounding behavior.
+
+
+## 17 November 2026 — approved stopwatch rounding
+
+This addendum supersedes the discussion-only status above. Stopwatch proposals now round the exact measured interval up to the effective billing increment by default. A project-level **Round stopwatch time up** switch in **Billing settings > Time rules** changes the proposal to nearest-increment rounding when off; exact halves round up. Existing policies without the new field retain the default. The project policy is effective-dated, access-controlled and journaled through the existing server billing-policy command.
+
+The stopwatch suggestion uses the configured increment even when increment enforcement is disabled. Enforcement governs permissible manually entered invoice quantities; the new switch governs the initial stopwatch proposal. The general rounding preference remains unchanged for other sources. At ten-minute increments: 13 minutes yields 20 with the switch on and 10 with it off; 17 yields 20 in either mode. A 10-minute-and-1-second interval yields 20 in up mode, avoiding a preliminary whole-minute rounding error.
+
+Raw start/end timestamps, private source history and actual worked minutes remain unchanged. Corrected or split stopwatch proposals use their current interval and applicable project rule. A new ledger draft recomputes its proposed charge when project, work date or allocation changes, preserving an explicitly edited charge. Entirely non-billable work has no charge. Saving policy changes never rewrites existing timesheet entries. The existing minimum-one-worked-minute booking requirement still applies to sub-minute intervals without a whole worked minute.
