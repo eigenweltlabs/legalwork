@@ -61,6 +61,17 @@ export function ShellCustomizationView({ client = null }: { client?: import("@/a
           <LayoutSectionTitle>{t("settings.model_title")}</LayoutSectionTitle>
         </LayoutSectionHeader>
 
+        <LayoutSectionItem>
+          <LayoutSectionItemHeader>
+            <LayoutSectionItemTitle>{t("cost.show_costs")}</LayoutSectionItemTitle>
+            <LayoutSectionItemDescription>{t("cost.show_costs_desc")}</LayoutSectionItemDescription>
+            <LayoutSectionItemHeaderActions>
+              <Switch aria-label={t("cost.show_costs")} checked={local.prefs.showCosts}
+                onCheckedChange={value => local.setPrefs(previous => ({ ...previous, showCosts: value }))} />
+            </LayoutSectionItemHeaderActions>
+          </LayoutSectionItemHeader>
+        </LayoutSectionItem>
+
         {/* Show model reasoning */}
         <LayoutSectionItem>
           <LayoutSectionItemHeader>

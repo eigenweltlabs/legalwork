@@ -19,6 +19,7 @@ import { canPreviewAssistantSend, assistantOutgoingIsQueued, addAssistantOutgoin
 import { AssistantOnboardingConversation, type AssistantOnboardingControls } from "./assistant-onboarding-conversation";
 import { useSearchNavigation } from "@/react-app/shell/search-navigation";
 import { SessionSandbox } from "./session-sandbox";
+import { SessionCostProvider } from "./session-costs";
 /** @jsxImportSource react */
 import { ProviderLimitMessage } from "@/react-app/domains/connections/usage-control/provider-limit-message";
 import { SubscriptionEndedMessage } from "@/react-app/domains/connections/usage-control/subscription-ended-message";
@@ -1973,6 +1974,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
 
   return (
     <DevProfiler id="SessionSurface">
+    <SessionCostProvider client={props.client} workspaceId={props.workspaceId} sessionId={props.sessionId} busy={chatStreaming}>
     <div className="lw-session-typography relative flex h-full min-h-0 flex-col" data-assistant-chat={props.assistantDate ? "" : undefined}>
       <SessionSandbox key={`${props.workspaceId}:${props.sessionId}`} client={props.client} workspaceId={props.workspaceId} sessionId={props.sessionId} />
       {chatWorkspace === "wiki" && <WikiProjectFilesDialog open={projectPickerOpen} onOpenChange={setProjectPickerOpen} client={props.client} wikiId={chatWiki?.id} workspaceId={props.workspaceId} sessionId={props.sessionId} />}
@@ -2297,6 +2299,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
       {/* Error display moved inline into the session conversation area */}
       {props.developerMode ? <SessionDebugPanel model={model} snapshot={snapshot} /> : null}
     </div>
+    </SessionCostProvider>
     </DevProfiler>
   );
 }

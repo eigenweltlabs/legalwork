@@ -39,6 +39,7 @@ For an ordinary how-to question, read the matching page with `legalwork_skill_re
 | Browser passwords, inline sign-in card, automatic password filling, account, billing, invoices, PDF downloads, usage credits, top-ups, tax, language, appearance, permissions, secrets or privacy | [settings-privacy.md](references/settings-privacy.md) |
 | Chat shield icon, sandbox on/off, network settings or application-default inheritance | [settings-privacy.md](references/settings-privacy.md#sandboxing) |
 | Firm infrastructure region, EU/US hosting or account routing | [settings-privacy.md](references/settings-privacy.md#firm-infrastructure-region) |
+| Show costs, prompt or conversation cost, token breakdown, cached input or unavailable model pricing | [settings-privacy.md](references/settings-privacy.md#show-prompt-and-conversation-costs) |
 | Setup | [getting-started.md](references/getting-started.md) |
 | Errors, updates or recovery | [troubleshooting.md](references/troubleshooting.md) |
 
