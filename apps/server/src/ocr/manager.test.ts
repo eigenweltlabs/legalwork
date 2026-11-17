@@ -14,8 +14,8 @@ const input = { label: "Multilingual OCR", endpoint: "https://example.com/v1/cha
 
 test("localhost custom APIs can omit authentication, persist their type and become the default", async () => {
   const ocr = await manager();
-  for (const kind of ["paddleocr", "mistral-ocr", "chat-completions"]) {
-    const id = await ocr.saveServer({ ...input, endpoint: "http://localhost:8080/ocr", kind, authentication: "none", apiKey: undefined });
+  for (const kind of ["paddleocr", "mistral-ocr", "chat-completions", "mcp-ocr"]) {
+    const id = await ocr.saveServer({ ...input, model: kind === "mcp-ocr" ? "ocr/recognize_page" : input.model, endpoint: "http://localhost:8080/ocr", kind, authentication: "none", apiKey: undefined });
     await ocr.setDefault(id);
     const view = await new OcrManager(ocr.runtime.root).view();
     expect(view.engines.find((engine) => engine.id === id)).toMatchObject({ kind, authentication: "none", keyConfigured: false, status: "ready" });

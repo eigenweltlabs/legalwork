@@ -1,4 +1,4 @@
-export type OcrApiType = "chat-completions" | "mistral-ocr" | "paddleocr";
+export type OcrApiType = "chat-completions" | "mistral-ocr" | "paddleocr" | "mcp-ocr";
 
 export type OcrServerInput = {
   kind: OcrApiType;

@@ -21,6 +21,11 @@ const paddleResponse = z.object({
     })).length(1),
   }),
 });
+const mcpResponse = z.object({
+  isError: z.boolean().optional(),
+  structuredContent: z.unknown().optional(),
+  content: z.array(z.object({ type: z.string(), text: z.string().optional() })).optional(),
+});
 const paddleGeometry = z.object({
   width: z.number().int().positive().optional(),
   height: z.number().int().positive().optional(),
@@ -75,6 +80,23 @@ function paddleRegions(result: z.infer<typeof paddleResponse>["result"], page: O
 }
 
 const adapters: Record<ServerEngineSettings["kind"], OcrApiAdapter> = {
+  "mcp-ocr": {
+    body: (settings, page) => {
+      const [server_id, name] = settings.model.split("/");
+      return { server_id, name, arguments: { file: Buffer.from(page.data).toString("base64"), width: page.width, height: page.height } };
+    },
+    parse(body, page) {
+      const parsed = mcpResponse.safeParse(body);
+      if (!parsed.success || parsed.data.isError) throw invalidResponse();
+      let result: unknown = parsed.data.structuredContent;
+      if (result === undefined) {
+        const content = parsed.data.content;
+        if (content?.length !== 1 || content[0].type !== "text" || !content[0].text) throw invalidResponse();
+        try { result = JSON.parse(content[0].text); } catch { throw invalidResponse(); }
+      }
+      return adapters.paddleocr.parse(result, page);
+    },
+  },
   "chat-completions": {
     body: (settings, page, languages) => ({
       model: settings.model, temperature: 0, max_tokens: settings.maxTokens,
@@ -135,7 +157,7 @@ export function createServerOcrEngine(input: ServerEngineSettings, resolveApiKey
   const adapter = adapters[settings.kind];
   return {
     // Remote services answer requests independently; two pages at a time stay well within typical rate limits.
-    info: { id: settings.id, label: settings.label, model: settings.model, execution: "remote", regions: settings.kind === "paddleocr", languages: settings.languages, warnings: [], concurrentPages: 2 },
+    info: { id: settings.id, label: settings.label, model: settings.model, execution: "remote", regions: settings.kind === "paddleocr" || settings.kind === "mcp-ocr", languages: settings.languages, warnings: [], concurrentPages: 2 },
     async recognize(page, context) {
       context.signal.throwIfAborted();
       let apiKey: string | undefined;

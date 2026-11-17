@@ -102,3 +102,34 @@ test("Chat truncation remains text-only", async () => {
   const result = (await new OcrService([engine], "chat").extract(request)).pages[0];
   expect(result).toMatchObject({ text: "Partial", regions: [], truncated: true });
 });
+
+test("Gateway MCP OCR sends only the page to the configured tool and preserves validated regions", async () => {
+  const body = { errorCode: 0, result: { layoutParsingResults: [{ markdown: { text: "Payment within 14 days." },
+    prunedResult: { width: 100, height: 50, parsing_res_list: [{ block_label: "text", block_content: "Payment within 14 days.", block_bbox: [10, 5, 90, 40] }] } }] } };
+  const server = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: async (req) => {
+    expect(req.headers.get("authorization")).toBe("Bearer gateway-key");
+    expect(await req.json()).toEqual({ server_id: "eigenwelt_ocr_dev", name: "recognize_page", arguments: { file: "AQID", width: 100, height: 50 } });
+    return Response.json({ content: [{ type: "text", text: JSON.stringify(body) }], structuredContent: body, isError: false });
+  } });
+  try {
+    const settings = serverEngineSchema.parse({ id: "gateway", label: "Gateway", kind: "mcp-ocr", model: "eigenwelt_ocr_dev/recognize_page", endpoint: server.url.href, apiKeyRef: "gateway-key" });
+    const service = new OcrService([createServerOcrEngine(settings, async () => "gateway-key")], "gateway");
+    const result = await service.extract(request);
+    expect(result.pages[0]).toMatchObject({ text: "Payment within 14 days.", pageNumber: 4,
+      regions: [{ text: "Payment within 14 days.", box: { x: 0.1, y: 0.1, width: 0.8, height: 0.7 } }] });
+    expect(result.warnings).toContain("remote-processing");
+  } finally { server.stop(true); }
+});
+
+test("Gateway MCP text fallback is strict; tool errors and malformed or ambiguous results fail", async () => {
+  const settings = serverEngineSchema.parse({ id: "gateway", label: "Gateway", kind: "mcp-ocr", model: "ocr/recognize_page", endpoint: "http://localhost:8080/mcp-rest/tools/call", apiKeyRef: null });
+  const run = async (body: unknown) => new OcrService([createServerOcrEngine(settings, async () => undefined, async () => Response.json(body))], "gateway").extract(request);
+  expect((await run({ content: [{ type: "text", text: JSON.stringify(responseFor("paddleocr")) }] })).pages[0].text).toBe("Agreement / Vertrag");
+  for (const body of [
+    { isError: true, structuredContent: responseFor("paddleocr"), content: [{ type: "text", text: "private provider details" }] },
+    { structuredContent: {} }, { content: [{ type: "text", text: "not JSON" }] },
+    { content: [{ type: "text", text: "{}" }, { type: "text", text: "{}" }] },
+    { structuredContent: { errorCode: 0, result: { layoutParsingResults: [{ markdown: { text: "A" } }, { markdown: { text: "B" } }] } } },
+  ]) await expect(run(body)).rejects.toMatchObject({ code: "invalid-response", message: "The OCR server did not return a valid transcription." });
+  expect(serverEngineSchema.safeParse({ ...settings, model: "missing-server" }).success).toBe(false);
+});

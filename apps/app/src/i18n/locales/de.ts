@@ -2680,6 +2680,8 @@ const de = {
   "ocr.server_description": "Verbinden Sie ein lokales oder entferntes OCR-Modell über dessen API.",
   "ocr.api_type": "API-Typ",
   "ocr.api_paddle": "PaddleOCR",
+  "ocr.api_mcp": "Gateway-Texterkennung (MCP)",
+  "ocr.mcp_tool": "MCP-Tool (Server/Name)",
   "ocr.api_mistral": "Mistral OCR",
   "ocr.api_chat": "OpenAI-kompatible Bildverarbeitung",
   "ocr.authentication": "Authentifizierung",

@@ -2677,6 +2677,8 @@ export default {
   "ocr.server_description": "Connect a local or remote OCR model using its API.",
   "ocr.api_type": "API type",
   "ocr.api_paddle": "PaddleOCR",
+  "ocr.api_mcp": "Gateway OCR tool (MCP)",
+  "ocr.mcp_tool": "MCP tool (server/name)",
   "ocr.api_mistral": "Mistral OCR",
   "ocr.api_chat": "OpenAI-compatible vision",
   "ocr.authentication": "Authentication",

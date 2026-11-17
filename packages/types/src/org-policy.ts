@@ -164,7 +164,7 @@ export type OrgSystemOneProvider = z.infer<typeof OrgSystemOneProviderSchema>;
 export const OrgOcrEngineSchema = z.strictObject({
   id: orgId,
   label: name,
-  kind: z.enum(["chat-completions", "mistral-ocr", "paddleocr"]),
+  kind: z.enum(["chat-completions", "mistral-ocr", "paddleocr", "mcp-ocr"]),
   model: modelId,
   /** Full endpoint, not a provider base URL. */
   endpoint: httpsUrl,

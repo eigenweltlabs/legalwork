@@ -13,7 +13,7 @@ export const localEngineSchema = z.strictObject({
   ...identity, kind: z.literal("local"), model: z.enum(["pp-ocrv6-small", "paddleocr-vl-1.6"]),
 });
 export const serverEngineSchema = z.strictObject({
-  ...identity, kind: z.enum(["chat-completions", "mistral-ocr", "paddleocr"]), model: z.string().trim().min(1).max(200),
+  ...identity, kind: z.enum(["chat-completions", "mistral-ocr", "paddleocr", "mcp-ocr"]), model: z.string().trim().min(1).max(200),
   /** Full endpoint, not a provider base URL. HTTPS, or loopback HTTP for self-hosted services. */
   endpoint: z.url().refine((value) => {
     const url = new URL(value);
@@ -24,7 +24,8 @@ export const serverEngineSchema = z.strictObject({
   apiKeyRef: z.string().regex(/^[A-Za-z][A-Za-z0-9_.:/-]{0,127}$/).nullable(),
   languages: z.array(languageSchema).min(1).max(200).nullable().default(null),
   maxTokens: z.number().int().min(256).max(16384).default(8192),
-}).refine((engine) => engine.apiKeyRef !== null || isLoopbackOcrEndpoint(engine.endpoint), "Authentication is required for remote endpoints");
+}).refine((engine) => engine.apiKeyRef !== null || isLoopbackOcrEndpoint(engine.endpoint), "Authentication is required for remote endpoints")
+  .refine((engine) => engine.kind !== "mcp-ocr" || /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(engine.model), "Use the MCP server and tool name, separated by a slash");
 export const settingsSchema = z.strictObject({
   version: z.literal(1),
   defaultEngineId: identity.id,
