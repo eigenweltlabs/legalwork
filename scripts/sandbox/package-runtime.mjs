@@ -54,7 +54,11 @@ function bundle(original) {
     }
     if (name.endsWith('.dylib')) run('install_name_tool', ['-id', `@loader_path/${name}`, output]);
   } else if (process.platform === 'win32') {
-    for (const name of peImports(readFileSync(canonical))) {
+    const dependencies = peImports(readFileSync(canonical));
+    // MSYS2's SDL2 compatibility shim loads SDL3 with LoadLibrary, so this
+    // required library is absent from both regular and delay import tables.
+    if (name.toLowerCase() === 'sdl2.dll') dependencies.push('SDL3.dll');
+    for (const name of dependencies) {
       const dll = join(dirname(source), name);
       if (existsSync(dll)) bundle(dll);
       else if (!existsSync(join(process.env.SystemRoot, 'System32', name)) && !/^(api|ext)-ms-/i.test(name)) throw new Error(`Missing QEMU library ${name}`);

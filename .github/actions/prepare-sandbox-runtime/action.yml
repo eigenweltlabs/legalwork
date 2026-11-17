@@ -92,7 +92,7 @@ runs:
       shell: bash
       run: |
         node scripts/sandbox/verify-runtime.mjs
-        node -e 'const {spawnSync}=require("node:child_process"),p=require("node:path");const arch=process.arch==="arm64"?"aarch64":"x86_64";const r=spawnSync(p.resolve("apps/server/resources/agent-sandbox/runtime/qemu-system-"+arch+(process.platform==="win32"?".exe":"")),["--version"],{stdio:"inherit"});process.exit(r.status??1)'
+        node -e 'const {spawnSync}=require("node:child_process"),p=require("node:path");const arch=process.arch==="arm64"?"aarch64":"x86_64";const r=spawnSync(p.resolve("apps/server/resources/agent-sandbox/runtime/qemu-system-"+arch+(process.platform==="win32"?".exe":"")),["--version"],{stdio:"inherit",timeout:60000,windowsHide:true});if(r.error)console.error(r.error.message);process.exit(r.status??1)'
     # GitHub scopes PR saves to their merge ref; only the dev warmer seeds dev.
     - uses: actions/cache/save@v4
       if: steps.runtime-cache.outputs.cache-hit != 'true'
