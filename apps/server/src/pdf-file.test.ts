@@ -55,14 +55,21 @@ test("1 GiB PDFs use disk-backed text, selected visual pages and OCR with bounde
     expect(recognized.complete).toBe(true); expect(recognized.pages[0]?.text).toBe("Recognized large-source page");
     expect(calls).toBe(1);
     const measured = spawnSync(process.execPath, ["-e", `
+      import { readFileSync } from "node:fs";
       import { PdfReader } from ${JSON.stringify(new URL("./pdf-reader.ts", import.meta.url).href)};
       const reader = new PdfReader({ serviceSnapshot() { throw new Error("OCR not requested"); } });
       const result = await reader.readFile(process.argv[1], { pages: [1] }, new AbortController().signal);
-      console.log(JSON.stringify({ text: result.pages[0].text, peakKiB: process.resourceUsage().maxRSS }));
+      // Linux getrusage retains the parent's RSS across fork/exec. VmHWM
+      // measures this executable's own peak, independent of earlier tests.
+      const peakKiB = process.platform === "linux"
+        ? Number(readFileSync("/proc/self/status", "utf8").match(/^VmHWM:\\s+(\\d+) kB$/m)?.[1])
+        : process.resourceUsage().maxRSS;
+      console.log(JSON.stringify({ text: result.pages[0].text, peakKiB }));
     `, path], { encoding: "utf8", timeout: 30_000 });
     expect(measured.status).toBe(0);
     const measurement = JSON.parse(measured.stdout);
     expect(measurement.text).toContain("Large source contract marker");
+    expect(measurement.peakKiB).toBeGreaterThan(0);
     // A full 1 GiB source buffer cannot fit under this peak-RSS ceiling.
     expect(measurement.peakKiB).toBeLessThan(512 * 1024);
     await expect(reader.readFile(path, { pages: [3] }, signal)).rejects.toThrow("2 pages");
