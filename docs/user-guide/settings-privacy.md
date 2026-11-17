@@ -115,7 +115,7 @@ Change the display language in **Customization**. Use the appearance selector to
 2. Under **Model**, turn on **Show costs**. This is off by default and is saved on this device.
 3. Open a chat. The amount next to the answer timestamp shares the copy, branch and undo row.
 4. Click an answer amount to see **This answer** and **This conversation**. Click it again to collapse the card. Amounts use cents; positive costs below one cent show **<€0.01** or **<$0.01** rather than zero. A **~** marks an estimate.
-5. Select **This answer** or **This conversation** to see its models, detailed amounts, call counts and token counts below. Neither is selected when the card opens; details appear after you choose one, and the selected amount is highlighted. Model names match the model picker.
+5. Click the **This answer** or **This conversation** row to see its models, detailed amounts, call counts and token counts below. Both rows start closed. The arrow points down for the open row; click it again to hide the details. Model names match the model picker.
 
 Eigenwelt gateway models use **EUR**; direct providers use **USD** estimates. A conversation using both shows separate amounts without conversion. Amounts are labelled **Estimated AI cost**. Gateway estimates use the retail EUR cost reported in the model response; token counts come from OpenCode. Detailed amounts show up to four decimal places. Recent costs update automatically. While the agent is working, **so far** means the reported usage is still accumulating.
 

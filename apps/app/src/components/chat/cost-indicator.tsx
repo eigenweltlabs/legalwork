@@ -5,7 +5,7 @@ import { useSessionCosts } from "@/react-app/domains/session/surface/session-cos
 import { cn } from "@/lib/utils";
 import { currentLocale, t } from "@/i18n";
 import { modelDisplayName } from "@/app/utils/models";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Button } from "@/components/ui/button";
 
 export function formatCost(value: number, currency: CostAmount["currency"], locale = "en", precise = false) {
   const minimum = precise ? 0.0001 : 0.01;
@@ -28,28 +28,29 @@ export function CostBreakdown({ usage, title, busy = false, conversation, backgr
   usage: CostUsage; title: string; busy?: boolean; conversation?: CostUsage; background?: CostUsage; delegated?: CostUsage;
 }) {
   const locale = currentLocale();
+  const [selected, setSelected] = useState<string | null>(null);
+  const detailsId = useId();
   const amounts = [{ scope: "answer", label: title, value: usage }, ...(conversation ? [{ scope: "conversation", label: t("cost.session_title"), value: conversation }] : [])];
-  const wideAmounts = amounts.some(row => row.value.amounts.length > 1 || row.value.amounts.some(amount => amount.cost === null && amount.knownCost === 0));
+  const selectedRow = amounts.find(row => row.scope === selected);
   return <>
     <div className="flex items-baseline justify-between gap-3">
       <h3 className="text-xs font-medium">{t("cost.ai_estimate")}</h3>
       {busy && <span className="text-[10px] text-muted-foreground">{t("cost.so_far")}</span>}
     </div>
-    <Tabs defaultValue={null} className="gap-3">
-      <TabsList activateOnFocus aria-label={t("cost.usage_details")} className={cn("grid h-auto w-full items-stretch rounded-lg group-data-horizontal/tabs:h-auto", wideAmounts ? "grid-cols-1" : "grid-cols-2")}>
-        {amounts.map(row => <TabsTrigger key={row.scope} value={row.scope}
-          className="h-auto min-w-0 cursor-pointer flex-col items-start gap-1 rounded-md px-2.5 py-2 text-left whitespace-normal hover:bg-background/70 data-active:shadow-sm">
-          <span className="text-[11px] font-normal text-muted-foreground">{row.label}</span>
-          <span className="flex w-full items-center justify-between gap-1.5">
-            <span className={cn("min-w-0 font-medium tracking-tight tabular-nums", wideAmounts ? "text-sm" : "text-lg leading-tight")}>{costLabel(row.value, locale)}</span>
-            <ChevronRight className="size-3 text-muted-foreground/50" aria-hidden />
-          </span>
-        </TabsTrigger>)}
-      </TabsList>
-      {amounts.map(row => <TabsContent key={row.scope} value={row.scope}>
-        <CostUsageDetails usage={row.value} background={row.scope === "conversation" ? background : undefined} delegated={row.scope === "conversation" ? delegated : undefined} />
-      </TabsContent>)}
-    </Tabs>
+    <div role="group" aria-label={t("cost.usage_details")} className="-mx-2 flex flex-col">
+      {amounts.map(row => <Button key={row.scope} variant="ghost" aria-expanded={selected === row.scope} aria-controls={`${detailsId}-${row.scope}`}
+        onClick={() => setSelected(previous => previous === row.scope ? null : row.scope)}
+        className="h-auto min-h-8 w-full cursor-pointer flex-wrap justify-between gap-x-3 gap-y-1 rounded-md px-2 py-1.5 text-xs font-normal whitespace-normal aria-expanded:bg-transparent">
+        <span className="text-left">{row.label}</span>
+        <span className="ml-auto flex min-w-0 max-w-full items-center gap-2">
+          <span className="min-w-0 text-right font-medium text-foreground tabular-nums">{costLabel(row.value, locale)}</span>
+          <ChevronRight className={cn("size-3 text-muted-foreground/60 transition-transform", selected === row.scope && "rotate-90")} aria-hidden />
+        </span>
+      </Button>)}
+    </div>
+    {selectedRow && <section id={`${detailsId}-${selectedRow.scope}`} aria-label={selectedRow.label}>
+      <CostUsageDetails usage={selectedRow.value} background={selectedRow.scope === "conversation" ? background : undefined} delegated={selectedRow.scope === "conversation" ? delegated : undefined} />
+    </section>}
   </>;
 }
 
