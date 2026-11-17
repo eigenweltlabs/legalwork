@@ -35,7 +35,7 @@ export function CostBreakdown({ usage, title, busy = false, conversation, backgr
       <h3 className="text-xs font-medium">{t("cost.ai_estimate")}</h3>
       {busy && <span className="text-[10px] text-muted-foreground">{t("cost.so_far")}</span>}
     </div>
-    <Tabs defaultValue="answer" className="gap-3">
+    <Tabs defaultValue={null} className="gap-3">
       <TabsList activateOnFocus aria-label={t("cost.usage_details")} className={cn("grid h-auto w-full items-stretch rounded-lg group-data-horizontal/tabs:h-auto", wideAmounts ? "grid-cols-1" : "grid-cols-2")}>
         {amounts.map(row => <TabsTrigger key={row.scope} value={row.scope}
           className="h-auto min-w-0 cursor-pointer flex-col items-start gap-1 rounded-md px-2.5 py-2 text-left whitespace-normal hover:bg-background/70 data-active:shadow-sm">

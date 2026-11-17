@@ -23,15 +23,15 @@ describe("cost display", () => {
     expect(costLabel({ amounts: [{ currency: "USD", cost: null, knownCost: 0 }] })).toBe("Cost unavailable (USD)");
     expect(costLabel({ amounts: [{ currency: "USD", cost: null, knownCost: 0.1 }] })).toBe("Partial ~$0.10");
   });
-  test("cost amounts select their usage details without a dropdown", () => {
+  test("cost amounts start unselected with usage details hidden", () => {
     const html = renderToStaticMarkup(React.createElement(CostBreakdown, { usage, conversation: usage, title: "This answer", busy: true }));
-    for (const text of ["Estimated AI cost", "This answer", "This conversation", "$0.03", "Sample model", "$0.032", "3 calls", "Input tokens", "1,200", "New input", "300", "Reasoning", "Reused input", "so far"]) expect(html).toContain(text);
+    for (const text of ["Estimated AI cost", "This answer", "This conversation", "$0.03", "so far"]) expect(html).toContain(text);
     for (const text of ["new input stored for later reuse", "output excludes reasoning", "External service charges", "without conversion", "Input from cache", "Other input", "Advanced details", "Saved for reuse", "Not saved", "ESTIMATE ·"]) expect(html).not.toContain(text);
     expect(html).not.toContain("internal-model-route");
     expect(html).toContain('role="tablist"');
     expect(html.match(/role="tab"/g)).toHaveLength(2);
-    expect(html).toContain('aria-selected="true"');
-    for (const text of ["<details", "<summary", "View usage details"]) expect(html).not.toContain(text);
+    expect(html.match(/aria-selected="false"/g)).toHaveLength(2);
+    for (const text of ['aria-selected="true"', 'role="tabpanel"', "Sample model", "Input tokens", "<details", "<summary", "View usage details"]) expect(html).not.toContain(text);
   });
 });
 
@@ -45,6 +45,6 @@ test("mixed currencies stay separate and tiny EUR never rounds to free", () => {
     pendingCalls: 1, amounts: [{ currency: "EUR", cost: 0.03, knownCost: 0.03 }] } }));
   expect(html).toContain("AI cost");
   expect(html).toContain("Estimated AI cost");
-  expect(html).toContain("Updating costs");
+  expect(html).not.toContain("Updating costs");
   expect(html).not.toContain("without conversion");
 });
