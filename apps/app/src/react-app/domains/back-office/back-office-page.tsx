@@ -166,7 +166,7 @@ export function BackOfficePage({ client, embeddedObject }: {
   ], [data?.records, data?.directoryId, archived, archivedRecords.data, archivedRecords.isError]);
   const localDirectory = archived && archivedRecords.data?.directoryId === data?.directoryId ? archivedRecords.data : data;
   const pendingDetail = team ? localDirectory?.localRows?.find(record => record.id === detailId && !records.some(shared => shared.id === detailId)) : undefined;
-  const detail = draft && draft.id === detailId ? draft : records.find((record) => record.id === detailId) ?? pendingDetail,
+  const detail = timesheet ? undefined : draft && draft.id === detailId ? draft : records.find((record) => record.id === detailId) ?? pendingDetail,
     detailObject = data?.model.objects.find(
       (object) =>
         object.id === detail?.objectId &&
