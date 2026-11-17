@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { ApiError } from "../errors.js";
-import { eigenweltPlatformUrl } from "../eigenwelt-auth.js";
+import { eigenweltConnectionPlatformUrl } from "../eigenwelt-endpoints.js";
 import { readEigenweltConnection } from "../eigenwelt-connection-store.js";
 import { ensureFreshPlatformToken } from "../eigenwelt-refresh.js";
 import type { ServerConfig } from "../types.js";
@@ -26,7 +26,7 @@ const snapshotSchema = z.object({
     )
     .max(100),
 });
-type Identity = { orgId: string; userId: string; token: string };
+type Identity = { platformURL: string; orgId: string; userId: string; token: string };
 type Member = Pick<Identity, "orgId" | "userId">;
 type DisplayRoot = { root: StorageRoot; ownerOnly: boolean };
 type Snapshot = { connections: StoredStorage[]; status: StorageTeamStatus; unavailable?: DisplayRoot[] };
@@ -79,7 +79,7 @@ export class TeamStorage {
   private async storedIdentity(): Promise<Identity | null> {
     const connection = await readEigenweltConnection(this.config);
     return connection.platformToken && connection.account?.orgId
-      ? { token: connection.platformToken, orgId: connection.account.orgId, userId: connection.account.userId } : null;
+      ? { platformURL: eigenweltConnectionPlatformUrl(connection), token: connection.platformToken, orgId: connection.account.orgId, userId: connection.account.userId } : null;
   }
   private clear(workspaceId: string) {
     this.cache.delete(workspaceId);
@@ -113,7 +113,7 @@ export class TeamStorage {
     let response: Response;
     const signal = AbortSignal.timeout(15_000);
     try {
-      response = await fetch(`${eigenweltPlatformUrl()}/api/storage-connections${suffix}`, {
+      response = await fetch(`${identity.platformURL}/api/storage-connections${suffix}`, {
         method,
         redirect: "error",
         headers: { Authorization: `Bearer ${identity.token}`, "Content-Type": "application/json", "X-LegalWork-Storage-Capabilities": "native-cloud-sharing-v1" },

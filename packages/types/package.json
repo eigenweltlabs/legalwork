@@ -37,6 +37,7 @@
     "./native-model-display": "./src/native-model-display.ts",
     "./usage-control": "./src/usage-control.ts",
     "./provider-usage-limit": "./src/provider-usage-limit.ts",
+    "./eigenwelt-deployment": "./src/eigenwelt-deployment.ts",
     "./eigenwelt-checkout": "./src/eigenwelt-checkout.ts",
     "./systemone": "./src/systemone.ts",
     "./ocr": "./src/ocr.ts",
