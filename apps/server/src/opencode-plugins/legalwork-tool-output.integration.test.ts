@@ -18,7 +18,7 @@ for (const denied of [false, true]) test.skipIf(!binary)(`project output uses na
       if (rpc.id === undefined) return new Response(null, { status: 202 });
       const result = rpc.method === "initialize" ? { protocolVersion: "2024-11-05", capabilities: { tools: {} }, serverInfo: { name: "fixture", version: "1" } }
         : rpc.method === "tools/list" ? { tools: [{ name: "large_output", description: "Return synthetic oversized data", inputSchema: { type: "object", properties: {} } }] }
-        : rpc.method === "tools/call" ? { content: [{ type: "text", text: JSON.stringify(payload) }] } : {};
+        : rpc.method === "tools/call" ? { content: [{ type: "text", text: JSON.stringify(payload, null, 2) }] } : {};
       return Response.json({ jsonrpc: "2.0", id: rpc.id, result });
     }
     const input = z.object({ messages: z.array(z.object({ role: z.string(), content: z.unknown() })), tools: z.array(z.object({ function: z.object({ name: z.string() }) })).optional() }).parse(await request.json());
@@ -55,6 +55,8 @@ for (const denied of [false, true]) test.skipIf(!binary)(`project output uses na
     await host.client.session.wait({ sessionID: chat.id }, { signal: AbortSignal.timeout(60000) });
     expect(savedPath).toContain(join(host.directory, ".legalwork", "tool-output", chat.id));
     expect(JSON.parse(await readFile(savedPath, "utf8"))).toEqual(payload);
+    expect(await readFile(savedPath, "utf8")).toBe(JSON.stringify(payload, null, 2));
+    expect(savedPath.split("/").at(-1)).toMatch(/^tool_/);
     expect(offered.flat().filter(name => name.startsWith("legalwork_tool_output_"))).toEqual([]);
     if (denied) {
       expect(readResults.join(" ")).not.toContain(payload.result);
@@ -73,6 +75,41 @@ for (const denied of [false, true]) test.skipIf(!binary)(`project output uses na
       expect(readResults[1]).toContain(payload.result);
       expect(await readdir(join(host.directory, ".legalwork", "tool-output", chat.id))).toHaveLength(1);
     }
+    expect(await readdir(join(host.root, "data", "opencode", "tool-output")).catch(() => [])).toEqual([]);
+  } finally { await host?.close(); fixture.stop(true); }
+}, 90000);
+
+test.skipIf(!binary)("native MCP binary retention uses the same project and chat destination", async () => {
+  if (!binary) throw new Error("A released engine is required");
+  const bytes = Buffer.from([0, 1, 2, 255]);
+  let sequence = 0, savedPath = "";
+  const fixture = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
+    if (new URL(request.url).pathname === "/mcp") {
+      if (request.method !== "POST") return new Response(null, { status: 405 });
+      const rpc = z.object({ id: z.union([z.string(), z.number()]).optional(), method: z.string() }).parse(await request.json());
+      if (rpc.id === undefined) return new Response(null, { status: 202 });
+      const result = rpc.method === "initialize" ? { protocolVersion: "2024-11-05", capabilities: { tools: {} }, serverInfo: { name: "fixture", version: "1" } }
+        : rpc.method === "tools/list" ? { tools: [{ name: "binary_output", description: "Return a synthetic binary resource", inputSchema: { type: "object", properties: {} } }] }
+        : rpc.method === "tools/call" ? { content: [{ type: "resource", resource: { uri: "fixture://binary", mimeType: "application/octet-stream", blob: bytes.toString("base64") } }] } : {};
+      return Response.json({ jsonrpc: "2.0", id: rpc.id, result });
+    }
+    const input = z.object({ messages: z.array(z.object({ role: z.string(), content: z.unknown() })), tools: z.array(z.object({ function: z.object({ name: z.string() }) })).optional() }).parse(await request.json());
+    const results = input.messages.filter(message => message.role === "tool");
+    const producer = input.tools?.find(tool => tool.function.name.includes("binary_output"))?.function.name;
+    if (results.length) savedPath = JSON.stringify(results.at(-1)?.content).match(/saved to ([^\s\\"\]]+)/)?.[1] ?? "";
+    return nativeChatResponse(results.length || !producer ? undefined : { name: producer, input: {} }, sequence++);
+  } });
+  let host: Awaited<ReturnType<typeof nativeDomainEngine>> | undefined;
+  try {
+    host = await nativeDomainEngine({ binary, plugins: [join(import.meta.dir, "legalwork-tool-output.ts")], modelURL: fixture.url.origin + "/v1", configuration: {
+      mcp: { servers: { fixture: { type: "remote", url: fixture.url.origin + "/mcp", oauth: false, codemode: false } } }, permissions: [{ action: "*", resource: "*", effect: "allow" }],
+    } });
+    await waitForNativeFixture(host.tools, value => z.array(z.string()).parse(value).some(name => name.includes("binary_output")), "binary-result producer");
+    const chat = await host.appClient.session.create({ location: host.location, agent: "build" });
+    await host.appClient.session.prompt({ sessionID: chat.id, text: "Retrieve the synthetic binary result." });
+    await host.client.session.wait({ sessionID: chat.id }, { signal: AbortSignal.timeout(60000) });
+    expect(savedPath).toContain(join(host.directory, ".legalwork", "tool-output", chat.id, "tool_"));
+    expect(await readFile(savedPath)).toEqual(bytes);
     expect(await readdir(join(host.root, "data", "opencode", "tool-output")).catch(() => [])).toEqual([]);
   } finally { await host?.close(); fixture.stop(true); }
 }, 90000);

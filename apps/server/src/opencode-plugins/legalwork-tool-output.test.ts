@@ -1,12 +1,11 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, readFile, readdir, realpath, rm } from "node:fs/promises";
+import { mkdtemp, readdir, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { z } from "zod";
 import definition from "./legalwork-tool-output.js";
 import { nativePluginTestRuntime } from "./native-plugin-test-support.js";
 
-test("Code Mode intermediates remain complete; only the outer result is saved", async () => {
+test("output guidance exposes no reader tools and never intercepts native results", async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "project-tool-hook-")));
   const runtime = nativePluginTestRuntime(root);
   try {
@@ -21,8 +20,8 @@ test("Code Mode intermediates remain complete; only the outer result is saved", 
     expect(await readdir(root)).toEqual([]);
     const outer = { ...call, tool: "execute", status: "completed", result: { content: text, metadata: {} } };
     await runtime.hook("tool", "execute.after", outer);
-    const info = z.object({ outputPath: z.string(), truncated: z.literal(true) }).parse(outer.result.metadata);
-    expect(await readFile(info.outputPath, "utf8")).toBe(text);
-    expect(info.outputPath).toContain(join(root, ".legalwork", "tool-output", "ses_example"));
+    expect(outer.result.content).toBe(text);
+    expect(outer.result.metadata).toEqual({});
+    expect(await readdir(root)).toEqual([]);
   } finally { await runtime.close(); await rm(root, { recursive: true, force: true }); }
 });
