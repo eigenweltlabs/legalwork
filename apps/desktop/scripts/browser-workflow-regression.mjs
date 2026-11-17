@@ -117,6 +117,23 @@ app.whenReady().then(async () => {
       return view.getVisible() && bounds.x < width && bounds.y < height && bounds.x + bounds.width > 0 && bounds.y + bounds.height > 0;
     });
   };
+  async function selectTab(tabId) {
+    invoke("selectTab", tabId);
+    const tab = invoke("state").tabs.find(tab => tab.id === tabId);
+    assert.ok(tab);
+    // A pending preview owns the native view until its capture lease ends.
+    // Selection updates immediately; wait for the view's actual attachment.
+    const deadline = Date.now() + 5000;
+    do {
+      const view = visibleViews().find(view => view.webContents.getURL() === tab.url);
+      if (view) {
+        assert.equal(invoke("state").activeTabId, tabId);
+        return view;
+      }
+      await new Promise(resolve => setTimeout(resolve, 10));
+    } while (Date.now() < deadline);
+    throw new Error(`Selected browser tab did not become visible: ${tabId}`);
+  }
   let client;
   let exitCode = 0;
   try {
@@ -206,9 +223,8 @@ app.whenReady().then(async () => {
 
     // Revealing a working tab is an explicit user action, independent of the
     // agent's ability to inspect, fill, click, and download in the background.
-    invoke("selectTab", first.tab_id);
-    assert.deepEqual(visibleViews()[0].getBounds(), { x: 0, y: 0, width: 900, height: 700 });
-    invoke("selectTab", foreground.tabId);
+    assert.deepEqual((await selectTab(first.tab_id)).getBounds(), { x: 0, y: 0, width: 900, height: 700 });
+    await selectTab(foreground.tabId);
     await command(client, "Page.navigate", { url: `${origin}/next` });
     await batch(first, [{ action: "wait_for", text: "Browser workflow fixture" }]);
     await command(client, "Runtime.evaluate", { expression: "document.querySelector('#applicant').focus()" });
@@ -221,7 +237,7 @@ app.whenReady().then(async () => {
       { action: "click", selector: "#save" },
       { action: "wait_for", text: "Saved Alice in East" },
     ]);
-    invoke("selectTab", first.tab_id);
+    await selectTab(first.tab_id);
     console.log("PASS: selecting an agent tab works, and later navigation or field focus cannot reselect it");
     invoke("closeTab", first.tab_id);
     assert.equal(invoke("state").tabs.find(tab => tab.id === first.tab_id).background, true);
@@ -230,7 +246,7 @@ app.whenReady().then(async () => {
     assert.equal(invoke("state").tabs.find(tab => tab.id === first.tab_id).dismissed, true);
     assert.equal((await batch(first, [])).ok, true);
     assert.equal(invoke("state").tabs.find(tab => tab.id === first.tab_id).dismissed, false);
-    invoke("selectTab", first.tab_id);
+    await selectTab(first.tab_id);
     console.log("PASS: closing and dismissing a task tab preserves its live automation connection");
 
     if (process.env.LEGALWORK_BROWSER_TEST_SCREENSHOT) {
