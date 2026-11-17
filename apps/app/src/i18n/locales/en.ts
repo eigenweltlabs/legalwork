@@ -12,7 +12,7 @@ export default {
   "cost.prompt_title": "This answer",
   "cost.ai_cost": "AI cost",
   "cost.ai_estimate": "Estimated AI cost",
-  "cost.usage_details": "View usage details",
+  "cost.usage_details": "Usage details",
   "cost.new_input": "New input",
   "cost.partial": "Partial",
   "cost.settling": "Updating costs…",

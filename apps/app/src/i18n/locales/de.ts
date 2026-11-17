@@ -22,7 +22,7 @@ const de = {
   "cost.prompt_title": "Diese Antwort",
   "cost.ai_cost": "KI-Kosten",
   "cost.ai_estimate": "Geschätzte KI-Kosten",
-  "cost.usage_details": "Nutzungsdetails anzeigen",
+  "cost.usage_details": "Nutzungsdetails",
   "cost.new_input": "Neue Eingabe",
   "cost.partial": "Teilbetrag",
   "cost.settling": "Kosten werden aktualisiert…",

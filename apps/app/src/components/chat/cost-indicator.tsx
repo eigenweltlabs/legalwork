@@ -1,10 +1,11 @@
-import { Coins, ChevronDown, RotateCw } from "lucide-react";
+import { Coins, ChevronDown, ChevronRight, RotateCw } from "lucide-react";
 import { useId, useState, type ReactNode } from "react";
 import type { CostAmount, CostUsage } from "@legalwork/types/session-cost";
 import { useSessionCosts } from "@/react-app/domains/session/surface/session-costs";
 import { cn } from "@/lib/utils";
 import { currentLocale, t } from "@/i18n";
 import { modelDisplayName } from "@/app/utils/models";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 export function formatCost(value: number, currency: CostAmount["currency"], locale = "en", precise = false) {
   const minimum = precise ? 0.0001 : 0.01;
@@ -27,55 +28,62 @@ export function CostBreakdown({ usage, title, busy = false, conversation, backgr
   usage: CostUsage; title: string; busy?: boolean; conversation?: CostUsage; background?: CostUsage; delegated?: CostUsage;
 }) {
   const locale = currentLocale();
-  const numbers = new Intl.NumberFormat(locale);
-  const newInput = usage.tokens.input + usage.tokens.cache.write;
-  const amounts = [{ label: title, value: usage }, ...(conversation ? [{ label: t("cost.session_title"), value: conversation }] : [])];
+  const amounts = [{ scope: "answer", label: title, value: usage }, ...(conversation ? [{ scope: "conversation", label: t("cost.session_title"), value: conversation }] : [])];
   const wideAmounts = amounts.some(row => row.value.amounts.length > 1 || row.value.amounts.some(amount => amount.cost === null && amount.knownCost === 0));
   return <>
     <div className="flex items-baseline justify-between gap-3">
       <h3 className="text-xs font-medium">{t("cost.ai_estimate")}</h3>
       {busy && <span className="text-[10px] text-muted-foreground">{t("cost.so_far")}</span>}
     </div>
-    <dl className={cn("grid gap-3", wideAmounts ? "grid-cols-1" : "grid-cols-2")}>
-      {amounts.map(row => <div key={row.label} className="min-w-0">
-        <dt className="text-[11px] text-muted-foreground">{row.label}</dt>
-        <dd className={cn("mt-1 font-medium tracking-tight tabular-nums", wideAmounts ? "text-sm" : "text-lg leading-tight")}>{costLabel(row.value, locale)}</dd>
-      </div>)}
+    <Tabs defaultValue="answer" className="gap-3">
+      <TabsList activateOnFocus aria-label={t("cost.usage_details")} className={cn("grid h-auto w-full items-stretch rounded-lg group-data-horizontal/tabs:h-auto", wideAmounts ? "grid-cols-1" : "grid-cols-2")}>
+        {amounts.map(row => <TabsTrigger key={row.scope} value={row.scope}
+          className="h-auto min-w-0 cursor-pointer flex-col items-start gap-1 rounded-md px-2.5 py-2 text-left whitespace-normal hover:bg-background/70 data-active:shadow-sm">
+          <span className="text-[11px] font-normal text-muted-foreground">{row.label}</span>
+          <span className="flex w-full items-center justify-between gap-1.5">
+            <span className={cn("min-w-0 font-medium tracking-tight tabular-nums", wideAmounts ? "text-sm" : "text-lg leading-tight")}>{costLabel(row.value, locale)}</span>
+            <ChevronRight className="size-3 text-muted-foreground/50" aria-hidden />
+          </span>
+        </TabsTrigger>)}
+      </TabsList>
+      {amounts.map(row => <TabsContent key={row.scope} value={row.scope}>
+        <CostUsageDetails usage={row.value} background={row.scope === "conversation" ? background : undefined} delegated={row.scope === "conversation" ? delegated : undefined} />
+      </TabsContent>)}
+    </Tabs>
+  </>;
+}
+
+function CostUsageDetails({ usage, background, delegated }: { usage: CostUsage; background?: CostUsage; delegated?: CostUsage }) {
+  const locale = currentLocale();
+  const numbers = new Intl.NumberFormat(locale);
+  const newInput = usage.tokens.input + usage.tokens.cache.write;
+  return <div className="space-y-2.5 border-t border-border/60 pt-3 text-[11px]">
+    {usage.models.length > 0 && <div className="space-y-2">
+      {[...usage.models].sort((a, b) => b.calls - a.calls || (a.modelName ?? a.modelId).localeCompare(b.modelName ?? b.modelId)).map(model => {
+        const name = model.modelId ? modelDisplayName(model.modelId, model.modelName) : t("cost.background");
+        return <div key={`${model.providerId}/${model.modelId}`} className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+          <div className="min-w-0">
+            <p className="truncate font-medium" title={name}>{name}</p>
+            {model.calls > 0 && <p className="mt-0.5 text-[10px] text-muted-foreground">{t(model.calls === 1 ? "cost.calls_one" : "cost.calls_other", { count: numbers.format(model.calls) })}</p>}
+          </div>
+          <span className="tabular-nums text-muted-foreground">{costLabel(model, locale, true)}</span>
+        </div>;
+      })}
+    </div>}
+    <dl className="space-y-1.5 border-t border-border/60 pt-2.5">
+      <div className="flex justify-between gap-3 font-medium"><dt>{t("cost.total_input")}</dt><dd className="tabular-nums">{numbers.format(newInput + usage.tokens.cache.read)}</dd></div>
+      <div className="flex justify-between gap-3 pl-2 text-muted-foreground"><dt>{t("cost.new_input")}</dt><dd className="tabular-nums">{numbers.format(newInput)}</dd></div>
+      <div className="flex justify-between gap-3 pl-2 text-muted-foreground"><dt>{t("cost.cache_read")}</dt><dd className="tabular-nums">{numbers.format(usage.tokens.cache.read)}</dd></div>
+      <div className="flex justify-between gap-3 pt-1 font-medium"><dt>{t("cost.output")}</dt><dd className="tabular-nums">{numbers.format(usage.tokens.output)}</dd></div>
+      {usage.tokens.reasoning > 0 && <div className="flex justify-between gap-3 text-muted-foreground"><dt>{t("cost.reasoning")}</dt><dd className="tabular-nums">{numbers.format(usage.tokens.reasoning)}</dd></div>}
     </dl>
-    <details className="group/usage border-t border-border/60 pt-2.5 text-[11px]">
-      <summary className="flex cursor-pointer list-none items-center gap-1.5 rounded-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
-        <ChevronDown className="size-3 -rotate-90 transition-transform group-open/usage:rotate-0" aria-hidden />
-        {t("cost.usage_details")}
-      </summary>
-      <div className="mt-3 space-y-2.5">
-        {usage.models.length > 0 && <div className="space-y-2">
-          {[...usage.models].sort((a, b) => b.calls - a.calls || (a.modelName ?? a.modelId).localeCompare(b.modelName ?? b.modelId)).map(model => {
-            const name = model.modelId ? modelDisplayName(model.modelId, model.modelName) : t("cost.background");
-            return <div key={`${model.providerId}/${model.modelId}`} className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-              <div className="min-w-0">
-                <p className="truncate font-medium" title={name}>{name}</p>
-                {model.calls > 0 && <p className="mt-0.5 text-[10px] text-muted-foreground">{t(model.calls === 1 ? "cost.calls_one" : "cost.calls_other", { count: numbers.format(model.calls) })}</p>}
-              </div>
-              <span className="tabular-nums text-muted-foreground">{costLabel(model, locale, true)}</span>
-            </div>;
-          })}
-        </div>}
-        <dl className="space-y-1.5 border-t border-border/60 pt-2.5">
-          <div className="flex justify-between gap-3 font-medium"><dt>{t("cost.total_input")}</dt><dd className="tabular-nums">{numbers.format(newInput + usage.tokens.cache.read)}</dd></div>
-          <div className="flex justify-between gap-3 pl-2 text-muted-foreground"><dt>{t("cost.new_input")}</dt><dd className="tabular-nums">{numbers.format(newInput)}</dd></div>
-          <div className="flex justify-between gap-3 pl-2 text-muted-foreground"><dt>{t("cost.cache_read")}</dt><dd className="tabular-nums">{numbers.format(usage.tokens.cache.read)}</dd></div>
-          <div className="flex justify-between gap-3 pt-1 font-medium"><dt>{t("cost.output")}</dt><dd className="tabular-nums">{numbers.format(usage.tokens.output)}</dd></div>
-          {usage.tokens.reasoning > 0 && <div className="flex justify-between gap-3 text-muted-foreground"><dt>{t("cost.reasoning")}</dt><dd className="tabular-nums">{numbers.format(usage.tokens.reasoning)}</dd></div>}
-        </dl>
-        {(Boolean(delegated?.calls) || Boolean(background && hasCost(background))) && <dl className="space-y-1.5 border-t border-border/60 pt-2.5">
-          {delegated && delegated.calls > 0 && <div className="flex justify-between gap-3"><dt className="text-muted-foreground">{t("cost.delegated")}</dt><dd className="tabular-nums">{costLabel(delegated, locale, true)}</dd></div>}
-          {background && hasCost(background) && <div className="flex justify-between gap-3"><dt className="text-muted-foreground">{t("cost.background")}</dt><dd className="tabular-nums">{costLabel(background, locale, true)}</dd></div>}
-        </dl>}
-      </div>
-    </details>
+    {(Boolean(delegated?.calls) || Boolean(background && hasCost(background))) && <dl className="space-y-1.5 border-t border-border/60 pt-2.5">
+      {delegated && delegated.calls > 0 && <div className="flex justify-between gap-3"><dt className="text-muted-foreground">{t("cost.delegated")}</dt><dd className="tabular-nums">{costLabel(delegated, locale, true)}</dd></div>}
+      {background && hasCost(background) && <div className="flex justify-between gap-3"><dt className="text-muted-foreground">{t("cost.background")}</dt><dd className="tabular-nums">{costLabel(background, locale, true)}</dd></div>}
+    </dl>}
     {usage.pendingCalls > 0 && <p role="status" className="text-[11px] text-muted-foreground">{t("cost.settling")}</p>}
     {usage.unpricedCalls > 0 && <p role="status" className="text-[11px] text-muted-foreground">{t("cost.partial_help")}</p>}
-  </>;
+  </div>;
 }
 
 export function CostRow({ children, className, usage, conversation, busy, pending, failed, refresh }: {
