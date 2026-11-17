@@ -23,7 +23,6 @@ const de = {
   "cost.ai_cost": "KI-Kosten",
   "cost.ai_estimate": "Geschätzte KI-Kosten",
   "cost.usage_details": "Nutzungsdetails anzeigen",
-  "cost.advanced_details": "Technische Details",
   "cost.new_input": "Neue Eingabe",
   "cost.partial": "Teilbetrag",
   "cost.gateway": "GATEWAY",

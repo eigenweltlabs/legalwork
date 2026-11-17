@@ -115,13 +115,13 @@ Change the display language in **Customization**. Use the appearance selector to
 2. Under **Model**, turn on **Show costs**. This is off by default and is saved on this device.
 3. Open a chat. The amount next to the answer timestamp shares the copy, branch and undo row.
 4. Click an answer amount to see **This answer** and **This conversation**. Click it again to collapse the card. Amounts use cents; positive costs below one cent show **<€0.01** or **<$0.01** rather than zero. A **~** marks an estimate.
-5. Expand **View usage details** for models and precise amounts. Model names match the model picker. **Advanced details** contains model calls and token counts. These sections start collapsed.
+5. Expand **View usage details** for models, precise amounts, model calls and token counts. Model names match the model picker. This section starts collapsed.
 
-Eigenwelt gateway models use **EUR**; direct providers use **USD** estimates. A conversation using both shows separate amounts without conversion. Advanced details identifies estimates and settled gateway charges. Recent costs update automatically. While the agent is working, **so far** means the reported usage is still accumulating.
+Eigenwelt gateway models use **EUR**; direct providers use **USD** estimates. A conversation using both shows separate amounts without conversion. Usage details identifies estimates and settled gateway charges. Recent costs update automatically. While the agent is working, **so far** means the reported usage is still accumulating.
 
 Conversation totals include background work such as titles and context compaction and linked delegated agents. Undoing a message does not refund usage; branching does not charge again for copied history. External service charges are excluded.
 
-In **Advanced details**, **Input tokens** is **New input** plus **Reused input**. New input includes tokens **Saved for reuse** and **Not saved**. For example, 779 saved tokens and 3 not saved tokens make 782 new tokens. Input includes instructions, tools and conversation context as well as your message. **Output** excludes separately listed **Reasoning** tokens. Counts are added across calls.
+In **View usage details**, **Input tokens** is **New input** plus **Reused input**. New input includes tokens **Saved for reuse** and **Not saved**. For example, 779 saved tokens and 3 not saved tokens make 782 new tokens. Input includes instructions, tools and conversation context as well as your message. **Output** excludes separately listed **Reasoning** tokens. Counts are added across calls.
 
 **Cost unavailable** means usage or pricing is missing. **Partial** marks a known subtotal when some costs are unavailable. Older gateway calls without retained receipts can remain unavailable. Settlement requires an Eigenwelt member account or member gateway key and platform receipt support. An older or offline platform can still show the gateway's calculated estimate for new calls. Estimates can differ from your invoice or subscription allowance. Turning off **Show costs** hides the display and does not change usage or anonymous usage-sharing preferences.
 

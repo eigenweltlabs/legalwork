@@ -13,7 +13,6 @@ export default {
   "cost.ai_cost": "AI cost",
   "cost.ai_estimate": "Estimated AI cost",
   "cost.usage_details": "View usage details",
-  "cost.advanced_details": "Advanced details",
   "cost.new_input": "New input",
   "cost.partial": "Partial",
   "cost.gateway": "GATEWAY",

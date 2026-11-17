@@ -23,10 +23,10 @@ describe("cost display", () => {
     expect(costLabel({ amounts: [{ currency: "USD", cost: null, knownCost: 0, source: "estimate" }] })).toBe("Cost unavailable (USD)");
     expect(costLabel({ amounts: [{ currency: "USD", cost: null, knownCost: 0.1, source: "estimate" }] })).toBe("Partial ~$0.10");
   });
-  test("cost overview keeps precise model usage and token categories in collapsed details", () => {
+  test("cost overview keeps model usage and token categories in one collapsed dropdown", () => {
     const html = renderToStaticMarkup(React.createElement(CostBreakdown, { usage, conversation: usage, title: "This answer", busy: true }));
-    for (const text of ["Estimated AI cost", "This answer", "This conversation", "$0.03", "View usage details", "Sample model", "$0.032", "Advanced details", "Model calls", "Input tokens", "1,200", "New input", "300", "Not saved", "Reasoning", "Reused input", "Saved for reuse", "so far", "ESTIMATE"]) expect(html).toContain(text);
-    for (const text of ["new input stored for later reuse", "output excludes reasoning", "External service charges", "without conversion", "Input from cache", "Other input"]) expect(html).not.toContain(text);
+    for (const text of ["Estimated AI cost", "This answer", "This conversation", "$0.03", "View usage details", "Sample model", "$0.032", "Model calls", "Input tokens", "1,200", "New input", "300", "Not saved", "Reasoning", "Reused input", "Saved for reuse", "so far", "ESTIMATE"]) expect(html).toContain(text);
+    for (const text of ["new input stored for later reuse", "output excludes reasoning", "External service charges", "without conversion", "Input from cache", "Other input", "Advanced details"]) expect(html).not.toContain(text);
     expect(html).not.toContain("internal-model-route");
   });
 });

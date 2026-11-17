@@ -58,29 +58,23 @@ export function CostBreakdown({ usage, title, busy = false, conversation, backgr
             </div>;
           })}
         </div>}
-        <details className="group/advanced border-t border-border/70 pt-3">
-          <summary className="flex cursor-pointer list-none items-center gap-1.5 rounded-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
-            <ChevronDown className="size-3 -rotate-90 transition-transform group-open/advanced:rotate-0" aria-hidden />
-            {t("cost.advanced_details")}
-          </summary>
-          <div className="mt-3 space-y-3">
-            <p className="text-[10px] font-medium tracking-wide text-muted-foreground">{costSource(usage)}</p>
-            <dl className="space-y-2">
-              <div className="flex justify-between gap-4"><dt className="text-muted-foreground">{t("cost.model_calls")}</dt><dd className="tabular-nums">{numbers.format(usage.calls)}</dd></div>
-              <div className="flex justify-between gap-4 border-t border-border/50 pt-2 font-medium"><dt>{t("cost.total_input")}</dt><dd className="tabular-nums">{numbers.format(newInput + usage.tokens.cache.read)}</dd></div>
-              <div className="flex justify-between gap-4 pl-3"><dt className="text-muted-foreground">{t("cost.new_input")}</dt><dd className="tabular-nums">{numbers.format(newInput)}</dd></div>
-              <div className="flex justify-between gap-4 pl-6"><dt className="text-muted-foreground">{t("cost.cache_write")}</dt><dd className="tabular-nums">{numbers.format(usage.tokens.cache.write)}</dd></div>
-              <div className="flex justify-between gap-4 pl-6"><dt className="text-muted-foreground">{t("cost.input")}</dt><dd className="tabular-nums">{numbers.format(usage.tokens.input)}</dd></div>
-              <div className="flex justify-between gap-4 pl-3"><dt className="text-muted-foreground">{t("cost.cache_read")}</dt><dd className="tabular-nums">{numbers.format(usage.tokens.cache.read)}</dd></div>
-              <div className="flex justify-between gap-4 border-t border-border/50 pt-2"><dt className="text-muted-foreground">{t("cost.output")}</dt><dd className="tabular-nums">{numbers.format(usage.tokens.output)}</dd></div>
-              {usage.tokens.reasoning > 0 && <div className="flex justify-between gap-4"><dt className="text-muted-foreground">{t("cost.reasoning")}</dt><dd className="tabular-nums">{numbers.format(usage.tokens.reasoning)}</dd></div>}
-            </dl>
-            {(Boolean(delegated?.calls) || Boolean(background && hasCost(background))) && <dl className="space-y-2 border-t border-border/70 pt-3">
-              {delegated && delegated.calls > 0 && <div className="flex justify-between gap-4"><dt className="text-muted-foreground">{t("cost.delegated")}</dt><dd className="tabular-nums">{costLabel(delegated, locale, true)}</dd></div>}
-              {background && hasCost(background) && <div className="flex justify-between gap-4"><dt className="text-muted-foreground">{t("cost.background")}</dt><dd className="tabular-nums">{costLabel(background, locale, true)}</dd></div>}
-            </dl>}
-          </div>
-        </details>
+        <div className="space-y-3 border-t border-border/70 pt-3">
+          <p className="text-[10px] font-medium tracking-wide text-muted-foreground">{costSource(usage)}</p>
+          <dl className="space-y-2">
+            <div className="flex justify-between gap-4"><dt className="text-muted-foreground">{t("cost.model_calls")}</dt><dd className="tabular-nums">{numbers.format(usage.calls)}</dd></div>
+            <div className="flex justify-between gap-4 border-t border-border/50 pt-2 font-medium"><dt>{t("cost.total_input")}</dt><dd className="tabular-nums">{numbers.format(newInput + usage.tokens.cache.read)}</dd></div>
+            <div className="flex justify-between gap-4 pl-3"><dt className="text-muted-foreground">{t("cost.new_input")}</dt><dd className="tabular-nums">{numbers.format(newInput)}</dd></div>
+            <div className="flex justify-between gap-4 pl-6"><dt className="text-muted-foreground">{t("cost.cache_write")}</dt><dd className="tabular-nums">{numbers.format(usage.tokens.cache.write)}</dd></div>
+            <div className="flex justify-between gap-4 pl-6"><dt className="text-muted-foreground">{t("cost.input")}</dt><dd className="tabular-nums">{numbers.format(usage.tokens.input)}</dd></div>
+            <div className="flex justify-between gap-4 pl-3"><dt className="text-muted-foreground">{t("cost.cache_read")}</dt><dd className="tabular-nums">{numbers.format(usage.tokens.cache.read)}</dd></div>
+            <div className="flex justify-between gap-4 border-t border-border/50 pt-2"><dt className="text-muted-foreground">{t("cost.output")}</dt><dd className="tabular-nums">{numbers.format(usage.tokens.output)}</dd></div>
+            {usage.tokens.reasoning > 0 && <div className="flex justify-between gap-4"><dt className="text-muted-foreground">{t("cost.reasoning")}</dt><dd className="tabular-nums">{numbers.format(usage.tokens.reasoning)}</dd></div>}
+          </dl>
+          {(Boolean(delegated?.calls) || Boolean(background && hasCost(background))) && <dl className="space-y-2 border-t border-border/70 pt-3">
+            {delegated && delegated.calls > 0 && <div className="flex justify-between gap-4"><dt className="text-muted-foreground">{t("cost.delegated")}</dt><dd className="tabular-nums">{costLabel(delegated, locale, true)}</dd></div>}
+            {background && hasCost(background) && <div className="flex justify-between gap-4"><dt className="text-muted-foreground">{t("cost.background")}</dt><dd className="tabular-nums">{costLabel(background, locale, true)}</dd></div>}
+          </dl>}
+        </div>
       </div>
     </details>
     {usage.pendingCalls > 0 && <p role="status" className="text-[11px] text-muted-foreground">{t("cost.settling")}</p>}
