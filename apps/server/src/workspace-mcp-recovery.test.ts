@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { z } from "zod";
 import { createEngineClient } from "./engine-client.js";
 import { startServer } from "./server.js";
-import { mcpRecovery } from "./workspace-mcp-recovery.js";
+import { mcpRecovery, recoverWorkspaceMcp } from "./workspace-mcp-recovery.js";
 import { waitForNativeFixture } from "./native-mcp.test-support.js";
 import type { ServerConfig, WorkspaceInfo } from "./types.js";
 
@@ -19,21 +19,26 @@ async function fixture() {
   await mkdir(child);
   const calls: Array<{ path: string; directory: string | null; body?: unknown }> = [];
   const state = { status: "failed", directory: root, metadata: {}, agent: "legalwork", enabled: true, removed: false,
-    hold: Promise.resolve(), connects: 0, admissions: 0, locked: false };
+    hold: Promise.resolve(), sessionHold: Promise.resolve(), sessionReads: 0, connectFails: false, connects: 0, admissions: 0, inFlight: 0 };
   const engine = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
     const url = new URL(request.url), path = url.pathname;
     const body: unknown = ["GET", "HEAD"].includes(request.method) ? undefined : await request.json().catch(() => undefined);
     calls.push({ path, directory: url.searchParams.get("location[directory]"), body });
-    if (path === "/api/session/chat" && request.method === "GET") return Response.json({ data: {
-      id: "chat", projectID: "fixture", title: "Chat", agent: state.agent, location: { directory: state.directory }, metadata: state.metadata, time: { created: 1, updated: 1 },
-    } });
+    if (path === "/api/session/chat" && request.method === "GET") {
+      state.sessionReads++; await state.sessionHold;
+      return Response.json({ data: {
+        id: "chat", projectID: "fixture", title: "Chat", agent: state.agent, location: { directory: state.directory }, metadata: state.metadata, time: { created: 1, updated: 1 },
+      } });
+    }
     if (path === "/api/mcp") return Response.json({ location: { directory: state.directory }, data: [{ name: "notes", status: { status: state.status } }] });
     if (path === "/api/config") return Response.json([
       { type: "document", info: { mcp: { servers: { notes: { type: "remote", url: "https://connector.invalid/mcp", disabled: false } } } } },
       { type: "document", info: { mcp: { servers: state.removed ? {} : { notes: { type: "remote", url: "https://connector.invalid/mcp", disabled: !state.enabled } } } } },
     ].filter((_entry, index) => !state.removed || index === 1));
     if (path === "/api/experimental/mcp/notes/connect") {
-      state.connects++; await state.hold; state.status = "connected";
+      state.connects++; await state.hold;
+      if (state.connectFails) return Response.json({ message: "Synthetic connector unavailable" }, { status: 502 });
+      state.status = "connected";
       return new Response(null, { status: 204 });
     }
     if (path === "/api/session/active") return Response.json({ data: {} });
@@ -54,9 +59,9 @@ async function fixture() {
     configPath: join(root, "server.json"), approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: [], authorizedRoots: [root], readOnly: false,
     startedAt: 0, tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false,
     withManagedEngineAdmission: async (_sessionID, operation) => {
-      if (state.locked) throw new Error("Nested lifecycle admission would deadlock");
-      state.locked = true;
-      try { return await operation(); } finally { state.locked = false; }
+      // The managed lifecycle counts concurrent requests; it does not serialize them.
+      state.inFlight++;
+      try { return await operation(); } finally { state.inFlight--; }
     } };
   return { root, child, outside, state, calls, config, workspace, client: createEngineClient(config, workspace), async app() {
     const server = await startServer(config); cleanups.push(() => server.stop());
@@ -66,31 +71,51 @@ async function fixture() {
   } };
 }
 
-test.each(["prompt", "command"])("native %s reconnects before lifecycle admission and uses the saved session location", async kind => {
+test.each(["prompt", "command"])("native %s is admitted while a connector reconnects in the saved session location", async kind => {
   const f = await fixture(); f.state.directory = f.child;
-  if (kind === "prompt") await f.client.session.prompt({ sessionID: "chat", text: "Use notes" });
-  else await f.client.session.command({ sessionID: "chat", name: "read-notes", text: "arguments" });
-  expect(f.state.connects).toBe(1);
-  expect(f.state.admissions).toBe(1);
-  const reconnect = f.calls.findIndex(call => call.path.endsWith("/notes/connect"));
-  const admission = f.calls.findIndex(call => call.path.endsWith(`/${kind}`));
-  expect(reconnect).toBeLessThan(admission);
-  expect(f.calls.filter(call => call.path === "/api/mcp" || call.path.endsWith("/notes/connect")).every(call => call.directory === f.child)).toBe(true);
+  const held = Promise.withResolvers<void>(); f.state.hold = held.promise;
+  const send = kind === "prompt"
+    ? f.client.session.prompt({ sessionID: "chat", text: "Use notes" })
+    : f.client.session.command({ sessionID: "chat", name: "read-notes", text: "arguments" });
+  try {
+    await waitForNativeFixture(async () => f.state.admissions, value => value === 1, `${kind} admitted before reconnect finishes`, { timeoutMs: 1000 });
+    await send;
+    await waitForNativeFixture(async () => f.state.connects, value => value === 1, "background reconnect started");
+    expect(f.state.status).toBe("failed");
+    expect(f.state.inFlight).toBe(1);
+    expect(f.calls.filter(call => call.path === "/api/mcp" || call.path.endsWith("/notes/connect")).every(call => call.directory === f.child)).toBe(true);
+  } finally { held.resolve(); await send; }
+  await waitForNativeFixture(async () => f.state.inFlight, value => value === 0, "background reconnect settled");
+  expect(f.state.status).toBe("connected");
 });
 
-test("public scoped proxy and durable queued prompt recover without polling connector status", async () => {
-  for (const kind of ["proxy", "queue"]) {
-    const f = await fixture(), request = await f.app();
-    const response = kind === "proxy"
-      ? await request("opencode/api/session/chat/prompt", { text: "Use notes" })
-      : await request("sessions/chat/dispatch", { kind: "prompt", id: "msg_queued", text: "Use notes", model: { providerID: "fixture", id: "fixture" } });
+test.each(["proxy", "queue"])("%s admits a message without waiting for connector recovery", async kind => {
+  const f = await fixture(), request = await f.app();
+  const held = Promise.withResolvers<void>(); f.state.hold = held.promise;
+  const send = kind === "proxy"
+    ? request("opencode/api/session/chat/prompt", { text: "Use notes" })
+    : request("sessions/chat/dispatch", { kind: "prompt", id: "msg_queued", text: "Use notes", model: { providerID: "fixture", id: "fixture" } });
+  try {
+    await waitForNativeFixture(async () => f.state.admissions, value => value === 1, `${kind} admitted before reconnect finishes`, { timeoutMs: 1000 });
+    const response = await send;
     expect(response.status, JSON.stringify(await response.clone().json())).toBe(200);
-    await waitForNativeFixture(async () => f.state.admissions, value => value === 1, `${kind} admission`);
-    expect(f.state.connects).toBe(1);
-    const reconnect = f.calls.findIndex(call => call.path.endsWith("/notes/connect"));
-    expect(reconnect).toBeLessThan(f.calls.findIndex(call => call.path.endsWith("/prompt")));
-    expect(f.state.locked).toBe(false);
+    await waitForNativeFixture(async () => f.state.connects, value => value === 1, "background reconnect started");
+    expect(f.state.status).toBe("failed");
+    expect(f.state.inFlight).toBe(1);
+  } finally { held.resolve(); await send; }
+  await waitForNativeFixture(async () => f.state.inFlight, value => value === 0, "background reconnect settled");
+  expect(f.state.status).toBe("connected");
+});
+
+test("failed background recovery preserves accepted messages and the retry cooldown", async () => {
+  const f = await fixture(); f.state.connectFails = true;
+  for (const id of ["msg_first", "msg_second"]) {
+    expect((await f.client.session.prompt({ sessionID: "chat", id, text: "Continue without notes" })).id).toBe(id);
+    await recoverWorkspaceMcp(f.config, f.workspace, f.state.directory);
   }
+  expect(f.state.status).toBe("failed");
+  expect(f.state.connects).toBe(1);
+  expect(f.state.admissions).toBe(2);
 });
 
 test("auth-pending, disabled, removed and isolated worker connectors are not reconnected", async () => {
@@ -102,6 +127,7 @@ test("auth-pending, disabled, removed and isolated worker connectors are not rec
     if (kind === "review") f.state.metadata = { legalworkReviewWorker: true };
     if (kind === "legalmemory") f.state.metadata = { legalworkInternal: "legalmemory" };
     await f.client.session.prompt({ sessionID: "chat", text: "Restricted or unavailable connector" });
+    if (kind !== "review" && kind !== "legalmemory") await recoverWorkspaceMcp(f.config, f.workspace, f.state.directory);
     expect(f.state.admissions).toBe(1);
     expect(f.state.connects).toBe(0);
   }
@@ -113,17 +139,15 @@ test("a foreign session cannot cause connector recovery or prompt admission", as
   expect(f.state.connects).toBe(0); expect(f.state.admissions).toBe(0);
 });
 
-test("cancellation prevents model admission while the native handshake settles under its lock", async () => {
+test("cancellation during session validation prevents recovery and message admission", async () => {
   const f = await fixture(), held = Promise.withResolvers<void>(), controller = new AbortController();
-  f.state.hold = held.promise;
+  f.state.sessionHold = held.promise;
   const pending = f.client.session.prompt({ sessionID: "chat", text: "Cancel before admission" }, { signal: controller.signal });
   const settled = pending.then(() => "admitted", () => "rejected");
-  await waitForNativeFixture(async () => f.state.connects, value => value === 1, "held native handshake");
+  await waitForNativeFixture(async () => f.state.sessionReads, value => value > 0, "held session validation");
   controller.abort(new DOMException("Cancelled", "AbortError"));
   expect(await settled).toBe("rejected");
   expect(f.state.admissions).toBe(0);
-  expect(f.state.locked).toBe(true);
+  expect(f.state.connects).toBe(0);
   held.resolve();
-  await waitForNativeFixture(async () => f.state.locked, value => !value, "native handshake cleanup");
-  expect(f.state.status).toBe("connected");
 });
