@@ -39,7 +39,7 @@ const fixture = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request)
   const failing = child && invalidCalls < 12 && !(mode === "recover" && recoveryWarning);
   if (failing) invalidCalls++;
   const call = !tools.length ? undefined : failing
-    ? toolCase === "word" ? { name: "inapp_docx_read_document", arguments: JSON.stringify({ path: "test-file.docx", view: "invalid-test-view" }) } : toolCase === "native" ? { name: "read", arguments: JSON.stringify({ path: 42 }) } : toolCase === "mcp" ? { name: "fixture_validate", arguments: JSON.stringify({ limit: 0 }) } : { name: "legalwork_tool_output_read", arguments: JSON.stringify({ outputPath: "" }) }
+    ? toolCase === "word" ? { name: "inapp_docx_read_document", arguments: JSON.stringify({ path: "test-file.docx", view: "invalid-test-view" }) } : toolCase === "native" ? { name: "read", arguments: JSON.stringify({ path: 42 }) } : toolCase === "mcp" ? { name: "fixture_validate", arguments: JSON.stringify({ limit: 0 }) } : { name: "read", arguments: JSON.stringify({ path: "" }) }
     : !child && tools.includes("subagent") && !results.length
       ? { name: "subagent", arguments: JSON.stringify({ description: "Check the argument-loop guard", agent: "general", background: false, prompt: "CHILD_GUARD: exercise the synthetic invalid-input tool fixture." }) } : undefined;
   const effectiveCall = nested && call && call.name !== "subagent"

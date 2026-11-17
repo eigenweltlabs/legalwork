@@ -110,10 +110,6 @@ export async function registerManagedFolderPermissions(ctx: Plugin.Context, read
       return;
     }
     for (const { path, actual } of targets) {
-      // This tool verifies chat ownership and a regular output file before
-      // reading. Retain lexical and canonical read rules without asking users
-      // to add the app's private saved-output directory to their project.
-      if (event.action === "read" && event.metadata?.legalworkVerifiedToolOutput === true) continue;
       if (within(root, actual)) continue;
       // Absolute read/edit resources already crossed the native boundary;
       // a changed canonical target is a symlink escape and needs its own check.

@@ -181,7 +181,6 @@ import { registerFileRoutes } from "./routes/files.js";
 import { registerOperationRoutes } from "./routes/operations.js";
 import { addRoute, matchRoute, type AuthMode, type RequestContext, type Route } from "./routes/registry.js";
 import { registerSessionRoutes } from "./routes/sessions.js";
-import { registerToolOutputRoutes } from "./routes/tool-output.js";
 import { registerEngineCredentialRoutes, engineCredentialMetadata, disconnectEngineCredential } from "./routes/engine-credentials.js";
 import { registerNativeCommandDefinitionRoutes } from "./routes/native-command-definitions.js";
 import { registerEngineProjectRoutes } from "./routes/engine-project.js";
@@ -2087,7 +2086,6 @@ function createRoutes(
     resolveWorkspaceMetadata,
   });
 
-  registerToolOutputRoutes({ routes, config, jsonResponse, requireClientScope, resolveWorkspace });
   registerBrowserRoutes({ routes, config, jsonResponse, requireClientScope, resolveWorkspace });
   registerMcpOAuthRoutes({ routes, config, resolveWorkspace, requireClientScope, jsonResponse, recovery: mcpRecovery(config) });
   registerEngineCredentialRoutes({ routes, config, jsonResponse, requireClientScope, ensureWritable, resolveWorkspace });

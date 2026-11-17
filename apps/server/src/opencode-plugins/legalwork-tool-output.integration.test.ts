@@ -1,113 +1,119 @@
 import { expect, test } from "bun:test";
 import { join } from "node:path";
+import { readFile, readdir } from "node:fs/promises";
 import { z } from "zod";
-import { mkdir, writeFile } from "node:fs/promises";
-import { listEngineMessages, listEngineSessions } from "../engine-client.js";
-import { waitForNativeFixture } from "../native-mcp.test-support.js";
 import { nativeChatResponse, nativeDomainEngine } from "./native-domain-engine.test-support.js";
+import { waitForNativeFixture } from "../native-mcp.test-support.js";
 
 const binary = process.env.LEGALWORK_TEST_OPENCODE_BIN;
-const cases = [
-  { name: "allowed", denied: [], available: true, permitted: true },
-  { name: "read denied", denied: ["read"], available: true, permitted: false },
-  { name: "tool denied", denied: ["legalwork_tool_output_read"], available: false, permitted: false },
-  { name: "wildcard denied", denied: ["*"], available: false, permitted: false },
-];
-
-for (const scenario of cases) test.skipIf(!binary)(`bundled saved-output retrieval through a native explore child: ${scenario.name}`, async () => {
+for (const denied of [false, true]) test.skipIf(!binary)(`project output uses native read, grep and shell; read denied=${denied}`, async () => {
   if (!binary) throw new Error("A released engine is required");
-  const offered: string[][] = [], childTools: string[][] = [], recovered: string[] = [];
-  const payload = JSON.stringify({ padding: "a".repeat(80000), result: "requested section beyond the long line" });
-  const evidence = process.env.LEGALWORK_TEST_TOOL_OUTPUT_EVIDENCE_DIRECTORY
-    ? join(process.env.LEGALWORK_TEST_TOOL_OUTPUT_EVIDENCE_DIRECTORY, scenario.name.replaceAll(" ", "-")) : undefined;
-  if (evidence) await mkdir(evidence, { recursive: true, mode: 0o700 });
-  let savedPath = "", sequence = 0, wireSequence = 0, sessionID: string | undefined;
+  const payload = { result: "requested section in the saved output", rows: Array.from({ length: 1100 }, (_, index) => index === 300 ? "evidence beyond the retention preview" : "a".repeat(80)) };
+  const offered: string[][] = [], readResults: string[] = [], grepResults: string[] = [], shellResults: string[] = [];
+  let savedPath = "", sequence = 0, otherChat = false;
   const fixture = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
-    const body = Buffer.from(await request.arrayBuffer());
-    const wire = evidence ? join(evidence, `controlled-wire-${String(++wireSequence).padStart(4, "0")}`) : undefined;
-    if (wire) await writeFile(`${wire}.request.raw`, body);
-    const respond = async (response: Response) => {
-      if (wire) {
-        await writeFile(`${wire}.response.raw`, Buffer.from(await response.clone().arrayBuffer()));
-        await writeFile(`${wire}.json`, JSON.stringify({ method: request.method, url: request.url, status: response.status,
-          requestHeaders: [...request.headers].filter(([name]) => !["authorization", "cookie", "x-api-key"].includes(name)),
-          responseHeaders: [...response.headers],
-        }, null, 2));
-      }
-      return response;
-    };
-    const url = new URL(request.url);
-    if (url.pathname === "/mcp") {
-      if (request.method !== "POST") return respond(new Response(null, { status: 405 }));
-      const rpc = z.object({ id: z.union([z.string(), z.number()]).optional(), method: z.string() }).parse(JSON.parse(body.toString("utf8")));
-      if (rpc.id === undefined) return respond(new Response(null, { status: 202 }));
+    if (new URL(request.url).pathname === "/mcp") {
+      if (request.method !== "POST") return new Response(null, { status: 405 });
+      const rpc = z.object({ id: z.union([z.string(), z.number()]).optional(), method: z.string() }).parse(await request.json());
+      if (rpc.id === undefined) return new Response(null, { status: 202 });
       const result = rpc.method === "initialize" ? { protocolVersion: "2024-11-05", capabilities: { tools: {} }, serverInfo: { name: "fixture", version: "1" } }
-        : rpc.method === "tools/list" ? { tools: [{ name: "large_output", description: "Return a synthetic large output", inputSchema: { type: "object", properties: {} } }] }
-        : rpc.method === "tools/call" ? { content: [{ type: "text", text: payload }] } : {};
-      return respond(Response.json({ jsonrpc: "2.0", id: rpc.id, result }));
+        : rpc.method === "tools/list" ? { tools: [{ name: "large_output", description: "Return synthetic oversized data", inputSchema: { type: "object", properties: {} } }] }
+        : rpc.method === "tools/call" ? { content: [{ type: "text", text: JSON.stringify(payload) }] } : {};
+      return Response.json({ jsonrpc: "2.0", id: rpc.id, result });
     }
-    const input = z.object({ messages: z.array(z.object({ role: z.string(), content: z.unknown() })), tools: z.array(z.object({ function: z.object({ name: z.string() }) })).optional() }).parse(JSON.parse(body.toString("utf8")));
-    const names = input.tools?.map(tool => tool.function.name) ?? [];
-    if (names.length) offered.push(names);
-    const toolResults = input.messages.filter(message => message.role === "tool");
-    const isExplore = input.messages.some(message => message.role === "user" && JSON.stringify(message.content).includes("Inspect saved response marker"));
-    if (isExplore) childTools.push(names);
+    const input = z.object({ messages: z.array(z.object({ role: z.string(), content: z.unknown() })), tools: z.array(z.object({ function: z.object({ name: z.string() }) })).optional() }).parse(await request.json());
+    const names = input.tools?.map(t => t.function.name) ?? []; offered.push(names);
+    const results = input.messages.filter(m => m.role === "tool");
     const producer = names.find(name => name.includes("fixture") && name.includes("large_output"));
     let call: { name: string; input: unknown } | undefined;
-    if (!isExplore && producer && toolResults.length === 0) call = { name: producer, input: {} };
-    else if (!isExplore && producer && toolResults.length === 1) {
-      const output = JSON.stringify(toolResults[0]?.content);
-      savedPath = output.match(/full output saved to:? ([^\s\\"\]]+)/i)?.[1] ?? "";
-      call = { name: "subagent", input: { description: "Inspect saved response", agent: "explore", prompt: `Inspect saved response marker. Use legalwork_tool_output_read to search the saved output at ${savedPath} for requested section.` } };
-    } else if (isExplore && names.includes("legalwork_tool_output_read") && toolResults.length === 0) {
-      call = { name: "legalwork_tool_output_read", input: { outputPath: savedPath, query: "requested section" } };
-    } else if (isExplore && toolResults.length) recovered.push(JSON.stringify(toolResults));
-    return respond(nativeChatResponse(call, sequence++));
+    if (otherChat) {
+      if (!results.length) call = { name: "read", input: { path: savedPath } };
+      else readResults.push(JSON.stringify(results.at(-1)?.content));
+    } else if (results.length === 0 && producer) call = { name: producer, input: {} };
+    else if (results.length === 1) {
+      const raw = JSON.stringify(results[0].content);
+      savedPath = raw.match(/full output saved to ([^\s\\"\]]+)/i)?.[1] ?? "";
+      call = { name: "read", input: { path: savedPath } };
+    } else if (results.length === 2) {
+      readResults.push(JSON.stringify(results.at(-1)?.content));
+      if (!denied) call = { name: "grep", input: { pattern: "requested section", path: savedPath } };
+    } else if (results.length === 3) {
+      grepResults.push(JSON.stringify(results.at(-1)?.content));
+      call = { name: "shell", input: { command: `grep -n 'requested section' '${savedPath}'`, description: "Search retained output" } };
+    } else if (results.length === 4) shellResults.push(JSON.stringify(results.at(-1)?.content));
+    return nativeChatResponse(call, sequence++);
   } });
-  let engine: Awaited<ReturnType<typeof nativeDomainEngine>> | undefined;
+  let host: Awaited<ReturnType<typeof nativeDomainEngine>> | undefined;
   try {
-    engine = await nativeDomainEngine({ binary, scopedRuntime: true, evidenceDirectory: evidence,
-      plugins: [join(import.meta.dir, "legalwork-tool-output.ts")], modelURL: fixture.url.origin + "/v1", configuration: {
+    host = await nativeDomainEngine({ binary, plugins: [join(import.meta.dir, "legalwork-tool-output.ts")], modelURL: fixture.url.origin + "/v1", configuration: {
       mcp: { servers: { fixture: { type: "remote", url: fixture.url.origin + "/mcp", oauth: false, codemode: false } } },
-      // Native config appends these to Explore's own deny-* boundary, matching
-      // LegalWork's saved-output default and preserving explicit later denials.
-      permissions: [
-        ...["legalwork_tool_output_read", "read", "subagent"].map(action => ({ action, resource: "*", effect: "allow" })),
-        ...scenario.denied.map(action => ({ action, resource: "*", effect: "deny" })),
-      ],
-      agents: { build: { permissions: [{ action: "*large_output*", resource: "*", effect: "allow" }, { action: "subagent", resource: "*", effect: "allow" }] } },
+      permissions: [{ action: "*", resource: "*", effect: "allow" }, ...(denied ? [{ action: "read", resource: "*", effect: "deny" }] : [])],
     } });
-    const { client, appClient, location } = engine;
-    // Observe the actual native catalog, rather than masking the independently
-    // tracked upstream first-turn MCP reconciliation race with a sleep.
-    await waitForNativeFixture(engine.tools, value => z.array(z.string()).parse(value).some(name => name.includes("fixture") && name.includes("large_output")), "initial oversized-result producer");
-    const session = await appClient.session.create({ location, agent: "build" });
-    sessionID = session.id;
-    await appClient.session.prompt({ sessionID: session.id, text: "Inspect the synthetic oversized connector result through a child agent." });
-    await client.session.wait({ sessionID: session.id }, { signal: AbortSignal.timeout(60_000) });
-    const history = await client.session.context({ sessionID: session.id });
-    expect(savedPath, JSON.stringify(history)).toContain("tool-output");
-    expect(offered.some(names => names.some(name => name.includes("fixture") && name.includes("large_output")))).toBe(true);
-    expect(childTools.length).toBeGreaterThan(0);
-    expect(childTools.some(names => names.includes("legalwork_tool_output_read"))).toBe(scenario.available);
-    const children = (await listEngineSessions(client, { directory: location.directory })).filter(child => child.parentID === session.id);
-    expect(children).toHaveLength(1); expect(children[0].agent).toBe("explore"); expect(children[0].location.directory).toBe(location.directory);
-    if (scenario.permitted) {
-      expect(recovered).toHaveLength(1);
-      expect(recovered[0]).toContain("requested section beyond the long line");
-      expect(recovered[0]).toContain('\\"found\\":true');
+    await waitForNativeFixture(host.tools, value => z.array(z.string()).parse(value).some(name => name.includes("large_output")), "oversized-result producer");
+    const chat = await host.appClient.session.create({ location: host.location, agent: "build" });
+    await host.appClient.session.prompt({ sessionID: chat.id, text: "Read and search the retained synthetic output." });
+    await host.client.session.wait({ sessionID: chat.id }, { signal: AbortSignal.timeout(60000) });
+    expect(savedPath).toContain(join(host.directory, ".legalwork", "tool-output", chat.id));
+    expect(JSON.parse(await readFile(savedPath, "utf8"))).toEqual(payload);
+    expect(offered.flat().filter(name => name.startsWith("legalwork_tool_output_"))).toEqual([]);
+    if (denied) {
+      expect(readResults.join(" ")).not.toContain(payload.result);
+      expect(readResults.join(" ").toLowerCase()).toMatch(/denied|permission|no tool named/);
     } else {
-      expect(recovered.join(" ")).not.toContain("requested section beyond the long line");
-      if (scenario.available) { expect(recovered).toHaveLength(1); expect(recovered[0].toLowerCase()).toMatch(/permission|denied/); }
+      expect(readResults.join(" ")).toContain(payload.result);
+      expect(readResults.join(" ")).toContain("evidence beyond the retention preview");
+      expect(readResults.join(" ")).not.toContain("Preview shortened");
+      expect(grepResults.join(" ")).toContain(payload.result);
+      expect(shellResults.join(" ")).toContain(payload.result);
+      otherChat = true;
+      const sibling = await host.appClient.session.create({ location: host.location, agent: "build" });
+      await host.appClient.session.prompt({ sessionID: sibling.id, text: "Read the saved result from another chat in this project." });
+      await host.client.session.wait({ sessionID: sibling.id }, { signal: AbortSignal.timeout(60000) });
+      expect(readResults).toHaveLength(2);
+      expect(readResults[1]).toContain(payload.result);
+      expect(await readdir(join(host.directory, ".legalwork", "tool-output", chat.id))).toHaveLength(1);
     }
-  } finally {
-    try {
-      if (engine && evidence) {
-        const sessions = await listEngineSessions(engine.client, { directory: engine.directory });
-        await writeFile(join(evidence, "sessions.json"), JSON.stringify(sessions, null, 2));
-        for (const session of sessions) await writeFile(join(evidence, `history-${session.id}.json`), JSON.stringify(await listEngineMessages(engine.client, session.id), null, 2));
-        await writeFile(join(evidence, "scenario.json"), JSON.stringify({ scenario, sessionID, savedPath, offered, childTools, recovered }, null, 2));
-      }
-    } finally { await engine?.close(); fixture.stop(true); }
-  }
-}, 90_000);
+    expect(await readdir(join(host.root, "data", "opencode", "tool-output")).catch(() => [])).toEqual([]);
+  } finally { await host?.close(); fixture.stop(true); }
+}, 90000);
+
+test.skipIf(!binary)("real Code Mode filters full connector intermediates without spilling them", async () => {
+  if (!binary) throw new Error("A released engine is required");
+  let sequence = 0, path = "", complete = 0;
+  const fixture = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
+    if (new URL(request.url).pathname === "/mcp") {
+      if (request.method !== "POST") return new Response(null, { status: 405 });
+      const rpc = z.object({ id: z.union([z.string(), z.number()]).optional(), method: z.string() }).parse(await request.json());
+      if (rpc.id === undefined) return new Response(null, { status: 202 });
+      const result = rpc.method === "initialize" ? { protocolVersion: "2024-11-05", capabilities: { tools: {} }, serverInfo: { name: "fixture", version: "1" } }
+        : rpc.method === "tools/list" ? { tools: [{ name: "large_output", description: "Synthetic large output", inputSchema: { type: "object", properties: {} } }] }
+        : rpc.method === "tools/call" ? { content: [{ type: "text", text: "x".repeat(100000) }] } : {};
+      return Response.json({ jsonrpc: "2.0", id: rpc.id, result });
+    }
+    const input = z.object({ messages: z.array(z.object({ role: z.string(), content: z.unknown() })) }).parse(await request.json());
+    const results = input.messages.filter(message => message.role === "tool");
+    let call: { name: string; input: unknown } | undefined;
+    if (results.length === 0) call = { name: "execute", input: { code: "return search({query:'large_output',limit:1});" } };
+    else if (results.length === 1) {
+      path = JSON.stringify(results[0].content).match(/tools\.[a-zA-Z0-9_.]*large_output/)?.[0] ?? "";
+      call = { name: "execute", input: { code: `const r=await ${path}({});return {complete:JSON.stringify(r).length};` } };
+    } else {
+      const raw = JSON.stringify(results.at(-1)?.content).replaceAll('\\"','"');
+      complete = Number(raw.match(/"complete"\s*:\s*(\d+)/)?.[1] ?? 0);
+    }
+    return nativeChatResponse(call, sequence++);
+  } });
+  let host: Awaited<ReturnType<typeof nativeDomainEngine>> | undefined;
+  try {
+    host = await nativeDomainEngine({ binary, directTools: false, plugins: [join(import.meta.dir, "legalwork-tool-output.ts")], modelURL: fixture.url.origin + "/v1", configuration: {
+      mcp: { servers: { fixture: { type: "remote", url: fixture.url.origin + "/mcp", oauth: false } } }, permissions: [{ action: "*", resource: "*", effect: "allow" }],
+    } });
+    await waitForNativeFixture(host.tools, value => z.array(z.string()).parse(value).some(name => name.includes("large_output")), "code mode connector");
+    const chat = await host.appClient.session.create({ location: host.location, agent: "build" });
+    await host.appClient.session.prompt({ sessionID: chat.id, text: "Filter a large intermediate result in code." });
+    await host.client.session.wait({ sessionID: chat.id }, { signal: AbortSignal.timeout(60000) });
+    expect(path).toContain("large_output"); expect(complete).toBeGreaterThanOrEqual(100000);
+    expect(await readdir(join(host.directory, ".legalwork", "tool-output")).catch(() => [])).toEqual([]);
+    expect(await readdir(join(host.root, "data", "opencode", "tool-output")).catch(() => [])).toEqual([]);
+  } finally { await host?.close(); fixture.stop(true); }
+}, 90000);

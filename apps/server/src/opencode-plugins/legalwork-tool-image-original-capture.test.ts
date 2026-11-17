@@ -59,7 +59,7 @@ test("retention failure is explicit and preserves the completed output without t
 
 test("retrieval tools never recursively retain recovered originals and terminal outer errors discard pending links", async () => {
   const f = await fixture();
-  for (const tool of ["legalwork_history_image_read","legalwork_tool_image_original_read","legalwork_tool_image_original_crop","legalwork_tool_image_original_export","legalwork_tool_output_read"]) {
+  for (const tool of ["legalwork_history_image_read","legalwork_tool_image_original_read","legalwork_tool_image_original_crop","legalwork_tool_image_original_export"]) {
     expect(skipOriginalImageCapture(tool)).toBe(true); await Effect.runPromise(captureToolImageOriginals(f.ctx,f.event(tool),f.ledger));
   }
   expect(f.requests).toEqual([]);

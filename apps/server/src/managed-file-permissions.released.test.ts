@@ -69,7 +69,6 @@ test.skipIf(!binary).each([false, true])("real managed file tools enforce projec
         await ctx.rpc.register(${JSON.stringify(rpc)},{async run(input){
           if(input.tool==='result')return outcomes.get(input.sessionID)||'pending';
           if(input.tool==='start-permission'){outcomes.set(input.sessionID,'pending');void ctx.permission.assert({sessionID:input.sessionID,agent:'legalwork',action:input.input.action,resources:input.input.resources,save:input.input.save}).then(()=>outcomes.set(input.sessionID,'authorized'),()=>outcomes.set(input.sessionID,'rejected'));return 'started'}
-          if(input.tool==='verified-output-read'){await ctx.permission.assert({sessionID:input.sessionID,agent:'legalwork',action:'read',resources:[input.input.path],metadata:{legalworkVerifiedToolOutput:true}});return 'verified'}
           if(input.tool==='start-upload-read'){outcomes.set(input.sessionID,'pending');void ctx.permission.assert({sessionID:input.sessionID,agent:'legalwork',action:'read',resources:[input.input.path],metadata:{browserUpload:true}}).then(()=>outcomes.set(input.sessionID,'authorized'),()=>outcomes.set(input.sessionID,'rejected'));return 'started'}
           const session=await ctx.session.get({sessionID:input.sessionID});
           const tool=(await ctx.tool.list()).find(tool=>tool.name===input.tool.replace(/^start-/,''));
@@ -205,12 +204,6 @@ test.skipIf(!binary).each([false, true])("real managed file tools enforce projec
     await client.permission.reply({ sessionID: sensitiveAlias.id, requestID: aliasSensitiveRequest.id, decision: "once" });
     expect(await waitForOutcome(sensitiveAlias.id)).toContain("sensitive-symlink-target");
     expect(await client.permission.list({ sessionID: sensitiveAlias.id })).toEqual([]);
-    const savedResult = join(outside, "saved-result.txt");
-    await writeFile(savedResult, "verified-private-output");
-    await symlink(savedResult, join(added, "saved-result.txt"), "file");
-    const verifiedOutput = await client.session.create({ location, agent: "legalwork" });
-    expect((await invoke(verifiedOutput.id, "verified-output-read", { path: join(added, "saved-result.txt") })).output).toBe("verified");
-    expect(await client.permission.list({ sessionID: verifiedOutput.id })).toEqual([]);
     const upload = await client.session.create({ location, agent: "legalwork" });
     await invoke(upload.id, "start-upload-read", { path: external });
     const uploadRequest = await pending(upload.id);

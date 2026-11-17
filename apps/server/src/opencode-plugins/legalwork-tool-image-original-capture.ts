@@ -12,7 +12,7 @@ type Content = Exclude<NonNullable<Completed["result"]["content"]>, string>[numb
 export type OriginalCaptureLedger = Map<string, { sessionID: string; originals: ToolImageOriginal[]; unavailable: number }>;
 const callKey = (event: Completed) => JSON.stringify([event.sessionID, event.messageID, event.id]);
 export function skipOriginalImageCapture(tool: string) {
-  return tool === "execute" || tool.startsWith("legalwork_history_image_") || tool.startsWith("legalwork_tool_image_original_") || tool === "legalwork_tool_output_read";
+  return tool === "execute" || tool.startsWith("legalwork_history_image_") || tool.startsWith("legalwork_tool_image_original_");
 }
 function annotate(event: Completed, originals: ToolImageOriginal[], unavailable = 0) {
   const content: Content[] = typeof event.result.content === "string" ? [{ type: "text", text: event.result.content }] : [...(event.result.content ?? [])];
