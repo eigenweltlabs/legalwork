@@ -10,7 +10,6 @@ export type CostAmount = {
   currency: "USD" | "EUR";
   cost: number | null;
   knownCost: number;
-  source: "estimate" | "gateway";
 };
 
 export type CostModel = {

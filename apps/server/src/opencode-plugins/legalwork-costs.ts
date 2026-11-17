@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { Plugin } from "@opencode/plugin";
 import { readFile } from "node:fs/promises";
 import { z } from "zod";
@@ -30,8 +31,8 @@ export default Plugin.define({ id: "legalwork.costs", async setup(ctx) {
   await ctx.session.hook("http.response", async event => {
     const base = admitted.get(event.request);
     const parsedId = z.string().uuid().safeParse(event.response.headers.get("x-litellm-call-id"));
-    if (!base || !parsedId.success) return;
-    const record: GatewayCostRequest = { ...base, requestId: parsedId.data };
+    if (!base) return;
+    const record: GatewayCostRequest = { ...base, requestId: parsedId.success ? parsedId.data : randomUUID() };
     const save = () => recordGatewayCostRequest(directory, record).catch(() => {});
     await save();
     if (!event.response.body) return;

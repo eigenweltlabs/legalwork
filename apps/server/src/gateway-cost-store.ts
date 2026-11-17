@@ -13,10 +13,6 @@ const requestSchema = z.object({
   responseId: z.string().min(1).max(200).regex(/^[a-zA-Z0-9_.:-]+$/).optional(), costEur: z.number().finite().nonnegative().optional(), tokens: gatewayTokensSchema.optional(), completedAt: count.optional(),
 });
 export type GatewayCostRequest = z.infer<typeof requestSchema>;
-export const gatewayReceiptSchema = z.object({ requestId: z.string().min(1).max(200),
-  status: z.enum(["settled", "pending", "missing"]), costEur: z.number().finite().nonnegative().nullable(), source: z.enum(["gateway", "estimate"]) });
-export type GatewayCostReceipt = z.infer<typeof gatewayReceiptSchema>;
-
 function file(directory: string, sessionId: string, suffix: string) {
   return join(directory, `${createHash("sha256").update(sessionId).digest("hex")}.${suffix}.jsonl`);
 }
@@ -54,24 +50,6 @@ export async function readGatewayCostRequests(directory: string, sessionId: stri
     requests.set(parsed.data.requestId, { ...previous, ...parsed.data });
   }
   return [...requests.values()];
-}
-
-export async function readSettledGatewayCosts(directory: string, sessionId: string) {
-  const receipts = new Map<string, GatewayCostReceipt>();
-  for (const line of await lines(file(directory, sessionId, "settled"))) {
-    let value: unknown;
-    try { value = JSON.parse(line); } catch { continue; }
-    const parsed = gatewayReceiptSchema.safeParse(value);
-    if (parsed.success && parsed.data.status === "settled" && parsed.data.costEur !== null)
-      receipts.set(parsed.data.requestId, parsed.data);
-  }
-  return receipts;
-}
-
-export async function saveSettledGatewayCost(directory: string, sessionId: string, receipt: GatewayCostReceipt) {
-  const parsed = gatewayReceiptSchema.parse(receipt);
-  if (parsed.status !== "settled" || parsed.costEur === null) throw new Error("Only settled gateway costs can be persisted.");
-  await append(file(directory, sessionId, "settled"), directory, parsed);
 }
 
 /** OpenAI-compatible usage totals include cached input and reasoning output. */

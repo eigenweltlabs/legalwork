@@ -4,9 +4,9 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { CostUsage } from "@legalwork/types/session-cost";
 import { CostBreakdown, costLabel, formatCost } from "../src/components/chat/cost-indicator";
 
-const usage: CostUsage = { amounts: [{ currency: "USD", cost: 0.032, knownCost: 0.032, source: "estimate" }], calls: 3, unpricedCalls: 0, pendingCalls: 0,
+const usage: CostUsage = { amounts: [{ currency: "USD", cost: 0.032, knownCost: 0.032 }], calls: 3, unpricedCalls: 0, pendingCalls: 0,
   tokens: { input: 100, output: 40, reasoning: 10, cache: { read: 900, write: 200 } },
-  models: [{ providerId: "example", modelId: "internal-model-route", modelName: "Sample model", amounts: [{ currency: "USD", cost: 0.032, knownCost: 0.032, source: "estimate" }], calls: 3,
+  models: [{ providerId: "example", modelId: "internal-model-route", modelName: "Sample model", amounts: [{ currency: "USD", cost: 0.032, knownCost: 0.032 }], calls: 3,
     tokens: { input: 100, output: 40, reasoning: 10, cache: { read: 900, write: 200 } } }],
 };
 describe("cost display", () => {
@@ -20,8 +20,8 @@ describe("cost display", () => {
     expect(formatCost(0.032, "USD", "de")).toContain("0,03");
   });
   test("unknown and partially priced usage stay distinct from zero", () => {
-    expect(costLabel({ amounts: [{ currency: "USD", cost: null, knownCost: 0, source: "estimate" }] })).toBe("Cost unavailable (USD)");
-    expect(costLabel({ amounts: [{ currency: "USD", cost: null, knownCost: 0.1, source: "estimate" }] })).toBe("Partial ~$0.10");
+    expect(costLabel({ amounts: [{ currency: "USD", cost: null, knownCost: 0 }] })).toBe("Cost unavailable (USD)");
+    expect(costLabel({ amounts: [{ currency: "USD", cost: null, knownCost: 0.1 }] })).toBe("Partial ~$0.10");
   });
   test("cost overview keeps model usage and token categories in one collapsed dropdown", () => {
     const html = renderToStaticMarkup(React.createElement(CostBreakdown, { usage, conversation: usage, title: "This answer", busy: true }));
@@ -31,16 +31,16 @@ describe("cost display", () => {
   });
 });
 
-test("mixed currencies are displayed separately with provenance and tiny EUR never rounds to free", () => {
+test("mixed currencies stay separate and tiny EUR never rounds to free", () => {
   expect(costLabel({ amounts: [
-    { currency: "EUR", cost: 0.03, knownCost: 0.03, source: "gateway" },
-    { currency: "USD", cost: 0.02, knownCost: 0.02, source: "estimate" },
-  ] })).toBe("€0.03 + ~$0.02");
+    { currency: "EUR", cost: 0.03, knownCost: 0.03 },
+    { currency: "USD", cost: 0.02, knownCost: 0.02 },
+  ] })).toBe("~€0.03 + ~$0.02");
   expect(formatCost(0.000008, "EUR")).toBe("<€0.01");
   const html = renderToStaticMarkup(React.createElement(CostBreakdown, { title: "This answer", usage: { ...usage,
-    pendingCalls: 1, amounts: [{ currency: "EUR", cost: 0.03, knownCost: 0.03, source: "gateway" }] } }));
+    pendingCalls: 1, amounts: [{ currency: "EUR", cost: 0.03, knownCost: 0.03 }] } }));
   expect(html).toContain("AI cost");
-  expect(html).not.toContain("Estimated AI cost");
+  expect(html).toContain("Estimated AI cost");
   expect(html).toContain("Updating costs");
   expect(html).not.toContain("without conversion");
 });

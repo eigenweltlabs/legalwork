@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type { ServerConfig } from "./types.js";
+import { recordGatewayCostRequest } from "./gateway-cost-store.js";
 import type { CostUsage } from "@legalwork/types/session-cost";
-import type { GatewayCostRequest, GatewayCostReceipt } from "./gateway-cost-store.js";
+import type { GatewayCostRequest } from "./gateway-cost-store.js";
 import type { SessionInfo, SessionMessageInfo, SessionLogOutput } from "@opencode/client";
 import { OpenCode } from "@opencode/client";
 import { applyGatewayCosts, buildSessionCostSummary, readSessionCosts, sessionCostLedger, type UsageCharge, type UsageLedger } from "./session-costs.js";
@@ -163,54 +168,57 @@ describe("session cost accounting", () => {
 });
 
 
-describe("gateway currencies and receipt accounting", () => {
+describe("gateway response cost accounting", () => {
   const request = (id: string, kind: GatewayCostRequest["kind"] = "primary"): GatewayCostRequest => ({
     requestId: id, sessionId: "root", modelId: "Gateway model", kind, createdAt: 20, responseId: `gen-${id}`, tokens: tokens(10, 90), costEur: 0.03,
   });
   const gatewayCharge = { ...charge("gateway-step", 0.99), createdAt: 20, responseId: "gen-one", model: { providerID: "eigenwelt", id: "Gateway model" } };
-  const settled: GatewayCostReceipt = { requestId: "one", status: "settled", source: "gateway", costEur: 0.02 };
-  test("uses settled EUR, keeps direct USD separate, and never adds native USD for a gateway call", () => {
+  test("uses the returned EUR cost, keeps direct USD separate, and ignores native USD pricing for gateway calls", () => {
     const root = ledger("root", [gatewayCharge, charge("direct-step", 0.1)]);
-    const result = buildSessionCostSummary("root", [applyGatewayCosts(root, [request("one")], new Map([["one", settled]]), 100)]);
-    expect(amount(result.total, "EUR")).toBe(0.02);
+    const result = buildSessionCostSummary("root", [applyGatewayCosts(root, [request("one")], 100)]);
+    expect(amount(result.total, "EUR")).toBe(0.03);
     expect(amount(result.total)).toBe(0.1);
     expect(result.total.calls).toBe(2);
-    expect(result.total.amounts.find(amount => amount.currency === "EUR")?.source).toBe("gateway");
   });
-  test("gateway wire cost remains an estimate until settlement, including a genuinely free final charge", () => {
+  test("zero is free only when the gateway explicitly reports it", () => {
     const root = ledger("root", [gatewayCharge]);
-    const estimated = buildSessionCostSummary("root", [applyGatewayCosts(root, [request("one")], new Map(), 100)]);
-    expect(amount(estimated.total, "EUR")).toBe(0.03);
-    expect(estimated.total.pendingCalls).toBe(0);
-    const pending = buildSessionCostSummary("root", [applyGatewayCosts(root, [request("one")], new Map([["one", { ...settled, status: "pending", costEur: null }]]), 100)]);
-    expect(pending.total.pendingCalls).toBe(1);
-    expect(estimated.total.amounts[0]?.source).toBe("estimate");
-    const free = buildSessionCostSummary("root", [applyGatewayCosts(root, [request("one")], new Map([["one", { ...settled, costEur: 0 }]]), 100)]);
+    const free = buildSessionCostSummary("root", [applyGatewayCosts(root, [{ ...request("one"), costEur: 0 }], 100)]);
     expect(amount(free.total, "EUR")).toBe(0);
     expect(free.total.pendingCalls).toBe(0);
+    const missing = buildSessionCostSummary("root", [applyGatewayCosts(root, [{ ...request("one"), costEur: undefined, completedAt: 30 }], 100)]);
+    expect(amount(missing.total, "EUR")).toBeNull();
+    expect(missing.total.pendingCalls).toBe(0);
+    expect(missing.total.unpricedCalls).toBe(1);
   });
-  test("title and retry receipts are counted once and attributed to background or their owning prompt", () => {
+  test("polls unfinished response capture and stops when cost arrives or the capture expires", () => {
+    const root = ledger("root", [gatewayCharge]);
+    const unfinished = { ...request("one"), costEur: undefined };
+    expect(buildSessionCostSummary("root", [applyGatewayCosts(root, [unfinished], 100)]).total.pendingCalls).toBe(1);
+    expect(buildSessionCostSummary("root", [applyGatewayCosts(root, [request("one")], 100)]).total.pendingCalls).toBe(0);
+    expect(buildSessionCostSummary("root", [applyGatewayCosts(root, [unfinished], 400_000)]).total.pendingCalls).toBe(0);
+    expect(amount(buildSessionCostSummary("root", [applyGatewayCosts(root, [], 100)]).total, "EUR")).toBeNull();
+  });
+  test("title and retry responses count once and belong to background or their owning prompt", () => {
     const root = ledger("root", [gatewayCharge]);
     root.tokens = tokens(30, 270); root.promptStarts = [{ id: "msg_user", createdAt: 10 }];
-    const result = buildSessionCostSummary("root", [applyGatewayCosts(root, [request("one"), request("title", "title"), request("retry")], new Map(), 100)]);
+    const result = buildSessionCostSummary("root", [applyGatewayCosts(root, [request("one"), request("title", "title"), request("retry")], 100)]);
     expect(amount(result.total, "EUR")).toBeCloseTo(0.09);
     expect(amount(result.background, "EUR")).toBe(0.03);
     expect(amount(result.prompts[0], "EUR")).toBe(0.06);
     expect(result.total.calls).toBe(3);
     expect(result.total.tokens).toEqual(root.tokens);
   });
-  test("historical response IDs resolve receipts; missing old pricing never looks free", () => {
+  test("OpenCode stays the source of token counts for matched calls", () => {
     const root = ledger("root", [gatewayCharge]);
-    const historic = buildSessionCostSummary("root", [applyGatewayCosts(root, [], new Map([["gen-one", { ...settled, requestId: "gen-one" }]]), 400_000)]);
-    expect(amount(historic.total, "EUR")).toBe(0.02);
-    const missing = buildSessionCostSummary("root", [applyGatewayCosts(root, [], new Map(), 400_000)]);
-    expect(amount(missing.total, "EUR")).toBeNull();
-    expect(missing.total.pendingCalls).toBe(0);
-    expect(missing.total.unpricedCalls).toBe(1);
+    const captured = { ...request("one"), tokens: tokens(999, 999) };
+    const result = buildSessionCostSummary("root", [applyGatewayCosts(root, [captured], 100)]);
+    expect(result.total.tokens).toEqual(root.tokens);
+    expect(result.total.calls).toBe(1);
+    expect(amount(result.total, "EUR")).toBe(0.03);
   });
-  test("an auxiliary receipt replaces its native compaction record", () => {
+  test("an auxiliary response replaces its native compaction record", () => {
     const root = ledger("root", [gatewayCharge, { id: "compaction", costUsd: 0, promptId: "msg_user", usageSource: "compaction", tokens: { cache: { write: 0, read: 90 }, reasoning: 0, output: 0, input: 10 } }]);
-    const result = buildSessionCostSummary("root", [applyGatewayCosts(root, [request("one"), request("compact", "compaction")], new Map(), 100)]);
+    const result = buildSessionCostSummary("root", [applyGatewayCosts(root, [request("one"), request("compact", "compaction")], 100)]);
     expect(result.total.calls).toBe(2);
     expect(amount(result.total, "EUR")).toBe(0.06);
     expect(result.total.models).toHaveLength(1);
@@ -225,7 +233,7 @@ test("gateway calls without native response IDs match their assistant step and p
     { requestId: "one", sessionId: "root", modelId: "Gateway", kind: "primary", createdAt: 11, costEur: 0.02 },
     { requestId: "two", sessionId: "root", modelId: "Gateway", kind: "primary", createdAt: 41, costEur: 0.03 },
   ];
-  const result = buildSessionCostSummary("root", [applyGatewayCosts(root, requests, new Map(), 100)]);
+  const result = buildSessionCostSummary("root", [applyGatewayCosts(root, requests, 100)]);
   expect(result.total.calls).toBe(2);
   expect(amount(result.prompts.find(prompt => prompt.messageId === "msg_one"), "EUR")).toBe(0.02);
   expect(amount(result.prompts.find(prompt => prompt.messageId === "msg_two"), "EUR")).toBe(0.03);
@@ -239,7 +247,51 @@ test("a pending gateway request does not replace the preceding completed assista
     { requestId: "one", sessionId: "root", modelId: "Gateway", kind: "primary", createdAt: 11, costEur: 0.02 },
     { requestId: "two", sessionId: "root", modelId: "Gateway", kind: "primary", createdAt: 42 },
   ];
-  const result = buildSessionCostSummary("root", [applyGatewayCosts(root, requests, new Map(), 100)]);
+  const result = buildSessionCostSummary("root", [applyGatewayCosts(root, requests, 100)]);
   expect(amount(result.prompts.find(prompt => prompt.messageId === "msg_one"), "EUR")).toBe(0.02);
   expect(amount(result.prompts.find(prompt => prompt.messageId === "msg_two"), "EUR")).toBeNull();
+});
+
+
+test("reading gateway costs uses saved response costs without an extra HTTP lookup", async () => {
+  const root = await mkdtemp(join(tmpdir(), "legalwork-response-cost-"));
+  const previousDb = process.env.LEGALWORK_RUNTIME_DB, previousFetch = globalThis.fetch;
+  process.env.LEGALWORK_RUNTIME_DB = join(root, "runtime.sqlite");
+  let externalRequests = 0;
+  globalThis.fetch = Object.assign(async () => { externalRequests++; throw new Error("Unexpected billing lookup"); }, { preconnect: previousFetch.preconnect });
+  try {
+    const workspace = { id: "cost-local", name: "Synthetic", path: root, preset: "starter", workspaceType: "local" } satisfies ServerConfig["workspaces"][number];
+    const config: ServerConfig = { host: "127.0.0.1", port: 0, token: "synthetic-client", hostToken: "synthetic-host",
+      configPath: join(root, "server.json"), approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: [],
+      workspaces: [workspace], authorizedRoots: [root], readOnly: false, startedAt: 1, tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false };
+    // Even a connected account must not cause an API call just to read costs.
+    await writeFile(join(root, "eigenwelt-manifest.json"), JSON.stringify({ baseURL: "https://gateway.example/v1", apiKey: "synthetic-key", models: [] }));
+    const nativeSession = session({ location: { directory: root }, cost: 0, tokens: tokens(10, 90) });
+    const nativeMessages: SessionMessageInfo[] = [messages[0]!, { type: "assistant", id: "msg_gateway", agent: "build",
+      model: { providerID: "eigenwelt", id: "Gateway" }, native: { responseId: "gen-local-cost" },
+      content: [], time: { created: 2 }, cost: 0, tokens: tokens(10, 90) }];
+    const client = OpenCode.make({ baseUrl: "http://native.example", fetch: Object.assign(async (request: Parameters<typeof fetch>[0]) => {
+      const path = new URL(typeof request === "string" ? request : request instanceof URL ? request.href : request.url).pathname;
+      if (path.endsWith("/log")) return new Response(`data: ${JSON.stringify({ type: "log.synced", aggregateID: nativeSession.id, seq: 10 })}\n\n`, { headers: { "content-type": "text/event-stream" } });
+      if (path.endsWith("/message")) return Response.json({ data: nativeMessages, cursor: {} });
+      if (path === "/api/session") return Response.json({ data: [], cursor: {} });
+      if (path === "/api/model") return Response.json({ data: [{ id: "Gateway", providerID: "eigenwelt", name: "Gateway model", cost: [] }] });
+      if (path === `/api/session/${nativeSession.id}`) return Response.json({ data: nativeSession });
+      throw new Error(`Unexpected native request: ${path}`);
+    }, { preconnect: previousFetch.preconnect }) });
+    await recordGatewayCostRequest(join(root, "gateway-costs"), { requestId: "ff55966a-a509-42b0-88b6-43f251d5f512",
+      sessionId: nativeSession.id, modelId: "Gateway", kind: "primary", createdAt: 3, completedAt: 4,
+      responseId: "gen-local-cost", costEur: 0.03 });
+    const result = await readSessionCosts(client, workspace, nativeSession.id, undefined, config);
+    expect(amount(result.total, "EUR")).toBe(0.03);
+    expect(result.total.tokens).toEqual(nativeSession.tokens);
+    expect(result.total.calls).toBe(1);
+    expect(result.total.pendingCalls).toBe(0);
+    expect(externalRequests).toBe(0);
+  } finally {
+    globalThis.fetch = previousFetch;
+    if (previousDb === undefined) delete process.env.LEGALWORK_RUNTIME_DB;
+    else process.env.LEGALWORK_RUNTIME_DB = previousDb;
+    await rm(root, { recursive: true, force: true });
+  }
 });

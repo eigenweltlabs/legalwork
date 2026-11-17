@@ -18,7 +18,7 @@ export function costLabel(usage: Pick<CostUsage, "amounts">, locale = "en", prec
     const value = amount.cost ?? amount.knownCost;
     if (amount.cost === null && value === 0) return `${t("cost.unavailable")} (${amount.currency})`;
     const tiny = value > 0 && value < (precise ? 0.0001 : 0.01);
-    return `${amount.cost === null ? `${t("cost.partial")} ` : ""}${amount.source === "estimate" && !tiny ? "~" : ""}${formatCost(value, amount.currency, locale, precise)}`;
+    return `${amount.cost === null ? `${t("cost.partial")} ` : ""}${!tiny ? "~" : ""}${formatCost(value, amount.currency, locale, precise)}`;
   }).join(" + ");
 }
 const hasCost = (usage: CostUsage) => usage.amounts.some(amount => amount.knownCost > 0) || usage.unpricedCalls > 0;
@@ -29,12 +29,11 @@ export function CostBreakdown({ usage, title, busy = false, conversation, backgr
   const locale = currentLocale();
   const numbers = new Intl.NumberFormat(locale);
   const newInput = usage.tokens.input + usage.tokens.cache.write;
-  const estimated = [usage, ...(conversation ? [conversation] : [])].some(item => item.amounts.some(amount => amount.source === "estimate"));
   const amounts = [{ label: title, value: usage }, ...(conversation ? [{ label: t("cost.session_title"), value: conversation }] : [])];
   const wideAmounts = amounts.some(row => row.value.amounts.length > 1 || row.value.amounts.some(amount => amount.cost === null && amount.knownCost === 0));
   return <>
     <div className="flex items-baseline justify-between gap-3">
-      <h3 className="text-xs font-medium">{t(estimated ? "cost.ai_estimate" : "cost.ai_cost")}</h3>
+      <h3 className="text-xs font-medium">{t("cost.ai_estimate")}</h3>
       {busy && <span className="text-[10px] text-muted-foreground">{t("cost.so_far")}</span>}
     </div>
     <dl className={cn("grid gap-3", wideAmounts ? "grid-cols-1" : "grid-cols-2")}>

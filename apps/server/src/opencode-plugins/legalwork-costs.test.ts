@@ -48,18 +48,14 @@ test("captures gateway identifiers and numeric usage while preserving streamed b
   } finally { await runtime.close(); }
 });
 
-test("ignores other providers, wrong origins, and absent gateway request IDs", async () => {
+test("ignores other providers and wrong origins", async () => {
   const { runtime, directory } = await setup();
   try {
-    for (const input of [event("other"), event("eigenwelt", "https://other.example/v1/chat/completions"), event()]) {
+    for (const input of [event("other"), event("eigenwelt", "https://other.example/v1/chat/completions")]) {
       await runtime.hook("session", "http.request", input);
       const output = { ...input, response: Response.json({ id: "gen-nope", usage: { cost: 99 } }) };
       await runtime.hook("session", "http.response", output);
       expect(await output.response.json()).toMatchObject({ id: "gen-nope" });
-    }
-    for (let attempt = 0; attempt < 50; attempt++) {
-      if ((await readGatewayCostRequests(directory, "ses_sample"))[0]?.completedAt) break;
-      await Bun.sleep(10);
     }
     expect(await readGatewayCostRequests(directory, "ses_sample")).toEqual([]);
   } finally { await runtime.close(); }
@@ -91,5 +87,24 @@ test("captures the usage-only tail even when the native provider stops at finish
       await Bun.sleep(10);
     }
     expect((await readGatewayCostRequests(directory, "ses_sample"))[0]).toMatchObject({ costEur: 0.000008, completedAt: expect.any(Number) });
+  } finally { await runtime.close(); }
+});
+
+
+test("captures the returned cost without a gateway receipt header", async () => {
+  const { runtime, directory } = await setup();
+  try {
+    const input = event(); await runtime.hook("session", "http.request", input);
+    const output = { ...input, response: Response.json({ id: "gen-without-receipt", usage: { cost: 0.0123 } }) };
+    await runtime.hook("session", "http.response", output);
+    expect(await output.response.json()).toEqual({ id: "gen-without-receipt", usage: { cost: 0.0123 } });
+    for (let attempt = 0; attempt < 50; attempt++) {
+      if ((await readGatewayCostRequests(directory, "ses_sample"))[0]?.completedAt) break;
+      await Bun.sleep(10);
+    }
+    const records = await readGatewayCostRequests(directory, "ses_sample");
+    expect(records).toHaveLength(1);
+    expect(records[0]).toMatchObject({ responseId: "gen-without-receipt", costEur: 0.0123 });
+    expect(records[0]?.requestId).toMatch(/^[0-9a-f-]{36}$/);
   } finally { await runtime.close(); }
 });

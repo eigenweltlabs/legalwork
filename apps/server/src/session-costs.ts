@@ -1,8 +1,9 @@
 import type { OpenCodeClient, SessionInfo, SessionMessageInfo, SessionLogOutput } from "@opencode/client";
 import type { CostAmount, CostTokens, CostUsage, SessionCostSummary, PromptCostUsage } from "@legalwork/types/session-cost";
 import { getWorkspaceEngineSession, listEngineMessages, listEngineSessions, workspaceEngineLocation } from "./engine-client.js";
-import { readGatewayCostRequests, type GatewayCostRequest, type GatewayCostReceipt } from "./gateway-cost-store.js";
-import { gatewayCostsDirectory, readGatewayReceipts } from "./eigenwelt-cost-receipts.js";
+import { readGatewayCostRequests, type GatewayCostRequest } from "./gateway-cost-store.js";
+import { join } from "node:path";
+import { runtimeStorageDir } from "./runtime-opencode-config-store.js";
 import type { ServerConfig } from "./types.js";
 import type { WorkspaceInfo } from "./types.js";
 
@@ -15,7 +16,7 @@ export type UsageCharge = {
   costUsd: number | null;
   responseId?: string;
   usageSource?: string;
-  gateway?: { costEur: number | null; pending: boolean; source: CostAmount["source"] };
+  gateway?: { costEur: number | null; pending: boolean };
   extraCall?: boolean;
   tokens: CostTokens;
 };
@@ -54,16 +55,15 @@ function emptyUsage(): CostUsage {
 function chargeAmount(charge: UsageCharge): CostAmount {
   if (charge.model?.providerID === "eigenwelt" || charge.gateway) {
     const cost = charge.gateway?.costEur ?? null;
-    return { currency: "EUR", source: charge.gateway?.source ?? "estimate", cost, knownCost: cost ?? 0 };
+    return { currency: "EUR", cost, knownCost: cost ?? 0 };
   }
-  return { currency: "USD", source: "estimate", cost: charge.costUsd, knownCost: charge.costUsd ?? 0 };
+  return { currency: "USD", cost: charge.costUsd, knownCost: charge.costUsd ?? 0 };
 }
 function addAmount(amounts: CostAmount[], amount: CostAmount) {
   const current = amounts.find(item => item.currency === amount.currency);
   if (!current) { amounts.push({ ...amount }); return; }
   current.knownCost += amount.knownCost;
   current.cost = current.cost === null || amount.cost === null ? null : current.cost + amount.cost;
-  if (amount.source === "estimate") current.source = "estimate";
 }
 function addCharge(usage: CostUsage, charge: UsageCharge) {
   const calls = charge.assistantMessageId || charge.extraCall ? 1 : 0;
@@ -81,19 +81,16 @@ function addCharge(usage: CostUsage, charge: UsageCharge) {
   addTokens(model.tokens, charge.tokens);
 }
 
-/** Match captured calls by provider response ID. A receipt replaces native
- * pricing, never adds a second charge for the same call. Other captured calls
+/** Match gateway response costs to native usage by provider response ID.
+ * OpenCode remains the source of tokens for matched calls. Other captured calls
  * (titles, compaction, retries) remain part of lifetime usage. */
-export function applyGatewayCosts(ledger: UsageLedger, requests: readonly GatewayCostRequest[], receipts: ReadonlyMap<string, GatewayCostReceipt>, now = Date.now()): UsageLedger {
+export function applyGatewayCosts(ledger: UsageLedger, requests: readonly GatewayCostRequest[], now = Date.now()): UsageLedger {
   const charges = ledger.charges.map(charge => ({ ...charge }));
   const consumed = new Set<string>();
-  const cost = (requestId: string, createdAt: number | undefined, fallback?: number) => {
-    const receipt = receipts.get(requestId);
-    return { costEur: receipt?.costEur ?? fallback ?? null,
-      source: receipt?.status === "settled" ? receipt.source : "estimate",
-      pending: receipt?.status === "pending" || receipt?.status !== "settled" && fallback === undefined &&
-        createdAt !== undefined && now - createdAt < 300_000 } satisfies NonNullable<UsageCharge["gateway"]>;
-  };
+  const cost = (request?: GatewayCostRequest): NonNullable<UsageCharge["gateway"]> => ({
+    costEur: request?.costEur ?? null,
+    pending: request !== undefined && request.costEur === undefined && request.completedAt === undefined && now - request.createdAt < 300_000,
+  });
   for (const charge of charges) {
     if (charge.model?.providerID !== "eigenwelt") continue;
     const byResponse = requests.find(request => !consumed.has(request.requestId) && request.responseId && request.responseId === charge.responseId);
@@ -108,7 +105,7 @@ export function applyGatewayCosts(ledger: UsageLedger, requests: readonly Gatewa
       (nextStep === undefined || request.createdAt < nextStep)).sort((a, b) => b.createdAt - a.createdAt)[0];
     const request = byResponse ?? byStep;
     if (request) consumed.add(request.requestId);
-    charge.gateway = cost(request?.requestId ?? charge.responseId ?? charge.id, request?.createdAt ?? charge.createdAt, request?.costEur);
+    charge.gateway = cost(request);
   }
   for (const request of requests) {
     if (consumed.has(request.requestId)) continue;
@@ -120,7 +117,7 @@ export function applyGatewayCosts(ledger: UsageLedger, requests: readonly Gatewa
     const prompt = request.kind === "title" ? null : ledger.promptStarts?.filter(prompt => prompt.createdAt <= request.createdAt)
       .sort((a, b) => b.createdAt - a.createdAt)[0]?.id ?? null;
     const update = { model: { providerID: "eigenwelt", id: request.modelId },
-      gateway: cost(request.requestId, request.createdAt, request.costEur), extraCall: true };
+      gateway: cost(request), extraCall: true };
     if (existing) Object.assign(existing, update);
     else charges.push({ id: `gateway:${request.requestId}`, createdAt: request.createdAt, promptId: prompt,
       costUsd: 0, tokens: request.tokens ?? emptyTokens(), ...update });
@@ -159,7 +156,7 @@ export function buildSessionCostSummary(sessionId: string, ledgers: readonly Usa
     if (remainingCost > 1e-10 || tokenCount(remainder) > 0) charges.push({
       id: `${ledger.id}:unallocated`, promptId: null,
       costUsd: remainingCost > 0 ? remainingCost : null, tokens: remainder,
-      ...(gatewayOnly && remainingCost === 0 ? { gateway: { costEur: null, pending: false, source: "estimate" } } : {}),
+      ...(gatewayOnly && remainingCost === 0 ? { gateway: { costEur: null, pending: false } } : {}),
     });
     for (const charge of charges) {
       addCharge(total, charge);
@@ -263,18 +260,12 @@ export async function readSessionCosts(client: OpenCodeClient, workspace: Worksp
     if (!session || seen.has(session.id)) continue;
     seen.add(session.id);
     const current = await getWorkspaceEngineSession(client, workspace, session.id);
-    const requests = config ? await readGatewayCostRequests(gatewayCostsDirectory(config), session.id) : [];
+    const requests = config ? await readGatewayCostRequests(join(runtimeStorageDir(config), "gateway-costs"), session.id) : [];
     const [ledger, children] = await Promise.all([
       readLedger(client, workspace, current, freeModels, signal, requests.map(request => request.requestId)),
       listEngineSessions(client, { parentID: session.id }),
     ]);
-    if (config) {
-      const lookups = requests.map(request => ({ requestId: request.requestId, responseId: request.responseId }));
-      for (const charge of ledger.charges) if (charge.model?.providerID === "eigenwelt" && charge.responseId &&
-        !requests.some(request => request.responseId === charge.responseId)) lookups.push({ requestId: charge.responseId, responseId: charge.responseId });
-      const receipts = lookups.length ? await readGatewayReceipts(config, session.id, lookups, signal) : new Map<string, GatewayCostReceipt>();
-      ledgers.push(applyGatewayCosts(ledger, requests, receipts));
-    } else ledgers.push(ledger);
+    ledgers.push(applyGatewayCosts(ledger, requests));
     pending.push(...children);
   }
   const summary = buildSessionCostSummary(sessionId, ledgers);
