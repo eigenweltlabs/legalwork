@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -123,6 +123,36 @@ test('required PR workflows have job filtering, and reusable/manual workflows st
     for (const job of Object.values(config.jobs)) {
       for (const dependency of [job.needs ?? []].flat()) assert.ok(config.jobs[dependency], `${file}: unknown dependency ${dependency}`);
     }
+  }
+});
+
+test('the native QEMU smoke check reports a stalled process and preserves nonzero exits', () => {
+  const prepare = parse(readFileSync(new URL('../../.github/actions/prepare-sandbox-runtime/action.yml', import.meta.url), 'utf8'));
+  const step = prepare.runs.steps.find(step => step.name === 'Verify native runtime before reuse or shipping');
+  const code = step.run.match(/node -e '([^']+)'/)[1];
+  for (const [program, expected, timedOut] of [
+    ['setInterval(() => {}, 1000)', 1, true],
+    ['process.exit(7)', 7, false],
+    ['console.log("fixture QEMU version")', 0, false],
+  ]) {
+    const preload = `
+      import assert from 'node:assert/strict';
+      import cp from 'node:child_process';
+      import { syncBuiltinESMExports } from 'node:module';
+      const spawn = cp.spawnSync;
+      cp.spawnSync = (command, args, options) => {
+        assert.deepEqual(args, ['--version']);
+        assert.ok(options.timeout > 0 && options.timeout <= 60000, 'Runtime probe needs a bounded deadline');
+        assert.equal(options.windowsHide, true);
+        return spawn(process.execPath, ['-e', ${JSON.stringify(program)}], { ...options, timeout: ${timedOut ? 200 : 5000} });
+      };
+      syncBuiltinESMExports();
+    `;
+    const result = spawnSync(process.execPath, ['--import', 'data:text/javascript;base64,' + Buffer.from(preload).toString('base64'), '-e', code], {
+      encoding: 'utf8', timeout: 10000,
+    });
+    assert.equal(result.status, expected, result.stderr);
+    if (timedOut) assert.match(result.stderr, /ETIMEDOUT/);
   }
 });
 
