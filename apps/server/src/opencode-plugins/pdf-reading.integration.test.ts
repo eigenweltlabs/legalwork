@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, writeFile, mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PDFDocument } from "pdf-lib";
 import { z } from "zod";
@@ -11,6 +12,8 @@ import { OcrService } from "../ocr/service.js";
 import { nativeMcpEngine } from "../native-mcp-engine.test-support.js";
 import { buildNativePluginFixture } from "./native-plugin-build.test-support.js";
 import { nativeChatResponse } from "./native-domain-engine.test-support.js";
+import { receiveRequestFile } from "../file-upload.js";
+import { PDF_MAX_BYTES } from "../pdf-read-schema.js";
 
 const binary = process.env.LEGALWORK_TEST_OPENCODE_BIN;
 test.skipIf(!binary)("released v2 read and storage reads select PDF pages, require explicit attachments and keep OCR text-only", async () => {
@@ -57,6 +60,15 @@ test.skipIf(!binary)("released v2 read and storage reads select PDF pages, requi
     if (url.pathname.endsWith("/checkout")) return Response.json({ localPath: scenario.file, size: 1000, contentType: "application/pdf", version: "original-v1", writable: false });
     if (url.pathname === "/workspace/fixture/pdf/read") {
       pdfRequests++;
+      if (request.headers.get("content-type") === "application/pdf") {
+        const input = pdfReadOptions.parse(JSON.parse(url.searchParams.get("options") ?? "{}"));
+        const temporary = await mkdtemp(join(tmpdir(), "legalwork-pdf-integration-"));
+        try {
+          const path = join(temporary, "source.pdf");
+          const received = await receiveRequestFile(request, path, PDF_MAX_BYTES);
+          return Response.json(await reader.readFile(path, input, request.signal, received.sha256));
+        } finally { await rm(temporary, { recursive: true, force: true }); }
+      }
       const input = pdfReadOptions.extend({ dataBase64: z.string() }).parse(await request.json());
       return Response.json(await reader.read(new Uint8Array(Buffer.from(input.dataBase64, "base64")), input, request.signal));
     }
@@ -153,7 +165,8 @@ export default Plugin.define({id:'pdf-fixture',async setup(ctx){
         }
       }
       if (scenario.file.endsWith(".pdf") && !scenario.attach) expect(JSON.stringify(tool.state)).toContain("page_sources");
-      if (scenario.attach || !scenario.file.endsWith(".pdf")) { expect(pdfRequests).toBe(before); expect(ocrPages).toHaveLength(previousOcr); }
+      if (!scenario.file.endsWith(".pdf")) expect(pdfRequests).toBe(before);
+      if (scenario.attach) expect(ocrPages).toHaveLength(previousOcr);
       if (!scenario.ocr) expect(ocrPages).toHaveLength(previousOcr);
       if (scenario.file === "scan.pdf" && !scenario.ocr) {
         const output = z.object({ pages_without_embedded_text: z.array(z.number()), complete: z.boolean(), ocr_requested: z.boolean() })

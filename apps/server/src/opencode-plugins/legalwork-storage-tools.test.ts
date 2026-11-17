@@ -8,6 +8,7 @@ import { storageTransferSchema } from "@legalwork/types/file-storage";
 import { PDFDocument } from "pdf-lib";
 import pluginDefinition from "./legalwork-storage-tools.js";
 import { nativePluginTools } from "./native-plugin-test-support.js";
+import { PdfReader } from "../pdf-reader.js";
 const LegalWorkStorageTools = (context = {}) => nativePluginTools(pluginDefinition, context);
 
 type Call = { url: URL; method: string; body: unknown };
@@ -41,6 +42,13 @@ async function fixture(
       expect(request.headers.get("authorization")).toBe("Bearer client-token");
       expect(request.headers.has("x-legalwork-host-token")).toBe(false);
       const url = new URL(request.url);
+      if (url.pathname.endsWith("/pdf/read")) {
+        const input = JSON.parse(url.searchParams.get("options") ?? "{}");
+        const path = join(directory, "reader-input.pdf");
+        await writeFile(path, new Uint8Array(await request.arrayBuffer()));
+        const reader = new PdfReader({ async serviceSnapshot() { throw new Error("OCR not requested"); } });
+        return Response.json(await reader.readFile(path, input, request.signal));
+      }
       const body: unknown = request.method === "GET" ? undefined : await request.json();
       calls.push({ url, method: request.method, body });
       if (url.pathname === "/workspaces")
@@ -333,7 +341,7 @@ test("PDF reader cards use the checked-out filename and retain the remote file i
     const attachment = typeof result.content === "string" ? undefined : result.content?.find(part => part.type === "file");
     expect(attachment?.name).toBe("Rechnung (Signatur).pdf");
     expect(result.output).toMatchObject({ path, local_path: expect.stringContaining("/Rechnung (Signatur).pdf"), extraction: "pdf" });
-    expect(calls.at(-1)?.body).toEqual({ path });
+    expect(calls.find(call => call.url.pathname.endsWith("/checkout"))?.body).toEqual({ path });
   }, false, "Rechnung (Signatur).pdf");
 });
 

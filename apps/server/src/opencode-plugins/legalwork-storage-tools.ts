@@ -322,18 +322,16 @@ export default Plugin.define({
         };
         if (args.format !== "download" && (file.contentType === "application/pdf" || extname(args.path).toLowerCase() === ".pdf")) {
           const handle = await open(local, constants.O_RDONLY | constants.O_NOFOLLOW);
-          let bytes: Buffer;
           try {
             const info = await handle.stat();
-            if (!info.isFile() || info.size > PDF_MAX_BYTES) throw new ApiError(400, "pdf_size", "PDFs must be files of at most 64 MiB.");
-            bytes = await handle.readFile();
+            if (!info.isFile() || info.size > PDF_MAX_BYTES) throw new ApiError(400, "pdf_size", "PDFs must be files of at most 1 GiB.");
+            const result = await pdf.read({ handle, filename: basename(file.localPath) },
+              { attach: args.attach, text: args.text, ocr: args.ocr, pages: args.pages, offset: args.offset, limit: args.max_chars }, context);
+            return new PdfToolResult(nativePdfResult({ ...result, output: JSON.stringify({ ...metadata, ...JSON.parse(result.output) }),
+              metadata: { ...metadata, ...result.metadata } }));
           } finally { await handle.close(); }
-          if (bytes.length > PDF_MAX_BYTES) throw new ApiError(400, "pdf_size", "The PDF exceeds 64 MiB.");
-          const result = await pdf.read({ type: "file", mime: "application/pdf", filename: basename(file.localPath), url: `data:application/pdf;base64,${bytes.toString("base64")}` },
-            { attach: args.attach, text: args.text, ocr: args.ocr, pages: args.pages, offset: args.offset, limit: args.max_chars }, context);
-          return new PdfToolResult(nativePdfResult({ ...result, output: JSON.stringify({ ...metadata, ...JSON.parse(result.output) }),
-            metadata: { ...metadata, ...result.metadata } }));
         }
+
         if (file.documentText) return { ...metadata, ...file.documentText };
         if (file.readError) return { ...metadata, ok: false, code: file.readError.code, error: file.readError.message };
         const page = args.format === "download" ? null : await textPage(local, args.offset, args.max_chars);
