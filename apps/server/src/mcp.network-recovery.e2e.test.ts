@@ -116,9 +116,12 @@ test.skipIf(!nativeMcpBinary)(`OAuth MCPs recover in ${codemode ? "Code Mode" : 
     offline = true; await client.location.reload();
     await waitForNativeFixture(statuses, status => status.notes === "failed" && status.tasks === "failed", "second offline connector failures");
     offline = false;
-    // Admission must recover tools even without a status-bar refresh.
+    // Admission starts recovery without a status-bar refresh and may finish
+    // before the background reconnect. Later turns must regain both tools.
+    await prompt();
+    await waitForNativeFixture(statuses, status => status.notes === "connected" && status.tasks === "connected", "background admission recovery");
+    await waitForNativeFixture(async () => z.array(z.object({ id: z.string() })).parse((await client.rpc.call({ rpcID: "legalwork.mcp-network-fixture", method: "tools", location, input: {} })).output), tools => tools.some(tool => tool.id.includes("notes") && tool.id.includes("mock_echo")) && tools.some(tool => tool.id.includes("tasks") && tool.id.includes("mock_echo")), "background recovery tool catalog");
     const promptAdmission = await prompt();
-    expect(await statuses()).toEqual({ notes: "connected", tasks: "connected" });
     expect(await client.credential.list()).toEqual(savedCredentials);
     expect(await readFile(authored, "utf8")).toBe(savedConfig);
     expect(modelCalls).toBeGreaterThan(0);

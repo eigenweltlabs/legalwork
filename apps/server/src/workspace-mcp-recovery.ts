@@ -70,7 +70,7 @@ export async function recoverWorkspaceMcp(config: ServerConfig, workspace: Works
   }
 }
 
-/** Resolve the saved session location rather than the plugin/client default.
+/** Validate the saved session location before starting background recovery.
  * Internal extraction/connector operations have their own restricted catalog. */
 export async function recoverSessionMcp(config: ServerConfig, workspace: WorkspaceInfo, sessionID: string, signal?: AbortSignal): Promise<void> {
   signal?.throwIfAborted();
@@ -78,6 +78,9 @@ export async function recoverSessionMcp(config: ServerConfig, workspace: Workspa
   if (!await pathWithin(workspaceEngineLocation(workspace).directory, session.location.directory)) {
     throw new ApiError(404, "session_not_found", "This chat does not belong to the project.");
   }
+  signal?.throwIfAborted();
   if (isInternalSession(session) || session.agent === "document-extractor") return;
-  await recoverWorkspaceMcp(config, workspace, session.location.directory, undefined, signal);
+  // Optional connectors must not hold up message admission. Recovery owns its
+  // handshake lifetime and shared connector locks, independently of this send.
+  void recoverWorkspaceMcp(config, workspace, session.location.directory).catch(() => undefined);
 }

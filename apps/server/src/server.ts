@@ -1545,7 +1545,9 @@ async function forwardOpencodeRequest(input: NativeProxyInput) {
   };
   const admissionSessionID = sessionID && method === "POST" && /\/(?:prompt|command|synthetic|shell|compact|fork|generate)$/.test(path) ? sessionID : "";
   if (sessionID && method === "POST" && /\/(?:prompt|command)$/.test(path)) {
-    await recoverWorkspaceMcp(input.config, workspace, sessionDirectory, undefined, input.request.signal);
+    input.request.signal.throwIfAborted();
+    // Keep connector recovery out of the message acknowledgement path.
+    void recoverWorkspaceMcp(input.config, workspace, sessionDirectory).catch(() => undefined);
   }
   const response = input.config.withManagedEngineAdmission && !["GET", "HEAD"].includes(method)
     ? await input.config.withManagedEngineAdmission(admissionSessionID, perform) : await perform();
