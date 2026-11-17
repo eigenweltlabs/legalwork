@@ -156,8 +156,8 @@ export function createServerOcrEngine(input: ServerEngineSettings, resolveApiKey
   const settings = serverEngineSchema.parse(input);
   const adapter = adapters[settings.kind];
   return {
-    // Remote services answer requests independently; two pages at a time stay well within typical rate limits.
-    info: { id: settings.id, label: settings.label, model: settings.model, execution: "remote", regions: settings.kind === "paddleocr" || settings.kind === "mcp-ocr", languages: settings.languages, warnings: [], concurrentPages: 2 },
+    // The Gateway's bounded page pool feeds vLLM; other providers retain their lower limit.
+    info: { id: settings.id, label: settings.label, model: settings.model, execution: "remote", regions: settings.kind === "paddleocr" || settings.kind === "mcp-ocr", languages: settings.languages, warnings: [], concurrentPages: settings.kind === "mcp-ocr" ? 8 : 2 },
     async recognize(page, context) {
       context.signal.throwIfAborted();
       let apiKey: string | undefined;
