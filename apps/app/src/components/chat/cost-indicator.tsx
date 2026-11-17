@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { currentLocale, t } from "@/i18n";
 import { modelDisplayName } from "@/app/utils/models";
 import { Button } from "@/components/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 
 export function formatCost(value: number, currency: CostAmount["currency"], locale = "en", precise = false) {
   const minimum = precise ? 0.0001 : 0.01;
@@ -29,28 +30,26 @@ export function CostBreakdown({ usage, title, busy = false, conversation, backgr
 }) {
   const locale = currentLocale();
   const [selected, setSelected] = useState<string | null>(null);
-  const detailsId = useId();
   const amounts = [{ scope: "answer", label: title, value: usage }, ...(conversation ? [{ scope: "conversation", label: t("cost.session_title"), value: conversation }] : [])];
-  const selectedRow = amounts.find(row => row.scope === selected);
   return <>
     <div className="flex items-baseline justify-between gap-3">
       <h3 className="text-xs font-medium">{t("cost.ai_estimate")}</h3>
       {busy && <span className="text-[10px] text-muted-foreground">{t("cost.so_far")}</span>}
     </div>
-    <div role="group" aria-label={t("cost.usage_details")} className="-mx-2 flex flex-col">
-      {amounts.map(row => <Button key={row.scope} variant="ghost" aria-expanded={selected === row.scope} aria-controls={`${detailsId}-${row.scope}`}
-        onClick={() => setSelected(previous => previous === row.scope ? null : row.scope)}
-        className="h-auto min-h-8 w-full cursor-pointer flex-wrap justify-between gap-x-3 gap-y-1 rounded-md px-2 py-1.5 text-xs font-normal whitespace-normal aria-expanded:bg-transparent">
-        <span className="text-left">{row.label}</span>
-        <span className="ml-auto flex min-w-0 max-w-full items-center gap-2">
-          <span className="min-w-0 text-right font-medium text-foreground tabular-nums">{costLabel(row.value, locale)}</span>
-          <ChevronRight className={cn("size-3 text-muted-foreground/60 transition-transform", selected === row.scope && "rotate-90")} aria-hidden />
-        </span>
-      </Button>)}
+    <div role="group" aria-label={t("cost.usage_details")} className="-mx-2 flex flex-col divide-y divide-border/60">
+      {amounts.map(row => <Collapsible key={row.scope} open={selected === row.scope} onOpenChange={open => setSelected(open ? row.scope : null)}>
+        <CollapsibleTrigger render={<Button variant="ghost" className="h-auto min-h-8 w-full cursor-pointer flex-wrap justify-between gap-x-3 gap-y-1 rounded-md px-2 py-1.5 text-xs font-normal whitespace-normal aria-expanded:bg-transparent" />}>
+          <span className="text-left">{row.label}</span>
+          <span className="ml-auto flex min-w-0 max-w-full items-center gap-2">
+            <span className="min-w-0 text-right font-medium text-foreground tabular-nums">{costLabel(row.value, locale)}</span>
+            <ChevronRight className={cn("size-3 text-muted-foreground/60 transition-transform", selected === row.scope && "rotate-90")} aria-hidden />
+          </span>
+        </CollapsibleTrigger>
+        <CollapsibleContent role="region" aria-label={row.label} className="px-4 pt-2 pb-3">
+          <CostUsageDetails usage={row.value} background={row.scope === "conversation" ? background : undefined} delegated={row.scope === "conversation" ? delegated : undefined} />
+        </CollapsibleContent>
+      </Collapsible>)}
     </div>
-    {selectedRow && <section id={`${detailsId}-${selectedRow.scope}`} aria-label={selectedRow.label}>
-      <CostUsageDetails usage={selectedRow.value} background={selectedRow.scope === "conversation" ? background : undefined} delegated={selectedRow.scope === "conversation" ? delegated : undefined} />
-    </section>}
   </>;
 }
 
@@ -58,7 +57,7 @@ function CostUsageDetails({ usage, background, delegated }: { usage: CostUsage; 
   const locale = currentLocale();
   const numbers = new Intl.NumberFormat(locale);
   const newInput = usage.tokens.input + usage.tokens.cache.write;
-  return <div className="space-y-2.5 border-t border-border/60 pt-3 text-[11px]">
+  return <div className="space-y-2.5 text-[11px]">
     {usage.models.length > 0 && <div className="space-y-2">
       {[...usage.models].sort((a, b) => b.calls - a.calls || (a.modelName ?? a.modelId).localeCompare(b.modelName ?? b.modelId)).map(model => {
         const name = model.modelId ? modelDisplayName(model.modelId, model.modelName) : t("cost.background");

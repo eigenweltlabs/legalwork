@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { fileURLToPath } from "node:url";
 import type { CostUsage } from "@legalwork/types/session-cost";
 import { CostBreakdown, costLabel, formatCost } from "../src/components/chat/cost-indicator";
 
@@ -9,6 +10,14 @@ const usage: CostUsage = { amounts: [{ currency: "USD", cost: 0.032, knownCost: 
   models: [{ providerId: "example", modelId: "internal-model-route", modelName: "Sample model", amounts: [{ currency: "USD", cost: 0.032, knownCost: 0.032 }], calls: 3,
     tokens: { input: 100, output: 40, reasoning: 10, cache: { read: 900, write: 200 } } }],
 };
+test("cost disclosures keep each answer's details before the conversation row", () => {
+  const result = Bun.spawnSync([process.execPath, fileURLToPath(new URL("./fixtures/cost-disclosures.tsx", import.meta.url))], {
+    cwd: fileURLToPath(new URL("..", import.meta.url)), stdout: "pipe", stderr: "pipe",
+  });
+  if (result.exitCode !== 0) throw new Error(new TextDecoder().decode(result.stderr));
+  expect(new TextDecoder().decode(result.stdout)).toContain("Cost disclosure flow passed");
+}, 30_000);
+
 describe("cost display", () => {
   test("small nonzero costs never look free", () => {
     expect(formatCost(0, "USD")).toBe("$0.00");
