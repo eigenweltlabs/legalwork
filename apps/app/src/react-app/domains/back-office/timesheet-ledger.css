@@ -3,10 +3,30 @@
   margin: 0;
   padding: 7px 16px;
   border-bottom: 1px solid var(--bo-border);
-  color: var(--bo-muted);
+  color: var(--muted-foreground);
   font-size: 12px;
   line-height: 1.5;
 }
+.time-storage-notice > summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  cursor: pointer;
+  list-style: none;
+  border-radius: 4px;
+}
+.time-storage-notice > summary::-webkit-details-marker { display: none }
+.time-storage-notice > summary:hover { color: var(--bo-text) }
+.time-storage-notice > summary:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 3px;
+}
+.time-storage-notice > summary svg { flex-shrink: 0; transform: rotate(-90deg) }
+.time-storage-notice[open] > summary svg { transform: rotate(0) }
+.time-storage-details { max-width: 90ch; padding-left: 20px }
+.time-storage-details p { margin: 8px 0 4px }
+.time-record-settings { min-height: 0; overflow: auto; padding: 24px 32px }
 .time-record-draft {
   overflow: auto;
   min-height: 0;
@@ -186,8 +206,9 @@
   flex-wrap: wrap;
   align-items: center;
   flex-shrink: 0;
-  gap: 8px 26px;
-  padding: 10px 18px;
+  gap: 8px 20px;
+  min-height: 48px;
+  padding: 7px 16px;
   border-bottom: 1px solid var(--bo-border);
 }
 .time-section-header h1 {
@@ -195,9 +216,8 @@
   align-items: center;
   gap: 8px;
   margin: 0;
-  font-size: 16px;
+  font-size: 14px;
   font-weight: 600;
-  letter-spacing: -0.025em;
   white-space: nowrap;
 }
 .time-section-header h1 svg {
@@ -206,29 +226,8 @@
 .time-section-header nav {
   display: flex;
   align-items: center;
-  gap: 3px;
+  gap: 8px;
   flex-wrap: wrap;
-}
-.time-section-header nav a {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 29px;
-  padding: 4px 9px;
-  border-radius: 6px;
-  font-size: 12px;
-  color: var(--t-font-color-secondary);
-  text-decoration: none;
-  white-space: nowrap;
-}
-.time-section-header nav a:hover {
-  background: var(--bo-hover);
-  color: var(--bo-text);
-}
-.time-section-header nav a[aria-current="page"] {
-  background: var(--bo-surface);
-  color: var(--bo-text);
-  font-weight: 600;
 }
 .bo-time-toolbar {
   padding: 10px 16px 4px;
@@ -372,9 +371,7 @@
     order: 2;
     width: 100%;
   }
-  .time-section-header nav a {
-    padding: 4px 6px;
-  }
+  .time-record-settings { padding: 20px 16px }
   .bo-time-toolbar {
     padding-inline: 10px;
   }

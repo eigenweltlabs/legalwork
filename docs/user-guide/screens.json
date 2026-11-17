@@ -41,6 +41,16 @@
   ],
   "panels": [
     {
+      "id": "timesheet-storage-notice",
+      "guide": "time-tracking.md",
+      "source": "apps/app/src/react-app/domains/back-office/time-storage-notice.tsx"
+    },
+    {
+      "id": "timesheet-workspace",
+      "guide": "time-tracking.md",
+      "source": "apps/app/src/react-app/domains/back-office/timesheet-workspace.tsx"
+    },
+    {
       "id": "timesheet-directory-proposal",
       "guide": "time-tracking.md",
       "source": "apps/app/src/react-app/domains/back-office/timesheet-record-draft.tsx"

@@ -7,6 +7,7 @@ import { t } from "@/i18n";
 import { applySavedRecord, writeBackOfficeRecord, type BackOfficeState } from "./api";
 import { displayBackOfficeObject } from "./labels";
 import { RecordCreateForm } from "./record-create-form";
+import { TimeStorageNotice } from "./time-storage-notice";
 
 /** Prepare only fields present in the connected directory's model. Saving still
  * uses its normal record permissions, revision history and synchronization. */
@@ -35,7 +36,9 @@ export function TimesheetRecordDraft({ client, directory, state, proposal, onClo
   };
   const initialValues = Object.fromEntries(Object.entries(values).filter(([id]) => object.fields.some(field => field.id === id)));
   return <div className="time-record-draft">
-    <p className="time-storage-notice">{t("timesheets.records_draft_notice")}</p>
+    <TimeStorageNotice title={t("timesheets.records_draft_title")}>
+      <p>{t("timesheets.records_draft_notice")}</p>
+    </TimeStorageNotice>
     <RecordCreateForm object={object} initialRecordId={proposal.key} name={narrative.slice(0, 240)} initialValues={initialValues}
       persistenceNotice={t("timesheets.records_visibility")}
       onCancel={onClose} onCreated={async () => onClose()}

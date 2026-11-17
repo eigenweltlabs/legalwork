@@ -153,8 +153,9 @@
 .bo-workday-controls { min-height:36px }
 .bo-workday-toolbar-space { flex:1 }
 .bo-workday-intro { margin:8px 0 16px; font-size:12px; color:var(--bo-muted) }
-.bo-workday > details:not(.bo-workday-timeline) { border-block:1px solid var(--bo-border); padding:10px 0 }
-.bo-workday > details:not(.bo-workday-timeline)[open] { padding-bottom:16px }
+.bo-workday > details:not(.bo-workday-timeline):not(.time-storage-notice) { border-block:1px solid var(--bo-border); padding:10px 0 }
+.bo-workday > details:not(.bo-workday-timeline):not(.time-storage-notice)[open] { padding-bottom:16px }
+.bo-workday > .time-storage-notice { padding:0; border:0; margin:8px 0 12px }
 .bo-workday-links { display:flex; gap:16px; margin-top:10px; flex-wrap:wrap }
 .bo-workday-links a { color:var(--bo-text); text-underline-offset:3px }
 .bo-workday-duration { display:block; padding-top:3px; font-variant-numeric:tabular-nums; color:var(--bo-muted); font-size:12px }

@@ -1,7 +1,9 @@
 import { useState, type ReactNode } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { List, Sparkles, ListChecks, Settings2, Timer } from "lucide-react";
+import { ArrowUpRight, List, Sparkles, ListChecks, Settings2, Timer } from "lucide-react";
+import { Button } from "twenty-ui/primitives/input";
+import { Button as AppButton } from "@/components/ui/button";
 
 import {
   proposedCharge,
@@ -26,6 +28,9 @@ import { BillingReview } from "./billing-review";
 import { BillingPreferences } from "./billing-preferences";
 import { TimesheetWorkday } from "./timesheet-workday";
 import { TimesheetRecordDraft } from "./timesheet-record-draft";
+import { TimeStorageNotice } from "./time-storage-notice";
+import { TimeSetting, TimeSettingsGroup } from "./time-settings-controls";
+import { LayoutStack } from "../settings/settings-layout";
 
 type SelectedProposal = {
   key: string;
@@ -167,32 +172,38 @@ export function TimesheetWorkspace({
           {tabs
             .filter(({ id }) => id !== "billing-review" || state?.canReview || state?.canManage || (recordsOnly && directory.permissions.finance))
             .map(({ id, label, Icon }) => (
-              <Link
+              <Button
                 key={id}
-                to={timeRoutes[id] + (initialDate ? "?date=" + initialDate : "")}
+                size="sm"
+                variant={page === id ? "soft" : "ghost"}
+                nativeButton={false}
+                role="link"
+                render={<Link to={timeRoutes[id] + (initialDate ? "?date=" + initialDate : "")} />}
+                startIcon={<Icon size={15} />}
                 aria-current={page === id ? "page" : undefined}
               >
-                <Icon size={15} />
                 {label}
-              </Link>
+              </Button>
             ))}
         </nav>
       </header>
       {recordsOnly && (
-        <details className="time-storage-notice">
-          <summary>{t("timesheets.records_notice")}</summary>
+        <TimeStorageNotice title={t("timesheets.records_shared")}>
           <p>{t("timesheets.records_visibility")}</p>
-        </details>
+          <p>{t("timesheets.records_notice")}</p>
+        </TimeStorageNotice>
       )}
       {state && page === "timesheets" && !recordsOnly && (
-        <p className="time-storage-notice">{t(team ? "timesheets.storage_firm" : "timesheets.storage_host")}</p>
+        <TimeStorageNotice title={t(team ? "timesheets.storage_firm_title" : "timesheets.storage_host_title")}>
+          <p>{t(team ? "timesheets.storage_firm" : "timesheets.storage_host")}</p>
+        </TimeStorageNotice>
       )}
       {query.isError && (
         <div className="bo-empty" role="alert">
           {query.error.message}{" "}
-          <button type="button" onClick={() => void query.refetch()}>
+          <AppButton size="sm" variant="outline" onClick={() => void query.refetch()}>
             {t("timesheets.retry")}
-          </button>
+          </AppButton>
         </div>
       )}
       {!query.isError && !state && <div className="bo-loading">{t("timesheets.loading")}</div>}
@@ -233,14 +244,26 @@ export function TimesheetWorkspace({
           state={state} proposal={recordProposal} onClose={() => setRecordProposal(undefined)} />
         : renderRecords("timeEntries"))}
       {recordsOnly && page === "billing-review" && directory.permissions.finance && <>
-        <p className="time-storage-notice">{t("timesheets.records_invoices")}</p>
+        <TimeStorageNotice title={t("timesheets.records_invoices_title")}>
+          <p>{t("timesheets.records_invoices")}</p>
+        </TimeStorageNotice>
         {renderRecords("invoices")}
       </>}
       {recordsOnly && page === "billing-settings" && (
-        <div className="bo-empty">
-          <p>{t("timesheets.records_settings")}</p>
-          <Link to="/back-office/feeAgreements">{t("back_office.feeAgreements.plural")}</Link>
-        </div>
+        <section className="time-record-settings" aria-label={t("timesheets.settings")}>
+          <LayoutStack>
+            <TimeSettingsGroup title={t("timesheets.records_settings_title")}>
+              <TimeSetting title={t("back_office.feeAgreements.plural")} description={t("timesheets.records_agreements_hint")}>
+                <AppButton size="sm" variant="outline" nativeButton={false} role="link" render={<Link to="/back-office/feeAgreements" />}>
+                  {t("timesheets.records_agreements_open")}<ArrowUpRight size={14} />
+                </AppButton>
+              </TimeSetting>
+              <TimeSetting title={t("timesheets.records_workflow_title")} description={t("timesheets.records_settings")}>
+                <span className="text-xs text-muted-foreground">{t("timesheets.records_unavailable")}</span>
+              </TimeSetting>
+            </TimeSettingsGroup>
+          </LayoutStack>
+        </section>
       )}
       {state && !recordsOnly && page === "billing-review" && (
         <BillingReview

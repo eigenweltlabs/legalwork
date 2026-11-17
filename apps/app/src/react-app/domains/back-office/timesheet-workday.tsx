@@ -6,6 +6,7 @@ import { CalendarDays, Settings2, Sparkles } from "lucide-react";
 import { TimeSelect, TimeSetting, TimeSettingsGroup, TimeSwitch } from "./time-settings-controls";
 import { LayoutStack } from "../settings/settings-layout";
 import { Button } from "@/components/ui/button";
+import { TimeStorageNotice } from "./time-storage-notice";
 import {
   captureEnabled,
   sameCaptureAccount,
@@ -119,8 +120,6 @@ export function TimesheetWorkday({
   const recordsOnly = state.service === "records";
   return (
     <section className="bo-workday">
-      <p className="time-storage-notice">{t("timesheets.storage_proposals")}</p>
-      {recordsOnly && <p className="time-storage-notice">{t("timesheets.records_proposals")}</p>}
       <div className="bo-workday-controls">
         <label>
           <CalendarDays size={14} />
@@ -161,6 +160,10 @@ export function TimesheetWorkday({
         </Button>
       </div>
       <p className="bo-workday-intro">{t("timesheets.activity_hint")}</p>
+      <TimeStorageNotice title={t("timesheets.storage_proposals_title")}>
+        <p>{t("timesheets.storage_proposals")}</p>
+        {recordsOnly && <p>{t("timesheets.records_proposals")}</p>}
+      </TimeStorageNotice>
       {settings && (
         <details open={!captureEnabled(settings) || undefined}>
           <summary>
@@ -288,6 +291,7 @@ export function TimesheetWorkday({
                   </Button>
                   <Button
                     size="sm"
+                    variant="outline"
                     title={ledgerDirty ? t("timesheets.ledger.finish_edit") : undefined}
                     disabled={
                       !directory.permissions.edit ||
