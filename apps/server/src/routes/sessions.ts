@@ -451,7 +451,7 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
 
   addRoute(routes, "GET", "/workspace/:id/sessions/:sessionId/costs", "client", async ctx => {
     const workspace = await resolveWorkspace(config, ctx.params.id);
-    return jsonResponse(await readSessionCosts(createEngineClient(config, workspace, { fileReferences: true }), workspace, ctx.params.sessionId, ctx.request.signal));
+    return jsonResponse(await readSessionCosts(createEngineClient(config, workspace, { fileReferences: true }), workspace, ctx.params.sessionId, ctx.request.signal, config));
   });
 
   addRoute(routes, "GET", "/workspace/:id/sessions/:sessionId/snapshot", "client", async (ctx) => {

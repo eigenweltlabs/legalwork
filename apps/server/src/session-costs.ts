@@ -1,6 +1,9 @@
 import type { OpenCodeClient, SessionInfo, SessionMessageInfo, SessionLogOutput } from "@opencode/client";
-import type { CostTokens, CostUsage, SessionCostSummary, PromptCostUsage } from "@legalwork/types/session-cost";
+import type { CostAmount, CostTokens, CostUsage, SessionCostSummary, PromptCostUsage } from "@legalwork/types/session-cost";
 import { getWorkspaceEngineSession, listEngineMessages, listEngineSessions, workspaceEngineLocation } from "./engine-client.js";
+import { readGatewayCostRequests, type GatewayCostRequest, type GatewayCostReceipt } from "./gateway-cost-store.js";
+import { gatewayCostsDirectory, readGatewayReceipts } from "./eigenwelt-cost-receipts.js";
+import type { ServerConfig } from "./types.js";
 import type { WorkspaceInfo } from "./types.js";
 
 export type UsageCharge = {
@@ -10,6 +13,10 @@ export type UsageCharge = {
   assistantMessageId?: string;
   model?: { providerID: string; id: string };
   costUsd: number | null;
+  responseId?: string;
+  usageSource?: string;
+  gateway?: { costEur: number | null; pending: boolean; source: CostAmount["source"] };
+  extraCall?: boolean;
   tokens: CostTokens;
 };
 export type UsageLedger = {
@@ -18,11 +25,15 @@ export type UsageLedger = {
   costUsd: number;
   tokens: CostTokens;
   charges: UsageCharge[];
+  assistantStarts?: { id: string; createdAt: number }[];
+  promptStarts?: { id: string; createdAt: number }[];
   links: { sessionId: string; promptId: string | null; createdAt?: number }[];
 };
 
 const emptyTokens = (): CostTokens => ({ input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } });
 const count = (value: number | undefined) => value !== undefined && Number.isFinite(value) && value >= 0 ? value : 0;
+const sameTokens = (a: CostTokens, b: CostTokens) => a.input === b.input && a.output === b.output &&
+  a.reasoning === b.reasoning && a.cache.read === b.cache.read && a.cache.write === b.cache.write;
 const tokenCount = (tokens: CostTokens) => tokens.input + tokens.output + tokens.reasoning + tokens.cache.read + tokens.cache.write;
 function addTokens(a: CostTokens, b: CostTokens) {
   a.input += b.input; a.output += b.output; a.reasoning += b.reasoning;
@@ -38,23 +49,83 @@ function pricedCost(cost: number | undefined, tokens: CostTokens, model: UsageCh
   return cost > 0 || tokenCount(tokens) === 0 || model && freeModels.has(modelKey(model)) ? cost : null;
 }
 function emptyUsage(): CostUsage {
-  return { costUsd: 0, knownCostUsd: 0, calls: 0, unpricedCalls: 0, tokens: emptyTokens(), models: [] };
+  return { amounts: [], calls: 0, unpricedCalls: 0, pendingCalls: 0, tokens: emptyTokens(), models: [] };
+}
+function chargeAmount(charge: UsageCharge): CostAmount {
+  if (charge.model?.providerID === "eigenwelt" || charge.gateway) {
+    const cost = charge.gateway?.costEur ?? null;
+    return { currency: "EUR", source: charge.gateway?.source ?? "estimate", cost, knownCost: cost ?? 0 };
+  }
+  return { currency: "USD", source: "estimate", cost: charge.costUsd, knownCost: charge.costUsd ?? 0 };
+}
+function addAmount(amounts: CostAmount[], amount: CostAmount) {
+  const current = amounts.find(item => item.currency === amount.currency);
+  if (!current) { amounts.push({ ...amount }); return; }
+  current.knownCost += amount.knownCost;
+  current.cost = current.cost === null || amount.cost === null ? null : current.cost + amount.cost;
+  if (amount.source === "estimate") current.source = "estimate";
 }
 function addCharge(usage: CostUsage, charge: UsageCharge) {
-  const calls = charge.assistantMessageId ? 1 : 0;
+  const calls = charge.assistantMessageId || charge.extraCall ? 1 : 0;
+  const amount = chargeAmount(charge);
   usage.calls += calls;
-  usage.knownCostUsd += charge.costUsd ?? 0;
-  if (charge.costUsd === null) { usage.costUsd = null; usage.unpricedCalls += Math.max(1, calls); }
-  else if (usage.costUsd !== null) usage.costUsd += charge.costUsd;
+  addAmount(usage.amounts, amount);
+  if (charge.gateway?.pending) usage.pendingCalls++;
+  if (amount.cost === null) usage.unpricedCalls += Math.max(1, calls);
   addTokens(usage.tokens, charge.tokens);
   const providerId = charge.model?.providerID ?? "", modelId = charge.model?.id ?? "";
   let model = usage.models.find(item => item.providerId === providerId && item.modelId === modelId);
-  if (!model) { model = { providerId, modelId, costUsd: 0, knownCostUsd: 0, calls: 0, tokens: emptyTokens() }; usage.models.push(model); }
+  if (!model) { model = { providerId, modelId, amounts: [], calls: 0, tokens: emptyTokens() }; usage.models.push(model); }
   model.calls += calls;
-  model.knownCostUsd += charge.costUsd ?? 0;
-  if (charge.costUsd === null) model.costUsd = null;
-  else if (model.costUsd !== null) model.costUsd += charge.costUsd;
+  addAmount(model.amounts, amount);
   addTokens(model.tokens, charge.tokens);
+}
+
+/** Match captured calls by provider response ID. A receipt replaces native
+ * pricing, never adds a second charge for the same call. Other captured calls
+ * (titles, compaction, retries) remain part of lifetime usage. */
+export function applyGatewayCosts(ledger: UsageLedger, requests: readonly GatewayCostRequest[], receipts: ReadonlyMap<string, GatewayCostReceipt>, now = Date.now()): UsageLedger {
+  const charges = ledger.charges.map(charge => ({ ...charge }));
+  const consumed = new Set<string>();
+  const cost = (requestId: string, createdAt: number | undefined, fallback?: number) => {
+    const receipt = receipts.get(requestId);
+    return { costEur: receipt?.costEur ?? fallback ?? null,
+      source: receipt?.status === "settled" ? receipt.source : "estimate",
+      pending: receipt?.status === "pending" || receipt?.status !== "settled" && fallback === undefined &&
+        createdAt !== undefined && now - createdAt < 300_000 } satisfies NonNullable<UsageCharge["gateway"]>;
+  };
+  for (const charge of charges) {
+    if (charge.model?.providerID !== "eigenwelt") continue;
+    const byResponse = requests.find(request => !consumed.has(request.requestId) && request.responseId && request.responseId === charge.responseId);
+    // OpenAI-compatible models do not always retain native.responseId. Their
+    // assistant is created before HTTP starts; bound matching by the next
+    // assistant step, so steering cannot transfer the call to another prompt.
+    const started = charge.createdAt;
+    const starts = ledger.assistantStarts ?? charges.flatMap(item => item.assistantMessageId && item.createdAt !== undefined ? [{ id: item.assistantMessageId, createdAt: item.createdAt }] : []);
+    const nextStep = started === undefined ? undefined : starts.flatMap(item => item.createdAt > started ? [item.createdAt] : []).sort((a, b) => a - b)[0];
+    const byStep = started === undefined ? undefined : requests.filter(request => !consumed.has(request.requestId) &&
+      request.kind === "primary" && request.modelId === charge.model?.id && request.createdAt >= started &&
+      (nextStep === undefined || request.createdAt < nextStep)).sort((a, b) => b.createdAt - a.createdAt)[0];
+    const request = byResponse ?? byStep;
+    if (request) consumed.add(request.requestId);
+    charge.gateway = cost(request?.requestId ?? charge.responseId ?? charge.id, request?.createdAt ?? charge.createdAt, request?.costEur);
+  }
+  for (const request of requests) {
+    if (consumed.has(request.requestId)) continue;
+    // Usage events lack model IDs. Match each auxiliary event once by kind
+    // and exact token buckets; the gateway then supplies its model and price.
+    const requestTokens = request.tokens;
+    const existing = request.kind !== "primary" && requestTokens ? charges.find(charge => !charge.model &&
+      !charge.gateway && charge.usageSource === request.kind && sameTokens(charge.tokens, requestTokens)) : undefined;
+    const prompt = request.kind === "title" ? null : ledger.promptStarts?.filter(prompt => prompt.createdAt <= request.createdAt)
+      .sort((a, b) => b.createdAt - a.createdAt)[0]?.id ?? null;
+    const update = { model: { providerID: "eigenwelt", id: request.modelId },
+      gateway: cost(request.requestId, request.createdAt, request.costEur), extraCall: true };
+    if (existing) Object.assign(existing, update);
+    else charges.push({ id: `gateway:${request.requestId}`, createdAt: request.createdAt, promptId: prompt,
+      costUsd: 0, tokens: request.tokens ?? emptyTokens(), ...update });
+  }
+  return { ...ledger, charges };
 }
 
 /** Each session total is native lifetime spend, independent of the visible or
@@ -83,10 +154,12 @@ export function buildSessionCostSummary(sessionId: string, ledgers: readonly Usa
     // Older/imported records may lack a full event log. Keep the native total
     // and expose its unallocated portion as background, never invent a prompt.
     const remainder = remainingTokens(ledger.tokens, recorded.tokens);
-    const remainingCost = Math.max(0, ledger.costUsd - recorded.knownCostUsd);
+    const remainingCost = Math.max(0, ledger.costUsd - charges.reduce((sum, charge) => sum + (charge.costUsd ?? 0), 0));
+    const gatewayOnly = charges.length > 0 && charges.every(charge => charge.model?.providerID === "eigenwelt");
     if (remainingCost > 1e-10 || tokenCount(remainder) > 0) charges.push({
       id: `${ledger.id}:unallocated`, promptId: null,
       costUsd: remainingCost > 0 ? remainingCost : null, tokens: remainder,
+      ...(gatewayOnly && remainingCost === 0 ? { gateway: { costEur: null, pending: false, source: "estimate" } } : {}),
     });
     for (const charge of charges) {
       addCharge(total, charge);
@@ -99,11 +172,6 @@ export function buildSessionCostSummary(sessionId: string, ledgers: readonly Usa
       if (ledger.id === sessionId && charge.assistantMessageId && !prompt.assistantMessageIds.includes(charge.assistantMessageId)) prompt.assistantMessageIds.push(charge.assistantMessageId);
     }
   }
-  // Canonical totals include title generation and compaction and survive undo.
-  total.knownCostUsd = [...seenSessions].reduce((sum, id) => sum + count(byId.get(id)?.costUsd), 0);
-  if (total.costUsd !== null) total.costUsd = total.knownCostUsd;
-  total.tokens = emptyTokens();
-  for (const id of seenSessions) { const ledger = byId.get(id); if (ledger) addTokens(total.tokens, ledger.tokens); }
   return { sessionId, total, background, delegated, prompts: [...prompts.values()] };
 }
 
@@ -140,7 +208,7 @@ export function sessionCostLedger(session: SessionInfo, messages: readonly Sessi
     }
     if (event.type === "session.usage.recorded") charges.set(event.id, {
       id: event.id, createdAt: event.created, promptId: event.data.source === "compaction" ? promptId : null,
-      costUsd: pricedCost(event.data.cost, event.data.tokens, undefined, freeModels), tokens: event.data.tokens,
+      usageSource: event.data.source, costUsd: pricedCost(event.data.cost, event.data.tokens, undefined, freeModels), tokens: event.data.tokens,
     });
     if (event.type === "session.tool.called") toolStarts.set(event.data.id, event.created);
     if (event.type === "session.tool.success" || event.type === "session.tool.failed") {
@@ -167,11 +235,15 @@ export function sessionCostLedger(session: SessionInfo, messages: readonly Sessi
         model: message.model, costUsd: pricedCost(message.cost, message.tokens, message.model, freeModels), tokens: message.tokens });
     }
   }
-  return { id: session.id, parentId: session.parentID, costUsd: count(session.cost), tokens: session.tokens,
+  for (const charge of charges.values()) {
+    const message = messages.find(message => message.type === "assistant" && message.id === charge.assistantMessageId);
+    if (message?.type === "assistant" && typeof message.native?.responseId === "string") charge.responseId = message.native.responseId;
+  }
+  return { assistantStarts: messages.filter(message => message.type === "assistant").map(message => ({ id: message.id, createdAt: message.time.created })), promptStarts: messages.filter(message => message.type === "user").map(message => ({ id: message.id, createdAt: message.time.created })), id: session.id, parentId: session.parentID, costUsd: count(session.cost), tokens: session.tokens,
     charges: [...charges.values()], links: [...links.values()] };
 }
 
-export async function readSessionCosts(client: OpenCodeClient, workspace: WorkspaceInfo, sessionId: string, signal?: AbortSignal): Promise<SessionCostSummary> {
+export async function readSessionCosts(client: OpenCodeClient, workspace: WorkspaceInfo, sessionId: string, signal?: AbortSignal, config?: ServerConfig): Promise<SessionCostSummary> {
   // Validate the requested project before reading any history or descendants.
   const root = await getWorkspaceEngineSession(client, workspace, sessionId);
   const catalog = await client.model.list({ location: workspaceEngineLocation(workspace) }, { signal }).catch(() => {
@@ -191,11 +263,18 @@ export async function readSessionCosts(client: OpenCodeClient, workspace: Worksp
     if (!session || seen.has(session.id)) continue;
     seen.add(session.id);
     const current = await getWorkspaceEngineSession(client, workspace, session.id);
+    const requests = config ? await readGatewayCostRequests(gatewayCostsDirectory(config), session.id) : [];
     const [ledger, children] = await Promise.all([
-      readLedger(client, workspace, current, freeModels, signal),
+      readLedger(client, workspace, current, freeModels, signal, requests.map(request => request.requestId)),
       listEngineSessions(client, { parentID: session.id }),
     ]);
-    ledgers.push(ledger);
+    if (config) {
+      const lookups = requests.map(request => ({ requestId: request.requestId, responseId: request.responseId }));
+      for (const charge of ledger.charges) if (charge.model?.providerID === "eigenwelt" && charge.responseId &&
+        !requests.some(request => request.responseId === charge.responseId)) lookups.push({ requestId: charge.responseId, responseId: charge.responseId });
+      const receipts = lookups.length ? await readGatewayReceipts(config, session.id, lookups, signal) : new Map<string, GatewayCostReceipt>();
+      ledgers.push(applyGatewayCosts(ledger, requests, receipts));
+    } else ledgers.push(ledger);
     pending.push(...children);
   }
   return buildSessionCostSummary(sessionId, ledgers);
@@ -204,9 +283,9 @@ export async function readSessionCosts(client: OpenCodeClient, workspace: Worksp
 // Cache numbers and IDs only. Unchanged long histories need not be downloaded
 // again every time an agent in another child session finishes a model call.
 const ledgerCache = new Map<string, { signature: string; ledger: UsageLedger }>();
-async function readLedger(client: OpenCodeClient, workspace: WorkspaceInfo, session: SessionInfo, freeModels: ReadonlySet<string>, signal?: AbortSignal) {
+async function readLedger(client: OpenCodeClient, workspace: WorkspaceInfo, session: SessionInfo, freeModels: ReadonlySet<string>, signal?: AbortSignal, gatewayRequestIds: string[] = []) {
   const key = JSON.stringify([workspace.id, workspace.path, session.id]);
-  const signature = JSON.stringify([session.cost, session.tokens, session.time.updated, [...freeModels].sort()]);
+  const signature = JSON.stringify([session.cost, session.tokens, session.time.updated, [...freeModels].sort(), gatewayRequestIds]);
   const cached = ledgerCache.get(key);
   if (cached?.signature === signature) return cached.ledger;
   const [messages, events] = await Promise.all([

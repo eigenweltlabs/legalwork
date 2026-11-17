@@ -16,7 +16,7 @@ export function SessionCostProvider({ client, workspaceId, sessionId, busy, chil
     queryFn: ({ signal }) => client.getSessionCosts(workspaceId, sessionId, signal),
     enabled: prefs.showCosts,
     staleTime: 2_000,
-    refetchInterval: busy && prefs.showCosts ? 4_000 : false,
+    refetchInterval: query => prefs.showCosts && (busy || (query.state.data?.total.pendingCalls ?? 0) > 0) ? 4_000 : false,
     retry: 1,
   });
   const { refetch } = query;

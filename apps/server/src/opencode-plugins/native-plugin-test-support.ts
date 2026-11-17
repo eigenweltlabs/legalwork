@@ -6,7 +6,7 @@ import type { NativePermissionRule } from "../agent-sandbox/permissions.js";
 type Hook = (event: unknown) => Promise<void> | void;
 
 /** A strict fixture for exercising real Plugin.define setup and native hooks without a model. */
-export function nativePluginTestRuntime(directory = "/Users/lawyer/Matter") {
+export function nativePluginTestRuntime(directory = "/Users/lawyer/Matter", options: Record<string, unknown> = {}) {
   const setupDirectory = directory;
   const hooks = new Map<string, Hook[]>();
   const tools = new Map<string, Info>();
@@ -42,6 +42,7 @@ export function nativePluginTestRuntime(directory = "/Users/lawyer/Matter") {
   });
   const ctx = new Proxy({} as Plugin.Context, {
     get(_target, property) {
+      if (property === "options") return options;
       if (property === "location") return { directory: setupDirectory };
       if (property === "session") return {
         get: async ({ sessionID }: { sessionID: string }) => ({ id: sessionID, ...sessions.get(sessionID), location: { directory } }),

@@ -1,19 +1,27 @@
 import { Coins, ChevronDown, RotateCw } from "lucide-react";
 import { useId, useState, type ReactNode } from "react";
-import type { CostUsage } from "@legalwork/types/session-cost";
+import type { CostAmount, CostUsage } from "@legalwork/types/session-cost";
 import { Popover, PopoverTrigger, PopoverContent, PopoverTitle, PopoverDescription } from "@/components/ui/popover";
 import { useSessionCosts } from "@/react-app/domains/session/surface/session-costs";
 import { cn } from "@/lib/utils";
 import { currentLocale, t } from "@/i18n";
 
-export function formatCostUsd(value: number, locale = "en") {
-  if (value > 0 && value < 0.001) return `<${new Intl.NumberFormat(locale, { style: "currency", currency: "USD", minimumFractionDigits: 3, maximumFractionDigits: 3 }).format(0.001)}`;
-  return new Intl.NumberFormat(locale, { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: value < 1 ? 3 : 2 }).format(value);
+export function formatCost(value: number, currency: CostAmount["currency"], locale = "en") {
+  if (value > 0 && value < 0.001) return `<${new Intl.NumberFormat(locale, { style: "currency", currency, minimumFractionDigits: 3, maximumFractionDigits: 3 }).format(0.001)}`;
+  return new Intl.NumberFormat(locale, { style: "currency", currency, minimumFractionDigits: 2, maximumFractionDigits: value < 1 ? 3 : 2 }).format(value);
 }
-export function costLabel(usage: Pick<CostUsage, "costUsd" | "knownCostUsd">, locale = "en") {
-  if (usage.costUsd !== null) return formatCostUsd(usage.costUsd, locale);
-  return usage.knownCostUsd > 0 ? `≥ ${formatCostUsd(usage.knownCostUsd, locale)}` : t("cost.unavailable");
+export function costLabel(usage: Pick<CostUsage, "amounts">, locale = "en") {
+  if (!usage.amounts.length) return formatCost(0, "USD", locale);
+  return usage.amounts.map(amount => {
+    const value = amount.cost ?? amount.knownCost;
+    if (amount.cost === null && value === 0) return `${t("cost.unavailable")} (${amount.currency})`;
+    return `${amount.cost === null ? "≥ " : ""}${amount.source === "estimate" ? "~" : ""}${formatCost(value, amount.currency, locale)}`;
+  }).join(" + ");
 }
+function costSource(usage: CostUsage) {
+  return usage.amounts.map(amount => `${t(amount.source === "gateway" ? "cost.gateway" : "cost.estimate")} · ${amount.currency}`).join(" / ");
+}
+const hasCost = (usage: CostUsage) => usage.amounts.some(amount => amount.knownCost > 0) || usage.unpricedCalls > 0;
 
 export function CostBreakdown({ usage, title, busy = false, background, delegated, inline = false }: {
   usage: CostUsage; title: string; busy?: boolean; background?: CostUsage; delegated?: CostUsage; inline?: boolean;
@@ -33,10 +41,10 @@ export function CostBreakdown({ usage, title, busy = false, background, delegate
     <div className="space-y-2">
       <div className="flex items-center justify-between gap-3">
         <Title className="text-sm font-medium">{title}</Title>
-        <span className="text-[10px] font-medium tracking-wide text-muted-foreground">{t("cost.estimate_usd")}</span>
+        <span className="text-[10px] font-medium tracking-wide text-muted-foreground">{costSource(usage)}</span>
       </div>
       <div className="flex items-baseline gap-2">
-        <span className={cn("font-medium tracking-tight tabular-nums", usage.costUsd === null && usage.knownCostUsd === 0 ? "text-lg" : "text-[28px] leading-tight")}>{costLabel(usage, locale)}</span>
+        <span className={cn("font-medium tracking-tight tabular-nums", usage.amounts.some(amount => amount.cost === null && amount.knownCost === 0) ? "text-lg" : "text-[28px] leading-tight")}>{costLabel(usage, locale)}</span>
         {busy && <span className="text-xs text-muted-foreground">{t("cost.so_far")}</span>}
       </div>
     </div>
@@ -45,15 +53,15 @@ export function CostBreakdown({ usage, title, busy = false, background, delegate
       <div><p className="text-[11px] text-muted-foreground">{t("cost.cached_input")}</p><p className="mt-0.5 text-sm font-medium tabular-nums">{cachePercent}%</p></div>
     </div>
     {usage.models.length > 0 && <div className="space-y-3">
-      {[...usage.models].sort((a, b) => b.knownCostUsd - a.knownCostUsd).map(model => <div key={`${model.providerId}/${model.modelId}`} className="flex items-center justify-between gap-4 text-xs">
+      {[...usage.models].sort((a, b) => b.calls - a.calls || a.modelId.localeCompare(b.modelId)).map(model => <div key={`${model.providerId}/${model.modelId}`} className="flex items-center justify-between gap-4 text-xs">
         <div className="min-w-0"><p className="truncate font-medium" title={model.modelId}>{model.modelId || t("cost.background")}</p>
           {model.providerId && <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{model.providerId}</p>}</div>
         <span className="shrink-0 tabular-nums text-muted-foreground">{costLabel(model, locale)}</span>
       </div>)}
     </div>}
-    {(Boolean(delegated?.calls) || Boolean(background?.knownCostUsd) || Boolean(background?.unpricedCalls)) && <dl className="space-y-2 border-t border-border/70 pt-3 text-xs">
+    {(Boolean(delegated?.calls) || Boolean(background && hasCost(background))) && <dl className="space-y-2 border-t border-border/70 pt-3 text-xs">
       {delegated && delegated.calls > 0 && <div className="flex justify-between gap-4"><dt className="text-muted-foreground">{t("cost.delegated")}</dt><dd className="tabular-nums">{costLabel(delegated, locale)}</dd></div>}
-      {background && (background.knownCostUsd > 0 || background.unpricedCalls > 0) && <div className="flex justify-between gap-4"><dt className="text-muted-foreground">{t("cost.background")}</dt><dd className="tabular-nums">{costLabel(background, locale)}</dd></div>}
+      {background && hasCost(background) && <div className="flex justify-between gap-4"><dt className="text-muted-foreground">{t("cost.background")}</dt><dd className="tabular-nums">{costLabel(background, locale)}</dd></div>}
     </dl>}
     <details className="group/tokens border-t border-border/70 pt-3 text-xs">
       <summary className="flex cursor-pointer list-none items-center gap-1.5 rounded-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
@@ -68,8 +76,9 @@ export function CostBreakdown({ usage, title, busy = false, background, delegate
       </dl>
       <p className="mt-3 text-[11px] leading-relaxed text-muted-foreground">{t("cost.token_help")}</p>
     </details>
+    {usage.pendingCalls > 0 && <p role="status" className="text-[11px] leading-relaxed text-muted-foreground">{t("cost.settling")}</p>}
     <Description className="border-t border-border/70 pt-3 text-[11px] leading-relaxed text-muted-foreground">
-      {usage.costUsd === null ? `${t("cost.partial_help")} ` : ""}{t("cost.estimate_help")}
+      {usage.unpricedCalls > 0 ? `${t("cost.partial_help")} ` : ""}{t("cost.estimate_help")} {usage.amounts.some(amount => amount.currency === "EUR") && t("cost.gateway_help")}
     </Description>
   </>;
 }
@@ -80,10 +89,10 @@ function SessionCostPopover({ usage, busy = false, pending = false, failed = fal
   const title = t("cost.session_title");
   const amount = pending ? t("cost.loading") : usage ? costLabel(usage, currentLocale()) : t("cost.unavailable");
   return <Popover>
-    <PopoverTrigger aria-label={`${title}: ${amount}`} className="inline-flex h-7 max-w-full shrink-0 items-center gap-1.5 rounded-md border border-border/60 bg-background/90 px-2.5 text-[11px] text-muted-foreground shadow-xs backdrop-blur-md transition-colors hover:bg-muted/65 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+    <PopoverTrigger aria-label={`${title}: ${amount}`} className="inline-flex min-h-7 max-w-full shrink-0 items-center gap-1.5 rounded-md border border-border/60 bg-background/90 px-2.5 text-[11px] text-muted-foreground shadow-xs backdrop-blur-md transition-colors hover:bg-muted/65 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
       <Coins className="size-3 shrink-0 opacity-65" aria-hidden />
       {usage && !pending && <span className="truncate">{t("cost.session")} ·</span>}
-      <span className="shrink-0 whitespace-nowrap tabular-nums">{usage?.costUsd !== null && usage && !pending ? "~" : ""}{amount}</span>
+      <span className="min-w-0 whitespace-normal text-left tabular-nums">{amount}</span>
       {busy && usage && <span className="text-muted-foreground/70">{t("cost.so_far")}</span>}
       <ChevronDown className="size-2.5 shrink-0 opacity-50" aria-hidden />
     </PopoverTrigger>
@@ -116,9 +125,9 @@ export function CostRow({ children, className, usage, busy, pending, failed, ref
       {children}
       <button type="button" aria-label={`${title}: ${amount}`} aria-expanded={open} aria-controls={detailsId}
         onClick={() => setOpen(previous => !previous)}
-        className="inline-flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-1.5 text-[11px] text-muted-foreground transition-colors hover:bg-muted/65 hover:text-foreground aria-expanded:bg-muted/65 aria-expanded:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+        className="inline-flex min-h-7 max-w-full shrink-0 items-center gap-1.5 rounded-md px-1.5 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-muted/65 hover:text-foreground aria-expanded:bg-muted/65 aria-expanded:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
         <Coins className="size-3 shrink-0 opacity-65" aria-hidden />
-        <span className="shrink-0 tabular-nums">{usage?.costUsd !== null && usage && !pending ? "~" : ""}{amount}</span>
+        <span className="min-w-0 whitespace-normal text-left tabular-nums">{amount}</span>
         <ChevronDown className={cn("size-2.5 shrink-0 opacity-50 transition-transform", open && "rotate-180")} aria-hidden />
       </button>
     </div>

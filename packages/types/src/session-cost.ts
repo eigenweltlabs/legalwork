@@ -5,20 +5,27 @@ export type CostTokens = {
   cache: { read: number; write: number };
 };
 
+/** Currencies remain separate; a mixed chat never silently adds EUR to USD. */
+export type CostAmount = {
+  currency: "USD" | "EUR";
+  cost: number | null;
+  knownCost: number;
+  source: "estimate" | "gateway";
+};
+
 export type CostModel = {
   providerId: string;
   modelId: string;
-  costUsd: number | null;
-  knownCostUsd: number;
+  amounts: CostAmount[];
   calls: number;
   tokens: CostTokens;
 };
 
 export type CostUsage = {
-  costUsd: number | null;
-  knownCostUsd: number;
+  amounts: CostAmount[];
   calls: number;
   unpricedCalls: number;
+  pendingCalls: number;
   tokens: CostTokens;
   models: CostModel[];
 };
