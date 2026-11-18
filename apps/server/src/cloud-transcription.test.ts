@@ -19,7 +19,7 @@ async function fixture() {
     readOnly: false, startedAt: Date.now(), tokenSource: "cli", hostTokenSource: "cli", logFormat: "pretty", logRequests: false,
   };
   const model = { model: "gemini-transcribe-live-eu", name: "Gemini", region: "EU", enabled: true, available: true };
-  let remote = { baseURL: "https://api.example.com", models: [model] };
+  let remote: { baseURL: string; transport?: string; models: Array<typeof model> } = { baseURL: "https://api.example.com", models: [model] };
   let onRequest = async () => {};
   const platform = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
     // Other server suites can still be finishing a background sync while this
@@ -52,6 +52,16 @@ test("the settings expose model access without keys; the trusted connection pins
   expect(connection.url).toBe("wss://api.example.com/v1/transcription/live?model=gemini-transcribe-live-eu");
   expect(connection.apiKey).toBe("subscription-secret");
   expect(connection.region).toBe("EU");
+});
+
+test("a region that advertises gRPC speech gets the same pinned gateway over HTTP/2", async () => {
+  const { config, setRemote, model } = await fixture();
+  setRemote({ baseURL: "https://api.example.com", transport: "grpc", models: [model] });
+  expect((await cloudTranscriptionConnection(config, model.model)).url).toBe("grpcs://api.example.com/v1/transcription/live?model=gemini-transcribe-live-eu");
+  setRemote({ baseURL: "https://api.example.com", transport: "future-transport", models: [model] });
+  expect((await cloudTranscriptionConnection(config, model.model)).url).toBe("wss://api.example.com/v1/transcription/live?model=gemini-transcribe-live-eu");
+  setRemote({ baseURL: "https://other.example.com", transport: "grpc", models: [model] });
+  await expect(cloudTranscriptionConnection(config, model.model)).rejects.toThrow("unavailable");
 });
 
 test("disabled models and a different gateway cannot receive audio or the subscription key", async () => {

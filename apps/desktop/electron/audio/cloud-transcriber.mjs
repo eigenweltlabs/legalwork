@@ -1,6 +1,7 @@
 import { EventEmitter } from "node:events";
 import WebSocket from "ws";
 import { DeferredCloudSpeakerPass } from "./deferred-cloud-speakers.mjs";
+import { GrpcSpeechSocket, isGrpcSpeechUrl } from "./grpc-speech-socket.mjs";
 import { createDictationSpeechDetector } from "./dictation-speech.mjs";
 
 const RATE = 16000;
@@ -25,7 +26,7 @@ export function pcm16(buffer) {
 
 /** Worker-compatible transport, so capture, shortcuts and transcript storage stay shared. */
 export class CloudTranscriber extends EventEmitter {
-  constructor({ modelId, language, resolveConnection, socketFactory = (url, options) => new WebSocket(url, options), rotateMs = ROTATE_MS, reconnectDelayMs = 1000, onSpeakerPass = null, createVoiceVerifier = null, createSpeechDetector = createDictationSpeechDetector }) {
+  constructor({ modelId, language, resolveConnection, socketFactory = (url, options) => isGrpcSpeechUrl(url) ? new GrpcSpeechSocket(url, options) : new WebSocket(url, options), rotateMs = ROTATE_MS, reconnectDelayMs = 1000, onSpeakerPass = null, createVoiceVerifier = null, createSpeechDetector = createDictationSpeechDetector }) {
     super();
     this.modelId = modelId;
     this.language = language;

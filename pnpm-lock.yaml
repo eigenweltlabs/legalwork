@@ -445,6 +445,9 @@ importers:
       '@google-cloud/storage':
         specifier: ^8.0.1
         version: 8.0.1
+      '@grpc/grpc-js':
+        specifier: 1.14.4
+        version: 1.14.4
       '@legalwork/opencode-release':
         specifier: workspace:*
         version: link:../../packages/opencode-release
