@@ -1,12 +1,12 @@
 import { t } from "@/i18n";
-import type { BackOfficeField, BackOfficeValue } from "@legalwork/types/back-office";
+import { backOfficeMajorAmount, backOfficeMoneyFromMajor, type BackOfficeField, type BackOfficeMoney, type BackOfficeValue } from "@legalwork/types/back-office";
 
-function isCurrency(value: BackOfficeValue | undefined): value is Extract<BackOfficeValue, { amountMinor: number }> {
+function isCurrency(value: BackOfficeValue | undefined): value is BackOfficeMoney {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 export function cellInputText(value: BackOfficeValue | undefined) {
-  if (isCurrency(value)) return String(value.amountMinor / 100);
+  if (isCurrency(value)) return String(backOfficeMajorAmount(value));
   if (Array.isArray(value)) return value.join(", ");
   return String(value ?? "");
 }
@@ -25,5 +25,6 @@ export function parseCellInput(type: BackOfficeField["type"], text: string, prev
   const number = Number(text);
   if (!Number.isFinite(number)) throw new Error(t("back_office.enter_number"));
   if (type === "number") return number;
-  return { amountMinor: Math.round(number * 100), currency: isCurrency(previous) ? previous.currency : "EUR" };
+  if (isCurrency(previous) && number === backOfficeMajorAmount(previous)) return previous;
+  return backOfficeMoneyFromMajor(number, isCurrency(previous) ? previous.currency : "EUR");
 }

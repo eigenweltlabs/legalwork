@@ -48,6 +48,8 @@ const policy: TimePolicy = {
   effectiveFrom: "2000-01-01",
   revision: 1,
   reviewerId: "partner",
+  hourlyRate: 300,
+  currency: "EUR",
 };
 const row: TimeEntry = {
   id: "a",
@@ -275,7 +277,12 @@ try {
   assert.equal(mixed.unresolved, 1);
   const smallFee = { ...row, currency: "EUR", billableMinutes: 60, hourlyRate: 0.1 };
   assert.equal(feeTotals([smallFee, smallFee, smallFee]).byCurrency.get("EUR"), 0.3);
-  await render(<BillingPreferences state={{ ...actor, scope: "local" }} onCommand={command} />);
+  await render(
+    <BillingPreferences
+      state={{ ...actor, scope: "local", policies: [{ ...policy, hourlyRate: undefined, currency: undefined }] }}
+      onCommand={command}
+    />,
+  );
   const toggle = host.querySelector<HTMLButtonElement>(
     '[role="switch"][aria-label="Enforce billing increment"]',
   );
@@ -432,6 +439,39 @@ try {
   await click(field('input[aria-label="Select entry: Researching"]'));
   await click(match("Check billing text"));
   assert.match(host.textContent ?? "", /No wording changes suggested/);
+
+  const missingPrice = { ...row, id: "unpriced", hourlyRate: undefined, suggestion: undefined };
+  const unpricedPolicy = { ...policy, hourlyRate: undefined };
+  await draw({ ...actor, entries: [missingPrice], policies: [unpricedPolicy] });
+  await click(match("Pricing"));
+  assert.match(host.textContent ?? "", /Set an hourly rate and currency/);
+  await click(field('input[aria-label="Select all eligible positions"]'));
+  assert.ok(match("Approve selection").disabled);
+
+  const historical = { ...missingPrice, status: "approved" as const, revision: 5 };
+  await draw({ ...actor, entries: [historical] });
+  await select("View", "approved");
+  await click(field('input[aria-label="Select all eligible positions"]'));
+  assert.ok(match("Preview invoice").disabled);
+  const returnButton = match("Return for pricing review");
+  assert.ok(returnButton.disabled);
+  await write(field('input[aria-label="Reason for returning"]'), "Apply the agreed hourly rate");
+  await click(returnButton);
+  assert.deepEqual(calls.at(-1), {
+    type: "return", entries: [{ id: historical.id, revision: 5 }], reason: "Apply the agreed hourly rate",
+  });
+
+  await draw({ ...actor, entries: [{ ...historical, nonHourlyApproval: true }] });
+  await click(match("Pricing"));
+  assert.match(host.textContent ?? "", /tracks time separately from its fee/);
+  await click(field('input[aria-label="Select all eligible positions"]'));
+  assert.ok(match("Preview invoice").disabled);
+  assert.ok(!host.textContent?.includes("Return for pricing review"));
+
+  await draw({ ...actor, entries: [{ ...row, status: "approved" }], policies: [{ ...policy, maxMinutes: 30 }] });
+  assert.equal(host.querySelector('[aria-label="10 min over limit"]'), null);
+  await click(field('input[aria-label="Select all eligible positions"]'));
+  assert.ok(!match("Preview invoice").disabled);
   console.log("Billing review passed");
 } finally {
   await act(async () => root.unmount());

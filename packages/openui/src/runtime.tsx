@@ -11,6 +11,7 @@ import { Tag } from "@openuidev/react-ui/Tag";
 import { Callout } from "@openuidev/react-ui/Callout";
 import { Input } from "@openuidev/react-ui/Input";
 import { ThemeProvider } from "@openuidev/react-ui/ThemeProvider";
+import { BackOfficeMoneySchema, backOfficeMajorAmount } from "@legalwork/types/back-office";
 import { isLocalOpenUIProgram, schemas, SourceOwnerSchema, type SourceOwner } from "./catalog";
 
 type Row = Record<string, unknown>;
@@ -50,8 +51,10 @@ function display(value: unknown, locale?: string): string {
   if (value === null || value === undefined) return "";
   if (typeof value === "number" && Number.isFinite(value)) return formatNumber(value, locale);
   if (Array.isArray(value)) return value.map(item => display(item, locale)).join(", ");
-  if (typeof value === "object" && "amountMinor" in value && typeof value.amountMinor === "number" && "currency" in value && typeof value.currency === "string" && /^[A-Z]{3}$/.test(value.currency)) return formatNumber(value.amountMinor / 100, locale, value.currency);
-  if (typeof value === "object") return JSON.stringify(value);
+  if (typeof value === "object") {
+    const money = BackOfficeMoneySchema.safeParse(value);
+    return money.success ? formatNumber(backOfficeMajorAmount(money.data), locale, money.data.currency) : JSON.stringify(value);
+  }
   if (typeof value === "boolean") return value ? (locale === "de" ? "Ja" : "Yes") : (locale === "de" ? "Nein" : "No");
   return String(value);
 }

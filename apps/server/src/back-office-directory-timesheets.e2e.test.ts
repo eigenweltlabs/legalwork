@@ -110,7 +110,7 @@ test("a firm without a workflow service uses existing records; private evidence 
     expect(captureStateSchema.parse(await (await api("/private-timesheet/workday?" + context)).json()).drafts[proposal.key].values.billingNarrative).toBe("PRIVATE edited wording");
     expect((await api("/private-timesheet/workday?" + context, { ...draftAction, proposalDigest: "f".repeat(64) })).status).toBe(409);
     const booking = { timekeeperUserId: "worker", id: proposal.key, create: true, revision: 0, objectId: "timeEntries", values: { name: "Confirmed research", billingNarrative: "Confirmed research", status: "Draft",
-      matter: matter.id, client: client.id, startedAt: proposal.startAt, endedAt: proposal.endAt, recordedMinutes: 13, billableMinutes: 20 },
+      matter: matter.id, client: client.id, serviceDate: proposal.date, startedAt: proposal.startAt, endedAt: proposal.endAt, recordedMinutes: 13, billableMinutes: 20 },
       privateProposal: { key: proposal.key, digest: proposal.digest, profileId: profile.profileId } };
     expect((await api("/back-office/records", booking, false)).status).toBe(403);
     expect((await api("/back-office/records", { ...booking, privateProposal: { ...booking.privateProposal, profileId: "another" } })).status).toBe(409);
@@ -136,8 +136,12 @@ test("a firm without a workflow service uses existing records; private evidence 
     privateState.originals[another.digest] = another;
     await writeFile(profile.path, JSON.stringify(privateState));
     const reconcile = { type: "reconcile", key: another.key, digest: another.digest, recordId: proposal.key };
-    expect((await api("/private-timesheet/workday?" + context, reconcile)).status).toBe(200);
-    expect((await api("/private-timesheet/workday?" + context, reconcile)).status).toBe(200);
+    const revision = store.raw("firm", proposal.key)?.revision;
+    expect(revision).toBeGreaterThan(0);
+    expect((await api("/private-timesheet/workday?" + context, reconcile)).status).toBe(400);
+    const link = { ...reconcile, recordRevision: revision };
+    expect((await api("/private-timesheet/workday?" + context, link)).status).toBe(200);
+    expect((await api("/private-timesheet/workday?" + context, link)).status).toBe(200);
     expect(store.records("firm", access.actor, "timeEntries")).toHaveLength(1);
     expect(captureStateSchema.parse(await (await api("/private-timesheet/workday?" + context)).json()).proposals.some(item => item.key === another.key)).toBe(false);
     await expect(acceptPrivateProposal(config, profile, another.key, another.digest, async () => "duplicate", "record")).rejects.toMatchObject({ status: 409 });
@@ -162,7 +166,7 @@ test("a firm without a workflow service uses existing records; private evidence 
     expect(new Uint8Array(await downloaded.arrayBuffer())).toEqual(pdf);
     const dateOnlyId = crypto.randomUUID();
     const dateOnly = await api("/back-office/records", { id: dateOnlyId, create: true, revision: 0, objectId: "timeEntries", timekeeperUserId: "worker",
-      values: { ...booking.values, name: "Date-only service", billingNarrative: "Date-only service", startedAt: "2026-11-18", endedAt: null } });
+      values: { ...booking.values, name: "Date-only service", billingNarrative: "Date-only service", serviceDate: "2026-11-18", startedAt: "2026-11-18", endedAt: null } });
     expect(dateOnly.status).toBe(200);
     await syncBackOffice(config);
     expect(records.get(dateOnlyId)?.values.startedAt).toBe("2026-11-18");

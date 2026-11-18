@@ -27,7 +27,6 @@ import {
 import { Button } from "twenty-ui/primitives/input";
 import {
   nonBillableWork,
-  proposedStopwatchCharge,
   requiresTimeAllocations,
   resolveTimePolicy,
   timeActivities,
@@ -37,7 +36,7 @@ import {
   type TimesheetState,
 } from "@legalwork/types/timesheet";
 import { t } from "@/i18n";
-import { captureChargeMinutes, type CaptureProposal } from "@legalwork/types/time-capture";
+import type { CaptureProposal } from "@legalwork/types/time-capture";
 import { useLocale } from "@/i18n/use-locale";
 import { decodeTimeRow, encodeTimeRow, timeRowMime } from "./timesheet-clipboard";
 import {
@@ -47,11 +46,13 @@ import {
   emptyRow,
   fromDraft,
   localDate,
+  matchMatter,
   matterOptions,
   offsetDate,
   parseRow,
   productOptions,
   rowColumns,
+  stopwatchRowCharge,
   weekDates,
   workerOptions,
   type RowColumn,
@@ -59,6 +60,7 @@ import {
 } from "./timesheet-row";
 import { AdjustmentRequest } from "./timesheet-adjustment";
 import { useTimesheetColumns } from "./timesheet-columns";
+import { TimesheetWeekTotals } from "./timesheet-week-totals";
 import "./timesheet-ledger.css";
 
 export type InitialTimesheetDraft = {
@@ -216,8 +218,10 @@ export function TimesheetLedger({
   const matters = useMemo(() => matterOptions(state), [state.matters, state.clients, state.projects]);
   const people = useMemo(() => workerOptions(state), [state.people, state.userId, locale]);
   const person = (id: string) => people.find((p) => p.id === id)?.label ?? id;
-  const [date, setDate] = useState(initialDraft?.entry.date ?? initialDate ?? localDate(new Date()));
+  const [ledgerDate, setLedgerDate] = useState(initialDraft?.entry.date ?? initialDate ?? localDate(new Date()));
   const [period, setPeriod] = useState<"day" | "week">("day");
+  const date = capture?.date ?? ledgerDate;
+  const dates = capture?.dates ?? (period === "week" ? weekDates(date) : [date]);
   function capFor(
     entry: Pick<TimeDraft, "clientId" | "matterId" | "projectId" | "date" | "activity" | "billableMinutes">,
   ) {
@@ -233,19 +237,11 @@ export function TimesheetLedger({
   }
   const own = person(state.userId);
   const restored = Object.entries(capture?.drafts ?? {}).find(([, item]) => item.values.workflow && !item.proposalDigest);
-  const [draft, setDraft] = useState(() => {
-    const initial = fromDraft(initialDraft?.entry ?? {}, own, date, state, matters);
-    if (!restored || initialDraft) return initial;
-    const fields = restored[1].values;
-    for (const column of rowColumns) if (typeof fields[column] === "string") initial[column] = fields[column];
-    if (typeof fields.billable === "boolean") initial.billable = fields.billable;
-    if (typeof fields.productId === "string") initial.productId = fields.productId;
-    if (typeof fields.createProduct === "boolean") initial.createProduct = fields.createProduct;
-    return initial;
-  });
+  const [draft, setDraft] = useState(() => fromDraft(initialDraft?.entry ?? {}, own, date, state, matters));
   const [draftChanged, setDraftChanged] = useState(false);
-  const [requestId, setRequestId] = useState(() => initialDraft?.key ?? restored?.[0] ?? crypto.randomUUID());
+  const [requestId, setRequestId] = useState(() => initialDraft?.key ?? crypto.randomUUID());
   const privateQueue = useRef(Promise.resolve());
+  const restoredKeys = useRef(new Set<string>());
   const [provenance, setProvenance] = useState(initialDraft?.source);
   const [edit, setEdit] = useState<Edit | null>(null);
   const [selected, setSelected] = useState("");
@@ -258,17 +254,30 @@ export function TimesheetLedger({
   const editing = Boolean(edit || draftChanged || provenance);
   useEffect(() => onEditingChange?.(editing), [editing, onEditingChange]);
   useEffect(() => {
-    if (initialDate && initialDate !== date && !editing) {
-      setDate(initialDate); setDraft(current => ({ ...current, date: initialDate }));
-    }
+    if (!capture && initialDate && !editing) setLedgerDate(initialDate);
   }, [initialDate, editing]);
-  const week = weekDates(date);
+  useEffect(() => {
+    if (!editing) setDraft(current => current.date === date ? current : { ...current, date });
+  }, [date, editing]);
+  const restoredKey = restored?.[0], restoredFields = restored?.[1].values;
+  useEffect(() => {
+    if (editing || !restoredKey || !restoredFields || restoredKeys.current.has(restoredKey)) return;
+    const initial = emptyRow(date, own);
+    for (const column of rowColumns) if (typeof restoredFields[column] === "string") initial[column] = restoredFields[column];
+    if (typeof restoredFields.billable === "boolean") initial.billable = restoredFields.billable;
+    if (typeof restoredFields.productId === "string") initial.productId = restoredFields.productId;
+    if (typeof restoredFields.createProduct === "boolean") initial.createProduct = restoredFields.createProduct;
+    restoredKeys.current.add(restoredKey);
+    setRequestId(restoredKey);
+    setDraft(initial);
+    setDraftChanged(true);
+  }, [date, editing, own, restoredKey, restoredFields]);
   const rows = state.entries
     .filter(
       (e) =>
         e.workerId === state.userId &&
         e.status !== "declined" &&
-        (capture ? capture.dates.includes(e.date) : period === "day" ? e.date === date : e.date >= week[0] && e.date <= week[6]),
+        dates.includes(e.date),
     )
     .sort(
       (a, b) =>
@@ -276,10 +285,12 @@ export function TimesheetLedger({
         (a.history[0]?.at ?? "").localeCompare(b.history[0]?.at ?? "") ||
         a.id.localeCompare(b.id),
     );
-  const totals = rows
-    .filter((row) => row.status !== "pending")
+  const countedRows = rows.filter(row => row.status !== "pending");
+  const workedByDate = new Map<string, number>();
+  const totals = countedRows
     .reduce(
       (sum, row) => {
+        workedByDate.set(row.date, (workedByDate.get(row.date) ?? 0) + row.workedMinutes);
         sum.worked += row.workedMinutes;
         sum.billable += row.workedMinutes - nonBillableWork(row);
         sum.charge += row.billableMinutes;
@@ -287,9 +298,7 @@ export function TimesheetLedger({
       },
       { worked: 0, billable: 0, charge: 0 },
     );
-  const delegated = (state.delegatedEntries ?? []).filter((e) =>
-    capture ? capture.dates.includes(e.date) : period === "day" ? e.date === date : e.date >= week[0] && e.date <= week[6],
-  );
+  const delegated = (state.delegatedEntries ?? []).filter(e => dates.includes(e.date));
   const ready = rows.filter((e) => e.status === "confirmed");
   const shareable = ready.filter(
     (e) => e.source === "suggestion" && e.authorId === state.userId && e.proposalDigest && e.groupId,
@@ -312,15 +321,18 @@ export function TimesheetLedger({
       setError(t("timesheets.ledger.finish_edit"));
       return;
     }
-    setDate(next);
-    onDateChange?.(next);
+    if (capture) capture.selectDate(next);
+    else {
+      setLedgerDate(next);
+      onDateChange?.(next);
+    }
     setShareRevisions(new Map());
     setDraft((current) => (current.date === date ? { ...current, date: next } : current));
     setSelected("");
     setHistory("");
   }
   function policyFor(values: RowValues) {
-    const matter = matters.find((m) => m.label === values.matter);
+    const matter = matchMatter(matters, values.matter);
     return resolveTimePolicy(
       state.policies,
       matter?.clientId ?? "",
@@ -329,15 +341,15 @@ export function TimesheetLedger({
       matter?.projectId ?? (!values.matter && provenance ? initialDraft?.entry.projectId : undefined),
     );
   }
-  const stopwatchDraft = provenance && initialDraft?.captureSource === "stopwatch";
+  const stopwatchDraft = Boolean(provenance && initialDraft?.captureSource === "stopwatch");
   function stopwatchCharge(values: RowValues) {
-    if (!Number(values.billableWork)) return 0;
-    const original = initialDraft?.entry;
-    const measured = original?.workedMinutes === Number(values.worked)
-      ? captureChargeMinutes({ source: "stopwatch", workedMinutes: Number(values.worked),
-          startAt: original.startAt ?? null, endAt: original.endAt ?? null })
-      : Number(values.worked);
-    return proposedStopwatchCharge(Math.max(0, (measured ?? 0) - Number(values.nonBillable)), policyFor(values));
+    return stopwatchRowCharge(initialDraft?.entry ?? {}, values, policyFor(values));
+  }
+  function participantAmounts(amounts?: TimeAmounts) {
+    if (amounts) return amounts;
+    return stopwatchDraft && draft.manualCharge
+      ? { ...draft, manualCharge: false, charge: String(stopwatchCharge(draft)) }
+      : draft;
   }
   function field(row: string, key: RowColumn, value: string) {
     const update = (current: RowValues) => {
@@ -357,8 +369,7 @@ export function TimesheetLedger({
           ? undefined
           : productOptions(state, matter?.matterId).find((p) => p.label === value)?.id;
       }
-      if (row === "new" && stopwatchDraft && (key === "matter" || key === "date") &&
-          (!current.charge || Number(current.charge) === stopwatchCharge(current)))
+      if (row === "new" && stopwatchDraft && (key === "matter" || key === "date") && !current.manualCharge)
         next.charge = next.worked ? String(stopwatchCharge(next)) : "";
       return next;
     };
@@ -367,7 +378,7 @@ export function TimesheetLedger({
         setParticipants((items) => items.map((item) => {
           if (!item.amounts) return item;
           const previous = { ...draft, ...item.amounts };
-          return Number(previous.charge) === stopwatchCharge(previous)
+          return !previous.manualCharge
             ? { ...item, amounts: { ...item.amounts, charge: String(stopwatchCharge({ ...previous, [key]: value })) } }
             : item;
         }));
@@ -489,7 +500,7 @@ export function TimesheetLedger({
           setError(t("timesheets.distinct_people"));
           return false;
         }
-        const parsed = parseRow({ ...current, ...participant.amounts, workers: worker.label }, state);
+        const parsed = parseRow({ ...current, ...participantAmounts(participant.amounts), workers: worker.label }, state);
         if ("error" in parsed) {
           setError(worker.label + " · " + parsed.error);
           return false;
@@ -523,8 +534,11 @@ export function TimesheetLedger({
       setProvenance(undefined);
       setDraftChanged(false);
       setParticipants([]);
-      setDate(entry.date);
-      onDateChange?.(entry.date);
+      if (capture) capture.selectDate(entry.date);
+      else {
+        setLedgerDate(entry.date);
+        onDateChange?.(entry.date);
+      }
       setDraft(
         emptyRow(
           entry.date,
@@ -686,11 +700,7 @@ export function TimesheetLedger({
     }
   }
   function editors(row: string, values: RowValues) {
-    const localMatter =
-      matters.find((m) => m.label.toLowerCase() === values.matter.trim().toLowerCase()) ??
-      matters.find(
-        (m) => values.matter && m.label.toLowerCase().includes(values.matter.trim().toLowerCase()),
-      );
+    const localMatter = matchMatter(matters, values.matter);
     const catalog = resolveTimePolicy(
       state.policies,
       localMatter?.clientId ?? "",
@@ -969,24 +979,7 @@ export function TimesheetLedger({
           </span>
         ))}
       </div>
-      {period === "week" && (
-        <div className="bo-time-week">
-          {week.map((day) => (
-            <button type="button" key={day} aria-pressed={day === date} onClick={() => chooseDate(day)}>
-              {new Date(day + "T12:00:00").toLocaleDateString(locale, {
-                weekday: "short",
-                day: "numeric",
-              })}{" "}
-              ·{" "}
-              {duration(
-                rows
-                  .filter((e) => e.date === day && e.status !== "pending")
-                  .reduce((n, e) => n + e.workedMinutes, 0),
-              )}
-            </button>
-          ))}
-        </div>
-      )}
+      <TimesheetWeekTotals dates={dates} date={date} workedByDate={workedByDate} onDateChange={chooseDate} />
       {activeCap !== null && (
         <div className="bo-time-cap" role="status">
           <AlertTriangle size={13} />
@@ -1225,10 +1218,10 @@ export function TimesheetLedger({
                     {t(ledgerColumnKeys[field])}
                     <input
                       disabled={busy}
-                      readOnly={field === "charge" && !(item.amounts ?? draft).billable}
+                      readOnly={field === "charge" && !participantAmounts(item.amounts).billable}
                       inputMode="numeric"
                       placeholder="0"
-                      value={(item.amounts ?? draft)[field]}
+                      value={field === "charge" && !participantAmounts(item.amounts).billable ? "0" : participantAmounts(item.amounts)[field]}
                       onChange={(e) => {
                         const value = e.currentTarget.value;
                         setParticipants((items) =>
@@ -1236,7 +1229,7 @@ export function TimesheetLedger({
                             p.key === item.key
                               ? {
                                   ...p,
-                                  amounts: changeAmounts(p.amounts ?? draft, field, value, policyFor(draft),
+                                  amounts: changeAmounts(participantAmounts(p.amounts), field, value, policyFor(draft),
                                     stopwatchDraft ? (amounts) => stopwatchCharge({ ...draft, ...amounts }) : undefined),
                                 }
                               : p,

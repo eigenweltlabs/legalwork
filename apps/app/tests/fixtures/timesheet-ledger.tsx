@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { Window } from "happy-dom";
 import type { TimesheetCommand, TimesheetState, TimeEntry, TimePolicy } from "@legalwork/types/timesheet";
+import type { BackOfficeState } from "../../src/react-app/domains/back-office/api";
+import type { CaptureAction, CaptureProposal } from "@legalwork/types/time-capture";
 
 const window = new Window({ url: "http://localhost" });
 window.document.write("<!doctype html><html><body><div id='root'></div></body></html>");
@@ -697,6 +699,115 @@ try {
   assert.equal(savedPolicy.policy.scope, "project");
   assert.equal(savedPolicy.policy.targetId, "p1");
   assert.equal(savedPolicy.policy.stopwatchRoundUp, false);
+
+  const { TimesheetWorkday } = await import("../../src/react-app/domains/back-office/timesheet-workday");
+  const otherDate = "2026-11-11";
+  const at = (day: string, clock: string) => new Date(day + "T" + clock).toISOString();
+  const booked = { ...base, id: crypto.randomUUID(), date: otherDate,
+    startAt: at(otherDate, "10:00:00"), endAt: at(otherDate, "10:34:00") };
+  const exact: CaptureProposal = { ...capture, key: crypto.randomUUID(), digest: "1".repeat(64),
+    date: otherDate, startAt: booked.startAt, endAt: booked.endAt };
+  const partial: CaptureProposal = { ...exact, key: crypto.randomUUID(), digest: "2".repeat(64),
+    parentDigest: exact.digest, startAt: at(otherDate, "10:30:00"), endAt: at(otherDate, "10:50:00"), workedMinutes: 20 };
+  const inlineTimer: CaptureProposal = { ...exact, key: crypto.randomUUID(), digest: "3".repeat(64),
+    source: "stopwatch", date: base.date, startAt: at(base.date, "09:00:00"), endAt: at(base.date, "09:10:01"), workedMinutes: 10 };
+  const workdayDirectory: BackOfficeState = {
+    scope: "local", directoryId: "synthetic", model: defaultBackOfficeModel(), views: [],
+    records: [{
+      id: booked.id, objectId: "timeEntries", ownerId: state.userId, revision: 7, schemaRevision: 1,
+      access: "org", members: [], sourceId: undefined, createdAt: booked.startAt, updatedAt: booked.startAt, archivedAt: null,
+      values: { name: booked.narrative, matter: booked.matterId, serviceDate: booked.date, recordedMinutes: booked.workedMinutes },
+    }],
+    permissions: { userId: state.userId, edit: true, model: false, finance: false },
+    sync: { enabled: false, cursor: 0, pending: 0, error: null },
+  };
+  const workdayActions: CaptureAction[] = [];
+  let workdayProposals = [exact, partial, inlineTimer];
+  const workdayClient = { ...createLegalworkServerClient({ baseUrl: "http://localhost" }),
+    privateWorkday: async (context: { date: string }, action?: CaptureAction) => {
+      if (action) workdayActions.push(action);
+      if (action?.type === "reconcile") workdayProposals = workdayProposals.filter(proposal => proposal.key !== action.key);
+      if (action?.type === "correct") workdayProposals = workdayProposals.map(proposal => proposal.key === action.key
+        ? { ...proposal, digest: "4".repeat(64), startAt: action.startAt, endAt: action.endAt, workedMinutes: action.workedMinutes }
+        : proposal);
+      return { settings: { calendar: true, tasks: false, intervalMinutes: 0 as const },
+        modelReady: false, connections: [], drafts: {}, proposals: workdayProposals.filter(proposal => proposal.date === context.date) };
+    },
+  };
+  const weeklyState = { ...timerState, entries: [booked], policies: [{ ...nearestPolicy, effectiveFrom: base.date }] };
+  await act(async () => root.render(
+    <QueryClientProvider client={cache}><MemoryRouter><BackOfficeTheme>
+      <TimesheetWorkday client={workdayClient} directory={workdayDirectory} state={weeklyState}
+        initialDate={base.date} onDraft={() => {}}>
+        {captureSheet => <TimesheetLedger capture={captureSheet} state={weeklyState} onCommand={send} />}
+      </TimesheetWorkday>
+    </BackOfficeTheme></MemoryRouter></QueryClientProvider>,
+  ));
+  const weekly = button("Week");
+  assert.ok(weekly);
+  await act(async () => weekly.click());
+  const suggestionRow = (proposal: CaptureProposal) => document.querySelector<HTMLElement>(
+    `[data-time-proposal="${proposal.key}"]`,
+  );
+  for (let i = 0; i < 20 && !suggestionRow(partial); i++) await settle();
+  const weekDays = [...document.querySelectorAll<HTMLButtonElement>(".bo-time-week button")];
+  assert.equal(weekDays.length, 7);
+  const wednesday = weekDays.find(day => day.textContent?.includes("0:34 h"));
+  assert.ok(wednesday, "an entry on another day contributes to that day's week total");
+  assert.equal(wednesday.getAttribute("aria-pressed"), "false");
+  const acceptFor = (proposal: CaptureProposal) => suggestionRow(proposal)?.querySelector<HTMLButtonElement>('[aria-label="Accept suggestion"]');
+  assert.equal(acceptFor(exact)?.disabled, true);
+  assert.equal(acceptFor(partial)?.disabled, true, "a previously corrected proposal can still conflict");
+  const proposalCell = (proposal: CaptureProposal, field: string) => {
+    const result = suggestionRow(proposal)?.querySelector<HTMLInputElement>(`[data-column="${field}"]`);
+    assert.ok(result);
+    return result;
+  };
+  const beforeConflict = commands.length;
+  await act(async () => proposalCell(partial, "narrative").dispatchEvent(new window.KeyboardEvent("keydown", {
+    key: "Enter", ctrlKey: true, bubbles: true,
+  })));
+  assert.equal(commands.length, beforeConflict, "the keyboard shortcut cannot accept an overlapping proposal");
+  const link = suggestionRow(exact)?.parentElement?.querySelector<HTMLSelectElement>("select");
+  assert.ok(link);
+  await act(async () => {
+    link.value = booked.id;
+    link.dispatchEvent(new window.Event("change", { bubbles: true }));
+  });
+  for (let i = 0; i < 20 && suggestionRow(exact); i++) await settle();
+  assert.deepEqual(workdayActions.find(action => action.type === "reconcile"), {
+    type: "reconcile", key: exact.key, digest: exact.digest, recordId: booked.id, recordRevision: 7,
+  });
+  assert.equal(suggestionRow(exact), null);
+  assert.equal(acceptFor(partial)?.disabled, true, "recorded work still overlaps the remaining proposal");
+  await act(async () => wednesday.click());
+  assert.equal(wednesday.getAttribute("aria-pressed"), "true");
+  const correctPartial = [...(suggestionRow(partial)?.parentElement?.querySelectorAll<HTMLButtonElement>("button") ?? [])]
+    .find(button => button.textContent === "Correct");
+  assert.ok(correctPartial);
+  await act(async () => correctPartial.click());
+  const correctionForm = document.querySelector<HTMLFormElement>(".bo-workday-correction");
+  assert.ok(correctionForm);
+  const correctedStart = correctionForm.querySelector<HTMLInputElement>('input[type="time"]');
+  assert.ok(correctedStart);
+  await input(correctedStart, "10:34");
+  await act(async () => correctionForm.dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true })));
+  for (let i = 0; i < 20 && acceptFor(partial)?.disabled; i++) await settle();
+  assert.equal(acceptFor(partial)?.disabled, false, "touching the booking boundary clears the overlap");
+  assert.equal(proposalCell(inlineTimer, "charge").value, "20");
+  await input(proposalCell(inlineTimer, "matter"), "Client · M · 26/12 · Nearest");
+  assert.equal(proposalCell(inlineTimer, "charge").value, "10");
+  await input(proposalCell(inlineTimer, "date"), otherDate);
+  assert.equal(proposalCell(inlineTimer, "charge").value, "20", "the exact interval uses the new effective date's policy");
+  await input(proposalCell(inlineTimer, "charge"), "");
+  assert.equal(proposalCell(inlineTimer, "charge").value, "", "deleting an automatic charge leaves the input blank for editing");
+  await input(proposalCell(inlineTimer, "charge"), "40");
+  await input(proposalCell(inlineTimer, "date"), base.date);
+  await input(proposalCell(inlineTimer, "nonBillable"), "3");
+  assert.equal(proposalCell(inlineTimer, "charge").value, "40", "an explicit charge survives date and allocation changes");
+  await input(proposalCell(inlineTimer, "billableWork"), "0");
+  assert.equal(proposalCell(inlineTimer, "charge").value, "0");
+  cache.clear();
   console.log("Timesheet ledger passed");
 } finally {
   await act(async () => root.unmount());

@@ -4,6 +4,7 @@ import { backOfficeAuthorKey } from "./principal.js";
 import type { BackOfficeActor, BackOfficeValue } from "./schema.js";
 import type { BackOfficeStore } from "./store.js";
 import {
+  backOfficeMoneyFromMajor,
   validateBackOfficeValues,
   isInternalBackOfficeObject,
 } from "./schema.js";
@@ -132,10 +133,7 @@ export function previewImport(
             : field.type === "boolean"
               ? /^(true|yes|1)$/i.test(cell)
               : field.type === "currency"
-                ? {
-                    amountMinor: Math.round(Number(cell) * 100),
-                    currency: "EUR",
-                  }
+                ? backOfficeMoneyFromMajor(Number(cell), "EUR")
                 : field.type === "multiselect" ||
                     (field.type === "relation" && field.multiple)
                   ? cell.split("|").map((value) => value.trim())

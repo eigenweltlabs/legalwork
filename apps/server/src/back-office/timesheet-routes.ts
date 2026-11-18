@@ -4,13 +4,12 @@ import { requiresTimeAllocations, TimesheetCommandSchema, TimesheetStateSchema }
 import type { ServerConfig } from "../types.js";
 import type { RequestContext } from "../routes/registry.js";
 import { ApiError } from "../errors.js";
-import { readProjectDetails } from "../project-store.js";
 import { ensureFreshPlatformToken } from "../eigenwelt-refresh.js";
 import { intakeRequest, requireIntakeClient } from "../eigenwelt-intake.js";
 import { requireBackOfficePrincipal } from "./accounts.js";
 import { backOfficeDirectoryIdentity, type backOfficeAccess } from "./access.js";
 import type { BackOfficeStore } from "./store.js";
-import { readTimeDocument, readTimesheet, timeError } from "./timesheet-data.js";
+import { readTimeDocument, readTimesheet, timeError, timeWorkspaces } from "./timesheet-data.js";
 import { commandTimesheet } from "./timesheet.js";
 import { DEFAULT_INTERNAL_PERSON_TYPES } from "./schema.js";
 import { submitFirmComparisons } from "./timesheet-sharing.js";
@@ -98,24 +97,7 @@ export function registerTimesheetRoutes(
           });
         }
         const directoryId = await backOfficeDirectoryIdentity(config, access.scope, store);
-        const workspaces = await Promise.all(
-          config.workspaces.map(async (w) => {
-            const details = await readProjectDetails(w.path);
-            const matterIds = details.fields.flatMap((f) =>
-              f.type === "backoffice" && f.objectId === "matters" && f.value?.directoryId === directoryId
-                ? f.value.recordIds
-                : [],
-            );
-            const agreementIds = details.fields.flatMap((f) =>
-              f.type === "backoffice" &&
-              f.objectId === "feeAgreements" &&
-              f.value?.directoryId === directoryId
-                ? f.value.recordIds
-                : [],
-            );
-            return { id: w.id, name: w.displayName || w.name, matterIds, agreementIds };
-          }),
-        );
+        const workspaces = await timeWorkspaces(config.workspaces, directoryId);
         const originals = consent.length ? await readOriginals() : undefined;
         await assertIdentity(ctx, store, access);
         const people = [

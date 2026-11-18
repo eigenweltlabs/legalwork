@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -14,7 +14,35 @@ import { BackOfficeRecordSchema } from "../back-office/schema.js";
 import { startServer } from "../server.js";
 import { backOfficeTestConfig } from "../back-office/config.test-support.js";
 import { originalBillingComparison } from "./original.js";
-import { changeStopwatch, emptyStopwatch } from "./stopwatch.js";
+import { changeStopwatch, createStopwatchReader, emptyStopwatch } from "./stopwatch.js";
+
+test("timer polls reuse an unchanged snapshot and refresh it after an atomic write", async () => {
+  const root = await mkdtemp(join(tmpdir(), "legalwork-timer-snapshot-"));
+  try {
+    const file = join(root, "profile.json"), replacement = join(root, "replacement.json");
+    const read = createStopwatchReader();
+    expect(await read(file)).toEqual({ active: null, lastStopped: null });
+    await writeFile(file, JSON.stringify({ days: {} }));
+    expect(await read(file)).toEqual({ active: null, lastStopped: null });
+    const active = { id: randomUUID(), startedAt: "2026-11-17T10:00:00Z", projectId: null, zone: "UTC" };
+    // Older workday sections do not need to pass the current schema for a read-only timer poll.
+    const snapshot = { active, lastStopped: null };
+    await writeFile(replacement, JSON.stringify({ days: { older: [] }, stopwatch: { ...snapshot, stoppedIds: [] } }));
+    await rename(replacement, file);
+    const running = await read(file);
+    expect(running).toEqual(snapshot);
+    expect(await read(file)).toBe(running);
+    expect(await createStopwatchReader()(file)).toEqual(running);
+    const other = join(root, "another-profile.json");
+    expect(await read(other)).toEqual({ active: null, lastStopped: null });
+    const assigned = { ...active, projectId: "mid-run" };
+    await writeFile(replacement, JSON.stringify({ stopwatch: { active: assigned, lastStopped: null, stoppedIds: [] } }));
+    await rename(replacement, file);
+    expect(await read(file)).toEqual({ active: assigned, lastStopped: null });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 test("stopwatch invoices round the exact interval once, retaining its raw timestamps and worked minutes", () => {
   const policy = resolveTimePolicy([], "", "", "2026-11-17");
@@ -100,8 +128,14 @@ test("private stopwatch survives restart, concurrent stops and workday regenerat
     const running = stopwatchStateSchema.parse(await (await api(endpoint, start)).json());
     expect(running.active?.id).toBe(start.id);
     expect((await api(endpoint, { ...start, id: randomUUID() })).status).toBe(409);
+    expect(stopwatchStateSchema.parse(await (await api(endpoint)).json())).toEqual(running);
+    const assign: StopwatchAction = { type: "assign", id: start.id };
+    expect((await api(endpoint, assign)).status).toBe(200);
+    expect(stopwatchStateSchema.parse(await (await api(endpoint)).json()).active?.projectId).toBeNull();
+    expect((await api(endpoint, { ...assign, projectId: "timer-project" })).status).toBe(200);
     await server.stop();
     server = await startServer(config);
+    expect(stopwatchStateSchema.parse(await (await api(endpoint)).json())).toEqual(running);
     expect(stopwatchStateSchema.parse(await (await api(endpoint, start)).json())).toEqual(running);
     const stop: StopwatchAction = { ...start, type: "stop" };
     const stopped = await Promise.all([api(endpoint, stop), api(endpoint, stop)]);

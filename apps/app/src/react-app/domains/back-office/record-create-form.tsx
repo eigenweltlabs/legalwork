@@ -2,7 +2,7 @@ import { useContext, useEffect, useRef, useState } from "react";
 import { ArrowLeft, ChevronDown, Plus } from "lucide-react";
 import { Button, Input } from "twenty-ui/primitives/input";
 import { Popover } from "twenty-ui/primitives/surfaces";
-import { z, BackOfficeRecordSchema, validateBackOfficeValues, type BackOfficeField, type BackOfficeObject, type BackOfficeRecord, type BackOfficeValue } from "@legalwork/types/back-office";
+import { z, BackOfficeRecordSchema, backOfficeMajorAmount, validateBackOfficeValues, type BackOfficeField, type BackOfficeObject, type BackOfficeRecord, type BackOfficeValue } from "@legalwork/types/back-office";
 import type { ProjectReferenceFilters } from "@legalwork/types/workspace";
 import { useQuery } from "@tanstack/react-query";
 import { t } from "@/i18n";
@@ -22,7 +22,7 @@ function focusName(input: HTMLInputElement | null) { input?.focus({ preventScrol
 function displayValue(value: BackOfficeValue | undefined, field: BackOfficeField): string {
   if (value === undefined || value === null || value === "") return t("projects.empty_value");
   if (Array.isArray(value)) return value.map(item => typeof item === "string" ? item : item.name).join(", ");
-  if (typeof value === "object") return `${value.amountMinor / 100} ${value.currency}`;
+  if (typeof value === "object") return `${backOfficeMajorAmount(value)} ${value.currency}`;
   if (typeof value === "boolean") return t(value ? "projects.reference.filter_true" : "projects.reference.filter_false");
   return backOfficeOptionLabel(field, String(value));
 }

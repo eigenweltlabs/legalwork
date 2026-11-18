@@ -15,9 +15,12 @@ import { openSqlite } from "../runtime-db.js";
 import { BackOfficeStore } from "./store.js";
 import { unknownRecords } from "./first-sync.js";
 import { commandTimesheet } from "./timesheet.js";
+import { queryDirectoryRecords } from "./dashboard-query.js";
 import { submitFirmComparisons } from "./timesheet-sharing.js";
 import { readTimeDocument, readTimesheet } from "./timesheet-data.js";
-import type { BackOfficeActor } from "./schema.js";
+import { memberSource, timeMemberContactId } from "./time-member-identity.js";
+import { timeMemberContact } from "./time-members.js";
+import { backOfficeMajorAmount, BackOfficeMoneySchema, z, type BackOfficeActor } from "./schema.js";
 
 const owner = { userId: "alice", edit: true, finance: true, model: true },
   ben = { ...owner, userId: "ben", finance: false },
@@ -201,6 +204,47 @@ test("issued numbers follow legacy, pins approvals, download is reproducible and
   expect(artifact?.kind === "invoice" && artifact.document).toContain("&lt;file&gt;");
   expect(state(ben).invoices).toHaveLength(0);
 });
+
+test.each([
+  { currency: "KWD", agreementMinor: 1235, exactAmount: { amountMinor: 12345, minorUnitScale: 1000 }, rate: 12.345, minutes: 60, total: 12.345, compatibilityMinor: 1235 },
+  { currency: "JPY", agreementMinor: 735, rate: 7.35, minutes: 30, total: 4, compatibilityMinor: 400 },
+  { currency: "EUR", agreementMinor: 201, rate: 2.01, minutes: 30, total: 1.01, compatibilityMinor: 101 },
+])("issued invoice and Back Office keep matching precision in $currency", async ({ currency, agreementMinor, exactAmount, rate, minutes, total, compatibilityMinor }) => {
+  const { store, run, d, client, matter } = await fixture();
+  store.saveRecord("local", owner, {
+    objectId: "feeAgreements",
+    revision: 0,
+    values: {
+      name: "Fixture hourly agreement",
+      basis: "Hourly",
+      matter: matter.id,
+      client: client.id,
+      hourlyRate: { currency, amountMinor: agreementMinor, ...(exactAmount && { exactAmount }) },
+    },
+  });
+  const created = run(owner, { type: "create", requestId: randomUUID(), entry: { ...d, workedMinutes: minutes, billableMinutes: minutes } }).entries[0];
+  const submitted = run(owner, { type: "submit", entries: sel(created) }).entries[0];
+  const approved = run(eva, { type: "approve", entries: sel(submitted) }).entries[0];
+  expect(approved.hourlyRate).toBe(rate);
+  expect(backOfficeMajorAmount(BackOfficeMoneySchema.parse(store.raw("local", approved.id)?.values.hourlyRate))).toBe(rate);
+
+  const issued = run(eva, { type: "invoice", requestId: randomUUID(), entries: sel(approved) }).invoices[0];
+  expect(issued.total).toBe(total);
+  const artifact = readTimeDocument(store, "local", issued.id);
+  expect(artifact?.kind === "invoice" && artifact.document).toContain(new Intl.NumberFormat("en-GB", { style: "currency", currency }).format(total));
+  const record = store.raw("local", issued.id);
+  const money = BackOfficeMoneySchema.parse(record?.values.netTotal);
+  expect(money).toEqual({ amountMinor: compatibilityMinor, currency, ...(exactAmount && { exactAmount }) });
+  expect(backOfficeMajorAmount(money)).toBe(total);
+  const oldReader = z.object({ amountMinor: z.number().int().safe(), currency: z.string() }).parse(money);
+  expect(oldReader.amountMinor / 100).toBe(currency === "KWD" ? 12.35 : total);
+  const dashboard = queryDirectoryRecords(store.model("local"), owner, () => record ? [record] : [], {
+    source: "backOffice", directoryId: "local", objectId: "invoices", fields: ["netTotal"], currency,
+    metrics: [{ name: "netTotal", op: "sum", field: "netTotal" }],
+  });
+  expect(dashboard.rows).toEqual([{ netTotal: total }]);
+});
+
 test("old approved generic rows need a workflow review and audit failure rolls back entries and products", async () => {
   const { store, run, state, d } = await fixture();
   const saved = store.saveRecord("local", owner, {
@@ -516,13 +560,13 @@ test("an over-cap call reaches review with actual minutes intact and cannot be a
       maxMinutes: 90,
     },
   });
-  expect(() =>
-    run(eva, {
-      type: "invoice",
-      requestId: randomUUID(),
-      entries: sel(approved),
-    }),
-  ).toThrow(/up to 90/);
+  const invoice = run(eva, {
+    type: "invoice",
+    requestId: randomUUID(),
+    entries: sel(approved),
+  }).invoices[0];
+  expect(invoice.entries[0].billableMinutes).toBe(120);
+  expect(invoice.total).toBe(600);
   const review = run(owner, {
     type: "create",
     requestId: randomUUID(),
@@ -828,6 +872,67 @@ test("generic draft imports enforce client units and leave submission to the wor
       values: { status: "Submitted" },
     }),
   ).toThrow(/Timesheets/);
+});
+
+test("imported time resolves a linked worker without transferring record ownership", async () => {
+  const { store, d, run, state } = await fixture();
+  const timekeeper = timeMemberContact(store, "local", owner, { userId: ben.userId, name: "Worker", email: null });
+  const values = {
+    name: "Historical research", matter: d.matterId, client: d.clientId, timekeeper,
+    serviceDate: d.date, startedAt: "2026-11-13T00:00:00Z", endedAt: "2026-11-13T00:10:00Z",
+    recordedMinutes: 10, billableMinutes: 10, status: "Draft", privateNote: "Author's work note",
+  };
+  const save = (access: "org" | "members", members: string[] = []) =>
+    store.saveRecord("local", owner, { objectId: "timeEntries", revision: 0, access, members, values });
+  const open = save("org"), shared = save("members", [ben.userId]), privateRecord = save("members");
+  expect(state(owner).entries).toHaveLength(0);
+  expect(state(eva).entries).toHaveLength(0);
+  expect(store.records("local", ben, "timeEntries")).toHaveLength(0);
+  expect(state(ben).entries.map(e => e.id).sort()).toEqual([open.id, shared.id].sort());
+  const legacy = state(ben).entries.find(e => e.id === open.id)!;
+  expect(legacy).toMatchObject({ workerId: ben.userId, authorId: owner.userId, status: "pending", date: d.date,
+    startAt: values.startedAt, endAt: values.endedAt });
+  expect(() => run(owner, { type: "submit", entries: sel(legacy) })).toThrow(/unavailable/);
+  expect(() => run(ben, { type: "submit", entries: sel(legacy) })).toThrow(/stage/);
+  expect(() => run(ben, { type: "confirm", entries: [{ id: privateRecord.id, revision: privateRecord.revision }] })).toThrow(/unavailable/);
+  const confirmed = run(ben, { type: "confirm", entries: sel(legacy) }).entries.find(e => e.id === legacy.id)!;
+  const submitted = run(ben, { type: "submit", entries: sel(confirmed) }).entries.find(e => e.id === legacy.id)!;
+  expect(state(eva).entries).toMatchObject([{ id: submitted.id, status: "submitted", workerId: ben.userId }]);
+  expect(submitted.history.map(h => h.actorId)).toEqual([ben.userId, ben.userId]);
+  expect(store.records("local", ben, "timeEntries")).toHaveLength(0);
+  expect(store.raw("local", open.id)).toMatchObject({ ownerId: owner.userId, values: {
+    serviceDate: d.date, startedAt: values.startedAt, endedAt: values.endedAt, privateNote: values.privateNote,
+  } });
+});
+
+test("unresolved imported people cannot silently become the owner's time and can be corrected in records", async () => {
+  const { store, d, create, run, state } = await fixture();
+  const contact = create("people", { name: "Outside contact" });
+  const sourceId = memberSource(owner.userId);
+  expect(() => store.saveRecord("local", owner, { objectId: "people", id: timeMemberContactId("local", owner.userId),
+    create: true, revision: 0, sourceId, values: { name: "Attempted member link" } })).toThrow(/timekeeper picker/);
+  // A historical import could already have claimed the label without a canonical contact ID.
+  store.transaction(() => {
+    store.db.run("UPDATE bo_records SET data=? WHERE scope=? AND id=?", [JSON.stringify({ ...contact, sourceId }), "local", contact.id]);
+  }, { action: "test.preexisting-contact" });
+  const record = store.saveRecord("local", owner, { objectId: "timeEntries", revision: 0, values: {
+    name: "Imported time", matter: d.matterId, client: d.clientId, timekeeper: contact.id,
+    startedAt: d.date, recordedMinutes: 10, billableMinutes: 10, status: "Draft",
+  } });
+  expect(state(owner).entries).toHaveLength(0);
+  expect(state(owner).unresolvedLegacyEntries).toEqual([record.id]);
+  expect(state(eva).unresolvedLegacyEntries).toBeUndefined();
+  expect(() => run(owner, { type: "submit", entries: [{ id: record.id, revision: record.revision }] })).toThrow(/unavailable/);
+  const correction = { objectId: record.objectId, id: record.id, revision: record.revision, values: { timekeeper: null } };
+  expect(() => store.saveRecord("local", eva, correction)).toThrow(/original entry owner/);
+  store.saveRecord("local", owner, correction);
+  const legacy = state(owner).entries[0];
+  expect(legacy).toMatchObject({ id: record.id, date: d.date, status: "confirmed", workerId: owner.userId });
+  expect(legacy.startAt).toBeUndefined();
+  expect(legacy.endAt).toBeUndefined();
+  expect(state(owner).unresolvedLegacyEntries).toBeUndefined();
+  run(owner, { type: "submit", entries: sel(legacy) });
+  expect(store.raw("local", record.id)?.values).toMatchObject({ serviceDate: d.date, startedAt: d.date, endedAt: null });
 });
 
 test("a new reviewer sees only the parts of an entry history belonging to accessible matters", async () => {

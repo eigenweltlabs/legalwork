@@ -16,6 +16,7 @@ type RowProps = {
   details?: ReactNode;
   trailing?: ReactNode;
   onFocus?: () => void;
+  fieldValue?: (record: BackOfficeRecord, fieldId: string) => BackOfficeValue | undefined;
   record: BackOfficeRecord;
   index: number;
   top?: number;
@@ -30,7 +31,7 @@ type RowProps = {
   userId: string;
   selected: boolean;
   editing?: EditingCell;
-  onEdit: (cell: EditingCell | null) => void;
+  onEdit: (cell: EditingCell | null, expected?: EditingCell) => boolean | void;
   onError: (message: string) => void;
   onSelect: (id: string, checked: boolean) => void;
   onMove: (event: KeyboardEvent<HTMLElement>, row: number, column: number) => void;
@@ -39,11 +40,12 @@ type RowProps = {
 };
 
 export const RecordGridRow = memo(function RecordGridRow({
-  sheet, leading, details, trailing, onFocus, record, index, top, measure, template, fields, records, recordById, editable, localOnly, userId,
+  sheet, leading, details, trailing, onFocus, fieldValue, record, index, top, measure, template, fields, records, recordById, editable, localOnly, userId,
   selected, editing, readOnlyFields, onEdit, onError, onSelect, onMove, onOpen, onSave,
 }: RowProps) {
   const popupId = useId();
   const anchor = useRef<HTMLDivElement>(null);
+  const valueFor = (row: BackOfficeRecord, id: string) => fieldValue ? fieldValue(row, id) : row.values[id];
   return (
     <div
       onFocus={onFocus}
@@ -63,6 +65,9 @@ export const RecordGridRow = memo(function RecordGridRow({
         const canEdit = editable && !readOnlyFields?.includes(field.id) && !(localOnly && field.type === "file") && (field.visibility !== "private" || record.ownerId === userId);
         const inline = (sheet || field.id !== "name") && (["text", "email", "number", "currency"].includes(field.type) || (sheet && (field.type === "datetime" || field.type === "date")));
         const active = canEdit && editing?.field === field.id;
+        const close = () => {
+          if (onEdit(null, editing) !== false && sheet) anchor.current?.focus();
+        };
         const edit = (cell: HTMLDivElement) => {
           if (!canEdit || active) return;
           anchor.current = cell;
@@ -85,26 +90,26 @@ export const RecordGridRow = memo(function RecordGridRow({
             }}
           >
             {inline && active && editing ? (
-              <InlineCellEditor commitUnchanged={sheet && record.revision === 0} field={field} value={editing.base.values[field.id]}
+              <InlineCellEditor preserveOnExit={sheet} commitUnchanged={sheet && record.revision === 0} field={field} value={valueFor(editing.base, field.id)}
                 onSave={value => onSave(editing.base, { [field.id]: value })}
-                onCancel={() => { onEdit(null); if (sheet) anchor.current?.focus(); }} onError={onError}
+                onCancel={close} onError={onError}
                 onTab={sheet ? event => onMove(event, index, column) : undefined} />
             ) : field.id === "name" ? (
               <><RecordChip record={record} onOpen={onOpen} />{localOnly && <small className="bo-local-label">{t("back_office.local_copy")}</small>}</>
             ) : (
-              <ValueDisplay field={field} value={record.values[field.id]}
+              <ValueDisplay field={field} value={valueFor(record, field.id)}
                 records={records} recordById={recordById} onOpen={onOpen} />
             )}
             {active && !inline && editing && (
-              <Popover.Root open onOpenChange={open => { if (!open) onEdit(null); }}>
+              <Popover.Root open onOpenChange={open => { if (!open) onEdit(null, editing); }}>
                 <Popover.Portal>
                   <Popover.Positioner anchor={anchor} align="start" side="bottom" sideOffset={-32}>
                     <DirectoryEditorPopup id={popupId} finalFocus={sheet ? false : anchor}
                       style={{ width: field.type === "date" ? "max-content" : field.type === "select" ? 200 : 260 }}>
                       <CellEditor projectScope={sheet ? "time-sheet" : undefined} record={editing.base} field={field}
-                        value={field.multiple || field.type === "multiselect" ? record.values[field.id] : editing.base.values[field.id]} records={records}
+                        value={valueFor(field.multiple || field.type === "multiselect" ? record : editing.base, field.id)} records={records}
                         onTab={sheet ? event => onMove(event, index, column) : undefined}
-                        onCancel={() => { onEdit(null); if (sheet) anchor.current?.focus(); }} onSave={(value, previous) => onSave(previous ? { ...record, values: { ...record.values, [field.id]: previous } } : editing.base, { [field.id]: value })} />
+                        onCancel={close} onSave={(value, previous) => onSave(previous ? { ...editing.base, values: { ...editing.base.values, [field.id]: previous } } : editing.base, { [field.id]: value })} />
                     </DirectoryEditorPopup>
                   </Popover.Positioner>
                 </Popover.Portal>

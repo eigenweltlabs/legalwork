@@ -257,6 +257,8 @@ const de = {
   "timesheets.retry": "Erneut versuchen",
   "timesheets.loading": "Leistungsliste wird geladen …",
   "timesheets.account_changed": "Das aktive Konto hat gewechselt. Öffnen Sie die Leistungsliste erneut.",
+  "timesheets.legacy_timekeeper": "Importierte Einträge ohne zugeordneten Leistungserbringer",
+  "timesheets.legacy_timekeeper_help": "Öffnen Sie einen Eintrag und wählen Sie unter Leistungserbringer das verknüpfte Kanzleikonto. Bei eigenen Leistungen können Sie das Feld leeren und dadurch Ihr Konto verwenden.",
   "timesheets.unavailable": "Der Arbeitstag konnte nicht geladen werden.",
   "timesheets.local_only": "Öffnen Sie die KI-Vorschläge auf Ihrem lokalen LegalWork-Server, um private Aktivitäten einzusehen.",
   "timesheets.date": "Leistungsdatum",
@@ -441,6 +443,12 @@ const de = {
   "back_office.billing.return": "Zurückgeben",
   "back_office.billing.preview": "Rechnungsvorschau",
   "back_office.billing.invoice_requirements": "Wählen Sie freigegebene verrechenbare Positionen mit Stundensatz für denselben Akt, Mandanten und dieselbe Währung.",
+  "back_office.billing.pricing": "Honorar",
+  "back_office.billing.price_missing": "Legen Sie vor der Freigabe in den Abrechnungseinstellungen einen Stundensatz und eine Währung für das Leistungsdatum fest.",
+  "back_office.billing.price_changed": "Für dieses Leistungsdatum ist jetzt ein Stundensatz verfügbar. Senden Sie den Eintrag zur erneuten Einreichung zurück, um den neuen Satz zu prüfen.",
+  "back_office.billing.price_return": "Zur Honorarprüfung zurückgeben",
+  "back_office.billing.price_return_help": "Für diese Freigabe fehlt der Stundensatz oder die Währung. Legen Sie beides für das Leistungsdatum fest und geben Sie den Eintrag zur erneuten Einreichung und Freigabe zurück.",
+  "back_office.billing.non_hourly": "Diese Vereinbarung erfasst Zeiten getrennt vom Honorar. Für diesen Eintrag steht keine Abrechnung nach Stundensatz zur Verfügung.",
   "back_office.billing.invoice_correction_pending": "Entscheiden Sie vor der Rechnungsausstellung über offene Korrekturen.",
   "back_office.billing.invoice_preview": "{client} · {count} freigegebene Positionen · {fee}",
   "back_office.billing.issue": "Nummerierte Rechnung ausstellen",
@@ -8929,6 +8937,10 @@ const de = {
   "timesheets.sheet.synced": "Gespeichert",
   "timesheets.sheet.sharing": "Gespeicherte Leistungen werden mit Ihrer Kanzlei geteilt. Nicht übernommene KI-Vorschläge bleiben privat.",
   "timesheets.sheet.local": "Auf diesem Gerät gespeichert. KI-Vorschläge bleiben privat.",
+  "timesheets.sheet.edit_unsaved": "Ungespeicherte Änderungen",
+  "timesheets.sheet.edit_unsaved_hint": "Wechseln Sie zum Datum des Entwurfs, um ihn fertigzustellen oder zu verwerfen. Ungespeicherte Änderungen wurden noch nicht an Ihr Verzeichnis übertragen.",
+  "timesheets.sheet.edit_suggestion_changed": "Der Vorschlag hat sich geändert. Prüfen Sie ihn erneut, bevor Sie ihn übernehmen oder zuordnen.",
+  "timesheets.sheet.edit_discard": "Änderungen verwerfen",
 } as const;
 
 export default de;

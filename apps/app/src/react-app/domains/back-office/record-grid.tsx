@@ -1,5 +1,5 @@
 import { RecordFilterEditor, recordFilterOperatorLabel, recordFilterValueLabel } from "./record-filter-editor";
-import { BackOfficeFilesSchema, backOfficeViewFilters, compileBackOfficeFilters } from "@legalwork/types/back-office";
+import { BackOfficeFilesSchema, backOfficeMajorAmount, backOfficeViewFilters, compareBackOfficeMoney, compileBackOfficeFilters, sumBackOfficeMoney } from "@legalwork/types/back-office";
 import { backOfficeViewLabel, backOfficeIconLabel } from "./labels";
 import { toast } from "@/components/ui/sonner";
 import { defaultRangeExtractor, useVirtualizer, type Range } from "@tanstack/react-virtual";
@@ -127,6 +127,7 @@ export function RecordGrid({
     columns: string[];
     widths?: Record<string, number>;
     onFocus?: (record: BackOfficeRecord) => void;
+    fieldValue?: (record: BackOfficeRecord, fieldId: string) => BackOfficeValue | undefined;
     trailing?: (record: BackOfficeRecord) => ReactNode;
     blankId: string;
     leading?: (record: BackOfficeRecord) => ReactNode;
@@ -181,6 +182,13 @@ export function RecordGrid({
   const [filters, setFilters] = useState(() => backOfficeViewFilters(initialView));
   const [filterOpen, setFilterOpen] = useState(false);
   const [editing, setEditing] = useState<EditingCell | null>(null);
+  const editingRef = useRef<EditingCell | null>(null);
+  const editCell = useCallback((next: EditingCell | null, expected?: EditingCell) => {
+    if (expected && editingRef.current !== expected) return false;
+    editingRef.current = next;
+    setEditing(next);
+    return true;
+  }, []);
   const [archiving, setArchiving] = useState(false);
   const [viewName, setViewName] = useState("");
   const [savingView, setSavingView] = useState(false);
@@ -273,7 +281,7 @@ export function RecordGrid({
         )
         .join(" ");
     return typeof value === "object" && value !== null && !Array.isArray(value)
-      ? value.amountMinor
+      ? backOfficeMajorAmount(value)
       : String(value ?? "");
   }, [fieldById, recordById]);
   const searchRows = useMemo(() => {
@@ -290,8 +298,9 @@ export function RecordGrid({
       return records.indexOf(a) - records.indexOf(b);
     }
     const left = display(a, sort.field), right = display(b, sort.field);
-    const order = typeof left === "number" && typeof right === "number"
-      ? left - right : collator.compare(String(left), String(right));
+    const leftValue = a.values[sort.field], rightValue = b.values[sort.field];
+    const order = leftValue && typeof leftValue === "object" && !Array.isArray(leftValue) && rightValue && typeof rightValue === "object" && !Array.isArray(rightValue)
+      ? compareBackOfficeMoney(leftValue, rightValue) : collator.compare(String(left), String(right));
     return sort.direction === "asc" ? order : -order;
   }), [searchRows, object, filters, sort, collator, display, sheet, records]);
   const selectedIds = useMemo(() => new Set(selected), [selected]);
@@ -401,7 +410,7 @@ export function RecordGrid({
     setDateField(view?.dateField ?? null);
     setCalendarMode(view?.calendarMode ?? "month");
     setSelected([]);
-    setEditing(null);
+    editCell(null);
   };
   useEffect(() => {
     if (urlViewId !== activeViewId || (activeViewId && !activeView))
@@ -436,7 +445,7 @@ export function RecordGrid({
       const targetRow = Math.floor(position / visibleFields.length), targetColumn = position % visibleFields.length;
       if (targetRow < 0 || targetRow > rows.length) return;
 
-      setEditing(null);
+      editCell(null);
       if (windowed) rowWindow.scrollToIndex(targetRow);
       requestAnimationFrame(() => {
         const cell = scroll.current?.querySelector<HTMLElement>(`[data-row="${targetRow}"][data-col="${targetColumn}"]`);
@@ -466,7 +475,7 @@ export function RecordGrid({
         requestAnimationFrame(() => scroll.current?.querySelector<HTMLElement>(selector)?.focus());
       }
     }
-  }, [rows, visibleFields, rowWindow, sheet, windowed]);
+  }, [rows, visibleFields, rowWindow, sheet, windowed, editCell]);
   const summaryCells = useMemo(() => layout !== "table" ? null : visibleFields.map((field) => {
     const amounts = field.type !== "currency" ? [] : rows.flatMap((record) => {
       const value = record.values[field.id];
@@ -487,23 +496,18 @@ export function RecordGrid({
           new Intl.NumberFormat(locale, {
             style: "currency",
             currency: currencies[0],
-          }).format(
-            amounts.reduce(
-              (sum, value) => sum + value.amountMinor,
-              0,
-            ) / 100,
-          )
+          }).format(sumBackOfficeMoney(amounts))
         ) : null}
       </div>
     );
   }), [layout, rows, visibleFields, locale]);
   const renderRow = (record: BackOfficeRecord, index: number, top?: number) => (
-    <RecordGridRow key={record.id} sheet={Boolean(sheet)} onFocus={() => sheet?.onFocus?.(record)} trailing={sheet?.trailing?.(record)} leading={sheet?.leading?.(record)} details={sheet?.details?.(record)} record={record} index={index} top={top}
+    <RecordGridRow key={record.id} sheet={Boolean(sheet)} fieldValue={sheet?.fieldValue} onFocus={() => sheet?.onFocus?.(record)} trailing={sheet?.trailing?.(record)} leading={sheet?.leading?.(record)} details={sheet?.details?.(record)} record={record} index={index} top={top}
       measure={windowed ? rowWindow.measureElement : undefined} template={template}
       fields={visibleFields} records={localIds.has(record.id) ? localChoices ?? [] : records} recordById={localIds.has(record.id) ? undefined : recordById}
       readOnlyFields={readOnlyFields} userId={userId} localOnly={localIds.has(record.id)} editable={editable} selected={selectedIds.has(record.id)}
       editing={editing?.record === record.id ? editing : undefined}
-      onEdit={setEditing} onError={message => { if (message) toast.error(message); }} onSelect={selectRow} onMove={moveCell}
+      onEdit={editCell} onError={message => { if (message) toast.error(message); }} onSelect={selectRow} onMove={moveCell}
       onSave={onSave} onOpen={onOpen} />
   );
   const viewProps = {

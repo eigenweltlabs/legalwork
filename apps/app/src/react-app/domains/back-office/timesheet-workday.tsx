@@ -59,7 +59,7 @@ export function TimesheetWorkday({
   }, [initialDate]);
   const local = isLoopbackLegalworkServerUrl(client.baseUrl);
   const context = {
-    date,
+    date: dates[0],
     scope: directory.scope,
     user: directory.permissions.userId,
     principal: directory.permissions.principalKey ?? "",
@@ -127,14 +127,29 @@ export function TimesheetWorkday({
           ),
       ) ?? [];
   const selected = shown.find((p) => p.key === editing);
-  const ownEntries = state.entries.filter(
+  const bookedEntries = state.entries.filter(
     (e) =>
       e.workerId === context.user &&
-      e.date === date &&
       ["confirmed", "submitted", "approved", "invoiced"].includes(e.status),
   );
-  const overlaps = overlappingWorkdayRanges(shown, ownEntries);
+  const ownEntries = bookedEntries.filter(entry => entry.date === date);
+  const ownRecords = directory.records.filter(record => {
+    if (record.objectId !== "timeEntries" || record.archivedAt) return false;
+    if (!record.values.timekeeper) return record.ownerId === context.user;
+    const person = directory.records.find(person => person.objectId === "people" && person.id === record.values.timekeeper);
+    return person?.sourceId === "eigenwelt-member:" + context.user && person.values.active !== false;
+  });
   const recordsOnly = state.service === "records";
+  const overlaps = overlappingWorkdayRanges(shown, recordsOnly ? ownRecords.flatMap(({ values }) =>
+    typeof values.startedAt === "string" && values.startedAt.includes("T") && typeof values.endedAt === "string"
+      ? [{ startAt: values.startedAt, endAt: values.endedAt }]
+      : [],
+  ) : bookedEntries);
+  function selectDate(next: string) {
+    if (!next || next === date) return;
+    setDate(next);
+    onDateChange?.(next);
+  }
   return (
     <section className={"bo-workday" + (children ? " time-unified" : "")}>
       <div className="bo-workday-controls">
@@ -144,19 +159,10 @@ export function TimesheetWorkday({
             type="date"
             aria-label={t("timesheets.date")}
             value={date}
-            onChange={(e) => {
-              if (e.target.value) {
-                setDate(e.target.value);
-                onDateChange?.(e.target.value);
-              }
-            }}
+            onChange={(e) => selectDate(e.target.value)}
           />
         </label>
-        <Button size="sm" variant="ghost" onClick={() => {
-          const today = calendarDay(new Date());
-          setDate(today);
-          onDateChange?.(today);
-        }}>{t("timesheets.today")}</Button>
+        <Button size="sm" variant="ghost" onClick={() => selectDate(calendarDay(new Date()))}>{t("timesheets.today")}</Button>
         {children && <div className="time-sheet-period">{(["day", "week"] as const).map(value => <Button key={value} size="xs" variant={period === value ? "secondary" : "ghost"} aria-pressed={period === value} onClick={() => setPeriod(value)}>{t(value === "day" ? "timesheets.ledger.day" : "timesheets.ledger.week")}</Button>)}</div>}
         <span className="bo-workday-toolbar-space" />
         {children && <Button size="sm" variant="ghost" aria-pressed={showSuggestions} onClick={() => setShowSuggestions(value => !value)}><Sparkles size={14} />{t("timesheets.sheet.suggestions", { count: shown.length })}</Button>}
@@ -277,7 +283,7 @@ export function TimesheetWorkday({
           close={() => setEditing("")}
         />
       )}
-      {children && (!local || !query.isPending) && children({ proposals: shown, showSuggestions, privateAvailable: Boolean(data), drafts: data?.drafts ?? {}, date, dates, act, openSource: proposal => setEditing(proposal.key) })}
+      {children?.({ proposals: shown, showSuggestions, privateAvailable: Boolean(data), drafts: data?.drafts ?? {}, date, dates, overlaps, linkableRecords: ownRecords, selectDate, act, openSource: proposal => setEditing(proposal.key) })}
       {data && !children && (
         <div className="bo-workday-list">
           {!shown.length ? (
@@ -315,7 +321,7 @@ export function TimesheetWorkday({
                       ledgerDirty ||
                       running ||
                       !!selected ||
-                      (overlaps.has(p.key) && !p.parentDigest)
+                      overlaps.has(p.key)
                     }
                     onClick={() => {
                       onDraft(p);

@@ -1,9 +1,11 @@
 import {
   nonBillableWork,
   proposedCharge,
+  proposedStopwatchCharge,
   type TimeDraft,
   type TimesheetState,
 } from "@legalwork/types/timesheet";
+import { captureChargeMinutes, type CaptureProposal } from "@legalwork/types/time-capture";
 import { t } from "@/i18n";
 
 export type LedgerDirectory = Pick<
@@ -25,6 +27,7 @@ export type RowValues = {
   billableWork: string;
   nonBillable: string;
   billable: boolean;
+  manualCharge?: boolean;
 };
 
 export const rowColumns = [
@@ -94,6 +97,15 @@ export function matterOptions(state: LedgerDirectory) {
             (item.projectId ? " / " + item.projectId : ""),
         },
   );
+}
+
+export function matchMatter(options: ReturnType<typeof matterOptions>, label: string) {
+  const query = label.trim().toLocaleLowerCase();
+  if (!query) return undefined;
+  const exact = options.find((item) => item.label.toLocaleLowerCase() === query);
+  if (exact) return exact;
+  const matches = options.filter((item) => item.label.toLocaleLowerCase().includes(query));
+  return matches.length === 1 ? matches[0] : undefined;
 }
 
 export function workerOptions(state: LedgerDirectory) {
@@ -186,19 +198,36 @@ export function fromDraft(
   };
 }
 
-export type TimeAmounts = Pick<RowValues, "worked" | "billableWork" | "nonBillable" | "billable" | "charge">;
+export type TimeAmounts = Pick<RowValues, "worked" | "billableWork" | "nonBillable" | "billable" | "charge" | "manualCharge">;
 export type AmountField = "worked" | "billableWork" | "nonBillable" | "charge";
 type Rounding = Parameters<typeof proposedCharge>[1];
 const numeric = (value: string) => value === "" || /^\d+$/.test(value);
+
+type StopwatchEvidence = Partial<Pick<CaptureProposal, "workedMinutes" | "startAt" | "endAt">>;
+export function stopwatchRowCharge(
+  evidence: StopwatchEvidence,
+  amounts: TimeAmounts,
+  policy: Parameters<typeof proposedStopwatchCharge>[1],
+) {
+  const worked = Number(amounts.worked);
+  if (!amounts.billable || (worked > 0 && Number(amounts.billableWork) === 0)) return 0;
+  const measured = worked === (evidence.workedMinutes ?? 0)
+    ? captureChargeMinutes({ source: "stopwatch", workedMinutes: evidence.workedMinutes ?? null,
+        startAt: evidence.startAt ?? null, endAt: evidence.endAt ?? null })
+    : worked;
+  return proposedStopwatchCharge(Math.max(0, (measured ?? 0) - Number(amounts.nonBillable)), policy);
+}
+
 export function changeAmounts(
   previous: TimeAmounts,
   field: AmountField,
   value: string,
   policy: Rounding,
-  chargeFor = (amounts: TimeAmounts) => proposedCharge(Number(amounts.billableWork), policy),
+  stopwatchCharge?: (amounts: TimeAmounts) => number,
 ): TimeAmounts {
-  const { worked, billableWork, nonBillable, billable, charge } = previous;
-  const next = { worked, billableWork, nonBillable, billable, charge, [field]: value };
+  const { worked, billableWork, nonBillable, billable, charge, manualCharge } = previous;
+  const next = { worked, billableWork, nonBillable, billable, charge, manualCharge, [field]: value };
+  if (stopwatchCharge && field === "charge") next.manualCharge = true;
   if (field === "charge" || !numeric(value)) return next;
   if (field === "worked") {
     const total = Number(value);
@@ -210,12 +239,11 @@ export function changeAmounts(
     next.worked = String(Number(next.billableWork) + Number(next.nonBillable));
   }
   next.billable = Number(next.billableWork) > 0 || !next.worked;
-  if (!next.billable) next.charge = "0";
-  else if (
-    !previous.charge ||
-    Number(previous.charge) === chargeFor(previous)
-  ) {
-    next.charge = next.worked ? String(chargeFor(next)) : "";
+  if (stopwatchCharge) {
+    if (!next.manualCharge) next.charge = next.worked ? String(stopwatchCharge(next)) : "";
+  } else if (!next.billable) next.charge = "0";
+  else if (!charge || Number(charge) === proposedCharge(Number(billableWork), policy)) {
+    next.charge = next.worked ? String(proposedCharge(Number(next.billableWork), policy)) : "";
   }
   return next;
 }
@@ -225,11 +253,7 @@ export function parseRow(values: RowValues, state: LedgerDirectory): ParsedRow |
   const validDate =
     /^\d{4}-\d{2}-\d{2}$/.test(values.date) && localDate(new Date(values.date + "T12:00:00")) === values.date;
   if (!validDate) return { field: "date", error: t("timesheets.ledger.valid_date") };
-  const options = matterOptions(state);
-  const query = values.matter.trim().toLocaleLowerCase();
-  const exact = options.find((item) => item.label.toLocaleLowerCase() === query);
-  const matches = query ? options.filter((item) => item.label.toLocaleLowerCase().includes(query)) : [];
-  const matter = exact ?? (matches.length === 1 ? matches[0] : undefined);
+  const matter = matchMatter(matterOptions(state), values.matter);
   if (!matter) return { field: "matter", error: t("timesheets.ledger.choose_matter") };
   const people = workerOptions(state);
   // An exact match takes precedence over the separator in a person's name.

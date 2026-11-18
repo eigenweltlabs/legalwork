@@ -15,12 +15,14 @@ export function correctWorkday(saved: Day, date: string, command: WorkdayCorrect
   const start = command.startAt ? Date.parse(command.startAt) : null,
     end = command.endAt ? Date.parse(command.endAt) : null;
   const elapsed = start !== null && end !== null ? (end - start) / 60000 : null;
+  const rounded = elapsed === null ? null : Math.round(elapsed);
+  const workedMinutes = rounded === 0 && parent.source === "stopwatch" ? null : rounded;
   if (
     (start === null) !== (end === null) ||
     (elapsed !== null &&
       (elapsed <= 0 ||
         elapsed > 1440 ||
-        Math.round(elapsed) !== command.workedMinutes ||
+        workedMinutes !== command.workedMinutes ||
         dayInZone(command.startAt!, zone) !== date ||
         dayInZone(new Date(end! - 1).toISOString(), zone) !== date))
   )

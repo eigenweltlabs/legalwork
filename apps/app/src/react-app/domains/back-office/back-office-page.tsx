@@ -31,6 +31,7 @@ import type {
 import {
   BackOfficeRecordSchema,
   BackOfficeViewSchema,
+  backOfficeMajorAmount,
   defaultBackOfficeValues,
   validateBackOfficeValues,
   isInternalBackOfficeObject,
@@ -322,7 +323,7 @@ export function BackOfficePage({ client, embeddedObject }: {
                       )
                       .join("|")
                   : typeof value === "object" && value !== null
-                    ? value.amountMinor / 100
+                    ? backOfficeMajorAmount(value)
                     : value,
               );
             })

@@ -14,6 +14,10 @@ import {
   timeEntryError,
   TimeDraftSchema,
   nonBillableWork,
+  adjustedTimeEntry,
+  appliesTimeAdjustment,
+  hasTimeEntryPrice,
+  timeEntryPrice,
   TimesheetCommandSchema,
   type TimeDraft,
   type TimeEntry,
@@ -21,7 +25,7 @@ import {
   type TimesheetCommand,
   type TimesheetState,
 } from "./timesheet-schema.js";
-import { BackOfficeRecordSchema, canonicalBackOfficeAudit, type BackOfficeActor } from "./schema.js";
+import { BackOfficeRecordSchema, backOfficeMoneyFromMinor, canonicalBackOfficeAudit, type BackOfficeActor } from "./schema.js";
 import {
   readTimesheet,
   readTimeDocument,
@@ -42,7 +46,7 @@ const policyFor = (s: TimesheetState, d: TimeDraft) =>
   resolveTimePolicy(s.policies, d.clientId, d.matterId, d.date, d.projectId);
 // Product identity is resolved before comparison. Its current display title may have changed.
 const editableFields = TimeDraftSchema.omit({ createWorkProduct: true, workProductTitle: true, nonBillableMinutes: true }).keyof().options;
-function validateDraft(state: TimesheetState, draft: TimeDraft, final = false) {
+function validateReferences(state: TimesheetState, draft: TimeDraft) {
   const matter = state.matters.find((m) => m.id === draft.matterId);
   if (!matter) timeError("Choose an accessible matter.", 404);
   if (
@@ -56,6 +60,9 @@ function validateDraft(state: TimesheetState, draft: TimeDraft, final = false) {
     !state.projects.some((p) => p.id === draft.projectId && p.matterIds.includes(draft.matterId))
   )
     timeError("Choose a linked project.");
+}
+function validateDraft(state: TimesheetState, draft: TimeDraft, final = false) {
+  validateReferences(state, draft);
   const policy = policyFor(state, draft);
   const error = final ? timePolicyError(draft, policy) : timeEntryError(draft, policy);
   if (error) timeError(error);
@@ -84,15 +91,14 @@ function requireEntry(state: TimesheetState, ref: { id: string; revision: number
   if (e.revision !== ref.revision) timeError("This entry has changed. Refresh before saving.", 409);
   return e;
 }
-function snapshotRate(state: TimesheetState, e: TimeEntry) {
-  const p = policyFor(state, e);
+function snapshotRate(state: TimesheetState, e: TimeEntry, p = policyFor(state, e)) {
+  const { nonHourlyAgreement: _basis, ...terms } = p;
   return {
     activityLabel:
       p.activityLabels[e.activity] ??
       (Object.hasOwn(timeActivities, e.activity) ? timeActivities[e.activity] : e.activity),
-    hourlyRate: p.workerRates[e.workerId] ?? p.hourlyRate,
-    currency: p.currency || undefined,
-    policyDigest: digest(p),
+    ...timeEntryPrice(p, e.workerId),
+    policyDigest: digest(terms),
   };
 }
 function issue(
@@ -102,12 +108,14 @@ function issue(
   originals: TimeEntry[],
   adjustmentVersions: { id: string; revision: number }[],
 ) {
-  const entries = invoiceLines(originals, state.adjustments ?? [], adjustmentVersions);
   if (!actor.finance) timeError("Billing access is required.", 403);
-  for (const e of entries) {
-    validateDraft(state, e, true);
-    if (e.legacy || e.status !== "approved" || !e.billable || e.hourlyRate === undefined || !e.currency)
+  const entries = invoiceLines(originals, state.adjustments ?? [], adjustmentVersions).map((e) => {
+    validateReferences(state, e);
+    if (e.legacy || e.status !== "approved" || !e.billable || e.nonHourlyApproval || !hasTimeEntryPrice(e))
       timeError("Issuance requires approved, priced billing lines.", 409);
+    return e;
+  });
+  for (const e of entries) {
     if (
       e.clientId !== entries[0].clientId ||
       e.currency !== entries[0].currency ||
@@ -115,7 +123,7 @@ function issue(
     )
       timeError("Select one client, matter and currency for an invoice.");
   }
-  const currency = entries[0].currency!,
+  const currency = entries[0].currency,
     scope = state.scope;
   // The sequence spans the entire directory, including matters the issuer cannot open.
   const numbers = new Set<number>(
@@ -146,6 +154,7 @@ function issue(
   for (const n of numbers) number = Math.max(number, n + 1);
   if (!Number.isSafeInteger(number)) timeError("The invoice sequence is exhausted.", 409);
   const scale = currencyScale(currency),
+    totalMinor = entries.reduce((sum, e) => sum + timeFeeMinor(e.billableMinutes, e.hourlyRate, scale), 0),
     invoice: TimeInvoice = {
       id: randomUUID(),
       number,
@@ -160,8 +169,7 @@ function issue(
         sharedOriginal: undefined,
         suggestion: undefined,
       })),
-      total:
-        entries.reduce((n, e) => n + timeFeeMinor(e.billableMinutes, e.hourlyRate!, scale), 0) / scale,
+      total: totalMinor / scale,
     };
   writeTimeDocument(store, scope, {
     id: invoice.id,
@@ -182,7 +190,7 @@ function issue(
     issuedOn: invoice.issuedAt.slice(0, 10),
     matter: entries[0].matterId,
     client: invoice.clientId,
-    netTotal: { amountMinor: Math.round(invoice.total * 100), currency },
+    netTotal: backOfficeMoneyFromMinor(totalMinor, currency, scale),
   });
   for (const e of originals) {
     writeEntry(store, scope, actor, e, { ...e, status: "invoiced" }, "invoice");
@@ -380,6 +388,7 @@ function apply(
       source: e.source,
       groupId: e.groupId,
       proposalDigest: e.proposalDigest,
+      adjustmentBaselineRevision: e.adjustmentBaselineRevision,
       workProductId: product?.id,
       workProductTitle: product?.name,
       status: e.status === "submitted" ? "confirmed" : e.status,
@@ -450,8 +459,27 @@ function apply(
     : []);
   for (const e of selection) {
     let status: TimeEntry["status"];
+    const policy = policyFor(state, e);
     if (command.type === "approve" || command.type === "return") {
       requireReviewer(state, e, actor);
+      if (
+        command.type === "return" && e.status === "approved" && !e.legacy && e.billable &&
+        !e.nonHourlyApproval && !policy.nonHourlyAgreement && !hasTimeEntryPrice(e)
+      ) {
+        if (!command.reason) timeError("Give a reason for returning the unpriced approval.");
+        const adjustments = state.adjustments ?? [];
+        if (adjustments.some((a) => a.status === "pending" && appliesTimeAdjustment(e, a)))
+          timeError("Resolve pending corrections before returning this entry.", 409);
+        // Carry approved corrections into the new base revision and leave their records intact.
+        const next = adjustedTimeEntry(e, adjustments);
+        writeEntry(store, scope, actor, e, {
+          ...next,
+          status: "confirmed",
+          adjustmentBaselineRevision: e.revision + 1,
+          sharedOriginal: undefined,
+        }, command.type, command.reason);
+        continue;
+      }
       if (e.status !== "submitted") timeError("Review a submitted revision.", 409);
       status = command.type === "approve" ? "approved" : "confirmed";
     } else {
@@ -471,7 +499,7 @@ function apply(
     if (
       e.billable &&
       (status === "submitted" || status === "approved") &&
-      policyFor(state, e).ambiguousAgreement
+      policy.ambiguousAgreement
     )
       timeError(
         "Several fee agreements apply. Link the intended agreement in Project details and choose that project before submitting.",
@@ -496,12 +524,20 @@ function apply(
         next.sharedOriginal = { ...original, submittedRevision: e.revision + 1 };
       }
     } else if (command.type === "return") delete next.sharedOriginal;
-    if (status === "approved" && e.policyDigest !== snapshotRate(state, e).policyDigest)
-      timeError(
-        "The applicable billing terms changed. Review the entry again or return it for resubmission.",
-        409,
-      );
-    if (status === "submitted" || status === "approved") Object.assign(next, snapshotRate(state, next));
+    if (status === "submitted" || status === "approved") {
+      const terms = snapshotRate(state, next, policy);
+      if (status === "approved") {
+        if (e.billable && policy.nonHourlyAgreement) next.nonHourlyApproval = true;
+        else if (e.billable && !hasTimeEntryPrice(terms))
+          timeError("Set an hourly rate and currency for the service date before approving this billable entry.", 409);
+        if (e.policyDigest !== terms.policyDigest)
+          timeError(
+            "The applicable billing terms changed. Review the entry again or return it for resubmission.",
+            409,
+          );
+      }
+      Object.assign(next, terms);
+    }
     writeEntry(store, scope, actor, e, next, command.type, command.reason);
   }
 }

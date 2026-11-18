@@ -13,13 +13,19 @@ import {
   type TimesheetState,
 } from "./timesheet-schema.js";
 import { ApiError } from "../errors.js";
+import { readProjectDetails } from "../project-store.js";
+import type { ServerConfig } from "../types.js";
 import {
   BackOfficeRecordSchema,
+  backOfficeMajorAmount,
+  backOfficeMoneyFromMajor,
   defaultBackOfficeValues,
+  readableBackOfficeRecord,
   type BackOfficeActor,
   type BackOfficeRecord,
 } from "./schema.js";
 import type { BackOfficeStore } from "./store.js";
+import { timeMemberUserId } from "./time-member-identity.js";
 
 const invoice = TimesheetStateSchema.shape.invoices.element;
 const product = TimesheetStateSchema.shape.products.element;
@@ -69,6 +75,22 @@ export function timeError(message: string, status = 400): never {
   throw new ApiError(status, "timesheet", message);
 }
 export type TimeDirectory = Pick<TimesheetState, "clients" | "matters" | "projects" | "people">;
+export function timeWorkspaces(workspaces: ServerConfig["workspaces"], directoryId: string) {
+  return Promise.all(workspaces.map(async (workspace) => {
+    const details = await readProjectDetails(workspace.path);
+    const references = (objectId: string) => details.fields.flatMap((field) =>
+      field.type === "backoffice" && field.objectId === objectId && field.value?.directoryId === directoryId
+        ? field.value.recordIds
+        : [],
+    );
+    return {
+      id: workspace.id,
+      name: workspace.displayName || workspace.name,
+      matterIds: references("matters"),
+      agreementIds: references("feeAgreements"),
+    };
+  }));
+}
 const ids = (value: BackOfficeRecord["values"][string]) =>
   typeof value === "string"
     ? [value]
@@ -122,43 +144,47 @@ export function timeDirectory(
   };
 }
 
-function legacyEntry(record: BackOfficeRecord): TimeEntry | null {
+const serviceDay = z.iso.date();
+const clockInstant = z.iso.datetime({ offset: true });
+
+function legacyServiceDate(values: BackOfficeRecord["values"]) {
+  if (typeof values.serviceDate === "string" && serviceDay.safeParse(values.serviceDate).success)
+    return values.serviceDate;
+  const started = values.startedAt;
+  if (typeof started !== "string") return undefined;
+  if (serviceDay.safeParse(started).success) return started;
+  if (/^\d{4}-\d{2}-\d{2}[T ]/.test(started) && Number.isFinite(Date.parse(started)) &&
+      serviceDay.safeParse(started.slice(0, 10)).success)
+    return started.slice(0, 10);
+}
+
+function legacyEntry(record: BackOfficeRecord, workerId: string): TimeEntry | null {
   const v = record.values;
-  const date = String(v.startedAt ?? record.createdAt).slice(0, 10),
-    activity = "LEGACY";
-  const status = (
-    {
-      Draft: "confirmed",
-      Submitted: "confirmed", // The worker must submit a signed workflow revision.
-      Approved: "approved",
-      Invoiced: "invoiced",
-      "Written off": "approved",
-    } as const
-  )[String(v.status || "Draft") as "Draft"];
-  const draft = {
+  const date = legacyServiceDate(v);
+  if (!date) return null;
+  if (v.status && !["Draft", "Submitted", "Approved", "Invoiced", "Written off"].some((status) => status === v.status)) return null;
+  const status = v.status === "Approved" || v.status === "Written off" ? "approved"
+    : v.status === "Invoiced" ? "invoiced"
+    : workerId === record.ownerId ? "confirmed" : "pending";
+  const start = clockInstant.safeParse(v.startedAt), end = clockInstant.safeParse(v.endedAt);
+  const row = TimeEntrySchema.safeParse({
     date,
     matterId: v.matter,
     clientId: v.client ?? "",
-    activity,
+    activity: "LEGACY",
     narrative: v.billingNarrative || v.name,
     workedMinutes: v.recordedMinutes,
     billableMinutes: v.billableMinutes ?? 0,
     billable: Number(v.billableMinutes ?? 0) > 0,
-  };
-  if (!v.startedAt) return null; // A creation timestamp is not evidence of a historical service date.
-  const row = TimeEntrySchema.safeParse({
-    ...draft,
     id: record.id,
     revision: record.revision,
-    workerId: record.ownerId,
+    workerId,
     authorId: record.ownerId,
     source: "manual",
     legacy: true,
     status,
     history: [],
-    ...(typeof v.startedAt === "string" && typeof v.endedAt === "string"
-      ? { startAt: v.startedAt, endAt: v.endedAt }
-      : {}),
+    ...(start.success && end.success ? { startAt: start.data, endAt: end.data } : {}),
   });
   return row.success ? row.data : null;
 }
@@ -213,6 +239,9 @@ export function readTimesheet(
         .filter((p) => p.agreementIds?.includes(r.id))
         .map((p) => p.id),
       allocationUnavailable: Boolean(basis && basis !== "Hourly") || !hourlyRate,
+      ...(basis === "Flat fee" || basis === "Flat fee with included time" || basis === "RVG"
+        ? { nonHourlyAgreement: true }
+        : {}),
       ...(matter && typeof client === "string" ? { agreementClientId: client } : {}),
       effectiveFrom: "0001-01-01",
       revision: 0,
@@ -225,7 +254,7 @@ export function readTimesheet(
       ...(typeof incrementMinutes === "number" ? { incrementMinutes } : {}),
       ...(hourlyRate && typeof hourlyRate === "object" && "amountMinor" in hourlyRate
         ? {
-            hourlyRate: hourlyRate.amountMinor / 100,
+            hourlyRate: backOfficeMajorAmount(hourlyRate),
             currency: hourlyRate.currency,
           }
         : {}),
@@ -234,12 +263,30 @@ export function readTimesheet(
   }
   const entries = docs.flatMap((doc) => (doc.kind === "entry" ? [doc.value] : []));
   const managed = new Set(entries.map((e) => e.id));
-  for (const r of store.records(scope, actor, "timeEntries")) {
-    const legacy = !managed.has(r.id) && legacyEntry(r);
-    if (legacy) entries.push(legacy);
-  }
   const canSeeReferences = (e: Pick<TimeEntry, "clientId" | "matterId">) =>
     matters.has(e.matterId) && (!e.clientId || clients.has(e.clientId));
+  const unresolvedLegacyEntries: string[] = [];
+  const timeObject = store.model(scope).objects.find((object) => object.id === "timeEntries" && !object.archived);
+  if (timeObject) for (const row of store.db.all("SELECT data FROM bo_records WHERE scope=? AND object_id='timeEntries'", [scope])) {
+    const record = BackOfficeRecordSchema.parse(JSON.parse(String(row.data)));
+    if (managed.has(record.id) || record.archivedAt) continue;
+    const { timekeeper } = record.values;
+    const contact = typeof timekeeper === "string" ? store.raw(scope, timekeeper) : null;
+    const linkedUser = contact && !contact.archivedAt && contact.values.active !== false && store.canRead(scope, contact, actor)
+      ? timeMemberUserId(scope, contact) : undefined;
+    const workerId = timekeeper == null || timekeeper === "" ? record.ownerId
+      : linkedUser && (linkedUser === actor.userId || people.some((person) => person.id === linkedUser && !person.directoryOnly))
+        ? linkedUser : undefined;
+    // The worker may see their own pending workflow row through the ordinary sharing and matter gates.
+    // Keep the generic record and its private fields subject to the original owner's permissions.
+    if (!store.canRead(scope, record, actor) &&
+        !(workerId === actor.userId && (record.access === "org" || record.members.includes(actor.userId)))) continue;
+    const readable = readableBackOfficeRecord(record, timeObject, actor);
+    const legacy = legacyEntry(readable, workerId ?? record.ownerId);
+    if (!legacy || !canSeeReferences(legacy)) continue;
+    if (workerId) entries.push(legacy);
+    else if (record.ownerId === actor.userId && legacy.status === "confirmed") unresolvedLegacyEntries.push(record.id);
+  }
   const visible = entries.filter(
     (e) =>
       canSeeReferences(e) &&
@@ -253,6 +300,7 @@ export function readTimesheet(
     scope,
     template: actor.finance ? docs.find((doc) => doc.kind === "template")?.value : undefined,
     userId: actor.userId,
+    ...(unresolvedLegacyEntries.length ? { unresolvedLegacyEntries } : {}),
     supportsBillingComparisons: true,
     supportsTimeAllocations: true,
     canManage: actor.model && actor.finance && actor.edit,
@@ -345,6 +393,7 @@ export function validateGenericTime(
     "billableMinutes",
     "recordedMinutes",
     "startedAt",
+    "serviceDate",
     "endedAt",
     "client",
     "matter",
@@ -356,14 +405,17 @@ export function validateGenericTime(
   if (!changed) return;
   if (old?.status && !["Draft", "Submitted"].includes(String(old.status)))
     timeError("Previously approved or billed time cannot be rewritten.", 409);
+  if (previous && previous.ownerId !== actor.userId && (values.timekeeper ?? null) !== (old?.timekeeper ?? null))
+    timeError("Only the original entry owner can correct its timekeeper.", 403);
   const minutes = values.billableMinutes;
   if (minutes == null || minutes === 0) return;
   if (typeof minutes !== "number" || !Number.isInteger(minutes) || minutes < 0 || minutes > 1440)
     timeError("Enter whole chargeable minutes between zero and 1440.");
+  const date = legacyServiceDate(values);
   if (
     typeof values.matter !== "string" ||
     typeof values.client !== "string" ||
-    typeof values.startedAt !== "string"
+    !date
   )
     timeError(
       "Billable imports need a matter, billing client and service date. Use Timesheets for duration-only entries.",
@@ -378,7 +430,7 @@ export function validateGenericTime(
     state.policies,
     values.client,
     values.matter,
-    values.startedAt.slice(0, 10),
+    date,
   );
   if (policy.enforceIncrement && minutes % policy.incrementMinutes)
     timeError(`Chargeable time must be a multiple of ${policy.incrementMinutes} minutes.`);
@@ -469,6 +521,8 @@ export function writeEntry(
     endAt: e.endAt,
     status: e.status,
     policyDigest: e.policyDigest,
+    nonHourlyApproval: e.nonHourlyApproval,
+    adjustmentBaselineRevision: e.adjustmentBaselineRevision,
     hourlyRate: e.hourlyRate,
     currency: e.currency,
   });
@@ -504,14 +558,15 @@ export function writeEntry(
     billingNarrative: entry.narrative,
     matter: entry.matterId,
     client: entry.clientId || null,
-    startedAt: entry.startAt ?? null,
+    serviceDate: entry.date,
+    startedAt: entry.startAt ?? entry.date,
     endedAt: entry.endAt ?? null,
     recordedMinutes: entry.workedMinutes,
     billableMinutes: entry.billableMinutes,
     status,
     hourlyRate:
       entry.hourlyRate !== undefined && entry.currency
-        ? { amountMinor: Math.round(entry.hourlyRate * 100), currency: entry.currency }
+        ? backOfficeMoneyFromMajor(entry.hourlyRate, entry.currency)
         : null,
   });
 }
@@ -534,7 +589,7 @@ export function projectBillingRecord(
       ...existing,
       id,
       objectId,
-      ownerId,
+      ownerId: existing?.ownerId ?? ownerId,
       revision: (existing?.revision ?? 0) + 1,
       schemaRevision: model.revision,
       values: {

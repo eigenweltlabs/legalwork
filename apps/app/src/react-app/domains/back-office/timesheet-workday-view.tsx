@@ -23,17 +23,21 @@ const clock = (minutes: number) =>
   String(Math.floor(minutes / 60)).padStart(2, "0") + ":" + String(minutes % 60).padStart(2, "0");
 const localClock = (iso: string | null) =>
   iso ? clock(new Date(iso).getHours() * 60 + new Date(iso).getMinutes()) : "";
-export function overlappingWorkdayRanges(proposals: CaptureProposal[], recorded: TimeEntry[]) {
+type WorkdayRange = { startAt?: string | null; endAt?: string | null };
+function interval({ startAt, endAt }: WorkdayRange) {
+  if (!startAt || !endAt) return undefined;
+  const start = Date.parse(startAt), end = Date.parse(endAt);
+  return start < end ? { start, end } : undefined;
+}
+export function overlappingWorkdayRanges(proposals: readonly CaptureProposal[], booked: readonly WorkdayRange[]) {
   const overlaps = new Set<string>();
-  const booked = recorded.filter((row) =>
-    ["confirmed", "submitted", "approved", "invoiced"].includes(row.status),
-  );
   for (const proposal of proposals) {
-    if (!proposal.startAt || !proposal.endAt) continue;
-    const start = Date.parse(proposal.startAt),
-      end = Date.parse(proposal.endAt);
-    const collide = (item: { startAt?: string | null; endAt?: string | null }) =>
-      item.startAt && item.endAt && Date.parse(item.startAt) < end && Date.parse(item.endAt) > start;
+    const range = interval(proposal);
+    if (!range) continue;
+    const collide = (item: WorkdayRange) => {
+      const other = interval(item);
+      return other && other.start < range.end && other.end > range.start;
+    };
     if (proposals.some((other) => other.key !== proposal.key && collide(other)) || booked.some(collide))
       overlaps.add(proposal.key);
   }
@@ -216,12 +220,9 @@ export function WorkdayCorrectionForm({
   }
   const startAt = instant(start, p.startAt),
     endAt = instant(end, p.endAt, true);
-  const total =
-    startAt && endAt
-      ? Math.round((Date.parse(endAt) - Date.parse(startAt)) / 60000)
-      : actual
-        ? Number(actual)
-        : null;
+  const elapsed = startAt && endAt ? (Date.parse(endAt) - Date.parse(startAt)) / 60000 : null;
+  const total = elapsed === null ? (actual ? Number(actual) : null) : Math.round(elapsed);
+  const shortStopwatch = p.source === "stopwatch" && elapsed !== null && elapsed > 0 && total === 0;
   function assignment(id: string) {
     const m = state.matters.find((x) => x.id === id);
     const project = state.projects.find((x) => x.id === p.projectId && x.matterIds.includes(id));
@@ -267,7 +268,7 @@ export function WorkdayCorrectionForm({
         setError("");
         if (
           ((start || end) && (!startAt || !endAt)) ||
-          (total !== null && (!Number.isInteger(total) || total < 1 || total > 1440)) ||
+          (total !== null && !shortStopwatch && (!Number.isInteger(total) || total < 1 || total > 1440)) ||
           !narrative.trim()
         ) {
           setError(t("timesheets.workday.invalid"));
@@ -295,7 +296,7 @@ export function WorkdayCorrectionForm({
             ...sourceMatch,
             startAt,
             endAt,
-            workedMinutes: total,
+            workedMinutes: shortStopwatch ? null : total,
             ...(split && targetMatch.matterId
               ? {
                   split: {
@@ -370,7 +371,7 @@ export function WorkdayCorrectionForm({
           )}
         </>
       )}
-      {!split && total && p.source === "stopwatch" && <p>{preview(matter, total, chargeMinutes ?? total)}</p>}
+      {!split && total !== null && p.source === "stopwatch" && <p>{preview(matter, total, chargeMinutes ?? total)}</p>}
       <p>{t("timesheets.workday.dictation")}</p>
       {error && <p role="alert">{error}</p>}
       <div>

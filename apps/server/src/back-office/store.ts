@@ -4,6 +4,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { validateGenericTime } from "./timesheet-data.js";
+import { isTimeMemberSource, memberSource, timeMemberContactId, timeMemberUserId } from "./time-member-identity.js";
 import { BackOfficeJournal } from "./journal.js";
 import { backOfficeAuthorKey, backOfficePrincipalKey } from "./principal.js";
 import {
@@ -536,6 +537,7 @@ export class BackOfficeStore {
     scope: string,
     actor: BackOfficeActor,
     input: unknown,
+    verifiedTimeMemberId?: string,
   ): BackOfficeRecord {
     if (!actor.edit)
       throw new ApiError(
@@ -585,6 +587,11 @@ export class BackOfficeStore {
             "back_office_record",
             "The record is unavailable.",
           );
+        if (object.id === "people" && parsed.sourceId !== undefined && parsed.sourceId !== existing?.sourceId &&
+            (isTimeMemberSource(parsed.sourceId) || timeMemberUserId(scope, existing)) &&
+            !(verifiedTimeMemberId && parsed.id === timeMemberContactId(scope, verifiedTimeMemberId) &&
+              parsed.sourceId === memberSource(verifiedTimeMemberId)))
+          throw new ApiError(403, "time_member_source", "Select a firm account in the timekeeper picker to link a member.");
         if (existing && this.db.get("SELECT 1 FROM bo_timesheets WHERE scope=? AND id=?", [scope,existing.id]))
           throw new ApiError(409,"timesheet_managed","Edit this entry in Timesheets to preserve its reviewed revision.");
         if (parsed.create && existing) {

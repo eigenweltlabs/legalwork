@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { BackOfficeDataQuery } from "@legalwork/types/views";
 import type { WikiValue } from "@legalwork/types/wiki";
-import { backOfficeRecordUrl, isInternalBackOfficeObject, type BackOfficeActor, type BackOfficeModel, type BackOfficeRecord } from "./schema.js";
+import { backOfficeMajorAmount, backOfficeRecordUrl, isInternalBackOfficeObject, type BackOfficeActor, type BackOfficeModel, type BackOfficeRecord } from "./schema.js";
 import { ApiError } from "../errors.js";
 import { queryIndexedRows } from "../wiki/data-query.js";
 
@@ -40,7 +40,7 @@ export function queryDirectoryRecords(model: BackOfficeModel, actor: BackOfficeA
         });
         values[key] = f.multiple ? names : names[0] ?? null;
       } else if (typeof v === "object" && !Array.isArray(v)) {
-        values[key] = query.currency ? (v.currency === query.currency ? v.amountMinor / 100 : null) : v;
+        values[key] = query.currency ? (v.currency === query.currency ? backOfficeMajorAmount(v) : null) : v;
       } else if (Array.isArray(v)) values[key] = v.map(item => typeof item === "string" ? item : item.name);
       else values[key] = v;
     }

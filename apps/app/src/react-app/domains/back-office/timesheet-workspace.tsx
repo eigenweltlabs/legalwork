@@ -193,6 +193,19 @@ export function TimesheetWorkspace({
         </div>
       )}
       {!query.isError && !state && <div className="bo-loading">{t("timesheets.loading")}</div>}
+      {!recordsOnly && !!state?.unresolvedLegacyEntries?.length && (page === "timesheets" || page === "timesheet-workday") && (
+        <details className="mx-4 mb-2 max-h-[30vh] shrink-0 overflow-auto rounded-md border px-3 py-2 text-sm">
+          <summary>{t("timesheets.legacy_timekeeper")}</summary>
+          <p className="mt-2 text-muted-foreground">{t("timesheets.legacy_timekeeper_help")}</p>
+          <ul className="mt-2 space-y-1">
+            {state.unresolvedLegacyEntries.map(id => <li key={id}>
+              <Link className="underline" to={"/back-office/timeEntries?record=" + encodeURIComponent(id)}>
+                {String(directory.records.find(record => record.id === id)?.values.name ?? t("back_office.timeEntries.singular"))}
+              </Link>
+            </li>)}
+          </ul>
+        </details>
+      )}
       {state && !recordsOnly && (page === "timesheets" || page === "timesheet-workday" || ledgerDirty) && (
         <div className="time-ledger-pane" hidden={page !== "timesheets" && page !== "timesheet-workday"}>
           <TimesheetWorkday client={client} directory={directory} state={state} initialDate={initialDate} onDateChange={selectDate} onDraft={draft}>
@@ -230,7 +243,7 @@ export function TimesheetWorkspace({
       )}
       {state && recordsOnly && (page === "timesheets" || page === "timesheet-workday") && (
         <TimesheetWorkday client={client} directory={directory} state={state} initialDate={initialDate} onDateChange={selectDate} onDraft={draft}>
-          {capture => <TimeRecordSheet key={capture.dates.join(":")} client={client} directory={directory} state={state} capture={capture} />}
+          {capture => <TimeRecordSheet client={client} directory={directory} state={state} capture={capture} />}
         </TimesheetWorkday>
       )}
       {recordsOnly && page === "billing-review" && directory.permissions.finance && renderRecords("invoices")}

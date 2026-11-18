@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { open, stat } from "node:fs/promises";
+import type { BigIntStats } from "node:fs";
 import { z } from "zod";
 import {
   stopwatchStateSchema,
@@ -15,7 +17,39 @@ export const privateStopwatchSchema = z.object({
   lastStopped: stopwatchStateSchema.shape.lastStopped,
   stoppedIds: z.array(z.uuid()),
 });
-export const emptyStopwatch = () => ({ active: null, lastStopped: null, stoppedIds: [] });
+const emptySnapshot = () => ({ active: null, lastStopped: null });
+export const emptyStopwatch = () => ({ ...emptySnapshot(), stoppedIds: [] });
+const stopwatchSnapshotSchema = z.object({
+  stopwatch: privateStopwatchSchema.pick({ active: true, lastStopped: true }).default(emptySnapshot),
+});
+
+/** The atomic profile remains authoritative. Polling an unchanged file only needs its metadata. */
+export function createStopwatchReader() {
+  let cached: { path: string; file: BigIntStats; stopwatch: z.infer<typeof stopwatchSnapshotSchema>["stopwatch"] } | undefined;
+  return async (path: string) => {
+    try {
+      const file = await stat(path, { bigint: true });
+      if (cached?.path === path && cached.file.dev === file.dev && cached.file.ino === file.ino &&
+          cached.file.size === file.size && cached.file.mtimeNs === file.mtimeNs && cached.file.ctimeNs === file.ctimeNs)
+        return cached.stopwatch;
+      const handle = await open(path, "r");
+      try {
+        const file = await handle.stat({ bigint: true });
+        const { stopwatch } = stopwatchSnapshotSchema.parse(JSON.parse(await handle.readFile("utf8")));
+        cached = { path, file, stopwatch };
+        return stopwatch;
+      } finally {
+        await handle.close();
+      }
+    } catch (error) {
+      if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+        cached = undefined;
+        return emptySnapshot();
+      }
+      throw error;
+    }
+  };
+}
 type SavedStopwatch = {
   stopwatch: z.infer<typeof privateStopwatchSchema>;
   days: Record<string, WorkdayEvidence[]>;

@@ -1,10 +1,12 @@
 import { z } from "zod";
 import { BackOfficeFilterCriteriaSchema, backOfficeFilterError } from "./back-office-filters.js";
+import { BackOfficeMoneySchema } from "./back-office-money.js";
 export * from "./back-office-filters.js";
+export * from "./back-office-money.js";
 export { z } from "zod";
 
 export const BACK_OFFICE_PROTOCOL = 1;
-export const BACK_OFFICE_TEMPLATE = 7;
+export const BACK_OFFICE_TEMPLATE = 8;
 export const DEFAULT_INTERNAL_PERSON_TYPES = ["Partner", "Counsel", "Associate", "Assistant", "Operations", "Freelancer", "Other team member"];
 const identifier = z
   .string()
@@ -87,10 +89,7 @@ export const BackOfficeValueSchema = z.union([
   z.number().finite(),
   z.boolean(),
   z.array(z.string().max(200)).max(1000),
-  z.object({
-    amountMinor: z.number().int().safe(),
-    currency: z.string().regex(/^[A-Z]{3}$/),
-  }),
+  BackOfficeMoneySchema,
   z.null(),
 ]);
 export const BackOfficeStoredRecordSchema = z.object({
@@ -373,6 +372,7 @@ export function defaultBackOfficeModel(): BackOfficeModel {
       object("timeEntries", "Time entry", "Time entries", "clock", [
         ...billing(),
         relation("timekeeper", "Timekeeper", "people"),
+        field("serviceDate", "Service date", "date"),
         field("startedAt", "Started at", "datetime"),
         field("endedAt", "Ended at", "datetime"),
         field("recordedMinutes", "Recorded minutes", "number"),
@@ -539,8 +539,7 @@ export function validateBackOfficeValues(
       field.type === "currency" &&
       typeof value === "object" &&
       !Array.isArray(value) &&
-      (!Number.isSafeInteger(value.amountMinor) ||
-        !/^[A-Z]{3}$/.test(value.currency))
+      !BackOfficeMoneySchema.safeParse(value).success
     )
       throw new Error("Use a valid currency and an amount in minor units.");
     if (

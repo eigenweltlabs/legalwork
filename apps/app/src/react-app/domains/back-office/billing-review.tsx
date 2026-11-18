@@ -8,7 +8,10 @@ import {
   type TimeEntry,
   type TimesheetState,
   adjustedTimeEntry,
+  appliesTimeAdjustment,
+  hasTimeEntryPrice,
   resolveTimePolicy,
+  timeEntryPrice,
   timePolicyError,
   timeCapWarning,
 } from "@legalwork/types/timesheet";
@@ -152,6 +155,13 @@ export function BillingReview({
               policy,
               overCap: Boolean(timeCapWarning(entry, policy)),
               error: timePolicyError(entry, policy),
+              priceIssue: entry.billable && !policy.nonHourlyAgreement
+                ? !hasTimeEntryPrice(timeEntryPrice(policy, entry.workerId))
+                  ? "back_office.billing.price_missing"
+                  : !hasTimeEntryPrice(entry)
+                    ? "back_office.billing.price_changed"
+                    : undefined
+                : undefined,
               eligible: eligible(state, entry, policy, canEdit),
             },
           ] as const;
@@ -159,7 +169,7 @@ export function BillingReview({
       ),
     [state.entries, state.policies, state.userId, state.canReview, canEdit, state.scope],
   );
-  const issues = (e: TimeEntry) => e.suggestion || reviewInfo.get(e.id)?.error;
+  const issues = (e: TimeEntry) => e.suggestion || reviewInfo.get(e.id)?.error || reviewInfo.get(e.id)?.priceIssue;
   const rows = all
     .filter((e) => e.status === mode && (mode !== "submitted" || !onlyIssues || issues(e)))
     .sort((a, b) => {
@@ -176,11 +186,15 @@ export function BillingReview({
   const adjustments = state.adjustments ?? [];
   const effective = (line: TimeEntry) =>
     mode === "approved" ? adjustedTimeEntry(line, adjustments) : line;
-  const linkedAdjustments = adjustments.filter((a) => selected.some((line) => line.id === a.entryId));
+  const linkedAdjustments = adjustments.filter((a) => selected.some((line) => appliesTimeAdjustment(line, a)));
   const adjustmentVersions = linkedAdjustments
     .filter((a) => a.status === "approved")
     .map(({ id, revision }) => ({ id, revision }));
   const hasPendingCorrections = linkedAdjustments.some((a) => a.status === "pending");
+  const canReturnUnpriced = mode === "approved" && selected.length > 0 && selected.every((e) =>
+    e.billable && !e.legacy && !e.nonHourlyApproval && !hasTimeEntryPrice(e) && reviewInfo.get(e.id)?.eligible &&
+    !reviewInfo.get(e.id)?.policy.nonHourlyAgreement,
+  );
   const creditState = linkedAdjustments.map((a) => [a.id, a.revision]);
   const invoiceKey = JSON.stringify([state.template?.revision ?? 0, refs(selected), creditState]);
   const preview = previewKey === invoiceKey;
@@ -208,12 +222,12 @@ export function BillingReview({
       (e) =>
         !e.legacy &&
         e.billable &&
+        !e.nonHourlyApproval &&
         e.matterId === selected[0].matterId &&
         e.clientId &&
         e.clientId === selected[0].clientId &&
-        !!e.currency &&
-        e.currency === selected[0].currency &&
-        e.hourlyRate !== undefined,
+        hasTimeEntryPrice(e) &&
+        e.currency === selected[0].currency,
     );
   const invoices = state.invoices
     .filter(
@@ -244,6 +258,9 @@ export function BillingReview({
     } catch {
       /* Keep the same request ID for retry. */
     }
+  }
+  function returnSelection() {
+    void send({ type: "return", entries: refs(selected), reason: reason.trim() }).then(reset).catch(() => {});
   }
   async function download(id: string, number?: number) {
     setDownloadError("");
@@ -448,7 +465,14 @@ export function BillingReview({
                   const currentPolicy = info.policy;
                   const limit = currentPolicy.activityLimits[e.activity] ?? currentPolicy.maxMinutes;
                   const overCap = mode === "submitted" && info.overCap;
-                  const policyError = info.error;
+                  const policyError = mode === "submitted" ? info.error : "";
+                  const priceIssue = mode === "submitted" ? info.priceIssue : undefined;
+                  const unpriced = mode === "approved" && e.billable && !e.legacy && !hasTimeEntryPrice(e);
+                  const priceNotice = unpriced
+                    ? e.nonHourlyApproval || currentPolicy.nonHourlyAgreement
+                      ? "back_office.billing.non_hourly"
+                      : "back_office.billing.price_return_help"
+                    : priceIssue;
                   return (
                     <Fragment key={e.id}>
                       <tr>
@@ -515,7 +539,9 @@ export function BillingReview({
                                 ? t("back_office.billing.over_cap", {
                                     minutes: e.billableMinutes - limit,
                                   })
-                                : detailLabel
+                                : priceNotice
+                                  ? t("back_office.billing.pricing")
+                                  : detailLabel
                             }
                             aria-expanded={open}
                             className={"bo-billing-cell-action" + (overCap ? " bo-billing-cap" : "")}
@@ -525,9 +551,11 @@ export function BillingReview({
                               ? t("back_office.billing.over_cap", { minutes: e.billableMinutes - limit })
                               : policyError
                                 ? t("back_office.billing.time_rule")
-                                : e.suggestion
-                                  ? t("back_office.billing.suggestion")
-                                  : null}
+                                : priceNotice
+                                  ? t("back_office.billing.pricing")
+                                  : e.suggestion
+                                    ? t("back_office.billing.suggestion")
+                                    : null}
                             {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                           </button>
                         </td>
@@ -594,6 +622,7 @@ export function BillingReview({
                                     : policyError}
                                 </span>
                               )}
+                              {priceNotice && <span className="bo-billing-error">{t(priceNotice)}</span>}
                             </div>
                             <BillingHistory e={e} state={state} />
                           </td>
@@ -637,7 +666,10 @@ export function BillingReview({
                       disabled={
                         pending ||
                         draftCells.size > 0 ||
-                        selected.some((e) => Boolean(reviewInfo.get(e.id)?.error))
+                        selected.some((e) => {
+                          const info = reviewInfo.get(e.id);
+                          return Boolean(info?.error || info?.priceIssue);
+                        })
                       }
                       onClick={() =>
                         void send({ type: "approve", entries: refs(selected) })
@@ -646,24 +678,6 @@ export function BillingReview({
                       }
                     >
                       {t("back_office.billing.approve")}
-                    </Button>
-                    <input
-                      aria-label={t("back_office.billing.return_reason")}
-                      placeholder={t("back_office.billing.return_reason")}
-                      value={reason}
-                      onChange={(e) => setReason(e.target.value)}
-                    />
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      disabled={pending || draftCells.size > 0 || !reason.trim()}
-                      onClick={() =>
-                        void send({ type: "return", entries: refs(selected), reason: reason.trim() })
-                          .then(reset)
-                          .catch(() => {})
-                      }
-                    >
-                      {t("back_office.billing.return")}
                     </Button>
                   </>
                 ) : (
@@ -681,10 +695,30 @@ export function BillingReview({
                         {t(
                           hasPendingCorrections
                             ? "back_office.billing.invoice_correction_pending"
-                            : "back_office.billing.invoice_requirements",
+                            : canReturnUnpriced
+                              ? "back_office.billing.price_return_help"
+                              : "back_office.billing.invoice_requirements",
                         )}
                       </span>
                     )}
+                  </>
+                )}
+                {(mode === "submitted" || (canReturnUnpriced && !hasPendingCorrections)) && (
+                  <>
+                    <input
+                      aria-label={t("back_office.billing.return_reason")}
+                      placeholder={t("back_office.billing.return_reason")}
+                      value={reason}
+                      onChange={(e) => setReason(e.target.value)}
+                    />
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={pending || draftCells.size > 0 || !reason.trim()}
+                      onClick={returnSelection}
+                    >
+                      {t(mode === "submitted" ? "back_office.billing.return" : "back_office.billing.price_return")}
+                    </Button>
                   </>
                 )}
               </>

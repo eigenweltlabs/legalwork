@@ -1,9 +1,10 @@
 import { privateEntryDraftSchema } from "../back-office/timesheet-schema.js";
 import { BackOfficeValueSchema } from "../back-office/schema.js";
 import { backOfficeStore } from "../back-office/store.js";
-import { memberSource } from "../back-office/time-members.js";
-import { changeStopwatch, emptyStopwatch, privateStopwatchSchema } from "./stopwatch.js";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { timeWorkspaces } from "../back-office/timesheet-data.js";
+import { changeStopwatch, createStopwatchReader, emptyStopwatch, privateStopwatchSchema } from "./stopwatch.js";
+import { renameSync } from "node:fs";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { originalBillingComparison, proposalCommitment } from "./original.js";
 import { correctWorkday } from "./correct-workday.js";
 import { randomUUID } from "node:crypto";
@@ -16,8 +17,9 @@ import {
   workdayCorrectionSchema,
   captureProposalSchema,
   captureSettingsSchema,
+  reconcileCaptureSchema,
 } from "../back-office/timesheet-schema.js";
-import { backOfficeAccess } from "../back-office/access.js";
+import { backOfficeAccess, backOfficeDirectoryIdentity } from "../back-office/access.js";
 import { addDays } from "../calendar/dates.js";
 import { globalCalendarOccurrences } from "../calendar/service.js";
 import { backOfficePrincipalKey } from "../back-office/principal.js";
@@ -30,6 +32,7 @@ import { documentEvidence, eligibleDocumentReference } from "./document-workday.
 import { digest, workdayEvidence, type WorkdayEvidence } from "./private-workday.js";
 import { connectedWorkdayAccounts, readConnectedWorkday, sourceAvailable } from "./connected-workday.js";
 import { draftWithLocalModel, localModel } from "./local-model.js";
+import { validateReconcileTarget } from "./reconcile.js";
 
 const savedSchema = z.object({
   stopwatch: privateStopwatchSchema.default(emptyStopwatch),
@@ -95,11 +98,20 @@ async function load(path: string): Promise<Saved> {
     throw error;
   }
 }
-async function save(path: string, s: Saved) {
+async function save(path: string, s: Saved, beforeCommit?: () => void) {
   await mkdir(dirname(path), { recursive: true, mode: 0o700 });
   const temp = path + "." + randomUUID();
-  await writeFile(temp, JSON.stringify(s), { mode: 0o600 });
-  await rename(temp, path);
+  try {
+    await writeFile(temp, JSON.stringify(s), { mode: 0o600 });
+    if (beforeCommit) {
+      // Directory mutations are synchronous. Keep the target check and profile commit in the same turn.
+      beforeCommit();
+      renameSync(temp, path);
+    } else await rename(temp, path);
+  } catch (error) {
+    await rm(temp, { force: true }).catch(() => {});
+    throw error;
+  }
 }
 const loopback = (config: ServerConfig) =>
   ["127.0.0.1", "localhost", "::1", "[::1]"].includes(config.host);
@@ -367,6 +379,7 @@ export function registerWorkdayRoutes(options: {
   readJsonBodyLimited: (request: Request, max: number) => Promise<Record<string, unknown>>;
 }) {
   const { routes, config } = options;
+  const readStopwatch = createStopwatchReader();
   for (const method of ["GET", "POST"])
     addRoute(routes, method, "/private-timesheet/stopwatch", "host-token", async (ctx) => {
       if (!loopback(config) || ctx.agentAccess)
@@ -375,7 +388,7 @@ export function registerWorkdayRoutes(options: {
       const expected = ctx.url.searchParams.get("profileId");
       if ((method === "POST" || expected !== null) && expected !== profileId)
         throw new ApiError(409, "private_workday_changed", "The active Back Office account changed.");
-      let timer: Saved["stopwatch"];
+      let timer: Pick<Saved["stopwatch"], "active" | "lastStopped">;
       if (method === "POST") {
         options.ensureWritable(config);
         const action = stopwatchActionSchema.parse(await options.readJsonBodyLimited(ctx.request, 1024));
@@ -389,7 +402,7 @@ export function registerWorkdayRoutes(options: {
           await save(path, saved);
           return saved.stopwatch;
         });
-      } else timer = (await load(path)).stopwatch;
+      } else timer = await readStopwatch(path);
       if ((await profile(config)).path !== path)
         throw new ApiError(409, "private_workday_changed", "The active Back Office account changed.");
       const projects = config.workspaces.map((project) => ({
@@ -438,21 +451,24 @@ export function registerWorkdayRoutes(options: {
       const date = z.iso.date().parse(ctx.url.searchParams.get("date"));
       if (method === "POST") {
         options.ensureWritable(config);
-        const action = z
+        const parsed = z
           .discriminatedUnion("type", [
             z.strictObject({ type: z.literal("settings"), settings: captureSettingsSchema }),
             z.strictObject({ type: z.enum(["run", "calendar"]) }),
             z.strictObject({ type: z.literal("dismiss"), key: z.uuid() }),
             z.strictObject({ type: z.literal("draft"), key: z.uuid(), date: z.iso.date().optional(), values: z.record(z.string().max(200), BackOfficeValueSchema).nullable(), proposalDigest: z.string().length(64).optional() }),
-            z.strictObject({ type: z.literal("reconcile"), key: z.uuid(), digest: z.string().length(64), recordId: z.uuid() }),
+            reconcileCaptureSchema,
             workdayCorrectionSchema,
           ])
-          .parse(await options.readJsonBodyLimited(ctx.request, 8192));
+          .safeParse(await options.readJsonBodyLimited(ctx.request, 8192));
+        if (!parsed.success) throw new ApiError(400, "private_workday_input", "Check the workday action and refresh the entry before retrying.");
+        const action = parsed.data;
         if (action.type === "run" || action.type === "calendar")
           await prepare(config, path, date, action.type === "run");
         else
           await withFileWriteLock(path, async () => {
             const s = await load(path);
+            let beforeCommit: (() => void) | undefined;
             if (action.type === "settings") {
               workdaysRunning.get(path)?.abort();
               if (Boolean(s.settings.documents) !== Boolean(action.settings.documents))
@@ -469,13 +485,24 @@ export function registerWorkdayRoutes(options: {
               else s.drafts[action.key] = { date, values: action.values, proposalDigest: action.proposalDigest };
             } else if (action.type === "reconcile") {
               const proposal = s.days[date]?.find(item => item.proposal.key === action.key)?.proposal;
-              if (!proposal || proposal.dismissed || proposal.digest !== action.digest || (s.accepted[action.key] && s.reconciled[action.key] !== action.recordId)) throw new ApiError(409, "private_workday_changed", "The suggestion changed or was already booked.");
+              const linked = s.reconciled[action.key], accepted = s.accepted[action.key];
+              if (!proposal || proposal.date !== date || proposal.dismissed || proposal.digest !== action.digest ||
+                  proposalCommitment(proposal) !== action.digest ||
+                  (linked ? linked !== action.recordId || accepted !== action.digest : accepted))
+                throw new ApiError(409, "private_workday_changed", "The suggestion changed or was already booked.");
+              if (linked) return;
               if (!sourceAvailable(proposal, await connectedWorkdayAccounts(config), s.settings)) throw new ApiError(409, "private_workday_changed", "The source is unavailable.");
               const access = await backOfficeAccess(config, scope !== "local"), store = await backOfficeStore(config);
               if (access.scope !== scope || access.actor.userId !== user || (access.actor.principalKey ?? "") !== principal) throw new ApiError(409, "private_workday_changed", "The account changed.");
-              const record = store.records(scope, access.actor, "timeEntries").find(record => record.id === action.recordId);
-              const contact = record && typeof record.values.timekeeper === "string" ? store.records(scope, access.actor, "people").find(person => person.id === record.values.timekeeper) : undefined;
-              if (!record || (contact ? contact.sourceId !== memberSource(user) : record.ownerId !== user)) throw new ApiError(403, "private_reconcile", "Choose one of your time entries.");
+              const draft = s.drafts[action.key];
+              const draftMatter = draft?.values.workflow === true ? draft.values.matterId : draft?.values.matter;
+              const reviewedMatter = draft?.date === date && draft.proposalDigest === action.digest &&
+                typeof draftMatter === "string" && draftMatter ? draftMatter : undefined;
+              const workspaces = !reviewedMatter && !proposal.matterId && proposal.projectId
+                ? await timeWorkspaces(config.workspaces.filter((workspace) => workspace.id === proposal.projectId), await backOfficeDirectoryIdentity(config, scope, store))
+                : [];
+              const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+              beforeCommit = () => validateReconcileTarget(store, scope, access.actor, action, proposal, reviewedMatter, workspaces, zone);
               s.accepted[action.key] = action.digest;
               s.bookingTargets[action.key] = "record";
               s.reconciled[action.key] = action.recordId;
@@ -502,7 +529,7 @@ export function registerWorkdayRoutes(options: {
                 "private_workday_changed",
                 "The active Back Office account changed.",
               );
-            await save(path, s);
+            await save(path, s, beforeCommit);
           });
       }
       const s = await load(path);

@@ -71,7 +71,16 @@ export type CaptureAction =
   | { type: "run" | "calendar" }
   | { type: "dismiss"; key: string }
   | { type: "draft"; key: string; date?: string; values: Record<string, BackOfficeValue> | null; proposalDigest?: string }
-  | { type: "reconcile"; key: string; digest: string; recordId: string };
+  | ReconcileCapture;
+
+export const reconcileCaptureSchema = z.strictObject({
+  type: z.literal("reconcile"),
+  key: z.uuid(),
+  digest: z.string().length(64),
+  recordId: z.uuid(),
+  recordRevision: z.number().int().nonnegative(),
+});
+export type ReconcileCapture = z.infer<typeof reconcileCaptureSchema>;
 
 export const workdayCorrectionSchema = z.strictObject({
   type: z.literal("correct"),

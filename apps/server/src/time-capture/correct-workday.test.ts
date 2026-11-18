@@ -109,6 +109,14 @@ test("range changes with a negative, incomplete, cross-day, or mismatched durati
     expect(saved.days[parent.date][0].proposal).toBe(parent);
   }
 });
+test("a sub-minute stopwatch correction keeps the recorded clocks and null rounded minutes", () => {
+  const { saved, parent, edit } = sample(true);
+  parent.source = "stopwatch";
+  correctWorkday(saved, parent.date, { ...edit, endAt: "2026-11-12T09:00:14Z", workedMinutes: null }, "UTC");
+  expect(saved.days[parent.date][0].proposal).toMatchObject({
+    startAt: "2026-11-12T09:00:00Z", endAt: "2026-11-12T09:00:14Z", workedMinutes: null,
+  });
+});
 
 test("booking only the current private segment serializes a stale draft, preserving safe idempotent retry", async () => {
   const root = await mkdtemp(join(tmpdir(), "legalwork-private-split-"));

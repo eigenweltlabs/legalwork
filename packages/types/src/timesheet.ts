@@ -94,6 +94,7 @@ export const TimePolicySchema = z.strictObject({
   agreementId: id.optional(),
   agreementProjects: z.array(id).optional(),
   allocationUnavailable: z.boolean().optional(),
+  nonHourlyAgreement: z.literal(true).optional(),
   incrementExceptionReason: text.optional(),
   incrementException: incrementExceptionSchema.optional(),
   maxMinutes: minutes.min(1).optional(),
@@ -218,7 +219,8 @@ export function resolveTimePolicy(
     currency: "",
   };
   let unavailable = false,
-    ambiguous = false;
+    ambiguous = false,
+    nonHourlyAgreement = false;
   const targets = {
     firm: "firm",
     client: clientId,
@@ -248,13 +250,17 @@ export function resolveTimePolicy(
         agreementId,
         agreementProjects: _agreementProjects,
         allocationUnavailable,
+        nonHourlyAgreement: nonHourly,
         bindingIncrement: _binding,
         incrementExceptionReason: _reason,
         incrementException,
         ...values
       } = policy;
       if (allocationUnavailable && !agreementId) ambiguous = true;
-      if (agreementId) unavailable = Boolean(allocationUnavailable);
+      if (agreementId) {
+        unavailable = Boolean(allocationUnavailable);
+        nonHourlyAgreement = Boolean(nonHourly);
+      }
       Object.assign(baseline, values);
       Object.assign(baseline.activityLimits, activityLimits);
       Object.assign(baseline.activityLabels, activityLabels);
@@ -286,7 +292,23 @@ export function resolveTimePolicy(
     baseline.hourlyRate = undefined;
     baseline.workerRates = {};
   }
-  return { ...baseline, ...(ambiguous ? { ambiguousAgreement: true } : {}) };
+  return {
+    ...baseline,
+    ...(ambiguous ? { ambiguousAgreement: true } : {}),
+    ...(nonHourlyAgreement && !ambiguous ? { nonHourlyAgreement: true } : {}),
+  };
+}
+export function timeEntryPrice(policy: ReturnType<typeof resolveTimePolicy>, workerId: string) {
+  return {
+    hourlyRate: policy.workerRates[workerId] ?? policy.hourlyRate,
+    currency: policy.currency || undefined,
+  };
+}
+export function hasTimeEntryPrice(entry: Pick<TimeEntry, "hourlyRate" | "currency">): entry is {
+  hourlyRate: number;
+  currency: string;
+} {
+  return entry.hourlyRate !== undefined && Boolean(entry.currency);
 }
 export function timeEntryError(draft: TimeDraft, policy: ReturnType<typeof resolveTimePolicy>) {
   if (
@@ -351,6 +373,8 @@ const snapshot = TimeDraftSchema.extend({
   activityLabel: z.string().max(100).optional(),
   status,
   policyDigest: z.string().length(64).optional(),
+  nonHourlyApproval: z.literal(true).optional(),
+  adjustmentBaselineRevision: z.number().int().positive().optional(),
   hourlyRate: rate.optional(),
   currency: currency.optional(),
 });
@@ -381,6 +405,8 @@ export const TimeEntrySchema = TimeDraftSchema.extend({
   hourlyRate: rate.optional(),
   currency: currency.optional(),
   policyDigest: z.string().length(64).optional(),
+  nonHourlyApproval: z.literal(true).optional(),
+  adjustmentBaselineRevision: z.number().int().positive().optional(),
   legacy: z.boolean().optional(),
   submittedNarrative: z.string().optional(),
   sharedOriginal: sharedOriginal.optional(),
@@ -414,9 +440,14 @@ export const TimeAdjustmentSchema = z.strictObject({
   noteNumber: id.optional(),
 });
 export type TimeAdjustment = z.infer<typeof TimeAdjustmentSchema>;
+export function appliesTimeAdjustment(entry: TimeEntry, adjustment: TimeAdjustment) {
+  return adjustment.entryId === entry.id &&
+    adjustment.baseRevision >= (entry.adjustmentBaselineRevision ?? 1) &&
+    adjustment.baseRevision <= entry.revision;
+}
 export function adjustedTimeEntry(entry: TimeEntry, adjustments: TimeAdjustment[] = []): TimeEntry {
   const latest = adjustments
-    .filter((a) => a.entryId === entry.id && a.status === "approved")
+    .filter((a) => a.status === "approved" && appliesTimeAdjustment(entry, a))
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
   return latest
     ? {
@@ -547,6 +578,7 @@ export const TimesheetStateSchema = z.object({
   template: invoiceTemplateSchema.optional(),
   supportsBillingComparisons: z.boolean().optional(),
   supportsTimeAllocations: z.boolean().optional(),
+  unresolvedLegacyEntries: z.array(id).optional(),
   canManage: z.boolean(),
   canReview: z.boolean(),
   entries: z.array(TimeEntrySchema),

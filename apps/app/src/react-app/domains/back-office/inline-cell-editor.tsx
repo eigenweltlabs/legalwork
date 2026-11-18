@@ -1,6 +1,6 @@
 import { t } from "@/i18n";
 import { cellInputText, parseCellInput } from "./cell-input";
-import { useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { Input } from "twenty-ui/primitives/input";
 import type {
   BackOfficeField,
@@ -15,6 +15,7 @@ export function InlineCellEditor({
   onError,
   onTab,
   commitUnchanged = false,
+  preserveOnExit = false,
 }: {
   field: BackOfficeField;
   value: BackOfficeValue | undefined;
@@ -22,6 +23,7 @@ export function InlineCellEditor({
   onCancel: () => void;
   onError: (message: string) => void;
   commitUnchanged?: boolean;
+  preserveOnExit?: boolean;
   onTab?: (event: KeyboardEvent<HTMLInputElement>) => void;
 }) {
   const initial = field.type === "datetime" && typeof value === "string" && Number.isFinite(Date.parse(value))
@@ -29,6 +31,26 @@ export function InlineCellEditor({
     : cellInputText(value);
   const [text, setText] = useState(initial);
   const completed = useRef(false);
+  const draft = useRef({ field, value, text, initial, onSave, onError });
+  draft.current = { field, value, text, initial, onSave, onError };
+  useEffect(() => {
+    if (!preserveOnExit) return;
+    const unsaved = () => !completed.current && draft.current.text !== draft.current.initial;
+    const warn = (event: BeforeUnloadEvent) => {
+      if (!unsaved()) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => {
+      window.removeEventListener("beforeunload", warn);
+      if (!unsaved()) return;
+      const draftCell = draft.current;
+      const failed = (error: unknown) => draftCell.onError(error instanceof Error ? error.message : t("back_office.value_failed"));
+      try { void draftCell.onSave(parseCellInput(draftCell.field.type, draftCell.text, draftCell.value)).catch(failed); }
+      catch (error) { failed(error); }
+    };
+  }, [preserveOnExit]);
   const commit = async () => {
     if (completed.current) return;
     completed.current = true;

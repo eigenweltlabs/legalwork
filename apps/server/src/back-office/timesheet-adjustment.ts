@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
   adjustedTimeEntry,
+  appliesTimeAdjustment,
   currencyScale,
   timeFeeMinor,
   renderInvoice,
@@ -19,8 +20,11 @@ export function invoiceLines(
   adjustments: TimeAdjustment[],
   expected: { id: string; revision: number }[],
 ) {
-  const ids = new Set(entries.map((e) => e.id)),
-    relevant = adjustments.filter((a) => ids.has(a.entryId));
+  const byId = new Map(entries.map((e) => [e.id, e]));
+  const relevant = adjustments.filter((a) => {
+    const entry = byId.get(a.entryId);
+    return entry && appliesTimeAdjustment(entry, a);
+  });
   if (relevant.some((a) => a.status === "pending"))
     timeError("Resolve pending corrections before issuing.", 409);
   const approved = relevant.filter((a) => a.status === "approved");

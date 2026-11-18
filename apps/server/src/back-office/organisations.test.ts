@@ -45,7 +45,7 @@ test("a stored preview removes redundant client classification atomically withou
     for (const record of [organisation, client]) store.db.run("INSERT INTO bo_records VALUES(?,?,?,?)", ["local", record.id, record.objectId, JSON.stringify(record)]);
     store.db.run("INSERT INTO bo_views VALUES(?,?,?)", ["local", view.id, JSON.stringify(view)]);
   }, { action: "fixture.preview-v4" });
-  expect(store.model("local").templateVersion).toBe(7);
+  expect(store.model("local").templateVersion).toBe(8);
   const actor = { userId: "owner", edit: true, model: true, finance: true };
   expect(store.records("local", actor).find(record => record.id === client.id)).toMatchObject({ revision: 2, values: { company: organisation.id } });
   expect(store.records("local", actor).find(record => record.id === client.id)?.values.clientType).toBeUndefined();

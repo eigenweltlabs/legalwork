@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { captureProposalSchema } from "@legalwork/types/time-capture";
 import { TimesheetStateSchema } from "@legalwork/types/timesheet";
 import { proposalValues, timeRecordDate } from "../src/react-app/domains/back-office/time-record-values";
+import { conflictingTimeFields, copyTimeRecordValues, timeCellChanges } from "../src/react-app/domains/back-office/time-record-edits";
 
 const state = TimesheetStateSchema.parse({ userId: "worker", scope: "local", canManage: true, canReview: true,
   entries: [], matters: [{ id: "matter", name: "Demo", reference: "", clientIds: ["client"] }],
@@ -29,7 +30,24 @@ test("date-only service dates stay on their selected day across time zones", () 
       process.env.TZ = timezone;
       expect(timeRecordDate("2026-11-18")).toBe("2026-11-18");
       expect(timeRecordDate(new Date(2026, 10, 18, 23, 30).toISOString())).toBe("2026-11-18");
+      expect(timeRecordDate("2026-11-19T00:05:00.000Z", "2026-11-18")).toBe("2026-11-18");
+      expect(timeRecordDate("2026-11-18T00:05:00+05:00")).toBe("2026-11-18");
       expect(timeRecordDate(null)).toBe("");
     }
   } finally { if (previous === undefined) delete process.env.TZ; else process.env.TZ = previous; }
+});
+
+test("record sheet edits preserve genuine clocks when the selected service date stays the same", () => {
+  const serviceDate = "2026-11-18";
+  const startedAt = "2026-11-19T00:00:00.000Z", endedAt = "2026-11-19T00:10:00.000Z";
+  const proposal = captureProposalSchema.parse({ key: crypto.randomUUID(), digest: "0".repeat(64), date: serviceDate,
+    source: "stopwatch", projectId: "project", activity: "RES", narrative: "Private source", workedMinutes: 10, startAt: startedAt, endAt: endedAt, dismissed: false });
+  const values = proposalValues(proposal, state), clientForMatter = () => null;
+  expect(values).toMatchObject({ startedAt, endedAt, serviceDate });
+  expect(timeCellChanges(values, { startedAt: serviceDate }, serviceDate, undefined, clientForMatter)).toEqual({});
+  const nextDay = "2026-11-20";
+  const move = timeCellChanges(values, { startedAt: nextDay }, serviceDate, undefined, clientForMatter);
+  expect(move).toEqual({ startedAt: nextDay, serviceDate: nextDay, endedAt: null });
+  expect(conflictingTimeFields(move, ["serviceDate"])).toEqual(new Set(["startedAt", "serviceDate", "endedAt"]));
+  expect(copyTimeRecordValues(values, [], nextDay, "member:worker", true)).toMatchObject({ startedAt: nextDay, serviceDate: nextDay, endedAt: null });
 });
