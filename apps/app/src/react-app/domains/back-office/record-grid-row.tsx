@@ -85,7 +85,7 @@ export const RecordGridRow = memo(function RecordGridRow({
             }}
           >
             {inline && active && editing ? (
-              <InlineCellEditor field={field} value={editing.base.values[field.id]}
+              <InlineCellEditor commitUnchanged={sheet && record.revision === 0} field={field} value={editing.base.values[field.id]}
                 onSave={value => onSave(editing.base, { [field.id]: value })}
                 onCancel={() => { onEdit(null); if (sheet) anchor.current?.focus(); }} onError={onError}
                 onTab={sheet ? event => onMove(event, index, column) : undefined} />

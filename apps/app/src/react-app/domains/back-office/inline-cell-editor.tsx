@@ -14,12 +14,14 @@ export function InlineCellEditor({
   onCancel,
   onError,
   onTab,
+  commitUnchanged = false,
 }: {
   field: BackOfficeField;
   value: BackOfficeValue | undefined;
   onSave: (value: BackOfficeValue) => Promise<void>;
   onCancel: () => void;
   onError: (message: string) => void;
+  commitUnchanged?: boolean;
   onTab?: (event: KeyboardEvent<HTMLInputElement>) => void;
 }) {
   const initial = field.type === "datetime" && typeof value === "string" && Number.isFinite(Date.parse(value))
@@ -30,7 +32,7 @@ export function InlineCellEditor({
   const commit = async () => {
     if (completed.current) return;
     completed.current = true;
-    if (text === initial) {
+    if (text === initial && !commitUnchanged) {
       onCancel();
       return true;
     }
